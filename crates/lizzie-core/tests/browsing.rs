@@ -384,32 +384,34 @@ fn inspecting_the_view_does_not_consume_what_the_ui_must_receive() {
 
 #[test]
 fn forward_steps_sound_like_java_and_respect_the_setting() {
-    // Utils.playVoiceFile: capture of 3+ -> deadStoneMore, 1-2 -> deadStone, else Stone; only
-    // routes that step forward onto a node sound (nextMove), backward steps are silent.
+    // Utils.playVoiceFile per node entered forward: capture of 3+ -> deadStoneMore, 1-2 ->
+    // deadStone, else Stone; backward steps are silent.
     let dir = tempfile::tempdir().unwrap();
     let mut wb = Workbench::new(storage(dir.path()), None);
-    // W captures one stone at aa with ab; B then plays a plain move.
+    // Move 4, W[ab], captures B[aa].
     let t = wb.begin_open(file_origin("/s.sgf", OpenSource::Chooser));
     wb.complete_open(t, read_ok("(;SZ[9];B[aa];W[ba];B[ee];W[ab];B[ff])"));
-    assert!(wb.view(false).sound.is_none(), "opening is silent");
+    assert!(wb.view(false).sounds.is_empty(), "opening is silent");
     wb.navigate(Navigation::Forward(1));
-    assert_eq!(wb.view(false).sound, Some(StoneSound::Stone));
+    assert_eq!(wb.view(false).sounds, vec![StoneSound::Stone]);
     wb.navigate(Navigation::Back(1));
-    assert_eq!(wb.view(false).sound, None, "backward steps are silent");
-    wb.navigate(Navigation::Forward(3));
+    assert!(wb.view(false).sounds.is_empty(), "backward steps are silent");
+    wb.navigate(Navigation::Forward(4));
     assert_eq!(
-        wb.view(false).sound,
-        Some(StoneSound::Stone),
-        "the first node entered decides"
+        wb.view(false).sounds,
+        vec![
+            StoneSound::Stone,
+            StoneSound::Stone,
+            StoneSound::Stone,
+            StoneSound::DeadStone
+        ],
+        "one sound per node entered"
     );
-    // move 4 is W[ab], capturing B[aa]
-    wb.navigate(Navigation::Forward(1));
-    assert_eq!(wb.view(false).sound, Some(StoneSound::DeadStone));
-    assert_eq!(wb.view(false).sound, None, "the sound is reported once");
+    assert!(wb.view(false).sounds.is_empty(), "sounds are handed over once");
     assert!(wb.set_play_sound(false).unwrap());
     wb.navigate(Navigation::First);
     wb.navigate(Navigation::Forward(1));
-    assert_eq!(wb.view(false).sound, None);
+    assert!(wb.view(false).sounds.is_empty());
     assert!(
         !Workbench::new(storage(dir.path()), None)
             .view(false)

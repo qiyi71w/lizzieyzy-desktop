@@ -114,9 +114,10 @@ tree: TreeView | null, position: PositionView, pending_open: PendingOpen | null,
  */
 open_outcome: OpenOutcome | null, 
 /**
- * The sound of the browsing step that produced this view, once; only while sound is on.
+ * Sounds of the browsing step that produced this view, one per node entered forward, in
+ * order (Java plays one per `moveHistoryForward`); handed over once, empty while sound is off.
  */
-sound: StoneSound | null, settings: SettingsView, 
+sounds: Array<StoneSound>, settings: SettingsView, 
 /**
  * Newest first.
  */

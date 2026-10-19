@@ -50,7 +50,7 @@ export function apply(view: WorkbenchView): void {
     if (outcome.message_key === "KifuLoad.failed") message(t("Message.title"), `${t("KifuLoad.failed")}${outcome.detail}`, "error");
     else message("Error", t("LizzieFrame.prompt.failedToOpenFile"), "error");
   }
-  if (view.sound) playSound(view.sound);
+  view.sounds.forEach(playSound);
   listeners.forEach((l) => l());
 }
 
@@ -62,8 +62,8 @@ const SOUND_FILES: Record<StoneSound, string> = {
 };
 let soundsPlaying = 0;
 
-/** Like Java's `msemaphoretryroom`, at most two stone sounds overlap; further steps while two
- *  are playing stay silent. Playback failures are ignored (sound is optional). */
+/** Like Java's `msemaphoretryroom`, at most two stone sounds overlap; a step while two are
+ *  playing stays silent. Playback failures are ignored (sound is optional). */
 function playSound(sound: StoneSound) {
   state.lastSound = sound;
   if (soundsPlaying >= 2) return;

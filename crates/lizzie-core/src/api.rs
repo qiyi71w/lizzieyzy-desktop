@@ -231,8 +231,9 @@ pub struct WorkbenchView {
     pub pending_open: Option<PendingOpen>,
     /// The latest finished open, once.
     pub open_outcome: Option<OpenOutcome>,
-    /// The sound of the browsing step that produced this view, once; only while sound is on.
-    pub sound: Option<StoneSound>,
+    /// Sounds of the browsing step that produced this view, one per node entered forward, in
+    /// order (Java plays one per `moveHistoryForward`); handed over once, empty while sound is off.
+    pub sounds: Vec<StoneSound>,
     pub settings: SettingsView,
     /// Newest first.
     pub recent_files: Vec<String>,

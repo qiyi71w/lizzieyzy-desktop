@@ -73,7 +73,7 @@ pub struct Workbench {
     outcome: Option<OpenOutcome>,
     seq: u64,
     tree_sent_for: Option<u64>,
-    sound: Option<StoneSound>,
+    sounds: Vec<StoneSound>,
 }
 
 impl Workbench {
@@ -104,7 +104,7 @@ impl Workbench {
             outcome: None,
             seq: 0,
             tree_sent_for: None,
-            sound: None,
+            sounds: Vec::new(),
         }
     }
 
@@ -235,7 +235,7 @@ impl Workbench {
                 };
                 self.outcome = Some(OpenOutcome::Adopted { ticket, document: id });
                 // Loading is silent (Java turns sound off while it builds the history).
-                self.sound = None;
+                self.sounds.clear();
             }
         }
         true
@@ -263,9 +263,9 @@ impl Workbench {
 
     // ---------------------------------------------------------------- browsing
 
-    /// Moves the browsing position. A route that steps forward onto at least one node sounds like
-    /// Java's `nextMove` steps: the first node entered decides the sound (`Utils.playVoiceFile`
-    /// compares its captures with its parent's).
+    /// Moves the browsing position. Every node the route enters forward sounds, in order, like
+    /// Java's step-by-step navigation (`moveHistoryForward` → `Utils.playVoiceFile`, which
+    /// compares the node's captures with its parent's); backward steps are silent.
     fn move_to(&mut self, target: NodeId) -> bool {
         if target == self.cursor {
             return false;
@@ -274,9 +274,10 @@ impl Workbench {
         let from = rec.path_to(self.cursor);
         let to = rec.path_to(target);
         let shared = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
-        self.sound = match to.get(shared) {
-            Some(&entered) if self.config.ui.play_sound => Some(step_sound(rec, entered)),
-            _ => None,
+        self.sounds = if self.config.ui.play_sound {
+            to[shared..].iter().map(|&n| step_sound(rec, n)).collect()
+        } else {
+            Vec::new()
         };
         self.cursor = target;
         true
@@ -385,21 +386,21 @@ impl Workbench {
             None
         };
         let outcome = self.outcome.take();
-        let sound = self.sound.take();
-        self.build_view(tree, outcome, sound)
+        let sounds = std::mem::take(&mut self.sounds);
+        self.build_view(tree, outcome, sounds)
     }
 
     /// The current state with the tree, for observers other than the UI (acceptance queries):
     /// nothing is handed over, so what the UI receives does not depend on being observed.
     pub fn inspect(&self) -> WorkbenchView {
-        self.build_view(Some(tree_view(&self.doc)), self.outcome.clone(), self.sound)
+        self.build_view(Some(tree_view(&self.doc)), self.outcome.clone(), self.sounds.clone())
     }
 
     fn build_view(
         &self,
         tree: Option<TreeView>,
         outcome: Option<OpenOutcome>,
-        sound: Option<StoneSound>,
+        sounds: Vec<StoneSound>,
     ) -> WorkbenchView {
         WorkbenchView {
             seq: self.seq,
@@ -414,7 +415,7 @@ impl Workbench {
                 },
             }),
             open_outcome: outcome,
-            sound,
+            sounds,
             settings: SettingsView {
                 language: self.config.ui.language,
                 active_language: self.active_language,
