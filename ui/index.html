@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <title>LizzieYzy Tauri</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div id="menubar"></div>
+    <div id="toolbar"></div>
+    <div id="main">
+      <canvas id="board"></canvas>
+      <canvas id="captured"></canvas>
+      <canvas id="stat"></canvas>
+      <canvas id="graph"></canvas>
+      <div id="comment">
+        <div class="tabs"><span id="commentsTab" class="tab on"></span><span id="problemsTab" class="tab unavailable"></span></div>
+        <div id="commentText"></div>
+      </div>
+      <canvas id="status"></canvas>
+      <canvas id="tree"></canvas>
+      <div id="table"></div>
+      <canvas id="sub"></canvas>
+    </div>
+    <div id="bottombar"></div>
+    <div id="dialog" hidden></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

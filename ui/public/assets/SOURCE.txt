@@ -1,0 +1,6 @@
+Copied unchanged from wimi321/lizzieyzy-next at cb53acc55eda42c6c671b5f668cd3b597456bf07,
+src/main/resources/assets/ (GPL-3.0, LICENSE.txt in that repository; byte-identical, checked).
+Default theme fallbacks per Theme.java:146-201,493-511; toolbar icons per Menu.java:8264-8301,
+stone-edit buttons hb.png / playpass.png per Menu.java:3674-3680, 3745-3751.
+The application icons in src-tauri/icons were generated with `tauri icon` from
+packaging/icons/app-icon-1024.png of the same commit.

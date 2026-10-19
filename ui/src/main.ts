@@ -1,0 +1,388 @@
+// Workbench entry: Java LizzieFrame without an engine. Holds only presentation state (layout, the
+// variation-tree hit map, status-line notices); the record lives in Rust and every change goes
+// through `dispatch_command` (app.ts).
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getVersion } from "@tauri-apps/api/app";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { apply, navigate, pasteRecord, run, state, subscribe, unavailable, windowTitle } from "./app";
+import { buildBottomBar, layoutBottomBar } from "./chrome/bottombar";
+import { buildMenubar, menuOpen } from "./chrome/menubar";
+import { buildToolbar, renderToolbar } from "./chrome/toolbar";
+import { onUnavailable, onView, snapshot } from "./contract/client";
+import type { Navigation, WorkbenchView } from "./contract/generated";
+import { dialogOpen, message } from "./dialogs";
+import { isChinese, product, setLanguage, t } from "./i18n";
+import { boardGeom, inFrameLayout, type Panels, type Rect } from "./workbench/layout";
+import {
+  loadImages,
+  paintBackground,
+  paintBoard,
+  paintCaptured,
+  paintGraph,
+  paintStat,
+  paintStatus,
+  paintSubBoard,
+  paintTree,
+  prepare,
+  type BoardScene,
+} from "./workbench/paint";
+
+const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+// Java's chrome fonts are platform-resolved (Dialog / Microsoft YaHei UI on Windows, DejaVu / Noto
+// on Linux); styles.css selects the matching set from this attribute.
+document.documentElement.dataset.os = navigator.userAgent.includes("Windows")
+  ? "windows"
+  : navigator.userAgent.includes("Mac OS")
+    ? "mac"
+    : "linux";
+
+let panels: Panels | null = null;
+let treeHits = new Map<string, number>();
+/** A status-line notice replacing the shortcut hint for a few seconds. */
+let notice: { text: string; until: number } | null = null;
+let version = "";
+
+function flash(text: string) {
+  notice = { text, until: performance.now() + 4000 };
+  schedule();
+  setTimeout(schedule, 4050);
+}
+
+// ------------------------------------------------------------------ keyboard (Input.java:325-840)
+
+function textTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true;
+  return target instanceof HTMLInputElement && target.type !== "checkbox";
+}
+
+/** Browsing keys of Input.keyPressed. Returns null for keys Java does not bind. */
+function navigationFor(e: KeyboardEvent): Navigation | null {
+  const ctrl = e.ctrlKey || e.metaKey;
+  switch (e.key) {
+    case "ArrowUp":
+      if (ctrl && e.shiftKey) return { op: "PreviousComment" };
+      if (e.shiftKey) return { op: "BranchStart" };
+      return ctrl ? { op: "Back", count: 10 } : { op: "Back", count: 1 };
+    case "ArrowDown":
+      if (ctrl && e.shiftKey) return { op: "NextComment" };
+      return ctrl ? { op: "Forward", count: 10 } : { op: "Forward", count: 1 };
+    case "ArrowLeft":
+      return ctrl && !e.shiftKey ? { op: "BranchPoint" } : { op: "PreviousBranch" };
+    case "ArrowRight":
+      return { op: "NextBranch" };
+    case "PageUp":
+      return { op: "Back", count: 10 };
+    case "PageDown":
+      return { op: "Forward", count: 10 };
+    case "Home":
+      return { op: "First" };
+    case "End":
+      return { op: "Last" };
+    default:
+      return null;
+  }
+}
+
+/** Java key codes bound in Input.keyPressed besides navigation (letters, digits, punctuation). */
+const JAVA_BOUND = new Set([..."ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", " ", ",", ".", "[", "]", "Enter", "Delete", "Backspace"]);
+
+document.addEventListener("keydown", (e) => {
+  if (dialogOpen() || menuOpen() || textTarget(e.target)) return;
+  const ctrl = e.ctrlKey || e.metaKey;
+  // Edits (Shift+Left/Right move a branch, Alt rotations, Ctrl+Home clear) are not browsing.
+  const editModifiers =
+    ((e.key === "ArrowLeft" || e.key === "ArrowRight") && e.shiftKey) ||
+    (e.altKey && e.key.startsWith("Arrow") && ctrl) ||
+    (e.key === "Home" && ctrl);
+  const nav = editModifiers ? null : navigationFor(e);
+  if (nav) {
+    e.preventDefault();
+    navigate(nav);
+    return;
+  }
+  const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+  if (key === "O" && !ctrl && !e.altKey && !e.shiftKey) {
+    e.preventDefault();
+    run({ type: "ChooseAndOpenRecord" });
+  } else if (key === "V" && ctrl && !e.altKey) {
+    e.preventDefault();
+    pasteRecord();
+  } else if (key === "B" && !ctrl && !e.altKey) {
+    e.preventDefault();
+    navigate({ op: "MainTrunk" });
+  } else if (editModifiers || JAVA_BOUND.has(key)) {
+    e.preventDefault();
+    flash(product("unavailable"));
+  }
+});
+
+// ------------------------------------------------------------------ pointer
+
+function bindPointer() {
+  const main = $("main");
+  // Input.mouseWheelMoved: one move per notch over the workbench; scroll panes keep their wheel.
+  main.addEventListener(
+    "wheel",
+    (ev) => {
+      if ((ev.target as HTMLElement).closest("#comment, #table")) return;
+      ev.preventDefault();
+      if (ev.deltaY !== 0) navigate(ev.deltaY > 0 ? { op: "Forward", count: 1 } : { op: "Back", count: 1 });
+    },
+    { passive: false },
+  );
+  // Board clicks place stones in Java (document editing).
+  $("board").addEventListener("mousedown", (ev) => {
+    if (ev.button === 0 && boardPoint(ev)) flash(product("unavailable"));
+  });
+  $("tree").addEventListener("mousedown", (ev) => {
+    const r = $("tree").getBoundingClientRect();
+    const x = ev.clientX - r.left;
+    const y = ev.clientY - r.top;
+    for (const [k, id] of treeHits) {
+      const [hx, hy] = k.split(",").map(Number);
+      if (Math.abs(hx - x) <= 8 && Math.abs(hy - y) <= 8) {
+        run({ type: "GotoNode", node: id });
+        return;
+      }
+    }
+  });
+  for (const id of ["problemsTab"]) $(id).addEventListener("click", unavailable);
+}
+
+function boardPoint(ev: MouseEvent): boolean {
+  const v = state.view;
+  if (!panels || !v) return false;
+  const { width, height } = v.document.size;
+  const geo = boardGeom(panels.board, width, height);
+  const rect = $("main").getBoundingClientRect();
+  const x = ev.clientX - rect.left - geo.x - geo.margin;
+  const y = ev.clientY - rect.top - geo.y - geo.margin;
+  const cx = Math.floor((x + geo.square / 2) / geo.square);
+  const cy = Math.floor((y + geo.square / 2) / geo.square);
+  return cx >= 0 && cy >= 0 && cx < width && cy < height;
+}
+
+// ------------------------------------------------------------------ rendering
+
+let pending = false;
+function schedule() {
+  if (pending) return;
+  pending = true;
+  requestAnimationFrame(() => {
+    pending = false;
+    render();
+  });
+}
+
+function place(el: HTMLElement, r: Rect) {
+  el.style.left = `${r.x}px`;
+  el.style.top = `${r.y}px`;
+  el.style.width = `${r.w}px`;
+  el.style.height = `${r.h}px`;
+}
+
+/** Per-panel input signatures: a panel repaints only when what it shows changed. */
+const lastSig: Record<string, string> = {};
+function changed(panel: string, sig: string): boolean {
+  if (lastSig[panel] === sig) return false;
+  lastSig[panel] = sig;
+  return true;
+}
+
+/** The wallpaper with its frosted containers is a static background of #main, one per size. */
+let backgroundUrl: string | null = null;
+async function installBackground(size: string, w: number, h: number, glass: Rect[]) {
+  const blob = await paintBackground(w, h, glass);
+  if (!blob || lastSig.bg !== size) return;
+  if (backgroundUrl) URL.revokeObjectURL(backgroundUrl);
+  backgroundUrl = URL.createObjectURL(blob);
+  const main = $("main");
+  main.style.backgroundImage = `url(${backgroundUrl})`;
+  main.style.backgroundSize = `${w}px ${h}px`;
+}
+
+/** drawPonderingState without an engine (LizzieFrame.java ponderingY lines). */
+function statusLines(): string[] {
+  const hint = notice && notice.until > performance.now() ? notice.text : t("LizzieFrame.prompt.showControlsHint");
+  return [
+    t("LizzieFrame.noEngineText"),
+    `${t("LizzieFrame.display.pondering")} ${t("LizzieFrame.display.off")}${t("LizzieFrame.display.space")}`,
+    hint,
+  ];
+}
+
+function render() {
+  const v = state.view;
+  if (!v) return;
+  const main = $("main");
+  const W = main.clientWidth;
+  const H = main.clientHeight;
+  // A hidden window has no allocation yet; the window minimum is 520x400 (LizzieFrame.java:686).
+  if (W < 100 || H < 100) return;
+  panels = inFrameLayout(W, H);
+  const P = panels;
+  const size = `${W}x${H}:${window.devicePixelRatio}`;
+  const pos = v.position;
+  const { width: cols, height: rows } = v.document.size;
+  const docSig = `${v.document.id}:${pos.node}`;
+  if (changed("bg", size)) installBackground(size, W, H, P.glass);
+
+  const scene: BoardScene = {
+    cols,
+    rows,
+    stones: pos.stones,
+    lastAction: pos.last_action,
+    toPlay: pos.to_play,
+    marks: pos.marks,
+    nextMoves: pos.next_moves,
+    nextColor: pos.next_color,
+    black: v.document.info.black,
+    white: v.document.info.white,
+    showNames: v.document.format !== null,
+  };
+  if (changed("board", `${size}:${docSig}`)) paintBoard(prepare($("board"), P.board), boardGeom(P.board, cols, rows), P.board, scene);
+  if (changed("sub", `${size}:${docSig}`)) paintSubBoard(prepare($("sub"), P.sub), boardGeom(P.sub, cols, rows, 0.035), P.sub, scene);
+  if (changed("captured", `${size}:${docSig}:${v.komi}`))
+    paintCaptured(prepare($("captured"), P.captured), P.captured, {
+      toPlay: pos.to_play,
+      blackCaptures: pos.black_captures,
+      whiteCaptures: pos.white_captures,
+      moveNumber: pos.move_number,
+      komi: v.komi,
+    });
+  if (changed("stat", size)) paintStat(prepare($("stat"), P.stat), P.stat);
+  const lineNodes = Math.max(state.mainLineNodes, state.line.size);
+  if (changed("graph", `${size}:${lineNodes}`)) paintGraph(prepare($("graph"), P.graph), P.graph, lineNodes);
+  const statusRect = { x: 0, y: P.ponderingY, w: P.board.x, h: H - P.ponderingY };
+  const lines = statusLines();
+  if (changed("status", `${size}:${lines.join("|")}`)) paintStatus(prepare($("status"), statusRect), statusRect, lines);
+  if (changed("tree", `${size}:${docSig}:${state.nodes.size}`))
+    treeHits = paintTree(prepare($("tree"), P.tree), P.tree, state.nodes, state.root, pos.node, state.line);
+  place($("comment"), P.comment);
+  if (changed("comment", docSig)) $("commentText").textContent = pos.comment;
+  place($("table"), P.table);
+  if (changed("table", size)) renderTable();
+  if (changed("bottombar", `${$("bottombar").clientWidth}`)) layoutBottomBar($("bottombar"));
+  renderToolbar();
+  const title = windowTitle(version);
+  if (changed("title", title)) {
+    document.title = title;
+    getCurrentWindow().setTitle(title);
+  }
+}
+
+/** The candidate list (SuggestionTableScrollPane) without analysis: the header row over an empty
+ *  body with Java's always-visible scrollbar. Column widths: preferred 10/30/30/45/30 with column 0
+ *  clamped to 15, the rest shared equally (LizzieFrame.java:907-911). */
+const TABLE_HEADER = navigator.userAgent.includes("Windows") ? 19 : 17;
+const TABLE_SCROLLBAR = 8;
+const TABLE_BASE_WIDTHS = [15, 30, 30, 45, 30];
+function renderTable() {
+  const host = $("table");
+  const budget = Math.max(0, host.clientHeight - TABLE_HEADER);
+  const extra = host.clientWidth - TABLE_SCROLLBAR - TABLE_BASE_WIDTHS.reduce((s, w) => s + w, 0);
+  const widths = TABLE_BASE_WIDTHS.map((w, k) => w + Math.floor((extra * (k + 1)) / 5) - Math.floor((extra * k) / 5));
+  const heads = [t("AnalysisFrame.column1"), t("LizzieFrame.listColumn2"), t("AnalysisFrame.column5"), t("LizzieFrame.listColumn4"), t("AnalysisFrame.column8")];
+  const table = document.createElement("table");
+  table.style.width = `${host.clientWidth - TABLE_SCROLLBAR}px`;
+  const colgroup = document.createElement("colgroup");
+  for (const w of widths) {
+    const col = document.createElement("col");
+    col.style.width = `${w}px`;
+    colgroup.append(col);
+  }
+  const headRow = document.createElement("tr");
+  headRow.style.height = `${TABLE_HEADER}px`;
+  for (const h of heads) {
+    const th = document.createElement("th");
+    th.textContent = h;
+    headRow.append(th);
+  }
+  const thead = document.createElement("thead");
+  thead.append(headRow);
+  table.append(colgroup, thead, document.createElement("tbody"));
+  const sb = document.createElement("div");
+  sb.className = "sb";
+  sb.style.top = `${TABLE_HEADER}px`;
+  sb.style.height = `${budget}px`;
+  sb.innerHTML = '<div class="up"></div><div class="track"></div><div class="down"></div>';
+  host.replaceChildren(table, sb);
+}
+
+// ------------------------------------------------------------------ acceptance probe
+
+/** Answers the acceptance channel's `{"query":"ui"}` with what the window shows. The event is only
+ *  emitted by builds with the `acceptance` feature. */
+function uiReport() {
+  const active = document.activeElement as HTMLElement | null;
+  return {
+    title: document.title,
+    focus: active ? { tag: active.tagName.toLowerCase(), id: active.id, className: active.className } : null,
+    menuOpen: menuOpen(),
+    dialogs: [...document.querySelectorAll(".modal-box")].map((box) => ({
+      title: box.querySelector(".modal-title")?.textContent ?? "",
+      body: box.querySelector(".modal-body")?.textContent ?? "",
+    })),
+    status: statusLines(),
+    comment: $("commentText").textContent,
+    moveField: $<HTMLInputElement>("moveInput").value,
+    bottomBar: [...document.querySelectorAll<HTMLElement>("#bottombar .bb")].filter((b) => b.style.display !== "none").map((b) => b.textContent),
+    view: state.view ? { seq: state.view.seq, node: state.view.position.node, document: state.view.document.id } : null,
+    /** Visible menu, toolbar and bottom-bar entries with client-area centres, so automation clicks
+     *  the real controls. */
+    targets: [...document.querySelectorAll<HTMLElement>("[data-key], [data-name], #moveInput, .modal-buttons button")]
+      .map((el) => ({ el, r: el.getBoundingClientRect() }))
+      .filter(({ r }) => r.width > 0 && r.height > 0)
+      .map(({ el, r }) => ({
+        key: el.dataset.key ?? el.dataset.name ?? el.id ?? "",
+        text: el.textContent ?? "",
+        x: Math.round(r.left + r.width / 2),
+        y: Math.round(r.top + r.height / 2),
+      })),
+  };
+}
+
+// ------------------------------------------------------------------ boot
+
+async function boot() {
+  // Views published before the snapshot is applied are held back and replayed after it; stale
+  // ones (lower seq) are then dropped by apply, so no tree update can be missed.
+  let early: WorkbenchView[] | null = [];
+  await onView((v) => (early ? early.push(v) : apply(v)));
+  const [first, appVersion] = await Promise.all([snapshot(), getVersion()]);
+  version = appVersion;
+  setLanguage(first.settings.active_language);
+  document.documentElement.lang = isChinese() ? "zh" : "en";
+  buildMenubar($("menubar"));
+  buildToolbar($("toolbar"));
+  buildBottomBar($("bottombar"));
+  $("commentsTab").textContent = t("SidebarHeader.comments");
+  $("problemsTab").textContent = t("SidebarHeader.problems");
+  $("problemsTab").title = product("unavailable");
+  bindPointer();
+  await Promise.all([
+    loadImages(["board.png", "black0.png", "white0.png", "background.jpg", "smallUp.png", "smallDown.png"]),
+    document.fonts.load('12px "Lizzie Winrate"'),
+  ]);
+  subscribe(schedule);
+  await onUnavailable(() => unavailable());
+  await listen("acceptance-probe", () => invoke("acceptance_ui_report", { report: uiReport() }));
+  window.addEventListener("resize", schedule);
+  apply(first);
+  for (const v of early) apply(v);
+  early = null;
+  render();
+  await getCurrentWindow().show();
+  await getCurrentWindow().setFocus();
+  schedule();
+}
+
+// A start-up failure must not leave the hidden window invisible forever.
+boot().catch(async (e) => {
+  console.error("start-up failed", e);
+  await getCurrentWindow().show();
+  message("LizzieYzy Tauri", e instanceof Error ? `${e}\n${e.stack ?? ""}` : String(e), "error");
+});

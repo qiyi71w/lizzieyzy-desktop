@@ -1,0 +1,4 @@
+OpenSans-Semibold.ttf copied unchanged from wimi321/lizzieyzy-next at cb53acc55eda42c6c671b5f668cd3b597456bf07,
+src/main/resources/fonts/ (licence terms: the font's embedded name table and that repository).
+Java loads it as the default winrate font (LizzieFrame.winrateFont, Utils.java:96-103) for
+candidate winrate/score text and suggestion order badges.

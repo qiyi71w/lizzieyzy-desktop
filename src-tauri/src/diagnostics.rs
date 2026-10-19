@@ -1,0 +1,89 @@
+//! "诊断与日志" support: log status and the diagnostics package (Java `DiagnosticsDialog`,
+//! `DiagnosticBundleExporter`), limited to the data this product produces so far: the
+//! application and crash logs, versions/runtime, and a redacted settings snapshot.
+
+use std::io::Write;
+use std::path::Path;
+
+use lizzie_core::workbench::Workbench;
+use serde::Serialize;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogsStatus {
+    pub directory: String,
+    pub app_log_bytes: Option<u64>,
+    pub crash_log_bytes: Option<u64>,
+}
+
+impl LogsStatus {
+    pub fn read(dir: &Path) -> LogsStatus {
+        let size = |name: &str| std::fs::metadata(dir.join(name)).ok().map(|m| m.len());
+        LogsStatus {
+            directory: dir.to_string_lossy().into_owned(),
+            app_log_bytes: size("app.log"),
+            crash_log_bytes: size("crash.log"),
+        }
+    }
+}
+
+pub fn default_file_name() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format!("lizzieyzy-tauri-diagnostics-{secs}.zip")
+}
+
+pub struct Package {
+    entries: Vec<(String, Vec<u8>)>,
+}
+
+impl Package {
+    pub fn collect(wb: &Workbench, version: &str) -> Package {
+        let mut entries = Vec::new();
+        let logs = &wb.storage().logs_dir;
+        for name in ["app.log", "app.log.1", "crash.log"] {
+            if let Ok(bytes) = std::fs::read(logs.join(name)) {
+                entries.push((format!("logs/lizzie/{name}"), bytes));
+            }
+        }
+        let config = wb.config();
+        let redacted = serde_json::json!({
+            "record": config.record,
+            "ui": config.ui,
+            // Paths are personal data; only the count is exported.
+            "recentFiles": config.recent_files.len(),
+        });
+        entries.push((
+            "snapshots/config.json".into(),
+            serde_json::to_vec_pretty(&redacted).unwrap_or_default(),
+        ));
+        let versions = serde_json::json!({ "app": version });
+        entries.push((
+            "snapshots/versions.json".into(),
+            serde_json::to_vec_pretty(&versions).unwrap_or_default(),
+        ));
+        let runtime = format!("os={}\narch={}\n", std::env::consts::OS, std::env::consts::ARCH);
+        entries.push(("snapshots/runtime.txt".into(), runtime.into_bytes()));
+        let manifest: Vec<&str> = entries.iter().map(|(n, _)| n.as_str()).collect();
+        let manifest = serde_json::to_vec_pretty(&serde_json::json!({ "files": manifest })).unwrap_or_default();
+        entries.push(("manifest.json".into(), manifest));
+        Package { entries }
+    }
+
+    pub fn write(&self, path: &Path) -> std::io::Result<()> {
+        let tmp = path.with_extension("zip.part");
+        {
+            let file = std::fs::File::create(&tmp)?;
+            let mut zip = zip::ZipWriter::new(file);
+            let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+            for (name, bytes) in &self.entries {
+                zip.start_file(name.as_str(), options).map_err(std::io::Error::other)?;
+                zip.write_all(bytes)?;
+            }
+            zip.finish().map_err(std::io::Error::other)?;
+        }
+        std::fs::rename(&tmp, path)
+    }
+}
