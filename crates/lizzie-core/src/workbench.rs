@@ -1,21 +1,28 @@
-//! Application flow for browsing (应用流程): the open document, the browsing position, open
-//! requests in flight, committed settings and the application data they produce.
+//! Application flow for browsing and saving (应用流程): the open document, the browsing
+//! position, open and save requests in flight, committed settings and the application data they
+//! produce.
 //!
-//! This is the only writer of that state. Platform adapters run file reading off the UI thread
-//! and hand the result back with the ticket they were given; a result whose ticket is no longer
-//! the latest request is dropped, so a slow earlier open can never replace a later one, and a
-//! failed or abandoned read leaves the current document untouched.
+//! This is the only writer of that state. Platform adapters run file reading and writing off the
+//! UI thread and hand the result back with the ticket they were given; a read whose ticket is no
+//! longer the latest request is dropped, so a slow earlier open can never replace a later one, and
+//! a failed or abandoned read leaves the current document untouched.
+//!
+//! A save captures the document text and its identity (document and revision) when it starts,
+//! like Java `SgfSaveCoordinator` capturing on the event thread. Its completion confirms only that
+//! captured revision of that document: content edited meanwhile stays unsaved, and a document
+//! opened meanwhile is not touched. Adapters complete saves in the order they started (one
+//! serial writer, like Java `SgfSaveQueue`).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::api::{
     ApiError, DocumentView, ErrorKind, LastAction, LogsStatus, OpenOutcome, OpenSource, PendingOpen, PositionView,
-    SettingsView, StoneSound, TreeNodeKind, TreeNodeView, TreeView, WorkbenchView,
+    SaveOutcome, SettingsView, StoneSound, TreeNodeKind, TreeNodeView, TreeView, WorkbenchView,
 };
 use crate::browse::{self, Navigation};
-use crate::formats::{self, ReadError};
-use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, RecordFormat, Stone, ROOT};
+use crate::formats::{self, sgf_write, ReadError};
+use crate::record::{BoardSize, DocumentEdit, GameRecord, NodeId, NodeKind, RecordFormat, Stone, ROOT};
 use crate::settings::{self, Config, Language, Persisted, Storage, WindowPlacement};
 
 /// Java `GameInfo.DEFAULT_KOMI`.
@@ -25,6 +32,8 @@ pub const DEFAULT_KOMI: f64 = 7.5;
 pub const FAILED_TO_OPEN_FILE: &str = "LizzieFrame.prompt.failedToOpenFile";
 /// Java `KifuLoad.failed`: clipboard loads.
 pub const KIFU_LOAD_FAILED: &str = "KifuLoad.failed";
+/// Java `LizzieFrame.saveFileFailed`: any failed save.
+pub const SAVE_FILE_FAILED: &str = "LizzieFrame.saveFileFailed";
 
 #[derive(Clone, Debug)]
 pub struct Document {
@@ -32,6 +41,54 @@ pub struct Document {
     pub record: Arc<GameRecord>,
     pub format: Option<RecordFormat>,
     pub path: Option<String>,
+    /// Content version, increased by every content change.
+    pub revision: u64,
+    /// The revision that is the content of the file at `path`, if any.
+    pub saved_revision: Option<u64>,
+}
+
+impl Document {
+    /// The document's own SGF file, which "保存" overwrites (`LizzieFrame.saveOriFile`: any file
+    /// the record came from or was saved to, except a GIB, which is never written).
+    pub fn own_sgf_file(&self) -> Option<&str> {
+        self.path.as_deref().filter(|p| {
+            !Path::new(p)
+                .file_name()
+                .is_some_and(|n| n.to_string_lossy().to_lowercase().ends_with(".gib"))
+        })
+    }
+
+    pub fn unsaved(&self) -> bool {
+        self.saved_revision != Some(self.revision)
+    }
+}
+
+/// What "保存" does for the current document (`LizzieFrame.saveOriFile`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SavePlan {
+    /// Overwrite the document's own file.
+    Overwrite { path: String },
+    /// Ask before overwriting the document's own file.
+    Confirm { document: u64, file_name: String },
+    /// The document has no SGF file of its own: choose one.
+    Choose,
+}
+
+/// A captured save, to be written by the platform adapter and handed back with
+/// [`Workbench::complete_save`].
+#[derive(Clone, Debug)]
+pub struct SaveJob {
+    pub ticket: u64,
+    pub path: PathBuf,
+    pub text: String,
+}
+
+#[derive(Clone, Debug)]
+struct PendingSave {
+    ticket: u64,
+    document: u64,
+    revision: u64,
+    path: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -71,8 +128,12 @@ pub struct Workbench {
     next_ticket: u64,
     pending: Option<Pending>,
     outcome: Option<OpenOutcome>,
+    next_save: u64,
+    saves: Vec<PendingSave>,
+    save_outcome: Option<SaveOutcome>,
     seq: u64,
-    tree_sent_for: Option<u64>,
+    /// Document and revision whose tree the UI has received.
+    tree_sent_for: Option<(u64, u64)>,
     sounds: Vec<StoneSound>,
 }
 
@@ -95,6 +156,8 @@ impl Workbench {
                 record: Arc::new(GameRecord::empty(BoardSize::STANDARD, DEFAULT_KOMI)),
                 format: None,
                 path: None,
+                revision: 0,
+                saved_revision: None,
             },
             cursor: ROOT,
             komi: DEFAULT_KOMI,
@@ -102,6 +165,9 @@ impl Workbench {
             next_ticket: 1,
             pending: None,
             outcome: None,
+            next_save: 1,
+            saves: Vec::new(),
+            save_outcome: None,
             seq: 0,
             tree_sent_for: None,
             sounds: Vec::new(),
@@ -227,11 +293,15 @@ impl Workbench {
                     let _ = self.save_config();
                     let _ = self.save_persisted();
                 }
+                // The content is the file it came from; pasted text was never on disk.
+                let saved_revision = path.as_ref().map(|_| 0);
                 self.doc = Document {
                     id,
                     record,
                     format: Some(format),
                     path,
+                    revision: 0,
+                    saved_revision,
                 };
                 self.outcome = Some(OpenOutcome::Adopted { ticket, document: id });
                 // Loading is silent (Java turns sound off while it builds the history).
@@ -259,6 +329,105 @@ impl Workbench {
     /// Reads clipboard text synchronously into the same commit path as files.
     pub fn read_clipboard_record(text: &str) -> Result<(RecordFormat, GameRecord), ReadError> {
         formats::parse(RecordFormat::Sgf, text).map(|r| (RecordFormat::Sgf, r))
+    }
+
+    // ---------------------------------------------------------------- saving
+
+    /// What "保存" does now. `confirmed` is the document the user already confirmed the
+    /// replacement for; a confirmation given for another document does not carry over.
+    pub fn save_plan(&self, confirmed: Option<u64>) -> SavePlan {
+        let Some(path) = self.doc.own_sgf_file() else {
+            return SavePlan::Choose;
+        };
+        if self.config.record.show_replace_file_hint && confirmed != Some(self.doc.id) {
+            let file_name = Path::new(path)
+                .file_name()
+                .map_or_else(|| path.to_string(), |n| n.to_string_lossy().into_owned());
+            return SavePlan::Confirm {
+                document: self.doc.id,
+                file_name,
+            };
+        }
+        SavePlan::Overwrite { path: path.to_string() }
+    }
+
+    /// Captures the current document for a save to `selected` (`.sgf` appended when missing).
+    /// `application` is written as the record's `AP`.
+    pub fn begin_save(&mut self, selected: &str, application: &str) -> SaveJob {
+        let path = formats::save_target(selected);
+        let ticket = self.next_save;
+        self.next_save += 1;
+        self.saves.push(PendingSave {
+            ticket,
+            document: self.doc.id,
+            revision: self.doc.revision,
+            path: path.clone(),
+        });
+        SaveJob {
+            ticket,
+            path: PathBuf::from(&path),
+            text: sgf_write::write(&self.doc.record, application),
+        }
+    }
+
+    /// Hands back a finished write. A success confirms the captured revision; while that document
+    /// is still open it now belongs to the written file, and the chooser starts in its folder next
+    /// time (`SgfSaveCoordinator` success callback). Returns `false` for an unknown ticket.
+    pub fn complete_save(&mut self, ticket: u64, result: Result<(), String>) -> bool {
+        let Some(at) = self.saves.iter().position(|s| s.ticket == ticket) else {
+            return false;
+        };
+        let save = self.saves.remove(at);
+        match result {
+            Err(detail) => {
+                self.save_outcome = Some(SaveOutcome::Failed {
+                    ticket,
+                    document: save.document,
+                    path: save.path,
+                    message_key: SAVE_FILE_FAILED.to_string(),
+                    detail,
+                });
+            }
+            Ok(()) => {
+                if self.doc.id == save.document {
+                    self.doc.path = Some(save.path.clone());
+                    self.doc.format = Some(RecordFormat::Sgf);
+                    self.doc.saved_revision = Some(save.revision);
+                    if let Some(parent) = Path::new(&save.path).parent() {
+                        self.persisted.last_folder = Some(parent.to_string_lossy().into_owned());
+                        // The written file stands even if the folder cannot be remembered.
+                        let _ = self.save_persisted();
+                    }
+                }
+                self.save_outcome = Some(SaveOutcome::Saved {
+                    ticket,
+                    document: save.document,
+                    revision: save.revision,
+                    path: save.path,
+                });
+            }
+        }
+        true
+    }
+
+    /// Whether accepted writes are still running; exit waits for them (`pendingSaves`).
+    pub fn has_pending_saves(&self) -> bool {
+        !self.saves.is_empty()
+    }
+
+    // ---------------------------------------------------------------- document content
+
+    /// The one content-write entry of the open document: applies `edit` and increases the
+    /// revision when the content changed. Editing slices route their operations through here.
+    pub fn edit_document(&mut self, edit: DocumentEdit) -> Result<bool, ApiError> {
+        let record = Arc::make_mut(&mut self.doc.record);
+        let changed = record
+            .apply(&edit)
+            .map_err(|e| ApiError::new(ErrorKind::InvalidArgument, e))?;
+        if changed {
+            self.doc.revision += 1;
+        }
+        Ok(changed)
     }
 
     // ---------------------------------------------------------------- browsing
@@ -333,6 +502,14 @@ impl Workbench {
         Ok(true)
     }
 
+    pub fn set_replace_file_hint(&mut self, enabled: bool) -> Result<bool, ApiError> {
+        if self.config.record.show_replace_file_hint == enabled {
+            return Ok(false);
+        }
+        self.commit_config(|c| c.record.show_replace_file_hint = enabled)?;
+        Ok(true)
+    }
+
     /// Help > "清除所有个人数据": the personal data this product stores so far is the recent
     /// record list. (Java removed a mistyped `recent-files` key and left the list in place; the
     /// list is actually cleared here.)
@@ -344,8 +521,9 @@ impl Workbench {
         Ok(true)
     }
 
-    /// View > "重置界面位置" (`Config.deletePersist(true)`): deletes the persist file; window
-    /// placement and last folder return to defaults at the next start.
+    /// View > "重置界面位置" (`Config.deletePersist(true)` + `Lizzie.resetAllHints`): deletes the
+    /// persist file, so window placement and last folder return to defaults at the next start, and
+    /// turns the prompts a user switched off back on.
     pub fn reset_ui_position(&mut self) -> Result<(), ApiError> {
         match std::fs::remove_file(&self.storage.persist_file) {
             Ok(()) => {}
@@ -358,6 +536,7 @@ impl Workbench {
             }
         }
         self.persist_reset = true;
+        self.set_replace_file_hint(true)?;
         Ok(())
     }
 
@@ -375,31 +554,39 @@ impl Workbench {
     // ---------------------------------------------------------------- projection
 
     /// Builds the next view for the UI. `full` always includes the tree (initial load, reload);
-    /// otherwise the tree is included only for a document the UI has not received yet. One-shot
-    /// parts (open outcome, sound) are handed over here.
+    /// otherwise the tree is included only when the UI has not received it for this document and
+    /// revision. One-shot parts (open and save outcomes, sound) are handed over here.
     pub fn view(&mut self, full: bool) -> WorkbenchView {
         self.seq += 1;
-        let tree = if full || self.tree_sent_for != Some(self.doc.id) {
-            self.tree_sent_for = Some(self.doc.id);
+        let current = (self.doc.id, self.doc.revision);
+        let tree = if full || self.tree_sent_for != Some(current) {
+            self.tree_sent_for = Some(current);
             Some(tree_view(&self.doc))
         } else {
             None
         };
         let outcome = self.outcome.take();
+        let save_outcome = self.save_outcome.take();
         let sounds = std::mem::take(&mut self.sounds);
-        self.build_view(tree, outcome, sounds)
+        self.build_view(tree, outcome, save_outcome, sounds)
     }
 
     /// The current state with the tree, for observers other than the UI (acceptance queries):
     /// nothing is handed over, so what the UI receives does not depend on being observed.
     pub fn inspect(&self) -> WorkbenchView {
-        self.build_view(Some(tree_view(&self.doc)), self.outcome.clone(), self.sounds.clone())
+        self.build_view(
+            Some(tree_view(&self.doc)),
+            self.outcome.clone(),
+            self.save_outcome.clone(),
+            self.sounds.clone(),
+        )
     }
 
     fn build_view(
         &self,
         tree: Option<TreeView>,
         outcome: Option<OpenOutcome>,
+        save_outcome: Option<SaveOutcome>,
         sounds: Vec<StoneSound>,
     ) -> WorkbenchView {
         WorkbenchView {
@@ -415,6 +602,7 @@ impl Workbench {
                 },
             }),
             open_outcome: outcome,
+            save_outcome,
             sounds,
             settings: SettingsView {
                 language: self.config.ui.language,
@@ -423,6 +611,7 @@ impl Workbench {
                     != self.active_language,
                 read_komi: self.config.record.read_komi,
                 play_sound: self.config.ui.play_sound,
+                replace_file_hint: self.config.record.show_replace_file_hint,
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
@@ -453,6 +642,9 @@ impl Workbench {
                 .and_then(|p| Path::new(p).file_name().map(|f| f.to_string_lossy().into_owned())),
             size: rec.size,
             info: rec.info.clone(),
+            revision: self.doc.revision,
+            saved_revision: self.doc.saved_revision,
+            unsaved: self.doc.unsaved(),
         }
     }
 

@@ -1,9 +1,16 @@
-//! Record file reading: byte decoding, format dispatch and the shared import rules.
+//! Record file reading and writing: byte decoding, format dispatch, the shared import rules and
+//! the atomic file write.
 //!
-//! Reading only produces a candidate record; adopting it is the browsing flow's decision.
+//! Reading only produces a candidate record; adopting it is the browsing flow's decision. Only
+//! SGF is ever written (Java writes no other record format).
 
 pub mod gib;
 pub mod sgf;
+pub mod sgf_write;
+
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::record::{GameRecord, NodeKind, RecordFormat, Stone};
 
@@ -70,6 +77,52 @@ pub fn read_file(path: &std::path::Path) -> Result<(RecordFormat, GameRecord), R
     let format = format_for_path(&path.to_string_lossy());
     let record = parse(format, &decode(&bytes))?;
     Ok((format, record))
+}
+
+/// The file a save writes to: the chosen name with `.sgf` appended unless it already ends in
+/// `.sgf` in any case (`LizzieFrame.sgfSaveTarget`).
+pub fn save_target(selected: &str) -> String {
+    let name = Path::new(selected)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    if name.ends_with(".sgf") {
+        selected.to_string()
+    } else {
+        format!("{selected}.sgf")
+    }
+}
+
+static STAGE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Writes record text as UTF-8 without ever exposing a partial file (`AtomicSgfFileWriter`): the
+/// text goes to a staged file next to the target, is flushed to disk and then replaces the target
+/// in one rename. A replaced file keeps its permissions. On any failure the staged file is
+/// removed and an existing target is unchanged.
+pub fn write_record_file(target: &Path, text: &str) -> std::io::Result<()> {
+    let dir = match target.parent() {
+        Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    let staged = dir.join(format!(
+        ".lizzie-sgf-{}-{}.tmp",
+        std::process::id(),
+        STAGE_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    let result = (|| {
+        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&staged)?;
+        file.write_all(text.as_bytes())?;
+        file.sync_all()?;
+        drop(file);
+        if let Ok(existing) = std::fs::metadata(target) {
+            std::fs::set_permissions(&staged, existing.permissions())?;
+        }
+        std::fs::rename(&staged, target)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&staged);
+    }
+    result
 }
 
 /// Determines the side to play of every node (`SNAPSHOT_NODE_KIND.md`, "SGF 初始行棋方统一规则").

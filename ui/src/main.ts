@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { apply, navigate, pasteRecord, run, state, subscribe, unavailable, windowTitle } from "./app";
+import { apply, navigate, pasteRecord, run, saveRecord, saveRecordAs, state, subscribe, unavailable, windowTitle } from "./app";
 import { buildBottomBar, layoutBottomBar } from "./chrome/bottombar";
 import { buildMenubar, menuOpen } from "./chrome/menubar";
 import { buildToolbar, renderToolbar } from "./chrome/toolbar";
@@ -117,6 +117,11 @@ document.addEventListener("keydown", (e) => {
   } else if (key === "V" && ctrl && !e.altKey) {
     e.preventDefault();
     pasteRecord();
+  } else if (key === "S" && !e.shiftKey && !e.altKey) {
+    // Input.java VK_S: Ctrl+S saves, plain S saves as; the Shift/Alt variants are exports.
+    e.preventDefault();
+    if (ctrl) saveRecord();
+    else saveRecordAs();
   } else if (key === "B" && !ctrl && !e.altKey) {
     e.preventDefault();
     navigate({ op: "MainTrunk" });

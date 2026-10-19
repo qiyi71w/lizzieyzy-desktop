@@ -21,7 +21,7 @@ fn generate() -> String {
         Stone, Point, BoardSize, MarkKind, Mark, GameInfo, RecordFormat, Language, WindowPlacement,
         Navigation, OpenSource, Command, CommandResult, ErrorKind, ApiError,
         DocumentView, TreeNodeKind, TreeNodeView, TreeView, LastAction, PositionView,
-        OpenOutcome, PendingOpen, SettingsView, StoneSound, WorkbenchView, LogsStatus,
+        OpenOutcome, SaveOutcome, PendingOpen, SettingsView, StoneSound, WorkbenchView, LogsStatus,
     ];
     let mut out = String::from(
         "// Generated from crates/lizzie-core (api, record, browse, settings). Do not edit.\n\

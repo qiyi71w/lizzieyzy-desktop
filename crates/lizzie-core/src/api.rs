@@ -36,6 +36,28 @@ pub enum Command {
     PasteRecord {
         confirmed: bool,
     },
+    /// "保存(Ctrl+S)", toolbar save (`LizzieFrame.saveOriFile`): a record that has its own SGF
+    /// file overwrites it, after the replace prompt while that hint is on; any other record (new,
+    /// pasted, opened from GIB) goes through the save chooser. `confirmed` carries the document
+    /// the user confirmed the replacement for; a different current document is asked about again.
+    /// `suggested_name` is the chooser's default file name.
+    SaveRecord {
+        confirmed: Option<u64>,
+        suggested_name: String,
+    },
+    /// "另存为(S)", `S` (`LizzieFrame.saveFile(false)`): the save chooser, then save there.
+    ChooseAndSaveRecord {
+        suggested_name: String,
+    },
+    /// Save to a known path (after an overwrite confirmation, automation). `.sgf` is appended
+    /// unless the name already ends in it; an existing file is replaced without asking.
+    SaveRecordTo {
+        path: String,
+    },
+    /// Settings > "保存时显示覆盖原文件确认" and the replace prompt's "不再提示".
+    SetReplaceFileHint {
+        enabled: bool,
+    },
     Navigate {
         nav: Navigation,
     },
@@ -82,6 +104,16 @@ pub enum CommandResult {
     NeedsConfirmation,
     /// Diagnostics package written.
     Exported { path: String },
+    /// The record content was captured and is being written; the result arrives as
+    /// [`SaveOutcome`] in a later view.
+    SaveStarted { ticket: u64 },
+    /// "保存" would overwrite the record's own file; ask (`LizzieFrame.replaceFileTitle`), then
+    /// resend `SaveRecord` with `confirmed: Some(document)`.
+    NeedsReplaceConfirmation { document: u64, file_name: String },
+    /// The chosen name gained `.sgf` and that file exists (`LizzieFrame.prompt.sgfExists`); ask,
+    /// then send `SaveRecordTo` with this path. The system chooser itself confirms replacing the
+    /// file the user picked.
+    NeedsOverwriteConfirmation { path: String },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -115,6 +147,13 @@ pub struct DocumentView {
     pub file_name: Option<String>,
     pub size: BoardSize,
     pub info: GameInfo,
+    /// Content version; every content change increases it.
+    pub revision: u64,
+    /// The revision known to be the content of the file at `path` (read from it or confirmed
+    /// written to it); `None` while the content was never on disk (new or pasted record).
+    pub saved_revision: Option<u64>,
+    /// The current content is not confirmed on disk: `saved_revision != Some(revision)`.
+    pub unsaved: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -193,6 +232,28 @@ pub enum OpenOutcome {
     },
 }
 
+/// Receipt of one save. It confirms exactly the document and revision that were captured when
+/// the save started; edits made meanwhile, or another document opened meanwhile, stay unsaved.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum SaveOutcome {
+    Saved {
+        ticket: u64,
+        document: u64,
+        revision: u64,
+        path: String,
+    },
+    /// Nothing was replaced; an existing file at `path` is unchanged. `message_key` is the Java
+    /// resource key of the user message.
+    Failed {
+        ticket: u64,
+        document: u64,
+        path: String,
+        message_key: String,
+        detail: String,
+    },
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 pub struct PendingOpen {
     pub ticket: u64,
@@ -209,6 +270,8 @@ pub struct SettingsView {
     pub read_komi: bool,
     /// Settings > "播放落子音效" (Java `ui.play-sound`, default on).
     pub play_sound: bool,
+    /// Ask before "保存" overwrites the record's own file (Java `ui.show-replace-file-hint`).
+    pub replace_file_hint: bool,
 }
 
 /// Stone sound for a forward step onto a node (`Utils.playVoiceFile`): a capture of three or more
@@ -231,6 +294,8 @@ pub struct WorkbenchView {
     pub pending_open: Option<PendingOpen>,
     /// The latest finished open, once.
     pub open_outcome: Option<OpenOutcome>,
+    /// The latest finished save, once.
+    pub save_outcome: Option<SaveOutcome>,
     /// Sounds of the browsing step that produced this view, one per node entered forward, in
     /// order (Java plays one per `moveHistoryForward`); handed over once, empty while sound is off.
     pub sounds: Vec<StoneSound>,

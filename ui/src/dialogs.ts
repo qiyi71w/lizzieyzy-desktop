@@ -95,6 +95,15 @@ export function confirm(title: string, text: string, kind: "info" | "warning" = 
   ], kind);
 }
 
+/** JOptionPane with custom content and two options. With `defaultCancel` the second option is
+ *  Java's default option: it has the focus and Enter chooses it. */
+export function ask(title: string, body: HTMLElement, ok: string, cancel: string, defaultCancel = false): Promise<boolean> {
+  return show(title, body, [
+    { label: ok, value: true, primary: !defaultCancel },
+    { label: cancel, value: false, primary: defaultCancel },
+  ], "warning");
+}
+
 /** A dialog with custom content and a close button (diagnostics). */
 export function panel(title: string, body: HTMLElement): Promise<void> {
   return show(title, body, [{ label: product("close"), value: true, primary: true }], "info").then(() => undefined);

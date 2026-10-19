@@ -7,11 +7,14 @@
 //!   previous history node. `MN` is retained as a display property, not a real move number.
 //! - Root setup stays on the root snapshot; setup in later nodes creates a separate snapshot that
 //!   does not consume a move number. Metadata stays on that snapshot even when the node has a move.
+//! - Setup applies in property order; `AB`/`AW` on an occupied point are ignored and `AE` empties a
+//!   point, so Java's own `AE[p]AW[p]` replacement reads as a white stone.
 //! - Illegal moves (off board, occupied, immediate ko repetition, suicide) are skipped without
 //!   failing the read.
 //! - `KM` is normalised like Java (Fox scale, legacy x100 and quarter "zi" values).
 //! - The initial side to play is resolved at import (explicit `PL`, first main-line action,
 //!   completed handicap, otherwise Black).
+//! - Digits continue a property identifier (`LZ2`, `LZOP2`: secondary-engine analysis).
 //!
 //! Objective corrections against the fixed Java build, recorded in the ticket:
 //! - `B[tt]`/`W[tt]` is a pass on boards up to 19x19 (FF[4]); Java dropped the move.
@@ -197,8 +200,13 @@ fn tokenize(text: &str) -> Result<Vec<Event>, SgfError> {
                 ident.push(c);
                 i += 1;
             }
-            // FF[3] long identifiers (`AddBlack`) keep only their capitals; whitespace and other
-            // stray characters between properties are ignored like Java.
+            // Digits continue an identifier like Java's tag reader (`LZ2`, `LZOP2`, the
+            // secondary-engine analysis). FF[3] long identifiers (`AddBlack`) keep only their
+            // capitals; whitespace and other stray characters between properties are ignored.
+            c if c.is_ascii_digit() && !ident.is_empty() && values.is_empty() => {
+                ident.push(c);
+                i += 1;
+            }
             _ => i += 1,
         }
     }
@@ -420,6 +428,9 @@ impl Builder {
         id
     }
 
+    /// Setup properties apply in file order like Java: `AB`/`AW` only place stones on empty points
+    /// (`BoardHistoryList.addExtraStone`), `AE` empties a point. Java writes a replaced stone as
+    /// `AE[p]AW[p]`. The node keeps the net change, each point in one list at most.
     fn setup(&mut self, id: String, values: Vec<String>) {
         let size = self.rec.size;
         let mut points = Vec::new();
@@ -427,20 +438,27 @@ impl Builder {
             parse_points(v, size, &mut points);
         }
         let target = self.snapshot_target();
-        let setup = &mut self.rec.node_mut(target).setup;
-        let list = match id.as_str() {
-            "AB" => &mut setup.add_black,
-            "AW" => &mut setup.add_white,
-            _ => &mut setup.clear,
-        };
-        list.extend(points.iter().copied());
-        let mut delta = crate::record::Setup::default();
-        match id.as_str() {
-            "AB" => delta.add_black = points,
-            "AW" => delta.add_white = points,
-            _ => delta.clear = points,
+        for p in points {
+            let now = match id.as_str() {
+                "AB" | "AW" if self.pos.at(p).is_some() => continue,
+                "AB" => Some(Stone::Black),
+                "AW" => Some(Stone::White),
+                _ => None,
+            };
+            let setup = &mut self.rec.node_mut(target).setup;
+            setup.add_black.retain(|&q| q != p);
+            setup.add_white.retain(|&q| q != p);
+            setup.clear.retain(|&q| q != p);
+            let mut one = crate::record::Setup::default();
+            for s in [setup, &mut one] {
+                match now {
+                    Some(Stone::Black) => s.add_black.push(p),
+                    Some(Stone::White) => s.add_white.push(p),
+                    None => s.clear.push(p),
+                }
+            }
+            self.pos.apply_setup(&one);
         }
-        self.pos.apply_setup(&delta);
         self.rec.node_mut(target).properties.push(Property { id, values });
         if target == ROOT {
             self.prev = None;
