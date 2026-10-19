@@ -8,7 +8,8 @@ and data directory and never reads or writes the Java configuration.
 
 ## Current state
 
-Implemented: opening and browsing records.
+Implemented: opening and browsing records, and analysis with one local GTP engine
+(KataGo or a Leela Zero-style engine).
 
 - Open SGF and GIB files with the File menu, the toolbar button, `O`, a dropped file, a command
   line argument, or File > recent records. Paste an SGF record with `Ctrl+V` (it asks before
@@ -30,19 +31,42 @@ Implemented: opening and browsing records.
 - Help > 诊断与日志 shows this client's logs, opens the log folder and exports a diagnostics zip;
   Help > 清除所有个人数据 clears the recent-record list; View > 重置界面位置 resets the saved
   window placement and last folder.
+- Engines: the engine list (更多引擎 / `Alt+X`) adds, edits, orders and removes engine profiles
+  with Java's fields (name, command with Java quoting, initial commands, board size, default
+  engine, preload). The engine at start-up is the default one, the last one, none, or chosen from
+  the list. `Ctrl+1`…`Ctrl+0` switch the foreground engine; with fast engine change the previous
+  engine keeps running for a quick switch back. Analysis menu items close or restart engines.
+- Analysis: candidates on the board (win rate, visits, score lead), the variation shown when
+  hovering a candidate, the sub board cycling through candidates on click, the candidate table,
+  the black-perspective win-rate and score graph (click to navigate), and the status and title
+  lines. `Space` pauses and resumes for this session only (never saved). Time and visit limits
+  stop the current position once and resume on the next one. Results stay with the position
+  they were requested for, so browsing quickly or switching records never shows another
+  position's analysis.
+- Rules: an SGF record's `RU` is applied to KataGo (`kata-set-rules`) before analysis. When the
+  engine cannot confirm it, a dialog asks whether to continue with the engine's current rules
+  (no pauses analysis). `Shift+D` opens the KataGo rules editor.
+- GTP console (`E`) shows the engine traffic and sends commands; commands that would change the
+  board (`play`, `undo`, `clear_board`, …) are refused because the record owns the position.
+  The 完整日志 option writes the GTP traffic to `logs/engine-trace.log`. A failing engine shows
+  Java's failure dialog with its output, copy and diagnostics export. Engines are ended (`quit`,
+  then killed after 3 s) when the window closes.
 
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
-as not yet available (greyed in menus; a notice when used). There is no engine or analysis yet.
+as not yet available (greyed in menus; a notice when used). Not available yet: comparison and
+dual-engine analysis, remote/SSH and cloud engines, GPU and thread recommendations, benchmark
+and automatic engine setup.
 
-Verified so far on Linux (X11, WebKitGTK). Windows and macOS builds, native file dialogs, fonts
-and input methods on those platforms have not been verified yet.
+Verified so far on Linux (X11, WebKitGTK) with KataGo 1.18.2 (Eigen CPU). Windows and macOS
+builds, native file dialogs, fonts, input methods and engines on those platforms have not been
+verified yet.
 
 ## Layout
 
 | Path | Contents |
 | --- | --- |
-| `crates/lizzie-core` | Platform-independent core: game record model, SGF/GIB readers, browsing, settings and the workbench command/view contract. No Tauri or DOM dependency. |
-| `src-tauri` | Desktop shell: window, file dialogs, drag and drop, logging, diagnostics export, and the optional acceptance channel. |
+| `crates/lizzie-core` | Platform-independent core: game record model, SGF/GIB readers, browsing, settings, the engine runtime (GTP framing, launch, analysis requests, rules) and the workbench command/view contract. No Tauri or DOM dependency. |
+| `src-tauri` | Desktop shell: window, file dialogs, drag and drop, engine processes, logging, diagnostics export, and the optional acceptance channel. |
 | `ui` | Web UI: menus, toolbars, canvas painters, dialogs and the Java UI strings. |
 | `fixtures` | Sample records used by tests and manual checks. |
 | `tools` | Maintenance scripts. |
@@ -51,7 +75,8 @@ The core owns the open record. The UI only renders `WorkbenchView` projections a
 `Command` values through one Tauri command (`dispatch_command`); menus, toolbar buttons,
 shortcuts and automated acceptance all use the same commands. Views carry an increasing `seq`,
 and an open runs in the background under a ticket so a late result from an older open is
-dropped.
+dropped. Engine results carry the record, position and komi they were requested for; the core
+drops any that no longer match and sends the engine only the moves that changed.
 
 ## Development
 
@@ -63,7 +88,7 @@ npm install
 npx tauri dev                       # run with hot reload
 npx tauri build --no-bundle         # release binary in target/release
 npm run typecheck                   # TypeScript
-cargo test --workspace              # core tests (records, browsing, contract)
+cargo test --workspace              # core tests (records, browsing, engine protocol, contract)
 cargo clippy --workspace --all-targets
 ```
 

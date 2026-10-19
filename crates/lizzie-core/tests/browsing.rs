@@ -3,10 +3,21 @@
 
 use lizzie_core::api::{OpenOutcome, OpenSource, StoneSound};
 use lizzie_core::browse::{self, Navigation};
+use lizzie_core::engine::gtp::LaunchSpec;
+use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::formats::{sgf, ReadError};
 use lizzie_core::record::{BoardSize, GameRecord, NodeId, Point, Stone, ROOT};
 use lizzie_core::settings::{Language, Storage, WindowPlacement};
 use lizzie_core::workbench::{OpenOrigin, PasteDecision, Workbench, FAILED_TO_OPEN_FILE, KIFU_LOAD_FAILED};
+
+/// Browsing runs without engines; nothing is ever launched here.
+struct NoEngines;
+
+impl Launcher for NoEngines {
+    fn launch(&self, _: InstanceId, _: &LaunchSpec) -> std::io::Result<Box<dyn EngineIo>> {
+        Err(std::io::Error::other("no engines in browsing tests"))
+    }
+}
 
 // Main line: root - B ee(1) - W gc(2) - B cg(3) - W gg(4) - B fg(5) - W gf(6)
 //                                             \ W cc(4) - B dc(5)
@@ -117,7 +128,7 @@ fn read_ok(text: &str) -> Result<(lizzie_core::record::RecordFormat, GameRecord)
 #[test]
 fn starts_empty_19x19_black_to_play_komi_7_5() {
     let dir = tempfile::tempdir().unwrap();
-    let mut wb = Workbench::new(storage(dir.path()), Some("en-US"));
+    let mut wb = Workbench::new(storage(dir.path()), Some("en-US"), Box::new(NoEngines), Vec::new());
     let v = wb.view(true);
     assert_eq!(v.document.size, BoardSize::STANDARD);
     assert_eq!(v.position.to_play, Stone::Black);
@@ -129,7 +140,7 @@ fn starts_empty_19x19_black_to_play_komi_7_5() {
 #[test]
 fn a_superseded_open_never_replaces_the_later_one() {
     let dir = tempfile::tempdir().unwrap();
-    let mut wb = Workbench::new(storage(dir.path()), None);
+    let mut wb = Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
     let slow = wb.begin_open(file_origin("/a.sgf", OpenSource::Chooser));
     let fast = wb.begin_open(file_origin("/b.sgf", OpenSource::Chooser));
     assert!(wb.complete_open(fast, read_ok("(;SZ[9];B[ee])")));
@@ -143,7 +154,7 @@ fn a_superseded_open_never_replaces_the_later_one() {
 #[test]
 fn a_failed_open_keeps_the_current_document_and_position() {
     let dir = tempfile::tempdir().unwrap();
-    let mut wb = Workbench::new(storage(dir.path()), None);
+    let mut wb = Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
     let t = wb.begin_open(file_origin("/a.sgf", OpenSource::Chooser));
     wb.complete_open(t, read_ok(TREE));
     wb.navigate(Navigation::Forward(3));
@@ -163,7 +174,7 @@ fn a_failed_open_keeps_the_current_document_and_position() {
 #[test]
 fn switching_board_size_leaves_nothing_of_the_previous_record() {
     let dir = tempfile::tempdir().unwrap();
-    let mut wb = Workbench::new(storage(dir.path()), None);
+    let mut wb = Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
     let t = wb.begin_open(file_origin("/19.sgf", OpenSource::Chooser));
     wb.complete_open(t, read_ok("(;SZ[19];B[pd];W[dd])"));
     wb.navigate(Navigation::Last);
@@ -182,7 +193,7 @@ fn switching_board_size_leaves_nothing_of_the_previous_record() {
 #[test]
 fn only_the_chooser_updates_recent_files_and_last_folder() {
     let dir = tempfile::tempdir().unwrap();
-    let mut wb = Workbench::new(storage(dir.path()), None);
+    let mut wb = Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
     for (path, source) in [
         ("/r/a.sgf", OpenSource::Recent),
         ("/d/b.sgf", OpenSource::Drop),
@@ -206,7 +217,7 @@ fn only_the_chooser_updates_recent_files_and_last_folder() {
     );
     assert_eq!(wb.persisted().last_folder.as_deref(), Some("/k"));
     // Saved and read back by a new session.
-    let wb2 = Workbench::new(storage(dir.path()), None);
+    let wb2 = Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
     assert_eq!(wb2.config().recent_files.len(), 5);
     assert_eq!(wb2.persisted().last_folder.as_deref(), Some("/k"));
 }
@@ -214,7 +225,7 @@ fn only_the_chooser_updates_recent_files_and_last_folder() {
 #[test]
 fn record_komi_applies_only_with_read_komi_or_setup_games() {
     let dir = tempfile::tempdir().unwrap();
-    let mut wb = Workbench::new(storage(dir.path()), None);
+    let mut wb = Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
     let open = |wb: &mut Workbench, text: &str| {
         let t = wb.begin_open(file_origin("/x.sgf", OpenSource::Drop));
         wb.complete_open(t, read_ok(text));
@@ -227,14 +238,14 @@ fn record_komi_applies_only_with_read_komi_or_setup_games() {
     assert_eq!(open(&mut wb, "(;KM[0.5];B[aa])"), 6.5);
     // Setup / handicap games still use the record komi.
     assert_eq!(open(&mut wb, "(;HA[2]KM[0.5]AB[dd][pp])"), 0.5);
-    let wb2 = Workbench::new(storage(dir.path()), None);
+    let wb2 = Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
     assert!(!wb2.config().record.read_komi);
 }
 
 #[test]
 fn paste_decision_ignores_non_sgf_and_asks_before_replacing() {
     let dir = tempfile::tempdir().unwrap();
-    let mut wb = Workbench::new(storage(dir.path()), None);
+    let mut wb = Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
     assert_eq!(wb.paste_decision("", false), PasteDecision::Ignore);
     assert_eq!(wb.paste_decision("hello", false), PasteDecision::Ignore);
     assert_eq!(wb.paste_decision("(;B[aa])", false), PasteDecision::Proceed);
@@ -257,12 +268,12 @@ fn paste_decision_ignores_non_sgf_and_asks_before_replacing() {
 #[test]
 fn clear_personal_data_removes_only_the_recent_list() {
     let dir = tempfile::tempdir().unwrap();
-    let mut wb = Workbench::new(storage(dir.path()), None);
+    let mut wb = Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
     let t = wb.begin_open(file_origin("/k/a.sgf", OpenSource::Chooser));
     wb.complete_open(t, read_ok("(;B[aa])"));
     wb.set_language(Language::EnUs).unwrap();
     assert!(wb.clear_personal_data().unwrap());
-    let wb2 = Workbench::new(storage(dir.path()), None);
+    let wb2 = Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
     assert!(wb2.config().recent_files.is_empty());
     assert_eq!(wb2.config().ui.language, Language::EnUs);
     assert_eq!(wb2.persisted().last_folder.as_deref(), Some("/k"));
@@ -274,7 +285,7 @@ fn clear_personal_data_removes_only_the_recent_list() {
 fn reset_ui_position_deletes_window_state_until_next_start() {
     let dir = tempfile::tempdir().unwrap();
     let st = storage(dir.path());
-    let mut wb = Workbench::new(st.clone(), None);
+    let mut wb = Workbench::new(st.clone(), None, Box::new(NoEngines), Vec::new());
     let placement = WindowPlacement {
         x: 10,
         y: 20,
@@ -283,25 +294,35 @@ fn reset_ui_position_deletes_window_state_until_next_start() {
         maximized: false,
     };
     wb.persist_on_exit(Some(placement)).unwrap();
-    assert_eq!(Workbench::new(st.clone(), None).persisted().window, Some(placement));
-    let mut wb = Workbench::new(st.clone(), None);
+    assert_eq!(
+        Workbench::new(st.clone(), None, Box::new(NoEngines), Vec::new())
+            .persisted()
+            .window,
+        Some(placement)
+    );
+    let mut wb = Workbench::new(st.clone(), None, Box::new(NoEngines), Vec::new());
     wb.reset_ui_position().unwrap();
     assert!(!st.persist_file.exists());
     wb.persist_on_exit(Some(placement)).unwrap();
     assert!(!st.persist_file.exists(), "exit after a reset does not write it back");
-    assert_eq!(Workbench::new(st, None).persisted().window, None);
+    assert_eq!(
+        Workbench::new(st, None, Box::new(NoEngines), Vec::new())
+            .persisted()
+            .window,
+        None
+    );
 }
 
 #[test]
 fn language_change_needs_restart_and_persists() {
     let dir = tempfile::tempdir().unwrap();
-    let mut wb = Workbench::new(storage(dir.path()), Some("zh-CN"));
+    let mut wb = Workbench::new(storage(dir.path()), Some("zh-CN"), Box::new(NoEngines), Vec::new());
     assert_eq!(wb.view(false).settings.active_language, Language::ZhCn);
     wb.set_language(Language::EnUs).unwrap();
     let v = wb.view(false);
     assert!(v.settings.restart_required);
     assert_eq!(v.settings.active_language, Language::ZhCn);
-    let mut wb2 = Workbench::new(storage(dir.path()), Some("zh-CN"));
+    let mut wb2 = Workbench::new(storage(dir.path()), Some("zh-CN"), Box::new(NoEngines), Vec::new());
     let v = wb2.view(false);
     assert_eq!(v.settings.active_language, Language::EnUs);
     assert!(!v.settings.restart_required);
@@ -312,7 +333,7 @@ fn language_change_needs_restart_and_persists() {
 #[test]
 fn position_view_reports_marks_comment_and_last_action() {
     let dir = tempfile::tempdir().unwrap();
-    let mut wb = Workbench::new(storage(dir.path()), None);
+    let mut wb = Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
     let t = wb.begin_open(file_origin("/x.sgf", OpenSource::Drop));
     wb.complete_open(t, read_ok("(;SZ[9];B[ee]C[hi]TR[aa];W[])"));
     assert!(wb.view(false).tree.is_some(), "a new document sends its tree");
@@ -339,7 +360,7 @@ fn a_settings_change_that_cannot_be_saved_is_not_applied() {
     let dir = tempfile::tempdir().unwrap();
     let st = storage(dir.path());
     let config_dir = st.config_file.parent().unwrap().to_path_buf();
-    let mut wb = Workbench::new(st, None);
+    let mut wb = Workbench::new(st, None, Box::new(NoEngines), Vec::new());
     let t = wb.begin_open(file_origin("/k/a.sgf", OpenSource::Chooser));
     wb.complete_open(t, read_ok("(;B[aa])"));
     assert_eq!(wb.config().recent_files.len(), 1);
@@ -357,14 +378,14 @@ fn a_settings_change_that_cannot_be_saved_is_not_applied() {
     assert_eq!(v.settings.language, Language::System);
     // A retry commits for real.
     assert!(wb.clear_personal_data().unwrap());
-    let reopened = Workbench::new(storage(dir.path()), None);
+    let reopened = Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
     assert!(reopened.config().recent_files.is_empty());
 }
 
 #[test]
 fn inspecting_the_view_does_not_consume_what_the_ui_must_receive() {
     let dir = tempfile::tempdir().unwrap();
-    let mut wb = Workbench::new(storage(dir.path()), None);
+    let mut wb = Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
     wb.view(false);
     let t = wb.begin_open(file_origin("/bad.sgf", OpenSource::Chooser));
     wb.complete_open(t, Err(ReadError::Invalid("x".into())));
@@ -387,7 +408,7 @@ fn forward_steps_sound_like_java_and_respect_the_setting() {
     // Utils.playVoiceFile per node entered forward: capture of 3+ -> deadStoneMore, 1-2 ->
     // deadStone, else Stone; backward steps are silent.
     let dir = tempfile::tempdir().unwrap();
-    let mut wb = Workbench::new(storage(dir.path()), None);
+    let mut wb = Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
     // Move 4, W[ab], captures B[aa].
     let t = wb.begin_open(file_origin("/s.sgf", OpenSource::Chooser));
     wb.complete_open(t, read_ok("(;SZ[9];B[aa];W[ba];B[ee];W[ab];B[ff])"));
@@ -413,7 +434,7 @@ fn forward_steps_sound_like_java_and_respect_the_setting() {
     wb.navigate(Navigation::Forward(1));
     assert!(wb.view(false).sounds.is_empty());
     assert!(
-        !Workbench::new(storage(dir.path()), None)
+        !Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new())
             .view(false)
             .settings
             .play_sound

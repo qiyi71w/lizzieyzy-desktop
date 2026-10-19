@@ -8,6 +8,11 @@ import type { Language } from "./contract/generated";
 import { confirm, message } from "./dialogs";
 import { openDiagnostics } from "./diagnostics";
 import { t } from "./i18n";
+import { openMoreEngines } from "./engine/catalog";
+import { consoleVisible, toggleConsole } from "./engine/console";
+import { openRules } from "./engine/rules";
+import { openAnalysisSettings } from "./engine/settings";
+import "./engine/events";
 
 export interface CommandEntry {
   run: () => void;
@@ -28,6 +33,15 @@ function language(lang: Language): CommandEntry {
 }
 
 export const COMMANDS: Record<string, CommandEntry> = {
+  "analysis.toggle": { run: () => run({ type: "ToggleAnalysis" }) },
+  "engine.configuration": { run: openMoreEngines },
+  "engine.rules": { run: openRules },
+  "settings.general": { run: openAnalysisSettings },
+  "menu.gtpPanel": { run: toggleConsole, checked: consoleVisible },
+  "menu.restartCurrentEngine": { run: () => run({ type: "RestartEngine" }), enabled: () => !!state.view?.engine.foreground },
+  "menu.shutdownCurrentEngine": { run: () => run({ type: "ShutdownEngines", scope: "Current" }), enabled: () => !!state.view?.engine.foreground },
+  "menu.shutdownOtherEngine": { run: () => run({ type: "ShutdownEngines", scope: "Others" }) },
+  "menu.shutdownAllEngine": { run: () => run({ type: "ShutdownEngines", scope: "All" }) },
   "files.open": { run: () => run({ type: "ChooseAndOpenRecord" }) },
   "menu.pasteSgf": { run: pasteRecord },
   "menu.loadKomi": {
@@ -52,8 +66,7 @@ export const COMMANDS: Record<string, CommandEntry> = {
   "menu.jumpToLeft": { run: () => navigate({ op: "PreviousBranch" }) },
   "menu.jumpToRight": { run: () => navigate({ op: "NextBranch" }) },
   "menu.diagnosticsAndLogs": { run: openDiagnostics },
-  // Disabled while no full trace is active, which is always the case here (Menu.java:5251).
-  "menu.stopFullTrace": { run: () => undefined, enabled: () => false },
+  "menu.stopFullTrace": { run: () => run({ type: "SetFullTrace", enabled: false }), enabled: () => state.view?.engine.full_trace ?? false },
   "menu.clearUserData": {
     run: async () => {
       const ok = await confirm(t("Menu.clearAllPersonalData.confirmTitle"), t("Menu.clearAllPersonalData.confirmMessage"));

@@ -10,9 +10,9 @@ const JAVA = data.strings as Record<string, Table>;
 /** Messages that exist only in this product (capability not migrated yet) and the JDK option-pane
  *  button labels Java takes from the platform. Other languages fall back to English. */
 const PRODUCT: Record<string, Table> = {
-  ZhCn: { unavailable: "此功能尚未在 LizzieYzy Tauri 中提供", diagnosticsLogs: "app.log：{0}，crash.log：{1}", none: "无", ok: "确定", cancel: "取消", close: "关闭" },
-  ZhTw: { unavailable: "此功能尚未在 LizzieYzy Tauri 中提供", diagnosticsLogs: "app.log：{0}，crash.log：{1}", none: "無", ok: "確定", cancel: "取消", close: "關閉" },
-  EnUs: { unavailable: "Not available in LizzieYzy Tauri yet", diagnosticsLogs: "app.log: {0}, crash.log: {1}", none: "none", ok: "OK", cancel: "Cancel", close: "Close" },
+  ZhCn: { unavailable: "此功能尚未在 LizzieYzy Tauri 中提供", diagnosticsLogs: "app.log：{0}，crash.log：{1}", none: "无", ok: "确定", cancel: "取消", close: "关闭", yes: "是", no: "否", consoleBoardCommand: "棋谱管理当前局面，不能通过 GTP 控制台改变棋盘。请使用棋盘操作。" },
+  ZhTw: { unavailable: "此功能尚未在 LizzieYzy Tauri 中提供", diagnosticsLogs: "app.log：{0}，crash.log：{1}", none: "無", ok: "確定", cancel: "取消", close: "關閉", yes: "是", no: "否", consoleBoardCommand: "棋譜管理目前局面，不能透過 GTP 控制台改變棋盤。請使用棋盤操作。" },
+  EnUs: { unavailable: "Not available in LizzieYzy Tauri yet", diagnosticsLogs: "app.log: {0}, crash.log: {1}", none: "none", ok: "OK", cancel: "Cancel", close: "Close", yes: "Yes", no: "No", consoleBoardCommand: "The game record owns the position. Use board controls instead of a board-changing GTP console command." },
 };
 
 let lang: Exclude<Language, "System"> = "ZhCn";

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::browse::Navigation;
+use crate::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup};
 use crate::record::{BoardSize, GameInfo, Mark, NodeId, Point, RecordFormat, Stone};
 use crate::settings::Language;
 
@@ -67,6 +68,63 @@ pub enum Command {
     OpenLogFolder,
     /// Help > 诊断与日志 > "导出诊断包": the system save chooser, then write the package.
     ExportDiagnostics,
+    /// "开始/停止 分析(空格)", the bottom bar 分析 / 暂停分析 button, Space
+    /// (`LizzieFrame.togglePonderMannul`). Not remembered across restarts.
+    ToggleAnalysis,
+    /// Engine menu `[n] name`, Ctrl+1..9 / Ctrl+0: make engine `index` the foreground engine.
+    SwitchEngine {
+        index: u32,
+    },
+    /// "重启当前引擎".
+    RestartEngine,
+    /// "关闭引擎" > 当前 / 当前以外 / 所有.
+    ShutdownEngines {
+        scope: EngineScope,
+    },
+    /// Engine settings (MoreEngines) saved: the whole engine list and the start-up choice.
+    /// Entries with an empty id are new. Running engines whose command changed restart.
+    SaveEngineSettings {
+        engines: Vec<EngineProfile>,
+        startup: EngineStartup,
+    },
+    /// Analysis limits / interval (settings dialog, engine page).
+    SetAnalysisSettings {
+        settings: AnalysisSettings,
+    },
+    /// Toolbar komi field: the game komi, sent to the engine; stored analysis is cleared.
+    SetKomi {
+        komi: f64,
+    },
+    /// 引擎规则(KataGo): apply `rules` (JSON object or preset name) to KataGo and remember them;
+    /// `auto_load` applies them whenever KataGo starts.
+    SetKataRules {
+        rules: String,
+        auto_load: bool,
+    },
+    /// GtpConsolePane: send a raw command to the foreground engine.
+    SendGtpCommand {
+        command: String,
+    },
+    /// 诊断与日志 > 完整日志 (engine GTP scope) on or off; "停止完整日志" turns it off.
+    SetFullTrace {
+        enabled: bool,
+    },
+    /// The "不再提示" box of the analysis-limit notice (`show-ponder-limited-tips`).
+    SetPonderLimitTips {
+        enabled: bool,
+    },
+    /// Answer to a rules prompt: continue with the engine's current rules, or pause analysis.
+    AnswerRulesPrompt {
+        prompt: u64,
+        accept: bool,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
+pub enum EngineScope {
+    Current,
+    Others,
+    All,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
@@ -82,6 +140,8 @@ pub enum CommandResult {
     NeedsConfirmation,
     /// Diagnostics package written.
     Exported { path: String },
+    /// Not done, with the Java resource key of the explanation.
+    Refused { message_key: String },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -209,6 +269,18 @@ pub struct SettingsView {
     pub read_komi: bool,
     /// Settings > "播放落子音效" (Java `ui.play-sound`, default on).
     pub play_sound: bool,
+    pub engine: EngineSettingsView,
+}
+
+/// Committed engine settings, for the engine settings dialog and the settings pages.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct EngineSettingsView {
+    pub engines: Vec<EngineProfile>,
+    pub startup: EngineStartup,
+    pub analysis: AnalysisSettings,
+    /// `kata-rules` as saved (JSON or preset name; empty = the engine's own).
+    pub kata_rules: String,
+    pub auto_load_kata_rules: bool,
 }
 
 /// Stone sound for a forward step onto a node (`Utils.playVoiceFile`): a capture of three or more
@@ -239,6 +311,168 @@ pub struct WorkbenchView {
     pub recent_files: Vec<String>,
     /// Current session komi (toolbar komi field).
     pub komi: f64,
+    pub engine: EngineView,
+    /// Stored analysis of the current node (whether or not the engine is analysing it now).
+    pub analysis: Option<NodeAnalysisView>,
+    /// Stored results along the current line, its continuation and the main trunk, root first
+    /// (the win-rate graph's data).
+    pub history: Vec<HistoryPoint>,
+    /// An engine that failed to start or stopped unexpectedly, once.
+    pub engine_failure: Option<EngineFailureView>,
+    /// A notice about analysis, once.
+    pub engine_notice: Option<EngineNotice>,
+    /// The session rules could not be applied to the foreground engine; ask whether to analyse
+    /// with the engine's current rules (`KifuRules.failurePrompt`), once.
+    pub rules_prompt: Option<RulesPromptView>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct RulesPromptView {
+    /// Answer with [`Command::AnswerRulesPrompt`].
+    pub prompt: u64,
+    /// The declared rules (the SGF `RU` text, or the chosen rules' fields).
+    pub target: String,
+    /// The engine's reported rules (`fieldSummary`), if any.
+    pub observed: Option<String>,
+    /// `SessionRulesSynchronizer.Failure` name.
+    pub failure: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum EngineState {
+    /// Running, identification or initial commands not answered yet.
+    Loading,
+    Ready,
+}
+
+/// One configured engine as the engine menu lists it.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct EngineEntryView {
+    pub name: String,
+    pub command: String,
+    /// `None` when not running.
+    pub state: Option<EngineState>,
+}
+
+/// The foreground engine (前台引擎): not a preloaded or background engine.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct ForegroundEngineView {
+    /// Position in the engine list.
+    pub index: u32,
+    /// The configured name, else the GTP name.
+    pub name: String,
+    pub gtp_name: String,
+    pub version: String,
+    pub katago: bool,
+    /// Speaks `kata-analyze` / `lz-analyze`.
+    pub can_analyse: bool,
+    /// Identified and synced to the current position: the switch is complete.
+    pub ready: bool,
+    /// `list_commands` (GtpConsolePane 常用命令).
+    pub commands: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct EngineView {
+    pub engines: Vec<EngineEntryView>,
+    pub foreground: Option<ForegroundEngineView>,
+    /// The user paused analysis (Space); not remembered across restarts.
+    pub paused: bool,
+    /// The foreground engine is analysing the current node (Java `isPondering`).
+    pub analysing: bool,
+    /// An analysis limit stopped the analysis of the current node.
+    pub stopped_by_limit: bool,
+    /// Captured-panel rules caption key (`KataGoRules.Summary`), when KataGo reported its rules.
+    pub rules_key: Option<String>,
+    /// Rules the foreground KataGo reported (JSON), for the rules dialog.
+    pub rules: Option<String>,
+    /// Last console line; the console fetches newer lines.
+    pub console_seq: u64,
+    /// Full trace of engine GTP traffic is being written.
+    pub full_trace: bool,
+}
+
+/// One candidate (`MoveData`). Percentages 0–100 from the side to move.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct CandidateView {
+    /// `None` for a pass.
+    pub point: Option<Point>,
+    pub visits: u64,
+    /// Root allocation (`edgeVisits` when reported, else `visits`).
+    pub allocation_visits: u64,
+    pub winrate: f64,
+    pub score_lead: Option<f64>,
+    pub score_stdev: Option<f64>,
+    pub prior: f64,
+    pub lcb: Option<f64>,
+    pub order: u32,
+    /// Principal variation; `None` entries are passes.
+    pub pv: Vec<Option<Point>>,
+}
+
+/// Analysis stored for a node (`BoardData.bestMoves` and summary).
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct NodeAnalysisView {
+    pub node: NodeId,
+    pub engine: String,
+    pub to_play: Stone,
+    /// Total visits of the candidates (`playouts`).
+    pub visits: u64,
+    pub root_visits: Option<u64>,
+    /// The best candidate's win rate, side to move.
+    pub winrate: f64,
+    /// The best candidate's score lead, side to move (KataGo).
+    pub score_lead: Option<f64>,
+    pub score_stdev: Option<f64>,
+    pub komi: f64,
+    /// In `order`.
+    pub candidates: Vec<CandidateView>,
+}
+
+/// One analysed node for the win-rate graph.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct HistoryPoint {
+    pub node: NodeId,
+    pub move_number: u32,
+    pub to_play: Stone,
+    pub visits: u64,
+    /// Side to move, 0–100.
+    pub winrate: f64,
+    pub score_lead: Option<f64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct EngineFailureView {
+    pub engine_name: String,
+    /// Launch command with credentials masked.
+    pub command: String,
+    pub during_startup: bool,
+    pub message: String,
+    /// Last lines the engine printed.
+    pub output: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum EngineNotice {
+    /// The time or visit limit stopped the analysis (`leelaz.stopByLimit`); shown once per
+    /// engine start while `show-ponder-limited-tips` is on.
+    StoppedByLimit,
+}
+
+/// GtpConsolePane line.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct ConsoleLineView {
+    pub seq: u64,
+    pub engine: String,
+    pub kind: ConsoleLineKind,
+    pub text: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum ConsoleLineKind {
+    Sent,
+    Output,
+    Error,
 }
 
 /// Help > 诊断与日志: where the logs are and their sizes (`None` when a log does not exist).

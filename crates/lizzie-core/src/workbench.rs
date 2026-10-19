@@ -6,14 +6,21 @@
 //! the latest request is dropped, so a slow earlier open can never replace a later one, and a
 //! failed or abandoned read leaves the current document untouched.
 
-use std::path::Path;
+mod analysis;
+
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use analysis::AnalysisStore;
+pub use analysis::LogLine;
+
 use crate::api::{
-    ApiError, DocumentView, ErrorKind, LastAction, LogsStatus, OpenOutcome, OpenSource, PendingOpen, PositionView,
-    SettingsView, StoneSound, TreeNodeKind, TreeNodeView, TreeView, WorkbenchView,
+    ApiError, DocumentView, EngineFailureView, EngineNotice, ErrorKind, LastAction, LogsStatus, OpenOutcome,
+    OpenSource, PendingOpen, PositionView, RulesPromptView, SettingsView, StoneSound, TreeNodeKind, TreeNodeView,
+    TreeView, WorkbenchView,
 };
 use crate::browse::{self, Navigation};
+use crate::engine::runtime::{Engines, InstanceId, Launcher};
 use crate::formats::{self, ReadError};
 use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, RecordFormat, Stone, ROOT};
 use crate::settings::{self, Config, Language, Persisted, Storage, WindowPlacement};
@@ -74,15 +81,48 @@ pub struct Workbench {
     seq: u64,
     tree_sent_for: Option<u64>,
     sounds: Vec<StoneSound>,
+    engines: Engines,
+    store: AnalysisStore,
+    /// The user paused analysis (session only, like Java `userAnalysisPaused`).
+    paused: bool,
+    /// A limit stopped the analysis of this position (document, node).
+    limit_stop: Option<(u64, NodeId)>,
+    /// The limit notice was shown since the foreground engine started.
+    limit_tip_shown: bool,
+    session_rules: analysis::SessionRules,
+    /// Increases whenever the session rules are published anew.
+    rules_revision: u64,
+    /// (rules revision, engine) the user chose to analyse with the engine's own rules.
+    rules_override: Option<(u64, InstanceId)>,
+    /// (rules revision, engine) already asked about.
+    rules_prompted: Option<(u64, InstanceId)>,
+    /// The open question: prompt id and what it is about.
+    pending_prompt: Option<(u64, (u64, InstanceId))>,
+    next_prompt: u64,
+    rules_prompt: Option<RulesPromptView>,
+    engine_failure: Option<EngineFailureView>,
+    engine_notice: Option<EngineNotice>,
+    logs: Vec<LogLine>,
 }
 
 impl Workbench {
     /// Loads committed settings and data; starts on an empty 19x19 record, Black to play,
-    /// komi 7.5 (Java startup `new Board()`).
-    pub fn new(storage: Storage, system_locale: Option<&str>) -> Workbench {
+    /// komi 7.5 (Java startup `new Board()`). Engines start with [`Workbench::start_engines`];
+    /// `launcher` starts their processes and `engine_roots` are where relative engine paths are
+    /// looked up.
+    pub fn new(
+        storage: Storage,
+        system_locale: Option<&str>,
+        launcher: Box<dyn Launcher>,
+        engine_roots: Vec<PathBuf>,
+    ) -> Workbench {
         let config: Config = settings::load_json(&storage.config_file);
         let persisted: Persisted = settings::load_json(&storage.persist_file);
         let active_language = config.ui.language.resolve(system_locale);
+        let mut engines = Engines::new(launcher, engine_roots);
+        engines.set_interval(config.engine.analysis.interval_centisec);
+        let mut store = AnalysisStore::default();
+        store.reset(1);
         Workbench {
             storage,
             config,
@@ -105,6 +145,21 @@ impl Workbench {
             seq: 0,
             tree_sent_for: None,
             sounds: Vec::new(),
+            engines,
+            store,
+            paused: false,
+            limit_stop: None,
+            limit_tip_shown: false,
+            session_rules: analysis::SessionRules::Unspecified,
+            rules_revision: 0,
+            rules_override: None,
+            rules_prompted: None,
+            pending_prompt: None,
+            next_prompt: 0,
+            rules_prompt: None,
+            engine_failure: None,
+            engine_notice: None,
+            logs: Vec::new(),
         }
     }
 
@@ -236,6 +291,13 @@ impl Workbench {
                 self.outcome = Some(OpenOutcome::Adopted { ticket, document: id });
                 // Loading is silent (Java turns sound off while it builds the history).
                 self.sounds.clear();
+                self.store.reset(id);
+                let declared = match format {
+                    RecordFormat::Sgf => self.doc.record.info.rules.clone(),
+                    RecordFormat::Gib => None,
+                };
+                self.publish_record_rules(declared.as_deref());
+                self.sync_engine();
             }
         }
         true
@@ -280,6 +342,7 @@ impl Workbench {
             Vec::new()
         };
         self.cursor = target;
+        self.sync_engine();
         true
     }
 
@@ -387,13 +450,23 @@ impl Workbench {
         };
         let outcome = self.outcome.take();
         let sounds = std::mem::take(&mut self.sounds);
-        self.build_view(tree, outcome, sounds)
+        let failure = self.engine_failure.take();
+        let notice = self.engine_notice.take();
+        let prompt = self.rules_prompt.take();
+        self.build_view(tree, outcome, sounds, failure, notice, prompt)
     }
 
     /// The current state with the tree, for observers other than the UI (acceptance queries):
     /// nothing is handed over, so what the UI receives does not depend on being observed.
     pub fn inspect(&self) -> WorkbenchView {
-        self.build_view(Some(tree_view(&self.doc)), self.outcome.clone(), self.sounds.clone())
+        self.build_view(
+            Some(tree_view(&self.doc)),
+            self.outcome.clone(),
+            self.sounds.clone(),
+            self.engine_failure.clone(),
+            self.engine_notice,
+            self.rules_prompt.clone(),
+        )
     }
 
     fn build_view(
@@ -401,6 +474,9 @@ impl Workbench {
         tree: Option<TreeView>,
         outcome: Option<OpenOutcome>,
         sounds: Vec<StoneSound>,
+        engine_failure: Option<EngineFailureView>,
+        engine_notice: Option<EngineNotice>,
+        rules_prompt: Option<RulesPromptView>,
     ) -> WorkbenchView {
         WorkbenchView {
             seq: self.seq,
@@ -423,9 +499,16 @@ impl Workbench {
                     != self.active_language,
                 read_komi: self.config.record.read_komi,
                 play_sound: self.config.ui.play_sound,
+                engine: self.engine_settings_view(),
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
+            engine: self.engine_view(),
+            analysis: self.current_analysis(),
+            history: self.history(),
+            engine_failure,
+            engine_notice,
+            rules_prompt,
         }
     }
 

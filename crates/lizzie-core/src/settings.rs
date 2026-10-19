@@ -98,6 +98,8 @@ pub struct Config {
     pub ui: UiSettings,
     /// Oldest first, at most [`RECENT_LIMIT`] (Java `ui.recent-file-paths`).
     pub recent_files: Vec<String>,
+    /// Engines and analysis (Java `leelaz.engine-settings-list` and analysis keys).
+    pub engine: crate::engine::profile::EngineSettings,
 }
 
 impl Config {

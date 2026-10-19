@@ -1,7 +1,7 @@
 // Java BottomToolbar main bar: the default button set (Config.java:1900-1936) in its groups
 // (BottomToolbar.java:5209-5235), placed by layoutMainBar (5237-5320). Navigation and the move
 // field are implemented here; the other buttons report that the capability is not available yet.
-import { navigate, run, unavailable } from "../app";
+import { navigate, run, state, subscribe, unavailable } from "../app";
 import { product, t } from "../i18n";
 
 interface Item {
@@ -28,7 +28,7 @@ let moveInput: HTMLInputElement;
 
 const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" | "rightOptional", Item[]> = {
   leftPrimary: [
-    { name: "analyse", key: "BottomToolbar.analyse", cls: "primary" },
+    { name: "analyse", key: "BottomToolbar.analyse", cls: "primary", run: () => run({ type: "ToggleAnalysis" }) },
     { name: "batchOpen", key: "BottomToolbar.batchOpen", cls: "primary" },
   ],
   leftOptional: [
@@ -104,6 +104,16 @@ export function buildBottomBar(host: HTMLElement): void {
     host.append(b);
   }
   measure(host);
+  let lastAnalysis: boolean | null = null;
+  subscribe(() => {
+    const analysing = state.view?.engine.analysing ?? false;
+    if (analysing === lastAnalysis) return;
+    lastAnalysis = analysing;
+    const item = GROUPS.leftPrimary[0];
+    elements.get(item)!.textContent = analysing ? `Ⅱ ${t("BottomToolbar.pauseAnalyse")}` : t("BottomToolbar.analyse");
+    measure(host);
+    layoutBottomBar(host);
+  });
 }
 
 /** layoutMainBar: left groups greedy from the left, navigation centred between them, right groups

@@ -1,7 +1,6 @@
-// Help > 诊断与日志 (Java DiagnosticsDialog) for the data this client produces so far: the
-// application and crash logs. Engine / GTP / ReadBoard / network diagnostics and full traces belong
-// to the slices that produce that data and are shown as not yet available.
-import { run } from "./app";
+// Help > 诊断与日志 (DiagnosticsDialog): engine GTP full trace plus application/crash logs.
+// ReadBoard/network recording and trace scopes remain visibly unavailable.
+import { run, state } from "./app";
 import { logsStatus } from "./contract/client";
 import { panel } from "./dialogs";
 import { product, t } from "./i18n";
@@ -54,7 +53,23 @@ export async function openDiagnostics(): Promise<void> {
     label.append(box, name);
     modules.append(label);
   }
-  row(`${t("DiagnosticsDialog.fullTrace")}: ${t("DiagnosticsDialog.traceOff")}`, button(t("DiagnosticsDialog.startFullTrace"), () => undefined, false));
+  const traceState = document.createElement("span");
+  const trace = document.createElement("input"); trace.type = "checkbox";
+  const traceLabel = document.createElement("label"); traceLabel.append(trace, t("DiagnosticsDialog.fullTrace"));
+  const scope = document.createElement("input"); scope.type = "checkbox"; scope.checked = true; scope.disabled = true;
+  const scopeLabel = document.createElement("label"); scopeLabel.append(scope, t("DiagnosticsDialog.scope.engineGtp"));
+  row(traceLabel, scopeLabel, traceState);
+  for (const text of [t("DiagnosticsDialog.scope.readboardYike"), t("DiagnosticsDialog.scope.networkWebsocket")]) {
+    const label = document.createElement("label"); label.className = "unavailable"; label.title = product("unavailable");
+    const check = document.createElement("input"); check.type = "checkbox"; check.disabled = true;
+    label.append(check, text); row(label);
+  }
+  const updateTrace = () => {
+    trace.checked = state.view?.engine.full_trace ?? false;
+    traceState.textContent = trace.checked ? t("DiagnosticsDialog.stopFullTrace") : t("DiagnosticsDialog.traceOff");
+  };
+  updateTrace();
+  trace.onchange = async () => { await run({ type: "SetFullTrace", enabled: trace.checked }); updateTrace(); };
 
   section(t("DiagnosticsDialog.health"));
   row(product("diagnosticsLogs", bytes(status.app_log_bytes), bytes(status.crash_log_bytes)));

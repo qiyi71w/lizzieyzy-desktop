@@ -4,6 +4,7 @@
 
 use lizzie_core::api::*;
 use lizzie_core::browse::Navigation;
+use lizzie_core::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup};
 use lizzie_core::record::{BoardSize, GameInfo, Mark, MarkKind, Point, RecordFormat, Stone};
 use lizzie_core::settings::{Language, WindowPlacement};
 use ts_rs::{Config, TS};
@@ -19,9 +20,13 @@ fn generate() -> String {
     let cfg = Config::default().with_large_int("number");
     let decls = decls![&cfg;
         Stone, Point, BoardSize, MarkKind, Mark, GameInfo, RecordFormat, Language, WindowPlacement,
-        Navigation, OpenSource, Command, CommandResult, ErrorKind, ApiError,
+        Navigation, OpenSource, EngineProfile, EngineStartup, AnalysisSettings, EngineScope,
+        Command, CommandResult, ErrorKind, ApiError,
         DocumentView, TreeNodeKind, TreeNodeView, TreeView, LastAction, PositionView,
-        OpenOutcome, PendingOpen, SettingsView, StoneSound, WorkbenchView, LogsStatus,
+        OpenOutcome, PendingOpen, EngineSettingsView, SettingsView, StoneSound,
+        EngineState, EngineEntryView, ForegroundEngineView, EngineView, CandidateView, NodeAnalysisView,
+        HistoryPoint, EngineFailureView, EngineNotice, ConsoleLineKind, ConsoleLineView, RulesPromptView,
+        WorkbenchView, LogsStatus,
     ];
     let mut out = String::from(
         "// Generated from crates/lizzie-core (api, record, browse, settings). Do not edit.\n\

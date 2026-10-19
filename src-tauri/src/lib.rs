@@ -7,13 +7,17 @@ mod diagnostics;
 mod logging;
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
-use lizzie_core::api::{ApiError, Command, CommandResult, ErrorKind, LogsStatus, OpenSource, WorkbenchView};
+use lizzie_core::api::{
+    ApiError, Command, CommandResult, ConsoleLineView, ErrorKind, LogsStatus, OpenSource, WorkbenchView,
+};
+use lizzie_core::engine::process::{ProcessLauncher, ProcessWaiter};
 use lizzie_core::formats;
 use lizzie_core::settings::{Storage, WindowPlacement};
 use lizzie_core::workbench::{OpenOrigin, PasteDecision, Workbench};
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, RunEvent, WindowEvent};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
@@ -21,20 +25,83 @@ use tauri_plugin_opener::OpenerExt;
 pub const VIEW_EVENT: &str = "workbench-view";
 /// A Java entry whose capability is not implemented yet was used; payload names the capability.
 pub const UNAVAILABLE_EVENT: &str = "capability-unavailable";
+/// New GTP console lines (`ConsoleLineView[]`).
+pub const CONSOLE_EVENT: &str = "engine-console";
+/// Engine output is published at most this often; user commands publish at once.
+const ENGINE_REFRESH: Duration = Duration::from_millis(50);
 
 pub struct Shared {
     pub workbench: Mutex<Workbench>,
     pub log: logging::Log,
+    refresh: Mutex<(bool, bool)>,
+    refresh_cv: Condvar,
+    processes: ProcessWaiter,
 }
 
 pub type State = Arc<Shared>;
 
+fn write_logs(shared: &Shared, logs: Vec<lizzie_core::workbench::LogLine>) {
+    for l in logs {
+        if l.warn {
+            shared.log.warn(&l.text);
+        } else {
+            shared.log.info(&l.text);
+        }
+    }
+}
+
 /// Publishes the next view. Built and emitted under the lock so views arrive in `seq` order.
 pub fn publish(app: &AppHandle, shared: &Shared) {
-    let wb = shared.workbench.lock().unwrap();
-    let mut wb = wb;
+    let mut wb = shared.workbench.lock().unwrap();
     let view = wb.view(false);
     let _ = app.emit(VIEW_EVENT, &view);
+    let logs = wb.take_logs();
+    drop(wb);
+    write_logs(shared, logs);
+}
+
+impl Shared {
+    /// Asks the refresher to publish engine-caused changes (view and/or console lines).
+    fn request_refresh(&self, view: bool, console: bool) {
+        let mut r = self.refresh.lock().unwrap();
+        r.0 |= view;
+        r.1 |= console;
+        self.refresh_cv.notify_one();
+    }
+}
+
+/// Coalesces engine output into at most one view (and one console batch) per
+/// [`ENGINE_REFRESH`], so analysis streams do not flood the WebView.
+fn run_refresher(app: AppHandle, shared: State) {
+    std::thread::Builder::new()
+        .name("engine-refresh".into())
+        .spawn(move || {
+            let mut last = Instant::now() - ENGINE_REFRESH;
+            let mut console_seq = 0;
+            loop {
+                let (view, console) = {
+                    let mut r = shared.refresh.lock().unwrap();
+                    while !r.0 && !r.1 {
+                        r = shared.refresh_cv.wait(r).unwrap();
+                    }
+                    drop(r);
+                    std::thread::sleep(ENGINE_REFRESH.saturating_sub(last.elapsed()));
+                    std::mem::take(&mut *shared.refresh.lock().unwrap())
+                };
+                last = Instant::now();
+                if view {
+                    publish(&app, &shared);
+                }
+                if console {
+                    let lines: Vec<ConsoleLineView> = shared.workbench.lock().unwrap().console_since(console_seq);
+                    if let Some(l) = lines.last() {
+                        console_seq = l.seq;
+                        let _ = app.emit(CONSOLE_EVENT, &lines);
+                    }
+                }
+            }
+        })
+        .expect("engine refresh thread");
 }
 
 fn start_open(app: &AppHandle, shared: &State, path: String, source: OpenSource) -> u64 {
@@ -193,7 +260,95 @@ pub async fn dispatch(app: AppHandle, shared: State, command: Command) -> Result
                 path: path.to_string_lossy().into_owned(),
             })
         }
+        Command::ToggleAnalysis => {
+            let done = shared.workbench.lock().unwrap().toggle_analysis()?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SwitchEngine { index } => {
+            let done = shared.workbench.lock().unwrap().switch_engine(index)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::RestartEngine => {
+            let done = shared.workbench.lock().unwrap().restart_engine()?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::ShutdownEngines { scope } => {
+            let done = shared.workbench.lock().unwrap().shutdown_engines(scope);
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SaveEngineSettings { engines, startup } => {
+            let done = shared
+                .workbench
+                .lock()
+                .unwrap()
+                .save_engine_settings(engines, startup)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetAnalysisSettings { settings } => {
+            let done = shared.workbench.lock().unwrap().set_analysis_settings(settings)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetKomi { komi } => {
+            let done = shared.workbench.lock().unwrap().set_komi(komi)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetKataRules { rules, auto_load } => {
+            let refused = shared.workbench.lock().unwrap().set_kata_rules(&rules, auto_load)?;
+            publish(&app, &shared);
+            Ok(match refused {
+                None => CommandResult::Done,
+                Some(key) => CommandResult::Refused {
+                    message_key: key.to_string(),
+                },
+            })
+        }
+        Command::SendGtpCommand { command } => {
+            let refused = shared.workbench.lock().unwrap().send_gtp(&command)?;
+            publish(&app, &shared);
+            Ok(match refused {
+                None => CommandResult::Done,
+                Some("") => CommandResult::Unchanged,
+                Some(key) => CommandResult::Refused {
+                    message_key: key.to_string(),
+                },
+            })
+        }
+        Command::SetFullTrace { enabled } => {
+            let done = shared.workbench.lock().unwrap().set_full_trace(enabled)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetPonderLimitTips { enabled } => {
+            let done = shared.workbench.lock().unwrap().set_ponder_limit_tips(enabled)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::AnswerRulesPrompt { prompt, accept } => {
+            let done = shared.workbench.lock().unwrap().answer_rules_prompt(prompt, accept);
+            Ok(changed(&app, &shared, done))
+        }
     }
+}
+
+/// GtpConsolePane: console lines after `since` (0 = everything kept).
+#[tauri::command]
+fn engine_console(state: tauri::State<'_, State>, since: u64) -> Vec<ConsoleLineView> {
+    state.workbench.lock().unwrap().console_since(since)
+}
+
+/// Where relative engine paths are looked up, in Java's order: the current directory, then the
+/// application's location and up to seven ancestors (`CommandLaunchHelper.collectCandidateRoots`).
+fn engine_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        roots.push(cwd);
+    }
+    if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(PathBuf::from)) {
+        for a in dir.ancestors().take(8) {
+            if !roots.iter().any(|r| r == a) {
+                roots.push(a.to_path_buf());
+            }
+        }
+    }
+    roots
 }
 
 #[tauri::command]
@@ -251,13 +406,36 @@ pub fn run() {
                 std::env::consts::ARCH
             ));
             let locale = sys_locale::get_locale();
-            let workbench = Workbench::new(storage, locale.as_deref());
+            // Engine output reaches the workbench through the shared state, which exists only
+            // after the workbench: the sink looks it up once it is set.
+            let cell: Arc<OnceLock<State>> = Arc::new(OnceLock::new());
+            let sink_cell = cell.clone();
+            let launcher = ProcessLauncher::new(Arc::new(move |instance, input| {
+                let Some(shared) = sink_cell.get() else { return };
+                let mut wb = shared.workbench.lock().unwrap();
+                let console = wb.console_seq();
+                let view = wb.engine_input(instance, input);
+                let console = wb.console_seq() != console;
+                drop(wb);
+                if view || console {
+                    shared.request_refresh(view, console);
+                }
+            }));
+            let processes = launcher.waiter();
+            let workbench = Workbench::new(storage, locale.as_deref(), Box::new(launcher), engine_roots());
             let placement = workbench.persisted().window;
             let shared: State = Arc::new(Shared {
                 workbench: Mutex::new(workbench),
                 log,
+                refresh: Mutex::new((false, false)),
+                refresh_cv: Condvar::new(),
+                processes,
             });
+            let _ = cell.set(shared.clone());
             app.manage(shared.clone());
+            run_refresher(app.handle().clone(), shared.clone());
+            shared.workbench.lock().unwrap().start_engines();
+            publish(app.handle(), &shared);
 
             let window = app.get_webview_window("main").expect("main window");
             if let Some(p) = placement {
@@ -312,13 +490,25 @@ pub fn run() {
             _ => {}
         })
         .invoke_handler(handlers())
-        .run(tauri::generate_context!())
-        .expect("error while running LizzieYzy Tauri");
+        .build(tauri::generate_context!())
+        .expect("error while building LizzieYzy Tauri")
+        .run(|app, event| {
+            if let RunEvent::Exit = event {
+                // Every exit path (window close, 退出, 强制退出) ends the engines and waits for
+                // their processes, so none is left behind.
+                let shared = app.state::<State>().inner().clone();
+                shared.workbench.lock().unwrap().end_engines();
+                shared.processes.wait(Duration::from_secs(4));
+                let logs = shared.workbench.lock().unwrap().take_logs();
+                write_logs(&shared, logs);
+                shared.log.info("engines ended");
+            }
+        });
 }
 
 #[cfg(not(feature = "acceptance"))]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![dispatch_command, workbench_snapshot, logs_directory]
+    tauri::generate_handler![dispatch_command, workbench_snapshot, logs_directory, engine_console]
 }
 
 #[cfg(feature = "acceptance")]
@@ -327,6 +517,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         dispatch_command,
         workbench_snapshot,
         logs_directory,
+        engine_console,
         acceptance::acceptance_ui_report
     ]
 }

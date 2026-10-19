@@ -1,9 +1,10 @@
 // Java menu bar (Menu.java): every top-level menu and item in Java order. Items run catalog
 // commands; entries without one are disabled and marked as not yet available.
-import { run, state, unavailable } from "../app";
+import { run, state, subscribe, unavailable } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
 import { isChinese, product, t } from "../i18n";
 import { JAVA_MENUS, type MenuNode } from "./javaMenus";
+import { chooseEngine } from "../engine/catalog";
 
 /** Java defaults for conditional menus (Config.java: show-quick-links false, show-Contribute true;
  *  the secondary engine menu needs double-engine mode; ReadBoard is Windows only). */
@@ -55,9 +56,27 @@ function dropdown(items: MenuNode[]): HTMLElement {
       }
       continue;
     }
-    // Data-driven entries other than the recent list (configured engines, quick-link programs)
-    // list nothing while no such data exists.
-    if (!visible(node.when) || (node.t === "dynamic" && node.key !== "Menu.openRecent")) continue;
+    if (!visible(node.when)) continue;
+    if (node.t === "dynamic" && node.key === "engine.list") {
+      const engines = state.view?.engine.engines ?? [];
+      // Menu.java:7407-7429: the twentieth slot is the overflow chooser.
+      engines.slice(0, engines.length > 20 ? 19 : 20).forEach((engine, index) => {
+        const row = document.createElement("div"); row.className = "mi checkable";
+        row.dataset.engineIndex = String(index); row.title = engine.command;
+        const mark = document.createElement("span"); mark.className = "mark";
+        mark.textContent = state.view?.engine.foreground?.index === index ? "✓" : engine.state === "Ready" ? "●" : engine.state === "Loading" ? "◐" : "○";
+        const text = document.createElement("span"); text.className = "label"; text.textContent = `[${index + 1}] ${engine.name}`;
+        row.append(mark, text);
+        row.onclick = (event) => { event.stopPropagation(); closeMenus(); void run({ type: "SwitchEngine", index }); };
+        list.append(row);
+      });
+      if (engines.length > 20) {
+        const more = document.createElement("div"); more.className = "mi"; more.textContent = t("Menu.moreEngines");
+        more.onclick = (event) => { event.stopPropagation(); closeMenus(); void chooseEngine(); }; list.append(more);
+      }
+      continue;
+    }
+    if (node.t === "dynamic" && node.key !== "Menu.openRecent") continue;
     const row = document.createElement("div");
     row.className = "mi";
     row.dataset.key = node.key;
@@ -137,6 +156,18 @@ export function buildMenubar(host: HTMLElement): void {
     // MenuButton: text width plus EmptyBorder(5, 10, 5, 10) (WindowMenuStrip.java:295)
     measure.font = getComputedStyle(top).font;
     top.style.width = `${Math.ceil(measure.measureText(top.textContent).width) + 20}px`;
+    if (menu.key === "Menu.noEngine") {
+      const update = () => {
+        const engine = state.view?.engine.foreground;
+        const text = engine ? `[${engine.index + 1}]: ${engine.name}` : t("Menu.noEngine");
+        if (top.firstChild?.textContent === text) return;
+        if (top.firstChild?.nodeType === Node.TEXT_NODE) top.firstChild.textContent = text;
+        else top.prepend(document.createTextNode(text));
+        measure.font = getComputedStyle(top).font;
+        top.style.width = `${Math.ceil(measure.measureText(text).width) + 20}px`;
+      };
+      subscribe(update); update();
+    }
     const open = () => {
       closeMenus();
       openMenu = top;

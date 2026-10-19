@@ -25,6 +25,12 @@ export function subscribe(listener: () => void): void {
   listeners.push(listener);
 }
 
+const viewHandlers: ((view: WorkbenchView) => void)[] = [];
+/** Feature-owned one-shot notices and presentation state stay outside the controller. */
+export function registerViewHandler(handler: (view: WorkbenchView) => void): void {
+  viewHandlers.push(handler);
+}
+
 /** Applies a published view; stale ones (lower `seq`) are ignored. */
 export function apply(view: WorkbenchView): void {
   if (state.view && view.seq <= state.view.seq) return;
@@ -51,6 +57,7 @@ export function apply(view: WorkbenchView): void {
     else message("Error", t("LizzieFrame.prompt.failedToOpenFile"), "error");
   }
   view.sounds.forEach(playSound);
+  viewHandlers.forEach((handler) => handler(view));
   listeners.forEach((l) => l());
 }
 
@@ -80,7 +87,17 @@ let queue: Promise<unknown> = Promise.resolve();
 export function run(command: Command): Promise<CommandResult | null> {
   const next = queue.then(async () => {
     try {
-      return await dispatch(command);
+      const result = await dispatch(command);
+      if (result.type === "Refused") {
+        const messages: Record<string, string> = {
+          "SetKataRules.notKataGoHint": t("SetKataRules.notKataGoHint"),
+          "LizzieFrame.setParamNoEngineHint": t("LizzieFrame.setParamNoEngineHint"),
+          "product.consoleBoardCommand": product("consoleBoardCommand"),
+        };
+        const text = messages[result.message_key] ?? t(result.message_key);
+        void message(t("Message.title"), text, "warning");
+      }
+      return result;
     } catch (e) {
       const text = isApiError(e) ? e.message : String(e);
       console.error("command failed", command, e);

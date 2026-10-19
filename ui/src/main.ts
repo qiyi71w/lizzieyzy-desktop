@@ -1,6 +1,5 @@
-// Workbench entry: Java LizzieFrame without an engine. Holds only presentation state (layout, the
-// variation-tree hit map, status-line notices); the record lives in Rust and every change goes
-// through `dispatch_command` (app.ts).
+// Workbench entry: Java LizzieFrame presentation state and incremental painters.
+// Record and engine operations go through the Rust-owned command interface (app.ts).
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
@@ -10,10 +9,11 @@ import { buildBottomBar, layoutBottomBar } from "./chrome/bottombar";
 import { buildMenubar, menuOpen } from "./chrome/menubar";
 import { buildToolbar, renderToolbar } from "./chrome/toolbar";
 import { onUnavailable, onView, snapshot } from "./contract/client";
-import type { Navigation, WorkbenchView } from "./contract/generated";
+import type { CandidateView, HistoryPoint, Navigation, WorkbenchView } from "./contract/generated";
 import { dialogOpen, message } from "./dialogs";
 import { isChinese, product, setLanguage, t } from "./i18n";
-import { boardGeom, inFrameLayout, type Panels, type Rect } from "./workbench/layout";
+import { boardGeom, graphGeom, inFrameLayout, type Panels, type Rect } from "./workbench/layout";
+import { handleEngineKey } from "./engine/keys";
 import {
   loadImages,
   paintBackground,
@@ -25,6 +25,7 @@ import {
   paintSubBoard,
   paintTree,
   prepare,
+  playouts,
   ARROW,
   SCROLLBAR,
   type BoardScene,
@@ -50,6 +51,104 @@ let treeScrollFor = "";
 /** A status-line notice replacing the shortcut hint for a few seconds. */
 let notice: { text: string; until: number } | null = null;
 let version = "";
+let hoveredCandidate: number | null = null;
+let hoveredPoint: string | null = null;
+let selectedCandidate: number | null = null;
+let subCandidate = 0;
+let subLength: number | null = null;
+let presentationFor = "";
+let candidateCount = 0;
+let tableRowCount = 0;
+let graphPointCount = 0;
+let maxScoreLead = 15;
+let graphDocument = -1;
+let graphNodesSource = state.nodes;
+let graphLineKey = "";
+let graphLineByMove = new Map<number, number>();
+let mainLine = new Set<number>();
+let historyByNode = new Map<number, HistoryPoint>();
+let analysisSignature = "";
+let historySignature = "";
+let projectedView: WorkbenchView | null = null;
+
+/** Java runtime summary keys must also be literal t() calls for bundle extraction. */
+function rulesCaption(key: string | null): string | null {
+  if (!key) return null;
+  const captions: Record<string, string> = {
+    "LizzieFrame.currentRules.chinese": t("LizzieFrame.currentRules.chinese"),
+    "LizzieFrame.currentRules.chn-ancient": t("LizzieFrame.currentRules.chn-ancient"),
+    "LizzieFrame.currentRules.japanese": t("LizzieFrame.currentRules.japanese"),
+    "LizzieFrame.currentRules.tromp-taylor": t("LizzieFrame.currentRules.tromp-taylor"),
+    "LizzieFrame.currentRules.goe": t("LizzieFrame.currentRules.goe"),
+    "LizzieFrame.currentRules.others": t("LizzieFrame.currentRules.others"),
+  };
+  return captions[key] ?? t(key);
+}
+
+function hover(order: number | null) {
+  const candidate = state.view?.analysis?.candidates.find((c) => c.order === order);
+  const point = candidate?.point ? `${candidate.point.x},${candidate.point.y}` : null;
+  if (hoveredCandidate === order && hoveredPoint === point) return;
+  hoveredCandidate = order;
+  hoveredPoint = point;
+  schedule();
+}
+
+/** Cache line navigation only when the tree/position changes, not on engine frames. */
+function projectAnalysis(v: WorkbenchView) {
+  if (projectedView !== v) {
+    projectedView = v;
+    analysisSignature = JSON.stringify(v.analysis);
+    historySignature = JSON.stringify(v.history);
+    historyByNode = new Map(v.history.map((p) => [p.node, p]));
+    if (graphDocument !== v.document.id) {
+      graphDocument = v.document.id;
+      maxScoreLead = 15;
+    }
+    for (const p of v.history) if (p.score_lead !== null) maxScoreLead = Math.max(maxScoreLead, Math.abs(p.score_lead));
+  }
+  const lineKey = `${v.document.id}:${v.position.node}:${v.position.line_end}`;
+  if (graphNodesSource !== state.nodes || graphLineKey !== lineKey) {
+    graphNodesSource = state.nodes;
+    graphLineKey = lineKey;
+    graphLineByMove = new Map();
+    mainLine = new Set();
+    for (let id: number | undefined = state.root; id !== undefined; id = state.nodes.get(id)?.children[0]) {
+      mainLine.add(id);
+      const n = state.nodes.get(id);
+      if (n) graphLineByMove.set(n.move_number, id);
+    }
+    // The displayed branch owns overlapping columns; the dashed trunk owns its continuation.
+    for (const id of state.line) {
+      const n = state.nodes.get(id);
+      if (n) graphLineByMove.set(n.move_number, id);
+    }
+  }
+  if (presentationFor !== lineKey) {
+    presentationFor = lineKey;
+    hoveredCandidate = null;
+    hoveredPoint = null;
+    selectedCandidate = null;
+    subCandidate = 0;
+    subLength = null;
+  }
+  // Java keeps the hovered coordinate, even when streaming visits reorder the candidates.
+  hoveredCandidate = hoveredPoint === null ? null : v.analysis?.candidates.find((c) => c.point && `${c.point.x},${c.point.y}` === hoveredPoint)?.order ?? null;
+  subCandidate = Math.min(subCandidate, Math.max(0, (v.analysis?.candidates.length ?? 0) - 1));
+}
+
+function engineTitle(v: WorkbenchView): string {
+  const base = windowTitle(version), foreground = v.engine.foreground, a = v.analysis;
+  let prefix = "";
+  if (a && a.visits > 0) {
+    const black = a.to_play === "Black";
+    prefix = `[${(black ? a.winrate : 100 - a.winrate).toFixed(1)}${a.score_lead === null ? "" : ` ${(black ? a.score_lead : -a.score_lead).toFixed(1)}`} ${playouts(a.visits)}] `;
+  }
+  if (!foreground) return prefix + base;
+  const engine = `${foreground.name}${v.engine.analysing && a ? ` ${playouts(a.visits)} visits` : ` - ${t("LizzieFrame.speedUnit")}`}`;
+  const stem = `LizzieYzy Tauri ${version}`;
+  return `${prefix}${stem} - ${engine}${base.slice(stem.length)}`;
+}
 
 function flash(text: string) {
   notice = { text, until: performance.now() + 4000 };
@@ -98,6 +197,10 @@ const JAVA_BOUND = new Set([..."ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", " ", ",",
 
 document.addEventListener("keydown", (e) => {
   if (dialogOpen() || menuOpen() || textTarget(e.target)) return;
+  if (handleEngineKey(e)) {
+    e.preventDefault();
+    return;
+  }
   const ctrl = e.ctrlKey || e.metaKey;
   // Edits (Shift+Left/Right move a branch, Alt rotations, Ctrl+Home clear) are not browsing.
   const editModifiers =
@@ -120,7 +223,7 @@ document.addEventListener("keydown", (e) => {
   } else if (key === "B" && !ctrl && !e.altKey) {
     e.preventDefault();
     navigate({ op: "MainTrunk" });
-  } else if (editModifiers || JAVA_BOUND.has(key)) {
+  } else if (key !== " " && (editModifiers || JAVA_BOUND.has(key))) {
     e.preventDefault();
     flash(product("unavailable"));
   }
@@ -135,7 +238,7 @@ function bindPointer() {
   main.addEventListener(
     "wheel",
     (ev) => {
-      if ((ev.target as HTMLElement).closest("#comment, #table, #tree")) return;
+      if ((ev.target as HTMLElement).closest("#comment, #table, #tree, #sub, #graph")) return;
       ev.preventDefault();
       if (ev.deltaY !== 0) navigate(ev.deltaY > 0 ? { op: "Forward", count: 1 } : { op: "Back", count: 1 });
     },
@@ -144,6 +247,72 @@ function bindPointer() {
   // Board clicks place stones in Java (document editing).
   $("board").addEventListener("mousedown", (ev) => {
     if (ev.button === 0 && boardPoint(ev)) flash(product("unavailable"));
+  });
+  $("board").addEventListener("mousemove", (ev) => {
+    const v = state.view;
+    if (!v || !panels) return;
+    const geo = boardGeom(panels.board, v.document.size.width, v.document.size.height);
+    const rect = $("main").getBoundingClientRect();
+    const x = ev.clientX - rect.left - geo.x - geo.margin;
+    const y = ev.clientY - rect.top - geo.y - geo.margin;
+    const candidate = v.analysis?.candidates.find((c) => c.point && c.visits > 0 && Math.hypot(x - c.point.x * geo.square, y - c.point.y * geo.square) <= geo.stoneRadius + 1 &&
+      (v.settings.engine.analysis.limitMaxSuggestion === 0 || c.order < v.settings.engine.analysis.limitMaxSuggestion || c.order === hoveredCandidate));
+    hover(candidate?.order ?? null);
+  });
+  $("board").addEventListener("mouseleave", () => hover(null));
+  $("table").addEventListener("mouseleave", () => hover(null));
+  const sub = $("sub");
+  sub.addEventListener("contextmenu", (ev) => ev.preventDefault());
+  sub.addEventListener("mousedown", (ev) => {
+    const count = state.view?.analysis?.candidates.length ?? 0;
+    if (!count || (ev.button !== 0 && ev.button !== 2)) return;
+    ev.preventDefault();
+    subCandidate = ev.button === 0 ? (subCandidate + 1) % count : Math.max(0, subCandidate - 1);
+    subLength = null;
+    schedule();
+  });
+  sub.addEventListener("wheel", (ev) => {
+    ev.preventDefault();
+    const v = state.view, c = v?.analysis?.candidates[subCandidate];
+    if (!v || !c || ev.deltaY === 0) return;
+    const limit = v.settings.engine.analysis.limitBranchLength;
+    const max = limit > 0 ? Math.min(limit, c.pv.length) : c.pv.length;
+    subLength = subLength === null ? Math.min(1, max) : Math.max(1, Math.min(max, subLength + Math.sign(ev.deltaY)));
+    schedule();
+  }, { passive: false });
+  sub.addEventListener("mouseleave", () => {
+    subCandidate = 0;
+    subLength = null;
+    schedule();
+  });
+  const graph = $("graph");
+  let queuedGraphNode: { node: number; document: number } | null = null;
+  let navigatingGraph = false;
+  graph.addEventListener("mousedown", (ev) => {
+    if (ev.button !== 0 || !panels || !state.view) return;
+    ev.preventDefault();
+    const nodes = new Map(graphLineByMove), documentId = state.view.document.id;
+    const r = graph.getBoundingClientRect();
+    const geo = graphGeom(panels.graph.w, panels.graph.h, Math.max(state.mainLineNodes, state.line.size));
+    const scrub = async (e: MouseEvent) => {
+      const move = Math.min(geo.slots - 1, Math.max(0, Math.round((e.clientX - r.left) * geo.slots / geo.width))) + 1;
+      const node = nodes.get(move);
+      if (node === undefined || state.view?.document.id !== documentId) return;
+      queuedGraphNode = { node, document: documentId };
+      if (navigatingGraph) return;
+      navigatingGraph = true;
+      try {
+        while (queuedGraphNode) {
+          const target = queuedGraphNode;
+          queuedGraphNode = null;
+          if (state.view?.document.id === target.document && state.view.position.node !== target.node) await run({ type: "GotoNode", node: target.node });
+        }
+      } finally { navigatingGraph = false; }
+    };
+    scrub(ev);
+    const end = () => { document.removeEventListener("mousemove", scrub); document.removeEventListener("mouseup", end); };
+    document.addEventListener("mousemove", scrub);
+    document.addEventListener("mouseup", end);
   });
   const tree = $("tree");
   // BasicScrollPaneUI: the vertical bar if shown, else the horizontal one; unit increment 16 x 3
@@ -278,12 +447,12 @@ async function installBackground(size: string, w: number, h: number, glass: Rect
   main.style.backgroundSize = `${w}px ${h}px`;
 }
 
-/** drawPonderingState without an engine (LizzieFrame.java ponderingY lines). */
+/** LizzieFrame.drawPonderingState: only ambient status depends on active pondering. */
 function statusLines(): string[] {
   const hint = notice && notice.until > performance.now() ? notice.text : t("LizzieFrame.prompt.showControlsHint");
   return [
-    t("LizzieFrame.noEngineText"),
-    `${t("LizzieFrame.display.pondering")} ${t("LizzieFrame.display.off")}${t("LizzieFrame.display.space")}`,
+    state.view?.engine.foreground?.name ?? t("LizzieFrame.noEngineText"),
+    `${t("LizzieFrame.display.pondering")} ${state.view?.engine.analysing ? t("LizzieFrame.display.on") : t("LizzieFrame.display.off")}${t("LizzieFrame.display.space")}`,
     hint,
   ];
 }
@@ -302,6 +471,7 @@ function render() {
   const pos = v.position;
   const { width: cols, height: rows } = v.document.size;
   const docSig = `${v.document.id}:${pos.node}`;
+  projectAnalysis(v);
   if (changed("bg", size)) installBackground(size, W, H, P.glass);
 
   const scene: BoardScene = {
@@ -316,20 +486,34 @@ function render() {
     black: v.document.info.black,
     white: v.document.info.white,
     showNames: v.document.format !== null,
+    analysis: v.analysis,
+    hovered: hoveredCandidate,
+    suggestionLimit: v.settings.engine.analysis.limitMaxSuggestion,
+    branchLimit: v.settings.engine.analysis.limitBranchLength,
+    subCandidate,
+    subLength,
   };
-  if (changed("board", `${size}:${docSig}`)) paintBoard(prepare($("board"), P.board), boardGeom(P.board, cols, rows), P.board, scene);
-  if (changed("sub", `${size}:${docSig}`)) paintSubBoard(prepare($("sub"), P.sub), boardGeom(P.sub, cols, rows, 0.035), P.sub, scene);
-  if (changed("captured", `${size}:${docSig}:${v.komi}`))
+  if (changed("board", `${size}:${docSig}:${analysisSignature}:${hoveredCandidate}:${scene.suggestionLimit}:${scene.branchLimit}`))
+    candidateCount = paintBoard(prepare($("board"), P.board), boardGeom(P.board, cols, rows), P.board, scene);
+  if (changed("sub", `${size}:${docSig}:${analysisSignature}:${subCandidate}:${subLength}:${scene.branchLimit}`))
+    paintSubBoard(prepare($("sub"), P.sub), boardGeom(P.sub, cols, rows, 0.035), P.sub, scene);
+  if (changed("captured", `${size}:${docSig}:${v.komi}:${v.engine.analysing}:${v.engine.rules_key}`))
     paintCaptured(prepare($("captured"), P.captured), P.captured, {
       toPlay: pos.to_play,
       blackCaptures: pos.black_captures,
       whiteCaptures: pos.white_captures,
       moveNumber: pos.move_number,
       komi: v.komi,
+      analysing: v.engine.analysing,
+      rules: rulesCaption(v.engine.rules_key),
     });
-  if (changed("stat", size)) paintStat(prepare($("stat"), P.stat), P.stat);
+  const current = historyByNode.get(pos.node) ?? null;
+  const previous = historyByNode.get(state.nodes.get(pos.node)?.parent ?? -1) ?? null;
+  if (changed("stat", `${size}:${docSig}:${JSON.stringify(current)}:${JSON.stringify(previous)}:${v.analysis?.score_stdev}`))
+    paintStat(prepare($("stat"), P.stat), P.stat, current, previous, pos.move_number, v.analysis?.score_stdev ?? null);
   const lineNodes = Math.max(state.mainLineNodes, state.line.size);
-  if (changed("graph", `${size}:${lineNodes}`)) paintGraph(prepare($("graph"), P.graph), P.graph, lineNodes);
+  if (changed("graph", `${size}:${docSig}:${lineNodes}:${historySignature}`))
+    graphPointCount = paintGraph(prepare($("graph"), P.graph), P.graph, lineNodes, { history: v.history, current: pos.node, line: state.line, mainLine, maxScore: maxScoreLead });
   const statusRect = { x: 0, y: P.ponderingY, w: P.board.x, h: H - P.ponderingY };
   const lines = statusLines();
   if (changed("status", `${size}:${lines.join("|")}`)) paintStatus(prepare($("status"), statusRect), statusRect, lines);
@@ -345,52 +529,117 @@ function render() {
   place($("comment"), P.comment);
   if (changed("comment", docSig)) $("commentText").textContent = pos.comment;
   place($("table"), P.table);
-  if (changed("table", size)) renderTable();
+  if (changed("table", `${size}:${docSig}:${analysisSignature}:${historySignature}:${selectedCandidate}`)) renderTable();
   if (changed("bottombar", `${$("bottombar").clientWidth}`)) layoutBottomBar($("bottombar"));
   renderToolbar();
-  const title = windowTitle(version);
+  const title = engineTitle(v);
   if (changed("title", title)) {
     document.title = title;
     getCurrentWindow().setTitle(title);
   }
 }
 
-/** The candidate list (SuggestionTableScrollPane) without analysis: the header row over an empty
- *  body with Java's always-visible scrollbar. Column widths: preferred 10/30/30/45/30 with column 0
- *  clamped to 15, the rest shared equally (LizzieFrame.java:907-911). */
+/** SuggestionTableScrollPane / LizzieFrame.java:14725-15015. Coordinates stay hidden by default. */
 const TABLE_HEADER = navigator.userAgent.includes("Windows") ? 19 : 17;
-const TABLE_SCROLLBAR = 8;
 const TABLE_BASE_WIDTHS = [15, 30, 30, 45, 30];
+let tableStructure = "";
 function renderTable() {
-  const host = $("table");
-  const budget = Math.max(0, host.clientHeight - TABLE_HEADER);
-  const extra = host.clientWidth - TABLE_SCROLLBAR - TABLE_BASE_WIDTHS.reduce((s, w) => s + w, 0);
-  const widths = TABLE_BASE_WIDTHS.map((w, k) => w + Math.floor((extra * (k + 1)) / 5) - Math.floor((extra * k) / 5));
-  const heads = [t("AnalysisFrame.column1"), t("LizzieFrame.listColumn2"), t("AnalysisFrame.column5"), t("LizzieFrame.listColumn4"), t("AnalysisFrame.column8")];
-  const table = document.createElement("table");
-  table.style.width = `${host.clientWidth - TABLE_SCROLLBAR}px`;
-  const colgroup = document.createElement("colgroup");
-  for (const w of widths) {
-    const col = document.createElement("col");
-    col.style.width = `${w}px`;
-    colgroup.append(col);
+  const host = $("table"), v = state.view;
+  const candidates = v?.analysis?.candidates ?? [];
+  const hasScore = candidates.some((c) => c.score_lead !== null);
+  const bases = hasScore ? TABLE_BASE_WIDTHS : TABLE_BASE_WIDTHS.slice(0, 4);
+  const structure = `${host.clientWidth}:${hasScore}:${t("AnalysisFrame.column1")}`;
+  if (tableStructure !== structure) {
+    tableStructure = structure;
+    const extra = host.clientWidth - bases.reduce((s, w) => s + w, 0);
+    const widths = bases.map((w, k) => w + Math.floor(extra * (k + 1) / bases.length) - Math.floor(extra * k / bases.length));
+    const heads = [t("AnalysisFrame.column1"), t("LizzieFrame.listColumn2"), t("AnalysisFrame.column5"), t("LizzieFrame.listColumn4")];
+    if (hasScore) heads.push(t("AnalysisFrame.column8"));
+    const table = document.createElement("table");
+    table.style.width = `${host.clientWidth}px`;
+    const colgroup = document.createElement("colgroup");
+    for (const w of widths) {
+      const col = document.createElement("col");
+      col.style.width = `${w}px`;
+      colgroup.append(col);
+    }
+    const headRow = document.createElement("tr");
+    headRow.style.height = `${TABLE_HEADER}px`;
+    for (const h of heads) {
+      const th = document.createElement("th");
+      th.textContent = h;
+      headRow.append(th);
+    }
+    const thead = document.createElement("thead"), body = document.createElement("tbody");
+    thead.append(headRow);
+    body.addEventListener("mousemove", (ev) => {
+      const row = (ev.target as HTMLElement).closest<HTMLTableRowElement>("tr[data-order]");
+      if (row) hover(Number(row.dataset.order));
+    });
+    body.addEventListener("click", (ev) => {
+      const row = (ev.target as HTMLElement).closest<HTMLTableRowElement>("tr[data-order]");
+      if (!row) return;
+      const order = Number(row.dataset.order);
+      selectedCandidate = selectedCandidate === order ? null : order;
+      hover(selectedCandidate);
+      schedule();
+    });
+    table.append(colgroup, thead, body);
+    host.replaceChildren(table);
   }
-  const headRow = document.createElement("tr");
-  headRow.style.height = `${TABLE_HEADER}px`;
-  for (const h of heads) {
-    const th = document.createElement("th");
-    th.textContent = h;
-    headRow.append(th);
+  const data: { candidate: CandidateView; actual: boolean }[] = candidates.slice().sort((a, b) => b.visits - a.visits).map((candidate) => ({ candidate, actual: false }));
+  const next = v?.position.next_moves[0];
+  const actual = next ? data.find((row) => row.candidate.point?.x === next.x && row.candidate.point.y === next.y) : undefined;
+  if (actual) {
+    if (actual.candidate.order === 0) {
+      actual.actual = true;
+      data.splice(data.indexOf(actual), 1);
+      data.unshift(actual);
+    } else {
+      const nextId = v ? state.nodes.get(v.position.node)?.children[0] : undefined;
+      const nextData = nextId === undefined ? undefined : historyByNode.get(nextId);
+      const candidate = nextData && nextData.visits > actual.candidate.visits
+        ? { ...actual.candidate, visits: nextData.visits, allocation_visits: nextData.visits, winrate: 100 - nextData.winrate, score_lead: nextData.score_lead === null ? null : -nextData.score_lead }
+        : actual.candidate;
+      data.unshift({ candidate, actual: true });
+    }
   }
-  const thead = document.createElement("thead");
-  thead.append(headRow);
-  table.append(colgroup, thead, document.createElement("tbody"));
-  const sb = document.createElement("div");
-  sb.className = "sb";
-  sb.style.top = `${TABLE_HEADER}px`;
-  sb.style.height = `${budget}px`;
-  sb.innerHTML = '<div class="up"></div><div class="track"></div><div class="down"></div>';
-  host.replaceChildren(table, sb);
+  if (!actual && next && candidates.length && v) {
+    const nextId = state.nodes.get(v.position.node)?.children[0];
+    const nextData = nextId === undefined ? undefined : historyByNode.get(nextId);
+    if (nextData && nextData.visits > 0) data.unshift({ actual: true, candidate: {
+      point: next, order: -100, visits: nextData.visits, allocation_visits: nextData.visits,
+      winrate: 100 - nextData.winrate, score_lead: nextData.score_lead === null ? null : -nextData.score_lead,
+      score_stdev: null, prior: 0, lcb: null, pv: [],
+    } });
+  }
+  const shown = data.slice(0, 20), best = candidates[0];
+  tableRowCount = shown.length;
+  const body = host.querySelector("tbody")!;
+  while (body.rows.length > shown.length) body.deleteRow(body.rows.length - 1);
+  shown.forEach(({ candidate: c, actual: isActual }, k) => {
+    const row = body.rows[k] ?? body.insertRow();
+    row.dataset.order = String(c.order);
+    row.dataset.point = c.point ? `${c.point.x},${c.point.y}` : "pass";
+    row.className = `${isActual ? "actual " : ""}${selectedCandidate === c.order ? "selected" : ""}`;
+    row.style.height = `${TABLE_HEADER + 3}px`;
+    const difference = (value: number, baseline: number) => `${value - baseline > 0 ? "↑" : "↓"}${(value - baseline).toFixed(1)}(${value.toFixed(1)})`;
+    const share = c.allocation_visits / Math.max(1, v?.analysis?.visits ?? 0) * 100;
+    const values = [
+      isActual ? c.order === -100 ? t("AnalysisFrame.actual") : `${c.order + 1}(${t("AnalysisFrame.actual")})` : c.point ? String(c.order + 1) : "Pass",
+      isActual && c.order !== 0 && best ? difference(c.winrate, best.winrate) : c.winrate.toFixed(1),
+      playouts(c.visits),
+      share.toFixed(1),
+    ];
+    if (hasScore) values.push(c.score_lead === null ? "" : isActual && c.order !== 0 && best?.score_lead !== null && best?.score_lead !== undefined ? difference(c.score_lead, best.score_lead) : c.score_lead.toFixed(1));
+    while (row.cells.length > values.length) row.deleteCell(row.cells.length - 1);
+    values.forEach((text, column) => {
+      const cell = row.cells[column] ?? row.insertCell();
+      if (cell.textContent !== text) cell.textContent = text;
+      cell.title = text;
+      cell.style.backgroundImage = column === 3 ? `linear-gradient(to right, #c0c0c0 ${Math.min(100, share)}%, transparent ${Math.min(100, share)}%)` : "";
+    });
+  });
 }
 
 // ------------------------------------------------------------------ acceptance probe
@@ -408,6 +657,28 @@ function uiReport() {
       body: box.querySelector(".modal-body")?.textContent ?? "",
     })),
     status: statusLines(),
+    candidateCount,
+    hoveredCandidate,
+    subBoardCandidateIndex: subCandidate,
+    subBoardBranchLength: subLength,
+    tableRowCount,
+    graphPointCount,
+    statusLines: statusLines(),
+    candidates: state.view?.analysis?.candidates.map((c) => ({ order: c.order, point: c.point, visits: c.visits, pvLength: c.pv.length })) ?? [],
+    /** Client-area geometry so automation points at real board / sub-board / graph / table spots. */
+    geometry: panels && state.view && (() => {
+      const { width, height } = state.view!.document.size;
+      const m = $("main").getBoundingClientRect();
+      const g = boardGeom(panels.board, width, height);
+      const s = boardGeom(panels.sub, width, height, 0.035);
+      const tb = $("table").getBoundingClientRect();
+      return {
+        board: { x: m.left + g.x + g.margin, y: m.top + g.y + g.margin, square: g.square },
+        sub: { x: m.left + s.x + s.margin, y: m.top + s.y + s.margin, square: s.square },
+        graph: { x: m.left + panels.graph.x, y: m.top + panels.graph.y, w: panels.graph.w, h: panels.graph.h },
+        table: { x: tb.left, y: tb.top, w: tb.width, h: tb.height },
+      };
+    })(),
     comment: $("commentText").textContent,
     moveField: $<HTMLInputElement>("moveInput").value,
     bottomBar: [...document.querySelectorAll<HTMLElement>("#bottombar .bb")].filter((b) => b.style.display !== "none").map((b) => b.textContent),

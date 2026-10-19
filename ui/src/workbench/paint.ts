@@ -1,9 +1,9 @@
-// Canvas painters reproducing the fixed Java drawing (wimi321/lizzieyzy-next cb53acc), ported from
-// the confirmed Java-fidelity sample and limited to what browsing shows without an engine. Analysis
-// overlays (candidates, winrate data, heat maps) belong to the analysis slices. Sources per function.
-import type { LastAction, Mark, Point, Stone, TreeNodeView } from "../contract/generated";
+// Canvas painters reproducing the fixed Java drawing (wimi321/lizzieyzy-next cb53acc).
+// Analysis presentation consumes node-persisted projections, independent of engine pondering.
+import type { CandidateView, HistoryPoint, LastAction, Mark, NodeAnalysisView, Point, Stone, TreeNodeView } from "../contract/generated";
 import { t } from "../i18n";
 import type { BoardGeom, Rect } from "./layout";
+import { graphGeom } from "./layout";
 
 const COLS = "ABCDEFGHJKLMNOPQRSTUVWXYZ";
 const FONT = '"DejaVu Sans", "Noto Sans CJK SC", sans-serif';
@@ -32,6 +32,12 @@ export interface BoardScene {
   white: string;
   /** Names are drawn on the board once a record was loaded (Java setPlayers). */
   showNames: boolean;
+  analysis: NodeAnalysisView | null;
+  hovered: number | null;
+  suggestionLimit: number;
+  branchLimit: number;
+  subCandidate: number;
+  subLength: number | null;
 }
 
 export const images: Record<string, HTMLImageElement> = {};
@@ -192,12 +198,12 @@ function drawStone(g: CanvasRenderingContext2D, cx: number, cy: number, r: numbe
   g.restore();
 }
 
-function textMid(g: CanvasRenderingContext2D, s: string, x: number, y: number, size: number, maxW: number, color: string) {
+function textMid(g: CanvasRenderingContext2D, s: string, x: number, y: number, size: number, maxW: number, color: string, family = FONT) {
   let px = size;
-  g.font = `${px}px ${FONT}`;
+  g.font = `${px}px ${family}`;
   while (px > 4 && g.measureText(s).width > maxW) {
     px -= 0.5;
-    g.font = `${px}px ${FONT}`;
+    g.font = `${px}px ${family}`;
   }
   g.fillStyle = color;
   g.textAlign = "center";
@@ -242,9 +248,150 @@ function hoshi(cols: number, rows: number): [number, number][] {
   return out;
 }
 
+/** Utils.getPlayoutsString (Utils.java:992-1002), including Java's trailing decimal. */
+export function playouts(n: number): string {
+  if (n >= 10_000_000) return `${(Math.round(n / 100_000) / 10).toFixed(1)}m`;
+  if (n >= 9950) return `${Math.round(n / 1000)}k`;
+  if (n >= 1000) return `${(Math.round(n / 100) / 10).toFixed(1)}k`;
+  return String(n);
+}
+
+interface Preview {
+  stones: (Stone | null)[];
+  numbers: Map<number, number>;
+  captured: Map<number, Stone>;
+  last: number | null;
+}
+
+/** VariationPreviewGenerator: simulate captures on a private board, never mutate the record. */
+function variation(scene: BoardScene, candidate: CandidateView, length: number): Preview {
+  const stones = scene.stones.slice();
+  const numbers = new Map<number, number>();
+  const captured = new Map<number, Stone>();
+  const neighbours = (p: number) => {
+    const result: number[] = [];
+    if (p % scene.cols > 0) result.push(p - 1);
+    if (p % scene.cols < scene.cols - 1) result.push(p + 1);
+    if (p >= scene.cols) result.push(p - scene.cols);
+    if (p < stones.length - scene.cols) result.push(p + scene.cols);
+    return result;
+  };
+  const removeDead = (start: number) => {
+    const color = stones[start];
+    const group = new Set([start]);
+    let liberty = false;
+    for (const p of group) for (const q of neighbours(p)) {
+      if (!stones[q]) liberty = true;
+      else if (stones[q] === color) group.add(q);
+    }
+    if (!liberty && color) for (const p of group) {
+      captured.set(p, color);
+      stones[p] = null;
+      numbers.delete(p);
+    }
+  };
+  let color = scene.toPlay;
+  let last: number | null = null;
+  for (let k = 0; k < Math.min(length, candidate.pv.length); k++) {
+    const pt = candidate.pv[k];
+    last = null;
+    if (pt) {
+      if (pt.x < 0 || pt.y < 0 || pt.x >= scene.cols || pt.y >= scene.rows) break;
+      const p = pt.y * scene.cols + pt.x;
+      if (stones[p]) break;
+      stones[p] = color;
+      captured.delete(p);
+      numbers.set(p, k + 1);
+      for (const q of neighbours(p)) if (stones[q] && stones[q] !== color) removeDead(q);
+      removeDead(p);
+      last = p;
+    }
+    color = color === "Black" ? "White" : "Black";
+  }
+  return { stones, numbers, captured, last };
+}
+
+function drawPreview(g: CanvasRenderingContext2D, preview: Preview, px: (p: number) => number, py: (p: number) => number, r: number, suppressFirst: boolean) {
+  for (const [p, stone] of preview.captured) {
+    if (preview.stones[p]) continue;
+    g.fillStyle = stone === "Black" ? "rgba(0,0,0,0.235)" : "rgba(255,255,255,0.333)";
+    circle(g, px(p), py(p), r);
+    g.fill();
+  }
+  for (const [p, n] of preview.numbers) {
+    if (suppressFirst && n === 1) continue;
+    textMid(g, String(n), px(p), py(p), r * 1.45, r * 1.9, preview.stones[p] === "Black" ? "#fff" : "#000");
+  }
+  if (preview.last !== null && preview.numbers.has(preview.last)) {
+    const x = px(preview.last), y = py(preview.last);
+    g.fillStyle = "#f00";
+    g.beginPath();
+    g.moveTo(x - r, y - r);
+    g.lineTo(x - r * 0.25, y - r);
+    g.lineTo(x - r, y - r * 0.25);
+    g.closePath();
+    g.fill();
+  }
+}
+
+/** BoardRenderer.java:2496-2711: default HSB colours, allocation alpha, badges and info rows. */
+function drawCandidates(g: CanvasRenderingContext2D, geo: BoardGeom, scene: BoardScene, px: (p: number) => number, py: (p: number) => number, showingBranch: boolean): number {
+  const candidates = scene.analysis?.candidates ?? [];
+  const max = Math.max(1, ...candidates.map((c) => c.allocation_visits));
+  const r = geo.stoneRadius, sq = geo.square;
+  let count = 0;
+  for (let k = candidates.length - 1; k >= 0; k--) {
+    const c = candidates[k], pt = c.point;
+    const hovered = scene.hovered === c.order;
+    const outOfOrder = scene.suggestionLimit > 0 && c.order + 1 > scene.suggestionLimit;
+    if (!pt || c.visits <= 0 || pt.x >= scene.cols || pt.y >= scene.rows || pt.x < 0 || pt.y < 0) continue;
+    if (showingBranch && !hovered) continue;
+    // show-nosugg-circle=false: Java's unimportant background is empty.
+    if (outOfOrder && !hovered && k !== 0) continue;
+    const p = pt.y * scene.cols + pt.x, x = px(p), y = py(p);
+    const ratio = Math.min(1, c.allocation_visits / max);
+    const alphaRatio = Math.max(0, Math.log(ratio) / 5 + 1);
+    if (!showingBranch) {
+      const hue = k === 0 ? 180 : 120 * Math.sqrt(ratio);
+      // HSB brightness .85 corresponds to HSL lightness .425 at full saturation.
+      g.fillStyle = `hsla(${hue},100%,42.5%,${(32 + 208 * alphaRatio) / 255})`;
+      circle(g, x, y, r + 1);
+      g.fill();
+      g.strokeStyle = k === 0 ? "#00f" : `rgba(0,0,0,${(48 + 48 * alphaRatio) / 255})`;
+      g.lineWidth = k === 0 ? (r + 2) / 15 : (r + 1) / 26.5;
+      circle(g, x, y, r + (k === 0 ? 2 : 1));
+      g.stroke();
+    } else {
+      g.strokeStyle = "#f00";
+      g.lineWidth = (r + 1) / 11;
+      circle(g, x, y, r + 1);
+      g.stroke();
+    }
+    count++;
+    if (c.order < 9 && (ratio > 0 || hovered || k === 0)) {
+      const bx = Math.round(x + sq * 0.43) + (c.order === 0 ? 1 : 0);
+      const by = Math.round(y - sq * 0.358) - (c.order === 0 ? 1 : 0);
+      g.fillStyle = "orange";
+      g.fillRect(bx - sq * 0.12, by - sq * 0.18, sq * 0.24, sq * 0.36);
+      textMid(g, String(c.order + 1), bx, by, sq * 0.36, sq * 0.39, "#000", `"Lizzie Winrate", ${FONT}`);
+    }
+    if (ratio <= 0 && !hovered && k !== 0) continue;
+    const color = showingBranch && scene.toPlay === "Black" ? "#fff" : "#000";
+    if (c.score_lead !== null) {
+      textMid(g, c.winrate.toFixed(1), x, y - Math.round(sq * 0.125), sq * 0.35, sq * 0.67, color, `"Lizzie Winrate", ${FONT}`);
+      textMid(g, playouts(c.visits), x, y + Math.round(sq * 0.18), sq * 0.34, r * (c.visits < 1000 ? 1.3 : 1.8), color, `"Lizzie Winrate", ${FONT}`);
+      textMid(g, c.score_lead.toFixed(1), x, y + Math.round(sq * 0.435), sq * 0.273, r * 1.6, color, `"Lizzie Winrate", ${FONT}`);
+    } else {
+      textMid(g, c.winrate.toFixed(1), x, y - sq / 16, r, sq * 0.735, color, `"Lizzie Winrate", ${FONT}`);
+      textMid(g, playouts(c.visits), x, y + r * 15 / 35, r * 0.77, r * 1.8, color, `"Lizzie Winrate", ${FONT}`);
+    }
+  }
+  return count;
+}
+
 /** Main board: BoardRenderer.drawWoodenBoard / drawGrid / drawStones / drawLastMoveMark /
  *  drawPass / drawMarkup / drawNextMoveOutlinesOnTop / drawName. */
-export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: { x: number; y: number }, scene: BoardScene) {
+export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: { x: number; y: number }, scene: BoardScene): number {
   const ox = geo.x - origin.x;
   const oy = geo.y - origin.y;
   const sq = geo.square;
@@ -276,7 +423,9 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     textMid(g, `${geo.rows - k}`, ox + geo.margin * 0.4, oy + a, cs, geo.margin * 0.8, "#111");
     textMid(g, `${geo.rows - k}`, ox + geo.size - geo.margin * 0.4, oy + a, cs, geo.margin * 0.8, "#111");
   }
-  const stones = scene.stones;
+  const candidate = scene.analysis?.candidates.find((c) => c.order === scene.hovered);
+  const preview = candidate ? variation(scene, candidate, scene.branchLimit > 0 ? scene.branchLimit : candidate.pv.length) : null;
+  const stones = preview?.stones ?? scene.stones;
   for (let p = 0; p < stones.length; p++) {
     const s = stones[p];
     if (s) drawStone(g, px(p), py(p), r, s === "Black");
@@ -298,6 +447,8 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     textMid(g, t("BoardRenderer.pass"), ox + geo.size / 2, oy + geo.size / 2, r * 3, (r * 9) / 2, black ? "rgba(0,0,0,0.78)" : "rgba(255,255,255,0.78)");
   }
   drawMarks(g, scene, px, py, r, ox, oy);
+  if (preview) drawPreview(g, preview, px, py, r, true);
+  const candidateCount = drawCandidates(g, geo, scene, px, py, !!preview);
   // drawNextMoveOutlinesOnTop + drawDashedCircle: radius r + 2, first ring max(r/5.5, 3) wide,
   // others max(r/11, 2), dash {2.2w, 1.7w}, round caps, colour of the first next move
   if (scene.nextColor) {
@@ -315,6 +466,7 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     g.lineCap = "butt";
   }
   if (names) drawName(g, scene, ox, oy, geo);
+  return candidateCount;
 }
 
 /** BoardRenderer markup: TR / SQ / CR / MA / LB, drawn in the contrasting colour of the point. */
@@ -407,8 +559,8 @@ function drawName(g: CanvasRenderingContext2D, scene: BoardScene, ox: number, oy
   }
 }
 
-/** Sub board without an engine: SubBoardRenderer shows the current position, flat stones, white
- *  with a 1 px outline, no coordinates. */
+/** SubBoardRenderer.java:857-988: current position and independently selected PV, flat stones,
+ * white stones outlined, no coordinates. Empty analysis leaves the position unchanged. */
 export function paintSubBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: { x: number; y: number }, scene: BoardScene) {
   const ox = geo.x - origin.x;
   const oy = geo.y - origin.y;
@@ -426,7 +578,10 @@ export function paintSubBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origi
   const py = (p: number) => oy + geo.margin + sq * i(p / cols);
   g.lineWidth = 1;
   g.strokeStyle = "#000";
-  scene.stones.forEach((s, p) => {
+  const candidate = scene.analysis?.candidates[scene.subCandidate];
+  const limit = scene.branchLimit > 0 ? scene.branchLimit : (candidate?.pv.length ?? 0);
+  const preview = candidate ? variation(scene, candidate, scene.subLength ?? limit) : null;
+  (preview?.stones ?? scene.stones).forEach((s, p) => {
     if (!s) return;
     g.fillStyle = s === "Black" ? "#000" : "#fff";
     circle(g, px(p) + 0.5, py(p) + 0.5, r + 0.5);
@@ -436,12 +591,13 @@ export function paintSubBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origi
       g.stroke();
     }
   });
-  // candidate index of the shown branch (1), bottom right
+  if (preview) drawPreview(g, preview, px, py, r, false);
+  // SubBoardRenderer.java:984: rank of the independently selected variation.
   g.font = `bold ${i((r * 3) / 2)}px ${FONT}`;
   g.fillStyle = "#000";
   g.textAlign = "left";
   g.textBaseline = "alphabetic";
-  g.fillText("▶ 1", ox + geo.size - (r * 9) / 5 - i(r * 1.6), oy + geo.size - r / 5);
+  g.fillText(`▶ ${scene.subCandidate + 1}`, ox + geo.size - (r * 9) / 5 - i(r * 1.6), oy + geo.size - r / 5);
 }
 
 /** LizzieFrame.drawStringMid (LizzieFrame.java:12392-12429), aboveOrBelow 0: the 12 px ui font is
@@ -461,6 +617,8 @@ export interface CapturedScene {
   whiteCaptures: number;
   moveNumber: number;
   komi: number;
+  analysing: boolean;
+  rules: string | null;
 }
 
 /** Java String.valueOf(double) for komi values: whole numbers keep ".0". */
@@ -468,8 +626,8 @@ export function javaDouble(v: number): string {
   return Number.isInteger(v) ? v.toFixed(1) : String(v);
 }
 
-/** LizzieFrame.drawCaptured (LizzieFrame.java:9098-9375) without an engine: the analysis status dot
- *  is red, the move number takes the place of the rules caption, komi under the dot. */
+/** LizzieFrame.drawCaptured (LizzieFrame.java:9098-9375): captures, rules caption, komi and
+ * the live pondering dot. Stored analysis is intentionally independent of this indicator. */
 export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedScene) {
   const { w: width, h: height } = r;
   g.fillStyle = "rgba(0,0,0,0.51)";
@@ -495,7 +653,7 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
   oval("#000", i(width / 4), bd);
   oval("#fff", i((width * 3) / 4), wd);
   const statusDiam = i(height / 4) < 10 ? i(height / 4) : 10;
-  g.fillStyle = "rgb(255,0,0)";
+  g.fillStyle = s.analysing ? "#00ff00" : "#ff0000";
   circle(g, i(width / 2) - 1 - i(statusDiam / 2) + statusDiam / 2, i((height * 7) / 26) + i((diam - statusDiam) / 2) + statusDiam / 2, statusDiam / 2);
   g.fill();
   g.fillStyle = "#fff";
@@ -506,13 +664,13 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
   g.font = `${i(Math.max(11, height * 0.18))}px ${GRAPH_FONT}`;
   const komi = javaDouble(s.komi);
   g.fillText(komi, i(width / 2) - 1 - i(Math.round(g.measureText(komi).width) / 2), i((height * 7) / 8));
-  const move = `${s.moveNumber}`;
-  g.fillText(move, i(width / 2) - 1 - i(Math.round(g.measureText(move).width) / 2), i((height * 3) / 10));
+  const caption = s.rules ?? `${s.moveNumber}`;
+  stringMid(g, caption, i(width / 2) - 1, i((height * 3) / 10), i(height / 5), i(width / 2));
 }
 
-/** LizzieFrame.drawMoveStatistics (LizzieFrame.java:8702-9025) without analysis data: only the
- *  " 最后一手(#  ): -0.0%" line (no winrate bar, no move number without a rules caption). */
-export function paintStat(g: CanvasRenderingContext2D, r: Rect) {
+/** LizzieFrame.drawMoveStatistics (LizzieFrame.java:8702-9025): black-perspective bar and
+ * last-move deltas; preserve the unanalysed fallback when both payloads are absent. */
+export function paintStat(g: CanvasRenderingContext2D, r: Rect, current: HistoryPoint | null, previous: HistoryPoint | null, moveNumber: number, stdev: number | null) {
   const { w, h } = r;
   g.fillStyle = "rgba(0,0,0,0.51)";
   g.fillRect(0, 0, w, h);
@@ -524,7 +682,46 @@ export function paintStat(g: CanvasRenderingContext2D, r: Rect) {
   g.stroke();
   const width = w - 4;
   const height = h - 4;
-  const text = ` ${t("LizzieFrame.display.lastMove")}(#  ): -0.0%`;
+  let text = ` ${t("LizzieFrame.display.lastMove")}(#  ): -0.0%`;
+  const data = current && current.visits > 0 ? current : previous && previous.visits > 0 ? previous : null;
+  if (data) {
+    const black = data.to_play === "Black" ? data.winrate : 100 - data.winrate;
+    const barY = i(h * 0.32), barH = Math.max(4, i(h * 0.3));
+    const split = i(width * black / 100);
+    g.fillStyle = "#000";
+    g.fillRect(2, barY, split, barH);
+    g.fillStyle = "#fff";
+    g.fillRect(2 + split, barY, width - split, barH);
+    textMid(g, `${black.toFixed(1)}%`, w * 0.1, h * 0.17, Math.min(17, h * 0.24), w * 0.3, "#fff");
+    textMid(g, `${(100 - black).toFixed(1)}%`, w * 0.9, h * 0.17, Math.min(17, h * 0.24), w * 0.3, "#fff");
+    textMid(g, String(moveNumber), w / 2, h * 0.17, Math.min(17, h * 0.24), w * 0.25, "#fff");
+    text = "";
+    if (data.score_lead !== null) {
+      const score = data.to_play === "Black" ? data.score_lead : -data.score_lead;
+      text = `${t("LizzieFrame.scoreLeadJustScore")}${score.toFixed(1)}${stdev === null ? "" : ` ±${stdev.toFixed(1)}`} `;
+    }
+    if (current && previous && current.visits > 0 && previous.visits > 0) {
+      const gain = 100 - previous.winrate - current.winrate;
+      const before = previous.to_play === "Black" ? previous.winrate : 100 - previous.winrate;
+      const beforeX = 2 + width * before / 100, nowX = 2 + split;
+      if (Math.abs(nowX - beforeX) > 5) {
+        g.strokeStyle = "#888";
+        g.lineWidth = 1;
+        g.beginPath(); g.moveTo(beforeX, barY); g.lineTo(beforeX, barY + barH); g.stroke();
+        g.fillStyle = gain >= 0 ? "#00ff00" : "#ff0000";
+        const direction = Math.sign(nowX - beforeX);
+        g.beginPath(); g.moveTo(beforeX, barY + barH / 2 - 2); g.lineTo(nowX - direction * 5, barY + barH / 2 - 2);
+        g.lineTo(nowX - direction * 5, barY + 1); g.lineTo(nowX, barY + barH / 2);
+        g.lineTo(nowX - direction * 5, barY + barH - 1); g.lineTo(nowX - direction * 5, barY + barH / 2 + 2);
+        g.lineTo(beforeX, barY + barH / 2 + 2); g.closePath(); g.fill();
+      }
+      text += `${t("LizzieFrame.display.lastMove")}(#  ): ${gain > 0 ? "+" : ""}${gain.toFixed(1)}%`;
+      if (previous.score_lead !== null && current.score_lead !== null) {
+        const scoreGain = -previous.score_lead - current.score_lead;
+        text += ` ${scoreGain > 0 ? "+" : ""}${scoreGain.toFixed(1)}${t("LizzieFrame.pts")}`;
+      }
+    }
+  }
   // LizzieFrame.drawString: fit width * 20 / 21 at 12 px, capped at height / 4 and frame font + 4
   g.font = `12px ${GRAPH_FONT}`;
   const fit = Math.round((12 * i((width * 20) / 21)) / g.measureText(text).width);
@@ -536,10 +733,16 @@ export function paintStat(g: CanvasRenderingContext2D, r: Rect) {
   g.fillText(text, 2, 2 + i((height * 17) / 20) + i((fm.ascent - fm.descent) / 2));
 }
 
-/** WinrateGraph.draw (WinrateGraph.java:573-1680) with no analysed node: grid, baseline, move
- *  ticks and the line legend. `lineNodes` is the node count of the longer of the main line and
- *  the current line. */
-export function paintGraph(g: CanvasRenderingContext2D, r: Rect, lineNodes: number) {
+export interface GraphScene {
+  history: HistoryPoint[];
+  current: number;
+  line: Set<number>;
+  mainLine: Set<number>;
+  maxScore: number;
+}
+
+/** WinrateGraph.draw default single-engine branch, WinrateGraph.java:664-1060,1151-1470. */
+export function paintGraph(g: CanvasRenderingContext2D, r: Rect, lineNodes: number, scene: GraphScene): number {
   const W0 = r.w;
   const H0 = r.h;
   g.fillStyle = "rgba(22,25,29,0.647)";
@@ -565,14 +768,72 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, lineNodes: numb
     g.lineWidth = 1.5;
     seg(posx, baselineY, posx + bw, baselineY);
   };
-  let numMoves = lineNodes - 2;
-  if (numMoves < 1) {
-    baseline(width);
-    return;
-  }
-  if (numMoves < 50) numMoves = 50;
-  width = i(width * 0.98);
+  const { slots: numMoves, width: plotWidth } = graphGeom(r.w, r.h, lineNodes);
+  width = plotWidth;
   baseline(width);
+  const x = (p: HistoryPoint) => i((Math.max(0, p.move_number - 1) * width) / numMoves);
+  const wy = (p: HistoryPoint) => posy + height - i((p.to_play === "Black" ? p.winrate : 100 - p.winrate) * height / 100);
+  const sy = (p: HistoryPoint) => baselineY - i((p.to_play === "Black" ? p.score_lead! : -p.score_lead!) * height / (2 * scene.maxScore));
+  const eligible = scene.history.filter((p) => p.visits > 0 && Number.isFinite(p.winrate));
+  if (eligible.length) {
+    g.fillStyle = "rgba(0,0,0,0.55)";
+    g.fillRect(0, baselineY - 7, 28, 14);
+    textMid(g, "50%", 14, baselineY, 10, 26, "#ddd");
+  }
+  const fillSegment = (x1: number, y1: number, x2: number, y2: number) => {
+    const polygon = (a: number, b: number, c: number, d: number, above: boolean) => {
+      g.fillStyle = above ? "rgba(100,180,255,0.204)" : "rgba(232,225,210,0.165)";
+      g.beginPath(); g.moveTo(a, baselineY); g.lineTo(a, b); g.lineTo(c, d); g.lineTo(c, baselineY); g.closePath(); g.fill();
+    };
+    if ((y1 - baselineY) * (y2 - baselineY) < 0) {
+      const cross = x1 + (x2 - x1) * (baselineY - y1) / (y2 - y1);
+      polygon(x1, y1, cross, baselineY, y1 < baselineY);
+      polygon(cross, baselineY, x2, y2, y2 < baselineY);
+    } else polygon(x1, y1, x2, y2, y1 < baselineY || y2 < baselineY);
+  };
+  const drawLine = (points: HistoryPoint[], dashed: boolean) => {
+    points.sort((a, b) => a.move_number - b.move_number);
+    for (let k = 1; k < points.length; k++) {
+      const a = points[k - 1], b = points[k], gap = b.move_number - a.move_number;
+      if (gap <= 0 || gap >= 25) continue;
+      if (gap === 1) fillSegment(x(a), wy(a), x(b), wy(b));
+      g.setLineDash(dashed ? [4, 4] : []);
+      g.strokeStyle = gap > 1 ? "#fff" : "rgb(100,180,255)";
+      g.lineWidth = 1.7;
+      seg(x(a), wy(a), x(b), wy(b));
+    }
+    const scores = points.filter((p) => p.score_lead !== null);
+    for (let k = 1; k < scores.length; k++) {
+      const a = scores[k - 1], b = scores[k];
+      if (b.move_number - a.move_number >= 25) continue;
+      g.setLineDash(dashed ? [4, 4] : []);
+      g.strokeStyle = "#f0f";
+      g.lineWidth = 1;
+      seg(x(a), sy(a), x(b), sy(b));
+    }
+  };
+  if (scene.history.some((p) => !scene.line.has(p.node))) {
+    const trunk = eligible.filter((p) => scene.mainLine.has(p.node)).sort((a, b) => a.move_number - b.move_number);
+    const fork = trunk.findIndex((p) => !scene.line.has(p.node));
+    if (fork >= 0) drawLine(trunk.slice(Math.max(0, fork - 1)), true);
+  }
+  drawLine(eligible.filter((p) => scene.line.has(p.node)), false);
+  g.setLineDash([]);
+  const current = eligible.find((p) => p.node === scene.current);
+  if (current) {
+    const marker = (y: number, color: string, radius: number) => {
+      g.fillStyle = "rgba(255,255,255,0.18)"; circle(g, x(current), y, radius + 3); g.fill();
+      g.fillStyle = color; circle(g, x(current), y, radius); g.fill();
+      g.strokeStyle = "#fff"; g.lineWidth = 1; g.stroke();
+    };
+    if (current.score_lead !== null) marker(sy(current), "#ffd700", Math.abs(sy(current) - wy(current)) <= 12 ? 7 : 5);
+    marker(wy(current), "rgb(255,60,60)", 5);
+    textMid(g, (current.to_play === "Black" ? current.winrate : 100 - current.winrate).toFixed(1), x(current), wy(current) - 12, 13, 70, "#fff");
+    if (current.score_lead !== null) {
+      const score = current.to_play === "Black" ? current.score_lead : -current.score_lead;
+      textMid(g, `${score >= 0 ? "B" : "W"}+${Math.abs(score).toFixed(1)}`, x(current), sy(current) - 9, 12, 80, "#ff0");
+    }
+  }
   g.textAlign = "left";
   g.textBaseline = "alphabetic";
   g.font = `11px ${GRAPH_FONT}`;
@@ -621,6 +882,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, lineNodes: numb
       cx += widths[k] + 12;
     });
   }
+  return eligible.length;
 }
 
 /** Pondering status lines at ponderingY (LizzieFrame.drawPonderingState). */

@@ -396,7 +396,10 @@ body {
    dialog text colour (LizzieFrame.refreshSuggestionTableStyle; colours measured on Windows) */
 #table {
   background: #fff;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(200, 200, 200) rgb(235, 235, 235);
   border: 1px solid rgb(213, 220, 218);
 }
 #table table {
@@ -408,6 +411,9 @@ body {
   color: rgb(31, 41, 38);
 }
 #table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   padding: 0;
   font-weight: normal;
   background: rgb(246, 247, 249);
@@ -421,38 +427,24 @@ body {
   white-space: nowrap;
   overflow: hidden;
 }
-#table .sb {
-  position: absolute;
-  right: 0;
+#table tr.actual {
+  background-color: rgb(197, 235, 197);
+}
+#table tr.selected {
+  color: #0000ff;
+  background-color: rgba(0, 0, 0, 0.275);
+}
+#table tbody tr:hover:not(.selected) {
+  background-color: rgba(0, 0, 0, 0.12);
+}
+#table::-webkit-scrollbar {
   width: 8px;
-  display: flex;
-  flex-direction: column;
 }
-#table .sb .up,
-#table .sb .down {
-  flex: none;
-  height: 9px;
-  background: rgb(200, 200, 200);
-  position: relative;
-}
-#table .sb .up::after,
-#table .sb .down::after {
-  content: "";
-  position: absolute;
-  left: 0.5px;
-  border: 3.5px solid transparent;
-}
-#table .sb .up::after {
-  top: 0;
-  border-bottom: 4px solid #000;
-}
-#table .sb .down::after {
-  bottom: 0;
-  border-top: 4px solid #000;
-}
-#table .sb .track {
-  flex: 1;
+#table::-webkit-scrollbar-track {
   background: rgb(235, 235, 235);
+}
+#table::-webkit-scrollbar-thumb {
+  background: rgb(200, 200, 200);
 }
 
 /* ---- bottom toolbar (BottomToolbar): 26 px main bar, buttons absolutely placed by layoutBottomBar */

@@ -2,7 +2,7 @@
 // `Command` through `dispatch`; state arrives only as `WorkbenchView`s.
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { ApiError, Command, CommandResult, LogsStatus, WorkbenchView } from "./generated";
+import type { ApiError, Command, CommandResult, ConsoleLineView, LogsStatus, WorkbenchView } from "./generated";
 
 export function dispatch(command: Command): Promise<CommandResult> {
   return invoke<CommandResult>("dispatch_command", { command });
@@ -18,6 +18,14 @@ export function logsStatus(): Promise<LogsStatus> {
 
 export function onView(handler: (view: WorkbenchView) => void): Promise<UnlistenFn> {
   return listen<WorkbenchView>("workbench-view", (e) => handler(e.payload));
+}
+
+export function engineConsole(since: number): Promise<ConsoleLineView[]> {
+  return invoke<ConsoleLineView[]>("engine_console", { since });
+}
+
+export function onConsole(handler: (lines: ConsoleLineView[]) => void): Promise<UnlistenFn> {
+  return listen<ConsoleLineView[]>("engine-console", (event) => handler(event.payload));
 }
 
 /** A Java entry whose capability is not migrated yet was used outside the UI (e.g. multi-file drop). */

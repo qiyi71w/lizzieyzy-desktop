@@ -1,6 +1,6 @@
 //! "诊断与日志" support: log status and the diagnostics package (Java `DiagnosticsDialog`,
 //! `DiagnosticBundleExporter`), limited to the data this product produces so far: the
-//! application and crash logs, versions/runtime, and a redacted settings snapshot.
+//! application, crash and engine trace logs, versions/runtime, and a redacted settings snapshot.
 
 use std::io::Write;
 use std::path::Path;
@@ -23,7 +23,7 @@ impl Package {
     pub fn collect(wb: &Workbench, version: &str) -> Package {
         let mut entries = Vec::new();
         let logs = &wb.storage().logs_dir;
-        for name in ["app.log", "app.log.1", "crash.log"] {
+        for name in ["app.log", "app.log.1", "crash.log", "engine-trace.log"] {
             if let Ok(bytes) = std::fs::read(logs.join(name)) {
                 entries.push((format!("logs/lizzie/{name}"), bytes));
             }
@@ -34,6 +34,10 @@ impl Package {
             "ui": config.ui,
             // Paths are personal data; only the count is exported.
             "recentFiles": config.recent_files.len(),
+            // Engine command lines name local paths: only their count and the analysis settings.
+            "engines": config.engine.engines.len(),
+            "engineStartup": config.engine.startup,
+            "analysis": config.engine.analysis,
         });
         entries.push((
             "snapshots/config.json".into(),

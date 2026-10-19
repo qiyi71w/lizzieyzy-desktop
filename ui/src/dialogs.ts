@@ -99,3 +99,55 @@ export function confirm(title: string, text: string, kind: "info" | "warning" = 
 export function panel(title: string, body: HTMLElement): Promise<void> {
   return show(title, body, [{ label: product("close"), value: true, primary: true }], "info").then(() => undefined);
 }
+
+/** Form dialogs own validation and close timing; Enter inside a form must not discard a draft. */
+export function formPanel(title: string, body: HTMLElement, beforeClose: () => Promise<boolean> = async () => true): { close: () => Promise<void>; closed: Promise<void> } {
+  const previous = document.activeElement as HTMLElement | null;
+  const overlay = document.createElement("div");
+  overlay.className = "modal";
+  const box = document.createElement("div");
+  box.className = "modal-box engine-dialog";
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-modal", "true");
+  box.setAttribute("aria-label", title);
+  const head = document.createElement("div");
+  head.className = "modal-title";
+  head.textContent = title;
+  const done = Promise.withResolvers<void>();
+  let closing = false;
+  const close = async () => {
+    if (closing) return;
+    closing = true;
+    try {
+      if (!(await beforeClose())) return;
+      overlay.remove();
+      open--;
+      host().hidden = open === 0;
+      setModal();
+      previous?.focus();
+      done.resolve();
+    } finally { closing = false; }
+  };
+  box.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Escape") { e.preventDefault(); void close(); }
+    if (e.key === "Tab") {
+      const items = [...box.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex='0']")];
+      const at = items.indexOf(document.activeElement as HTMLElement);
+      e.preventDefault();
+      items[(at + (e.shiftKey ? -1 : 1) + items.length) % items.length]?.focus();
+    }
+  });
+  box.append(head, body);
+  overlay.append(box);
+  host().append(overlay);
+  host().hidden = false;
+  open++;
+  setModal();
+  box.querySelector<HTMLElement>("input:not(:disabled), button:not(:disabled), select:not(:disabled)")?.focus();
+  return { close, closed: done.promise };
+}
+
+export function chooseSave(title: string, text: string, save: string, discard: string): Promise<boolean> {
+  return show(title, text, [{ label: save, value: true, primary: true }, { label: discard, value: false }], "warning");
+}

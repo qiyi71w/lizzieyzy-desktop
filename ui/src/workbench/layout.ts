@@ -126,3 +126,8 @@ export function boardGeom(r: Rect, cols: number, rows: number, ratio = 0.055): B
   const stoneRadius = square < 4 ? 1 : i(square / 2) - 1;
   return { x: r.x + i((r.w - size) / 2), y: r.y + i((r.h - size) / 2), size, margin, square, stoneRadius, n, cols, rows };
 }
+
+/** WinrateGraph.java:585-678,2755-2761. Shared by painting and move-column navigation. */
+export function graphGeom(width: number, height: number, lineNodes: number) {
+  return { width: i((width - 6) * 0.98), height: height - 4, slots: Math.max(50, lineNodes - 2) };
+}

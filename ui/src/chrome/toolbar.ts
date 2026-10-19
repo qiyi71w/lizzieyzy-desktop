@@ -2,7 +2,7 @@
 // the fixed Java build (Config.java defaults; Menu.java:8189-8230, 9633-9931). Items this client
 // implements run their catalog command; the others keep their Java look and report that the
 // capability is not available yet.
-import { state, unavailable } from "../app";
+import { run, state, unavailable } from "../app";
 import { COMMANDS } from "../commands";
 import { product, t } from "../i18n";
 import { javaDouble } from "../workbench/paint";
@@ -105,13 +105,37 @@ function field(id?: string): HTMLInputElement {
   return c;
 }
 
-function spinner(): HTMLElement {
-  const s = document.createElement("span");
-  s.className = "tb-spin unavailable";
-  s.title = product("unavailable");
-  s.innerHTML = "<i></i><i></i>";
-  s.onclick = unavailable;
-  return s;
+function komiSpinner(): HTMLElement {
+  const spinner = document.createElement("span"); spinner.className = "tb-spin";
+  for (const step of [0.5, -0.5]) {
+    const arrow = document.createElement("i");
+    arrow.title = step > 0 ? t("Accessibility.increaseKomi") : t("Accessibility.decreaseKomi");
+    arrow.onclick = () => {
+      const field = document.getElementById("komiField") as HTMLInputElement;
+      if (!field.value.trim() || !Number.isFinite(Number(field.value))) return;
+      const komi = Number(field.value) + step;
+      field.value = String(komi);
+      void run({ type: "SetKomi", komi });
+    };
+    spinner.append(arrow);
+  }
+  return spinner;
+}
+
+function komiField(): HTMLInputElement {
+  const control = document.createElement("input"); control.id = "komiField"; control.className = "tb-input";
+  control.type = "number"; control.step = "0.5"; control.setAttribute("aria-label", t("Menu.komi"));
+  const commit = () => { if (control.value.trim() && Number.isFinite(Number(control.value))) void run({ type: "SetKomi", komi: Number(control.value) }); };
+  control.onchange = commit;
+  control.onkeydown = (event) => {
+    if (event.key === "Enter") { commit(); control.blur(); }
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      event.preventDefault();
+      const komi = Number(control.value) + (event.key === "ArrowUp" ? 0.5 : -0.5);
+      control.value = String(komi); void run({ type: "SetKomi", komi });
+    }
+  };
+  return control;
 }
 
 export function buildToolbar(host: HTMLElement): void {
@@ -160,7 +184,7 @@ export function buildToolbar(host: HTMLElement): void {
     pill(t("Menu.newGameBtn"), "newgame"),
     pause,
     sep(),
-    group("komi", label(t("Menu.komi")), field("komiField"), spinner()),
+    group("komi", label(t("Menu.komi")), komiField(), komiSpinner()),
     sep("dash"),
     // KataGo parameter fields stay empty and unchecked without an engine
     group("pda", check(false), label(withColon(t("Menu.separateLblPda"))), field()),
@@ -170,7 +194,7 @@ export function buildToolbar(host: HTMLElement): void {
     checkLabel(t("Menu.Black"), true),
     checkLabel(t("Menu.White"), true),
     sep(),
-    pill(t("Menu.rulesBtn"), "small"),
+    pill(t("Menu.rulesBtn"), "small", "engine.rules"),
     pill(t("Menu.tsumeGoBtn"), "small"),
     pill(t("Menu.paramsBtn"), "small"),
     pill(t("Menu.gobanBtn"), "small"),
@@ -183,5 +207,5 @@ export function renderToolbar(): void {
   const komi = document.getElementById("komiField") as HTMLInputElement | null;
   const k = state.view?.komi;
   const value = k === undefined ? "" : javaDouble(k);
-  if (komi && komi.value !== value) komi.value = value;
+  if (komi && document.activeElement !== komi && komi.value !== value) komi.value = value;
 }
