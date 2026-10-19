@@ -13,5 +13,6 @@ pub mod browse;
 pub mod engine;
 pub mod formats;
 pub mod record;
+pub mod sanitize;
 pub mod settings;
 pub mod workbench;

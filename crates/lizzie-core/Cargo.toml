@@ -13,6 +13,7 @@ serde_json.workspace = true
 ts-rs.workspace = true
 encoding_rs = "0.8"
 chardetng = "1"
+fancy-regex = "0.16"
 
 [dev-dependencies]
 tempfile = "3"

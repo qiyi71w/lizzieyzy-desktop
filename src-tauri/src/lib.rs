@@ -79,16 +79,35 @@ fn run_refresher(app: AppHandle, shared: State) {
             let mut last = Instant::now() - ENGINE_REFRESH;
             let mut console_seq = 0;
             loop {
-                let (view, console) = {
+                let (view, mut console) = {
+                    // Taken before the refresh lock: other threads lock the workbench first.
+                    let due = shared.workbench.lock().unwrap().engine_timer();
                     let mut r = shared.refresh.lock().unwrap();
                     while !r.0 && !r.1 {
-                        r = shared.refresh_cv.wait(r).unwrap();
+                        match due {
+                            None => r = shared.refresh_cv.wait(r).unwrap(),
+                            Some(due) => {
+                                let wait = due.saturating_duration_since(Instant::now());
+                                let (next, timeout) = shared.refresh_cv.wait_timeout(r, wait).unwrap();
+                                r = next;
+                                if timeout.timed_out() {
+                                    break;
+                                }
+                            }
+                        }
                     }
                     drop(r);
                     std::thread::sleep(ENGINE_REFRESH.saturating_sub(last.elapsed()));
                     std::mem::take(&mut *shared.refresh.lock().unwrap())
                 };
                 last = Instant::now();
+                {
+                    // Timed engine work (a pondering probe) shows up as console output.
+                    let mut wb = shared.workbench.lock().unwrap();
+                    let before = wb.console_seq();
+                    wb.engine_tick(last);
+                    console |= wb.console_seq() != before;
+                }
                 if view {
                     publish(&app, &shared);
                 }

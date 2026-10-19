@@ -17,14 +17,16 @@ use crate::api::{
     EngineScope, EngineSettingsView, EngineState, EngineView, ErrorKind, ForegroundEngineView, HistoryPoint,
     NodeAnalysisView, RulesPromptView,
 };
+use crate::browse::Navigation;
+use crate::engine::gtp::InfoLine;
 use crate::engine::profile::{new_profile_id, AnalysisSettings, EngineProfile, EngineStartup};
 use crate::engine::rules::KataRules;
 use crate::engine::runtime::{
     Bootstrap, ConsoleKind, EngineFailure, EngineInput, InstanceId, Phase, RulesOutcome, RuntimeEvent, Target,
     UserCommandError,
 };
-use crate::engine::{gtp::InfoLine, redact};
-use crate::record::{NodeId, Stone, ROOT};
+use crate::record::{BoardSize, GameRecord, NodeId, Position, Stone, ROOT};
+use crate::sanitize::sanitize;
 
 /// The rules the open session asks for (`BoardHistoryList.SessionRulesTarget`).
 #[derive(Clone, Debug, Default)]
@@ -86,9 +88,32 @@ fn node_analysis(node: NodeId, to_play: Stone, komi: f64, engine: String, line: 
                 lcb: c.lcb,
                 order: c.order,
                 pv: c.pv,
+                pv_captures: Vec::new(),
             })
             .collect(),
     })
+}
+
+/// Plays every candidate's variation out from `base` (`Branch`, at most `limit` moves; 0 = the
+/// whole variation): what each move captures.
+fn fill_pv_captures(result: &mut NodeAnalysisView, base: &Position, limit: u32) {
+    let limit = if limit == 0 { usize::MAX } else { limit as usize };
+    for c in &mut result.candidates {
+        let mut pos = base.clone();
+        let mut color = result.to_play;
+        c.pv_captures =
+            c.pv.iter()
+                .take(limit)
+                .map(|mv| {
+                    let mut captured = Vec::new();
+                    if let Some(p) = *mv {
+                        pos.place(color, p, &mut captured);
+                    }
+                    color = color.opposite();
+                    captured
+                })
+                .collect();
+    }
 }
 
 /// `BoardData.adoptOrdinaryAnalysis` with the cache on: a result replaces the stored one only
@@ -155,6 +180,7 @@ impl Workbench {
                 SessionRules::Valid { rules, .. } if !self.rules_overridden() => Some(rules.clone()),
                 _ => None,
             },
+            rules_rev: self.rules_revision,
         }
     }
 
@@ -267,11 +293,26 @@ impl Workbench {
         Bootstrap { komi: self.komi, rules }
     }
 
-    /// Whether the open game is still empty, so a new engine's komi applies to it
-    /// (`shouldApplyInitialEngineKomiToCurrentGame`).
+    /// Whether the open game is still a new empty game: no moves, no setup and not read from a
+    /// record (`shouldApplyInitialEngineKomiToCurrentGame`, `boardEmpty`).
     fn game_is_empty(&self) -> bool {
         let rec = &self.doc.record;
-        rec.node_count() == 1 && rec.node(ROOT).setup.is_empty()
+        self.doc.format.is_none() && rec.node_count() == 1 && rec.node(ROOT).setup.is_empty()
+    }
+
+    /// `Board.reopenOnlyBoard`: an empty game of another size replaces the empty one.
+    fn reopen_empty_board(&mut self, size: BoardSize) {
+        let id = self.next_doc;
+        self.next_doc += 1;
+        self.doc = super::Document {
+            id,
+            record: Arc::new(GameRecord::empty(size, self.komi)),
+            format: None,
+            path: None,
+        };
+        self.cursor = ROOT;
+        self.store.reset(id);
+        self.publish_record_rules(None);
     }
 
     // -------------------------------------------------------------------- engine operations
@@ -290,17 +331,30 @@ impl Workbench {
         if current.as_deref() == Some(profile.id.as_str()) {
             return Ok(false);
         }
-        if self.game_is_empty() {
-            self.set_game_komi(profile.komi);
+        // An engine's board size applies to a new empty game (`reopenOnlyBoard`).
+        let size = BoardSize {
+            width: profile.width,
+            height: profile.height,
+        };
+        if self.game_is_empty() && size != self.doc.record.size {
+            self.reopen_empty_board(size);
         }
+        // The engine's komi becomes the game komi unless the user chose it (`targetKomi`): at
+        // once for a running engine, for a new one when it is ready and the game still empty.
+        let target_komi = if self.komi_changed { self.komi } else { profile.komi };
+        self.start_komi = None;
         let instance = match self.engines.instance_of(&profile.id) {
-            Some(i) => i,
+            Some(i) => {
+                self.apply_komi(target_komi);
+                i
+            }
             None => match self.engines.start(&profile, self.bootstrap(&profile)) {
                 Ok(i) => {
                     self.log(
                         false,
-                        format!("engine start [{}] {}", profile.name, redact(&profile.command)),
+                        format!("engine start [{}] {}", profile.name, sanitize(&profile.command)),
                     );
+                    self.start_komi = Some((i, target_komi));
                     i
                 }
                 Err(f) => {
@@ -378,27 +432,33 @@ impl Workbench {
         Ok(true)
     }
 
-    /// The game komi (toolbar field, `Leelaz.komi`): recorded in the game, sent to the engine,
-    /// and every stored analysis of the game is discarded (`clearBestMovesAfter(start)`).
+    /// The game komi chosen by the user (toolbar field, console `komi`): recorded in the game,
+    /// sent to the engine, and engine profiles no longer change it (`GameInfo.changeKomi`).
     pub fn set_komi(&mut self, komi: f64) -> Result<bool, ApiError> {
         if !komi.is_finite() {
             return Err(ApiError::new(ErrorKind::InvalidArgument, "komi"));
         }
-        if komi == self.komi && self.doc.record.info.komi == komi {
+        self.komi_changed = true;
+        if !self.apply_komi(komi) {
             return Ok(false);
         }
-        self.set_game_komi(komi);
-        self.store.reset(self.doc.id);
-        self.limit_stop = None;
         self.sync_engine();
         Ok(true)
     }
 
-    fn set_game_komi(&mut self, komi: f64) {
+    /// Every komi change of the game: the game records it and every stored analysis of the
+    /// game is discarded (`clearBestMovesAfter(start)`).
+    fn apply_komi(&mut self, komi: f64) -> bool {
+        if komi == self.komi && self.doc.record.info.komi == komi {
+            return false;
+        }
         self.komi = komi;
         if self.doc.record.info.komi != komi {
             Arc::make_mut(&mut self.doc.record).info.komi = komi;
         }
+        self.store.reset(self.doc.id);
+        self.limit_stop = None;
+        true
     }
 
     /// 引擎规则 (`LizzieFrame.setRules`): needs a ready KataGo; the chosen rules become the
@@ -422,6 +482,8 @@ impl Workbench {
             c.engine.kata_rules = text;
             c.engine.auto_load_kata_rules = auto_load;
         })?;
+        // A manual rules choice discards every stored analysis (`clearBestMovesAfter(start)`).
+        self.store.reset(self.doc.id);
         self.session_rules = SessionRules::Valid {
             raw: None,
             rules: parsed,
@@ -432,14 +494,22 @@ impl Workbench {
         Ok(None)
     }
 
-    /// GtpConsolePane send. `komi <v>` sets the game komi like the console does in Java.
+    /// GtpConsolePane send. Like Java, `komi <v>` sets the game komi and `undo` steps back in
+    /// the record; other board-changing commands are refused.
     pub fn send_gtp(&mut self, command: &str) -> Result<Option<&'static str>, ApiError> {
         let mut words = command.split_whitespace();
-        if words.next() == Some("komi") {
-            if let Some(k) = words.next().and_then(|v| v.parse::<f64>().ok()) {
-                self.set_komi(k)?;
+        match (words.next(), words.next()) {
+            (Some("komi"), Some(v)) => {
+                if let Ok(k) = v.parse::<f64>() {
+                    self.set_komi(k)?;
+                    return Ok(None);
+                }
+            }
+            (Some("undo"), None) => {
+                self.navigate(Navigation::Back(1));
                 return Ok(None);
             }
+            _ => {}
         }
         match self.engines.send_user(command) {
             Ok(()) => Ok(None),
@@ -502,8 +572,16 @@ impl Workbench {
         if self.config.engine.analysis == settings {
             return Ok(false);
         }
+        let refill = settings.limit_branch_length != self.config.engine.analysis.limit_branch_length;
         self.commit_config(|c| c.engine.analysis = settings.clone())?;
         self.engines.set_interval(settings.interval_centisec);
+        if refill {
+            // Previews of stored analysis follow the new variation length.
+            let record = self.doc.record.clone();
+            for (node, result) in self.store.nodes.iter_mut() {
+                fill_pv_captures(result, &record.position(*node), settings.limit_branch_length);
+            }
+        }
         Ok(true)
     }
 
@@ -564,6 +642,20 @@ impl Workbench {
     /// Output of an engine process. Returns whether the view changed.
     pub fn engine_input(&mut self, instance: InstanceId, input: EngineInput) -> bool {
         let events = self.engines.input(instance, input);
+        self.engine_events(events)
+    }
+
+    /// When the engine runtime has timed protocol work next (see [`Self::engine_tick`]).
+    pub fn engine_timer(&self) -> Option<std::time::Instant> {
+        self.engines.next_tick()
+    }
+
+    /// Advances engine protocol timers; the platform calls it at [`Self::engine_timer`].
+    pub fn engine_tick(&mut self, now: std::time::Instant) {
+        self.engines.tick(now);
+    }
+
+    fn engine_events(&mut self, events: Vec<RuntimeEvent>) -> bool {
         let mut changed = false;
         for ev in events {
             changed = true;
@@ -571,6 +663,11 @@ impl Workbench {
                 RuntimeEvent::Ready { instance } => {
                     if let Some((name, version, _)) = self.engines.identity(instance) {
                         self.log(false, format!("engine ready: {name} {version}"));
+                    }
+                    if let Some((_, komi)) = self.start_komi.take_if(|(i, _)| *i == instance) {
+                        if self.game_is_empty() {
+                            self.apply_komi(komi);
+                        }
                     }
                 }
                 RuntimeEvent::Rules { .. } => {}
@@ -580,6 +677,7 @@ impl Workbench {
                     doc,
                     node,
                     komi,
+                    rules_rev,
                     to_play,
                     engine_name,
                     line,
@@ -590,8 +688,12 @@ impl Workbench {
                     if Some(instance) != self.engines.foreground() {
                         continue;
                     }
-                    if doc != self.doc.id || komi != self.komi || doc != self.store.doc {
-                        continue; // another document or a komi that no longer applies
+                    if doc != self.doc.id
+                        || komi != self.komi
+                        || doc != self.store.doc
+                        || rules_rev != self.rules_revision
+                    {
+                        continue; // another document, a komi or rules that no longer apply
                     }
                     let Some(result) = node_analysis(node, to_play, komi, engine_name, line) else {
                         continue;
@@ -599,6 +701,9 @@ impl Workbench {
                     let visits = result.visits;
                     let replace = self.store.nodes.get(&node).is_none_or(|old| more_visits(&result, old));
                     if replace {
+                        let mut result = result;
+                        let limit = self.config.engine.analysis.limit_branch_length;
+                        fill_pv_captures(&mut result, &self.doc.record.position(node), limit);
                         self.store.nodes.insert(node, result);
                     }
                     if node == self.cursor && !self.paused && self.limit_stop.is_none() {
@@ -631,30 +736,30 @@ impl Workbench {
         self.sync_engine();
     }
 
+    /// A failed engine: logged, and reported with the launch command, message and output passed
+    /// through the credential sanitizer like Java's failure dialog and copy (`redactSensitiveText`).
     fn engine_failed(&mut self, f: EngineFailure) {
+        let command = sanitize(&f.command);
+        let message = sanitize(&f.message);
+        let output: Vec<String> = f.output.iter().map(|l| sanitize(l)).collect();
+        let tail = output
+            .iter()
+            .rev()
+            .take(5)
+            .rev()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" / ");
         self.log(
             true,
-            format!(
-                "engine failed [{}] {}: {} | {}",
-                f.engine_name,
-                redact(&f.command),
-                f.message,
-                f.output
-                    .iter()
-                    .rev()
-                    .take(5)
-                    .rev()
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(" / ")
-            ),
+            format!("engine failed [{}] {command}: {message} | {tail}", f.engine_name),
         );
         self.engine_failure = Some(EngineFailureView {
             engine_name: f.engine_name,
-            command: redact(&f.command),
+            command,
             during_startup: f.during_startup,
-            message: f.message,
-            output: f.output,
+            message,
+            output,
         });
     }
 
@@ -670,7 +775,7 @@ impl Workbench {
             .iter()
             .map(|p| EngineEntryView {
                 name: p.name.clone(),
-                command: redact(&p.command),
+                command: sanitize(&p.command),
                 state: running
                     .iter()
                     .find(|(_, id, _)| *id == p.id)

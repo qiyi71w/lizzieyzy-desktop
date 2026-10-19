@@ -408,6 +408,9 @@ pub struct CandidateView {
     pub order: u32,
     /// Principal variation; `None` entries are passes.
     pub pv: Vec<Option<Point>>,
+    /// For each `pv` move, the stones it captures when played out from the node's position
+    /// (`Branch` with `remove-dead-in-variation`); empty for passes.
+    pub pv_captures: Vec<Vec<Point>>,
 }
 
 /// Analysis stored for a node (`BoardData.bestMoves` and summary).

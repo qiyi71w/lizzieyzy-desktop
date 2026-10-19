@@ -24,8 +24,11 @@ impl Package {
         let mut entries = Vec::new();
         let logs = &wb.storage().logs_dir;
         for name in ["app.log", "app.log.1", "crash.log", "engine-trace.log"] {
+            // Exported again through the sanitizer (`ExportSanitizer`): crash text and logs
+            // written by earlier versions are not trusted to be clean.
             if let Ok(bytes) = std::fs::read(logs.join(name)) {
-                entries.push((format!("logs/lizzie/{name}"), bytes));
+                let text = lizzie_core::sanitize::sanitize(&String::from_utf8_lossy(&bytes));
+                entries.push((format!("logs/lizzie/{name}"), text.into_bytes()));
             }
         }
         let config = wb.config();

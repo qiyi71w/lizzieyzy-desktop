@@ -234,7 +234,12 @@ allocation_visits: number, winrate: number, score_lead: number | null, score_std
 /**
  * Principal variation; `None` entries are passes.
  */
-pv: Array<Point | null>, };
+pv: Array<Point | null>, 
+/**
+ * For each `pv` move, the stones it captures when played out from the node's position
+ * (`Branch` with `remove-dead-in-variation`); empty for passes.
+ */
+pv_captures: Array<Array<Point>>, };
 
 export type NodeAnalysisView = { node: number, engine: string, to_play: Stone, 
 /**

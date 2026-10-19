@@ -1,6 +1,7 @@
 //! Application log (`logs/app.log`) and crash log (`logs/crash.log`) in the product's data
 //! directory, the files Java's "诊断与日志" dialog points at. Record contents and full paths are
-//! not logged; file names only.
+//! not logged; file names only. Every line passes the credential sanitizer before it is written
+//! (`SanitizingEncoder`).
 
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -53,6 +54,7 @@ impl Log {
     }
 
     fn write(&self, level: &str, message: &str) {
+        let message = lizzie_core::sanitize::sanitize(message);
         if let Some(f) = self.file.lock().unwrap().as_mut() {
             let _ = writeln!(f, "{} {level} {message}", timestamp());
         }

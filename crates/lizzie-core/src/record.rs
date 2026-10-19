@@ -412,22 +412,29 @@ impl Position {
     /// Places a stone and removes the opponent chains it captures (Java
     /// `BoardHistoryList.place`, `Board.removeDeadChain` on the four neighbours).
     pub fn play(&mut self, color: Stone, p: Point) {
+        let mut captured = Vec::new();
+        self.place(color, p, &mut captured);
+        let count = captured.len() as u32;
+        match color {
+            Stone::Black => self.black_captures += count,
+            Stone::White => self.white_captures += count,
+        }
+    }
+
+    /// Puts `color` at `p` (whatever was there) and removes the opponent chains left without a
+    /// liberty, appending their points to `captured` (`Branch`, `removeDeadChain`).
+    pub fn place(&mut self, color: Stone, p: Point, captured: &mut Vec<Point>) {
         self.set(p, Some(color));
-        let mut captured = 0u32;
         let neighbours: Vec<Point> = Self::neighbours(self.size, p).collect();
         for n in neighbours {
             if self.at(n) == Some(color.opposite()) {
                 if let Some(chain) = self.dead_chain(n) {
-                    captured += chain.len() as u32;
-                    for q in chain {
+                    for &q in &chain {
                         self.set(q, None);
                     }
+                    captured.extend(chain);
                 }
             }
-        }
-        match color {
-            Stone::Black => self.black_captures += captured,
-            Stone::White => self.white_captures += captured,
         }
     }
 }

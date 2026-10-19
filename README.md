@@ -8,8 +8,8 @@ and data directory and never reads or writes the Java configuration.
 
 ## Current state
 
-Implemented: opening and browsing records, and analysis with one local GTP engine
-(KataGo or a Leela Zero-style engine).
+Implemented: opening and browsing records, and analysis with one local GTP engine (KataGo,
+Leela Zero, Sayuri, Sai or Leela 0.11, recognised by their GTP name like Java).
 
 - Open SGF and GIB files with the File menu, the toolbar button, `O`, a dropped file, a command
   line argument, or File > recent records. Paste an SGF record with `Ctrl+V` (it asks before
@@ -32,25 +32,34 @@ Implemented: opening and browsing records, and analysis with one local GTP engin
   Help > 清除所有个人数据 clears the recent-record list; View > 重置界面位置 resets the saved
   window placement and last folder.
 - Engines: the engine list (更多引擎 / `Alt+X`) adds, edits, orders and removes engine profiles
-  with Java's fields (name, command with Java quoting, initial commands, board size, default
-  engine, preload). The engine at start-up is the default one, the last one, none, or chosen from
-  the list. `Ctrl+1`…`Ctrl+0` switch the foreground engine; with fast engine change the previous
-  engine keeps running for a quick switch back. Analysis menu items close or restart engines.
+  with Java's fields (name, command with Java quoting, initial commands, board size, komi,
+  default engine, preload). The engine at start-up is the default one, the last one, none, or
+  chosen from the list. `Ctrl+1`…`Ctrl+0` switch the foreground engine; with fast engine change
+  the previous engine keeps running for a quick switch back. Analysis menu items close or
+  restart engines. As in Java, an engine's board size applies to a new empty game, and its komi
+  becomes the game komi unless the komi was set by hand (an engine that fails to start changes
+  nothing).
 - Analysis: candidates on the board (win rate, visits, score lead), the variation shown when
-  hovering a candidate, the sub board cycling through candidates on click, the candidate table,
-  the black-perspective win-rate and score graph (click to navigate), and the status and title
-  lines. `Space` pauses and resumes for this session only (never saved). Time and visit limits
-  stop the current position once and resume on the next one. Results stay with the position
-  they were requested for, so browsing quickly or switching records never shows another
-  position's analysis.
+  hovering a candidate (captures are worked out by the core), the sub board cycling through
+  candidates on click, the candidate table, the black-perspective win-rate line with its 50%
+  fill and the score line (click to navigate), and the status and title lines. `Space` pauses
+  and resumes for this session only (never saved); opening another record ends the pause. Time
+  and visit limits stop the current position once and resume on the next one. Results stay with
+  the position, komi and rules they were requested for, so browsing quickly, switching records,
+  changing komi or rules never shows another context's analysis; changing komi or rules discards
+  the stored analysis like Java.
 - Rules: an SGF record's `RU` is applied to KataGo (`kata-set-rules`) before analysis. When the
   engine cannot confirm it, a dialog asks whether to continue with the engine's current rules
   (no pauses analysis). `Shift+D` opens the KataGo rules editor.
-- GTP console (`E`) shows the engine traffic and sends commands; commands that would change the
-  board (`play`, `undo`, `clear_board`, …) are refused because the record owns the position.
-  The 完整日志 option writes the GTP traffic to `logs/engine-trace.log`. A failing engine shows
-  Java's failure dialog with its output, copy and diagnostics export. Engines are ended (`quit`,
-  then killed after 3 s) when the window closes.
+- GTP console (`E`) shows the engine traffic and sends commands. Like Java, `komi <v>` sets the
+  game komi and `undo` steps back in the record; other commands that would change the engine's
+  board (`play`, `clear_board`, `place_free_handicap`, …) are refused because the record owns the
+  position. The 完整日志 option writes the GTP traffic to `logs/engine-trace.log`. A failing
+  engine shows Java's failure dialog with its output, copy and diagnostics export. Engines are
+  ended (`quit`, then killed after 3 s) when the window closes.
+- Logs, the engine trace, failure details and exported diagnostics pass through a port of
+  Java's credential sanitizer (`--password …`, `token=…`, JSON credential keys, authorization
+  headers, URL user info, encoded forms); the live console shows raw traffic like Java.
 
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
 as not yet available (greyed in menus; a notice when used). Not available yet: comparison and
@@ -65,7 +74,7 @@ verified yet.
 
 | Path | Contents |
 | --- | --- |
-| `crates/lizzie-core` | Platform-independent core: game record model, SGF/GIB readers, browsing, settings, the engine runtime (GTP framing, launch, analysis requests, rules) and the workbench command/view contract. No Tauri or DOM dependency. |
+| `crates/lizzie-core` | Platform-independent core: game record model, SGF/GIB readers, browsing, settings, the engine runtime (GTP framing, launch, analysis requests, rules), the credential sanitizer and the workbench command/view contract. No Tauri or DOM dependency. |
 | `src-tauri` | Desktop shell: window, file dialogs, drag and drop, engine processes, logging, diagnostics export, and the optional acceptance channel. |
 | `ui` | Web UI: menus, toolbars, canvas painters, dialogs and the Java UI strings. |
 | `fixtures` | Sample records used by tests and manual checks. |

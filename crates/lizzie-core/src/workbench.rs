@@ -85,6 +85,11 @@ pub struct Workbench {
     store: AnalysisStore,
     /// The user paused analysis (session only, like Java `userAnalysisPaused`).
     paused: bool,
+    /// The user chose this game's komi (`GameInfo.changedKomi`): engine profiles no longer set it.
+    komi_changed: bool,
+    /// A newly started foreground engine whose profile komi applies to a still empty game once
+    /// it is ready (`Leelaz.firstLoad`).
+    start_komi: Option<(InstanceId, f64)>,
     /// A limit stopped the analysis of this position (document, node).
     limit_stop: Option<(u64, NodeId)>,
     /// The limit notice was shown since the foreground engine started.
@@ -148,6 +153,8 @@ impl Workbench {
             engines,
             store,
             paused: false,
+            komi_changed: false,
+            start_komi: None,
             limit_stop: None,
             limit_tip_shown: false,
             session_rules: analysis::SessionRules::Unspecified,
@@ -292,6 +299,12 @@ impl Workbench {
                 // Loading is silent (Java turns sound off while it builds the history).
                 self.sounds.clear();
                 self.store.reset(id);
+                // A loaded record is a new analysis context: its komi is not a user choice and
+                // a user pause of the previous record ends
+                // (`startNewKifuAnalysisContextAfterSuccessfulLoad`).
+                self.komi_changed = false;
+                self.paused = false;
+                self.limit_stop = None;
                 let declared = match format {
                     RecordFormat::Sgf => self.doc.record.info.rules.clone(),
                     RecordFormat::Gib => None,

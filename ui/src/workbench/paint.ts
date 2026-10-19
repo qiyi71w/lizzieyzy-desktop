@@ -263,47 +263,29 @@ interface Preview {
   last: number | null;
 }
 
-/** VariationPreviewGenerator: simulate captures on a private board, never mutate the record. */
+/** VariationPreviewGenerator over the core's `Branch` result: each move's stone and the stones
+ *  it captures come from the view; nothing is decided here and the record is never touched. */
 function variation(scene: BoardScene, candidate: CandidateView, length: number): Preview {
   const stones = scene.stones.slice();
   const numbers = new Map<number, number>();
   const captured = new Map<number, Stone>();
-  const neighbours = (p: number) => {
-    const result: number[] = [];
-    if (p % scene.cols > 0) result.push(p - 1);
-    if (p % scene.cols < scene.cols - 1) result.push(p + 1);
-    if (p >= scene.cols) result.push(p - scene.cols);
-    if (p < stones.length - scene.cols) result.push(p + scene.cols);
-    return result;
-  };
-  const removeDead = (start: number) => {
-    const color = stones[start];
-    const group = new Set([start]);
-    let liberty = false;
-    for (const p of group) for (const q of neighbours(p)) {
-      if (!stones[q]) liberty = true;
-      else if (stones[q] === color) group.add(q);
-    }
-    if (!liberty && color) for (const p of group) {
-      captured.set(p, color);
-      stones[p] = null;
-      numbers.delete(p);
-    }
-  };
   let color = scene.toPlay;
   let last: number | null = null;
   for (let k = 0; k < Math.min(length, candidate.pv.length); k++) {
     const pt = candidate.pv[k];
     last = null;
     if (pt) {
-      if (pt.x < 0 || pt.y < 0 || pt.x >= scene.cols || pt.y >= scene.rows) break;
       const p = pt.y * scene.cols + pt.x;
-      if (stones[p]) break;
       stones[p] = color;
       captured.delete(p);
       numbers.set(p, k + 1);
-      for (const q of neighbours(p)) if (stones[q] && stones[q] !== color) removeDead(q);
-      removeDead(p);
+      for (const q of candidate.pv_captures[k] ?? []) {
+        const index = q.y * scene.cols + q.x;
+        const stone = stones[index];
+        if (stone) captured.set(index, stone);
+        stones[index] = null;
+        numbers.delete(index);
+      }
       last = p;
     }
     color = color === "Black" ? "White" : "Black";

@@ -274,13 +274,19 @@ impl Framer {
 
 // ------------------------------------------------------------------------ analysis lines
 
-/// Which analysis dialect an engine speaks (`kata-analyze` or `lz-analyze`).
+/// The engine's analysis wire format.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Dialect {
     /// KataGo: win rate and prior as fractions, score fields present.
     Kata,
     /// Leela Zero family: win rate and prior in hundredths of a percent.
     Leela,
+    /// Sai: Leela percentages and an `areas` score in ten-thousandths of a point.
+    Sai,
+    /// Sayuri: Leela percentages and a side-to-move `scoreLead`.
+    Sayuri,
+    /// Leela 0.11: stderr summary tables, with percentages already in 0–100.
+    Leela011,
 }
 
 /// One candidate move (`MoveData`). Percentages are 0–100 for the side to move.
@@ -329,7 +335,8 @@ pub fn parse_info(line: &str, dialect: Dialect, size: BoardSize) -> InfoLine {
     });
     let scale = match dialect {
         Dialect::Kata => 100.0,
-        Dialect::Leela => 0.01,
+        Dialect::Leela | Dialect::Sai | Dialect::Sayuri => 0.01,
+        Dialect::Leela011 => 1.0,
     };
     let mut candidates = Vec::new();
     for chunk in infos.split("info ").filter(|c| !c.trim().is_empty()) {
@@ -353,10 +360,12 @@ pub fn parse_info(line: &str, dialect: Dialect, size: BoardSize) -> InfoLine {
         while i + 1 < toks.len() {
             let (key, v) = (toks[i], toks[i + 1]);
             if key == "pv" {
+                // `Branch`: the variation ends at the first move that is not on the board
+                // (`resign`, a coordinate outside it).
                 c.pv = toks[i + 1..]
                     .iter()
                     .take_while(|t| !STREAM_TAGS.contains(t))
-                    .filter_map(|t| parse_vertex(size, t).ok())
+                    .map_while(|t| parse_vertex(size, t).ok())
                     .collect();
                 break;
             }
@@ -368,6 +377,7 @@ pub fn parse_info(line: &str, dialect: Dialect, size: BoardSize) -> InfoLine {
                 "winrate" => c.winrate = num().unwrap_or(0.0) * scale,
                 "scoreLead" => c.score_lead = num(),
                 "scoreMean" if c.score_lead.is_none() => c.score_lead = num(),
+                "areas" if dialect == Dialect::Sai => c.score_lead = num().map(|x| x / 10000.0),
                 "scoreStdev" => c.score_stdev = num(),
                 "prior" => c.prior = num().unwrap_or(0.0) * scale,
                 "lcb" => c.lcb = num().map(|x| x * scale),
@@ -387,6 +397,38 @@ pub fn parse_info(line: &str, dialect: Dialect, size: BoardSize) -> InfoLine {
         candidates,
         root_visits,
     }
+}
+
+/// `MoveData.fromSummaryLeela0110`: a candidate in a pondering summary table.
+/// Other diagnostic lines (including malformed candidates) are not moves.
+pub fn parse_leela011_summary(line: &str, size: BoardSize) -> Option<CandidateLine> {
+    let (coordinate, rest) = line.trim_start().split_once(" -> ")?;
+    let point = parse_vertex(size, coordinate).ok()?;
+    let (visits, rest) = rest.trim_start().split_once(" (W: ")?;
+    let visits = visits.parse().ok()?;
+    let (winrate, rest) = rest.split_once("%)")?;
+    let (_, rest) = rest.rsplit_once(" (N: ")?;
+    let (prior, pv) = rest.split_once("%) PV: ")?;
+    let pv: Vec<_> = pv
+        .split_whitespace()
+        .map_while(|v| parse_vertex(size, v).ok())
+        .collect();
+    if pv.is_empty() {
+        return None;
+    }
+    Some(CandidateLine {
+        point,
+        visits,
+        allocation_visits: visits,
+        winrate: winrate.trim().parse().ok()?,
+        score_lead: None,
+        score_stdev: None,
+        prior: prior.trim().parse().ok()?,
+        lcb: None,
+        order: 0,
+        is_symmetry: false,
+        pv,
+    })
 }
 
 #[cfg(test)]

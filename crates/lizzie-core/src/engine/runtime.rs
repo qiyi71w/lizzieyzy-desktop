@@ -53,6 +53,9 @@ pub trait Launcher: Send {
 pub enum EngineKind {
     KataGo,
     LeelaZero,
+    Sayuri,
+    Sai,
+    Leela011,
     Other,
 }
 
@@ -65,6 +68,9 @@ pub struct Target {
     pub record: Arc<GameRecord>,
     pub komi: f64,
     pub rules: Option<KataRules>,
+    /// Generation of the session rules this position is analysed under; results of another
+    /// generation are not this target's.
+    pub rules_rev: u64,
 }
 
 /// Progress of making an engine use the session rules (`SessionRulesSynchronizer`).
@@ -84,6 +90,7 @@ impl Target {
             doc: self.doc,
             node: self.node,
             komi_bits: self.komi.to_bits(),
+            rules_rev: self.rules_rev,
         }
     }
 }
@@ -93,6 +100,7 @@ struct TargetKey {
     doc: u64,
     node: NodeId,
     komi_bits: u64,
+    rules_rev: u64,
 }
 
 /// Why an engine failed, for the failure dialog and the log.
@@ -120,6 +128,7 @@ pub enum RuntimeEvent {
         doc: u64,
         node: NodeId,
         komi: f64,
+        rules_rev: u64,
         to_play: Stone,
         engine_name: String,
         line: InfoLine,
@@ -166,6 +175,10 @@ enum Purpose {
     SetRules,
     Sync,
     Analyze,
+    /// Leela 0.11 starts pondering with an ordinary, immediately answered GTP command.
+    Ponder,
+    /// Ends a pondering cycle to obtain its stderr summary, without changing its owner.
+    Probe,
     Stop,
     User,
 }
@@ -197,6 +210,7 @@ struct Instance {
     gtp_name: String,
     version: String,
     kind: EngineKind,
+    no_analyze: bool,
     commands: Vec<String>,
     next_id: u64,
     waiting: HashMap<u64, Purpose>,
@@ -210,8 +224,14 @@ struct Instance {
     stream: Option<u64>,
     /// Analysis requests by GTP id, so late lines still reach the position they were for.
     requests: VecDeque<(u64, Request)>,
+    /// One summary per Leela 0.11 pondering cycle, retained across stop/navigation: stderr
+    /// has no command ids, so its tables must be consumed in engine order, not reassigned.
+    summaries: VecDeque<(u64, Request, InfoLine)>,
+    ponder_due: Option<Instant>,
     /// A position whose sync the engine refused; not retried until the wish changes.
     rejected: Option<TargetKey>,
+    /// The position the sync commands in flight are for.
+    syncing: Option<TargetKey>,
     synced: bool,
     output_tail: VecDeque<String>,
     /// Rules the engine last reported (`kata-get-rules`).
@@ -223,13 +243,15 @@ struct Instance {
 const OUTPUT_TAIL: usize = 40;
 const REQUEST_MEMORY: usize = 16;
 const CONSOLE_LIMIT: usize = 2000;
-/// Commands that change the engine's board; the console does not pass them through because the
-/// record, not the engine, owns the position.
-const BOARD_COMMANDS: [&str; 14] = [
+const PONDER_INTERVAL: Duration = Duration::from_millis(1000);
+/// Commands that change the engine's board (`Leelaz.analysisStateMutation`, genmove forms); the
+/// console does not pass them through because the record, not the engine, owns the position.
+const BOARD_COMMANDS: [&str; 16] = [
     "play",
     "genmove",
     "lz-genmove",
     "kata-genmove",
+    "genmove_analyze",
     "lz-genmove_analyze",
     "kata-genmove_analyze",
     "undo",
@@ -239,6 +261,7 @@ const BOARD_COMMANDS: [&str; 14] = [
     "loadsgf",
     "set_position",
     "fixed_handicap",
+    "place_free_handicap",
     "set_free_handicap",
 ];
 
@@ -285,12 +308,16 @@ impl Instance {
     }
 
     fn dialect(&self) -> Option<Dialect> {
-        if self.has("kata-analyze") {
-            Some(Dialect::Kata)
-        } else if self.has("lz-analyze") {
-            Some(Dialect::Leela)
-        } else {
-            None
+        if self.no_analyze {
+            return None;
+        }
+        match self.kind {
+            EngineKind::Sayuri => Some(Dialect::Sayuri),
+            EngineKind::Sai => Some(Dialect::Sai),
+            EngineKind::Leela011 => Some(Dialect::Leela011),
+            _ if self.has("kata-analyze") => Some(Dialect::Kata),
+            _ if self.has("lz-analyze") => Some(Dialect::Leela),
+            _ => None,
         }
     }
 
@@ -405,7 +432,7 @@ impl Engines {
         })
     }
 
-    /// Whether the engine speaks an analysis command (`kata-analyze` / `lz-analyze`).
+    /// Whether the identified engine supports local analysis.
     pub fn can_analyse(&self, id: InstanceId) -> bool {
         self.get(id).is_some_and(|i| i.dialect().is_some())
     }
@@ -452,7 +479,7 @@ impl Engines {
             let ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis());
-            let _ = writeln!(t, "{ms} [{engine}] {dir} {}", super::redact(text));
+            let _ = writeln!(t, "{ms} [{engine}] {dir} {}", crate::sanitize::sanitize(text));
             let _ = t.flush();
         }
     }
@@ -496,6 +523,7 @@ impl Engines {
             gtp_name: String::new(),
             version: String::new(),
             kind: EngineKind::Other,
+            no_analyze: false,
             commands: Vec::new(),
             next_id: 1,
             waiting: HashMap::new(),
@@ -506,7 +534,10 @@ impl Engines {
             board: None,
             stream: None,
             requests: VecDeque::new(),
+            summaries: VecDeque::new(),
+            ponder_due: None,
             rejected: None,
+            syncing: None,
             synced: false,
             output_tail: VecDeque::new(),
             confirmed_rules: None,
@@ -571,7 +602,43 @@ impl Engines {
     /// a switch completes) and analyse it when `analyse`. `None` stops and leaves the board.
     pub fn want(&mut self, target: Option<Target>, analyse: bool) {
         self.wish = target.map(|t| (t, analyse));
+        if let Some(inst) = self
+            .foreground
+            .and_then(|id| self.instances.iter_mut().find(|i| i.id == id))
+        {
+            let keep_pondering = self.wish.as_ref().is_some_and(|(target, analyse)| {
+                *analyse
+                    && inst
+                        .stream
+                        .and_then(|n| inst.request(n))
+                        .is_some_and(|r| r.key == target.key())
+            });
+            if !keep_pondering {
+                inst.ponder_due = None;
+            }
+        }
         self.pump();
+    }
+
+    /// When [`tick`](Self::tick) has work next (a Leela 0.11 pondering probe), if ever.
+    pub fn next_tick(&self) -> Option<Instant> {
+        let inst = self.get(self.foreground?)?;
+        if inst.fence.is_none() && inst.stream.is_some() {
+            inst.ponder_due
+        } else {
+            None
+        }
+    }
+
+    /// Advances timed engine work without owning a thread: the platform calls this at
+    /// [`next_tick`](Self::next_tick); controlled-protocol tests supply a later instant directly.
+    pub fn tick(&mut self, now: Instant) {
+        let Some(id) = self.foreground else { return };
+        if self.next_tick().is_some_and(|due| now >= due) {
+            self.get_mut(id).unwrap().ponder_due = None;
+            self.send(id, "name", Purpose::Probe);
+            self.fence_last(id);
+        }
     }
 
     fn stop_stream(&mut self, id: InstanceId) -> bool {
@@ -618,7 +685,9 @@ impl Engines {
                     if commands.is_empty() {
                         self.get_mut(fg).unwrap().synced = true;
                     } else {
-                        self.get_mut(fg).unwrap().board = Some(board);
+                        let i = self.get_mut(fg).unwrap();
+                        i.board = Some(board);
+                        i.syncing = Some(key);
                         for c in commands {
                             self.send(fg, &c, Purpose::Sync);
                         }
@@ -633,7 +702,9 @@ impl Engines {
                                     "kata-analyze {color} {interval}{}",
                                     if root_info { " rootInfo true" } else { "" }
                                 ),
-                                Dialect::Leela => format!("lz-analyze {color} {interval}"),
+                                Dialect::Leela | Dialect::Sai => format!("lz-analyze {color} {interval}"),
+                                Dialect::Sayuri => format!("analyze {color} {interval}"),
+                                Dialect::Leela011 => "time_left b 0 0".to_string(),
                             };
                             let request = Request {
                                 key,
@@ -641,12 +712,35 @@ impl Engines {
                                 size: target.record.size,
                                 started: Instant::now(),
                             };
-                            if let Some(n) = self.send(fg, &cmd, Purpose::Analyze) {
+                            let purpose = if d == Dialect::Leela011 {
+                                Purpose::Ponder
+                            } else {
+                                Purpose::Analyze
+                            };
+                            if let Some(n) = self.send(fg, &cmd, purpose) {
                                 let i = self.get_mut(fg).unwrap();
                                 i.stream = Some(n);
                                 i.requests.push_back((n, request));
+                                if d == Dialect::Leela011 {
+                                    i.summaries.push_back((n, request, InfoLine::default()));
+                                    i.ponder_due = Some(Instant::now() + PONDER_INTERVAL);
+                                }
                                 while i.requests.len() > REQUEST_MEMORY {
                                     i.requests.pop_front();
+                                }
+                            }
+                        }
+                        (true, Some(Dialect::Leela011)) => {
+                            let i = self.get(fg).unwrap();
+                            let n = i.stream.unwrap();
+                            // A completed table starts the next cycle for the same request;
+                            // its elapsed time and position ownership do not restart.
+                            if i.ponder_due.is_none() && !i.summaries.iter().any(|(owner, _, _)| *owner == n) {
+                                let request = i.request(n).unwrap();
+                                if self.send(fg, "time_left b 0 0", Purpose::Ponder).is_some() {
+                                    let i = self.get_mut(fg).unwrap();
+                                    i.summaries.push_back((n, request, InfoLine::default()));
+                                    i.ponder_due = Some(Instant::now() + PONDER_INTERVAL);
                                 }
                             }
                         }
@@ -664,14 +758,15 @@ impl Engines {
         }
     }
 
-    /// Writes a numbered command. Any command other than an analysis request ends the analysis
-    /// stream the engine is producing.
+    /// Writes a numbered command. A non-analysis command ends the current stream, except
+    /// Leela 0.11 cycle commands, whose table retains the original request owner.
     fn send(&mut self, id: InstanceId, command: &str, purpose: Purpose) -> Option<u64> {
         let inst = self.get_mut(id)?;
         let n = inst.next_id;
         inst.next_id += 1;
-        if !matches!(purpose, Purpose::Analyze) {
+        if !matches!(purpose, Purpose::Analyze | Purpose::Ponder | Purpose::Probe) {
             inst.stream = None;
+            inst.ponder_due = None;
         }
         let line = format!("{n} {command}");
         let ok = inst.io.as_mut().is_some_and(|io| io.send(&line).is_ok());
@@ -765,6 +860,7 @@ impl Engines {
         match input {
             EngineInput::Stderr(line) => {
                 push_tail(&mut inst.output_tail, &line);
+                self.summary(id, &line, &mut events);
                 self.trace(&name, "!!", &line);
                 self.console_push(name, ConsoleKind::Error, line);
             }
@@ -797,8 +893,45 @@ impl Engines {
         events
     }
 
+    /// Leela 0.11's stderr has no GTP ids. Each `time_left` cycle owns exactly one table,
+    /// including a late table produced by the command that stopped an old position.
+    fn summary(&mut self, id: InstanceId, line: &str, events: &mut Vec<RuntimeEvent>) {
+        let Some(inst) = self.get_mut(id) else { return };
+        let Some((_, request, table)) = inst.summaries.front_mut() else {
+            return;
+        };
+        if !line.starts_with("=====") {
+            if let Some(mut candidate) = gtp::parse_leela011_summary(line, request.size) {
+                candidate.order = table.candidates.len() as u32;
+                table.candidates.push(candidate);
+            }
+            return;
+        }
+        let (owner, request, table) = inst.summaries.pop_front().unwrap();
+        if inst.stream == Some(owner) {
+            inst.ponder_due = None;
+        }
+        // Keep rejected cycles in the stderr queue until their delimiter, so their late
+        // rows cannot become the next request's table, but never publish their payload.
+        if inst.request(owner).is_none() {
+            self.pump();
+            return;
+        }
+        events.push(RuntimeEvent::Analysis {
+            instance: id,
+            doc: request.key.doc,
+            node: request.key.node,
+            komi: f64::from_bits(request.key.komi_bits),
+            rules_rev: request.key.rules_rev,
+            to_play: request.to_play,
+            engine_name: inst.display_name(),
+            line: table,
+            elapsed: request.started.elapsed(),
+        });
+        self.pump();
+    }
+
     fn frame(&mut self, id: InstanceId, frame: Frame, events: &mut Vec<RuntimeEvent>) {
-        let wish_key = self.wish.as_ref().map(|(t, _)| t.key());
         let Some(inst) = self.get_mut(id) else { return };
         match frame {
             Frame::Header { id: n } => {
@@ -817,6 +950,7 @@ impl Engines {
                     doc: request.key.doc,
                     node: request.key.node,
                     komi: f64::from_bits(request.key.komi_bits),
+                    rules_rev: request.key.rules_rev,
                     to_play: request.to_play,
                     engine_name: inst.display_name(),
                     line: gtp::parse_info(&line, dialect, request.size),
@@ -824,7 +958,7 @@ impl Engines {
                 });
             }
             Frame::Response { id: n, ok, text } => {
-                if inst.stream == Some(n) {
+                if inst.stream == Some(n) && !matches!(inst.waiting.get(&n), Some(Purpose::Ponder)) {
                     inst.stream = None;
                 }
                 match inst.waiting.remove(&n) {
@@ -835,7 +969,7 @@ impl Engines {
                             events.push(RuntimeEvent::Failed(failure));
                             return;
                         }
-                        inst.kind = classify(&text);
+                        (inst.kind, inst.no_analyze) = classify(&text);
                         inst.gtp_name = text;
                     }
                     Some(Purpose::Version) => inst.version = text,
@@ -848,10 +982,12 @@ impl Engines {
                         self.boot_setup(id);
                     }
                     Some(Purpose::Sync) if !ok => {
-                        // The engine refused part of the position: its board is unknown now and
-                        // this position is not retried until another one is wished.
+                        // The engine refused part of the position: its board is unknown now, the
+                        // analysis requested after it in the same batch is not for the position
+                        // it names, and this position is not retried until another one is wished.
                         inst.board = None;
-                        inst.rejected = wish_key;
+                        inst.rejected = inst.syncing;
+                        inst.requests.retain(|(m, _)| *m < n);
                     }
                     Some(Purpose::SetRules) if !ok => {
                         if let Some((_, outcome)) = inst.rules_request.as_mut() {
@@ -961,15 +1097,23 @@ pub fn komi_text(komi: f64) -> String {
 }
 
 /// `checkNameAndVersionForCurrentReader`.
-fn classify(name: &str) -> EngineKind {
-    let lower = name.trim().to_lowercase();
-    if lower.starts_with("kata") {
+fn classify(name: &str) -> (EngineKind, bool) {
+    let name = name.trim();
+    let lower = name.to_lowercase();
+    let kind = if lower.starts_with("kata") {
         EngineKind::KataGo
+    } else if name == "Sayuri" {
+        EngineKind::Sayuri
+    } else if lower.starts_with("sai") {
+        EngineKind::Sai
+    } else if name == "Leela" {
+        EngineKind::Leela011
     } else if (lower.starts_with("leela") && lower.contains("zero")) || lower.starts_with("pachi") {
         EngineKind::LeelaZero
     } else {
         EngineKind::Other
-    }
+    };
+    (kind, lower.starts_with("katajigo"))
 }
 
 fn color_letter(c: Stone) -> &'static str {

@@ -640,3 +640,381 @@ fn records_without_rules_use_the_engines_own() {
     assert!(!sent.iter().any(|c| c.starts_with("kata-set-rules")));
     assert!(sent.iter().any(|c| c.starts_with("kata-analyze")));
 }
+
+#[test]
+fn switching_applies_the_engine_komi_unless_the_user_chose_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    let mut b = profile("B", "/opt/b");
+    b.komi = 6.5;
+    let mut c = profile("C", "/opt/missing");
+    c.komi = 5.5;
+    wb.save_engine_settings(vec![profile("KataGo", "/opt/katago"), b, c], EngineStartup::Default)
+        .unwrap();
+    wb.start_engines();
+    let a = world.launched()[0].0;
+    answer_all(&mut wb, &world, a, KATA);
+    out(&mut wb, a, &info("Q16", 500));
+
+    // A failed start changes nothing.
+    wb.switch_engine(2).unwrap();
+    let v = wb.view(false);
+    assert!(v.engine_failure.is_some());
+    assert_eq!((v.komi, v.analysis.map(|x| x.visits)), (7.5, Some(500)));
+
+    // A new engine's komi applies to the empty game once it is ready, discarding old analysis.
+    wb.switch_engine(1).unwrap();
+    assert_eq!(wb.view(false).komi, 7.5, "not before the engine is ready");
+    let b = world.launched()[1].0;
+    answer_all(&mut wb, &world, b, KATA);
+    let v = wb.view(false);
+    assert_eq!(v.komi, 6.5);
+    assert!(v.analysis.is_none(), "analysis at komi 7.5 shown at 6.5");
+
+    // A running engine's komi applies at once.
+    wb.switch_engine(0).unwrap();
+    assert_eq!(wb.view(false).komi, 7.5);
+
+    // A komi the user chose stays.
+    wb.set_komi(0.5).unwrap();
+    wb.switch_engine(1).unwrap();
+    assert_eq!(wb.view(false).komi, 0.5);
+}
+
+#[test]
+fn an_engines_board_size_applies_to_a_new_empty_game_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    let mut nine = profile("Nine", "/opt/nine");
+    (nine.width, nine.height) = (9, 9);
+    let mut thirteen = profile("Thirteen", "/opt/thirteen");
+    (thirteen.width, thirteen.height) = (13, 13);
+    wb.save_engine_settings(vec![nine, thirteen], EngineStartup::Default)
+        .unwrap();
+    wb.start_engines();
+    let a = world.launched()[0].0;
+    let done = answer_all(&mut wb, &world, a, KATA);
+    assert_eq!(wb.view(false).document.size.width, 9);
+    assert!(
+        done.iter()
+            .filter(|c| c.starts_with("boardsize"))
+            .all(|c| c == "boardsize 9"),
+        "{done:?}"
+    );
+
+    open(&mut wb, "(;SZ[19];B[pd])");
+    wb.switch_engine(1).unwrap();
+    assert_eq!(wb.view(false).document.size.width, 19, "a record keeps its size");
+}
+
+#[test]
+fn applying_rules_discards_analysis_and_late_results_of_the_old_rules() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, a) = started(dir.path(), &world);
+    out(&mut wb, a, &info("Q16", 500));
+    wb.set_kata_rules(
+        r#"{"friendlyPassOk":true,"hasButton":false,"ko":"SIMPLE","scoring":"TERRITORY","suicide":false,"tax":"SEKI","whiteHandicapBonus":"0"}"#,
+        false,
+    )
+    .unwrap();
+    assert!(
+        wb.view(false).analysis.is_none(),
+        "analysis under the old rules still shown"
+    );
+    // A late line of the old stream, before the engine reads the new commands.
+    out(&mut wb, a, &info("Q16", 900));
+    assert!(wb.view(false).analysis.is_none(), "late result of the old rules stored");
+}
+
+#[test]
+fn console_maps_undo_to_the_record_and_refuses_engine_only_board_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, a) = started(dir.path(), &world);
+    open(&mut wb, "(;SZ[19];B[pd];W[dd])");
+    wb.navigate(Navigation::Forward(2));
+    answer_all(&mut wb, &world, a, KATA);
+    assert_eq!(wb.send_gtp("undo").unwrap(), None);
+    assert_eq!(wb.view(false).position.move_number, 1, "undo steps back in the record");
+    world.take(a);
+    assert_eq!(
+        wb.send_gtp("place_free_handicap 2").unwrap(),
+        Some("product.consoleBoardCommand")
+    );
+    assert!(world.sent(a).is_empty(), "nothing reaches the engine");
+}
+
+#[test]
+fn a_new_record_ends_the_user_pause() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, a) = started(dir.path(), &world);
+    wb.toggle_analysis().unwrap();
+    wb.navigate(Navigation::Forward(1));
+    assert!(wb.view(false).engine.paused, "browsing keeps the pause");
+    open(&mut wb, "(;SZ[19];B[pd])");
+    answer_all(&mut wb, &world, a, KATA);
+    let v = wb.view(false);
+    assert!(
+        !v.engine.paused && v.engine.analysing,
+        "a loaded record starts a new analysis context"
+    );
+}
+
+#[test]
+fn a_refused_sync_drops_the_analysis_requested_with_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, a) = started(dir.path(), &world);
+    open(&mut wb, "(;SZ[19];B[pd];W[dd])");
+    answer_all(&mut wb, &world, a, KATA);
+    wb.navigate(Navigation::Forward(2));
+    let sent = world.take(a);
+    for line in &sent {
+        let n = number(line);
+        out(&mut wb, a, "");
+        if line.contains(" play ") || line.contains(" set_position ") {
+            out(&mut wb, a, &format!("?{n} illegal move"));
+            out(&mut wb, a, "");
+        } else if line.contains("kata-analyze") {
+            out(&mut wb, a, &format!("={n}"));
+            out(&mut wb, a, &info("D4", 900));
+        } else {
+            answer(&mut wb, a, n, "");
+        }
+    }
+    let v = wb.view(false);
+    assert!(v.analysis.is_none(), "result of a failed sync shown: {sent:?}");
+    assert!(
+        v.history.iter().all(|h| h.visits == 0),
+        "result of a failed sync stored: {:?}",
+        v.history
+    );
+}
+
+#[test]
+fn variations_carry_the_captures_of_each_move() {
+    use lizzie_core::record::Point;
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, a) = started(dir.path(), &world);
+    // White A19 in the corner, Black B19 beside it, Black to play.
+    open(&mut wb, "(;SZ[19]PL[B]AB[ba]AW[aa])");
+    answer_all(&mut wb, &world, a, KATA);
+    // Black A18 captures A19; then white plays the emptied A19 back (no further capture), then a
+    // move off the board ends the variation.
+    out(
+        &mut wb,
+        a,
+        "info move A18 visits 30 winrate 0.6 prior 0.2 order 0 pv A18 pass A19 Z99 C3 rootInfo visits 30",
+    );
+    let v = wb.view(false);
+    let c = &v.analysis.unwrap().candidates[0];
+    assert_eq!(c.pv, [Some(Point { x: 0, y: 1 }), None, Some(Point { x: 0, y: 0 })]);
+    assert_eq!(c.pv_captures, [vec![Point { x: 0, y: 0 }], vec![], vec![]]);
+}
+
+#[test]
+fn engine_output_reaches_logs_and_the_failure_report_without_credentials() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    wb.save_engine_settings(vec![profile("A", "/opt/a")], EngineStartup::Default)
+        .unwrap();
+    wb.start_engines();
+    let a = world.launched()[0].0;
+    wb.engine_input(a, EngineInput::Stderr("connecting with password=CANARY_SECRET".into()));
+    wb.engine_input(a, EngineInput::Exited(Some(1)));
+    let v = wb.view(false);
+    let logs: Vec<String> = wb.take_logs().into_iter().map(|l| l.text).collect();
+    assert!(!logs.iter().any(|l| l.contains("CANARY_SECRET")), "{logs:?}");
+    assert!(!v
+        .engine_failure
+        .unwrap()
+        .output
+        .iter()
+        .any(|l| l.contains("CANARY_SECRET")));
+}
+
+/// Answers a named family's protocol without assuming KataGo's identity or streaming commands.
+fn answer_family(wb: &mut Workbench, world: &World, id: InstanceId, name: &str, commands: &str) -> Vec<String> {
+    let mut done = Vec::new();
+    loop {
+        let pending = world.take(id);
+        if pending.is_empty() {
+            return done;
+        }
+        for line in pending {
+            out(wb, id, "");
+            let n = number(&line);
+            let cmd = line.split_once(' ').unwrap().1;
+            match cmd.split_whitespace().next().unwrap() {
+                "name" => answer(wb, id, n, name),
+                "version" => answer(wb, id, n, "0.11"),
+                "list_commands" => answer(wb, id, n, commands),
+                "analyze" | "lz-analyze" | "kata-analyze" => out(wb, id, &format!("={n}")),
+                _ => answer(wb, id, n, ""),
+            }
+            done.push(cmd.to_string());
+        }
+    }
+}
+
+fn start_family(
+    dir: &std::path::Path,
+    world: &World,
+    name: &str,
+    commands: &str,
+) -> (Workbench, InstanceId, Vec<String>) {
+    let mut wb = workbench(dir, world);
+    wb.save_engine_settings(vec![profile(name, "/opt/engine")], EngineStartup::Default)
+        .unwrap();
+    wb.start_engines();
+    let id = world.launched()[0].0;
+    let sent = answer_family(&mut wb, world, id, name, commands);
+    (wb, id, sent)
+}
+
+#[test]
+fn sayuri_uses_analyze_and_preserves_side_to_move_score() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id, sent) = start_family(dir.path(), &world, "Sayuri", "name\nversion\nlist_commands\nanalyze");
+    assert!(sent.iter().any(|s| s == "analyze B 10"), "{sent:?}");
+    let node = wb.view(false).position.node;
+    out(
+        &mut wb,
+        id,
+        "info move Q16 visits 120 winrate 6000 scoreLead 2.5 prior 1230 lcb 5800 pv Q16 D4",
+    );
+    let result = wb.view(false).analysis.unwrap();
+    assert_eq!(result.node, node);
+    assert_eq!(result.winrate, 60.0);
+    assert_eq!(result.score_lead, Some(2.5));
+    assert_eq!(result.candidates[0].lcb, Some(58.0));
+    wb.toggle_analysis().unwrap();
+    assert!(world.take(id).iter().any(|s| s.ends_with(" name")));
+}
+
+#[test]
+fn sai_areas_is_a_side_to_move_score_for_either_color() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let commands = "name\nversion\nlist_commands\nlz-analyze";
+    let (mut wb, id, sent) = start_family(dir.path(), &world, "sAi 0.18", commands);
+    assert!(sent.iter().any(|s| s == "lz-analyze B 10"));
+    out(
+        &mut wb,
+        id,
+        "info move Q16 visits 100 winrate 6000 areas 25000 prior 1230 pv Q16 D4",
+    );
+    assert_eq!(wb.view(false).analysis.unwrap().score_lead, Some(2.5));
+    open(&mut wb, "(;SZ[19]PL[W])");
+    let sent = answer_family(&mut wb, &world, id, "sAi 0.18", commands);
+    assert!(sent.iter().any(|s| s == "lz-analyze W 10"));
+    out(
+        &mut wb,
+        id,
+        "info move Q16 visits 100 winrate 6000 areas 25000 prior 1230 pv Q16 D4",
+    );
+    assert_eq!(wb.view(false).analysis.unwrap().score_lead, Some(2.5));
+}
+
+const LEELA011_ROW: &str = " Q16 ->    1234 (W: 55.20%) (U: 0.0%) (V: 50.0%:  ...) (N: 12.3%) PV: Q16 D4";
+
+fn leela011_table(wb: &mut Workbench, id: InstanceId) {
+    wb.engine_input(id, EngineInput::Stderr(LEELA011_ROW.into()));
+    wb.engine_input(id, EngineInput::Stderr("===== summary complete".into()));
+}
+
+#[test]
+fn leela011_probes_collects_tables_and_pause_cancels_probes() {
+    use lizzie_core::record::Point;
+    use std::time::{Duration, Instant};
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let commands = "name\nversion\nlist_commands\ntime_left";
+    let (mut wb, id, sent) = start_family(dir.path(), &world, "Leela", commands);
+    assert_eq!(sent.iter().filter(|s| *s == "time_left b 0 0").count(), 1);
+    let node = wb.view(false).position.node;
+    let now = Instant::now();
+    wb.engine_tick(now);
+    assert!(world.take(id).is_empty(), "no probe before the interval");
+    wb.engine_tick(now + Duration::from_millis(1001));
+    let probe = world.take(id);
+    assert_eq!(probe.len(), 1);
+    assert!(probe[0].ends_with(" name"));
+    wb.engine_tick(now + Duration::from_secs(3));
+    assert!(world.take(id).is_empty(), "one probe in flight");
+    // A response and stderr can arrive in either order. No new cycle before the table.
+    answer(&mut wb, id, number(&probe[0]), "Leela");
+    assert!(world.take(id).is_empty());
+    wb.engine_input(id, EngineInput::Stderr("not a summary move".into()));
+    assert!(wb.view(false).analysis.is_none());
+    leela011_table(&mut wb, id);
+    let result = wb.view(false).analysis.unwrap();
+    assert_eq!(result.node, node);
+    let c = &result.candidates[0];
+    assert_eq!(c.point, Some(Point { x: 15, y: 3 }));
+    assert_eq!(c.visits, 1234);
+    assert_eq!(c.winrate, 55.2);
+    assert_eq!(c.prior, 12.3);
+    assert_eq!(c.pv, [Some(Point { x: 15, y: 3 }), Some(Point { x: 3, y: 15 })]);
+    let next = answer_family(&mut wb, &world, id, "Leela", commands);
+    assert_eq!(next, ["time_left b 0 0"]);
+    wb.engine_tick(Instant::now() + Duration::from_secs(2));
+    let probe = world.take(id);
+    assert_eq!(probe.len(), 1, "a second cycle also gets a timed probe");
+    // Pausing during an unanswered probe must not arm another one when it is answered.
+    wb.toggle_analysis().unwrap();
+    answer(&mut wb, id, number(&probe[0]), "Leela");
+    let stopped = answer_family(&mut wb, &world, id, "Leela", commands);
+    assert_eq!(stopped, ["name"]);
+    leela011_table(&mut wb, id);
+    wb.engine_tick(Instant::now() + Duration::from_secs(10));
+    assert!(world.take(id).is_empty());
+    assert!(!wb.view(false).engine.analysing);
+}
+
+#[test]
+fn leela011_late_stderr_table_never_moves_to_a_new_position() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let commands = "name\nversion\nlist_commands\ntime_left";
+    let (mut wb, id, _) = start_family(dir.path(), &world, "Leela", commands);
+    open(&mut wb, "(;SZ[19];B[dd])");
+    answer_family(&mut wb, &world, id, "Leela", commands);
+    leela011_table(&mut wb, id); // late summary for the now-closed document
+    assert!(wb.view(false).analysis.is_none());
+    leela011_table(&mut wb, id); // the new document's own summary
+    let v = wb.view(false);
+    assert_eq!(v.analysis.unwrap().node, v.position.node);
+    answer_family(&mut wb, &world, id, "Leela", commands);
+    wb.navigate(Navigation::Forward(1));
+    answer_family(&mut wb, &world, id, "Leela", commands);
+    leela011_table(&mut wb, id); // root's late table stays root history
+    assert!(wb.view(false).analysis.is_none());
+    leela011_table(&mut wb, id);
+    let v = wb.view(false);
+    assert_eq!(v.position.move_number, 1);
+    assert_eq!(v.analysis.unwrap().node, v.position.node);
+}
+
+#[test]
+fn katajigo_is_katago_but_does_not_analyse() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, _, sent) = start_family(
+        dir.path(),
+        &world,
+        "Katajigo",
+        "name\nversion\nlist_commands\nkata-analyze",
+    );
+    assert!(!sent.iter().any(|s| s.starts_with("kata-analyze")));
+    let engine = wb.view(false).engine.foreground.unwrap();
+    assert!(engine.katago);
+    assert!(!engine.can_analyse);
+}

@@ -610,7 +610,7 @@ function renderTable() {
     if (nextData && nextData.visits > 0) data.unshift({ actual: true, candidate: {
       point: next, order: -100, visits: nextData.visits, allocation_visits: nextData.visits,
       winrate: 100 - nextData.winrate, score_lead: nextData.score_lead === null ? null : -nextData.score_lead,
-      score_stdev: null, prior: 0, lcb: null, pv: [],
+      score_stdev: null, prior: 0, lcb: null, pv: [], pv_captures: [],
     } });
   }
   const shown = data.slice(0, 20), best = candidates[0];
