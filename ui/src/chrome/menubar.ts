@@ -23,9 +23,10 @@ function visible(when: string | undefined): boolean {
   }
 }
 
+/** Java resource text; `product.*` entries are this product's own items. */
 function label(node: { key: string; suffix?: string }): string {
   const suffix = node.suffix?.replace("{sp}", isChinese() ? "" : " ") ?? "";
-  return t(node.key) + suffix;
+  return (node.key.startsWith("product.") ? product(node.key.slice("product.".length)) : t(node.key)) + suffix;
 }
 
 let openMenu: HTMLElement | null = null;

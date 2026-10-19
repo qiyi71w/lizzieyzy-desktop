@@ -26,7 +26,8 @@ fn generate() -> String {
         OpenOutcome, SaveOutcome, PendingOpen, EngineSettingsView, SettingsView, StoneSound,
         EngineState, EngineEntryView, ForegroundEngineView, EngineView, CandidateView, NodeAnalysisView,
         HistoryPoint, EngineFailureView, EngineNotice, ConsoleLineKind, ConsoleLineView, RulesPromptView,
-        WorkbenchView, LogsStatus,
+        WorkbenchView, LogsStatus, JavaImportView, ImportStatus, ImportReason, ImportTarget, ImportItemView,
+        EngineProblem, ImportEngineView, ImportPreviewView, ImportReportView, ImportFailure,
     ];
     let mut out = String::from(
         "// Generated from crates/lizzie-core (api, record, browse, settings). Do not edit.\n\

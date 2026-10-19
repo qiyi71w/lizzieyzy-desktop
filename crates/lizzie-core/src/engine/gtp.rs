@@ -59,7 +59,7 @@ pub fn split_command(line: &str) -> Vec<String> {
 }
 
 /// Options whose value is a file path (`CommandLaunchHelper.FILE_PATH_OPTIONS`).
-const FILE_PATH_OPTIONS: [&str; 12] = [
+pub(crate) const FILE_PATH_OPTIONS: [&str; 12] = [
     "-model",
     "--model",
     "-config",

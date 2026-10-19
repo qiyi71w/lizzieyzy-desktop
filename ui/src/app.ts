@@ -95,6 +95,8 @@ export function run(command: Command): Promise<CommandResult | null> {
           "SetKataRules.notKataGoHint": t("SetKataRules.notKataGoHint"),
           "LizzieFrame.setParamNoEngineHint": t("LizzieFrame.setParamNoEngineHint"),
           "product.consoleBoardCommand": product("consoleBoardCommand"),
+          "product.importStale": product("importStale"),
+          "product.importNeedsReplace": product("importNeedsReplace"),
         };
         const text = messages[result.message_key] ?? t(result.message_key);
         void message(t("Message.title"), text, "warning");

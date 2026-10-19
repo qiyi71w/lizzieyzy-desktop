@@ -140,6 +140,28 @@ pub enum Command {
         prompt: u64,
         accept: bool,
     },
+    /// Java import: the system folder chooser for the Java configuration folder (the one holding
+    /// `config.txt`) or, with `program`, the Java program folder. Answers `FolderChosen`.
+    ChooseJavaFolder {
+        program: bool,
+    },
+    /// Java import: read the Java configuration in `config_dir` (or a `config.txt` path) without
+    /// changing anything; relative engine paths are also looked up under `program_dir`. Answers
+    /// `JavaImportPreview` or `JavaImportFailed`. A new preview replaces the previous one.
+    PreviewJavaImport {
+        config_dir: String,
+        program_dir: Option<String>,
+    },
+    /// Java import: commit preview `preview`. `copy_credentials` lists the Java engine indexes whose
+    /// credentials the user agreed to copy (other engines with credentials are left out);
+    /// `replace` confirms replacing the settings listed in the preview's `replaces`.
+    ApplyJavaImport {
+        preview: u64,
+        copy_credentials: Vec<u32>,
+        replace: bool,
+    },
+    /// The first-use import offer was declined; it is not shown again.
+    DismissJavaImportOffer,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
@@ -174,6 +196,14 @@ pub enum CommandResult {
     /// then send `SaveRecordTo` with this path. The system chooser itself confirms replacing the
     /// file the user picked.
     NeedsOverwriteConfirmation { path: String },
+    /// A folder was chosen ([`Command::ChooseJavaFolder`]).
+    FolderChosen { path: String },
+    /// What an import would do; nothing has changed yet.
+    JavaImportPreview { preview: ImportPreviewView },
+    /// The Java configuration could not be read; nothing has changed.
+    JavaImportFailed { failure: ImportFailure },
+    /// The import was written and applied.
+    JavaImported { report: ImportReportView },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -389,6 +419,158 @@ pub struct WorkbenchView {
     /// The session rules could not be applied to the foreground engine; ask whether to analyse
     /// with the engine's current rules (`KifuRules.failurePrompt`), once.
     pub rules_prompt: Option<RulesPromptView>,
+    pub java_import: JavaImportView,
+}
+
+/// Java import availability.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct JavaImportView {
+    /// First use (this product has no settings file yet): offer the import.
+    pub offer: bool,
+    /// Java configuration folders found in Java's conventional per-user / shared locations.
+    pub candidates: Vec<String>,
+}
+
+/// What happens to one Java setting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum ImportStatus {
+    /// Taken over into this product's settings.
+    Imported,
+    /// Present, but its value cannot be used here.
+    Incompatible,
+    /// Left out: its feature is not in this product yet, or it needs a confirmation not given.
+    NotMigrated,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum ImportReason {
+    /// The feature it belongs to is not available in this product yet.
+    NotYetAvailable,
+    /// It holds credentials; its value is not read.
+    Credential,
+    /// The value has a type or range Java would not use either.
+    InvalidValue,
+    /// Java window coordinates use Java's own scaling and layout, not this window's.
+    WindowCoordinates,
+    /// A remote (SSH) engine; remote engines are not available yet.
+    RemoteEngine,
+    /// The engine command holds credentials and copying them was not confirmed.
+    CredentialNotConfirmed,
+    /// The file could not be read as Java writes it.
+    Unreadable,
+}
+
+/// One Java setting in the import preview / report. Credential values are never included.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct ImportItemView {
+    /// Java location: `config.txt` section and key (`ui.read-komi`), `persist` key
+    /// (`persist:filesystem.last-folder`) or a file in the Java folder (`file:save`).
+    pub key: String,
+    pub status: ImportStatus,
+    /// This product's setting it maps to.
+    pub target: Option<ImportTarget>,
+    /// The value taken over, for imported settings; the rejected value for incompatible ones.
+    pub value: Option<String>,
+    pub reason: Option<ImportReason>,
+    pub detail: Option<String>,
+    pub credential: bool,
+}
+
+/// This product's settings that can be imported from Java.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, TS)]
+pub enum ImportTarget {
+    ReadKomi,
+    LoadSgfLast,
+    ReplaceFileHint,
+    Language,
+    PlaySound,
+    RecentFiles,
+    LastFolder,
+    Engines,
+    EngineStartup,
+    LastEngine,
+    AnalysisInterval,
+    LimitTime,
+    MaxAnalyzeTime,
+    LimitPlayout,
+    LimitPlayouts,
+    LimitMaxSuggestion,
+    LimitBranchLength,
+    FastEngineChange,
+    PonderLimitTips,
+    KataRules,
+    AutoLoadKataRules,
+}
+
+/// A problem found with an imported engine without starting it.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum EngineProblem {
+    /// The program was found neither at its path, under the Java folders, nor on `PATH`.
+    ProgramNotFound {
+        path: String,
+    },
+    /// A `-model` / `-config` / … file does not exist.
+    FileNotFound {
+        option: String,
+        path: String,
+    },
+    EmptyCommand,
+    /// A field Java would not use (`width`, `height`, `komi`); this product's default is used.
+    InvalidValue {
+        field: String,
+    },
+}
+
+/// One Java engine entry (`leelaz.engine-settings-list`).
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct ImportEngineView {
+    /// Position in the Java engine list.
+    pub index: u32,
+    pub name: String,
+    /// The command as it will be used (Java-relative paths resolved), credentials masked.
+    pub command: String,
+    pub status: ImportStatus,
+    pub reason: Option<ImportReason>,
+    /// The command or initial commands hold credentials: imported only when confirmed.
+    pub credential: bool,
+    pub is_default: bool,
+    pub problems: Vec<EngineProblem>,
+    /// Java fields of this entry this product does not use yet (thread policy, GTP profile, …).
+    pub unmigrated_fields: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct ImportPreviewView {
+    /// Answer with [`Command::ApplyJavaImport`].
+    pub id: u64,
+    pub config_file: String,
+    pub persist_file: Option<String>,
+    pub program_dir: Option<String>,
+    pub items: Vec<ImportItemView>,
+    pub engines: Vec<ImportEngineView>,
+    /// Settings already chosen in this product that the import would replace.
+    pub replaces: Vec<ImportTarget>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct ImportReportView {
+    pub config_file: String,
+    pub items: Vec<ImportItemView>,
+    pub engines: Vec<ImportEngineView>,
+    /// The imported language applies after a restart.
+    pub restart_required: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum ImportFailure {
+    /// No `config.txt` in the chosen folder.
+    NoConfig { path: String },
+    /// `config.txt` could not be read.
+    Unreadable { path: String, detail: String },
+    /// `config.txt` is not a JSON object (line and column in `detail`).
+    Invalid { path: String, detail: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]

@@ -1667,6 +1667,13 @@ export const JAVA_MENUS: TopMenu[] = [
    {
     "t": "sep"
    },
+   // Product entry (no Java counterpart): import of LizzieYzy Next settings, next to the other
+   // user-data operation of this menu.
+   {
+    "t": "item",
+    "key": "product.javaImport",
+    "id": "product.javaImport"
+   },
    {
     "t": "item",
     "key": "Menu.clearAllPersonalData",

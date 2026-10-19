@@ -12,6 +12,7 @@ import { onUnavailable, onView, snapshot } from "./contract/client";
 import type { CandidateView, HistoryPoint, Navigation, WorkbenchView } from "./contract/generated";
 import { dialogOpen, message } from "./dialogs";
 import { isChinese, product, setLanguage, t } from "./i18n";
+import { openJavaImport } from "./javaImport";
 import { boardGeom, graphGeom, inFrameLayout, type Panels, type Rect } from "./workbench/layout";
 import { handleEngineKey } from "./engine/keys";
 import {
@@ -747,6 +748,8 @@ async function boot() {
   await getCurrentWindow().show();
   await getCurrentWindow().setFocus();
   schedule();
+  // First use (no settings of this product yet): offer the LizzieYzy Next import.
+  if (first.java_import.offer) void openJavaImport(true);
 }
 
 // A start-up failure must not leave the hidden window invisible forever.

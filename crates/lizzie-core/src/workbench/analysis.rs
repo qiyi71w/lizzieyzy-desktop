@@ -164,7 +164,7 @@ impl Workbench {
         std::mem::take(&mut self.logs)
     }
 
-    fn log(&mut self, warn: bool, text: String) {
+    pub(super) fn log(&mut self, warn: bool, text: String) {
         self.logs.push(LogLine { warn, text });
     }
 
@@ -574,17 +574,24 @@ impl Workbench {
         if self.config.engine.analysis == settings {
             return Ok(false);
         }
-        let refill = settings.limit_branch_length != self.config.engine.analysis.limit_branch_length;
-        self.commit_config(|c| c.engine.analysis = settings.clone())?;
+        let previous = self.config.engine.analysis.clone();
+        self.commit_config(|c| c.engine.analysis = settings)?;
+        self.analysis_settings_changed(&previous);
+        Ok(true)
+    }
+
+    /// Puts committed analysis settings into effect: the engine update interval and, for a new
+    /// variation length, the previews of stored analysis.
+    pub(super) fn analysis_settings_changed(&mut self, previous: &AnalysisSettings) {
+        let settings = &self.config.engine.analysis;
         self.engines.set_interval(settings.interval_centisec);
-        if refill {
-            // Previews of stored analysis follow the new variation length.
+        if settings.limit_branch_length != previous.limit_branch_length {
+            let length = settings.limit_branch_length;
             let record = self.doc.record.clone();
             for (node, result) in self.store.nodes.iter_mut() {
-                fill_pv_captures(result, &record.position(*node), settings.limit_branch_length);
+                fill_pv_captures(result, &record.position(*node), length);
             }
         }
-        Ok(true)
     }
 
     /// Engine settings saved (MoreEngines close). New entries get ids, one default at most.

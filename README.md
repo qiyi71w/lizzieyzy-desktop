@@ -4,12 +4,13 @@ A desktop Go (weiqi) review workbench being migrated from the Java
 [LizzieYzy Next](https://github.com/wimi321/lizzieyzy-next) (reference commit
 `cb53acc55eda42c6c671b5f668cd3b597456bf07`) to Tauri 2 + Rust + TypeScript. The Java program's
 behaviour, defaults and workbench layout are the reference; this client keeps its own identity
-and data directory and never reads or writes the Java configuration.
+and data directory. It only reads the Java configuration, and only when the user imports it.
 
 ## Current state
 
-Implemented: opening, browsing and saving records, and analysis with one local GTP engine
-(KataGo, Leela Zero, Sayuri, Sai or Leela 0.11, recognised by their GTP name like Java).
+Implemented: opening, browsing and saving records, analysis with one local GTP engine (KataGo,
+Leela Zero, Sayuri, Sai or Leela 0.11, recognised by their GTP name like Java), and importing
+the matching LizzieYzy Next settings.
 
 - Open SGF and GIB files with the File menu, the toolbar button, `O`, a dropped file, a command
   line argument, or File > recent records. Paste an SGF record with `Ctrl+V` (it asks before
@@ -76,6 +77,24 @@ Implemented: opening, browsing and saving records, and analysis with one local G
 - Logs, the engine trace, failure details and exported diagnostics pass through a port of
   Java's credential sanitizer (`--password …`, `token=…`, JSON credential keys, authorization
   headers, URL user info, encoded forms); the live console shows raw traffic like Java.
+- Importing LizzieYzy Next settings: offered at the first start (no settings of this client
+  yet) and in Help > 从 LizzieYzy Next 导入设置…. Choose the Java settings folder (the one with
+  `config.txt`; Java's per-user folders such as `~/.lizzieyzy-next` and, on Windows, the shared
+  `LizzieYzyNext` folders are suggested when they exist). A preview lists every Java setting as
+  imported, not usable here (invalid values; Java window positions) or left out (features not in
+  this client yet, accounts and credentials), with the engine list. Imported: record settings
+  (load komi, go to last move, replace prompt), language, stone sounds, recent records, last
+  folder, the engine list with its default and start-up choice, analysis limits and interval,
+  fast engine change, limit notice and KataGo rules. Engines keep using the Java engine and
+  model files: paths relative to the Java folder are made absolute (an optional Java program
+  folder is searched too), and missing programs or `-model`/`-config` files are listed without
+  starting anything. Remote (SSH) engines are left out; an engine whose command holds a
+  credential is imported only after ticking "复制凭据", and credential values never appear in the
+  preview, report or logs. Settings already changed in this client are replaced only after
+  confirming. Importing writes this client's `config.json` and `persist.json` together (a failed
+  write leaves both unchanged), restarts the engines with the imported choice, and shows the
+  report; the language applies after a restart. Java's files are never written, so both programs
+  can be used side by side.
 
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
 as not yet available (greyed in menus; a notice when used). Not available yet: comparison and
@@ -90,7 +109,7 @@ verified yet.
 
 | Path | Contents |
 | --- | --- |
-| `crates/lizzie-core` | Platform-independent core: game record model, SGF/GIB readers, browsing, settings, the engine runtime (GTP framing, launch, analysis requests, rules), the credential sanitizer and the workbench command/view contract. No Tauri or DOM dependency. |
+| `crates/lizzie-core` | Platform-independent core: game record model, SGF/GIB readers and SGF writer, browsing, settings, the LizzieYzy Next settings reader (`java_import`), the engine runtime (GTP framing, launch, analysis requests, rules), the credential sanitizer and the workbench command/view contract. No Tauri or DOM dependency. |
 | `src-tauri` | Desktop shell: window, file dialogs, drag and drop, engine processes, logging, diagnostics export, and the optional acceptance channel. |
 | `ui` | Web UI: menus, toolbars, canvas painters, dialogs and the Java UI strings. |
 | `fixtures` | Sample records used by tests and manual checks. |
@@ -151,7 +170,10 @@ Settings (`config.json`, `persist.json`) live in the platform configuration dire
 identifier `io.github.qiyi71w.lizzieyzy-tauri`; logs (`logs/app.log`, `logs/crash.log`) live in
 the platform data directory for the same identifier. On Linux these are
 `~/.config/io.github.qiyi71w.lizzieyzy-tauri/` and
-`~/.local/share/io.github.qiyi71w.lizzieyzy-tauri/logs/`.
+`~/.local/share/io.github.qiyi71w.lizzieyzy-tauri/logs/`. LizzieYzy Next keeps its own
+`config.txt` and `persist` elsewhere (for example `~/.lizzieyzy-next/`); this client never writes
+there. The first start is detected by the missing `config.json`; declining the import offer
+writes it.
 
 ## License
 

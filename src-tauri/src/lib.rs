@@ -17,6 +17,7 @@ use lizzie_core::api::{
 };
 use lizzie_core::engine::process::{ProcessLauncher, ProcessWaiter};
 use lizzie_core::formats;
+use lizzie_core::java_import::{self, JavaSource};
 use lizzie_core::settings::{Storage, WindowPlacement};
 use lizzie_core::workbench::{OpenOrigin, PasteDecision, SaveJob, SavePlan, Workbench};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, RunEvent, WindowEvent};
@@ -461,6 +462,97 @@ pub async fn dispatch(app: AppHandle, shared: State, command: Command) -> Result
             let done = shared.workbench.lock().unwrap().answer_rules_prompt(prompt, accept);
             Ok(changed(&app, &shared, done))
         }
+        Command::ChooseJavaFolder { program } => {
+            let dialog = app.dialog().clone();
+            let picked = tauri::async_runtime::spawn_blocking(move || {
+                let builder = dialog.file();
+                let builder = if program {
+                    builder
+                } else {
+                    // Start where Java keeps its settings when one of those folders exists.
+                    match java_locations().into_iter().find(|d| d.is_dir()) {
+                        Some(dir) => builder.set_directory(dir),
+                        None => builder,
+                    }
+                };
+                builder.blocking_pick_folder()
+            })
+            .await
+            .map_err(|e| ApiError::new(ErrorKind::Unavailable, e.to_string()))?;
+            Ok(match picked.and_then(|p| p.into_path().ok()) {
+                Some(path) => CommandResult::FolderChosen {
+                    path: path.to_string_lossy().into_owned(),
+                },
+                None => CommandResult::Unchanged,
+            })
+        }
+        Command::PreviewJavaImport {
+            config_dir,
+            program_dir,
+        } => {
+            let source = JavaSource::new(
+                std::path::Path::new(&config_dir),
+                program_dir.as_deref().map(std::path::Path::new),
+            );
+            // Reading stays off the workbench lock and the UI thread.
+            let read = tauri::async_runtime::spawn_blocking(move || java_import::read(&source))
+                .await
+                .map_err(|e| ApiError::new(ErrorKind::Unavailable, e.to_string()))?;
+            match read {
+                Ok(candidate) => {
+                    let preview = shared.workbench.lock().unwrap().preview_java_import(candidate);
+                    Ok(CommandResult::JavaImportPreview { preview })
+                }
+                Err(failure) => {
+                    shared.log.warn(&format!("java import: cannot read {failure:?}"));
+                    Ok(CommandResult::JavaImportFailed { failure })
+                }
+            }
+        }
+        Command::ApplyJavaImport {
+            preview,
+            copy_credentials,
+            replace,
+        } => {
+            let result = shared
+                .workbench
+                .lock()
+                .unwrap()
+                .apply_java_import(preview, &copy_credentials, replace);
+            let result = match result {
+                Ok(r) => r,
+                Err(e) => {
+                    shared.log.warn(&format!("java import failed: {}", e.message));
+                    return Err(e);
+                }
+            };
+            publish(&app, &shared);
+            Ok(match result {
+                Ok(report) => CommandResult::JavaImported { report },
+                Err(key) => CommandResult::Refused {
+                    message_key: key.to_string(),
+                },
+            })
+        }
+        Command::DismissJavaImportOffer => {
+            let done = shared.workbench.lock().unwrap().dismiss_java_import_offer()?;
+            Ok(changed(&app, &shared, done))
+        }
+    }
+}
+
+/// Java's conventional work directories on this system (`WorkDirectoryResolver`; `user.home` is
+/// `HOME`, on Windows `USERPROFILE`).
+fn java_locations() -> Vec<PathBuf> {
+    let var = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if cfg!(windows) {
+        java_import::conventional_dirs(
+            var("USERPROFILE").as_deref(),
+            var("PUBLIC").as_deref(),
+            var("PROGRAMDATA").as_deref(),
+        )
+    } else {
+        java_import::conventional_dirs(var("HOME").as_deref(), None, None)
     }
 }
 
@@ -558,7 +650,8 @@ pub fn run() {
                 }
             }));
             let processes = launcher.waiter();
-            let workbench = Workbench::new(storage, locale.as_deref(), Box::new(launcher), engine_roots());
+            let mut workbench = Workbench::new(storage, locale.as_deref(), Box::new(launcher), engine_roots());
+            workbench.set_java_import_locations(java_locations());
             let placement = workbench.persisted().window;
             let shared: State = Arc::new(Shared {
                 workbench: Mutex::new(workbench),

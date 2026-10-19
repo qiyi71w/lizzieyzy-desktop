@@ -2,7 +2,7 @@
 //!
 //! The product keeps its own files in its own per-user directory (resolved by the platform
 //! adapter from the application identifier). Java's `config.txt` / `persist` are never read or
-//! written here; importing them is a separate, explicit operation.
+//! written here; the explicit import ([`crate::java_import`]) only reads them.
 //!
 //! - `config.json` (Java `config.txt` role): domain settings and the recent-record list.
 //! - `persist.json` (Java `persist` role): window placement and the last opened folder. "重置界面
@@ -163,10 +163,36 @@ pub fn load_json<T: Default + for<'de> Deserialize<'de>>(path: &Path) -> T {
 
 /// Writes through a temporary file and rename so a crash never leaves a partial file.
 pub fn save_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
+    write_atomic(path, &serde_json::to_vec_pretty(value)?)
+}
+
+/// Replaces `path` with `bytes` through a temporary file and rename; on failure the temporary
+/// file is removed and `path` is unchanged.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(value)?)?;
-    std::fs::rename(&tmp, path)
+    let result = std::fs::write(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, path));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
+/// Writes `config` and, if given, `persisted` as one change: when the second write fails, the
+/// first file is put back as it was (or removed if it did not exist).
+pub fn save_both(storage: &Storage, config: &Config, persisted: Option<&Persisted>) -> std::io::Result<()> {
+    let previous = std::fs::read(&storage.config_file).ok();
+    save_json(&storage.config_file, config)?;
+    if let Some(p) = persisted {
+        if let Err(e) = save_json(&storage.persist_file, p) {
+            let _ = match previous {
+                Some(bytes) => write_atomic(&storage.config_file, &bytes),
+                None => std::fs::remove_file(&storage.config_file),
+            };
+            return Err(e);
+        }
+    }
+    Ok(())
 }

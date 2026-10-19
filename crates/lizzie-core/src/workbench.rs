@@ -1,6 +1,6 @@
-//! Application flow for browsing and saving (应用流程): the open document, the browsing
-//! position, open and save requests in flight, committed settings and the application data they
-//! produce.
+//! Application flow (应用流程): the open document, the browsing position, open and save requests
+//! in flight, engines and analysis ([`analysis`]), committed settings, the Java settings import
+//! ([`importing`]) and the application data they produce.
 //!
 //! This is the only writer of that state. Platform adapters run file reading and writing off the
 //! UI thread and hand the result back with the ticket they were given; a read whose ticket is no
@@ -14,11 +14,14 @@
 //! serial writer, like Java `SgfSaveQueue`).
 
 mod analysis;
+mod importing;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use analysis::AnalysisStore;
 pub use analysis::LogLine;
+pub use importing::{IMPORT_NEEDS_REPLACE, IMPORT_STALE};
 
 use crate::api::{
     ApiError, DocumentView, EngineFailureView, EngineNotice, ErrorKind, LastAction, LogsStatus, OpenOutcome,
@@ -168,6 +171,13 @@ pub struct Workbench {
     engine_failure: Option<EngineFailureView>,
     engine_notice: Option<EngineNotice>,
     logs: Vec<LogLine>,
+    /// No settings file existed at start (Java `isNewProfile`): the Java import is offered.
+    new_profile: bool,
+    /// Java configuration folders found in Java's conventional locations.
+    java_candidates: Vec<String>,
+    /// The Java import the user is looking at, by preview id.
+    java_preview: Option<(u64, crate::java_import::Candidate)>,
+    next_preview: u64,
 }
 
 impl Workbench {
@@ -181,6 +191,7 @@ impl Workbench {
         launcher: Box<dyn Launcher>,
         engine_roots: Vec<PathBuf>,
     ) -> Workbench {
+        let new_profile = !storage.config_file.exists();
         let config: Config = settings::load_json(&storage.config_file);
         let persisted: Persisted = settings::load_json(&storage.persist_file);
         let active_language = config.ui.language.resolve(system_locale);
@@ -232,6 +243,10 @@ impl Workbench {
             engine_failure: None,
             engine_notice: None,
             logs: Vec::new(),
+            new_profile,
+            java_candidates: Vec::new(),
+            java_preview: None,
+            next_preview: 0,
         }
     }
 
@@ -699,6 +714,7 @@ impl Workbench {
             engine_failure: None,
             engine_notice: None,
             rules_prompt: None,
+            java_import: self.java_import_view(),
         }
     }
 

@@ -7,6 +7,7 @@ import { navigate, pasteRecord, run, saveRecord, saveRecordAs, state } from "./a
 import type { Language } from "./contract/generated";
 import { confirm, message } from "./dialogs";
 import { openDiagnostics } from "./diagnostics";
+import { openJavaImport } from "./javaImport";
 import { t } from "./i18n";
 import { openMoreEngines } from "./engine/catalog";
 import { consoleVisible, toggleConsole } from "./engine/console";
@@ -82,6 +83,7 @@ export const COMMANDS: Record<string, CommandEntry> = {
       }
     },
   },
+  "product.javaImport": { run: () => openJavaImport() },
   "menu.language.default": language("System"),
   简体中文: language("ZhCn"),
   繁體中文: language("ZhTw"),
