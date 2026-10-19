@@ -351,17 +351,17 @@ impl Workbench {
         SavePlan::Overwrite { path: path.to_string() }
     }
 
-    /// Captures the current document for a save to `selected` (`.sgf` appended when missing).
-    /// `application` is written as the record's `AP`.
-    pub fn begin_save(&mut self, selected: &str, application: &str) -> SaveJob {
-        let path = formats::save_target(selected);
+    /// Captures the current document for a save to `path`, written exactly as named (a chosen name
+    /// gets its `.sgf` from [`formats::save_target`] before this). `application` is written as the
+    /// record's `AP`.
+    pub fn begin_save(&mut self, path: &str, application: &str) -> SaveJob {
         let ticket = self.next_save;
         self.next_save += 1;
         self.saves.push(PendingSave {
             ticket,
             document: self.doc.id,
             revision: self.doc.revision,
-            path: path.clone(),
+            path: path.to_string(),
         });
         SaveJob {
             ticket,

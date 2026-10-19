@@ -49,8 +49,8 @@ pub enum Command {
     ChooseAndSaveRecord {
         suggested_name: String,
     },
-    /// Save to a known path (after an overwrite confirmation, automation). `.sgf` is appended
-    /// unless the name already ends in it; an existing file is replaced without asking.
+    /// Save to a known path (after an overwrite confirmation, automation), written exactly as
+    /// named; an existing file is replaced without asking.
     SaveRecordTo {
         path: String,
     },

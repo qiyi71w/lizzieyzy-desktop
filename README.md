@@ -25,19 +25,21 @@ Implemented: opening, browsing and saving records.
 - A failed or cancelled open keeps the current record. Opening a 9x9 record after a 19x19 one (or
   back) replaces the board completely.
 - Save with File > 保存, the toolbar save button or `Ctrl+S`: a record that came from (or was
-  saved to) an SGF file overwrites that file after the Java "覆盖原文件?" prompt (Cancel is the
-  default; "不再提示" turns it off, View > 主界面设置 > 显示覆盖文件提示对话框 and View >
-  重置界面位置 turn it back on). A new, pasted or GIB record goes to the save chooser instead.
-- Save As with File > 另存为 or `S`: the system save chooser opens in the last save folder with
-  the Java default name (`<black>_Vs_<white>` or 未命名, then a timestamp). `.sgf` is added to a
-  name without it; if that file exists the Java "SGF文件已经存在" prompt asks first (the system
-  chooser itself asks about a file picked directly). The record then belongs to the new file.
+  saved to) a file overwrites that same file, under its own name, after the Java "覆盖原文件?"
+  prompt (Cancel is the default; "不再提示" turns it off, View > 主界面设置 >
+  显示覆盖文件提示对话框 and View > 重置界面位置 turn it back on). A new, pasted or GIB record
+  goes to the save chooser instead.
+- Save As with File > 另存为 or `S`: the system save chooser opens in the last save folder (at
+  first the home folder, Documents on Windows) with the Java default name (`<black>_Vs_<white>`
+  or 未命名, then a timestamp). `.sgf` is added to a chosen name without it; if that file exists
+  the Java "SGF文件已经存在" prompt asks first (the system chooser itself asks about a file
+  picked directly). The record then belongs to the new file.
 - Records are always written as UTF-8 SGF (GIB is read-only, as in Java). Setup stones, the side
   to play, real and placeholder passes, branches, comments, markup, `MN` and the saved analysis
   properties (`LZ`, `LZ2`, `LZOP`, `LZOP2`) and other unknown properties are kept, and LizzieYzy
-  Next reads the files with the same meaning. A file is written to a temporary file next to it
-  and then renamed, so a failed save ("保存失败") leaves the old file untouched. Closing the
-  window waits for saves still being written.
+  Next reads the files with the same meaning. A file is written to an owner-only temporary file
+  next to it and then renamed, so a failed save ("保存失败") leaves the old file untouched; a
+  replaced file keeps its permissions. Closing the window waits for saves still being written.
 - Settings available now: reading komi from SGF records, stone sounds on/off, and the UI language
   (zh-CN, zh-TW, en, ja, ko, th; applied after a restart, like Java). A setting that cannot be
   saved is reported and left unchanged.

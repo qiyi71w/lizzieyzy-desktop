@@ -215,6 +215,86 @@ fn a_failed_write_leaves_the_existing_file_and_no_staged_file() {
     }
 }
 
+#[test]
+fn a_staged_name_left_by_another_run_is_neither_used_nor_removed() {
+    // Staged names this process could pick are already taken (an earlier run that stopped
+    // mid-save): the write must not fail on them and must not delete them.
+    let dir = tempfile::tempdir().unwrap();
+    let pid = std::process::id();
+    for n in 0..2000 {
+        std::fs::write(dir.path().join(format!(".lizzie-sgf-{pid}-{n}.tmp")), "keep").unwrap();
+    }
+    let target = dir.path().join("a.sgf");
+    formats::write_record_file(&target, "(;C[x])").unwrap();
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "(;C[x])");
+    for n in 0..2000 {
+        let p = dir.path().join(format!(".lizzie-sgf-{pid}-{n}.tmp"));
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "keep", "{p:?}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_new_record_file_is_private_like_java() {
+    // Java stages through Files.createTempFile (owner-only) and moves it into place, so the
+    // content is never readable by others while it is written; a new file stays owner-only.
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("new.sgf");
+    formats::write_record_file(&target, "(;)").unwrap();
+    assert_eq!(std::fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o600);
+}
+
+#[test]
+fn save_writes_the_own_file_under_its_own_name() {
+    // LizzieFrame.saveOriFile → saveOriginal(curFile): the record's file is written as it is
+    // named; `.sgf` is only added to names chosen in the save chooser.
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = Workbench::new(storage(dir.path()), None);
+    let own = dir.path().join("game.txt");
+    std::fs::copy(fixture("review-9x9.sgf"), &own).unwrap();
+    let other = dir.path().join("game.txt.sgf");
+    std::fs::write(&other, "(;C[other])").unwrap();
+    open_file(&mut wb, own.to_str().unwrap());
+    let SavePlan::Overwrite { path } = wb.save_plan(Some(wb.document().id)) else {
+        panic!("own file");
+    };
+    wb.edit_document(DocumentEdit::SetComment {
+        node: ROOT,
+        comment: "edited".into(),
+    })
+    .unwrap();
+    save(&mut wb, &path);
+    assert_eq!(formats::read_file(&own).unwrap().1.node(ROOT).comment, "edited");
+    assert_eq!(std::fs::read_to_string(&other).unwrap(), "(;C[other])");
+    let v = wb.view(false);
+    assert_eq!(v.document.path.as_deref(), Some(own.to_str().unwrap()));
+    assert!(!v.document.unsaved);
+}
+
+#[test]
+fn a_cleared_root_comment_from_the_game_name_stays_cleared() {
+    // Java turns a root N[] into the root comment without keeping N, so a cleared comment is
+    // not restored on reopen. A node's own N[] stays (Java keeps it there).
+    let rec = sgf::read("(;SZ[9]N[old];B[ee]N[mv])").unwrap();
+    assert_eq!(rec.node(ROOT).comment, "old");
+    let mut rec = rec;
+    let first = rec.main_child(ROOT).unwrap();
+    rec.apply(&DocumentEdit::SetComment {
+        node: ROOT,
+        comment: String::new(),
+    })
+    .unwrap();
+    rec.apply(&DocumentEdit::SetComment {
+        node: first,
+        comment: String::new(),
+    })
+    .unwrap();
+    let reopened = reopen(&rec);
+    assert_eq!(reopened.node(ROOT).comment, "");
+    assert_eq!(reopened.node(reopened.main_child(ROOT).unwrap()).comment, "mv");
+}
+
 fn open_file(wb: &mut Workbench, path: &str) {
     let t = wb.begin_open(OpenOrigin::File {
         path: path.to_string(),
@@ -284,7 +364,8 @@ fn save_as_of_a_gib_makes_the_written_sgf_the_document_file() {
     let before = wb.document().record.clone();
     let out = dir.path().join("out");
     std::fs::create_dir(&out).unwrap();
-    let ticket = save(&mut wb, out.join("copy").to_str().unwrap());
+    // The chooser's name gains `.sgf` before the save starts, as the platform adapter does.
+    let ticket = save(&mut wb, &formats::save_target(out.join("copy").to_str().unwrap()));
     let written = out.join("copy.sgf");
     let v = wb.view(false);
     assert_eq!(

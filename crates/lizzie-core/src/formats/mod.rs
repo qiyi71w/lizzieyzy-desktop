@@ -96,33 +96,60 @@ pub fn save_target(selected: &str) -> String {
 static STAGE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Writes record text as UTF-8 without ever exposing a partial file (`AtomicSgfFileWriter`): the
-/// text goes to a staged file next to the target, is flushed to disk and then replaces the target
-/// in one rename. A replaced file keeps its permissions. On any failure the staged file is
-/// removed and an existing target is unchanged.
+/// text goes to a new owner-only staged file next to the target (like Java's
+/// `Files.createTempFile`), is flushed to disk and then replaces the target in one rename. A
+/// replaced file keeps its permissions; a new file stays owner-only, as Java leaves it. On any
+/// failure the staged file is removed and an existing target is unchanged.
 pub fn write_record_file(target: &Path, text: &str) -> std::io::Result<()> {
     let dir = match target.parent() {
         Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
         _ => PathBuf::from("."),
     };
-    let staged = dir.join(format!(
-        ".lizzie-sgf-{}-{}.tmp",
-        std::process::id(),
-        STAGE_COUNTER.fetch_add(1, Ordering::Relaxed)
-    ));
-    let result = (|| {
-        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&staged)?;
-        file.write_all(text.as_bytes())?;
-        file.sync_all()?;
-        drop(file);
-        if let Ok(existing) = std::fs::metadata(target) {
-            std::fs::set_permissions(&staged, existing.permissions())?;
-        }
-        std::fs::rename(&staged, target)
-    })();
+    let (staged, file) = create_staged(&dir)?;
+    let result = replace_with_staged(file, &staged, target, text);
     if result.is_err() {
         let _ = std::fs::remove_file(&staged);
     }
     result
+}
+
+fn replace_with_staged(mut file: std::fs::File, staged: &Path, target: &Path, text: &str) -> std::io::Result<()> {
+    file.write_all(text.as_bytes())?;
+    file.sync_all()?;
+    // Closed before the rename (Windows cannot replace with an open file).
+    drop(file);
+    if let Ok(existing) = std::fs::metadata(target) {
+        std::fs::set_permissions(staged, existing.permissions())?;
+    }
+    std::fs::rename(staged, target)
+}
+
+/// Creates a staged file that did not exist before. A name already taken (for example left by an
+/// interrupted earlier run) is skipped, never reused or removed.
+fn create_staged(dir: &Path) -> std::io::Result<(PathBuf, std::fs::File)> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    for _ in 0..100_000 {
+        let staged = dir.join(format!(
+            ".lizzie-sgf-{}-{}.tmp",
+            std::process::id(),
+            STAGE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        match options.open(&staged) {
+            Ok(file) => return Ok((staged, file)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "no free staging file name",
+    ))
 }
 
 /// Determines the side to play of every node (`SNAPSHOT_NODE_KIND.md`, "SGF 初始行棋方统一规则").

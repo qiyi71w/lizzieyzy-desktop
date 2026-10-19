@@ -388,7 +388,7 @@ impl Builder {
     /// node that is current now.
     fn end_node(&mut self) {
         let target = self.snapshot.or(self.target).unwrap_or(self.current);
-        let p = std::mem::take(&mut self.pending);
+        let mut p = std::mem::take(&mut self.pending);
         let node = self.rec.node_mut(target);
         if let Some(c) = p.comment.filter(|c| !c.trim().is_empty()) {
             if node.comment.trim().is_empty() {
@@ -401,6 +401,11 @@ impl Builder {
         if let Some(name) = p.name {
             if node.comment.is_empty() {
                 node.comment = name;
+                // Java turns the root N into the game comment without keeping N, so a later
+                // cleared comment is not restored from it; other nodes keep their N.
+                if target == ROOT {
+                    p.props.retain(|prop| prop.id != "N");
+                }
             }
         }
         node.marks.extend(p.marks);
