@@ -49,7 +49,7 @@ fn handle(app: &AppHandle, line: &str) -> Value {
         };
     }
     match req.query.as_deref() {
-        Some("view") => json!({ "view": shared.workbench.lock().unwrap().view(true) }),
+        Some("view") => json!({ "view": shared.workbench.lock().unwrap().inspect() }),
         Some("ui") => {
             let (tx, rx) = mpsc::channel();
             *UI_REPLY.lock().unwrap() = Some(tx);

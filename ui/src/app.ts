@@ -2,7 +2,7 @@
 // at a time in the order the user issued them (like Swing's event queue), so a quick Down/Up pair
 // can never be applied in the opposite order.
 import { dispatch, isApiError } from "./contract/client";
-import type { Command, CommandResult, Navigation, TreeNodeView, WorkbenchView } from "./contract/generated";
+import type { Command, CommandResult, Navigation, StoneSound, TreeNodeView, WorkbenchView } from "./contract/generated";
 import { confirm, message } from "./dialogs";
 import { product, t } from "./i18n";
 
@@ -16,6 +16,8 @@ export const state = {
   line: new Set<number>(),
   /** Node count of the main line (first children from the root). */
   mainLineNodes: 1,
+  /** Last stone sound requested (reported to acceptance automation). */
+  lastSound: null as StoneSound | null,
 };
 
 const listeners: (() => void)[] = [];
@@ -48,7 +50,28 @@ export function apply(view: WorkbenchView): void {
     if (outcome.message_key === "KifuLoad.failed") message(t("Message.title"), `${t("KifuLoad.failed")}${outcome.detail}`, "error");
     else message("Error", t("LizzieFrame.prompt.failedToOpenFile"), "error");
   }
+  if (view.sound) playSound(view.sound);
   listeners.forEach((l) => l());
+}
+
+/** Java sound files per `Utils.playVoiceFile` (assets/sound). */
+const SOUND_FILES: Record<StoneSound, string> = {
+  Stone: "/assets/sound/Stone.wav",
+  DeadStone: "/assets/sound/deadStone.wav",
+  DeadStoneMore: "/assets/sound/deadStoneMore.wav",
+};
+let soundsPlaying = 0;
+
+/** Like Java's `msemaphoretryroom`, at most two stone sounds overlap; further steps while two
+ *  are playing stay silent. Playback failures are ignored (sound is optional). */
+function playSound(sound: StoneSound) {
+  state.lastSound = sound;
+  if (soundsPlaying >= 2) return;
+  soundsPlaying++;
+  const audio = new Audio(SOUND_FILES[sound]);
+  const done = () => soundsPlaying--;
+  audio.addEventListener("ended", done, { once: true });
+  audio.play().catch(done);
 }
 
 let queue: Promise<unknown> = Promise.resolve();

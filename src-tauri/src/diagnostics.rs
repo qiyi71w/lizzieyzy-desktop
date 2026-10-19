@@ -6,26 +6,6 @@ use std::io::Write;
 use std::path::Path;
 
 use lizzie_core::workbench::Workbench;
-use serde::Serialize;
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LogsStatus {
-    pub directory: String,
-    pub app_log_bytes: Option<u64>,
-    pub crash_log_bytes: Option<u64>,
-}
-
-impl LogsStatus {
-    pub fn read(dir: &Path) -> LogsStatus {
-        let size = |name: &str| std::fs::metadata(dir.join(name)).ok().map(|m| m.len());
-        LogsStatus {
-            directory: dir.to_string_lossy().into_owned(),
-            app_log_bytes: size("app.log"),
-            crash_log_bytes: size("crash.log"),
-        }
-    }
-}
 
 pub fn default_file_name() -> String {
     let secs = std::time::SystemTime::now()

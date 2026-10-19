@@ -76,8 +76,8 @@ pub fn read_file(path: &std::path::Path) -> Result<(RecordFormat, GameRecord), R
 ///
 /// Initial snapshots (before the first real action on their path) use, in order: the explicit
 /// `PL` in force, the colour of the first real action on the main line from that snapshot
-/// (passing through nothing but dummies, stopping at a new snapshot), a completed handicap
-/// (`HA >= 2` equal to the black setup stones with no white stones) giving White, else Black.
+/// (stopping at setup stones or valid `PL`), a completed handicap (consistent `HA >= 2` on a
+/// setup-only path without `AW`/`AE`, matching the black stone count) giving White, else Black.
 /// Later snapshots keep an explicit `PL` or their parent's side; actions give the opponent.
 pub(crate) fn resolve_turns(rec: &mut GameRecord) {
     let count = rec.node_count() as u32;
@@ -88,12 +88,13 @@ pub(crate) fn resolve_turns(rec: &mut GameRecord) {
         let node = rec.node(id);
         let parent = node.parent;
         let parent_initial = parent.is_none_or(|p| initial[p as usize]);
-        let is_initial = parent_initial && matches!(node.kind, NodeKind::Snapshot);
-        initial[id as usize] = is_initial;
+        let initial_path = parent_initial && !node.kind.is_action();
+        let is_initial = initial_path && matches!(node.kind, NodeKind::Snapshot);
+        initial[id as usize] = initial_path;
         let pl_in_force = node
             .explicit_to_play
-            .or_else(|| parent.filter(|_| is_initial).and_then(|p| inherited_pl[p as usize]));
-        inherited_pl[id as usize] = if is_initial { pl_in_force } else { None };
+            .or_else(|| parent.filter(|_| initial_path).and_then(|p| inherited_pl[p as usize]));
+        inherited_pl[id as usize] = if initial_path { pl_in_force } else { None };
 
         let to_play = if let Some(pl) = node.explicit_to_play {
             pl
@@ -117,19 +118,56 @@ pub(crate) fn resolve_turns(rec: &mut GameRecord) {
     }
 }
 
-/// Colour of the first real action on the main line (first children) below `from`. A dummy on
-/// the main line ends it (Java `next()` stops at an end dummy) and is never evidence.
+/// First real main-line action, without crossing setup stones or a valid `PL` boundary.
+/// A dummy on the main line ends it (Java `next()` excludes end dummies).
 fn first_main_line_action(rec: &GameRecord, from: u32) -> Option<Stone> {
-    let next = rec.main_child(from)?;
-    match rec.node(next).kind {
-        NodeKind::Move { color, .. } | NodeKind::Pass { color } => Some(color),
-        NodeKind::Snapshot | NodeKind::DummyPass => None,
+    let mut next = rec.main_child(from);
+    while let Some(id) = next {
+        let node = rec.node(id);
+        if node.explicit_to_play.is_some()
+            || node
+                .properties
+                .iter()
+                .any(|p| matches!(p.id.as_str(), "AB" | "AW" | "AE"))
+            || !node.setup.is_empty()
+        {
+            return None;
+        }
+        match node.kind {
+            NodeKind::Move { color, .. } | NodeKind::Pass { color } => return Some(color),
+            NodeKind::DummyPass => return None,
+            NodeKind::Snapshot => next = rec.main_child(id),
+        }
     }
+    None
 }
 
 fn completed_handicap(rec: &GameRecord, id: u32) -> bool {
-    let ha = rec.info.handicap as usize;
-    if ha < 2 {
+    let mut ha = rec.info.handicap as usize;
+    let mut ancestor = Some(id);
+    while let Some(id) = ancestor {
+        let node = rec.node(id);
+        if node.kind.is_action()
+            || !node.setup.add_white.is_empty()
+            || !node.setup.clear.is_empty()
+            || node.properties.iter().any(|p| matches!(p.id.as_str(), "AW" | "AE"))
+        {
+            return false;
+        }
+        for declaration in node.properties.iter().filter(|p| p.id == "HA") {
+            let value = declaration
+                .values
+                .first()
+                .and_then(|v| v.trim().parse::<i32>().ok())
+                .unwrap_or(0);
+            if value < 2 || (ha != 0 && ha != value as usize) {
+                return false;
+            }
+            ha = value as usize;
+        }
+        ancestor = node.parent;
+    }
+    if ha < 2 || ha >= rec.size.area() {
         return false;
     }
     let pos = rec.position(id);

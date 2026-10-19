@@ -2,11 +2,11 @@
 //!
 //! Reading produces a candidate [`GameRecord`]; nothing is adopted here. Behaviour kept from Java:
 //!
-//! - Only `B`/`W` actions, setup (`AB`/`AW`/`AE`) and `DD[true]` create history nodes. Comments,
-//!   marks, `MN` and other properties of an SGF node without such content attach to the node that
-//!   is current when that SGF node ends (the previous history node).
+//! - Only `B`/`W` actions, setup (`AB`/`AW`/`AE`/`PL`) and `DD[true]` create history nodes.
+//!   Comments, marks, `MN` and other properties in a node without such content attach to the
+//!   previous history node. `MN` is retained as a display property, not a real move number.
 //! - Root setup stays on the root snapshot; setup in later nodes creates a separate snapshot that
-//!   does not consume a move number. A move after setup in the same SGF node becomes its child.
+//!   does not consume a move number. Metadata stays on that snapshot even when the node has a move.
 //! - Illegal moves (off board, occupied, immediate ko repetition, suicide) are skipped without
 //!   failing the read.
 //! - `KM` is normalised like Java (Fox scale, legacy x100 and quarter "zi" values).
@@ -41,6 +41,64 @@ enum Event {
     Prop(String, Vec<String>),
 }
 
+/// Java validates adjacent collection trees too, even though only the first tree is imported.
+/// Without structural escapes, keep the reader's existing incomplete-tree tolerance.
+fn validate_structural_newlines(chars: &[char], start: usize) -> Result<(), SgfError> {
+    let mut i = start;
+    let mut depth = 0i64;
+    let mut in_value = false;
+    let mut escaped = false;
+    let mut normalized = false;
+    let mut previous = '\0';
+    while let Some(&c) = chars.get(i) {
+        if depth == 0 && c != '(' && c != '\\' && !c.is_whitespace() {
+            break;
+        }
+        if in_value {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == ']' {
+                in_value = false;
+                previous = c;
+            }
+            i += 1;
+            continue;
+        }
+        if c == '\\' {
+            let end = if chars[i..].starts_with(&['\\', 'r', '\\', 'n']) {
+                i + 4
+            } else if chars[i..].starts_with(&['\\', 'n']) {
+                i + 2
+            } else {
+                return Err(SgfError(format!("unknown structural escape at {i}")));
+            };
+            let next = chars[end..].iter().find(|c| !c.is_whitespace());
+            if previous.is_alphabetic() && next.is_some_and(|c| c.is_alphabetic()) {
+                return Err(SgfError(format!("structural escape inside property name at {i}")));
+            }
+            normalized = true;
+            i = end;
+            continue;
+        }
+        match c {
+            '[' => in_value = true,
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => {}
+        }
+        if !c.is_whitespace() {
+            previous = c;
+        }
+        i += 1;
+    }
+    if normalized && (depth != 0 || in_value) {
+        return Err(SgfError("unterminated tree with structural newline escapes".into()));
+    }
+    Ok(())
+}
+
 /// Splits SGF text into structural events. Literal `\n` / `\r\n` sequences in structural
 /// whitespace are accepted like Java `normalizeStructuralNewlines`; other escapes outside property
 /// values fail the read.
@@ -54,6 +112,7 @@ fn tokenize(text: &str) -> Result<Vec<Event>, SgfError> {
     if i == chars.len() {
         return Err(SgfError("no game tree".into()));
     }
+    validate_structural_newlines(&chars, i)?;
     let mut events = Vec::new();
     let mut depth = 0usize;
     let mut ident = String::new();
@@ -272,8 +331,6 @@ fn normalize_komi(raw: f64, fox: bool, chinese: bool, size: BoardSize) -> Option
 struct Pending {
     comment: Option<String>,
     marks: Vec<Mark>,
-    move_number: Option<u32>,
-    to_play: Option<Stone>,
     name: Option<String>,
     props: Vec<Property>,
 }
@@ -294,7 +351,7 @@ struct Builder {
     /// History node created by the SGF node being read, which receives its metadata.
     target: Option<NodeId>,
     has_action: bool,
-    has_snapshot: bool,
+    snapshot: Option<NodeId>,
     in_root_node: bool,
     pending: Pending,
     root_props: Vec<Property>,
@@ -311,7 +368,7 @@ impl Builder {
             stack: Vec::new(),
             target: None,
             has_action: false,
-            has_snapshot: false,
+            snapshot: None,
             in_root_node: false,
             pending: Pending::default(),
             root_props: Vec::new(),
@@ -322,7 +379,7 @@ impl Builder {
     /// Ends the SGF node being read: its metadata goes to the node it created, or else to the
     /// node that is current now.
     fn end_node(&mut self) {
-        let target = self.target.unwrap_or(self.current);
+        let target = self.snapshot.or(self.target).unwrap_or(self.current);
         let p = std::mem::take(&mut self.pending);
         let node = self.rec.node_mut(target);
         if let Some(c) = p.comment.filter(|c| !c.trim().is_empty()) {
@@ -339,16 +396,10 @@ impl Builder {
             }
         }
         node.marks.extend(p.marks);
-        if let Some(mn) = p.move_number {
-            node.move_number = mn;
-        }
-        if let Some(pl) = p.to_play {
-            node.explicit_to_play = Some(pl);
-        }
         node.properties.extend(p.props);
         self.target = None;
         self.has_action = false;
-        self.has_snapshot = false;
+        self.snapshot = None;
         self.in_root_node = false;
     }
 
@@ -358,41 +409,39 @@ impl Builder {
         if self.in_root_node && !self.has_action {
             return ROOT;
         }
-        if self.has_snapshot {
-            return self.current;
+        if let Some(id) = self.snapshot {
+            return id;
         }
         let id = self.rec.push_child(self.current, NodeKind::Snapshot);
         self.prev = Some(self.pos.clone());
         self.current = id;
-        self.has_snapshot = true;
+        self.snapshot = Some(id);
         self.target = Some(id);
         id
     }
 
-    fn setup(&mut self, id: &str, values: &[String]) {
+    fn setup(&mut self, id: String, values: Vec<String>) {
         let size = self.rec.size;
         let mut points = Vec::new();
-        for v in values {
+        for v in &values {
             parse_points(v, size, &mut points);
-        }
-        if points.is_empty() {
-            return;
         }
         let target = self.snapshot_target();
         let setup = &mut self.rec.node_mut(target).setup;
-        let list = match id {
+        let list = match id.as_str() {
             "AB" => &mut setup.add_black,
             "AW" => &mut setup.add_white,
             _ => &mut setup.clear,
         };
         list.extend(points.iter().copied());
         let mut delta = crate::record::Setup::default();
-        match id {
+        match id.as_str() {
             "AB" => delta.add_black = points,
             "AW" => delta.add_white = points,
             _ => delta.clear = points,
         }
         self.pos.apply_setup(&delta);
+        self.rec.node_mut(target).properties.push(Property { id, values });
         if target == ROOT {
             self.prev = None;
         }
@@ -432,7 +481,7 @@ impl Builder {
                 let color = if id == "B" { Stone::Black } else { Stone::White };
                 self.action(color, &first);
             }
-            "AB" | "AW" | "AE" => self.setup(&id, &values),
+            "AB" | "AW" | "AE" => self.setup(id, values),
             "DD" if first.trim() == "true" => {
                 let dummy = self.rec.push_child(self.current, NodeKind::DummyPass);
                 if !self.has_action {
@@ -446,6 +495,7 @@ impl Builder {
                         None => self.pending.comment = Some(first),
                     }
                 }
+                self.pending.props.push(Property { id, values });
             }
             "N" => {
                 self.pending.name = Some(first.clone());
@@ -462,6 +512,7 @@ impl Builder {
                         }
                     }
                 }
+                self.pending.props.push(Property { id, values });
             }
             "TR" | "SQ" | "CR" | "MA" => {
                 let kind = match id.as_str() {
@@ -478,15 +529,17 @@ impl Builder {
                     point,
                     mark: kind.clone(),
                 }));
+                self.pending.props.push(Property { id, values });
             }
-            "MN" => self.pending.move_number = first.trim().parse().ok(),
             "PL" => {
+                let target = self.snapshot_target();
                 let v = first.trim();
                 if v.eq_ignore_ascii_case("W") {
-                    self.pending.to_play = Some(Stone::White);
+                    self.rec.node_mut(target).explicit_to_play = Some(Stone::White);
                 } else if v.eq_ignore_ascii_case("B") {
-                    self.pending.to_play = Some(Stone::Black);
+                    self.rec.node_mut(target).explicit_to_play = Some(Stone::Black);
                 }
+                self.rec.node_mut(target).properties.push(Property { id, values });
             }
             "PB" | "PW" | "BR" | "WR" | "RE" | "DT" | "RU" | "HA" | "KM" | "KO" | "SZ" if self.in_root_node => {
                 if id == "KM" || (id == "KO" && self.komi_raw.is_none()) {

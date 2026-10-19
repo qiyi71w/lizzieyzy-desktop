@@ -359,3 +359,151 @@ fn gib_dispatch_is_by_extension_and_rejects_non_gib_text() {
     assert!(formats::parse(RecordFormat::Gib, "hello").is_err());
     assert!(formats::parse(RecordFormat::Gib, "STO 0 1 1 x 3").is_err());
 }
+
+#[test]
+fn mn_is_a_display_number_and_does_not_renumber_real_moves() {
+    // BoardData.addProperty: MN only sets moveMNNumber; the real move number keeps counting.
+    let rec = read("(;SZ[9];B[ee]MN[100];W[cc])");
+    let line = main_line(&rec);
+    let numbers: Vec<u32> = line.iter().map(|&n| rec.node(n).move_number).collect();
+    assert_eq!(numbers, vec![0, 1, 2]);
+    assert!(rec
+        .node(line[1])
+        .properties
+        .iter()
+        .any(|p| p.id == "MN" && p.values == ["100"]));
+}
+
+#[test]
+fn a_player_property_in_a_later_node_is_its_own_snapshot() {
+    // SGFParser PL outside the root setup context: appendSetupSnapshot + PL on that snapshot;
+    // firstInitialActionPlayer stops at a PL boundary, so the empty root keeps Black.
+    let rec = read("(;SZ[9];PL[W];W[ee])");
+    let line = main_line(&rec);
+    assert_eq!(line.len(), 3);
+    assert_eq!(rec.node(ROOT).to_play, Stone::Black);
+    let snap = rec.node(line[1]);
+    assert_eq!(snap.kind, NodeKind::Snapshot);
+    assert_eq!(snap.move_number, 0);
+    assert_eq!(snap.to_play, Stone::White);
+    assert_eq!(rec.node(line[2]).move_number, 1);
+
+    // In mid-game the previous move node keeps its own turn.
+    let rec = read("(;SZ[9];B[ee];PL[B];B[cc])");
+    let line = main_line(&rec);
+    assert_eq!(line.len(), 4);
+    assert_eq!(rec.node(line[1]).to_play, Stone::White);
+    assert_eq!(rec.node(line[2]).kind, NodeKind::Snapshot);
+    assert_eq!(rec.node(line[2]).to_play, Stone::Black);
+    assert!(rec
+        .node(line[2])
+        .properties
+        .iter()
+        .any(|p| p.id == "PL" && p.values == ["B"]));
+
+    // Root PL belongs to the root, even if the root SGF node also contains a move.
+    let rec = read("(;SZ[9]PL[W]B[ee])");
+    assert_eq!(rec.node(ROOT).to_play, Stone::White);
+    assert_eq!(rec.node(rec.main_child(ROOT).unwrap()).to_play, Stone::White);
+}
+
+#[test]
+fn setup_metadata_stays_on_the_snapshot_when_the_node_also_has_a_move() {
+    // getSetupPropertyTargetNode / movePendingSetupMetadataToTarget.
+    let rec = read("(;SZ[9];B[ee];C[setup]TR[aa]AB[bb]W[cc])");
+    let line = main_line(&rec);
+    assert_eq!(line.len(), 4);
+    let snap = rec.node(line[2]);
+    assert_eq!(snap.kind, NodeKind::Snapshot);
+    assert_eq!(snap.comment, "setup");
+    assert_eq!(snap.marks.len(), 1);
+    assert_eq!(snap.marks[0].mark, MarkKind::Triangle);
+    let mv = rec.node(line[3]);
+    assert_eq!(
+        mv.kind,
+        NodeKind::Move {
+            color: Stone::White,
+            point: p("cc")
+        }
+    );
+    assert!(mv.comment.is_empty() && mv.marks.is_empty());
+    assert!(rec.node(line[1]).comment.is_empty());
+
+    for properties in [
+        "AB[bb]C[setup]TR[aa]W[cc]",
+        "AB[bb]W[cc]C[setup]TR[aa]MN[100]N[name]",
+        "W[cc]C[setup]TR[aa]AB[bb]",
+        "C[setup]PL[W]W[cc]TR[aa]",
+    ] {
+        let rec = read(&format!("(;SZ[9];B[ee];{properties})"));
+        let line = main_line(&rec);
+        let snap = line[2..]
+            .iter()
+            .map(|&id| rec.node(id))
+            .find(|n| n.kind == NodeKind::Snapshot)
+            .unwrap();
+        let mv = line[2..]
+            .iter()
+            .map(|&id| rec.node(id))
+            .find(|n| n.kind.is_action())
+            .unwrap();
+        assert_eq!(snap.comment, "setup", "{properties}");
+        assert_eq!(snap.marks.len(), 1, "{properties}");
+        assert!(mv.comment.is_empty() && mv.marks.is_empty(), "{properties}");
+        assert_eq!(mv.move_number, 2, "{properties}");
+        assert!(rec.node(line[1]).comment.is_empty(), "{properties}");
+    }
+}
+
+#[test]
+fn handicap_turn_needs_a_conflict_free_setup_history() {
+    // hasCompletedInitialHandicap: an AW/AE on the ancestor chain rules the handicap default out.
+    let rec = read("(;SZ[19]HA[2]AB[dd][pp][jj];AE[jj])");
+    let line = main_line(&rec);
+    assert_eq!(rec.node(line[1]).kind, NodeKind::Snapshot);
+    assert_eq!(rec.node(line[1]).to_play, Stone::Black);
+    let rec = read("(;SZ[19]HA[2]AB[dd][pp])");
+    assert_eq!(rec.node(ROOT).to_play, Stone::White);
+
+    for text in [
+        "(;SZ[19]HA[2]AB[dd][pp]AW[zz])",         // Even an invalid AW is conflicting evidence.
+        "(;SZ[19]HA[2]AB[dd][pp];AE[dd];AB[dd])", // AE remains on the ancestor chain.
+        "(;SZ[19]HA[2]AB[dd][pp];AW[dd];AB[dd])", // So does AW after replacing it.
+        "(;SZ[19]HA[2]AB[dd][pp];AB[jj]HA[3])",   // Conflicting declarations.
+        "(;SZ[19]HA[2]AB[dd][pp];AB[jj]HA[invalid])",
+        "(;SZ[2]HA[4]AB[aa:bb])", // A full board is not a completed initial handicap.
+        "(;SZ[19]HA[2]AB[dd][pp];W[];AB[jj]AE[jj])", // An action ends initial inference.
+    ] {
+        let rec = read(text);
+        let end = *main_line(&rec).last().unwrap();
+        assert_eq!(rec.node(end).to_play, Stone::Black, "{text}");
+    }
+    let rec = read("(;SZ[19];AB[dd][pp]HA[2])");
+    assert_eq!(rec.node(rec.main_child(ROOT).unwrap()).to_play, Stone::White);
+}
+
+#[test]
+fn escaped_structural_newlines_are_accepted_only_between_tokens_of_a_complete_tree() {
+    // normalizeStructuralNewlines: a literal "\n" between tokens is a line break; one that splits
+    // a property name, or appears in an unterminated tree, rejects the record.
+    let ok = sgf::read("(;SZ[9]\\n;B[ee])").expect("structural escape between nodes");
+    assert_eq!(main_line(&ok).len(), 2);
+    assert!(sgf::read("(;SZ[9]\\n;B[ee]").is_err(), "truncated escaped tree");
+    assert!(sgf::read("(;SZ[9]P\\nB[name];B[ee])").is_err(), "split property name");
+    assert!(sgf::read("(;SZ[9]P\\r\\n \tB[name])").is_err());
+    assert!(sgf::read("(;SZ[9])\\n(;B[ee]").is_err(), "validate adjacent trees too");
+    assert!(
+        sgf::read("(;SZ[9])\\x").is_err(),
+        "unknown structural escape after the tree"
+    );
+    assert!(sgf::read("(;SZ[9])\\n(;C[unterminated").is_err());
+    assert!(
+        sgf::read("(;SZ[9]C[literal \\n text];B[ee])").is_ok(),
+        "value escapes are not structural"
+    );
+    assert!(
+        sgf::read("(;SZ[9];B[ee]").is_ok(),
+        "keep unescaped truncation tolerance"
+    );
+    assert!(sgf::read("(;SZ[9](;B[ee])").is_ok(), "keep unescaped depth tolerance");
+}

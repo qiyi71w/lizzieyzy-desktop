@@ -9,7 +9,7 @@ mod logging;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use lizzie_core::api::{ApiError, Command, CommandResult, ErrorKind, OpenSource, WorkbenchView};
+use lizzie_core::api::{ApiError, Command, CommandResult, ErrorKind, LogsStatus, OpenSource, WorkbenchView};
 use lizzie_core::formats;
 use lizzie_core::settings::{Storage, WindowPlacement};
 use lizzie_core::workbench::{OpenOrigin, PasteDecision, Workbench};
@@ -48,9 +48,11 @@ fn start_open(app: &AppHandle, shared: &State, path: String, source: OpenSource)
     std::thread::spawn(move || {
         let result = formats::read_file(&PathBuf::from(&path));
         if let Err(e) = &result {
-            shared
-                .log
-                .warn(&format!("open failed ({}): {e}", logging::file_label(&path)));
+            shared.log.warn(&format!(
+                "open failed ({}): {}",
+                logging::file_label(&path),
+                logging::read_error(e)
+            ));
         }
         let adopted = shared.workbench.lock().unwrap().complete_open(ticket, result);
         if adopted {
@@ -113,7 +115,9 @@ pub async fn dispatch(app: AppHandle, shared: State, command: Command) -> Result
                     let ticket = shared.workbench.lock().unwrap().begin_open(OpenOrigin::Clipboard);
                     let result = Workbench::read_clipboard_record(&text);
                     if let Err(e) = &result {
-                        shared.log.warn(&format!("clipboard record failed: {e}"));
+                        shared
+                            .log
+                            .warn(&format!("clipboard record failed: {}", logging::read_error(e)));
                     }
                     shared.workbench.lock().unwrap().complete_open(ticket, result);
                     publish(&app, &shared);
@@ -139,6 +143,10 @@ pub async fn dispatch(app: AppHandle, shared: State, command: Command) -> Result
         }
         Command::SetLanguage { language } => {
             let done = shared.workbench.lock().unwrap().set_language(language)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetPlaySound { enabled } => {
+            let done = shared.workbench.lock().unwrap().set_play_sound(enabled)?;
             Ok(changed(&app, &shared, done))
         }
         Command::ClearPersonalData => {
@@ -204,8 +212,8 @@ fn workbench_snapshot(state: tauri::State<'_, State>) -> WorkbenchView {
 }
 
 #[tauri::command]
-fn logs_directory(state: tauri::State<'_, State>) -> diagnostics::LogsStatus {
-    diagnostics::LogsStatus::read(&state.workbench.lock().unwrap().storage().logs_dir)
+fn logs_directory(state: tauri::State<'_, State>) -> LogsStatus {
+    state.workbench.lock().unwrap().logs_status()
 }
 
 fn window_placement(window: &tauri::WebviewWindow, previous: Option<WindowPlacement>) -> Option<WindowPlacement> {

@@ -2,7 +2,7 @@
 // `Command` through `dispatch`; state arrives only as `WorkbenchView`s.
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { ApiError, Command, CommandResult, WorkbenchView } from "./generated";
+import type { ApiError, Command, CommandResult, LogsStatus, WorkbenchView } from "./generated";
 
 export function dispatch(command: Command): Promise<CommandResult> {
   return invoke<CommandResult>("dispatch_command", { command });
@@ -10,12 +10,6 @@ export function dispatch(command: Command): Promise<CommandResult> {
 
 export function snapshot(): Promise<WorkbenchView> {
   return invoke<WorkbenchView>("workbench_snapshot");
-}
-
-export interface LogsStatus {
-  directory: string;
-  appLogBytes: number | null;
-  crashLogBytes: number | null;
 }
 
 export function logsStatus(): Promise<LogsStatus> {

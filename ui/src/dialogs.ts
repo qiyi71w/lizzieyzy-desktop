@@ -1,5 +1,6 @@
 // In-window modal dialogs in the role of Java JOptionPane message / confirm dialogs. While one is
-// open, workbench shortcuts are inactive (focus stays inside the dialog) like a Swing modal dialog.
+// open the rest of the window is inert and Tab cycles inside the dialog, so neither the mouse nor
+// the keyboard reaches the workbench, like a Swing modal dialog.
 import { product } from "./i18n";
 
 const host = () => document.getElementById("dialog")!;
@@ -38,6 +39,7 @@ function show(title: string, body: HTMLElement | string, buttons: Button[], kind
     overlay.remove();
     open--;
     host().hidden = open === 0;
+    setModal();
     previous?.focus?.();
     resolve(value);
   };
@@ -52,14 +54,32 @@ function show(title: string, body: HTMLElement | string, buttons: Button[], kind
     e.stopPropagation();
     if (e.key === "Escape") close(false);
     if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) close(buttons.find((b) => b.primary)?.value ?? true);
+    if (e.key === "Tab") {
+      // Focus cycles through the dialog's own controls.
+      const items = [...box.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)")];
+      const at = items.indexOf(document.activeElement as HTMLElement);
+      const next = items[(at + (e.shiftKey ? -1 : 1) + items.length) % items.length];
+      e.preventDefault();
+      next?.focus();
+    }
   });
   box.append(head, content, row);
   overlay.append(box);
   host().append(overlay);
   host().hidden = false;
   open++;
+  setModal();
   (row.querySelector("button.primary") as HTMLElement | null)?.focus();
   return promise;
+}
+
+/** Only the newest dialog takes input; everything else in the window is inert. */
+function setModal() {
+  for (const el of document.body.children) {
+    if (el !== host()) (el as HTMLElement).inert = open > 0;
+  }
+  const overlays = [...host().children] as HTMLElement[];
+  overlays.forEach((o, k) => (o.inert = k !== overlays.length - 1));
 }
 
 /** JOptionPane.showMessageDialog. */

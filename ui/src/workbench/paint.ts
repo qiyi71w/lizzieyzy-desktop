@@ -640,10 +640,18 @@ export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[
 
 /** LizzieFrame.createVarTreeImage + VariationTree.draw/drawTree (VariationTree.java:44-402): the
  * whole tree laid out from the root at (20, 20) with Java's lane allocation, shown through the scroll
- * pane positioned by renderVarTree (LizzieFrame.java:13942-13975) with DemoScrollBarUI bars. Nodes off
- * the current line are dimmed; commented nodes get the blue ring. Returns node centres (panel
- * coordinates) for click hit-testing. */
-export function paintTree(g: CanvasRenderingContext2D, r: Rect, nodes: Map<number, TreeNodeView>, root: number, current: number, line: Set<number>): Map<string, number> {
+ * pane that renderVarTree positions on the current node (LizzieFrame.java:13942-13975) unless the
+ * user scrolled it (`scroll`). Nodes off the current line are dimmed; commented nodes get the blue
+ * ring. Returns node centres (panel coordinates) for click hit-testing and the viewport. */
+export function paintTree(
+  g: CanvasRenderingContext2D,
+  r: Rect,
+  nodes: Map<number, TreeNodeView>,
+  root: number,
+  current: number,
+  line: Set<number>,
+  scroll: { top: number; left: number } | null,
+): { hits: Map<string, number>; viewport: TreeViewport } {
   const hits = new Map<string, number>();
   const { w, h } = r;
   g.fillStyle = "rgba(0,0,0,0.51)";
@@ -664,8 +672,14 @@ export function paintTree(g: CanvasRenderingContext2D, r: Rect, nodes: Map<numbe
   };
   const ops: ((g: CanvasRenderingContext2D) => void)[] = [];
   let maxY = h;
+  let maxX = w;
   let curY = 0;
-  const grow = (y: number) => (maxY = Math.max(maxY, y + 60));
+  let curX = 0;
+  // LizzieFrame varTreeMaxX / varTreeMaxY: 60 px beyond the farthest node
+  const grow = (x: number, y: number) => {
+    maxX = Math.max(maxX, x + 60);
+    maxY = Math.max(maxY, y + 60);
+  };
   const segment = (x1: number, y1: number, x2: number, y2: number, color: string) =>
     ops.push((g) => {
       g.strokeStyle = color;
@@ -686,7 +700,7 @@ export function paintTree(g: CanvasRenderingContext2D, r: Rect, nodes: Map<numbe
   const dot = (n: number, x: number, y: number) => {
     const dim = !line.has(n);
     const commented = node(n).has_comment;
-    if (n === current) curY = y;
+    if (n === current) [curX, curY] = [x, y];
     hits.set(`${x + 5},${y + 5}`, n);
     ops.push((g) => {
       const disc = (color: string, d: number) => {
@@ -699,7 +713,7 @@ export function paintTree(g: CanvasRenderingContext2D, r: Rect, nodes: Map<numbe
       if (dim) disc("rgba(0,0,0,0.153)", commented ? RING : DOT);
       if (n === current) disc("#000", CENTER);
     });
-    grow(y);
+    grow(x, y);
   };
   const lanes: number[] = [];
   const drawTree = (posx: number, posy: number, startLane: number, start: number, variation: number) => {
@@ -737,8 +751,8 @@ export function paintTree(g: CanvasRenderingContext2D, r: Rect, nodes: Map<numbe
         }
       });
       hits.set(`${x + 5},${posy + 5}`, start);
-      if (start === current) curY = posy;
-      grow(posy);
+      if (start === current) [curX, curY] = [x, posy];
+      grow(x, posy);
     }
     let n = start;
     while (kids(n).length) {
@@ -756,36 +770,85 @@ export function paintTree(g: CanvasRenderingContext2D, r: Rect, nodes: Map<numbe
     }
   };
   drawTree(20, 20, 0, root, 0);
-  // renderVarTree: centre the current node vertically; the root keeps the top
-  const vbar = maxY > h;
-  const viewW = w - (vbar ? 9 : 0);
-  const top = curY <= h / 2 || node(current).parent === null ? 0 : Math.min(i(curY - h / 2), maxY - h);
+  // JScrollPane with AS_NEEDED bars of DemoScrollBarUI width 9; the horizontal bar is off when the
+  // pane is under 100 px high (LizzieFrame.java:13976-13983).
+  const hbar = maxX > w && h >= 100;
+  const viewH = h - (hbar ? SCROLLBAR : 0);
+  const vbar = maxY > viewH;
+  const viewW = w - (vbar ? SCROLLBAR : 0);
+  const clampTop = (v: number) => Math.max(0, Math.min(i(v), maxY - viewH));
+  const clampLeft = (v: number) => Math.max(0, Math.min(i(v), maxX - viewW));
+  // renderVarTree: the current node centred in each direction; the root keeps the origin.
+  const atRoot = node(current).parent === null;
+  const top = clampTop(scroll ? scroll.top : curY <= viewH / 2 || atRoot ? 0 : curY - viewH / 2);
+  const left = clampLeft(scroll ? scroll.left : curX <= viewW / 2 || atRoot ? 0 : curX - viewW / 2);
   g.save();
   g.beginPath();
-  g.rect(0, 0, viewW, h);
+  g.rect(0, 0, viewW, viewH);
   g.clip();
-  g.translate(0, -top);
+  g.translate(-left, -top);
   ops.forEach((op) => op(g));
   g.restore();
   const visible = new Map<string, number>();
   for (const [k, id] of hits) {
     const [x, y] = k.split(",").map(Number);
-    if (y - top >= 0 && y - top < h && x < viewW) visible.set(`${x},${y - top}`, id);
+    if (y - top >= 0 && y - top < viewH && x - left >= 0 && x - left < viewW) visible.set(`${x - left},${y - top}`, id);
   }
-  if (vbar) {
-    // DemoScrollBarUI: 9 px, arrow buttons, black track, thumb (230,230,250) at 0.7
-    const sx = w - 9;
+  const vertical = vbar ? scrollbar(viewH, maxY, top) : null;
+  const horizontal = hbar ? scrollbar(viewW, maxX, left) : null;
+  // DemoScrollBarUI: arrow buttons, black track, thumb (230,230,250) at 0.7
+  const arrows = (a: string, b: string, x1: number, y1: number, x2: number, y2: number, horiz: boolean) => {
     g.fillStyle = "rgb(238,238,238)";
-    g.fillRect(sx, 0, 9, 11);
-    g.fillRect(sx, h - 11, 9, 11);
-    if (images["smallUp.png"]?.naturalWidth) g.drawImage(images["smallUp.png"], sx, 1);
-    if (images["smallDown.png"]?.naturalWidth) g.drawImage(images["smallDown.png"], sx, h - 9);
-    const track = h - 22;
+    g.fillRect(x1, y1, horiz ? ARROW : SCROLLBAR, horiz ? SCROLLBAR : ARROW);
+    g.fillRect(x2, y2, horiz ? ARROW : SCROLLBAR, horiz ? SCROLLBAR : ARROW);
+    if (images[a]?.naturalWidth) g.drawImage(images[a], x1 + (horiz ? 1 : 0), y1 + (horiz ? 0 : 1));
+    if (images[b]?.naturalWidth) g.drawImage(images[b], x2 + (horiz ? 2 : 0), y2 + (horiz ? 0 : 2));
+  };
+  if (vertical) {
+    const sx = w - SCROLLBAR;
+    arrows("smallUp.png", "smallDown.png", sx, 0, sx, viewH - ARROW, false);
     g.fillStyle = "#000";
-    g.fillRect(sx, 11, 9, track);
-    const thumb = Math.max(8, i((track * h) / maxY));
+    g.fillRect(sx, ARROW, SCROLLBAR, vertical.track);
     g.fillStyle = "rgba(230,230,250,0.7)";
-    g.fillRect(sx, 11 + i(((track - thumb) * top) / Math.max(1, maxY - h)), 9, thumb);
+    g.fillRect(sx, ARROW + vertical.thumbStart, SCROLLBAR, vertical.thumb);
   }
-  return visible;
+  if (horizontal) {
+    const sy = h - SCROLLBAR;
+    arrows("smallLeft.png", "smallRight.png", 0, sy, viewW - ARROW, sy, true);
+    g.fillStyle = "#000";
+    g.fillRect(ARROW, sy, horizontal.track, SCROLLBAR);
+    g.fillStyle = "rgba(230,230,250,0.7)";
+    g.fillRect(ARROW + horizontal.thumbStart, sy, horizontal.thumb, SCROLLBAR);
+  }
+  return { hits: visible, viewport: { top, left, maxX, maxY, viewW, viewH, vertical, horizontal } };
+}
+
+/** Scroll bar width and arrow button length of DemoScrollBarUI. */
+export const SCROLLBAR = 9;
+export const ARROW = 11;
+
+/** Track length between the arrows, thumb length and thumb offset for a bar of `length`. */
+export interface ScrollbarGeom {
+  track: number;
+  thumb: number;
+  thumbStart: number;
+}
+
+function scrollbar(length: number, content: number, offset: number): ScrollbarGeom {
+  const track = Math.max(0, length - 2 * ARROW);
+  const thumb = Math.min(track, Math.max(8, i((track * length) / content)));
+  const thumbStart = i(((track - thumb) * offset) / Math.max(1, content - length));
+  return { track, thumb, thumbStart };
+}
+
+/** The visible part of the variation tree and its scroll bars, for scrolling and hit tests. */
+export interface TreeViewport {
+  top: number;
+  left: number;
+  maxX: number;
+  maxY: number;
+  viewW: number;
+  viewH: number;
+  vertical: ScrollbarGeom | null;
+  horizontal: ScrollbarGeom | null;
 }

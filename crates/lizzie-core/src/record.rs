@@ -66,7 +66,7 @@ impl BoardSize {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "kind")]
 pub enum NodeKind {
-    /// Static position anchor: the root, or an SGF node carrying `AB`/`AW`/`AE`.
+    /// Static position anchor: the root, or an SGF node carrying `AB`/`AW`/`AE`/`PL`.
     Snapshot,
     Move {
         color: Stone,
@@ -140,8 +140,8 @@ pub struct Node {
     pub explicit_to_play: Option<Stone>,
     /// Side to play at this node as determined at import (Java `blackToPlay`).
     pub to_play: Stone,
-    /// Java `BoardData.moveNumber`: actions count one, snapshots keep their parent's number,
-    /// `MN` sets the number of its node.
+    /// Java `BoardData.moveNumber`: actions count one, snapshots keep their parent's number.
+    /// The display-only SGF `MN` is retained in `properties` without changing this count.
     pub move_number: u32,
     pub comment: String,
     pub marks: Vec<Mark>,

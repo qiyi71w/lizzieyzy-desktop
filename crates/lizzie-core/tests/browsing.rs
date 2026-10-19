@@ -1,7 +1,7 @@
 //! Browsing commands and the open/settings flow through the public `Workbench` API, the same
 //! operations the UI, shortcuts and acceptance automation send.
 
-use lizzie_core::api::{OpenOutcome, OpenSource};
+use lizzie_core::api::{OpenOutcome, OpenSource, StoneSound};
 use lizzie_core::browse::{self, Navigation};
 use lizzie_core::formats::{sgf, ReadError};
 use lizzie_core::record::{BoardSize, GameRecord, NodeId, Point, Stone, ROOT};
@@ -330,4 +330,90 @@ fn position_view_reports_marks_comment_and_last_action() {
     assert_eq!(v.position.last_action.as_ref().unwrap().point, None);
     assert_eq!(v.position.move_number, 2);
     assert!(wb.goto_node(99).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_settings_change_that_cannot_be_saved_is_not_applied() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let st = storage(dir.path());
+    let config_dir = st.config_file.parent().unwrap().to_path_buf();
+    let mut wb = Workbench::new(st, None);
+    let t = wb.begin_open(file_origin("/k/a.sgf", OpenSource::Chooser));
+    wb.complete_open(t, read_ok("(;B[aa])"));
+    assert_eq!(wb.config().recent_files.len(), 1);
+    let set = |mode| std::fs::set_permissions(&config_dir, std::fs::Permissions::from_mode(mode)).unwrap();
+    set(0o555);
+    let cleared = wb.clear_personal_data();
+    let komi = wb.set_read_komi(false);
+    let lang = wb.set_language(Language::EnUs);
+    set(0o755);
+    assert!(cleared.is_err() && komi.is_err() && lang.is_err());
+    // Nothing was applied: the projection still matches the file on disk.
+    let v = wb.view(false);
+    assert_eq!(v.recent_files, vec!["/k/a.sgf".to_string()]);
+    assert!(v.settings.read_komi);
+    assert_eq!(v.settings.language, Language::System);
+    // A retry commits for real.
+    assert!(wb.clear_personal_data().unwrap());
+    let reopened = Workbench::new(storage(dir.path()), None);
+    assert!(reopened.config().recent_files.is_empty());
+}
+
+#[test]
+fn inspecting_the_view_does_not_consume_what_the_ui_must_receive() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = Workbench::new(storage(dir.path()), None);
+    wb.view(false);
+    let t = wb.begin_open(file_origin("/bad.sgf", OpenSource::Chooser));
+    wb.complete_open(t, Err(ReadError::Invalid("x".into())));
+    wb.begin_open(file_origin("/a.sgf", OpenSource::Chooser));
+    let inspected = wb.inspect();
+    assert!(inspected.tree.is_some());
+    let published = wb.view(false);
+    assert!(matches!(published.open_outcome, Some(OpenOutcome::Failed { .. })));
+    let t2 = wb.begin_open(file_origin("/b.sgf", OpenSource::Chooser));
+    wb.complete_open(t2, read_ok("(;SZ[9];B[ee])"));
+    wb.inspect();
+    assert!(
+        wb.view(false).tree.is_some(),
+        "the new document's tree still reaches the UI"
+    );
+}
+
+#[test]
+fn forward_steps_sound_like_java_and_respect_the_setting() {
+    // Utils.playVoiceFile: capture of 3+ -> deadStoneMore, 1-2 -> deadStone, else Stone; only
+    // routes that step forward onto a node sound (nextMove), backward steps are silent.
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = Workbench::new(storage(dir.path()), None);
+    // W captures one stone at aa with ab; B then plays a plain move.
+    let t = wb.begin_open(file_origin("/s.sgf", OpenSource::Chooser));
+    wb.complete_open(t, read_ok("(;SZ[9];B[aa];W[ba];B[ee];W[ab];B[ff])"));
+    assert!(wb.view(false).sound.is_none(), "opening is silent");
+    wb.navigate(Navigation::Forward(1));
+    assert_eq!(wb.view(false).sound, Some(StoneSound::Stone));
+    wb.navigate(Navigation::Back(1));
+    assert_eq!(wb.view(false).sound, None, "backward steps are silent");
+    wb.navigate(Navigation::Forward(3));
+    assert_eq!(
+        wb.view(false).sound,
+        Some(StoneSound::Stone),
+        "the first node entered decides"
+    );
+    // move 4 is W[ab], capturing B[aa]
+    wb.navigate(Navigation::Forward(1));
+    assert_eq!(wb.view(false).sound, Some(StoneSound::DeadStone));
+    assert_eq!(wb.view(false).sound, None, "the sound is reported once");
+    assert!(wb.set_play_sound(false).unwrap());
+    wb.navigate(Navigation::First);
+    wb.navigate(Navigation::Forward(1));
+    assert_eq!(wb.view(false).sound, None);
+    assert!(
+        !Workbench::new(storage(dir.path()), None)
+            .view(false)
+            .settings
+            .play_sound
+    );
 }

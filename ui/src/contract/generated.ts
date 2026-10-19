@@ -27,7 +27,7 @@ export type Navigation = { "op": "Forward", "count": number } | { "op": "Back", 
 
 export type OpenSource = "Chooser" | "Recent" | "Drop" | "CommandLine";
 
-export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" };
+export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" };
 
 export type CommandResult = { "type": "Done" } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "Exported", path: string, };
 
@@ -92,7 +92,13 @@ active_language: Language,
 /**
  * Whether the saved language differs from the one in use until restart.
  */
-restart_required: boolean, read_komi: boolean, };
+restart_required: boolean, read_komi: boolean, 
+/**
+ * Settings > "播放落子音效" (Java `ui.play-sound`, default on).
+ */
+play_sound: boolean, };
+
+export type StoneSound = "Stone" | "DeadStone" | "DeadStoneMore";
 
 export type WorkbenchView = { 
 /**
@@ -106,7 +112,11 @@ tree: TreeView | null, position: PositionView, pending_open: PendingOpen | null,
 /**
  * The latest finished open, once.
  */
-open_outcome: OpenOutcome | null, settings: SettingsView, 
+open_outcome: OpenOutcome | null, 
+/**
+ * The sound of the browsing step that produced this view, once; only while sound is on.
+ */
+sound: StoneSound | null, settings: SettingsView, 
 /**
  * Newest first.
  */
@@ -115,3 +125,5 @@ recent_files: Array<string>,
  * Current session komi (toolbar komi field).
  */
 komi: number, };
+
+export type LogsStatus = { directory: string, app_log_bytes: number | null, crash_log_bytes: number | null, };

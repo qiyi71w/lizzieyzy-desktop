@@ -25,7 +25,10 @@ import {
   paintSubBoard,
   paintTree,
   prepare,
+  ARROW,
+  SCROLLBAR,
   type BoardScene,
+  type TreeViewport,
 } from "./workbench/paint";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -40,6 +43,10 @@ document.documentElement.dataset.os = navigator.userAgent.includes("Windows")
 
 let panels: Panels | null = null;
 let treeHits = new Map<string, number>();
+let treeView: TreeViewport | null = null;
+/** User scroll of the variation tree, for the position it was made at (`treeScrollFor`). */
+let treeScroll: { top: number; left: number } | null = null;
+let treeScrollFor = "";
 /** A status-line notice replacing the shortcut hint for a few seconds. */
 let notice: { text: string; until: number } | null = null;
 let version = "";
@@ -123,11 +130,12 @@ document.addEventListener("keydown", (e) => {
 
 function bindPointer() {
   const main = $("main");
-  // Input.mouseWheelMoved: one move per notch over the workbench; scroll panes keep their wheel.
+  // Input.mouseWheelMoved: one move per notch over the workbench. Scroll panes take their own
+  // wheel: the comment, the candidate list and the variation tree (a JScrollPane, scrolled below).
   main.addEventListener(
     "wheel",
     (ev) => {
-      if ((ev.target as HTMLElement).closest("#comment, #table")) return;
+      if ((ev.target as HTMLElement).closest("#comment, #table, #tree")) return;
       ev.preventDefault();
       if (ev.deltaY !== 0) navigate(ev.deltaY > 0 ? { op: "Forward", count: 1 } : { op: "Back", count: 1 });
     },
@@ -137,10 +145,33 @@ function bindPointer() {
   $("board").addEventListener("mousedown", (ev) => {
     if (ev.button === 0 && boardPoint(ev)) flash(product("unavailable"));
   });
-  $("tree").addEventListener("mousedown", (ev) => {
-    const r = $("tree").getBoundingClientRect();
+  const tree = $("tree");
+  // BasicScrollPaneUI: the vertical bar if shown, else the horizontal one; unit increment 16 x 3
+  // rows per notch (LizzieFrame.java:806-807).
+  tree.addEventListener(
+    "wheel",
+    (ev) => {
+      ev.preventDefault();
+      const step = Math.sign(ev.deltaY || ev.deltaX) * TREE_UNIT * 3;
+      if (treeView?.vertical && !ev.shiftKey) scrollTree(step, 0);
+      else if (treeView?.horizontal) scrollTree(0, step);
+    },
+    { passive: false },
+  );
+  tree.addEventListener("mousedown", (ev) => {
+    if (ev.button !== 0 || !treeView || !panels) return;
+    const r = tree.getBoundingClientRect();
     const x = ev.clientX - r.left;
     const y = ev.clientY - r.top;
+    const v = treeView;
+    if (v.vertical && x >= panels.tree.w - SCROLLBAR && y < v.viewH) {
+      pressScrollbar(ev, "vertical", y);
+      return;
+    }
+    if (v.horizontal && y >= panels.tree.h - SCROLLBAR && x < v.viewW) {
+      pressScrollbar(ev, "horizontal", x);
+      return;
+    }
     for (const [k, id] of treeHits) {
       const [hx, hy] = k.split(",").map(Number);
       if (Math.abs(hx - x) <= 8 && Math.abs(hy - y) <= 8) {
@@ -150,6 +181,49 @@ function bindPointer() {
     }
   });
   for (const id of ["problemsTab"]) $(id).addEventListener("click", unavailable);
+}
+
+/** JScrollBar unit increment of the variation tree. */
+const TREE_UNIT = 16;
+
+/** Scrolls the variation tree viewport; the scroll holds until the browsing position changes,
+ *  when renderVarTree centres the current node again. */
+function scrollTree(dTop: number, dLeft: number) {
+  if (!treeView) return;
+  const from = treeScroll ?? { top: treeView.top, left: treeView.left };
+  treeScroll = {
+    top: Math.max(0, Math.min(from.top + dTop, treeView.maxY - treeView.viewH)),
+    left: Math.max(0, Math.min(from.left + dLeft, treeView.maxX - treeView.viewW)),
+  };
+  schedule();
+}
+
+/** Arrow buttons scroll one unit, the track one visible extent toward the press, and the thumb
+ *  drags (BasicScrollBarUI). */
+function pressScrollbar(ev: MouseEvent, axis: "vertical" | "horizontal", at: number) {
+  const v = treeView!;
+  const vertical = axis === "vertical";
+  const bar = (vertical ? v.vertical : v.horizontal)!;
+  const length = vertical ? v.viewH : v.viewW;
+  const content = vertical ? v.maxY : v.maxX;
+  const move = (d: number) => (vertical ? scrollTree(d, 0) : scrollTree(0, d));
+  ev.preventDefault();
+  if (at < ARROW) return move(-TREE_UNIT);
+  if (at >= length - ARROW) return move(TREE_UNIT);
+  const along = at - ARROW;
+  if (along < bar.thumbStart) return move(-length);
+  if (along >= bar.thumbStart + bar.thumb) return move(length);
+  const startPointer = vertical ? ev.clientY : ev.clientX;
+  const startOffset = vertical ? v.top : v.left;
+  const ratio = (content - length) / Math.max(1, bar.track - bar.thumb);
+  const drag = (e: MouseEvent) => {
+    const target = startOffset + ((vertical ? e.clientY : e.clientX) - startPointer) * ratio;
+    const current = treeScroll ?? { top: v.top, left: v.left };
+    if (vertical) scrollTree(target - current.top, 0);
+    else scrollTree(0, target - current.left);
+  };
+  window.addEventListener("mousemove", drag);
+  window.addEventListener("mouseup", () => window.removeEventListener("mousemove", drag), { once: true });
 }
 
 function boardPoint(ev: MouseEvent): boolean {
@@ -259,8 +333,15 @@ function render() {
   const statusRect = { x: 0, y: P.ponderingY, w: P.board.x, h: H - P.ponderingY };
   const lines = statusLines();
   if (changed("status", `${size}:${lines.join("|")}`)) paintStatus(prepare($("status"), statusRect), statusRect, lines);
-  if (changed("tree", `${size}:${docSig}:${state.nodes.size}`))
-    treeHits = paintTree(prepare($("tree"), P.tree), P.tree, state.nodes, state.root, pos.node, state.line);
+  if (treeScrollFor !== docSig) {
+    treeScroll = null;
+    treeScrollFor = docSig;
+  }
+  if (changed("tree", `${size}:${docSig}:${state.nodes.size}:${treeScroll?.top}:${treeScroll?.left}`)) {
+    const painted = paintTree(prepare($("tree"), P.tree), P.tree, state.nodes, state.root, pos.node, state.line, treeScroll);
+    treeHits = painted.hits;
+    treeView = painted.viewport;
+  }
   place($("comment"), P.comment);
   if (changed("comment", docSig)) $("commentText").textContent = pos.comment;
   place($("table"), P.table);
@@ -331,9 +412,21 @@ function uiReport() {
     moveField: $<HTMLInputElement>("moveInput").value,
     bottomBar: [...document.querySelectorAll<HTMLElement>("#bottombar .bb")].filter((b) => b.style.display !== "none").map((b) => b.textContent),
     view: state.view ? { seq: state.view.seq, node: state.view.position.node, document: state.view.document.id } : null,
-    /** Visible menu, toolbar and bottom-bar entries with client-area centres, so automation clicks
-     *  the real controls. */
-    targets: [...document.querySelectorAll<HTMLElement>("[data-key], [data-name], #moveInput, .modal-buttons button")]
+    tree: treeView && {
+      top: treeView.top,
+      left: treeView.left,
+      vertical: !!treeView.vertical,
+      horizontal: !!treeView.horizontal,
+      /** Client point of the vertical bar's down arrow. */
+      downArrow: (() => {
+        const r = $("tree").getBoundingClientRect();
+        return { x: Math.round(r.right - SCROLLBAR / 2), y: Math.round(r.top + treeView.viewH - ARROW / 2) };
+      })(),
+    },
+    lastSound: state.lastSound,
+    /** Visible menu, toolbar, bottom-bar and dialog controls with client-area centres, so
+     *  automation clicks the real controls. */
+    targets: [...document.querySelectorAll<HTMLElement>("[data-key], [data-name], #moveInput, .modal-box button")]
       .map((el) => ({ el, r: el.getBoundingClientRect() }))
       .filter(({ r }) => r.width > 0 && r.height > 0)
       .map(({ el, r }) => ({
@@ -364,7 +457,7 @@ async function boot() {
   $("problemsTab").title = product("unavailable");
   bindPointer();
   await Promise.all([
-    loadImages(["board.png", "black0.png", "white0.png", "background.jpg", "smallUp.png", "smallDown.png"]),
+    loadImages(["board.png", "black0.png", "white0.png", "background.jpg", "smallUp.png", "smallDown.png", "smallLeft.png", "smallRight.png"]),
     document.fonts.load('12px "Lizzie Winrate"'),
   ]);
   subscribe(schedule);

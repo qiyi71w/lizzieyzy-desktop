@@ -34,6 +34,10 @@ export const COMMANDS: Record<string, CommandEntry> = {
     run: () => run({ type: "SetReadKomi", enabled: !state.view?.settings.read_komi }),
     checked: () => state.view?.settings.read_komi ?? true,
   },
+  "menu.playSound": {
+    run: () => run({ type: "SetPlaySound", enabled: !state.view?.settings.play_sound }),
+    checked: () => state.view?.settings.play_sound ?? true,
+  },
   // System.exit(0): no window state is written.
   "menu.forceExit": { run: () => getCurrentWindow().destroy() },
   "menu.exit": { run: () => getCurrentWindow().close() },

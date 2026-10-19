@@ -31,6 +31,15 @@ pub fn file_label(path: &str) -> String {
         .unwrap_or_default()
 }
 
+/// A read failure for log lines: the I/O error text (no path or contents), or only the fact
+/// that the text is not a valid record, because parser messages quote the record.
+pub fn read_error(e: &lizzie_core::formats::ReadError) -> String {
+    match e {
+        lizzie_core::formats::ReadError::Io(m) => format!("read failed: {m}"),
+        lizzie_core::formats::ReadError::Invalid(_) => "not a valid record".to_string(),
+    }
+}
+
 impl Log {
     pub fn start(dir: &Path) -> Log {
         let _ = std::fs::create_dir_all(dir);

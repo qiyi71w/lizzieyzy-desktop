@@ -55,6 +55,10 @@ pub enum Command {
     SetLanguage {
         language: Language,
     },
+    /// Settings > "播放落子音效".
+    SetPlaySound {
+        enabled: bool,
+    },
     /// Help > "清除所有个人数据" after confirmation.
     ClearPersonalData,
     /// View > "重置界面位置".
@@ -203,6 +207,17 @@ pub struct SettingsView {
     /// Whether the saved language differs from the one in use until restart.
     pub restart_required: bool,
     pub read_komi: bool,
+    /// Settings > "播放落子音效" (Java `ui.play-sound`, default on).
+    pub play_sound: bool,
+}
+
+/// Stone sound for a forward step onto a node (`Utils.playVoiceFile`): a capture of three or more
+/// stones, a smaller capture, or a plain stone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum StoneSound {
+    Stone,
+    DeadStone,
+    DeadStoneMore,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
@@ -216,9 +231,19 @@ pub struct WorkbenchView {
     pub pending_open: Option<PendingOpen>,
     /// The latest finished open, once.
     pub open_outcome: Option<OpenOutcome>,
+    /// The sound of the browsing step that produced this view, once; only while sound is on.
+    pub sound: Option<StoneSound>,
     pub settings: SettingsView,
     /// Newest first.
     pub recent_files: Vec<String>,
     /// Current session komi (toolbar komi field).
     pub komi: f64,
+}
+
+/// Help > 诊断与日志: where the logs are and their sizes (`None` when a log does not exist).
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct LogsStatus {
+    pub directory: String,
+    pub app_log_bytes: Option<u64>,
+    pub crash_log_bytes: Option<u64>,
 }

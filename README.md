@@ -17,13 +17,16 @@ Implemented: opening and browsing records.
   `PageUp`/`PageDown` (10 moves), `Home`/`End`, `Left`/`Right` (sibling branches),
   `Ctrl+Left` (branch point), `Shift+Up` (branch start), `Ctrl+Shift+Up`/`Down` (previous/next
   comment), `B` (back to the main branch), the mouse wheel, the bottom bar navigation buttons and
-  move-number field, and clicks in the variation tree.
+  move-number field, and clicks in the variation tree. The variation tree scrolls with its own
+  scroll bars and mouse wheel; it re-centres on the current node when the position changes.
+- Stepping forward plays the Java stone sounds (stone, capture, capture of three or more).
 - The board shows setup stones, moves, passes, captures, comments, SGF markup (TR/SQ/CR/MA/LB),
   next-move rings, player names, the sub board, the variation tree and the empty winrate graph.
 - A failed or cancelled open keeps the current record. Opening a 9x9 record after a 19x19 one (or
   back) replaces the board completely.
-- Settings available now: reading komi from SGF records, and the UI language (zh-CN, zh-TW, en,
-  ja, ko, th; applied after a restart, like Java).
+- Settings available now: reading komi from SGF records, stone sounds on/off, and the UI language
+  (zh-CN, zh-TW, en, ja, ko, th; applied after a restart, like Java). A setting that cannot be
+  saved is reported and left unchanged.
 - Help > 诊断与日志 shows this client's logs, opens the log folder and exports a diagnostics zip;
   Help > 清除所有个人数据 clears the recent-record list; View > 重置界面位置 resets the saved
   window placement and last folder.
@@ -80,8 +83,10 @@ Builds with `--features acceptance` (for example
 `npx tauri build --debug --no-bundle --features acceptance`) open a loopback-only control
 channel when `LIZZIEYZY_TAURI_ACCEPTANCE_PORT` is set. It takes newline-delimited JSON:
 `{"command": <Command>}` runs a command exactly as the UI does, `{"query": "view"}` returns the
-current view, and `{"query": "ui"}` returns what the window shows (title, focus, open dialogs,
-status lines and the positions of visible controls). Release builds do not contain it.
+current view without consuming anything the UI receives, and `{"query": "ui"}` returns what the
+window shows (title, focus, open dialogs, status lines, tree scroll, last stone sound and the
+positions of visible controls). The feature is off by default; builds made without
+`--features acceptance` do not contain the channel, whatever the profile.
 
 ## Data
 
@@ -93,6 +98,6 @@ the platform data directory for the same identifier. On Linux these are
 
 ## License
 
-GPL-3.0-only (see `LICENSE.txt`). The images and the winrate font in `ui/public` are copied
+GPL-3.0-only (see `LICENSE.txt`). The images, stone sounds and the winrate font in `ui/public` are copied
 unchanged from LizzieYzy Next (GPL-3.0), and the application icons are generated from its icon;
 see `ui/public/assets/SOURCE.txt` and `ui/public/fonts/SOURCE.txt`.

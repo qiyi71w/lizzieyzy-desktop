@@ -72,10 +72,21 @@ impl Default for RecordSettings {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct UiSettings {
     pub language: Language,
+    /// Java `ui.play-sound`, default true.
+    pub play_sound: bool,
+}
+
+impl Default for UiSettings {
+    fn default() -> Self {
+        UiSettings {
+            language: Language::default(),
+            play_sound: true,
+        }
+    }
 }
 
 pub const RECENT_LIMIT: usize = 5;

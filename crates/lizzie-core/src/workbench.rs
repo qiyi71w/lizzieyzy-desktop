@@ -10,8 +10,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::api::{
-    ApiError, DocumentView, ErrorKind, LastAction, OpenOutcome, OpenSource, PendingOpen, PositionView, SettingsView,
-    TreeNodeKind, TreeNodeView, TreeView, WorkbenchView,
+    ApiError, DocumentView, ErrorKind, LastAction, LogsStatus, OpenOutcome, OpenSource, PendingOpen, PositionView,
+    SettingsView, StoneSound, TreeNodeKind, TreeNodeView, TreeView, WorkbenchView,
 };
 use crate::browse::{self, Navigation};
 use crate::formats::{self, ReadError};
@@ -73,6 +73,7 @@ pub struct Workbench {
     outcome: Option<OpenOutcome>,
     seq: u64,
     tree_sent_for: Option<u64>,
+    sound: Option<StoneSound>,
 }
 
 impl Workbench {
@@ -103,6 +104,7 @@ impl Workbench {
             outcome: None,
             seq: 0,
             tree_sent_for: None,
+            sound: None,
         }
     }
 
@@ -131,8 +133,22 @@ impl Workbench {
     }
 
     fn save_config(&self) -> Result<(), ApiError> {
-        settings::save_json(&self.storage.config_file, &self.config)
+        Self::write_config(&self.storage, &self.config)
+    }
+
+    fn write_config(storage: &Storage, config: &Config) -> Result<(), ApiError> {
+        settings::save_json(&storage.config_file, config)
             .map_err(|e| ApiError::new(ErrorKind::Io, format!("saving settings failed: {e}")))
+    }
+
+    /// A user settings change: applied only once it is on disk, so the projection never shows a
+    /// state that a restart would lose.
+    fn commit_config(&mut self, change: impl FnOnce(&mut Config)) -> Result<(), ApiError> {
+        let mut next = self.config.clone();
+        change(&mut next);
+        Self::write_config(&self.storage, &next)?;
+        self.config = next;
+        Ok(())
     }
 
     fn save_persisted(&self) -> Result<(), ApiError> {
@@ -218,6 +234,8 @@ impl Workbench {
                     path,
                 };
                 self.outcome = Some(OpenOutcome::Adopted { ticket, document: id });
+                // Loading is silent (Java turns sound off while it builds the history).
+                self.sound = None;
             }
         }
         true
@@ -245,10 +263,21 @@ impl Workbench {
 
     // ---------------------------------------------------------------- browsing
 
+    /// Moves the browsing position. A route that steps forward onto at least one node sounds like
+    /// Java's `nextMove` steps: the first node entered decides the sound (`Utils.playVoiceFile`
+    /// compares its captures with its parent's).
     fn move_to(&mut self, target: NodeId) -> bool {
         if target == self.cursor {
             return false;
         }
+        let rec = &self.doc.record;
+        let from = rec.path_to(self.cursor);
+        let to = rec.path_to(target);
+        let shared = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
+        self.sound = match to.get(shared) {
+            Some(&entered) if self.config.ui.play_sound => Some(step_sound(rec, entered)),
+            _ => None,
+        };
         self.cursor = target;
         true
     }
@@ -283,8 +312,7 @@ impl Workbench {
         if self.config.record.read_komi == enabled {
             return Ok(false);
         }
-        self.config.record.read_komi = enabled;
-        self.save_config()?;
+        self.commit_config(|c| c.record.read_komi = enabled)?;
         Ok(true)
     }
 
@@ -292,8 +320,15 @@ impl Workbench {
         if self.config.ui.language == language {
             return Ok(false);
         }
-        self.config.ui.language = language;
-        self.save_config()?;
+        self.commit_config(|c| c.ui.language = language)?;
+        Ok(true)
+    }
+
+    pub fn set_play_sound(&mut self, enabled: bool) -> Result<bool, ApiError> {
+        if self.config.ui.play_sound == enabled {
+            return Ok(false);
+        }
+        self.commit_config(|c| c.ui.play_sound = enabled)?;
         Ok(true)
     }
 
@@ -304,8 +339,7 @@ impl Workbench {
         if self.config.recent_files.is_empty() {
             return Ok(false);
         }
-        self.config.recent_files.clear();
-        self.save_config()?;
+        self.commit_config(|c| c.recent_files.clear())?;
         Ok(true)
     }
 
@@ -339,8 +373,9 @@ impl Workbench {
 
     // ---------------------------------------------------------------- projection
 
-    /// Builds the next view. `full` always includes the tree (initial load, automation query);
-    /// otherwise the tree is included only for a document the UI has not received yet.
+    /// Builds the next view for the UI. `full` always includes the tree (initial load, reload);
+    /// otherwise the tree is included only for a document the UI has not received yet. One-shot
+    /// parts (open outcome, sound) are handed over here.
     pub fn view(&mut self, full: bool) -> WorkbenchView {
         self.seq += 1;
         let tree = if full || self.tree_sent_for != Some(self.doc.id) {
@@ -349,6 +384,23 @@ impl Workbench {
         } else {
             None
         };
+        let outcome = self.outcome.take();
+        let sound = self.sound.take();
+        self.build_view(tree, outcome, sound)
+    }
+
+    /// The current state with the tree, for observers other than the UI (acceptance queries):
+    /// nothing is handed over, so what the UI receives does not depend on being observed.
+    pub fn inspect(&self) -> WorkbenchView {
+        self.build_view(Some(tree_view(&self.doc)), self.outcome.clone(), self.sound)
+    }
+
+    fn build_view(
+        &self,
+        tree: Option<TreeView>,
+        outcome: Option<OpenOutcome>,
+        sound: Option<StoneSound>,
+    ) -> WorkbenchView {
         WorkbenchView {
             seq: self.seq,
             document: self.document_view(),
@@ -361,16 +413,29 @@ impl Workbench {
                     OpenOrigin::Clipboard => None,
                 },
             }),
-            open_outcome: self.outcome.take(),
+            open_outcome: outcome,
+            sound,
             settings: SettingsView {
                 language: self.config.ui.language,
                 active_language: self.active_language,
                 restart_required: self.config.ui.language.resolve(self.system_locale.as_deref())
                     != self.active_language,
                 read_komi: self.config.record.read_komi,
+                play_sound: self.config.ui.play_sound,
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
+        }
+    }
+
+    /// Log location and sizes for Help > 诊断与日志.
+    pub fn logs_status(&self) -> LogsStatus {
+        let dir = &self.storage.logs_dir;
+        let size = |name: &str| std::fs::metadata(dir.join(name)).ok().map(|m| m.len());
+        LogsStatus {
+            directory: dir.to_string_lossy().into_owned(),
+            app_log_bytes: size("app.log"),
+            crash_log_bytes: size("crash.log"),
         }
     }
 
@@ -430,6 +495,24 @@ impl Workbench {
                 _ => None,
             }),
         }
+    }
+}
+
+/// `Utils.playVoiceFile(node)`: compares the captures at `node` with its parent's.
+fn step_sound(rec: &GameRecord, node: NodeId) -> StoneSound {
+    let Some(parent) = rec.parent(node) else {
+        return StoneSound::Stone;
+    };
+    let (now, before) = (rec.position(node), rec.position(parent));
+    let captured = if now.black_captures > before.black_captures {
+        now.black_captures - before.black_captures
+    } else {
+        now.white_captures.saturating_sub(before.white_captures)
+    };
+    match captured {
+        0 => StoneSound::Stone,
+        1 | 2 => StoneSound::DeadStone,
+        _ => StoneSound::DeadStoneMore,
     }
 }
 

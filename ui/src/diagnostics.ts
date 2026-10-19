@@ -57,7 +57,7 @@ export async function openDiagnostics(): Promise<void> {
   row(`${t("DiagnosticsDialog.fullTrace")}: ${t("DiagnosticsDialog.traceOff")}`, button(t("DiagnosticsDialog.startFullTrace"), () => undefined, false));
 
   section(t("DiagnosticsDialog.health"));
-  row(product("diagnosticsLogs", bytes(status.appLogBytes), bytes(status.crashLogBytes)));
+  row(product("diagnosticsLogs", bytes(status.app_log_bytes), bytes(status.crash_log_bytes)));
   const path = document.createElement("code");
   path.textContent = status.directory;
   row(`${t("DiagnosticsDialog.logsFolder")}: `, path);
