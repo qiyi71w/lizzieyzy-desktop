@@ -3,7 +3,7 @@
 // Menus, toolbars and shortcuts look entries up here; a Java entry with no catalog entry is shown
 // disabled and marked as not yet available. Later slices register their own entries.
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { navigate, pasteRecord, run, state } from "./app";
+import { navigate, pasteRecord, run, saveRecord, saveRecordAs, state } from "./app";
 import type { Language } from "./contract/generated";
 import { confirm, message } from "./dialogs";
 import { openDiagnostics } from "./diagnostics";
@@ -43,6 +43,12 @@ export const COMMANDS: Record<string, CommandEntry> = {
   "menu.shutdownOtherEngine": { run: () => run({ type: "ShutdownEngines", scope: "Others" }) },
   "menu.shutdownAllEngine": { run: () => run({ type: "ShutdownEngines", scope: "All" }) },
   "files.open": { run: () => run({ type: "ChooseAndOpenRecord" }) },
+  "files.save": { run: saveRecord },
+  "files.save-as": { run: saveRecordAs },
+  "menu.showReplaceFileConfirmDialog": {
+    run: () => run({ type: "SetReplaceFileHint", enabled: !state.view?.settings.replace_file_hint }),
+    checked: () => state.view?.settings.replace_file_hint ?? true,
+  },
   "menu.pasteSgf": { run: pasteRecord },
   "menu.loadKomi": {
     run: () => run({ type: "SetReadKomi", enabled: !state.view?.settings.read_komi }),

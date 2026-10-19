@@ -55,12 +55,15 @@ impl Language {
     }
 }
 
-/// Record-opening settings (Java `read-komi` default true, `load-sgf-last` default false).
+/// Record open/save settings (Java `read-komi` default true, `load-sgf-last` default false,
+/// `ui.show-replace-file-hint` default true).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct RecordSettings {
     pub read_komi: bool,
     pub load_sgf_last: bool,
+    /// Ask before "保存" overwrites the record's own file.
+    pub show_replace_file_hint: bool,
 }
 
 impl Default for RecordSettings {
@@ -68,6 +71,7 @@ impl Default for RecordSettings {
         RecordSettings {
             read_komi: true,
             load_sgf_last: false,
+            show_replace_file_hint: true,
         }
     }
 }

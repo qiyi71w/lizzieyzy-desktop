@@ -83,9 +83,9 @@ showPonderLimitedTips: boolean, };
 
 export type EngineScope = "Current" | "Others" | "All";
 
-export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, };
+export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, };
 
-export type CommandResult = { "type": "Done" } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "Exported", path: string, } | { "type": "Refused", message_key: string, };
+export type CommandResult = { "type": "Done" } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "Exported", path: string, } | { "type": "Refused", message_key: string, } | { "type": "SaveStarted", ticket: number, } | { "type": "NeedsReplaceConfirmation", document: number, file_name: string, } | { "type": "NeedsOverwriteConfirmation", path: string, };
 
 export type ErrorKind = "InvalidArgument" | "Io" | "Unavailable";
 
@@ -95,7 +95,20 @@ export type DocumentView = {
 /**
  * Identity of the open document; changes on every adopted record.
  */
-id: number, format: RecordFormat | null, path: string | null, file_name: string | null, size: BoardSize, info: GameInfo, };
+id: number, format: RecordFormat | null, path: string | null, file_name: string | null, size: BoardSize, info: GameInfo, 
+/**
+ * Content version; every content change increases it.
+ */
+revision: number, 
+/**
+ * The revision known to be the content of the file at `path` (read from it or confirmed
+ * written to it); `None` while the content was never on disk (new or pasted record).
+ */
+saved_revision: number | null, 
+/**
+ * The current content is not confirmed on disk: `saved_revision != Some(revision)`.
+ */
+unsaved: boolean, };
 
 export type TreeNodeKind = "Root" | "Snapshot" | "Black" | "White";
 
@@ -138,6 +151,8 @@ next_color: Stone | null, };
 
 export type OpenOutcome = { "type": "Adopted", ticket: number, document: number, } | { "type": "Failed", ticket: number, message_key: string, detail: string, };
 
+export type SaveOutcome = { "type": "Saved", ticket: number, document: number, revision: number, path: string, } | { "type": "Failed", ticket: number, document: number, path: string, message_key: string, detail: string, };
+
 export type PendingOpen = { ticket: number, path: string | null, };
 
 export type EngineSettingsView = { engines: Array<EngineProfile>, startup: EngineStartup, analysis: AnalysisSettings, 
@@ -158,7 +173,11 @@ restart_required: boolean, read_komi: boolean,
 /**
  * Settings > "播放落子音效" (Java `ui.play-sound`, default on).
  */
-play_sound: boolean, engine: EngineSettingsView, };
+play_sound: boolean, 
+/**
+ * Ask before "保存" overwrites the record's own file (Java `ui.show-replace-file-hint`).
+ */
+replace_file_hint: boolean, engine: EngineSettingsView, };
 
 export type StoneSound = "Stone" | "DeadStone" | "DeadStoneMore";
 
@@ -312,6 +331,10 @@ tree: TreeView | null, position: PositionView, pending_open: PendingOpen | null,
  * The latest finished open, once.
  */
 open_outcome: OpenOutcome | null, 
+/**
+ * The latest finished save, once.
+ */
+save_outcome: SaveOutcome | null, 
 /**
  * Sounds of the browsing step that produced this view, one per node entered forward, in
  * order (Java plays one per `moveHistoryForward`); handed over once, empty while sound is off.

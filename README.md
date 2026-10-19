@@ -8,8 +8,8 @@ and data directory and never reads or writes the Java configuration.
 
 ## Current state
 
-Implemented: opening and browsing records, and analysis with one local GTP engine (KataGo,
-Leela Zero, Sayuri, Sai or Leela 0.11, recognised by their GTP name like Java).
+Implemented: opening, browsing and saving records, and analysis with one local GTP engine
+(KataGo, Leela Zero, Sayuri, Sai or Leela 0.11, recognised by their GTP name like Java).
 
 - Open SGF and GIB files with the File menu, the toolbar button, `O`, a dropped file, a command
   line argument, or File > recent records. Paste an SGF record with `Ctrl+V` (it asks before
@@ -25,12 +25,28 @@ Leela Zero, Sayuri, Sai or Leela 0.11, recognised by their GTP name like Java).
   next-move rings, player names, the sub board, the variation tree and the empty winrate graph.
 - A failed or cancelled open keeps the current record. Opening a 9x9 record after a 19x19 one (or
   back) replaces the board completely.
+- Save with File > 保存, the toolbar save button or `Ctrl+S`: a record that came from (or was
+  saved to) a file overwrites that same file, under its own name, after the Java "覆盖原文件?"
+  prompt (Cancel is the default; "不再提示" turns it off, View > 主界面设置 >
+  显示覆盖文件提示对话框 and View > 重置界面位置 turn it back on). A new, pasted or GIB record
+  goes to the save chooser instead.
+- Save As with File > 另存为 or `S`: the system save chooser opens in the last save folder (at
+  first the home folder, Documents on Windows) with the Java default name (`<black>_Vs_<white>`
+  or 未命名, then a timestamp). `.sgf` is added to a chosen name without it; if that file exists
+  the Java "SGF文件已经存在" prompt asks first (the system chooser itself asks about a file
+  picked directly). The record then belongs to the new file.
+- Records are always written as UTF-8 SGF (GIB is read-only, as in Java). Setup stones, the side
+  to play, real and placeholder passes, branches, comments, markup, `MN` and the saved analysis
+  properties (`LZ`, `LZ2`, `LZOP`, `LZOP2`) and other unknown properties are kept, and LizzieYzy
+  Next reads the files with the same meaning. A file is written to an owner-only temporary file
+  next to it and then renamed, so a failed save ("保存失败") leaves the old file untouched; a
+  replaced file keeps its permissions. Closing the window waits for saves still being written.
 - Settings available now: reading komi from SGF records, stone sounds on/off, and the UI language
   (zh-CN, zh-TW, en, ja, ko, th; applied after a restart, like Java). A setting that cannot be
   saved is reported and left unchanged.
 - Help > 诊断与日志 shows this client's logs, opens the log folder and exports a diagnostics zip;
   Help > 清除所有个人数据 clears the recent-record list; View > 重置界面位置 resets the saved
-  window placement and last folder.
+  window placement and last folder and turns the overwrite prompt back on.
 - Engines: the engine list (更多引擎 / `Alt+X`) adds, edits, orders and removes engine profiles
   with Java's fields (name, command with Java quoting, initial commands, board size, komi,
   default engine, preload). The engine at start-up is the default one, the last one, none, or
@@ -87,6 +103,13 @@ and an open runs in the background under a ticket so a late result from an older
 dropped. Engine results carry the record, position and komi they were requested for; the core
 drops any that no longer match and sends the engine only the moves that changed.
 
+Record content changes only through the core's document edit operation, which raises the
+document `revision`. A save captures the text, document and revision when it starts and is
+written by one background writer in order; its receipt (`save_outcome`) confirms only that
+revision of that document. `DocumentView` reports `revision`, `saved_revision` (the revision that
+is the content of the document's file) and `unsaved`, so edits made while a save runs, or a
+record opened meanwhile, stay unsaved.
+
 ## Development
 
 Requirements: Rust (stable), Node.js 22+, and the [Tauri 2 system
@@ -97,7 +120,7 @@ npm install
 npx tauri dev                       # run with hot reload
 npx tauri build --no-bundle         # release binary in target/release
 npm run typecheck                   # TypeScript
-cargo test --workspace              # core tests (records, browsing, engine protocol, contract)
+cargo test --workspace              # core tests (records, browsing, saving, engine protocol, contract)
 cargo clippy --workspace --all-targets
 ```
 

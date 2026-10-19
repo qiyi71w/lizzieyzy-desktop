@@ -10,8 +10,8 @@
 //! - A dummy PASS (`DD[true]`) is a placeholder, never a real action.
 //! - The main line is the chain of first children from the root.
 //!
-//! A record is immutable once built by a format reader; browsing never changes it. Content edits
-//! belong to the document editing slice and will go through this module only.
+//! Content changes go through [`DocumentEdit`] and [`GameRecord::apply`] only; browsing never
+//! changes a record. Editing slices add their operations to [`DocumentEdit`].
 
 use serde::Serialize;
 use ts_rs::TS;
@@ -108,7 +108,8 @@ pub struct Mark {
     pub mark: MarkKind,
 }
 
-/// Static setup carried by a snapshot node (`AB`, `AW`, `AE`), applied in that order.
+/// Static setup carried by a snapshot node: the net change of its `AB`, `AW`, `AE`, each point in
+/// one list at most, so the order of application does not matter.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Setup {
     pub add_black: Vec<Point>,
@@ -314,6 +315,42 @@ impl GameRecord {
             }
         }
         pos
+    }
+}
+
+/// A content change to a record: the one write path of the document module.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DocumentEdit {
+    /// Replaces the comment of a node (Java `BoardData.comment`).
+    SetComment { node: NodeId, comment: String },
+    /// The game komi (`GameInfo.setKomi`), saved as `KM`.
+    SetKomi { komi: f64 },
+}
+
+impl GameRecord {
+    /// Applies `edit`. Returns whether the content changed; an edit naming a node that is not in
+    /// this record is refused without changing anything.
+    pub fn apply(&mut self, edit: &DocumentEdit) -> Result<bool, String> {
+        match edit {
+            DocumentEdit::SetComment { node, comment } => {
+                if !self.contains(*node) {
+                    return Err(format!("no node {node} in this document"));
+                }
+                let target = &mut self.node_mut(*node).comment;
+                if target == comment {
+                    return Ok(false);
+                }
+                comment.clone_into(target);
+                Ok(true)
+            }
+            DocumentEdit::SetKomi { komi } => {
+                if self.info.komi == *komi {
+                    return Ok(false);
+                }
+                self.info.komi = *komi;
+                Ok(true)
+            }
+        }
     }
 }
 

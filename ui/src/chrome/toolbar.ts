@@ -153,7 +153,7 @@ export function buildToolbar(host: HTMLElement): void {
     buttons(
       icon("newFile.png", t("Menu.btnNewFile.toolTipText")),
       icon("open.png", t("Menu.btnOpen.toolTipText"), "files.open"),
-      icon("save.png", t("Menu.btnSave.toolTipText")),
+      icon("save.png", t("Menu.btnSave.toolTipText"), "files.save"),
       pill(t("Menu.foxKifuButton"), "w80"),
       pill(t("Menu.tencentKifuButton"), "w80"),
       pill(t("Menu.playerStrengthEstimateButton"), "w80"),

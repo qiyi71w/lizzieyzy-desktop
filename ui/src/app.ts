@@ -3,7 +3,7 @@
 // can never be applied in the opposite order.
 import { dispatch, isApiError } from "./contract/client";
 import type { Command, CommandResult, Navigation, StoneSound, TreeNodeView, WorkbenchView } from "./contract/generated";
-import { confirm, message } from "./dialogs";
+import { ask, confirm, message } from "./dialogs";
 import { product, t } from "./i18n";
 
 export const APP_TITLE = "LizzieYzy Tauri";
@@ -56,6 +56,8 @@ export function apply(view: WorkbenchView): void {
     if (outcome.message_key === "KifuLoad.failed") message(t("Message.title"), `${t("KifuLoad.failed")}${outcome.detail}`, "error");
     else message("Error", t("LizzieFrame.prompt.failedToOpenFile"), "error");
   }
+  // SgfSaveCoordinator.showFailure: Utils.showMsg(saveFileFailed); a success shows nothing.
+  if (view.save_outcome?.type === "Failed") message(t("Message.title"), t("LizzieFrame.saveFileFailed"), "error");
   view.sounds.forEach(playSound);
   viewHandlers.forEach((handler) => handler(view));
   listeners.forEach((l) => l());
@@ -120,6 +122,53 @@ export async function pasteRecord(): Promise<void> {
   if (await confirm(t("LizzieFrame.pasteSgfReplaceTitle"), t("LizzieFrame.pasteSgfReplaceMessage"))) {
     await run({ type: "PasteRecord", confirmed: true });
   }
+}
+
+/** The chooser's default name (SgfSaveCoordinator.chooseAndSave): GameInfo.getSaveFileName, i.e.
+ *  "<black>_Vs_<white>" or GameInfo.untitled, then "_yyyyMMddHHmmss". */
+function suggestedSaveName(): string {
+  const info = state.view?.document.info;
+  const name = !info || (info.black === "" && info.white === "") ? t("GameInfo.untitled") : `${info.black}_Vs_${info.white}`;
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  const stamp = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  return name === "" ? stamp : `${name}_${stamp}`;
+}
+
+/** The prompts a save may need before it starts. */
+async function followSave(r: CommandResult | null): Promise<void> {
+  if (r?.type === "NeedsReplaceConfirmation") {
+    // LizzieFrame.saveOriFile: the question, the notice and "不再提示"; Cancel is the default.
+    const body = document.createElement("div");
+    const line = (text: string) => {
+      const el = document.createElement("div");
+      el.textContent = text;
+      body.append(el);
+    };
+    line(`${t("LizzieFrame.ifReplaceFile")}${r.file_name}" ?`);
+    line(t("LizzieFrame.replaceFileNotice"));
+    const label = document.createElement("label");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    label.append(box, ` ${t("LizzieFrame.noNoticeAgain")}`);
+    body.append(label);
+    const ok = await ask(t("LizzieFrame.replaceFileTitle"), body, t("LizzieFrame.confirm"), t("LizzieFrame.cancel"), true);
+    // The check box takes effect whether or not the file is replaced.
+    if (box.checked) await run({ type: "SetReplaceFileHint", enabled: false });
+    if (ok) await followSave(await run({ type: "SaveRecord", confirmed: r.document, suggested_name: suggestedSaveName() }));
+  } else if (r?.type === "NeedsOverwriteConfirmation") {
+    if (await confirm(t("LizzieFrame.warning"), t("LizzieFrame.prompt.sgfExists"))) await run({ type: "SaveRecordTo", path: r.path });
+  }
+}
+
+/** "保存(Ctrl+S)" (LizzieFrame.saveOriFile). */
+export async function saveRecord(): Promise<void> {
+  await followSave(await run({ type: "SaveRecord", confirmed: null, suggested_name: suggestedSaveName() }));
+}
+
+/** "另存为(S)" (LizzieFrame.saveFile(false)). */
+export async function saveRecordAs(): Promise<void> {
+  await followSave(await run({ type: "ChooseAndSaveRecord", suggested_name: suggestedSaveName() }));
 }
 
 /** A Java entry whose capability has not been migrated yet. */

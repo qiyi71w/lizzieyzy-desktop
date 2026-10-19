@@ -23,7 +23,7 @@ fn generate() -> String {
         Navigation, OpenSource, EngineProfile, EngineStartup, AnalysisSettings, EngineScope,
         Command, CommandResult, ErrorKind, ApiError,
         DocumentView, TreeNodeKind, TreeNodeView, TreeView, LastAction, PositionView,
-        OpenOutcome, PendingOpen, EngineSettingsView, SettingsView, StoneSound,
+        OpenOutcome, SaveOutcome, PendingOpen, EngineSettingsView, SettingsView, StoneSound,
         EngineState, EngineEntryView, ForegroundEngineView, EngineView, CandidateView, NodeAnalysisView,
         HistoryPoint, EngineFailureView, EngineNotice, ConsoleLineKind, ConsoleLineView, RulesPromptView,
         WorkbenchView, LogsStatus,

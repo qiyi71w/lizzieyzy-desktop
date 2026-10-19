@@ -25,7 +25,7 @@ use crate::engine::runtime::{
     Bootstrap, ConsoleKind, EngineFailure, EngineInput, InstanceId, Phase, RulesOutcome, RuntimeEvent, Target,
     UserCommandError,
 };
-use crate::record::{BoardSize, GameRecord, NodeId, Position, Stone, ROOT};
+use crate::record::{BoardSize, DocumentEdit, GameRecord, NodeId, Position, Stone, ROOT};
 use crate::sanitize::sanitize;
 
 /// The rules the open session asks for (`BoardHistoryList.SessionRulesTarget`).
@@ -309,6 +309,8 @@ impl Workbench {
             record: Arc::new(GameRecord::empty(size, self.komi)),
             format: None,
             path: None,
+            revision: 0,
+            saved_revision: None,
         };
         self.cursor = ROOT;
         self.store.reset(id);
@@ -451,7 +453,7 @@ impl Workbench {
     /// Every komi change of the game: the document records it and every stored analysis of the
     /// game is discarded (`clearBestMovesAfter(start)`).
     fn apply_komi(&mut self, komi: f64) -> bool {
-        let recorded = self.doc.set_komi(komi);
+        let recorded = matches!(self.edit_document(DocumentEdit::SetKomi { komi }), Ok(true));
         if !recorded && komi == self.komi {
             return false;
         }
