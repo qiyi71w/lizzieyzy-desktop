@@ -41,6 +41,18 @@ pub struct Document {
     pub path: Option<String>,
 }
 
+impl Document {
+    /// The document's one content change so far: the game komi (`GameInfo.setKomi`). Returns
+    /// whether the content changed.
+    pub(crate) fn set_komi(&mut self, komi: f64) -> bool {
+        if self.record.info.komi == komi {
+            return false;
+        }
+        Arc::make_mut(&mut self.record).info.komi = komi;
+        true
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OpenOrigin {
     File { path: String, source: OpenSource },

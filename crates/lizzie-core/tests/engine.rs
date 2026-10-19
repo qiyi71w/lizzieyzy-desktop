@@ -683,6 +683,22 @@ fn switching_applies_the_engine_komi_unless_the_user_chose_it() {
 }
 
 #[test]
+fn a_komi_chosen_while_an_engine_starts_is_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    let mut b = profile("B", "/opt/b");
+    b.komi = 6.5;
+    wb.save_engine_settings(vec![b], EngineStartup::Default).unwrap();
+    wb.start_engines();
+    // The user sets the komi before the new engine is ready (Java would overwrite it then).
+    wb.set_komi(0.5).unwrap();
+    let b = world.launched()[0].0;
+    answer_all(&mut wb, &world, b, KATA);
+    assert_eq!(wb.view(false).komi, 0.5);
+}
+
+#[test]
 fn an_engines_board_size_applies_to_a_new_empty_game_only() {
     let dir = tempfile::tempdir().unwrap();
     let world = World::default();

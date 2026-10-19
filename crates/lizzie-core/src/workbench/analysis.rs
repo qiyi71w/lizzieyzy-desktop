@@ -433,12 +433,14 @@ impl Workbench {
     }
 
     /// The game komi chosen by the user (toolbar field, console `komi`): recorded in the game,
-    /// sent to the engine, and engine profiles no longer change it (`GameInfo.changeKomi`).
+    /// sent to the engine, and engine profiles no longer change it (`GameInfo.changeKomi`) — not
+    /// even a starting engine's, which Java would still apply once it is ready.
     pub fn set_komi(&mut self, komi: f64) -> Result<bool, ApiError> {
         if !komi.is_finite() {
             return Err(ApiError::new(ErrorKind::InvalidArgument, "komi"));
         }
         self.komi_changed = true;
+        self.start_komi = None;
         if !self.apply_komi(komi) {
             return Ok(false);
         }
@@ -446,16 +448,14 @@ impl Workbench {
         Ok(true)
     }
 
-    /// Every komi change of the game: the game records it and every stored analysis of the
+    /// Every komi change of the game: the document records it and every stored analysis of the
     /// game is discarded (`clearBestMovesAfter(start)`).
     fn apply_komi(&mut self, komi: f64) -> bool {
-        if komi == self.komi && self.doc.record.info.komi == komi {
+        let recorded = self.doc.set_komi(komi);
+        if !recorded && komi == self.komi {
             return false;
         }
         self.komi = komi;
-        if self.doc.record.info.komi != komi {
-            Arc::make_mut(&mut self.doc.record).info.komi = komi;
-        }
         self.store.reset(self.doc.id);
         self.limit_stop = None;
         true
