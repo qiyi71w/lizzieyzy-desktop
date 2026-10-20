@@ -84,8 +84,11 @@ the matching LizzieYzy Next settings.
   imported, not usable here (invalid values; Java window positions) or left out (features not in
   this client yet, accounts and credentials), with the engine list. Imported: record settings
   (load komi, go to last move, replace prompt), language, stone sounds, recent records, last
-  folder, the engine list with its default and start-up choice, analysis limits and interval,
-  fast engine change, limit notice and KataGo rules. Engines keep using the Java engine and
+  folder, the engine list with its default and start-up choice, each engine's thread policy and
+  benchmark results and its GTP configuration profile, analysis limits and interval, fast engine
+  change, limit notice, KataGo rules, the start-up benchmark choice and the network proxy (only
+  values Java itself accepts). Java's marker for its own bundled KataGo package is reported as not
+  applicable. Engines keep using the Java engine and
   model files: relative paths are resolved as Java launches them (a bare program name is looked
   up on `PATH`; relative files, including a Java engine's `-jar` file, in the Java folder or an
   optional Java program folder), and missing programs or `-model`/`-config` files are listed
@@ -99,22 +102,56 @@ the matching LizzieYzy Next settings.
   report; the language applies after a restart. Java's files are never written, so both programs
   can be used side by side.
 - An analysis time limit of 0 seconds means 9999 minutes, as in Java.
+- Engine resources (Settings > 引擎一键设置, the toolbar 一键设置 button, the bottom bar 更新官方权重
+  button for the weights page, and the "AI 未就绪 - 点击修复" banner shown while no engine has a
+  command): this client does not bundle an engine. Opening the dialog detects the computer (OS,
+  CPU architecture and threads, memory, NVIDIA GPUs through `nvidia-smi` with VRAM, driver and
+  compute capability, Apple chip and Rosetta through `sysctl`, CUDA/cuDNN libraries and the OpenCL
+  driver on Linux, `OpenCL.dll` on Windows); a value that cannot be read is shown as unknown. It
+  then lists every KataGo package for this platform with its tier (stable, optional, experimental),
+  source, license, runtime needs, size and capability, recommends one with its reasons and missing
+  dependencies, and offers the three Java model choices (balanced, strongest (default),
+  lightweight). Nothing is downloaded, installed, switched or replaced without a click and a
+  confirmation; experimental packages (Windows DirectML, OpenVINO, ROCm) are never recommended and
+  ask first. Downloads resume, are checked against pinned SHA-256 digests and sizes (a mismatch
+  deletes the partial file and is reported), and can be stopped (the partial file is kept for a
+  later resume). An engine package can also be imported from a zip obtained elsewhere (accepted
+  only when it is the same trusted package), a weight file (`.bin.gz`/`.txt.gz`) can be imported,
+  and an existing KataGo can be chosen. "验证" runs `katago version` (and, for NVIDIA drivers
+  between 528.33 and 570.65, KataGo's one-second inference probe). "使用此配置…" shows the exact
+  profile it will add (or update, for a profile this dialog created whose command is unchanged)
+  and saves it only after confirming; profiles you configured yourself are never changed. On
+  Windows the NVIDIA page installs the CUDA 12.8 / cuDNN 9 / TensorRT 10.9 runtime from NVIDIA
+  after confirming (drivers are never installed). The official online weight list
+  (katagotraining.org) can be refreshed; a failed refresh keeps the previous list. The analysis
+  packages are not contribution engines. Network access follows Settings > 网络代理 (direct by
+  default, system, or a manual HTTP proxy).
+- Engine performance: MoreEngines has Java's thread policy (CFG uses the engine's config file;
+  Benchmark uses the measured recommendation and sends `kata-set-param numSearchThreads` at start),
+  性能测试 opening the performance page, 扫描 to build a command from chosen files (including the
+  ikatago account form), and GTP 配置 for engines that publish a configuration schema (saved with
+  the profile, the engine's config file is not edited). The official benchmark runs only when
+  clicked, or after start-up when "首次启动时引导运行智能测速优化" is turned on (off by default);
+  it can be stopped, and its result is stored with the files it measured, so it no longer applies
+  after the engine, model or config changes. Measured tuning reports can be reviewed, applied and
+  restored. Apple Silicon deep tuning is experimental and asks first.
 
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
 as not yet available (greyed in menus; a notice when used). Not available yet: comparison and
-dual-engine analysis, remote/SSH and cloud engines, GPU and thread recommendations, benchmark
-and automatic engine setup.
+dual-engine analysis, remote/SSH and cloud engines, the quick-analysis and HumanSL models of the
+weights page, and whole-game measured tuning.
 
-Verified so far on Linux (X11, WebKitGTK) with KataGo 1.18.2 (Eigen CPU). Windows and macOS
-builds, native file dialogs, fonts, input methods and engines on those platforms have not been
-verified yet.
+Verified so far on Linux (X11, WebKitGTK) with KataGo 1.18.2 (Eigen CPU), including real downloads
+of the Linux CPU package and the lightweight model. Windows and macOS builds, native file dialogs,
+fonts, input methods, GPU backends, the NVIDIA runtime installer and engines on those platforms
+have not been verified yet.
 
 ## Layout
 
 | Path | Contents |
 | --- | --- |
-| `crates/lizzie-core` | Platform-independent core: game record model, SGF/GIB readers and SGF writer, browsing, settings, the LizzieYzy Next settings reader (`java_import`), the engine runtime (GTP framing, launch, analysis requests, rules), the credential sanitizer and the workbench command/view contract. No Tauri or DOM dependency. |
-| `src-tauri` | Desktop shell: window, file dialogs, drag and drop, engine processes, logging, diagnostics export, and the optional acceptance channel. |
+| `crates/lizzie-core` | Platform-independent core: game record model, SGF/GIB readers and SGF writer, browsing, settings, the LizzieYzy Next settings reader (`java_import`), the engine runtime (GTP framing, launch, analysis requests, rules, thread policy and benchmark), engine resources (`resources`: trusted package/model catalog, machine detection, recommendation, downloads, installs, verification), the credential sanitizer and the workbench command/view contract. No Tauri or DOM dependency. |
+| `src-tauri` | Desktop shell: window, file dialogs, drag and drop, engine and helper processes, HTTP downloads, logging, diagnostics export, and the optional acceptance channel. |
 | `ui` | Web UI: menus, toolbars, canvas painters, dialogs and the Java UI strings. |
 | `fixtures` | Sample records used by tests and manual checks. |
 | `tools` | Maintenance scripts. |
@@ -165,8 +202,10 @@ channel when `LIZZIEYZY_TAURI_ACCEPTANCE_PORT` is set. It takes newline-delimite
 `{"command": <Command>}` runs a command exactly as the UI does, `{"query": "view"}` returns the
 current view without consuming anything the UI receives, and `{"query": "ui"}` returns what the
 window shows (title, focus, open dialogs, status lines, tree scroll, last stone sound and the
-positions of visible controls). The feature is off by default; builds made without
-`--features acceptance` do not contain the channel, whatever the profile.
+positions of visible controls). With the feature, `LIZZIEYZY_TAURI_RESOURCE_BASE=<url>` makes
+engine resource downloads fetch `<url>/<file name>` instead of the trusted source (digests and
+sizes stay pinned), for isolated download tests. The feature is off by default; builds made
+without `--features acceptance` contain neither, whatever the profile.
 
 ## Data
 
@@ -174,10 +213,26 @@ Settings (`config.json`, `persist.json`) live in the platform configuration dire
 identifier `io.github.qiyi71w.lizzieyzy-tauri`; logs (`logs/app.log`, `logs/crash.log`) live in
 the platform data directory for the same identifier. On Linux these are
 `~/.config/io.github.qiyi71w.lizzieyzy-tauri/` and
-`~/.local/share/io.github.qiyi71w.lizzieyzy-tauri/logs/`. LizzieYzy Next keeps its own
+`~/.local/share/io.github.qiyi71w.lizzieyzy-tauri/logs/`. Downloaded and imported engine resources
+live under `resources/` in the same data directory (`engines/<package>/` with a receipt,
+`weights/`, `configs/gtp.cfg` and `configs/analysis.cfg` (created once from the package's example
+files and never overwritten), `runtime/nvidia/` on Windows, `downloads/` for package archives; an
+interrupted download stays next to its target as `<name>.part` and resumes from there); "打开程序目录"
+opens it. LizzieYzy Next keeps its own
 `config.txt` and `persist` elsewhere (for example `~/.lizzieyzy-next/`); this client never writes
 there. The first start is detected by the missing `config.json`; declining the import offer
 writes it.
+
+### Engine resource sources
+
+The trusted catalog (`crates/lizzie-core/resources/catalog.json`) is the fixed LizzieYzy Next
+catalog: KataGo v1.18.2 built from `lightvector/KataGo` commit
+`47aadc08518b3e121f22539796c911002f699584`, published as the `katago-source-*` assets of the
+LizzieYzy Next release `next-2026-10-17.1`, with archive and executable SHA-256 pinned; each
+package carries KataGo's license and its third-party licenses under `licenses/`. Models: the b11
+network from katagotraining.org (KataGo Neural Network License) and the two b10 networks of the
+KataGo v1.17.1 release. Windows NVIDIA runtime components come from NVIDIA's redistributable
+archives, with their license files kept next to the installed libraries.
 
 ## License
 

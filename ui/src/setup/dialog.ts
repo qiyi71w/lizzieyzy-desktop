@@ -103,7 +103,7 @@ export async function planSetup(target: ResourceEngineChoice, weight?: string): 
     const option = node("option", `${product("setupUpdateProfile")}: ${p.name}`); option.value = p.id; profile.append(option);
   }
   const weightLabel = node("label", t("AutoSetup.localWeight")); weightLabel.append(weights);
-  const profileLabel = node("label", product("setupNewProfile")); profileLabel.append(profile);
+  const profileLabel = node("label", product("setupTargetProfile")); profileLabel.append(profile);
   body.append(weightLabel, profileLabel);
   if (await ask(product("setupPlanTitle"), body, t("AutoSetup.autoSetup"), product("cancel"), true)) {
     await resourceCommand({ type: "PlanSetup", engine: { ...target, updateProfileId: profile.value || null }, weight: weights.value });

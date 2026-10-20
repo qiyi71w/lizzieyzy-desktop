@@ -77,7 +77,9 @@ export function weightsCard(_ctx: SetupContext): SetupCard {
         rows.push({ id: w.path, name, transformer: /tflrs|^kata1-tf[23]-b\d+c\d+-/i.test(name), elo: "—", date: "—", bytes: w.size, path: w.path, item: null, url: "", model: null });
       }
     }
-    if (!rows.some((w) => w.id === selected)) selected = rows.find((w) => w.path === r.currentSetup.weight)?.id ?? rows[0]?.id ?? "";
+    // A row is in use only when it is installed and is the current setup's weight file.
+    const inUsePath = (path: string | null): boolean => !!path && path === r.currentSetup.weight;
+    if (!rows.some((w) => w.id === selected)) selected = rows.find((w) => inUsePath(w.path))?.id ?? rows[0]?.id ?? "";
     const tableWrap = node("div", "", "setup-weight-table-wrap"), table = node("table", "", "setup-weight-table"), head = node("thead"), header = node("tr");
     for (const label of [t("AutoSetup.weightColumnModel"), t("AutoSetup.transformerBadge"), t("AutoSetup.weightColumnElo"), t("AutoSetup.weightColumnReleaseDate"), t("AutoSetup.weightColumnStatus")]) header.append(node("th", label));
     head.append(header); table.append(head); const tbody = node("tbody");
@@ -85,7 +87,7 @@ export function weightsCard(_ctx: SetupContext): SetupCard {
       const tr = node("tr"); tr.classList.toggle("selected", w.id === selected);
       const model = node("td"); const select = action(`setup.weight.select.${w.id}`, w.name, () => { selected = w.id; render(); }); select.title = w.url || w.path || w.name; model.append(select);
       const badge = node("td"); badge.append(node("span", w.transformer ? "TF" : "CNN", "setup-architecture"));
-      const status = w.path === r.currentSetup.weight ? t("AutoSetup.currentlyUsingShort") : w.path ? t("AutoSetup.downloaded") : t("AutoSetup.notDownloaded");
+      const status = inUsePath(w.path) ? t("AutoSetup.currentlyUsingShort") : w.path ? t("AutoSetup.downloaded") : t("AutoSetup.notDownloaded");
       tr.append(model, badge, node("td", w.elo), node("td", w.date.slice(0, 10)), node("td", status)); tbody.append(tr);
     }
     table.append(tbody); tableWrap.append(table); catalog.append(tableWrap);
@@ -105,7 +107,7 @@ export function weightsCard(_ctx: SetupContext): SetupCard {
         if (!chosen?.item) return;
         if (await ask(t("AutoSetup.title"), node("p", product("setupDownloadConfirm", chosen.name, size(chosen.bytes))), t("AutoSetup.downloadShort"), product("cancel"), true)) await resourceCommand({ type: "Download", item: chosen.item });
       }, !!chosen?.item && !chosen.path),
-      action("setup.weight.use", chosen?.path === r.currentSetup.weight ? t("AutoSetup.currentlyUsingShort") : t("AutoSetup.useWeight"), () => target && chosen?.path ? planSetup(target, chosen.path) : undefined, setupVerified(target) && !!chosen?.path && chosen.path !== r.currentSetup.weight && !blocked),
+      action("setup.weight.use", inUsePath(chosen?.path ?? null) ? t("AutoSetup.currentlyUsingShort") : t("AutoSetup.useWeight"), () => target && chosen?.path ? planSetup(target, chosen.path) : undefined, setupVerified(target) && !!chosen?.path && !inUsePath(chosen.path) && !blocked),
       action("setup.weight.import", t("AutoSetup.importWeight"), () => resourceCommand({ type: "ImportWeight", path: null })));
     details.querySelector<HTMLButtonElement>("[data-key='setup.weight.import']")!.title = t("AutoSetup.importWeightFilter");
     catalog.append(details);

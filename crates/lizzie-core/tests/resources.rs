@@ -600,6 +600,9 @@ fn weight_import_identifies_header_uniquely_and_inventory_uses_recorded_digest()
     );
     assert!(!weight_compatibility(first.model_name.as_ref().unwrap(), Some("1.16.4")).compatible);
     assert!(weight_compatibility(first.model_name.as_ref().unwrap(), Some("1.17.0")).compatible);
+    // A running KataGo reports its GTP identity as `<version>+<model>`.
+    assert!(weight_compatibility(first.model_name.as_ref().unwrap(), Some("1.18.2+b10c384h6nbttflrs")).compatible);
+    assert!(!weight_compatibility(first.model_name.as_ref().unwrap(), Some("1.16.4+b18c384nbt")).compatible);
     assert!(!weight_compatibility(first.model_name.as_ref().unwrap(), None).compatible);
     assert!(weight_compatibility("kata1-b18c384-s123-d456", None).compatible);
     assert_eq!(

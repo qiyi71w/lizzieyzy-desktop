@@ -66,13 +66,15 @@ pub fn weight_compatibility(model_name: &str, engine_version: Option<&str>) -> W
         minimum_version: Some(TRANSFORMER_MINIMUM_VERSION.into()),
     }
 }
+/// KataGo's GTP `version` answers `<semver>+<model>`, so each part keeps its leading digits.
 fn version_tuple(version: &str) -> Option<(u32, u32, u32)> {
-    let mut parts = version.trim().trim_start_matches('v').split('.');
-    Some((
-        parts.next()?.parse().ok()?,
-        parts.next()?.parse().ok()?,
-        parts.next().unwrap_or("0").parse().ok()?,
-    ))
+    let mut parts = version.trim().trim_start_matches('v').split('.').map(|part| {
+        let digits = part
+            .find(|c: char| !c.is_ascii_digit())
+            .map_or(part, |end| &part[..end]);
+        digits.parse::<u32>().ok()
+    });
+    Some((parts.next()??, parts.next()??, parts.next().flatten().unwrap_or(0)))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
