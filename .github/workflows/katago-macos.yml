@@ -1,0 +1,53 @@
+name: KataGo macOS packages
+
+# Builds self-contained macOS KataGo packages from an official upstream release tag.
+# Upstream publishes no macOS binaries; the resulting zips are reviewed and attached to a
+# release by a maintainer. This workflow only produces artifacts.
+on:
+  push:
+    branches: [build/katago-macos]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  KATAGO_TAG: v1.18.2
+
+jobs:
+  build:
+    name: Metal (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: lightvector/KataGo
+          ref: refs/tags/${{ env.KATAGO_TAG }}
+          path: upstream-katago
+          fetch-tags: true
+          persist-credentials: false
+      - name: Install build tools and libraries
+        run: brew install bash cmake ninja pkgconf libzip abseil protobuf openssl@3
+      - name: Build and package
+        run: |
+          "$(brew --prefix)/bin/bash" tools/katago-macos/build.sh "${{ matrix.arch }}" upstream-katago "$RUNNER_TEMP/out"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: katago-${{ env.KATAGO_TAG }}-macos-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/out/*.zip
+            ${{ runner.temp }}/out/*.zip.sha256
+            ${{ runner.temp }}/out/version-*.txt
+            ${{ runner.temp }}/out/runtests-*.txt
+          if-no-files-found: error
+          retention-days: 30
