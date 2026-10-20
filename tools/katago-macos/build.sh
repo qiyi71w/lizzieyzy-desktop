@@ -37,6 +37,7 @@ rm -rf "$BUILD" "$PKG" "$OUTPUT/$NAME.zip"
 mkdir -p "$BUILD" "$PKG/lib" "$PKG/licenses/KataGo"
 
 export PKG_CONFIG_PATH="$(brew --prefix protobuf)/lib/pkgconfig:$(brew --prefix abseil)/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+LIBZIP="$(brew --prefix libzip)"
 cmake -S "$SOURCE/cpp" -B "$BUILD" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_OSX_ARCHITECTURES="$ARCH" \
@@ -44,6 +45,9 @@ cmake -S "$SOURCE/cpp" -B "$BUILD" -G Ninja \
   -DBUILD_DISTRIBUTED=1 \
   -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" \
   -DCMAKE_PREFIX_PATH="$BREW" \
+  -DLIBZIP_INCLUDE_DIR_ZIP="$LIBZIP/include" \
+  -DLIBZIP_INCLUDE_DIR_ZIPCONF="$LIBZIP/include" \
+  -DLIBZIP_LIBRARY="$LIBZIP/lib/libzip.dylib" \
   -DCMAKE_Swift_FLAGS="-Xlinker -headerpad_max_install_names" \
   -DCMAKE_EXE_LINKER_FLAGS="-Wl,-headerpad_max_install_names"
 cmake --build "$BUILD" --target katago --parallel "$(sysctl -n hw.logicalcpu)"
