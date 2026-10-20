@@ -22,6 +22,20 @@ pub struct EngineProfile {
     /// Komi applied when the engine starts on an empty game.
     pub komi: f64,
     pub is_default: bool,
+    /// Written by engine resource setup: this client's resource store owns the command, as long
+    /// as the command is still the one it wrote (Java `BundledKataGoProfile`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub managed: Option<crate::resources::ManagedProfile>,
+    /// KataGo search-thread policy and stored benchmark results (Java `threadPolicy`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub thread_policy: Option<crate::engine::tuning::ThreadPolicy>,
+    /// Settings chosen through the engine's GTP configuration protocol (Java
+    /// `gtpConfigurationProtocol` / `gtpConfigurationProfile`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub gtp_configuration: Option<crate::engine::tuning::GtpConfiguration>,
 }
 
 impl Default for EngineProfile {
@@ -36,6 +50,9 @@ impl Default for EngineProfile {
             height: 19,
             komi: 7.5,
             is_default: false,
+            managed: None,
+            thread_policy: None,
+            gtp_configuration: None,
         }
     }
 }

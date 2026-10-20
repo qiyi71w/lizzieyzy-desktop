@@ -45,8 +45,9 @@ export async function openMoreEngines(): Promise<void> {
     const tableWrap = document.createElement("div"); tableWrap.className = "engine-table-wrap";
     const table = document.createElement("table"); table.className = "engine-table";
     tableWrap.append(table);
+    // Fields this form does not edit (resource ownership, thread policy, GTP configuration) stay.
     const read = (): EngineProfile | null => selected < 0 ? null : ({
-      id: engines[selected].id, name: name.value, command: command.value, initialCommand: initial.value,
+      ...engines[selected], name: name.value, command: command.value, initialCommand: initial.value,
       preload: preload.input.checked, isDefault: defaultEngine.input.checked,
       width: Number(width.value), height: Number(height.value), komi: Number(komi.value),
     });

@@ -47,7 +47,21 @@ preload: boolean, width: number, height: number,
 /**
  * Komi applied when the engine starts on an empty game.
  */
-komi: number, isDefault: boolean, };
+komi: number, isDefault: boolean, 
+/**
+ * Written by engine resource setup: this client's resource store owns the command, as long
+ * as the command is still the one it wrote (Java `BundledKataGoProfile`).
+ */
+managed?: ManagedProfile, 
+/**
+ * KataGo search-thread policy and stored benchmark results (Java `threadPolicy`).
+ */
+threadPolicy?: ThreadPolicy, 
+/**
+ * Settings chosen through the engine's GTP configuration protocol (Java
+ * `gtpConfigurationProtocol` / `gtpConfigurationProfile`).
+ */
+gtpConfiguration?: GtpConfiguration, };
 
 export type EngineStartup = "Default" | "Last" | "Empty" | "Manual";
 
@@ -83,9 +97,9 @@ showPonderLimitedTips: boolean, };
 
 export type EngineScope = "Current" | "Others" | "All";
 
-export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, replace: boolean, } | { "type": "DismissJavaImportOffer" };
+export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, replace: boolean, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, };
 
-export type CommandResult = { "type": "Done" } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "Exported", path: string, } | { "type": "Refused", message_key: string, } | { "type": "SaveStarted", ticket: number, } | { "type": "NeedsReplaceConfirmation", document: number, file_name: string, } | { "type": "NeedsOverwriteConfirmation", path: string, } | { "type": "FolderChosen", path: string, } | { "type": "JavaImportPreview", preview: ImportPreviewView, } | { "type": "JavaImportFailed", failure: ImportFailure, } | { "type": "JavaImported", report: ImportReportView, };
+export type CommandResult = { "type": "Done" } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "Exported", path: string, } | { "type": "Refused", message_key: string, } | { "type": "SaveStarted", ticket: number, } | { "type": "NeedsReplaceConfirmation", document: number, file_name: string, } | { "type": "NeedsOverwriteConfirmation", path: string, } | { "type": "FolderChosen", path: string, } | { "type": "JavaImportPreview", preview: ImportPreviewView, } | { "type": "JavaImportFailed", failure: ImportFailure, } | { "type": "JavaImported", report: ImportReportView, } | { "type": "Resource", result: ResourceResult, } | { "type": "Tuning", result: TuningResult, };
 
 export type ErrorKind = "InvalidArgument" | "Io" | "Unavailable";
 
@@ -369,7 +383,17 @@ engine_notice: EngineNotice | null,
  * The session rules could not be applied to the foreground engine; ask whether to analyse
  * with the engine's current rules (`KifuRules.failurePrompt`), once.
  */
-rules_prompt: RulesPromptView | null, java_import: JavaImportView, };
+rules_prompt: RulesPromptView | null, java_import: JavaImportView, 
+/**
+ * Engine resources (auto setup); present when changed since the previous view, and in full
+ * snapshots.
+ */
+resources: ResourcesView | null, 
+/**
+ * Engine performance (thread policy, benchmark); present when changed since the previous
+ * view, and in full snapshots.
+ */
+tuning: TuningView | null, };
 
 export type LogsStatus = { directory: string, app_log_bytes: number | null, crash_log_bytes: number | null, };
 
@@ -441,3 +465,29 @@ export type ImportReportView = { config_file: string, items: Array<ImportItemVie
 restart_required: boolean, };
 
 export type ImportFailure = { "type": "NoConfig", path: string, } | { "type": "Unreadable", path: string, detail: string, } | { "type": "Invalid", path: string, detail: string, };
+
+export type ManagedProfile = { 
+/**
+ * The command as written; the profile stays managed only while its command is unchanged.
+ */
+command: string, };
+
+export type ResourceCommand = { "type": "Inspect", refresh: boolean, };
+
+export type ResourceResult = { "type": "Done" };
+
+export type ResourcesView = Record<symbol, never>;
+
+export type ThreadPolicy = { 
+/**
+ * Set by the first automatic setup of a profile (Java `initialSetup`).
+ */
+initialSetup: boolean, };
+
+export type GtpConfiguration = Record<symbol, never>;
+
+export type TuningCommand = { "type": "Refresh" };
+
+export type TuningResult = { "type": "Done" };
+
+export type TuningView = Record<symbol, never>;

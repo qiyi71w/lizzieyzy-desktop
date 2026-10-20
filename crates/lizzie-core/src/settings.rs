@@ -104,6 +104,30 @@ pub struct Config {
     pub recent_files: Vec<String>,
     /// Engines and analysis (Java `leelaz.engine-settings-list` and analysis keys).
     pub engine: crate::engine::profile::EngineSettings,
+    /// Network access (Java `ui.network-proxy-*`).
+    pub network: NetworkSettings,
+}
+
+/// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum ProxyMode {
+    /// `direct` (Java default): no proxy.
+    #[default]
+    Direct,
+    /// `system`: the operating system's proxy settings.
+    System,
+    /// `manual`: an HTTP proxy at `proxy_host:proxy_port`.
+    Manual,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct NetworkSettings {
+    pub proxy_mode: ProxyMode,
+    /// `network-proxy-host` (manual mode; non-empty when manual).
+    pub proxy_host: String,
+    /// `network-proxy-port` (manual mode; 1–65535 when manual).
+    pub proxy_port: u16,
 }
 
 impl Config {
@@ -140,6 +164,8 @@ pub struct Storage {
     pub config_file: PathBuf,
     pub persist_file: PathBuf,
     pub logs_dir: PathBuf,
+    /// Downloaded and imported engine resources (packages, weights, runtimes, partial downloads).
+    pub resources_dir: PathBuf,
 }
 
 impl Storage {
@@ -148,6 +174,7 @@ impl Storage {
             config_file: config_dir.join("config.json"),
             persist_file: config_dir.join("persist.json"),
             logs_dir: data_dir.join("logs"),
+            resources_dir: data_dir.join("resources"),
         }
     }
 }

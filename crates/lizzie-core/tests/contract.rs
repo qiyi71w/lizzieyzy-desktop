@@ -2,6 +2,11 @@
 //! `ui/src/contract/generated.ts` no longer matches them; regenerate with
 //! `UPDATE_CONTRACT=1 cargo test -p lizzie-core --test contract`.
 
+#[path = "contract/resources.rs"]
+mod resources;
+#[path = "contract/tuning.rs"]
+mod tuning;
+
 use lizzie_core::api::*;
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup};
@@ -9,16 +14,16 @@ use lizzie_core::record::{BoardSize, GameInfo, Mark, MarkKind, Point, RecordForm
 use lizzie_core::settings::{Language, WindowPlacement};
 use ts_rs::{Config, TS};
 
+#[macro_export]
 macro_rules! decls {
     ($cfg:expr; $($t:ty),* $(,)?) => {
-        vec![$(<$t as TS>::decl($cfg)),*]
+        vec![$(<$t as ts_rs::TS>::decl($cfg)),*]
     };
 }
-
 fn generate() -> String {
     // u64 values are serialised as JSON numbers.
     let cfg = Config::default().with_large_int("number");
-    let decls = decls![&cfg;
+    let mut decls = decls![&cfg;
         Stone, Point, BoardSize, MarkKind, Mark, GameInfo, RecordFormat, Language, WindowPlacement,
         Navigation, OpenSource, EngineProfile, EngineStartup, AnalysisSettings, EngineScope,
         Command, CommandResult, ErrorKind, ApiError,
@@ -29,6 +34,9 @@ fn generate() -> String {
         WorkbenchView, LogsStatus, JavaImportView, ImportStatus, ImportReason, ImportTarget, ImportItemView,
         EngineProblem, ImportEngineView, ImportPreviewView, ImportReportView, ImportFailure,
     ];
+    // Engine resources and engine performance keep their own lists.
+    decls.extend(resources::decls(&cfg));
+    decls.extend(tuning::decls(&cfg));
     let mut out = String::from(
         "// Generated from crates/lizzie-core (api, record, browse, settings). Do not edit.\n\
          // Regenerate: UPDATE_CONTRACT=1 cargo test -p lizzie-core --test contract\n\n",

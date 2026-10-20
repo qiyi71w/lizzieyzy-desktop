@@ -4,8 +4,14 @@
 //! them (see `tests/contract.rs`); the UI, its shortcuts and the acceptance channel all send the
 //! same [`Command`] values and read the same [`WorkbenchView`].
 
+mod resources;
+mod tuning;
+
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+
+pub use resources::*;
+pub use tuning::*;
 
 use crate::browse::Navigation;
 use crate::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup};
@@ -162,6 +168,15 @@ pub enum Command {
     },
     /// The first-use import offer was declined; it is not shown again.
     DismissJavaImportOffer,
+    /// Engine resources: KataGo auto setup (detection, recommendation, download, offline import,
+    /// reuse, verification, applying a setup), weights and acceleration components.
+    Resource {
+        op: ResourceCommand,
+    },
+    /// Engine performance: thread policy, benchmark, measured tuning, GTP configuration.
+    Tuning {
+        op: TuningCommand,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
@@ -204,6 +219,10 @@ pub enum CommandResult {
     JavaImportFailed { failure: ImportFailure },
     /// The import was written and applied.
     JavaImported { report: ImportReportView },
+    /// Answer to a [`Command::Resource`].
+    Resource { result: ResourceResult },
+    /// Answer to a [`Command::Tuning`].
+    Tuning { result: TuningResult },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -420,6 +439,12 @@ pub struct WorkbenchView {
     /// with the engine's current rules (`KifuRules.failurePrompt`), once.
     pub rules_prompt: Option<RulesPromptView>,
     pub java_import: JavaImportView,
+    /// Engine resources (auto setup); present when changed since the previous view, and in full
+    /// snapshots.
+    pub resources: Option<ResourcesView>,
+    /// Engine performance (thread policy, benchmark); present when changed since the previous
+    /// view, and in full snapshots.
+    pub tuning: Option<TuningView>,
 }
 
 /// Java import availability.

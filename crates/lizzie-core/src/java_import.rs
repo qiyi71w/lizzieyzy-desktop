@@ -903,6 +903,7 @@ fn engine(
         height,
         komi,
         is_default,
+        ..EngineProfile::default()
     };
     (view, Some(profile))
 }

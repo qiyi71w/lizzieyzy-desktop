@@ -5,6 +5,8 @@
 mod acceptance;
 mod diagnostics;
 mod logging;
+mod resources;
+mod tuning;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -538,6 +540,8 @@ pub async fn dispatch(app: AppHandle, shared: State, command: Command) -> Result
             let done = shared.workbench.lock().unwrap().dismiss_java_import_offer()?;
             Ok(changed(&app, &shared, done))
         }
+        Command::Resource { op } => resources::dispatch(app, shared, op).await,
+        Command::Tuning { op } => tuning::dispatch(app, shared, op).await,
     }
 }
 

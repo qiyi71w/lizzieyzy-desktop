@@ -1,6 +1,7 @@
 //! Application flow (应用流程): the open document, the browsing position, open and save requests
 //! in flight, engines and analysis ([`analysis`]), committed settings, the Java settings import
-//! ([`importing`]) and the application data they produce.
+//! ([`importing`]), engine resources ([`resources`]), engine performance ([`tuning`]) and the
+//! application data they produce.
 //!
 //! This is the only writer of that state. Platform adapters run file reading and writing off the
 //! UI thread and hand the result back with the ticket they were given; a read whose ticket is no
@@ -15,6 +16,8 @@
 
 mod analysis;
 mod importing;
+mod resources;
+mod tuning;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -178,6 +181,10 @@ pub struct Workbench {
     /// The Java import the user is looking at, by preview id.
     java_preview: Option<(u64, crate::java_import::Candidate)>,
     next_preview: u64,
+    /// Engine resources: detection, recommendation, acquisition tasks and setup plans.
+    resources: resources::ResourceFlow,
+    /// Engine performance: benchmark tasks and thread-policy changes.
+    tuning: tuning::TuningFlow,
 }
 
 impl Workbench {
@@ -192,6 +199,7 @@ impl Workbench {
         engine_roots: Vec<PathBuf>,
     ) -> Workbench {
         let new_profile = !storage.config_file.exists();
+        let resources = resources::ResourceFlow::new(&storage);
         let config: Config = settings::load_json(&storage.config_file);
         let persisted: Persisted = settings::load_json(&storage.persist_file);
         let active_language = config.ui.language.resolve(system_locale);
@@ -247,6 +255,8 @@ impl Workbench {
             java_candidates: Vec::new(),
             java_preview: None,
             next_preview: 0,
+            resources,
+            tuning: tuning::TuningFlow::default(),
         }
     }
 
@@ -662,6 +672,8 @@ impl Workbench {
         v.engine_failure = self.engine_failure.take();
         v.engine_notice = self.engine_notice.take();
         v.rules_prompt = self.rules_prompt.take();
+        v.resources = self.take_resources_view(full);
+        v.tuning = self.take_tuning_view(full);
         v
     }
 
@@ -675,6 +687,8 @@ impl Workbench {
         v.engine_failure = self.engine_failure.clone();
         v.engine_notice = self.engine_notice;
         v.rules_prompt = self.rules_prompt.clone();
+        v.resources = Some(self.resources_view());
+        v.tuning = Some(self.tuning_view());
         v
     }
 
@@ -715,6 +729,8 @@ impl Workbench {
             engine_notice: None,
             rules_prompt: None,
             java_import: self.java_import_view(),
+            resources: None,
+            tuning: None,
         }
     }
 

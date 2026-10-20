@@ -6,9 +6,11 @@
 //! - [`rules`]: KataGo rules values.
 //! - [`runtime`]: instances, command confirmation, request ownership, foreground and exit.
 //! - [`process`]: the OS process launcher.
+//! - [`tuning`]: thread policy, benchmark results and GTP configuration of a profile.
 
 pub mod gtp;
 pub mod process;
 pub mod profile;
 pub mod rules;
 pub mod runtime;
+pub mod tuning;
