@@ -28,7 +28,18 @@
     "security": { "csp": null }
   },
   "bundle": {
-    "active": false,
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+    "active": true,
+    "targets": ["nsis", "dmg", "deb", "appimage"],
+    "publisher": "qiyi71w",
+    "homepage": "https://github.com/qiyi71w/lizzieyzy-desktop",
+    "copyright": "GPL-3.0-only. Images, sounds and fonts from LizzieYzy Next (GPL-3.0).",
+    "category": "BoardGame",
+    "shortDescription": "Go (weiqi) game review workbench",
+    "longDescription": "LizzieYzy Tauri: a desktop Go (weiqi) review workbench migrated from LizzieYzy Next.",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "windows": {
+      "nsis": { "installMode": "currentUser" }
+    },
+    "macOS": { "signingIdentity": "-" }
   }
 }

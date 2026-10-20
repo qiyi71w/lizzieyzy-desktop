@@ -2147,7 +2147,9 @@ dependencies = [
 name = "lizzieyzy-tauri"
 version = "0.1.0"
 dependencies = [
+ "dirs",
  "lizzie-core",
+ "rfd",
  "serde",
  "serde_json",
  "sys-locale",

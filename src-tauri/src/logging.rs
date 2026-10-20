@@ -48,7 +48,6 @@ impl Log {
             let _ = std::fs::rename(&path, dir.join("app.log.1"));
         }
         let file = OpenOptions::new().create(true).append(true).open(&path).ok();
-        install_panic_hook(dir.join("crash.log"));
         Log { file: Mutex::new(file) }
     }
 
@@ -67,12 +66,21 @@ impl Log {
     }
 }
 
-fn install_panic_hook(crash: PathBuf) {
+/// Appends one timestamped entry to `crash.log` in `logs_dir`; returns the file on success.
+pub fn append_crash(logs_dir: &Path, entry: &str) -> Option<PathBuf> {
+    let _ = std::fs::create_dir_all(logs_dir);
+    let path = logs_dir.join("crash.log");
+    let mut f = OpenOptions::new().create(true).append(true).open(&path).ok()?;
+    writeln!(f, "{} {entry}", timestamp()).ok()?;
+    Some(path)
+}
+
+/// Records panics in `crash.log`. Installed before the application is built so that failures
+/// while creating the window are recorded too.
+pub fn install_panic_hook(logs_dir: PathBuf) {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&crash) {
-            let _ = writeln!(f, "{} PANIC {info}", timestamp());
-        }
+        append_crash(&logs_dir, &format!("PANIC {info}"));
         default(info);
     }));
 }
