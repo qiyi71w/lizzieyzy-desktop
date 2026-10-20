@@ -46,8 +46,6 @@ pub struct Shared {
     saves: Mutex<Sender<SaveJob>>,
     /// An exit was requested during a save; close the main window after all writes finish.
     close_after_saves: AtomicBool,
-    /// Last live native bounds, retained when application Quit destroys the window first.
-    placement: Mutex<Option<WindowPlacement>>,
 }
 
 pub type State = Arc<Shared>;
@@ -673,14 +671,40 @@ fn prepare_exit(app: &AppHandle, shared: &Shared) -> bool {
         shared.log.info("exit waits for running saves");
         return false;
     }
-    let mut placement = shared.placement.lock().unwrap();
     if let Some(window) = app.get_webview_window("main") {
-        *placement = window_placement(&window, *placement).or(*placement);
-    }
-    if let Err(e) = wb.persist_on_exit(*placement) {
-        shared.log.warn(&e.message);
+        let placement = window_placement(&window, wb.persisted().window);
+        if let Err(e) = wb.persist_on_exit(placement) {
+            shared.log.warn(&e.message);
+        }
     }
     true
+}
+
+/// Cocoa's predefined Quit calls terminate: without Tauri's cancellable ExitRequested.
+/// Keep the default native menu, replacing only Quit with the shared exit request.
+#[cfg(target_os = "macos")]
+fn install_macos_quit(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+    let menu = Menu::default(app)?;
+    let quit_text = PredefinedMenuItem::quit(app, None)?.text()?;
+    for item in menu.items()? {
+        let Some(submenu) = item.as_submenu() else { continue };
+        for (index, item) in submenu.items()?.iter().enumerate() {
+            let Some(predefined) = item.as_predefined_menuitem() else { continue };
+            if predefined.text()? == quit_text {
+                submenu.remove_at(index)?;
+                submenu.insert(&MenuItem::with_id(app, "quit", &quit_text, true, Some("Cmd+Q"))?, index)?;
+                app.set_menu(menu)?;
+                app.on_menu_event(|app, event| {
+                    if event.id().as_ref() == "quit" {
+                        app.exit(0);
+                    }
+                });
+                return Ok(());
+            }
+        }
+    }
+    Err(std::io::Error::other("Default macOS menu has no Quit item").into())
 }
 
 pub fn run() {
@@ -700,6 +724,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            install_macos_quit(app.handle())?;
             let config_dir = app.path().app_config_dir()?;
             let data_dir = app.path().app_data_dir()?;
             let storage = Storage::in_dirs(&config_dir, &data_dir);
@@ -739,7 +765,6 @@ pub fn run() {
                 processes,
                 saves: Mutex::new(spawn_save_lane(app.handle().clone())),
                 close_after_saves: AtomicBool::new(false),
-                placement: Mutex::new(placement),
             });
             let _ = cell.set(shared.clone());
             app.manage(shared.clone());
@@ -757,7 +782,6 @@ pub fn run() {
                     let _ = window.maximize();
                 }
             }
-            *shared.placement.lock().unwrap() = window_placement(&window, placement);
 
             // Command line: one argument other than "read" opens that record without touching
             // the recent list (Lizzie.java:1049-1052).
@@ -773,13 +797,6 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
-            WindowEvent::Moved(_) | WindowEvent::Resized(_) if window.label() == "main" => {
-                let app = window.app_handle();
-                if let (Some(shared), Some(window)) = (app.try_state::<State>(), app.get_webview_window("main")) {
-                    let mut placement = shared.placement.lock().unwrap();
-                    *placement = window_placement(&window, *placement).or(*placement);
-                }
-            }
             WindowEvent::CloseRequested { api, .. } => {
                 let shared = window.app_handle().state::<State>();
                 if !prepare_exit(window.app_handle(), &shared) {
