@@ -57,6 +57,35 @@ cp "$SOURCE/cpp/configs/gtp_example.cfg" "$PKG/default_gtp.cfg"
 cp "$SOURCE/cpp/configs/analysis_example.cfg" "$PKG/analysis_example.cfg"
 cp "$SOURCE/LICENSE" "$PKG/licenses/KataGo/LICENSE"
 
+# KataGo's LICENSE does not cover the components vendored under cpp/external nor cpp/core/sha2.cpp.
+# Ship every notice they carry; components whose license lives only in a source header are
+# extracted from that header. A component with neither stops the build.
+copy_header() { # <source file> <destination>: the first /* ... */ comment block
+  awk 'index($0, "/*") {inside = 1} inside {print} inside && index($0, "*/") {exit}' "$1" > "$2"
+  grep -q "Copyright" "$2" || { echo "no license header in $1" >&2; exit 1; }
+}
+mkdir -p "$PKG/licenses/KataGo/external"
+copy_header "$SOURCE/cpp/core/sha2.cpp" "$PKG/licenses/KataGo/sha2.cpp.txt"
+for component in "$SOURCE"/cpp/external/*/; do
+  name="$(basename "$component")"
+  found=0
+  while IFS= read -r -d '' file; do
+    dest="$PKG/licenses/KataGo/external/$name/${file#"$component"}"
+    mkdir -p "$(dirname "$dest")"
+    cp "$file" "$dest"
+    found=1
+  done < <(find "$component" -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) -print0)
+  if ((found == 0)); then
+    case "$name" in
+      nlohmann_json)
+        mkdir -p "$PKG/licenses/KataGo/external/$name"
+        copy_header "$component/json.hpp" "$PKG/licenses/KataGo/external/$name/LICENSE.txt"
+        ;;
+      *) echo "no license notice for vendored component $name" >&2; exit 1 ;;
+    esac
+  fi
+done
+
 # Non-system install names referenced by a Mach-O file (skips its own id line for dylibs).
 deps() {
   local skip=1
