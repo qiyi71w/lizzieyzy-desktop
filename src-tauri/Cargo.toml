@@ -25,6 +25,10 @@ serde_json.workspace = true
 sys-locale = "0.3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "system-proxy"] }
+dirs = "7"
+
+[target.'cfg(windows)'.dependencies]
+rfd = { version = "0.16", default-features = false }
 
 [features]
 # Isolated acceptance builds only: a loopback control channel that dispatches the same commands

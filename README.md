@@ -148,10 +148,31 @@ as not yet available (greyed in menus; a notice when used). Not available yet: c
 dual-engine analysis, remote/SSH and cloud engines, the quick-analysis and HumanSL models of the
 weights page, and whole-game measured tuning.
 
-Verified so far on Linux (X11, WebKitGTK) with KataGo 1.18.2 (Eigen CPU), including real downloads
-of the Linux CPU package and the lightweight model. Windows and macOS builds, native file dialogs,
-fonts, input methods, GPU backends, the NVIDIA runtime installer and engines on those platforms
-have not been verified yet.
+Resource acquisition and real engine analysis have been verified on Linux (private X11,
+WebKitGTK), including downloads of the official KataGo v1.18.1 Eigen AVX2 AppImage and model
+resources. The package-only predecessor was verified separately as follows; these results do
+not yet establish native engine analysis or performance for the integrated client.
+
+Packages of both identities (below) were built for Windows x64, macOS Apple Silicon and Intel,
+and Linux x64.
+
+- Windows 11 x64: the acceptance-identity installer has been installed, upgraded in place and
+  uninstalled, and the acceptance-identity portable zip extracted and started. The
+  normal-identity installer has been installed next to the acceptance identity, both running at
+  the same time, and uninstalled; the normal-identity portable zip extracted and started. All of
+  them opened records from the command line, and both installed identities also through the
+  native Open dialog.
+- macOS 27 on an Apple Silicon Mac: the Apple Silicon apps of both identities started from their
+  dmg and opened records; the acceptance identity also through the native Open panel. The Intel
+  app has been started only under Rosetta. The Gatekeeper first-open steps in
+  [docs/installing.md](docs/installing.md) were followed for a quarantined copy of the normal
+  identity.
+- Ubuntu 24.04 and 26.04 containers under a virtual X display: the deb packages of both
+  identities have been installed side by side and removed; only the normal-identity deb was
+  upgraded in place, on 24.04. The normal-identity AppImage has been run on Ubuntu 24.04.
+
+Not verified yet: macOS 15, Intel Macs, full GNOME desktops, Windows 10, the Windows SmartScreen
+prompt, and fonts and input methods on Windows and macOS.
 
 ## Layout
 
@@ -214,13 +235,46 @@ engine resource downloads fetch `<url>/<file name>` instead of the trusted sourc
 sizes stay pinned), for isolated download tests. The feature is off by default; builds made
 without `--features acceptance` contain neither, whatever the profile.
 
+### Packages
+
+`node tools/package.mjs` builds the packages of the committed checkout for the machine it runs
+on and writes them to `target/packages`, with a `.manifest.json` (source commit, toolchain,
+sizes) and a `.sha256` file per platform. It refuses a working tree with changes unless
+`--allow-dirty` is given, which the manifest then records.
+
+| Platform | Build on | Command | Assets |
+| --- | --- | --- | --- |
+| Windows x64 | Windows with the MSVC build tools | `node tools/package.mjs` | `…_windows-x64-setup.exe` (NSIS), `…_windows-x64-portable.zip` |
+| macOS Apple Silicon | a Mac | `node tools/package.mjs --target aarch64-apple-darwin` | `…_macos-arm64.dmg` |
+| macOS Intel | a Mac | `node tools/package.mjs --target x86_64-apple-darwin` | `…_macos-x64.dmg` |
+| Linux x64 | any Linux with Docker | `tools/packaging/build-linux.sh` | `…_linux-x64.deb`, `…_linux-x64.AppImage` |
+
+Asset names are `<binary>_<version>_<os>-<arch><form>`, for example
+`lizzieyzy-tauri_0.1.0_windows-x64-setup.exe`. Linux packages are built in an Ubuntu 24.04
+container (`tools/packaging/linux-builder.Dockerfile`), because a binary built on a newer
+system needs that system's glibc and does not start on Ubuntu 24.04; the script packages the
+committed `HEAD` only.
+
+`--identity acceptance` builds the same program as *LizzieYzy Tauri Acceptance*: identifier
+`io.github.qiyi71w.lizzieyzy-tauri.acceptance`, binary `lizzieyzy-tauri-acceptance`, its own
+install location, package name and data directories, and the acceptance channel compiled in
+(`src-tauri/tauri.acceptance.conf.json`). It installs next to the normal program without
+sharing anything with it. Packages of the normal identity never contain the channel.
+
+The installers and the macOS app carry no paid code-signing certificate: the Windows files are
+unsigned and the macOS app is ad-hoc signed and not notarized. See
+[docs/installing.md](docs/installing.md) for what users see on first start.
+
 ## Data
 
 Settings (`config.json`, `persist.json`) live in the platform configuration directory for the
 identifier `io.github.qiyi71w.lizzieyzy-tauri`; logs (`logs/app.log`, `logs/crash.log`) live in
 the platform data directory for the same identifier. On Linux these are
 `~/.config/io.github.qiyi71w.lizzieyzy-tauri/` and
-`~/.local/share/io.github.qiyi71w.lizzieyzy-tauri/logs/`. Downloaded and imported engine resources
+`~/.local/share/io.github.qiyi71w.lizzieyzy-tauri/logs/`; on Windows both are under
+`%APPDATA%\io.github.qiyi71w.lizzieyzy-tauri\`. A failure before the window opens (for example
+a missing WebView2 Runtime) is also written to `crash.log` and, on Windows, shown in a message
+box. Downloaded and imported engine resources
 live under `resources/` in the same data directory (`engines/<package>/` with a receipt,
 `weights/`, `configs/gtp.cfg` and `configs/analysis.cfg` (created once from the package's example
 files and never overwritten), `runtime/nvidia/` on Windows, `downloads/` for package archives; an

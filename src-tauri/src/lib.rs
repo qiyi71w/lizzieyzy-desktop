@@ -6,6 +6,7 @@ mod acceptance;
 mod diagnostics;
 mod logging;
 mod resources;
+mod startup;
 mod tuning;
 
 use std::path::PathBuf;
@@ -657,7 +658,18 @@ fn window_placement(window: &tauri::WebviewWindow, previous: Option<WindowPlacem
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    let context = tauri::generate_context!();
+    let logs = startup::logs_dir(&context.config().identifier);
+    if let Some(dir) = &logs {
+        logging::install_panic_hook(dir.clone());
+    }
+    // The installer brings WebView2 along; the portable build relies on the system copy.
+    #[cfg(windows)]
+    if let Err(e) = tauri::webview_version() {
+        startup::report(logs.as_deref(), &startup::Failure::MissingWebView(e.to_string()));
+        std::process::exit(1);
+    }
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -771,9 +783,9 @@ pub fn run() {
             _ => {}
         })
         .invoke_handler(handlers())
-        .build(tauri::generate_context!())
-        .expect("error while building LizzieYzy Tauri")
-        .run(|app, event| {
+        .build(context);
+    match app {
+        Ok(app) => app.run(|app, event| {
             if let RunEvent::Exit = event {
                 // Every exit path (window close, 退出, 强制退出) ends the engines and waits for
                 // their processes, so none is left behind.
@@ -788,7 +800,12 @@ pub fn run() {
                 write_logs(&shared, logs);
                 shared.log.info("engines ended");
             }
-        });
+        }),
+        Err(e) => {
+            startup::report(logs.as_deref(), &startup::Failure::Other(e.to_string()));
+            std::process::exit(1);
+        }
+    }
 }
 
 #[cfg(not(feature = "acceptance"))]

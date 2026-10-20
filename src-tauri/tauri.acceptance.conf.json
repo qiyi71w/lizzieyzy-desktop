@@ -1,0 +1,6 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LizzieYzy Tauri Acceptance",
+  "mainBinaryName": "lizzieyzy-tauri-acceptance",
+  "identifier": "io.github.qiyi71w.lizzieyzy-tauri.acceptance"
+}
