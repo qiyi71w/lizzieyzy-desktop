@@ -773,10 +773,10 @@
       "platform": "macos-arm64",
       "backend": "metal",
       "assetName": "katago-v1.18.2-metal-macos-arm64.zip",
-      "sizeBytes": 8263408,
-      "sha256": "5445c578bab3c8e936906905ab9ed35b4967ff743f586b23bab787f98ed3d70f",
+      "sizeBytes": 8296331,
+      "sha256": "ee40d803f760da8dab0c1416ee34e329ea45246d24a4b3417fbb4f8a363dcdeb",
       "executable": "katago",
-      "executableSha256": "3f97b36b2710a180681322aaf1bf39ef02bc713dafcc7539cd3c5f22adee8907",
+      "executableSha256": "299ff52f6e653f140296599815b648e626d540a705a251b748f02c510c38934a",
       "executableSizeBytes": 11290048,
       "origin": "project-build",
       "releaseRepository": "qiyi71w/lizzieyzy-desktop",
@@ -790,10 +790,12 @@
         "default_gtp.cfg",
         "analysis_example.cfg",
         "lib/",
-        "licenses/KataGo/LICENSE"
+        "licenses/KataGo/LICENSE",
+        "licenses/KataGo/sha2.cpp.txt",
+        "licenses/KataGo/external/"
       ],
       "externalLibraries": [],
-      "licenseSummary": "KataGo license (MIT-style); bundled libzip, zstd, xz, protobuf, abseil and OpenSSL under their own licenses",
+      "licenseSummary": "KataGo license (MIT-style) and the notices of its vendored components; bundled libzip, zstd, xz, protobuf, abseil and OpenSSL under their own licenses",
       "licenseTexts": [
         "licenses/KataGo/LICENSE",
         "licenses/"
@@ -807,10 +809,10 @@
       "platform": "macos-amd64",
       "backend": "metal",
       "assetName": "katago-v1.18.2-metal-macos-x64.zip",
-      "sizeBytes": 8367486,
-      "sha256": "11c1d4f436140fa1a36442ce46ae3cf4dd48d43ff5c345f58ed741d19bbc2bad",
+      "sizeBytes": 8400408,
+      "sha256": "da36c8366e98e3825f15083c655211dc010dd4e6c33a02ef02e3723c8e26d7d8",
       "executable": "katago",
-      "executableSha256": "f976f1d75ecee4193f100deaa6af8bac9ab974b7421971cec1eded9e0bb0eed4",
+      "executableSha256": "798342eeeef2738d92e193a0af861d75de71185ea258072cdd6cd2d509b921c9",
       "executableSizeBytes": 11900336,
       "origin": "project-build",
       "releaseRepository": "qiyi71w/lizzieyzy-desktop",
@@ -824,10 +826,12 @@
         "default_gtp.cfg",
         "analysis_example.cfg",
         "lib/",
-        "licenses/KataGo/LICENSE"
+        "licenses/KataGo/LICENSE",
+        "licenses/KataGo/sha2.cpp.txt",
+        "licenses/KataGo/external/"
       ],
       "externalLibraries": [],
-      "licenseSummary": "KataGo license (MIT-style); bundled libzip, zstd, xz, protobuf, abseil and OpenSSL under their own licenses",
+      "licenseSummary": "KataGo license (MIT-style) and the notices of its vendored components; bundled libzip, zstd, xz, protobuf, abseil and OpenSSL under their own licenses",
       "licenseTexts": [
         "licenses/KataGo/LICENSE",
         "licenses/"

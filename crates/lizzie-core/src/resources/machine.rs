@@ -117,6 +117,10 @@ pub trait Probe {
     fn logical_cpus(&self) -> Option<u32> {
         None
     }
+    /// Target of a symbolic link; an error means the version behind the path is unknown.
+    fn read_link(&self, _path: &Path) -> io::Result<PathBuf> {
+        Err(io::Error::from(io::ErrorKind::Unsupported))
+    }
 }
 #[derive(Clone, Debug, Default)]
 pub struct StdProbe {
@@ -137,6 +141,9 @@ impl Probe for StdProbe {
         {
             None
         }
+    }
+    fn read_link(&self, path: &Path) -> io::Result<PathBuf> {
+        fs::read_link(path)
     }
     fn run(&self, program: &str, args: &[String], timeout: Duration) -> io::Result<ProbeOutput> {
         let path = Path::new(program);
@@ -596,9 +603,12 @@ fn detect_fuse(probe: &dyn Probe) -> Option<bool> {
     }
 }
 
+/// The version the loader will use: `ldconfig -p` lists entries in search order, so only the
+/// first entry per soname counts, and its version comes from the soname link's target
+/// (`libcudnn.so.9 -> libcudnn.so.9.8.0`). Anything not established that way stays unknown.
 fn detect_library_versions(probe: &dyn Probe, output: &str) -> BTreeMap<String, String> {
     let mut versions = BTreeMap::new();
-    let mut directories = BTreeMap::new();
+    let mut seen = std::collections::BTreeSet::new();
     for line in output.lines() {
         let Some((left, resolved)) = line.split_once("=>") else {
             continue;
@@ -606,42 +616,29 @@ fn detect_library_versions(probe: &dyn Probe, output: &str) -> BTreeMap<String, 
         let Some(soname) = left.split_whitespace().next() else {
             continue;
         };
-        if !["libcublas.so.", "libcublasLt.so.", "libnvrtc.so.", "libcudnn.so."]
+        let Some(major) = ["libcublas.so.", "libcublasLt.so.", "libnvrtc.so.", "libcudnn.so."]
             .iter()
-            .any(|prefix| {
-                soname
-                    .strip_prefix(prefix)
-                    .is_some_and(|major| major.parse::<u32>().is_ok())
-            })
-        {
-            continue;
-        }
-        let Some(directory) = Path::new(resolved.trim()).parent() else {
+            .find_map(|prefix| soname.strip_prefix(prefix))
+            .filter(|major| major.parse::<u32>().is_ok())
+        else {
             continue;
         };
-        let entries = directories
-            .entry(directory.to_path_buf())
-            .or_insert_with(|| probe.list_dir(directory).unwrap_or_default());
-        let prefix = format!("{soname}.");
-        for entry in entries.iter() {
-            let Some(name) = entry.file_name().and_then(|n| n.to_str()) else {
-                continue;
-            };
-            let Some(suffix) = name.strip_prefix(&prefix) else {
-                continue;
-            };
-            if !suffix.split('.').all(|n| n.parse::<u32>().is_ok()) {
-                continue;
-            }
-            // The soname already contains the major component.
-            let major = soname.rsplit('.').next().expect("soname major");
-            let version = format!("{major}.{suffix}");
-            if versions
-                .get(soname)
-                .is_none_or(|old: &String| super::compare_versions(&version, old).is_gt())
-            {
-                versions.insert(soname.to_owned(), version);
-            }
+        if !seen.insert(soname) {
+            continue;
+        }
+        let Ok(target) = probe.read_link(Path::new(resolved.trim())) else {
+            continue;
+        };
+        let Some(suffix) = target
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.strip_prefix(soname))
+            .and_then(|n| n.strip_prefix('.'))
+        else {
+            continue;
+        };
+        if !suffix.is_empty() && suffix.split('.').all(|n| n.parse::<u32>().is_ok()) {
+            versions.insert(soname.to_owned(), format!("{major}.{suffix}"));
         }
     }
     versions

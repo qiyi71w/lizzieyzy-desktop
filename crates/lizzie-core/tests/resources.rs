@@ -237,6 +237,7 @@ struct FixtureProbe {
     files: BTreeMap<PathBuf, Vec<u8>>,
     dirs: BTreeMap<PathBuf, Vec<PathBuf>>,
     env: BTreeMap<String, String>,
+    links: BTreeMap<PathBuf, PathBuf>,
     calls: RefCell<Vec<(String, Vec<String>, Duration)>>,
 }
 impl Probe for FixtureProbe {
@@ -267,6 +268,12 @@ impl Probe for FixtureProbe {
     }
     fn logical_cpus(&self) -> Option<u32> {
         Some(8)
+    }
+    fn read_link(&self, path: &Path) -> io::Result<PathBuf> {
+        self.links
+            .get(path)
+            .cloned()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "fixture path is not a link"))
     }
 }
 fn success(stdout: &str) -> ProbeOutput {
@@ -994,13 +1001,10 @@ fn linux_dependencies_versions_driver_and_fuse_match_each_asset() {
 fn machine_probe_reports_cpu_fuse_and_resolved_library_versions() {
     let mut p = FixtureProbe::default();
     p.outputs.insert("/sbin/ldconfig -p".into(), success("libcublas.so.12 (libc6,x86-64) => /lib/nvidia/libcublas.so.12\nlibcudnn.so.9 (libc6,x86-64) => /lib/nvidia/libcudnn.so.9\nlibssl.so.3 (libc6,x86-64) => /unrelated/libssl.so.3"));
-    p.dirs.insert(
-        "/lib/nvidia".into(),
-        vec![
-            "/lib/nvidia/libcublas.so.12.8.4.1".into(),
-            "/lib/nvidia/libcudnn.so.9.8.0".into(),
-        ],
-    );
+    p.links
+        .insert("/lib/nvidia/libcublas.so.12".into(), "libcublas.so.12.8.4.1".into());
+    p.links
+        .insert("/lib/nvidia/libcudnn.so.9".into(), "libcudnn.so.9.8.0".into());
     p.dirs.insert("/dev".into(), vec!["/dev/fuse".into()]);
     p.env.insert("PATH".into(), "/bin:/usr/bin".into());
     p.dirs.insert("/usr/bin".into(), vec!["/usr/bin/fusermount3".into()]);
@@ -1012,6 +1016,82 @@ fn machine_probe_reports_cpu_fuse_and_resolved_library_versions() {
     p.dirs.insert("/dev".into(), Vec::new());
     assert_eq!(detect_machine(&p, "linux", "x86_64").fuse, Some(false));
     assert_eq!(detect_machine(&p, "linux", "aarch64").cpu_avx2_fma, None);
+}
+
+#[test]
+fn library_versions_follow_the_loader_selected_file_not_the_newest_neighbour() {
+    let mut p = FixtureProbe::default();
+    // The loader cache lists the CUDA 12.1 toolkit first; a newer 12.8 copy is only a fallback.
+    // In the cuDNN directory, the soname link selects 9.7.0 while a stray 9.8.0 file remains.
+    p.outputs.insert(
+        "/sbin/ldconfig -p".into(),
+        success(
+            "libcublas.so.12 (libc6,x86-64) => /opt/cuda-12.1/lib64/libcublas.so.12\n\
+             libcublas.so.12 (libc6,x86-64) => /usr/lib/x86_64-linux-gnu/libcublas.so.12\n\
+             libcudnn.so.9 (libc6,x86-64) => /opt/cudnn/lib/libcudnn.so.9",
+        ),
+    );
+    p.dirs.insert(
+        "/opt/cuda-12.1/lib64".into(),
+        vec![
+            "/opt/cuda-12.1/lib64/libcublas.so.12".into(),
+            "/opt/cuda-12.1/lib64/libcublas.so.12.1.3.1".into(),
+        ],
+    );
+    p.dirs.insert(
+        "/usr/lib/x86_64-linux-gnu".into(),
+        vec!["/usr/lib/x86_64-linux-gnu/libcublas.so.12.8.4.1".into()],
+    );
+    p.dirs.insert(
+        "/opt/cudnn/lib".into(),
+        vec![
+            "/opt/cudnn/lib/libcudnn.so.9.7.0".into(),
+            "/opt/cudnn/lib/libcudnn.so.9.8.0".into(),
+        ],
+    );
+    p.links.insert(
+        "/opt/cuda-12.1/lib64/libcublas.so.12".into(),
+        "libcublas.so.12.1.3.1".into(),
+    );
+    p.links.insert(
+        "/usr/lib/x86_64-linux-gnu/libcublas.so.12".into(),
+        "libcublas.so.12.8.4.1".into(),
+    );
+    p.links
+        .insert("/opt/cudnn/lib/libcudnn.so.9".into(), "libcudnn.so.9.7.0".into());
+    let mut f = detect_machine(&p, "linux", "x86_64");
+    assert_eq!(
+        f.library_versions.get("libcublas.so.12").map(String::as_str),
+        Some("12.1.3.1")
+    );
+    assert_eq!(
+        f.library_versions.get("libcudnn.so.9").map(String::as_str),
+        Some("9.7.0")
+    );
+    let c = catalog();
+    f.loader_libraries = Some(c.assets["linux-nvidia-cu128"].external_libraries.clone());
+    f.nvidia_gpus = vec![NvidiaGpu {
+        name: "NVIDIA GeForce RTX 4070".into(),
+        compute: None,
+        driver: Some("570.124".into()),
+        memory_mib: None,
+    }];
+    f.fuse = Some(true);
+    let cu128 = recommend(&f, &c)
+        .packages
+        .into_iter()
+        .find(|p| p.asset_id == "linux-nvidia-cu128")
+        .unwrap();
+    assert!(!cu128.eligible, "{cu128:?}");
+    assert!(cu128
+        .missing_dependencies
+        .contains(&MissingDependency::LinuxLibrary("libcublas.so.12 ≥ 12.8".into())));
+    assert!(cu128
+        .missing_dependencies
+        .contains(&MissingDependency::LinuxLibrary("libcudnn.so.9 ≥ 9.8.0".into())));
+    // Without a resolvable soname link the version stays unknown instead of guessing a neighbour.
+    p.links.clear();
+    assert!(detect_machine(&p, "linux", "x86_64").library_versions.is_empty());
 }
 
 #[test]

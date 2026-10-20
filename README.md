@@ -235,7 +235,10 @@ writes it.
 The trusted catalog (`crates/lizzie-core/resources/catalog.json`) pins qualified official
 KataGo release assets separately for each platform and backend: v1.18.2 for CUDA and v1.18.1
 for the other upstream packages. The macOS Metal packages are self-contained builds made by
-this project from the official v1.18.2 tag and published as release assets of this repository.
+this project from the official v1.18.2 tag (`.github/workflows/katago-macos.yml`,
+`tools/katago-macos/build.sh`) and published as release assets of this repository; they carry
+the licenses of KataGo, of the components vendored in its source and of every bundled library,
+and the build stops when one is missing.
 Each package records its own origin, source tag and commit, release, licenses, archive and
 executable SHA-256 digests and sizes. Downloads and offline imports must match that identity;
 installation checks the root executable and all required files and directories before activation.
@@ -243,8 +246,9 @@ Packages live in `engines/<id>-<archive-sha256-prefix>/`, so a new package does 
 an existing profile still references.
 
 Official Linux executables are AppImages and require `/dev/fuse` plus `fusermount` or
-`fusermount3` on PATH. Recommendations check each package's system libraries, known CUDA/cuDNN
-library versions, minimum NVIDIA driver and CPU AVX2/FMA requirements. Unknown facts remain
+`fusermount3` on PATH. Recommendations check each package's system libraries, the CUDA/cuDNN
+library versions the system loader actually selects (read from its cache and soname links),
+minimum NVIDIA driver and CPU AVX2/FMA requirements. Unknown facts remain
 unknown and explicit verification reports runtime failures. Windows NVIDIA runtime components
 come from NVIDIA's redistributable archives: CUDA 12.8, cuDNN 9.8.0, NVRTC 12.8.61 and TensorRT
 10.9.0.34 are pinned, with license files kept next to the installed libraries.

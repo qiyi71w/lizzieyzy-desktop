@@ -258,6 +258,9 @@ impl r::Probe for CancelProbe {
     fn cpu_avx2_fma(&self) -> Option<bool> {
         r::Probe::cpu_avx2_fma(&self.base)
     }
+    fn read_link(&self, path: &Path) -> io::Result<PathBuf> {
+        r::Probe::read_link(&self.base, path)
+    }
 }
 async fn choose(app: &AppHandle, kind: &str, start: Option<PathBuf>) -> Result<Option<String>, ApiError> {
     let dialog = app.dialog().clone();
