@@ -22,8 +22,8 @@ use crate::engine::gtp::InfoLine;
 use crate::engine::profile::{new_profile_id, AnalysisSettings, EngineProfile, EngineStartup};
 use crate::engine::rules::KataRules;
 use crate::engine::runtime::{
-    Bootstrap, ConsoleKind, EngineFailure, EngineInput, InstanceId, Phase, RulesOutcome, RuntimeEvent, Target,
-    UserCommandError,
+    Bootstrap, CheckedLaunch, ConsoleKind, EngineFailure, EngineInput, InstanceId, LaunchCheck, Phase, RulesOutcome,
+    RuntimeEvent, Target, UserCommandError,
 };
 use crate::record::{BoardSize, DocumentEdit, GameRecord, NodeId, Position, Stone, ROOT};
 use crate::sanitize::sanitize;
@@ -655,6 +655,19 @@ impl Workbench {
     /// Output of an engine process. Returns whether the view changed.
     pub fn engine_input(&mut self, instance: InstanceId, input: EngineInput) -> bool {
         let events = self.engines.input(instance, input);
+        self.engine_events(events)
+    }
+
+    /// Engine starts waiting for an artifact fingerprint check, each handed out once. The
+    /// platform runs them off the workbench and reports back through [`Self::finish_launch`].
+    pub fn take_launch_checks(&mut self) -> Vec<LaunchCheck> {
+        self.engines.take_launch_checks()
+    }
+
+    /// Starts the engine a [`LaunchCheck`] was made for, unless it was retired meanwhile.
+    /// Returns whether the view changed.
+    pub fn finish_launch(&mut self, checked: CheckedLaunch) -> bool {
+        let events = self.engines.finish_launch(checked);
         self.engine_events(events)
     }
 

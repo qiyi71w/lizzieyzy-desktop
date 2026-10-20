@@ -460,3 +460,96 @@ fn java_apple_profile_is_content_and_hardware_scoped() {
     tuning::apply_apple_launch_policy(&target.command, &policy, &mut changed_model, &hardware);
     assert!(tuning::overrides(&changed_model.args).is_empty());
 }
+
+#[test]
+fn benchmark_target_reads_java_option_spellings() {
+    // Java inspectSavedEngine splits `-option=value` before capturing the benchmark target.
+    let (dir, mut wb, id) = fixture();
+    let path = |name: &str| dir.path().join(name).display().to_string();
+    let mut engines = wb.config().engine.engines.clone();
+    engines[0].command = format!(
+        "{} gtp --config={} --weights={}",
+        path("katago"),
+        path("gtp.cfg"),
+        path("model.bin.gz")
+    );
+    wb.save_engine_settings(engines, EngineStartup::Empty).unwrap();
+    let args = wb.tuning_target(&id).unwrap().benchmark(5).args;
+    assert!(
+        args.windows(2)
+            .any(|p| p[0] == "-model" && p[1] == path("model.bin.gz")),
+        "{args:?}"
+    );
+    assert!(
+        args.windows(2).any(|p| p[0] == "-config" && p[1] == path("gtp.cfg")),
+        "{args:?}"
+    );
+}
+
+type Lines = std::sync::Arc<std::sync::Mutex<Vec<String>>>;
+struct Recorder(std::sync::Arc<std::sync::Mutex<Vec<LaunchSpec>>>, Lines);
+struct Written(Lines);
+impl EngineIo for Written {
+    fn send(&mut self, line: &str) -> std::io::Result<()> {
+        self.0.lock().unwrap().push(line.to_string());
+        Ok(())
+    }
+    fn terminate(self: Box<Self>) {}
+}
+impl Launcher for Recorder {
+    fn launch(&self, _: InstanceId, spec: &LaunchSpec) -> std::io::Result<Box<dyn EngineIo>> {
+        self.0.lock().unwrap().push(spec.clone());
+        Ok(Box::new(Written(self.1.clone())))
+    }
+}
+
+#[test]
+fn fingerprinted_launch_is_checked_off_the_workbench_and_keeps_queued_commands() {
+    // Java MeasuredKataGoTuning.verifyFingerprint requires a worker thread: the workbench queues
+    // the launch, the shell hashes, and only the current instance is then started.
+    let (dir, probe, id) = fixture();
+    let target = probe.tuning_target(&id).unwrap();
+    let mut measured = report();
+    measured["fingerprint"] = tuning::measured_fingerprint(&target, "GPU", "driver", 8000).unwrap();
+    let launched = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let lines: Lines = Default::default();
+    let mut wb = Workbench::new(
+        Storage::in_dirs(&dir.path().join("config2"), &dir.path().join("data2")),
+        None,
+        Box::new(Recorder(launched.clone(), lines.clone())),
+        vec![dir.path().into()],
+    );
+    let mut profile = probe.config().engine.engines[0].clone();
+    profile.thread_policy = Some(ThreadPolicy {
+        measured_scenes: Some(
+            serde_json::json!({"live":{"schemaVersion":1,"command":target.command,"report":measured}}),
+        ),
+        ..ThreadPolicy::default()
+    });
+    wb.save_engine_settings(vec![profile], EngineStartup::Empty).unwrap();
+    wb.set_measured_hardware(Some(("GPU".into(), "driver".into(), 8000)));
+
+    wb.switch_engine(0).unwrap();
+    assert!(
+        launched.lock().unwrap().is_empty(),
+        "no process before the off-lock check"
+    );
+    let stale = wb.take_launch_checks();
+    assert_eq!(stale.len(), 1);
+    wb.restart_engine().unwrap();
+    let current = wb.take_launch_checks();
+    assert_eq!(current.len(), 1);
+    assert!(wb.take_launch_checks().is_empty(), "each check is handed out once");
+
+    // The replaced instance's check completes late and must not start a process.
+    wb.finish_launch(stale.into_iter().next().unwrap().run());
+    assert!(launched.lock().unwrap().is_empty());
+
+    wb.finish_launch(current.into_iter().next().unwrap().run());
+    let launched = launched.lock().unwrap();
+    assert_eq!(launched.len(), 1);
+    assert_eq!(tuning::overrides(&launched[0].args)["numsearchthreads"], "8");
+    let lines = lines.lock().unwrap();
+    let words: Vec<&str> = lines.iter().filter_map(|l| l.split_whitespace().nth(1)).collect();
+    assert_eq!(words, ["name", "version", "list_commands"]);
+}

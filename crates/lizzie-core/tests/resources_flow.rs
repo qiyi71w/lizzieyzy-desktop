@@ -390,6 +390,41 @@ fn explicit_verification_and_startup_repair_are_projected() {
 }
 
 #[test]
+fn current_setup_reads_java_option_spellings() {
+    // Java inspectSavedEngine: `-opt=value` splits; --config/--model/-weights/--weights are aliases;
+    // the first config and the last model win.
+    let (_d, mut wb) = fixture();
+    for (command, weight, config) in [
+        (
+            "katago gtp --model=/w/a.bin.gz --config /c/a.cfg",
+            "/w/a.bin.gz",
+            "/c/a.cfg",
+        ),
+        (
+            "katago gtp -weights /w/b.bin.gz -config=/c/b.cfg --config /c/x.cfg",
+            "/w/b.bin.gz",
+            "/c/b.cfg",
+        ),
+        (
+            "katago gtp -model /w/old.bin.gz --weights=/w/c.bin.gz -config /c/c.cfg",
+            "/w/c.bin.gz",
+            "/c/c.cfg",
+        ),
+    ] {
+        let profile = EngineProfile {
+            id: "java".into(),
+            command: command.into(),
+            is_default: true,
+            ..Default::default()
+        };
+        wb.save_engine_settings(vec![profile], EngineStartup::Empty).unwrap();
+        let setup = wb.resource_snapshot().current_setup;
+        assert_eq!(setup.weight.as_deref(), Some(weight), "{command}");
+        assert_eq!(setup.config.as_deref(), Some(config), "{command}");
+    }
+}
+
+#[test]
 fn failed_remote_refresh_preserves_last_catalog() {
     let (_d, mut wb) = fixture();
     let cached = wb.resource_snapshot().online_weights;

@@ -207,6 +207,8 @@ struct Instance {
     profile: EngineProfile,
     launch_threads: u32,
     io: Option<Box<dyn EngineIo>>,
+    /// Lines written before the process exists (its launch waits for a [`LaunchCheck`]).
+    queued: Option<Vec<String>>,
     phase: Phase,
     gtp_name: String,
     version: String,
@@ -274,6 +276,62 @@ pub struct Bootstrap {
     pub rules: Option<KataRules>,
 }
 
+/// A start whose launch overlays depend on artifact content (measured or Apple tuning). Java
+/// `MeasuredKataGoTuning.verifyFingerprint` requires a worker thread, so the caller runs
+/// [`LaunchCheck::run`] off the workbench and hands the result to [`Engines::finish_launch`].
+pub struct LaunchCheck {
+    instance: InstanceId,
+    command: String,
+    policy: super::tuning::ThreadPolicy,
+    roots: Vec<PathBuf>,
+    spec: LaunchSpec,
+    apple: Option<serde_json::Value>,
+    measured: Option<(String, String, u64)>,
+}
+
+/// The launch a [`LaunchCheck`] decided, for the instance it was made for.
+pub struct CheckedLaunch {
+    instance: InstanceId,
+    spec: LaunchSpec,
+}
+
+impl LaunchCheck {
+    /// Reads the engine, model and configuration and applies the overlays that still match.
+    pub fn run(self) -> CheckedLaunch {
+        let mut spec = self.spec;
+        if let Some(hardware) = &self.apple {
+            super::tuning::apply_apple_launch_policy(&self.command, &self.policy, &mut spec, hardware);
+        }
+        if let Some((gpu, driver, memory)) = &self.measured {
+            super::tuning::apply_measured_live(
+                &self.command,
+                &self.policy,
+                &self.roots,
+                &mut spec,
+                gpu,
+                driver,
+                *memory,
+            );
+        }
+        CheckedLaunch {
+            instance: self.instance,
+            spec,
+        }
+    }
+}
+
+/// The search threads a launch forces; `kata-set-param` repeats them once the engine is ready.
+fn launch_threads(command: &str, spec: &LaunchSpec) -> u32 {
+    if super::tuning::has_search_threads(command) {
+        0
+    } else {
+        super::tuning::overrides(&spec.args)
+            .get("numsearchthreads")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UserCommandError {
     Empty,
@@ -289,6 +347,7 @@ pub struct Engines {
     measured_hardware: Option<(String, String, u64)>,
     apple_hardware: Option<serde_json::Value>,
     instances: Vec<Instance>,
+    checks: Vec<LaunchCheck>,
     next_instance: InstanceId,
     foreground: Option<InstanceId>,
     wish: Option<(Target, bool)>,
@@ -369,6 +428,7 @@ impl Engines {
             measured_hardware: None,
             apple_hardware: None,
             instances: Vec::new(),
+            checks: Vec::new(),
             next_instance: 1,
             foreground: None,
             wish: None,
@@ -492,21 +552,8 @@ impl Engines {
         self.apple_hardware = hardware;
         true
     }
-    pub fn apple_profile_matches(&self, profile: &EngineProfile) -> bool {
-        let Some(stored) = profile.thread_policy.as_ref().and_then(|p| p.tuning_profiles.as_ref()) else {
-            return false;
-        };
-        let Some(expected) = stored["fingerprintDigest"].as_str() else {
-            return false;
-        };
-        let Some(hardware) = &self.apple_hardware else {
-            return false;
-        };
-        let Some(spec) = gtp::prepare_launch(&profile.command, &self.roots) else {
-            return false;
-        };
-        super::tuning::apple_fingerprint(&profile.command, &spec, hardware, stored["mode"] == "OFFICIAL_THREADS")
-            .is_ok_and(|current| current == expected)
+    pub fn apple_hardware(&self) -> Option<&serde_json::Value> {
+        self.apple_hardware.as_ref()
     }
 
     /// Update the running policy; launch-only changes require the caller to reload.
@@ -615,25 +662,40 @@ impl Engines {
         }
         spec.library_dirs = self.library_dirs.clone();
         super::tuning::apply_launch_policy(&profile.command, profile.thread_policy.as_ref(), &mut spec);
-        if let (Some(policy), Some(hardware)) = (&profile.thread_policy, &self.apple_hardware) {
-            super::tuning::apply_apple_launch_policy(&profile.command, policy, &mut spec, hardware);
-        }
-        if let (Some(policy), Some((gpu, driver, memory))) = (&profile.thread_policy, &self.measured_hardware) {
-            super::tuning::apply_measured_live(&profile.command, policy, &self.roots, &mut spec, gpu, driver, *memory);
-        }
-        let io = self.launcher.launch(id, &spec).map_err(|e| fail(e.to_string()))?;
+        // Overlays that need artifact fingerprints wait for an off-workbench check; commands
+        // queue until the process exists.
+        let check = profile.thread_policy.as_ref().and_then(|policy| {
+            let apple = self.apple_hardware.clone().filter(|_| policy.tuning_profiles.is_some());
+            let measured = self
+                .measured_hardware
+                .clone()
+                .filter(|_| policy.measured_scenes.as_ref().is_some_and(|s| s.get("live").is_some()));
+            (apple.is_some() || measured.is_some()).then(|| LaunchCheck {
+                instance: id,
+                command: profile.command.clone(),
+                policy: policy.clone(),
+                roots: self.roots.clone(),
+                spec: spec.clone(),
+                apple,
+                measured,
+            })
+        });
+        let (io, queued) = match check {
+            Some(check) => {
+                self.checks.push(check);
+                (None, Some(Vec::new()))
+            }
+            None => (
+                Some(self.launcher.launch(id, &spec).map_err(|e| fail(e.to_string()))?),
+                None,
+            ),
+        };
         self.instances.push(Instance {
             id,
             profile: profile.clone(),
-            launch_threads: if super::tuning::has_search_threads(&profile.command) {
-                0
-            } else {
-                super::tuning::overrides(&spec.args)
-                    .get("numsearchthreads")
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(0)
-            },
-            io: Some(io),
+            launch_threads: launch_threads(&profile.command, &spec),
+            io,
+            queued,
             phase: Phase::Starting,
             gtp_name: String::new(),
             version: String::new(),
@@ -666,6 +728,43 @@ impl Engines {
         Ok(id)
     }
 
+    /// Hands out the pending launch checks once each; the caller runs them off the workbench.
+    pub fn take_launch_checks(&mut self) -> Vec<LaunchCheck> {
+        std::mem::take(&mut self.checks)
+    }
+
+    /// Starts the instance a check was made for and writes the commands queued meanwhile. A
+    /// retired instance's check is ignored; a launch failure is reported like an exit during
+    /// start-up.
+    pub fn finish_launch(&mut self, checked: CheckedLaunch) -> Vec<RuntimeEvent> {
+        let id = checked.instance;
+        let Some(name) = self.get(id).filter(|i| i.queued.is_some()).map(Instance::display_name) else {
+            return Vec::new();
+        };
+        let launched = self.launcher.launch(id, &checked.spec);
+        let Some(inst) = self.get_mut(id) else {
+            return Vec::new();
+        };
+        match launched {
+            Err(e) => {
+                let failure = inst.failure(e.to_string());
+                self.trace(&name, "--", &format!("launch failed: {e}"));
+                self.terminate(id);
+                vec![RuntimeEvent::Failed(failure)]
+            }
+            Ok(mut io) => {
+                inst.launch_threads = launch_threads(&inst.profile.command, &checked.spec);
+                for line in inst.queued.take().unwrap_or_default() {
+                    if io.send(&line).is_err() {
+                        break;
+                    }
+                }
+                inst.io = Some(io);
+                Vec::new()
+            }
+        }
+    }
+
     /// Makes `id` (or nothing) the foreground engine. The previous foreground engine stops
     /// analysing; it keeps running when `keep_previous` (fast engine change) and is ended
     /// otherwise.
@@ -691,6 +790,7 @@ impl Engines {
 
     /// Ends one instance. Its later output is ignored.
     pub fn terminate(&mut self, id: InstanceId) {
+        self.checks.retain(|c| c.instance != id);
         let Some(at) = self.instances.iter().position(|i| i.id == id) else {
             return;
         };
@@ -884,7 +984,14 @@ impl Engines {
             inst.ponder_due = None;
         }
         let line = format!("{n} {command}");
-        let ok = inst.io.as_mut().is_some_and(|io| io.send(&line).is_ok());
+        let ok = match (inst.queued.as_mut(), inst.io.as_mut()) {
+            (Some(queue), _) => {
+                queue.push(line.clone());
+                true
+            }
+            (None, Some(io)) => io.send(&line).is_ok(),
+            (None, None) => false,
+        };
         inst.waiting.insert(n, purpose);
         let name = inst.display_name();
         self.trace(&name, ">>", &line);

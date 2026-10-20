@@ -83,6 +83,18 @@ pub fn is_local_katago(command: &str) -> bool {
     })
 }
 
+/// Java `inspectSavedEngine`: `-option=value` is read as `-option value`.
+pub fn split_option_values(args: &[String]) -> Vec<String> {
+    args.iter()
+        .flat_map(|token| match token.split_once('=') {
+            Some((option, value)) if token.starts_with('-') && !option.is_empty() => {
+                vec![option.to_string(), value.to_string()]
+            }
+            _ => vec![token.clone()],
+        })
+        .collect()
+}
+
 /// Effective `-override-config` assignments, last one wins (`KataGoCommandSpec`).
 pub fn overrides(args: &[String]) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
@@ -179,14 +191,13 @@ pub fn environment(command: &str, spec: &LaunchSpec) -> Result<Value, String> {
             directory.join(p)
         }
     };
-    let mut configs = spec
-        .args
+    let args = split_option_values(&spec.args);
+    let mut configs = args
         .windows(2)
         .filter(|p| matches!(p[0].as_str(), "-config" | "--config"))
         .map(|p| resolve(&p[1]));
     let config = configs.next().ok_or("EngineThreadPolicy.unknownBenchmarkTarget")?;
-    let model = spec
-        .args
+    let model = args
         .windows(2)
         .find(|p| matches!(p[0].as_str(), "-model" | "--model" | "-weights" | "--weights"))
         .map(|p| resolve(&p[1]))
@@ -560,16 +571,16 @@ pub fn measured_fingerprint(
     if gpu.trim().is_empty() || driver.trim().is_empty() || memory_mib == 0 {
         return Err("Incomplete local engine or GPU identity".into());
     }
-    let spec = &target.launch;
+    let args = split_option_values(&target.launch.args);
     let mut i = 1;
-    if !matches!(spec.args.first().map(String::as_str), Some("gtp" | "analysis")) {
+    if !matches!(args.first().map(String::as_str), Some("gtp" | "analysis")) {
         return Err("Only direct local GTP or analysis commands support measured profiles".into());
     }
-    while i < spec.args.len() {
-        match spec.args[i].as_str() {
+    while i < args.len() {
+        match args[i].as_str() {
             "-model" | "--model" | "-weights" | "--weights" | "-config" | "--config" | "-override-config"
             | "--override-config" => {
-                if i + 1 >= spec.args.len() {
+                if i + 1 >= args.len() {
                     return Err("Missing command argument".into());
                 }
                 i += 2;
@@ -594,7 +605,7 @@ pub fn measured_fingerprint(
     }
     // Capture the launch semantics before the measured overlay, including managed GPU settings.
     let mut semantics = BTreeMap::new();
-    for pair in spec.args.windows(2) {
+    for pair in args.windows(2) {
         if matches!(pair[0].as_str(), "-override-config" | "--override-config") {
             for item in pair[1].split(',') {
                 if let Some((key, value)) = item.split_once('=') {
@@ -673,6 +684,22 @@ fn metal_topology_key(key: &str) -> bool {
         .any(|prefix| key.starts_with(prefix))
 }
 
+/// Whether a stored Apple profile still matches this hardware and the freshly read artifacts.
+/// Reads files: call it off the workbench.
+pub fn apple_profile_matches(profile: &super::profile::EngineProfile, roots: &[PathBuf], hardware: &Value) -> bool {
+    let Some(stored) = profile.thread_policy.as_ref().and_then(|p| p.tuning_profiles.as_ref()) else {
+        return false;
+    };
+    let Some(expected) = stored["fingerprintDigest"].as_str() else {
+        return false;
+    };
+    let Some(spec) = gtp::prepare_launch(&profile.command, roots) else {
+        return false;
+    };
+    apple_fingerprint(&profile.command, &spec, hardware, stored["mode"] == "OFFICIAL_THREADS")
+        .is_ok_and(|current| current == expected)
+}
+
 /// Java `KataGoTuningFingerprint.computeCanonicalDigest` (schema 1, planner 3).
 /// Length-prefixed UTF-8 fields preserve imported Java profiles without trusting their paths.
 pub fn apple_fingerprint(command: &str, spec: &LaunchSpec, hardware: &Value, official: bool) -> Result<String, String> {
@@ -724,7 +751,7 @@ pub fn apple_fingerprint(command: &str, spec: &LaunchSpec, hardware: &Value, off
         );
     }
     let mut canonical = BTreeMap::new();
-    for pair in spec.args.windows(2) {
+    for pair in split_option_values(&spec.args).windows(2) {
         if matches!(pair[0].as_str(), "-override-config" | "--override-config") {
             for item in pair[1].split(',') {
                 if let Some((key, value)) = item.split_once('=') {

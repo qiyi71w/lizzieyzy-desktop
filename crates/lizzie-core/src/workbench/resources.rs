@@ -623,9 +623,24 @@ impl Workbench {
                 .and_then(|i| self.config.engine.engines.get(i))
         });
         if let Some(p) = p {
-            let parts = split_command(&p.command);
-            let arg = |name: &str| parts.windows(2).find(|a| a[0] == name).map(|a| a[1].clone());
-            let weight = arg("-model");
+            // Java `inspectSavedEngine`: aliases count; the first config and the last model win.
+            let parts = crate::engine::tuning::split_option_values(&split_command(&p.command));
+            let (mut weight, mut config) = (None, None);
+            let mut i = 2;
+            while i + 1 < parts.len() {
+                match parts[i].as_str() {
+                    "-config" | "--config" => {
+                        config.get_or_insert_with(|| parts[i + 1].clone());
+                        i += 1;
+                    }
+                    "-model" | "--model" | "-weights" | "--weights" => {
+                        weight = Some(parts[i + 1].clone());
+                        i += 1;
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
             let model_name = weight.as_deref().and_then(|w| self.weight_model_name(w));
             v.current_setup = ResourceSetupView {
                 profile_id: Some(p.id.clone()),
@@ -636,7 +651,7 @@ impl Workbench {
                 weight,
                 model_name: model_name.clone(),
                 b11: model_name.as_deref().is_some_and(r::is_b11_model),
-                config: arg("-config"),
+                config,
                 analysis_config: v
                     .inventory
                     .analysis_config

@@ -6,6 +6,7 @@ import { product, t } from "../i18n";
 import { actions, button } from "../engine/controls";
 import { plainJava, tuningText } from "../engine/tuningText";
 import type { SetupCard, SetupContext } from "./card";
+import { resourceView } from "./dialog";
 import "./performance.css";
 
 let latest: TuningView | null = null;
@@ -141,8 +142,9 @@ export function performanceCard(ctx: SetupContext): SetupCard {
   actions(controls, experimental, optimize); actions(controls, importReport, restore); element.append(controls);
   function update(view: WorkbenchView | null): void {
     if (view?.tuning) latest = view.tuning;
+    // Java benchmarks the inspected saved setup: the running engine's profile, else the saved default.
     const foreground = view?.engine.foreground;
-    targetId = ctx.engineId ?? (foreground ? view?.settings.engine.engines[foreground.index]?.id : undefined) ?? "";
+    targetId = ctx.engineId ?? (foreground ? view?.settings.engine.engines[foreground.index]?.id : undefined) ?? resourceView()?.currentSetup.profileId ?? "";
     const profile = latest?.profiles.find((entry) => entry.engineId === targetId);
     const policy = profile?.policy;
     const threads = policy?.["katago-benchmark-threads"] ?? 0;

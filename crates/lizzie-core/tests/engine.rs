@@ -1145,21 +1145,21 @@ fn startup_benchmark_is_opt_in_visible_stoppable_and_remembers_dismissal() {
     wb.switch_engine(0).unwrap();
     let id = world.launched()[0].0;
     answer_all(&mut wb, &world, id, KATA);
-    assert!(wb.begin_startup_benchmark().is_none());
+    assert!(wb.begin_startup_benchmark(None).is_none());
     wb.set_startup_benchmark(true).unwrap();
     // Apple automatic optimization requires its trusted Metal resource package.
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        assert!(wb.begin_startup_benchmark().is_none());
+        assert!(wb.begin_startup_benchmark(None).is_none());
         return;
     }
-    let job = wb.begin_startup_benchmark().unwrap();
+    let job = wb.begin_startup_benchmark(None).unwrap();
     let notice = wb.view(false).tuning.unwrap().startup_notice.unwrap();
     assert_eq!(notice.id, job.id);
     assert!(notice.automatic);
     assert!(!wb.dismiss_startup_notice(job.id + 1));
     assert!(wb.dismiss_startup_notice(job.id));
     wb.complete_benchmark(job.id, Err("cancelled".into()));
-    assert!(wb.begin_startup_benchmark().is_none());
+    assert!(wb.begin_startup_benchmark(None).is_none());
     assert_eq!(wb.config().engine.startup_benchmark_dismissed_version, 5);
 }
 

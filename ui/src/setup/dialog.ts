@@ -21,6 +21,17 @@ const seenOutcomes = new Set<string>();
 export function resourceView(): ResourcesView | null { return resources ?? state.view?.resources ?? null; }
 export function setupBusy(): boolean { return !!resourceView()?.task || !!tuning?.task || !!resourceView()?.detecting; }
 export function setupStatus(text: string): void { footerStatus = text; refreshWindow?.(); }
+/** Rust task phases; the downloaded item is a catalog/asset identifier and stays as is. */
+function phaseText(phase: string): string {
+  switch (phase) {
+    case "detecting": return product("setupPhaseDetecting");
+    case "downloading": return product("setupPhaseDownloading");
+    case "verifying": return product("setupPhaseVerifying");
+    case "installing": return product("setupPhaseInstalling");
+    case "cancelling": return t("AutoSetup.cancelling");
+    default: return phase;
+  }
+}
 
 registerViewHandler((view) => {
   if (view.resources) resources = view.resources;
@@ -188,7 +199,7 @@ export async function openAutoSetup(card: SetupCardKey = "overview", ctx: SetupC
     stop.textContent = benchmark ? t("AutoSetup.stopBenchmark") : t("AutoSetup.stopDownload");
     stop.disabled = task ? !task.cancellable : !benchmark || benchmark.cancelling;
     progressBox.hidden = !task && !benchmark;
-    progressStatus.textContent = task ? `${task.item} · ${task.phase} · ${size(task.bytes)}${task.total ? ` / ${size(task.total)}` : ""}` : benchmark?.statusLines.join("\n") ?? "";
+    progressStatus.textContent = task ? [task.kind === "download" ? task.item : "", phaseText(task.phase), size(task.bytes) + (task.total ? ` / ${size(task.total)}` : "")].filter(Boolean).join(" · ") : benchmark?.statusLines.join("\n") ?? "";
     if (task?.total) { progress.max = Number(task.total); progress.value = Number(task.bytes); }
     else if (benchmark) { progress.max = 1000; progress.value = benchmark.permille; }
     else progress.removeAttribute("value");

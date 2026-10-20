@@ -454,8 +454,26 @@ impl Workbench {
         self.tuning.revision += 1;
         Ok(())
     }
+    /// The foreground profile and inputs for the Apple profile match, which reads artifacts and is
+    /// therefore computed off the workbench ([`tuning::apple_profile_matches`]).
+    pub fn startup_apple_probe(
+        &self,
+    ) -> Option<(
+        crate::engine::profile::EngineProfile,
+        Vec<std::path::PathBuf>,
+        serde_json::Value,
+    )> {
+        let profile = self.engines.profile_of(self.engines.foreground()?)?;
+        profile.thread_policy.as_ref()?.tuning_profiles.as_ref()?;
+        Some((
+            profile.clone(),
+            self.engines.roots().to_vec(),
+            self.engines.apple_hardware()?.clone(),
+        ))
+    }
     /// Opt-in startup scheduling is driven by the shell after its delay/readiness wait.
-    pub fn begin_startup_benchmark(&mut self) -> Option<BenchmarkJob> {
+    /// `apple_match`: the probed profile id, its command, and whether its Apple profile matched.
+    pub fn begin_startup_benchmark(&mut self, apple_match: Option<(String, String, bool)>) -> Option<BenchmarkJob> {
         if !self.config.engine.startup_benchmark || self.benchmark_running() || self.resource_task_active() {
             return None;
         }
@@ -478,7 +496,12 @@ impl Workbench {
             return None;
         }
         if if apple {
-            self.engines.apple_profile_matches(&profile)
+            match apple_match {
+                Some((id, command, matched)) if id == profile.id && command == profile.command => matched,
+                // The foreground changed after the off-lock probe: decide on the next start.
+                Some(_) => return None,
+                None => false,
+            }
         } else {
             profile.thread_policy.as_ref().is_some_and(|p| p.threads > 0)
         } {

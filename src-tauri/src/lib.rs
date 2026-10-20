@@ -65,8 +65,29 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
     let view = wb.view(false);
     let _ = app.emit(VIEW_EVENT, &view);
     let logs = wb.take_logs();
+    let checks = wb.take_launch_checks();
     drop(wb);
     write_logs(shared, logs);
+    run_launch_checks(app, checks);
+}
+
+/// Engine starts whose overlays need artifact fingerprints (measured or Apple tuning) are hashed
+/// on their own thread, never under the workbench lock (Java `requireWorker`).
+pub fn check_launches(app: &AppHandle, shared: &Shared) {
+    let checks = shared.workbench.lock().unwrap().take_launch_checks();
+    run_launch_checks(app, checks);
+}
+
+fn run_launch_checks(app: &AppHandle, checks: Vec<lizzie_core::engine::runtime::LaunchCheck>) {
+    for check in checks {
+        let app = app.clone();
+        std::thread::spawn(move || {
+            let checked = check.run();
+            let shared = app.state::<State>().inner().clone();
+            shared.workbench.lock().unwrap().finish_launch(checked);
+            publish(&app, &shared);
+        });
+    }
 }
 
 impl Shared {
@@ -263,6 +284,13 @@ fn changed(app: &AppHandle, shared: &Shared, changed: bool) -> CommandResult {
 
 /// The one entry for every command, used by the UI and by acceptance automation.
 pub async fn dispatch(app: AppHandle, shared: State, command: Command) -> Result<CommandResult, ApiError> {
+    let result = run_command(app.clone(), shared.clone(), command).await;
+    // A command may start an engine without changing the view.
+    check_launches(&app, &shared);
+    result
+}
+
+async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<CommandResult, ApiError> {
     match command {
         Command::ChooseAndOpenRecord => {
             let start_dir = shared.workbench.lock().unwrap().persisted().last_folder.clone();

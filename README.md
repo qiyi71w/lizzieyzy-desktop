@@ -113,10 +113,14 @@ the matching LizzieYzy Next settings.
   dependencies, and offers the three Java model choices (balanced, strongest (default),
   lightweight). Nothing is downloaded, installed, switched or replaced without a click and a
   confirmation; experimental packages (Windows DirectML, OpenVINO, ROCm) are never recommended and
-  ask first. Downloads resume, are checked against pinned SHA-256 digests and sizes (a mismatch
-  deletes the partial file and is reported), and can be stopped (the partial file is kept for a
-  later resume). An engine package can also be imported from a zip obtained elsewhere (accepted
-  only when it is the same trusted package), a weight file (`.bin.gz`/`.txt.gz`) can be imported,
+  ask first. Downloads resume and can be stopped (the partial file is kept for a later resume).
+  Engine packages and the three Java models are checked against pinned SHA-256 digests and sizes,
+  the NVIDIA runtime against the digests in NVIDIA's release manifests (TensorRT and NVRTC are
+  pinned), and the strongest network against the digest katagotraining.org reports; other weights
+  from the online list are only checked against their download size (at least 1 MiB). A mismatch
+  deletes the partial file and is reported. An engine package can also be imported from a zip
+  obtained elsewhere (accepted only when it is the same trusted package), a weight file
+  (`.bin.gz`/`.txt.gz`) can be imported,
   and an existing KataGo can be chosen. "验证" runs `katago version` (and, for NVIDIA drivers
   between 528.33 and 570.65, KataGo's one-second inference probe). "使用此配置…" shows the exact
   profile it will add (or update, for a profile this dialog created whose command is unchanged)
@@ -132,9 +136,12 @@ the matching LizzieYzy Next settings.
   ikatago account form), and GTP 配置 for engines that publish a configuration schema (saved with
   the profile, the engine's config file is not edited). The official benchmark runs only when
   clicked, or after start-up when "首次启动时引导运行智能测速优化" is turned on (off by default);
-  it can be stopped, and its result is stored with the files it measured, so it no longer applies
-  after the engine, model or config changes. Measured tuning reports can be reviewed, applied and
-  restored. Apple Silicon deep tuning is experimental and asks first.
+  it can be stopped. Its recommended search threads stay in use until the policy is changed or
+  measured again; the measured server threads and batch size apply only while the engine, model
+  and config are unchanged, and the page then marks the result as historical. Measured tuning
+  reports can be reviewed, applied and restored; they and Apple Silicon tuning apply only while
+  the content of the engine, model and config still matches, which is checked before the engine
+  starts without blocking the window. Apple Silicon deep tuning is experimental and asks first.
 
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
 as not yet available (greyed in menus; a notice when used). Not available yet: comparison and

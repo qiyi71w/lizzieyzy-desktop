@@ -5,6 +5,7 @@ import { dispatch, isApiError } from "./contract/client";
 import type { Command, CommandResult, Navigation, StoneSound, TreeNodeView, WorkbenchView } from "./contract/generated";
 import { ask, confirm, message } from "./dialogs";
 import { product, t } from "./i18n";
+import { tuningText } from "./engine/tuningText";
 
 export const APP_TITLE = "LizzieYzy Tauri";
 
@@ -103,7 +104,8 @@ export function run(command: Command): Promise<CommandResult | null> {
       }
       return result;
     } catch (e) {
-      const text = isApiError(e) ? e.message : String(e);
+      // Tuning refusals carry a Java message key (`EngineThreadPolicy.*`), not display text.
+      const text = isApiError(e) ? (command.type === "Tuning" ? tuningText(e.message) : e.message) : String(e);
       // Only the command kind: arguments may hold credentials (ikatago scan, proxy settings).
       const op = "op" in command ? `.${command.op.type}` : "";
       console.error("command failed", `${command.type}${op}`, e);

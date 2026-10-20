@@ -215,6 +215,8 @@ pub fn startup(app: AppHandle, shared: State) {
         if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
             let hardware = apple_identity(&AtomicBool::new(false)).ok();
             shared.workbench.lock().unwrap().set_apple_hardware(hardware);
+            // A changed identity restarts an Apple-tuned foreground engine through a launch check.
+            crate::check_launches(&app, &shared);
         }
         let apple = cfg!(all(target_os = "macos", target_arch = "aarch64"));
         let deadline = Instant::now() + Duration::from_secs(45);
@@ -225,7 +227,12 @@ pub fn startup(app: AppHandle, shared: State) {
                 if ENDING.load(Ordering::Acquire) {
                     return;
                 }
-                let job = shared.workbench.lock().unwrap().begin_startup_benchmark();
+                let probe = shared.workbench.lock().unwrap().startup_apple_probe();
+                let apple_match = probe.map(|(profile, roots, hardware)| {
+                    let matched = tuning::apple_profile_matches(&profile, &roots, &hardware);
+                    (profile.id, profile.command, matched)
+                });
+                let job = shared.workbench.lock().unwrap().begin_startup_benchmark(apple_match);
                 if let Some(job) = job {
                     crate::publish(&app, &shared);
                     start(app, shared, job);
@@ -242,10 +249,11 @@ fn api_error(s: impl Into<String>) -> ApiError {
 fn result(result: TuningResult) -> Result<CommandResult, ApiError> {
     Ok(CommandResult::Tuning { result })
 }
-fn chosen(app: &AppHandle, title: &str, extensions: &[&str]) -> Option<String> {
-    let mut builder = app.dialog().file().set_title(title);
-    if !extensions.is_empty() {
-        builder = builder.add_filter(title, extensions);
+/// Same chooser convention as the other native dialogs: system title, technical file filter.
+fn chosen(app: &AppHandle, filter: Option<(&str, &[&str])>) -> Option<String> {
+    let mut builder = app.dialog().file();
+    if let Some((label, extensions)) = filter {
+        builder = builder.add_filter(label, extensions);
     }
     builder
         .blocking_pick_file()
@@ -315,7 +323,7 @@ pub async fn dispatch(app: AppHandle, shared: State, op: TuningCommand) -> Resul
             result(TuningResult::Done)
         }
         TuningCommand::ImportMeasured { engine_id, path } => tauri::async_runtime::spawn_blocking(move || {
-            let path = path.or_else(|| chosen(&app, "Measured KataGo report", &["json"]));
+            let path = path.or_else(|| chosen(&app, Some(("*.json", &["json"]))));
             let Some(path) = path else {
                 return result(TuningResult::Cancelled);
             };
@@ -417,7 +425,7 @@ pub async fn dispatch(app: AppHandle, shared: State, op: TuningCommand) -> Resul
             if !matches!(platform.as_str(), "colab" | "all") {
                 return Err(api_error("Invalid ikatago platform"));
             }
-            let Some(exe) = chosen(&app, "ikatago executable", &[]) else {
+            let Some(exe) = chosen(&app, None) else {
                 return result(TuningResult::Cancelled);
             };
             if [&user_name, &password].iter().any(|s| s.contains(['\r', '\n', '"'])) {
@@ -432,22 +440,22 @@ pub async fn dispatch(app: AppHandle, shared: State, op: TuningCommand) -> Resul
         .await
         .map_err(|e| api_error(e.to_string()))?,
         TuningCommand::Scan { engine_type } => tauri::async_runtime::spawn_blocking(move || {
-            let Some(exe) = chosen(&app, "Engine executable", &[]) else {
+            let Some(exe) = chosen(&app, None) else {
                 return result(TuningResult::Cancelled);
             };
             let q = |s: &str| format!("\"{}\"", s);
             let command = match engine_type.as_str() {
                 "KataGo" => {
-                    let Some(model) = chosen(&app, "Weight", &["gz"]) else {
+                    let Some(model) = chosen(&app, Some(("*.bin.gz / *.txt.gz", &["gz"]))) else {
                         return result(TuningResult::Cancelled);
                     };
-                    let Some(config) = chosen(&app, "GTP config", &["cfg"]) else {
+                    let Some(config) = chosen(&app, Some(("*.cfg", &["cfg"]))) else {
                         return result(TuningResult::Cancelled);
                     };
                     format!("{} gtp -model {} -config {}", q(&exe), q(&model), q(&config))
                 }
                 "LeelaZero" => {
-                    let Some(model) = chosen(&app, "Weight", &["gz"]) else {
+                    let Some(model) = chosen(&app, Some(("*.gz", &["gz"]))) else {
                         return result(TuningResult::Cancelled);
                     };
                     format!("{} -g -w {}", q(&exe), q(&model))

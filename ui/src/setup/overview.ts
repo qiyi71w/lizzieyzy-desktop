@@ -49,10 +49,10 @@ export function overviewCard(_ctx: SetupContext): SetupCard {
     }
     element.append(summary);
     const machine = section(product("setupComputer"), product("setupSeparate")), m = r.machine;
-    row(machine, "OS / Arch", m ? `${m.os} / ${m.arch}${m.rosetta ? " (Rosetta)" : ""}` : product("setupUnknown"));
+    row(machine, product("setupOsArch"), m ? `${m.os} / ${m.arch}${m.rosetta ? " (Rosetta)" : ""}` : product("setupUnknown"));
     row(machine, product("setupCpu"), m ? `${m.cpuName ?? product("setupUnknown")}${m.logicalCpus ? ` · ${m.logicalCpus}` : ""}` : product("setupUnknown"));
     row(machine, product("setupMemory"), size(m?.totalMemoryBytes));
-    row(machine, "GPU", m?.nvidiaGpus.length ? m.nvidiaGpus.map((g) => `${g.name} · VRAM: ${g.memoryMib == null ? product("setupUnknown") : size(Number(g.memoryMib) * 1024 ** 2)} · Driver: ${g.driver ?? product("setupUnknown")}`).join("\n") : m?.apple ? `${m.apple.chip ?? product("setupUnknown")} · Metal · VRAM: ${product("setupUnknown")}` : product("setupUnknown"));
+    row(machine, product("setupGpu"), m?.nvidiaGpus.length ? m.nvidiaGpus.map((g) => `${g.name} · ${product("setupVram")}: ${g.memoryMib == null ? product("setupUnknown") : size(Number(g.memoryMib) * 1024 ** 2)} · ${product("setupDriver")}: ${g.driver ?? product("setupUnknown")}`).join("\n") : m?.apple ? `${m.apple.chip ?? product("setupUnknown")} · Metal · ${product("setupVram")}: ${product("setupUnknown")}` : product("setupUnknown"));
     element.append(machine);
     const reasonText: Record<RecommendationReason, string> = {
       nvidiaDetected: product("setupReasonNvidia"), nvidiaNotDetected: product("setupReasonNoNvidia"), driverSupported: product("setupReasonDriver"), driverProbeRequired: product("setupReasonProbe"), driverUnknown: product("setupReasonDriverUnknown"), driverTooOld: product("setupReasonOld"),
@@ -73,7 +73,7 @@ export function overviewCard(_ctx: SetupContext): SetupCard {
       }
     };
     const runtime: Record<RuntimeRequirement, string> = {
-      none: product("none"), "linux-cuda-cudnn": "CUDA 12 / cuDNN 9 · Linux system libraries", "nvidia-runtime-download": product("setupDependencyNvidia"), "tensorrt-runtime": product("setupDependencyTrt"), "opencl-icd": product("setupDependencyOpencl"), metal: "Metal", directx12: "DirectX 12", openvino: "OpenVINO", "rocm-family": "ROCm",
+      none: product("none"), "linux-cuda-cudnn": `CUDA 12 / cuDNN 9 · ${product("setupLinuxLibraries")}`, "nvidia-runtime-download": product("setupDependencyNvidia"), "tensorrt-runtime": product("setupDependencyTrt"), "opencl-icd": product("setupDependencyOpencl"), metal: "Metal", directx12: "DirectX 12", openvino: "OpenVINO", "rocm-family": "ROCm",
     };
     const recommended = r.recommendation?.packages.find((p) => p.recommended);
     const recommendation = section(product("setupRecommended"));

@@ -288,7 +288,9 @@ impl Target {
         if !tuning::is_local_katago(command) {
             return Err("EngineThreadPolicy.unknownBenchmarkTarget".into());
         }
-        let launch = prepare_launch(command, roots).ok_or("EngineThreadPolicy.unknownBenchmarkTarget")?;
+        let mut launch = prepare_launch(command, roots).ok_or("EngineThreadPolicy.unknownBenchmarkTarget")?;
+        // Java captures the target from `inspectSavedEngine`'s normalized arguments.
+        launch.args = tuning::split_option_values(&launch.args);
         if launch.args.first().map(String::as_str) != Some("gtp") {
             return Err("EngineThreadPolicy.invalidBenchmarkCommand".into());
         }
