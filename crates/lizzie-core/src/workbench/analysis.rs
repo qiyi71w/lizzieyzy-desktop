@@ -729,11 +729,16 @@ impl Workbench {
     }
 
     /// `Leelaz` analysis limits: past the time or visit limit the analysis of this node stops
-    /// (it resumes when the position changes) and the notice is shown once per engine start.
+    /// (it resumes when the position changes) and the notice is shown once per engine start. A
+    /// time limit of 0 means 9999 minutes (`Config.java:2153-2155`).
     fn check_limits(&mut self, visits: u64, elapsed: std::time::Duration) {
         let a = &self.config.engine.analysis;
+        let limit_seconds = match a.max_analyze_time_seconds {
+            0 => 9999 * 60,
+            s => u64::from(s),
+        };
         let by_visits = a.limit_playout && visits > a.limit_playouts;
-        let by_time = a.limit_time && elapsed.as_secs_f64() * 1000.0 > f64::from(a.max_analyze_time_seconds) * 1000.0;
+        let by_time = a.limit_time && elapsed.as_secs_f64() > limit_seconds as f64;
         if !(by_visits || by_time) {
             return;
         }

@@ -100,6 +100,8 @@ pub struct Mapped {
     pub startup: Option<EngineStartup>,
     /// Java index of the engine used last.
     pub last_engine: Option<usize>,
+    /// Java index of the default engine (`Utils.normalizeDefaultEngineFlags`).
+    pub default_engine: Option<usize>,
     pub interval_centisec: Option<u32>,
     pub limit_time: Option<bool>,
     pub max_analyze_time_seconds: Option<u32>,
@@ -146,6 +148,42 @@ impl Candidate {
                 }
                 e
             })
+            .collect()
+    }
+
+    /// The setting entries as the report shows them once the user chose which credentials to
+    /// copy: the default and last engine choices of an engine that is left out are left out too.
+    pub fn items_after(&self, copy_credentials: &[u32]) -> Vec<ImportItemView> {
+        let engines = self.engines_after(copy_credentials);
+        self.items
+            .iter()
+            .map(|i| {
+                let mut i = i.clone();
+                let index = match i.key.as_str() {
+                    "ui.default-engine" => self.mapped.default_engine,
+                    "ui.last-engine" => self.mapped.last_engine,
+                    _ => None,
+                };
+                let left_out = index
+                    .and_then(|k| engines.get(k))
+                    .filter(|e| e.status != ImportStatus::Imported);
+                if let (ImportStatus::Imported, Some(engine)) = (i.status, left_out) {
+                    i.status = ImportStatus::NotMigrated;
+                    i.reason = engine.reason;
+                    i.detail = Some(engine.name.clone());
+                }
+                i
+            })
+            .collect()
+    }
+
+    /// Indexes of the engines whose credentials could be copied (all of them, for a preview that
+    /// shows what confirming would import).
+    pub fn credential_engines(&self) -> Vec<u32> {
+        self.engines
+            .iter()
+            .filter(|e| e.credential && e.status == ImportStatus::Imported)
+            .map(|e| e.index)
             .collect()
     }
 }
@@ -441,16 +479,21 @@ impl Reader<'_> {
         self.items.last_mut().unwrap()
     }
 
+    /// Every value shown in the preview and report passes the credential sanitizer.
     fn imported(&mut self, key: String, target: ImportTarget, value: String) {
         let it = self.item(key, ImportStatus::Imported);
         it.target = Some(target);
-        it.value = Some(value);
+        it.value = Some(sanitize(&value));
     }
 
+    /// A value Java would not use either; one holding credentials is reported without it.
     fn invalid(&mut self, key: String, target: ImportTarget, value: &Value) {
+        let leaf = key.rsplit(['.', ':']).next().unwrap_or(&key).to_string();
+        let credential = holds_credential(&leaf, value);
         let it = self.item(key, ImportStatus::Incompatible);
         it.target = Some(target);
-        it.value = Some(shown(value));
+        it.credential = credential;
+        it.value = (!credential).then(|| sanitize(&shown(value)));
         it.reason = Some(ImportReason::InvalidValue);
     }
 
@@ -600,7 +643,7 @@ impl Reader<'_> {
                     if let Some(v) = ui.get(key) {
                         handled.push(("ui", key));
                         let it = self.item(format!("ui.{key}"), ImportStatus::Incompatible);
-                        it.value = Some(shown(v));
+                        it.value = Some(sanitize(&shown(v)));
                         it.reason = Some(ImportReason::InvalidValue);
                         it.detail = Some("no engine list".into());
                     }
@@ -648,6 +691,7 @@ impl Reader<'_> {
             format!("{} / {}", mapped.len(), entries.len()),
         );
         self.mapped.engines = Some(mapped);
+        self.mapped.default_engine = default;
 
         // `Lizzie.java:457-488`: default, else last, else none, else ask.
         let startup = if flag("autoload-default") {
@@ -884,14 +928,14 @@ fn resolve_command(command: &str, roots: &[PathBuf], problems: &mut Vec<EnginePr
     };
     if !found {
         problems.push(EngineProblem::ProgramNotFound {
-            path: tokens[0].clone(),
+            path: sanitize(&tokens[0]),
         });
     }
     for w in tokens.windows(2) {
         if FILE_PATH_OPTIONS.contains(&w[0].as_str()) && !w[1].starts_with('-') && !Path::new(&w[1]).exists() {
             problems.push(EngineProblem::FileNotFound {
                 option: w[0].clone(),
-                path: w[1].clone(),
+                path: sanitize(&w[1]),
             });
         }
     }
@@ -986,84 +1030,79 @@ impl Mapped {
         (c, p)
     }
 
-    /// Settings already chosen in this product (different from its defaults) that the import
-    /// would change.
-    pub fn replaces(&self, config: &Config, persisted: &Persisted) -> Vec<ImportTarget> {
-        let d = Config::default();
+    /// Settings of this product the import would change, once this product has settings of its
+    /// own (`has_settings`; on first use there is nothing to protect). Any of them may have been
+    /// chosen, even at its default value. An empty engine list and a missing last folder hold
+    /// no choice.
+    pub fn replaces(&self, config: &Config, persisted: &Persisted, has_settings: bool) -> Vec<ImportTarget> {
         let mut out = Vec::new();
+        if let Some(folder) = &self.last_folder {
+            if persisted.last_folder.as_ref().is_some_and(|f| f != folder) {
+                out.push(ImportTarget::LastFolder);
+            }
+        }
+        if !has_settings {
+            return out;
+        }
         macro_rules! cmp {
-            ($target:expr, $field:ident . $($rest:ident).+, $new:expr) => {
-                if let Some(v) = &$new {
-                    let current = &config.$field.$($rest).+;
-                    if *current != d.$field.$($rest).+ && current != v {
-                        out.push($target);
-                    }
-                }
-            };
-            ($target:expr, $field:ident, $new:expr) => {
-                if let Some(v) = &$new {
-                    let current = &config.$field;
-                    if *current != d.$field && current != v {
-                        out.push($target);
-                    }
+            ($target:expr, $current:expr, $new:expr) => {
+                if $new.as_ref().is_some_and(|v| *v != $current) {
+                    out.push($target);
                 }
             };
         }
-        cmp!(ImportTarget::ReadKomi, record.read_komi, self.read_komi);
-        cmp!(ImportTarget::LoadSgfLast, record.load_sgf_last, self.load_sgf_last);
+        let a = &config.engine.analysis;
+        cmp!(ImportTarget::ReadKomi, config.record.read_komi, self.read_komi);
+        cmp!(
+            ImportTarget::LoadSgfLast,
+            config.record.load_sgf_last,
+            self.load_sgf_last
+        );
         cmp!(
             ImportTarget::ReplaceFileHint,
-            record.show_replace_file_hint,
+            config.record.show_replace_file_hint,
             self.show_replace_file_hint
         );
-        cmp!(ImportTarget::Language, ui.language, self.language);
-        cmp!(ImportTarget::PlaySound, ui.play_sound, self.play_sound);
-        cmp!(ImportTarget::RecentFiles, recent_files, self.recent_files);
+        cmp!(ImportTarget::Language, config.ui.language, self.language);
+        cmp!(ImportTarget::PlaySound, config.ui.play_sound, self.play_sound);
+        cmp!(ImportTarget::RecentFiles, config.recent_files, self.recent_files);
         cmp!(
             ImportTarget::AnalysisInterval,
-            engine.analysis.interval_centisec,
+            a.interval_centisec,
             self.interval_centisec
         );
-        cmp!(ImportTarget::LimitTime, engine.analysis.limit_time, self.limit_time);
+        cmp!(ImportTarget::LimitTime, a.limit_time, self.limit_time);
         cmp!(
             ImportTarget::MaxAnalyzeTime,
-            engine.analysis.max_analyze_time_seconds,
+            a.max_analyze_time_seconds,
             self.max_analyze_time_seconds
         );
-        cmp!(
-            ImportTarget::LimitPlayout,
-            engine.analysis.limit_playout,
-            self.limit_playout
-        );
-        cmp!(
-            ImportTarget::LimitPlayouts,
-            engine.analysis.limit_playouts,
-            self.limit_playouts
-        );
+        cmp!(ImportTarget::LimitPlayout, a.limit_playout, self.limit_playout);
+        cmp!(ImportTarget::LimitPlayouts, a.limit_playouts, self.limit_playouts);
         cmp!(
             ImportTarget::LimitMaxSuggestion,
-            engine.analysis.limit_max_suggestion,
+            a.limit_max_suggestion,
             self.limit_max_suggestion
         );
         cmp!(
             ImportTarget::LimitBranchLength,
-            engine.analysis.limit_branch_length,
+            a.limit_branch_length,
             self.limit_branch_length
         );
         cmp!(
             ImportTarget::FastEngineChange,
-            engine.analysis.fast_engine_change,
+            a.fast_engine_change,
             self.fast_engine_change
         );
         cmp!(
             ImportTarget::PonderLimitTips,
-            engine.analysis.show_ponder_limited_tips,
+            a.show_ponder_limited_tips,
             self.show_ponder_limited_tips
         );
-        cmp!(ImportTarget::KataRules, engine.kata_rules, self.kata_rules);
+        cmp!(ImportTarget::KataRules, config.engine.kata_rules, self.kata_rules);
         cmp!(
             ImportTarget::AutoLoadKataRules,
-            engine.auto_load_kata_rules,
+            config.engine.auto_load_kata_rules,
             self.auto_load_kata_rules
         );
         if let Some(engines) = &self.engines {
@@ -1072,12 +1111,7 @@ impl Mapped {
             if !current.is_empty() && current != new {
                 out.push(ImportTarget::Engines);
             }
-            cmp!(ImportTarget::EngineStartup, engine.startup, self.startup);
-        }
-        if let Some(folder) = &self.last_folder {
-            if persisted.last_folder.as_ref().is_some_and(|f| f != folder) {
-                out.push(ImportTarget::LastFolder);
-            }
+            cmp!(ImportTarget::EngineStartup, config.engine.startup, self.startup);
         }
         out
     }

@@ -86,15 +86,19 @@ the matching LizzieYzy Next settings.
   (load komi, go to last move, replace prompt), language, stone sounds, recent records, last
   folder, the engine list with its default and start-up choice, analysis limits and interval,
   fast engine change, limit notice and KataGo rules. Engines keep using the Java engine and
-  model files: paths relative to the Java folder are made absolute (an optional Java program
-  folder is searched too), and missing programs or `-model`/`-config` files are listed without
-  starting anything. Remote (SSH) engines are left out; an engine whose command holds a
-  credential is imported only after ticking "复制凭据", and credential values never appear in the
-  preview, report or logs. Settings already changed in this client are replaced only after
-  confirming. Importing writes this client's `config.json` and `persist.json` together (a failed
-  write leaves both unchanged), restarts the engines with the imported choice, and shows the
+  model files: relative paths are resolved as Java launches them (a bare program name is looked
+  up on `PATH`; relative files, including a Java engine's `-jar` file, in the Java folder or an
+  optional Java program folder), and missing programs or `-model`/`-config` files are listed
+  without starting anything. Remote (SSH) engines are left out, and so is a default or last
+  engine choice that points to a left-out engine; an engine whose command holds a credential is
+  imported only after ticking "复制凭据", and credential values never appear in the preview,
+  report or logs. Once this client has its own settings, every setting the import would change is
+  listed and replaced only after confirming. Importing writes this client's `config.json` and
+  `persist.json` together (a failed write leaves both unchanged; an existing settings file that
+  cannot be read is not replaced), restarts the engines with the imported choice, and shows the
   report; the language applies after a restart. Java's files are never written, so both programs
   can be used side by side.
+- An analysis time limit of 0 seconds means 9999 minutes, as in Java.
 
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
 as not yet available (greyed in menus; a notice when used). Not available yet: comparison and

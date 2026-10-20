@@ -82,22 +82,59 @@ pub struct LaunchSpec {
     pub working_dir: Option<PathBuf>,
 }
 
+/// `CommandLaunchHelper.looksLikeRelativeFileToken`: a relative token that names a file — it holds
+/// a path separator or ends like an engine, model, config or library file. A bare program name
+/// such as `katago` is not one: the system looks it up on `PATH`.
 fn looks_relative_file(token: &str) -> bool {
-    !token.is_empty() && !Path::new(token).is_absolute() && !token.starts_with('-')
+    const FILE_ENDINGS: [&str; 10] = [
+        ".exe", ".bat", ".cmd", ".jar", ".cfg", ".txt", ".pem", ".bin", ".bin.gz", ".dll",
+    ];
+    let t = token.trim();
+    if t.is_empty() || Path::new(t).is_absolute() || t.starts_with('-') {
+        return false;
+    }
+    let lower = t.to_lowercase();
+    t.contains(['/', '\\']) || FILE_ENDINGS.iter().any(|e| lower.ends_with(e))
 }
 
-/// `CommandLaunchHelper.prepare`: a root where the relative executable exists (scored by how many
-/// relative file options also resolve there) becomes the working directory and the relative paths
-/// are resolved against it; otherwise the directory of the absolute executable, or the common
-/// parent of the executable and absolute file options when that is the executable's parent.
-/// `roots` are the candidate roots in Java's order (current directory, then the application
-/// location and its ancestors). `None` for an empty command line.
+/// `Utils.isJavaCommand`: the program is `java` / `javaw` (with or without `.exe`).
+fn is_java_command(program: &str) -> bool {
+    let name = program.trim().rsplit(['/', '\\']).next().unwrap_or("").to_lowercase();
+    matches!(name.as_str(), "java" | "java.exe" | "javaw" | "javaw.exe")
+}
+
+/// `CommandLaunchHelper.prepare`: the candidate root where most relative files of the command
+/// exist (a relative executable must exist there; +6, each file option +3, a Java engine's `-jar`
+/// file +4) becomes the working directory and those paths are resolved against it; otherwise
+/// the directory of the absolute executable, or the common parent of the executable and absolute
+/// file options when that is the executable's parent. `roots` are the candidate roots in Java's
+/// order (current directory, then the application location and its ancestors). `None` for an
+/// empty command line.
 pub fn prepare_launch(command: &str, roots: &[PathBuf]) -> Option<LaunchSpec> {
     let mut parts = split_command(command.trim());
     if parts.is_empty() || parts[0].is_empty() {
         return None;
     }
-    let is_option = |t: &str| FILE_PATH_OPTIONS.contains(&t);
+    let java = is_java_command(&parts[0]);
+    // Relative files of `parts` that exist under `root`: (token position, score).
+    let relative_files = |root: &Path, parts: &[String]| -> Vec<(usize, i32)> {
+        (0..parts.len().saturating_sub(1))
+            .filter_map(|i| {
+                let value = &parts[i + 1];
+                if !looks_relative_file(value) {
+                    return None;
+                }
+                let target = root.join(value);
+                if FILE_PATH_OPTIONS.contains(&parts[i].as_str()) && target.exists() {
+                    Some((i + 1, 3))
+                } else if java && parts[i] == "-jar" && target.is_file() {
+                    Some((i + 1, 4))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    };
     let mut best: Option<(&PathBuf, i32)> = None;
     for root in roots {
         let mut score = 0;
@@ -107,24 +144,18 @@ pub fn prepare_launch(command: &str, roots: &[PathBuf]) -> Option<LaunchSpec> {
             }
             score += 6;
         }
-        for w in parts.windows(2) {
-            if is_option(&w[0]) && looks_relative_file(&w[1]) && root.join(&w[1]).exists() {
-                score += 3;
-            }
-        }
+        score += relative_files(root, &parts).iter().map(|(_, s)| s).sum::<i32>();
         if best.is_none_or(|(_, s)| score > s) {
             best = Some((root, score));
         }
     }
     let working_dir = match best {
         Some((root, score)) if score > 0 => {
+            for (at, _) in relative_files(root, &parts) {
+                parts[at] = root.join(&parts[at]).to_string_lossy().into_owned();
+            }
             if looks_relative_file(&parts[0]) {
                 parts[0] = root.join(&parts[0]).to_string_lossy().into_owned();
-            }
-            for i in 0..parts.len().saturating_sub(1) {
-                if is_option(&parts[i]) && looks_relative_file(&parts[i + 1]) && root.join(&parts[i + 1]).exists() {
-                    parts[i + 1] = root.join(&parts[i + 1]).to_string_lossy().into_owned();
-                }
             }
             Some(root.clone())
         }

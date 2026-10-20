@@ -55,9 +55,10 @@ impl Workbench {
                 .program_dir
                 .as_ref()
                 .map(|p| p.to_string_lossy().into_owned()),
-            items: candidate.items.clone(),
+            // As confirming every credential would import them; the report shows the choice made.
+            items: candidate.items_after(&candidate.credential_engines()),
             engines: candidate.engines.clone(),
-            replaces: candidate.mapped.replaces(&self.config, &self.persisted),
+            replaces: self.java_import_replaces(&candidate),
         };
         self.java_preview = Some((id, candidate));
         view
@@ -80,13 +81,14 @@ impl Workbench {
             return Ok(Err(IMPORT_STALE));
         }
         // Settings may have changed since the preview was made.
-        if !replace && !candidate.mapped.replaces(&self.config, &self.persisted).is_empty() {
+        if !replace && !self.java_import_replaces(&candidate).is_empty() {
             self.java_preview = Some((id, candidate));
             return Ok(Err(IMPORT_NEEDS_REPLACE));
         }
         let (config, persisted) = candidate.mapped.apply(&self.config, &self.persisted, copy_credentials);
-        // After "重置界面位置" the persist file stays deleted until the next start.
-        let write_persist = !self.persist_reset && persisted != self.persisted;
+        // Also after "重置界面位置": the imported folder is an explicit choice; the window
+        // placement it reset stays unsaved until the next start.
+        let write_persist = persisted != self.persisted;
         if let Err(e) = settings::save_both(&self.storage, &config, write_persist.then_some(&persisted)) {
             // Nothing changed; the same preview can be tried again.
             self.java_preview = Some((id, candidate));
@@ -106,7 +108,8 @@ impl Workbench {
         self.start_engines();
 
         let engines = candidate.engines_after(copy_credentials);
-        let count = |s: ImportStatus| candidate.items.iter().filter(|i| i.status == s).count();
+        let items = candidate.items_after(copy_credentials);
+        let count = |s: ImportStatus| items.iter().filter(|i| i.status == s).count();
         self.log(
             false,
             format!(
@@ -121,10 +124,16 @@ impl Workbench {
         );
         Ok(Ok(ImportReportView {
             config_file: candidate.config_file.to_string_lossy().into_owned(),
-            items: candidate.items,
+            items,
             engines,
             restart_required: self.config.ui.language.resolve(self.system_locale.as_deref()) != self.active_language,
         }))
+    }
+
+    /// Settings of this product the candidate would change (see [`crate::java_import::Mapped::replaces`]).
+    fn java_import_replaces(&self, candidate: &Candidate) -> Vec<crate::api::ImportTarget> {
+        let has_settings = self.storage.config_file.exists();
+        candidate.mapped.replaces(&self.config, &self.persisted, has_settings)
     }
 
     /// The first-use offer was declined: this product's settings file is written (with the

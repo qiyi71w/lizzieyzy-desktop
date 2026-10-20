@@ -337,16 +337,25 @@ fn pause_stops_keeps_results_and_is_not_remembered() {
 }
 
 #[test]
-fn time_limit_stops_this_position_once_and_navigation_resumes() {
+fn an_analysis_limit_stops_this_position_once_and_navigation_resumes() {
     let dir = tempfile::tempdir().unwrap();
     let world = World::default();
     let (mut wb, id) = started(dir.path(), &world);
+    // A time limit of 0 is Java's 9999 minutes, not "stop at once".
     let mut settings = wb.config().engine.analysis.clone();
     settings.max_analyze_time_seconds = 0;
-    wb.set_analysis_settings(settings).unwrap();
+    wb.set_analysis_settings(settings.clone()).unwrap();
     open(&mut wb, "(;B[pd];W[dd])");
     answer_all(&mut wb, &world, id, KATA);
     out(&mut wb, id, &info("Q16", 5));
+    assert!(
+        !wb.view(false).engine.stopped_by_limit,
+        "a zero time limit does not stop"
+    );
+    settings.limit_playout = true;
+    settings.limit_playouts = 6;
+    wb.set_analysis_settings(settings).unwrap();
+    out(&mut wb, id, &info("Q16", 7));
     let v = wb.view(false);
     assert!(v.engine.stopped_by_limit && !v.engine.paused);
     assert_eq!(v.engine_notice, Some(EngineNotice::StoppedByLimit));

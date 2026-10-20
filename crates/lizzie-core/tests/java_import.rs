@@ -355,7 +355,7 @@ fn a_failed_write_leaves_both_settings_files_and_the_session_unchanged() {
     std::fs::create_dir_all(storage(&product).persist_file.join("blocker")).unwrap();
 
     let p = preview(&mut wb, &java);
-    assert!(wb.apply_java_import(p.id, &[], false).is_err());
+    assert!(wb.apply_java_import(p.id, &[], true).is_err());
     assert_eq!(std::fs::read(storage(&product).config_file).unwrap(), config_before);
     assert_eq!(wb.config().ui.language, Language::System);
     assert!(wb.config().engine.engines.is_empty());
@@ -368,8 +368,156 @@ fn a_failed_write_leaves_both_settings_files_and_the_session_unchanged() {
 
     // Once the obstacle is gone the same preview imports.
     std::fs::remove_dir_all(storage(&product).persist_file).unwrap();
-    wb.apply_java_import(p.id, &[], false).unwrap().unwrap();
+    wb.apply_java_import(p.id, &[], true).unwrap().unwrap();
     assert_eq!(wb.config().ui.language, Language::EnUs);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_settings_file_that_cannot_be_kept_is_not_replaced() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let java = java_dir(tmp.path());
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    wb.set_play_sound(false).unwrap();
+    let config_file = storage(&product).config_file;
+    let before = std::fs::read(&config_file).unwrap();
+    std::fs::set_permissions(&config_file, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::read(&config_file).is_ok() {
+        return; // running with privileges that read anything: nothing to show
+    }
+    std::fs::create_dir_all(storage(&product).persist_file.join("blocker")).unwrap();
+    let p = preview(&mut wb, &java);
+    assert!(wb.apply_java_import(p.id, &[], true).is_err());
+    std::fs::set_permissions(&config_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(
+        std::fs::read(&config_file).unwrap(),
+        before,
+        "the existing settings file is kept"
+    );
+}
+
+#[test]
+fn diagnostics_and_rejected_values_never_show_credentials() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let config = json!({
+        "ui": { "kata-rules": "japanese", "recent-file-paths": [{ "path": "https://bob:RECENT-SECRET@example.invalid/a.sgf" }] },
+        "leelaz": { "engine-settings-list": [{
+            "name": "Missing",
+            "command": "/missing/katago gtp -model https://alice:URL-SECRET@example.invalid/m.bin.gz",
+        }] },
+    });
+    std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    assert!(!p.engines[0].problems.is_empty());
+    let shown = serde_json::to_string(&p).unwrap();
+    assert!(
+        !shown.contains("URL-SECRET") && !shown.contains("RECENT-SECRET"),
+        "{shown}"
+    );
+
+    // A malformed engine list is reported without its content.
+    let broken = json!({ "leelaz": { "engine-settings-list": { "password": "OBJECT-SECRET" } } });
+    std::fs::write(java.join("config.txt"), broken.to_string()).unwrap();
+    let p = preview(&mut wb, &java);
+    let list = item(&p.items, "leelaz.engine-settings-list");
+    assert_eq!(list.status, ImportStatus::Incompatible);
+    assert!(!serde_json::to_string(&p).unwrap().contains("OBJECT-SECRET"));
+}
+
+#[test]
+fn once_this_product_has_settings_every_change_needs_confirmation() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = java_dir(tmp.path());
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    // Chosen explicitly, even though it equals the default.
+    wb.set_play_sound(false).unwrap();
+    wb.set_play_sound(true).unwrap();
+    let p = preview(&mut wb, &java);
+    assert!(p.replaces.contains(&ImportTarget::PlaySound), "{:?}", p.replaces);
+    assert_eq!(
+        wb.apply_java_import(p.id, &[], false).unwrap(),
+        Err(IMPORT_NEEDS_REPLACE)
+    );
+    assert!(wb.config().ui.play_sound);
+}
+
+#[test]
+fn engine_paths_resolve_like_java_launches_them() {
+    // `CommandLaunchHelper`: a bare program name is looked up on PATH, its relative resources
+    // in the Java folder; a Java engine's relative `-jar` file is resolved too.
+    let tmp = tempfile::tempdir().unwrap();
+    let java = java_dir(tmp.path());
+    std::fs::write(java.join("engines/leela.jar"), "x").unwrap();
+    let config = json!({ "leelaz": { "engine-settings-list": [
+        { "name": "OnPath", "command": "katago-on-path gtp -model weights/model.bin.gz" },
+        { "name": "Jar", "command": "java -jar engines/leela.jar gtp" },
+    ] } });
+    std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
+    let c = java_import::read(&JavaSource::new(&java, None)).unwrap();
+    let engines: Vec<_> = c
+        .mapped
+        .engines
+        .unwrap()
+        .into_iter()
+        .map(|m| m.profile.command)
+        .collect();
+    let model = java.join("weights/model.bin.gz").to_string_lossy().into_owned();
+    let jar = java.join("engines/leela.jar").to_string_lossy().into_owned();
+    assert_eq!(
+        split_command(&engines[0]),
+        ["katago-on-path", "gtp", "-model", model.as_str()]
+    );
+    assert_eq!(split_command(&engines[1]), ["java", "-jar", jar.as_str(), "gtp"]);
+}
+
+#[test]
+fn the_imported_last_folder_is_kept_after_resetting_the_interface_position() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = java_dir(tmp.path());
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    wb.reset_ui_position().unwrap();
+    let p = preview(&mut wb, &java);
+    wb.apply_java_import(p.id, &[], true).unwrap().unwrap();
+    let reopened = workbench(&product, Recorder::default());
+    assert_eq!(reopened.persisted().last_folder.as_deref(), Some("/games"));
+}
+
+#[test]
+fn startup_choices_of_left_out_engines_are_reported_as_left_out() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let config = json!({
+        "ui": { "autoload-last": true, "last-engine": 1, "default-engine": 0 },
+        "leelaz": { "engine-settings-list": [
+            { "name": "Proxy", "command": "katago gtp --token TOKEN-SECRET", "isDefault": true },
+            { "name": "Remote", "command": "katago gtp", "useJavaSSH": true },
+        ] },
+    });
+    std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    let last = item(&p.items, "ui.last-engine");
+    assert_eq!(
+        (last.status, last.reason),
+        (ImportStatus::NotMigrated, Some(ImportReason::RemoteEngine))
+    );
+    let report = wb.apply_java_import(p.id, &[], false).unwrap().unwrap();
+    let default = item(&report.items, "ui.default-engine");
+    assert_eq!(
+        (default.status, default.reason),
+        (ImportStatus::NotMigrated, Some(ImportReason::CredentialNotConfirmed))
+    );
+    assert!(wb.config().engine.engines.is_empty() && wb.config().engine.last_engine.is_none());
 }
 
 #[test]

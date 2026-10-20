@@ -181,17 +181,28 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 /// Writes `config` and, if given, `persisted` as one change: when the second write fails, the
-/// first file is put back as it was (or removed if it did not exist).
+/// first file is put back as it was (or removed if it did not exist). An existing settings file
+/// that cannot be read (and so could not be put back) is not replaced at all.
 pub fn save_both(storage: &Storage, config: &Config, persisted: Option<&Persisted>) -> std::io::Result<()> {
-    let previous = std::fs::read(&storage.config_file).ok();
+    let previous = match std::fs::read(&storage.config_file) {
+        Ok(bytes) => Some(bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e),
+    };
     save_json(&storage.config_file, config)?;
     if let Some(p) = persisted {
         if let Err(e) = save_json(&storage.persist_file, p) {
-            let _ = match previous {
+            let restored = match previous {
                 Some(bytes) => write_atomic(&storage.config_file, &bytes),
                 None => std::fs::remove_file(&storage.config_file),
             };
-            return Err(e);
+            return Err(match restored {
+                Ok(()) => e,
+                Err(r) => std::io::Error::new(
+                    e.kind(),
+                    format!("{e}; putting {} back failed: {r}", storage.config_file.display()),
+                ),
+            });
         }
     }
     Ok(())
