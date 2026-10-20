@@ -695,17 +695,20 @@ fn window_placement(window: &tauri::WebviewWindow, previous: Option<WindowPlacem
 /// Window close and application Quit share the same save barrier and window persistence.
 /// Capture placement before the window is destroyed, not in the final RunEvent::Exit.
 fn prepare_exit(app: &AppHandle, shared: &Shared) -> bool {
+    // Force exit destroys the window first. It must not enter a save barrier whose
+    // continuation closes that window, or the application would remain headless.
+    let Some(window) = app.get_webview_window("main") else {
+        return true;
+    };
     let mut wb = shared.workbench.lock().unwrap();
     if wb.has_pending_saves() {
         shared.close_after_saves.store(true, Ordering::SeqCst);
         shared.log.info("exit waits for running saves");
         return false;
     }
-    if let Some(window) = app.get_webview_window("main") {
-        let placement = window_placement(&window, wb.persisted().window);
-        if let Err(e) = wb.persist_on_exit(placement) {
-            shared.log.warn(&e.message);
-        }
+    let placement = window_placement(&window, wb.persisted().window);
+    if let Err(e) = wb.persist_on_exit(placement) {
+        shared.log.warn(&e.message);
     }
     true
 }

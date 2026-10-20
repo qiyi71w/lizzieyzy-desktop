@@ -46,6 +46,8 @@ the matching LizzieYzy Next settings.
   shortcuts remain available to the native application menu, including `⌘Q` to quit.
   On Linux, the saved size is the WebView content area, excluding GTK window decorations,
   so reopening does not enlarge the content area by the title bar or shadow dimensions.
+  File > 强制退出 skips both the pending-save wait and window-placement capture; use normal
+  close or Quit when a save must finish. Both exit paths shut down the owned engines.
 - Settings available now: reading komi from SGF records, stone sounds on/off, and the UI language
   (zh-CN, zh-TW, en, ja, ko, th; applied after a restart, like Java). A setting that cannot be
   saved is reported and left unchanged.
@@ -154,8 +156,16 @@ weights page, and whole-game measured tuning.
 
 Resource acquisition and real engine analysis have been verified on Linux (private X11,
 WebKitGTK), including downloads of the official KataGo v1.18.1 Eigen AVX2 AppImage and model
-resources. The package-only predecessor was verified separately as follows; these results do
-not yet establish native engine analysis or performance for the integrated client.
+resources. Native integration runs have also exercised real CUDA analysis on Windows 11,
+Metal analysis on macOS 27 / Apple Silicon, and CPU analysis on Ubuntu 24.04 GNOME Wayland,
+with native Open/Save, SGF/GIB navigation, saved-record reopening and both window sizes.
+These functional results are not a performance acceptance: measured Windows memory growth
+and some startup/first-analysis timings, and GNOME native-open/first-analysis timings,
+remain over budget. On the tested VMware/Mesa X11 desktop, WebKit can show an incomplete
+window or remain alive after close. A software-rendering diagnostic worked, but default-GPU
+X11 validation is blocked; the application does not force a renderer fallback.
+
+The package-only predecessor was verified separately as follows:
 
 Packages of both identities (below) were built for Windows x64, macOS Apple Silicon and Intel,
 and Linux x64.
@@ -175,8 +185,9 @@ and Linux x64.
   identities have been installed side by side and removed; only the normal-identity deb was
   upgraded in place, on 24.04. The normal-identity AppImage has been run on Ubuntu 24.04.
 
-Not verified yet: macOS 15, Intel Macs, full GNOME desktops, Windows 10, the Windows SmartScreen
-prompt, and fonts and input methods on Windows and macOS.
+Not verified yet: macOS 15, Intel Macs, Ubuntu 26.04 GNOME, Windows 10, the Windows SmartScreen
+prompt, and full input-method coverage on Windows and macOS. macOS performance acceptance
+is still in progress.
 
 ## Layout
 
