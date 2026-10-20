@@ -230,7 +230,7 @@ document.addEventListener("keydown", (e) => {
   } else if (key === "B" && !ctrl && !e.altKey) {
     e.preventDefault();
     navigate({ op: "MainTrunk" });
-  } else if (key !== " " && (editModifiers || JAVA_BOUND.has(key))) {
+  } else if (!e.metaKey && key !== " " && (editModifiers || JAVA_BOUND.has(key))) {
     e.preventDefault();
     flash(product("unavailable"));
   }
