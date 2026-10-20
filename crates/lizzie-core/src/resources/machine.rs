@@ -1,6 +1,7 @@
 //! Java `NvidiaGpuDetector` and `AppleSiliconHardwareProbe`: bounded, non-identifying probes.
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     fs,
     io::{self, Read},
     path::{Path, PathBuf},
@@ -63,6 +64,9 @@ pub struct MachineFacts {
     pub logical_cpus: Option<u32>,
     pub total_memory_bytes: Option<u64>,
     pub cpu_name: Option<String>,
+    pub cpu_avx2_fma: Option<bool>,
+    pub fuse: Option<bool>,
+    pub library_versions: BTreeMap<String, String>,
     pub nvidia_gpus: Vec<NvidiaGpu>,
     pub nvidia_status: NvidiaQueryStatus,
     pub cuda_compatibility: CudaCompatibility,
@@ -107,6 +111,9 @@ pub trait Probe {
     fn read_file(&self, path: &Path) -> io::Result<Vec<u8>>;
     fn list_dir(&self, path: &Path) -> io::Result<Vec<PathBuf>>;
     fn env_var(&self, key: &str) -> Option<String>;
+    fn cpu_avx2_fma(&self) -> Option<bool> {
+        None
+    }
     fn logical_cpus(&self) -> Option<u32> {
         None
     }
@@ -121,6 +128,16 @@ impl StdProbe {
     }
 }
 impl Probe for StdProbe {
+    fn cpu_avx2_fma(&self) -> Option<bool> {
+        #[cfg(target_arch = "x86_64")]
+        {
+            Some(std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma"))
+        }
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            None
+        }
+    }
     fn run(&self, program: &str, args: &[String], timeout: Duration) -> io::Result<ProbeOutput> {
         let path = Path::new(program);
         let program_path = if path.components().count() > 1 {
@@ -414,6 +431,9 @@ pub fn detect_machine(probe: &dyn Probe, os: &str, arch: &str) -> MachineFacts {
         logical_cpus: probe.logical_cpus(),
         ..Default::default()
     };
+    if matches!(arch, "x86_64" | "amd64" | "x64") {
+        facts.cpu_avx2_fma = probe.cpu_avx2_fma();
+    }
     let mut programs = Vec::new();
     if os == "windows" {
         if let Some(root) = probe.env_var("SystemRoot") {
@@ -495,6 +515,7 @@ pub fn detect_machine(probe: &dyn Probe, os: &str, arch: &str) -> MachineFacts {
             build: run_value(probe, "/usr/bin/sw_vers", &["-buildVersion"], 3),
         });
     } else if os == "linux" {
+        facts.fuse = detect_fuse(probe);
         if let Ok(bytes) = probe.read_file(Path::new("/proc/meminfo")) {
             let text = String::from_utf8_lossy(&bytes);
             facts.total_memory_bytes = text
@@ -518,6 +539,7 @@ pub fn detect_machine(probe: &dyn Probe, os: &str, arch: &str) -> MachineFacts {
             if let Ok(output) = probe.run(program, &["-p".into()], Duration::from_secs(3)) {
                 if output.success() {
                     facts.loader_libraries = Some(parse_loader_cache(&output.stdout));
+                    facts.library_versions = detect_library_versions(probe, &output.stdout);
                     break;
                 }
             }
@@ -545,6 +567,84 @@ pub fn detect_machine(probe: &dyn Probe, os: &str, arch: &str) -> MachineFacts {
 }
 pub fn detect_current_machine() -> MachineFacts {
     detect_machine(&StdProbe::default(), std::env::consts::OS, std::env::consts::ARCH)
+}
+
+fn detect_fuse(probe: &dyn Probe) -> Option<bool> {
+    let devices = probe.list_dir(Path::new("/dev")).ok()?;
+    if !devices.iter().any(|p| p.file_name().is_some_and(|n| n == "fuse")) {
+        return Some(false);
+    }
+    let path = probe.env_var("PATH")?;
+    let mut unknown = false;
+    for directory in path.split(':').filter(|d| !d.is_empty()) {
+        match probe.list_dir(Path::new(directory)) {
+            Ok(entries)
+                if entries
+                    .iter()
+                    .any(|p| p.file_name().is_some_and(|n| n == "fusermount" || n == "fusermount3")) =>
+            {
+                return Some(true)
+            }
+            Err(e) if e.kind() != io::ErrorKind::NotFound => unknown = true,
+            _ => {}
+        }
+    }
+    if unknown {
+        None
+    } else {
+        Some(false)
+    }
+}
+
+fn detect_library_versions(probe: &dyn Probe, output: &str) -> BTreeMap<String, String> {
+    let mut versions = BTreeMap::new();
+    let mut directories = BTreeMap::new();
+    for line in output.lines() {
+        let Some((left, resolved)) = line.split_once("=>") else {
+            continue;
+        };
+        let Some(soname) = left.split_whitespace().next() else {
+            continue;
+        };
+        if !["libcublas.so.", "libcublasLt.so.", "libnvrtc.so.", "libcudnn.so."]
+            .iter()
+            .any(|prefix| {
+                soname
+                    .strip_prefix(prefix)
+                    .is_some_and(|major| major.parse::<u32>().is_ok())
+            })
+        {
+            continue;
+        }
+        let Some(directory) = Path::new(resolved.trim()).parent() else {
+            continue;
+        };
+        let entries = directories
+            .entry(directory.to_path_buf())
+            .or_insert_with(|| probe.list_dir(directory).unwrap_or_default());
+        let prefix = format!("{soname}.");
+        for entry in entries.iter() {
+            let Some(name) = entry.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            let Some(suffix) = name.strip_prefix(&prefix) else {
+                continue;
+            };
+            if !suffix.split('.').all(|n| n.parse::<u32>().is_ok()) {
+                continue;
+            }
+            // The soname already contains the major component.
+            let major = soname.rsplit('.').next().expect("soname major");
+            let version = format!("{major}.{suffix}");
+            if versions
+                .get(soname)
+                .is_none_or(|old: &String| super::compare_versions(&version, old).is_gt())
+            {
+                versions.insert(soname.to_owned(), version);
+            }
+        }
+    }
+    versions
 }
 pub fn parse_loader_cache(output: &str) -> Vec<String> {
     let mut libraries: Vec<String> = output

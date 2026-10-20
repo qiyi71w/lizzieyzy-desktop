@@ -1,10 +1,10 @@
 // Java KataGoAutoSetupDialog.createOverviewSection, with the approved separate-delivery inventory.
 import { invoke } from "@tauri-apps/api/core";
-import type { ExperimentalBackend, MissingDependency, RecommendationReason, ResourcesView, RuntimeRequirement } from "../contract/generated";
+import type { Asset, CapabilityStatus, ExperimentalBackend, MissingDependency, RecommendationReason, ResourcesView, RuntimeRequirement } from "../contract/generated";
 import { ask, confirm, message } from "../dialogs";
 import { product, t } from "../i18n";
 import type { SetupCard, SetupContext } from "./card";
-import { downloadPackage, packageTarget, planSetup, resourceCommand, resourceView, setupStatus, setupVerified } from "./dialog";
+import { assetBackends, currentPackage, downloadPackage, packageTarget, planSetup, resourceCommand, resourceView, setupStatus, setupVerified } from "./dialog";
 import { action, actions, node, notice, resourceText, row, section, size } from "./setupText";
 
 export function overviewCard(_ctx: SetupContext): SetupCard {
@@ -57,6 +57,7 @@ export function overviewCard(_ctx: SetupContext): SetupCard {
     const reasonText: Record<RecommendationReason, string> = {
       nvidiaDetected: product("setupReasonNvidia"), nvidiaNotDetected: product("setupReasonNoNvidia"), driverSupported: product("setupReasonDriver"), driverProbeRequired: product("setupReasonProbe"), driverUnknown: product("setupReasonDriverUnknown"), driverTooOld: product("setupReasonOld"),
       openclAvailable: product("setupReasonOpencl"), openclUnavailable: product("setupReasonNoOpencl"), cpuFallback: product("setupReasonCpu"), nativeMetal: product("setupReasonMetal"), rosettaUseArm64: product("setupReasonRosetta"), tensorRtAllowed: product("setupReasonTrt"), tensorRtNotRecommended: product("setupReasonNoTrt"), computeUnknown: product("setupReasonCompute"), experimentalManualOnly: product("setupReasonExperimental"), dependenciesMissing: product("setupReasonMissing"),
+      cpuOptimized: product("setupReasonCpuOptimized"), cpuFeaturesUnknown: product("setupReasonCpuFeaturesUnknown"), fuseUnknown: product("setupReasonFuseUnknown"), libraryVersionUnknown: product("setupReasonLibraryVersionUnknown"),
     };
     const missingText = (d: MissingDependency): string => {
       switch (d.kind) {
@@ -70,14 +71,29 @@ export function overviewCard(_ctx: SetupContext): SetupCard {
         case "directX12": return product("setupDependencyDx");
         case "openVinoDevice": return product("setupDependencyIntel");
         case "rocmFamily": return product("setupDependencyRocm", d.detail);
+        case "cpuFeature": return product("setupDependencyCpu", d.detail);
+        case "appImageFuse": return product("setupDependencyFuse");
       }
     };
     const runtime: Record<RuntimeRequirement, string> = {
-      none: product("none"), "linux-cuda-cudnn": `CUDA 12 / cuDNN 9 · ${product("setupLinuxLibraries")}`, "nvidia-runtime-download": product("setupDependencyNvidia"), "tensorrt-runtime": product("setupDependencyTrt"), "opencl-icd": product("setupDependencyOpencl"), metal: "Metal", directx12: "DirectX 12", openvino: "OpenVINO", "rocm-family": "ROCm",
+      none: product("none"), "linux-cuda-cudnn": "NVIDIA CUDA / cuDNN", "nvidia-runtime-download": product("setupDependencyNvidia"), "tensorrt-runtime": product("setupDependencyTrt"), "opencl-icd": product("setupDependencyOpencl"), metal: "Metal", directx12: "DirectX 12", openvino: "OpenVINO", "rocm-family": "ROCm",
     };
+    const runtimeText = (asset: Asset): string => {
+      const extras = [
+        asset.cuda ? `CUDA ${asset.cuda}` : "", asset.cudnn ? `cuDNN ${asset.cudnn}` : "", asset.tensorrt ? `TensorRT ${asset.tensorrt}` : "",
+        asset.minimumDriver ? product("setupDependencyDriver", asset.minimumDriver) : "", asset.gpuFamily,
+        asset.platform.startsWith("linux-") && asset.externalLibraries.length ? `${product("setupLinuxLibraries")}: ${asset.externalLibraries.join(", ")}` : "",
+        asset.appImage ? product("setupAppImage") : "",
+        asset.cpuFeatures.length ? `${product("setupCpuFeatures")}: ${asset.cpuFeatures.map((f) => f.toUpperCase()).join(", ")}` : "",
+      ].filter(Boolean);
+      return [...(asset.runtimeRequirement === "none" && extras.length ? [] : [runtime[asset.runtimeRequirement]]), ...extras].join(" · ");
+    };
+    const focusText: Record<CapabilityStatus, string> = { unsupported: product("setupFocusUnsupported"), unverified: product("setupFocusUnverified") };
+    const contributionText: Record<CapabilityStatus, string> = { unsupported: product("setupContributionUnsupported"), unverified: product("setupContributionUnverified") };
     const recommended = r.recommendation?.packages.find((p) => p.recommended);
     const recommendation = section(product("setupRecommended"));
-    recommendation.append(node("strong", recommended?.assetId ?? product("setupUnknown")), node("p", recommended?.reasons.map((key) => reasonText[key]).join(" · ") ?? product("setupUnknown")));
+    if (recommended) recommendation.append(node("strong", recommended.assetId), node("p", recommended.reasons.map((key) => reasonText[key]).join(" · ")));
+    else recommendation.append(node("p", r.recommendation?.packages.length ? product("setupNoEligible") : product("setupUnknown")));
     if (recommended?.missingDependencies.length) row(recommendation, product("setupMissing"), recommended.missingDependencies.map(missingText).join(" · "));
     element.append(recommendation);
     const list = section(product("setupPackages"));
@@ -107,24 +123,25 @@ export function overviewCard(_ctx: SetupContext): SetupCard {
       list.append(node("h4", title));
       for (const asset of assets) {
         const item = node("article", "", "setup-package");
-        const installed = r.inventory.packages.find((p) => p.receipt.assetId === asset.id);
+        const installed = currentPackage(r, asset.id);
+        const previous = !installed && r.inventory.packages.some((p) => p.receipt.assetId === asset.id && p.receipt.archiveSha256.toLowerCase() !== asset.sha256.toLowerCase());
         const target = installed && packageTarget(installed);
         const option = r.recommendation?.packages.find((p) => p.assetId === asset.id);
-        item.append(node("strong", `${asset.id}${option?.recommended ? ` · ${t("AutoSetup.recommendedBadge")}` : ""}`), node("span", `${size(asset.sizeBytes)} · ${installed ? product("setupInstalled") : product("setupNotInstalled")}`, "setup-package-state"));
-        row(item, product("setupSource"), `KataGo ${r.engineVersion} · ${r.engineSourceCommit}\n${r.packageUrls[asset.id] ?? r.engineReleaseUrl}`);
+        item.append(node("strong", `${asset.id}${option?.recommended ? ` · ${t("AutoSetup.recommendedBadge")}` : ""}`), node("span", `${size(asset.sizeBytes)} · ${installed ? product("setupInstalled") : previous ? product("setupInstalledPrevious") : product("setupNotInstalled")}`, "setup-package-state"));
+        const origin = asset.origin === "official-release" ? product("setupOriginOfficial") : product("setupOriginProject", asset.sourceTag);
+        row(item, product("setupSource"), `${origin} · KataGo ${asset.version} · ${asset.sourceTag} ${asset.sourceCommit.slice(0, 12)}\n${r.packageUrls[asset.id] ?? ""}`);
         row(item, product("setupLicense"), `${asset.licenseSummary} · ${asset.licenseTexts.join(", ")}`);
-        row(item, product("setupRuntime"), `${runtime[asset.runtimeRequirement]}${asset.gpuFamily ? ` · ${asset.gpuFamily}` : ""}`);
-        item.append(node("p", product("setupAnalysis"), "setup-hint"));
+        row(item, product("setupRuntime"), runtimeText(asset));
+        item.append(node("p", product("setupCapabilities", focusText[asset.focus], contributionText[asset.contribution]), "setup-hint"));
         if (option) {
           item.append(node("p", option.reasons.map((key) => reasonText[key]).join(" · "), "setup-hint"));
           if (option.missingDependencies.length) row(item, product("setupMissing"), option.missingDependencies.map(missingText).join(" · "));
         }
-        const backends: Record<string, ExperimentalBackend> = { "windows-directml": "direct-ml", "windows-openvino": "open-vino-gpu", "windows-rocm-gfx103x": "rocm-gfx103x", "windows-rocm-gfx110x": "rocm-gfx110x", "windows-rocm-gfx1151": "rocm-gfx1151", "windows-rocm-gfx120x": "rocm-gfx120x" };
-        const backend = backends[asset.id] ?? null;
+        const backend = assetBackends(asset)[0] ?? null;
         actions(item,
           action(`setup.package.${asset.id}.download`, t("AutoSetup.downloadShort"), () => downloadPackage(asset, backend)),
-          action(`setup.package.${asset.id}.verify`, product("setupVerify"), () => target ? resourceCommand({ type: "Verify", target, weight: r.currentSetup.weight ?? r.chosenWeight ?? r.inventory.weights[0]?.path ?? null }) : undefined, !!target && !!installed?.usable),
-          action(`setup.package.${asset.id}.use`, product("setupUse"), () => target ? planSetup(target) : undefined, !!target && !!installed?.usable && setupVerified(target) && (!!r.currentSetup.weight || !!r.chosenWeight || r.inventory.weights.length > 0)));
+          action(`setup.package.${asset.id}.verify`, product("setupVerify"), () => target ? resourceCommand({ type: "Verify", target, weight: r.currentSetup.weight ?? r.chosenWeight ?? r.inventory.weights[0]?.path ?? null }) : undefined, !!target),
+          action(`setup.package.${asset.id}.use`, product("setupUse"), () => target ? planSetup(target) : undefined, !!target && setupVerified(target) && (!!r.currentSetup.weight || !!r.chosenWeight || r.inventory.weights.length > 0)));
         list.append(item);
       }
     }

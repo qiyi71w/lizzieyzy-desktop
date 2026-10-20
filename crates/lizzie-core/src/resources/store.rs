@@ -77,6 +77,13 @@ pub struct InstalledPackage {
     pub receipt: ResourceReceipt,
     pub usable: bool,
 }
+impl InstalledPackage {
+    pub fn is_current(&self, asset: &Asset) -> bool {
+        self.usable
+            && self.receipt.asset_id == asset.id
+            && self.receipt.archive_sha256.eq_ignore_ascii_case(&asset.sha256)
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WeightReceipt {
@@ -137,13 +144,18 @@ impl ResourceStore {
     }
     pub fn package_dir(&self, asset: &Asset, backend: Option<ExperimentalBackend>) -> ResourceResult<PathBuf> {
         safe_id(&asset.id)?;
+        super::validate_sha256(&asset.sha256)?;
+        let digest = asset.sha256[..12].to_ascii_lowercase();
         if let Some(backend) = backend {
             if backend.asset_id() != asset.id {
                 return Err(invalid("Experimental backend does not match package"));
             }
-            Ok(self.root.join("engines").join(backend.install_dir()))
+            Ok(self
+                .root
+                .join("engines")
+                .join(format!("{}-{digest}", backend.install_dir())))
         } else {
-            Ok(self.root.join("engines").join(&asset.id))
+            Ok(self.root.join("engines").join(format!("{}-{digest}", asset.id)))
         }
     }
     /// The catalog identity and both archive checks are validated before extraction or replacement.
@@ -159,11 +171,10 @@ impl ResourceStore {
         let asset = catalog.asset(asset_id)?;
         check_cancel(cancel)?;
         verify_file(archive, Some(asset.size_bytes), Some(&asset.sha256))?;
-        self.install_verified_package(catalog, asset, archive, source, backend, cancel)
+        self.install_verified_package(asset, archive, source, backend, cancel)
     }
     fn install_verified_package(
         &self,
-        catalog: &Catalog,
         asset: &Asset,
         archive: &Path,
         source: ResourceSource,
@@ -174,22 +185,23 @@ impl ResourceStore {
         let target = self.package_dir(asset, backend)?;
         let stage = Staging::new(&target)?;
         extract_package(archive, &stage.0, cancel)?;
-        let executable = find_named(
-            &stage.0,
-            if asset.platform.starts_with("windows") {
-                "katago.exe"
+        for required in &asset.required_files {
+            let path = stage.0.join(required);
+            let present = if required.ends_with('/') {
+                path.is_dir()
             } else {
-                "katago"
-            },
-        )?
-        .ok_or_else(|| invalid("Package contains no KataGo executable"))?;
-        let executable_digest = sha256_file(&executable)?;
-        if !asset.executable_sha256.is_empty() && !asset.executable_sha256.eq_ignore_ascii_case(&executable_digest) {
-            return Err(ResourceError::Integrity {
-                expected: asset.executable_sha256.clone(),
-                actual: executable_digest,
-            });
+                path.is_file()
+            };
+            if !present {
+                return Err(invalid(format!("Package lacks {required}")));
+            }
         }
+        let executable = stage.0.join(&asset.executable);
+        let executable_digest = verify_file(
+            &executable,
+            Some(asset.executable_size_bytes),
+            Some(&asset.executable_sha256),
+        )?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -203,7 +215,7 @@ impl ResourceStore {
             .into_owned();
         let receipt = ResourceReceipt {
             asset_id: asset.id.clone(),
-            version: catalog.katago_version.clone(),
+            version: asset.version.clone(),
             archive_sha256: asset.sha256.clone(),
             executable_sha256: executable_digest,
             executable: relative.clone(),
@@ -221,7 +233,10 @@ impl ResourceStore {
             ("analysis_example.cfg", self.analysis_config()),
         ] {
             if !destination.exists() {
-                let source = find_named(&stage.0, file)?.ok_or_else(|| invalid(format!("Package lacks {file}")))?;
+                let source = stage.0.join(file);
+                if !source.is_file() {
+                    return Err(invalid(format!("Package lacks {file}")));
+                }
                 let staged = config_stage.0.join(destination.file_name().expect("config name"));
                 copy_file(&source, &staged, cancel)?;
                 pending_configs.push((staged, destination));
@@ -292,7 +307,7 @@ impl ResourceStore {
             .into_iter()
             .find(|a| a.sha256.eq_ignore_ascii_case(&digest))
             .ok_or(ResourceError::ImportMismatch)?;
-        self.install_verified_package(catalog, asset, archive, ResourceSource::Import, backend, cancel)
+        self.install_verified_package(asset, archive, ResourceSource::Import, backend, cancel)
     }
     /// Config files are user-owned after creation. Repair is create-if-missing only.
     pub fn repair_analysis_config(&self) -> ResourceResult<PathBuf> {

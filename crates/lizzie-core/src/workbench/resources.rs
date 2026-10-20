@@ -28,6 +28,8 @@ struct Active {
     cancel: Arc<AtomicBool>,
     view: ResourceTaskView,
     success_key: &'static str,
+    /// Size/SHA-256 mismatch message: weights keep Java's weight key, engine packages say package.
+    integrity_key: &'static str,
 }
 struct Plan {
     id: u64,
@@ -56,12 +58,6 @@ impl ResourceFlow {
         let view = ResourcesView {
             packages: catalog.assets.values().cloned().collect(),
             models: catalog.models.values().cloned().collect(),
-            engine_release_url: format!(
-                "https://github.com/{}/releases/tag/{}",
-                catalog.engine_release_repository, catalog.engine_release_tag
-            ),
-            engine_version: catalog.katago_version.clone(),
-            engine_source_commit: catalog.katago_source_commit.clone(),
             package_urls: catalog
                 .assets
                 .values()
@@ -78,7 +74,7 @@ impl ResourceFlow {
         };
         let mut view = view;
         let store = r::ResourceStore::new(&storage.resources_dir);
-        view.acceleration = acceleration(&store, None).unwrap_or_default();
+        view.acceleration = acceleration(&store, &catalog, None).unwrap_or_default();
         Self {
             revision: 1,
             sent: None,
@@ -249,6 +245,17 @@ impl Workbench {
             } => "AutoSetup.experimentalBackendDone",
             _ => "AutoSetup.downloadDone",
         };
+        let integrity_key = match &operation {
+            ResourceCommand::Download {
+                item: ResourceItem::Model { .. } | ResourceItem::OnlineWeight { .. },
+            }
+            | ResourceCommand::ImportWeight { .. } => "AutoSetup.weightChecksumFailed",
+            ResourceCommand::Download {
+                item: ResourceItem::Package { backend: Some(_), .. },
+            }
+            | ResourceCommand::ImportPackage { backend: Some(_), .. } => "AutoSetup.experimentalBackendChecksumFailed",
+            _ => "AutoSetup.packageChecksumFailed",
+        };
         self.resources.view.detecting = matches!(operation, ResourceCommand::Inspect { .. });
         if matches!(operation, ResourceCommand::RefreshRemoteWeights) {
             self.resources.view.remote_status = "refreshing".into();
@@ -258,6 +265,7 @@ impl Workbench {
             id,
             cancel: cancel.clone(),
             success_key,
+            integrity_key,
             view: ResourceTaskView {
                 id,
                 kind: kind.into(),
@@ -385,7 +393,7 @@ impl Workbench {
                 let key = match &e {
                     _ if task.view.kind == "refresh" => "AutoSetup.remoteRefreshFailedCached",
                     r::ResourceError::ImportMismatch => "AutoSetup.importPackageMismatch",
-                    r::ResourceError::Integrity { .. } => "AutoSetup.weightChecksumFailed",
+                    r::ResourceError::Integrity { .. } => task.integrity_key,
                     _ => "AutoSetup.failed",
                 };
                 if task.view.kind == "refresh" {
@@ -981,7 +989,7 @@ pub fn run_resource_job(
         }
     }
     out.inventory = job.store.inventory()?;
-    out.acceleration = acceleration(&job.store, out.machine.as_ref().or(job.machine.as_ref()))?;
+    out.acceleration = acceleration(&job.store, &job.catalog, out.machine.as_ref().or(job.machine.as_ref()))?;
     out.runtime_present = job.store.runtime_dir().is_dir();
     Ok(out)
 }
@@ -1041,6 +1049,7 @@ fn verify_target(
 }
 fn acceleration(
     store: &r::ResourceStore,
+    catalog: &r::Catalog,
     machine: Option<&r::MachineFacts>,
 ) -> r::ResourceResult<Vec<ResourceAccelerationView>> {
     let windows = machine.map_or(cfg!(windows), |m| m.os == "windows");
@@ -1084,13 +1093,23 @@ fn acceleration(
     }
     if let Some(facts) = machine.filter(|m| m.os == "linux") {
         if let Some(cuda) = rows.iter_mut().find(|r| r.backend == "cuda") {
-            cuda.missing = match &facts.loader_libraries {
-                Some(found) => r::LINUX_CUDA_LIBRARIES
+            let recommendation = r::recommend(facts, catalog);
+            let asset = recommendation
+                .packages
+                .iter()
+                .find(|p| p.recommended)
+                .and_then(|p| catalog.assets.get(&p.asset_id))
+                .filter(|a| a.backend == "cuda")
+                .or_else(|| catalog.assets_for_platform("linux-x64").find(|a| a.backend == "cuda"));
+            cuda.missing = match (&facts.loader_libraries, asset) {
+                (Some(found), Some(asset)) => asset
+                    .external_libraries
                     .iter()
-                    .filter(|lib| !found.iter().any(|f| f == **lib))
-                    .map(|s| s.to_string())
+                    .filter(|lib| !found.contains(lib))
+                    .cloned()
                     .collect(),
-                None => vec!["loader-cache-unknown".into()],
+                (None, _) => vec!["loader-cache-unknown".into()],
+                _ => Vec::new(),
             };
         }
     }

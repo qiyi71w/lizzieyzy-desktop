@@ -1,4 +1,4 @@
-//! Java `KataGoAssetCatalog` (schema v2, validation and URL builders).
+//! Trusted per-asset KataGo release catalog (schema v3).
 use super::{invalid, matches_pattern, ResourceResult};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -27,6 +27,19 @@ pub enum RuntimeRequirement {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "kebab-case")]
+pub enum AssetOrigin {
+    OfficialRelease,
+    ProjectBuild,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "kebab-case")]
+pub enum CapabilityStatus {
+    Unsupported,
+    Unverified,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct Asset {
     #[serde(default)]
@@ -36,23 +49,34 @@ pub struct Asset {
     pub asset_name: String,
     pub size_bytes: u64,
     pub sha256: String,
-    #[serde(default)]
+    pub executable: String,
     pub executable_sha256: String,
+    pub executable_size_bytes: u64,
+    pub origin: AssetOrigin,
+    pub release_repository: String,
+    pub release_tag: String,
+    pub version: String,
+    pub source_tag: String,
+    pub source_commit: String,
+    pub release_tier: SupportTier,
+    pub required_files: Vec<String>,
+    pub external_libraries: Vec<String>,
     #[serde(default)]
-    pub runtime_profile: String,
+    pub cpu_features: Vec<String>,
     #[serde(default)]
     pub gpu_family: String,
-    pub release_tier: SupportTier,
-    #[serde(default = "dynamic")]
-    pub zlib_linkage: String,
+    pub cuda: Option<String>,
+    pub cudnn: Option<String>,
+    pub tensorrt: Option<String>,
+    pub minimum_driver: Option<String>,
+    #[serde(default)]
+    pub app_image: bool,
     pub license_summary: String,
     pub license_texts: Vec<String>,
     pub runtime_requirement: RuntimeRequirement,
     pub analysis: bool,
-    pub contribution: bool,
-}
-fn dynamic() -> String {
-    "dynamic".into()
+    pub focus: CapabilityStatus,
+    pub contribution: CapabilityStatus,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
@@ -92,14 +116,6 @@ impl Model {
 #[serde(rename_all = "camelCase")]
 pub struct Catalog {
     pub schema_version: u32,
-    pub katago_version: String,
-    pub katago_release_tag: String,
-    pub katago_source_commit: String,
-    pub origin: String,
-    #[serde(default)]
-    pub engine_release_repository: String,
-    #[serde(default)]
-    pub engine_release_tag: String,
     pub model_release_tag: String,
     pub default_model_id: String,
     pub models: BTreeMap<String, Model>,
@@ -121,21 +137,11 @@ impl Catalog {
         Ok(catalog)
     }
     pub fn validate(&self) -> ResourceResult<()> {
-        if self.schema_version != 2
-            || self.katago_version.is_empty()
-            || self.katago_release_tag.is_empty()
+        if self.schema_version != 3
             || self.model_release_tag.is_empty()
             || !self.models.contains_key(&self.default_model_id)
         {
             return Err(invalid("Invalid catalog identity or default model"));
-        }
-        match self.origin.as_str() {
-            "project-source-build"
-                if self.engine_release_repository == "wimi321/lizzieyzy-next"
-                    && matches_pattern("^[0-9a-f]{40}$", &self.katago_source_commit)
-                    && matches_pattern(r"^next-\d{4}-\d{2}-\d{2}\.[1-9][0-9]*$", &self.engine_release_tag) => {}
-            "official-release" if self.engine_release_repository.is_empty() && self.engine_release_tag.is_empty() => {}
-            _ => return Err(invalid("Invalid trusted release identity")),
         }
         for (id, asset) in &self.assets {
             if !matches_pattern(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.zip$", &asset.asset_name)
@@ -143,45 +149,63 @@ impl Catalog {
             {
                 return Err(invalid("Unsafe KataGo asset name"));
             }
-            if self.origin == "project-source-build"
-                && asset.asset_name != format!("katago-source-{}-{id}.zip", &self.katago_source_commit[..12])
-            {
-                return Err(invalid("Source asset does not identify its commit and target"));
-            }
             validate_sha256(&asset.sha256)?;
-            if !asset.executable_sha256.is_empty() {
-                validate_sha256(&asset.executable_sha256)?;
-            }
-            let static_zlib =
-                self.origin == "project-source-build" && matches!(id.as_str(), "windows-nvidia" | "windows-tensorrt");
-            if !matches!(asset.zlib_linkage.as_str(), "static" | "dynamic")
-                || (asset.zlib_linkage == "static") != static_zlib
+            validate_sha256(&asset.executable_sha256)?;
+            if asset.version.is_empty()
+                || asset.source_tag.strip_prefix('v') != Some(asset.version.as_str())
+                || !matches_pattern("^[0-9a-f]{40}$", &asset.source_commit)
             {
-                return Err(invalid("Invalid KataGo zlib linkage"));
+                return Err(invalid("Invalid KataGo source identity"));
+            }
+            let prefix = format!("katago-{}-", asset.source_tag);
+            let trusted = match asset.origin {
+                AssetOrigin::OfficialRelease => {
+                    asset.release_repository == "lightvector/KataGo"
+                        && asset.release_tag == asset.source_tag
+                        && !asset.asset_name.contains("+bs50")
+                }
+                AssetOrigin::ProjectBuild => {
+                    asset.release_repository == "qiyi71w/lizzieyzy-desktop" && asset.release_tag.starts_with(&prefix)
+                }
+            };
+            if !trusted || !asset.asset_name.starts_with(&prefix) {
+                return Err(invalid("Invalid trusted release identity"));
             }
             if !matches!(
                 asset.platform.as_str(),
                 "windows-x64" | "linux-x64" | "macos-arm64" | "macos-amd64"
             ) || asset.size_bytes == 0
+                || asset.executable_size_bytes == 0
             {
                 return Err(invalid("Invalid asset platform or size"));
             }
-            validate_notes(
-                &asset.license_summary,
-                &asset.license_texts,
-                asset.analysis,
-                asset.contribution,
-            )?;
+            let executable = if asset.platform == "windows-x64" {
+                "katago.exe"
+            } else {
+                "katago"
+            };
+            if asset.executable != executable
+                || !asset.required_files.iter().any(|p| p == executable)
+                || asset.required_files.iter().any(|p| !safe_relative_path(p))
+                || asset.license_summary.is_empty()
+                || asset.license_texts.is_empty()
+                || asset
+                    .license_texts
+                    .iter()
+                    .any(|p| !p.starts_with("https://") && !safe_relative_path(p))
+                || !asset.analysis
+                || matches!(asset.backend.as_str(), "directml" | "openvino")
+                    && asset.contribution != CapabilityStatus::Unsupported
+            {
+                return Err(invalid("Invalid package layout, license or capabilities"));
+            }
         }
-        if self
-            .assets
-            .get("windows-nvidia")
-            .is_none_or(|a| a.executable_sha256.is_empty())
-            || !self.assets.contains_key("windows-tensorrt")
-        {
-            return Err(invalid(
-                "Catalog requires Windows NVIDIA and TensorRT assets and NVIDIA executable digest",
-            ));
+        if self.assets.get("windows-nvidia").is_none_or(|a| {
+            a.cuda.as_deref() != Some(super::CUDA_VERSION) || a.cudnn.as_deref() != Some(super::CUDNN_VERSION)
+        }) || self.assets.get("windows-tensorrt").is_none_or(|a| {
+            a.cuda.as_deref() != Some(super::CUDA_VERSION) || a.tensorrt.as_deref() != Some(super::TENSORRT_VERSION)
+        }) {
+            return Err(invalid("Catalog NVIDIA versions disagree with runtime pins"));
         }
         for model in self.models.values() {
             if !matches_pattern(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.(bin|txt)\.gz$", &model.file_name)
@@ -221,17 +245,9 @@ impl Catalog {
         if self.assets.get(&asset.id) != Some(asset) {
             return Err(invalid("Asset is not from trusted catalog"));
         }
-        let (repo, tag) = if self.origin == "project-source-build" {
-            (
-                self.engine_release_repository.as_str(),
-                self.engine_release_tag.as_str(),
-            )
-        } else {
-            ("lightvector/KataGo", self.katago_release_tag.as_str())
-        };
         Ok(format!(
-            "https://github.com/{repo}/releases/download/{tag}/{}",
-            asset.asset_name
+            "https://github.com/{}/releases/download/{}/{}",
+            asset.release_repository, asset.release_tag, asset.asset_name
         ))
     }
     pub fn model_url(&self, model: &Model) -> String {
@@ -245,6 +261,15 @@ impl Catalog {
         }
     }
 }
+fn safe_relative_path(path: &str) -> bool {
+    let path = path.strip_suffix('/').unwrap_or(path);
+    !path.is_empty()
+        && !path.contains(['\\', ':', '\0'])
+        && path
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..")
+}
+
 fn validate_notes(summary: &str, texts: &[String], analysis: bool, contribution: bool) -> ResourceResult<()> {
     if summary.is_empty() || texts.is_empty() || !analysis || contribution {
         return Err(invalid("Invalid resource license/capabilities"));

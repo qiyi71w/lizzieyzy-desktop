@@ -255,6 +255,9 @@ impl r::Probe for CancelProbe {
     fn logical_cpus(&self) -> Option<u32> {
         r::Probe::logical_cpus(&self.base)
     }
+    fn cpu_avx2_fma(&self) -> Option<bool> {
+        r::Probe::cpu_avx2_fma(&self.base)
+    }
 }
 async fn choose(app: &AppHandle, kind: &str, start: Option<PathBuf>) -> Result<Option<String>, ApiError> {
     let dialog = app.dialog().clone();
@@ -490,7 +493,7 @@ pub async fn dispatch(app: AppHandle, shared: State, mut op: ResourceCommand) ->
                     .inventory
                     .packages
                     .iter()
-                    .find(|p| p.receipt.asset_id == asset && p.usable)
+                    .find(|p| v.packages.iter().any(|a| a.id == asset && p.is_current(a)))
                 else {
                     return Ok(response(refused("AutoSetup.tensorRtEngineMissing")));
                 };

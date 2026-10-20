@@ -2,6 +2,9 @@
 use super::{invalid, validate_sha256, DownloadSpec, ResourceResult};
 use serde::{Deserialize, Serialize};
 
+pub const CUDA_VERSION: &str = "12.8";
+pub const CUDNN_VERSION: &str = "9.8.0";
+pub const TENSORRT_VERSION: &str = "10.9.0";
 pub const CUDA_MANIFEST_URL: &str = "https://developer.download.nvidia.com/compute/cuda/redist/redistrib_12.8.0.json";
 pub const CUDNN_MANIFEST_URL: &str = "https://developer.download.nvidia.com/compute/cudnn/redist/redistrib_9.8.0.json";
 pub const NVRTC_VERSION: &str = "12.8.61";

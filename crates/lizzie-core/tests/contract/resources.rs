@@ -2,17 +2,17 @@
 
 use lizzie_core::api::*;
 use lizzie_core::resources::{
-    AppleFacts, Asset, Catalog, ComputeCapability, CudaCompatibility, CudaProbeResult, EngineValidation,
-    ExperimentalBackend, InstalledPackage, InstalledWeight, MachineFacts, ManagedProfile, MissingDependency, Model,
-    ModelCard, NvidiaGpu, NvidiaQueryStatus, PackageOption, Recommendation, RecommendationReason, RemoteWeight,
-    ResourceInventory, ResourceReceipt, ResourceSource, RuntimePackage, RuntimeRequirement, SupportTier,
-    ValidationStatus, WeightCompatibility,
+    AppleFacts, Asset, AssetOrigin, CapabilityStatus, Catalog, ComputeCapability, CudaCompatibility, CudaProbeResult,
+    EngineValidation, ExperimentalBackend, InstalledPackage, InstalledWeight, MachineFacts, ManagedProfile,
+    MissingDependency, Model, ModelCard, NvidiaGpu, NvidiaQueryStatus, PackageOption, Recommendation,
+    RecommendationReason, RemoteWeight, ResourceInventory, ResourceReceipt, ResourceSource, RuntimePackage,
+    RuntimeRequirement, SupportTier, ValidationStatus, WeightCompatibility,
 };
 use lizzie_core::settings::{NetworkSettings, ProxyMode};
 use ts_rs::Config;
 
 pub fn decls(cfg: &Config) -> Vec<String> {
-    crate::decls![cfg; ManagedProfile, SupportTier, RuntimeRequirement, Asset, Model, Catalog,
+    crate::decls![cfg; ManagedProfile, SupportTier, RuntimeRequirement, AssetOrigin, CapabilityStatus, Asset, Model, Catalog,
         CudaCompatibility, NvidiaQueryStatus, ComputeCapability, NvidiaGpu, AppleFacts, MachineFacts,
         RecommendationReason, MissingDependency, PackageOption, ModelCard, Recommendation,
         RuntimePackage, ExperimentalBackend, ResourceSource, ResourceReceipt, InstalledPackage,

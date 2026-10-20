@@ -304,12 +304,6 @@ pub struct ResourcesView {
     pub packages: Vec<Asset>,
     /// Pinned model descriptions, licenses, source and capabilities.
     pub models: Vec<Model>,
-    /// Trusted source repository and release page for these packages.
-    pub engine_release_url: String,
-    /// KataGo version pinned by the catalog.
-    pub engine_version: String,
-    /// Full upstream commit used to build the packages.
-    pub engine_source_commit: String,
     /// Catalog asset identity to trusted download URL.
     pub package_urls: std::collections::BTreeMap<String, String>,
     /// Catalog model identity to trusted download URL.

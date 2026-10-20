@@ -48,6 +48,8 @@ pub fn classify_version(result: std::io::Result<ProbeOutput>, active: bool) -> E
     let normalized = detail.to_lowercase();
     let status = if timed_out {
         ValidationStatus::TimedOut
+    } else if normalized.contains("fuse") || normalized.contains("cannot mount appimage") {
+        ValidationStatus::MissingDependency
     } else if success {
         ValidationStatus::Valid
     } else if ["error=193", "bad cpu type", "exec format", "not a valid win32"]

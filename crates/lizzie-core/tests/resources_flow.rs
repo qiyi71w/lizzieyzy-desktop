@@ -108,6 +108,7 @@ fn package_job(wb: &mut Workbench, bytes: &[u8]) -> ResourceJob {
     a.size_bytes = bytes.len() as u64;
     a.sha256 = digest(bytes);
     a.executable_sha256 = digest(b"fixture executable");
+    a.executable_size_bytes = b"fixture executable".len() as u64;
     job
 }
 fn run(wb: &mut Workbench, job: &ResourceJob, fetch: &dyn r::Fetch) {
@@ -141,7 +142,8 @@ fn integrity_failure_installs_nothing_and_stale_result_is_dropped() {
     assert!(wb.resource_snapshot().inventory.packages.is_empty());
     assert_eq!(
         wb.resource_snapshot().last_outcome.unwrap().message_key,
-        "AutoSetup.weightChecksumFailed"
+        "AutoSetup.packageChecksumFailed",
+        "an engine package integrity failure must not be reported as a weight failure"
     );
     assert!(!wb.complete_resource_task(job.id, Ok(Default::default())));
     assert!(!wb.resource_progress(job.id, "late", 42, None));

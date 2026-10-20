@@ -51,19 +51,20 @@ fn recommended(recommendation: &Recommendation) -> Option<&str> {
 }
 
 #[test]
-fn embedded_catalog_preserves_java_identity_and_product_notes() {
+fn embedded_catalog_has_per_asset_sources_and_capabilities() {
     let c = catalog();
     c.validate().unwrap();
-    assert_eq!(c.schema_version, 2);
-    assert_eq!(c.katago_version, "1.18.2");
-    assert_eq!(c.katago_source_commit, "47aadc08518b3e121f22539796c911002f699584");
-    assert_eq!(c.engine_release_tag, "next-2026-10-17.1");
+    assert_eq!(c.schema_version, 3);
     assert_eq!(c.models.len(), 3);
-    assert_eq!(c.assets.len(), 15);
+    assert_eq!(c.assets.len(), 19);
     assert_eq!(c.default_model_id, "b11-flagship");
     for asset in c.assets.values() {
         assert!(asset.analysis);
-        assert!(!asset.contribution);
+        assert!(matches!(
+            asset.contribution,
+            CapabilityStatus::Unsupported | CapabilityStatus::Unverified
+        ));
+        assert_eq!(asset.focus, CapabilityStatus::Unsupported);
         assert!(!asset.license_texts.is_empty());
         assert!(c.asset_url(asset).unwrap().ends_with(&asset.asset_name));
         assert_eq!(asset.executable_sha256.len(), 64);
@@ -74,7 +75,7 @@ fn embedded_catalog_preserves_java_identity_and_product_notes() {
     assert!(c
         .model_url(c.model("b10-balanced").unwrap())
         .contains("lightvector/KataGo/releases/download/v1.17.1/"));
-    assert_eq!(c.assets_for_platform("windows-x64").count(), 10);
+    assert_eq!(c.assets_for_platform("windows-x64").count(), 11);
 }
 #[test]
 fn catalog_rejects_untrusted_names_digests_urls_and_source_identity() {
@@ -88,13 +89,14 @@ fn catalog_rejects_untrusted_names_digests_urls_and_source_identity() {
             "/models/b11-flagship/downloadUrl",
             "https://evil.example/network.bin.gz",
         ),
-        ("/engineReleaseRepository", "attacker/engines"),
-        ("/katagoSourceCommit", "bad"),
-        ("/engineReleaseTag", "latest"),
-        (
-            "/assets/linux-cpu/assetName",
-            "katago-source-000000000000-linux-cpu.zip",
-        ),
+        ("/assets/linux-cpu/releaseRepository", "attacker/engines"),
+        ("/assets/linux-cpu/sourceCommit", "bad"),
+        ("/assets/linux-cpu/releaseTag", "latest"),
+        ("/assets/linux-cpu/assetName", "katago-v1.18.1-eigen+bs50-linux-x64.zip"),
+        ("/assets/linux-cpu/requiredFiles/0", "other"),
+        ("/assets/windows-directml/contribution", "unverified"),
+        ("/assets/windows-nvidia/cuda", "13.2"),
+        ("/assets/windows-tensorrt/tensorrt", "10.8.0"),
     ] {
         let mut json = original.clone();
         *json.pointer_mut(pointer).unwrap() = value.into();
@@ -156,11 +158,13 @@ fn fallback_linux_dependencies_and_unknown_vram_are_explicit() {
     assert_eq!(f.best_gpu().unwrap().memory_mib, None);
     f.loader_libraries = Some(vec![
         "libcuda.so.1".into(),
-        "libcudart.so.12".into(),
         "libcublas.so.12".into(),
+        "libcublasLt.so.12".into(),
+        "libssl.so.3".into(),
+        "libcrypto.so.3".into(),
     ]);
     let r = recommend(&f, &c);
-    let cuda = r.packages.iter().find(|p| p.asset_id == "linux-nvidia").unwrap();
+    let cuda = r.packages.iter().find(|p| p.asset_id == "linux-nvidia-cu128").unwrap();
     assert!(!cuda.eligible);
     assert!(!cuda.recommended);
     assert!(cuda
@@ -168,7 +172,8 @@ fn fallback_linux_dependencies_and_unknown_vram_are_explicit() {
         .contains(&MissingDependency::LinuxLibrary("libcudnn.so.9".into())));
     assert_eq!(recommended(&r), Some("linux-cpu"));
     f.loader_libraries.as_mut().unwrap().push("libcudnn.so.9".into());
-    assert_eq!(recommended(&recommend(&f, &c)), Some("linux-nvidia"));
+    f.loader_libraries.as_mut().unwrap().push("libnvrtc.so.12".into());
+    assert_eq!(recommended(&recommend(&f, &c)), Some("linux-nvidia-cu128"));
 }
 #[test]
 fn mac_arch_rosetta_and_model_default() {
@@ -235,6 +240,9 @@ struct FixtureProbe {
     calls: RefCell<Vec<(String, Vec<String>, Duration)>>,
 }
 impl Probe for FixtureProbe {
+    fn cpu_avx2_fma(&self) -> Option<bool> {
+        Some(true)
+    }
     fn run(&self, program: &str, args: &[String], timeout: Duration) -> io::Result<ProbeOutput> {
         self.calls.borrow_mut().push((program.into(), args.to_vec(), timeout));
         self.outputs
@@ -448,13 +456,12 @@ fn archive(path: &Path, entries: &[(&str, &[u8])]) {
 fn fixture_package(dir: &Path, bytes: &[u8], extra: Option<(&str, &[u8])>) -> (Catalog, PathBuf) {
     let path = dir.join("engine.zip");
     let mut entries: Vec<(&str, &[u8])> = vec![
-        ("pkg/katago", bytes),
-        ("pkg/default_gtp.cfg", b"numSearchThreads = 8\n"),
+        ("katago", bytes),
+        ("default_gtp.cfg", b"numSearchThreads = 8\n"),
         (
-            "pkg/analysis_example.cfg",
+            "analysis_example.cfg",
             b"numAnalysisThreads = 2\nnumSearchThreadsPerAnalysisThread = 16\n",
         ),
-        ("pkg/licenses/LICENSE", b"license"),
     ];
     if let Some(extra) = extra {
         entries.push(extra);
@@ -465,6 +472,7 @@ fn fixture_package(dir: &Path, bytes: &[u8], extra: Option<(&str, &[u8])>) -> (C
     asset.sha256 = sha256_file(&path).unwrap();
     asset.size_bytes = fs::metadata(&path).unwrap().len();
     asset.executable_sha256 = digest(bytes);
+    asset.executable_size_bytes = bytes.len() as u64;
     (c, path)
 }
 #[test]
@@ -478,7 +486,9 @@ fn package_install_receipt_inventory_configs_and_repair() {
     assert_eq!(fs::read(&installed.executable).unwrap(), b"engine one");
     assert_eq!(installed.receipt.archive_sha256, c.assets["linux-cpu"].sha256);
     assert!(installed.directory.join("resource.json").is_file());
-    assert!(installed.directory.join("pkg/licenses/LICENSE").is_file());
+    assert!(!installed.directory.join("licenses").exists());
+    assert!(!installed.directory.join("source-package.json").exists());
+    assert!(installed.is_current(&c.assets["linux-cpu"]));
     fs::write(store.gtp_config(), "user edits\n").unwrap();
     store
         .install_package(&c, "linux-cpu", &zip, ResourceSource::Download, None, &cancelled(false))
@@ -658,6 +668,10 @@ fn verification_classifies_java_markers_and_uses_exact_probe_arguments() {
         ("missing CUDNN DLL", ValidationStatus::MissingDependency),
         ("error loading shared libraries", ValidationStatus::MissingDependency),
         ("library not loaded", ValidationStatus::MissingDependency),
+        (
+            "No suitable fusermount binary found; Cannot mount AppImage",
+            ValidationStatus::MissingDependency,
+        ),
         ("crashed", ValidationStatus::StartFailed),
     ] {
         let output = ProbeOutput {
@@ -899,4 +913,166 @@ fn cross_platform_archive_escape_and_cancel_are_non_destructive() {
         Err(ResourceError::Cancelled)
     ));
     assert!(store.inventory().unwrap().packages.is_empty());
+}
+
+#[test]
+fn cpu_features_control_optimized_package_selection() {
+    let c = catalog();
+    let mut f = facts("windows", None, "N/A");
+    for (known, expected) in [
+        (Some(true), "windows-cpu-avx2"),
+        (Some(false), "windows-cpu"),
+        (None, "windows-cpu"),
+    ] {
+        f.cpu_avx2_fma = known;
+        let r = recommend(&f, &c);
+        assert_eq!(recommended(&r), Some(expected));
+        let optimized = r.packages.iter().find(|p| p.asset_id == "windows-cpu-avx2").unwrap();
+        match known {
+            Some(true) => assert!(optimized.reasons.contains(&RecommendationReason::CpuOptimized)),
+            Some(false) => assert!(optimized
+                .missing_dependencies
+                .contains(&MissingDependency::CpuFeature("AVX2+FMA".into()))),
+            None => assert!(optimized.reasons.contains(&RecommendationReason::CpuFeaturesUnknown)),
+        }
+    }
+}
+
+#[test]
+fn linux_dependencies_versions_driver_and_fuse_match_each_asset() {
+    let c = catalog();
+    let mut f = facts("linux", Some("RTX 4070"), "580.88");
+    f.fuse = Some(true);
+    f.loader_libraries = Some(c.assets["linux-nvidia-cu128"].external_libraries.clone());
+    f.library_versions = BTreeMap::from([
+        ("libcublas.so.12".into(), "12.7.0".into()),
+        ("libnvrtc.so.12".into(), "12.7.0".into()),
+        ("libcudnn.so.9".into(), "9.8.0".into()),
+    ]);
+    let r = recommend(&f, &c);
+    assert_eq!(recommended(&r), Some("linux-nvidia-cu121"));
+    let cu128 = r.packages.iter().find(|p| p.asset_id == "linux-nvidia-cu128").unwrap();
+    assert!(!cu128.eligible);
+    assert!(cu128
+        .missing_dependencies
+        .contains(&MissingDependency::LinuxLibrary("libnvrtc.so.12 ≥ 12.8".into())));
+    f.loader_libraries.as_mut().unwrap().retain(|s| s != "libnvrtc.so.12");
+    let r = recommend(&f, &c);
+    assert!(r
+        .packages
+        .iter()
+        .find(|p| p.asset_id == "linux-nvidia-cu121")
+        .unwrap()
+        .missing_dependencies
+        .contains(&MissingDependency::LinuxLibrary("libnvrtc.so.12".into())));
+    f.loader_libraries = Some(c.assets["linux-nvidia-cu132"].external_libraries.clone());
+    f.library_versions = BTreeMap::from([
+        ("libcublas.so.13".into(), "13.2.0".into()),
+        ("libnvrtc.so.13".into(), "13.2.0".into()),
+        ("libcudnn.so.9".into(), "9.24.0".into()),
+    ]);
+    assert_eq!(recommended(&recommend(&f, &c)), Some("linux-nvidia-cu132"));
+    f.nvidia_gpus[0].driver = Some("580.65.05".into());
+    let r = recommend(&f, &c);
+    assert!(r
+        .packages
+        .iter()
+        .find(|p| p.asset_id == "linux-nvidia-cu132")
+        .unwrap()
+        .missing_dependencies
+        .contains(&MissingDependency::MinimumDriver("580.65.06".into())));
+    f.fuse = Some(false);
+    let r = recommend(&f, &c);
+    assert_eq!(recommended(&r), None);
+    assert!(r
+        .packages
+        .iter()
+        .all(|p| !p.eligible && p.missing_dependencies.contains(&MissingDependency::AppImageFuse)));
+}
+
+#[test]
+fn machine_probe_reports_cpu_fuse_and_resolved_library_versions() {
+    let mut p = FixtureProbe::default();
+    p.outputs.insert("/sbin/ldconfig -p".into(), success("libcublas.so.12 (libc6,x86-64) => /lib/nvidia/libcublas.so.12\nlibcudnn.so.9 (libc6,x86-64) => /lib/nvidia/libcudnn.so.9\nlibssl.so.3 (libc6,x86-64) => /unrelated/libssl.so.3"));
+    p.dirs.insert(
+        "/lib/nvidia".into(),
+        vec![
+            "/lib/nvidia/libcublas.so.12.8.4.1".into(),
+            "/lib/nvidia/libcudnn.so.9.8.0".into(),
+        ],
+    );
+    p.dirs.insert("/dev".into(), vec!["/dev/fuse".into()]);
+    p.env.insert("PATH".into(), "/bin:/usr/bin".into());
+    p.dirs.insert("/usr/bin".into(), vec!["/usr/bin/fusermount3".into()]);
+    let f = detect_machine(&p, "linux", "x86_64");
+    assert_eq!(f.cpu_avx2_fma, Some(true));
+    assert_eq!(f.fuse, Some(true));
+    assert_eq!(f.library_versions["libcublas.so.12"], "12.8.4.1");
+    assert_eq!(f.library_versions["libcudnn.so.9"], "9.8.0");
+    p.dirs.insert("/dev".into(), Vec::new());
+    assert_eq!(detect_machine(&p, "linux", "x86_64").fuse, Some(false));
+    assert_eq!(detect_machine(&p, "linux", "aarch64").cpu_avx2_fma, None);
+}
+
+#[test]
+fn layout_failures_leave_no_install_and_new_identity_preserves_old_directories() {
+    let temp = TempDir::new().unwrap();
+    let store = ResourceStore::new(temp.path().join("resources"));
+    for nested in [false, true] {
+        let zip = temp.path().join("invalid.zip");
+        archive(
+            &zip,
+            &[
+                (if nested { "sub/katago" } else { "katago" }, b"engine"),
+                ("default_gtp.cfg", b"config"),
+            ],
+        );
+        let mut c = catalog();
+        let a = c.assets.get_mut("linux-cpu").unwrap();
+        a.sha256 = sha256_file(&zip).unwrap();
+        a.size_bytes = fs::metadata(&zip).unwrap().len();
+        a.executable_sha256 = digest(b"engine");
+        a.executable_size_bytes = 6;
+        let error = store
+            .install_package(&c, "linux-cpu", &zip, ResourceSource::Download, None, &cancelled(false))
+            .unwrap_err();
+        assert!(matches!(error, ResourceError::Invalid(_)));
+        assert!(error
+            .to_string()
+            .contains(if nested { "katago" } else { "analysis_example.cfg" }));
+        assert!(store.inventory().unwrap().packages.is_empty());
+    }
+    let old = store.root().join("engines/linux-cpu");
+    fs::create_dir_all(&old).unwrap();
+    fs::write(old.join("katago"), "legacy engine").unwrap();
+    let (c1, zip) = fixture_package(temp.path(), b"engine one", None);
+    let first = store
+        .install_package(
+            &c1,
+            "linux-cpu",
+            &zip,
+            ResourceSource::Download,
+            None,
+            &cancelled(false),
+        )
+        .unwrap();
+    let mut legacy_receipt = first.receipt.clone();
+    legacy_receipt.executable_size = b"legacy engine".len() as u64;
+    legacy_receipt.executable_sha256 = digest(b"legacy engine");
+    fs::write(old.join("resource.json"), serde_json::to_vec(&legacy_receipt).unwrap()).unwrap();
+    let (c2, zip) = fixture_package(temp.path(), b"engine two", None);
+    let second = store
+        .import_package(&c2, "linux-x64", &zip, None, &cancelled(false))
+        .unwrap();
+    assert_ne!(first.directory, second.directory);
+    assert_eq!(fs::read(&first.executable).unwrap(), b"engine one");
+    assert_eq!(fs::read(old.join("katago")).unwrap(), b"legacy engine");
+    let inventory = store.inventory().unwrap();
+    assert_eq!(inventory.packages.len(), 3);
+    assert!(inventory.packages.iter().any(|p| p.directory == old && p.usable));
+    assert!(!first.is_current(&c2.assets["linux-cpu"]));
+    assert!(second.is_current(&c2.assets["linux-cpu"]));
+    let mut uppercase = c2.assets["linux-cpu"].clone();
+    uppercase.sha256.make_ascii_uppercase();
+    assert!(second.is_current(&uppercase));
 }

@@ -127,9 +127,9 @@ the matching LizzieYzy Next settings.
   and saves it only after confirming; profiles you configured yourself are never changed. On
   Windows the NVIDIA page installs the CUDA 12.8 / cuDNN 9 / TensorRT 10.9 runtime from NVIDIA
   after confirming (drivers are never installed). The official online weight list
-  (katagotraining.org) can be refreshed; a failed refresh keeps the previous list. The analysis
-  packages are not contribution engines. Network access follows Settings > 网络代理 (direct by
-  default, system, or a manual HTTP proxy).
+  (katagotraining.org) can be refreshed; a failed refresh keeps the previous list. Selected-move
+  focus is not supported by these releases; contribution is not provided or verified here.
+  Network access follows Settings > 网络代理 (direct by default, system, or a manual HTTP proxy).
 - Engine performance: MoreEngines has Java's thread policy (CFG uses the engine's config file;
   Benchmark uses the measured recommendation and sends `kata-set-param numSearchThreads` at start),
   性能测试 opening the performance page, 扫描 to build a command from chosen files (including the
@@ -232,14 +232,29 @@ writes it.
 
 ### Engine resource sources
 
-The trusted catalog (`crates/lizzie-core/resources/catalog.json`) is the fixed LizzieYzy Next
-catalog: KataGo v1.18.2 built from `lightvector/KataGo` commit
-`47aadc08518b3e121f22539796c911002f699584`, published as the `katago-source-*` assets of the
-LizzieYzy Next release `next-2026-10-17.1`, with archive and executable SHA-256 pinned; each
-package carries KataGo's license and its third-party licenses under `licenses/`. Models: the b11
-network from katagotraining.org (KataGo Neural Network License) and the two b10 networks of the
-KataGo v1.17.1 release. Windows NVIDIA runtime components come from NVIDIA's redistributable
-archives, with their license files kept next to the installed libraries.
+The trusted catalog (`crates/lizzie-core/resources/catalog.json`) pins qualified official
+KataGo release assets separately for each platform and backend: v1.18.2 for CUDA and v1.18.1
+for the other upstream packages. The macOS Metal packages are self-contained builds made by
+this project from the official v1.18.2 tag and published as release assets of this repository.
+Each package records its own origin, source tag and commit, release, licenses, archive and
+executable SHA-256 digests and sizes. Downloads and offline imports must match that identity;
+installation checks the root executable and all required files and directories before activation.
+Packages live in `engines/<id>-<archive-sha256-prefix>/`, so a new package does not replace one
+an existing profile still references.
+
+Official Linux executables are AppImages and require `/dev/fuse` plus `fusermount` or
+`fusermount3` on PATH. Recommendations check each package's system libraries, known CUDA/cuDNN
+library versions, minimum NVIDIA driver and CPU AVX2/FMA requirements. Unknown facts remain
+unknown and explicit verification reports runtime failures. Windows NVIDIA runtime components
+come from NVIDIA's redistributable archives: CUDA 12.8, cuDNN 9.8.0, NVRTC 12.8.61 and TensorRT
+10.9.0.34 are pinned, with license files kept next to the installed libraries.
+
+Analysis is supported. Selected-move focus is not supported by these releases. Official
+non-ONNX builds include upstream distributed support, but this app does not verify contribution
+eligibility or provide a contribution flow here; DirectML and OpenVINO builds do not support it.
+Models remain the b11 network from katagotraining.org (KataGo Neural Network License) and the
+two b10 networks from the KataGo v1.17.1 release. License references are shown per asset; official
+packages do not need the `licenses/` folder or `source-package.json` that LizzieYzy Next packages carry.
 
 ## License
 

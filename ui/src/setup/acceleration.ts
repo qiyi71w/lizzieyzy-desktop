@@ -4,7 +4,7 @@ import type { ExperimentalBackend, ResourceCommand, ResourceOutcome, ResourcesVi
 import { confirm } from "../dialogs";
 import { product, t } from "../i18n";
 import type { SetupCard, SetupContext } from "./card";
-import { packageTarget, planSetup, resourceCommand, resourceView, setupStatus } from "./dialog";
+import { assetBackends, currentPackage, packageTarget, planSetup, resourceCommand, resourceView, setupStatus } from "./dialog";
 import { action, actions, javaFormat, node, row, section, size } from "./setupText";
 
 export function accelerationCard(ctx: SetupContext): SetupCard {
@@ -24,7 +24,7 @@ export function accelerationCard(ctx: SetupContext): SetupCard {
     else if (result?.type === "Verified" && (result.validation.status === "ACTIVE" || result.validation.status === "VALID")) await next();
   };
   const activate = async (asset: string, command: "EnableTensorRt" | "SwitchBackToCuda") => {
-    const r = resourceView(), installed = r?.inventory.packages.find((p) => p.receipt.assetId === asset && p.usable);
+    const r = resourceView(), installed = r && currentPackage(r, asset);
     const target = installed && packageTarget(installed); if (!target || !r?.currentSetup.weight) return;
     await afterTask({ type: "Verify", target, weight: r.currentSetup.weight }, () => resourceCommand({ type: command }));
   };
@@ -32,7 +32,7 @@ export function accelerationCard(ctx: SetupContext): SetupCard {
     const r = resourceView(); if (!r) return; last = r; element.replaceChildren();
     const card = section(t("AutoSetup.accelerationTitle"), t("AutoSetup.accelerationSubtitle"));
     const windows = r.machine?.os === "windows", cuda = r.acceleration.find((a) => a.backend === "cuda"), trt = r.acceleration.find((a) => a.backend === "tensorrt");
-    const companion = r.inventory.packages.find((p) => p.receipt.assetId === "windows-nvidia" && p.usable), engine = r.inventory.packages.find((p) => p.receipt.assetId === "windows-tensorrt" && p.usable);
+    const companion = currentPackage(r, "windows-nvidia"), engine = currentPackage(r, "windows-tensorrt");
     const notApplicable = t("AutoSetup.tensorRtNotApplicable");
     if (ctx.engineId) {
       const target = state.view?.settings.engine.engines.find((p) => p.id === ctx.engineId);
@@ -55,9 +55,9 @@ export function accelerationCard(ctx: SetupContext): SetupCard {
     const ready = !!windows && !missingActivation.length;
     const active = !!engine && r.currentSetup.executable === engine.executable;
     row(card, t("AutoSetup.tensorRtActivationStatus"), !windows ? notApplicable : active ? t("AutoSetup.tensorRtProfileActive") : ready ? t("AutoSetup.tensorRtProfileInactive") : `${t("AutoSetup.tensorRtProfileNotReady")} · ${missingActivation.join(", ")}`, true);
-    const backendAssets: Record<ExperimentalBackend, string> = { "direct-ml": "windows-directml", "open-vino-gpu": "windows-openvino", "open-vino-npu": "windows-openvino", "rocm-gfx103x": "windows-rocm-gfx103x", "rocm-gfx110x": "windows-rocm-gfx110x", "rocm-gfx1151": "windows-rocm-gfx1151", "rocm-gfx120x": "windows-rocm-gfx120x" };
+    const experimentalAsset = r.packages.find((a) => assetBackends(a).includes(selected));
     const labels: Record<ExperimentalBackend, string> = { "direct-ml": t("AutoSetup.experimentalDirectMl"), "open-vino-gpu": t("AutoSetup.experimentalOpenVinoGpu"), "open-vino-npu": t("AutoSetup.experimentalOpenVinoNpu"), "rocm-gfx103x": t("AutoSetup.experimentalRocmGfx103x"), "rocm-gfx110x": t("AutoSetup.experimentalRocmGfx110x"), "rocm-gfx1151": t("AutoSetup.experimentalRocmGfx1151"), "rocm-gfx120x": t("AutoSetup.experimentalRocmGfx120x") };
-    const experimentalPackage = r.inventory.packages.find((p) => p.receipt.assetId === backendAssets[selected] && p.receipt.experimentalBackend === selected && p.usable);
+    const experimentalPackage = experimentalAsset && currentPackage(r, experimentalAsset.id, selected);
     row(card, t("AutoSetup.experimentalBackendStatus"), `${labels[selected]} · ${experimentalPackage ? r.currentSetup.executable === experimentalPackage.executable ? t("AutoSetup.experimentalBackendActive") : t("AutoSetup.experimentalBackendInstalled") : t("AutoSetup.experimentalBackendNotInstalled")}`, true);
     const repair = action("setup.acceleration.repair", t("AutoSetup.repairTensorRt"), async () => {
       if (await confirm(t("AutoSetup.tensorRtRepairConfirmTitle"), javaFormat(t("AutoSetup.tensorRtRepairConfirmMessage"), "3.7 GB", t("AutoSetup.tensorRtGpuHint")))) await resourceCommand({ type: "RepairTensorRt", confirmed: true });
@@ -70,10 +70,10 @@ export function accelerationCard(ctx: SetupContext): SetupCard {
     selector.value = selected; selector.onchange = () => { const backend = (Object.keys(labels) as ExperimentalBackend[]).find((b) => b === selector.value); if (backend) selected = backend; render(); };
     card.append(selector);
     actions(card, action("setup.acceleration.installExperimental", experimentalPackage ? t("AutoSetup.enableExperimentalBackend") : t("AutoSetup.installExperimentalBackend"), async () => {
-      const asset = r.packages.find((a) => a.id === backendAssets[selected]); if (!asset) return;
+      const asset = experimentalAsset; if (!asset) return;
       const backend = selected;
       const use = async () => {
-        const current = resourceView(), installed = current?.inventory.packages.find((p) => p.receipt.assetId === asset.id && p.receipt.experimentalBackend === backend && p.usable);
+        const current = resourceView(), installed = current && currentPackage(current, asset.id, backend);
         const target = installed && packageTarget(installed); if (!target) return;
         await afterTask({ type: "Verify", target, weight: current?.currentSetup.weight ?? current?.chosenWeight ?? current?.inventory.weights[0]?.path ?? null }, () => planSetup(target));
       };

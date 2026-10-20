@@ -1,6 +1,6 @@
 // KataGoAutoSetupDialog: a single non-modal setup window; Rust owns acquisition and profiles.
 import { registerViewHandler, run, state } from "../app";
-import type { Asset, InstalledPackage, ResourceCommand, ResourceEngineChoice, ResourcePlanView, ResourceResult, ResourcesView, TuningView } from "../contract/generated";
+import type { Asset, ExperimentalBackend, InstalledPackage, ResourceCommand, ResourceEngineChoice, ResourcePlanView, ResourceResult, ResourcesView, TuningView } from "../contract/generated";
 import { ask, message } from "../dialogs";
 import { product, t } from "../i18n";
 import { tuningText } from "../engine/tuningText";
@@ -74,6 +74,19 @@ export async function resourceCommand(op: ResourceCommand): Promise<ResourceResu
   return r;
 }
 
+/** Installed and current: the receipt names this catalog asset, carries its archive digest and is usable.
+ *  A same-id package with another digest is a previous package and is never used for this asset. */
+export function currentPackage(r: ResourcesView, assetId: string, backend?: ExperimentalBackend): InstalledPackage | undefined {
+  const asset = r.packages.find((a) => a.id === assetId); if (!asset) return undefined;
+  const digest = asset.sha256.toLowerCase();
+  return r.inventory.packages.find((p) => p.receipt.assetId === asset.id && p.receipt.archiveSha256.toLowerCase() === digest && p.usable && (backend === undefined || p.receipt.experimentalBackend === backend));
+}
+const experimentalBackends: readonly ExperimentalBackend[] = ["direct-ml", "open-vino-gpu", "open-vino-npu", "rocm-gfx103x", "rocm-gfx110x", "rocm-gfx1151", "rocm-gfx120x"];
+/** Experimental backend variants an asset provides, derived from its backend and ROCm GPU family. */
+export function assetBackends(asset: Asset): ExperimentalBackend[] {
+  const names: string[] = asset.backend === "directml" ? ["direct-ml"] : asset.backend === "openvino" ? ["open-vino-gpu", "open-vino-npu"] : asset.backend === "rocm" && asset.gpuFamily ? [`rocm-${asset.gpuFamily.toLowerCase()}`] : [];
+  return experimentalBackends.filter((b) => names.includes(b));
+}
 export function packageTarget(installed: InstalledPackage): ResourceEngineChoice | null {
   const r = resourceView(); const config = r?.inventory.gtpConfig;
   if (!config) return null;
