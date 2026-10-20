@@ -41,7 +41,8 @@ the matching LizzieYzy Next settings.
   properties (`LZ`, `LZ2`, `LZOP`, `LZOP2`) and other unknown properties are kept, and LizzieYzy
   Next reads the files with the same meaning. A file is written to an owner-only temporary file
   next to it and then renamed, so a failed save ("保存失败") leaves the old file untouched; a
-  replaced file keeps its permissions. Closing the window waits for saves still being written.
+  replaced file keeps its permissions. Normal window close and application Quit both wait for
+  saves still being written and persist the window placement before the window is destroyed.
 - Settings available now: reading komi from SGF records, stone sounds on/off, and the UI language
   (zh-CN, zh-TW, en, ja, ko, th; applied after a restart, like Java). A setting that cannot be
   saved is reported and left unchanged.
@@ -73,7 +74,7 @@ the matching LizzieYzy Next settings.
   board (`play`, `clear_board`, `place_free_handicap`, …) are refused because the record owns the
   position. The 完整日志 option writes the GTP traffic to `logs/engine-trace.log`. A failing
   engine shows Java's failure dialog with its output, copy and diagnostics export. Engines are
-  ended (`quit`, then killed after 3 s) when the window closes.
+  ended (`quit`, then killed after 3 s) when the application exits, including application Quit.
 - Logs, the engine trace, failure details and exported diagnostics pass through a port of
   Java's credential sanitizer (`--password …`, `token=…`, JSON credential keys, authorization
   headers, URL user info, encoded forms); the live console shows raw traffic like Java.

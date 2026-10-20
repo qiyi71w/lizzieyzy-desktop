@@ -44,7 +44,7 @@ pub struct Shared {
     processes: ProcessWaiter,
     /// The one serial writer of record files (Java `SgfSaveQueue`: a single worker thread).
     saves: Mutex<Sender<SaveJob>>,
-    /// The window asked to close while saves were running; it closes when they are done.
+    /// An exit was requested during a save; close the main window after all writes finish.
     close_after_saves: AtomicBool,
 }
 
@@ -657,6 +657,25 @@ fn window_placement(window: &tauri::WebviewWindow, previous: Option<WindowPlacem
     })
 }
 
+/// Window close and application Quit share the same save barrier and window persistence.
+/// Capture placement before the window is destroyed, not in the final RunEvent::Exit.
+fn prepare_exit(app: &AppHandle, shared: &Shared) -> bool {
+    let mut wb = shared.workbench.lock().unwrap();
+    if wb.has_pending_saves() {
+        shared.close_after_saves.store(true, Ordering::SeqCst);
+        shared.log.info("exit waits for running saves");
+        return false;
+    }
+    // A window close is followed by ExitRequested after destruction; it already saved placement.
+    if let Some(window) = app.get_webview_window("main") {
+        let previous = wb.persisted().window;
+        if let Err(e) = wb.persist_on_exit(window_placement(&window, previous)) {
+            shared.log.warn(&e.message);
+        }
+    }
+    true
+}
+
 pub fn run() {
     let context = tauri::generate_context!();
     let logs = startup::logs_dir(&context.config().identifier);
@@ -746,24 +765,10 @@ pub fn run() {
         })
         .on_window_event(|window, event| match event {
             WindowEvent::CloseRequested { api, .. } => {
-                let Some(webview) = window.app_handle().get_webview_window(window.label()) else {
-                    return;
-                };
-                let shared = window.app_handle().state::<State>().inner().clone();
-                let mut wb = shared.workbench.lock().unwrap();
-                // Accepted writes finish before exit (Lizzie.shutdown waits for pendingSaves); the
-                // save lane closes the window when the last one completes.
-                if wb.has_pending_saves() {
-                    shared.close_after_saves.store(true, Ordering::SeqCst);
+                let shared = window.app_handle().state::<State>();
+                if !prepare_exit(window.app_handle(), &shared) {
                     api.prevent_close();
-                    shared.log.info("exit waits for running saves");
-                    return;
                 }
-                let previous = wb.persisted().window;
-                if let Err(e) = wb.persist_on_exit(window_placement(&webview, previous)) {
-                    shared.log.warn(&e.message);
-                }
-                shared.log.info("exit");
             }
             WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
                 let app = window.app_handle();
@@ -786,7 +791,12 @@ pub fn run() {
         .build(context);
     match app {
         Ok(app) => app.run(|app, event| {
-            if let RunEvent::Exit = event {
+            if let RunEvent::ExitRequested { api, .. } = event {
+                let shared = app.state::<State>();
+                if !prepare_exit(app, &shared) {
+                    api.prevent_exit();
+                }
+            } else if let RunEvent::Exit = event {
                 // Every exit path (window close, 退出, 强制退出) ends the engines and waits for
                 // their processes, so none is left behind.
                 let shared = app.state::<State>().inner().clone();
@@ -799,6 +809,7 @@ pub fn run() {
                 let logs = shared.workbench.lock().unwrap().take_logs();
                 write_logs(&shared, logs);
                 shared.log.info("engines ended");
+                shared.log.info("exit");
             }
         }),
         Err(e) => {
