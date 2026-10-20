@@ -46,6 +46,8 @@ pub struct Shared {
     saves: Mutex<Sender<SaveJob>>,
     /// An exit was requested during a save; close the main window after all writes finish.
     close_after_saves: AtomicBool,
+    /// Last live native bounds, retained when application Quit destroys the window first.
+    placement: Mutex<Option<WindowPlacement>>,
 }
 
 pub type State = Arc<Shared>;
@@ -671,12 +673,12 @@ fn prepare_exit(app: &AppHandle, shared: &Shared) -> bool {
         shared.log.info("exit waits for running saves");
         return false;
     }
-    // A window close is followed by ExitRequested after destruction; it already saved placement.
+    let mut placement = shared.placement.lock().unwrap();
     if let Some(window) = app.get_webview_window("main") {
-        let previous = wb.persisted().window;
-        if let Err(e) = wb.persist_on_exit(window_placement(&window, previous)) {
-            shared.log.warn(&e.message);
-        }
+        *placement = window_placement(&window, *placement).or(*placement);
+    }
+    if let Err(e) = wb.persist_on_exit(*placement) {
+        shared.log.warn(&e.message);
     }
     true
 }
@@ -737,6 +739,7 @@ pub fn run() {
                 processes,
                 saves: Mutex::new(spawn_save_lane(app.handle().clone())),
                 close_after_saves: AtomicBool::new(false),
+                placement: Mutex::new(placement),
             });
             let _ = cell.set(shared.clone());
             app.manage(shared.clone());
@@ -754,6 +757,7 @@ pub fn run() {
                     let _ = window.maximize();
                 }
             }
+            *shared.placement.lock().unwrap() = window_placement(&window, placement);
 
             // Command line: one argument other than "read" opens that record without touching
             // the recent list (Lizzie.java:1049-1052).
@@ -769,6 +773,13 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
+            WindowEvent::Moved(_) | WindowEvent::Resized(_) if window.label() == "main" => {
+                let app = window.app_handle();
+                if let (Some(shared), Some(window)) = (app.try_state::<State>(), app.get_webview_window("main")) {
+                    let mut placement = shared.placement.lock().unwrap();
+                    *placement = window_placement(&window, *placement).or(*placement);
+                }
+            }
             WindowEvent::CloseRequested { api, .. } => {
                 let shared = window.app_handle().state::<State>();
                 if !prepare_exit(window.app_handle(), &shared) {
