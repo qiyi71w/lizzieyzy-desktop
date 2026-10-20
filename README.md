@@ -42,7 +42,10 @@ the matching LizzieYzy Next settings.
   Next reads the files with the same meaning. A file is written to an owner-only temporary file
   next to it and then renamed, so a failed save ("保存失败") leaves the old file untouched; a
   replaced file keeps its permissions. Normal window close and application Quit both wait for
-  saves still being written and persist the window placement before the window is destroyed.
+  saves still being written and record the window placement. On macOS, unhandled Command
+  shortcuts remain available to the native application menu, including `⌘Q` to quit.
+  On Linux, the saved size is the WebView content area, excluding GTK window decorations,
+  so reopening does not enlarge the content area by the title bar or shadow dimensions.
 - Settings available now: reading komi from SGF records, stone sounds on/off, and the UI language
   (zh-CN, zh-TW, en, ja, ko, th; applied after a restart, like Java). A setting that cannot be
   saved is reported and left unchanged.
@@ -191,6 +194,12 @@ shortcuts and automated acceptance all use the same commands. Views carry an inc
 and an open runs in the background under a ticket so a late result from an older open is
 dropped. Engine results carry the record, position and komi they were requested for; the core
 drops any that no longer match and sends the engine only the moves that changed.
+
+The desktop shell sends view updates through an ordered Tauri IPC channel. Engine-driven
+updates are coalesced at 50 ms; user commands publish immediately. Startup subscribes before
+taking a full snapshot, then discards older queued views by sequence number. Analysis and
+history panels compare their fields to decide whether to repaint, including changes to a
+variation or its captures when the visit count stays the same.
 
 Record content changes only through the core's document edit operation, which raises the
 document `revision`. A save captures the text, document and revision when it starts and is

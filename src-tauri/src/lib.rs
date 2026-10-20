@@ -23,12 +23,12 @@ use lizzie_core::formats;
 use lizzie_core::java_import::{self, JavaSource};
 use lizzie_core::settings::{Storage, WindowPlacement};
 use lizzie_core::workbench::{OpenOrigin, PasteDecision, SaveJob, SavePlan, Workbench};
+use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, RunEvent, WindowEvent};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
-pub const VIEW_EVENT: &str = "workbench-view";
 /// A Java entry whose capability is not implemented yet was used; payload names the capability.
 pub const UNAVAILABLE_EVENT: &str = "capability-unavailable";
 /// New GTP console lines (`ConsoleLineView[]`).
@@ -46,6 +46,13 @@ pub struct Shared {
     saves: Mutex<Sender<SaveJob>>,
     /// An exit was requested during a save; close the main window after all writes finish.
     close_after_saves: AtomicBool,
+    views: Mutex<ViewSubscription>,
+}
+
+#[derive(Default)]
+struct ViewSubscription {
+    generation: u64,
+    channel: Option<Channel<WorkbenchView>>,
 }
 
 pub type State = Arc<Shared>;
@@ -60,11 +67,17 @@ fn write_logs(shared: &Shared, logs: Vec<lizzie_core::workbench::LogLine>) {
     }
 }
 
-/// Publishes the next view. Built and emitted under the lock so views arrive in `seq` order.
+/// Builds and sends each view under the workbench lock, preserving `seq` order.
 pub fn publish(app: &AppHandle, shared: &Shared) {
     let mut wb = shared.workbench.lock().unwrap();
     let view = wb.view(false);
-    let _ = app.emit(VIEW_EVENT, &view);
+    let mut views = shared.views.lock().unwrap();
+    if let Some(channel) = &views.channel {
+        if channel.send(view).is_err() {
+            views.channel = None;
+        }
+    }
+    drop(views);
     let logs = wb.take_logs();
     let checks = wb.take_launch_checks();
     drop(wb);
@@ -627,6 +640,23 @@ fn workbench_snapshot(state: tauri::State<'_, State>) -> WorkbenchView {
     state.workbench.lock().unwrap().view(true)
 }
 
+/// Channels transfer large views as IPC data instead of compiling a new JS object literal.
+#[tauri::command]
+fn subscribe_workbench(state: tauri::State<'_, State>, channel: Channel<WorkbenchView>) -> u64 {
+    let mut views = state.views.lock().unwrap();
+    views.generation += 1;
+    views.channel = Some(channel);
+    views.generation
+}
+
+#[tauri::command]
+fn unsubscribe_workbench(state: tauri::State<'_, State>, generation: u64) {
+    let mut views = state.views.lock().unwrap();
+    if views.generation == generation {
+        views.channel = None;
+    }
+}
+
 #[tauri::command]
 fn logs_directory(state: tauri::State<'_, State>) -> LogsStatus {
     state.workbench.lock().unwrap().logs_status()
@@ -765,6 +795,7 @@ pub fn run() {
                 processes,
                 saves: Mutex::new(spawn_save_lane(app.handle().clone())),
                 close_after_saves: AtomicBool::new(false),
+                views: Mutex::new(ViewSubscription::default()),
             });
             let _ = cell.set(shared.clone());
             app.manage(shared.clone());
@@ -857,6 +888,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         dispatch_command,
         workbench_snapshot,
+        subscribe_workbench,
+        unsubscribe_workbench,
         logs_directory,
         engine_console,
         open_katago_releases
@@ -868,6 +901,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         dispatch_command,
         workbench_snapshot,
+        subscribe_workbench,
+        unsubscribe_workbench,
         logs_directory,
         engine_console,
         open_katago_releases,

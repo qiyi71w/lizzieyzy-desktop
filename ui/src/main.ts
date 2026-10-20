@@ -9,11 +9,12 @@ import { buildBottomBar, layoutBottomBar } from "./chrome/bottombar";
 import { buildMenubar, menuOpen } from "./chrome/menubar";
 import { buildToolbar, renderToolbar } from "./chrome/toolbar";
 import { onUnavailable, onView, snapshot } from "./contract/client";
-import type { CandidateView, HistoryPoint, Navigation, WorkbenchView } from "./contract/generated";
+import type { CandidateView, HistoryPoint, Navigation, NodeAnalysisView, WorkbenchView } from "./contract/generated";
 import { dialogOpen, message } from "./dialogs";
 import { isChinese, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
 import { boardGeom, graphGeom, inFrameLayout, type Panels, type Rect } from "./workbench/layout";
+import { sameAnalysis, sameHistory } from "./workbench/viewEquality";
 import { handleEngineKey } from "./engine/keys";
 import { mountSetupBanner } from "./setup/banner";
 import {
@@ -69,8 +70,11 @@ let graphLineKey = "";
 let graphLineByMove = new Map<number, number>();
 let mainLine = new Set<number>();
 let historyByNode = new Map<number, HistoryPoint>();
-let analysisSignature = "";
-let historySignature = "";
+/** Bumped when the shown analysis / history differ field-wise from the previous view's. */
+let analysisRevision = 0;
+let historyRevision = 0;
+let projectedAnalysis: NodeAnalysisView | null = null;
+let projectedHistory: HistoryPoint[] = [];
 let projectedView: WorkbenchView | null = null;
 
 /** Java runtime summary keys must also be literal t() calls for bundle extraction. */
@@ -100,14 +104,21 @@ function hover(order: number | null) {
 function projectAnalysis(v: WorkbenchView) {
   if (projectedView !== v) {
     projectedView = v;
-    analysisSignature = JSON.stringify(v.analysis);
-    historySignature = JSON.stringify(v.history);
-    historyByNode = new Map(v.history.map((p) => [p.node, p]));
-    if (graphDocument !== v.document.id) {
+    if (!sameAnalysis(projectedAnalysis, v.analysis)) analysisRevision++;
+    projectedAnalysis = v.analysis;
+    const historyChanged = !sameHistory(projectedHistory, v.history);
+    projectedHistory = v.history;
+    if (historyChanged) {
+      historyRevision++;
+      historyByNode = new Map(v.history.map((p) => [p.node, p]));
+    }
+    const documentChanged = graphDocument !== v.document.id;
+    if (documentChanged) {
       graphDocument = v.document.id;
       maxScoreLead = 15;
     }
-    for (const p of v.history) if (p.score_lead !== null) maxScoreLead = Math.max(maxScoreLead, Math.abs(p.score_lead));
+    if (historyChanged || documentChanged)
+      for (const p of v.history) if (p.score_lead !== null) maxScoreLead = Math.max(maxScoreLead, Math.abs(p.score_lead));
   }
   const lineKey = `${v.document.id}:${v.position.node}:${v.position.line_end}`;
   if (graphNodesSource !== state.nodes || graphLineKey !== lineKey) {
@@ -500,9 +511,9 @@ function render() {
     subCandidate,
     subLength,
   };
-  if (changed("board", `${size}:${docSig}:${analysisSignature}:${hoveredCandidate}:${scene.suggestionLimit}:${scene.branchLimit}`))
+  if (changed("board", `${size}:${docSig}:${analysisRevision}:${hoveredCandidate}:${scene.suggestionLimit}:${scene.branchLimit}`))
     candidateCount = paintBoard(prepare($("board"), P.board), boardGeom(P.board, cols, rows), P.board, scene);
-  if (changed("sub", `${size}:${docSig}:${analysisSignature}:${subCandidate}:${subLength}:${scene.branchLimit}`))
+  if (changed("sub", `${size}:${docSig}:${analysisRevision}:${subCandidate}:${subLength}:${scene.branchLimit}`))
     paintSubBoard(prepare($("sub"), P.sub), boardGeom(P.sub, cols, rows, 0.035), P.sub, scene);
   if (changed("captured", `${size}:${docSig}:${v.komi}:${v.engine.analysing}:${v.engine.rules_key}`))
     paintCaptured(prepare($("captured"), P.captured), P.captured, {
@@ -514,12 +525,13 @@ function render() {
       analysing: v.engine.analysing,
       rules: rulesCaption(v.engine.rules_key),
     });
+  const parent = state.nodes.get(pos.node)?.parent ?? -1;
   const current = historyByNode.get(pos.node) ?? null;
-  const previous = historyByNode.get(state.nodes.get(pos.node)?.parent ?? -1) ?? null;
-  if (changed("stat", `${size}:${docSig}:${JSON.stringify(current)}:${JSON.stringify(previous)}:${v.analysis?.score_stdev}`))
+  const previous = historyByNode.get(parent) ?? null;
+  if (changed("stat", `${size}:${docSig}:${parent}:${historyRevision}:${v.analysis?.score_stdev}`))
     paintStat(prepare($("stat"), P.stat), P.stat, current, previous, pos.move_number, v.analysis?.score_stdev ?? null);
   const lineNodes = Math.max(state.mainLineNodes, state.line.size);
-  if (changed("graph", `${size}:${docSig}:${lineNodes}:${historySignature}`))
+  if (changed("graph", `${size}:${docSig}:${lineNodes}:${historyRevision}`))
     graphPointCount = paintGraph(prepare($("graph"), P.graph), P.graph, lineNodes, { history: v.history, current: pos.node, line: state.line, mainLine, maxScore: maxScoreLead });
   const statusRect = { x: 0, y: P.ponderingY, w: P.board.x, h: H - P.ponderingY };
   const lines = statusLines();
@@ -536,7 +548,7 @@ function render() {
   place($("comment"), P.comment);
   if (changed("comment", docSig)) $("commentText").textContent = pos.comment;
   place($("table"), P.table);
-  if (changed("table", `${size}:${docSig}:${analysisSignature}:${historySignature}:${selectedCandidate}`)) renderTable();
+  if (changed("table", `${size}:${docSig}:${analysisRevision}:${historyRevision}:${selectedCandidate}`)) renderTable();
   if (changed("bottombar", `${$("bottombar").clientWidth}`)) layoutBottomBar($("bottombar"));
   renderToolbar();
   const title = engineTitle(v);
