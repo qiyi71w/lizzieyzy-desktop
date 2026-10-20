@@ -35,15 +35,25 @@ Every other Java menu item, toolbar button and shortcut is present in its Java p
 as not yet available (greyed in menus; a notice when used). There is no engine or analysis yet.
 
 Verified so far on Linux (X11, WebKitGTK). Packages of both identities (below) are built for
-Windows x64 and Linux x64. On Windows 11 x64 the acceptance-identity installer has been
-installed, upgraded in place and uninstalled, and the acceptance-identity portable zip extracted
-and started; both opened records from the command line, and the installed program also through
-the native Open dialog. The normal-identity Windows packages have been built but not yet
-installed. The deb packages of both identities have been installed side by side and removed on
-Ubuntu 24.04 and 26.04 containers under a virtual X display; only the normal-identity deb was
-upgraded in place, on 24.04. The normal-identity AppImage has been run on Ubuntu 24.04. macOS
-packages, full GNOME desktops, Windows 10, and fonts and input methods on Windows and macOS have
-not been verified yet. See [docs/installing.md](docs/installing.md).
+Windows x64, macOS Apple Silicon and Intel, and Linux x64.
+
+- Windows 11 x64: the acceptance-identity installer has been installed, upgraded in place and
+  uninstalled, and the acceptance-identity portable zip extracted and started. The
+  normal-identity installer has been installed next to the acceptance identity, both running at
+  the same time, and uninstalled; the normal-identity portable zip extracted and started. All of
+  them opened records from the command line, and both installed identities also through the
+  native Open dialog.
+- macOS 27 on an Apple Silicon Mac: the Apple Silicon apps of both identities started from their
+  dmg and opened records; the acceptance identity also through the native Open panel. The Intel
+  app has been started only under Rosetta. The Gatekeeper first-open steps in
+  [docs/installing.md](docs/installing.md) were followed for a quarantined copy of the normal
+  identity.
+- Ubuntu 24.04 and 26.04 containers under a virtual X display: the deb packages of both
+  identities have been installed side by side and removed; only the normal-identity deb was
+  upgraded in place, on 24.04. The normal-identity AppImage has been run on Ubuntu 24.04.
+
+Not verified yet: macOS 15, Intel Macs, full GNOME desktops, Windows 10, the Windows SmartScreen
+prompt, and fonts and input methods on Windows and macOS.
 
 ## Layout
 

@@ -51,12 +51,18 @@ Open the `.dmg` for your Mac's processor (Apple menu > *About This Mac*: "Apple 
 Silicon, "Intel" is Intel) and drag *LizzieYzy Tauri* to *Applications*.
 
 The app is ad-hoc signed and not notarized by Apple, so Gatekeeper blocks the first start of a
-downloaded copy. Open it once, close the warning, then go to *System Settings > Privacy &
-Security*, find the message about *LizzieYzy Tauri* and click *Open Anyway*, and confirm. This
-allows only this app; do not disable Gatekeeper.
+downloaded copy:
 
-macOS packages are built on a Mac; the steps above have not yet been checked on a Mac for this
-release line.
+1. Open the app. macOS says it was not opened because Apple cannot verify that it is free of
+   malware. Click *Done* (not *Move to Trash*).
+2. Open *System Settings > Privacy & Security* and scroll to *Security*. Next to the message that
+   *LizzieYzy Tauri.app* was blocked, click *Open Anyway*.
+3. In the dialog that follows click *Open Anyway* again, then confirm with Touch ID or an
+   administrator password.
+
+The app then starts, and later starts open it without asking. This allows only this copy of the
+app; do not turn Gatekeeper off. These steps were checked on macOS 27 on Apple Silicon; they have
+not yet been checked on macOS 15 or on an Intel Mac.
 
 ## Linux
 
