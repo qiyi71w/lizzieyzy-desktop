@@ -86,10 +86,18 @@ impl Workbench {
             return Ok(Err(IMPORT_NEEDS_REPLACE));
         }
         let (config, persisted) = candidate.mapped.apply(&self.config, &self.persisted, copy_credentials);
-        // Also after "重置界面位置": the imported folder is an explicit choice; the window
-        // placement it reset stays unsaved until the next start.
-        let write_persist = persisted != self.persisted;
-        if let Err(e) = settings::save_both(&self.storage, &config, write_persist.then_some(&persisted)) {
+        // After "重置界面位置" the persist file stays deleted until the next start
+        // (`Config.deletePersist`), except for the folder the user imports now: it is written
+        // alone, without the placement that was reset.
+        let persist_write = if self.persist_reset {
+            candidate.mapped.last_folder.as_ref().map(|_| settings::Persisted {
+                window: None,
+                ..persisted.clone()
+            })
+        } else {
+            (persisted != self.persisted).then(|| persisted.clone())
+        };
+        if let Err(e) = settings::save_both(&self.storage, &config, persist_write.as_ref()) {
             // Nothing changed; the same preview can be tried again.
             self.java_preview = Some((id, candidate));
             return Err(ApiError::new(

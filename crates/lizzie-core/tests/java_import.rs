@@ -478,16 +478,51 @@ fn engine_paths_resolve_like_java_launches_them() {
 }
 
 #[test]
-fn the_imported_last_folder_is_kept_after_resetting_the_interface_position() {
+fn after_resetting_the_interface_position_only_the_imported_folder_is_saved() {
+    // `Config.deletePersist`: the reset placement stays gone until the next start; the folder
+    // the user imports is kept, even when it equals the folder used before the reset.
     let tmp = tempfile::tempdir().unwrap();
     let java = java_dir(tmp.path());
     let product = tmp.path().join("product");
+    let st = storage(&product);
+    std::fs::create_dir_all(st.persist_file.parent().unwrap()).unwrap();
+    let saved = json!({ "lastFolder": "/games", "window": { "x": 5, "y": 6, "width": 900, "height": 700, "maximized": false } });
+    std::fs::write(&st.persist_file, saved.to_string()).unwrap();
     let mut wb = workbench(&product, Recorder::default());
     wb.reset_ui_position().unwrap();
     let p = preview(&mut wb, &java);
     wb.apply_java_import(p.id, &[], true).unwrap().unwrap();
     let reopened = workbench(&product, Recorder::default());
     assert_eq!(reopened.persisted().last_folder.as_deref(), Some("/games"));
+    assert_eq!(
+        reopened.persisted().window,
+        None,
+        "the reset placement is not written back"
+    );
+}
+
+#[test]
+fn a_different_last_engine_choice_needs_confirmation() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = java_dir(tmp.path());
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    wb.apply_java_import(p.id, &[3], false).unwrap().unwrap();
+    // The same Java settings, except the engine used last.
+    let config = std::fs::read_to_string(java.join("config.txt")).unwrap();
+    std::fs::write(
+        java.join("config.txt"),
+        config.replace("\"last-engine\": 0", "\"last-engine\": 1"),
+    )
+    .unwrap();
+    let p = preview(&mut wb, &java);
+    assert_eq!(p.replaces, [ImportTarget::LastEngine]);
+    assert_eq!(
+        wb.apply_java_import(p.id, &[], false).unwrap(),
+        Err(IMPORT_NEEDS_REPLACE)
+    );
+    assert_eq!(wb.config().engine.last_engine.as_deref(), Some("java-0"));
 }
 
 #[test]

@@ -1112,6 +1112,14 @@ impl Mapped {
                 out.push(ImportTarget::Engines);
             }
             cmp!(ImportTarget::EngineStartup, config.engine.startup, self.startup);
+            // The engine used last, as `apply` sets it when every credential is copied.
+            let last = self
+                .last_engine
+                .and_then(|i| engines.iter().find(|m| m.java_index == i))
+                .map(|m| m.profile.id.as_str());
+            if config.engine.last_engine.as_deref() != last {
+                out.push(ImportTarget::LastEngine);
+            }
         }
         out
     }
