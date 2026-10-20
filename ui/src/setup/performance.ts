@@ -152,7 +152,7 @@ export function performanceCard(ctx: SetupContext): SetupCard {
     const measuredAt = policy?.["katago-benchmark-updated-at"] ?? 0;
     const entries = [profile?.name ?? t("EngineThreadPolicy.selectTarget"), profile?.engine, profile?.config, threads > 0 ? String(threads) : "—", profile?.model || t("AutoSetup.notFound"), policy?.["katago-benchmark-backend"] || t("AutoSetup.benchmarkCurrentBackend"), measuredAt > 0 ? new Date(measuredAt).toLocaleString() : "—"];
     entries.forEach((entry, index) => { values[index].textContent = entry || "—"; values[index].title = entry || ""; });
-    notice.hidden = !/b11/i.test(profile?.model ?? "");
+    notice.hidden = !profile?.b11;
     const task = latest?.task;
     status.textContent = task?.engineId === targetId ? t("AutoSetup.benchmarking") : !profile?.eligible ? t("AutoSetup.benchmarkUnavailableShort") : profile.environmentStatus ? t("B11SpeedNotice.historicalStatus") : threads <= 0 ? t("AutoSetup.benchmarkNotRun") : nnSpeed > 0 && visitsSpeed > 0 ? t("AutoSetup.benchmarkDone") : t("AutoSetup.benchmarkLegacyResult");
     const command = view?.settings.engine.engines.find((entry) => entry.id === targetId)?.command ?? "";

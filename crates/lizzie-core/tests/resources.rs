@@ -605,6 +605,11 @@ fn weight_import_identifies_header_uniquely_and_inventory_uses_recorded_digest()
     assert!(!weight_compatibility(first.model_name.as_ref().unwrap(), Some("1.16.4+b18c384nbt")).compatible);
     assert!(!weight_compatibility(first.model_name.as_ref().unwrap(), None).compatible);
     assert!(weight_compatibility("kata1-b18c384-s123-d456", None).compatible);
+    // Java B11ModelNotice.isB11: official catalog name or header only.
+    assert!(is_b11_model("kata1-tf3-b11c768-s12002M-d6304M.bin.gz"));
+    assert!(is_b11_model("b11c768h12nbt3tflrs-s12002M"));
+    assert!(!is_b11_model("my-b11-weights.bin.gz"));
+    assert!(!is_b11_model("kata1-b18c384nbt-s9996604416-d4316597426.bin.gz"));
     assert_eq!(
         parse_weight_header(b"renamed\n16\n19\n19\nrest"),
         Some("renamed".into())

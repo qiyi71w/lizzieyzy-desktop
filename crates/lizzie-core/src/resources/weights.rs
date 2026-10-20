@@ -47,6 +47,16 @@ pub fn is_transformer_weight(name: &str) -> bool {
         .unwrap_or(&lower);
     stem.contains("tflrs") || matches_pattern(r"^kata1-tf[23]-b\d+c\d+-.*$", stem)
 }
+/// Java `B11ModelNotice.isB11`: the official B11 catalog name or its model header.
+pub fn is_b11_model(name: &str) -> bool {
+    let lower = name.trim().to_lowercase();
+    let stem = [".bin.gz", ".txt.gz", ".bin", ".txt"]
+        .iter()
+        .find_map(|ext| lower.strip_suffix(ext))
+        .unwrap_or(&lower);
+    matches_pattern(r"^kata1-tf[23]-b11c768-[a-z0-9-]+$", stem)
+        || matches_pattern(r"^b11c768h12nbt3tflrs(?:-[a-z0-9-]+)?$", stem)
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct WeightCompatibility {

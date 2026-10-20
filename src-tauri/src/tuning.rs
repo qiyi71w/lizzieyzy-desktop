@@ -258,7 +258,20 @@ fn selected(shared: &State, id: &str) -> Result<(String, LaunchSpec), ApiError> 
 pub async fn dispatch(app: AppHandle, shared: State, op: TuningCommand) -> Result<CommandResult, ApiError> {
     match op {
         TuningCommand::Refresh => {
-            shared.workbench.lock().unwrap().refresh_tuning();
+            // Java reads the benchmark target's model header off the UI thread for the B11 notice.
+            let unread = shared.workbench.lock().unwrap().unread_weight_headers();
+            let headers = tauri::async_runtime::spawn_blocking(move || {
+                unread
+                    .into_iter()
+                    .filter_map(|path| {
+                        let name = lizzie_core::resources::read_weight_model_name(std::path::Path::new(&path))?;
+                        Some((path, name))
+                    })
+                    .collect::<BTreeMap<_, _>>()
+            })
+            .await
+            .map_err(|e| api_error(e.to_string()))?;
+            shared.workbench.lock().unwrap().record_weight_headers(headers);
             crate::publish(&app, &shared);
             result(TuningResult::Done)
         }

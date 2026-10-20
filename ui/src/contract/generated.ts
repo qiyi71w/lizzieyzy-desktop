@@ -1024,7 +1024,11 @@ config: string,
 /**
  * Resolved neural network path.
  */
-model: string, };
+model: string, 
+/**
+ * Java's B11 speed notice applies: the network's model header names the official B11.
+ */
+b11: boolean, };
 
 export type BenchmarkTaskView = { 
 /**

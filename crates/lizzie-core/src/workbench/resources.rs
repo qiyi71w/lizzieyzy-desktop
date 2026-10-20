@@ -473,6 +473,31 @@ impl Workbench {
                     .filter(|version| !version.is_empty())
             })
     }
+    /// Header identity of a weight already read: installed inventory, or the off-lock header cache.
+    pub(super) fn weight_model_name(&self, path: &str) -> Option<String> {
+        self.resources
+            .view
+            .inventory
+            .weights
+            .iter()
+            .find(|i| i.path == Path::new(path))
+            .and_then(|w| w.model_name.clone())
+            .or_else(|| self.resources.weight_headers.get(path).cloned())
+    }
+    /// Saved profiles' weights whose model header has not been read yet (read off-lock by the shell).
+    pub fn unread_weight_headers(&self) -> Vec<String> {
+        self.tuning_view()
+            .profiles
+            .into_iter()
+            .map(|p| p.model)
+            .filter(|m| !m.is_empty() && self.weight_model_name(m).is_none())
+            .collect()
+    }
+    pub fn record_weight_headers(&mut self, headers: BTreeMap<String, String>) {
+        self.resources.weight_headers.extend(headers);
+        self.resources.revision += 1;
+        self.refresh_tuning();
+    }
     pub fn apply_resource_setup(
         &mut self,
         id: u64,
@@ -601,14 +626,7 @@ impl Workbench {
             let parts = split_command(&p.command);
             let arg = |name: &str| parts.windows(2).find(|a| a[0] == name).map(|a| a[1].clone());
             let weight = arg("-model");
-            let model_name = weight.as_ref().and_then(|w| {
-                v.inventory
-                    .weights
-                    .iter()
-                    .find(|i| i.path == Path::new(w))
-                    .and_then(|w| w.model_name.clone())
-                    .or_else(|| self.resources.weight_headers.get(w).cloned())
-            });
+            let model_name = weight.as_deref().and_then(|w| self.weight_model_name(w));
             v.current_setup = ResourceSetupView {
                 profile_id: Some(p.id.clone()),
                 executable: parts.first().cloned(),
@@ -617,7 +635,7 @@ impl Workbench {
                     .and_then(|executable| self.resource_verified_version(executable)),
                 weight,
                 model_name: model_name.clone(),
-                b11: model_name.as_ref().is_some_and(|n| n.contains("b11")),
+                b11: model_name.as_deref().is_some_and(r::is_b11_model),
                 config: arg("-config"),
                 analysis_config: v
                     .inventory

@@ -85,6 +85,8 @@ pub struct TuningProfileView {
     pub config: String,
     /// Resolved neural network path.
     pub model: String,
+    /// Java's B11 speed notice applies: the network's model header names the official B11.
+    pub b11: bool,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]

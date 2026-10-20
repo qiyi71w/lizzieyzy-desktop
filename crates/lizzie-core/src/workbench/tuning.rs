@@ -527,13 +527,17 @@ impl Workbench {
                         .unwrap_or("")
                         .to_string()
                 };
+                let model = path("model");
                 TuningProfileView {
                     engine_id: p.id.clone(),
                     name: p.name.clone(),
                     eligible: tuning::is_local_katago(&p.command),
                     engine: launch.as_ref().map(|l| l.program.clone()).unwrap_or_default(),
                     config: path("config"),
-                    model: path("model"),
+                    b11: self
+                        .weight_model_name(&model)
+                        .is_some_and(|n| crate::resources::is_b11_model(&n)),
+                    model,
                     policy,
                     environment_status,
                 }
