@@ -647,6 +647,11 @@ fn window_placement(window: &tauri::WebviewWindow, previous: Option<WindowPlacem
         return previous.map(|p| WindowPlacement { maximized: true, ..p });
     }
     let pos = window.outer_position().ok()?;
+    // GTK's native window size can include client-side decorations and shadows on Wayland.
+    // Persist the WebKit allocation, which matches the content size accepted at startup.
+    #[cfg(target_os = "linux")]
+    let size = window.as_ref().bounds().ok()?.size.to_physical::<u32>(window.scale_factor().ok()?);
+    #[cfg(not(target_os = "linux"))]
     let size = window.inner_size().ok()?;
     Some(WindowPlacement {
         x: pos.x,
