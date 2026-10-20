@@ -80,6 +80,8 @@ pub struct LaunchSpec {
     pub program: String,
     pub args: Vec<String>,
     pub working_dir: Option<PathBuf>,
+    /// Java NVIDIA runtime directories, prepended to PATH on Windows only.
+    pub library_dirs: Vec<PathBuf>,
 }
 
 /// `CommandLaunchHelper.looksLikeRelativeFileToken`: a relative token that names a file — it holds
@@ -166,6 +168,7 @@ pub fn prepare_launch(command: &str, roots: &[PathBuf]) -> Option<LaunchSpec> {
         program,
         args: parts,
         working_dir,
+        library_dirs: Vec::new(),
     })
 }
 

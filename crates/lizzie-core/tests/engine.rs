@@ -18,6 +18,7 @@ use lizzie_core::workbench::{OpenOrigin, Workbench};
 struct Proc {
     sent: Vec<String>,
     terminated: bool,
+    args: Vec<String>,
 }
 
 #[derive(Clone, Default)]
@@ -78,11 +79,14 @@ impl Launcher for FakeLauncher {
                 "No such file or directory",
             ));
         }
-        self.0
-             .0
-            .lock()
-            .unwrap()
-            .push((id, spec.program.clone(), Proc::default()));
+        self.0 .0.lock().unwrap().push((
+            id,
+            spec.program.clone(),
+            Proc {
+                args: spec.args.clone(),
+                ..Proc::default()
+            },
+        ));
         Ok(Box::new(FakeIo {
             id,
             world: self.0.clone(),
@@ -1042,4 +1046,161 @@ fn katajigo_is_katago_but_does_not_analyse() {
     let engine = wb.view(false).engine.foreground.unwrap();
     assert!(engine.katago);
     assert!(!engine.can_analyse);
+}
+
+#[test]
+fn profile_thread_policy_controls_launch_and_bootstrap() {
+    use lizzie_core::engine::tuning::{self, ThreadPolicy, ThreadSource};
+    let dir = tempfile::tempdir().unwrap();
+    for name in ["katago", "gtp.cfg", "model.bin.gz"] {
+        std::fs::write(dir.path().join(name), b"fixture").unwrap();
+    }
+    let base = format!(
+        "\"{}\" gtp -config \"{}\" -model \"{}\"",
+        dir.path().join("katago").display(),
+        dir.path().join("gtp.cfg").display(),
+        dir.path().join("model.bin.gz").display()
+    );
+    for (source, explicit, expected) in [
+        (ThreadSource::CFG, false, false),
+        (ThreadSource::BENCHMARK, false, true),
+        (ThreadSource::BENCHMARK, true, false),
+    ] {
+        let world = World::default();
+        let mut wb = workbench(dir.path(), &world);
+        let command = if explicit {
+            format!("{base} -override-config numSearchThreads=3")
+        } else {
+            base.clone()
+        };
+        let spec = lizzie_core::engine::gtp::prepare_launch(&command, &[]).unwrap();
+        let policy = ThreadPolicy {
+            source,
+            threads: 8,
+            nn_server_threads: 2,
+            batch_size: 16,
+            environment: Some(tuning::environment(&command, &spec).unwrap()),
+            ..ThreadPolicy::default()
+        };
+        wb.save_engine_settings(
+            vec![EngineProfile {
+                id: "tuned".into(),
+                command,
+                thread_policy: Some(policy),
+                ..EngineProfile::default()
+            }],
+            EngineStartup::Empty,
+        )
+        .unwrap();
+        wb.switch_engine(0).unwrap();
+        let id = world.launched().last().unwrap().0;
+        let commands = answer_all(&mut wb, &world, id, KATA);
+        assert_eq!(
+            commands.iter().any(|s| s == "kata-set-param numSearchThreads 8"),
+            expected
+        );
+        let args = world
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|p| p.0 == id)
+            .unwrap()
+            .2
+            .args
+            .clone();
+        if expected {
+            let overrides = tuning::overrides(&args);
+            assert_eq!(overrides["numsearchthreads"], "8");
+            assert_eq!(overrides["numnnserverthreadspermodel"], "2");
+            assert_eq!(overrides["nnmaxbatchsize"], "16");
+        }
+        wb.end_engines();
+    }
+}
+
+#[test]
+fn startup_benchmark_is_opt_in_visible_stoppable_and_remembers_dismissal() {
+    let dir = tempfile::tempdir().unwrap();
+    for file in ["katago", "gtp.cfg", "model.bin.gz"] {
+        std::fs::write(dir.path().join(file), b"fixture").unwrap();
+    }
+    let command = format!(
+        "\"{}\" gtp -config \"{}\" -model \"{}\"",
+        dir.path().join("katago").display(),
+        dir.path().join("gtp.cfg").display(),
+        dir.path().join("model.bin.gz").display()
+    );
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    wb.save_engine_settings(
+        vec![EngineProfile {
+            id: "startup".into(),
+            command,
+            ..EngineProfile::default()
+        }],
+        EngineStartup::Empty,
+    )
+    .unwrap();
+    wb.switch_engine(0).unwrap();
+    let id = world.launched()[0].0;
+    answer_all(&mut wb, &world, id, KATA);
+    assert!(wb.begin_startup_benchmark().is_none());
+    wb.set_startup_benchmark(true).unwrap();
+    // Apple automatic optimization requires its trusted Metal resource package.
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        assert!(wb.begin_startup_benchmark().is_none());
+        return;
+    }
+    let job = wb.begin_startup_benchmark().unwrap();
+    let notice = wb.view(false).tuning.unwrap().startup_notice.unwrap();
+    assert_eq!(notice.id, job.id);
+    assert!(notice.automatic);
+    assert!(!wb.dismiss_startup_notice(job.id + 1));
+    assert!(wb.dismiss_startup_notice(job.id));
+    wb.complete_benchmark(job.id, Err("cancelled".into()));
+    assert!(wb.begin_startup_benchmark().is_none());
+    assert_eq!(wb.config().engine.startup_benchmark_dismissed_version, 5);
+}
+
+#[test]
+fn benchmark_analysis_pause_restores_only_when_user_has_not_paused() {
+    for user_pauses in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        for file in ["katago", "gtp.cfg", "model.bin.gz"] {
+            std::fs::write(dir.path().join(file), b"fixture").unwrap();
+        }
+        let command = format!(
+            "\"{}\" gtp -config \"{}\" -model \"{}\"",
+            dir.path().join("katago").display(),
+            dir.path().join("gtp.cfg").display(),
+            dir.path().join("model.bin.gz").display()
+        );
+        let world = World::default();
+        let mut wb = workbench(dir.path(), &world);
+        wb.save_engine_settings(
+            vec![EngineProfile {
+                id: "paused".into(),
+                command,
+                ..EngineProfile::default()
+            }],
+            EngineStartup::Empty,
+        )
+        .unwrap();
+        wb.switch_engine(0).unwrap();
+        let engine = world.launched()[0].0;
+        answer_all(&mut wb, &world, engine, KATA);
+        assert!(wb.view(false).engine.analysing);
+        let job = wb.begin_benchmark("paused", false).unwrap();
+        answer_all(&mut wb, &world, engine, KATA);
+        assert!(!wb.view(false).engine.analysing);
+        if user_pauses {
+            wb.toggle_analysis().unwrap();
+        }
+        wb.complete_benchmark(job.id, Err("AutoSetup.benchmarkFailed".into()));
+        answer_all(&mut wb, &world, engine, KATA);
+        let view = wb.view(false);
+        assert_eq!(view.engine.paused, user_pauses);
+        assert_eq!(view.engine.analysing, !user_pauses);
+    }
 }

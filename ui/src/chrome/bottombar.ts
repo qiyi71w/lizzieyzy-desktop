@@ -3,6 +3,7 @@
 // field are implemented here; the other buttons report that the capability is not available yet.
 import { navigate, run, state, subscribe, unavailable } from "../app";
 import { product, t } from "../i18n";
+import { openAutoSetup } from "../setup/dialog";
 
 interface Item {
   name: string;
@@ -33,7 +34,7 @@ const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" 
   ],
   leftOptional: [
     { name: "remoteComputeButton", key: "Menu.remoteCompute", cls: "primary" },
-    { name: "downloadWeightButton", key: "BottomToolbar.downloadWeight" },
+    { name: "downloadWeightButton", key: "BottomToolbar.downloadWeight", run: () => openAutoSetup("weights") },
     { name: "kataEstimate", key: "BottomToolbar.kataEstimate" },
     { name: "heatMap", key: "BottomToolbar.heatMap" },
     { name: "liveButton", key: "BottomToolbar.liveButton" },
@@ -94,6 +95,10 @@ export function buildBottomBar(host: HTMLElement): void {
     b.className = `bb ${item.cls ?? ""}`;
     b.dataset.name = item.name;
     b.textContent = t(item.key);
+    if (item.name === "downloadWeightButton") {
+      b.dataset.key = "weights.download"; b.setAttribute("role", "button"); b.tabIndex = 0;
+      b.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); item.run?.(); } };
+    }
     if (item.run) b.onclick = item.run;
     else {
       b.classList.add("unavailable");

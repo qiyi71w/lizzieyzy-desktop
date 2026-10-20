@@ -100,6 +100,14 @@ impl Launcher for ProcessLauncher {
             cmd.current_dir(dir);
         }
         #[cfg(windows)]
+        if !spec.library_dirs.is_empty() {
+            let mut paths = spec.library_dirs.clone();
+            paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
+            if let Ok(path) = std::env::join_paths(paths) {
+                cmd.env("PATH", path);
+            }
+        }
+        #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;

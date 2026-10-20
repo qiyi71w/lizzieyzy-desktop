@@ -8,7 +8,9 @@
 //! - [`process`]: the OS process launcher.
 //! - [`tuning`]: thread policy, benchmark results and GTP configuration of a profile.
 
+pub mod benchmark;
 pub mod gtp;
+pub mod gtp_config;
 pub mod process;
 pub mod profile;
 pub mod rules;

@@ -153,6 +153,7 @@ function engineTable(host: HTMLElement, engines: ImportEngineView[], choose: Map
     }
     const problems = [...e.problems.map(problemText)];
     if (e.unmigrated_fields.length) problems.push(product("importUnmigratedFields", e.unmigrated_fields.join(", ")));
+    if (e.incompatible_fields.length) problems.push(product("importIncompatibleFields", e.incompatible_fields.join(", ")));
     const p = text("td", problems.join("；"), e.problems.length ? "java-import-problem" : "");
     for (const cell of [tr.children[2] as HTMLElement, p]) cell.title = cell.textContent ?? "";
     tr.append(status, p);

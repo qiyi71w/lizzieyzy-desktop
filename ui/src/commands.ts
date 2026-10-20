@@ -13,6 +13,7 @@ import { openMoreEngines } from "./engine/catalog";
 import { consoleVisible, toggleConsole } from "./engine/console";
 import { openRules } from "./engine/rules";
 import { openAnalysisSettings } from "./engine/settings";
+import { openAutoSetup } from "./setup/dialog";
 import "./engine/events";
 
 export interface CommandEntry {
@@ -36,6 +37,9 @@ function language(lang: Language): CommandEntry {
 export const COMMANDS: Record<string, CommandEntry> = {
   "analysis.toggle": { run: () => run({ type: "ToggleAnalysis" }) },
   "engine.configuration": { run: openMoreEngines },
+  "engine.setup": { run: () => openAutoSetup("overview") },
+  "weights.download": { run: () => openAutoSetup("weights") },
+  "engine.acceleration": { run: () => openAutoSetup("acceleration") },
   "engine.rules": { run: openRules },
   "settings.general": { run: openAnalysisSettings },
   "menu.gtpPanel": { run: toggleConsole, checked: consoleVisible },

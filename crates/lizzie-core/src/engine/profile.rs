@@ -122,6 +122,15 @@ pub struct EngineSettings {
     pub kata_rules: String,
     /// `auto-load-kata-rules` [false]: apply `kata_rules` whenever KataGo starts.
     pub auto_load_kata_rules: bool,
+    /// `ui.enable-startup-benchmark` [false on a new profile, Config.applyFirstLaunchDefaults]:
+    /// the user opted in to the official benchmark after start-up when the foreground KataGo has
+    /// no stored result (Settings > Advanced).
+    pub startup_benchmark: bool,
+    /// `ui.katago-startup-benchmark-dismissed-signature`: benchmark signature the user dismissed
+    /// the start-up benchmark for (KataGoRuntimeHelper.java:5880-5905).
+    pub startup_benchmark_dismissed_signature: String,
+    /// `ui.katago-startup-benchmark-dismissed-version`.
+    pub startup_benchmark_dismissed_version: u32,
 }
 
 impl EngineSettings {

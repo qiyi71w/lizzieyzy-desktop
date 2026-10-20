@@ -2,7 +2,12 @@
 import { run, state } from "../app";
 import type { EngineProfile, EngineStartup } from "../contract/generated";
 import { chooseSave, confirm, formPanel } from "../dialogs";
-import { product, t } from "../i18n";
+import { t } from "../i18n";
+import { openAutoSetup } from "../setup/dialog";
+import { onTuningChange, tuningView } from "../setup/performance";
+import { configureGtp } from "./gtpConfig";
+import { scanEngine } from "./scan";
+import { tuningText } from "./tuningText";
 import { actions, button, checkbox, field, input } from "./controls";
 
 let opened = false;
@@ -22,6 +27,7 @@ export async function openMoreEngines(): Promise<void> {
     const name = input("");
     const command = document.createElement("textarea");
     command.rows = 5;
+    let scanBusy = false, gtpBusy = false;
     const initial = input("");
     initial.placeholder = t("MoreEngines.initialCommandHint");
     const width = input(19, "number"); width.min = "2"; width.max = "52";
@@ -38,9 +44,62 @@ export async function openMoreEngines(): Promise<void> {
     field(size, t("MoreEngines.lblHeight"), height);
     field(size, t("MoreEngines.lblKomi"), komi);
     form.append(size);
-    actions(form, button(t("EngineThreadPolicy.cfg"), () => undefined, false), button(t("EngineThreadPolicy.benchmark"), () => undefined, false), button(t("EngineThreadPolicy.startBenchmark"), () => undefined, false), button(t("MoreEngines.scan"), () => undefined, false), button(t("MoreEngines.gtpConfig"), () => undefined, false));
-    const unavailable = document.createElement("small"); unavailable.className = "engine-unavailable-note";
-    unavailable.textContent = product("unavailable"); form.append(unavailable);
+    const policyRow = document.createElement("div"); policyRow.className = "engine-actions";
+    const cfg = input("CFG", "radio"), benchmark = input("BENCHMARK", "radio");
+    cfg.name = benchmark.name = "engine-thread-source";
+    cfg.dataset.key = "engine.thread.cfg"; benchmark.dataset.key = "engine.thread.benchmark";
+    const cfgLabel = document.createElement("label"); cfgLabel.append(cfg, t("EngineThreadPolicy.cfg"));
+    const benchmarkLabel = document.createElement("label"); const benchmarkText = document.createTextNode(""); benchmarkLabel.append(benchmark, benchmarkText);
+    const benchmarkButton = button(t("EngineThreadPolicy.startBenchmark"), async () => {
+      const entry = engines[selected]; if (!entry) return;
+      const draft = read();
+      if (JSON.stringify(draft) !== JSON.stringify(entry)) {
+        if (!(await chooseSave(t("EngineThreadPolicy.settings"), t("EngineThreadPolicy.benchmarkSavePrompt"), t("EngineThreadPolicy.saveAndBenchmark"), t("MoreEngines.cancel"))) || !(await save())) return;
+      }
+      await dialog.close();
+      await openAutoSetup("performance", { engineId: entry.id });
+    }); benchmarkButton.dataset.key = "engine.performance";
+    policyRow.append(cfgLabel, benchmarkLabel, benchmarkButton); form.append(policyRow);
+    const policyStatus = document.createElement("small"); policyStatus.className = "engine-thread-status"; form.append(policyStatus);
+    const selectSource = async (source: "CFG" | "BENCHMARK") => {
+      const entry = engines[selected]; if (!entry) return;
+      await run({ type: "Tuning", op: { type: "SetThreadSource", engine_id: entry.id, source } });
+      updatePolicy();
+    };
+    cfg.onchange = () => { if (cfg.checked) void selectSource("CFG"); };
+    benchmark.onchange = () => { if (benchmark.checked) void selectSource("BENCHMARK"); };
+    const scan = button(t("MoreEngines.scan"), async () => {
+      const entryId = engines[selected]?.id; scanBusy = true; updatePolicy();
+      try { const scanned = await scanEngine(); if (scanned !== null && engines[selected]?.id === entryId) { command.value = scanned; updatePolicy(); } }
+      finally { scanBusy = false; updatePolicy(); }
+    }); scan.dataset.key = "engine.scan";
+    const gtp = button(t("MoreEngines.gtpConfig"), async () => {
+      const entry = engines[selected]; if (!entry) return;
+      gtpBusy = true; updatePolicy(); gtp.textContent = t("GtpEngineConfig.detecting");
+      try { await configureGtp(entry.id); }
+      finally { gtpBusy = false; gtp.textContent = t("MoreEngines.gtpConfig"); updatePolicy(); }
+    }); gtp.dataset.key = "engine.gtpConfig";
+    actions(form, scan, gtp);
+    const updatePolicy = () => {
+      const entry = engines[selected];
+      const profile = tuningView()?.profiles.find((item) => item.engineId === entry?.id);
+      const policy = profile?.policy;
+      const recommendation = policy?.["katago-benchmark-threads"] ?? 0;
+      const draftLocal = !!entry && /^(?:"[^"\n]*katago[^"\n]*"|'[^'\n]*katago[^'\n]*'|\S*katago\S*)(?:\s|$)/i.test(command.value.trim()) && !command.value.includes("://");
+      const local = draftLocal;
+      const remote = /(?:^|\s)ssh\s|:\/\//i.test(command.value);
+      policyRow.hidden = !entry || (!draftLocal && !remote && !!command.value.trim() && !/katago/i.test(command.value));
+      cfgLabel.hidden = benchmarkLabel.hidden = remote; benchmarkButton.hidden = remote;
+      cfg.checked = !local || policy?.source !== "BENCHMARK"; benchmark.checked = local && policy?.source === "BENCHMARK";
+      cfg.disabled = !local;
+      benchmark.disabled = !local || (recommendation <= 0 && policy?.source !== "BENCHMARK");
+      benchmarkText.textContent = recommendation > 0 ? t("EngineThreadPolicy.benchmarkWithThreads").replace("%d", String(recommendation)) : t("EngineThreadPolicy.benchmarkNotDetected");
+      benchmarkButton.textContent = recommendation > 0 ? t("EngineThreadPolicy.rerunBenchmark") : t("EngineThreadPolicy.startBenchmark");
+      benchmarkButton.disabled = !entry || !draftLocal;
+      policyStatus.textContent = remote ? t("EngineThreadPolicy.remoteManaged") : draftLocal ? [policy?.source === "BENCHMARK" && recommendation <= 0 ? t("EngineThreadPolicy.invalidRecommendation") : policy?.source === "BENCHMARK" ? t("EngineThreadPolicy.benchmarkDescription") : t("EngineThreadPolicy.cfgDescription"), profile?.environmentStatus ? tuningText(profile.environmentStatus) : "", /(?:numSearchThreads\s*=\s*[1-9]|--?threads\s+[1-9])/i.test(command.value) ? t("EngineThreadPolicy.explicitOverride") : ""].filter(Boolean).join(" · ") : "";
+      scan.disabled = !entry || scanBusy; gtp.disabled = !entry || gtpBusy;
+    };
+    command.dataset.key = "engine.command"; command.addEventListener("input", updatePolicy);
     body.append(form);
     const tableWrap = document.createElement("div"); tableWrap.className = "engine-table-wrap";
     const table = document.createElement("table"); table.className = "engine-table";
@@ -83,6 +142,7 @@ export async function openMoreEngines(): Promise<void> {
       name.value = entry?.name ?? ""; command.value = entry?.command ?? ""; initial.value = entry?.initialCommand ?? "";
       width.value = String(entry?.width ?? 19); height.value = String(entry?.height ?? 19); komi.value = String(entry?.komi ?? 7.5);
       preload.input.checked = entry?.preload ?? false; defaultEngine.input.checked = entry?.isDefault ?? false;
+      updatePolicy();
       table.replaceChildren();
       const header = table.createTHead().insertRow();
       for (const text of [t("MoreEngines.column0"), t("MoreEngines.column1"), t("MoreEngines.column2"), t("MoreEngines.column3"), t("MoreEngines.column4"), t("MoreEngines.column5"), t("MoreEngines.column6"), t("MoreEngines.column7")]) {
@@ -127,7 +187,17 @@ export async function openMoreEngines(): Promise<void> {
     const dialog = formPanel(t("MoreEngines.title"), body, dirty);
     actions(body, button(t("MoreEngines.exit"), () => dialog.close()));
     load();
+    const unsubscribe = onTuningChange(() => {
+      const saved = state.view?.settings.engine.engines;
+      engines = engines.map((entry) => {
+        const updated = saved?.find((item) => item.id === entry.id);
+        return updated ? { ...entry, threadPolicy: updated.threadPolicy, gtpConfiguration: updated.gtpConfiguration } : entry;
+      });
+      updatePolicy();
+    });
+    void run({ type: "Tuning", op: { type: "Refresh" } });
     await dialog.closed;
+    unsubscribe();
   } finally {
     opened = false;
     if (resume && state.view?.engine.foreground && state.view.engine.paused) await run({ type: "ToggleAnalysis" });

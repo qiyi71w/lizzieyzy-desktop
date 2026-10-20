@@ -46,3 +46,13 @@
 .gtp-console select { max-width: 160px; }
 .engine-limit-notice { position: fixed; z-index: 46; width: min(520px, 85vw); right: 25px; bottom: 60px; padding: 14px; background: #eee; color: #111; border: 1px solid #777; box-shadow: 0 3px 14px #0006; font-size: 13px; }
 .engine-limit-notice p { white-space: pre-line; }
+.engine-thread-status { white-space: pre-line; color: #555; }
+.engine-scan { padding: 14px; min-width: 360px; }
+.engine-scan > button { margin-right: 8px; }
+.gtp-config { padding: 18px 20px 16px; width: min(600px, 86vw); }
+.gtp-config section { display: grid; gap: 12px; margin: 12px 0; }
+.gtp-config section[hidden] { display: none; }
+.gtp-config .engine-field { grid-template-columns: minmax(200px, 1fr) minmax(140px, 190px); }
+.gtp-config .inactive { opacity: .55; }
+.gtp-config > p { color: #666; }
+.gtp-config > .engine-actions { justify-content: flex-end; }

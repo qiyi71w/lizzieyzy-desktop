@@ -173,7 +173,11 @@ export type EngineSettingsView = { engines: Array<EngineProfile>, startup: Engin
 /**
  * `kata-rules` as saved (JSON or preset name; empty = the engine's own).
  */
-kata_rules: string, auto_load_kata_rules: boolean, };
+kata_rules: string, auto_load_kata_rules: boolean, 
+/**
+ * Settings > Advanced: run the official benchmark after start-up (`ui.enable-startup-benchmark`).
+ */
+startup_benchmark: boolean, };
 
 export type SettingsView = { language: Language, 
 /**
@@ -306,7 +310,11 @@ command: string, during_startup: boolean, message: string,
 /**
  * Last lines the engine printed.
  */
-output: Array<string>, };
+output: Array<string>, 
+/**
+ * Missing store-owned NVIDIA runtime components, if this managed profile can be repaired.
+ */
+repair?: ResourceRepairView, };
 
 export type EngineNotice = "StoppedByLimit";
 
@@ -411,7 +419,7 @@ export type ImportStatus = "Imported" | "Incompatible" | "NotMigrated";
 
 export type ImportReason = "NotYetAvailable" | "Credential" | "InvalidValue" | "WindowCoordinates" | "RemoteEngine" | "CredentialNotConfirmed" | "Unreadable";
 
-export type ImportTarget = "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules";
+export type ImportTarget = "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy";
 
 export type ImportItemView = { 
 /**
@@ -444,9 +452,15 @@ command: string, status: ImportStatus, reason: ImportReason | null,
  */
 credential: boolean, is_default: boolean, problems: Array<EngineProblem>, 
 /**
- * Java fields of this entry this product does not use yet (thread policy, GTP profile, …).
+ * Java fields of this entry this product does not use yet.
  */
-unmigrated_fields: Array<string>, };
+unmigrated_fields: Array<string>, 
+/**
+ * Java fields that do not apply here: Java's management of its own bundled KataGo package
+ * (`managedProfileType`, `managedProfileCommand`); this client manages only resources it
+ * downloaded or imported itself.
+ */
+incompatible_fields: Array<string>, };
 
 export type ImportPreviewView = { 
 /**
@@ -466,28 +480,622 @@ restart_required: boolean, };
 
 export type ImportFailure = { "type": "NoConfig", path: string, } | { "type": "Unreadable", path: string, detail: string, } | { "type": "Invalid", path: string, detail: string, };
 
-export type ManagedProfile = { 
+export type ManagedProfile = { command: string, assetId: string, weightPath: string, configPath: string, };
+
+export type SupportTier = "stable" | "optional" | "experimental";
+
+export type RuntimeRequirement = "none" | "linux-cuda-cudnn" | "nvidia-runtime-download" | "tensorrt-runtime" | "opencl-icd" | "metal" | "directx12" | "openvino" | "rocm-family";
+
+export type Asset = { id: string, platform: string, backend: string, assetName: string, sizeBytes: number, sha256: string, executableSha256: string, runtimeProfile: string, gpuFamily: string, releaseTier: SupportTier, zlibLinkage: string, licenseSummary: string, licenseTexts: Array<string>, runtimeRequirement: RuntimeRequirement, analysis: boolean, contribution: boolean, };
+
+export type Model = { id: string, fileName: string, displayFamily: string, tier: string, architecture: string, minimumKataGoVersion: string, sizeBytes: number, sha256: string, bundled: boolean, downloadUrl: string, publishedAt: string, licenseSummary: string, licenseTexts: Array<string>, runtimeRequirement: RuntimeRequirement, supportTier: SupportTier, analysis: boolean, contribution: boolean, };
+
+export type Catalog = { schemaVersion: number, katagoVersion: string, katagoReleaseTag: string, katagoSourceCommit: string, origin: string, engineReleaseRepository: string, engineReleaseTag: string, modelReleaseTag: string, defaultModelId: string, models: { [key in string]: Model }, assets: { [key in string]: Asset }, };
+
+export type CudaCompatibility = "SUPPORTED" | "PROBE_REQUIRED" | "UNSUPPORTED" | "UNKNOWN";
+
+export type NvidiaQueryStatus = "found" | "none" | "failed";
+
+export type ComputeCapability = { major: number, minor: number, inferred: boolean, };
+
+export type NvidiaGpu = { name: string, compute: ComputeCapability | null, driver: string | null, memoryMib: number | null, };
+
+export type AppleFacts = { model: string | null, chip: string | null, build: string | null, };
+
+export type MachineFacts = { os: string, arch: string, rosetta: boolean | null, logicalCpus: number | null, totalMemoryBytes: number | null, cpuName: string | null, nvidiaGpus: Array<NvidiaGpu>, nvidiaStatus: NvidiaQueryStatus, cudaCompatibility: CudaCompatibility, apple: AppleFacts | null, 
 /**
- * The command as written; the profile stays managed only while its command is unchanged.
+ * None means the cache/ICD probe failed, not that libraries are absent.
  */
-command: string, };
+loaderLibraries: Array<string> | null, openclIcd: boolean | null, };
 
-export type ResourceCommand = { "type": "Inspect", refresh: boolean, };
+export type RecommendationReason = "nvidiaDetected" | "nvidiaNotDetected" | "driverSupported" | "driverProbeRequired" | "driverUnknown" | "driverTooOld" | "openclAvailable" | "openclUnavailable" | "cpuFallback" | "nativeMetal" | "rosettaUseArm64" | "tensorRtAllowed" | "tensorRtNotRecommended" | "computeUnknown" | "experimentalManualOnly" | "dependenciesMissing";
 
-export type ResourceResult = { "type": "Done" };
+export type MissingDependency = { "kind": "nvidiaGpu" } | { "kind": "minimumDriver", "detail": string } | { "kind": "linuxLibrary", "detail": string } | { "kind": "loaderCacheUnknown" } | { "kind": "windowsNvidiaRuntime" } | { "kind": "tensorRtRuntime" } | { "kind": "openclIcd" } | { "kind": "directX12" } | { "kind": "openVinoDevice" } | { "kind": "rocmFamily", "detail": string };
 
-export type ResourcesView = Record<symbol, never>;
-
-export type ThreadPolicy = { 
+export type PackageOption = { assetId: string, tier: SupportTier, 
 /**
- * Set by the first automatic setup of a profile (Java `initialSetup`).
+ * Advisory eligibility only: all listed options remain manually selectable.
  */
-initialSetup: boolean, };
+eligible: boolean, recommended: boolean, reasons: Array<RecommendationReason>, missingDependencies: Array<MissingDependency>, downloadSize: number, };
 
-export type GtpConfiguration = Record<symbol, never>;
+export type ModelCard = { id: string, tier: string, isDefault: boolean, hintKey: string, };
 
-export type TuningCommand = { "type": "Refresh" };
+export type Recommendation = { platform: string | null, packages: Array<PackageOption>, models: Array<ModelCard>, };
 
-export type TuningResult = { "type": "Done" };
+export type RuntimePackage = { key: string, version: string, url: string, sha256: string, size: number, };
 
-export type TuningView = Record<symbol, never>;
+export type ExperimentalBackend = "direct-ml" | "open-vino-gpu" | "open-vino-npu" | "rocm-gfx103x" | "rocm-gfx110x" | "rocm-gfx1151" | "rocm-gfx120x";
+
+export type ResourceSource = "download" | "import";
+
+export type ResourceReceipt = { assetId: string, version: string, archiveSha256: string, executableSha256: string, executable: string, executableSize: number, source: ResourceSource, installedAt: number, experimentalBackend: ExperimentalBackend | null, };
+
+export type InstalledPackage = { directory: string, executable: string, receipt: ResourceReceipt, usable: boolean, };
+
+export type InstalledWeight = { path: string, size: number, modelName: string | null, catalogModelId: string | null, sha256: string | null, };
+
+export type ResourceInventory = { packages: Array<InstalledPackage>, weights: Array<InstalledWeight>, gtpConfig: string | null, analysisConfig: string | null, };
+
+export type WeightCompatibility = { compatible: boolean, minimumVersion: string | null, };
+
+export type RemoteWeight = { name: string, downloadUrl: string, publishedAt: string, elo: string, sha256: string | null, sizeBytes: number | null, transformer: boolean, recommended: boolean, latest: boolean, };
+
+export type ValidationStatus = "ACTIVE" | "VALID" | "TIMED_OUT" | "WRONG_ARCHITECTURE" | "MISSING_DEPENDENCY" | "START_FAILED";
+
+export type EngineValidation = { status: ValidationStatus, version: string | null, detail: string, };
+
+export type CudaProbeResult = { passed: boolean, timedOut: boolean, detail: string, };
+
+export type NetworkSettings = { proxyMode: ProxyMode, 
+/**
+ * `network-proxy-host` (manual mode; non-empty when manual).
+ */
+proxyHost: string, 
+/**
+ * `network-proxy-port` (manual mode; 1–65535 when manual).
+ */
+proxyPort: number, };
+
+export type ProxyMode = "Direct" | "System" | "Manual";
+
+export type ResourceItem = { "type": "Package", 
+/**
+ * Catalog asset identifier.
+ */
+asset: string, 
+/**
+ * Explicit experimental-install confirmation.
+ */
+confirmed: boolean, 
+/**
+ * Optional experimental device variant.
+ */
+backend: ExperimentalBackend | null, } | { "type": "Model", 
+/**
+ * Catalog model identifier.
+ */
+model: string, } | { "type": "OnlineWeight", 
+/**
+ * Network name, not a URL.
+ */
+name: string, } | { "type": "NvidiaRuntime", 
+/**
+ * `cuda` or `tensorrt`.
+ */
+backend: string, 
+/**
+ * Explicit runtime-install confirmation.
+ */
+confirmed: boolean, };
+
+export type LocalEngineChoice = { 
+/**
+ * Executable path; None opens the executable chooser.
+ */
+executable: string | null, 
+/**
+ * GTP config; discovered beside the executable before asking.
+ */
+config: string | null, 
+/**
+ * Model; discovered beside the executable before asking.
+ */
+weight: string | null, };
+
+export type ResourceEngineChoice = { 
+/**
+ * Installed asset identity, or `local` for an explicitly chosen executable.
+ */
+assetId: string, 
+/**
+ * Absolute executable path.
+ */
+executable: string, 
+/**
+ * GTP config path.
+ */
+config: string, 
+/**
+ * Experimental device command overrides.
+ */
+backend: ExperimentalBackend | null, 
+/**
+ * Managed profile to update; None adds a new profile.
+ */
+updateProfileId: string | null, };
+
+export type ResourcePlanView = { 
+/**
+ * Opaque workbench plan identity.
+ */
+id: number, 
+/**
+ * Existing managed profile, or None for addition.
+ */
+replacesProfileId: string | null, 
+/**
+ * Name that will be saved.
+ */
+name: string, 
+/**
+ * Exact launch command that will be saved.
+ */
+command: string, 
+/**
+ * Whether the target is currently the default.
+ */
+isDefault: boolean, };
+
+export type ResourceTaskView = { 
+/**
+ * Workbench-assigned identity.
+ */
+id: number, 
+/**
+ * Operation category.
+ */
+kind: string, 
+/**
+ * Safe catalog identity, never a URL or personal path.
+ */
+item: string, 
+/**
+ * Bytes received.
+ */
+bytes: number, 
+/**
+ * Entire resource size, if known.
+ */
+total: number | null, 
+/**
+ * Current phase (detecting/downloading/installing/verifying).
+ */
+phase: string, 
+/**
+ * Whether cancellation may be requested.
+ */
+cancellable: boolean, };
+
+export type ResourceOutcome = { 
+/**
+ * Task identity.
+ */
+task: number, 
+/**
+ * done / cancelled / failed.
+ */
+status: string, 
+/**
+ * Java localization key.
+ */
+messageKey: string, 
+/**
+ * Sanitized bounded diagnostic, without personal paths or credentials.
+ */
+detail: string, };
+
+export type ResourceSetupView = { 
+/**
+ * Selected profile identity.
+ */
+profileId: string | null, 
+/**
+ * Executable path.
+ */
+executable: string | null, 
+/**
+ * Explicitly verified version or the ready foreground KataGo's GTP identity; no probe is started.
+ */
+engineVersion: string | null, 
+/**
+ * Weight path.
+ */
+weight: string | null, 
+/**
+ * Identity read from the weight header.
+ */
+modelName: string | null, 
+/**
+ * B11 transformer notice applies.
+ */
+b11: boolean, 
+/**
+ * GTP config path.
+ */
+config: string | null, 
+/**
+ * Analysis config path.
+ */
+analysisConfig: string | null, 
+/**
+ * The command still matches its store-owned marker.
+ */
+managed: boolean, 
+/**
+ * foreground / default / local / downloaded / imported.
+ */
+discoverySource: string, };
+
+export type ResourceAccelerationView = { 
+/**
+ * Backend identifier.
+ */
+backend: string, 
+/**
+ * Platform supports the installer.
+ */
+applicable: boolean, 
+/**
+ * Required missing runtime file patterns.
+ */
+missing: Array<string>, 
+/**
+ * Bytes safe to delete after confirmation.
+ */
+cacheBytes: number, 
+/**
+ * Experimental packages are never automatic recommendations.
+ */
+experimental: boolean, };
+
+export type ResourceRepairView = { 
+/**
+ * Failed managed profile.
+ */
+profileId: string, 
+/**
+ * CUDA or TensorRT backend.
+ */
+backend: string, 
+/**
+ * Missing runtime items.
+ */
+missing: Array<string>, 
+/**
+ * Java action label.
+ */
+messageKey: string, };
+
+export type ResourceCommand = { "type": "Inspect", 
+/**
+ * Re-probe even when cached.
+ */
+refresh: boolean, } | { "type": "Download", 
+/**
+ * Catalog or cached item.
+ */
+item: ResourceItem, } | { "type": "CancelTask", 
+/**
+ * Workbench-assigned identity.
+ */
+task: number, } | { "type": "ImportPackage", 
+/**
+ * None opens the zip chooser.
+ */
+path: string | null, 
+/**
+ * Experimental device variant.
+ */
+backend: ExperimentalBackend | null, 
+/**
+ * Confirmation for experimental packages.
+ */
+confirmed: boolean, } | { "type": "ImportWeight", 
+/**
+ * None opens the gzip chooser.
+ */
+path: string | null, } | { "type": "ChooseLocalEngine", 
+/**
+ * Paths or chooser requests.
+ */
+choice: LocalEngineChoice, } | { "type": "Verify", 
+/**
+ * Engine selection.
+ */
+target: ResourceEngineChoice, 
+/**
+ * Weight for a required CUDA probe.
+ */
+weight: string | null, } | { "type": "PlanSetup", 
+/**
+ * Engine/config selection.
+ */
+engine: ResourceEngineChoice, 
+/**
+ * Installed or explicitly chosen weight path.
+ */
+weight: string, } | { "type": "ApplySetup", 
+/**
+ * Plan identity.
+ */
+plan: number, 
+/**
+ * Set the committed profile as default.
+ */
+make_default: boolean, 
+/**
+ * Start through the normal switch-engine path.
+ */
+switch_now: boolean, } | { "type": "RefreshRemoteWeights" } | { "type": "RepairAnalysisConfig" } | { "type": "OpenResourceFolder" } | { "type": "CleanNvidiaCache", 
+/**
+ * False inspects; true confirms deletion.
+ */
+confirmed: boolean, } | { "type": "RepairTensorRt", 
+/**
+ * Explicit download/install confirmation.
+ */
+confirmed: boolean, } | { "type": "EnableTensorRt" } | { "type": "SwitchBackToCuda" } | { "type": "SetNetworkProxy", 
+/**
+ * Direct/System/Manual configuration.
+ */
+settings: NetworkSettings, };
+
+export type ResourceResult = { "type": "Done" } | { "type": "Started", 
+/**
+ * Task identity.
+ */
+task: number, } | { "type": "Plan", 
+/**
+ * Exact changes awaiting confirmation.
+ */
+plan: ResourcePlanView, } | { "type": "Verified", 
+/**
+ * Version classification.
+ */
+validation: EngineValidation, 
+/**
+ * Required inference probe, when applicable.
+ */
+cuda: CudaProbeResult | null, } | { "type": "Chosen", 
+/**
+ * Complete engine selection.
+ */
+engine: ResourceEngineChoice, 
+/**
+ * Selected model.
+ */
+weight: string, } | { "type": "Cancelled" } | { "type": "CacheSize", 
+/**
+ * Bytes in the NVIDIA download cache only.
+ */
+bytes: number, } | { "type": "Refused", 
+/**
+ * Java localization key.
+ */
+message_key: string, };
+
+export type ResourcesView = { 
+/**
+ * Last detected facts; None means not yet detected.
+ */
+machine: MachineFacts | null, 
+/**
+ * Detection currently running.
+ */
+detecting: boolean, 
+/**
+ * Structured package/model recommendations.
+ */
+recommendation: Recommendation | null, 
+/**
+ * Trusted package descriptions, licenses, source and capabilities.
+ */
+packages: Array<Asset>, 
+/**
+ * Pinned model descriptions, licenses, source and capabilities.
+ */
+models: Array<Model>, 
+/**
+ * Trusted source repository and release page for these packages.
+ */
+engineReleaseUrl: string, 
+/**
+ * KataGo version pinned by the catalog.
+ */
+engineVersion: string, 
+/**
+ * Full upstream commit used to build the packages.
+ */
+engineSourceCommit: string, 
+/**
+ * Catalog asset identity to trusted download URL.
+ */
+packageUrls: { [key in string]: string }, 
+/**
+ * Catalog model identity to trusted download URL.
+ */
+modelUrls: { [key in string]: string }, 
+/**
+ * Bounded store inventory including receipts and header identities.
+ */
+inventory: ResourceInventory, 
+/**
+ * Cached official network list.
+ */
+onlineWeights: Array<RemoteWeight>, 
+/**
+ * idle / refreshing / done / Java cache-preserving failure key.
+ */
+remoteStatus: string, 
+/**
+ * Current foreground/default setup.
+ */
+currentSetup: ResourceSetupView, 
+/**
+ * CUDA, TensorRT and experimental status rows.
+ */
+acceleration: Array<ResourceAccelerationView>, 
+/**
+ * Current operation.
+ */
+task: ResourceTaskView | null, 
+/**
+ * Last terminal outcome, consumed once in incremental delivery.
+ */
+lastOutcome: ResourceOutcome | null, 
+/**
+ * Last explicitly verified executable and result.
+ */
+verification: EngineValidation | null, 
+/**
+ * Executable associated with `verification`; both are updated atomically on task completion.
+ */
+verificationExecutable: string | null, 
+/**
+ * Required CUDA inference result.
+ */
+cudaProbe: CudaProbeResult | null, 
+/**
+ * Complete local selection after native choosers.
+ */
+chosenEngine: ResourceEngineChoice | null, 
+/**
+ * Complete local weight selection.
+ */
+chosenWeight: string | null, 
+/**
+ * No configured command and startup is not Empty (Java banner has no dismiss).
+ */
+startupNeedsRepair: boolean, 
+/**
+ * Persisted network configuration.
+ */
+network: NetworkSettings, };
+
+export type ThreadSource = "CFG" | "BENCHMARK";
+
+export type ThreadPolicy = { source: ThreadSource, sourceRevision: number, initialSetup: boolean, "katago-benchmark-threads": number, "katago-benchmark-current-threads": number, "katago-benchmark-backend": string, "katago-benchmark-summary": string, "katago-benchmark-updated-at": number, "katago-benchmark-topology": string, "katago-benchmark-nn-server-threads": number, "katago-benchmark-batch-size": number, "katago-benchmark-visits-per-second": number, "katago-benchmark-nn-evals-per-second": number, "katago-benchmark-average-batch-size": number, environment: unknown, "katago-tuning-profiles-v1": unknown, "katago-measured-scenes-v1": unknown, };
+
+export type GtpConfiguration = { protocol: string, profile: Record<string, unknown>, };
+
+export type TuningCommand = { "type": "Refresh" } | { "type": "SetStartupBenchmark", enabled: boolean, } | { "type": "StartBenchmark", engine_id: string, experimental: boolean, } | { "type": "StopBenchmark" } | { "type": "DismissStartupNotice", task_id: number, } | { "type": "SetThreadSource", engine_id: string, source: ThreadSource, } | { "type": "ImportMeasured", engine_id: string, path: string | null, } | { "type": "ConfirmMeasured", engine_id: string, review_id: number, } | { "type": "RestoreMeasured", engine_id: string, } | { "type": "InspectGtpConfiguration", engine_id: string, } | { "type": "SaveGtpConfiguration", engine_id: string, configuration: GtpConfiguration, } | { "type": "Scan", engine_type: string, } | { "type": "ScanIkatago", platform: string, user_name: string, password: string, };
+
+export type TuningResult = { "type": "Done" } | { "type": "Started", task_id: number, } | { "type": "Cancelled" } | { "type": "GtpSchema", engine_id: string, schema: Record<string, unknown> | null, } | { "type": "Scanned", command: string, } | { "type": "MeasuredReview", engine_id: string, review_id: number, report: Record<string, unknown>, };
+
+export type TuningProfileView = { 
+/**
+ * Stable saved engine identity.
+ */
+engineId: string, 
+/**
+ * Saved display name.
+ */
+name: string, 
+/**
+ * Only local KataGo profiles can use thread tuning.
+ */
+eligible: boolean, 
+/**
+ * Full saved policy, including benchmark metadata and measured scene presence.
+ */
+policy: ThreadPolicy, 
+/**
+ * Java message key when the environment changed or cannot be fingerprinted.
+ */
+environmentStatus: string | null, 
+/**
+ * Resolved executable / configuration / network metadata for the performance card.
+ */
+engine: string, 
+/**
+ * Resolved GTP configuration path.
+ */
+config: string, 
+/**
+ * Resolved neural network path.
+ */
+model: string, };
+
+export type BenchmarkTaskView = { 
+/**
+ * Workbench-assigned identity used to reject stale progress and completion.
+ */
+id: number, 
+/**
+ * Profile captured when the run started.
+ */
+engineId: string, 
+/**
+ * Whether the experimental Apple topology search was explicitly requested.
+ */
+experimental: boolean, 
+/**
+ * Automatic opt-in startup run; display the non-modal Java benchmark notice.
+ */
+automatic: boolean, 
+/**
+ * Progress in thousandths, from real KataGo positions output.
+ */
+permille: number, 
+/**
+ * Recent sanitized process status (not analysis output).
+ */
+statusLines: Array<string>, 
+/**
+ * Stop requested; remains active until the process has been reaped.
+ */
+cancelling: boolean, };
+
+export type TuningOutcome = { 
+/**
+ * Completed task identity.
+ */
+taskId: number, 
+/**
+ * Profile targeted by the task.
+ */
+engineId: string, 
+/**
+ * Java message key for successful, cancelled or failed outcome.
+ */
+key: string, 
+/**
+ * Sanitized explanatory detail.
+ */
+detail: string, 
+/**
+ * True only when a valid result was committed.
+ */
+success: boolean, };
+
+export type TuningView = { 
+/**
+ * Saved engine policies, including profiles without a result.
+ */
+profiles: Array<TuningProfileView>, 
+/**
+ * At most one active benchmark.
+ */
+task: BenchmarkTaskView | null, 
+/**
+ * Automatic run notice (same task identity/progress); closing it cancels, it never hides work.
+ */
+startupNotice: BenchmarkTaskView | null, 
+/**
+ * Terminal outcome sent once, not replayed by unrelated updates.
+ */
+outcome: TuningOutcome | null, 
+/**
+ * Enables the experimental button only on native macOS arm64.
+ */
+appleSilicon: boolean, };

@@ -34,6 +34,7 @@ const IMPORT_TEXT: Record<string, Table> = {
     importEngineProblems: "问题",
     importCopyCredentials: "复制凭据",
     importUnmigratedFields: "未迁入字段：{0}",
+    importIncompatibleFields: "不适用字段（LizzieYzy Next 对其自带引擎包的管理）：{0}",
     importProgramFolder: "LizzieYzy Next 程序文件夹",
     importRepreview: "重新预览",
     importReplaces: "以下设置已在 LizzieYzy Tauri 中修改过，导入会替换它们：{0}",
@@ -80,6 +81,8 @@ const IMPORT_TEXT: Record<string, Table> = {
     targetPonderLimitTips: "达到分析限制时提示",
     targetKataRules: "KataGo 规则",
     targetAutoLoadKataRules: "自动加载 KataGo 规则",
+    targetStartupBenchmark: "启动时智能测速",
+    targetNetworkProxy: "网络代理",
   },
   ZhTw: {
     javaImport: "從 LizzieYzy Next 匯入設定…",
@@ -106,6 +109,7 @@ const IMPORT_TEXT: Record<string, Table> = {
     importEngineProblems: "問題",
     importCopyCredentials: "複製憑據",
     importUnmigratedFields: "未遷入欄位：{0}",
+    importIncompatibleFields: "不適用欄位（LizzieYzy Next 對其內建引擎包的管理）：{0}",
     importProgramFolder: "LizzieYzy Next 程式資料夾",
     importRepreview: "重新預覽",
     importReplaces: "以下設定已在 LizzieYzy Tauri 中修改過，匯入會取代它們：{0}",
@@ -152,6 +156,8 @@ const IMPORT_TEXT: Record<string, Table> = {
     targetPonderLimitTips: "達到分析限制時提示",
     targetKataRules: "KataGo 規則",
     targetAutoLoadKataRules: "自動載入 KataGo 規則",
+    targetStartupBenchmark: "啟動時智慧測速",
+    targetNetworkProxy: "網路代理",
   },
   EnUs: {
     javaImport: "Import settings from LizzieYzy Next…",
@@ -178,6 +184,7 @@ const IMPORT_TEXT: Record<string, Table> = {
     importEngineProblems: "Problems",
     importCopyCredentials: "Copy credentials",
     importUnmigratedFields: "Fields left out: {0}",
+    importIncompatibleFields: "Fields that do not apply (LizzieYzy Next's management of its own engine package): {0}",
     importProgramFolder: "LizzieYzy Next program folder",
     importRepreview: "Preview again",
     importReplaces: "These settings were changed in LizzieYzy Tauri and the import replaces them: {0}",
@@ -224,6 +231,8 @@ const IMPORT_TEXT: Record<string, Table> = {
     targetPonderLimitTips: "Notice when an analysis limit is reached",
     targetKataRules: "KataGo rules",
     targetAutoLoadKataRules: "Load KataGo rules automatically",
+    targetStartupBenchmark: "Benchmark at start-up",
+    targetNetworkProxy: "Network proxy",
   },
 };
 
@@ -258,6 +267,14 @@ export function t(key: string): string {
 /** MessageFormat-style `{0}` substitution. */
 export function format(text: string, ...args: (string | number)[]): string {
   return text.replace(/\{(\d+)\}/g, (_, k) => `${args[Number(k)] ?? ""}`);
+}
+
+/** Product-only messages of a feature module, kept next to that feature; same language rules as
+ *  PRODUCT. Later registrations do not replace existing keys. */
+export function registerProduct(tables: Record<string, Table>): void {
+  for (const [language, table] of Object.entries(tables)) {
+    PRODUCT[language] = { ...table, ...PRODUCT[language] };
+  }
 }
 
 export function product(key: string, ...args: (string | number)[]): string {

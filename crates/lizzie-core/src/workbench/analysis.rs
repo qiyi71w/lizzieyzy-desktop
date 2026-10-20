@@ -276,13 +276,14 @@ impl Workbench {
             // Java resumes after a limit stop once the position changes.
             self.limit_stop = None;
         }
-        let analyse = !self.paused && self.limit_stop.is_none() && self.rules_permit_analysis();
+        let analyse =
+            !self.paused && !self.benchmark_running() && self.limit_stop.is_none() && self.rules_permit_analysis();
         let target = self.analysis_target();
         self.engines.want(Some(target), analyse);
         self.check_rules_prompt();
     }
 
-    fn bootstrap(&self, profile: &EngineProfile) -> Bootstrap {
+    pub(super) fn bootstrap(&self, profile: &EngineProfile) -> Bootstrap {
         let s = &self.config.engine;
         let rules = if s.auto_load_kata_rules {
             KataRules::parse(&s.kata_rules)
@@ -429,6 +430,9 @@ impl Workbench {
         }
         let running = !self.paused && self.limit_stop.is_none();
         self.paused = running;
+        if !running && self.benchmark_running() {
+            self.stop_benchmark();
+        }
         self.limit_stop = None;
         self.sync_engine();
         Ok(true)
@@ -774,6 +778,7 @@ impl Workbench {
             during_startup: f.during_startup,
             message,
             output,
+            repair: None,
         });
     }
 
@@ -836,6 +841,7 @@ impl Workbench {
             analysis: s.analysis.clone(),
             kata_rules: s.kata_rules.clone(),
             auto_load_kata_rules: s.auto_load_kata_rules,
+            startup_benchmark: s.startup_benchmark,
         }
     }
 

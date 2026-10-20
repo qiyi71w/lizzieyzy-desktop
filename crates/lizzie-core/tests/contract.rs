@@ -12,7 +12,7 @@ use lizzie_core::browse::Navigation;
 use lizzie_core::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup};
 use lizzie_core::record::{BoardSize, GameInfo, Mark, MarkKind, Point, RecordFormat, Stone};
 use lizzie_core::settings::{Language, WindowPlacement};
-use ts_rs::{Config, TS};
+use ts_rs::Config;
 
 #[macro_export]
 macro_rules! decls {

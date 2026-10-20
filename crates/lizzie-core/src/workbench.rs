@@ -25,6 +25,7 @@ use std::sync::Arc;
 use analysis::AnalysisStore;
 pub use analysis::LogLine;
 pub use importing::{IMPORT_NEEDS_REPLACE, IMPORT_STALE};
+pub use resources::{prepare_resource_setup, run_resource_job, ResourceCompletion, ResourceJob};
 
 use crate::api::{
     ApiError, DocumentView, EngineFailureView, EngineNotice, ErrorKind, LastAction, LogsStatus, OpenOutcome,
@@ -204,6 +205,10 @@ impl Workbench {
         let persisted: Persisted = settings::load_json(&storage.persist_file);
         let active_language = config.ui.language.resolve(system_locale);
         let mut engines = Engines::new(launcher, engine_roots);
+        let runtime = storage.resources_dir.join("runtime/nvidia");
+        if runtime.is_dir() {
+            engines.set_library_dirs(vec![runtime]);
+        }
         engines.set_interval(config.engine.analysis.interval_centisec);
         let mut store = AnalysisStore::default();
         store.reset(1);
@@ -670,6 +675,9 @@ impl Workbench {
         v.save_outcome = self.save_outcome.take();
         v.sounds = std::mem::take(&mut self.sounds);
         v.engine_failure = self.engine_failure.take();
+        if let Some(failure) = &mut v.engine_failure {
+            failure.repair = self.resource_repair_context(&failure.command);
+        }
         v.engine_notice = self.engine_notice.take();
         v.rules_prompt = self.rules_prompt.take();
         v.resources = self.take_resources_view(full);
@@ -685,6 +693,9 @@ impl Workbench {
         v.save_outcome = self.save_outcome.clone();
         v.sounds = self.sounds.clone();
         v.engine_failure = self.engine_failure.clone();
+        if let Some(failure) = &mut v.engine_failure {
+            failure.repair = self.resource_repair_context(&failure.command);
+        }
         v.engine_notice = self.engine_notice;
         v.rules_prompt = self.rules_prompt.clone();
         v.resources = Some(self.resources_view());

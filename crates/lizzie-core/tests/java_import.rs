@@ -11,7 +11,7 @@ use lizzie_core::engine::gtp::{split_command, LaunchSpec};
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::java_import::{self, JavaSource};
-use lizzie_core::settings::{Config, Language, Persisted, Storage};
+use lizzie_core::settings::{Config, Language, Persisted, ProxyMode, Storage};
 use lizzie_core::workbench::{Workbench, IMPORT_NEEDS_REPLACE, IMPORT_STALE};
 use serde_json::json;
 
@@ -65,6 +65,10 @@ fn java_dir(root: &Path) -> PathBuf {
             "default-engine": 0,
             "last-engine": 0,
             "board-theme": "wood",
+            "enable-startup-benchmark": true,
+            "network-proxy-mode": "manual",
+            "network-proxy-host": "127.0.0.1",
+            "network-proxy-port": "7897",
             "up-load-passwd": SECRETS[0],
         },
         "leelaz": {
@@ -86,7 +90,14 @@ fn java_dir(root: &Path) -> PathBuf {
                     "height": 19,
                     "useJavaSSH": false,
                     "ip": "", "port": "", "userName": "", "password": "", "useKeyGen": false, "keyGenPath": "",
-                    "threadPolicy": { "source": "CFG" },
+                    "threadPolicy": {
+                        "source": "BENCHMARK", "sourceRevision": 3, "katago-benchmark-threads": 12,
+                        "katago-benchmark-backend": "CUDA", "environment": { "engine": "engines/fake-katago" },
+                    },
+                    "gtpConfigurationProtocol": "katago-gtp-config-v1",
+                    "gtpConfigurationProfile": { "maxVisits": 800 },
+                    "managedProfileType": "bundled-katago",
+                    "managedProfileCommand": "engines/fake-katago gtp",
                 },
                 {
                     "id": "java-1",
@@ -202,7 +213,18 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
     let tokens = split_command(&local.command);
     assert_eq!(tokens[0], java.join("engines/fake-katago").to_string_lossy());
     assert_eq!(tokens[3], java.join("weights/model.bin.gz").to_string_lossy());
-    assert!(local.problems.is_empty() && local.is_default && local.unmigrated_fields == ["threadPolicy"]);
+    assert!(local.problems.is_empty() && local.is_default && local.unmigrated_fields.is_empty());
+    assert_eq!(
+        local.incompatible_fields,
+        ["managedProfileCommand", "managedProfileType"]
+    );
+    for key in [
+        "ui.enable-startup-benchmark",
+        "ui.network-proxy-mode",
+        "ui.network-proxy-port",
+    ] {
+        assert_eq!(status(key), ImportStatus::Imported, "{key}");
+    }
     assert!(p.engines[1].problems.contains(&EngineProblem::ProgramNotFound {
         path: "/nonexistent/katago".into()
     }));
@@ -260,6 +282,29 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
     assert_eq!(
         (local.komi, local.initial_command.as_str(), local.is_default),
         (6.5, "time_settings 0 1 0", true)
+    );
+    // Thread policy with its benchmark results and the GTP configuration profile come along; the
+    // Java package-management marker does not (this client did not install those files).
+    let policy = local.thread_policy.as_ref().expect("thread policy");
+    assert_eq!(
+        (policy.source_revision, policy.threads, policy.backend.as_str()),
+        (3, 12, "CUDA")
+    );
+    assert!(policy.environment.is_some());
+    let gtp = local.gtp_configuration.as_ref().expect("gtp configuration");
+    assert_eq!(
+        (gtp.protocol.as_str(), gtp.profile.get("maxVisits")),
+        ("katago-gtp-config-v1", Some(&json!(800)))
+    );
+    assert!(local.managed.is_none());
+    assert!(c.engine.startup_benchmark);
+    assert_eq!(
+        (
+            c.network.proxy_mode,
+            c.network.proxy_host.as_str(),
+            c.network.proxy_port
+        ),
+        (ProxyMode::Manual, "127.0.0.1", 7897)
     );
     assert_eq!((c.engine.engines[1].width, c.engine.engines[1].height), (9, 19));
     assert_eq!(
@@ -633,4 +678,66 @@ fn the_import_is_offered_on_first_use_until_declined() {
     assert!(wb.dismiss_java_import_offer().unwrap());
     assert!(!wb.view(false).java_import.offer);
     assert!(!workbench(&product, Recorder::default()).view(false).java_import.offer);
+}
+
+#[test]
+fn proxy_settings_java_would_reject_are_reported_and_not_taken_over() {
+    let tmp = tempfile::tempdir().unwrap();
+    let product = tmp.path().join("product");
+    for (ui, valid) in [
+        // `NetworkProxy.manualSettings`: manual needs a host and a port 1–65535.
+        (
+            json!({ "network-proxy-mode": "manual", "network-proxy-host": " ", "network-proxy-port": 8080 }),
+            false,
+        ),
+        (
+            json!({ "network-proxy-mode": "manual", "network-proxy-host": "proxy", "network-proxy-port": 70000 }),
+            false,
+        ),
+        (json!({ "network-proxy-mode": "socks" }), false),
+        // A missing mode is `direct`; system mode ignores the address fields.
+        (json!({ "network-proxy-host": "proxy" }), true),
+        (
+            json!({ "network-proxy-mode": "system", "network-proxy-port": "8080" }),
+            true,
+        ),
+    ] {
+        let java = tmp.path().join("java");
+        std::fs::create_dir_all(&java).unwrap();
+        std::fs::write(java.join("config.txt"), json!({ "ui": ui.clone() }).to_string()).unwrap();
+        let mut wb = workbench(&product, Recorder::default());
+        let p = preview(&mut wb, &java);
+        let proxy: Vec<_> = p
+            .items
+            .iter()
+            .filter(|i| i.key.starts_with("ui.network-proxy-"))
+            .collect();
+        let expected = if valid {
+            ImportStatus::Imported
+        } else {
+            ImportStatus::Incompatible
+        };
+        assert!(
+            proxy
+                .iter()
+                .all(|i| i.status == expected && i.target == Some(ImportTarget::NetworkProxy)),
+            "{ui}"
+        );
+        wb.apply_java_import(p.id, &[], true).unwrap().unwrap();
+        let network = saved_config(&product).network;
+        if valid {
+            let mode = if ui.get("network-proxy-mode").is_some() {
+                ProxyMode::System
+            } else {
+                ProxyMode::Direct
+            };
+            assert_eq!(network.proxy_mode, mode, "{ui}");
+        } else {
+            assert_eq!(
+                network,
+                Default::default(),
+                "{ui}: rejected values leave the setting as it was"
+            );
+        }
+    }
 }

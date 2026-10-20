@@ -603,6 +603,14 @@ fn logs_directory(state: tauri::State<'_, State>) -> LogsStatus {
     state.workbench.lock().unwrap().logs_status()
 }
 
+/// Java Overview's full-release action; no caller-provided URL is accepted.
+#[tauri::command]
+fn open_katago_releases(app: AppHandle) -> Result<(), ApiError> {
+    app.opener()
+        .open_url("https://github.com/lightvector/KataGo/releases", None::<&str>)
+        .map_err(|_| ApiError::new(ErrorKind::Unavailable, "AutoSetup.openBrowserUnsupported"))
+}
+
 fn window_placement(window: &tauri::WebviewWindow, previous: Option<WindowPlacement>) -> Option<WindowPlacement> {
     let maximized = window.is_maximized().ok()?;
     if maximized {
@@ -671,6 +679,8 @@ pub fn run() {
             run_refresher(app.handle().clone(), shared.clone());
             shared.workbench.lock().unwrap().start_engines();
             publish(app.handle(), &shared);
+            resources::startup(app.handle().clone(), shared.clone());
+            tuning::startup(app.handle().clone(), shared.clone());
 
             let window = app.get_webview_window("main").expect("main window");
             if let Some(p) = placement {
@@ -741,6 +751,10 @@ pub fn run() {
                 // their processes, so none is left behind.
                 let shared = app.state::<State>().inner().clone();
                 shared.workbench.lock().unwrap().end_engines();
+                shared.workbench.lock().unwrap().stop_benchmark();
+                shared.workbench.lock().unwrap().cancel_resource_tasks();
+                resources::shutdown();
+                tuning::shutdown();
                 shared.processes.wait(Duration::from_secs(4));
                 let logs = shared.workbench.lock().unwrap().take_logs();
                 write_logs(&shared, logs);
@@ -751,7 +765,13 @@ pub fn run() {
 
 #[cfg(not(feature = "acceptance"))]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![dispatch_command, workbench_snapshot, logs_directory, engine_console]
+    tauri::generate_handler![
+        dispatch_command,
+        workbench_snapshot,
+        logs_directory,
+        engine_console,
+        open_katago_releases
+    ]
 }
 
 #[cfg(feature = "acceptance")]
@@ -761,6 +781,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         workbench_snapshot,
         logs_directory,
         engine_console,
+        open_katago_releases,
         acceptance::acceptance_ui_report
     ]
 }

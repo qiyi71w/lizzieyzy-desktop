@@ -15,6 +15,7 @@ import { isChinese, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
 import { boardGeom, graphGeom, inFrameLayout, type Panels, type Rect } from "./workbench/layout";
 import { handleEngineKey } from "./engine/keys";
+import { mountSetupBanner } from "./setup/banner";
 import {
   loadImages,
   paintBackground,
@@ -729,6 +730,7 @@ async function boot() {
   buildMenubar($("menubar"));
   buildToolbar($("toolbar"));
   buildBottomBar($("bottombar"));
+  mountSetupBanner();
   $("commentsTab").textContent = t("SidebarHeader.comments");
   $("problemsTab").textContent = t("SidebarHeader.problems");
   $("problemsTab").title = product("unavailable");

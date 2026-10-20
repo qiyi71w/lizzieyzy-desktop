@@ -205,6 +205,7 @@ struct Request {
 struct Instance {
     id: InstanceId,
     profile: EngineProfile,
+    launch_threads: u32,
     io: Option<Box<dyn EngineIo>>,
     phase: Phase,
     gtp_name: String,
@@ -284,6 +285,9 @@ pub enum UserCommandError {
 pub struct Engines {
     launcher: Box<dyn Launcher>,
     roots: Vec<PathBuf>,
+    library_dirs: Vec<PathBuf>,
+    measured_hardware: Option<(String, String, u64)>,
+    apple_hardware: Option<serde_json::Value>,
     instances: Vec<Instance>,
     next_instance: InstanceId,
     foreground: Option<InstanceId>,
@@ -361,6 +365,9 @@ impl Engines {
         Engines {
             launcher,
             roots,
+            library_dirs: Vec::new(),
+            measured_hardware: None,
+            apple_hardware: None,
             instances: Vec::new(),
             next_instance: 1,
             foreground: None,
@@ -459,6 +466,87 @@ impl Engines {
     }
 
     // -------------------------------------------------------------------- settings
+    /// Java `KataGoRuntimeHelper`: Windows NVIDIA DLL lookup for subsequent starts.
+    pub fn set_library_dirs(&mut self, dirs: Vec<PathBuf>) {
+        self.library_dirs = dirs;
+    }
+
+    pub fn roots(&self) -> &[PathBuf] {
+        &self.roots
+    }
+    pub fn library_dirs(&self) -> &[PathBuf] {
+        &self.library_dirs
+    }
+    /// Session GPU identity captured off-lock by the shell (resources detection can refresh it).
+    pub fn set_measured_hardware(&mut self, hardware: Option<(String, String, u64)>) -> bool {
+        if self.measured_hardware == hardware {
+            return false;
+        }
+        self.measured_hardware = hardware;
+        true
+    }
+    pub fn set_apple_hardware(&mut self, hardware: Option<serde_json::Value>) -> bool {
+        if self.apple_hardware == hardware {
+            return false;
+        }
+        self.apple_hardware = hardware;
+        true
+    }
+    pub fn apple_profile_matches(&self, profile: &EngineProfile) -> bool {
+        let Some(stored) = profile.thread_policy.as_ref().and_then(|p| p.tuning_profiles.as_ref()) else {
+            return false;
+        };
+        let Some(expected) = stored["fingerprintDigest"].as_str() else {
+            return false;
+        };
+        let Some(hardware) = &self.apple_hardware else {
+            return false;
+        };
+        let Some(spec) = gtp::prepare_launch(&profile.command, &self.roots) else {
+            return false;
+        };
+        super::tuning::apple_fingerprint(&profile.command, &spec, hardware, stored["mode"] == "OFFICIAL_THREADS")
+            .is_ok_and(|current| current == expected)
+    }
+
+    /// Update the running policy; launch-only changes require the caller to reload.
+    pub fn apply_thread_policy(&mut self, profile: &EngineProfile) {
+        let Some(id) = self.instance_of(&profile.id) else {
+            return;
+        };
+        let threads = profile
+            .thread_policy
+            .as_ref()
+            .map_or(0, |p| p.threads_for_launch(&profile.command));
+        if let Some(inst) = self.get_mut(id) {
+            inst.profile.thread_policy = profile.thread_policy.clone();
+            inst.launch_threads = threads;
+        }
+        if threads > 0 && self.is_katago(id) {
+            self.send(
+                id,
+                &format!("kata-set-param numSearchThreads {threads}"),
+                Purpose::Setup,
+            );
+            self.fence_last(id);
+        }
+    }
+    pub fn apply_gtp_configuration(&mut self, profile: &EngineProfile) {
+        let Some(id) = self.instance_of(&profile.id) else {
+            return;
+        };
+        if let Some(configuration) = &profile.gtp_configuration {
+            if configuration.protocol == "zengtp-config" {
+                if let Ok(json) = serde_json::to_string(&configuration.profile) {
+                    self.send(id, &format!("zengtp_config_set {json}"), Purpose::Setup);
+                    self.fence_last(id);
+                }
+            }
+        }
+        if let Some(inst) = self.get_mut(id) {
+            inst.profile.gtp_configuration = profile.gtp_configuration.clone();
+        }
+    }
 
     /// `analyze-update-interval-centisec`; 0 means the default 10.
     pub fn set_interval(&mut self, centisec: u32) {
@@ -513,11 +601,38 @@ impl Engines {
             message,
             output: Vec::new(),
         };
-        let spec = gtp::prepare_launch(&profile.command, &self.roots).ok_or_else(|| fail("empty command".into()))?;
+        let mut spec =
+            gtp::prepare_launch(&profile.command, &self.roots).ok_or_else(|| fail("empty command".into()))?;
+        // `EngineThreadPolicy.invalidRecommendation`: a Benchmark source without a recommendation.
+        if profile
+            .thread_policy
+            .as_ref()
+            .is_some_and(|p| p.source == super::tuning::ThreadSource::BENCHMARK && p.threads == 0)
+            && super::tuning::is_local_katago(&profile.command)
+            && !super::tuning::has_search_threads(&profile.command)
+        {
+            return Err(Box::new(fail("EngineThreadPolicy.invalidRecommendation".into())));
+        }
+        spec.library_dirs = self.library_dirs.clone();
+        super::tuning::apply_launch_policy(&profile.command, profile.thread_policy.as_ref(), &mut spec);
+        if let (Some(policy), Some(hardware)) = (&profile.thread_policy, &self.apple_hardware) {
+            super::tuning::apply_apple_launch_policy(&profile.command, policy, &mut spec, hardware);
+        }
+        if let (Some(policy), Some((gpu, driver, memory))) = (&profile.thread_policy, &self.measured_hardware) {
+            super::tuning::apply_measured_live(&profile.command, policy, &self.roots, &mut spec, gpu, driver, *memory);
+        }
         let io = self.launcher.launch(id, &spec).map_err(|e| fail(e.to_string()))?;
         self.instances.push(Instance {
             id,
             profile: profile.clone(),
+            launch_threads: if super::tuning::has_search_threads(&profile.command) {
+                0
+            } else {
+                super::tuning::overrides(&spec.args)
+                    .get("numsearchthreads")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0)
+            },
             io: Some(io),
             phase: Phase::Starting,
             gtp_name: String::new(),
@@ -1060,6 +1175,19 @@ impl Engines {
                 .map(str::to_string),
         );
         let katago = inst.kind == EngineKind::KataGo;
+        if katago {
+            let threads = inst.launch_threads;
+            if threads > 0 {
+                cmds.push(format!("kata-set-param numSearchThreads {threads}"));
+            }
+        }
+        if let Some(configuration) = &inst.profile.gtp_configuration {
+            if configuration.protocol == "zengtp-config" && !configuration.profile.is_empty() {
+                if let Ok(json) = serde_json::to_string(&configuration.profile) {
+                    cmds.push(format!("zengtp_config_set {json}"));
+                }
+            }
+        }
         if katago && inst.has("kata-set-rules") {
             if let Some(r) = &boot.rules {
                 cmds.push(format!("kata-set-rules {}", r.to_gtp_argument()));

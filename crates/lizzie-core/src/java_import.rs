@@ -24,8 +24,9 @@ use crate::api::{
 };
 use crate::engine::gtp::{prepare_launch, split_command, FILE_PATH_OPTIONS};
 use crate::engine::profile::{new_profile_id, EngineProfile, EngineStartup};
+use crate::engine::tuning::{GtpConfiguration, ThreadPolicy};
 use crate::sanitize::sanitize;
-use crate::settings::{Config, Language, Persisted, RECENT_LIMIT};
+use crate::settings::{Config, Language, NetworkSettings, Persisted, ProxyMode, RECENT_LIMIT};
 
 pub const CONFIG_FILE: &str = "config.txt";
 pub const PERSIST_FILE: &str = "persist";
@@ -113,6 +114,12 @@ pub struct Mapped {
     pub show_ponder_limited_tips: Option<bool>,
     pub kata_rules: Option<String>,
     pub auto_load_kata_rules: Option<bool>,
+    pub startup_benchmark: Option<bool>,
+    /// The start-up benchmark the user dismissed (signature, version).
+    pub startup_benchmark_dismissed_signature: Option<String>,
+    pub startup_benchmark_dismissed_version: Option<u32>,
+    /// `ui.network-proxy-*` as Java `NetworkProxy.settings` would accept them.
+    pub network: Option<NetworkSettings>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -413,6 +420,24 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         Kind::Bool(|m, v| m.auto_load_kata_rules = Some(v)),
     ),
     (
+        "ui",
+        "enable-startup-benchmark",
+        ImportTarget::StartupBenchmark,
+        Kind::Bool(|m, v| m.startup_benchmark = Some(v)),
+    ),
+    (
+        "ui",
+        "katago-startup-benchmark-dismissed-signature",
+        ImportTarget::StartupBenchmark,
+        Kind::Str(|m, v| m.startup_benchmark_dismissed_signature = Some(v)),
+    ),
+    (
+        "ui",
+        "katago-startup-benchmark-dismissed-version",
+        ImportTarget::StartupBenchmark,
+        Kind::U32(|m, v| m.startup_benchmark_dismissed_version = Some(v)),
+    ),
+    (
         "leelaz",
         "max-analyze-time-seconds",
         ImportTarget::MaxAnalyzeTime,
@@ -597,6 +622,7 @@ impl Reader<'_> {
             }
         }
 
+        self.network(ui, &mut handled);
         self.engines(ui, leelaz, &mut handled);
 
         for (section, value) in root {
@@ -611,6 +637,60 @@ impl Reader<'_> {
                 None => self.not_migrated(section.clone(), value),
             }
         }
+    }
+
+    /// `ui.network-proxy-mode` / `-host` / `-port` (`NetworkProxy.settings`): a missing mode is
+    /// `direct`; `manual` needs a host and a port 1–65535. Values Java would reject are reported
+    /// and the setting is left as it is.
+    fn network(&mut self, ui: &Map<String, Value>, handled: &mut Handled) {
+        const KEYS: [&str; 3] = ["network-proxy-mode", "network-proxy-host", "network-proxy-port"];
+        if !KEYS.iter().any(|k| ui.contains_key(*k)) {
+            return;
+        }
+        for key in KEYS {
+            if ui.contains_key(key) {
+                handled.push(("ui", key));
+            }
+        }
+        let mode = match ui.get("network-proxy-mode").map(|v| v.as_str().map(str::trim)) {
+            None => Some(ProxyMode::Direct),
+            Some(Some("direct")) => Some(ProxyMode::Direct),
+            Some(Some("system")) => Some(ProxyMode::System),
+            Some(Some("manual")) => Some(ProxyMode::Manual),
+            Some(_) => None,
+        };
+        let host = ui
+            .get("network-proxy-host")
+            .map(|v| v.as_str().map(|s| s.trim().to_string()));
+        // `parsePort`: a number or a numeric string.
+        let port = ui.get("network-proxy-port").map(|v| match v {
+            Value::Number(_) | Value::String(_) => shown(v).trim().parse::<i64>().ok(),
+            _ => None,
+        });
+        let host_ok = matches!(&host, None | Some(Some(_)));
+        let port_ok = port.is_none() || port.is_some_and(|p| p.is_some_and(|n| (1..=65535).contains(&n)));
+        let manual_ok = mode != Some(ProxyMode::Manual)
+            || (host.as_ref().is_some_and(|h| h.as_ref().is_some_and(|h| !h.is_empty()))
+                && port.is_some_and(|p| p.is_some()));
+        let Some(mode) = mode.filter(|_| host_ok && port_ok && manual_ok) else {
+            for key in KEYS {
+                if let Some(v) = ui.get(key) {
+                    self.invalid(format!("ui.{key}"), ImportTarget::NetworkProxy, v);
+                }
+            }
+            return;
+        };
+        let settings = NetworkSettings {
+            proxy_mode: mode,
+            proxy_host: host.flatten().unwrap_or_default(),
+            proxy_port: port.flatten().map_or(0, |n| n as u16),
+        };
+        for key in KEYS {
+            if let Some(v) = ui.get(key) {
+                self.imported(format!("ui.{key}"), ImportTarget::NetworkProxy, shown(v));
+            }
+        }
+        self.mapped.network = Some(settings);
     }
 
     /// The engine list and the start-up choice.
@@ -812,7 +892,7 @@ fn legacy_entries(leelaz: &Map<String, Value>, default_engine: i64) -> Vec<Map<S
 }
 
 /// Fields of an engine entry this product uses; the rest are listed as not migrated.
-const ENGINE_FIELDS: [&str; 10] = [
+const ENGINE_FIELDS: [&str; 13] = [
     "id",
     "name",
     "command",
@@ -823,10 +903,14 @@ const ENGINE_FIELDS: [&str; 10] = [
     "isDefault",
     "initialCommand",
     "useJavaSSH",
+    "threadPolicy",
+    "gtpConfigurationProtocol",
+    "gtpConfigurationProfile",
 ];
+/// Fields of Java's management of its own bundled KataGo package: they do not apply here.
+const JAVA_PACKAGE_FIELDS: [&str; 2] = ["managedProfileType", "managedProfileCommand"];
 /// SSH connection fields: never read for the report.
 const SSH_FIELDS: [&str; 6] = ["ip", "port", "userName", "password", "useKeyGen", "keyGenPath"];
-
 /// One Java engine entry (`Utils.engineDataFromJson` defaults).
 fn engine(
     index: usize,
@@ -838,14 +922,17 @@ fn engine(
     let name = text("name");
     let original = text("command");
     let initial = text("initialCommand");
+    let present = |k: &str, v: &Value| !v.is_null() && v.as_str() != Some("") && !SSH_FIELDS.contains(&k);
     let unmigrated_fields: Vec<String> = e
         .iter()
         .filter(|(k, v)| {
-            !ENGINE_FIELDS.contains(&k.as_str())
-                && !SSH_FIELDS.contains(&k.as_str())
-                && !v.is_null()
-                && v.as_str() != Some("")
+            !ENGINE_FIELDS.contains(&k.as_str()) && !JAVA_PACKAGE_FIELDS.contains(&k.as_str()) && present(k, v)
         })
+        .map(|(k, _)| k.clone())
+        .collect();
+    let incompatible_fields: Vec<String> = e
+        .iter()
+        .filter(|(k, v)| JAVA_PACKAGE_FIELDS.contains(&k.as_str()) && present(k, v))
         .map(|(k, _)| k.clone())
         .collect();
     let mut view = ImportEngineView {
@@ -858,6 +945,7 @@ fn engine(
         is_default,
         problems: Vec::new(),
         unmigrated_fields,
+        incompatible_fields,
     };
     if e.get("useJavaSSH").and_then(as_bool).unwrap_or(false) {
         view.status = ImportStatus::NotMigrated;
@@ -888,6 +976,30 @@ fn engine(
             7.5
         }),
     };
+    // `EngineThreadPolicy` keys are kept as Java wrote them; the environment fingerprint decides
+    // at launch whether stored benchmark results still apply to the files used here.
+    let thread_policy = match e.get("threadPolicy") {
+        None | Some(Value::Null) => None,
+        Some(v) => serde_json::from_value::<ThreadPolicy>(v.clone()).ok().or_else(|| {
+            problems.push(EngineProblem::InvalidValue {
+                field: "threadPolicy".into(),
+            });
+            None
+        }),
+    };
+    // `Utils.engineDataFromJson` / `engineDataToJson`: both a protocol and a profile object.
+    let protocol = e
+        .get("gtpConfigurationProtocol")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    let gtp_configuration = match e.get("gtpConfigurationProfile").and_then(Value::as_object) {
+        Some(profile) if !protocol.is_empty() => Some(GtpConfiguration {
+            protocol: protocol.to_string(),
+            profile: profile.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+        }),
+        _ => None,
+    };
 
     let command = resolve_command(&original, roots, &mut problems);
     view.command = sanitize(&command);
@@ -903,6 +1015,8 @@ fn engine(
         height,
         komi,
         is_default,
+        thread_policy,
+        gtp_configuration,
         ..EngineProfile::default()
     };
     (view, Some(profile))
@@ -1015,7 +1129,17 @@ impl Mapped {
             self.show_ponder_limited_tips
         );
         set!(c.engine.kata_rules, self.kata_rules);
+        set!(
+            c.engine.startup_benchmark_dismissed_signature,
+            self.startup_benchmark_dismissed_signature
+        );
+        set!(
+            c.engine.startup_benchmark_dismissed_version,
+            self.startup_benchmark_dismissed_version
+        );
         set!(c.engine.auto_load_kata_rules, self.auto_load_kata_rules);
+        set!(c.engine.startup_benchmark, self.startup_benchmark);
+        set!(c.network, self.network);
         if let Some(engines) = &self.engines {
             let kept: Vec<&MappedEngine> = engines
                 .iter()
@@ -1106,6 +1230,12 @@ impl Mapped {
             config.engine.auto_load_kata_rules,
             self.auto_load_kata_rules
         );
+        cmp!(
+            ImportTarget::StartupBenchmark,
+            config.engine.startup_benchmark,
+            self.startup_benchmark
+        );
+        cmp!(ImportTarget::NetworkProxy, config.network, self.network);
         if let Some(engines) = &self.engines {
             let new: Vec<&EngineProfile> = engines.iter().map(|m| &m.profile).collect();
             let current: Vec<&EngineProfile> = config.engine.engines.iter().collect();

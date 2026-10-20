@@ -104,7 +104,9 @@ export function run(command: Command): Promise<CommandResult | null> {
       return result;
     } catch (e) {
       const text = isApiError(e) ? e.message : String(e);
-      console.error("command failed", command, e);
+      // Only the command kind: arguments may hold credentials (ikatago scan, proxy settings).
+      const op = "op" in command ? `.${command.op.type}` : "";
+      console.error("command failed", `${command.type}${op}`, e);
       await message("Error", text, "error");
       return null;
     }

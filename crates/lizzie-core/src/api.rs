@@ -393,6 +393,8 @@ pub struct EngineSettingsView {
     /// `kata-rules` as saved (JSON or preset name; empty = the engine's own).
     pub kata_rules: String,
     pub auto_load_kata_rules: bool,
+    /// Settings > Advanced: run the official benchmark after start-up (`ui.enable-startup-benchmark`).
+    pub startup_benchmark: bool,
 }
 
 /// Stone sound for a forward step onto a node (`Utils.playVoiceFile`): a capture of three or more
@@ -525,6 +527,10 @@ pub enum ImportTarget {
     PonderLimitTips,
     KataRules,
     AutoLoadKataRules,
+    /// `ui.enable-startup-benchmark`.
+    StartupBenchmark,
+    /// `ui.network-proxy-mode` / `-host` / `-port`.
+    NetworkProxy,
 }
 
 /// A problem found with an imported engine without starting it.
@@ -561,8 +567,12 @@ pub struct ImportEngineView {
     pub credential: bool,
     pub is_default: bool,
     pub problems: Vec<EngineProblem>,
-    /// Java fields of this entry this product does not use yet (thread policy, GTP profile, …).
+    /// Java fields of this entry this product does not use yet.
     pub unmigrated_fields: Vec<String>,
+    /// Java fields that do not apply here: Java's management of its own bundled KataGo package
+    /// (`managedProfileType`, `managedProfileCommand`); this client manages only resources it
+    /// downloaded or imported itself.
+    pub incompatible_fields: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
@@ -725,6 +735,10 @@ pub struct EngineFailureView {
     pub message: String,
     /// Last lines the engine printed.
     pub output: Vec<String>,
+    /// Missing store-owned NVIDIA runtime components, if this managed profile can be repaired.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub repair: Option<ResourceRepairView>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]

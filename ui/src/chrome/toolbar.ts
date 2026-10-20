@@ -148,6 +148,9 @@ export function buildToolbar(host: HTMLElement): void {
   const pause = document.createElement("span");
   pause.className = "tb-pill disabled pause";
   pause.textContent = t("Menu.pauseGameBtn");
+  const setup = pill(t("Menu.autoSetupButton"), "wide w80", "engine.setup");
+  setup.dataset.key = "engine.setup"; setup.title = t("Menu.autoSetup"); setup.setAttribute("role", "button"); setup.tabIndex = 0;
+  setup.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); COMMANDS["engine.setup"].run(); } };
   host.append(
     sep("lead"),
     buttons(
@@ -158,7 +161,7 @@ export function buildToolbar(host: HTMLElement): void {
       pill(t("Menu.tencentKifuButton"), "w80"),
       pill(t("Menu.playerStrengthEstimateButton"), "w80"),
     ),
-    buttons(pill(t("Menu.autoSetupButton"), "wide w80"), icon("flash.png", t("Menu.btnAnalyze.btnFlashAnalyze")), search),
+    buttons(setup, icon("flash.png", t("Menu.btnAnalyze.btnFlashAnalyze")), search),
     buttons(
       icon("hawkeye2.png", t("Menu.btnHawkeye.toolTipText")),
       icon("RankMarkOn.png", t("Menu.btnRankMark.toolTipText")),

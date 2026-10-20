@@ -53,6 +53,21 @@ impl Package {
         ));
         let runtime = format!("os={}\narch={}\n", std::env::consts::OS, std::env::consts::ARCH);
         entries.push(("snapshots/runtime.txt".into(), runtime.into_bytes()));
+        let resources = wb.resource_snapshot();
+        let summary = serde_json::json!({
+            "machine": resources.machine,
+            "packages": resources.inventory.packages.iter().map(|p| serde_json::json!({
+                "asset": p.receipt.asset_id, "version": p.receipt.version,
+                "source": p.receipt.source, "usable": p.usable,
+            })).collect::<Vec<_>>(),
+            "weights": resources.inventory.weights.iter().map(|w| serde_json::json!({
+                "model": w.model_name, "size": w.size, "catalogModel": w.catalog_model_id,
+            })).collect::<Vec<_>>(),
+            "acceleration": resources.acceleration,
+            "proxyMode": resources.network.proxy_mode,
+        });
+        let summary = lizzie_core::sanitize::sanitize(&serde_json::to_string_pretty(&summary).unwrap_or_default());
+        entries.push(("snapshots/resources.json".into(), summary.into_bytes()));
         let manifest: Vec<&str> = entries.iter().map(|(n, _)| n.as_str()).collect();
         let manifest = serde_json::to_vec_pretty(&serde_json::json!({ "files": manifest })).unwrap_or_default();
         entries.push(("manifest.json".into(), manifest));

@@ -14,6 +14,9 @@ ts-rs.workspace = true
 encoding_rs = "0.8"
 chardetng = "1"
 fancy-regex = "0.16"
+sha2 = "0.10"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+flate2 = "1"
 
 [dev-dependencies]
 tempfile = "3"

@@ -4,6 +4,7 @@ import { chooseSave, formPanel, panel } from "../dialogs";
 import { format, product, t } from "../i18n";
 import { chooseEngine } from "./catalog";
 import { actions, button, checkbox } from "./controls";
+import { openAutoSetup } from "../setup/dialog";
 
 /** EngineFailedMessage: the failure text, the launch command and 详细信息; the details window
  *  holds the engine output with 复制错误 / 导出诊断包 (EngineFailedMessage.java:261-468). */
@@ -28,6 +29,14 @@ async function failureDialog(failure: EngineFailureView): Promise<void> {
     box.append(status);
     void panel(t("EngineFailedMessage.details"), box);
   };
+  if (failure.repair) {
+    const repair = button(t("EngineFailedMessage.openTensorRtRepair"), async () => { await dialog.close(); await openAutoSetup("acceleration", { engineId: failure.repair!.profileId }); });
+    repair.dataset.key = "engine.failure.repair";
+    repair.setAttribute("aria-label", t("EngineFailedMessage.openTensorRtRepairAccessibleName"));
+    repair.setAttribute("aria-description", t("EngineFailedMessage.openTensorRtRepairAccessibleDescription"));
+    repair.title = t("EngineFailedMessage.openTensorRtRepairAccessibleDescription");
+    actions(body, repair);
+  }
   actions(body, button(t("EngineFailedMessage.details"), details), button(product("close"), () => dialog.close()));
   await dialog.closed;
 }
