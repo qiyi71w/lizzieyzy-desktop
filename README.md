@@ -65,9 +65,10 @@ the matching LizzieYzy Next settings.
 - Analysis: candidates on the board (win rate, visits, score lead), the variation shown when
   hovering a candidate (captures are worked out by the core), the sub board cycling through
   candidates on click, the candidate table, the black-perspective win-rate line with its 50%
-  fill and the score line (click to navigate), and the status and title lines. Candidate labels
-  fit inside their circles, with next-move dashed hints behind the labels; hovering a variation
-  hides those hints until the pointer leaves. The bottom-bar analysis button uses pause/play
+  fill and the score line (click to navigate), and the status and title lines. Candidates use
+  Java's wood-backed allocation colours and row layout, including the separate visits font.
+  Next-move dashed hints sit behind the labels; hovering a variation hides those hints until
+  the pointer leaves. The bottom-bar analysis button uses pause/play
   icons and keeps its width when switching states. `Space` pauses
   and resumes for this session only (never saved); opening another record ends the pause. Time
   and visit limits stop the current position once and resume on the next one. Results stay with

@@ -27,6 +27,8 @@ export interface BoardScene {
   toPlay: Stone;
   marks: Mark[];
   nextMoves: Point[];
+  /** Actual first child only; a pass/setup first child has no point even if later branches do. */
+  nextMainMove: Point | null;
   nextColor: Stone | null;
   black: string;
   white: string;
@@ -322,7 +324,8 @@ interface ShownCandidate {
   x: number;
   y: number;
   ratio: number;
-  hovered: boolean;
+  needed: boolean;
+  showStats: boolean;
 }
 
 /** Candidates BoardRenderer.drawLeelazSuggestions (BoardRenderer.java:2437-2632) shows, worst first. */
@@ -339,15 +342,17 @@ function shownCandidates(scene: BoardScene, px: (p: number) => number, py: (p: n
     // show-nosugg-circle=false: Java's unimportant background is empty.
     if (outOfOrder && !hovered && k !== 0) continue;
     const p = pt.y * scene.cols + pt.x;
-    shown.push({ c, k, x: px(p), y: py(p), ratio: Math.min(1, c.allocation_visits / max), hovered });
+    const ratio = Math.min(1, c.allocation_visits / max);
+    const needed = scene.nextMainMove?.x === pt.x && scene.nextMainMove.y === pt.y;
+    shown.push({ c, k, x: px(p), y: py(p), ratio, needed, showStats: ratio > 0 || hovered || k === 0 || needed });
   }
   return shown;
 }
 
 /** BoardRenderer.java:2587-2662: default HSB colours and allocation alpha; a candidate on a next
  * move keeps only the dimmed blue best ring (isOnNext), the hovered branch gets the red ring. */
-function drawCandidateDiscs(g: CanvasRenderingContext2D, r: number, shown: ShownCandidate[], showingBranch: boolean, next: Point[]) {
-  for (const { c, k, x, y, ratio } of shown) {
+function drawCandidateDiscs(g: CanvasRenderingContext2D, r: number, shown: ShownCandidate[], showingBranch: boolean, next: Point[], ox: number, oy: number) {
+  for (const { c, k, x, y, ratio, needed, showStats } of shown) {
     if (showingBranch) {
       g.strokeStyle = "#f00";
       g.lineWidth = (r + 1) / 11;
@@ -355,13 +360,23 @@ function drawCandidateDiscs(g: CanvasRenderingContext2D, r: number, shown: Shown
       g.stroke();
       continue;
     }
+    // Java repaints the wood beneath the colour, so the grid does not show through suggestions.
+    // Very low allocation retains 20% of the original surface (SRC_ATOP on an opaque board).
+    const onNext = next.some((n) => n.x === c.point!.x && n.y === c.point!.y);
+    if (showStats) {
+      g.save();
+      circle(g, x, y, r + 1);
+      g.clip();
+      g.globalAlpha = ratio < 0.05 && !needed ? 0.8 : 1;
+      drawTexture(g, images["board.png"], x - r - 1, y - r - 1, 2 * (r + 1), 2 * (r + 1), ox, oy);
+      g.restore();
+    }
     const alphaRatio = Math.max(0, Math.log(ratio) / 5 + 1);
     const hue = k === 0 ? 180 : 120 * Math.sqrt(ratio);
     // HSB brightness .85 corresponds to HSL lightness .425 at full saturation.
-    g.fillStyle = `hsla(${hue},100%,42.5%,${(32 + 208 * alphaRatio) / 255})`;
+    g.fillStyle = `hsla(${hue},100%,42.5%,${Math.trunc(32 + 208 * alphaRatio) / 255})`;
     circle(g, x, y, r + 1);
     g.fill();
-    const onNext = next.some((n) => n.x === c.point!.x && n.y === c.point!.y);
     if (k === 0) {
       g.strokeStyle = onNext ? "rgba(0,0,255,0.667)" : "#00f";
       g.lineWidth = (r + 2) / 15;
@@ -376,65 +391,44 @@ function drawCandidateDiscs(g: CanvasRenderingContext2D, r: number, shown: Shown
   }
 }
 
-/** BoardRenderer.drawStringFor3row (y is the baseline) and drawString with aboveOrBelow 0 (`centred`:
- * the baseline sits half the Java ascent-descent height below y). The font is scaled so the text
- * spans maxW, capped at maxH, and the text is centred on the disc. Java lets long values spill past
- * the disc edge into the neighbouring candidates; here the measured ink must stay inside the disc:
- * a row first rises toward the centre, never above `floor` (the previous row's ink plus a pixel),
- * then shrinks until it fits. Returns the bottom of the drawn ink. */
-function suggestionText(g: CanvasRenderingContext2D, s: string, disc: { x: number; y: number; radius: number }, y: number, maxH: number, maxW: number, color: string, floor: number | null, centred = false): number {
-  const family = `"Lizzie Winrate", ${FONT}`;
+/** BoardRenderer.drawStringFor3row: Java's width-limited font and alphabetic baseline.
+ * The two-row visits line uses drawString(aboveOrBelow=0), centred by FontMetrics. */
+function suggestionText(g: CanvasRenderingContext2D, s: string, x: number, y: number, maxH: number, maxW: number, color: string, centred = false, family = `"Lizzie Winrate", ${FONT}`) {
   g.textAlign = "left";
   g.textBaseline = "alphabetic";
   g.font = `100px ${family}`;
-  let size = Math.min(maxH, Math.round((100 * maxW) / Math.max(1, Math.round(g.measureText(s).width))));
-  for (;;) {
-    g.font = `${size}px ${family}`;
-    let java = y;
-    if (centred) {
-      const fm = javaMetrics(g);
-      java += i((fm.ascent - fm.descent) / 2);
-    }
-    const m = g.measureText(s);
-    const left = disc.x - i(Math.round(m.width) / 2);
-    const asc = m.actualBoundingBoxAscent, desc = m.actualBoundingBoxDescent;
-    const dx = Math.max(disc.x - left + m.actualBoundingBoxLeft, left + m.actualBoundingBoxRight - disc.x);
-    const room = disc.radius * disc.radius - dx * dx;
-    let baseline = java;
-    if (Math.max(disc.y - java + asc, java + desc - disc.y) ** 2 > room && floor !== null)
-      baseline = Math.min(java, Math.max(floor + asc, disc.y + (asc - desc) / 2));
-    if (Math.max(disc.y - baseline + asc, baseline + desc - disc.y) ** 2 <= room || size <= 1) {
-      g.fillStyle = color;
-      g.fillText(s, left, baseline);
-      return baseline + desc;
-    }
-    size = Math.max(1, size - 0.25);
+  const size = Math.min(maxH, Math.round((100 * maxW) / Math.max(1, Math.round(g.measureText(s).width))));
+  g.font = `${size}px ${family}`;
+  if (centred) {
+    const fm = javaMetrics(g);
+    y += i((fm.ascent - fm.descent) / 2);
   }
+  g.fillStyle = color;
+  g.fillText(s, x - i(Math.round(g.measureText(s).width) / 2), y);
 }
 
 /** BoardRenderer.java:2648-2913: order badges and the default-order info rows (three with a score
  * lead, otherwise winrate over playouts). */
 function drawCandidateLabels(g: CanvasRenderingContext2D, geo: BoardGeom, shown: ShownCandidate[], scene: BoardScene, showingBranch: boolean) {
   const r = geo.stoneRadius, sq = geo.square;
-  for (const { c, k, x, y, ratio, hovered } of shown) {
-    if (c.order < 9 && (ratio > 0 || hovered || k === 0)) {
+  for (const { c, x, y, showStats } of shown) {
+    if (c.order < 9 && showStats) {
       const bx = Math.round(x + sq * 0.43) + (c.order === 0 ? 1 : 0);
       const by = Math.round(y - sq * 0.358) - (c.order === 0 ? 1 : 0);
       g.fillStyle = "orange";
       g.fillRect(bx - sq * 0.12, by - sq * 0.18, sq * 0.24, sq * 0.36);
       textMid(g, String(c.order + 1), bx, by, sq * 0.36, sq * 0.39, "#000", `"Lizzie Winrate", ${FONT}`);
     }
-    if (ratio <= 0 && !hovered && k !== 0) continue;
+    if (!showStats) continue;
     const color = showingBranch && scene.toPlay === "Black" ? "#fff" : "#000";
     const narrow = Math.round(c.winrate * 10) / 10 < 10;
-    const disc = { x, y, radius: r + 1 };
     if (c.score_lead !== null) {
-      const top = suggestionText(g, c.winrate.toFixed(1), disc, y - Math.round(sq * (narrow ? 0.127 : 0.125)), sq * (narrow ? 0.36 : 0.35), sq * 0.67, color, null);
-      const middle = suggestionText(g, playouts(c.visits), disc, y + Math.round(sq * 0.18), sq * 0.34, r * (c.visits < 1000 ? 1.3 : 1.8), color, top + 1);
-      suggestionText(g, c.score_lead.toFixed(1), disc, y + Math.round(sq * 0.435), sq * 0.273, r * 1.6, color, middle + 1);
+      suggestionText(g, c.winrate.toFixed(1), x, y - Math.round(sq * (narrow ? 0.127 : 0.125)), sq * (narrow ? 0.36 : 0.35), sq * 0.67, color);
+      suggestionText(g, playouts(c.visits), x, y + Math.round(sq * 0.18), sq * 0.34, r * (c.visits < 1000 ? 1.3 : 1.8), color, false, GRAPH_FONT);
+      suggestionText(g, c.score_lead.toFixed(1), x, y + Math.round(sq * 0.435), sq * 0.273, r * 1.6, color);
     } else {
-      const top = suggestionText(g, c.winrate.toFixed(1), disc, y - i(sq / (narrow ? 15 : 16)), r, sq * (narrow ? 0.57 : 0.735), color, null);
-      suggestionText(g, playouts(c.visits), disc, y + i((r * 15) / 35), r * 0.77, r * 1.8, color, top + 1, true);
+      suggestionText(g, c.winrate.toFixed(1), x, y - i(sq / (narrow ? 15 : 16)), r, sq * (narrow ? 0.57 : 0.735), color);
+      suggestionText(g, playouts(c.visits), x, y + i((r * 15) / 35), r * 0.77, r * 1.8, color, true, GRAPH_FONT);
     }
   }
 }
@@ -520,7 +514,7 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
   const shown = shownCandidates(scene, px, py, showingBranch);
   // Java hides the next-move hints while a branch is shown (BoardRenderer.java:415-416).
   const next = scene.nextColor && !showingBranch ? scene.nextMoves : [];
-  drawCandidateDiscs(g, r, shown, showingBranch, next);
+  drawCandidateDiscs(g, r, shown, showingBranch, next, ox, oy);
   // Java strokes the hints over finished candidates; with the rows on their Java baselines the
   // dashes would cross the score row, so the hints go between the discs and the labels.
   if (scene.nextColor && next.length) drawNextMoveOutlines(g, next, scene.nextColor, px, py, r, cols);

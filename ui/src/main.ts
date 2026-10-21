@@ -492,6 +492,8 @@ function render() {
   projectAnalysis(v);
   if (changed("bg", size)) installBackground(size, W, H, P.glass);
 
+  const firstChildId = state.nodes.get(pos.node)?.children[0];
+  const firstChild = firstChildId === undefined ? undefined : state.nodes.get(firstChildId);
   const scene: BoardScene = {
     cols,
     rows,
@@ -500,6 +502,8 @@ function render() {
     toPlay: pos.to_play,
     marks: pos.marks,
     nextMoves: pos.next_moves,
+    nextMainMove: firstChild && !firstChild.pass && (firstChild.kind === "Black" || firstChild.kind === "White")
+      ? pos.next_moves[0] ?? null : null,
     nextColor: pos.next_color,
     black: v.document.info.black,
     white: v.document.info.white,
