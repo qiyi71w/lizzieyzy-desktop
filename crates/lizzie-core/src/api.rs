@@ -231,6 +231,10 @@ pub enum Command {
     SetEditSettings {
         settings: EditSettings,
     },
+    /// 显示 > 总是显示黑胜率 and 目差显示 (盘面 / 目差).
+    SetDisplaySettings {
+        settings: crate::settings::DisplaySettings,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
@@ -451,6 +455,7 @@ pub struct SettingsView {
     pub replace_file_hint: bool,
     pub engine: EngineSettingsView,
     pub edit: EditSettings,
+    pub display: crate::settings::DisplaySettings,
 }
 
 /// Committed engine settings, for the engine settings dialog and the settings pages.
@@ -629,6 +634,10 @@ pub enum ImportTarget {
     ZoomThumbnails,
     /// `persist:filesystem.last-image-folder`.
     LastImageFolder,
+    /// `ui.win-rate-always-black`.
+    WinrateAlwaysBlack,
+    /// `ui.show-katago-score-lead-with-komi`.
+    ScoreLeadWithKomi,
 }
 
 /// A problem found with an imported engine without starting it.
@@ -794,6 +803,9 @@ pub struct CandidateView {
     /// For each `pv` move, the stones it captures when played out from the node's position
     /// (`Branch` with `remove-dead-in-variation`); empty for passes.
     pub pv_captures: Vec<Vec<Point>>,
+    /// Win rate and score lead as the board and the candidate table show them (总是显示黑胜率,
+    /// 目差显示); set by the view projection.
+    pub shown: crate::viewpoint::ShownValues,
 }
 
 /// Analysis stored for a node (`BoardData.bestMoves` and summary).
@@ -813,6 +825,9 @@ pub struct NodeAnalysisView {
     pub komi: f64,
     /// In `order`.
     pub candidates: Vec<CandidateView>,
+    /// Black's numbers as the statistics panel and the title show them (the lead with the komi
+    /// under 盘面); set by the view projection.
+    pub black: crate::viewpoint::ShownValues,
 }
 
 /// One analysed node for the win-rate graph.
@@ -825,6 +840,11 @@ pub struct HistoryPoint {
     /// Side to move, 0–100.
     pub winrate: f64,
     pub score_lead: Option<f64>,
+    /// Black's numbers as the win-rate graph shows them (the lead with the komi under 盘面).
+    pub black: crate::viewpoint::ShownValues,
+    /// This position's result as a candidate of the previous position (the candidate table's
+    /// actual-move row).
+    pub as_candidate: crate::viewpoint::AsCandidate,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]

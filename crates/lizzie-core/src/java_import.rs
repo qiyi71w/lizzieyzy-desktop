@@ -139,6 +139,9 @@ pub struct Mapped {
     pub zoom_thumbnails: Option<bool>,
     /// `persist:filesystem.last-image-folder`.
     pub last_image_folder: Option<String>,
+    /// `ui.win-rate-always-black`, `ui.show-katago-score-lead-with-komi`.
+    pub winrate_always_black: Option<bool>,
+    pub score_lead_with_komi: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -447,6 +450,18 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "no-capture",
         ImportTarget::NoCapture,
         Kind::Bool(|m, v| m.no_capture = Some(v)),
+    ),
+    (
+        "ui",
+        "win-rate-always-black",
+        ImportTarget::WinrateAlwaysBlack,
+        Kind::Bool(|m, v| m.winrate_always_black = Some(v)),
+    ),
+    (
+        "ui",
+        "show-katago-score-lead-with-komi",
+        ImportTarget::ScoreLeadWithKomi,
+        Kind::Bool(|m, v| m.score_lead_with_komi = Some(v)),
     ),
     (
         "ui",
@@ -1257,6 +1272,8 @@ impl Mapped {
         set!(c.edit.other_size_width, self.other_size_width);
         set!(c.edit.other_size_height, self.other_size_height);
         set!(c.edit.no_capture, self.no_capture);
+        set!(c.display.winrate_always_black, self.winrate_always_black);
+        set!(c.display.score_lead_with_komi, self.score_lead_with_komi);
         if let Some(engines) = &self.engines {
             let kept: Vec<&MappedEngine> = engines
                 .iter()
@@ -1320,6 +1337,17 @@ impl Mapped {
             out.push(ImportTarget::OtherBoardSize);
         }
         cmp!(ImportTarget::NoCapture, e.no_capture, self.no_capture);
+        let d = &config.display;
+        cmp!(
+            ImportTarget::WinrateAlwaysBlack,
+            d.winrate_always_black,
+            self.winrate_always_black
+        );
+        cmp!(
+            ImportTarget::ScoreLeadWithKomi,
+            d.score_lead_with_komi,
+            self.score_lead_with_komi
+        );
         let r = &config.recovery;
         cmp!(
             ImportTarget::AutoSaveOnExit,

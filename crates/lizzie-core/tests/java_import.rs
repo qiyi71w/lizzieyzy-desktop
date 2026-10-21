@@ -11,7 +11,7 @@ use lizzie_core::engine::gtp::{split_command, LaunchSpec};
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::java_import::{self, JavaSource};
-use lizzie_core::settings::{Config, Language, Persisted, ProxyMode, Storage};
+use lizzie_core::settings::{Config, DisplaySettings, Language, Persisted, ProxyMode, Storage};
 use lizzie_core::workbench::{Workbench, IMPORT_NEEDS_REPLACE, IMPORT_STALE};
 use serde_json::json;
 
@@ -77,6 +77,8 @@ fn java_dir(root: &Path) -> PathBuf {
             "network-proxy-mode": "manual",
             "network-proxy-host": "127.0.0.1",
             "network-proxy-port": "7897",
+            "win-rate-always-black": true,
+            "show-katago-score-lead-with-komi": true,
             "up-load-passwd": SECRETS[0],
         },
         "leelaz": {
@@ -231,6 +233,8 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
     for key in [
         "ui.enable-startup-benchmark",
         "ui.network-proxy-mode",
+        "ui.win-rate-always-black",
+        "ui.show-katago-score-lead-with-komi",
         "ui.network-proxy-port",
     ] {
         assert_eq!(status(key), ImportStatus::Imported, "{key}");
@@ -282,6 +286,13 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
         (10, 8, 20)
     );
     assert!(!a.fast_engine_change && !a.show_ponder_limited_tips);
+    assert_eq!(
+        c.display,
+        DisplaySettings {
+            winrate_always_black: true,
+            score_lead_with_komi: true
+        }
+    );
     assert_eq!(
         (c.engine.kata_rules.as_str(), c.engine.auto_load_kata_rules),
         ("japanese", true)

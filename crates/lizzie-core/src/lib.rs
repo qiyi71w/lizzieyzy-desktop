@@ -8,6 +8,7 @@
 //! - [`settings`]: committed settings and application data files.
 //! - [`java_import`]: reading the fixed Java program's configuration for an explicit import.
 //! - [`recovery`]: 存档与读档 slots and the automatic saves.
+//! - [`viewpoint`]: whose win rate and score lead the displays and exports show.
 //! - [`api`]: the typed cross-language contract.
 //! - [`engine`]: engine settings, GTP protocol, running engine instances and processes.
 //! - [`resources`]: engine resources: trusted catalog, machine detection, recommendation,
@@ -23,4 +24,5 @@ pub mod recovery;
 pub mod resources;
 pub mod sanitize;
 pub mod settings;
+pub mod viewpoint;
 pub mod workbench;

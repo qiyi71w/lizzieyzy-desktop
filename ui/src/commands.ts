@@ -4,7 +4,7 @@
 // disabled and marked as not yet available. Later slices register their own entries.
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { navigate, pasteRecord, run, saveRecord, saveRecordAs, state } from "./app";
-import type { Language } from "./contract/generated";
+import type { DisplaySettings, Language } from "./contract/generated";
 import { confirm, message } from "./dialogs";
 import { openDiagnostics } from "./diagnostics";
 import { openJavaImport } from "./javaImport";
@@ -36,6 +36,11 @@ function language(lang: Language): CommandEntry {
   };
 }
 
+function setDisplay(change: Partial<DisplaySettings>): void {
+  const settings = state.view?.settings.display;
+  if (settings) void run({ type: "SetDisplaySettings", settings: { ...settings, ...change } });
+}
+
 export const COMMANDS: Record<string, CommandEntry> = {
   "analysis.toggle": { run: () => run({ type: "ToggleAnalysis" }) },
   "engine.configuration": { run: openMoreEngines },
@@ -64,6 +69,20 @@ export const COMMANDS: Record<string, CommandEntry> = {
   "menu.playSound": {
     run: () => run({ type: "SetPlaySound", enabled: !state.view?.settings.play_sound }),
     checked: () => state.view?.settings.play_sound ?? true,
+  },
+  // 显示 > 推荐点 > 总是显示黑胜率 (Menu.java:1487-1500) and 显示 > KataGo设置 > 目差显示 (2130-2158):
+  // "目差" turns show-katago-score-lead-with-komi off, "盘面" on. The core converts every number.
+  "settings.black-winrate": {
+    run: () => setDisplay({ winrateAlwaysBlack: !state.view?.settings.display.winrateAlwaysBlack }),
+    checked: () => state.view?.settings.display.winrateAlwaysBlack ?? false,
+  },
+  "Menu.leadWithKomi": {
+    run: () => setDisplay({ scoreLeadWithKomi: false }),
+    checked: () => !(state.view?.settings.display.scoreLeadWithKomi ?? false),
+  },
+  "Menu.leadJustScore": {
+    run: () => setDisplay({ scoreLeadWithKomi: true }),
+    checked: () => state.view?.settings.display.scoreLeadWithKomi ?? false,
   },
   // System.exit(0): no window state is written.
   "menu.forceExit": { run: () => getCurrentWindow().destroy() },

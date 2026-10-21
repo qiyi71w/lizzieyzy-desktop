@@ -126,7 +126,7 @@ function projectAnalysis(v: WorkbenchView) {
       maxScoreLead = 15;
     }
     if (historyChanged || documentChanged)
-      for (const p of v.history) if (p.score_lead !== null) maxScoreLead = Math.max(maxScoreLead, Math.abs(p.score_lead));
+      for (const p of v.history) if (p.black.score_lead !== null) maxScoreLead = Math.max(maxScoreLead, Math.abs(p.black.score_lead));
   }
   const lineKey = `${v.document.id}:${v.position.node}:${v.position.line_end}`;
   if (graphNodesSource !== state.nodes || graphLineKey !== lineKey) {
@@ -164,8 +164,9 @@ function engineTitle(v: WorkbenchView): string {
   const base = windowTitle(version), foreground = v.engine.foreground, a = v.analysis;
   let prefix = "";
   if (a && a.visits > 0) {
-    const black = a.to_play === "Black";
-    prefix = `[${(black ? a.winrate : 100 - a.winrate).toFixed(1)}${a.score_lead === null ? "" : ` ${(black ? a.score_lead : -a.score_lead).toFixed(1)}`} ${playouts(a.visits)}] `;
+    // updateTitle: Black's win rate and Black's lead (core `black`; the board difference under 盘面).
+    const { winrate, score_lead: lead } = a.black;
+    prefix = `[${winrate.toFixed(1)}${lead === null ? "" : ` ${lead.toFixed(1)}`} ${playouts(a.visits)}] `;
   }
   if (!foreground) return prefix + base;
   const engine = `${foreground.name}${v.engine.analysing && a ? ` ${playouts(a.visits)} visits` : ` - ${t("LizzieFrame.speedUnit")}`}`;
@@ -577,8 +578,9 @@ function render() {
   const parent = state.nodes.get(pos.node)?.parent ?? -1;
   const current = historyByNode.get(pos.node) ?? null;
   const previous = historyByNode.get(parent) ?? null;
-  if (changed("stat", `${size}:${docSig}:${parent}:${historyRevision}:${v.analysis?.score_stdev}`))
-    paintStat(prepare($("stat"), P.stat), P.stat, current, previous, pos.move_number, v.analysis?.score_stdev ?? null);
+  const leadWithKomi = v.settings.display.scoreLeadWithKomi;
+  if (changed("stat", `${size}:${docSig}:${parent}:${historyRevision}:${v.analysis?.score_stdev}:${leadWithKomi}`))
+    paintStat(prepare($("stat"), P.stat), P.stat, current, previous, pos.move_number, v.analysis?.score_stdev ?? null, leadWithKomi);
   const lineNodes = Math.max(state.mainLineNodes, state.line.size);
   if (changed("graph", `${size}:${docSig}:${lineNodes}:${historyRevision}`))
     graphPointCount = paintGraph(prepare($("graph"), P.graph), P.graph, lineNodes, { history: v.history, current: pos.node, line: state.line, mainLine, maxScore: maxScoreLead });
@@ -667,7 +669,7 @@ function renderTable() {
       const nextId = v ? state.nodes.get(v.position.node)?.children[0] : undefined;
       const nextData = nextId === undefined ? undefined : historyByNode.get(nextId);
       const candidate = nextData && nextData.visits > actual.candidate.visits
-        ? { ...actual.candidate, visits: nextData.visits, allocation_visits: nextData.visits, winrate: 100 - nextData.winrate, score_lead: nextData.score_lead === null ? null : -nextData.score_lead }
+        ? { ...actual.candidate, visits: nextData.visits, allocation_visits: nextData.visits, ...nextData.as_candidate }
         : actual.candidate;
       data.unshift({ candidate, actual: true });
     }
@@ -677,7 +679,7 @@ function renderTable() {
     const nextData = nextId === undefined ? undefined : historyByNode.get(nextId);
     if (nextData && nextData.visits > 0) data.unshift({ actual: true, candidate: {
       point: next, order: -100, visits: nextData.visits, allocation_visits: nextData.visits,
-      winrate: 100 - nextData.winrate, score_lead: nextData.score_lead === null ? null : -nextData.score_lead,
+      ...nextData.as_candidate,
       score_stdev: null, prior: 0, lcb: null, pv: [], pv_captures: [],
     } });
   }
@@ -691,15 +693,17 @@ function renderTable() {
     row.dataset.point = c.point ? `${c.point.x},${c.point.y}` : "pass";
     row.className = `${isActual ? "actual " : ""}${selectedCandidate === c.order ? "selected" : ""}`;
     row.style.height = `${TABLE_HEADER + 3}px`;
-    const difference = (value: number, baseline: number) => `${value - baseline > 0 ? "↑" : "↓"}${(value - baseline).toFixed(1)}(${value.toFixed(1)})`;
+    // Java's table: the change against the best move from the side to move, the value as shown
+    // (总是显示黑胜率 / 目差显示, core `shown`).
+    const difference = (value: number, baseline: number, shown: number) => `${value - baseline > 0 ? "↑" : "↓"}${(value - baseline).toFixed(1)}(${shown.toFixed(1)})`;
     const share = c.allocation_visits / Math.max(1, v?.analysis?.visits ?? 0) * 100;
     const values = [
       isActual ? c.order === -100 ? t("AnalysisFrame.actual") : `${c.order + 1}(${t("AnalysisFrame.actual")})` : c.point ? String(c.order + 1) : "Pass",
-      isActual && c.order !== 0 && best ? difference(c.winrate, best.winrate) : c.winrate.toFixed(1),
+      isActual && c.order !== 0 && best ? difference(c.winrate, best.winrate, c.shown.winrate) : c.shown.winrate.toFixed(1),
       playouts(c.visits),
       share.toFixed(1),
     ];
-    if (hasScore) values.push(c.score_lead === null ? "" : isActual && c.order !== 0 && best?.score_lead !== null && best?.score_lead !== undefined ? difference(c.score_lead, best.score_lead) : c.score_lead.toFixed(1));
+    if (hasScore) values.push(c.score_lead === null || c.shown.score_lead === null ? "" : isActual && c.order !== 0 && best?.score_lead !== null && best?.score_lead !== undefined ? difference(c.score_lead, best.score_lead, c.shown.score_lead) : c.shown.score_lead.toFixed(1));
     while (row.cells.length > values.length) row.deleteCell(row.cells.length - 1);
     values.forEach((text, column) => {
       const cell = row.cells[column] ?? row.insertCell();
@@ -730,6 +734,7 @@ function uiReport() {
     subBoardCandidateIndex: subCandidate,
     subBoardBranchLength: subLength,
     tableRowCount,
+    tableRows: [...$("table").querySelectorAll("tbody tr")].map((row) => [...(row as HTMLTableRowElement).cells].map((cell) => cell.textContent ?? "")),
     graphPointCount,
     statusLines: statusLines(),
     candidates: state.view?.analysis?.candidates.map((c) => ({ order: c.order, point: c.point, visits: c.visits, pvLength: c.pv.length })) ?? [],

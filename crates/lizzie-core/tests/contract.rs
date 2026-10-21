@@ -13,7 +13,8 @@ use lizzie_core::engine::profile::{AnalysisSettings, EngineProfile, EngineStartu
 use lizzie_core::record::{
     BoardSize, GameInfo, Mark, MarkKind, MarkTool, Point, RecordFormat, Stone, StoneChange, Transform,
 };
-use lizzie_core::settings::{EditSettings, Language, RecoverySettings, WindowPlacement};
+use lizzie_core::settings::{DisplaySettings, EditSettings, Language, RecoverySettings, WindowPlacement};
+use lizzie_core::viewpoint::{AsCandidate, ShownValues};
 use ts_rs::Config;
 
 #[macro_export]
@@ -37,7 +38,7 @@ fn generate() -> String {
         EngineProblem, ImportEngineView, ImportPreviewView, ImportReportView, ImportFailure,
         EditCommand, EditTarget, EditingView, EditSettings, MarkTool, StoneChange, Transform,
         ExportKind, CommentLabels, SlotRef, RecoveryCommand, SlotView, RecoveryView, RecoverySettings,
-        ImportSlotView, RecoveryImport,
+        ImportSlotView, RecoveryImport, DisplaySettings, ShownValues, AsCandidate,
     ];
     // Engine resources and engine performance keep their own lists.
     decls.extend(resources::decls(&cfg));

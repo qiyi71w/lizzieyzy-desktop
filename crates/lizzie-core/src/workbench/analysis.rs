@@ -27,6 +27,7 @@ use crate::engine::runtime::{
 };
 use crate::record::{BoardSize, DocumentEdit, GameRecord, NodeId, Position, Stone, ROOT};
 use crate::sanitize::sanitize;
+use crate::viewpoint::{ShownValues, Viewpoint};
 
 /// The rules the open session asks for (`BoardHistoryList.SessionRulesTarget`).
 #[derive(Clone, Debug, Default)]
@@ -102,8 +103,10 @@ fn node_analysis(node: NodeId, to_play: Stone, komi: f64, engine: String, line: 
                 order: c.order,
                 pv: c.pv,
                 pv_captures: Vec::new(),
+                shown: ShownValues::default(),
             })
             .collect(),
+        black: ShownValues::default(),
     })
 }
 
@@ -897,8 +900,21 @@ impl Workbench {
         }
     }
 
+    /// The display settings' conversion of the engine's numbers.
+    fn viewpoint(&self) -> Viewpoint {
+        Viewpoint::from(&self.config.display)
+    }
+
     pub(super) fn current_analysis(&self) -> Option<NodeAnalysisView> {
-        self.store.get(&self.doc.record, self.cursor).cloned()
+        let mut a = self.store.get(&self.doc.record, self.cursor).cloned()?;
+        // Stored results keep the engine's numbers; what is shown follows the settings now. The
+        // komi is the one the result was analysed with (results of another komi are dropped).
+        let vp = self.viewpoint();
+        for c in &mut a.candidates {
+            c.shown = vp.candidate(c.winrate, c.score_lead, a.to_play, a.komi);
+        }
+        a.black = vp.black(a.winrate, a.score_lead, a.to_play, a.komi);
+        Some(a)
     }
 
     /// Stored results on the current line (root to the line end) and the main trunk.
@@ -907,6 +923,7 @@ impl Workbench {
             return Vec::new();
         }
         let rec = &self.doc.record;
+        let vp = self.viewpoint();
         let mut nodes = rec.path_to(rec.line_end(self.cursor));
         if !rec.is_main_trunk(self.cursor) {
             let trunk: Vec<NodeId> = rec
@@ -927,6 +944,8 @@ impl Workbench {
                     visits: a.visits,
                     winrate: a.winrate,
                     score_lead: a.score_lead,
+                    black: vp.black(a.winrate, a.score_lead, a.to_play, a.komi),
+                    as_candidate: vp.as_candidate(a.winrate, a.score_lead, a.to_play, a.komi),
                 })
             })
             .collect()

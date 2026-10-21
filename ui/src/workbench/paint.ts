@@ -434,13 +434,15 @@ function drawCandidateLabels(g: CanvasRenderingContext2D, geo: BoardGeom, shown:
     }
     if (!showStats) continue;
     const color = showingBranch && scene.toPlay === "Black" ? "#fff" : "#000";
-    const narrow = Math.round(c.winrate * 10) / 10 < 10;
-    if (c.score_lead !== null) {
-      suggestionText(g, c.winrate.toFixed(1), x, y - Math.round(sq * (narrow ? 0.127 : 0.125)), sq * (narrow ? 0.36 : 0.35), sq * 0.67, color);
+    // 总是显示黑胜率 / 目差显示 are applied by the core (`shown`).
+    const { winrate, score_lead: lead } = c.shown;
+    const narrow = Math.round(winrate * 10) / 10 < 10;
+    if (lead !== null) {
+      suggestionText(g, winrate.toFixed(1), x, y - Math.round(sq * (narrow ? 0.127 : 0.125)), sq * (narrow ? 0.36 : 0.35), sq * 0.67, color);
       suggestionText(g, playouts(c.visits), x, y + Math.round(sq * 0.18), sq * 0.34, r * (c.visits < 1000 ? 1.3 : 1.8), color, false, GRAPH_FONT);
-      suggestionText(g, c.score_lead.toFixed(1), x, y + Math.round(sq * 0.435), sq * 0.273, r * 1.6, color);
+      suggestionText(g, lead.toFixed(1), x, y + Math.round(sq * 0.435), sq * 0.273, r * 1.6, color);
     } else {
-      suggestionText(g, c.winrate.toFixed(1), x, y - i(sq / (narrow ? 15 : 16)), r, sq * (narrow ? 0.57 : 0.735), color);
+      suggestionText(g, winrate.toFixed(1), x, y - i(sq / (narrow ? 15 : 16)), r, sq * (narrow ? 0.57 : 0.735), color);
       suggestionText(g, playouts(c.visits), x, y + i((r * 15) / 35), r * 0.77, r * 1.8, color, true, GRAPH_FONT);
     }
   }
@@ -737,7 +739,7 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
 
 /** LizzieFrame.drawMoveStatistics (LizzieFrame.java:8702-9025): black-perspective bar and
  * last-move deltas; preserve the unanalysed fallback when both payloads are absent. */
-export function paintStat(g: CanvasRenderingContext2D, r: Rect, current: HistoryPoint | null, previous: HistoryPoint | null, moveNumber: number, stdev: number | null) {
+export function paintStat(g: CanvasRenderingContext2D, r: Rect, current: HistoryPoint | null, previous: HistoryPoint | null, moveNumber: number, stdev: number | null, leadWithKomi: boolean) {
   const { w, h } = r;
   g.fillStyle = "rgba(0,0,0,0.51)";
   g.fillRect(0, 0, w, h);
@@ -752,7 +754,7 @@ export function paintStat(g: CanvasRenderingContext2D, r: Rect, current: History
   let text = ` ${t("LizzieFrame.display.lastMove")}(#  ): -0.0%`;
   const data = current && current.visits > 0 ? current : previous && previous.visits > 0 ? previous : null;
   if (data) {
-    const black = data.to_play === "Black" ? data.winrate : 100 - data.winrate;
+    const black = data.black.winrate;
     const barY = i(h * 0.32), barH = Math.max(4, i(h * 0.3));
     const split = i(width * black / 100);
     g.fillStyle = "#000";
@@ -763,13 +765,14 @@ export function paintStat(g: CanvasRenderingContext2D, r: Rect, current: History
     textMid(g, `${(100 - black).toFixed(1)}%`, w * 0.9, h * 0.17, Math.min(17, h * 0.24), w * 0.3, "#fff");
     textMid(g, String(moveNumber), w / 2, h * 0.17, Math.min(17, h * 0.24), w * 0.25, "#fff");
     text = "";
-    if (data.score_lead !== null) {
-      const score = data.to_play === "Black" ? data.score_lead : -data.score_lead;
-      text = `${t("LizzieFrame.scoreLeadJustScore")}${score.toFixed(1)}${stdev === null ? "" : ` ±${stdev.toFixed(1)}`} `;
+    if (data.black.score_lead !== null) {
+      // drawMoveStatistics: Black's lead, the board difference under 盘面 (core `black`).
+      const label = leadWithKomi ? t("LizzieFrame.scoreLeadWithKomi") : t("LizzieFrame.scoreLeadJustScore");
+      text = `${label}${data.black.score_lead.toFixed(1)}${stdev === null ? "" : ` ±${stdev.toFixed(1)}`} `;
     }
     if (current && previous && current.visits > 0 && previous.visits > 0) {
       const gain = 100 - previous.winrate - current.winrate;
-      const before = previous.to_play === "Black" ? previous.winrate : 100 - previous.winrate;
+      const before = previous.black.winrate;
       const beforeX = 2 + width * before / 100, nowX = 2 + split;
       if (Math.abs(nowX - beforeX) > 5) {
         g.strokeStyle = "#888";
@@ -839,8 +842,9 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, lineNodes: numb
   width = plotWidth;
   baseline(width);
   const x = (p: HistoryPoint) => i((Math.max(0, p.move_number - 1) * width) / numMoves);
-  const wy = (p: HistoryPoint) => posy + height - i((p.to_play === "Black" ? p.winrate : 100 - p.winrate) * height / 100);
-  const sy = (p: HistoryPoint) => baselineY - i((p.to_play === "Black" ? p.score_lead! : -p.score_lead!) * height / (2 * scene.maxScore));
+  // Black's numbers from the core (`black`; the lead with the komi under 盘面).
+  const wy = (p: HistoryPoint) => posy + height - i(p.black.winrate * height / 100);
+  const sy = (p: HistoryPoint) => baselineY - i(p.black.score_lead! * height / (2 * scene.maxScore));
   const eligible = scene.history.filter((p) => p.visits > 0 && Number.isFinite(p.winrate));
   if (eligible.length) {
     g.fillStyle = "rgba(0,0,0,0.55)";
@@ -869,7 +873,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, lineNodes: numb
       g.lineWidth = 1.7;
       seg(x(a), wy(a), x(b), wy(b));
     }
-    const scores = points.filter((p) => p.score_lead !== null);
+    const scores = points.filter((p) => p.black.score_lead !== null);
     for (let k = 1; k < scores.length; k++) {
       const a = scores[k - 1], b = scores[k];
       if (b.move_number - a.move_number >= 25) continue;
@@ -893,13 +897,11 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, lineNodes: numb
       g.fillStyle = color; circle(g, x(current), y, radius); g.fill();
       g.strokeStyle = "#fff"; g.lineWidth = 1; g.stroke();
     };
-    if (current.score_lead !== null) marker(sy(current), "#ffd700", Math.abs(sy(current) - wy(current)) <= 12 ? 7 : 5);
+    const score = current.black.score_lead;
+    if (score !== null) marker(sy(current), "#ffd700", Math.abs(sy(current) - wy(current)) <= 12 ? 7 : 5);
     marker(wy(current), "rgb(255,60,60)", 5);
-    textMid(g, (current.to_play === "Black" ? current.winrate : 100 - current.winrate).toFixed(1), x(current), wy(current) - 12, 13, 70, "#fff");
-    if (current.score_lead !== null) {
-      const score = current.to_play === "Black" ? current.score_lead : -current.score_lead;
-      textMid(g, `${score >= 0 ? "B" : "W"}+${Math.abs(score).toFixed(1)}`, x(current), sy(current) - 9, 12, 80, "#ff0");
-    }
+    textMid(g, current.black.winrate.toFixed(1), x(current), wy(current) - 12, 13, 70, "#fff");
+    if (score !== null) textMid(g, `${score >= 0 ? "B" : "W"}+${Math.abs(score).toFixed(1)}`, x(current), sy(current) - 9, 12, 80, "#ff0");
   }
   g.textAlign = "left";
   g.textBaseline = "alphabetic";

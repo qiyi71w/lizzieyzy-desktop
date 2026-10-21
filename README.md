@@ -55,8 +55,9 @@ importing the matching LizzieYzy Next settings.
     stays unsaved, as in Java.
   - 保存纯净棋谱(带评论): the same with every comment; an analysed move (analysis of this session
     or saved in the file, whichever has more visits) gets Java's win-rate summary in its comment,
-    in the interface language and with Java's default view (win rate of the side that moved,
-    lead without komi).
+    in the interface language: the side that moved, or Black with 总是显示黑胜率/目数, and the lead
+    as 目数显示 shows it (领先 / 盘面). Unlike Java, the lead's change under 总是显示黑胜率/目数 is
+    always Black's own change; Java's sign depended on the position shown when exporting.
   - 保存纯净分支 (`Ctrl+Alt+S`): one line from the root through the current move, then the first
     continuation, without comments.
   - 保存主棋盘截图 (`Alt+S`), 保存小棋盘截图 (`Shift+S`) and 保存胜率图 (`Shift+Alt+S`): the
@@ -144,6 +145,13 @@ importing the matching LizzieYzy Next settings.
   the position, komi and rules they were requested for, so browsing quickly, switching records,
   changing komi or rules never shows another context's analysis; changing komi or rules discards
   the stored analysis like Java.
+- 显示 > 选点信息 > 总是显示黑胜率/目数 and 显示 > KataGo相关设置 > 目数显示 (计算贴目后目数差 /
+  盘面目数差) are Java's two shared settings, both off by default, saved and taken over by the
+  LizzieYzy Next import. The board candidates and the candidate table show the side to move, or
+  Black with 总是显示黑胜率/目数 (the table's change column keeps Java's side-to-move difference); the graph,
+  the statistics panel and the title always show Black. 盘面目数差 turns every shown lead into the
+  board difference (plus the komi for Black, minus it for White) and switches the statistics
+  label to 盘面. The 带评论 export follows the same settings.
 - Rules: an SGF record's `RU` is applied to KataGo (`kata-set-rules`) before analysis. When the
   engine cannot confirm it, a dialog asks whether to continue with the engine's current rules
   (no pauses analysis). `Shift+D` opens the KataGo rules editor.

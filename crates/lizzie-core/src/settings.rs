@@ -154,6 +154,19 @@ impl Default for RecoverySettings {
     }
 }
 
+/// How analysis numbers are shown, in every display and in the 带评论 export (Java
+/// `ui.win-rate-always-black`, `ui.show-katago-score-lead-with-komi`, both default off). The
+/// numbers follow them through [`crate::viewpoint::Viewpoint`].
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DisplaySettings {
+    /// 总是显示黑胜率: win rates and score leads are Black's instead of the side to move's.
+    pub winrate_always_black: bool,
+    /// 目差显示 > 盘面: score leads are the board difference (KataGo's lead plus the komi for
+    /// Black, minus it for White) instead of the lead after komi (目差).
+    pub score_lead_with_komi: bool,
+}
+
 pub const RECENT_LIMIT: usize = 5;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -171,6 +184,8 @@ pub struct Config {
     pub network: NetworkSettings,
     /// 存档与读档 (Java `ui.auto-save-exit`, `resume-previous-game`, `load-save-zoom`).
     pub recovery: RecoverySettings,
+    /// Analysis numbers (Java `ui.win-rate-always-black`, `show-katago-score-lead-with-komi`).
+    pub display: DisplaySettings,
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).

@@ -99,6 +99,8 @@ const IMPORT_TEXT: Record<string, Table> = {
     targetResumePreviousGame: "存档与读档：启动时自动恢复",
     targetZoomThumbnails: "存档与读档：鼠标悬停放大缩略棋盘",
     targetLastImageFolder: "上次保存图片的文件夹",
+    targetWinrateAlwaysBlack: "总是显示黑胜率",
+    targetScoreLeadWithKomi: "目差显示：盘面",
   },
   ZhTw: {
     javaImport: "從 LizzieYzy Next 匯入設定…",
@@ -190,6 +192,8 @@ const IMPORT_TEXT: Record<string, Table> = {
     targetResumePreviousGame: "存檔與讀檔：啟動時自動恢復",
     targetZoomThumbnails: "存檔與讀檔：滑鼠懸停放大縮略棋盤",
     targetLastImageFolder: "上次儲存圖片的資料夾",
+    targetWinrateAlwaysBlack: "總是顯示黑勝率",
+    targetScoreLeadWithKomi: "目差顯示：盤面",
   },
   EnUs: {
     javaImport: "Import settings from LizzieYzy Next…",
@@ -281,6 +285,8 @@ const IMPORT_TEXT: Record<string, Table> = {
     targetResumePreviousGame: "Save and load: resume on start",
     targetZoomThumbnails: "Save and load: enlarge thumbnails on hover",
     targetLastImageFolder: "Last picture folder",
+    targetWinrateAlwaysBlack: "Always show black winrate",
+    targetScoreLeadWithKomi: "Score lead: board difference",
   },
 };
 

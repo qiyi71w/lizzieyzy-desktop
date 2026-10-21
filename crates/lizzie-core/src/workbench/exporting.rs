@@ -12,6 +12,7 @@ use crate::formats::saved_analysis;
 use crate::formats::sgf_write::{self, Export};
 use crate::formats::winrate_comment::{self, NodeEval};
 use crate::record::{GameRecord, NodeId};
+use crate::viewpoint::Viewpoint;
 
 fn eval(a: &NodeAnalysisView) -> NodeEval {
     NodeEval {
@@ -65,11 +66,13 @@ impl Workbench {
                     }
                     .filter(|a| a.visits > 0)
                 };
+                let view = Viewpoint::from(&self.config.display);
                 let comment = |id: NodeId| {
                     let a = analysis(id)?;
                     let previous = rec.node(id).parent.map(analysis);
                     Some(winrate_comment::format(
                         labels,
+                        view,
                         &a,
                         previous.as_ref().map(Option::as_ref),
                         &rec.node(id).comment,

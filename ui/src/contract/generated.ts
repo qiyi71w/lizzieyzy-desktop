@@ -97,7 +97,7 @@ showPonderLimitedTips: boolean, };
 
 export type EngineScope = "Current" | "Others" | "All";
 
-export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, };
+export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "SetDisplaySettings", settings: DisplaySettings, };
 
 export type CommandResult = { "type": "Done" } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "NeedsEditConfirmation", target: EditTarget, } | { "type": "Exported", path: string, } | { "type": "ExportFailed", path: string, detail: string, } | { "type": "Refused", message_key: string, } | { "type": "SaveStarted", ticket: number, } | { "type": "NeedsReplaceConfirmation", document: number, file_name: string, } | { "type": "NeedsOverwriteConfirmation", path: string, } | { "type": "NeedsExportOverwriteConfirmation", kind: ExportKind, path: string, } | { "type": "NeedsImageOverwriteConfirmation", path: string, } | { "type": "FolderChosen", path: string, } | { "type": "JavaImportPreview", preview: ImportPreviewView, } | { "type": "JavaImportFailed", failure: ImportFailure, } | { "type": "JavaImported", report: ImportReportView, } | { "type": "Resource", result: ResourceResult, } | { "type": "Tuning", result: TuningResult, };
 
@@ -204,7 +204,7 @@ play_sound: boolean,
 /**
  * Ask before "保存" overwrites the record's own file (Java `ui.show-replace-file-hint`).
  */
-replace_file_hint: boolean, engine: EngineSettingsView, edit: EditSettings, };
+replace_file_hint: boolean, engine: EngineSettingsView, edit: EditSettings, display: DisplaySettings, };
 
 export type StoneSound = "Stone" | "DeadStone" | "DeadStoneMore";
 
@@ -285,7 +285,12 @@ pv: Array<Point | null>,
  * For each `pv` move, the stones it captures when played out from the node's position
  * (`Branch` with `remove-dead-in-variation`); empty for passes.
  */
-pv_captures: Array<Array<Point>>, };
+pv_captures: Array<Array<Point>>, 
+/**
+ * Win rate and score lead as the board and the candidate table show them (总是显示黑胜率,
+ * 目差显示); set by the view projection.
+ */
+shown: ShownValues, };
 
 export type NodeAnalysisView = { node: number, engine: string, to_play: Stone, 
 /**
@@ -303,13 +308,27 @@ score_lead: number | null, score_stdev: number | null, komi: number,
 /**
  * In `order`.
  */
-candidates: Array<CandidateView>, };
+candidates: Array<CandidateView>, 
+/**
+ * Black's numbers as the statistics panel and the title show them (the lead with the komi
+ * under 盘面); set by the view projection.
+ */
+black: ShownValues, };
 
 export type HistoryPoint = { node: number, move_number: number, to_play: Stone, visits: number, 
 /**
  * Side to move, 0–100.
  */
-winrate: number, score_lead: number | null, };
+winrate: number, score_lead: number | null, 
+/**
+ * Black's numbers as the win-rate graph shows them (the lead with the komi under 盘面).
+ */
+black: ShownValues, 
+/**
+ * This position's result as a candidate of the previous position (the candidate table's
+ * actual-move row).
+ */
+as_candidate: AsCandidate, };
 
 export type EngineFailureView = { engine_name: string, 
 /**
@@ -432,7 +451,7 @@ export type ImportStatus = "Imported" | "Incompatible" | "NotMigrated";
 
 export type ImportReason = "NotYetAvailable" | "Credential" | "InvalidValue" | "WindowCoordinates" | "RemoteEngine" | "CredentialNotConfirmed" | "Unreadable" | "NotChosen" | "Obsolete";
 
-export type ImportTarget = "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder";
+export type ImportTarget = "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi";
 
 export type ImportItemView = { 
 /**
@@ -559,7 +578,15 @@ export type Transform = "ExchangeColors" | "RotateRight" | "RotateLeft" | "Mirro
 
 export type ExportKind = "Raw" | "RawWithComments" | "Branch";
 
-export type CommentLabels = { black: string, white: string, winrate: string, lead: string, stdev: string, playouts: string, komi: string, pda: string, };
+export type CommentLabels = { black: string, white: string, winrate: string, 
+/**
+ * 目差 (the lead after komi).
+ */
+lead: string, 
+/**
+ * 盘面 (`show-katago-score-lead-with-komi`).
+ */
+lead_with_komi: string, stdev: string, playouts: string, komi: string, pda: string, };
 
 export type SlotRef = { "type": "Auto" } | { "type": "Manual", index: number, };
 
@@ -619,6 +646,37 @@ export type RecoveryImport = {
  * Name for Java's automatic slot (the UI's `LizzieFrame.saveAndLoad.exitRecord`).
  */
 auto_slot_name: string, };
+
+export type DisplaySettings = { 
+/**
+ * 总是显示黑胜率: win rates and score leads are Black's instead of the side to move's.
+ */
+winrateAlwaysBlack: boolean, 
+/**
+ * 目差显示 > 盘面: score leads are the board difference (KataGo's lead plus the komi for
+ * Black, minus it for White) instead of the lead after komi (目差).
+ */
+scoreLeadWithKomi: boolean, };
+
+export type ShownValues = { 
+/**
+ * Percent, for the shown side.
+ */
+winrate: number, 
+/**
+ * For the shown side, with the komi when 盘面 is chosen.
+ */
+score_lead: number | null, };
+
+export type AsCandidate = { 
+/**
+ * Percent, for the side that moved (the table compares it with the best candidate's).
+ */
+winrate: number, 
+/**
+ * For the side that moved.
+ */
+score_lead: number | null, shown: ShownValues, };
 
 export type ManagedProfile = { command: string, assetId: string, weightPath: string, configPath: string, };
 

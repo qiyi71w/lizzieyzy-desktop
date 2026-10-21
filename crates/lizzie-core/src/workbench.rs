@@ -41,7 +41,7 @@ use crate::browse::{self, Navigation};
 use crate::engine::runtime::{Engines, InstanceId, Launcher};
 use crate::formats::{self, sgf_write, ReadError};
 use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, RecordFormat, Stone, ROOT};
-use crate::settings::{self, Config, Language, Persisted, Storage, WindowPlacement};
+use crate::settings::{self, Config, DisplaySettings, Language, Persisted, Storage, WindowPlacement};
 
 /// Java `GameInfo.DEFAULT_KOMI`.
 pub const DEFAULT_KOMI: f64 = 7.5;
@@ -640,6 +640,15 @@ impl Workbench {
         Ok(true)
     }
 
+    /// 总是显示黑胜率 and 目差显示: every display and the 带评论 export follow at once.
+    pub fn set_display_settings(&mut self, settings: DisplaySettings) -> Result<bool, ApiError> {
+        if self.config.display == settings {
+            return Ok(false);
+        }
+        self.commit_config(|c| c.display = settings)?;
+        Ok(true)
+    }
+
     pub fn set_language(&mut self, language: Language) -> Result<bool, ApiError> {
         if self.config.ui.language == language {
             return Ok(false);
@@ -780,6 +789,7 @@ impl Workbench {
                 replace_file_hint: self.config.record.show_replace_file_hint,
                 engine: self.engine_settings_view(),
                 edit: self.config.edit.clone(),
+                display: self.config.display.clone(),
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,

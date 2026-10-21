@@ -14,7 +14,7 @@ use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::formats::{self, sgf};
 use lizzie_core::java_import::{self, JavaSource};
 use lizzie_core::record::{GameRecord, NodeId, NodeKind, Point, RecordFormat, Stone, ROOT};
-use lizzie_core::settings::{RecoverySettings, Storage};
+use lizzie_core::settings::{DisplaySettings, RecoverySettings, Storage};
 use lizzie_core::workbench::{OpenOrigin, RecoveryStep, Workbench};
 use serde_json::json;
 
@@ -49,6 +49,7 @@ fn labels() -> CommentLabels {
         white: "白棋".into(),
         winrate: "胜率:".into(),
         lead: "领先:".into(),
+        lead_with_komi: "盘面:".into(),
         stdev: "不确定度:".into(),
         playouts: "计算量".into(),
         komi: "贴目:".into(),
@@ -539,6 +540,7 @@ fn the_commented_export_summarises_analysis_saved_in_the_record() {
         white: "White".into(),
         winrate: "win rate:".into(),
         lead: "lead:".into(),
+        lead_with_komi: "board:".into(),
         stdev: "stdev:".into(),
         playouts: "visits".into(),
         komi: "komi:".into(),
@@ -563,6 +565,98 @@ fn the_commented_export_summarises_analysis_saved_in_the_record() {
         "White win rate: 60.0% (+4.0%)\n(LeelaZero / 1.3k visits)\nkomi: 7.5"
     );
     assert!(!text.contains("LZ["), "{text}");
+}
+
+/// Saved KataGo analysis before and after each of three moves (komi 6.5).
+const VIEWPOINT_RECORD: &str = "(;GM[1]SZ[9]KM[6.5]\
+    LZOP[b11 45.0 120 1.5 0.8 0 rootVisits=120\nmove E5 visits 100 winrate 5500 scoreMean 1.5 pv E5]\
+    ;B[ee]C[first]LZ[b11 44.0 200 1.2 0.7 0 rootVisits=200\nmove C3 visits 150 winrate 5600 scoreMean 1.2 pv C3]\
+    ;W[cc]LZ[b11 52.0 300 -0.5 0.6 0 rootVisits=300\nmove G7 visits 200 winrate 4800 scoreMean -0.5 pv G7]\
+    ;B[gg]LZ[b11 40.0 400 2.5 0.9 0 rootVisits=400\nmove C7 visits 300 winrate 6000 scoreMean 2.5 pv C7])";
+
+/// 总是显示黑胜率 × 目差显示 in the 带评论 export, against fixed Java's `saveSnapshot(raw,
+/// comments)` of the same record under each setting (English labels: Java's two lead labels are
+/// both "lead:" there), except Java's lead difference under 总是显示黑胜率. The settings outlive
+/// a restart.
+#[test]
+fn the_commented_export_follows_the_viewpoint_settings_like_java() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut wb = workbench(tmp.path());
+    open_text(&mut wb, VIEWPOINT_RECORD);
+    let english = CommentLabels {
+        black: "Black".into(),
+        white: "White".into(),
+        winrate: "win rate:".into(),
+        lead: "lead:".into(),
+        lead_with_komi: "lead:".into(),
+        stdev: "stdev:".into(),
+        playouts: "visits".into(),
+        komi: "komi:".into(),
+        pda: "PDA:".into(),
+    };
+    let moves = [(Stone::Black, 4, 4), (Stone::White, 2, 2), (Stone::Black, 6, 6)];
+    let java = [
+        (
+            false,
+            false,
+            [
+                "first\n\nBlack win rate: 44.0% (-11.0%)\nlead: -1.2 (-2.7) stdev: 0.7",
+                "White win rate: 52.0% (-4.0%)\nlead: 0.5 (-0.7) stdev: 0.6",
+                "Black win rate: 40.0% (-8.0%)\nlead: -2.5 (-2.0) stdev: 0.9",
+            ],
+        ),
+        // With 总是显示黑胜率 Java flips every lead difference by the board's current turn, so
+        // its output depends on where the board stands (exported from the start: +2.7, +0.7,
+        // +2.0; after the first move: -2.7, -0.7, -2.0). Black's lead really went 1.5 → -1.2 →
+        // -0.5 → -2.5: the product writes that.
+        (
+            true,
+            false,
+            [
+                "first\n\nBlack win rate: 44.0% (-11.0%)\nlead: -1.2 (-2.7) stdev: 0.7",
+                "Black win rate: 48.0% (+4.0%)\nlead: -0.5 (+0.7) stdev: 0.6",
+                "Black win rate: 40.0% (-8.0%)\nlead: -2.5 (-2.0) stdev: 0.9",
+            ],
+        ),
+        (
+            false,
+            true,
+            [
+                "first\n\nBlack win rate: 44.0% (-11.0%)\nlead: 5.3 (-2.7) stdev: 0.7",
+                "White win rate: 52.0% (-4.0%)\nlead: -6.0 (-0.7) stdev: 0.6",
+                "Black win rate: 40.0% (-8.0%)\nlead: 4.0 (-2.0) stdev: 0.9",
+            ],
+        ),
+        (
+            true,
+            true,
+            [
+                "first\n\nBlack win rate: 44.0% (-11.0%)\nlead: 5.3 (-2.7) stdev: 0.7",
+                "Black win rate: 48.0% (+4.0%)\nlead: 6.0 (+0.7) stdev: 0.6",
+                "Black win rate: 40.0% (-8.0%)\nlead: 4.0 (-2.0) stdev: 0.9",
+            ],
+        ),
+    ];
+    for (always_black, with_komi, expected) in java {
+        let settings = DisplaySettings {
+            winrate_always_black: always_black,
+            score_lead_with_komi: with_komi,
+        };
+        wb.set_display_settings(settings.clone()).unwrap();
+        let rec = sgf::read(&wb.export_text(ExportKind::RawWithComments, &english)).unwrap();
+        for (i, summary) in expected.iter().enumerate() {
+            let visits = (i + 2) * 100;
+            assert_eq!(
+                rec.node(node_at(&rec, &moves[..=i])).comment,
+                format!("{summary}\n(b11 / {visits} visits)\nkomi: 6.5"),
+                "always black {always_black}, with komi {with_komi}"
+            );
+        }
+        drop(wb);
+        wb = workbench(tmp.path());
+        assert_eq!(wb.view(true).settings.display, settings, "kept after a restart");
+        open_text(&mut wb, VIEWPOINT_RECORD);
+    }
 }
 
 // ------------------------------------------------------------------ Java slots

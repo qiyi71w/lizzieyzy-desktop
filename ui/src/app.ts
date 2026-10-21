@@ -193,6 +193,7 @@ function commentLabels(): CommentLabels {
     white: t("SGFParse.white"),
     winrate: t("SGFParse.winrate"),
     lead: t("SGFParse.leadJustScore"),
+    lead_with_komi: t("SGFParse.leadWithKomi"),
     stdev: t("SGFParse.stdev"),
     playouts: t("SGFParse.playouts"),
     komi: t("SGFParse.komi"),

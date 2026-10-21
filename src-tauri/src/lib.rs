@@ -628,6 +628,10 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().set_edit_settings(settings)?;
             Ok(changed(&app, &shared, done))
         }
+        Command::SetDisplaySettings { settings } => {
+            let done = shared.workbench.lock().unwrap().set_display_settings(settings)?;
+            Ok(changed(&app, &shared, done))
+        }
     }
 }
 

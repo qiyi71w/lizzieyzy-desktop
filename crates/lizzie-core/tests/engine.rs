@@ -1292,6 +1292,7 @@ fn the_commented_export_summarises_only_analysed_moves_against_their_parent() {
         white: "白棋".into(),
         winrate: "胜率:".into(),
         lead: "领先:".into(),
+        lead_with_komi: "盘面:".into(),
         stdev: "不确定度:".into(),
         playouts: "计算量".into(),
         komi: "贴目:".into(),
@@ -1311,4 +1312,66 @@ fn the_commented_export_summarises_only_analysed_moves_against_their_parent() {
     );
     assert!(text.ends_with(";W[dd])"), "an unanalysed move gets no summary: {text}");
     assert!(!text.contains("LZ["), "{text}");
+}
+
+/// 总是显示黑胜率 × 目差显示 on the displays, for a position with White to move (fixed Java
+/// `BoardRenderer` win rate flip, `Utils.convertScoreToString`, the black-perspective graph,
+/// statistics panel and title). Stored results are converted again when the setting changes.
+#[test]
+fn the_displays_follow_the_viewpoint_settings() {
+    use lizzie_core::settings::DisplaySettings;
+    use lizzie_core::viewpoint::{AsCandidate, ShownValues};
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    open(&mut wb, "(;SZ[19]KM[7.5];B[pd])");
+    wb.navigate(Navigation::Forward(1));
+    answer_all(&mut wb, &world, id, KATA);
+    // White to move: 60 % and +1.5 for White.
+    out(&mut wb, id, &info("D4", 50));
+    // (always black, with komi) → (board candidate, Black's lead, the move's table row as shown)
+    let cases = [
+        ((false, false), (60.0, 1.5), -1.5, (40.0, -1.5)),
+        ((true, false), (40.0, -1.5), -1.5, (40.0, -1.5)),
+        ((false, true), (60.0, 1.5 - 7.5), -1.5 + 7.5, (40.0, -1.5 + 7.5)),
+        ((true, true), (40.0, -1.5 + 7.5), -1.5 + 7.5, (40.0, -1.5 + 7.5)),
+    ];
+    for ((always_black, with_komi), (winrate, lead), black_lead, (row_winrate, row_lead)) in cases {
+        let settings = DisplaySettings {
+            winrate_always_black: always_black,
+            score_lead_with_komi: with_komi,
+        };
+        wb.set_display_settings(settings).unwrap();
+        let v = wb.view(false);
+        let at = format!("always black {always_black}, with komi {with_komi}");
+        let a = v.analysis.unwrap();
+        assert_eq!(
+            a.candidates[0].shown,
+            ShownValues {
+                winrate,
+                score_lead: Some(lead)
+            },
+            "{at}"
+        );
+        let black = ShownValues {
+            winrate: 40.0,
+            score_lead: Some(black_lead),
+        };
+        assert_eq!(a.black, black, "{at}");
+        let point = v.history.iter().find(|p| p.node == a.node).unwrap();
+        assert_eq!(point.black, black, "{at}");
+        // The move's table row keeps Black's raw numbers for the change column.
+        assert_eq!(
+            point.as_candidate,
+            AsCandidate {
+                winrate: 40.0,
+                score_lead: Some(-1.5),
+                shown: ShownValues {
+                    winrate: row_winrate,
+                    score_lead: Some(row_lead)
+                },
+            },
+            "{at}"
+        );
+    }
 }

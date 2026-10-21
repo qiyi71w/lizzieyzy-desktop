@@ -1,7 +1,7 @@
 // Field-wise equality of the analysis parts of consecutive views, so panels repaint only when
 // what they show changed. Every field of the contract types needs a comparator: a new field fails
 // the type check until it is compared here.
-import type { CandidateView, HistoryPoint, NodeAnalysisView, Point } from "../contract/generated";
+import type { CandidateView, HistoryPoint, NodeAnalysisView, Point, ShownValues } from "../contract/generated";
 
 type Fields<T> = { [K in keyof T]-?: (a: T[K], b: T[K]) => boolean };
 
@@ -23,6 +23,7 @@ function sameList<T>(item: (a: T, b: T) => boolean) {
 
 const samePoint = (a: Point, b: Point) => a.x === b.x && a.y === b.y;
 const sameMove = (a: Point | null, b: Point | null) => a === b || (a !== null && b !== null && samePoint(a, b));
+const sameShown = (a: ShownValues, b: ShownValues) => a.winrate === b.winrate && a.score_lead === b.score_lead;
 
 const CANDIDATE: Fields<CandidateView> = {
   point: sameMove,
@@ -36,6 +37,7 @@ const CANDIDATE: Fields<CandidateView> = {
   order: same,
   pv: sameList(sameMove),
   pv_captures: sameList(sameList(samePoint)),
+  shown: sameShown,
 };
 const sameCandidates = sameList((a: CandidateView, b: CandidateView) => sameBy(CANDIDATE, a, b));
 
@@ -50,6 +52,7 @@ const ANALYSIS: Fields<NodeAnalysisView> = {
   score_stdev: same,
   komi: same,
   candidates: sameCandidates,
+  black: sameShown,
 };
 
 const HISTORY_POINT: Fields<HistoryPoint> = {
@@ -59,6 +62,8 @@ const HISTORY_POINT: Fields<HistoryPoint> = {
   visits: same,
   winrate: same,
   score_lead: same,
+  black: sameShown,
+  as_candidate: (a, b) => a.winrate === b.winrate && a.score_lead === b.score_lead && sameShown(a.shown, b.shown),
 };
 
 export function sameAnalysis(a: NodeAnalysisView | null, b: NodeAnalysisView | null): boolean {
