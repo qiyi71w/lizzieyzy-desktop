@@ -168,8 +168,12 @@ frame transport to avoid the observed DMA-BUF fence stall. GL rendering is retai
 frames are read back to shared memory, which has a copying cost. This does not select a software
 renderer. Native Wayland, other graphics drivers and mixed-GPU systems keep their existing path.
 Explicit graphics environment settings take precedence, including
-`WEBKIT_DMABUF_RENDERER_FORCE_SHM=0` to retain WebKit's normal transport for diagnosis. The
-compatibility route still requires validation of the packaged application in its target environment.
+`WEBKIT_DMABUF_RENDERER_FORCE_SHM=0` to retain WebKit's normal transport for diagnosis.
+On Ubuntu 24.04 GNOME with Mesa 25.2.8 / VMware SVGA3D, the packaged compatibility route
+has been exercised with both deb and AppImage: board display, keyboard focus, real analysis,
+native Open/Save, record reopening and natural client/engine exit. The deb run covers both
+window sizes; a native Wayland regression also passed without selecting SHM. This is functional
+compatibility evidence, not a new performance pass or proof for other driver/WebKit versions.
 
 The package-only predecessor was verified separately as follows:
 
