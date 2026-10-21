@@ -107,7 +107,8 @@ fn load(wb: &mut Workbench, slot: SlotRef) {
     let RecoveryStep::Load { ticket, path } = run(wb, RecoveryCommand::LoadSlot { slot }) else {
         panic!("a slot load reads a file");
     };
-    wb.complete_open(ticket, formats::read_file(&path, false));
+    let no_capture = wb.config().edit.no_capture;
+    wb.complete_open(ticket, formats::read_file(&path, no_capture));
 }
 
 fn names(wb: &mut Workbench) -> Vec<String> {
@@ -451,6 +452,116 @@ fn a_slot_that_cannot_be_read_keeps_the_current_record() {
     assert_eq!(v.document.id, current);
 }
 
+#[test]
+fn a_crash_without_the_periodic_record_keeps_the_exit_save() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut wb = workbench(tmp.path());
+    open_text(&mut wb, "(;SZ[9];B[aa];W[bb])");
+    run(&mut wb, RecoveryCommand::ExitAutoSave { thumbnail: Some(png()) });
+    open_text(&mut wb, RECORD);
+    run(&mut wb, RecoveryCommand::AutoSave { thumbnail: png() });
+    drop(wb);
+    // The periodic record is gone before the next start.
+    std::fs::remove_file(tmp.path().join("data/save/autoGame2.sgf")).unwrap();
+
+    let mut wb = workbench(tmp.path());
+    let auto = wb.view(false).recovery.auto.expect("the exit save is still offered");
+    assert!(auto.has_thumbnail);
+    load(&mut wb, SlotRef::Auto);
+    assert_eq!(wb.document().record.node_count(), 3, "the exit save's record");
+}
+
+#[test]
+fn a_slot_whose_list_cannot_be_written_keeps_its_previous_record() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut wb = workbench(tmp.path());
+    open_text(&mut wb, "(;SZ[9];B[aa];W[bb])");
+    wb.navigate(lizzie_core::browse::Navigation::Forward(2));
+    run(
+        &mut wb,
+        RecoveryCommand::NewSlot {
+            name: "A".into(),
+            thumbnail: png(),
+        },
+    );
+    let save = tmp.path().join("data/save");
+    let (sgf, picture) = (
+        std::fs::read(save.join("game1.sgf")).unwrap(),
+        std::fs::read(save.join("game1.png")).unwrap(),
+    );
+    // The slot list cannot be replaced; the slot's own files can.
+    std::fs::remove_file(save.join("save.json")).unwrap();
+    std::fs::create_dir(save.join("save.json")).unwrap();
+    open_text(&mut wb, RECORD);
+    let other = {
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(2, 2, image::Rgba([0, 0, 0, 255]))
+            .write_to(&mut out, image::ImageFormat::Png)
+            .unwrap();
+        base64::engine::general_purpose::STANDARD.encode(out.into_inner())
+    };
+    let failed = wb.recovery_command(
+        RecoveryCommand::OverwriteSlot {
+            index: 1,
+            name: "B".into(),
+            thumbnail: other,
+        },
+        AP,
+    );
+    assert!(failed.is_err());
+    assert_eq!(std::fs::read(save.join("game1.sgf")).unwrap(), sgf);
+    assert_eq!(std::fs::read(save.join("game1.png")).unwrap(), picture);
+    assert_eq!(names(&mut wb), ["A"]);
+    load(&mut wb, SlotRef::Manual { index: 1 });
+    assert_eq!(
+        wb.view(false).position.move_number,
+        2,
+        "the slot's record at its saved position"
+    );
+}
+
+#[test]
+fn the_commented_export_summarises_analysis_saved_in_the_record() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut wb = workbench(tmp.path());
+    // Java's own `saveSnapshot(raw, comments)` of this record (fixed Java, English labels).
+    open_text(
+        &mut wb,
+        "(;GM[1]SZ[9]KM[7.5]C[root note]LZOP[b11 45.0 120 1.5 0.8 0 rootVisits=120\n\
+         move E5 visits 100 winrate 5500 scoreMean 1.5 pv E5];B[ee]C[first]\
+         LZ[b11 44.0 200 1.2 0.7 0 rootVisits=200\nmove C3 visits 150 winrate 5600 scoreMean 1.2 pv C3]\
+         (;W[cc]C[main])(;W[gc]LZ[LeelaZero 60.0 1.3k\nmove C7 visits 900 winrate 4000 pv C7]))",
+    );
+    let english = CommentLabels {
+        black: "Black".into(),
+        white: "White".into(),
+        winrate: "win rate:".into(),
+        lead: "lead:".into(),
+        stdev: "stdev:".into(),
+        playouts: "visits".into(),
+        komi: "komi:".into(),
+    };
+    let text = wb.export_text(ExportKind::RawWithComments, &english);
+    let rec = sgf::read(&text).unwrap();
+    let first = node_at(&rec, &[(Stone::Black, 4, 4)]);
+    assert_eq!(
+        rec.node(first).comment,
+        "first\n\nBlack win rate: 44.0% (-11.0%)\nlead: -1.2 (-2.7) stdev: 0.7\n(b11 / 200 visits)\nkomi: 7.5"
+    );
+    assert_eq!(
+        rec.node(node_at(&rec, &[(Stone::Black, 4, 4), (Stone::White, 2, 2)]))
+            .comment,
+        "main"
+    );
+    // Leela Zero data has no score: the summary has none either.
+    assert_eq!(
+        rec.node(node_at(&rec, &[(Stone::Black, 4, 4), (Stone::White, 6, 2)]))
+            .comment,
+        "White win rate: 60.0% (+4.0%)\n(LeelaZero / 1.3k visits)\nkomi: 7.5"
+    );
+    assert!(!text.contains("LZ["), "{text}");
+}
+
 // ------------------------------------------------------------------ Java slots
 
 /// A Java work directory with Java's own slot list: manual slot 1 (picture included), manual
@@ -634,4 +745,48 @@ fn imported_java_slots_are_taken_back_when_the_settings_cannot_be_written() {
     assert!(wb.apply_java_import(p.id, &[], true, Some(&choice)).is_err());
     assert_eq!(names(&mut wb), ["mine"]);
     assert_eq!(files(&product.join("data/save")), before);
+}
+
+#[test]
+fn java_slots_are_placed_under_javas_capture_rule() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(java.join("save")).unwrap();
+    std::fs::write(
+        java.join("config.txt"),
+        json!({ "ui": { "no-capture": true } }).to_string(),
+    )
+    .unwrap();
+    let save = json!({ "save": {
+        "save-game-index": [1],
+        "save-game-name": ["gomoku"],
+        "save-game-time": ["2026-10-21 14:04:28"],
+        "save-game-move-number": [1],
+        "save-game-move-list": ["0,0,w"],
+    }});
+    std::fs::write(java.join("save/save"), save.to_string()).unwrap();
+    // Without captures White's move into the corner is a normal move (Java `ui.no-capture`).
+    std::fs::write(java.join("save/game1.sgf"), "(;SZ[9]AB[ba][ab];W[aa])").unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product);
+    let candidate = java_import::read(&JavaSource::new(&java, None)).unwrap();
+    let p = wb.preview_java_import(candidate);
+    assert_eq!(
+        (p.recovery[0].status, p.recovery[0].move_number),
+        (ImportStatus::Imported, 1)
+    );
+    let choice = RecoveryImport {
+        auto_slot_name: "auto".into(),
+    };
+    wb.apply_java_import(p.id, &[], true, Some(&choice)).unwrap().unwrap();
+    load(&mut wb, SlotRef::Manual { index: 1 });
+    let v = wb.view(false);
+    assert_eq!(v.position.move_number, 1);
+    assert_eq!(
+        wb.document().record.node(wb.cursor()).kind,
+        NodeKind::Move {
+            color: Stone::White,
+            point: Point { x: 0, y: 0 }
+        }
+    );
 }

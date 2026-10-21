@@ -25,7 +25,9 @@ pub enum ExitSave {
     Idle,
     /// Asked the UI for the picture.
     Requested,
-    /// Written (or being written by whoever claimed it); the exit may proceed.
+    /// One writer (the UI answer or the fallback) took it and is writing; the exit still waits.
+    Writing,
+    /// Written, or the attempt ended; the exit may proceed.
     Done,
 }
 
@@ -173,21 +175,20 @@ pub fn recovery(app: &AppHandle, shared: &State, op: RecoveryCommand) -> Result<
     // Automatic saves fail quietly into the log, as Java's `saveAutoGame` does; a dialog every
     // minute would block the user. The panel's own operations report their failure.
     let automatic = exit || matches!(op, RecoveryCommand::AutoSave { .. });
-    if exit && !claim_exit_save(shared) {
-        // The fallback already wrote it, or no exit is waiting: an automation call writes the
+    let claimed = exit && claim_exit_save(shared);
+    if exit && !claimed && *shared.exit_save.lock().unwrap() != ExitSave::Idle {
+        // The other writer has it. Without a waiting exit (Idle) an automation call writes the
         // automatic slot without closing anything.
-        if *shared.exit_save.lock().unwrap() == ExitSave::Done {
-            return Ok(CommandResult::Unchanged);
-        }
+        return Ok(CommandResult::Unchanged);
     }
     let step = shared.workbench.lock().unwrap().recovery_command(op, &application(app));
+    if claimed {
+        finish_exit_save(app, shared, step.as_ref().err().map(|e| e.message.as_str()));
+    }
     let step = match step {
         Ok(s) => s,
         Err(e) => {
             shared.log.warn(&format!("save and load: {}", e.message));
-            if exit {
-                close_main(app);
-            }
             return if automatic {
                 Ok(CommandResult::Unchanged)
             } else {
@@ -203,10 +204,6 @@ pub fn recovery(app: &AppHandle, shared: &State, op: RecoveryCommand) -> Result<
         RecoveryStep::Changed(changed) => {
             if changed {
                 publish(app, shared);
-            }
-            if exit && *shared.exit_save.lock().unwrap() == ExitSave::Done {
-                shared.log.info("exit automatic save written");
-                close_main(app);
             }
             Ok(if changed {
                 CommandResult::Done
@@ -225,15 +222,25 @@ pub fn recovery_thumbnail(state: tauri::State<'_, State>, slot: SlotRef) -> taur
 }
 
 /// Takes the exit save over from the waiting request: only one writer (the UI answer or the
-/// fallback) writes it.
+/// fallback) writes it, and the exit keeps waiting until [`finish_exit_save`].
 fn claim_exit_save(shared: &Shared) -> bool {
     let mut state = shared.exit_save.lock().unwrap();
     if *state == ExitSave::Requested {
-        *state = ExitSave::Done;
+        *state = ExitSave::Writing;
         true
     } else {
         false
     }
+}
+
+/// The claimed exit save ended (`failure` when it could not be written): the exit proceeds.
+fn finish_exit_save(app: &AppHandle, shared: &Shared, failure: Option<&str>) {
+    match failure {
+        None => shared.log.info("exit automatic save written"),
+        Some(e) => shared.log.warn(&format!("exit automatic save failed: {e}")),
+    }
+    *shared.exit_save.lock().unwrap() = ExitSave::Done;
+    close_main(app);
 }
 
 fn close_main(app: &AppHandle) {
@@ -248,7 +255,7 @@ pub fn exit_saved(app: &AppHandle, shared: &Shared) -> bool {
     let mut state = shared.exit_save.lock().unwrap();
     match *state {
         ExitSave::Done => true,
-        ExitSave::Requested => false,
+        ExitSave::Requested | ExitSave::Writing => false,
         ExitSave::Idle => {
             *state = ExitSave::Requested;
             drop(state);
@@ -266,10 +273,7 @@ pub fn exit_saved(app: &AppHandle, shared: &Shared) -> bool {
                         .lock()
                         .unwrap()
                         .recovery_command(RecoveryCommand::ExitAutoSave { thumbnail: None }, &application(&app));
-                    if let Err(e) = result {
-                        shared.log.warn(&format!("exit automatic save failed: {}", e.message));
-                    }
-                    close_main(&app);
+                    finish_exit_save(&app, &shared, result.as_ref().err().map(|e| e.message.as_str()));
                 }
             });
             false

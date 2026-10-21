@@ -8,9 +8,10 @@ use std::path::{Path, PathBuf};
 
 use super::{PendingSave, SaveJob, Workbench};
 use crate::api::{CommentLabels, ExportKind, NodeAnalysisView};
+use crate::formats::saved_analysis;
 use crate::formats::sgf_write::{self, Export};
 use crate::formats::winrate_comment::{self, NodeEval};
-use crate::record::NodeId;
+use crate::record::{GameRecord, NodeId};
 
 fn eval(a: &NodeAnalysisView) -> NodeEval {
     NodeEval {
@@ -24,6 +25,22 @@ fn eval(a: &NodeAnalysisView) -> NodeEval {
     }
 }
 
+/// The analysis saved with node `id` in the record (KataGo data always has an uncertainty, as in
+/// Java's `isKataData` summary).
+fn saved(rec: &GameRecord, id: NodeId) -> Option<NodeEval> {
+    let node = rec.node(id);
+    let s = saved_analysis::primary(&node.properties)?;
+    Some(NodeEval {
+        engine: s.engine,
+        visits: s.visits,
+        winrate: s.winrate,
+        score_stdev: s.score_lead.map(|_| s.score_stdev),
+        score_lead: s.score_lead,
+        komi: rec.info.komi,
+        to_play: node.to_play,
+    })
+}
+
 impl Workbench {
     /// The export text of the current record.
     pub fn export_text(&self, kind: ExportKind, labels: &CommentLabels) -> String {
@@ -32,18 +49,25 @@ impl Workbench {
             ExportKind::Raw => sgf_write::write_export(rec, &Export::Raw),
             ExportKind::Branch => sgf_write::write_export(rec, &Export::Branch { current: self.cursor }),
             ExportKind::RawWithComments => {
-                // An analysed node (playouts > 0) gets its summary (`appendRawSerializedComment`).
-                // Analysis read with the record (`LZ*`) is kept as read but not interpreted by
-                // this product yet, so only this session's results give a summary.
+                // An analysed node (playouts > 0) gets its summary (`appendRawSerializedComment`):
+                // this session's analysis or the analysis read with the record, whichever has more
+                // visits (Java keeps one `BoardData` result per node and replaces it only with
+                // more visits).
+                let analysis = |id: NodeId| {
+                    let live = self.store.get(rec, id).map(eval);
+                    let saved = saved(rec, id);
+                    match (live, saved) {
+                        (Some(l), Some(s)) => Some(if s.visits > l.visits { s } else { l }),
+                        (l, s) => l.or(s),
+                    }
+                    .filter(|a| a.visits > 0)
+                };
                 let comment = |id: NodeId| {
-                    let a = self.store.get(rec, id).filter(|a| a.visits > 0)?;
-                    let previous = rec
-                        .node(id)
-                        .parent
-                        .map(|p| self.store.get(rec, p).filter(|a| a.visits > 0).map(eval));
+                    let a = analysis(id)?;
+                    let previous = rec.node(id).parent.map(analysis);
                     Some(winrate_comment::format(
                         labels,
-                        &eval(a),
+                        &a,
                         previous.as_ref().map(Option::as_ref),
                         &rec.node(id).comment,
                     ))

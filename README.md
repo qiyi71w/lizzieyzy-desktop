@@ -53,9 +53,10 @@ importing the matching LizzieYzy Next settings.
   - 保存纯净棋谱 (`Ctrl+Shift+S`): the whole tree without analysis (`LZ`, `LZ2`) and without move
     comments; the root comment and root analysis stay. The record then belongs to that file but
     stays unsaved, as in Java.
-  - 保存纯净棋谱(带评论): the same with every comment; a move analysed in this session gets Java's
-    win-rate summary in its comment (words in the interface language). Analysis read from a file
-    is kept but not interpreted yet, so it adds no summary.
+  - 保存纯净棋谱(带评论): the same with every comment; an analysed move (analysis of this session
+    or saved in the file, whichever has more visits) gets Java's win-rate summary in its comment,
+    in the interface language and with Java's default view (win rate of the side that moved,
+    lead without komi).
   - 保存纯净分支 (`Ctrl+Alt+S`): one line from the root through the current move, then the first
     continuation, without comments.
   - 保存主棋盘截图 (`Alt+S`), 保存小棋盘截图 (`Shift+S`) and 保存胜率图 (`Shift+Alt+S`): the

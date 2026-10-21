@@ -7,6 +7,7 @@
 
 pub mod gib;
 pub mod picture;
+pub mod saved_analysis;
 pub mod sgf;
 pub mod sgf_write;
 pub mod winrate_comment;

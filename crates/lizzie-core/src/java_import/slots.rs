@@ -101,7 +101,12 @@ pub(super) fn read(source: &JavaSource, r: &mut Reader) -> Vec<JavaSlot> {
             return Vec::new();
         }
     };
-    entries(&save).into_iter().map(|e| read_slot(source, e)).collect()
+    // Java saved and replays its slots under its own `ui.no-capture` (`BoardHistoryList.place`).
+    let no_capture = r.mapped.no_capture.unwrap_or(false);
+    entries(&save)
+        .into_iter()
+        .map(|e| read_slot(source, e, no_capture))
+        .collect()
 }
 
 fn entries(save: &Map<String, Value>) -> Vec<Entry> {
@@ -153,7 +158,7 @@ fn find(source: &JavaSource, name: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-fn read_slot(source: &JavaSource, e: Entry) -> JavaSlot {
+fn read_slot(source: &JavaSource, e: Entry, no_capture: bool) -> JavaSlot {
     let mut view = ImportSlotView {
         key: format!("save:{}", e.file),
         auto: e.auto,
@@ -183,7 +188,7 @@ fn read_slot(source: &JavaSource, e: Entry) -> JavaSlot {
         Ok(b) => b,
         Err(err) => return unreadable(view, format!("{}: {err}", sgf_path.display())),
     };
-    let record = match formats::parse(RecordFormat::Sgf, &formats::decode(&bytes), false) {
+    let record = match formats::parse(RecordFormat::Sgf, &formats::decode(&bytes), no_capture) {
         Ok(r) => r,
         Err(err) => return unreadable(view, format!("save/{sgf_name}: {err}")),
     };

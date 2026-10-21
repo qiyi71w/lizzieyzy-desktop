@@ -105,16 +105,24 @@ impl Store {
             revision: 1,
         };
         if store.index.unclean {
-            if let Some(periodic) = store.index.periodic.take() {
-                let moved = ["sgf", "png"].iter().all(|ext| {
-                    let from = store.auto_file(AutoSave::Periodic, ext);
-                    let to = store.auto_file(AutoSave::Exit, ext);
-                    let _ = std::fs::remove_file(&to);
-                    !from.exists() || std::fs::rename(&from, &to).is_ok()
-                });
-                if moved {
-                    store.index.exit = Some(periodic);
+            // The periodic save replaces the exit save only when its record is really there and
+            // moved: a missing or unmovable one leaves the exit save as it was.
+            let promote = |store: &Store| {
+                let from = store.auto_file(AutoSave::Periodic, "sgf");
+                if !from.is_file() || std::fs::rename(&from, store.auto_file(AutoSave::Exit, "sgf")).is_err() {
+                    return false;
                 }
+                let (from, to) = (
+                    store.auto_file(AutoSave::Periodic, "png"),
+                    store.auto_file(AutoSave::Exit, "png"),
+                );
+                if std::fs::rename(&from, &to).is_err() {
+                    let _ = std::fs::remove_file(&to);
+                }
+                true
+            };
+            if store.index.periodic.is_some() && promote(&store) {
+                store.index.exit = store.index.periodic.take();
             }
             store.index.unclean = false;
             let _ = store.save_index();
@@ -247,6 +255,9 @@ impl Store {
             return Err(format!("no slot {index}"));
         }
         let (sgf, png) = (self.game_file(index, "sgf"), self.game_file(index, "png"));
+        // Kept until the slot list names the new record: a failed list write puts them back, so
+        // the slot's record, picture and saved position stay one consistent slot.
+        let (old_sgf, old_png) = (std::fs::read(&sgf).ok(), std::fs::read(&png).ok());
         let thumbnail = self.write_files(&sgf, &png, &write)?;
         let i = index as usize - 1;
         let before = std::mem::replace(
@@ -256,11 +267,22 @@ impl Store {
                 ..write.meta
             },
         );
-        self.revision += 1;
         if let Err(e) = self.save_index() {
             self.index.slots[i] = before;
+            if let Some(old) = old_sgf {
+                let _ = formats::write_file_atomic(&sgf, &old);
+            }
+            match old_png {
+                Some(old) => {
+                    let _ = formats::write_file_atomic(&png, &old);
+                }
+                None => {
+                    let _ = std::fs::remove_file(&png);
+                }
+            }
             return Err(io_error("writing the slot list failed", e));
         }
+        self.revision += 1;
         Ok(())
     }
 
