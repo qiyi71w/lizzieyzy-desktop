@@ -21,6 +21,8 @@ fn eval(a: &NodeAnalysisView) -> NodeEval {
         score_lead: a.score_lead,
         score_stdev: a.score_stdev,
         komi: a.komi,
+        // Live results carry no PDA of their own.
+        pda: 0.0,
         to_play: a.to_play,
     }
 }
@@ -37,6 +39,7 @@ fn saved(rec: &GameRecord, id: NodeId) -> Option<NodeEval> {
         score_stdev: s.score_lead.map(|_| s.score_stdev),
         score_lead: s.score_lead,
         komi: rec.info.komi,
+        pda: s.pda,
         to_play: node.to_play,
     })
 }

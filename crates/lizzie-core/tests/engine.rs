@@ -1295,6 +1295,7 @@ fn the_commented_export_summarises_only_analysed_moves_against_their_parent() {
         stdev: "不确定度:".into(),
         playouts: "计算量".into(),
         komi: "贴目:".into(),
+        pda: "PDA:".into(),
     };
     let text = wb.export_text(ExportKind::RawWithComments, &labels);
     // Black just moved: Black's 40 % is 20 points below Black's 60 % before the move, and its

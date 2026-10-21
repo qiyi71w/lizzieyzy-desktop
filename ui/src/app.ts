@@ -196,6 +196,7 @@ function commentLabels(): CommentLabels {
     stdev: t("SGFParse.stdev"),
     playouts: t("SGFParse.playouts"),
     komi: t("SGFParse.komi"),
+    pda: t("SGFParse.pda"),
   };
 }
 

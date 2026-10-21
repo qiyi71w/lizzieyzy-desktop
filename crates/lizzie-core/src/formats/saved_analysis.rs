@@ -19,6 +19,8 @@ pub struct SavedAnalysis {
     /// Present for KataGo data (`isKataData`), side to move.
     pub score_lead: Option<f64>,
     pub score_stdev: f64,
+    /// `pda`, the sixth header field (0 when absent).
+    pub pda: f64,
 }
 
 /// The node's saved primary analysis; the last valid `LZ`/`LZOP` payload wins, as Java applies
@@ -80,6 +82,7 @@ fn read(payload: &str) -> Option<SavedAnalysis> {
         visits: root_visits.unwrap_or_else(|| playouts(header[2])),
         score_lead: header.get(3).map(|s| number(s, 0.0)),
         score_stdev: header.get(4).map_or(0.0, |s| number(s, 0.0)),
+        pda: header.get(5).map_or(0.0, |s| number(s, 0.0)),
     };
     // A header without a score takes the best move's (`applyParsedAnalysisInfo`); its
     // uncertainty is the header's (none, so 0).
@@ -124,7 +127,7 @@ mod tests {
     fn the_header_gives_the_side_to_moves_win_rate_and_root_visits() {
         let a = primary(&[prop(
             "LZ",
-            "b11 44.0 2400 1.2 0.7 0 rootVisits=2500\nmove D4 visits 1500 winrate 5600 scoreMean 9 pv D4",
+            "b11 44.0 2400 1.2 0.7 0.5 rootVisits=2500\nmove D4 visits 1500 winrate 5600 scoreMean 9 pv D4",
         )])
         .unwrap();
         assert_eq!(
@@ -135,6 +138,7 @@ mod tests {
                 visits: 2500,
                 score_lead: Some(1.2),
                 score_stdev: 0.7,
+                pda: 0.5,
             }
         );
     }

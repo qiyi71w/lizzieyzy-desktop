@@ -559,7 +559,7 @@ export type Transform = "ExchangeColors" | "RotateRight" | "RotateLeft" | "Mirro
 
 export type ExportKind = "Raw" | "RawWithComments" | "Branch";
 
-export type CommentLabels = { black: string, white: string, winrate: string, lead: string, stdev: string, playouts: string, komi: string, };
+export type CommentLabels = { black: string, white: string, winrate: string, lead: string, stdev: string, playouts: string, komi: string, pda: string, };
 
 export type SlotRef = { "type": "Auto" } | { "type": "Manual", index: number, };
 

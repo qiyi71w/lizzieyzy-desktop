@@ -22,7 +22,7 @@ pub enum ExportKind {
 }
 
 /// Words of the win-rate summary ([`ExportKind::RawWithComments`]) in the UI language: Java
-/// `SGFParse.black`, `.white`, `.winrate`, `.leadJustScore`, `.stdev`, `.playouts`, `.komi`.
+/// `SGFParse.black`, `.white`, `.winrate`, `.leadJustScore`, `.stdev`, `.playouts`, `.komi`, `.pda`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct CommentLabels {
     pub black: String,
@@ -32,4 +32,5 @@ pub struct CommentLabels {
     pub stdev: String,
     pub playouts: String,
     pub komi: String,
+    pub pda: String,
 }

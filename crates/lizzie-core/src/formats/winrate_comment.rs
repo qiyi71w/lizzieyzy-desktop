@@ -21,6 +21,8 @@ pub struct NodeEval {
     /// KataGo's score uncertainty; SAI reports none.
     pub score_stdev: Option<f64>,
     pub komi: f64,
+    /// KataGo's PDA (`playoutDoublingAdvantage`) saved with the analysis; 0 when none.
+    pub pda: f64,
     pub to_play: Stone,
 }
 
@@ -59,8 +61,20 @@ pub fn format(labels: &CommentLabels, eval: &NodeEval, previous: Option<Option<&
             let score = format!("{:.1}", -lead);
             match eval.score_stdev {
                 Some(stdev) => format!(
-                    "{mover} {} {winrate} {last_move_diff}\n{} {score} {diff_score} {} {:.1}\n({engine} / {playouts} {})\n{} {:.1}",
-                    labels.winrate, labels.lead, labels.stdev, stdev, labels.playouts, labels.komi, eval.komi
+                    "{mover} {} {winrate} {last_move_diff}\n{} {score} {diff_score} {} {:.1}\n({engine} / {playouts} {})\n{} {:.1}{}",
+                    labels.winrate,
+                    labels.lead,
+                    labels.stdev,
+                    stdev,
+                    labels.playouts,
+                    labels.komi,
+                    eval.komi,
+                    // Java appends a non-zero PDA as `Double.toString` writes it.
+                    if eval.pda != 0.0 {
+                        format!(" {}{}", labels.pda, java_double(eval.pda))
+                    } else {
+                        String::new()
+                    }
                 ),
                 None => format!(
                     "{mover} {} {winrate} {last_move_diff}\n{} {score} {diff_score}\n({engine} / {playouts} {})\n{} {:.1}",
@@ -93,6 +107,15 @@ pub fn format(labels: &CommentLabels, eval: &NodeEval, previous: Option<Option<&
         }
     }
     format!("{comment}\n\n{summary}")
+}
+
+/// `Double.toString` for the values a PDA takes (a whole number keeps `.0`).
+fn java_double(v: f64) -> String {
+    if v.fract() == 0.0 && v.abs() < 1e7 {
+        format!("{v:.1}")
+    } else {
+        format!("{v}")
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -157,6 +180,7 @@ mod tests {
             stdev: "不确定度:".into(),
             playouts: "计算量".into(),
             komi: "贴目:".into(),
+            pda: "PDA:".into(),
         }
     }
 
@@ -168,6 +192,7 @@ mod tests {
             score_lead: lead,
             score_stdev: lead.map(|_| 11.96),
             komi: 7.5,
+            pda: 0.0,
             to_play,
         }
     }
@@ -204,5 +229,15 @@ mod tests {
         );
         let again = format(&labels(), &cur, Some(Some(&prev)), &first);
         assert_eq!(again, first);
+    }
+
+    #[test]
+    fn a_saved_pda_follows_the_komi() {
+        let cur = NodeEval {
+            pda: 1.0,
+            ..eval(70.0, Some(1.2), Stone::White)
+        };
+        let text = format(&labels(), &cur, None, "");
+        assert!(text.ends_with("贴目: 7.5 PDA:1.0"), "{text}");
     }
 }

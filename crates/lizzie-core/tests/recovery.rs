@@ -52,6 +52,7 @@ fn labels() -> CommentLabels {
         stdev: "不确定度:".into(),
         playouts: "计算量".into(),
         komi: "贴目:".into(),
+        pda: "PDA:".into(),
     }
 }
 
@@ -524,12 +525,13 @@ fn a_slot_whose_list_cannot_be_written_keeps_its_previous_record() {
 fn the_commented_export_summarises_analysis_saved_in_the_record() {
     let tmp = tempfile::tempdir().unwrap();
     let mut wb = workbench(tmp.path());
-    // Java's own `saveSnapshot(raw, comments)` of this record (fixed Java, English labels).
+    // Java's own `saveSnapshot(raw, comments)` of this record (fixed Java, English labels); the
+    // first move's analysis carries a PDA.
     open_text(
         &mut wb,
         "(;GM[1]SZ[9]KM[7.5]C[root note]LZOP[b11 45.0 120 1.5 0.8 0 rootVisits=120\n\
          move E5 visits 100 winrate 5500 scoreMean 1.5 pv E5];B[ee]C[first]\
-         LZ[b11 44.0 200 1.2 0.7 0 rootVisits=200\nmove C3 visits 150 winrate 5600 scoreMean 1.2 pv C3]\
+         LZ[b11 44.0 200 1.2 0.7 0.5 rootVisits=200\nmove C3 visits 150 winrate 5600 scoreMean 1.2 pv C3]\
          (;W[cc]C[main])(;W[gc]LZ[LeelaZero 60.0 1.3k\nmove C7 visits 900 winrate 4000 pv C7]))",
     );
     let english = CommentLabels {
@@ -540,13 +542,14 @@ fn the_commented_export_summarises_analysis_saved_in_the_record() {
         stdev: "stdev:".into(),
         playouts: "visits".into(),
         komi: "komi:".into(),
+        pda: "PDA:".into(),
     };
     let text = wb.export_text(ExportKind::RawWithComments, &english);
     let rec = sgf::read(&text).unwrap();
     let first = node_at(&rec, &[(Stone::Black, 4, 4)]);
     assert_eq!(
         rec.node(first).comment,
-        "first\n\nBlack win rate: 44.0% (-11.0%)\nlead: -1.2 (-2.7) stdev: 0.7\n(b11 / 200 visits)\nkomi: 7.5"
+        "first\n\nBlack win rate: 44.0% (-11.0%)\nlead: -1.2 (-2.7) stdev: 0.7\n(b11 / 200 visits)\nkomi: 7.5 PDA:0.5"
     );
     assert_eq!(
         rec.node(node_at(&rec, &[(Stone::Black, 4, 4), (Stone::White, 2, 2)]))
