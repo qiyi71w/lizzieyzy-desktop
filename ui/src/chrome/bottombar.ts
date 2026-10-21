@@ -26,6 +26,8 @@ function gotoMove(input: HTMLInputElement) {
 }
 
 let moveInput: HTMLInputElement;
+let analyseIcon: HTMLImageElement;
+let analyseLabel: HTMLSpanElement;
 
 const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" | "rightOptional", Item[]> = {
   leftPrimary: [
@@ -66,17 +68,28 @@ const elements = new Map<Item, HTMLElement>();
 const widths = new Map<Item, number>();
 
 /** Java button widths: string width + 26 with a 52 minimum for text buttons (navigation arrows have
- *  no minimum), the analyse button 12 wider; the move field is 56. */
+ *  no minimum); the move field is 56. The analyse button carries a 16 px icon and keeps one width
+ *  for both states: the wider of its two labels + 38 (setAnalyseButtonSize, BottomToolbar.java:2608-2623). */
 function measure(host: HTMLElement) {
   const g = document.createElement("canvas").getContext("2d")!;
   g.font = getComputedStyle(host).font;
+  const text = (s: string) => Math.ceil(g.measureText(s).width);
   for (const item of [...Object.values(GROUPS).flat(), MORE]) {
     if (item.name === "txtMoveNumber") widths.set(item, 56);
-    else {
-      const w = Math.ceil(g.measureText(elements.get(item)!.textContent ?? "").width) + 26;
-      widths.set(item, item.cls === "nav" ? w : Math.max(52, w) + (item.name === "analyse" ? 12 : 0));
+    else if (item.name === "analyse") {
+      widths.set(item, Math.max(text(t("BottomToolbar.analyse")), text(t("BottomToolbar.pauseAnalyse"))) + 38);
+    } else {
+      const w = text(elements.get(item)!.textContent ?? "") + 26;
+      widths.set(item, item.cls === "nav" ? w : Math.max(52, w));
     }
   }
+}
+
+/** Menu.updateAnalysisToolbarButton (Menu.java:11086-11091): ready2 + "pause" while analysing,
+ *  playing2 + "analyse" otherwise. */
+function showAnalysis(analysing: boolean) {
+  analyseIcon.src = analysing ? "/assets/ready2.png" : "/assets/playing2.png";
+  analyseLabel.textContent = t(analysing ? "BottomToolbar.pauseAnalyse" : "BottomToolbar.analyse");
 }
 
 export function buildBottomBar(host: HTMLElement): void {
@@ -94,7 +107,14 @@ export function buildBottomBar(host: HTMLElement): void {
     const b = document.createElement("span");
     b.className = `bb ${item.cls ?? ""}`;
     b.dataset.name = item.name;
-    b.textContent = t(item.key);
+    if (item.name === "analyse") {
+      b.classList.add("icon");
+      analyseIcon = document.createElement("img");
+      analyseIcon.alt = "";
+      analyseLabel = document.createElement("span");
+      b.append(analyseIcon, analyseLabel);
+      showAnalysis(false);
+    } else b.textContent = t(item.key);
     if (item.name === "downloadWeightButton") {
       b.dataset.key = "weights.download"; b.setAttribute("role", "button"); b.tabIndex = 0;
       b.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); item.run?.(); } };
@@ -109,15 +129,12 @@ export function buildBottomBar(host: HTMLElement): void {
     host.append(b);
   }
   measure(host);
-  let lastAnalysis: boolean | null = null;
+  let lastAnalysis = false;
   subscribe(() => {
     const analysing = state.view?.engine.analysing ?? false;
     if (analysing === lastAnalysis) return;
     lastAnalysis = analysing;
-    const item = GROUPS.leftPrimary[0];
-    elements.get(item)!.textContent = analysing ? `Ⅱ ${t("BottomToolbar.pauseAnalyse")}` : t("BottomToolbar.analyse");
-    measure(host);
-    layoutBottomBar(host);
+    showAnalysis(analysing);
   });
 }
 

@@ -246,8 +246,18 @@ body {
 .tb-pill.w80 {
   width: 80px;
 }
+/* JButton icon + text centred as one group, default 4 px icon-text gap */
 .tb-pill.search {
   width: 84px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  column-gap: 4px;
+}
+.tb-pill.search img {
+  width: 16px;
+  height: 16px;
+  flex: none;
 }
 .tb-pill.newgame {
   width: 52px;
@@ -474,6 +484,18 @@ body {
 .bb.danger {
   border-color: rgb(240, 180, 190);
   background: rgb(253, 235, 238);
+}
+/* analyse button: ready2/playing2 icon and label centred as one group (JButton icon-text gap 4) */
+.bb.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  column-gap: 4px;
+}
+.bb.icon img {
+  width: 16px;
+  height: 16px;
+  flex: none;
 }
 #moveInput {
   position: absolute;

@@ -139,7 +139,7 @@ function komiField(): HTMLInputElement {
 }
 
 export function buildToolbar(host: HTMLElement): void {
-  const search = pill(` ${t("FunctionSearch.title")}`, "plain search");
+  const search = pill(t("FunctionSearch.title"), "plain search");
   const glass = document.createElement("img");
   glass.src = "/assets/search.png";
   glass.alt = "";
