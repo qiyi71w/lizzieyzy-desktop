@@ -14,6 +14,10 @@
 //! Engines keep referring to the engines and models the Java configuration uses; their files are
 //! only checked for existence. Relative paths are resolved the way Java launches them
 //! (`CommandLaunchHelper.prepare`), against the Java folder and an optional Java program folder.
+//!
+//! The 存档与读档 slots in `save/` are read by [`slots`] and imported only when the user chooses.
+
+pub mod slots;
 
 use std::path::{Path, PathBuf};
 
@@ -129,6 +133,12 @@ pub struct Mapped {
     pub other_size_width: Option<u16>,
     pub other_size_height: Option<u16>,
     pub no_capture: Option<bool>,
+    /// `ui.auto-save-exit`, `ui.resume-previous-game`, `ui.load-save-zoom`.
+    pub auto_save_on_exit: Option<bool>,
+    pub resume_previous_game: Option<bool>,
+    pub zoom_thumbnails: Option<bool>,
+    /// `persist:filesystem.last-image-folder`.
+    pub last_image_folder: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -149,6 +159,8 @@ pub struct Candidate {
     pub items: Vec<ImportItemView>,
     /// Every Java engine entry; an entry with `credential` is imported only when confirmed.
     pub engines: Vec<ImportEngineView>,
+    /// Java 存档与读档 slots ([`crate::java_import::slots`]); imported only when chosen.
+    pub slots: Vec<slots::JavaSlot>,
 }
 
 impl Candidate {
@@ -251,6 +263,7 @@ pub fn read(source: &JavaSource) -> Result<Candidate, ImportFailure> {
         }
     }
     r.other_files();
+    let slots = slots::read(source, &mut r);
     Ok(Candidate {
         source: source.clone(),
         config_file,
@@ -258,6 +271,7 @@ pub fn read(source: &JavaSource) -> Result<Candidate, ImportFailure> {
         mapped: r.mapped,
         items: r.items,
         engines: r.engines,
+        slots,
     })
 }
 
@@ -523,6 +537,24 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "fast-engine-change",
         ImportTarget::FastEngineChange,
         Kind::Bool(|m, v| m.fast_engine_change = Some(v)),
+    ),
+    (
+        "ui",
+        "auto-save-exit",
+        ImportTarget::AutoSaveOnExit,
+        Kind::Bool(|m, v| m.auto_save_on_exit = Some(v)),
+    ),
+    (
+        "ui",
+        "resume-previous-game",
+        ImportTarget::ResumePreviousGame,
+        Kind::Bool(|m, v| m.resume_previous_game = Some(v)),
+    ),
+    (
+        "ui",
+        "load-save-zoom",
+        ImportTarget::ZoomThumbnails,
+        Kind::Bool(|m, v| m.zoom_thumbnails = Some(v)),
     ),
 ];
 
@@ -861,6 +893,15 @@ impl Reader<'_> {
     fn persist(&mut self, root: &Map<String, Value>) {
         for (section, value) in root {
             let Some(map) = value.as_object() else {
+                if section == "autosave" {
+                    // Java's template keeps an `autosave` entry that nothing writes or reads any
+                    // more (`Board.autosave` is never called; 存档与读档 replaced it).
+                    if value.as_str().is_none_or(|s| !s.is_empty()) {
+                        let it = self.item(format!("persist:{section}"), ImportStatus::NotMigrated);
+                        it.reason = Some(ImportReason::Obsolete);
+                    }
+                    continue;
+                }
                 self.not_migrated(format!("persist:{section}"), value);
                 continue;
             };
@@ -876,6 +917,14 @@ impl Reader<'_> {
                         }
                         other => self.invalid(name, ImportTarget::LastFolder, other),
                     },
+                    ("filesystem", "last-image-folder") => match v {
+                        Value::String(s) if s.is_empty() => {}
+                        Value::String(s) => {
+                            self.mapped.last_image_folder = Some(s.clone());
+                            self.imported(name, ImportTarget::LastImageFolder, s.clone());
+                        }
+                        other => self.invalid(name, ImportTarget::LastImageFolder, other),
+                    },
                     ("ui-persist", "main-window-position" | "window-maximized") => {
                         let it = self.item(name, ImportStatus::Incompatible);
                         it.value = Some(shown(v));
@@ -887,14 +936,11 @@ impl Reader<'_> {
         }
     }
 
-    /// Other Java data next to the configuration: reported, never read.
+    /// Other Java data next to the configuration: reported, never read. The 存档与读档 folder
+    /// (`save`) is read separately ([`slots`]).
     fn other_files(&mut self) {
         let dir = self.source.config_dir.clone();
-        for (name, credential) in [
-            ("save", false),
-            ("teacher.properties", true),
-            ("secure-credentials", true),
-        ] {
+        for (name, credential) in [("teacher.properties", true), ("secure-credentials", true)] {
             if dir.join(name).exists() {
                 let it = self.item(format!("file:{name}"), ImportStatus::NotMigrated);
                 it.credential = credential;
@@ -1170,6 +1216,12 @@ impl Mapped {
         if let Some(folder) = &self.last_folder {
             p.last_folder = Some(folder.clone());
         }
+        if let Some(folder) = &self.last_image_folder {
+            p.last_image_folder = Some(folder.clone());
+        }
+        set!(c.recovery.auto_save_on_exit, self.auto_save_on_exit);
+        set!(c.recovery.resume_previous_game, self.resume_previous_game);
+        set!(c.recovery.zoom_thumbnails, self.zoom_thumbnails);
         set!(c.engine.analysis.interval_centisec, self.interval_centisec);
         set!(c.engine.analysis.limit_time, self.limit_time);
         set!(
@@ -1231,6 +1283,11 @@ impl Mapped {
                 out.push(ImportTarget::LastFolder);
             }
         }
+        if let Some(folder) = &self.last_image_folder {
+            if persisted.last_image_folder.as_ref().is_some_and(|f| f != folder) {
+                out.push(ImportTarget::LastImageFolder);
+            }
+        }
         if !has_settings {
             return out;
         }
@@ -1263,6 +1320,18 @@ impl Mapped {
             out.push(ImportTarget::OtherBoardSize);
         }
         cmp!(ImportTarget::NoCapture, e.no_capture, self.no_capture);
+        let r = &config.recovery;
+        cmp!(
+            ImportTarget::AutoSaveOnExit,
+            r.auto_save_on_exit,
+            self.auto_save_on_exit
+        );
+        cmp!(
+            ImportTarget::ResumePreviousGame,
+            r.resume_previous_game,
+            self.resume_previous_game
+        );
+        cmp!(ImportTarget::ZoomThumbnails, r.zoom_thumbnails, self.zoom_thumbnails);
         cmp!(
             ImportTarget::LoadSgfLast,
             config.record.load_sgf_last,

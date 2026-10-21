@@ -90,6 +90,10 @@ user, in folders named after the application identifier `io.github.qiyi71w.lizzi
 | macOS | `~/Library/Application Support/io.github.qiyi71w.lizzieyzy-tauri` | same folder, `logs` |
 | Linux | `~/.config/io.github.qiyi71w.lizzieyzy-tauri` | `~/.local/share/io.github.qiyi71w.lizzieyzy-tauri/logs` |
 
+The 存档与读档 slots (`save/save.json` with `game<N>.sgf`/`.png` and the automatic slot
+`autoGame1`/`autoGame2`) are kept in the folder that holds `logs`. Saved games of LizzieYzy Next
+come in only through the Java import, as copies; Java's own `save` folder is never written.
+
 The installer and the portable zip use the same folders. Uninstalling or deleting the program
 does not delete them. Help > 诊断与日志 shows the log files of the running program.
 

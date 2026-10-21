@@ -48,6 +48,32 @@ importing the matching LizzieYzy Next settings.
   so reopening does not enlarge the content area by the title bar or shadow dimensions.
   File > 强制退出 skips both the pending-save wait and window-placement capture; use normal
   close or Quit when a save must finish. Both exit paths shut down the owned engines.
+- File > 更多保存 has the Java exports, each through the save chooser like 另存为 (same folder,
+  default name, `.sgf` completion and replace prompt):
+  - 保存纯净棋谱 (`Ctrl+Shift+S`): the whole tree without analysis (`LZ`, `LZ2`) and without move
+    comments; the root comment and root analysis stay. The record then belongs to that file but
+    stays unsaved, as in Java.
+  - 保存纯净棋谱(带评论): the same with every comment; a move analysed in this session gets Java's
+    win-rate summary in its comment (words in the interface language). Analysis read from a file
+    is kept but not interpreted yet, so it adds no summary.
+  - 保存纯净分支 (`Ctrl+Alt+S`): one line from the root through the current move, then the first
+    continuation, without comments.
+  - 保存主棋盘截图 (`Alt+S`), 保存小棋盘截图 (`Shift+S`) and 保存胜率图 (`Shift+Alt+S`): the
+    picture chooser (PNG, JPG, GIF, BMP) opens in the last picture folder; the chosen name's
+    extension decides the format and `.png` is added otherwise. Errors show Java's message.
+  Exports never replace the open record's revision or saved state otherwise; a failure leaves
+  the old file untouched.
+- File > 复制主棋盘到剪贴板 (`Shift+C`), 复制小棋盘到剪贴板 (`Alt+C`) and 复制棋谱到剪贴板
+  (`Ctrl+C`) put the picture or the SGF text on the system clipboard.
+- File > 存档与读档 or the toolbar's 存档 button opens Java's save-and-load panel: slots with the
+  board picture, name and time; 新建存档, 保存 (asks first), 改名, 删除, 读取 (or a click on the
+  picture), 全部删除, and the check boxes 鼠标悬停放大缩略棋盘, 自动存档 and 启动时自动恢复. A loaded
+  slot opens as a new unsaved record without a file of its own (saving asks for a name) and the
+  title shows the slot. With 自动存档 on (the default) the automatic slot is written every
+  60 seconds and when the window closes; File > 强制退出 writes none. If the application ended
+  without its exit save, the next start keeps the newest periodic save as the automatic slot.
+  With 启动时自动恢复 on, a start without a record to open resumes the automatic slot at the end
+  of its main line. Slots live in this program's data folder (`save/`), never in Java's.
 - Editing, at the Java entries (Edit and Game menus, the top edit and markup buttons, the bottom
   bar, board clicks, the two board context menus and the Java keys):
   - A board click plays the side to play (交替落子) or, with 添加黑子 / 添加白子, that colour

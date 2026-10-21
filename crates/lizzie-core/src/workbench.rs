@@ -16,7 +16,9 @@
 
 mod analysis;
 mod editing;
+mod exporting;
 mod importing;
+mod recovery;
 mod resources;
 mod tuning;
 
@@ -27,12 +29,13 @@ use analysis::AnalysisStore;
 pub use analysis::LogLine;
 pub use editing::{NOT_SQUARE, SETUP_ENGINE_RUNNING, SETUP_MODE_ROOT_ONLY, SETUP_ROOT_ONLY};
 pub use importing::{IMPORT_NEEDS_REPLACE, IMPORT_STALE};
+pub use recovery::RecoveryStep;
 pub use resources::{prepare_resource_setup, run_resource_job, ResourceCompletion, ResourceJob};
 
 use crate::api::{
-    ApiError, DocumentView, EngineFailureView, EngineNotice, ErrorKind, LastAction, LogsStatus, OpenOutcome,
-    OpenSource, PendingOpen, PositionView, RulesPromptView, SaveOutcome, SettingsView, StoneSound, TreeNodeKind,
-    TreeNodeView, TreeView, WorkbenchView,
+    ApiError, DocumentView, EngineFailureView, EngineNotice, ErrorKind, ExportKind, LastAction, LogsStatus,
+    OpenOutcome, OpenSource, PendingOpen, PositionView, RulesPromptView, SaveOutcome, SettingsView, StoneSound,
+    TreeNodeKind, TreeNodeView, TreeView, WorkbenchView,
 };
 use crate::browse::{self, Navigation};
 use crate::engine::runtime::{Engines, InstanceId, Launcher};
@@ -60,6 +63,8 @@ pub struct Document {
     pub revision: u64,
     /// The revision that is the content of the file at `path`, if any.
     pub saved_revision: Option<u64>,
+    /// The 存档与读档 slot file it was loaded from, shown while it has no file of its own.
+    pub origin_name: Option<String>,
 }
 
 impl Document {
@@ -104,12 +109,34 @@ struct PendingSave {
     document: u64,
     revision: u64,
     path: String,
+    /// A 更多保存 export rather than a save of the record.
+    export: Option<ExportKind>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OpenOrigin {
-    File { path: String, source: OpenSource },
+    File {
+        path: String,
+        source: OpenSource,
+    },
     Clipboard,
+    /// A 存档与读档 slot (`loadFile(file, fromTemp = true)`): the record gets no file of its own and
+    /// the recent list and last folder stay; `name` is the slot file shown in the title.
+    Recovery {
+        path: String,
+        name: String,
+        position: SlotPosition,
+    },
+}
+
+/// Where browsing starts after a slot is loaded.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SlotPosition {
+    /// The position it was saved at: child indexes from the root (Java replays the slot's move
+    /// list).
+    Path(Vec<u32>),
+    /// The end of the main line (start-up resume: `while (nextMove)`).
+    LineEnd,
 }
 
 #[derive(Clone, Debug)]
@@ -190,6 +217,8 @@ pub struct Workbench {
     tuning: tuning::TuningFlow,
     /// Starting-position setup mode and the delete/edit undo cache.
     editing: editing::Editing,
+    /// 存档与读档 slots.
+    recovery: crate::recovery::Store,
 }
 
 impl Workbench {
@@ -205,6 +234,9 @@ impl Workbench {
     ) -> Workbench {
         let new_profile = !storage.config_file.exists();
         let resources = resources::ResourceFlow::new(&storage);
+        // The start-up rotation of a crashed session's periodic save happens here, before any
+        // resume (see `recovery`).
+        let recovery = crate::recovery::Store::open(&storage.save_dir);
         let config: Config = settings::load_json(&storage.config_file);
         let persisted: Persisted = settings::load_json(&storage.persist_file);
         let active_language = config.ui.language.resolve(system_locale);
@@ -230,6 +262,7 @@ impl Workbench {
                 path: None,
                 revision: 0,
                 saved_revision: None,
+                origin_name: None,
             },
             cursor: ROOT,
             komi: DEFAULT_KOMI,
@@ -267,6 +300,7 @@ impl Workbench {
             resources,
             tuning: tuning::TuningFlow::default(),
             editing: editing::Editing::default(),
+            recovery,
         }
     }
 
@@ -345,7 +379,7 @@ impl Workbench {
         match result {
             Err(e) => {
                 let message_key = match pending.origin {
-                    OpenOrigin::File { .. } => FAILED_TO_OPEN_FILE,
+                    OpenOrigin::File { .. } | OpenOrigin::Recovery { .. } => FAILED_TO_OPEN_FILE,
                     OpenOrigin::Clipboard => KIFU_LOAD_FAILED,
                 };
                 self.outcome = Some(OpenOutcome::Failed {
@@ -367,14 +401,18 @@ impl Workbench {
                 let id = self.next_doc;
                 self.next_doc += 1;
                 let record = Arc::new(record);
-                self.cursor = if self.config.record.load_sgf_last {
-                    browse::navigate(&record, ROOT, Navigation::Last)
-                } else {
-                    ROOT
+                self.cursor = match &pending.origin {
+                    OpenOrigin::Recovery { position, .. } => match position {
+                        SlotPosition::Path(path) => crate::recovery::follow(&record, path),
+                        SlotPosition::LineEnd => browse::navigate(&record, ROOT, Navigation::Last),
+                    },
+                    _ if self.config.record.load_sgf_last => browse::navigate(&record, ROOT, Navigation::Last),
+                    _ => ROOT,
                 };
-                let path = match &pending.origin {
-                    OpenOrigin::File { path, .. } => Some(path.clone()),
-                    OpenOrigin::Clipboard => None,
+                let (path, origin_name) = match &pending.origin {
+                    OpenOrigin::File { path, .. } => (Some(path.clone()), None),
+                    OpenOrigin::Clipboard => (None, None),
+                    OpenOrigin::Recovery { name, .. } => (None, Some(name.clone())),
                 };
                 if let OpenOrigin::File {
                     path,
@@ -389,7 +427,8 @@ impl Workbench {
                     let _ = self.save_config();
                     let _ = self.save_persisted();
                 }
-                // The content is the file it came from; pasted text was never on disk.
+                // The content is the file it came from; pasted text and slots are no file of the
+                // record's own.
                 let saved_revision = path.as_ref().map(|_| 0);
                 self.doc = Document {
                     id,
@@ -398,6 +437,7 @@ impl Workbench {
                     path,
                     revision: 0,
                     saved_revision,
+                    origin_name,
                 };
                 self.outcome = Some(OpenOutcome::Adopted { ticket, document: id });
                 // Loading is silent (Java turns sound off while it builds the history).
@@ -473,6 +513,7 @@ impl Workbench {
             document: self.doc.id,
             revision: self.doc.revision,
             path: path.to_string(),
+            export: None,
         });
         SaveJob {
             ticket,
@@ -483,7 +524,9 @@ impl Workbench {
 
     /// Hands back a finished write. A success confirms the captured revision; while that document
     /// is still open it now belongs to the written file, and the chooser starts in its folder next
-    /// time (`SgfSaveCoordinator` success callback). Returns `false` for an unknown ticket.
+    /// time (`SgfSaveCoordinator` success callback). An export confirms nothing: only 纯净棋谱
+    /// makes the written file the record's own (Java `Mode.RAW.updateCurrentFile`), still unsaved
+    /// since that file lacks its comments and analysis. Returns `false` for an unknown ticket.
     pub fn complete_save(&mut self, ticket: u64, result: Result<(), String>) -> bool {
         let Some(at) = self.saves.iter().position(|s| s.ticket == ticket) else {
             return false;
@@ -501,9 +544,19 @@ impl Workbench {
             }
             Ok(()) => {
                 if self.doc.id == save.document {
-                    self.doc.path = Some(save.path.clone());
-                    self.doc.format = Some(RecordFormat::Sgf);
-                    self.doc.saved_revision = Some(save.revision);
+                    match save.export {
+                        None => {
+                            self.doc.path = Some(save.path.clone());
+                            self.doc.format = Some(RecordFormat::Sgf);
+                            self.doc.saved_revision = Some(save.revision);
+                        }
+                        Some(ExportKind::Raw) => {
+                            self.doc.path = Some(save.path.clone());
+                            self.doc.format = Some(RecordFormat::Sgf);
+                            self.doc.saved_revision = None;
+                        }
+                        Some(ExportKind::RawWithComments | ExportKind::Branch) => {}
+                    }
                     if let Some(parent) = Path::new(&save.path).parent() {
                         self.persisted.last_folder = Some(parent.to_string_lossy().into_owned());
                         // The written file stands even if the folder cannot be remembered.
@@ -515,6 +568,7 @@ impl Workbench {
                     document: save.document,
                     revision: save.revision,
                     path: save.path,
+                    export: save.export,
                 });
             }
         }
@@ -709,7 +763,7 @@ impl Workbench {
             pending_open: self.pending.as_ref().map(|p| PendingOpen {
                 ticket: p.ticket,
                 path: match &p.origin {
-                    OpenOrigin::File { path, .. } => Some(path.clone()),
+                    OpenOrigin::File { path, .. } | OpenOrigin::Recovery { path, .. } => Some(path.clone()),
                     OpenOrigin::Clipboard => None,
                 },
             }),
@@ -739,6 +793,7 @@ impl Workbench {
             resources: None,
             tuning: None,
             editing: self.editing_view(),
+            recovery: self.recovery_view(),
         }
     }
 
@@ -764,6 +819,7 @@ impl Workbench {
                 .path
                 .as_deref()
                 .and_then(|p| Path::new(p).file_name().map(|f| f.to_string_lossy().into_owned())),
+            origin_name: self.doc.origin_name.clone(),
             size: rec.size,
             info: rec.info.clone(),
             revision: self.doc.revision,

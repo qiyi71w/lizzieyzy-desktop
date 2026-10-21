@@ -131,6 +131,29 @@ impl Default for EditSettings {
     }
 }
 
+/// 存档与读档 check boxes (Java `ui.auto-save-exit` default on, `ui.resume-previous-game` default
+/// off, `ui.load-save-zoom` default on).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct RecoverySettings {
+    /// 自动存档: the automatic slot is written on exit and every 60 seconds.
+    pub auto_save_on_exit: bool,
+    /// 启动时自动恢复: start with the automatic slot's record.
+    pub resume_previous_game: bool,
+    /// 鼠标悬停放大缩略棋盘.
+    pub zoom_thumbnails: bool,
+}
+
+impl Default for RecoverySettings {
+    fn default() -> Self {
+        RecoverySettings {
+            auto_save_on_exit: true,
+            resume_previous_game: false,
+            zoom_thumbnails: true,
+        }
+    }
+}
+
 pub const RECENT_LIMIT: usize = 5;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -146,6 +169,8 @@ pub struct Config {
     pub edit: EditSettings,
     /// Network access (Java `ui.network-proxy-*`).
     pub network: NetworkSettings,
+    /// 存档与读档 (Java `ui.auto-save-exit`, `resume-previous-game`, `load-save-zoom`).
+    pub recovery: RecoverySettings,
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).
@@ -195,6 +220,8 @@ pub struct WindowPlacement {
 #[serde(default, rename_all = "camelCase")]
 pub struct Persisted {
     pub last_folder: Option<String>,
+    /// Where the picture chooser starts (Java `filesystem.last-image-folder`, else `last-folder`).
+    pub last_image_folder: Option<String>,
     pub window: Option<WindowPlacement>,
 }
 
@@ -206,6 +233,8 @@ pub struct Storage {
     pub logs_dir: PathBuf,
     /// Downloaded and imported engine resources (packages, weights, runtimes, partial downloads).
     pub resources_dir: PathBuf,
+    /// 存档与读档 slots (Java `save/`).
+    pub save_dir: PathBuf,
 }
 
 impl Storage {
@@ -215,6 +244,7 @@ impl Storage {
             persist_file: config_dir.join("persist.json"),
             logs_dir: data_dir.join("logs"),
             resources_dir: data_dir.join("resources"),
+            save_dir: data_dir.join("save"),
         }
     }
 }

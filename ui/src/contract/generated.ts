@@ -97,9 +97,9 @@ showPonderLimitedTips: boolean, };
 
 export type EngineScope = "Current" | "Others" | "All";
 
-export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, replace: boolean, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, };
+export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, };
 
-export type CommandResult = { "type": "Done" } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "NeedsEditConfirmation", target: EditTarget, } | { "type": "Exported", path: string, } | { "type": "Refused", message_key: string, } | { "type": "SaveStarted", ticket: number, } | { "type": "NeedsReplaceConfirmation", document: number, file_name: string, } | { "type": "NeedsOverwriteConfirmation", path: string, } | { "type": "FolderChosen", path: string, } | { "type": "JavaImportPreview", preview: ImportPreviewView, } | { "type": "JavaImportFailed", failure: ImportFailure, } | { "type": "JavaImported", report: ImportReportView, } | { "type": "Resource", result: ResourceResult, } | { "type": "Tuning", result: TuningResult, };
+export type CommandResult = { "type": "Done" } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "NeedsEditConfirmation", target: EditTarget, } | { "type": "Exported", path: string, } | { "type": "ExportFailed", path: string, detail: string, } | { "type": "Refused", message_key: string, } | { "type": "SaveStarted", ticket: number, } | { "type": "NeedsReplaceConfirmation", document: number, file_name: string, } | { "type": "NeedsOverwriteConfirmation", path: string, } | { "type": "NeedsExportOverwriteConfirmation", kind: ExportKind, path: string, } | { "type": "NeedsImageOverwriteConfirmation", path: string, } | { "type": "FolderChosen", path: string, } | { "type": "JavaImportPreview", preview: ImportPreviewView, } | { "type": "JavaImportFailed", failure: ImportFailure, } | { "type": "JavaImported", report: ImportReportView, } | { "type": "Resource", result: ResourceResult, } | { "type": "Tuning", result: TuningResult, };
 
 export type ErrorKind = "InvalidArgument" | "Io" | "Unavailable";
 
@@ -109,7 +109,12 @@ export type DocumentView = {
 /**
  * Identity of the open document; changes on every adopted record.
  */
-id: number, format: RecordFormat | null, path: string | null, file_name: string | null, size: BoardSize, info: GameInfo, 
+id: number, format: RecordFormat | null, path: string | null, file_name: string | null, 
+/**
+ * The file name shown when the record has no file of its own: a 存档与读档 slot it was
+ * loaded from (Java shows `game2.sgf` in the title; saving goes through the chooser).
+ */
+origin_name: string | null, size: BoardSize, info: GameInfo, 
 /**
  * Content version; every content change increases it.
  */
@@ -165,7 +170,11 @@ next_color: Stone | null, };
 
 export type OpenOutcome = { "type": "Adopted", ticket: number, document: number, } | { "type": "Failed", ticket: number, message_key: string, detail: string, };
 
-export type SaveOutcome = { "type": "Saved", ticket: number, document: number, revision: number, path: string, } | { "type": "Failed", ticket: number, document: number, path: string, message_key: string, detail: string, };
+export type SaveOutcome = { "type": "Saved", ticket: number, document: number, revision: number, path: string, 
+/**
+ * The write was an export; it does not make the record saved.
+ */
+export: ExportKind | null, } | { "type": "Failed", ticket: number, document: number, path: string, message_key: string, detail: string, };
 
 export type PendingOpen = { ticket: number, path: string | null, };
 
@@ -401,7 +410,11 @@ resources: ResourcesView | null,
  * Engine performance (thread policy, benchmark); present when changed since the previous
  * view, and in full snapshots.
  */
-tuning: TuningView | null, editing: EditingView, };
+tuning: TuningView | null, editing: EditingView, 
+/**
+ * 存档与读档.
+ */
+recovery: RecoveryView, };
 
 export type LogsStatus = { directory: string, app_log_bytes: number | null, crash_log_bytes: number | null, };
 
@@ -417,9 +430,9 @@ candidates: Array<string>, };
 
 export type ImportStatus = "Imported" | "Incompatible" | "NotMigrated";
 
-export type ImportReason = "NotYetAvailable" | "Credential" | "InvalidValue" | "WindowCoordinates" | "RemoteEngine" | "CredentialNotConfirmed" | "Unreadable";
+export type ImportReason = "NotYetAvailable" | "Credential" | "InvalidValue" | "WindowCoordinates" | "RemoteEngine" | "CredentialNotConfirmed" | "Unreadable" | "NotChosen" | "Obsolete";
 
-export type ImportTarget = "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture";
+export type ImportTarget = "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder";
 
 export type ImportItemView = { 
 /**
@@ -470,13 +483,17 @@ id: number, config_file: string, persist_file: string | null, program_dir: strin
 /**
  * Settings already chosen in this product that the import would replace.
  */
-replaces: Array<ImportTarget>, };
+replaces: Array<ImportTarget>, 
+/**
+ * Java 存档与读档 slots; imported only when the user chooses to.
+ */
+recovery: Array<ImportSlotView>, };
 
 export type ImportReportView = { config_file: string, items: Array<ImportItemView>, engines: Array<ImportEngineView>, 
 /**
  * The imported language applies after a restart.
  */
-restart_required: boolean, };
+restart_required: boolean, recovery: Array<ImportSlotView>, };
 
 export type ImportFailure = { "type": "NoConfig", path: string, } | { "type": "Unreadable", path: string, detail: string, } | { "type": "Invalid", path: string, detail: string, };
 
@@ -539,6 +556,69 @@ export type MarkTool = "Letter" | "Number" | "Circle" | "Cross" | "Square" | "Tr
 export type StoneChange = { "kind": "Switch" } | { "kind": "Delete" } | { "kind": "MoveTo", point: Point, };
 
 export type Transform = "ExchangeColors" | "RotateRight" | "RotateLeft" | "MirrorVertical" | "MirrorHorizontal";
+
+export type ExportKind = "Raw" | "RawWithComments" | "Branch";
+
+export type CommentLabels = { black: string, white: string, winrate: string, lead: string, stdev: string, playouts: string, komi: string, };
+
+export type SlotRef = { "type": "Auto" } | { "type": "Manual", index: number, };
+
+export type RecoveryCommand = { "type": "NewSlot", name: string, thumbnail: string, } | { "type": "OverwriteSlot", index: number, name: string, thumbnail: string, } | { "type": "RenameSlot", index: number, name: string, } | { "type": "LoadSlot", slot: SlotRef, } | { "type": "DeleteSlot", slot: SlotRef, } | { "type": "DeleteAllSlots" } | { "type": "SetSettings", settings: RecoverySettings, } | { "type": "AutoSave", thumbnail: string, } | { "type": "ExitAutoSave", thumbnail: string | null, };
+
+export type SlotView = { slot: SlotRef, 
+/**
+ * Empty for the automatic slot (the UI shows `LizzieFrame.saveAndLoad.exitRecord`).
+ */
+name: string, 
+/**
+ * Local time it was written, `yyyy-MM-dd HH:mm:ss`.
+ */
+time: string, move_number: number, has_thumbnail: boolean, };
+
+export type RecoveryView = { settings: RecoverySettings, 
+/**
+ * The automatic slot, first on the panel when present.
+ */
+auto: SlotView | null, slots: Array<SlotView>, 
+/**
+ * Changes whenever a slot or picture changes (thumbnail cache key).
+ */
+revision: number, };
+
+export type RecoverySettings = { 
+/**
+ * 自动存档: the automatic slot is written on exit and every 60 seconds.
+ */
+autoSaveOnExit: boolean, 
+/**
+ * 启动时自动恢复: start with the automatic slot's record.
+ */
+resumePreviousGame: boolean, 
+/**
+ * 鼠标悬停放大缩略棋盘.
+ */
+zoomThumbnails: boolean, };
+
+export type ImportSlotView = { 
+/**
+ * `save:game2`, `save:autoGame1`.
+ */
+key: string, 
+/**
+ * Java's automatic slot; it becomes a manual slot here, so this product's own automatic save
+ * is kept.
+ */
+auto: boolean, name: string, time: string, move_number: number, status: ImportStatus, 
+/**
+ * `Unreadable` (record missing or not readable), `NotChosen`.
+ */
+reason: ImportReason | null, detail: string | null, };
+
+export type RecoveryImport = { 
+/**
+ * Name for Java's automatic slot (the UI's `LizzieFrame.saveAndLoad.exitRecord`).
+ */
+auto_slot_name: string, };
 
 export type ManagedProfile = { command: string, assetId: string, weightPath: string, configPath: string, };
 

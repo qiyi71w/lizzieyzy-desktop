@@ -5,6 +5,8 @@
 //! same [`Command`] values and read the same [`WorkbenchView`].
 
 mod editing;
+mod export;
+mod recovery;
 mod resources;
 mod tuning;
 
@@ -12,6 +14,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 pub use editing::*;
+pub use export::*;
+pub use recovery::*;
 pub use resources::*;
 pub use tuning::*;
 
@@ -66,6 +70,43 @@ pub enum Command {
     /// Settings > "保存时显示覆盖原文件确认" and the replace prompt's "不再提示".
     SetReplaceFileHint {
         enabled: bool,
+    },
+    /// 文件 > 更多保存 > 保存纯净棋谱 / 保存纯净棋谱(带评论) / 保存纯净分支 (Ctrl+Shift+S, Ctrl+Alt+S):
+    /// the save chooser (last folder, `*.sgf`, `suggested_name`), then write that export.
+    /// `labels` word the win-rate summaries of [`ExportKind::RawWithComments`].
+    ExportRecord {
+        kind: ExportKind,
+        suggested_name: String,
+        labels: CommentLabels,
+    },
+    /// Write export `kind` to a known path (after `NeedsExportOverwriteConfirmation`,
+    /// automation), exactly as named.
+    ExportRecordTo {
+        kind: ExportKind,
+        path: String,
+        labels: CommentLabels,
+    },
+    /// 复制棋谱到剪贴板 (Ctrl+C): the record as "保存" writes it, as clipboard text.
+    CopyRecord,
+    /// 保存主棋盘截图 (Alt+S) / 保存小棋盘截图 (Shift+S) / 保存胜率图 (Shift+Alt+S): the picture
+    /// chooser (PNG, JPG, GIF, BMP; last picture folder), then write `png` (base64 PNG of the
+    /// panel as shown) in the format of the chosen name. Answers `Exported`,
+    /// `NeedsImageOverwriteConfirmation` or `ExportFailed`.
+    ExportImage {
+        png: String,
+    },
+    /// Write a picture to a known path (after `NeedsImageOverwriteConfirmation`, automation).
+    ExportImageTo {
+        path: String,
+        png: String,
+    },
+    /// 复制主棋盘到剪贴板 (Shift+C) / 复制小棋盘到剪贴板 (Alt+C): `png` as a clipboard picture.
+    CopyImage {
+        png: String,
+    },
+    /// 存档与读档.
+    Recovery {
+        op: RecoveryCommand,
     },
     Navigate {
         nav: Navigation,
@@ -162,11 +203,13 @@ pub enum Command {
     },
     /// Java import: commit preview `preview`. `copy_credentials` lists the Java engine indexes whose
     /// credentials the user agreed to copy (other engines with credentials are left out);
-    /// `replace` confirms replacing the settings listed in the preview's `replaces`.
+    /// `replace` confirms replacing the settings listed in the preview's `replaces`; `recovery`
+    /// is present when the user chose to import the Java 存档与读档 slots.
     ApplyJavaImport {
         preview: u64,
         copy_credentials: Vec<u32>,
         replace: bool,
+        recovery: Option<RecoveryImport>,
     },
     /// The first-use import offer was declined; it is not shown again.
     DismissJavaImportOffer,
@@ -210,8 +253,10 @@ pub enum CommandResult {
     NeedsConfirmation,
     /// An edit would discard moves or the record; ask, then resend it with `confirmed: target`.
     NeedsEditConfirmation { target: EditTarget },
-    /// Diagnostics package written.
+    /// A file was written (diagnostics package, picture).
     Exported { path: String },
+    /// A picture could not be written (`LizzieFrame.saveImageErrorHint1`); nothing was replaced.
+    ExportFailed { path: String, detail: String },
     /// Not done, with the Java resource key of the explanation.
     Refused { message_key: String },
     /// The record content was captured and is being written; the result arrives as
@@ -224,6 +269,11 @@ pub enum CommandResult {
     /// then send `SaveRecordTo` with this path. The system chooser itself confirms replacing the
     /// file the user picked.
     NeedsOverwriteConfirmation { path: String },
+    /// Like `NeedsOverwriteConfirmation`, for an export: ask, then send `ExportRecordTo`.
+    NeedsExportOverwriteConfirmation { kind: ExportKind, path: String },
+    /// The picture name gained the chosen format's extension and that file exists
+    /// (`LizzieFrame.fileExists`); ask, then send `ExportImageTo` with this path.
+    NeedsImageOverwriteConfirmation { path: String },
     /// A folder was chosen ([`Command::ChooseJavaFolder`]).
     FolderChosen { path: String },
     /// What an import would do; nothing has changed yet.
@@ -267,6 +317,9 @@ pub struct DocumentView {
     pub format: Option<RecordFormat>,
     pub path: Option<String>,
     pub file_name: Option<String>,
+    /// The file name shown when the record has no file of its own: a 存档与读档 slot it was
+    /// loaded from (Java shows `game2.sgf` in the title; saving goes through the chooser).
+    pub origin_name: Option<String>,
     pub size: BoardSize,
     pub info: GameInfo,
     /// Content version; every content change increases it.
@@ -364,6 +417,8 @@ pub enum SaveOutcome {
         document: u64,
         revision: u64,
         path: String,
+        /// The write was an export; it does not make the record saved.
+        export: Option<ExportKind>,
     },
     /// Nothing was replaced; an existing file at `path` is unchanged. `message_key` is the Java
     /// resource key of the user message.
@@ -462,6 +517,8 @@ pub struct WorkbenchView {
     /// view, and in full snapshots.
     pub tuning: Option<TuningView>,
     pub editing: EditingView,
+    /// 存档与读档.
+    pub recovery: RecoveryView,
 }
 
 /// Java import availability.
@@ -500,6 +557,10 @@ pub enum ImportReason {
     CredentialNotConfirmed,
     /// The file could not be read as Java writes it.
     Unreadable,
+    /// The user did not choose to import it.
+    NotChosen,
+    /// Java keeps the key but no longer uses it.
+    Obsolete,
 }
 
 /// One Java setting in the import preview / report. Credential values are never included.
@@ -560,6 +621,14 @@ pub enum ImportTarget {
     OtherBoardSize,
     /// `ui.no-capture`.
     NoCapture,
+    /// `ui.auto-save-exit`.
+    AutoSaveOnExit,
+    /// `ui.resume-previous-game`.
+    ResumePreviousGame,
+    /// `ui.load-save-zoom`.
+    ZoomThumbnails,
+    /// `persist:filesystem.last-image-folder`.
+    LastImageFolder,
 }
 
 /// A problem found with an imported engine without starting it.
@@ -615,6 +684,8 @@ pub struct ImportPreviewView {
     pub engines: Vec<ImportEngineView>,
     /// Settings already chosen in this product that the import would replace.
     pub replaces: Vec<ImportTarget>,
+    /// Java 存档与读档 slots; imported only when the user chooses to.
+    pub recovery: Vec<ImportSlotView>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
@@ -624,6 +695,7 @@ pub struct ImportReportView {
     pub engines: Vec<ImportEngineView>,
     /// The imported language applies after a restart.
     pub restart_required: bool,
+    pub recovery: Vec<ImportSlotView>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]

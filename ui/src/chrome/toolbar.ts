@@ -274,7 +274,7 @@ export function buildToolbar(host: HTMLElement): void {
     pill(t("Menu.tsumeGoBtn"), "small"),
     pill(t("Menu.paramsBtn"), "small"),
     pill(t("Menu.gobanBtn"), "small"),
-    pill(t("Menu.saveBtn"), "small"),
+    pill(t("Menu.saveBtn"), "small", "menu.saveAndLoad"),
   );
 }
 

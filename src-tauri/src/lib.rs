@@ -5,6 +5,7 @@
 mod acceptance;
 mod diagnostics;
 mod logging;
+mod output;
 mod resources;
 mod startup;
 mod tuning;
@@ -46,6 +47,8 @@ pub struct Shared {
     saves: Mutex<Sender<SaveJob>>,
     /// An exit was requested during a save; close the main window after all writes finish.
     close_after_saves: AtomicBool,
+    /// The exit automatic save (自动存档) of the window being closed.
+    exit_save: Mutex<output::ExitSave>,
     views: Mutex<ViewSubscription>,
 }
 
@@ -168,23 +171,27 @@ fn run_refresher(app: AppHandle, shared: State) {
 }
 
 fn start_open(app: &AppHandle, shared: &State, path: String, source: OpenSource) -> u64 {
-    let (ticket, no_capture) = {
-        let mut wb = shared.workbench.lock().unwrap();
-        let ticket = wb.begin_open(OpenOrigin::File {
-            path: path.clone(),
-            source,
-        });
-        (ticket, wb.config().edit.no_capture)
-    };
+    let ticket = shared.workbench.lock().unwrap().begin_open(OpenOrigin::File {
+        path: path.clone(),
+        source,
+    });
+    read_record(app, shared, ticket, PathBuf::from(path));
+    ticket
+}
+
+/// Reads record file `path` on its own thread and hands it to the open request `ticket`
+/// (files, 存档与读档 slots).
+pub(crate) fn read_record(app: &AppHandle, shared: &State, ticket: u64, path: PathBuf) {
+    let no_capture = shared.workbench.lock().unwrap().config().edit.no_capture;
     publish(app, shared);
     let app = app.clone();
     let shared = shared.clone();
     std::thread::spawn(move || {
-        let result = formats::read_file(&PathBuf::from(&path), no_capture);
+        let result = formats::read_file(&path, no_capture);
         if let Err(e) = &result {
             shared.log.warn(&format!(
                 "open failed ({}): {}",
-                logging::file_label(&path),
+                logging::file_label(&path.to_string_lossy()),
                 logging::read_error(e)
             ));
         }
@@ -197,17 +204,21 @@ fn start_open(app: &AppHandle, shared: &State, path: String, source: OpenSource)
                 .info(&format!("open ticket {ticket} superseded; result dropped"));
         }
     });
-    ticket
 }
 
 /// The `AP` value written into saved records.
-fn application(app: &AppHandle) -> String {
+pub(crate) fn application(app: &AppHandle) -> String {
     format!("LizzieYzy Tauri:{}", app.package_info().version)
 }
 
 /// Captures the current document and hands it to the save lane.
 fn start_save(app: &AppHandle, shared: &State, selected: &str) -> CommandResult {
     let job = shared.workbench.lock().unwrap().begin_save(selected, &application(app));
+    queue_write(app, shared, job)
+}
+
+/// Hands a captured save or export to the serial writer.
+pub(crate) fn queue_write(app: &AppHandle, shared: &State, job: SaveJob) -> CommandResult {
     let ticket = job.ticket;
     shared.log.info(&format!(
         "save {ticket} started ({})",
@@ -257,15 +268,7 @@ fn spawn_save_lane(app: AppHandle) -> Sender<SaveJob> {
 /// `.sgf` is appended and that file exists (`SgfSaveCoordinator.chooseAndSave`).
 async fn choose_and_save(app: &AppHandle, shared: &State, suggested_name: String) -> Result<CommandResult, ApiError> {
     let last_folder = shared.workbench.lock().unwrap().persisted().last_folder.clone();
-    // Without a usable last folder Java's `JFileChooser("")` starts in the platform default
-    // directory: Documents on Windows, the home directory elsewhere.
-    let start_dir = last_folder.map(PathBuf::from).filter(|d| d.is_dir()).or_else(|| {
-        if cfg!(windows) {
-            app.path().document_dir().ok()
-        } else {
-            app.path().home_dir().ok()
-        }
-    });
+    let start_dir = chooser_start(app, last_folder);
     let dialog = app.dialog().clone();
     let picked = tauri::async_runtime::spawn_blocking(move || {
         // Java filter: FileNameExtensionFilter("*.sgf", "SGF").
@@ -289,6 +292,18 @@ async fn choose_and_save(app: &AppHandle, shared: &State, suggested_name: String
         return Ok(CommandResult::NeedsOverwriteConfirmation { path: target });
     }
     Ok(start_save(app, shared, &target))
+}
+
+/// Where a save chooser starts: `folder` when it still exists, else Java's `JFileChooser("")`
+/// platform default directory: Documents on Windows, the home directory elsewhere.
+pub(crate) fn chooser_start(app: &AppHandle, folder: Option<String>) -> Option<PathBuf> {
+    folder.map(PathBuf::from).filter(|d| d.is_dir()).or_else(|| {
+        if cfg!(windows) {
+            app.path().document_dir().ok()
+        } else {
+            app.path().home_dir().ok()
+        }
+    })
 }
 
 fn changed(app: &AppHandle, shared: &Shared, changed: bool) -> CommandResult {
@@ -379,6 +394,17 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().set_replace_file_hint(enabled)?;
             Ok(changed(&app, &shared, done))
         }
+        Command::ExportRecord {
+            kind,
+            suggested_name,
+            labels,
+        } => output::export_record(&app, &shared, kind, suggested_name, labels).await,
+        Command::ExportRecordTo { kind, path, labels } => Ok(output::start_export(&app, &shared, kind, &path, &labels)),
+        Command::CopyRecord => output::copy_record(&app, &shared),
+        Command::ExportImage { png } => output::export_image(&app, &shared, png).await,
+        Command::ExportImageTo { path, png } => output::export_image_to(&shared, path, png).await,
+        Command::CopyImage { png } => output::copy_image(&app, &shared, &png),
+        Command::Recovery { op } => output::recovery(&app, &shared, op),
         Command::Navigate { nav } => {
             let moved = shared.workbench.lock().unwrap().navigate(nav);
             Ok(changed(&app, &shared, moved))
@@ -564,12 +590,14 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             preview,
             copy_credentials,
             replace,
+            recovery,
         } => {
-            let result = shared
-                .workbench
-                .lock()
-                .unwrap()
-                .apply_java_import(preview, &copy_credentials, replace);
+            let result = shared.workbench.lock().unwrap().apply_java_import(
+                preview,
+                &copy_credentials,
+                replace,
+                recovery.as_ref(),
+            );
             let result = match result {
                 Ok(r) => r,
                 Err(e) => {
@@ -713,11 +741,13 @@ fn window_placement(window: &tauri::WebviewWindow, previous: Option<WindowPlacem
     })
 }
 
-/// Window close and application Quit share the same save barrier and window persistence.
+/// Window close and application Quit share the same save barrier, the exit automatic save and
+/// window persistence (`Lizzie.shutdown`: running saves first, then `saveAutoGame(1)`).
 /// Capture placement before the window is destroyed, not in the final RunEvent::Exit.
 fn prepare_exit(app: &AppHandle, shared: &Shared) -> bool {
-    // Force exit destroys the window first. It must not enter a save barrier whose
-    // continuation closes that window, or the application would remain headless.
+    // Force exit destroys the window first (Java `System.exit`, no automatic save). It must not
+    // enter a save barrier whose continuation closes that window, or the application would
+    // remain headless.
     let Some(window) = app.get_webview_window("main") else {
         return true;
     };
@@ -725,6 +755,9 @@ fn prepare_exit(app: &AppHandle, shared: &Shared) -> bool {
     if wb.has_pending_saves() {
         shared.close_after_saves.store(true, Ordering::SeqCst);
         shared.log.info("exit waits for running saves");
+        return false;
+    }
+    if wb.auto_save_on_exit() && !output::exit_saved(app, shared) {
         return false;
     }
     let placement = window_placement(&window, wb.persisted().window);
@@ -821,6 +854,7 @@ pub fn run() {
                 processes,
                 saves: Mutex::new(spawn_save_lane(app.handle().clone())),
                 close_after_saves: AtomicBool::new(false),
+                exit_save: Mutex::new(output::ExitSave::Idle),
                 views: Mutex::new(ViewSubscription::default()),
             });
             let _ = cell.set(shared.clone());
@@ -841,11 +875,18 @@ pub fn run() {
             }
 
             // Command line: one argument other than "read" opens that record without touching
-            // the recent list (Lizzie.java:1049-1052).
+            // the recent list (Lizzie.java:1049-1052); without one, 启动时自动恢复 resumes the
+            // automatic slot (`resumeFile`).
             let args: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with("--")).collect();
             if let [path] = args.as_slice() {
                 if path != "read" {
                     start_open(app.handle(), &shared, path.clone(), OpenSource::CommandLine);
+                }
+            } else {
+                let resume = shared.workbench.lock().unwrap().begin_resume();
+                if let Some((ticket, path)) = resume {
+                    shared.log.info("resuming the automatic slot");
+                    read_record(app.handle(), &shared, ticket, path);
                 }
             }
 
@@ -918,7 +959,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         unsubscribe_workbench,
         logs_directory,
         engine_console,
-        open_katago_releases
+        open_katago_releases,
+        output::recovery_thumbnail
     ]
 }
 
@@ -932,6 +974,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         logs_directory,
         engine_console,
         open_katago_releases,
+        output::recovery_thumbnail,
         acceptance::acceptance_ui_report
     ]
 }

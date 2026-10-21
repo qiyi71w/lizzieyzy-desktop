@@ -330,6 +330,7 @@ impl Workbench {
             path: None,
             revision: 0,
             saved_revision: None,
+            origin_name: None,
         };
         self.cursor = ROOT;
         self.sounds.clear();

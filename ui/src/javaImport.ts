@@ -10,6 +10,7 @@ import type {
   ImportItemView,
   ImportPreviewView,
   ImportReportView,
+  ImportSlotView,
   ImportStatus,
 } from "./contract/generated";
 import { formPanel, message } from "./dialogs";
@@ -120,6 +121,26 @@ function itemLists(host: HTMLElement, items: ImportItemView[], report: boolean):
   }
 }
 
+/** A Java 存档与读档 slot: which one, its name, time and move, and what happens to it. */
+function slotLine(s: ImportSlotView): string {
+  const parts = [s.key, s.name || (s.auto ? t("LizzieFrame.saveAndLoad.exitRecord") : ""), s.time, product("importMoveNumber", s.move_number), product(`status${s.status}`)];
+  if (s.reason) parts.push(`（${product(`reason${s.reason}`)}）`);
+  if (s.detail) parts.push(s.detail);
+  return parts.filter((p) => p !== "").join(" ");
+}
+
+function slotList(host: HTMLElement, slots: ImportSlotView[]): void {
+  if (!slots.length) return;
+  const details = document.createElement("details");
+  details.dataset.key = "import-list-recovery";
+  details.open = true;
+  details.append(text("summary", `${product("importListRecovery")} (${slots.length})`));
+  const ul = document.createElement("ul");
+  for (const s of slots) ul.append(text("li", slotLine(s)));
+  details.append(ul);
+  host.append(details);
+}
+
 function problemText(p: EngineProblem): string {
   switch (p.type) {
     case "ProgramNotFound": return product("problemProgramNotFound", p.path);
@@ -198,9 +219,24 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
     body.append(box);
   }
   itemLists(body, p.items, false);
+  slotList(body, p.recovery);
+  // The Java slots come over only when chosen explicitly.
+  let recovery: HTMLInputElement | null = null;
+  if (p.recovery.some((s) => s.status === "Imported")) {
+    const choose = checkbox(product("javaImportRecovery"), false);
+    choose.input.dataset.key = "import-recovery";
+    recovery = choose.input;
+    body.append(choose.label);
+  }
   const apply = button(product("importDo"), async () => {
     const copy = [...credentials].filter(([, box]) => box.checked).map(([index]) => index);
-    const r = await run({ type: "ApplyJavaImport", preview: p.id, copy_credentials: copy, replace: replace?.checked ?? false });
+    const r = await run({
+      type: "ApplyJavaImport",
+      preview: p.id,
+      copy_credentials: copy,
+      replace: replace?.checked ?? false,
+      recovery: recovery?.checked ? { auto_slot_name: t("LizzieFrame.saveAndLoad.exitRecord") } : null,
+    });
     if (r?.type === "JavaImported") {
       started();
       showReport(body, r.report, close);
@@ -224,6 +260,7 @@ function showReport(body: HTMLElement, r: ImportReportView, close: () => Promise
   if (r.engines.some((e) => e.problems.length)) body.append(text("p", product("importFixLater", t("Menu.engineConfig"))));
   if (r.restart_required) body.append(text("p", t("Lizzie.hint.restart"), "java-import-restart"));
   itemLists(body, r.items, true);
+  slotList(body, r.recovery);
   const done = button(product("close"), close);
   done.dataset.key = "import-close";
   done.className = "primary";

@@ -2,7 +2,7 @@
 // `Command` through `dispatch`; state arrives only as `WorkbenchView`s.
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { ApiError, Command, CommandResult, ConsoleLineView, LogsStatus, WorkbenchView } from "./generated";
+import type { ApiError, Command, CommandResult, ConsoleLineView, LogsStatus, SlotRef, WorkbenchView } from "./generated";
 
 export function dispatch(command: Command): Promise<CommandResult> {
   return invoke<CommandResult>("dispatch_command", { command });
@@ -37,6 +37,16 @@ export function onConsole(handler: (lines: ConsoleLineView[]) => void): Promise<
 /** A Java entry whose capability is not migrated yet was used outside the UI (e.g. multi-file drop). */
 export function onUnavailable(handler: (capability: string) => void): Promise<UnlistenFn> {
   return listen<string>("capability-unavailable", (e) => handler(e.payload));
+}
+
+/** The picture of a 存档与读档 slot as stored (empty when it has none). */
+export function recoveryThumbnail(slot: SlotRef): Promise<ArrayBuffer> {
+  return invoke<ArrayBuffer>("recovery_thumbnail", { slot });
+}
+
+/** The window is closing with 自动存档 on: answer with `Recovery { op: ExitAutoSave }`. */
+export function onExitAutoSaveRequest(handler: () => void): Promise<UnlistenFn> {
+  return listen("exit-autosave-request", () => handler());
 }
 
 export function isApiError(e: unknown): e is ApiError {

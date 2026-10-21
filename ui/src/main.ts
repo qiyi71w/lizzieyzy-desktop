@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { apply, navigate, pasteRecord, run, saveRecord, saveRecordAs, state, subscribe, unavailable, windowTitle } from "./app";
+import { apply, copyRecord, exportRecord, navigate, pasteRecord, run, saveRecord, saveRecordAs, state, subscribe, unavailable, windowTitle } from "./app";
 import { buildBottomBar, layoutBottomBar } from "./chrome/bottombar";
 import { buildMenubar, menuOpen } from "./chrome/menubar";
 import { buildToolbar, renderToolbar } from "./chrome/toolbar";
@@ -22,6 +22,9 @@ import { bindCommentEditor, commentEditing } from "./editing/comment";
 import { contextMenuItems, contextMenuOpen } from "./editing/contextMenu";
 import { bindBoardInput, handleEditKey } from "./editing/input";
 import { editing } from "./editing/state";
+import { bindCaptureSurface, copyMainBoardPicture, copySubBoardPicture, saveMainBoardPicture, saveSubBoardPicture, saveWinratePicture } from "./recovery/capture";
+import { startAutoSave } from "./recovery/commands";
+import { recoveryReport } from "./recovery/panel";
 import {
   loadImages,
   paintBackground,
@@ -217,6 +220,8 @@ const JAVA_BOUND = new Set([..."ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", " ", ",",
 
 document.addEventListener("keydown", (e) => {
   if (dialogOpen() || menuOpen() || contextMenuOpen() || textTarget(e.target)) return;
+  // The 存档与读档 controls keep their keys, like the Swing components holding the focus there.
+  if (e.target instanceof Element && e.target.closest("#recovery")) return;
   if (handleEngineKey(e) || handleEditKey(e)) {
     e.preventDefault();
     return;
@@ -228,18 +233,30 @@ document.addEventListener("keydown", (e) => {
     navigate(nav);
     return;
   }
-  const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+  // macOS turns Option+letter into another character; Java's VK code is the letter key itself.
+  const key = e.altKey && /^Key[A-Z]$/.test(e.code) ? e.code.slice(3) : e.key.length === 1 ? e.key.toUpperCase() : e.key;
   if (key === "O" && !ctrl && !e.altKey && !e.shiftKey) {
     e.preventDefault();
     run({ type: "ChooseAndOpenRecord" });
   } else if (key === "V" && ctrl && !e.altKey) {
     e.preventDefault();
     pasteRecord();
-  } else if (key === "S" && !e.shiftKey && !e.altKey) {
-    // Input.java VK_S: Ctrl+S saves, plain S saves as; the Shift/Alt variants are exports.
+  } else if (key === "S") {
+    // Input.java VK_S, in Java's order of precedence.
     e.preventDefault();
-    if (ctrl) saveRecord();
+    if (ctrl && e.shiftKey) void exportRecord("Raw");
+    else if (ctrl && e.altKey) void exportRecord("Branch");
+    else if (e.shiftKey && e.altKey) void saveWinratePicture();
+    else if (e.shiftKey) void saveSubBoardPicture();
+    else if (e.altKey) void saveMainBoardPicture();
+    else if (ctrl) saveRecord();
     else saveRecordAs();
+  } else if (key === "C" && (e.altKey || e.shiftKey || ctrl)) {
+    // Input.java VK_C; plain C (coordinates) is not available yet.
+    e.preventDefault();
+    if (e.altKey) void copySubBoardPicture();
+    else if (e.shiftKey) void copyMainBoardPicture();
+    else copyRecord();
   } else if (key === "B" && !ctrl && !e.altKey) {
     e.preventDefault();
     navigate({ op: "MainTrunk" });
@@ -258,7 +275,7 @@ function bindPointer() {
   main.addEventListener(
     "wheel",
     (ev) => {
-      if ((ev.target as HTMLElement).closest("#comment, #table, #tree, #sub, #graph")) return;
+      if ((ev.target as HTMLElement).closest("#comment, #table, #tree, #sub, #graph, #recovery")) return;
       ev.preventDefault();
       if (ev.deltaY !== 0) navigate(ev.deltaY > 0 ? { op: "Forward", count: 1 } : { op: "Back", count: 1 });
     },
@@ -756,6 +773,7 @@ function uiReport() {
       })(),
     },
     lastSound: state.lastSound,
+    recovery: recoveryReport(),
     /** Visible menu, toolbar, bottom-bar and dialog controls with client-area centres, so
      *  automation clicks the real controls. */
     targets: [...document.querySelectorAll<HTMLElement>("[data-key], [data-name], #moveInput, .modal-box button")]
@@ -791,6 +809,7 @@ async function boot() {
   $("problemsTab").title = product("unavailable");
   bindPointer();
   bindCommentEditor($("commentText"));
+  bindCaptureSurface(() => panels && { panels, width: $("main").clientWidth, height: $("main").clientHeight, background: backgroundUrl }, render);
   await Promise.all([
     loadImages(["board.png", "black0.png", "white0.png", "background.jpg", "smallUp.png", "smallDown.png", "smallLeft.png", "smallRight.png"]),
     document.fonts.load('12px "Lizzie Winrate"'),
@@ -798,6 +817,7 @@ async function boot() {
   subscribe(schedule);
   await onUnavailable(() => unavailable());
   await listen("acceptance-probe", () => invoke("acceptance_ui_report", { report: uiReport() }));
+  await startAutoSave();
   window.addEventListener("resize", schedule);
   apply(first);
   for (const v of early) apply(v);

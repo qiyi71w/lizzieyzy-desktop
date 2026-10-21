@@ -384,7 +384,8 @@ fn save_as_of_a_gib_makes_the_written_sgf_the_document_file() {
             ticket,
             document: v.document.id,
             revision: 0,
-            path: written.to_string_lossy().into_owned()
+            path: written.to_string_lossy().into_owned(),
+            export: None,
         })
     );
     assert_eq!(v.document.path.as_deref(), Some(written.to_str().unwrap()));

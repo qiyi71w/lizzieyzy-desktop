@@ -17,6 +17,11 @@ fancy-regex = "0.16"
 sha2 = "0.10"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = "1"
+# Image export formats of Java's chooser (PNG, JPG, GIF, BMP) and Java BMP thumbnails.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp"] }
+base64 = "0.22"
+# Local wall-clock times of recovery slots (Java `yyyy-MM-dd HH:mm:ss`).
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [dev-dependencies]
 tempfile = "3"

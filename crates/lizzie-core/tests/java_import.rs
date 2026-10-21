@@ -204,16 +204,18 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
     );
     assert_eq!(status("logging.diagnosticsEnabled"), ImportStatus::NotMigrated);
     assert_eq!(status("persist:filesystem.last-folder"), ImportStatus::Imported);
+    let images = item(&p.items, "persist:filesystem.last-image-folder");
     assert_eq!(
-        status("persist:filesystem.last-image-folder"),
-        ImportStatus::NotMigrated
+        (images.status, images.value.as_deref()),
+        (ImportStatus::Imported, Some("/images"))
     );
     let window = item(&p.items, "persist:ui-persist.main-window-position");
     assert_eq!(
         (window.status, window.reason),
         (ImportStatus::Incompatible, Some(ImportReason::WindowCoordinates))
     );
-    assert_eq!(status("file:save"), ImportStatus::NotMigrated);
+    // An empty save folder holds no 存档与读档 slots.
+    assert!(p.recovery.is_empty());
 
     // Engines: Java-relative paths resolved against the Java folder; problems found without
     // starting anything; the remote engine left out; the one with a token needs confirmation.
@@ -249,7 +251,7 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
     );
     assert!(p.engines[3].credential);
 
-    let report = wb.apply_java_import(p.id, &[], false).unwrap().unwrap();
+    let report = wb.apply_java_import(p.id, &[], false, None).unwrap().unwrap();
     assert!(report.restart_required, "English applies after a restart");
     assert_eq!(
         (report.engines[3].status, report.engines[3].reason),
@@ -368,7 +370,7 @@ fn credentials_are_copied_only_when_confirmed() {
     let product = tmp.path().join("product");
     let mut wb = workbench(&product, Recorder::default());
     let p = preview(&mut wb, &java);
-    let report = wb.apply_java_import(p.id, &[3], false).unwrap().unwrap();
+    let report = wb.apply_java_import(p.id, &[3], false, None).unwrap().unwrap();
     assert_eq!(report.engines[3].status, ImportStatus::Imported);
     let c = saved_config(&product);
     let proxy = c.engine.engines.iter().find(|e| e.name == "Proxy").unwrap();
@@ -377,7 +379,7 @@ fn credentials_are_copied_only_when_confirmed() {
         "the confirmed command is kept as written"
     );
     // A preview is applied once.
-    assert_eq!(wb.apply_java_import(p.id, &[], false).unwrap(), Err(IMPORT_STALE));
+    assert_eq!(wb.apply_java_import(p.id, &[], false, None).unwrap(), Err(IMPORT_STALE));
 }
 
 #[test]
@@ -403,13 +405,13 @@ fn settings_chosen_in_this_product_are_replaced_only_after_confirmation() {
         "same value as Java: nothing to replace"
     );
     assert_eq!(
-        wb.apply_java_import(p.id, &[], false).unwrap(),
+        wb.apply_java_import(p.id, &[], false, None).unwrap(),
         Err(IMPORT_NEEDS_REPLACE)
     );
     assert_eq!(std::fs::read(storage(&product).config_file).unwrap(), before);
     assert_eq!(wb.config().engine.engines[0].name, "Mine");
 
-    wb.apply_java_import(p.id, &[], true).unwrap().unwrap();
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
     assert_eq!(wb.config().engine.engines[0].name, "Local");
 }
 
@@ -425,7 +427,7 @@ fn a_failed_write_leaves_both_settings_files_and_the_session_unchanged() {
     std::fs::create_dir_all(storage(&product).persist_file.join("blocker")).unwrap();
 
     let p = preview(&mut wb, &java);
-    assert!(wb.apply_java_import(p.id, &[], true).is_err());
+    assert!(wb.apply_java_import(p.id, &[], true, None).is_err());
     assert_eq!(std::fs::read(storage(&product).config_file).unwrap(), config_before);
     assert_eq!(wb.config().ui.language, Language::System);
     assert!(wb.config().engine.engines.is_empty());
@@ -438,7 +440,7 @@ fn a_failed_write_leaves_both_settings_files_and_the_session_unchanged() {
 
     // Once the obstacle is gone the same preview imports.
     std::fs::remove_dir_all(storage(&product).persist_file).unwrap();
-    wb.apply_java_import(p.id, &[], true).unwrap().unwrap();
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
     assert_eq!(wb.config().ui.language, Language::EnUs);
 }
 
@@ -459,7 +461,7 @@ fn a_settings_file_that_cannot_be_kept_is_not_replaced() {
     }
     std::fs::create_dir_all(storage(&product).persist_file.join("blocker")).unwrap();
     let p = preview(&mut wb, &java);
-    assert!(wb.apply_java_import(p.id, &[], true).is_err());
+    assert!(wb.apply_java_import(p.id, &[], true, None).is_err());
     std::fs::set_permissions(&config_file, std::fs::Permissions::from_mode(0o600)).unwrap();
     assert_eq!(
         std::fs::read(&config_file).unwrap(),
@@ -512,7 +514,7 @@ fn once_this_product_has_settings_every_change_needs_confirmation() {
     let p = preview(&mut wb, &java);
     assert!(p.replaces.contains(&ImportTarget::PlaySound), "{:?}", p.replaces);
     assert_eq!(
-        wb.apply_java_import(p.id, &[], false).unwrap(),
+        wb.apply_java_import(p.id, &[], false, None).unwrap(),
         Err(IMPORT_NEEDS_REPLACE)
     );
     assert!(wb.config().ui.play_sound);
@@ -561,7 +563,7 @@ fn after_resetting_the_interface_position_only_the_imported_folder_is_saved() {
     let mut wb = workbench(&product, Recorder::default());
     wb.reset_ui_position().unwrap();
     let p = preview(&mut wb, &java);
-    wb.apply_java_import(p.id, &[], true).unwrap().unwrap();
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
     let reopened = workbench(&product, Recorder::default());
     assert_eq!(reopened.persisted().last_folder.as_deref(), Some("/games"));
     assert_eq!(
@@ -578,7 +580,7 @@ fn a_different_last_engine_choice_needs_confirmation() {
     let product = tmp.path().join("product");
     let mut wb = workbench(&product, Recorder::default());
     let p = preview(&mut wb, &java);
-    wb.apply_java_import(p.id, &[3], false).unwrap().unwrap();
+    wb.apply_java_import(p.id, &[3], false, None).unwrap().unwrap();
     // The same Java settings, except the engine used last.
     let config = std::fs::read_to_string(java.join("config.txt")).unwrap();
     std::fs::write(
@@ -589,7 +591,7 @@ fn a_different_last_engine_choice_needs_confirmation() {
     let p = preview(&mut wb, &java);
     assert_eq!(p.replaces, [ImportTarget::LastEngine]);
     assert_eq!(
-        wb.apply_java_import(p.id, &[], false).unwrap(),
+        wb.apply_java_import(p.id, &[], false, None).unwrap(),
         Err(IMPORT_NEEDS_REPLACE)
     );
     assert_eq!(wb.config().engine.last_engine.as_deref(), Some("java-0"));
@@ -616,7 +618,7 @@ fn startup_choices_of_left_out_engines_are_reported_as_left_out() {
         (last.status, last.reason),
         (ImportStatus::NotMigrated, Some(ImportReason::RemoteEngine))
     );
-    let report = wb.apply_java_import(p.id, &[], false).unwrap().unwrap();
+    let report = wb.apply_java_import(p.id, &[], false, None).unwrap().unwrap();
     let default = item(&report.items, "ui.default-engine");
     assert_eq!(
         (default.status, default.reason),
@@ -748,7 +750,7 @@ fn proxy_settings_java_would_reject_are_reported_and_not_taken_over() {
                 .all(|i| i.status == expected && i.target == Some(ImportTarget::NetworkProxy)),
             "{ui}"
         );
-        wb.apply_java_import(p.id, &[], true).unwrap().unwrap();
+        wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
         let network = saved_config(&product).network;
         if valid {
             let mode = if ui.get("network-proxy-mode").is_some() {

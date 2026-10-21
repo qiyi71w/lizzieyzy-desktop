@@ -2,7 +2,7 @@
 // at a time in the order the user issued them (like Swing's event queue), so a quick Down/Up pair
 // can never be applied in the opposite order.
 import { dispatch, isApiError } from "./contract/client";
-import type { Command, CommandResult, Navigation, StoneSound, TreeNodeView, WorkbenchView } from "./contract/generated";
+import type { Command, CommandResult, CommentLabels, ExportKind, Navigation, StoneSound, TreeNodeView, WorkbenchView } from "./contract/generated";
 import { ask, confirm, message } from "./dialogs";
 import { product, t } from "./i18n";
 import { tuningText } from "./engine/tuningText";
@@ -134,11 +134,16 @@ export async function pasteRecord(): Promise<void> {
   }
 }
 
-/** The chooser's default name (SgfSaveCoordinator.chooseAndSave): GameInfo.getSaveFileName, i.e.
- *  "<black>_Vs_<white>" or GameInfo.untitled, then "_yyyyMMddHHmmss". */
-function suggestedSaveName(): string {
+/** GameInfo.getSaveFileName: "<black>_Vs_<white>", or GameInfo.untitled when both are empty. */
+export function saveFileName(): string {
   const info = state.view?.document.info;
-  const name = !info || (info.black === "" && info.white === "") ? t("GameInfo.untitled") : `${info.black}_Vs_${info.white}`;
+  return !info || (info.black === "" && info.white === "") ? t("GameInfo.untitled") : `${info.black}_Vs_${info.white}`;
+}
+
+/** The chooser's default name (SgfSaveCoordinator.chooseAndSave): the save file name, then
+ *  "_yyyyMMddHHmmss". */
+function suggestedSaveName(): string {
+  const name = saveFileName();
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
   const stamp = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
@@ -181,6 +186,33 @@ export async function saveRecordAs(): Promise<void> {
   await followSave(await run({ type: "ChooseAndSaveRecord", suggested_name: suggestedSaveName() }));
 }
 
+/** Words of the win-rate summaries SGFParser.formatComment writes into exported comments. */
+function commentLabels(): CommentLabels {
+  return {
+    black: t("SGFParse.black"),
+    white: t("SGFParse.white"),
+    winrate: t("SGFParse.winrate"),
+    lead: t("SGFParse.leadJustScore"),
+    stdev: t("SGFParse.stdev"),
+    playouts: t("SGFParse.playouts"),
+    komi: t("SGFParse.komi"),
+  };
+}
+
+/** 更多保存 > 保存纯净棋谱 (Ctrl+Shift+S) / 保存纯净棋谱(带评论) / 保存纯净分支 (Ctrl+Alt+S): the save
+ *  chooser like "另存为"; the end arrives as the view's save outcome. */
+export async function exportRecord(kind: ExportKind): Promise<void> {
+  const r = await run({ type: "ExportRecord", kind, suggested_name: suggestedSaveName(), labels: commentLabels() });
+  if (r?.type === "NeedsExportOverwriteConfirmation" && await confirm(t("LizzieFrame.warning"), t("LizzieFrame.prompt.sgfExists"))) {
+    await run({ type: "ExportRecordTo", kind: r.kind, path: r.path, labels: commentLabels() });
+  }
+}
+
+/** "复制棋谱到剪贴板(Ctrl+C)" (LizzieFrame.copySgf). */
+export function copyRecord(): void {
+  void run({ type: "CopyRecord" });
+}
+
 /** A Java entry whose capability has not been migrated yet. */
 export function unavailable(): void {
   message(APP_TITLE, product("unavailable"));
@@ -198,6 +230,8 @@ export function windowTitle(version: string): string {
     title += `- [${t("Menu.Black")}]${info.black} vs[${t("Menu.White")}]${info.white}`;
     if (info.result) title += `(${t("LizzieFrame.result")}${info.result})`;
   }
-  if (v.document.file_name) title += ` - ${v.document.file_name}`;
+  // A record loaded from a 存档与读档 slot has no file of its own; Java shows the slot's file name.
+  const fileName = v.document.file_name ?? v.document.origin_name;
+  if (fileName) title += ` - ${fileName}`;
   return title;
 }

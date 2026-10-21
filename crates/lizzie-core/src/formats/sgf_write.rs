@@ -16,6 +16,14 @@
 //!   analysis `LZ`/`LZ2`/`LZOP`/`LZOP2`, `GM`, `FF`, `GN`, ...) are written back as read.
 //! - Variations follow the child order; parentheses only where a node has several children.
 //!
+//! The 更多保存 exports ([`write_export`], `SGFParser.saveSnapshot(raw, comments, branch)`)
+//! write the same tree without the analysis `LZ`/`LZ2` and without this product's `AP` (an `AP`
+//! or `DZ` read with the record stays, as Java writes the root's properties as read). 纯净棋谱
+//! drops move comments (the root comment and root `LZOP`/`LZOP2` stay, as
+//! Java writes them from the root data); 带评论 keeps every comment and gives analysed nodes their
+//! win-rate summary; 纯净分支 writes one line (root to the current node, then first children)
+//! without any comment, root comment or root analysis.
+//!
 //! Objective correction against the fixed Java build: every text value escapes `\` and `]`
 //! (SGF FF[4] Text/SimpleText). Java escaped only comments, so a `]` in a player name, label or
 //! other property ended the value early and corrupted the rest of the file.
@@ -33,31 +41,109 @@ const MODELLED: &[&str] = &[
 const ROOT_MODELLED: &[&str] = &[
     "SZ", "KM", "KO", "HA", "PB", "PW", "BR", "WR", "RE", "DT", "RU", "CA", "AP",
 ];
+/// The same for exports: they name no writing program, so an `AP` read with the record stays
+/// (Java's raw header adds none, and the root's own properties are written as read).
+const EXPORT_ROOT_MODELLED: &[&str] = &["SZ", "KM", "KO", "HA", "PB", "PW", "BR", "WR", "RE", "DT", "RU", "CA"];
+
+/// What a record export leaves out.
+pub enum Export<'a> {
+    /// 保存纯净棋谱.
+    Raw,
+    /// 保存纯净棋谱(带评论): `comment` gives an analysed node's comment with its summary.
+    RawWithComments {
+        comment: &'a dyn Fn(NodeId) -> Option<String>,
+    },
+    /// 保存纯净分支 through `current`.
+    Branch { current: NodeId },
+}
+
+enum Comments<'a> {
+    All,
+    RootOnly,
+    Formatted(&'a dyn Fn(NodeId) -> Option<String>),
+    None,
+}
+
+struct Opts<'a> {
+    /// `AP`; `None` for exports.
+    application: Option<&'a str>,
+    comments: Comments<'a>,
+    /// The single line of a branch export, root first.
+    line: Option<Vec<NodeId>>,
+}
 
 /// Serialises a record. `application` is the `AP` value naming the writing program.
 pub fn write(rec: &GameRecord, application: &str) -> String {
+    write_with(
+        rec,
+        &Opts {
+            application: Some(application),
+            comments: Comments::All,
+            line: None,
+        },
+    )
+}
+
+/// Serialises a 更多保存 export of the record (see the module notes).
+pub fn write_export(rec: &GameRecord, export: &Export) -> String {
+    let opts = match export {
+        Export::Raw => Opts {
+            application: None,
+            comments: Comments::RootOnly,
+            line: None,
+        },
+        Export::RawWithComments { comment } => Opts {
+            application: None,
+            comments: Comments::Formatted(*comment),
+            line: None,
+        },
+        Export::Branch { current } => {
+            let mut line = rec.path_to(*current);
+            let mut id = *current;
+            while let Some(&first) = rec.node(id).children.first() {
+                line.push(first);
+                id = first;
+            }
+            Opts {
+                application: None,
+                comments: Comments::None,
+                line: Some(line),
+            }
+        }
+    };
+    write_with(rec, &opts)
+}
+
+fn write_with(rec: &GameRecord, opts: &Opts) -> String {
     let mut out = String::with_capacity(64 + rec.node_count() * 12);
     out.push_str("(;");
-    write_root(&mut out, rec, application);
-    write_children(&mut out, rec, ROOT);
+    write_root(&mut out, rec, opts);
+    match &opts.line {
+        Some(line) => {
+            for &id in line.iter().skip(1) {
+                write_node(&mut out, rec, id, opts);
+            }
+        }
+        None => write_children(&mut out, rec, ROOT, opts),
+    }
     out.push(')');
     out
 }
 
-fn write_children(out: &mut String, rec: &GameRecord, mut id: NodeId) {
+fn write_children(out: &mut String, rec: &GameRecord, mut id: NodeId, opts: &Opts) {
     // A single child continues the sequence; several open one parenthesised variation each.
     loop {
         match rec.node(id).children.as_slice() {
             [] => return,
             [only] => {
                 id = *only;
-                write_node(out, rec, id);
+                write_node(out, rec, id, opts);
             }
             children => {
                 for &child in children {
                     out.push('(');
-                    write_node(out, rec, child);
-                    write_children(out, rec, child);
+                    write_node(out, rec, child, opts);
+                    write_children(out, rec, child, opts);
                     out.push(')');
                 }
                 return;
@@ -66,7 +152,7 @@ fn write_children(out: &mut String, rec: &GameRecord, mut id: NodeId) {
     }
 }
 
-fn write_root(out: &mut String, rec: &GameRecord, application: &str) {
+fn write_root(out: &mut String, rec: &GameRecord, opts: &Opts) {
     let info = &rec.info;
     prop(out, "CA", "UTF-8");
     if info.handicap != 0 {
@@ -95,9 +181,29 @@ fn write_root(out: &mut String, rec: &GameRecord, application: &str) {
         format!("{}:{}", size.width, size.height)
     };
     prop(out, "SZ", &sz);
-    prop(out, "AP", application);
     let root = rec.node(ROOT);
-    write_retained(out, &root.properties, ROOT_MODELLED);
+    match opts.application {
+        Some(application) => {
+            prop(out, "AP", application);
+            write_retained(out, &root.properties, ROOT_MODELLED);
+        }
+        None => {
+            // Exports: no analysis and no own application marker; what the record read (`AP`,
+            // `DZ`) stays. A branch also drops the root's own analysis (`stripRootMetadata`).
+            let branch = opts.line.is_some();
+            let kept: Vec<Property> = root
+                .properties
+                .iter()
+                .filter(|p| match p.id.as_str() {
+                    "LZ" | "LZ2" => false,
+                    "LZOP" | "LZOP2" => !branch,
+                    _ => true,
+                })
+                .cloned()
+                .collect();
+            write_retained(out, &kept, EXPORT_ROOT_MODELLED);
+        }
+    }
     // Root setup materialised from the position (`collectCurrentRootSetup`).
     let pos = rec.position(ROOT);
     let (mut black, mut white) = (Vec::new(), Vec::new());
@@ -113,10 +219,14 @@ fn write_root(out: &mut String, rec: &GameRecord, application: &str) {
     points(out, "AB", &black, size);
     points(out, "AW", &white, size);
     prop(out, "PL", side(root.to_play));
-    write_marks_and_comment(out, rec, ROOT);
+    let comment = match opts.comments {
+        Comments::None => None,
+        _ => Some(root.comment.as_str()),
+    };
+    write_marks_and_comment(out, rec, ROOT, comment);
 }
 
-fn write_node(out: &mut String, rec: &GameRecord, id: NodeId) {
+fn write_node(out: &mut String, rec: &GameRecord, id: NodeId, opts: &Opts) {
     let node = rec.node(id);
     let size = rec.size;
     out.push(';');
@@ -153,8 +263,27 @@ fn write_node(out: &mut String, rec: &GameRecord, id: NodeId) {
         NodeKind::Pass { color } => prop(out, side(color), ""),
         NodeKind::DummyPass => prop(out, "DD", "true"),
     }
-    write_retained(out, &node.properties, &[]);
-    write_marks_and_comment(out, rec, id);
+    if opts.application.is_some() {
+        write_retained(out, &node.properties, &[]);
+    } else {
+        let kept: Vec<Property> = node
+            .properties
+            .iter()
+            .filter(|p| !p.id.starts_with("LZ"))
+            .cloned()
+            .collect();
+        write_retained(out, &kept, &[]);
+    }
+    let formatted;
+    let comment = match opts.comments {
+        Comments::All => Some(node.comment.as_str()),
+        Comments::RootOnly | Comments::None => None,
+        Comments::Formatted(f) => {
+            formatted = f(id);
+            Some(formatted.as_deref().unwrap_or(&node.comment))
+        }
+    };
+    write_marks_and_comment(out, rec, id, comment);
 }
 
 fn write_retained(out: &mut String, properties: &[Property], also_modelled: &[&str]) {
@@ -170,7 +299,7 @@ fn write_retained(out: &mut String, properties: &[Property], also_modelled: &[&s
     }
 }
 
-fn write_marks_and_comment(out: &mut String, rec: &GameRecord, id: NodeId) {
+fn write_marks_and_comment(out: &mut String, rec: &GameRecord, id: NodeId, comment: Option<&str>) {
     let node = rec.node(id);
     let size = rec.size;
     // One property per mark kind, kinds in order of first appearance.
@@ -190,8 +319,8 @@ fn write_marks_and_comment(out: &mut String, rec: &GameRecord, id: NodeId) {
             }
         }
     }
-    if !node.comment.is_empty() {
-        prop(out, "C", &node.comment);
+    if let Some(comment) = comment.filter(|c| !c.is_empty()) {
+        prop(out, "C", comment);
     }
 }
 

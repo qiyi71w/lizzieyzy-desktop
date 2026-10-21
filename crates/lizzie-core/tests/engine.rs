@@ -1270,3 +1270,44 @@ fn benchmark_analysis_pause_restores_only_when_user_has_not_paused() {
         assert_eq!(view.engine.analysing, !user_pauses);
     }
 }
+
+#[test]
+fn the_commented_export_summarises_only_analysed_moves_against_their_parent() {
+    use lizzie_core::api::{CommentLabels, ExportKind};
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    open(&mut wb, "(;SZ[19]C[root note];B[pd]C[first];W[dd])");
+    answer_all(&mut wb, &world, id, KATA);
+    // Root and B[pd] analysed (60 % and +1.5 for the side to move); W[dd] never.
+    out(&mut wb, id, &info("Q16", 50));
+    wb.navigate(Navigation::Forward(1));
+    let batch = world.take(id);
+    out(&mut wb, id, "");
+    answer(&mut wb, id, number(&batch[0]), "");
+    out(&mut wb, id, &format!("={}", number(&batch[1])));
+    out(&mut wb, id, &info("D4", 1500));
+    let labels = CommentLabels {
+        black: "黑棋".into(),
+        white: "白棋".into(),
+        winrate: "胜率:".into(),
+        lead: "领先:".into(),
+        stdev: "不确定度:".into(),
+        playouts: "计算量".into(),
+        komi: "贴目:".into(),
+    };
+    let text = wb.export_text(ExportKind::RawWithComments, &labels);
+    // Black just moved: Black's 40 % is 20 points below Black's 60 % before the move, and its
+    // lead fell from +1.5 to -1.5 (`formatComment`).
+    assert!(
+        text.contains("C[first\n\n黑棋 胜率: 40.0% (-20.0%)\n领先: -1.5 (-3.0)"),
+        "{text}"
+    );
+    assert!(text.contains("1.5k 计算量"), "{text}");
+    assert!(
+        text.contains("C[root note]"),
+        "the root comment is written as it is: {text}"
+    );
+    assert!(text.ends_with(";W[dd])"), "an unanalysed move gets no summary: {text}");
+    assert!(!text.contains("LZ["), "{text}");
+}
