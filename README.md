@@ -159,11 +159,17 @@ WebKitGTK), including downloads of the official KataGo v1.18.1 Eigen AVX2 AppIma
 resources. Native integration runs have also exercised real CUDA analysis on Windows 11,
 Metal analysis on macOS 27 / Apple Silicon, and CPU analysis on Ubuntu 24.04 GNOME Wayland,
 with native Open/Save, SGF/GIB navigation, saved-record reopening and both window sizes.
-Performance acceptance remains incomplete: macOS client working-set growth and some
-20-key navigation timings, and GNOME native-open and small-window first-analysis timings,
-remain over budget. On the tested VMware/Mesa X11 desktop, WebKit can show an incomplete
-window or remain alive after close. A software-rendering diagnostic worked, but default-GPU
-X11 validation is blocked; the application does not force a renderer fallback.
+Performance acceptance remains incomplete: macOS client working-set growth and GTK native-open
+latency remain over budget. Some macOS 20-key navigation and GNOME small-window first-analysis
+comparisons remain measurement-uncertain; these are not performance passes.
+
+On Linux X11 with only VMware `vmwgfx` graphics cards, startup selects WebKit shared-memory
+frame transport to avoid the observed DMA-BUF fence stall. GL rendering is retained; completed
+frames are read back to shared memory, which has a copying cost. This does not select a software
+renderer. Native Wayland, other graphics drivers and mixed-GPU systems keep their existing path.
+Explicit graphics environment settings take precedence, including
+`WEBKIT_DMABUF_RENDERER_FORCE_SHM=0` to retain WebKit's normal transport for diagnosis. The
+compatibility route still requires validation of the packaged application in its target environment.
 
 The package-only predecessor was verified separately as follows:
 
