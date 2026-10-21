@@ -165,6 +165,10 @@ pub struct Node {
     /// The move was placed without removing any stone (Java `no-capture`, 五子棋无提子规则, in
     /// force when it was placed or read): its position keeps every stone.
     pub no_capture: bool,
+    /// 分支内从1开始显示 was on when the node was created (read or played): as a later sibling
+    /// it starts its own move numbers at 1 (`BoardHistoryNode.addOrGoto`,
+    /// `Menu.moveNumberInBranchTips`). Display only; not saved.
+    pub branch_numbers_from_one: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, TS)]
@@ -200,6 +204,8 @@ pub struct GameRecord {
     nodes: Vec<Node>,
     /// Next [`Node::stamp`].
     next_stamp: u64,
+    /// [`Node::branch_numbers_from_one`] of the nodes created from now on.
+    branch_numbers_from_one: bool,
 }
 
 pub const ROOT: NodeId = 0;
@@ -229,8 +235,10 @@ impl GameRecord {
                 stamp: 0,
                 live: true,
                 no_capture: false,
+                branch_numbers_from_one: true,
             }],
             next_stamp: 1,
+            branch_numbers_from_one: true,
         }
     }
 
@@ -283,6 +291,20 @@ impl GameRecord {
         self.nodes[id as usize].stamp = stamp;
     }
 
+    /// The 分支内从1开始显示 setting nodes created from now on are numbered with.
+    pub(crate) fn set_branch_numbering(&mut self, from_one: bool) {
+        self.branch_numbers_from_one = from_one;
+    }
+
+    /// A record just read takes the setting in force while it was read, like Java's reader,
+    /// which numbers each branch as it creates it.
+    pub(crate) fn number_branches_as_read(&mut self, from_one: bool) {
+        self.branch_numbers_from_one = from_one;
+        for n in &mut self.nodes {
+            n.branch_numbers_from_one = from_one;
+        }
+    }
+
     /// Appends a child after the existing children of `parent`.
     pub(crate) fn push_child(&mut self, parent: NodeId, kind: NodeKind) -> NodeId {
         let id = self.nodes.len() as NodeId;
@@ -307,6 +329,7 @@ impl GameRecord {
             stamp,
             live: true,
             no_capture: false,
+            branch_numbers_from_one: self.branch_numbers_from_one,
         });
         self.nodes[parent as usize].children.push(id);
         id
@@ -331,6 +354,7 @@ impl GameRecord {
                 stamp: u64::MAX,
                 live: false,
                 no_capture: false,
+                branch_numbers_from_one: false,
             });
         }
         self.next_stamp = self.next_stamp.max(newer.next_stamp);
@@ -536,7 +560,7 @@ impl Position {
 
     /// The step into `node` from its parent's position: its setup, then its move (placed without
     /// removing anything when it was placed under `no-capture`).
-    fn enter(&mut self, node: &Node) {
+    pub(crate) fn enter(&mut self, node: &Node) {
         self.apply_setup(&node.setup);
         if let NodeKind::Move { color, point } = node.kind {
             if node.no_capture {

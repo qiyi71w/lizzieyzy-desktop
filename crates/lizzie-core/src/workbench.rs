@@ -41,7 +41,7 @@ use crate::browse::{self, Navigation};
 use crate::engine::runtime::{Engines, InstanceId, Launcher};
 use crate::formats::{self, sgf_write, ReadError};
 use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, RecordFormat, Stone, ROOT};
-use crate::settings::{self, Config, DisplaySettings, Language, Persisted, Storage, WindowPlacement};
+use crate::settings::{self, Config, DisplaySettings, Language, Persisted, PvVisitsMode, Storage, WindowPlacement};
 
 /// Java `GameInfo.DEFAULT_KOMI`.
 pub const DEFAULT_KOMI: f64 = 7.5;
@@ -246,6 +246,7 @@ impl Workbench {
             engines.set_library_dirs(vec![runtime]);
         }
         engines.set_interval(config.engine.analysis.interval_centisec);
+        engines.set_pv_visits(config.display.pv_visits != PvVisitsMode::Off);
         let mut store = AnalysisStore::default();
         store.reset(1);
         Workbench {
@@ -398,6 +399,7 @@ impl Workbench {
                 } else {
                     record.info.komi = self.komi;
                 }
+                record.number_branches_as_read(self.config.display.branch_numbers_from_one);
                 let id = self.next_doc;
                 self.next_doc += 1;
                 let record = Arc::new(record);
@@ -640,12 +642,29 @@ impl Workbench {
         Ok(true)
     }
 
-    /// 总是显示黑胜率 and 目差显示: every display and the 带评论 export follow at once.
+    /// 显示 settings: every display and the 带评论 export follow at once.
     pub fn set_display_settings(&mut self, settings: DisplaySettings) -> Result<bool, ApiError> {
+        let finite = [settings.delay_candidates_seconds, settings.replay_interval_seconds, settings.min_playout_ratio,
+            settings.entire_variation_first_seconds, settings.autoplay_main_seconds]
+            .iter()
+            .chain(&settings.win_loss_thresholds)
+            .chain(&settings.score_loss_thresholds)
+            .all(|v| v.is_finite());
+        if !finite
+            || settings.move_rank < -1
+            || settings.move_rank_custom == 0
+            || settings.suggestion_info_order.iter().any(|r| !(1..=3).contains(r))
+            || !(1..=3).contains(&settings.suggestion_color_ratio)
+            || (settings.autoplay_main_seconds != -1.0 && settings.autoplay_main_seconds <= 0.0)
+            || (settings.autoplay_sub_millis != -1 && settings.autoplay_sub_millis <= 0)
+        {
+            return Err(ApiError::new(ErrorKind::InvalidArgument, "display settings"));
+        }
         if self.config.display == settings {
             return Ok(false);
         }
         self.commit_config(|c| c.display = settings)?;
+        self.engines.set_pv_visits(self.config.display.pv_visits != PvVisitsMode::Off);
         Ok(true)
     }
 
@@ -795,6 +814,8 @@ impl Workbench {
             komi: self.komi,
             engine: self.engine_view(),
             analysis: self.current_analysis(),
+            board: self.board_overlay(),
+            raw_net: self.raw_net_view(),
             history: self.history(),
             engine_failure: None,
             engine_notice: None,
@@ -901,6 +922,7 @@ fn step_sound(rec: &GameRecord, node: NodeId) -> StoneSound {
 
 fn tree_view(doc: &Document) -> TreeView {
     let rec = &doc.record;
+    let numbers = crate::display::tree_numbers(rec);
     let nodes = rec
         .nodes()
         .filter(|(_, n)| n.kind != NodeKind::DummyPass)
@@ -924,6 +946,7 @@ fn tree_view(doc: &Document) -> TreeView {
             },
             pass: matches!(n.kind, NodeKind::Pass { .. }),
             move_number: n.move_number,
+            number: numbers[id as usize],
             has_comment: !n.comment.is_empty(),
         })
         .collect();

@@ -632,6 +632,14 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().set_display_settings(settings)?;
             Ok(changed(&app, &shared, done))
         }
+        Command::ToggleRawNet => {
+            let done = shared.workbench.lock().unwrap().toggle_raw_net();
+            Ok(changed(&app, &shared, done))
+        }
+        Command::StopRawNet => {
+            let done = shared.workbench.lock().unwrap().stop_raw_net();
+            Ok(changed(&app, &shared, done))
+        }
     }
 }
 

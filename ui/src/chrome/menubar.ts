@@ -2,6 +2,8 @@
 // commands; entries without one are disabled and marked as not yet available.
 import { run, state, subscribe, unavailable } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
+import type { DisplaySettings } from "../contract/generated";
+import { setRankCustomText } from "../display/commands";
 import { isChinese, product, t } from "../i18n";
 import { JAVA_MENUS, type MenuNode } from "./javaMenus";
 import { chooseEngine } from "../engine/catalog";
@@ -16,6 +18,9 @@ function visible(when: string | undefined): boolean {
       return isChinese();
     case "windows":
       return navigator.userAgent.includes("Windows");
+    // Config.useJavaLooks defaults to !OS.isWindows() (Config.java:1647).
+    case "javaLooks":
+      return !navigator.userAgent.includes("Windows");
     case "contribute":
       return true;
     default:
@@ -23,9 +28,12 @@ function visible(when: string | undefined): boolean {
   }
 }
 
-/** Java resource text; `product.*` entries are this product's own items. */
+/** Java resource text; `product.*` entries are this product's own items. A `{display.name}` suffix
+ *  shows the current display setting, like Java labels rebuilt with the value. */
 function label(node: { key: string; suffix?: string }): string {
-  const suffix = node.suffix?.replace("{sp}", isChinese() ? "" : " ") ?? "";
+  const suffix = node.suffix
+    ?.replace("{sp}", isChinese() ? "" : " ")
+    .replace(/\{display\.(\w+)\}/g, (_, name: string) => String(state.view?.settings.display[name as keyof DisplaySettings] ?? "")) ?? "";
   return (node.key.startsWith("product.") ? product(node.key.slice("product.".length)) : t(node.key)) + suffix;
 }
 
@@ -34,7 +42,55 @@ let openMenu: HTMLElement | null = null;
 function closeMenus() {
   openMenu?.classList.remove("open");
   openMenu?.querySelector(".dropdown")?.remove();
+  if (openMenu?.classList.contains("popup-anchor")) openMenu.remove();
   openMenu = null;
+}
+
+/** A JPopupMenu shown below `anchor` (a toolbar button), drawn and closed like the menu bar's. */
+export function openPopupMenu(anchor: HTMLElement, items: MenuNode[]): void {
+  closeMenus();
+  const r = anchor.getBoundingClientRect();
+  const holder = document.createElement("div");
+  holder.className = "popup-anchor open";
+  holder.style.left = `${r.left}px`;
+  holder.style.top = `${r.bottom}px`;
+  holder.append(dropdown(items));
+  document.body.append(holder);
+  openMenu = holder;
+}
+
+/** rankCustomMove: the count is typed into the item itself (Menu.java:9234-9316). */
+function rankCustomField(): HTMLInputElement {
+  const field = document.createElement("input");
+  field.type = "text";
+  field.className = "mi-field";
+  field.value = String(state.view?.settings.display.moveRankCustom ?? 3);
+  field.setAttribute("aria-label", t("Menu.rankMenu.lblCustomMove"));
+  field.addEventListener("beforeinput", (e) => {
+    // IntDocument: digits only.
+    if (e.inputType.startsWith("insert") && /\D/.test(e.data ?? "")) e.preventDefault();
+  });
+  field.addEventListener("input", () => setRankCustomText(field.value));
+  field.addEventListener("click", (e) => e.stopPropagation());
+  return field;
+}
+
+/** Java setToolTipText on menu items (Menu.java:892-929, 9564-9569). */
+function tooltip(key: string): string | undefined {
+  switch (key) {
+    case "Menu.moveNumberInBracnhFromOne":
+    case "Menu.moveNumberInBracnhFromOneContinue":
+      return t("Menu.moveNumberInBranchTips");
+    case "Menu.rankMenu.evaluationMode.auto":
+      return t("Menu.rankMenu.evaluationMode.auto.tooltip");
+    case "Menu.rankMenu.evaluationMode.score":
+      return t("Menu.rankMenu.evaluationMode.score.tooltip");
+    case "Menu.rankMenu.evaluationMode.winrate":
+      return t("Menu.rankMenu.evaluationMode.winrate.tooltip");
+    case "Menu.rankMenu.evaluationMode.combined":
+      return t("Menu.rankMenu.evaluationMode.combined.tooltip");
+  }
+  return undefined;
 }
 
 function fileName(path: string): string {
@@ -87,6 +143,9 @@ function dropdown(items: MenuNode[]): HTMLElement {
     const mark = document.createElement("span");
     mark.className = "mark";
     row.append(mark, text);
+    const tip = tooltip(node.key);
+    if (tip) row.title = tip;
+    if (node.key === "Menu.rankMenu.lblCustomMove") row.append(rankCustomField());
     if (node.t === "submenu" || node.key === "Menu.openRecent") {
       row.classList.add("sub");
       const children = node.key === "Menu.openRecent" ? recentItems() : (node.items ?? []);

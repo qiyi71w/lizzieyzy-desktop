@@ -13,9 +13,13 @@ import type { CandidateView, HistoryPoint, Navigation, NodeAnalysisView, Point, 
 import { dialogOpen, message } from "./dialogs";
 import { isChinese, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
-import { boardGeom, graphGeom, inFrameLayout, type Panels, type Rect } from "./workbench/layout";
+import { boardGeom, graphGeom, inFrameLayout, mainMarginRatio, SUB_MARGIN_RATIO, type BoardGeom, type Panels, type Rect } from "./workbench/layout";
+import { boardUi, candidatesShownFor, onBoardUiChange } from "./display/state";
+import { bindReplayHost, finishReplayBranch, replayLength, replaying, type ReplayTarget } from "./display/replay";
+import { autoplayReport, autoReplayLength, bindAutoplayHost, subAutoplayLength, subWheeled } from "./display/autoplay";
 import { sameAnalysis, sameHistory } from "./workbench/viewEquality";
 import { handleEngineKey } from "./engine/keys";
+import { handleDisplayKey } from "./display/keys";
 import { mountSetupBanner } from "./setup/banner";
 import "./editing/commands";
 import { bindCommentEditor, commentEditing } from "./editing/comment";
@@ -39,7 +43,10 @@ import {
   playouts,
   ARROW,
   SCROLLBAR,
+  type BoardReport,
   type BoardScene,
+  type PreviewVariation,
+  type SubBoardReport,
   type TreeViewport,
 } from "./workbench/paint";
 
@@ -56,6 +63,10 @@ document.documentElement.dataset.os = navigator.userAgent.includes("Windows")
 let panels: Panels | null = null;
 let treeHits = new Map<string, number>();
 let treeView: TreeViewport | null = null;
+/** The tree the panel last drew (state.nodes is replaced with every tree update). */
+let treeSource = state.nodes;
+let treeRevision = 0;
+let treeNumbersDrawn = 0;
 /** User scroll of the variation tree, for the position it was made at (`treeScrollFor`). */
 let treeScroll: { top: number; left: number } | null = null;
 let treeScrollFor = "";
@@ -67,8 +78,19 @@ let hoveredPoint: string | null = null;
 let selectedCandidate: number | null = null;
 let subCandidate = 0;
 let subLength: number | null = null;
+/** The pointer rests on the sub board (SubBoardRenderer.isMouseOver with no-refresh-on-sub). */
+let subOver = false;
+/** The sub board's frozen analysis while the pointer rests there, for its position only. */
+let subFrozen: { node: number; analysis: NodeAnalysisView | null; revision: number } | null = null;
+let subFrozenRevision = 0;
+/** The hovered variation as first shown, kept while 鼠标悬停显示变化图时,变化图不刷新 is on. */
+let hoverFrozen: { key: string; pv: (Point | null)[]; pv_captures: Point[][]; pv_visits: number[] } | null = null;
 let presentationFor = "";
-let candidateCount = 0;
+let boardReport: BoardReport | null = null;
+let subReport: SubBoardReport | null = null;
+/** Everything the boards draw from the view besides the position and analysis, per view. */
+let displaySig = "";
+let displaySigFor: WorkbenchView | null = null;
 let tableRowCount = 0;
 let graphPointCount = 0;
 let maxScoreLead = 15;
@@ -99,20 +121,81 @@ function rulesCaption(key: string | null): string | null {
   return captions[key] ?? t(key);
 }
 
+/** The hovered candidate rank, or -1 for the 下一手 详细 point (BoardRenderer.mouseOveredMove). */
 function hover(order: number | null) {
   const candidate = state.view?.analysis?.candidates.find((c) => c.order === order);
-  const point = candidate?.point ? `${candidate.point.x},${candidate.point.y}` : null;
+  const point = order === -1 ? NEXT_MOVE : candidate?.point ? `${candidate.point.x},${candidate.point.y}` : null;
   if (hoveredCandidate === order && hoveredPoint === point) return;
   hoveredCandidate = order;
   hoveredPoint = point;
+  // notChangedMouseOverMove: a variation kept by 变化图不刷新 lasts only while the pointer stays.
+  if (point === null) hoverFrozen = null;
   schedule();
+}
+
+/** `hoveredPoint` of the 下一手 详细 point. */
+const NEXT_MOVE = "next";
+
+/** BoardData.tryToLimitMoves (BoardData.java:586-636) for the shown position: the previous kept
+ *  candidates with their lastTimeUnlimited flag and time, and the points kept beyond 最大候选点数
+ *  now. Only with a limit and without show-nosugg-circle; a new position starts afresh. */
+const limitMemory = {
+  key: "",
+  previous: [] as { point: string; order: number; visits: number; unlimited: boolean; time: number }[],
+  unlimited: new Set<string>(),
+};
+/** The limit settings `limitMemory` was last worked out with. */
+let limitedWith = "";
+
+function limitMoves(v: WorkbenchView) {
+  const limit = v.settings.engine.analysis.limitMaxSuggestion;
+  const key = `${v.document.id}:${v.position.node}`;
+  if (limitMemory.key !== key) {
+    limitMemory.key = key;
+    limitMemory.previous = [];
+  }
+  const pointKey = (p: Point | null) => (p ? `${p.x},${p.y}` : "pass");
+  const candidates = v.analysis?.candidates ?? [];
+  const kept = candidates.map((c) => ({ point: pointKey(c.point), order: c.order, visits: c.visits, unlimited: false, time: 0 }));
+  limitMemory.unlimited = new Set();
+  if (limit > 0 && !v.settings.display.noSuggCircle && candidates.length > limit) {
+    const now = Date.now();
+    const last = limitMemory.previous;
+    for (let n = limit; n < kept.length; n++) {
+      const move = kept[n];
+      let keep = false;
+      if (move.order < limit + 1) {
+        for (let s = 0; s < limit + 1 && s < last.length; s++) {
+          const before = last[s];
+          if (s >= limit && !before.unlimited) continue;
+          if (move.point !== before.point) continue;
+          move.unlimited = true;
+          if (move.visits > before.visits || !before.unlimited) {
+            move.time = now;
+            keep = true;
+          } else if (now - before.time < 3000) {
+            move.time = before.time;
+            keep = true;
+          }
+        }
+      }
+      if (keep) limitMemory.unlimited.add(move.point);
+      else kept.splice(n--, 1);
+    }
+  }
+  limitMemory.previous = kept;
 }
 
 /** Cache line navigation only when the tree/position changes, not on engine frames. */
 function projectAnalysis(v: WorkbenchView) {
   if (projectedView !== v) {
     projectedView = v;
-    if (!sameAnalysis(projectedAnalysis, v.analysis)) analysisRevision++;
+    const limitSettings = `${v.settings.engine.analysis.limitMaxSuggestion}:${v.settings.display.noSuggCircle}`;
+    if (!sameAnalysis(projectedAnalysis, v.analysis)) {
+      analysisRevision++;
+      limitMoves(v);
+    } else if (limitSettings !== limitedWith) limitMoves(v);
+    limitedWith = limitSettings;
     projectedAnalysis = v.analysis;
     const historyChanged = !sameHistory(projectedHistory, v.history);
     projectedHistory = v.history;
@@ -149,13 +232,85 @@ function projectAnalysis(v: WorkbenchView) {
     presentationFor = lineKey;
     hoveredCandidate = null;
     hoveredPoint = null;
+    hoverFrozen = null;
     selectedCandidate = null;
+    // SubBoardRenderer.clearAfterMove; the frozen sub board belongs to the position it was taken at.
     subCandidate = 0;
     subLength = null;
+    subFrozen = null;
   }
   // Java keeps the hovered coordinate, even when streaming visits reorder the candidates.
-  hoveredCandidate = hoveredPoint === null ? null : v.analysis?.candidates.find((c) => c.point && `${c.point.x},${c.point.y}` === hoveredPoint)?.order ?? null;
-  subCandidate = Math.min(subCandidate, Math.max(0, (v.analysis?.candidates.length ?? 0) - 1));
+  hoveredCandidate = hoveredPoint === null ? null : hoveredPoint === NEXT_MOVE ? -1 : v.analysis?.candidates.find((c) => c.point && `${c.point.x},${c.point.y}` === hoveredPoint)?.order ?? null;
+  subCandidate = Math.min(subCandidate, Math.max(0, ((subFrozen?.analysis ?? v.analysis)?.candidates.length ?? 0) - 1));
+  if (displaySigFor !== v) {
+    displaySigFor = v;
+    const fg = v.engine.foreground;
+    displaySig = JSON.stringify([v.settings.display, v.board, v.rawNet, fg?.katago ?? null, !!fg, v.settings.engine.analysis.limitMaxSuggestion, v.settings.engine.analysis.limitBranchLength]);
+  }
+}
+
+/** 棋盘下方显示黑白名字 with a loaded record's player names (BoardRenderer.isEmptyName). */
+function namesUnderBoard(v: WorkbenchView): boolean {
+  return v.settings.display.namesOnBoard && v.document.format !== null && (v.document.info.black !== "" || v.document.info.white !== "");
+}
+
+/** Main-board geometry; painting and every hit test use this one margin (isBigMargin). */
+function mainGeom(v: WorkbenchView, r: Rect): BoardGeom {
+  const fg = v.engine.foreground;
+  const big = v.settings.display.coordinates || namesUnderBoard(v) || v.rawNet !== null || (boardUi.policy && !!fg && !fg.katago);
+  return boardGeom(r, v.document.size.width, v.document.size.height, mainMarginRatio(big));
+}
+
+/** LizzieFrame.isMouseOver: hovering previews candidates only while the side to move's candidates
+ *  and 鼠标悬停显示变化图 are on; 纯网络 and 显示策略网络 (T) show no variation
+ *  (BoardRenderer.java:1639-1644), so R has nothing to replay either. */
+function hoverAllowed(v: WorkbenchView): boolean {
+  return candidatesShownFor(v.position.to_play) && v.settings.display.suggestionVariations && v.rawNet === null && !boardUi.policy;
+}
+
+/** The 下一手 详细 point while it shows (isShowingNextMoveBlunder): hovering it previews the actual
+ *  move followed by the next position's best variation, before any candidate (1780-1799). */
+function nextMoveTarget(v: WorkbenchView): Point | null {
+  return hoverAllowed(v) && v.settings.display.nextMoves && v.position.next_color ? v.board.next_move?.point ?? null : null;
+}
+
+/** The hovered candidate's variation (BoardRenderer.prepareSelection, BoardRenderer.java:1640-1711):
+ *  frozen while 不刷新 is on, shortened by a running replay or auto-replay, and not shown for a
+ *  candidate without enough playouts or beyond 最大候选点数 unless it is the next move or the
+ *  variation auto-replays. */
+function hoveredVariation(v: WorkbenchView): { target: ReplayTarget; preview: PreviewVariation | null } | null {
+  const candidates = v.analysis?.candidates ?? [];
+  const nextPoint = hoveredCandidate === -1 ? nextMoveTarget(v) : null;
+  const c = hoverAllowed(v) && !nextPoint ? candidates.find((c) => c.order === hoveredCandidate) : undefined;
+  const point = nextPoint ?? c?.point;
+  const info = v.board.next_move;
+  if (!point || (nextPoint && !info)) {
+    hoverFrozen = null;
+    return null;
+  }
+  const source = nextPoint ? { pv: info!.pv, pv_captures: info!.pv_captures, pv_visits: info!.pv_visits } : { pv: c!.pv, pv_captures: c!.pv_captures, pv_visits: c!.pv_visits };
+  const key = `${v.document.id}:${v.position.node}:${nextPoint ? "next" : ""}${point.x},${point.y}`;
+  if (!v.settings.display.noRefreshOnMouse || hoverFrozen?.key !== key) hoverFrozen = { key, ...source };
+  const { pv, pv_captures, pv_visits } = hoverFrozen;
+  const limit = v.settings.engine.analysis.limitBranchLength;
+  const steps = limit > 0 ? Math.min(limit, pv.length) : pv.length;
+  const target = { key, steps };
+  const replayed = replayLength(key) ?? autoReplayLength(key, steps);
+  const order = nextPoint ? -1 : c!.order;
+  if (c && replayed === null && !v.settings.display.autoReplayBranch) {
+    const next = v.position.next_moves[0];
+    const needShow = !!next && next.x === point.x && next.y === point.y;
+    const ratio = c.allocation_visits / Math.max(1, ...candidates.map((x) => x.allocation_visits));
+    const maxSuggestion = v.settings.engine.analysis.limitMaxSuggestion;
+    const kept = limitMemory.unlimited.has(`${point.x},${point.y}`);
+    if (!needShow && (ratio <= v.settings.display.minPlayoutRatio || (maxSuggestion > 0 && c.order + 1 > maxSuggestion && !kept)))
+      return { target, preview: null };
+  }
+  return { target, preview: { order, pv, pv_captures, pv_visits, length: replayed ?? steps } };
+}
+
+function subAnalysis(v: WorkbenchView): NodeAnalysisView | null {
+  return subFrozen && subFrozen.node === v.position.node ? subFrozen.analysis : v.analysis;
 }
 
 function engineTitle(v: WorkbenchView): string {
@@ -223,7 +378,7 @@ document.addEventListener("keydown", (e) => {
   if (dialogOpen() || menuOpen() || contextMenuOpen() || textTarget(e.target)) return;
   // The 存档与读档 controls keep their keys, like the Swing components holding the focus there.
   if (e.target instanceof Element && e.target.closest("#recovery")) return;
-  if (handleEngineKey(e) || handleEditKey(e)) {
+  if (handleEngineKey(e) || handleEditKey(e) || handleDisplayKey(e)) {
     e.preventDefault();
     return;
   }
@@ -253,7 +408,7 @@ document.addEventListener("keydown", (e) => {
     else if (ctrl) saveRecord();
     else saveRecordAs();
   } else if (key === "C" && (e.altKey || e.shiftKey || ctrl)) {
-    // Input.java VK_C; plain C (coordinates) is not available yet.
+    // Input.java VK_C; plain C (coordinates) is a display key (display/keys.ts).
     e.preventDefault();
     if (e.altKey) void copySubBoardPicture();
     else if (e.shiftKey) void copyMainBoardPicture();
@@ -287,17 +442,16 @@ function bindPointer() {
     stoneAt: (p) => {
       const v = state.view;
       if (!panels || !v) return null;
-      const geo = boardGeom(panels.board, v.document.size.width, v.document.size.height);
+      const geo = mainGeom(v, panels.board);
       const m = $("main").getBoundingClientRect();
       return { x: m.left + geo.x + geo.margin + p.x * geo.square, y: m.top + geo.y + geo.margin + p.y * geo.square, r: geo.stoneRadius };
     },
     previewMoves: () => {
       const v = state.view;
-      const c = v?.analysis?.candidates.find((c) => c.order === hoveredCandidate);
-      if (!v || !c) return null;
-      // The length the board shows (paintBoard: limit-branch-length); passes are not placed.
-      const limit = v.settings.engine.analysis.limitBranchLength;
-      const moves = c.pv.slice(0, limit > 0 ? limit : c.pv.length).filter((p): p is Point => p !== null);
+      const preview = v ? hoveredVariation(v)?.preview : null;
+      if (!preview) return null;
+      // The moves the board shows; passes are not placed.
+      const moves = preview.pv.slice(0, preview.length).filter((p): p is Point => p !== null);
       return moves.length ? moves : null;
     },
     clearTableSelection: () => {
@@ -311,41 +465,73 @@ function bindPointer() {
   $("board").addEventListener("mousemove", (ev) => {
     const v = state.view;
     if (!v || !panels) return;
-    const geo = boardGeom(panels.board, v.document.size.width, v.document.size.height);
+    if (!hoverAllowed(v)) return hover(null);
+    const geo = mainGeom(v, panels.board);
     const rect = $("main").getBoundingClientRect();
     const x = ev.clientX - rect.left - geo.x - geo.margin;
     const y = ev.clientY - rect.top - geo.y - geo.margin;
-    const candidate = v.analysis?.candidates.find((c) => c.point && c.visits > 0 && Math.hypot(x - c.point.x * geo.square, y - c.point.y * geo.square) <= geo.stoneRadius + 1 &&
-      (v.settings.engine.analysis.limitMaxSuggestion === 0 || c.order < v.settings.engine.analysis.limitMaxSuggestion || c.order === hoveredCandidate));
+    const near = (p: Point) => Math.hypot(x - p.x * geo.square, y - p.y * geo.square) <= geo.stoneRadius + 1;
+    // The 下一手 详细 point comes first (BoardRenderer.mouseOveredMove).
+    const next = nextMoveTarget(v);
+    if (next && near(next)) return hover(-1);
+    // Beyond 最大候选点数 the candidates exist only with show-nosugg-circle (BoardData.tryToLimitMoves).
+    const limit = v.settings.engine.analysis.limitMaxSuggestion;
+    const candidate = v.analysis?.candidates.find((c) => c.point && c.visits > 0 && near(c.point) &&
+      (limit === 0 || c.order < limit || v.settings.display.noSuggCircle || limitMemory.unlimited.has(`${c.point.x},${c.point.y}`)));
     hover(candidate?.order ?? null);
   });
   // The open board popup keeps the preview it was opened over.
   $("board").addEventListener("mouseleave", () => {
+    finishReplayBranch();
     if (!contextMenuOpen()) hover(null);
   });
+  // The replay ends when the window is no longer the active one (LizzieFrame.java:11650).
+  window.addEventListener("blur", finishReplayBranch);
   $("table").addEventListener("mouseleave", () => hover(null));
   const sub = $("sub");
   sub.addEventListener("contextmenu", (ev) => ev.preventDefault());
+  // LizzieFrame.java:10522-10532: left click the next candidate, right click the previous one; the
+  // index stays at the last candidate (getBestMove) and the variation starts whole again.
   sub.addEventListener("mousedown", (ev) => {
-    const count = state.view?.analysis?.candidates.length ?? 0;
+    const v = state.view;
+    const count = v ? subAnalysis(v)?.candidates.length ?? 0 : 0;
     if (!count || (ev.button !== 0 && ev.button !== 2)) return;
     ev.preventDefault();
-    subCandidate = ev.button === 0 ? (subCandidate + 1) % count : Math.max(0, subCandidate - 1);
+    subCandidate = ev.button === 0 ? Math.min(count - 1, subCandidate + 1) : Math.max(0, subCandidate - 1);
     subLength = null;
     schedule();
   });
+  // LizzieFrame.java:10688-10703: forward from the whole variation starts at its first move.
   sub.addEventListener("wheel", (ev) => {
     ev.preventDefault();
-    const v = state.view, c = v?.analysis?.candidates[subCandidate];
-    if (!v || !c || ev.deltaY === 0) return;
+    const v = state.view, c = v ? subAnalysis(v)?.candidates[subCandidate] : undefined;
+    if (!v || !c || ev.deltaY === 0 || v.settings.display.subBoard !== "Variation") return;
     const limit = v.settings.engine.analysis.limitBranchLength;
     const max = limit > 0 ? Math.min(limit, c.pv.length) : c.pv.length;
-    subLength = subLength === null ? Math.min(1, max) : Math.max(1, Math.min(max, subLength + Math.sign(ev.deltaY)));
+    // A running sub-board autoplay hands its length to the wheel (SubBoardRenderer.wheeled).
+    const current = subLength ?? subAutoplayLength();
+    if (current === null) {
+      if (ev.deltaY > 0 && max > 0) subLength = 1;
+    } else if (ev.deltaY > 0) subLength = Math.min(max, current + 1);
+    else subLength = Math.max(1, current - 1);
+    subWheeled();
     schedule();
   }, { passive: false });
+  // processSubOnMouseMoved / onMouseExited (LizzieFrame.java:9872-9930, 10042-10068): with
+  // no-refresh-on-sub the resting pointer freezes the sub board; leaving resets it.
+  sub.addEventListener("mousemove", () => {
+    if (subOver) return;
+    subOver = true;
+    schedule();
+  });
   sub.addEventListener("mouseleave", () => {
-    subCandidate = 0;
-    subLength = null;
+    const frozen = subOver && !!state.view?.settings.display.noRefreshOnSub;
+    subOver = false;
+    subFrozen = null;
+    if (frozen) {
+      subCandidate = 0;
+      subLength = null;
+    }
     schedule();
   });
   const graph = $("graph");
@@ -462,7 +648,7 @@ function boardPointAt(clientX: number, clientY: number): Point | null {
   const v = state.view;
   if (!panels || !v) return null;
   const { width, height } = v.document.size;
-  const geo = boardGeom(panels.board, width, height);
+  const geo = mainGeom(v, panels.board);
   const rect = $("main").getBoundingClientRect();
   const x = clientX - rect.left - geo.x - geo.margin;
   const y = clientY - rect.top - geo.y - geo.margin;
@@ -553,18 +739,53 @@ function render() {
     nextColor: pos.next_color,
     black: v.document.info.black,
     white: v.document.info.white,
-    showNames: v.document.format !== null,
+    names: namesUnderBoard(v),
+    snapshot: pos.snapshot,
+    mainTrunk: pos.main_trunk,
     analysis: v.analysis,
-    hovered: hoveredCandidate,
+    overlay: v.board,
+    display: v.settings.display,
     suggestionLimit: v.settings.engine.analysis.limitMaxSuggestion,
-    branchLimit: v.settings.engine.analysis.limitBranchLength,
-    subCandidate,
-    subLength,
+    unlimited: limitMemory.unlimited,
+    candidatesShown: candidatesShownFor(pos.to_play),
+    policy: boardUi.policy,
+    rawNetOn: v.rawNet !== null,
+    // A result for another position is never shown.
+    rawNet: v.rawNet?.node === pos.node ? v.rawNet : null,
+    katago: !!v.engine.foreground?.katago,
+    engine: !!v.engine.foreground,
+    hovered: hoverAllowed(v) ? hoveredCandidate : null,
+    preview: hoveredVariation(v)?.preview ?? null,
   };
-  if (changed("board", `${size}:${docSig}:${analysisRevision}:${hoveredCandidate}:${scene.suggestionLimit}:${scene.branchLimit}`))
-    candidateCount = paintBoard(prepare($("board"), P.board), boardGeom(P.board, cols, rows), P.board, scene);
-  if (changed("sub", `${size}:${docSig}:${analysisRevision}:${subCandidate}:${subLength}:${scene.branchLimit}`))
-    paintSubBoard(prepare($("sub"), P.sub), boardGeom(P.sub, cols, rows, 0.035), P.sub, scene);
+  const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}`;
+  const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
+  if (changed("board", `${size}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}`))
+    boardReport = paintBoard(prepare($("board"), P.board), mainGeom(v, P.board), P.board, scene);
+  // The resting pointer freezes the sub board's variation for this position (no-refresh-on-sub).
+  const over = subOver && v.settings.display.noRefreshOnSub;
+  if (!over) subFrozen = null;
+  else if (!subFrozen || subFrozen.node !== pos.node) subFrozen = { node: pos.node, analysis: v.analysis, revision: ++subFrozenRevision };
+  const ownership = scene.rawNet?.mode === "Ownership" && scene.katago ? scene.rawNet.ownership : null;
+  const subShown = subLength ?? subAutoplayLength();
+  if (changed("sub", `${size}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${subCandidate}:${subShown}:${over}:${subFrozen?.revision}`))
+    subReport = paintSubBoard(prepare($("sub"), P.sub), boardGeom(P.sub, cols, rows, SUB_MARGIN_RATIO), P.sub, {
+      cols,
+      rows,
+      stones: pos.stones,
+      toPlay: pos.to_play,
+      mode: v.settings.display.subBoard,
+      analysis: subAnalysis(v),
+      heat: v.analysis,
+      candidate: subCandidate,
+      length: subShown,
+      over,
+      candidatesShown: scene.candidatesShown,
+      engine: scene.engine,
+      branchLimit: v.settings.engine.analysis.limitBranchLength,
+      removeDead: v.settings.display.removeDeadInVariation,
+      ownership,
+      pureEstimate: v.settings.display.pureEstimate,
+    });
   if (changed("captured", `${size}:${docSig}:${v.komi}:${v.engine.analysing}:${v.engine.rules_key}`))
     paintCaptured(prepare($("captured"), P.captured), P.captured, {
       toPlay: pos.to_play,
@@ -591,10 +812,16 @@ function render() {
     treeScroll = null;
     treeScrollFor = docSig;
   }
-  if (changed("tree", `${size}:${docSig}:${state.nodes.size}:${treeScroll?.top}:${treeScroll?.left}`)) {
-    const painted = paintTree(prepare($("tree"), P.tree), P.tree, state.nodes, state.root, pos.node, state.line, treeScroll);
+  if (treeSource !== state.nodes) {
+    treeSource = state.nodes;
+    treeRevision++;
+  }
+  const treeNumbers = v.settings.display.treeMoveNumbers;
+  if (changed("tree", `${size}:${docSig}:${treeRevision}:${treeNumbers}:${treeScroll?.top}:${treeScroll?.left}`)) {
+    const painted = paintTree(prepare($("tree"), P.tree), P.tree, state.nodes, state.root, pos.node, state.line, treeScroll, treeNumbers);
     treeHits = painted.hits;
     treeView = painted.viewport;
+    treeNumbersDrawn = painted.numbers;
   }
   place($("comment"), P.comment);
   if (changed("comment", `${docSig}:${pos.comment}`)) $("commentText").textContent = pos.comment;
@@ -680,7 +907,7 @@ function renderTable() {
     if (nextData && nextData.visits > 0) data.unshift({ actual: true, candidate: {
       point: next, order: -100, visits: nextData.visits, allocation_visits: nextData.visits,
       ...nextData.as_candidate,
-      score_stdev: null, prior: 0, lcb: null, pv: [], pv_captures: [],
+      score_stdev: null, prior: 0, lcb: null, pv: [], pv_visits: [], pv_captures: [],
     } });
   }
   const shown = data.slice(0, 20), best = candidates[0];
@@ -729,7 +956,7 @@ function uiReport() {
       body: box.querySelector(".modal-body")?.textContent ?? "",
     })),
     status: statusLines(),
-    candidateCount,
+    candidateCount: boardReport?.candidates.length ?? 0,
     hoveredCandidate,
     subBoardCandidateIndex: subCandidate,
     subBoardBranchLength: subLength,
@@ -740,14 +967,14 @@ function uiReport() {
     candidates: state.view?.analysis?.candidates.map((c) => ({ order: c.order, point: c.point, visits: c.visits, pvLength: c.pv.length })) ?? [],
     /** Client-area geometry so automation points at real board / sub-board / graph / table spots. */
     geometry: panels && state.view && (() => {
-      const { width, height } = state.view!.document.size;
+      const v = state.view!;
       const m = $("main").getBoundingClientRect();
-      const g = boardGeom(panels.board, width, height);
-      const s = boardGeom(panels.sub, width, height, 0.035);
+      const g = mainGeom(v, panels.board);
+      const s = boardGeom(panels.sub, v.document.size.width, v.document.size.height, SUB_MARGIN_RATIO);
       const tb = $("table").getBoundingClientRect();
       const ct = $("commentText").getBoundingClientRect();
       return {
-        board: { x: m.left + g.x + g.margin, y: m.top + g.y + g.margin, square: g.square },
+        board: { x: m.left + g.x + g.margin, y: m.top + g.y + g.margin, square: g.square, margin: g.margin, size: g.size },
         sub: { x: m.left + s.x + s.margin, y: m.top + s.y + s.margin, square: s.square },
         graph: { x: m.left + panels.graph.x, y: m.top + panels.graph.y, w: panels.graph.w, h: panels.graph.h },
         table: { x: tb.left, y: tb.top, w: tb.width, h: tb.height },
@@ -791,6 +1018,24 @@ function uiReport() {
         x: Math.round(r.left + r.width / 2),
         y: Math.round(r.top + r.height / 2),
       })),
+    /** What the boards draw (T10 display modes): `board` carries the coordinate labels, the best
+     *  ring, unimportant circles, white badges, PV visits and the 下一手 详细 drawing. */
+    display: {
+      boardUi: { ...boardUi },
+      rawNet: state.view?.rawNet ? { mode: state.view.rawNet.mode, node: state.view.rawNet.node, hasPolicy: !!state.view.rawNet.policy } : null,
+      board: boardReport,
+      sub: subReport && { ...subReport, candidateIndex: subCandidate },
+      replay: {
+        running: replaying(),
+        length: boardReport?.preview && replaying() ? boardReport.preview.length : null,
+      },
+      /** The hovered variation is the 下一手 详细 one (actual move + next position's best PV). */
+      nextMovePreview: boardReport?.preview?.order === -1,
+      /** Candidates kept beyond 最大候选点数 by lastTimeUnlimited ("x,y"). */
+      keptBeyondLimit: [...limitMemory.unlimited],
+      tree: { numbers: state.view?.settings.display.treeMoveNumbers ?? false, drawn: treeNumbersDrawn },
+      autoplay: autoplayReport(),
+    },
   };
 }
 
@@ -816,10 +1061,20 @@ async function boot() {
   bindCommentEditor($("commentText"));
   bindCaptureSurface(() => panels && { panels, width: $("main").clientWidth, height: $("main").clientHeight, background: backgroundUrl }, render);
   await Promise.all([
-    loadImages(["board.png", "black0.png", "white0.png", "background.jpg", "smallUp.png", "smallDown.png", "smallLeft.png", "smallRight.png"]),
+    loadImages(["board.png", "black0.png", "white0.png", "background.jpg", "heatmap.png", "smallUp.png", "smallDown.png", "smallLeft.png", "smallRight.png"]),
     document.fonts.load('12px "Lizzie Winrate"'),
   ]);
   subscribe(schedule);
+  // F, holding Z, 延迟显示候选点 and T repaint both boards at once.
+  onBoardUiChange(schedule);
+  bindAutoplayHost({
+    target: () => (state.view ? hoveredVariation(state.view)?.target ?? null : null),
+    repaint: schedule,
+  });
+  bindReplayHost({
+    target: () => (state.view ? hoveredVariation(state.view)?.target ?? null : null),
+    repaint: schedule,
+  });
   await onUnavailable(() => unavailable());
   await listen("acceptance-probe", () => invoke("acceptance_ui_report", { report: uiReport() }));
   await startAutoSave();

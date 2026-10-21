@@ -99,7 +99,7 @@ function count(items: ImportItemView[], status: ImportStatus): number {
 
 function itemLine(i: ImportItemView): string {
   const parts = [i.key];
-  if (i.target) parts.push(`→ ${product(`target${i.target}`)}`);
+  if (i.target) parts.push(`→ ${i.target === "PureNetwork" ? t("Menu.showHeatmap") : product(`target${i.target}`)}`);
   if (i.value !== null && !i.credential) parts.push(`= ${i.value.replaceAll("\n", ", ")}`);
   if (i.reason) parts.push(`（${product(`reason${i.reason}`)}）`);
   if (i.detail) parts.push(i.detail);

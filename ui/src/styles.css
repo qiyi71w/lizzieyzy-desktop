@@ -653,3 +653,84 @@ body {
 .diagnostics code {
   font-size: 11px;
 }
+
+/* ---- toolbar popups (JPopupMenu below a toolbar button, e.g. rankMarkPopup) */
+.popup-anchor {
+  position: fixed;
+  z-index: 20;
+  width: 0;
+  font-size: 12px;
+  height: 0;
+}
+.popup-anchor > .dropdown {
+  top: 0;
+}
+/* rankCustomMove's text field inside the menu item */
+.mi .mi-field {
+  width: 40px;
+  height: 20px;
+  margin-left: 4px;
+  font: inherit;
+  border: 1px solid rgb(160, 165, 170);
+  padding: 0 2px;
+}
+
+/* ---- board display dialogs: Swing null layouts at their setBounds */
+.modal-body.display-abs {
+  position: relative;
+  box-sizing: content-box;
+  padding: 0;
+  margin: 6px 0 0;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.display-abs > * {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  font: inherit;
+}
+.display-abs input[type="text"] {
+  padding: 0 2px;
+  border: 1px solid rgb(160, 165, 170);
+}
+.display-abs input.invalid {
+  background: red;
+}
+.display-label {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.display-choice {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.display-preview {
+  display: block;
+}
+.display-input input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+  font: inherit;
+}
+/* SetDelayShowCandidates: FlowLayout row (EmptyBorder 5) above the 应用 / 取消 row */
+.display-delay-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px;
+}
+.display-delay-row label {
+  display: inline-flex;
+  align-items: center;
+}
+.display-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  padding-top: 5px;
+}

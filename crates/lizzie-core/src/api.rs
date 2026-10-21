@@ -235,6 +235,10 @@ pub enum Command {
     SetDisplaySettings {
         settings: crate::settings::DisplaySettings,
     },
+    /// 纯网络 (H): Off → Policy → Ownership → Off for KataGo, Off ↔ Policy otherwise.
+    ToggleRawNet,
+    /// Turn pure network off, resuming ordinary analysis (policy T).
+    StopRawNet,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
@@ -352,6 +356,8 @@ pub struct TreeNodeView {
     pub kind: TreeNodeKind,
     pub pass: bool,
     pub move_number: u32,
+    /// Display numbering, including branch restarts, SGF MN and passes; 0 for no number.
+    pub number: u32,
     pub has_comment: bool,
 }
 
@@ -504,6 +510,12 @@ pub struct WorkbenchView {
     pub engine: EngineView,
     /// Stored analysis of the current node (whether or not the engine is analysing it now).
     pub analysis: Option<NodeAnalysisView>,
+    /// Move numbers, 落子评价 and 下一手 详细 of the current position, as the display settings
+    /// choose them.
+    pub board: crate::display::BoardOverlayView,
+    /// Foreground engine's pure-network result, never from another position or instance.
+    #[serde(rename = "rawNet")]
+    pub raw_net: Option<crate::engine::raw_net::RawNetView>,
     /// Stored results along the current line, its continuation and the main trunk, root first
     /// (the win-rate graph's data).
     pub history: Vec<HistoryPoint>,
@@ -638,6 +650,30 @@ pub enum ImportTarget {
     WinrateAlwaysBlack,
     /// `ui.show-katago-score-lead-with-komi`.
     ScoreLeadWithKomi,
+    /// `ui.show-coordinates`.
+    Coordinates,
+    /// `ui.show-name-in-board`.
+    NamesOnBoard,
+    /// 手数: `ui.allow-move-number` (or the older `show-move-number` / `only-last-move-number`),
+    /// `movenumber-from-one`, `new-move-number-in-branch`, `show-moveall-inbranch`,
+    /// `show-var-move`.
+    MoveNumbers,
+    /// 落子评价: `ui.move-rank-mark-last-move`, `txt-move-rank-mark-last-move`,
+    /// `move-rank-evaluation-mode` (or the older `use-win-loss-in-move-rank` /
+    /// `use-score-loss-in-move-rank`), `win-loss-threshold-1..5`, `score-loss-threshold-1..5`.
+    MoveRank,
+    /// 选点信息: `ui.show-winrate-in-suggestion`, `-playouts-`, `-scoremean-`,
+    /// `show-score-as-diff`, `suggestion-info-*`, `delay-show-candidates`,
+    /// `delay-candidates-seconds`, `show-suggestion-order`, `show-suggestion-maxred`,
+    /// `white-suggestion-white`, `show-suggestion-variations`, `norefresh-onmouse-move`,
+    /// `replay-branch-interval-seconds`, `min-playout-ratio-for-stats`.
+    Suggestions,
+    /// 下一手: `ui.show-next-moves`, `show-next-move-blunder`, `min-playouts-for-next-move`.
+    NextMoves,
+    /// 小棋盘设置: `ui.show-heat`, `show-heat-aftercalc`, `subboard-raw`, `no-refresh-on-sub`.
+    SubBoard,
+    /// 纯网络 ownership painter: Java's five `ui.show-pure-estimate-*` choice flags.
+    PureNetwork,
 }
 
 /// A problem found with an imported engine without starting it.
@@ -800,8 +836,10 @@ pub struct CandidateView {
     pub order: u32,
     /// Principal variation; `None` entries are passes.
     pub pv: Vec<Option<Point>>,
+    /// KataGo `pvVisits`, one count per reported variation move; empty when absent.
+    pub pv_visits: Vec<u64>,
     /// For each `pv` move, the stones it captures when played out from the node's position
-    /// (`Branch` with `remove-dead-in-variation`); empty for passes.
+    /// (`Branch`; none under no-capture); the board removes them with `remove-dead-in-variation`.
     pub pv_captures: Vec<Vec<Point>>,
     /// Win rate and score lead as the board and the candidate table show them (总是显示黑胜率,
     /// 目差显示); set by the view projection.

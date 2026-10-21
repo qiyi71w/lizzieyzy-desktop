@@ -221,6 +221,25 @@ fn start_up_identifies_then_syncs_and_analyses_the_current_position() {
 }
 
 #[test]
+fn showing_pv_visits_asks_katago_for_them_again() {
+    // Leelaz.java:20069: ` pvVisits true` while 显示 PV 访问次数 is on.
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    world.take(id);
+    let mut s = wb.config().display.clone();
+    s.pv_visits = lizzie_core::settings::PvVisitsMode::AllMoves;
+    wb.set_display_settings(s.clone()).unwrap();
+    let sent = answer_all(&mut wb, &world, id, KATA);
+    assert_eq!(sent, ["kata-analyze B 10 rootInfo true pvVisits true"]);
+    out(&mut wb, id, "info move Q16 visits 30 winrate 0.6 scoreLead 1.5 prior 0.2 order 0 pv Q16 D4 pvVisits 30 12 rootInfo visits 30");
+    assert_eq!(wb.view(false).analysis.unwrap().candidates[0].pv_visits, [30, 12]);
+    s.pv_visits = lizzie_core::settings::PvVisitsMode::Off;
+    wb.set_display_settings(s).unwrap();
+    assert_eq!(answer_all(&mut wb, &world, id, KATA), ["kata-analyze B 10 rootInfo true"]);
+}
+
+#[test]
 fn results_belong_to_the_position_they_were_requested_for() {
     let dir = tempfile::tempdir().unwrap();
     let world = World::default();
@@ -904,12 +923,22 @@ fn variations_carry_the_captures_of_each_move() {
     out(
         &mut wb,
         a,
-        "info move A18 visits 30 winrate 0.6 prior 0.2 order 0 pv A18 pass A19 Z99 C3 rootInfo visits 30",
+        "info move A18 visits 30 winrate 0.6 prior 0.2 order 0 pv A18 pass A19 Z99 C3 pvVisits 30 20 10 ownership 0 0 rootInfo visits 30",
     );
     let v = wb.view(false);
     let c = &v.analysis.unwrap().candidates[0];
     assert_eq!(c.pv, [Some(Point { x: 0, y: 1 }), None, Some(Point { x: 0, y: 0 })]);
     assert_eq!(c.pv_captures, [vec![Point { x: 0, y: 0 }], vec![], vec![]]);
+    assert_eq!(c.pv_visits, [30, 20, 10]);
+    // 变化图中去掉死子 only decides whether the board removes them: the captures stay facts.
+    let mut settings = wb.config().display.clone();
+    settings.remove_dead_in_variation = false;
+    wb.set_display_settings(settings).unwrap();
+    out(&mut wb, a, "info move A18 visits 40 winrate 0.6 prior 0.2 order 0 pv A18 pass A19 rootInfo visits 40");
+    let view = wb.view(false);
+    let streamed = &view.analysis.unwrap().candidates[0];
+    assert!(streamed.pv_visits.is_empty(), "counts absent from the stream stay absent");
+    assert_eq!(streamed.pv_captures[0], [Point { x: 0, y: 0 }]);
 }
 
 #[test]
@@ -1340,6 +1369,7 @@ fn the_displays_follow_the_viewpoint_settings() {
         let settings = DisplaySettings {
             winrate_always_black: always_black,
             score_lead_with_komi: with_komi,
+            ..DisplaySettings::default()
         };
         wb.set_display_settings(settings).unwrap();
         let v = wb.view(false);

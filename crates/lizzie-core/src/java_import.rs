@@ -30,7 +30,7 @@ use crate::engine::gtp::{prepare_launch, split_command, FILE_PATH_OPTIONS};
 use crate::engine::profile::{new_profile_id, EngineProfile, EngineStartup};
 use crate::engine::tuning::{GtpConfiguration, ThreadPolicy};
 use crate::sanitize::sanitize;
-use crate::settings::{Config, Language, NetworkSettings, Persisted, ProxyMode, RECENT_LIMIT};
+use crate::settings::{Config, DisplaySettings, Language, NetworkSettings, Persisted, ProxyMode, RECENT_LIMIT};
 
 pub const CONFIG_FILE: &str = "config.txt";
 pub const PERSIST_FILE: &str = "persist";
@@ -142,6 +142,56 @@ pub struct Mapped {
     /// `ui.win-rate-always-black`, `ui.show-katago-score-lead-with-komi`.
     pub winrate_always_black: Option<bool>,
     pub score_lead_with_komi: Option<bool>,
+    /// Board display settings ([`DisplaySettings`] fields other than the two above).
+    pub display: Vec<DisplayValue>,
+}
+
+/// One imported [`DisplaySettings`] value: `field` is its camelCase name, with `.n` for an
+/// element of an array field.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DisplayValue {
+    pub target: ImportTarget,
+    pub field: &'static str,
+    pub value: Value,
+}
+
+impl DisplayValue {
+    fn set(&self, settings: &mut Value) {
+        let (name, index) = match self.field.split_once('.') {
+            Some((name, i)) => (name, i.parse::<usize>().ok()),
+            None => (self.field, None),
+        };
+        let Some(slot) = settings.get_mut(name) else { return };
+        match index {
+            Some(i) => {
+                if let Some(e) = slot.get_mut(i) {
+                    *e = self.value.clone();
+                }
+            }
+            None => *slot = self.value.clone(),
+        }
+    }
+
+    fn current(&self, settings: &Value) -> Option<Value> {
+        let (name, index) = match self.field.split_once('.') {
+            Some((name, i)) => (name, i.parse::<usize>().ok()),
+            None => (self.field, None),
+        };
+        let slot = settings.get(name)?;
+        match index {
+            Some(i) => slot.get(i).cloned(),
+            None => Some(slot.clone()),
+        }
+    }
+}
+
+/// [`DisplaySettings`] with the imported values; a value it does not accept leaves the field.
+fn with_display(current: &DisplaySettings, values: &[DisplayValue]) -> DisplaySettings {
+    let Ok(mut json) = serde_json::to_value(current) else { return current.clone() };
+    for v in values {
+        v.set(&mut json);
+    }
+    serde_json::from_value(json).unwrap_or_else(|_| current.clone())
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -573,6 +623,67 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
     ),
 ];
 
+enum DisplayKind {
+    Bool,
+    /// An integer within the bounds.
+    Int(i64, i64),
+    Num,
+}
+
+/// Board display keys mapped one to one: Java key (`ui`), target, [`DisplaySettings`] field,
+/// reader (`Config.java:1600-2130`).
+const DISPLAY: &[(&str, ImportTarget, &str, DisplayKind)] = &[
+    ("show-coordinates", ImportTarget::Coordinates, "coordinates", DisplayKind::Bool),
+    ("show-name-in-board", ImportTarget::NamesOnBoard, "namesOnBoard", DisplayKind::Bool),
+    ("movenumber-from-one", ImportTarget::MoveNumbers, "moveNumbersFromOne", DisplayKind::Bool),
+    ("new-move-number-in-branch", ImportTarget::MoveNumbers, "branchNumbersFromOne", DisplayKind::Bool),
+    ("show-moveall-inbranch", ImportTarget::MoveNumbers, "allNumbersInBranch", DisplayKind::Bool),
+    ("show-var-move", ImportTarget::MoveNumbers, "treeMoveNumbers", DisplayKind::Bool),
+    ("move-rank-mark-last-move", ImportTarget::MoveRank, "moveRank", DisplayKind::Int(-1, i32::MAX as i64)),
+    ("txt-move-rank-mark-last-move", ImportTarget::MoveRank, "moveRankCustom", DisplayKind::Int(1, i32::MAX as i64)),
+    ("win-loss-threshold-1", ImportTarget::MoveRank, "winLossThresholds.0", DisplayKind::Num),
+    ("win-loss-threshold-2", ImportTarget::MoveRank, "winLossThresholds.1", DisplayKind::Num),
+    ("win-loss-threshold-3", ImportTarget::MoveRank, "winLossThresholds.2", DisplayKind::Num),
+    ("win-loss-threshold-4", ImportTarget::MoveRank, "winLossThresholds.3", DisplayKind::Num),
+    ("win-loss-threshold-5", ImportTarget::MoveRank, "winLossThresholds.4", DisplayKind::Num),
+    ("score-loss-threshold-1", ImportTarget::MoveRank, "scoreLossThresholds.0", DisplayKind::Num),
+    ("score-loss-threshold-2", ImportTarget::MoveRank, "scoreLossThresholds.1", DisplayKind::Num),
+    ("score-loss-threshold-3", ImportTarget::MoveRank, "scoreLossThresholds.2", DisplayKind::Num),
+    ("score-loss-threshold-4", ImportTarget::MoveRank, "scoreLossThresholds.3", DisplayKind::Num),
+    ("score-loss-threshold-5", ImportTarget::MoveRank, "scoreLossThresholds.4", DisplayKind::Num),
+    ("show-winrate-in-suggestion", ImportTarget::Suggestions, "suggestionWinrate", DisplayKind::Bool),
+    ("show-playouts-in-suggestion", ImportTarget::Suggestions, "suggestionPlayouts", DisplayKind::Bool),
+    ("show-scoremean-in-suggestion", ImportTarget::Suggestions, "suggestionScore", DisplayKind::Bool),
+    ("show-score-as-diff", ImportTarget::Suggestions, "scoreAsDiff", DisplayKind::Bool),
+    ("suggestion-info-winrate", ImportTarget::Suggestions, "suggestionInfoOrder.0", DisplayKind::Int(1, 3)),
+    ("suggestion-info-playouts", ImportTarget::Suggestions, "suggestionInfoOrder.1", DisplayKind::Int(1, 3)),
+    ("suggestion-info-scorelead", ImportTarget::Suggestions, "suggestionInfoOrder.2", DisplayKind::Int(1, 3)),
+    ("delay-show-candidates", ImportTarget::Suggestions, "delayCandidates", DisplayKind::Bool),
+    ("delay-candidates-seconds", ImportTarget::Suggestions, "delayCandidatesSeconds", DisplayKind::Num),
+    ("show-suggestion-order", ImportTarget::Suggestions, "suggestionOrder", DisplayKind::Bool),
+    ("show-suggestion-maxred", ImportTarget::Suggestions, "suggestionMaxRed", DisplayKind::Bool),
+    ("white-suggestion-white", ImportTarget::Suggestions, "whiteSuggestionWhite", DisplayKind::Bool),
+    ("show-blue-ring", ImportTarget::Suggestions, "blueRing", DisplayKind::Bool),
+    ("suggestion-color-ratio", ImportTarget::Suggestions, "suggestionColorRatio", DisplayKind::Int(1, 3)),
+    ("white-suggestion-order-white", ImportTarget::Suggestions, "whiteSuggestionOrderWhite", DisplayKind::Bool),
+    ("pv-visits-limit", ImportTarget::Suggestions, "pvVisitsLimit", DisplayKind::Int(i32::MIN as i64, i32::MAX as i64)),
+    ("remove-dead-in-variation", ImportTarget::Suggestions, "removeDeadInVariation", DisplayKind::Bool),
+    ("auto-replay-branch", ImportTarget::Suggestions, "autoReplayBranch", DisplayKind::Bool),
+    ("auto-replay-display-entire-variations-first", ImportTarget::Suggestions, "entireVariationFirst", DisplayKind::Bool),
+    // `optDouble`: LizzieFrame.autoReplayBranch waits that long, so 0 or less shows no wait.
+    ("display-entire-variations-first-seconds", ImportTarget::Suggestions, "entireVariationFirstSeconds", DisplayKind::Num),
+    ("continue-with-best-move", ImportTarget::Suggestions, "continueWithBestMove", DisplayKind::Bool),
+    ("directly-with-best-move", ImportTarget::Suggestions, "directlyWithBestMove", DisplayKind::Bool),
+    ("show-suggestion-variations", ImportTarget::Suggestions, "suggestionVariations", DisplayKind::Bool),
+    ("norefresh-onmouse-move", ImportTarget::Suggestions, "noRefreshOnMouse", DisplayKind::Bool),
+    ("replay-branch-interval-seconds", ImportTarget::Suggestions, "replayIntervalSeconds", DisplayKind::Num),
+    ("min-playout-ratio-for-stats", ImportTarget::Suggestions, "minPlayoutRatio", DisplayKind::Num),
+    ("show-next-moves", ImportTarget::NextMoves, "nextMoves", DisplayKind::Bool),
+    ("show-next-move-blunder", ImportTarget::NextMoves, "nextMoveInfo", DisplayKind::Bool),
+    ("min-playouts-for-next-move", ImportTarget::NextMoves, "nextMoveMinPlayouts", DisplayKind::Int(i32::MIN as i64, i32::MAX as i64)),
+    ("no-refresh-on-sub", ImportTarget::SubBoard, "noRefreshOnSub", DisplayKind::Bool),
+];
+
 /// Keys read together with the engine list (`Utils.getEngineData` / `getEngineDataOld`,
 /// `Lizzie.java:457-488`).
 const ENGINE_UI_KEYS: [&str; 5] = [
@@ -727,6 +838,7 @@ impl Reader<'_> {
         }
 
         self.network(ui, &mut handled);
+        self.display(ui, leelaz, &mut handled);
         self.engines(ui, leelaz, &mut handled);
 
         for (section, value) in root {
@@ -740,6 +852,219 @@ impl Reader<'_> {
                 }
                 None => self.not_migrated(section.clone(), value),
             }
+        }
+    }
+
+    /// Board display settings, read like `Config.java` reads them (`opt*` with the defaults of a
+    /// new profile); values Java would not use are reported.
+    fn display(&mut self, ui: &Map<String, Value>, leelaz: &Map<String, Value>, handled: &mut Handled) {
+        for (key, target, field, kind) in DISPLAY {
+            let Some(v) = ui.get(*key) else { continue };
+            handled.push(("ui", key));
+            let value = match kind {
+                DisplayKind::Bool => as_bool(v).map(Value::from),
+                DisplayKind::Int(min, max) => as_i64(v).filter(|n| (*min..=*max).contains(n)).map(Value::from),
+                DisplayKind::Num => as_f64(v).map(Value::from),
+            };
+            self.display_value(format!("ui.{key}"), *target, field, value, v);
+        }
+
+        if let Some(v) = leelaz.get("show-nosugg-circle") {
+            handled.push(("leelaz", "show-nosugg-circle"));
+            self.display_value("leelaz.show-nosugg-circle".into(), ImportTarget::Suggestions,
+                "noSuggCircle", as_bool(v).map(Value::from), v);
+        }
+
+        // Numeric columns override letter columns; top-origin rows override bottom-origin
+        // rows (`BoardRenderer.drawCoordinates`); Fox includes I and counts from the top.
+        self.display_flags(ui, handled, ImportTarget::Coordinates, "coordinateStyle", &[
+            ("use-num-coords-from-top", "NumbersFromTop"),
+            ("use-num-coords-from-bottom", if ui.get("use-fox-style-coords").and_then(as_bool) == Some(true) {
+                "NumbersFromTop"
+            } else { "NumbersFromBottom" }),
+            ("use-fox-style-coords", "Fox"),
+            ("use-i-in-coords-name", "WithI"),
+        ], "Normal");
+        // The Branch consumer uses the last/all flags, not the legacy master checkbox.
+        self.display_flags(ui, handled, ImportTarget::Suggestions, "pvVisits", &[
+            ("show-pv-visits-all-move", "AllMoves"),
+            ("show-pv-visits-last-move", "LastMove"),
+            ("show-pv-visits", "Off"),
+        ], "Off");
+
+        // Java's five pure-network painter flags are one menu choice. `drawKataEstimate`
+        // chooses BySize first, then `shouldShowCountBlockBig`; the remaining normal modes
+        // are distinguished by the not-on-live flag. Small is the fallback menu choice.
+        const PURE_KEYS: [&str; 5] = [
+            "show-pure-estimate-normal", "show-pure-estimate-by-size",
+            "show-pure-estimate-big-below", "show-pure-estimate-not-on-live", "show-pure-estimate-small",
+        ];
+        if PURE_KEYS.iter().any(|k| ui.contains_key(*k)) {
+            let mut valid = true;
+            for key in PURE_KEYS {
+                let Some(v) = ui.get(key) else { continue };
+                handled.push(("ui", key));
+                if as_bool(v).is_some() {
+                    self.imported(format!("ui.{key}"), ImportTarget::PureNetwork, shown(v));
+                } else {
+                    valid = false;
+                    self.invalid(format!("ui.{key}"), ImportTarget::PureNetwork, v);
+                }
+            }
+            if valid {
+                let on = |key: &str, default| ui.get(key).and_then(as_bool).unwrap_or(default);
+                let style = if on(PURE_KEYS[1], false) { "BySize" }
+                    else if on(PURE_KEYS[2], true) { "BigBelow" }
+                    else if on(PURE_KEYS[0], false) {
+                        if on(PURE_KEYS[3], false) { "TransparentNotOnLive" } else { "Transparent" }
+                    } else { "Small" };
+                self.mapped.display.push(DisplayValue {
+                    target: ImportTarget::PureNetwork,
+                    field: "pureEstimate",
+                    value: Value::from(style),
+                });
+            }
+        }
+
+        // 手数: `allow-move-number`, else derived from the older keys (`Config.java:1601-1605`).
+        const NUMBER_KEYS: [&str; 3] = ["show-move-number", "only-last-move-number", "allow-move-number"];
+        if NUMBER_KEYS.iter().any(|k| ui.contains_key(*k)) {
+            let show = ui.get("show-move-number").map(as_bool);
+            let only = ui.get("only-last-move-number").map(as_i64);
+            let allow = ui.get("allow-move-number").map(as_i64);
+            for (key, ok) in [
+                ("show-move-number", show.map(|v| v.is_some())),
+                ("only-last-move-number", only.map(|v| v.is_some())),
+                ("allow-move-number", allow.map(|v| v.is_some_and(|n| i32::try_from(n).is_ok()))),
+            ] {
+                let Some(ok) = ok else { continue };
+                handled.push(("ui", key));
+                let v = &ui[key];
+                if ok {
+                    self.imported(format!("ui.{key}"), ImportTarget::MoveNumbers, shown(v));
+                } else {
+                    self.invalid(format!("ui.{key}"), ImportTarget::MoveNumbers, v);
+                }
+            }
+            let derived = show.flatten().map(|show| match only.flatten().unwrap_or(0) {
+                _ if !show => 0,
+                n if n > 0 => n,
+                _ => -1,
+            });
+            let value = allow.flatten().or(derived).and_then(|n| i32::try_from(n).ok());
+            if let Some(n) = value {
+                self.mapped.display.push(DisplayValue {
+                    target: ImportTarget::MoveNumbers,
+                    field: "moveNumbers",
+                    value: Value::from(n),
+                });
+            }
+        }
+
+        // 落子评价 > 判定依据 (`MoveRankEvaluationMode.fromConfig`).
+        const MODE_KEYS: [&str; 3] = [
+            "move-rank-evaluation-mode",
+            "use-win-loss-in-move-rank",
+            "use-score-loss-in-move-rank",
+        ];
+        if MODE_KEYS.iter().any(|k| ui.contains_key(*k)) {
+            let named = ui
+                .get(MODE_KEYS[0])
+                .and_then(Value::as_str)
+                .and_then(|s| match s.trim().to_lowercase().as_str() {
+                    "auto" => Some("Auto"),
+                    "score" => Some("Score"),
+                    "winrate" => Some("Winrate"),
+                    "combined" => Some("Combined"),
+                    _ => None,
+                });
+            let win = ui.get(MODE_KEYS[1]).and_then(as_bool).unwrap_or(true);
+            let score = ui.get(MODE_KEYS[2]).and_then(as_bool).unwrap_or(true);
+            let mode = named.unwrap_or(match (win, score) {
+                (true, false) => "Winrate",
+                (false, true) => "Score",
+                _ => "Auto",
+            });
+            for key in MODE_KEYS {
+                if let Some(v) = ui.get(key) {
+                    handled.push(("ui", key));
+                    self.imported(format!("ui.{key}"), ImportTarget::MoveRank, shown(v));
+                }
+            }
+            self.mapped.display.push(DisplayValue {
+                target: ImportTarget::MoveRank,
+                field: "moveRankMode",
+                value: Value::from(mode),
+            });
+        }
+
+        // 小棋盘设置: 热点图 wins over 仅棋盘棋子 (`SubBoardRenderer.draw`).
+        const SUB_KEYS: [&str; 3] = ["show-heat", "show-heat-aftercalc", "subboard-raw"];
+        if SUB_KEYS.iter().any(|k| ui.contains_key(*k)) {
+            let flag = |key: &str| ui.get(key).map(as_bool);
+            let (heat, after, raw) = (flag(SUB_KEYS[0]), flag(SUB_KEYS[1]), flag(SUB_KEYS[2]));
+            let mut valid = true;
+            for (key, read) in SUB_KEYS.into_iter().zip([heat, after, raw]) {
+                let Some(read) = read else { continue };
+                handled.push(("ui", key));
+                let v = &ui[key];
+                match read {
+                    Some(_) => self.imported(format!("ui.{key}"), ImportTarget::SubBoard, shown(v)),
+                    None => {
+                        valid = false;
+                        self.invalid(format!("ui.{key}"), ImportTarget::SubBoard, v);
+                    }
+                }
+            }
+            if valid {
+                let on = |f: Option<Option<bool>>| f.flatten().unwrap_or(false);
+                let mode = match (on(heat), on(after), on(raw)) {
+                    (true, true, _) => "Visits",
+                    (true, false, _) => "Policy",
+                    (false, _, true) => "Raw",
+                    (false, _, false) => "Variation",
+                };
+                self.mapped.display.push(DisplayValue {
+                    target: ImportTarget::SubBoard,
+                    field: "subBoard",
+                    value: Value::from(mode),
+                });
+            }
+        }
+    }
+
+    /// Mutually exclusive projection of Java flags, in the consumer's precedence order.
+    fn display_flags(&mut self, ui: &Map<String, Value>, handled: &mut Handled,
+        target: ImportTarget, field: &'static str, flags: &[(&'static str, &'static str)], fallback: &'static str) {
+        if !flags.iter().any(|(key, _)| ui.contains_key(*key)) {
+            return;
+        }
+        let mut chosen = None;
+        let mut has_valid = false;
+        for &(key, mode) in flags {
+            let Some(v) = ui.get(key) else { continue };
+            handled.push(("ui", key));
+            match as_bool(v) {
+                Some(on) => {
+                    self.imported(format!("ui.{key}"), target, shown(v));
+                    has_valid = true;
+                    if on && chosen.is_none() { chosen = Some(mode); }
+                }
+                None => self.invalid(format!("ui.{key}"), target, v),
+            }
+        }
+        if has_valid {
+            self.mapped.display.push(DisplayValue { target, field, value: Value::from(chosen.unwrap_or(fallback)) });
+        }
+    }
+
+    fn display_value(&mut self, key: String, target: ImportTarget, field: &'static str, value: Option<Value>, raw: &Value) {
+        match value {
+            Some(value) => {
+                self.imported(key, target, shown(raw));
+                self.mapped.display.push(DisplayValue { target, field, value });
+            }
+            None => self.invalid(key, target, raw),
         }
     }
 
@@ -940,6 +1265,24 @@ impl Reader<'_> {
                         }
                         other => self.invalid(name, ImportTarget::LastImageFolder, other),
                     },
+                    ("ui-persist", "toolbar-parameter") => {
+                        // Only these two interval slots belong to board display. Preserve a
+                        // not-migrated report for the remaining toolbar state.
+                        self.not_migrated(name.clone(), v);
+                        let Some(values) = v.as_array().filter(|a| a.len() == 51) else {
+                            self.invalid(name, ImportTarget::Suggestions, v);
+                            continue;
+                        };
+                        for (index, field) in [(40, "autoplayMainSeconds"), (41, "autoplaySubMillis")] {
+                            let raw = &values[index];
+                            let value = as_i64(raw).filter(|n| *n > 0 && *n <= i64::from(i32::MAX))
+                                .map(Value::from);
+                            // Java restores only positive integer intervals; -1 is its empty
+                            // field sentinel, not an active timer.
+                            let value = if as_i64(raw) == Some(-1) { Some(Value::from(-1)) } else { value };
+                            self.display_value(format!("{name}[{index}]"), ImportTarget::Suggestions, field, value, raw);
+                        }
+                    }
                     ("ui-persist", "main-window-position" | "window-maximized") => {
                         let it = self.item(name, ImportStatus::Incompatible);
                         it.value = Some(shown(v));
@@ -1274,6 +1617,7 @@ impl Mapped {
         set!(c.edit.no_capture, self.no_capture);
         set!(c.display.winrate_always_black, self.winrate_always_black);
         set!(c.display.score_lead_with_komi, self.score_lead_with_komi);
+        c.display = with_display(&c.display, &self.display);
         if let Some(engines) = &self.engines {
             let kept: Vec<&MappedEngine> = engines
                 .iter()
@@ -1348,6 +1692,13 @@ impl Mapped {
             d.score_lead_with_komi,
             self.score_lead_with_komi
         );
+        if let Ok(current) = serde_json::to_value(d) {
+            for v in &self.display {
+                if v.current(&current).is_none_or(|c| c != v.value) && !out.contains(&v.target) {
+                    out.push(v.target);
+                }
+            }
+        }
         let r = &config.recovery;
         cmp!(
             ImportTarget::AutoSaveOnExit,

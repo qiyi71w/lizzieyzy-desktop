@@ -4,10 +4,14 @@
 // capability is not available yet.
 import { run, state, unavailable } from "../app";
 import { COMMANDS } from "../commands";
+import { rankMarkLit, setCandidateSide } from "../display/commands";
+import { boardUi, onBoardUiChange } from "../display/state";
 import { choosePlacement, placementLit } from "../editing/commands";
 import { editing, onEditingChange } from "../editing/state";
 import { product, t } from "../i18n";
 import { javaDouble } from "../workbench/paint";
+import type { MenuNode } from "./javaMenus";
+import { openPopupMenu } from "./menubar";
 import "../editing/chrome.css";
 
 const updaters: (() => void)[] = [];
@@ -82,6 +86,35 @@ function refreshButtons(): void {
   updaters.forEach((u) => u());
 }
 onEditingChange(refreshButtons);
+onBoardUiChange(refreshButtons);
+
+/** rankMarkPopup (addRankMarkMenu with a popup, Menu.java:9354-9360): the count is typed into its
+ *  item on every platform. */
+const RANK_POPUP: MenuNode[] = [
+  { t: "check", key: "Menu.rankMenu.rankNoneMove" },
+  { t: "check", key: "Menu.rankMenu.rankLastMove" },
+  { t: "check", key: "Menu.rankMenu.lblCustomMove" },
+  { t: "check", key: "Menu.rankMenu.rankAllMove" },
+  { t: "sep" },
+  {
+    t: "submenu",
+    key: "Menu.rankMenu.evaluationMode",
+    items: [
+      { t: "radio", key: "Menu.rankMenu.evaluationMode.auto" },
+      { t: "radio", key: "Menu.rankMenu.evaluationMode.score" },
+      { t: "radio", key: "Menu.rankMenu.evaluationMode.winrate" },
+      { t: "sep" },
+      { t: "radio", key: "Menu.rankMenu.evaluationMode.combined" },
+    ],
+  },
+];
+
+/** btnRankMark: RankMarkOn / RankMarkOff by Menu.setBtnRankMark; opens rankMarkPopup below it. */
+function rankMarkButton(): HTMLElement {
+  const b = liveIcon("RankMarkOff.png", "RankMarkOn.png", t("Menu.btnRankMark.toolTipText"), rankMarkLit, () => openPopupMenu(b, RANK_POPUP));
+  b.dataset.key = "toolbar.rank-mark";
+  return b;
+}
 
 function marked(el: HTMLElement, command: string | undefined, tip: string): HTMLElement {
   const entry = command ? COMMANDS[command] : undefined;
@@ -165,10 +198,18 @@ function check(checked: boolean): HTMLElement {
   return c;
 }
 
-function checkLabel(text: string, checked: boolean): HTMLElement {
+/** 选点 黑 / 白 (chkShowBlack / chkShowWhite, Menu.java:9714-9753): one colour's candidates. */
+function candidateCheck(text: string, black: boolean): HTMLElement {
+  const c = document.createElement("input");
+  c.type = "checkbox";
+  c.className = "tb-check";
+  c.tabIndex = -1;
+  c.dataset.key = black ? "toolbar.candidates-black" : "toolbar.candidates-white";
+  c.onchange = () => setCandidateSide(black, c.checked);
+  updaters.push(() => (c.checked = black ? boardUi.showBlack : boardUi.showWhite));
   const l = document.createElement("label");
   l.className = "tb-checklabel";
-  l.append(check(checked), document.createTextNode(text));
+  l.append(c, document.createTextNode(text));
   return l;
 }
 
@@ -241,7 +282,7 @@ export function buildToolbar(host: HTMLElement): void {
     buttons(setup, icon("flash.png", t("Menu.btnAnalyze.btnFlashAnalyze")), search),
     buttons(
       icon("hawkeye2.png", t("Menu.btnHawkeye.toolTipText")),
-      icon("RankMarkOn.png", t("Menu.btnRankMark.toolTipText")),
+      rankMarkButton(),
       icon("pass.png", t("Menu.btnChangeTurn.toolTipText"), "toolbar.change-turn"),
       icon("setmain.png", t("Menu.btnSetMain.toolTipText"), "menu.setAsMain"),
       icon("backmain.png", t("Menu.btnBackMain.toolTipText"), "menu.backToMainBranch"),
@@ -267,8 +308,8 @@ export function buildToolbar(host: HTMLElement): void {
     group("wrn", check(false), label(withColon(t("Menu.separateLblWrn"))), field()),
     sep(),
     label(t("Menu.lblShowCandidate")),
-    checkLabel(t("Menu.Black"), true),
-    checkLabel(t("Menu.White"), true),
+    candidateCheck(t("Menu.Black"), true),
+    candidateCheck(t("Menu.White"), false),
     sep(),
     pill(t("Menu.rulesBtn"), "small", "engine.rules"),
     pill(t("Menu.tsumeGoBtn"), "small"),

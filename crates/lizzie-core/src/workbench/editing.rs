@@ -61,6 +61,7 @@ impl Workbench {
     /// when saved content changed; stored analysis of removed or edited nodes is dropped.
     pub(super) fn apply_edit(&mut self, edit: DocumentEdit) -> Result<Applied, EditError> {
         let record = Arc::make_mut(&mut self.doc.record);
+        record.set_branch_numbering(self.config.display.branch_numbers_from_one);
         let applied = record.apply(&edit)?;
         if applied.content {
             self.doc.revision += 1;

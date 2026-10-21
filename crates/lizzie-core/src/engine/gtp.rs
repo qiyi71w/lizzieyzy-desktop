@@ -339,6 +339,7 @@ pub struct CandidateLine {
     pub order: u32,
     pub is_symmetry: bool,
     pub pv: Vec<Option<Point>>,
+    pub pv_visits: Vec<u64>,
 }
 
 /// Candidates of one analysis line, sorted by `order`, and the `rootInfo visits` if present.
@@ -375,6 +376,12 @@ pub fn parse_info(line: &str, dialect: Dialect, size: BoardSize) -> InfoLine {
     let mut candidates = Vec::new();
     for chunk in infos.split("info ").filter(|c| !c.trim().is_empty()) {
         let toks: Vec<&str> = chunk.split_whitespace().collect();
+        // Streams follow the PV and may follow other streams. Keep their boundaries separate
+        // from the scalar parser, which deliberately stops at `pv`.
+        let pv_visits = toks.iter().position(|t| *t == "pvVisits").map(|start| {
+            toks[start + 1..].iter().take_while(|t| !STREAM_TAGS.contains(t))
+                .map_while(|t| t.parse::<u64>().ok()).collect()
+        }).unwrap_or_default();
         let mut point = Err(InvalidVertex);
         let mut c = CandidateLine {
             point: None,
@@ -388,6 +395,7 @@ pub fn parse_info(line: &str, dialect: Dialect, size: BoardSize) -> InfoLine {
             order: 0,
             is_symmetry: false,
             pv: Vec::new(),
+            pv_visits: Vec::new(),
         };
         let mut edge = None;
         let mut i = 0;
@@ -423,6 +431,7 @@ pub fn parse_info(line: &str, dialect: Dialect, size: BoardSize) -> InfoLine {
         }
         let Ok(p) = point else { continue };
         c.point = p;
+        c.pv_visits = pv_visits;
         c.allocation_visits = edge.unwrap_or(c.visits);
         candidates.push(c);
     }
@@ -462,6 +471,7 @@ pub fn parse_leela011_summary(line: &str, size: BoardSize) -> Option<CandidateLi
         order: 0,
         is_symmetry: false,
         pv,
+        pv_visits: Vec::new(),
     })
 }
 

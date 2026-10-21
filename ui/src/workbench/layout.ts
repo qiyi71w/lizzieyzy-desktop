@@ -117,9 +117,18 @@ function pixelMargins(length: number, n: number, ratio: number): { size: number;
   return { size, margin, avail };
 }
 
-/** Board geometry; `ratio` is the margin ratio (main board with coordinates 0.055, sub board 0.035).
+/** BoardRenderer.isBigMargin (BoardRenderer.java:3653-3665): coordinates, names under the board, or
+ *  the pure network's line take the 0.055 margin, otherwise 0.03 (calculatePixelMargins). */
+export function mainMarginRatio(bigMargin: boolean): number {
+  return bigMargin ? 0.055 : 0.03;
+}
+
+/** The sub board's margin (SubBoardRenderer.calculatePixelMargins). */
+export const SUB_MARGIN_RATIO = 0.035;
+
+/** Board geometry for a margin ratio (main board `mainMarginRatio`, sub board `SUB_MARGIN_RATIO`).
  *  Rectangular boards use the spacing of their larger dimension. */
-export function boardGeom(r: Rect, cols: number, rows: number, ratio = 0.055): BoardGeom {
+export function boardGeom(r: Rect, cols: number, rows: number, ratio: number): BoardGeom {
   const n = Math.max(cols, rows);
   const { size, margin, avail } = pixelMargins(Math.min(r.w, r.h), n, ratio);
   const square = i((avail - 1) / (n - 1));

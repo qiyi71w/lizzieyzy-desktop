@@ -11,7 +11,9 @@ use lizzie_core::engine::gtp::{split_command, LaunchSpec};
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::java_import::{self, JavaSource};
-use lizzie_core::settings::{Config, DisplaySettings, Language, Persisted, ProxyMode, Storage};
+use lizzie_core::settings::{
+    Config, DisplaySettings, Language, MoveRankMode, Persisted, ProxyMode, PureEstimateStyle, Storage, SubBoardMode,
+};
 use lizzie_core::workbench::{Workbench, IMPORT_NEEDS_REPLACE, IMPORT_STALE};
 use serde_json::json;
 
@@ -290,7 +292,8 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
         c.display,
         DisplaySettings {
             winrate_always_black: true,
-            score_lead_with_komi: true
+            score_lead_with_komi: true,
+            ..DisplaySettings::default()
         }
     );
     assert_eq!(
@@ -777,5 +780,244 @@ fn proxy_settings_java_would_reject_are_reported_and_not_taken_over() {
                 "{ui}: rejected values leave the setting as it was"
             );
         }
+    }
+}
+
+#[test]
+fn board_display_settings_are_read_like_java_including_older_keys() {
+    let tmp = tempfile::tempdir().unwrap();
+    let product = tmp.path().join("product");
+    let defaults = DisplaySettings::default();
+    for (ui, expect) in [
+        // `allow-move-number` wins over the older pair (`Config.java:1601-1605`).
+        (
+            json!({ "show-move-number": true, "only-last-move-number": 5, "allow-move-number": 3 }),
+            DisplaySettings { move_numbers: 3, ..defaults.clone() },
+        ),
+        // Without it: shown with a positive count is the last n, otherwise all; hidden is none.
+        (
+            json!({ "show-move-number": true, "only-last-move-number": 5 }),
+            DisplaySettings { move_numbers: 5, ..defaults.clone() },
+        ),
+        (
+            json!({ "show-move-number": true, "only-last-move-number": 0 }),
+            DisplaySettings { move_numbers: -1, ..defaults.clone() },
+        ),
+        (
+            json!({ "show-move-number": false, "only-last-move-number": 5 }),
+            DisplaySettings { move_numbers: 0, ..defaults.clone() },
+        ),
+        // `MoveRankEvaluationMode.fromConfig`: a named mode, else the older two flags.
+        (
+            json!({ "move-rank-evaluation-mode": "combined", "use-score-loss-in-move-rank": false }),
+            DisplaySettings { move_rank_mode: MoveRankMode::Combined, ..defaults.clone() },
+        ),
+        (
+            json!({ "use-score-loss-in-move-rank": false }),
+            DisplaySettings { move_rank_mode: MoveRankMode::Winrate, ..defaults.clone() },
+        ),
+        // 小棋盘: the heat map wins over stones only; after-calculation heat is the visits one.
+        (
+            json!({ "show-heat": true, "show-heat-aftercalc": true, "subboard-raw": true }),
+            DisplaySettings { sub_board: SubBoardMode::Visits, ..defaults.clone() },
+        ),
+        (
+            json!({ "show-heat": true }),
+            DisplaySettings { sub_board: SubBoardMode::Policy, ..defaults.clone() },
+        ),
+        (
+            json!({ "subboard-raw": true }),
+            DisplaySettings { sub_board: SubBoardMode::Raw, ..defaults.clone() },
+        ),
+        // 纯网络形势: the painter Java's drawing would use when several flags are on.
+        (
+            json!({ "show-pure-estimate-by-size": true, "show-pure-estimate-big-below": true }),
+            DisplaySettings { pure_estimate: PureEstimateStyle::BySize, ..defaults.clone() },
+        ),
+        (
+            json!({
+                "show-pure-estimate-big-below": false,
+                "show-pure-estimate-normal": true,
+                "show-pure-estimate-not-on-live": true,
+            }),
+            DisplaySettings { pure_estimate: PureEstimateStyle::TransparentNotOnLive, ..defaults.clone() },
+        ),
+        (
+            json!({ "show-pure-estimate-big-below": false, "show-pure-estimate-small": true }),
+            DisplaySettings { pure_estimate: PureEstimateStyle::Small, ..defaults.clone() },
+        ),
+        (
+            json!({
+                "show-coordinates": false,
+                "move-rank-mark-last-move": 0,
+                "txt-move-rank-mark-last-move": 4,
+                "suggestion-info-winrate": 3,
+                "suggestion-info-playouts": 1,
+                "suggestion-info-scorelead": 2,
+                "replay-branch-interval-seconds": 0.4,
+                "min-playouts-for-next-move": 50,
+            }),
+            DisplaySettings {
+                coordinates: false,
+                move_rank: 0,
+                move_rank_custom: 4,
+                suggestion_info_order: [3, 1, 2],
+                replay_interval_seconds: 0.4,
+                next_move_min_playouts: 50,
+                ..defaults.clone()
+            },
+        ),
+    ] {
+        let java = tmp.path().join("java");
+        std::fs::create_dir_all(&java).unwrap();
+        std::fs::write(java.join("config.txt"), json!({ "ui": ui.clone() }).to_string()).unwrap();
+        std::fs::remove_dir_all(&product).ok();
+        let mut wb = workbench(&product, Recorder::default());
+        let p = preview(&mut wb, &java);
+        for key in ui.as_object().unwrap().keys() {
+            assert_eq!(item(&p.items, &format!("ui.{key}")).status, ImportStatus::Imported, "{ui}");
+        }
+        wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+        assert_eq!(saved_config(&product).display, expect, "{ui}");
+    }
+}
+
+#[test]
+fn board_display_values_java_would_not_use_are_reported_and_left_alone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let product = tmp.path().join("product");
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let ui = json!({
+        "move-rank-mark-last-move": -2,
+        "txt-move-rank-mark-last-move": 0,
+        "suggestion-info-winrate": 4,
+        "show-coordinates": "maybe",
+        "show-heat": "yes",
+        "allow-move-number": "x",
+        "show-pure-estimate-normal": "x",
+    });
+    std::fs::write(java.join("config.txt"), json!({ "ui": ui.clone() }).to_string()).unwrap();
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    for key in ui.as_object().unwrap().keys() {
+        assert_eq!(item(&p.items, &format!("ui.{key}")).status, ImportStatus::Incompatible, "{key}");
+    }
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    assert_eq!(saved_config(&product).display, DisplaySettings::default());
+}
+
+#[test]
+fn remaining_java_display_keys_import_individually_and_persist() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    for (i, (section, key, value, field, expected)) in [
+        ("ui", "use-i-in-coords-name", json!(true), "coordinateStyle", json!("WithI")),
+        ("ui", "use-fox-style-coords", json!(true), "coordinateStyle", json!("Fox")),
+        ("ui", "use-num-coords-from-top", json!(true), "coordinateStyle", json!("NumbersFromTop")),
+        ("ui", "use-num-coords-from-bottom", json!(true), "coordinateStyle", json!("NumbersFromBottom")),
+        ("ui", "show-blue-ring", json!(false), "blueRing", json!(false)),
+        ("ui", "suggestion-color-ratio", json!(3), "suggestionColorRatio", json!(3)),
+        ("ui", "white-suggestion-order-white", json!(true), "whiteSuggestionOrderWhite", json!(true)),
+        ("leelaz", "show-nosugg-circle", json!(true), "noSuggCircle", json!(true)),
+        ("ui", "show-pv-visits", json!(true), "pvVisits", json!("Off")),
+        ("ui", "show-pv-visits-last-move", json!(true), "pvVisits", json!("LastMove")),
+        ("ui", "show-pv-visits-all-move", json!(true), "pvVisits", json!("AllMoves")),
+        ("ui", "pv-visits-limit", json!(-7), "pvVisitsLimit", json!(-7)),
+        ("ui", "remove-dead-in-variation", json!(false), "removeDeadInVariation", json!(false)),
+        ("ui", "auto-replay-branch", json!(true), "autoReplayBranch", json!(true)),
+        ("ui", "auto-replay-display-entire-variations-first", json!(true), "entireVariationFirst", json!(true)),
+        ("ui", "display-entire-variations-first-seconds", json!(1.25), "entireVariationFirstSeconds", json!(1.25)),
+        ("ui", "continue-with-best-move", json!(true), "continueWithBestMove", json!(true)),
+        ("ui", "directly-with-best-move", json!(true), "directlyWithBestMove", json!(true)),
+        ("ui", "min-playouts-for-next-move", json!(i32::MIN), "nextMoveMinPlayouts", json!(i32::MIN)),
+    ].into_iter().enumerate() {
+        std::fs::write(java.join("config.txt"), json!({section: {key: value}}).to_string()).unwrap();
+        let product = tmp.path().join(format!("product-{i}"));
+        let mut wb = workbench(&product, Recorder::default());
+        let preview = preview(&mut wb, &java);
+        assert_eq!(item(&preview.items, &format!("{section}.{key}")).status, ImportStatus::Imported);
+        wb.apply_java_import(preview.id, &[], true, None).unwrap().unwrap();
+        let actual = serde_json::to_value(&saved_config(&product).display).unwrap();
+        assert_eq!(actual[field], expected, "{key}");
+        assert_eq!(workbench(&product, Recorder::default()).config().display, saved_config(&product).display);
+    }
+}
+
+#[test]
+fn java_display_flag_precedence_follows_the_board_consumers() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    for (i, (ui, field, expected)) in [
+        (json!({"use-num-coords-from-top": true, "use-num-coords-from-bottom": true, "use-fox-style-coords": true, "use-i-in-coords-name": true}), "coordinateStyle", "NumbersFromTop"),
+        (json!({"use-num-coords-from-bottom": true, "use-fox-style-coords": true, "use-i-in-coords-name": true}), "coordinateStyle", "NumbersFromTop"),
+        (json!({"use-num-coords-from-bottom": true, "use-i-in-coords-name": true}), "coordinateStyle", "NumbersFromBottom"),
+        (json!({"use-fox-style-coords": true, "use-i-in-coords-name": true}), "coordinateStyle", "Fox"),
+        (json!({"show-pv-visits": false, "show-pv-visits-last-move": true, "show-pv-visits-all-move": true}), "pvVisits", "AllMoves"),
+        (json!({"show-pv-visits": false, "show-pv-visits-last-move": true}), "pvVisits", "LastMove"),
+        (json!({"show-pv-visits": true, "show-pv-visits-last-move": false, "show-pv-visits-all-move": false}), "pvVisits", "Off"),
+    ].into_iter().enumerate() {
+        std::fs::write(java.join("config.txt"), json!({"ui": ui}).to_string()).unwrap();
+        let product = tmp.path().join(format!("product-{i}"));
+        let mut wb = workbench(&product, Recorder::default());
+        let p = preview(&mut wb, &java);
+        assert!(p.items.iter().all(|item| item.status == ImportStatus::Imported));
+        wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+        assert_eq!(serde_json::to_value(wb.config().display.clone()).unwrap()[field], json!(expected));
+    }
+}
+
+#[test]
+fn new_java_display_keys_report_invalid_values_without_changing_defaults() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let ui = json!({
+        "use-i-in-coords-name": "invalid", "use-fox-style-coords": "invalid",
+        "use-num-coords-from-top": "invalid", "use-num-coords-from-bottom": "invalid",
+        "show-blue-ring": "invalid", "suggestion-color-ratio": 4,
+        "white-suggestion-order-white": "invalid", "show-pv-visits": "invalid",
+        "show-pv-visits-last-move": "invalid", "show-pv-visits-all-move": "invalid",
+        "pv-visits-limit": 2147483648_i64, "remove-dead-in-variation": "invalid",
+        "auto-replay-branch": "invalid", "auto-replay-display-entire-variations-first": "invalid",
+        "display-entire-variations-first-seconds": "invalid",
+        "continue-with-best-move": "invalid", "directly-with-best-move": "invalid",
+        "min-playouts-for-next-move": -2147483649_i64,
+    });
+    std::fs::write(java.join("config.txt"), json!({"ui": ui.clone(), "leelaz": {"show-nosugg-circle": "invalid"}}).to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    for key in ui.as_object().unwrap().keys() {
+        assert_eq!(item(&p.items, &format!("ui.{key}")).status, ImportStatus::Incompatible, "{key}");
+    }
+    assert_eq!(item(&p.items, "leelaz.show-nosugg-circle").status, ImportStatus::Incompatible);
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    assert_eq!(saved_config(&product).display, DisplaySettings::default());
+}
+
+#[test]
+fn autoplay_intervals_import_from_java_persist_toolbar_slots() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), "{}").unwrap();
+    for (i, (main, sub, valid)) in [(2, 350, true), (-1, -1, true), (0, -3, false)].into_iter().enumerate() {
+        let mut toolbar = vec![json!(-1); 51];
+        toolbar[40] = json!(main);
+        toolbar[41] = json!(sub);
+        std::fs::write(java.join("persist"), json!({"ui-persist": {"toolbar-parameter": toolbar}}).to_string()).unwrap();
+        let product = tmp.path().join(format!("product-{i}"));
+        let mut wb = workbench(&product, Recorder::default());
+        let p = preview(&mut wb, &java);
+        for index in [40, 41] {
+            assert_eq!(item(&p.items, &format!("persist:ui-persist.toolbar-parameter[{index}]")).status,
+                if valid { ImportStatus::Imported } else { ImportStatus::Incompatible });
+        }
+        wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+        assert_eq!(wb.config().display.autoplay_main_seconds, if valid { f64::from(main) } else { -1.0 });
+        assert_eq!(wb.config().display.autoplay_sub_millis, if valid { sub } else { -1 });
     }
 }

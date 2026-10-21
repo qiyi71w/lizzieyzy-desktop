@@ -37,6 +37,7 @@ const CANDIDATE: Fields<CandidateView> = {
   order: same,
   pv: sameList(sameMove),
   pv_captures: sameList(sameList(samePoint)),
+  pv_visits: sameList(same),
   shown: sameShown,
 };
 const sameCandidates = sameList((a: CandidateView, b: CandidateView) => sameBy(CANDIDATE, a, b));

@@ -1,9 +1,11 @@
 // Java BottomToolbar main bar: the default button set (Config.java:1900-1936) in its groups
-// (BottomToolbar.java:5209-5235), placed by layoutMainBar (5237-5320). Navigation, the move field
-// and the record-editing buttons are implemented here; the other buttons report that the
-// capability is not available yet.
+// (BottomToolbar.java:5209-5235), placed by layoutMainBar (5237-5320). Navigation, the move field,
+// the record-editing and board display buttons are implemented here; the other buttons report
+// that the capability is not available yet.
 import { navigate, run, state, subscribe, unavailable } from "../app";
 import { COMMANDS } from "../commands";
+import { toggleCoordinates, toggleMoveNumbers } from "../display/commands";
+import { toggleRawNet } from "../display/state";
 import "../editing/commands";
 import { product, t } from "../i18n";
 import { openAutoSetup } from "../setup/dialog";
@@ -43,7 +45,8 @@ const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" 
     { name: "remoteComputeButton", key: "Menu.remoteCompute", cls: "primary" },
     { name: "downloadWeightButton", key: "BottomToolbar.downloadWeight", run: () => openAutoSetup("weights") },
     { name: "kataEstimate", key: "BottomToolbar.kataEstimate" },
-    { name: "heatMap", key: "BottomToolbar.heatMap" },
+    // activeEngine.toggleHeatmap(false), as H (BottomToolbar.java:1365-1373)
+    { name: "heatMap", key: "BottomToolbar.heatMap", run: toggleRawNet },
     { name: "liveButton", key: "BottomToolbar.liveButton" },
   ],
   center: [
@@ -55,15 +58,17 @@ const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" 
     { name: "forward1", key: ">", cls: "nav", run: () => navigate({ op: "Forward", count: 1 }) },
     { name: "forward10", key: ">>", cls: "nav", run: () => navigate({ op: "Forward", count: 10 }) },
     { name: "lastButton", key: ">|", cls: "nav", run: () => navigate({ op: "Last" }) },
-    { name: "autoPlay", key: "BottomToolbar.autoPlay" },
+    // new AutoPlay().setVisible(true) (BottomToolbar.java:1296-1302)
+    { name: "autoPlay", key: "BottomToolbar.autoPlay", run: () => COMMANDS["menu.makeAutoPlay"].run() },
   ],
   rightPrimary: [
     // 试下 / 恢复 (LizzieFrame.tryPlay, BottomToolbar.java:1321)
     { name: "tryPlay", key: "BottomToolbar.tryPlay", hidden: true, run: () => COMMANDS["toolbar.try-play"].run() },
     { name: "backMain", key: "BottomToolbar.backMain", hidden: true, run: () => COMMANDS["menu.backToMainBranch"].run() },
     { name: "setMain", key: "BottomToolbar.setMain", run: () => COMMANDS["menu.setAsMain"].run() },
-    { name: "move", key: "BottomToolbar.move" },
-    { name: "coords", key: "BottomToolbar.coords" },
+    // toggleShowMoveNumber / toggleCoordinates (BottomToolbar.java:1330-1343)
+    { name: "move", key: "BottomToolbar.move", run: toggleMoveNumbers },
+    { name: "coords", key: "BottomToolbar.coords", run: toggleCoordinates },
   ],
   rightOptional: [
     // newEmptyBoard (1490) and deleteMoveNoHint (1307)

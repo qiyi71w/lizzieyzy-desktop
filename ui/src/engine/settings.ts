@@ -1,10 +1,11 @@
-// ConfigDialog2.java:6701-6711, 6851-6854 and modern engine/analysis section.
+// ConfigDialog2.java:6701-6711, 6851-6854 and the modern 引擎与分析 / 对局与操作 / 高级 sections.
 import { run, state } from "../app";
 import type { AnalysisSettings, ProxyMode } from "../contract/generated";
 import { confirm, formPanel, message } from "../dialogs";
 import { product, t } from "../i18n";
 import { actions, button, checkbox, field, input } from "./controls";
 import { resourceCommand, resourceView } from "../setup/dialog";
+import { buildDisplaySettings } from "../display/settingsPage";
 
 export async function openAnalysisSettings(): Promise<void> {
   if (!state.view) return;
@@ -15,11 +16,12 @@ export async function openAnalysisSettings(): Promise<void> {
   const nav = document.createElement("nav");
   const form = document.createElement("div"); form.className = "engine-settings-form";
   const advanced = document.createElement("div"); advanced.className = "engine-settings-form"; advanced.hidden = true;
+  const play = document.createElement("div"); play.className = "engine-settings-form"; play.hidden = true;
   for (const [key, text] of [["display", t("ConfigDialog2.modern.nav.display")], ["kifu", t("ConfigDialog2.modern.nav.kifu")], ["engine", t("ConfigDialog2.modern.nav.engine")], ["play", t("ConfigDialog2.modern.nav.play")], ["theme", t("ConfigDialog2.modern.nav.theme")], ["advanced", t("ConfigDialog2.modern.nav.advanced")], ["about", t("ConfigDialog2.modern.nav.about")]]) {
     const item = document.createElement("button"); item.textContent = text; item.dataset.key = `settings.nav.${key}`;
-    item.disabled = key !== "engine" && key !== "advanced";
+    item.disabled = key !== "engine" && key !== "advanced" && key !== "play";
     if (item.disabled) { item.title = product("unavailable"); item.className = "unavailable"; }
-    else item.onclick = () => { form.hidden = key !== "engine"; advanced.hidden = key !== "advanced"; };
+    else item.onclick = () => { form.hidden = key !== "engine"; advanced.hidden = key !== "advanced"; play.hidden = key !== "play"; };
     nav.append(item);
   }
   body.append(nav);
@@ -42,6 +44,7 @@ export async function openAnalysisSettings(): Promise<void> {
   const visits = checkbox(t("ConfigDialog2.modern.analysis.limitVisits"), settings.limitPlayout); visits.input.dataset.key = "settings.analysis.limitPlayout";
   const fast = checkbox(t("ConfigDialog2.modern.advanced.fastSwitch"), settings.fastEngineChange); fast.input.dataset.key = "settings.analysis.fastEngineChange";
   form.append(time.label, visits.label, fast.label);
+  const displayRows = buildDisplaySettings(form, play);
   const heading = document.createElement("h3"); heading.textContent = t("ConfigDialog2.modern.advanced.title");
   const subtitle = document.createElement("p"); subtitle.textContent = t("ConfigDialog2.modern.advanced.subtitle"); advanced.append(heading, subtitle);
   const benchmark = checkbox(t("ConfigDialog2.modern.advanced.firstBenchmark"), startupBenchmark); benchmark.input.dataset.key = "settings.startupBenchmark"; benchmark.label.title = t("ConfigDialog2.modern.advanced.firstBenchmarkSub"); advanced.append(benchmark.label);
@@ -68,15 +71,15 @@ export async function openAnalysisSettings(): Promise<void> {
   const manualRow = document.createElement("div"); manualRow.className = "engine-field";
   const manualTitle = document.createElement("span"); manualTitle.textContent = t("ConfigDialog2.modern.proxy.manual"); manualRow.append(manualTitle, address); advanced.append(manualRow);
   const toggleManual = () => { host.disabled = port.disabled = mode.value !== "Manual"; }; mode.onchange = toggleManual; toggleManual();
-  body.append(form, advanced);
+  body.append(form, play, advanced);
   const dialog = formPanel(t("Menu.comprehensiveSettings"), body);
   const save = button(t("SetKataRules.btnApply"), async () => {
     const invalid = inputs.find((control) => !control.checkValidity());
-    if (invalid) { form.hidden = false; advanced.hidden = true; invalid.reportValidity(); return; }
+    if (invalid) { form.hidden = false; advanced.hidden = true; play.hidden = true; invalid.reportValidity(); return; }
     const proxyMode: ProxyMode = mode.value === "System" ? "System" : mode.value === "Manual" ? "Manual" : "Direct";
     const validPort = /^\d+$/.test(port.value) && Number(port.value) >= 1 && Number(port.value) <= 65535;
     if (proxyMode === "Manual" && (!host.value.trim() || !validPort)) {
-      advanced.hidden = false; form.hidden = true;
+      advanced.hidden = false; form.hidden = true; play.hidden = true;
       await message(t("ConfigDialog2.modern.proxy.title"), !host.value.trim() ? t("ConfigDialog2.modern.proxy.hostRequired") : t("ConfigDialog2.modern.proxy.invalidPort"), "warning");
       (!host.value.trim() ? host : port).focus(); return;
     }
@@ -91,6 +94,7 @@ export async function openAnalysisSettings(): Promise<void> {
     if (noCapture.input.checked !== edit.noCapture) {
       const result = await run({ type: "SetEditSettings", settings: { ...edit, noCapture: noCapture.input.checked } }); if (!result || result.type === "Refused") return;
     }
+    if (!(await displayRows.save())) return;
     const result = await run({ type: "SetAnalysisSettings", settings });
     if (result && result.type !== "Refused") await dialog.close();
   }); save.dataset.key = "settings.apply";

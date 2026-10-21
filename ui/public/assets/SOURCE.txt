@@ -8,6 +8,7 @@ Utils.playVoiceFile; edit-bar selected states smallblack2 / smallwhite4 / hb2.pn
 buttons mark2, label(2), labelnum1/2, x(2), square(2), sanjiao(2), eraser(2).png per
 Menu.java:7552-7643, 8507-8634; board context-menu icons left, right, recycle, setpoint,
 forbidpoint, trackingpoint, upSearch.png per RightClickMenu.java:222-287 and
-RightClickMenu2.java:93-105.
+RightClickMenu2.java:93-105; the sub-board heat image heatmap.png per SubBoardRenderer.java:1452-1466;
+the 落子评价 button states RankMarkOn / RankMarkOff.png per Menu.java:8432-8447.
 The application icons in src-tauri/icons were generated with `tauri icon` from
 packaging/icons/app-icon-1024.png of the same commit.

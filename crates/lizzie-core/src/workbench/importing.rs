@@ -17,7 +17,7 @@ use crate::api::{
 };
 use crate::java_import::{slots, Candidate, CONFIG_FILE};
 use crate::recovery::SlotWrite;
-use crate::settings;
+use crate::settings::{self, PvVisitsMode};
 
 /// Refusal: the preview was replaced or already applied.
 pub const IMPORT_STALE: &str = "product.importStale";
@@ -146,10 +146,15 @@ impl Workbench {
         }
 
         let previous_analysis = self.config.engine.analysis.clone();
+        let captures_changed = self.config.edit.no_capture != config.edit.no_capture;
         self.config = config;
         self.persisted = persisted;
         self.new_profile = false;
         self.analysis_settings_changed(&previous_analysis);
+        self.engines.set_pv_visits(self.config.display.pv_visits != PvVisitsMode::Off);
+        if captures_changed && previous_analysis.limit_branch_length == self.config.engine.analysis.limit_branch_length {
+            self.refresh_pv_captures();
+        }
         // The imported engine list and start-up choice take over, as after a start.
         self.shutdown_engines(EngineScope::All);
         self.start_engines();

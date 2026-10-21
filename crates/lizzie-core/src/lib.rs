@@ -16,6 +16,7 @@
 
 pub mod api;
 pub mod browse;
+pub mod display;
 pub mod engine;
 pub mod formats;
 pub mod java_import;

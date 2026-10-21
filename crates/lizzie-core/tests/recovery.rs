@@ -641,6 +641,7 @@ fn the_commented_export_follows_the_viewpoint_settings_like_java() {
         let settings = DisplaySettings {
             winrate_always_black: always_black,
             score_lead_with_komi: with_komi,
+            ..DisplaySettings::default()
         };
         wb.set_display_settings(settings.clone()).unwrap();
         let rec = sgf::read(&wb.export_text(ExportKind::RawWithComments, &english)).unwrap();

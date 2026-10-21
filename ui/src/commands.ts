@@ -36,7 +36,8 @@ function language(lang: Language): CommandEntry {
   };
 }
 
-function setDisplay(change: Partial<DisplaySettings>): void {
+/** One change to `settings.display`, the rest as it is (SetDisplaySettings). */
+export function setDisplay(change: Partial<DisplaySettings>): void {
   const settings = state.view?.settings.display;
   if (settings) void run({ type: "SetDisplaySettings", settings: { ...settings, ...change } });
 }

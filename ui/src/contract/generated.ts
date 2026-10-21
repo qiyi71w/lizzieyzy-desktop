@@ -97,7 +97,7 @@ showPonderLimitedTips: boolean, };
 
 export type EngineScope = "Current" | "Others" | "All";
 
-export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "SetDisplaySettings", settings: DisplaySettings, };
+export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "SetDisplaySettings", settings: DisplaySettings, } | { "type": "ToggleRawNet" } | { "type": "StopRawNet" };
 
 export type CommandResult = { "type": "Done" } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "NeedsEditConfirmation", target: EditTarget, } | { "type": "Exported", path: string, } | { "type": "ExportFailed", path: string, detail: string, } | { "type": "Refused", message_key: string, } | { "type": "SaveStarted", ticket: number, } | { "type": "NeedsReplaceConfirmation", document: number, file_name: string, } | { "type": "NeedsOverwriteConfirmation", path: string, } | { "type": "NeedsExportOverwriteConfirmation", kind: ExportKind, path: string, } | { "type": "NeedsImageOverwriteConfirmation", path: string, } | { "type": "FolderChosen", path: string, } | { "type": "JavaImportPreview", preview: ImportPreviewView, } | { "type": "JavaImportFailed", failure: ImportFailure, } | { "type": "JavaImported", report: ImportReportView, } | { "type": "Resource", result: ResourceResult, } | { "type": "Tuning", result: TuningResult, };
 
@@ -135,7 +135,11 @@ export type TreeNodeView = { id: number, parent: number | null,
 /**
  * Children in order, without dummy placeholders.
  */
-children: Array<number>, kind: TreeNodeKind, pass: boolean, move_number: number, has_comment: boolean, };
+children: Array<number>, kind: TreeNodeKind, pass: boolean, move_number: number, 
+/**
+ * Display numbering, including branch restarts, SGF MN and passes; 0 for no number.
+ */
+number: number, has_comment: boolean, };
 
 export type TreeView = { document: number, nodes: Array<TreeNodeView>, };
 
@@ -282,8 +286,12 @@ allocation_visits: number, winrate: number, score_lead: number | null, score_std
  */
 pv: Array<Point | null>, 
 /**
+ * KataGo `pvVisits`, one count per reported variation move; empty when absent.
+ */
+pv_visits: Array<number>, 
+/**
  * For each `pv` move, the stones it captures when played out from the node's position
- * (`Branch` with `remove-dead-in-variation`); empty for passes.
+ * (`Branch`; none under no-capture); the board removes them with `remove-dead-in-variation`.
  */
 pv_captures: Array<Array<Point>>, 
 /**
@@ -403,6 +411,15 @@ komi: number, engine: EngineView,
  */
 analysis: NodeAnalysisView | null, 
 /**
+ * Move numbers, 落子评价 and 下一手 详细 of the current position, as the display settings
+ * choose them.
+ */
+board: BoardOverlayView, 
+/**
+ * Foreground engine's pure-network result, never from another position or instance.
+ */
+rawNet: RawNetView | null, 
+/**
  * Stored results along the current line, its continuation and the main trunk, root first
  * (the win-rate graph's data).
  */
@@ -451,7 +468,7 @@ export type ImportStatus = "Imported" | "Incompatible" | "NotMigrated";
 
 export type ImportReason = "NotYetAvailable" | "Credential" | "InvalidValue" | "WindowCoordinates" | "RemoteEngine" | "CredentialNotConfirmed" | "Unreadable" | "NotChosen" | "Obsolete";
 
-export type ImportTarget = "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi";
+export type ImportTarget = "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork";
 
 export type ImportItemView = { 
 /**
@@ -656,7 +673,148 @@ winrateAlwaysBlack: boolean,
  * 目差显示 > 盘面: score leads are the board difference (KataGo's lead plus the komi for
  * Black, minus it for White) instead of the lead after komi (目差).
  */
-scoreLeadWithKomi: boolean, };
+scoreLeadWithKomi: boolean, 
+/**
+ * 坐标 (`show-coordinates`, on).
+ */
+coordinates: boolean, 
+/**
+ * Exclusive special-coordinate mode (`ConfigDialog2.SpecialCoordsCbx`).
+ */
+coordinateStyle: CoordinateStyle, 
+/**
+ * 棋盘下方显示黑白名字 (`show-name-in-board`, on).
+ */
+namesOnBoard: boolean, 
+/**
+ * 手数 (`allow-move-number`): 0 none, -1 every move, n the last n moves. A new Java profile
+ * has `show-move-number` off, so none.
+ */
+moveNumbers: number, 
+/**
+ * 总是从1开始显示 (`movenumber-from-one`): the last n moves count 1..n.
+ */
+moveNumbersFromOne: boolean, 
+/**
+ * 分支内从1开始显示 (`new-move-number-in-branch`, on) versus 分支内继续总手数. Only branches
+ * created afterwards follow a change (`Menu.moveNumberInBranchTips`).
+ */
+branchNumbersFromOne: boolean, 
+/**
+ * 分支内总是显示所有手数 (`show-moveall-inbranch`, off).
+ */
+allNumbersInBranch: boolean, 
+/**
+ * 显示分支面板上的手数 (`show-var-move`, on).
+ */
+treeMoveNumbers: boolean, 
+/**
+ * 落子评价 (`move-rank-mark-last-move`): -1 none, 0 every move, n the last n moves (1).
+ */
+moveRank: number, 
+/**
+ * 显示最后多手 (`txt-move-rank-mark-last-move`, 3).
+ */
+moveRankCustom: number, 
+/**
+ * 判定依据 (`move-rank-evaluation-mode`).
+ */
+moveRankMode: MoveRankMode, 
+/**
+ * Win rate loss of rank levels 1–5 (`win-loss-threshold-1..5`), percentage points.
+ */
+winLossThresholds: [number, number, number, number, number], 
+/**
+ * Score loss of rank levels 1–5 (`score-loss-threshold-1..5`), points.
+ */
+scoreLossThresholds: [number, number, number, number, number], 
+/**
+ * 选点信息 > 胜率 / 计算量 / 目差 (`show-winrate-in-suggestion`, `-playouts-`,
+ * `-scoremean-`, all on).
+ */
+suggestionWinrate: boolean, suggestionPlayouts: boolean, suggestionScore: boolean, 
+/**
+ * 目差显示为与最佳选点之差 (`show-score-as-diff`, off).
+ */
+scoreAsDiff: boolean, 
+/**
+ * 自定义信息顺序: rows of win rate, playouts and score (`suggestion-info-winrate`,
+ * `-playouts`, `-scorelead`; 1, 2, 3).
+ */
+suggestionInfoOrder: [number, number, number], 
+/**
+ * 延迟显示候选点 (`delay-show-candidates`, off; `delay-candidates-seconds`, 10).
+ */
+delayCandidates: boolean, delayCandidatesSeconds: number, 
+/**
+ * 显示选点右上方角标 (`show-suggestion-order`, on).
+ */
+suggestionOrder: boolean, 
+/**
+ * 候选点最高值红色高亮 (`show-suggestion-maxred`, off).
+ */
+suggestionMaxRed: boolean, 
+/**
+ * 轮白下字体显示为白色 (`white-suggestion-white`, off).
+ */
+whiteSuggestionWhite: boolean, 
+/**
+ * Blue best-candidate ring (`show-blue-ring`, on).
+ */
+blueRing: boolean, 
+/**
+ * Candidate colour concentration, 1..=3 (`suggestion-color-ratio`, 2).
+ */
+suggestionColorRatio: number, whiteSuggestionOrderWhite: boolean, 
+/**
+ * Draw forbidden-analysis points (`leelaz.show-nosugg-circle`, off).
+ */
+noSuggCircle: boolean, pvVisits: PvVisitsMode, pvVisitsLimit: number, removeDeadInVariation: boolean, 
+/**
+ * 鼠标悬停显示变化图 (`show-suggestion-variations`, on).
+ */
+suggestionVariations: boolean, 
+/**
+ * 鼠标悬停显示变化图时,变化图不刷新 (`norefresh-onmouse-move`, on).
+ */
+noRefreshOnMouse: boolean, 
+/**
+ * 设置变化图回放间隔 (`replay-branch-interval-seconds`, 0.9 in a new profile).
+ */
+replayIntervalSeconds: number, autoReplayBranch: boolean, entireVariationFirst: boolean, entireVariationFirstSeconds: number, continueWithBestMove: boolean, directlyWithBestMove: boolean, 
+/**
+ * Java `persist.ui-persist.toolbar-parameter[40]`; -1 means no interval entered.
+ */
+autoplayMainSeconds: number, 
+/**
+ * Java `persist.ui-persist.toolbar-parameter[41]`; -1 means no interval entered.
+ */
+autoplaySubMillis: number, 
+/**
+ * Candidates below this share of the most visits show no numbers
+ * (`min-playout-ratio-for-stats`, 0).
+ */
+minPlayoutRatio: number, 
+/**
+ * 下一手 (`show-next-moves`, on; `show-next-move-blunder`, on = 详细).
+ */
+nextMoves: boolean, nextMoveInfo: boolean, 
+/**
+ * 下一手提示需要计算量 (`min-playouts-for-next-move`, 30).
+ */
+nextMoveMinPlayouts: number, 
+/**
+ * 小棋盘设置 (`show-heat`, `show-heat-aftercalc`, `subboard-raw`).
+ */
+subBoard: SubBoardMode, 
+/**
+ * The sub board keeps its variation while the pointer is over it (`no-refresh-on-sub`, on).
+ */
+noRefreshOnSub: boolean, 
+/**
+ * 纯网络 ownership painter (Java's five `show-pure-estimate-*` exclusive menu choices).
+ */
+pureEstimate: PureEstimateStyle, };
 
 export type ShownValues = { 
 /**
@@ -677,6 +835,98 @@ winrate: number,
  * For the side that moved.
  */
 score_lead: number | null, shown: ShownValues, };
+
+export type MoveRankMode = "Auto" | "Score" | "Winrate" | "Combined";
+
+export type SubBoardMode = "Variation" | "Raw" | "Policy" | "Visits";
+
+export type BoardOverlayView = { 
+/**
+ * Move numbers outside a hovered variation. Empty while 手数 is off or 落子评价 shows.
+ */
+move_numbers: Array<MoveNumberLabel>, 
+/**
+ * 落子评价 marks, at most one per point.
+ */
+ranks: Array<RankMark>, 
+/**
+ * The last-move ring gets the red corner triangle (落子评价 of several moves).
+ */
+rank_corner: boolean, 
+/**
+ * 下一手 详细, while the next-move hints are on.
+ */
+next_move: NextMoveInfo | null, 
+/**
+ * The 自定义信息顺序 dialog's KataGo sample as a candidate of this position would show it.
+ */
+info_order_sample: ShownValues, };
+
+export type MoveNumberLabel = { point: Point, number: number, 
+/**
+ * The last move: drawn red, with the red corner triangle.
+ */
+last: boolean, };
+
+export type MoveRank = "Best" | "Good" | "Normal" | "Inaccuracy" | "Mistake" | "Blunder";
+
+export type RankMark = { point: Point, rank: MoveRank, 
+/**
+ * The current position's move: the mark fills the last-move ring.
+ */
+last: boolean, };
+
+export type NextMoveVerdict = "Bad" | "Questionable" | "Good";
+
+export type NextMoveInfo = { point: Point, verdict: NextMoveVerdict, 
+/**
+ * The result after the move, for the shown side (总是显示黑胜率 / 目差显示 applied).
+ */
+winrate: number, 
+/**
+ * `None` without KataGo scores on both positions.
+ */
+score_lead: number | null, 
+/**
+ * The mover's score after the move minus the best candidate's (目差显示为与最佳选点之差).
+ */
+score_diff: number | null, 
+/**
+ * The candidate on that point is not shown: the move was played and analysed further
+ * than the candidate (`shouldIgnoreBestMove`).
+ */
+hides_candidate: boolean, 
+/**
+ * The actual next move followed by its best candidate's principal variation.
+ */
+pv: Array<Point | null>, pv_captures: Array<Array<Point>>, 
+/**
+ * `nextPvVisits`: the reply's visits for the actual move, then the reply's `pvVisits`;
+ * empty when the engine reported no `pvVisits`.
+ */
+pv_visits: Array<number>, };
+
+export type RawNetMode = "Off" | "Policy" | "Ownership";
+
+export type RawNetView = { mode: RawNetMode, node: number, 
+/**
+ * Row-major probabilities (Java renders `(int)(policy * 1000)`).
+ */
+policy: Array<number> | null, 
+/**
+ * White's win probability, independent of the player to move.
+ */
+whiteWinrate: number | null, whiteLead: number | null, symmetry: number | null, 
+/**
+ * Black-positive ownership; exposed only in Ownership mode.
+ */
+ownership: Array<number> | null, };
+
+export type PureEstimateStyle = "Small" | "Transparent" | "TransparentNotOnLive" | "BigBelow" | "BySize";
+
+export type CoordinateStyle = "Normal" | "WithI" | "Fox" | "NumbersFromTop" | "NumbersFromBottom";
+
+export type PvVisitsMode = "Off" | "LastMove" | "AllMoves";
 
 export type ManagedProfile = { command: string, assetId: string, weightPath: string, configPath: string, };
 

@@ -152,6 +152,50 @@ importing the matching LizzieYzy Next settings.
   the statistics panel and the title always show Black. 盘面目数差 turns every shown lead into the
   board difference (plus the komi for Black, minus it for White) and switches the statistics
   label to 盘面. The 带评论 export follows the same settings.
+- Board display (显示 menu, keys, bottom bar and the top 选点 黑 / 白 boxes, Java defaults; the
+  settings are saved and taken over by the LizzieYzy Next import):
+  - 坐标 (`C`): a smaller board margin when off; 坐标格式 (综合设置 > 对局与操作): normal, with I,
+    野狐 (with I, rows from the top) or numbers from the top / bottom. 显示名字 puts the player
+    names under the board.
+  - 手数: 不显示 / last 1, 5, 10 / 全部 / 自定义, 总是从1开始显示, 分支内从1开始 or continuing
+    the total, 分支内总是显示所有手数 (`Ctrl+M`), 分支面板上的手数; `M` and the bottom bar cycle
+    全部 → 最近1手 → 不显示. Numbers are worked out by the core: a branch starts at 1 only if it
+    was played (or the record was opened) while 分支内从1开始 was on, an SGF `MN` renumbers, captured
+    stones lose their number, setup stones take none.
+  - 落子评价 (`Alt+M`, toolbar button with its popup): marks of the last move, the last n or all
+    moves, judged by score, win rate, both or automatically, from the analysis of the positions
+    before and after each move; a move without that analysis gets no mark. They show while move
+    numbers are off.
+  - 推荐点: win rate / visits / score rows and their order (自定义信息顺序, with Java's preview),
+    score as difference, order badges, red maxima, white text for White, no refresh under the
+    mouse, the variation on hover (`Shift+F`), delayed candidates, replay interval (`R` replays
+    the hovered variation step by step); `F` hides the candidates, holding `Z` hides them until
+    released.
+  - 综合设置 > 引擎与分析: blue ring on the best candidate, colour concentration, White's text
+    and badges in white, circles for candidates beyond the limit (otherwise those are left out,
+    except one that just dropped out, for 3 s), the low-visit ratio, PV visits on the hovered
+    variation (last move or every move, above a threshold; KataGo is asked for `pvVisits`) and
+    removing captured stones in variations.
+  - 设置自动播放 (`Ctrl+A`, bottom bar 自动播放): main board (one move every n seconds, or the
+    best move), sub board (its variation one move every n ms) and branch replay on hover (with
+    the whole variation first for n seconds).
+  - 下一手 (`J`: 详细 → 简易 → 不显示): 详细 shows the record's next move with its result and a
+    good / questionable / bad colour once both positions are analysed (minimum visits setting);
+    hovering it shows that move followed by the next position's best variation.
+  - 策略网络 (`T`) shows the candidates' priors (no hover variation meanwhile); 纯网络 (`H`) asks
+    the engine for its raw network
+    (`kata-raw-nn`, or `heatmap` for Leela Zero) instead of analysing: the policy of every empty
+    point and the raw win rate line; with KataGo a second `H` adds the ownership (纯网络形势: five
+    styles), a third returns to the analysis. A raw result is only shown for the position it was
+    asked for.
+  - 小棋盘设置: the sub board shows its own candidate's variation (click / right click / wheel,
+    paused while the pointer rests on it with 小棋盘不刷新), the first-instinct (prior) or
+    after-calculation (visits) heat map, or the stones only. The variation tree shows each
+    node's move number (分支面板上的手数) as the board numbers it.
+  - Two changes from Java: a pass inside a branch keeps the branch's count, and setup stones
+    right after the root no longer start the count at 2; 纯网络形势 > 小方块 has its own effect
+    (Java read the KataGo-estimate setting there); 设置自动播放's 落子最佳选点 shows its own setting
+    (Java filled it from the other check box).
 - Rules: an SGF record's `RU` is applied to KataGo (`kata-set-rules`) before analysis. When the
   engine cannot confirm it, a dialog asks whether to continue with the engine's current rules
   (no pauses analysis). `Shift+D` opens the KataGo rules editor.
@@ -175,8 +219,11 @@ importing the matching LizzieYzy Next settings.
   size, no-capture), recent records, last
   folder, the engine list with its default and start-up choice, each engine's thread policy and
   benchmark results and its GTP configuration profile, analysis limits and interval, fast engine
-  change, limit notice, KataGo rules, the start-up benchmark choice and the network proxy (only
-  values Java itself accepts). Java's marker for its own bundled KataGo package is reported as not
+  change, limit notice, KataGo rules, the start-up benchmark choice, the network proxy and the
+  board display settings (coordinates, move numbers including the older `show-move-number` keys,
+  move-rank marks and judgement, candidate rows and options, next-move hints, sub-board mode,
+  pure-network ownership style) — only values Java itself accepts. Java's marker for its own
+  bundled KataGo package is reported as not
   applicable. Engines keep using the Java engine and
   model files: relative paths are resolved as Java launches them (a bare program name is looked
   up on `PATH`; relative files, including a Java engine's `-jar` file, in the Java folder or an

@@ -14,12 +14,14 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::io::Write;
+use std::hash::BuildHasher;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::gtp::{self, Dialect, Frame, Framer, InfoLine, LaunchSpec};
 use super::profile::EngineProfile;
+use super::raw_net::{self, RawNetMode, RawNetView};
 use super::rules::KataRules;
 use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, Point, Stone, ROOT};
 
@@ -143,6 +145,8 @@ pub enum RuntimeEvent {
     /// The engine answered `kata-get-rules` or refused session rules: whether analysis may run
     /// can have changed.
     Rules { instance: InstanceId },
+    /// A complete pure-network answer became available for the current foreground target.
+    RawNet { instance: InstanceId },
     /// The process failed to start or ended unexpectedly; the instance is gone.
     Failed(EngineFailure),
 }
@@ -180,6 +184,7 @@ enum Purpose {
     SetRules,
     Sync,
     Analyze,
+    RawNet,
     /// Leela 0.11 starts pondering with an ordinary, immediately answered GTP command.
     Ponder,
     /// Ends a pondering cycle to obtain its stderr summary, without changing its owner.
@@ -209,6 +214,19 @@ struct Request {
     started: Instant,
 }
 
+/// Leela prints its heatmap on stderr and acknowledges on stdout. Hold the command fence
+/// until both arrive: the two reader threads may deliver them in either order, but no later
+/// position may claim this unnumbered table.
+struct RawRequest {
+    id: u64,
+    request: Request,
+    revision: u64,
+    mode: RawNetMode,
+    text: String,
+    response: Option<bool>,
+    complete: bool,
+}
+
 struct Instance {
     id: InstanceId,
     profile: EngineProfile,
@@ -232,6 +250,8 @@ struct Instance {
     board: Option<EngineBoard>,
     /// GTP id of the analysis stream the engine is producing (or about to).
     stream: Option<u64>,
+    /// The stream was asked for `pvVisits` (KataGo).
+    stream_pv_visits: bool,
     /// Analysis requests by GTP id, so late lines still reach the position they were for.
     requests: VecDeque<(u64, Request)>,
     /// One summary per Leela 0.11 pondering cycle, retained across stop/navigation: stderr
@@ -248,6 +268,11 @@ struct Instance {
     confirmed_rules: Option<KataRules>,
     /// Session rules sent to it and how that went.
     rules_request: Option<(KataRules, RulesOutcome)>,
+    raw_mode: RawNetMode,
+    raw_revision: u64,
+    raw_requested: Option<(TargetKey, u64)>,
+    raw_request: Option<RawRequest>,
+    raw_data: Option<(TargetKey, RawNetView)>,
 }
 
 const OUTPUT_TAIL: usize = 40;
@@ -359,6 +384,8 @@ pub struct Engines {
     foreground: Option<InstanceId>,
     wish: Option<(Target, bool)>,
     interval_centisec: u32,
+    /// `show-pv-visits`: KataGo analysis also reports each variation move's visits.
+    pv_visits: bool,
     console: VecDeque<ConsoleLine>,
     console_seq: u64,
     trace: Option<Box<dyn Write + Send>>,
@@ -440,6 +467,7 @@ impl Engines {
             foreground: None,
             wish: None,
             interval_centisec: 10,
+            pv_visits: false,
             console: VecDeque::new(),
             console_seq: 0,
             trace: None,
@@ -607,6 +635,15 @@ impl Engines {
         self.interval_centisec = if centisec == 0 { 10 } else { centisec };
     }
 
+    /// `show-pv-visits` (`Leelaz` adds ` pvVisits true` to `kata-analyze`); a KataGo stream asked
+    /// with the other choice is requested again.
+    pub fn set_pv_visits(&mut self, on: bool) {
+        if self.pv_visits != on {
+            self.pv_visits = on;
+            self.pump();
+        }
+    }
+
     /// Full trace (诊断与日志 > 完整日志, engine GTP scope): every line to and from engines.
     pub fn set_trace(&mut self, sink: Option<Box<dyn Write + Send>>) {
         self.trace = sink;
@@ -726,6 +763,12 @@ impl Engines {
             output_tail: VecDeque::new(),
             confirmed_rules: None,
             rules_request: None,
+            raw_mode: RawNetMode::Off,
+            raw_revision: 0,
+            raw_requested: None,
+            raw_request: None,
+            raw_data: None,
+            stream_pv_visits: false,
         });
         let name = profile.name.clone();
         self.trace(&name, "--", &format!("start {}", profile.command));
@@ -790,6 +833,9 @@ impl Engines {
         }
         if let Some(i) = id.and_then(|id| self.get_mut(id)) {
             i.synced = false;
+            i.raw_mode = RawNetMode::Off;
+            i.raw_revision += 1;
+            i.raw_data = None;
             i.rejected = None;
         }
         self.pump();
@@ -823,11 +869,16 @@ impl Engines {
     /// What the foreground engine should do: hold `target` (synced even while not analysing, so
     /// a switch completes) and analyse it when `analyse`. `None` stops and leaves the board.
     pub fn want(&mut self, target: Option<Target>, analyse: bool) {
+        let changed_target = self.wish.as_ref().map(|(t, _)| t.key()) != target.as_ref().map(Target::key);
         self.wish = target.map(|t| (t, analyse));
         if let Some(inst) = self
             .foreground
             .and_then(|id| self.instances.iter_mut().find(|i| i.id == id))
         {
+            if changed_target {
+                inst.raw_revision += 1;
+                inst.raw_data = None;
+            }
             let keep_pondering = self.wish.as_ref().is_some_and(|(target, analyse)| {
                 *analyse
                     && inst
@@ -840,6 +891,40 @@ impl Engines {
             }
         }
         self.pump();
+    }
+
+    /// Pure network belongs to the foreground instance, not the document or profile.
+    pub fn toggle_raw_net(&mut self) -> bool {
+        let Some(inst) = self.foreground.and_then(|id| self.instances.iter_mut().find(|i| i.id == id)) else { return false };
+        inst.raw_mode = match inst.raw_mode {
+            RawNetMode::Off => RawNetMode::Policy,
+            RawNetMode::Policy if inst.kind == EngineKind::KataGo => RawNetMode::Ownership,
+            _ => RawNetMode::Off,
+        };
+        inst.raw_revision += 1;
+        inst.raw_data = None;
+        true
+    }
+
+    pub fn stop_raw_net(&mut self) -> bool {
+        let Some(inst) = self.foreground.and_then(|id| self.instances.iter_mut().find(|i| i.id == id)) else { return false };
+        if inst.raw_mode == RawNetMode::Off { return false; }
+        inst.raw_mode = RawNetMode::Off;
+        inst.raw_revision += 1;
+        inst.raw_data = None;
+        true
+    }
+
+    pub fn raw_net_active(&self) -> bool {
+        self.foreground.and_then(|id| self.get(id)).is_some_and(|i| i.raw_mode != RawNetMode::Off)
+    }
+
+    pub fn raw_net_view(&self, target: &Target) -> Option<RawNetView> {
+        let inst = self.get(self.foreground?)?;
+        if inst.raw_mode == RawNetMode::Off { return None; }
+        let key = target.key();
+        Some(inst.raw_data.as_ref().filter(|(k, _)| *k == key).map_or_else(
+            || RawNetView::pending(inst.raw_mode, target.node), |(_, view)| view.clone()))
     }
 
     /// When [`tick`](Self::tick) has work next (a Leela 0.11 pondering probe), if ever.
@@ -901,7 +986,8 @@ impl Engines {
                     self.stop_stream(fg);
                 } else {
                     let (commands, board) = sync_commands(inst, &target);
-                    let streaming_here = inst.stream.and_then(|n| inst.request(n)).is_some_and(|r| r.key == key);
+                    let streaming_here = inst.stream.and_then(|n| inst.request(n)).is_some_and(|r| r.key == key)
+                        && (inst.dialect() != Some(Dialect::Kata) || inst.stream_pv_visits == self.pv_visits);
                     let dialect = inst.dialect();
                     let root_info = inst.supports_root_info();
                     if commands.is_empty() {
@@ -915,14 +1001,42 @@ impl Engines {
                         }
                     }
                     let streaming_here = streaming_here && self.get(fg).unwrap().stream.is_some();
+                    let raw_mode = self.get(fg).unwrap().raw_mode;
+                    if raw_mode != RawNetMode::Off {
+                        self.stop_stream(fg);
+                        let inst = self.get(fg).unwrap();
+                        let revision = inst.raw_revision;
+                        if analyse && inst.raw_requested != Some((key, revision)) {
+                            let request = Request {
+                                key, to_play: target.record.node(target.node).to_play,
+                                size: target.record.size, started: Instant::now(),
+                            };
+                            let command = if inst.kind == EngineKind::KataGo {
+                                let symmetry = std::collections::hash_map::RandomState::new().hash_one((fg, first_new)) % 8;
+                                format!("kata-raw-nn {symmetry}")
+                            } else { "heatmap".to_string() };
+                            if let Some(n) = self.send(fg, &command, Purpose::RawNet) {
+                                let inst = self.get_mut(fg).unwrap();
+                                inst.raw_requested = Some((key, revision));
+                                inst.raw_request = Some(RawRequest {
+                                    id: n, request, revision, mode: raw_mode,
+                                    text: String::new(), response: None, complete: false,
+                                });
+                            }
+                        }
+                        let inst = self.get_mut(fg).unwrap();
+                        if inst.next_id > first_new { inst.fence = Some(inst.next_id - 1); }
+                        return;
+                    }
                     match (analyse, dialect) {
                         (true, Some(d)) if !streaming_here => {
                             let to_play = target.record.node(target.node).to_play;
                             let color = if to_play == Stone::Black { "B" } else { "W" };
                             let cmd = match d {
                                 Dialect::Kata => format!(
-                                    "kata-analyze {color} {interval}{}",
-                                    if root_info { " rootInfo true" } else { "" }
+                                    "kata-analyze {color} {interval}{}{}",
+                                    if root_info { " rootInfo true" } else { "" },
+                                    if self.pv_visits { " pvVisits true" } else { "" }
                                 ),
                                 Dialect::Leela | Dialect::Sai => format!("lz-analyze {color} {interval}"),
                                 Dialect::Sayuri => format!("analyze {color} {interval}"),
@@ -940,8 +1054,10 @@ impl Engines {
                                 Purpose::Analyze
                             };
                             if let Some(n) = self.send(fg, &cmd, purpose) {
+                                let pv_visits = self.pv_visits;
                                 let i = self.get_mut(fg).unwrap();
                                 i.stream = Some(n);
+                                i.stream_pv_visits = pv_visits;
                                 i.requests.push_back((n, request));
                                 if d == Dialect::Leela011 {
                                     i.summaries.push_back((n, request, InfoLine::default()));
@@ -1111,6 +1227,20 @@ impl Engines {
         match input {
             EngineInput::Stderr(line) => {
                 push_tail(&mut inst.output_tail, &line);
+                if inst.kind != EngineKind::KataGo {
+                    if let Some(raw) = inst.raw_request.as_mut() {
+                        if !raw.complete {
+                            let row = line.split_whitespace().count() == usize::from(raw.request.size.width)
+                                && line.split_whitespace().all(|s| s.parse::<u32>().is_ok());
+                            if row || line.contains("winrate:") {
+                                raw.text.push_str(&line);
+                                raw.text.push('\n');
+                            }
+                            if line.contains("winrate:") { raw.complete = true; }
+                        }
+                    }
+                }
+                self.finish_raw(id, &mut events);
                 self.summary(id, &line, &mut events);
                 self.trace(&name, "!!", &line);
                 self.console_push(name, ConsoleKind::Error, line);
@@ -1142,6 +1272,30 @@ impl Engines {
             }
         }
         events
+    }
+
+    fn finish_raw(&mut self, id: InstanceId, events: &mut Vec<RuntimeEvent>) {
+        let current = self.wish.as_ref().map(|(t, _)| t.key());
+        let foreground = self.foreground == Some(id);
+        let Some(inst) = self.get_mut(id) else { return };
+        if !inst.raw_request.as_ref().is_some_and(|r| r.response.is_some() && r.complete) { return; }
+        let raw = inst.raw_request.take().unwrap();
+        let request = raw.request;
+        if raw.response == Some(true) && foreground && current == Some(request.key)
+            && raw.revision == inst.raw_revision && raw.mode == inst.raw_mode
+            && inst.rejected != Some(request.key)
+        {
+            let parsed = if inst.kind == EngineKind::KataGo {
+                raw_net::parse_kata(&raw.text, request.size, raw.mode, request.key.node)
+            } else {
+                raw_net::parse_leela(&raw.text, request.size, request.key.node, request.to_play)
+            };
+            if let Some(view) = parsed {
+                inst.raw_data = Some((request.key, view));
+                events.push(RuntimeEvent::RawNet { instance: id });
+            }
+        }
+        self.answered(id, raw.id);
     }
 
     /// Leela 0.11's stderr has no GTP ids. Each `time_left` cycle owns exactly one table,
@@ -1241,6 +1395,7 @@ impl Engines {
                         inst.board = None;
                         inst.rejected = inst.syncing;
                         inst.requests.retain(|(m, _)| *m < n);
+                        inst.raw_data = None;
                     }
                     Some(Purpose::SetRules) if !ok => {
                         if let Some((_, outcome)) = inst.rules_request.as_mut() {
@@ -1261,6 +1416,17 @@ impl Engines {
                             inst.confirmed_rules = observed;
                         }
                         events.push(RuntimeEvent::Rules { instance: id });
+                    }
+                    Some(Purpose::RawNet) => {
+                        if let Some(raw) = inst.raw_request.as_mut().filter(|r| r.id == n) {
+                            raw.response = Some(ok);
+                            if inst.kind == EngineKind::KataGo || !text.is_empty() || !ok {
+                                raw.text = text;
+                                raw.complete = true;
+                            }
+                        }
+                        self.finish_raw(id, events);
+                        return;
                     }
                     _ => {}
                 }

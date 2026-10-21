@@ -18,6 +18,7 @@ use crate::api::{
     NodeAnalysisView, RulesPromptView,
 };
 use crate::browse::Navigation;
+use crate::display::{self, BoardOverlayView};
 use crate::engine::gtp::InfoLine;
 use crate::engine::profile::{new_profile_id, AnalysisSettings, EngineProfile, EngineStartup};
 use crate::engine::rules::KataRules;
@@ -102,6 +103,7 @@ fn node_analysis(node: NodeId, to_play: Stone, komi: f64, engine: String, line: 
                 lcb: c.lcb,
                 order: c.order,
                 pv: c.pv,
+                pv_visits: c.pv_visits,
                 pv_captures: Vec::new(),
                 shown: ShownValues::default(),
             })
@@ -111,29 +113,12 @@ fn node_analysis(node: NodeId, to_play: Stone, komi: f64, engine: String, line: 
 }
 
 /// Plays every candidate's variation out from `base` (`Branch`, at most `limit` moves; 0 = the
-/// whole variation): what each move captures; nothing under `no-capture`
-/// (`removeDeadChainInVariation && !noCapture`).
-fn fill_pv_captures(result: &mut NodeAnalysisView, base: &Position, limit: u32, no_capture: bool) {
-    let limit = if limit == 0 { usize::MAX } else { limit as usize };
+/// whole variation): what each move captures; nothing under `no-capture`. Whether the board
+/// removes them (变化图中去掉死子, `removeDeadChainInVariation`) is the drawing's choice, so a kept
+/// (frozen) preview follows that setting at once (`withSimulation`).
+fn fill_pv_captures(result: &mut NodeAnalysisView, base: &Position, limit: u32, capture: bool) {
     for c in &mut result.candidates {
-        let mut pos = base.clone();
-        let mut color = result.to_play;
-        c.pv_captures =
-            c.pv.iter()
-                .take(limit)
-                .map(|mv| {
-                    let mut captured = Vec::new();
-                    if let Some(p) = *mv {
-                        if no_capture {
-                            pos.put(color, p);
-                        } else {
-                            pos.place(color, p, &mut captured);
-                        }
-                    }
-                    color = color.opposite();
-                    captured
-                })
-                .collect();
+        c.pv_captures = display::pv_captures(base, result.to_play, &c.pv, limit, capture);
     }
 }
 
@@ -469,6 +454,28 @@ impl Workbench {
         Ok(true)
     }
 
+    /// Java enables pondering when H is turned on; switching H off resumes the same analysis
+    /// path as an ordinary resume, including limits and session-rules handling.
+    pub fn toggle_raw_net(&mut self) -> bool {
+        if !self.engines.toggle_raw_net() { return false; }
+        self.paused = false;
+        self.limit_stop = None;
+        self.sync_engine();
+        true
+    }
+
+    pub fn stop_raw_net(&mut self) -> bool {
+        if !self.engines.stop_raw_net() { return false; }
+        self.paused = false;
+        self.limit_stop = None;
+        self.sync_engine();
+        true
+    }
+
+    pub(super) fn raw_net_view(&self) -> Option<crate::engine::raw_net::RawNetView> {
+        self.engines.raw_net_view(&self.analysis_target())
+    }
+
     /// The game komi chosen by the user (toolbar field, console `komi`): recorded in the game,
     /// sent to the engine, and engine profiles no longer change it (`GameInfo.changeKomi`) — not
     /// even a starting engine's, which Java would still apply once it is ready.
@@ -628,10 +635,10 @@ impl Workbench {
     /// Plays the variations of stored analysis out again under the current length and rules.
     pub(super) fn refresh_pv_captures(&mut self) {
         let length = self.config.engine.analysis.limit_branch_length;
-        let no_capture = self.config.edit.no_capture;
+        let capture = !self.config.edit.no_capture;
         let record = self.doc.record.clone();
         for (node, (_, result)) in self.store.nodes.iter_mut() {
-            fill_pv_captures(result, &record.position(*node), length, no_capture);
+            fill_pv_captures(result, &record.position(*node), length, capture);
         }
     }
 
@@ -734,6 +741,7 @@ impl Workbench {
                     }
                 }
                 RuntimeEvent::Rules { .. } => {}
+                RuntimeEvent::RawNet { .. } => {}
                 RuntimeEvent::Failed(f) => self.engine_failed(f),
                 RuntimeEvent::Analysis {
                     instance,
@@ -771,10 +779,10 @@ impl Workbench {
                     if replace {
                         let mut result = result;
                         let limit = self.config.engine.analysis.limit_branch_length;
-                        fill_pv_captures(&mut result, &rec.position(node), limit, self.config.edit.no_capture);
+                        fill_pv_captures(&mut result, &rec.position(node), limit, !self.config.edit.no_capture);
                         self.store.nodes.insert(node, (stamp, result));
                     }
-                    if node == self.cursor && !self.paused && self.limit_stop.is_none() {
+                    if node == self.cursor && !self.paused && self.limit_stop.is_none() && !self.engines.raw_net_active() {
                         self.check_limits(visits, elapsed);
                     }
                 }
@@ -949,5 +957,22 @@ impl Workbench {
                 })
             })
             .collect()
+    }
+
+    /// Move numbers, 落子评价 and 下一手 详细 of the current position.
+    pub(super) fn board_overlay(&self) -> BoardOverlayView {
+        let rec = &self.doc.record;
+        let s = &self.config.display;
+        let path = rec.path_to(self.cursor);
+        let numbering = display::numbering(rec, &path);
+        let analysis = |n: NodeId| self.store.get(rec, n);
+        BoardOverlayView {
+            move_numbers: display::number_labels(rec, &path, &numbering, s),
+            ranks: display::rank_marks(rec, &path, &numbering, s, analysis),
+            rank_corner: display::shows_ranks(s) && (s.move_rank == 0 || s.move_rank > 1),
+            next_move: display::next_move_info(rec, self.cursor, s, self.config.edit.no_capture,
+                self.config.engine.analysis.limit_branch_length, analysis),
+            info_order_sample: display::info_order_sample(s, rec.node(self.cursor).to_play, self.komi),
+        }
     }
 }

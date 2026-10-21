@@ -154,10 +154,11 @@ impl Default for RecoverySettings {
     }
 }
 
-/// How analysis numbers are shown, in every display and in the 带评论 export (Java
-/// `ui.win-rate-always-black`, `ui.show-katago-score-lead-with-komi`, both default off). The
-/// numbers follow them through [`crate::viewpoint::Viewpoint`].
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+/// How the boards and analysis numbers are shown (Java `ui.*` display keys; defaults are those of
+/// a new Java profile, `Config.java` / `createDefaultConfig`). The two viewpoint settings convert
+/// every number through [`crate::viewpoint::Viewpoint`], in the 带评论 export too; the others are
+/// read by the board projection ([`crate::display`]) and the board painters.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
 pub struct DisplaySettings {
     /// 总是显示黑胜率: win rates and score leads are Black's instead of the side to move's.
@@ -165,6 +166,208 @@ pub struct DisplaySettings {
     /// 目差显示 > 盘面: score leads are the board difference (KataGo's lead plus the komi for
     /// Black, minus it for White) instead of the lead after komi (目差).
     pub score_lead_with_komi: bool,
+    /// 坐标 (`show-coordinates`, on).
+    pub coordinates: bool,
+    /// Exclusive special-coordinate mode (`ConfigDialog2.SpecialCoordsCbx`).
+    pub coordinate_style: CoordinateStyle,
+    /// 棋盘下方显示黑白名字 (`show-name-in-board`, on).
+    pub names_on_board: bool,
+    /// 手数 (`allow-move-number`): 0 none, -1 every move, n the last n moves. A new Java profile
+    /// has `show-move-number` off, so none.
+    pub move_numbers: i32,
+    /// 总是从1开始显示 (`movenumber-from-one`): the last n moves count 1..n.
+    pub move_numbers_from_one: bool,
+    /// 分支内从1开始显示 (`new-move-number-in-branch`, on) versus 分支内继续总手数. Only branches
+    /// created afterwards follow a change (`Menu.moveNumberInBranchTips`).
+    pub branch_numbers_from_one: bool,
+    /// 分支内总是显示所有手数 (`show-moveall-inbranch`, off).
+    pub all_numbers_in_branch: bool,
+    /// 显示分支面板上的手数 (`show-var-move`, on).
+    pub tree_move_numbers: bool,
+    /// 落子评价 (`move-rank-mark-last-move`): -1 none, 0 every move, n the last n moves (1).
+    pub move_rank: i32,
+    /// 显示最后多手 (`txt-move-rank-mark-last-move`, 3).
+    pub move_rank_custom: u32,
+    /// 判定依据 (`move-rank-evaluation-mode`).
+    pub move_rank_mode: MoveRankMode,
+    /// Win rate loss of rank levels 1–5 (`win-loss-threshold-1..5`), percentage points.
+    pub win_loss_thresholds: [f64; 5],
+    /// Score loss of rank levels 1–5 (`score-loss-threshold-1..5`), points.
+    pub score_loss_thresholds: [f64; 5],
+    /// 选点信息 > 胜率 / 计算量 / 目差 (`show-winrate-in-suggestion`, `-playouts-`,
+    /// `-scoremean-`, all on).
+    pub suggestion_winrate: bool,
+    pub suggestion_playouts: bool,
+    pub suggestion_score: bool,
+    /// 目差显示为与最佳选点之差 (`show-score-as-diff`, off).
+    pub score_as_diff: bool,
+    /// 自定义信息顺序: rows of win rate, playouts and score (`suggestion-info-winrate`,
+    /// `-playouts`, `-scorelead`; 1, 2, 3).
+    pub suggestion_info_order: [u8; 3],
+    /// 延迟显示候选点 (`delay-show-candidates`, off; `delay-candidates-seconds`, 10).
+    pub delay_candidates: bool,
+    pub delay_candidates_seconds: f64,
+    /// 显示选点右上方角标 (`show-suggestion-order`, on).
+    pub suggestion_order: bool,
+    /// 候选点最高值红色高亮 (`show-suggestion-maxred`, off).
+    pub suggestion_max_red: bool,
+    /// 轮白下字体显示为白色 (`white-suggestion-white`, off).
+    pub white_suggestion_white: bool,
+    /// Blue best-candidate ring (`show-blue-ring`, on).
+    pub blue_ring: bool,
+    /// Candidate colour concentration, 1..=3 (`suggestion-color-ratio`, 2).
+    pub suggestion_color_ratio: i32,
+    pub white_suggestion_order_white: bool,
+    /// Draw forbidden-analysis points (`leelaz.show-nosugg-circle`, off).
+    pub no_sugg_circle: bool,
+    pub pv_visits: PvVisitsMode,
+    pub pv_visits_limit: i32,
+    pub remove_dead_in_variation: bool,
+    /// 鼠标悬停显示变化图 (`show-suggestion-variations`, on).
+    pub suggestion_variations: bool,
+    /// 鼠标悬停显示变化图时,变化图不刷新 (`norefresh-onmouse-move`, on).
+    pub no_refresh_on_mouse: bool,
+    /// 设置变化图回放间隔 (`replay-branch-interval-seconds`, 0.9 in a new profile).
+    pub replay_interval_seconds: f64,
+    pub auto_replay_branch: bool,
+    pub entire_variation_first: bool,
+    pub entire_variation_first_seconds: f64,
+    pub continue_with_best_move: bool,
+    pub directly_with_best_move: bool,
+    /// Java `persist.ui-persist.toolbar-parameter[40]`; -1 means no interval entered.
+    pub autoplay_main_seconds: f64,
+    /// Java `persist.ui-persist.toolbar-parameter[41]`; -1 means no interval entered.
+    pub autoplay_sub_millis: i32,
+    /// Candidates below this share of the most visits show no numbers
+    /// (`min-playout-ratio-for-stats`, 0).
+    pub min_playout_ratio: f64,
+    /// 下一手 (`show-next-moves`, on; `show-next-move-blunder`, on = 详细).
+    pub next_moves: bool,
+    pub next_move_info: bool,
+    /// 下一手提示需要计算量 (`min-playouts-for-next-move`, 30).
+    pub next_move_min_playouts: i32,
+    /// 小棋盘设置 (`show-heat`, `show-heat-aftercalc`, `subboard-raw`).
+    pub sub_board: SubBoardMode,
+    /// The sub board keeps its variation while the pointer is over it (`no-refresh-on-sub`, on).
+    pub no_refresh_on_sub: bool,
+    /// 纯网络 ownership painter (Java's five `show-pure-estimate-*` exclusive menu choices).
+    pub pure_estimate: PureEstimateStyle,
+}
+
+impl Default for DisplaySettings {
+    fn default() -> Self {
+        DisplaySettings {
+            winrate_always_black: false,
+            score_lead_with_komi: false,
+            coordinates: true,
+            coordinate_style: CoordinateStyle::Normal,
+            names_on_board: true,
+            move_numbers: 0,
+            move_numbers_from_one: false,
+            branch_numbers_from_one: true,
+            all_numbers_in_branch: false,
+            tree_move_numbers: true,
+            move_rank: 1,
+            move_rank_custom: 3,
+            move_rank_mode: MoveRankMode::Auto,
+            win_loss_thresholds: [-1.0, -3.0, -6.0, -12.0, -24.0],
+            score_loss_thresholds: [-0.5, -1.5, -3.0, -6.0, -12.0],
+            suggestion_winrate: true,
+            suggestion_playouts: true,
+            suggestion_score: true,
+            score_as_diff: false,
+            suggestion_info_order: [1, 2, 3],
+            delay_candidates: false,
+            delay_candidates_seconds: 10.0,
+            suggestion_order: true,
+            suggestion_max_red: false,
+            white_suggestion_white: false,
+            blue_ring: true,
+            suggestion_color_ratio: 2,
+            white_suggestion_order_white: false,
+            no_sugg_circle: false,
+            pv_visits: PvVisitsMode::Off,
+            pv_visits_limit: 0,
+            remove_dead_in_variation: true,
+            suggestion_variations: true,
+            no_refresh_on_mouse: true,
+            replay_interval_seconds: 0.9,
+            auto_replay_branch: false,
+            entire_variation_first: false,
+            entire_variation_first_seconds: 3.0,
+            continue_with_best_move: false,
+            directly_with_best_move: false,
+            autoplay_main_seconds: -1.0,
+            autoplay_sub_millis: -1,
+            min_playout_ratio: 0.0,
+            next_moves: true,
+            next_move_info: true,
+            next_move_min_playouts: 30,
+            sub_board: SubBoardMode::Variation,
+            no_refresh_on_sub: true,
+            pure_estimate: PureEstimateStyle::BigBelow,
+        }
+    }
+}
+
+/// Java's exclusive special-coordinate choices.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum CoordinateStyle {
+    #[default]
+    Normal,
+    WithI,
+    Fox,
+    NumbersFromTop,
+    NumbersFromBottom,
+}
+
+/// Variation visit labels (`show-pv-visits-last-move` / `-all-move`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum PvVisitsMode {
+    #[default]
+    Off,
+    LastMove,
+    AllMoves,
+}
+
+/// 纯网络 ownership rendering, separate from KataGo's search estimate settings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum PureEstimateStyle {
+    Small,
+    Transparent,
+    TransparentNotOnLive,
+    #[default]
+    BigBelow,
+    BySize,
+}
+
+/// 落子评价 > 判定依据 (`MoveRankEvaluationMode`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum MoveRankMode {
+    /// 智能平衡: the score loss, and the win rate loss from 恶手 up; the win rate alone without a
+    /// score.
+    #[default]
+    Auto,
+    /// 仅目差 (no mark without a score).
+    Score,
+    /// 仅胜率.
+    Winrate,
+    /// 综合: whichever reaches the level.
+    Combined,
+}
+
+/// 小棋盘设置: what the sub board shows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum SubBoardMode {
+    /// 变化图: the selected candidate's variation.
+    #[default]
+    Variation,
+    /// 仅棋盘棋子: the position only.
+    Raw,
+    /// 第一感热点图: candidates sized by their policy prior.
+    Policy,
+    /// 计算后热点图: candidates sized by their search visits.
+    Visits,
 }
 
 pub const RECENT_LIMIT: usize = 5;

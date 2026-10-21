@@ -10,10 +10,14 @@ mod tuning;
 use lizzie_core::api::*;
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup};
+use lizzie_core::engine::raw_net::{RawNetMode, RawNetView};
 use lizzie_core::record::{
     BoardSize, GameInfo, Mark, MarkKind, MarkTool, Point, RecordFormat, Stone, StoneChange, Transform,
 };
-use lizzie_core::settings::{DisplaySettings, EditSettings, Language, RecoverySettings, WindowPlacement};
+use lizzie_core::display::{BoardOverlayView, MoveNumberLabel, MoveRank, NextMoveInfo, NextMoveVerdict, RankMark};
+use lizzie_core::settings::{
+    CoordinateStyle, DisplaySettings, EditSettings, Language, MoveRankMode, PureEstimateStyle, PvVisitsMode, RecoverySettings, SubBoardMode, WindowPlacement,
+};
 use lizzie_core::viewpoint::{AsCandidate, ShownValues};
 use ts_rs::Config;
 
@@ -39,6 +43,10 @@ fn generate() -> String {
         EditCommand, EditTarget, EditingView, EditSettings, MarkTool, StoneChange, Transform,
         ExportKind, CommentLabels, SlotRef, RecoveryCommand, SlotView, RecoveryView, RecoverySettings,
         ImportSlotView, RecoveryImport, DisplaySettings, ShownValues, AsCandidate,
+        MoveRankMode, SubBoardMode, BoardOverlayView, MoveNumberLabel, MoveRank, RankMark, NextMoveVerdict,
+        NextMoveInfo,
+        RawNetMode, RawNetView,
+        PureEstimateStyle, CoordinateStyle, PvVisitsMode,
     ];
     // Engine resources and engine performance keep their own lists.
     decls.extend(resources::decls(&cfg));
