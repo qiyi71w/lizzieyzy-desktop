@@ -1,0 +1,10 @@
+(;FF[4]GM[1]CA[UTF-8]AP[lizzieyzy-desktop prototype fixture]SZ[19]KM[7.5]RU[Chinese]
+GN[样板 19 路复盘局]PB[黑方测试]PW[白方测试]DT[2026-10-17]
+AB[pd][dp]AW[dd][pp]PL[B]
+C[根注释：四角摆子开局。
+第二行含转义 \] 与反斜杠 \\]
+;B[qq]C[黑先占角];W[pq];B[qp];W[qn];B[qo];W[po];B[rn];W[qc];B[pc];W[qd];B[qf];W[qe];B[pe];W[rf];B[fc];W[hc];B[lp];W[qm];B[rm];W[ql]C[主线第 20 手]TR[ql];B[fq];W[pf];B[qg];W[rg];B[of];W[pg];B[qh];W[og];B[qb];W[rb]
+(;B[nf];W[pi];B[rl];W[kc];B[qk];W[pk];B[qj];W[qi];B[pj];W[om];B[cf];W[qr];B[rr];W[df];B[dg]C[标记示例]SQ[dg]LB[df:A][rr:B];W[ef];B[ce];W[cd];B[de];W[ee];B[ed];W[db];B[eg];W[ge];B[bd];W[bc];B[be];W[gg];B[bb];W[cb];B[ac];W[fd];B[dk];W[cl];B[ck];W[cp];B[cq];W[do];B[ep];W[bq];B[bp];W[co];B[br];W[dl];B[ek];W[el];B[bo];W[fk];B[fl];W[fm];B[gl];W[gm];B[hl];W[fo];B[hp];W[in];B[jl];W[nd]C[中盘：评论修改目标];B[nc];W[md];B[ob];W[qa];B[oi];W[ph];B[ok];W[or];B[nq];W[rs];B[rq];W[ln];B[kn];W[ko];B[jo];W[io];B[lo];W[km];B[kp];W[mn];B[ip];W[jm];B[ng];W[fj];B[gi];W[di];B[bl];W[bm];B[bk];W[fi];B[ec];W[gc];B[fg]
+(;W[gf];B[gj];W[gh];B[fh];W[ei];B[ii];W[ch];B[cg];W[bi];B[am];W[bg];B[cc];W[cm];B[bn];W[dc];B[bc];W[ae];B[cj];W[ci];B[ah];W[ag];B[ca];W[fb];B[ai];W[kj];B[jh];W[kh];B[kg];W[ji]C[主线终点])
+(;W[]C[白方真实停着变化];B[gf]C[停着后黑棋]))
+(;B[jj]C[变化分支：甲]LB[jj:甲];W[nf];B[rc];W[sc];B[lc];W[rl]C[变化终点]))

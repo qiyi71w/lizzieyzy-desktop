@@ -1,0 +1,36 @@
+[package]
+name = "lizzieyzy-tauri"
+version = "0.1.0"
+description = "LizzieYzy Tauri desktop client"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "lizzieyzy_tauri_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "=2.7.3", features = [] }
+
+[dependencies]
+lizzie-core = { path = "../crates/lizzie-core" }
+tauri = { version = "=2.12.4", features = [] }
+tauri-plugin-dialog = "=2.8.3"
+tauri-plugin-opener = "2"
+tauri-plugin-clipboard-manager = "2"
+serde.workspace = true
+serde_json.workspace = true
+sys-locale = "0.3"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "system-proxy"] }
+dirs = "7"
+
+[target.'cfg(windows)'.dependencies]
+rfd = { version = "0.16", default-features = false }
+
+[features]
+# Isolated acceptance builds only: a loopback control channel that dispatches the same commands
+# as the UI. Never enabled for distributed builds.
+acceptance = []

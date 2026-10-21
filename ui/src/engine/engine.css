@@ -1,0 +1,58 @@
+/* Swing form/table density (MoreEngines.java:151-169), not a separate settings dashboard. */
+.engine-dialog { width: max-content; max-width: min(960px, 96vw); max-height: 94vh; overflow: auto; }
+.engine-dialog input, .engine-dialog textarea, .engine-dialog select, .gtp-console input, .gtp-console select { font: inherit; color: #111; background: #fff; border: 1px solid #777; border-radius: 0; padding: 2px 4px; }
+.engine-dialog input[type=checkbox], .engine-dialog input[type=radio] { width: auto; }
+.engine-dialog button, .gtp-console button, .engine-limit-notice button { font: inherit; padding: 3px 10px; }
+.engine-dialog .unavailable::after, .engine-limit-notice .unavailable::after { content: ""; }
+.engine-dialog .unavailable { opacity: .55; text-decoration: none; }
+.engine-catalog { width: min(885px, 90vw); padding: 10px; }
+.engine-form { display: grid; gap: 6px; }
+.engine-field { display: grid; grid-template-columns: minmax(100px, 180px) minmax(100px, 1fr); align-items: center; gap: 8px; }
+.engine-field textarea { resize: vertical; min-height: 78px; }
+.engine-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+.engine-actions label { white-space: nowrap; }
+.engine-size { display: flex; gap: 20px; }
+.engine-size .engine-field { display: flex; gap: 6px; }
+.engine-size input { width: 65px; }
+.engine-table-wrap { overflow: auto; height: min(330px, 33vh); border: 1px solid #888; background: white; }
+.engine-table { width: 100%; border-collapse: collapse; table-layout: fixed; color: #111; font-size: 13px; }
+.engine-table th, .engine-table td { padding: 3px 4px; border: 1px solid #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.engine-table th { position: sticky; top: 0; background: #eee; font-weight: normal; }
+.engine-table th:nth-child(1) { width: 36px; }
+.engine-table th:nth-child(2) { width: 22%; }
+.engine-table th:nth-child(3) { width: 34%; }
+.engine-table tr.selected { background: #b8d4ed; }
+.engine-table tbody tr { cursor: default; }
+.engine-chooser { padding: 12px; }
+.engine-chooser select { display: block; width: min(850px, 85vw); }
+.engine-rules { padding: 10px 16px; }
+.engine-rule-row { display: grid; grid-template-columns: minmax(190px, 1.3fr) repeat(3, minmax(90px, 1fr)); align-items: center; gap: 14px; margin: 12px 0; }
+.engine-rule-row label { white-space: nowrap; }
+.engine-hint { margin-top: 10px; }
+.engine-settings { display: grid; grid-template-columns: 150px minmax(360px, 1fr); padding: 12px; gap: 20px; }
+.engine-settings nav { display: flex; flex-direction: column; gap: 6px; }
+.engine-settings-form { display: grid; gap: 10px; }
+.engine-settings-form > label:not(.engine-field) { display: block; }
+.engine-failure { padding: 12px; width: min(730px, 85vw); }
+.engine-failure pre, .engine-failure-details { max-height: 45vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.gtp-console { position: fixed; z-index: 45; width: min(770px, 90vw); height: min(430px, 70vh); right: 16px; bottom: 45px; display: flex; flex-direction: column; border: 1px solid #666; background: #eee; color: #111; box-shadow: 0 3px 16px #0007; resize: both; overflow: auto; font-size: 13px; }
+.gtp-console[hidden] { display: none; }
+.gtp-header { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; font-weight: bold; }
+.gtp-output { flex: 1; min-height: 60px; margin: 0; padding: 6px; overflow: auto; background: #000; color: #ddd; font: 13px monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.gtp-line-sent { color: #fff; }.gtp-line-output { color: #0f0; }.gtp-line-error { color: #f00; }
+.gtp-console .engine-actions { padding: 0 6px; }
+.gtp-console .engine-actions label { flex: 1; display: flex; align-items: center; gap: 5px; }
+.gtp-console input { width: 100%; min-width: 60px; }
+.gtp-console select { max-width: 160px; }
+.engine-limit-notice { position: fixed; z-index: 46; width: min(520px, 85vw); right: 25px; bottom: 60px; padding: 14px; background: #eee; color: #111; border: 1px solid #777; box-shadow: 0 3px 14px #0006; font-size: 13px; }
+.engine-limit-notice p { white-space: pre-line; }
+.engine-thread-status { white-space: pre-line; color: #555; }
+.engine-scan { padding: 14px; min-width: 360px; }
+.engine-scan > button { margin-right: 8px; }
+.gtp-config { padding: 18px 20px 16px; width: min(600px, 86vw); }
+.gtp-config section { display: grid; gap: 12px; margin: 12px 0; }
+.gtp-config section[hidden] { display: none; }
+.gtp-config .engine-field { grid-template-columns: minmax(200px, 1fr) minmax(140px, 190px); }
+.gtp-config .inactive { opacity: .55; }
+.gtp-config > p { color: #666; }
+.gtp-config > .engine-actions { justify-content: flex-end; }

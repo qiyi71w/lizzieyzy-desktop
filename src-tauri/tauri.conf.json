@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LizzieYzy Tauri",
+  "mainBinaryName": "lizzieyzy-tauri",
+  "version": "0.1.0",
+  "identifier": "io.github.qiyi71w.lizzieyzy-tauri",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "LizzieYzy Tauri",
+        "width": 1500,
+        "height": 900,
+        "minWidth": 520,
+        "minHeight": 400,
+        "resizable": true,
+        "visible": false,
+        "center": true,
+        "dragDropEnabled": true
+      }
+    ],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "dmg", "deb", "appimage"],
+    "publisher": "qiyi71w",
+    "homepage": "https://github.com/qiyi71w/lizzieyzy-desktop",
+    "copyright": "GPL-3.0-only. Images, sounds and fonts from LizzieYzy Next (GPL-3.0).",
+    "category": "BoardGame",
+    "shortDescription": "Go (weiqi) game review workbench",
+    "longDescription": "LizzieYzy Tauri: a desktop Go (weiqi) review workbench migrated from LizzieYzy Next.",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "windows": {
+      "nsis": { "installMode": "currentUser" }
+    },
+    "macOS": { "signingIdentity": "-" }
+  }
+}

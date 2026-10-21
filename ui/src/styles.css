@@ -1,0 +1,655 @@
+/* Workbench styles. Colours and metrics measured from fixed Java cb53acc captures at 96 dpi. */
+/* Java's bundled winrate font (Utils.java:96-103), copied unchanged; see public/fonts/SOURCE.txt. */
+@font-face {
+  font-family: "Lizzie Winrate";
+  src: url("/fonts/OpenSans-Semibold.ttf") format("truetype");
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: rgb(244, 245, 247);
+  font-family: "DejaVu Sans", "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-size: 12px;
+  color: #111;
+  user-select: none;
+  cursor: default;
+}
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- window menu strip (WindowMenuStrip); sizes in the geometry block below */
+#menubar {
+  flex: none;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid rgb(221, 223, 227);
+}
+#menubar .m {
+  border-radius: 4px;
+}
+#menubar .m:hover {
+  background: rgb(226, 230, 236);
+}
+#menubar .pill {
+  border-radius: 6px;
+  font-weight: bold;
+  font-size: 12px;
+}
+#menubar .coach {
+  background: rgb(15, 118, 110);
+  color: #fff;
+}
+#menubar .commentary {
+  background: #fff;
+}
+
+/* ---- double-menu toolbar (Menu.doubleMenu), wraps like WrapLayout */
+#toolbar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: flex-start;
+  border-bottom: 1px solid rgb(221, 223, 227);
+}
+.tb-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(205, 209, 214);
+  border-radius: 5px;
+  background: #fff;
+}
+.tb-icon img {
+  width: 16px;
+  height: 16px;
+}
+.tb-icon.bw {
+  overflow: hidden;
+}
+.tb-icon.bw img {
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+.tb-pill {
+  border-radius: 7px;
+  border: 1px solid rgb(122, 170, 233);
+  background: rgb(226, 240, 236);
+  white-space: nowrap;
+}
+.tb-pill.plain {
+  border-color: rgb(205, 209, 214);
+  background: #fff;
+}
+.tb-pill.small {
+  border-radius: 10px;
+  border-color: rgb(205, 209, 214);
+  background: #fff;
+}
+.tb-pill.disabled {
+  color: rgb(170, 170, 170);
+  border-color: rgb(205, 209, 214);
+  background: rgb(246, 246, 246);
+}
+.tb-label {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.tb-input {
+  width: 46px;
+  height: 22px;
+  border: 1px solid rgb(205, 209, 214);
+  border-radius: 6px;
+  text-align: center;
+  font: inherit;
+  color: rgb(150, 170, 200);
+  background: #fff;
+}
+.tb-check {
+  width: 16px;
+  height: 16px;
+  margin: 0 2px;
+  accent-color: rgb(97, 160, 245);
+}
+.tb-group,
+.tb-buttons {
+  display: inline-flex;
+  align-items: center;
+  column-gap: 3px;
+  white-space: nowrap;
+}
+.tb-checklabel {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  white-space: nowrap;
+}
+/* komi spinner: two stacked 15 x 11 arrow buttons (Menu.java:9649-9653) */
+.tb-spin {
+  display: inline-flex;
+  flex-direction: column;
+  width: 15px;
+  height: 22px;
+}
+.tb-spin i {
+  flex: 1;
+  position: relative;
+}
+.tb-spin i::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  border: 4.5px solid transparent;
+}
+.tb-spin i:first-child::after {
+  bottom: 1px;
+  border-bottom: 5px solid #000;
+}
+.tb-spin i:last-child::after {
+  top: 1px;
+  border-top: 5px solid #000;
+}
+
+/* ---- Java chrome geometry. Sizes and gaps are Swing component bounds read from the running fixed
+   Java (Windows 96 dpi and Linux X11, 1500x900 and 1065x700). The toolbar is the same on both:
+   TopHeaderPanel WrapLayout hgap 3 / vgap 2, leading separator 10x24, three button groups
+   (FlowLayout hgap 2), separators 8x22, komi 96x20, pda 111x23, wrn 99x23, check boxes 52x17, small
+   buttons 40x17. Menu strip from x 18, gap 8, buttons 25 high (26 on Windows); AI buttons 107 / 83
+   x 26 (Windows 109 / 85). */
+#menubar {
+  padding-left: 18px;
+  gap: 8px;
+  font-size: 12px;
+}
+/* width: text width + 20 (MenuButton EmptyBorder 5/10), set by menubar.ts */
+#menubar .m {
+  height: 25px;
+  line-height: 25px;
+  padding: 0;
+  text-align: center;
+  font-weight: bold;
+}
+#menubar .pill {
+  height: 26px;
+  width: 107px;
+  margin-left: 0;
+  padding: 0;
+  line-height: 24px;
+  text-align: center;
+  border: 1px solid transparent;
+}
+#menubar .commentary {
+  width: 83px;
+  margin-left: 0;
+  padding: 0;
+  border-color: rgb(214, 218, 224);
+}
+/* rows at y 2 (24 high) and 28 (23 high), border line at 51: 52 px like TopHeaderPanel at 38..90 */
+#toolbar {
+  padding: 2px 3px 0 3px;
+  column-gap: 3px;
+  row-gap: 2px;
+}
+#toolbar > * {
+  flex: none;
+}
+.tb-buttons {
+  column-gap: 2px;
+  padding: 0 2px;
+}
+.tb-sep {
+  width: 8px;
+  height: 22px;
+  background: linear-gradient(rgb(213, 220, 218), rgb(213, 220, 218)) 4px 4px / 1px 15px no-repeat;
+}
+.tb-sep.lead {
+  width: 10px;
+  height: 24px;
+  background-position: 5px 4px;
+  background-size: 1px 17px;
+}
+/* JToolBar.Separator after the komi panel: occupies 8x20 but paints nothing outside a JToolBar */
+.tb-sep.dash {
+  height: 20px;
+  background: none;
+}
+.tb-icon {
+  width: 20px;
+  height: 20px;
+}
+.tb-icon.w22,
+.tb-icon.bw {
+  width: 22px;
+}
+.tb-icon.force {
+  width: 24px;
+}
+.tb-icon.more {
+  width: 12px;
+}
+.tb-pill {
+  height: 20px;
+  line-height: 18px;
+  padding: 0;
+  font-size: 12px;
+  text-align: center;
+}
+.tb-pill.w80 {
+  width: 80px;
+}
+/* JButton icon + text centred as one group, default 4 px icon-text gap */
+.tb-pill.search {
+  width: 84px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  column-gap: 4px;
+}
+.tb-pill.search img {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.tb-pill.newgame {
+  width: 52px;
+}
+.tb-pill.pause,
+.tb-pill.small {
+  width: 40px;
+}
+.tb-pill.small {
+  height: 17px;
+  line-height: 15px;
+  padding: 0;
+}
+.tb-group {
+  column-gap: 0;
+}
+.tb-group .tb-check {
+  width: 16px;
+  height: 16px;
+  margin: 2px 3px;
+}
+.tb-group.komi {
+  position: relative;
+  width: 96px;
+  height: 20px;
+}
+.tb-group.komi > * {
+  position: absolute;
+}
+.tb-group.komi .tb-label {
+  left: 1px;
+  top: 1px;
+  width: 35px;
+  line-height: 18px;
+}
+.tb-group.komi .tb-input {
+  left: 31px;
+  top: 0;
+  width: 48px;
+  height: 19px;
+}
+.tb-group.komi .tb-spin {
+  left: 66px;
+  top: -1px;
+}
+.tb-group.pda,
+.tb-group.wrn {
+  height: 23px;
+}
+.tb-group.pda .tb-label {
+  width: 41px;
+}
+.tb-group.wrn .tb-label {
+  width: 29px;
+}
+.tb-group.pda .tb-input,
+.tb-group.wrn .tb-input {
+  width: 48px;
+  height: 23px;
+}
+#toolbar > .tb-label {
+  width: 27px;
+}
+.tb-checklabel {
+  width: 52px;
+  height: 17px;
+}
+/* txtKomi is an enabled field: black text, unlike the disabled KataGo parameter fields */
+#komiField {
+  color: #000;
+}
+
+/* Windows: Dialog maps to Arial + Microsoft YaHei; workspace controls use Microsoft YaHei 12
+   (AppleStyleSupport.java:659-675). */
+:root[data-os="windows"] body,
+:root[data-os="windows"] #table table {
+  font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+}
+:root[data-os="windows"] #menubar {
+  font: 12px Arial, "Microsoft YaHei", sans-serif;
+}
+:root[data-os="windows"] #menubar .m {
+  height: 26px;
+  line-height: 26px;
+}
+:root[data-os="windows"] #menubar .pill {
+  width: 109px;
+  font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+}
+:root[data-os="windows"] #menubar .commentary {
+  width: 85px;
+}
+
+/* ---- main panel: absolute children positioned from InFrameLayout; the wallpaper and frosted
+   containers are a background image set per size (main.ts installBackground) */
+#main {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+#main > canvas,
+#main > div {
+  position: absolute;
+}
+
+/* comment / problem-move panel: SidebarPanel.paintComponent fills comment-background (0,0,0,200)
+   as a square and outlines it with rowSeparatorColor (255,255,255,28) */
+#comment {
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* SidebarHeaderPanel classic layout: a 48 px header (SidebarHeaderPanel.java:28-37); label
+   position measured on the Linux capture */
+#comment .tabs {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  height: 48px;
+  padding: 21px 9px 0 19px;
+  gap: 22px;
+  font-size: 12px;
+  color: rgb(200, 200, 200);
+}
+#comment .tab.on {
+  color: #fff;
+  font-weight: bold;
+  border-bottom: 2px solid rgb(90, 140, 220);
+  padding-bottom: 3px;
+}
+#commentText {
+  flex: 1;
+  padding: 8px 9px;
+  font-size: 14px;
+  line-height: 1.3;
+  white-space: pre-wrap;
+  overflow-y: auto;
+  outline: none;
+  user-select: text;
+}
+/* candidate table (SuggestionTableScrollPane): workspace border, header without grid, 128-grey grid,
+   dialog text colour (LizzieFrame.refreshSuggestionTableStyle; colours measured on Windows) */
+#table {
+  background: #fff;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(200, 200, 200) rgb(235, 235, 235);
+  border: 1px solid rgb(213, 220, 218);
+}
+#table table {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-size: 12px;
+  font-family: "DejaVu Sans", "Noto Sans CJK SC", sans-serif;
+  color: rgb(31, 41, 38);
+}
+#table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0;
+  font-weight: normal;
+  background: rgb(246, 247, 249);
+}
+#table td {
+  padding: 0;
+  text-align: center;
+  border: solid rgb(128, 128, 128);
+  border-width: 0 1px 1px 0;
+  position: relative;
+  white-space: nowrap;
+  overflow: hidden;
+}
+#table tr.actual {
+  background-color: rgb(197, 235, 197);
+}
+#table tr.selected {
+  color: #0000ff;
+  background-color: rgba(0, 0, 0, 0.275);
+}
+#table tbody tr:hover:not(.selected) {
+  background-color: rgba(0, 0, 0, 0.12);
+}
+#table::-webkit-scrollbar {
+  width: 8px;
+}
+#table::-webkit-scrollbar-track {
+  background: rgb(235, 235, 235);
+}
+#table::-webkit-scrollbar-thumb {
+  background: rgb(200, 200, 200);
+}
+
+/* ---- bottom toolbar (BottomToolbar): 26 px main bar, buttons absolutely placed by layoutBottomBar */
+#bottombar {
+  flex: none;
+  position: relative;
+  height: 26px;
+  background: #fff;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.bb {
+  position: absolute;
+  top: 0;
+  height: 26px;
+  line-height: 24px;
+  text-align: center;
+  font-size: 12px;
+  border: 1px solid rgb(205, 209, 214);
+  border-radius: 5px;
+  background: #fff;
+}
+.bb.primary {
+  border-color: rgb(122, 170, 233);
+  background: rgb(226, 240, 236);
+}
+.bb.danger {
+  border-color: rgb(240, 180, 190);
+  background: rgb(253, 235, 238);
+}
+/* analyse button: ready2/playing2 icon and label centred as one group (JButton icon-text gap 4) */
+.bb.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  column-gap: 4px;
+}
+.bb.icon img {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+#moveInput {
+  position: absolute;
+  top: 2px;
+  width: 56px;
+  height: 22px;
+  border: 1px solid rgb(205, 209, 214);
+  border-radius: 4px;
+  font: inherit;
+  text-align: center;
+}
+
+/* ---- menu dropdowns (Swing JPopupMenu on the fixed build: white, grey border, 25 px rows,
+   12 px text indented past the check column, full-width separators) */
+#menubar .m {
+  position: relative;
+}
+#menubar .m.open {
+  background: rgb(226, 230, 236);
+}
+.dropdown {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  z-index: 20;
+  min-width: 160px;
+  padding: 2px 0;
+  background: #fff;
+  border: 1px solid rgb(160, 165, 170);
+  box-shadow: 1px 2px 4px rgba(0, 0, 0, 0.18);
+  font-weight: normal;
+  text-align: left;
+  line-height: normal;
+  white-space: nowrap;
+}
+.dropdown.empty {
+  display: none;
+}
+.dropdown .dropdown {
+  left: 100%;
+  top: -3px;
+}
+.mi {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 25px;
+  padding: 0 28px 0 0;
+}
+.mi:hover:not(.disabled) {
+  background: rgb(226, 230, 236);
+}
+.mi .mark {
+  flex: none;
+  width: 32px;
+  text-align: center;
+  font-size: 11px;
+}
+.mi.sub::after {
+  content: "";
+  position: absolute;
+  right: 14px;
+  border: 4px solid transparent;
+  border-left: 4px solid #000;
+}
+.mi.disabled {
+  color: rgb(160, 160, 160);
+}
+.mi.disabled.sub::after {
+  border-left-color: rgb(160, 160, 160);
+}
+.dropdown .sep {
+  height: 1px;
+  margin: 3px 4px;
+  background: rgb(160, 165, 170);
+}
+#comment .tab.unavailable {
+  cursor: default;
+}
+
+/* ---- modal dialogs (JOptionPane roles) */
+#dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+.modal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal-box {
+  min-width: 320px;
+  max-width: 640px;
+  background: rgb(244, 245, 247);
+  border: 1px solid rgb(160, 165, 170);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  padding-bottom: 12px;
+}
+.modal-title {
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: bold;
+  border-bottom: 1px solid rgb(221, 223, 227);
+}
+.modal-body {
+  padding: 14px 16px 0;
+  white-space: pre-wrap;
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+.modal-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 16px 0;
+}
+.modal-buttons button,
+.diagnostics button {
+  min-width: 72px;
+  height: 24px;
+  font: inherit;
+  border: 1px solid rgb(205, 209, 214);
+  border-radius: 5px;
+  background: #fff;
+}
+.modal-buttons button.primary {
+  border-color: rgb(122, 170, 233);
+  background: rgb(226, 240, 236);
+}
+.diagnostics .diag-section {
+  margin-top: 10px;
+  font-weight: bold;
+}
+.diagnostics .diag-section:first-child {
+  margin-top: 0;
+}
+.diagnostics .diag-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  white-space: normal;
+}
+.diagnostics label.unavailable {
+  color: rgb(150, 150, 150);
+}
+.diagnostics button:disabled {
+  color: rgb(160, 160, 160);
+}
+.diagnostics code {
+  font-size: 11px;
+}

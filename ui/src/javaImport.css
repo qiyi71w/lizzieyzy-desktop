@@ -1,0 +1,20 @@
+/* LizzieYzy Next settings import: same Swing form density as the engine dialogs. */
+.java-import { width: min(900px, 90vw); padding: 10px 12px; white-space: normal; }
+.java-import p { margin: 4px 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.java-import-row { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+.java-import-row > span { white-space: nowrap; }
+.java-import-path { flex: 1; min-width: 200px; }
+.java-import-found { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
+.java-import-error, .java-import-problem { color: rgb(170, 0, 0); }
+.java-import-section { margin-top: 8px; font-weight: bold; }
+.java-import-counts { font-weight: bold; }
+.java-import-engines { height: auto; max-height: min(240px, 30vh); }
+.java-import-engines td { white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
+.java-import-engines th:nth-child(1) { width: 36px; }
+.java-import-engines th:nth-child(2) { width: 14%; }
+.java-import-engines th:nth-child(3) { width: 38%; }
+.java-import-replaces { margin: 8px 0; padding: 6px 8px; border: 1px solid rgb(200, 150, 0); background: rgb(255, 248, 220); }
+.java-import details { margin: 4px 0; }
+.java-import details ul { margin: 4px 0; padding-left: 20px; max-height: min(220px, 26vh); overflow: auto; font-size: 12px; user-select: text; }
+.java-import li.credential { color: rgb(120, 70, 0); }
+.java-import-restart { color: rgb(0, 90, 160); }
