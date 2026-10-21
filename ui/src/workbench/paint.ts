@@ -365,17 +365,18 @@ function drawCandidateDiscs(g: CanvasRenderingContext2D, r: number, shown: Shown
     const onNext = next.some((n) => n.x === c.point!.x && n.y === c.point!.y);
     if (showStats) {
       g.save();
-      circle(g, x, y, r + 1);
+      // Java fillOval uses a 2r+1 diameter, unlike its outline.
+      circle(g, x + 0.5, y + 0.5, r + 1.5);
       g.clip();
       g.globalAlpha = ratio < 0.05 && !needed ? 0.8 : 1;
-      drawTexture(g, images["board.png"], x - r - 1, y - r - 1, 2 * (r + 1), 2 * (r + 1), ox, oy);
+      drawTexture(g, images["board.png"], x - r - 1, y - r - 1, 2 * (r + 1) + 1, 2 * (r + 1) + 1, ox, oy);
       g.restore();
     }
     const alphaRatio = Math.max(0, Math.log(ratio) / 5 + 1);
     const hue = k === 0 ? 180 : 120 * Math.sqrt(ratio);
     // HSB brightness .85 corresponds to HSL lightness .425 at full saturation.
     g.fillStyle = `hsla(${hue},100%,42.5%,${Math.trunc(32 + 208 * alphaRatio) / 255})`;
-    circle(g, x, y, r + 1);
+    circle(g, x + 0.5, y + 0.5, r + 1.5);
     g.fill();
     if (k === 0) {
       g.strokeStyle = onNext ? "rgba(0,0,255,0.667)" : "#00f";
@@ -415,9 +416,21 @@ function drawCandidateLabels(g: CanvasRenderingContext2D, geo: BoardGeom, shown:
     if (c.order < 9 && showStats) {
       const bx = Math.round(x + sq * 0.43) + (c.order === 0 ? 1 : 0);
       const by = Math.round(y - sq * 0.358) - (c.order === 0 ? 1 : 0);
-      g.fillStyle = "orange";
-      g.fillRect(bx - sq * 0.12, by - sq * 0.18, sq * 0.24, sq * 0.36);
-      textMid(g, String(c.order + 1), bx, by, sq * 0.36, sq * 0.39, "#000", `"Lizzie Winrate", ${FONT}`);
+      const label = String(c.order + 1);
+      const family = `"Lizzie Winrate", ${FONT}`;
+      g.font = `100px ${family}`;
+      const size = Math.min(sq * 0.36, Math.round(100 * sq * 0.39 / Math.max(1, Math.round(g.measureText(label).width))));
+      g.font = `${size}px ${family}`;
+      g.textBaseline = "alphabetic";
+      const fm = javaMetrics(g);
+      const height = fm.ascent - fm.descent;
+      const width = Math.round(g.measureText(label).width);
+      const left = bx - i(width / 2);
+      g.fillStyle = "#ffc800"; // java.awt.Color.ORANGE
+      g.fillRect(left, by - height, width, height + Math.max(1, i(height / 12)));
+      g.fillStyle = "#000";
+      g.textAlign = "left";
+      g.fillText(label, left, by);
     }
     if (!showStats) continue;
     const color = showingBranch && scene.toPlay === "Black" ? "#fff" : "#000";
