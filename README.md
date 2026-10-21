@@ -159,8 +159,8 @@ WebKitGTK), including downloads of the official KataGo v1.18.1 Eigen AVX2 AppIma
 resources. Native integration runs have also exercised real CUDA analysis on Windows 11,
 Metal analysis on macOS 27 / Apple Silicon, and CPU analysis on Ubuntu 24.04 GNOME Wayland,
 with native Open/Save, SGF/GIB navigation, saved-record reopening and both window sizes.
-These functional results are not a performance acceptance: measured Windows memory growth
-and some startup/first-analysis timings, and GNOME native-open/first-analysis timings,
+Performance acceptance remains incomplete: macOS client working-set growth and some
+20-key navigation timings, and GNOME native-open and small-window first-analysis timings,
 remain over budget. On the tested VMware/Mesa X11 desktop, WebKit can show an incomplete
 window or remain alive after close. A software-rendering diagnostic worked, but default-GPU
 X11 validation is blocked; the application does not force a renderer fallback.
@@ -186,8 +186,7 @@ and Linux x64.
   upgraded in place, on 24.04. The normal-identity AppImage has been run on Ubuntu 24.04.
 
 Not verified yet: macOS 15, Intel Macs, Ubuntu 26.04 GNOME, Windows 10, the Windows SmartScreen
-prompt, and full input-method coverage on Windows and macOS. macOS performance acceptance
-is still in progress.
+prompt, and full input-method coverage on Windows and macOS.
 
 ## Layout
 
