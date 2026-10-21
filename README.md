@@ -279,6 +279,14 @@ record opened meanwhile, stay unsaved. Every node carries a stamp that changes w
 position changes (or it is removed); stored analysis and the engine's synced position are keyed
 by node and stamp, so an edit drops exactly the analysis of the positions it changed.
 
+Edits that ask first (delete with following moves, new board, setup mode, starting-position
+conversion) answer `NeedsEditConfirmation` with an `EditTarget` (document, revision, current
+node); the confirmed command carries that target back and does nothing once any of them has
+changed. Menus, toolbars, keys, context menus and automation all send the same `Edit` command.
+Record readers take the no-capture setting when a read starts (`formats::read_file` /
+`formats::parse`) and place each move as Java does while reading; each node keeps the rule it
+was placed with, so switching the setting never changes existing positions.
+
 ## Development
 
 Requirements: Rust (stable), Node.js 22+, and the [Tauri 2 system
