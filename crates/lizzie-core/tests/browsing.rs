@@ -254,12 +254,12 @@ fn paste_decision_ignores_non_sgf_and_asks_before_replacing() {
     assert_eq!(wb.paste_decision("(;B[bb])", false), PasteDecision::Confirm);
     assert_eq!(wb.paste_decision("(;B[bb])", true), PasteDecision::Proceed);
     let t = wb.begin_open(OpenOrigin::Clipboard);
-    wb.complete_open(t, Workbench::read_clipboard_record("(;B[bb]"));
+    wb.complete_open(t, Workbench::read_clipboard_record("(;B[bb]", false));
     let v = wb.view(false);
     assert!(v.document.path.is_none());
     assert_eq!(v.position.stones.iter().flatten().count(), 0);
     let t = wb.begin_open(OpenOrigin::Clipboard);
-    wb.complete_open(t, Workbench::read_clipboard_record("(;C[x"));
+    wb.complete_open(t, Workbench::read_clipboard_record("(;C[x", false));
     assert!(
         matches!(wb.view(false).open_outcome, Some(OpenOutcome::Failed { ref message_key, .. }) if message_key == KIFU_LOAD_FAILED)
     );

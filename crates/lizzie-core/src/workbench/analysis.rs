@@ -40,17 +40,30 @@ pub(super) enum SessionRules {
     Invalid { raw: String },
 }
 
-/// Analysis stored for the open document (`BoardData` of every node).
+/// Analysis stored for the open document (`BoardData` of every node). Each result keeps the
+/// stamp of the node it was made for: after an edit only results whose node is still in the
+/// record with the same stamp (the same position) count.
 #[derive(Default)]
 pub(super) struct AnalysisStore {
     doc: u64,
-    nodes: HashMap<NodeId, NodeAnalysisView>,
+    nodes: HashMap<NodeId, (u64, NodeAnalysisView)>,
 }
 
 impl AnalysisStore {
     pub(super) fn reset(&mut self, doc: u64) {
         self.doc = doc;
         self.nodes.clear();
+    }
+
+    pub(super) fn get(&self, rec: &GameRecord, node: NodeId) -> Option<&NodeAnalysisView> {
+        let (stamp, view) = self.nodes.get(&node)?;
+        (rec.contains(node) && rec.node(node).stamp == *stamp).then_some(view)
+    }
+
+    /// Drops results whose node was removed or edited.
+    pub(super) fn retain_valid(&mut self, rec: &GameRecord) {
+        self.nodes
+            .retain(|&node, (stamp, _)| rec.contains(node) && rec.node(node).stamp == *stamp);
     }
 }
 
@@ -95,8 +108,9 @@ fn node_analysis(node: NodeId, to_play: Stone, komi: f64, engine: String, line: 
 }
 
 /// Plays every candidate's variation out from `base` (`Branch`, at most `limit` moves; 0 = the
-/// whole variation): what each move captures.
-fn fill_pv_captures(result: &mut NodeAnalysisView, base: &Position, limit: u32) {
+/// whole variation): what each move captures; nothing under `no-capture`
+/// (`removeDeadChainInVariation && !noCapture`).
+fn fill_pv_captures(result: &mut NodeAnalysisView, base: &Position, limit: u32, no_capture: bool) {
     let limit = if limit == 0 { usize::MAX } else { limit as usize };
     for c in &mut result.candidates {
         let mut pos = base.clone();
@@ -107,7 +121,11 @@ fn fill_pv_captures(result: &mut NodeAnalysisView, base: &Position, limit: u32) 
                 .map(|mv| {
                     let mut captured = Vec::new();
                     if let Some(p) = *mv {
-                        pos.place(color, p, &mut captured);
+                        if no_capture {
+                            pos.put(color, p);
+                        } else {
+                            pos.place(color, p, &mut captured);
+                        }
                     }
                     color = color.opposite();
                     captured
@@ -298,11 +316,11 @@ impl Workbench {
     /// record (`shouldApplyInitialEngineKomiToCurrentGame`, `boardEmpty`).
     fn game_is_empty(&self) -> bool {
         let rec = &self.doc.record;
-        self.doc.format.is_none() && rec.node_count() == 1 && rec.node(ROOT).setup.is_empty()
+        self.doc.format.is_none() && !rec.has_children_of_root() && rec.node(ROOT).setup.is_empty()
     }
 
-    /// `Board.reopenOnlyBoard`: an empty game of another size replaces the empty one.
-    fn reopen_empty_board(&mut self, size: BoardSize) {
+    /// `Board.reopenOnlyBoard` / `clear`: a new empty game of `size` replaces the open one.
+    pub(super) fn reopen_empty_board(&mut self, size: BoardSize) {
         let id = self.next_doc;
         self.next_doc += 1;
         self.doc = super::Document {
@@ -314,18 +332,27 @@ impl Workbench {
             saved_revision: None,
         };
         self.cursor = ROOT;
+        self.sounds.clear();
         self.store.reset(id);
+        self.reset_editing();
         self.publish_record_rules(None);
     }
 
     // -------------------------------------------------------------------- engine operations
 
     /// Engine menu `[n] name`: the engine becomes the foreground engine; a running instance (kept
-    /// or preloaded) is reused. The previous one keeps running with fast engine change.
+    /// or preloaded) is reused. The previous one keeps running with fast engine change. Every
+    /// foreground start goes through here, so none starts during setup mode
+    /// (`EngineManager.setupModeActive`).
     pub fn switch_engine(&mut self, index: u32) -> Result<bool, ApiError> {
         let Some(profile) = self.config.engine.engines.get(index as usize).cloned() else {
             return Err(ApiError::new(ErrorKind::InvalidArgument, format!("no engine {index}")));
         };
+        if self.setup_mode() {
+            // Changed: the notice is part of the next view.
+            self.engine_notice = Some(EngineNotice::SetupModeActive);
+            return Ok(true);
+        }
         let current = self
             .engines
             .foreground()
@@ -590,11 +617,17 @@ impl Workbench {
         let settings = &self.config.engine.analysis;
         self.engines.set_interval(settings.interval_centisec);
         if settings.limit_branch_length != previous.limit_branch_length {
-            let length = settings.limit_branch_length;
-            let record = self.doc.record.clone();
-            for (node, result) in self.store.nodes.iter_mut() {
-                fill_pv_captures(result, &record.position(*node), length);
-            }
+            self.refresh_pv_captures();
+        }
+    }
+
+    /// Plays the variations of stored analysis out again under the current length and rules.
+    pub(super) fn refresh_pv_captures(&mut self) {
+        let length = self.config.engine.analysis.limit_branch_length;
+        let no_capture = self.config.edit.no_capture;
+        let record = self.doc.record.clone();
+        for (node, (_, result)) in self.store.nodes.iter_mut() {
+            fill_pv_captures(result, &record.position(*node), length, no_capture);
         }
     }
 
@@ -702,6 +735,7 @@ impl Workbench {
                     instance,
                     doc,
                     node,
+                    stamp,
                     komi,
                     rules_rev,
                     to_play,
@@ -721,16 +755,20 @@ impl Workbench {
                     {
                         continue; // another document, a komi or rules that no longer apply
                     }
+                    let rec = &self.doc.record;
+                    if !rec.contains(node) || rec.node(node).stamp != stamp {
+                        continue; // the node was removed or edited since the request
+                    }
                     let Some(result) = node_analysis(node, to_play, komi, engine_name, line) else {
                         continue;
                     };
                     let visits = result.visits;
-                    let replace = self.store.nodes.get(&node).is_none_or(|old| more_visits(&result, old));
+                    let replace = self.store.get(rec, node).is_none_or(|old| more_visits(&result, old));
                     if replace {
                         let mut result = result;
                         let limit = self.config.engine.analysis.limit_branch_length;
-                        fill_pv_captures(&mut result, &self.doc.record.position(node), limit);
-                        self.store.nodes.insert(node, result);
+                        fill_pv_captures(&mut result, &rec.position(node), limit, self.config.edit.no_capture);
+                        self.store.nodes.insert(node, (stamp, result));
                     }
                     if node == self.cursor && !self.paused && self.limit_stop.is_none() {
                         self.check_limits(visits, elapsed);
@@ -859,7 +897,7 @@ impl Workbench {
     }
 
     pub(super) fn current_analysis(&self) -> Option<NodeAnalysisView> {
-        self.store.nodes.get(&self.cursor).cloned()
+        self.store.get(&self.doc.record, self.cursor).cloned()
     }
 
     /// Stored results on the current line (root to the line end) and the main trunk.
@@ -880,7 +918,7 @@ impl Workbench {
         nodes
             .into_iter()
             .filter_map(|n| {
-                let a = self.store.nodes.get(&n)?;
+                let a = self.store.get(rec, n)?;
                 Some(HistoryPoint {
                     node: n,
                     move_number: rec.node(n).move_number,

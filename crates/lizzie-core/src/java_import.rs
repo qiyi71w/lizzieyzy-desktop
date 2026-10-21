@@ -120,6 +120,15 @@ pub struct Mapped {
     pub startup_benchmark_dismissed_version: Option<u32>,
     /// `ui.network-proxy-*` as Java `NetworkProxy.settings` would accept them.
     pub network: Option<NetworkSettings>,
+    pub allow_double_click: Option<bool>,
+    pub allow_drag: Option<bool>,
+    pub show_right_menu: Option<bool>,
+    pub show_new_board_hint: Option<bool>,
+    pub show_markup_tools: Option<bool>,
+    /// `other-size-width` / `-height` within the board sizes this product opens (2–52).
+    pub other_size_width: Option<u16>,
+    pub other_size_height: Option<u16>,
+    pub no_capture: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -376,6 +385,54 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "show-replace-file-hint",
         ImportTarget::ReplaceFileHint,
         Kind::Bool(|m, v| m.show_replace_file_hint = Some(v)),
+    ),
+    (
+        "ui",
+        "allow-double-click",
+        ImportTarget::AllowDoubleClick,
+        Kind::Bool(|m, v| m.allow_double_click = Some(v)),
+    ),
+    (
+        "ui",
+        "allow-drag",
+        ImportTarget::AllowDrag,
+        Kind::Bool(|m, v| m.allow_drag = Some(v)),
+    ),
+    (
+        "ui",
+        "show-right-menu",
+        ImportTarget::RightClickMenu,
+        Kind::Bool(|m, v| m.show_right_menu = Some(v)),
+    ),
+    (
+        "ui",
+        "show-new-board-hint",
+        ImportTarget::NewBoardHint,
+        Kind::Bool(|m, v| m.show_new_board_hint = Some(v)),
+    ),
+    (
+        "ui",
+        "show-markup-tools",
+        ImportTarget::MarkupTools,
+        Kind::Bool(|m, v| m.show_markup_tools = Some(v)),
+    ),
+    (
+        "ui",
+        "other-size-width",
+        ImportTarget::OtherBoardSize,
+        Kind::U32(|m, v| m.other_size_width = u16::try_from(v).ok().filter(|v| (2..=52).contains(v))),
+    ),
+    (
+        "ui",
+        "other-size-height",
+        ImportTarget::OtherBoardSize,
+        Kind::U32(|m, v| m.other_size_height = u16::try_from(v).ok().filter(|v| (2..=52).contains(v))),
+    ),
+    (
+        "ui",
+        "no-capture",
+        ImportTarget::NoCapture,
+        Kind::Bool(|m, v| m.no_capture = Some(v)),
     ),
     (
         "ui",
@@ -1140,6 +1197,14 @@ impl Mapped {
         set!(c.engine.auto_load_kata_rules, self.auto_load_kata_rules);
         set!(c.engine.startup_benchmark, self.startup_benchmark);
         set!(c.network, self.network);
+        set!(c.edit.allow_double_click, self.allow_double_click);
+        set!(c.edit.allow_drag, self.allow_drag);
+        set!(c.edit.show_right_menu, self.show_right_menu);
+        set!(c.edit.show_new_board_hint, self.show_new_board_hint);
+        set!(c.edit.show_markup_tools, self.show_markup_tools);
+        set!(c.edit.other_size_width, self.other_size_width);
+        set!(c.edit.other_size_height, self.other_size_height);
+        set!(c.edit.no_capture, self.no_capture);
         if let Some(engines) = &self.engines {
             let kept: Vec<&MappedEngine> = engines
                 .iter()
@@ -1178,6 +1243,26 @@ impl Mapped {
         }
         let a = &config.engine.analysis;
         cmp!(ImportTarget::ReadKomi, config.record.read_komi, self.read_komi);
+        let e = &config.edit;
+        cmp!(
+            ImportTarget::AllowDoubleClick,
+            e.allow_double_click,
+            self.allow_double_click
+        );
+        cmp!(ImportTarget::AllowDrag, e.allow_drag, self.allow_drag);
+        cmp!(ImportTarget::RightClickMenu, e.show_right_menu, self.show_right_menu);
+        cmp!(
+            ImportTarget::NewBoardHint,
+            e.show_new_board_hint,
+            self.show_new_board_hint
+        );
+        cmp!(ImportTarget::MarkupTools, e.show_markup_tools, self.show_markup_tools);
+        if self.other_size_width.is_some_and(|v| v != e.other_size_width)
+            || self.other_size_height.is_some_and(|v| v != e.other_size_height)
+        {
+            out.push(ImportTarget::OtherBoardSize);
+        }
+        cmp!(ImportTarget::NoCapture, e.no_capture, self.no_capture);
         cmp!(
             ImportTarget::LoadSgfLast,
             config.record.load_sgf_last,

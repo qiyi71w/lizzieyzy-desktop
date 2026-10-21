@@ -1,7 +1,10 @@
 // Java BottomToolbar main bar: the default button set (Config.java:1900-1936) in its groups
-// (BottomToolbar.java:5209-5235), placed by layoutMainBar (5237-5320). Navigation and the move
-// field are implemented here; the other buttons report that the capability is not available yet.
+// (BottomToolbar.java:5209-5235), placed by layoutMainBar (5237-5320). Navigation, the move field
+// and the record-editing buttons are implemented here; the other buttons report that the
+// capability is not available yet.
 import { navigate, run, state, subscribe, unavailable } from "../app";
+import { COMMANDS } from "../commands";
+import "../editing/commands";
 import { product, t } from "../i18n";
 import { openAutoSetup } from "../setup/dialog";
 
@@ -10,6 +13,8 @@ interface Item {
   key: string;
   cls?: string;
   run?: () => void;
+  /** Off by default in Java (Config.java:232, 236: backMain, tryPlay); visibleButtons skips it. */
+  hidden?: boolean;
 }
 
 /** Text of the move field; goto clears it and leaves the field (BottomToolbar.java:1013-1027,
@@ -53,13 +58,17 @@ const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" 
     { name: "autoPlay", key: "BottomToolbar.autoPlay" },
   ],
   rightPrimary: [
-    { name: "setMain", key: "BottomToolbar.setMain" },
+    // 试下 / 恢复 (LizzieFrame.tryPlay, BottomToolbar.java:1321)
+    { name: "tryPlay", key: "BottomToolbar.tryPlay", hidden: true, run: () => COMMANDS["toolbar.try-play"].run() },
+    { name: "backMain", key: "BottomToolbar.backMain", hidden: true, run: () => COMMANDS["menu.backToMainBranch"].run() },
+    { name: "setMain", key: "BottomToolbar.setMain", run: () => COMMANDS["menu.setAsMain"].run() },
     { name: "move", key: "BottomToolbar.move" },
     { name: "coords", key: "BottomToolbar.coords" },
   ],
   rightOptional: [
-    { name: "clearButton", key: "BottomToolbar.clearButton", cls: "danger" },
-    { name: "deleteMove", key: "BottomToolbar.deleteMove", cls: "danger" },
+    // newEmptyBoard (1490) and deleteMoveNoHint (1307)
+    { name: "clearButton", key: "BottomToolbar.clearButton", cls: "danger", run: () => COMMANDS["files.new"].run() },
+    { name: "deleteMove", key: "BottomToolbar.deleteMove", cls: "danger", run: () => COMMANDS["board.delete-without-prompt"].run() },
   ],
 };
 const MORE: Item = { name: "moreActionsButton", key: "BottomToolbar.moreActions" };
@@ -130,11 +139,22 @@ export function buildBottomBar(host: HTMLElement): void {
   }
   measure(host);
   let lastAnalysis = false;
+  let lastTrying = false;
+  const tryPlay = elements.get(GROUPS.rightPrimary.find((item) => item.name === "tryPlay")!)!;
   subscribe(() => {
     const analysing = state.view?.engine.analysing ?? false;
-    if (analysing === lastAnalysis) return;
-    lastAnalysis = analysing;
-    showAnalysis(analysing);
+    if (analysing !== lastAnalysis) {
+      lastAnalysis = analysing;
+      showAnalysis(analysing);
+    }
+    // LizzieFrame.tryPlay / clearTryPlay: "恢复" while trying, "试下" otherwise.
+    const trying = state.view?.editing.trying ?? false;
+    if (trying !== lastTrying) {
+      lastTrying = trying;
+      tryPlay.textContent = trying ? t("BottomToolbar.tryplayBack") : t("BottomToolbar.tryPlay");
+      measure(host);
+      layoutBottomBar(host);
+    }
   });
 }
 
@@ -148,7 +168,15 @@ export function layoutBottomBar(host: HTMLElement): void {
   const width = (item: Item) => widths.get(item) ?? 52;
   const span = (items: Item[]) => items.reduce((s, e) => s + width(e), 0) + Math.max(0, items.length - 1) * GAP;
   const place = new Map<Item, number>();
-  const g = GROUPS;
+  // visibleButtons: buttons switched off in the toolbar settings take no place.
+  const shown = (items: Item[]) => items.filter((item) => !item.hidden);
+  const g = {
+    leftPrimary: shown(GROUPS.leftPrimary),
+    leftOptional: shown(GROUPS.leftOptional),
+    center: shown(GROUPS.center),
+    rightPrimary: shown(GROUPS.rightPrimary),
+    rightOptional: shown(GROUPS.rightOptional),
+  };
   const centerWidth = span(g.center);
   for (const reserve of [false, true]) {
     place.clear();

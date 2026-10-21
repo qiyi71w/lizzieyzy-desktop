@@ -8,9 +8,9 @@ and data directory. It only reads the Java configuration, and only when the user
 
 ## Current state
 
-Implemented: opening, browsing and saving records, analysis with one local GTP engine (KataGo,
-Leela Zero, Sayuri, Sai or Leela 0.11, recognised by their GTP name like Java), and importing
-the matching LizzieYzy Next settings.
+Implemented: opening, browsing, editing and saving records, analysis with one local GTP engine
+(KataGo, Leela Zero, Sayuri, Sai or Leela 0.11, recognised by their GTP name like Java), and
+importing the matching LizzieYzy Next settings.
 
 - Open SGF and GIB files with the File menu, the toolbar button, `O`, a dropped file, a command
   line argument, or File > recent records. Paste an SGF record with `Ctrl+V` (it asks before
@@ -48,9 +48,51 @@ the matching LizzieYzy Next settings.
   so reopening does not enlarge the content area by the title bar or shadow dimensions.
   File > 强制退出 skips both the pending-save wait and window-placement capture; use normal
   close or Quit when a save must finish. Both exit paths shut down the owned engines.
-- Settings available now: reading komi from SGF records, stone sounds on/off, and the UI language
-  (zh-CN, zh-TW, en, ja, ko, th; applied after a restart, like Java). A setting that cannot be
-  saved is reported and left unchanged.
+- Editing, at the Java entries (Edit and Game menus, the top edit and markup buttons, the bottom
+  bar, board clicks, the two board context menus and the Java keys):
+  - A board click plays the side to play (交替落子) or, with 添加黑子 / 添加白子, that colour
+    (right click the other one). Clicking the point of the next main-line move follows it, an
+    equal existing variation is followed, otherwise a new last variation is added. Occupied
+    points, single-stone suicide, multi-stone suicide unless the foreground engine's rules allow
+    it, and an immediate ko recapture are ignored without changing anything. `P` passes; `,` plays
+    the best candidate (or the previewed variation); a middle click plays the previewed variation;
+    自动补完征子 continues a ladder.
+  - 插入黑子 / 插入白子 (Edit menu toggle or the empty-point context menu) put a move after the
+    current one; 反色, 删除 and 移动 on a stone (stone context menu, or dragging with 启用拖动棋子)
+    change it where it was played. What followed is played again and keeps its comments, markup,
+    setup stones and other properties; stored analysis of the changed positions is dropped.
+  - `Delete`/`Backspace` 删除一手 and `Shift+Delete` 删除分支 ask first (Java's "删除" dialog)
+    when moves follow; the bottom bar 删除 does not ask. An answer applies only to the record,
+    content version and move it was asked for. 撤销删除 / 恢复删除 (shown only when
+    possible) and the context menu 撤销编辑 / 恢复编辑 / 清除编辑缓存 undo and redo the last
+    delete, insert or stone edit. `Shift+Left`/`Shift+Right` move the current branch, `L` and
+    设为主分支 make it the main line, 添加为分支 adds a previewed variation beside the line.
+  - Comments: click the comment pane to edit; the text is saved to the node it was opened on when
+    another place is pressed or the position changes. While typing, keys never play or navigate.
+  - Markup (标记工具, shown when switched on): letters and numbers count on (A, B, … / 1, 2, …),
+    triangle, square, cross, the eraser and 清除标记.
+  - 起始局面设置 (Game menu): setup mode is available on a record without moves (otherwise it
+    asks to turn the current position into the starting position) while no foreground engine
+    runs, and no engine starts while it is on. Clicks place black or white setup stones or erase
+    them (right click the other colour); 黑先 / 白先 set the side to play (`PL`). Setup stones take
+    no move number. 将当前盘面设为起始局面 converts the current position.
+  - 编辑棋局信息 (`I`: names, komi), 设置棋盘大小 (`Ctrl+I`; 其他 sizes are remembered), 新建 and
+    the bottom bar 清空棋盘 (Java's "新的棋盘?" prompt with 不再提示, Cancel by default),
+    清空棋盘 `Ctrl+Home` without asking, 交换黑白 and the rotations / mirrors
+    (`Ctrl+Shift+Alt+Right`, `Ctrl+Alt+arrows`; rotation needs a square board), 交换落子顺序
+    (changes the side to play when the engine analyses either side, else passes) and 试下 (`V`,
+    bottom bar button hidden by default as in Java): the record is kept aside and comes back,
+    with the position, when 试下 ends.
+  - Every edit of saved content raises the document revision, so edits made while a save runs
+    stay unsaved, and analysis is kept for every position an edit did not change.
+  - 五子棋无提子规则 (综合设置 > 高级选项, asks "五子棋?" when switched on, off by default):
+    moves capture nothing and a point without liberties is a normal move; records opened while
+    it is on are read the same way. Positions already placed keep their stones when it is
+    switched; it is not a Gomoku rule set (no five-in-a-row detection).
+- Settings available now: reading komi from SGF records, stone sounds on/off, the UI language
+  (zh-CN, zh-TW, en, ja, ko, th; applied after a restart, like Java), and the editing toggles
+  (启用双击找子, 启用拖动棋子, 显示清空棋盘提示对话框, 标记工具, 五子棋无提子规则). A setting that
+  cannot be saved is reported and left unchanged.
 - Help > 诊断与日志 shows this client's logs, opens the log folder and exports a diagnostics zip;
   Help > 清除所有个人数据 clears the recent-record list; View > 重置界面位置 resets the saved
   window placement and last folder and turns the overwrite prompt back on.
@@ -93,7 +135,9 @@ the matching LizzieYzy Next settings.
   `LizzieYzyNext` folders are suggested when they exist). A preview lists every Java setting as
   imported, not usable here (invalid values; Java window positions) or left out (features not in
   this client yet, accounts and credentials), with the engine list. Imported: record settings
-  (load komi, go to last move, replace prompt), language, stone sounds, recent records, last
+  (load komi, go to last move, replace prompt), language, stone sounds, the editing settings
+  (double click, drag, right-click menu or back, new-board prompt, markup tools, 其他 board
+  size, no-capture), recent records, last
   folder, the engine list with its default and start-up choice, each engine's thread policy and
   benchmark results and its GTP configuration profile, analysis limits and interval, fast engine
   change, limit notice, KataGo rules, the start-up benchmark choice and the network proxy (only
@@ -156,7 +200,8 @@ the matching LizzieYzy Next settings.
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
 as not yet available (greyed in menus; a notice when used). Not available yet: comparison and
 dual-engine analysis, remote/SSH and cloud engines, the quick-analysis and HumanSL models of the
-weights page, and whole-game measured tuning.
+weights page, whole-game measured tuning, 启用点击棋子回看 (click review), 自由涂鸦, and the
+analysis-region items of the board context menu.
 
 Resource acquisition and real engine analysis have been verified on Linux (private X11,
 WebKitGTK), including downloads of the official KataGo v1.18.1 Eigen AVX2 AppImage and model
@@ -230,7 +275,9 @@ document `revision`. A save captures the text, document and revision when it sta
 written by one background writer in order; its receipt (`save_outcome`) confirms only that
 revision of that document. `DocumentView` reports `revision`, `saved_revision` (the revision that
 is the content of the document's file) and `unsaved`, so edits made while a save runs, or a
-record opened meanwhile, stay unsaved.
+record opened meanwhile, stay unsaved. Every node carries a stamp that changes whenever its
+position changes (or it is removed); stored analysis and the engine's synced position are keyed
+by node and stamp, so an edit drops exactly the analysis of the positions it changed.
 
 ## Development
 

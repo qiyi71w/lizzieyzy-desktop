@@ -60,7 +60,8 @@ pub enum EngineKind {
 }
 
 /// The position an engine should hold: one node of one document at a komi, and the rules the
-/// session requires (`None`: whatever the engine has).
+/// session requires (`None`: whatever the engine has). The node's [`stamp`](crate::record::Node::stamp)
+/// is part of its identity: a node edited in place is another position.
 #[derive(Clone)]
 pub struct Target {
     pub doc: u64,
@@ -89,6 +90,7 @@ impl Target {
         TargetKey {
             doc: self.doc,
             node: self.node,
+            stamp: self.record.node(self.node).stamp,
             komi_bits: self.komi.to_bits(),
             rules_rev: self.rules_rev,
         }
@@ -99,6 +101,7 @@ impl Target {
 struct TargetKey {
     doc: u64,
     node: NodeId,
+    stamp: u64,
     komi_bits: u64,
     rules_rev: u64,
 }
@@ -127,6 +130,8 @@ pub enum RuntimeEvent {
         instance: InstanceId,
         doc: u64,
         node: NodeId,
+        /// The node's stamp when the request was made.
+        stamp: u64,
         komi: f64,
         rules_rev: u64,
         to_play: Stone,
@@ -183,14 +188,16 @@ enum Purpose {
     User,
 }
 
-/// What the engine will hold once it has processed every command sent so far.
+/// What the engine will hold once it has processed every command sent so far: the anchor
+/// position and the actions after it, by node stamp (a removed or edited node never matches a
+/// node of the current record).
 #[derive(Clone, Debug, PartialEq)]
 struct EngineBoard {
     doc: u64,
     size: BoardSize,
     komi_bits: u64,
-    anchor: NodeId,
-    actions: Vec<NodeId>,
+    anchor: u64,
+    actions: Vec<u64>,
 }
 
 /// An analysis request: which position it is for.
@@ -1070,6 +1077,28 @@ impl Engines {
         self.get(id)?.confirmed_rules.as_ref()
     }
 
+    /// `Leelaz.canSuicidal`: the engine reported rules that allow suicide.
+    pub fn allows_suicide(&self, id: InstanceId) -> bool {
+        self.confirmed_rules(id)
+            .and_then(|r| r.field("suicide"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+    }
+
+    /// `Leelaz.canAddPlayer`: the engine analyses for either side to play, so 交换落子顺序 can
+    /// change the side to play instead of passing. Java sets it from the GTP name (KataGo, Leela
+    /// Zero / Pachi, `llzero`, Sayuri) and clears it for a non-KataGo version `x.15`.
+    pub fn can_add_player(&self, id: InstanceId) -> bool {
+        let Some(i) = self.get(id).filter(|i| i.phase == Phase::Ready) else {
+            return false;
+        };
+        let named = matches!(i.kind, EngineKind::KataGo | EngineKind::LeelaZero | EngineKind::Sayuri)
+            || i.gtp_name.to_lowercase().starts_with("llzero");
+        let minor_15 = i.kind != EngineKind::KataGo
+            && i.version.split('.').nth(1).and_then(|m| m.trim().parse::<u32>().ok()) == Some(15);
+        named && !minor_15
+    }
+
     // -------------------------------------------------------------------- input
 
     /// Output of instance `id`. Returns what the application flow must act on.
@@ -1143,6 +1172,7 @@ impl Engines {
             instance: id,
             doc: request.key.doc,
             node: request.key.node,
+            stamp: request.key.stamp,
             komi: f64::from_bits(request.key.komi_bits),
             rules_rev: request.key.rules_rev,
             to_play: request.to_play,
@@ -1171,6 +1201,7 @@ impl Engines {
                     instance: id,
                     doc: request.key.doc,
                     node: request.key.node,
+                    stamp: request.key.stamp,
                     komi: f64::from_bits(request.key.komi_bits),
                     rules_rev: request.key.rules_rev,
                     to_play: request.to_play,
@@ -1360,7 +1391,8 @@ fn color_letter(c: Stone) -> &'static str {
 
 /// Commands that bring the engine from what it holds to `target`, and what it holds then.
 /// Within one document and anchor, `undo` back to the common moves and `play` forward; anything
-/// else rebuilds: board size, `clear_board`, komi, the anchor position, then the moves.
+/// else rebuilds: board size, `clear_board`, komi, the anchor position, then the moves. Nodes are
+/// compared by stamp, so an edited anchor or replayed moves are synced again.
 fn sync_commands(inst: &Instance, target: &Target) -> (Vec<String>, EngineBoard) {
     let rec = &target.record;
     let path = rec.path_to(target.node);
@@ -1369,7 +1401,7 @@ fn sync_commands(inst: &Instance, target: &Target) -> (Vec<String>, EngineBoard)
         .rposition(|&n| n == ROOT || !rec.node(n).setup.is_empty())
         .unwrap_or(0);
     let anchor = path[anchor_at];
-    let actions: Vec<NodeId> = path[anchor_at + 1..]
+    let action_nodes: Vec<NodeId> = path[anchor_at + 1..]
         .iter()
         .copied()
         .filter(|&n| rec.node(n).kind.is_action())
@@ -1378,8 +1410,8 @@ fn sync_commands(inst: &Instance, target: &Target) -> (Vec<String>, EngineBoard)
         doc: target.doc,
         size: rec.size,
         komi_bits: target.komi.to_bits(),
-        anchor,
-        actions,
+        anchor: rec.node(anchor).stamp,
+        actions: action_nodes.iter().map(|&n| rec.node(n).stamp).collect(),
     };
     let play = |n: NodeId| match rec.node(n).kind {
         NodeKind::Move { color, point } => format!("play {} {}", color_letter(color), gtp::vertex(rec.size, point)),
@@ -1402,7 +1434,7 @@ fn sync_commands(inst: &Instance, target: &Target) -> (Vec<String>, EngineBoard)
             if have.komi_bits != want.komi_bits {
                 cmds.push(format!("komi {}", komi_text(target.komi)));
             }
-            cmds.extend(want.actions[common..].iter().map(|&n| play(n)));
+            cmds.extend(action_nodes[common..].iter().map(|&n| play(n)));
             return (cmds, want);
         }
     }
@@ -1434,6 +1466,6 @@ fn sync_commands(inst: &Instance, target: &Target) -> (Vec<String>, EngineBoard)
             cmds.extend(stones.iter().map(|s| format!("play {s}")));
         }
     }
-    cmds.extend(want.actions.iter().map(|&n| play(n)));
+    cmds.extend(action_nodes.iter().map(|&n| play(n)));
     (cmds, want)
 }

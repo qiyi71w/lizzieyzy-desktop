@@ -825,6 +825,72 @@ fn a_refused_sync_drops_the_analysis_requested_with_it() {
 }
 
 #[test]
+fn an_edited_position_drops_only_its_own_analysis_and_the_engine_follows_the_edit() {
+    use lizzie_core::api::EditCommand;
+    use lizzie_core::record::{Point, StoneChange};
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, a) = started(dir.path(), &world);
+    open(&mut wb, "(;SZ[19];B[pd];W[dd];B[pp])");
+    answer_all(&mut wb, &world, a, KATA);
+    out(&mut wb, a, &info("Q16", 50));
+    wb.navigate(Navigation::Forward(1));
+    answer_all(&mut wb, &world, a, KATA);
+    out(&mut wb, a, &info("D4", 40));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 40);
+
+    // 反色 of the stone just played: this node now holds another position.
+    wb.edit(EditCommand::EditStone {
+        point: Point { x: 15, y: 3 },
+        change: StoneChange::Switch,
+    })
+    .unwrap();
+    let v = wb.view(false);
+    assert!(v.analysis.is_none(), "analysis of the old position is gone");
+    assert!(
+        v.history.iter().any(|h| h.node == 0 && h.visits == 50),
+        "the unchanged root keeps its result: {:?}",
+        v.history
+    );
+    // A line the engine computed for the old position before reading the edit is not adopted.
+    out(&mut wb, a, &info("D4", 400));
+    assert!(wb.view(false).analysis.is_none());
+    let sent = answer_all(&mut wb, &world, a, KATA);
+    assert!(sent.contains(&"play W Q16".to_string()), "{sent:?}");
+    out(&mut wb, a, &info("D4", 30));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 30);
+}
+
+#[test]
+fn no_foreground_engine_starts_during_setup_mode() {
+    use lizzie_core::api::EditCommand;
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    wb.save_engine_settings(vec![profile("KataGo", "/opt/katago")], EngineStartup::Default)
+        .unwrap();
+    wb.edit(EditCommand::SetSetupMode {
+        enabled: true,
+        confirmed: None,
+    })
+    .unwrap();
+    // Start-up (also after an import), the engine menu and the analysis toggle all start the
+    // foreground engine through one operation.
+    wb.start_engines();
+    wb.toggle_analysis().unwrap();
+    wb.switch_engine(0).unwrap();
+    assert!(world.launched().is_empty());
+    assert_eq!(wb.view(false).engine_notice, Some(EngineNotice::SetupModeActive));
+    wb.edit(EditCommand::SetSetupMode {
+        enabled: false,
+        confirmed: None,
+    })
+    .unwrap();
+    wb.switch_engine(0).unwrap();
+    assert_eq!(world.launched().len(), 1);
+}
+
+#[test]
 fn variations_carry_the_captures_of_each_move() {
     use lizzie_core::record::Point;
     let dir = tempfile::tempdir().unwrap();

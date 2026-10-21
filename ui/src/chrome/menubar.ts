@@ -106,6 +106,7 @@ function dropdown(items: MenuNode[]): HTMLElement {
       const entry: CommandEntry | undefined = recent
         ? { run: () => run({ type: "OpenRecord", path: recent, source: "Recent" }) }
         : (COMMANDS[node.id ?? ""] ?? COMMANDS[node.key]);
+      if (entry?.visible && !entry.visible()) continue;
       if (node.t === "check" || node.t === "radio") {
         mark.textContent = entry?.checked?.() ? "✓" : "";
         row.classList.add("checkable");

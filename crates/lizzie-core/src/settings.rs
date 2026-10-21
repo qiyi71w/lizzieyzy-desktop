@@ -93,6 +93,44 @@ impl Default for UiSettings {
     }
 }
 
+/// Editing settings (Java `ui.*` keys; defaults from `Config.java`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct EditSettings {
+    /// 启用双击找子 (`allow-double-click`, default on).
+    pub allow_double_click: bool,
+    /// 启用拖动棋子 (`allow-drag`, default off).
+    pub allow_drag: bool,
+    /// Right click opens the board context menu; off, it goes back one move
+    /// (`show-right-menu`, default on).
+    pub show_right_menu: bool,
+    /// 显示新建棋盘确认对话框 (`show-new-board-hint`, default on).
+    pub show_new_board_hint: bool,
+    /// 标记工具 shown in the top toolbar (`show-markup-tools`, default off).
+    pub show_markup_tools: bool,
+    /// 设置棋盘大小 "其他" width and height (`other-size-width` / `-height`, default 21).
+    pub other_size_width: u16,
+    pub other_size_height: u16,
+    /// 五子棋无提子规则 (`no-capture`, default off): stones placed or read while it is on remove
+    /// nothing (`Board.place`, `BoardHistoryList.place`).
+    pub no_capture: bool,
+}
+
+impl Default for EditSettings {
+    fn default() -> Self {
+        EditSettings {
+            allow_double_click: true,
+            allow_drag: false,
+            show_right_menu: true,
+            show_new_board_hint: true,
+            show_markup_tools: false,
+            other_size_width: 21,
+            other_size_height: 21,
+            no_capture: false,
+        }
+    }
+}
+
 pub const RECENT_LIMIT: usize = 5;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -104,6 +142,8 @@ pub struct Config {
     pub recent_files: Vec<String>,
     /// Engines and analysis (Java `leelaz.engine-settings-list` and analysis keys).
     pub engine: crate::engine::profile::EngineSettings,
+    /// Editing (Java `ui.allow-*`, `show-new-board-hint`, ...).
+    pub edit: EditSettings,
     /// Network access (Java `ui.network-proxy-*`).
     pub network: NetworkSettings,
 }

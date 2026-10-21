@@ -21,6 +21,8 @@ export interface CommandEntry {
   checked?: () => boolean;
   /** A Java-faithful disabled state (not "unimplemented"). */
   enabled?: () => boolean;
+  /** Java items hidden by a menu-open listener (setVisible(false)) while this is false. */
+  visible?: () => boolean;
 }
 
 /** Settings > 语言 (Menu.java:7025-7034): saved now, applied after a restart. */

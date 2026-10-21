@@ -168,15 +168,19 @@ fn run_refresher(app: AppHandle, shared: State) {
 }
 
 fn start_open(app: &AppHandle, shared: &State, path: String, source: OpenSource) -> u64 {
-    let ticket = shared.workbench.lock().unwrap().begin_open(OpenOrigin::File {
-        path: path.clone(),
-        source,
-    });
+    let (ticket, no_capture) = {
+        let mut wb = shared.workbench.lock().unwrap();
+        let ticket = wb.begin_open(OpenOrigin::File {
+            path: path.clone(),
+            source,
+        });
+        (ticket, wb.config().edit.no_capture)
+    };
     publish(app, shared);
     let app = app.clone();
     let shared = shared.clone();
     std::thread::spawn(move || {
-        let result = formats::read_file(&PathBuf::from(&path));
+        let result = formats::read_file(&PathBuf::from(&path), no_capture);
         if let Err(e) = &result {
             shared.log.warn(&format!(
                 "open failed ({}): {}",
@@ -340,8 +344,11 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
                 PasteDecision::Ignore => Ok(CommandResult::Unchanged),
                 PasteDecision::Confirm => Ok(CommandResult::NeedsConfirmation),
                 PasteDecision::Proceed => {
-                    let ticket = shared.workbench.lock().unwrap().begin_open(OpenOrigin::Clipboard);
-                    let result = Workbench::read_clipboard_record(&text);
+                    let (ticket, no_capture) = {
+                        let mut wb = shared.workbench.lock().unwrap();
+                        (wb.begin_open(OpenOrigin::Clipboard), wb.config().edit.no_capture)
+                    };
+                    let result = Workbench::read_clipboard_record(&text, no_capture);
                     if let Err(e) = &result {
                         shared
                             .log
@@ -584,6 +591,15 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         }
         Command::Resource { op } => resources::dispatch(app, shared, op).await,
         Command::Tuning { op } => tuning::dispatch(app, shared, op).await,
+        Command::Edit { op } => {
+            let result = shared.workbench.lock().unwrap().edit(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
+        Command::SetEditSettings { settings } => {
+            let done = shared.workbench.lock().unwrap().set_edit_settings(settings)?;
+            Ok(changed(&app, &shared, done))
+        }
     }
 }
 
@@ -680,7 +696,12 @@ fn window_placement(window: &tauri::WebviewWindow, previous: Option<WindowPlacem
     // GTK's native window size can include client-side decorations and shadows on Wayland.
     // Persist the WebKit allocation, which matches the content size accepted at startup.
     #[cfg(target_os = "linux")]
-    let size = window.as_ref().bounds().ok()?.size.to_physical::<u32>(window.scale_factor().ok()?);
+    let size = window
+        .as_ref()
+        .bounds()
+        .ok()?
+        .size
+        .to_physical::<u32>(window.scale_factor().ok()?);
     #[cfg(not(target_os = "linux"))]
     let size = window.inner_size().ok()?;
     Some(WindowPlacement {
@@ -723,7 +744,9 @@ fn install_macos_quit(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>>
     for item in menu.items()? {
         let Some(submenu) = item.as_submenu() else { continue };
         for (index, item) in submenu.items()?.iter().enumerate() {
-            let Some(predefined) = item.as_predefined_menuitem() else { continue };
+            let Some(predefined) = item.as_predefined_menuitem() else {
+                continue;
+            };
             if predefined.text()? == quit_text {
                 submenu.remove_at(index)?;
                 submenu.insert(&MenuItem::with_id(app, "quit", &quit_text, true, Some("Cmd+Q"))?, index)?;

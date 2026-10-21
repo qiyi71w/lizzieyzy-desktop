@@ -15,6 +15,7 @@
 //! serial writer, like Java `SgfSaveQueue`).
 
 mod analysis;
+mod editing;
 mod importing;
 mod resources;
 mod tuning;
@@ -24,6 +25,7 @@ use std::sync::Arc;
 
 use analysis::AnalysisStore;
 pub use analysis::LogLine;
+pub use editing::{NOT_SQUARE, SETUP_ENGINE_RUNNING, SETUP_MODE_ROOT_ONLY, SETUP_ROOT_ONLY};
 pub use importing::{IMPORT_NEEDS_REPLACE, IMPORT_STALE};
 pub use resources::{prepare_resource_setup, run_resource_job, ResourceCompletion, ResourceJob};
 
@@ -35,7 +37,7 @@ use crate::api::{
 use crate::browse::{self, Navigation};
 use crate::engine::runtime::{Engines, InstanceId, Launcher};
 use crate::formats::{self, sgf_write, ReadError};
-use crate::record::{BoardSize, DocumentEdit, GameRecord, NodeId, NodeKind, RecordFormat, Stone, ROOT};
+use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, RecordFormat, Stone, ROOT};
 use crate::settings::{self, Config, Language, Persisted, Storage, WindowPlacement};
 
 /// Java `GameInfo.DEFAULT_KOMI`.
@@ -186,6 +188,8 @@ pub struct Workbench {
     resources: resources::ResourceFlow,
     /// Engine performance: benchmark tasks and thread-policy changes.
     tuning: tuning::TuningFlow,
+    /// Starting-position setup mode and the delete/edit undo cache.
+    editing: editing::Editing,
 }
 
 impl Workbench {
@@ -262,6 +266,7 @@ impl Workbench {
             next_preview: 0,
             resources,
             tuning: tuning::TuningFlow::default(),
+            editing: editing::Editing::default(),
         }
     }
 
@@ -403,6 +408,7 @@ impl Workbench {
                 // (`startNewKifuAnalysisContextAfterSuccessfulLoad`).
                 self.komi_changed = false;
                 self.paused = false;
+                self.reset_editing();
                 self.limit_stop = None;
                 let declared = match format {
                     RecordFormat::Sgf => self.doc.record.info.rules.clone(),
@@ -422,7 +428,7 @@ impl Workbench {
             return PasteDecision::Ignore;
         }
         let rec = &self.doc.record;
-        let has_content = rec.node_count() > 1 || !rec.node(ROOT).setup.is_empty();
+        let has_content = rec.has_children_of_root() || !rec.node(ROOT).setup.is_empty();
         if has_content && !confirmed {
             PasteDecision::Confirm
         } else {
@@ -430,9 +436,10 @@ impl Workbench {
         }
     }
 
-    /// Reads clipboard text synchronously into the same commit path as files.
-    pub fn read_clipboard_record(text: &str) -> Result<(RecordFormat, GameRecord), ReadError> {
-        formats::parse(RecordFormat::Sgf, text).map(|r| (RecordFormat::Sgf, r))
+    /// Reads clipboard text synchronously into the same commit path as files; `no_capture` is
+    /// the `ui.no-capture` setting when the read starts, as for files.
+    pub fn read_clipboard_record(text: &str, no_capture: bool) -> Result<(RecordFormat, GameRecord), ReadError> {
+        formats::parse(RecordFormat::Sgf, text, no_capture).map(|r| (RecordFormat::Sgf, r))
     }
 
     // ---------------------------------------------------------------- saving
@@ -520,19 +527,7 @@ impl Workbench {
     }
 
     // ---------------------------------------------------------------- document content
-
-    /// The one content-write entry of the open document: applies `edit` and increases the
-    /// revision when the content changed. Editing slices route their operations through here.
-    pub fn edit_document(&mut self, edit: DocumentEdit) -> Result<bool, ApiError> {
-        let record = Arc::make_mut(&mut self.doc.record);
-        let changed = record
-            .apply(&edit)
-            .map_err(|e| ApiError::new(ErrorKind::InvalidArgument, e))?;
-        if changed {
-            self.doc.revision += 1;
-        }
-        Ok(changed)
-    }
+    // The content write path is `apply_edit` / `edit_document` in `editing`.
 
     // ---------------------------------------------------------------- browsing
 
@@ -730,6 +725,7 @@ impl Workbench {
                 play_sound: self.config.ui.play_sound,
                 replace_file_hint: self.config.record.show_replace_file_hint,
                 engine: self.engine_settings_view(),
+                edit: self.config.edit.clone(),
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
@@ -742,6 +738,7 @@ impl Workbench {
             java_import: self.java_import_view(),
             resources: None,
             tuning: None,
+            editing: self.editing_view(),
         }
     }
 

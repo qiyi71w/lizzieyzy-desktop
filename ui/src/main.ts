@@ -9,7 +9,7 @@ import { buildBottomBar, layoutBottomBar } from "./chrome/bottombar";
 import { buildMenubar, menuOpen } from "./chrome/menubar";
 import { buildToolbar, renderToolbar } from "./chrome/toolbar";
 import { onUnavailable, onView, snapshot } from "./contract/client";
-import type { CandidateView, HistoryPoint, Navigation, NodeAnalysisView, WorkbenchView } from "./contract/generated";
+import type { CandidateView, HistoryPoint, Navigation, NodeAnalysisView, Point, WorkbenchView } from "./contract/generated";
 import { dialogOpen, message } from "./dialogs";
 import { isChinese, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
@@ -17,6 +17,11 @@ import { boardGeom, graphGeom, inFrameLayout, type Panels, type Rect } from "./w
 import { sameAnalysis, sameHistory } from "./workbench/viewEquality";
 import { handleEngineKey } from "./engine/keys";
 import { mountSetupBanner } from "./setup/banner";
+import "./editing/commands";
+import { bindCommentEditor, commentEditing } from "./editing/comment";
+import { contextMenuItems, contextMenuOpen } from "./editing/contextMenu";
+import { bindBoardInput, handleEditKey } from "./editing/input";
+import { editing } from "./editing/state";
 import {
   loadImages,
   paintBackground,
@@ -151,6 +156,8 @@ function projectAnalysis(v: WorkbenchView) {
 }
 
 function engineTitle(v: WorkbenchView): string {
+  // LizzieFrame.updateTitle returns while trying: the title stays LizzieFrame.tryTitle.
+  if (v.editing.trying) return windowTitle(version);
   const base = windowTitle(version), foreground = v.engine.foreground, a = v.analysis;
   let prefix = "";
   if (a && a.visits > 0) {
@@ -209,18 +216,13 @@ function navigationFor(e: KeyboardEvent): Navigation | null {
 const JAVA_BOUND = new Set([..."ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", " ", ",", ".", "[", "]", "Enter", "Delete", "Backspace"]);
 
 document.addEventListener("keydown", (e) => {
-  if (dialogOpen() || menuOpen() || textTarget(e.target)) return;
-  if (handleEngineKey(e)) {
+  if (dialogOpen() || menuOpen() || contextMenuOpen() || textTarget(e.target)) return;
+  if (handleEngineKey(e) || handleEditKey(e)) {
     e.preventDefault();
     return;
   }
   const ctrl = e.ctrlKey || e.metaKey;
-  // Edits (Shift+Left/Right move a branch, Alt rotations, Ctrl+Home clear) are not browsing.
-  const editModifiers =
-    ((e.key === "ArrowLeft" || e.key === "ArrowRight") && e.shiftKey) ||
-    (e.altKey && e.key.startsWith("Arrow") && ctrl) ||
-    (e.key === "Home" && ctrl);
-  const nav = editModifiers ? null : navigationFor(e);
+  const nav = navigationFor(e);
   if (nav) {
     e.preventDefault();
     navigate(nav);
@@ -241,7 +243,7 @@ document.addEventListener("keydown", (e) => {
   } else if (key === "B" && !ctrl && !e.altKey) {
     e.preventDefault();
     navigate({ op: "MainTrunk" });
-  } else if (!e.metaKey && key !== " " && (editModifiers || JAVA_BOUND.has(key))) {
+  } else if (!e.metaKey && key !== " " && JAVA_BOUND.has(key)) {
     e.preventDefault();
     flash(product("unavailable"));
   }
@@ -262,9 +264,31 @@ function bindPointer() {
     },
     { passive: false },
   );
-  // Board clicks place stones in Java (document editing).
-  $("board").addEventListener("mousedown", (ev) => {
-    if (ev.button === 0 && boardPoint(ev)) flash(product("unavailable"));
+  bindBoardInput($("board"), {
+    pointAt: boardPointAt,
+    stoneAt: (p) => {
+      const v = state.view;
+      if (!panels || !v) return null;
+      const geo = boardGeom(panels.board, v.document.size.width, v.document.size.height);
+      const m = $("main").getBoundingClientRect();
+      return { x: m.left + geo.x + geo.margin + p.x * geo.square, y: m.top + geo.y + geo.margin + p.y * geo.square, r: geo.stoneRadius };
+    },
+    previewMoves: () => {
+      const v = state.view;
+      const c = v?.analysis?.candidates.find((c) => c.order === hoveredCandidate);
+      if (!v || !c) return null;
+      // The length the board shows (paintBoard: limit-branch-length); passes are not placed.
+      const limit = v.settings.engine.analysis.limitBranchLength;
+      const moves = c.pv.slice(0, limit > 0 ? limit : c.pv.length).filter((p): p is Point => p !== null);
+      return moves.length ? moves : null;
+    },
+    clearTableSelection: () => {
+      if (selectedCandidate === null) return false;
+      selectedCandidate = null;
+      hover(null);
+      schedule();
+      return true;
+    },
   });
   $("board").addEventListener("mousemove", (ev) => {
     const v = state.view;
@@ -277,7 +301,10 @@ function bindPointer() {
       (v.settings.engine.analysis.limitMaxSuggestion === 0 || c.order < v.settings.engine.analysis.limitMaxSuggestion || c.order === hoveredCandidate));
     hover(candidate?.order ?? null);
   });
-  $("board").addEventListener("mouseleave", () => hover(null));
+  // The open board popup keeps the preview it was opened over.
+  $("board").addEventListener("mouseleave", () => {
+    if (!contextMenuOpen()) hover(null);
+  });
   $("table").addEventListener("mouseleave", () => hover(null));
   const sub = $("sub");
   sub.addEventListener("contextmenu", (ev) => ev.preventDefault());
@@ -413,17 +440,17 @@ function pressScrollbar(ev: MouseEvent, axis: "vertical" | "horizontal", at: num
   window.addEventListener("mouseup", () => window.removeEventListener("mousemove", drag), { once: true });
 }
 
-function boardPoint(ev: MouseEvent): boolean {
+function boardPointAt(clientX: number, clientY: number): Point | null {
   const v = state.view;
-  if (!panels || !v) return false;
+  if (!panels || !v) return null;
   const { width, height } = v.document.size;
   const geo = boardGeom(panels.board, width, height);
   const rect = $("main").getBoundingClientRect();
-  const x = ev.clientX - rect.left - geo.x - geo.margin;
-  const y = ev.clientY - rect.top - geo.y - geo.margin;
+  const x = clientX - rect.left - geo.x - geo.margin;
+  const y = clientY - rect.top - geo.y - geo.margin;
   const cx = Math.floor((x + geo.square / 2) / geo.square);
   const cy = Math.floor((y + geo.square / 2) / geo.square);
-  return cx >= 0 && cy >= 0 && cx < width && cy < height;
+  return cx >= 0 && cy >= 0 && cx < width && cy < height ? { x: cx, y: cy } : null;
 }
 
 // ------------------------------------------------------------------ rendering
@@ -488,7 +515,8 @@ function render() {
   const size = `${W}x${H}:${window.devicePixelRatio}`;
   const pos = v.position;
   const { width: cols, height: rows } = v.document.size;
-  const docSig = `${v.document.id}:${pos.node}`;
+  // Edits change a node's position, marks or side to play in place: the revision moves on.
+  const docSig = `${v.document.id}:${v.document.revision}:${pos.node}:${pos.to_play}`;
   projectAnalysis(v);
   if (changed("bg", size)) installBackground(size, W, H, P.glass);
 
@@ -550,7 +578,7 @@ function render() {
     treeView = painted.viewport;
   }
   place($("comment"), P.comment);
-  if (changed("comment", docSig)) $("commentText").textContent = pos.comment;
+  if (changed("comment", `${docSig}:${pos.comment}`)) $("commentText").textContent = pos.comment;
   place($("table"), P.table);
   if (changed("table", `${size}:${docSig}:${analysisRevision}:${historyRevision}:${selectedCandidate}`)) renderTable();
   if (changed("bottombar", `${$("bottombar").clientWidth}`)) layoutBottomBar($("bottombar"));
@@ -695,16 +723,26 @@ function uiReport() {
       const g = boardGeom(panels.board, width, height);
       const s = boardGeom(panels.sub, width, height, 0.035);
       const tb = $("table").getBoundingClientRect();
+      const ct = $("commentText").getBoundingClientRect();
       return {
         board: { x: m.left + g.x + g.margin, y: m.top + g.y + g.margin, square: g.square },
         sub: { x: m.left + s.x + s.margin, y: m.top + s.y + s.margin, square: s.square },
         graph: { x: m.left + panels.graph.x, y: m.top + panels.graph.y, w: panels.graph.w, h: panels.graph.h },
         table: { x: tb.left, y: tb.top, w: tb.width, h: tb.height },
+        comment: { x: ct.left, y: ct.top, w: ct.width, h: ct.height },
       };
     })(),
     comment: $("commentText").textContent,
     moveField: $<HTMLInputElement>("moveInput").value,
     bottomBar: [...document.querySelectorAll<HTMLElement>("#bottombar .bb")].filter((b) => b.style.display !== "none").map((b) => b.textContent),
+    editing: {
+      placement: editing.placement,
+      insert: editing.insert,
+      markup: editing.markup,
+      setupTool: editing.setupTool,
+      commentEditing: commentEditing(),
+      contextMenu: contextMenuItems(),
+    },
     view: state.view ? { seq: state.view.seq, node: state.view.position.node, document: state.view.document.id } : null,
     tree: treeView && {
       top: treeView.top,
@@ -726,6 +764,7 @@ function uiReport() {
       .map(({ el, r }) => ({
         key: el.dataset.key ?? el.dataset.name ?? el.id ?? "",
         text: el.textContent ?? "",
+        checked: el instanceof HTMLInputElement && el.type === "checkbox" ? el.checked : undefined,
         x: Math.round(r.left + r.width / 2),
         y: Math.round(r.top + r.height / 2),
       })),
@@ -751,6 +790,7 @@ async function boot() {
   $("problemsTab").textContent = t("SidebarHeader.problems");
   $("problemsTab").title = product("unavailable");
   bindPointer();
+  bindCommentEditor($("commentText"));
   await Promise.all([
     loadImages(["board.png", "black0.png", "white0.png", "background.jpg", "smallUp.png", "smallDown.png", "smallLeft.png", "smallRight.png"]),
     document.fonts.load('12px "Lizzie Winrate"'),

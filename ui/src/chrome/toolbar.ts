@@ -4,13 +4,90 @@
 // capability is not available yet.
 import { run, state, unavailable } from "../app";
 import { COMMANDS } from "../commands";
+import { choosePlacement, placementLit } from "../editing/commands";
+import { editing, onEditingChange } from "../editing/state";
 import { product, t } from "../i18n";
 import { javaDouble } from "../workbench/paint";
+import "../editing/chrome.css";
+
+const updaters: (() => void)[] = [];
+
+/** A button whose icon shows a selected state (JButton.setIcon with the "2" image). */
+function liveIcon(off: string, on: string, tip: string, selected: () => boolean, action: () => void, cls = ""): HTMLElement {
+  const b = document.createElement("span");
+  b.className = `tb-icon ${cls}`;
+  b.title = tip;
+  const image = document.createElement("img");
+  image.alt = "";
+  b.append(image);
+  b.onclick = action;
+  updaters.push(() => {
+    const lit = selected();
+    const src = `/assets/${lit ? on : off}`;
+    if (image.getAttribute("src") !== src) image.src = src;
+    b.classList.toggle("on", lit);
+  });
+  return b;
+}
+
+/** A catalog toggle shown as a two-image button. */
+function commandIcon(off: string, on: string, tip: string, command: string): HTMLElement {
+  const entry = COMMANDS[command];
+  const b = liveIcon(off, on, tip, () => entry.checked?.() ?? false, entry.run);
+  b.dataset.key = command;
+  return b;
+}
+
+/** btnMarkup and, while show-markup-tools is on, the markup buttons after it in Java's rightArea
+ *  order (Menu.java:8694-8703; the circle button is created but never added). */
+function markupTools(): HTMLElement[] {
+  const tools = document.createElement("span");
+  tools.className = "tb-markup";
+  tools.append(
+    commandIcon("label.png", "label2.png", t("Accessibility.markupLetter"), "toolbar.markup-letter"),
+    commandIcon("labelnum1.png", "labelnum2.png", t("Accessibility.markupNumber"), "toolbar.markup-number"),
+    commandIcon("x.png", "x2.png", t("Accessibility.markupCross"), "toolbar.markup-cross"),
+    commandIcon("square.png", "square2.png", t("Accessibility.markupSquare"), "toolbar.markup-square"),
+    commandIcon("sanjiao.png", "sanjiao2.png", t("Accessibility.markupTriangle"), "toolbar.markup-triangle"),
+    commandIcon("eraser.png", "eraser2.png", t("Accessibility.markupEraser"), "toolbar.markup-eraser"),
+    icon("clear.png", t("Menu.btnMarkupClear.toolTipText"), "toolbar.markup-clear"),
+  );
+  updaters.push(() => {
+    const display = state.view?.settings.edit.showMarkupTools ? "" : "none";
+    if (tools.style.display !== display) tools.style.display = display;
+  });
+  return [commandIcon("mark1.png", "mark2.png", t("Menu.btnMarkup.toolTipText"), "toolbar.markup-tools"), tools];
+}
+
+/** Edit bar (Menu.java:7552-7643): 添加黑子 / 添加白子 toggle back to alternate play when chosen
+ *  again; 交替落子 toggles only its own icon. Each clears insert mode. */
+function editBar(): HTMLElement[] {
+  return [
+    liveIcon("smallblack1.png", "smallblack2.png", t("Menu.playBlackToolTipText"), () => editing.placement === "Black",
+      () => choosePlacement(editing.placement === "Black" ? "alternate" : "Black", false), "stone"),
+    liveIcon("smallwhite.png", "smallwhite4.png", t("Menu.playWhiteToolTipText"), () => editing.placement === "White",
+      () => choosePlacement(editing.placement === "White" ? "alternate" : "White", false), "stone"),
+    // iconbh = hb.png at menuIconSize + 8 in a 22 px button (Menu.java:3674-3680, 7602-7626)
+    liveIcon("hb.png", "hb2.png", t("Menu.playAlternatelyToolTipText"), alternateLit,
+      () => choosePlacement("alternate", !alternateLit()), "bw"),
+    icon("playpass.png", t("Menu.playPassToolTipText"), "menu.playPassMove", "w22"),
+  ];
+}
+
+function alternateLit(): boolean {
+  return editing.placement === "alternate" && placementLit.alternate;
+}
+
+function refreshButtons(): void {
+  updaters.forEach((u) => u());
+}
+onEditingChange(refreshButtons);
 
 function marked(el: HTMLElement, command: string | undefined, tip: string): HTMLElement {
   const entry = command ? COMMANDS[command] : undefined;
   if (entry) {
     el.title = tip;
+    el.dataset.key = command;
     el.onclick = entry.run;
   } else {
     el.title = tip ? `${tip} — ${product("unavailable")}` : product("unavailable");
@@ -154,7 +231,7 @@ export function buildToolbar(host: HTMLElement): void {
   host.append(
     sep("lead"),
     buttons(
-      icon("newFile.png", t("Menu.btnNewFile.toolTipText")),
+      icon("newFile.png", t("Menu.btnNewFile.toolTipText"), "files.new"),
       icon("open.png", t("Menu.btnOpen.toolTipText"), "files.open"),
       icon("save.png", t("Menu.btnSave.toolTipText"), "files.save"),
       pill(t("Menu.foxKifuButton"), "w80"),
@@ -165,18 +242,14 @@ export function buildToolbar(host: HTMLElement): void {
     buttons(
       icon("hawkeye2.png", t("Menu.btnHawkeye.toolTipText")),
       icon("RankMarkOn.png", t("Menu.btnRankMark.toolTipText")),
-      icon("pass.png", t("Menu.btnChangeTurn.toolTipText")),
-      icon("setmain.png", t("Menu.btnSetMain.toolTipText")),
+      icon("pass.png", t("Menu.btnChangeTurn.toolTipText"), "toolbar.change-turn"),
+      icon("setmain.png", t("Menu.btnSetMain.toolTipText"), "menu.setAsMain"),
       icon("backmain.png", t("Menu.btnBackMain.toolTipText"), "menu.backToMainBranch"),
       icon("control.png", t("Menu.btnContrlPanel.toolTipText")),
-      icon("mark1.png", t("Menu.btnMarkup.toolTipText")),
+      ...markupTools(),
     ),
     sep(),
-    icon("smallblack1.png", t("Menu.playBlackToolTipText")),
-    icon("smallwhite.png", t("Menu.playWhiteToolTipText")),
-    // iconbh = hb.png at menuIconSize + 8 in a 22 px button (Menu.java:3674-3680, 7602-7626)
-    icon("hb.png", t("Menu.playAlternatelyToolTipText"), undefined, "bw"),
-    icon("playpass.png", t("Menu.playPassToolTipText"), undefined, "w22"),
+    ...editBar(),
     sep(),
     icon("blueallow.png", t("Menu.selectAllowToolTipText"), undefined, "force"),
     icon("horizonDown.png", t("Accessibility.allowMoveOptions"), undefined, "more"),
@@ -205,10 +278,12 @@ export function buildToolbar(host: HTMLElement): void {
   );
 }
 
-/** The komi field shows the current game komi (txtKomi: String.valueOf(double), so 6 is "6.0"). */
+/** The komi field shows the current game komi (txtKomi: String.valueOf(double), so 6 is "6.0");
+ *  the edit and markup buttons show the current selection. */
 export function renderToolbar(): void {
   const komi = document.getElementById("komiField") as HTMLInputElement | null;
   const k = state.view?.komi;
   const value = k === undefined ? "" : javaDouble(k);
   if (komi && document.activeElement !== komi && komi.value !== value) komi.value = value;
+  refreshButtons();
 }

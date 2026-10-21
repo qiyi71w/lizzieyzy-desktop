@@ -98,6 +98,10 @@ export function run(command: Command): Promise<CommandResult | null> {
           "product.consoleBoardCommand": product("consoleBoardCommand"),
           "product.importStale": product("importStale"),
           "product.importNeedsReplace": product("importNeedsReplace"),
+          "LizzieFrame.setupEditRequiresRootOnly": t("LizzieFrame.setupEditRequiresRootOnly"),
+          "LizzieFrame.setupModeRequiresRootOnly": t("LizzieFrame.setupModeRequiresRootOnly"),
+          "LizzieFrame.setupModeEngineNotReady": t("LizzieFrame.setupModeEngineNotReady"),
+          "SpinAndMirror.noneSquareError": t("SpinAndMirror.noneSquareError"),
         };
         const text = messages[result.message_key] ?? t(result.message_key);
         void message(t("Message.title"), text, "warning");
@@ -107,7 +111,7 @@ export function run(command: Command): Promise<CommandResult | null> {
       // Tuning refusals carry a Java message key (`EngineThreadPolicy.*`), not display text.
       const text = isApiError(e) ? (command.type === "Tuning" ? tuningText(e.message) : e.message) : String(e);
       // Only the command kind: arguments may hold credentials (ikatago scan, proxy settings).
-      const op = "op" in command ? `.${command.op.type}` : "";
+      const op = "op" in command ? `.${"type" in command.op ? command.op.type : command.op.op}` : "";
       console.error("command failed", `${command.type}${op}`, e);
       await message("Error", text, "error");
       return null;
@@ -182,9 +186,11 @@ export function unavailable(): void {
   message(APP_TITLE, product("unavailable"));
 }
 
-/** Java LizzieFrame.updateTitle without an engine: DEFAULT_TITLE + " " + players + result + file. */
+/** Java LizzieFrame.updateTitle without an engine: DEFAULT_TITLE + " " + players + result + file.
+ *  While 试下 is on the title is LizzieFrame.tryTitle only (tryPlay sets it; updateTitle returns). */
 export function windowTitle(version: string): string {
   const v = state.view;
+  if (v?.editing.trying) return t("LizzieFrame.tryTitle");
   let title = `${APP_TITLE} ${version} `;
   if (!v) return title;
   if (v.document.format !== null) {

@@ -10,8 +10,10 @@ mod tuning;
 use lizzie_core::api::*;
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup};
-use lizzie_core::record::{BoardSize, GameInfo, Mark, MarkKind, Point, RecordFormat, Stone};
-use lizzie_core::settings::{Language, WindowPlacement};
+use lizzie_core::record::{
+    BoardSize, GameInfo, Mark, MarkKind, MarkTool, Point, RecordFormat, Stone, StoneChange, Transform,
+};
+use lizzie_core::settings::{EditSettings, Language, WindowPlacement};
 use ts_rs::Config;
 
 #[macro_export]
@@ -33,6 +35,7 @@ fn generate() -> String {
         HistoryPoint, EngineFailureView, EngineNotice, ConsoleLineKind, ConsoleLineView, RulesPromptView,
         WorkbenchView, LogsStatus, JavaImportView, ImportStatus, ImportReason, ImportTarget, ImportItemView,
         EngineProblem, ImportEngineView, ImportPreviewView, ImportReportView, ImportFailure,
+        EditCommand, EditTarget, EditingView, EditSettings, MarkTool, StoneChange, Transform,
     ];
     // Engine resources and engine performance keep their own lists.
     decls.extend(resources::decls(&cfg));

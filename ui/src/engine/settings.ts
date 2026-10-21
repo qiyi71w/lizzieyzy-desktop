@@ -1,7 +1,7 @@
 // ConfigDialog2.java:6701-6711, 6851-6854 and modern engine/analysis section.
 import { run, state } from "../app";
 import type { AnalysisSettings, ProxyMode } from "../contract/generated";
-import { formPanel, message } from "../dialogs";
+import { confirm, formPanel, message } from "../dialogs";
 import { product, t } from "../i18n";
 import { actions, button, checkbox, field, input } from "./controls";
 import { resourceCommand, resourceView } from "../setup/dialog";
@@ -46,6 +46,13 @@ export async function openAnalysisSettings(): Promise<void> {
   const subtitle = document.createElement("p"); subtitle.textContent = t("ConfigDialog2.modern.advanced.subtitle"); advanced.append(heading, subtitle);
   const benchmark = checkbox(t("ConfigDialog2.modern.advanced.firstBenchmark"), startupBenchmark); benchmark.input.dataset.key = "settings.startupBenchmark"; benchmark.label.title = t("ConfigDialog2.modern.advanced.firstBenchmarkSub"); advanced.append(benchmark.label);
   const benchmarkHint = document.createElement("p"); benchmarkHint.textContent = t("ConfigDialog2.modern.advanced.firstBenchmarkSub"); advanced.append(benchmarkHint);
+  // ConfigDialog2 高级与性能 (3271-3276): turning 五子棋无提子规则 on asks first; Cancel unchecks it.
+  const edit = state.view.settings.edit;
+  const noCapture = checkbox(t("ConfigDialog2.modern.advanced.noCapture"), edit.noCapture); noCapture.input.dataset.key = "settings.noCapture"; noCapture.label.title = t("ConfigDialog2.modern.advanced.noCaptureSub"); advanced.append(noCapture.label);
+  noCapture.input.onchange = async () => {
+    if (noCapture.input.checked && !(await confirm(t("ConfigDialog2.chkNoCapture.title"), t("ConfigDialog2.chkNoCapture.content"), "info"))) noCapture.input.checked = false;
+  };
+  const noCaptureHint = document.createElement("p"); noCaptureHint.textContent = t("ConfigDialog2.modern.advanced.noCaptureSub"); advanced.append(noCaptureHint);
   const proxyTitle = document.createElement("h3"); proxyTitle.textContent = t("ConfigDialog2.modern.proxy.title");
   const proxySubtitle = document.createElement("p"); proxySubtitle.textContent = t("ConfigDialog2.modern.proxy.subtitle"); advanced.append(proxyTitle, proxySubtitle);
   const mode = document.createElement("select"); mode.dataset.key = "settings.proxy.mode";
@@ -80,6 +87,9 @@ export async function openAnalysisSettings(): Promise<void> {
     }
     if (benchmark.input.checked !== startupBenchmark) {
       const result = await run({ type: "Tuning", op: { type: "SetStartupBenchmark", enabled: benchmark.input.checked } }); if (!result || result.type === "Refused") return;
+    }
+    if (noCapture.input.checked !== edit.noCapture) {
+      const result = await run({ type: "SetEditSettings", settings: { ...edit, noCapture: noCapture.input.checked } }); if (!result || result.type === "Refused") return;
     }
     const result = await run({ type: "SetAnalysisSettings", settings });
     if (result && result.type !== "Refused") await dialog.close();

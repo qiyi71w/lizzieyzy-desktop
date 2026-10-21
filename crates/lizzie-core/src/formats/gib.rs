@@ -55,7 +55,7 @@ fn name(line: &str, prefix: &str) -> String {
     rest.strip_suffix("\\]").unwrap_or(rest).to_string()
 }
 
-pub fn read(text: &str) -> Result<GameRecord, String> {
+pub fn read(text: &str, no_capture: bool) -> Result<GameRecord, String> {
     let size = BoardSize::STANDARD;
     let mut rec = GameRecord::empty(size, 7.5);
     let mut black = "Player 2".to_string();
@@ -110,16 +110,12 @@ pub fn read(text: &str) -> Result<GameRecord, String> {
                 Stone::White
             };
             let p = Point { x, y };
-            if !size.contains(p) || pos.at(p).is_some() || pos.is_suicide(color, p) {
+            if !size.contains(p) {
                 continue;
             }
-            let mut next = pos.clone();
-            next.play(color, p);
-            if prev.as_ref().is_some_and(|q| q.stones == next.stones) {
-                continue;
+            if let Some(id) = super::read_move(&mut rec, current, color, p, &mut pos, &mut prev, no_capture) {
+                current = id;
             }
-            prev = Some(std::mem::replace(&mut pos, next));
-            current = rec.push_child(current, NodeKind::Move { color, point: p });
         }
         if line.starts_with("SKI") {
             recognised = true;

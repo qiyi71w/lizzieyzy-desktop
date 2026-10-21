@@ -4,19 +4,21 @@
 //! them (see `tests/contract.rs`); the UI, its shortcuts and the acceptance channel all send the
 //! same [`Command`] values and read the same [`WorkbenchView`].
 
+mod editing;
 mod resources;
 mod tuning;
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+pub use editing::*;
 pub use resources::*;
 pub use tuning::*;
 
 use crate::browse::Navigation;
 use crate::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup};
 use crate::record::{BoardSize, GameInfo, Mark, NodeId, Point, RecordFormat, Stone};
-use crate::settings::Language;
+use crate::settings::{EditSettings, Language};
 
 /// Where an open request came from. Java only records the recent list and last folder for the
 /// chooser (`loadFile(file, fromTemp=false)`); recent entries, drops and the command line open
@@ -177,6 +179,15 @@ pub enum Command {
     Tuning {
         op: TuningCommand,
     },
+    /// Document editing (Edit / Game menus, board input, edit toolbars, dialogs).
+    Edit {
+        op: EditCommand,
+    },
+    /// Edit menu check items and editing prompts (启用双击找子, 启用拖动棋子, 显示新建棋盘确认对话框,
+    /// 标记工具, right-click menu, other board size).
+    SetEditSettings {
+        settings: EditSettings,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
@@ -197,6 +208,8 @@ pub enum CommandResult {
     OpenStarted { ticket: u64 },
     /// The current record would be replaced; ask, then resend with `confirmed: true`.
     NeedsConfirmation,
+    /// An edit would discard moves or the record; ask, then resend it with `confirmed: target`.
+    NeedsEditConfirmation { target: EditTarget },
     /// Diagnostics package written.
     Exported { path: String },
     /// Not done, with the Java resource key of the explanation.
@@ -382,6 +395,7 @@ pub struct SettingsView {
     /// Ask before "保存" overwrites the record's own file (Java `ui.show-replace-file-hint`).
     pub replace_file_hint: bool,
     pub engine: EngineSettingsView,
+    pub edit: EditSettings,
 }
 
 /// Committed engine settings, for the engine settings dialog and the settings pages.
@@ -447,6 +461,7 @@ pub struct WorkbenchView {
     /// Engine performance (thread policy, benchmark); present when changed since the previous
     /// view, and in full snapshots.
     pub tuning: Option<TuningView>,
+    pub editing: EditingView,
 }
 
 /// Java import availability.
@@ -531,6 +546,20 @@ pub enum ImportTarget {
     StartupBenchmark,
     /// `ui.network-proxy-mode` / `-host` / `-port`.
     NetworkProxy,
+    /// `ui.allow-double-click`.
+    AllowDoubleClick,
+    /// `ui.allow-drag`.
+    AllowDrag,
+    /// `ui.show-right-menu`.
+    RightClickMenu,
+    /// `ui.show-new-board-hint`.
+    NewBoardHint,
+    /// `ui.show-markup-tools`.
+    MarkupTools,
+    /// `ui.other-size-width` / `ui.other-size-height`.
+    OtherBoardSize,
+    /// `ui.no-capture`.
+    NoCapture,
 }
 
 /// A problem found with an imported engine without starting it.
@@ -746,6 +775,8 @@ pub enum EngineNotice {
     /// The time or visit limit stopped the analysis (`leelaz.stopByLimit`); shown once per
     /// engine start while `show-ponder-limited-tips` is on.
     StoppedByLimit,
+    /// No foreground engine starts while 起始局面设置模式 is on (`EngineManager.setupModeActive`).
+    SetupModeActive,
 }
 
 /// GtpConsolePane line.

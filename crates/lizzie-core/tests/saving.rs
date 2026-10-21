@@ -97,9 +97,9 @@ GN[g]LZOP[root analysis\nmove ee]\
 #[test]
 fn saved_records_reopen_with_the_same_meaning() {
     let rich = sgf::read(RICH).unwrap();
-    let (_, review19) = formats::read_file(&fixture("review-19x19-zh.sgf")).unwrap();
-    let (_, review9) = formats::read_file(&fixture("review-9x9.sgf")).unwrap();
-    let (_, gib) = formats::read_file(&fixture("handicap-2.gib")).unwrap();
+    let (_, review19) = formats::read_file(&fixture("review-19x19-zh.sgf"), false).unwrap();
+    let (_, review9) = formats::read_file(&fixture("review-9x9.sgf"), false).unwrap();
+    let (_, gib) = formats::read_file(&fixture("handicap-2.gib"), false).unwrap();
     let rect = sgf::read("(;SZ[5:7]AB[aa]AW[ea]PL[W];W[eg];B[])").unwrap();
     for (name, rec) in [
         ("rich", rich),
@@ -280,7 +280,7 @@ fn save_writes_the_own_file_under_its_own_name() {
     })
     .unwrap();
     save(&mut wb, &path);
-    assert_eq!(formats::read_file(&own).unwrap().1.node(ROOT).comment, "edited");
+    assert_eq!(formats::read_file(&own, false).unwrap().1.node(ROOT).comment, "edited");
     assert_eq!(std::fs::read_to_string(&other).unwrap(), "(;C[other])");
     let v = wb.view(false);
     assert_eq!(v.document.path.as_deref(), Some(own.to_str().unwrap()));
@@ -315,7 +315,7 @@ fn open_file(wb: &mut Workbench, path: &str) {
         path: path.to_string(),
         source: OpenSource::Drop,
     });
-    assert!(wb.complete_open(t, formats::read_file(std::path::Path::new(path))));
+    assert!(wb.complete_open(t, formats::read_file(std::path::Path::new(path), false)));
 }
 
 /// Runs a save the way the platform adapter does.
@@ -401,7 +401,7 @@ fn save_as_of_a_gib_makes_the_written_sgf_the_document_file() {
         std::fs::read(&gib).unwrap(),
         std::fs::read(fixture("handicap-2.gib")).unwrap()
     );
-    let (format, reopened) = formats::read_file(&written).unwrap();
+    let (format, reopened) = formats::read_file(&written, false).unwrap();
     assert_eq!(format, RecordFormat::Sgf);
     assert_same_meaning(&before, &reopened);
 }
@@ -440,7 +440,7 @@ fn a_receipt_confirms_only_the_captured_revision_of_its_document() {
     assert_eq!(v.document.saved_revision, Some(1));
     assert!(v.document.unsaved, "the later edit is still unsaved");
     assert!(matches!(v.save_outcome, Some(SaveOutcome::Saved { revision: 1, .. })));
-    assert_eq!(formats::read_file(&path).unwrap().1.node(ROOT).comment, "one");
+    assert_eq!(formats::read_file(&path, false).unwrap().1.node(ROOT).comment, "one");
     // An edit that changes nothing does not create a new revision.
     assert!(!wb
         .edit_document(DocumentEdit::SetComment {
@@ -471,7 +471,7 @@ fn a_komi_change_is_unsaved_content_until_written() {
     formats::write_record_file(&job.path, &job.text).unwrap();
     wb.complete_save(job.ticket, Ok(()));
     assert!(!wb.view(false).document.unsaved);
-    assert_eq!(formats::read_file(&path).unwrap().1.info.komi, komi + 1.0);
+    assert_eq!(formats::read_file(&path, false).unwrap().1.info.komi, komi + 1.0);
 }
 
 #[test]
@@ -485,7 +485,7 @@ fn switching_documents_while_saving_leaves_the_new_document_untouched() {
     let job = wb.begin_save(dir.path().join("elsewhere").to_str().unwrap(), AP);
     // Another record is opened before the write finishes, then edited.
     let t = wb.begin_open(OpenOrigin::Clipboard);
-    wb.complete_open(t, Workbench::read_clipboard_record("(;SZ[9];B[ee])"));
+    wb.complete_open(t, Workbench::read_clipboard_record("(;SZ[9];B[ee])", false));
     wb.edit_document(DocumentEdit::SetComment {
         node: ROOT,
         comment: "c".into(),

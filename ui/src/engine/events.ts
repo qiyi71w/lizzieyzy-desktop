@@ -1,6 +1,6 @@
 import { registerViewHandler, run } from "../app";
 import type { EngineFailureView, RulesPromptView } from "../contract/generated";
-import { chooseSave, formPanel, panel } from "../dialogs";
+import { chooseSave, formPanel, message, panel } from "../dialogs";
 import { format, product, t } from "../i18n";
 import { chooseEngine } from "./catalog";
 import { actions, button, checkbox } from "./controls";
@@ -71,6 +71,8 @@ registerViewHandler((view) => {
     failures = failures.then(() => failureDialog(failure));
   }
   if (view.engine_notice === "StoppedByLimit") limitNotice();
+  // EngineManager.showSetupModeEngineUnavailable: Utils.showMsg.
+  if (view.engine_notice === "SetupModeActive") void message(t("Message.title"), t("EngineManager.setupModeActive"));
   if (view.rules_prompt) {
     const prompt = view.rules_prompt;
     failures = failures.then(() => rulesPrompt(prompt));

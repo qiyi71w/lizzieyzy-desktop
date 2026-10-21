@@ -51,6 +51,14 @@ fn java_dir(root: &Path) -> PathBuf {
             "load-sgf-last": true,
             "show-replace-file-hint": false,
             "play-sound": false,
+            "allow-double-click": false,
+            "allow-drag": true,
+            "show-right-menu": false,
+            "show-new-board-hint": false,
+            "show-markup-tools": true,
+            "other-size-width": 7,
+            "other-size-height": 99,
+            "no-capture": true,
             "use-language": 2,
             "limit-time": false,
             "limit-playout": "true",
@@ -307,6 +315,23 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
         (ProxyMode::Manual, "127.0.0.1", 7897)
     );
     assert_eq!((c.engine.engines[1].width, c.engine.engines[1].height), (9, 19));
+    let e = &c.edit;
+    assert_eq!(
+        (
+            e.allow_double_click,
+            e.allow_drag,
+            e.show_right_menu,
+            e.show_new_board_hint,
+            e.show_markup_tools,
+            e.no_capture
+        ),
+        (false, true, false, false, true, true)
+    );
+    assert_eq!(
+        (e.other_size_width, e.other_size_height),
+        (7, 21),
+        "a size Java's dialog cannot hold is not taken over"
+    );
     assert_eq!(
         (c.engine.startup, c.engine.last_engine.as_deref()),
         (EngineStartup::Last, Some("java-0"))
