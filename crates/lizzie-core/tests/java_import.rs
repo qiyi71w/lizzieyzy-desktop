@@ -1211,3 +1211,25 @@ fn a_relative_lightweight_model_path_is_found_in_the_java_folder() {
     );
     assert_eq!(std::fs::read(&model).unwrap(), b"model", "the Java file is untouched");
 }
+
+#[test]
+fn the_move_range_of_flash_analysis_imports_like_java_reads_it() {
+    // `Config.java:1855-1856`: `optInt`, so a numeric string counts and a word is unusable.
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(
+        java.join("config.txt"),
+        json!({ "ui": { "analysis-start-move": "30", "analysis-end-move": "end" } }).to_string(),
+    )
+    .unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    assert_eq!(item(&p.items, "ui.analysis-start-move").status, ImportStatus::Imported);
+    assert_eq!(item(&p.items, "ui.analysis-end-move").status, ImportStatus::Incompatible);
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    let range = wb.config().flash_range;
+    assert_eq!((range.start_move, range.end_move), (30, -1));
+    assert_eq!(saved_config(&product).flash_range, range, "kept after a restart");
+}

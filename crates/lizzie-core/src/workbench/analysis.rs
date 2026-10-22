@@ -425,6 +425,7 @@ impl Workbench {
             && !self.benchmark_running()
             && self.limit_stop.is_none()
             && !self.quick_holds_foreground()
+            && !self.flash_holds_foreground()
             && self.rules_permit_analysis();
         let target = self.analysis_target();
         if self.double_engine() {
@@ -471,6 +472,7 @@ impl Workbench {
         self.cursor = ROOT;
         self.sounds.clear();
         self.quick_cancel();
+        self.flash_document_closing();
         self.reset_analysis();
         self.reset_editing();
         self.publish_record_rules(None);
@@ -710,7 +712,7 @@ impl Workbench {
     /// User pause / resume (`togglePonderMannul`). Resuming also restarts an analysis a limit
     /// stopped. Never written to disk.
     pub fn toggle_analysis(&mut self) -> Result<bool, ApiError> {
-        if self.quick_toggle_pause() {
+        if self.quick_toggle_pause() || self.flash_toggle_pause() {
             self.limit_stop = None;
             self.secondary_limit_stop = None;
             self.sync_engine();
@@ -1061,7 +1063,7 @@ impl Workbench {
         let mut changed = false;
         for ev in events {
             changed = true;
-            let Some(ev) = self.quick_event(ev) else {
+            let Some(ev) = self.quick_event(ev).and_then(|ev| self.flash_event(ev)) else {
                 continue;
             };
             match ev {
@@ -1202,7 +1204,7 @@ impl Workbench {
 
     /// A failed engine: logged, and reported with the launch command, message and output passed
     /// through the credential sanitizer like Java's failure dialog and copy (`redactSensitiveText`).
-    fn engine_failed(&mut self, f: EngineFailure) {
+    pub(super) fn engine_failed(&mut self, f: EngineFailure) {
         let command = sanitize(&f.command);
         let message = sanitize(&f.message);
         let output: Vec<String> = f.output.iter().map(|l| sanitize(l)).collect();

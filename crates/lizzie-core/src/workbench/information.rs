@@ -326,7 +326,8 @@ impl Workbench {
             white,
             analyzed,
             total,
-            running: self.quick_running(),
+            // `AnalysisEngine.isAnalysisInProgress`: quick and flash analysis share the engine.
+            running: self.quick_running() || self.flash_active(),
             mark: mark.and_then(|m| match rec.node(m).kind {
                 NodeKind::Move { point, .. } => Some(point),
                 _ => None,

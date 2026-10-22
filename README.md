@@ -276,6 +276,21 @@ importing the matching LizzieYzy Next settings.
   beside it, created from KataGo's example when missing); 选择引擎 makes it the same way from a
   saved engine, and 自动生成 asks for the KataGo program, model and config files. Remote (SSH)
   analysis engines are not available yet.
+- 闪电分析 (分析 menu and the toolbar's lightning button): 整盘速览 (`Ctrl+B`) asks every main-trunk
+  move, 局部精析 asks from its start move up to, not including, its end move (an empty field means
+  from the first / to the last move; the range is remembered), and 全部分支精析 asks every move of
+  every branch. Moves that already have more than 精析设置's 单步计算量 are skipped unless 总是覆盖 is
+  on. Like Java the run uses 精析设置's analysis engine (a running quick analysis ends and hands
+  its process over) or, with 复用当前前台引擎, borrows the foreground engine the same way quick
+  analysis does; without an analysis command it offers 精析设置 first and then starts. A
+  progress window (进度 n/m) blocks the workbench: 隐藏界面 hides it while the run continues,
+  取消分析 ends the run and keeps the answers so far (an analysis process ends and the foreground
+  engine it stopped stays paused until resumed; a borrowed engine is given back), and GTP控制台
+  stays usable. Completion shows 分析完毕! for a second, steps from the root to the first
+  move and lets the foreground engine analyse again unless it was paused. A rejected request ends
+  the run with Java's failure message; a failed analysis process shows the engine failure and then
+  精析设置 with 确定并重新计算; a borrowed engine that cannot be given back stays "引擎状态未恢复".
+  Results are stored like quick analysis results; opening another record ends the run silently.
 - 快速曲线轻量模型 (引擎一键设置 > 权重管理): the official lightweight b10 model is downloaded on demand
   (size and SHA-256 checked), which turns 自动使用 on. A model file is used only while its SHA-256
   matches the catalog (checked again when the file changes); with 自动使用 and a KataGo of 1.17 or
@@ -313,7 +328,7 @@ importing the matching LizzieYzy Next settings.
   move-rank marks and judgement, candidate rows and options, next-move hints, sub-board mode,
   pure-network ownership style), the analysis-information settings above (graph, Kata形势,
   scoring rules, AI match, 独立选点列表 options, 记录选点信息到评论中; Java's window and column
-  positions are reported as not usable), 自动棋谱快析, 精析设置 (except remote engines), the
+  positions are reported as not usable), 自动棋谱快析, 精析设置 (except remote engines), 局部精析's range, the
   lightweight model choice and the 问题手 settings — only values Java itself accepts. Java's marker for its own
   bundled KataGo package is reported as not
   applicable. Engines keep using the Java engine and

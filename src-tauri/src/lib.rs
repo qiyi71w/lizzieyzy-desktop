@@ -808,7 +808,32 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().jump_to_problem_move(node)?;
             Ok(changed(&app, &shared, done))
         }
+        Command::StartFlashAnalysis { target } => {
+            let started = shared.workbench.lock().unwrap().start_flash_analysis(target)?;
+            Ok(match started {
+                Ok(done) => changed(&app, &shared, done),
+                Err(message_key) => changed_refused(&app, &shared, message_key),
+            })
+        }
+        Command::CancelFlashAnalysis => {
+            let done = shared.workbench.lock().unwrap().cancel_flash_analysis();
+            Ok(changed(&app, &shared, done))
+        }
+        Command::RedoFlashAnalysis => {
+            let started = shared.workbench.lock().unwrap().redo_flash_analysis()?;
+            Ok(match started {
+                Ok(done) => changed(&app, &shared, done),
+                Err(message_key) => changed_refused(&app, &shared, message_key),
+            })
+        }
     }
+}
+
+/// A refusal after which state may still have changed (a quick analysis handed over, a range
+/// saved): the view is published and the refusal answered.
+fn changed_refused(app: &AppHandle, shared: &State, message_key: String) -> CommandResult {
+    changed(app, shared, true);
+    CommandResult::Refused { message_key }
 }
 
 /// Java's conventional work directories on this system (`WorkDirectoryResolver`; `user.home` is

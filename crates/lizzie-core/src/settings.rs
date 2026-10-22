@@ -129,6 +129,24 @@ impl Default for AnalysisEngineSettings {
     }
 }
 
+/// 局部精析's move range (`ui.analysis-start-move`, `ui.analysis-end-move`; -1 leaves an end
+/// open): moves from `start_move` up to, not including, `end_move`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct FlashRange {
+    pub start_move: i32,
+    pub end_move: i32,
+}
+
+impl Default for FlashRange {
+    fn default() -> Self {
+        FlashRange {
+            start_move: -1,
+            end_move: -1,
+        }
+    }
+}
+
 /// 快速曲线轻量模型 (`ui.quick-analysis-lightweight-model-enabled`, `katago-quick-analysis-model-path`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
@@ -609,6 +627,8 @@ pub struct Config {
     pub quick_model: QuickModelSettings,
     /// 评论/问题手 panel.
     pub problems: ProblemListSettings,
+    /// 局部精析's move range.
+    pub flash_range: FlashRange,
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).

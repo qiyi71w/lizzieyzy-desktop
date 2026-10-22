@@ -97,7 +97,7 @@ showPonderLimitedTips: boolean, };
 
 export type EngineScope = "Current" | "Others" | "All";
 
-export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SetExtraMode", mode: ExtraMode, } | { "type": "SwitchSecondaryEngine", index: number, } | { "type": "RestartSecondaryEngine" } | { "type": "ShutdownSecondaryEngine" } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "SetDisplaySettings", settings: DisplaySettings, } | { "type": "ToggleRawNet" } | { "type": "StopRawNet" } | { "type": "SetKataEstimate", mode: KataEstimateMode, } | { "type": "ToggleKataEstimate" } | { "type": "Score", op: ScoreCommand, } | { "type": "SetAutoQuickAnalyze", enabled: boolean, } | { "type": "SetLoadSgfLast", enabled: boolean, } | { "type": "SaveAnalysisEngineSettings", settings: AnalysisEngineSettings, shown_command: string, edited: boolean, } | { "type": "GenerateAnalysisCommand", index: number | null, } | { "type": "SetQuickModelEnabled", enabled: boolean, } | { "type": "SetProblemList", settings: ProblemListSettings, } | { "type": "JumpToProblemMove", node: number, };
+export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SetExtraMode", mode: ExtraMode, } | { "type": "SwitchSecondaryEngine", index: number, } | { "type": "RestartSecondaryEngine" } | { "type": "ShutdownSecondaryEngine" } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "SetDisplaySettings", settings: DisplaySettings, } | { "type": "ToggleRawNet" } | { "type": "StopRawNet" } | { "type": "SetKataEstimate", mode: KataEstimateMode, } | { "type": "ToggleKataEstimate" } | { "type": "Score", op: ScoreCommand, } | { "type": "SetAutoQuickAnalyze", enabled: boolean, } | { "type": "SetLoadSgfLast", enabled: boolean, } | { "type": "SaveAnalysisEngineSettings", settings: AnalysisEngineSettings, shown_command: string, edited: boolean, } | { "type": "GenerateAnalysisCommand", index: number | null, } | { "type": "SetQuickModelEnabled", enabled: boolean, } | { "type": "SetProblemList", settings: ProblemListSettings, } | { "type": "JumpToProblemMove", node: number, } | { "type": "StartFlashAnalysis", target: FlashTarget, } | { "type": "CancelFlashAnalysis" } | { "type": "RedoFlashAnalysis" };
 
 export type CommandResult = { "type": "Done" } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "NeedsEditConfirmation", target: EditTarget, } | { "type": "Exported", path: string, } | { "type": "ExportFailed", path: string, detail: string, } | { "type": "Refused", message_key: string, } | { "type": "SaveStarted", ticket: number, } | { "type": "NeedsReplaceConfirmation", document: number, file_name: string, } | { "type": "NeedsOverwriteConfirmation", path: string, } | { "type": "NeedsExportOverwriteConfirmation", kind: ExportKind, path: string, } | { "type": "NeedsImageOverwriteConfirmation", path: string, } | { "type": "FolderChosen", path: string, } | { "type": "JavaImportPreview", preview: ImportPreviewView, } | { "type": "JavaImportFailed", failure: ImportFailure, } | { "type": "JavaImported", report: ImportReportView, } | { "type": "Resource", result: ResourceResult, } | { "type": "Tuning", result: TuningResult, } | { "type": "AnalysisCommand", command: string, generated_config: string | null, };
 
@@ -237,7 +237,11 @@ quick_model: QuickModelView,
 /**
  * 评论/问题手 panel state.
  */
-problems: ProblemListSettings, };
+problems: ProblemListSettings, 
+/**
+ * 局部精析's move range (`analysis-start-move`, `analysis-end-move`).
+ */
+flash_range: FlashRange, };
 
 export type StoneSound = "Stone" | "DeadStone" | "DeadStoneMore";
 
@@ -466,6 +470,14 @@ komi: number, engine: EngineView,
  */
 quick: QuickAnalysisView, 
 /**
+ * Manual flash analysis in progress.
+ */
+flash: FlashAnalysisView | null, 
+/**
+ * How a flash analysis ended, once.
+ */
+flash_outcome: FlashOutcome | null, 
+/**
  * 问题手 list and its progress badge.
  */
 problems: ProblemListView, 
@@ -555,7 +567,7 @@ export type ImportStatus = "Imported" | "Incompatible" | "NotMigrated";
 
 export type ImportReason = "NotYetAvailable" | "Credential" | "InvalidValue" | "WindowCoordinates" | "RemoteEngine" | "CredentialNotConfirmed" | "Unreadable" | "NotChosen" | "Obsolete";
 
-export type ImportTarget = "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode" | "AutoQuickAnalysis" | "AnalysisEngine" | "QuickModel" | "ProblemList";
+export type ImportTarget = "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode" | "AutoQuickAnalysis" | "AnalysisEngine" | "QuickModel" | "ProblemList" | "FlashRange";
 
 export type ImportItemView = { 
 /**
@@ -1395,6 +1407,30 @@ current: boolean, };
 export type LeaseAvailabilityView = "Available" | "NoForegroundEngine" | "EngineNotReady" | "NotKatago" | "MissingCapability" | "ExistingLease" | "EngineStateUnrestored";
 
 export type UnrestoredReason = "Stop" | "Restore";
+
+export type FlashTarget = { "kind": "WholeGame" } | { "kind": "MoveRange", start_move: number, end_move: number, } | { "kind": "AllBranches" };
+
+export type FlashRange = { startMove: number, endMove: number, };
+
+export type FlashAnalysisView = { 
+/**
+ * Identity of this run; the UI's 隐藏界面 applies to one run.
+ */
+run: number, 
+/**
+ * The engine is still starting or being borrowed (进度: 引擎加载中...).
+ */
+loading: boolean, 
+/**
+ * Positions answered so far, of `total`.
+ */
+done: number, total: number, 
+/**
+ * The foreground engine is borrowed instead of an analysis process.
+ */
+borrowed: boolean, };
+
+export type FlashOutcome = { "type": "Completed", run: number, } | { "type": "Failed", run: number, message_key: string, } | { "type": "EngineFailed", run: number, };
 
 export type ManagedProfile = { command: string, assetId: string, weightPath: string, configPath: string, };
 

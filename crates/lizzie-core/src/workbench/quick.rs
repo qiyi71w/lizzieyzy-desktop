@@ -77,7 +77,7 @@ struct Verified {
 }
 
 /// What a request's rules depend on besides the record (`currentAnalysisRulesSignature`).
-type RulesSignature = (bool, String, bool, String);
+pub(super) type RulesSignature = (bool, String, bool, String);
 
 struct Task {
     doc: u64,
@@ -96,6 +96,8 @@ struct Task {
 enum Attempt {
     Process {
         instance: InstanceId,
+        /// The command it was started with: a hand-over keeps the process for 闪电分析.
+        command: String,
         queries: HashMap<String, Query>,
         failed: bool,
     },
@@ -107,13 +109,13 @@ enum Attempt {
     },
 }
 
-/// What a dedicated query was asked for.
-struct Query {
-    node: NodeId,
-    stamp: u64,
-    komi: f64,
-    rules_rev: u64,
-    to_play: Stone,
+/// What a dedicated query, or a borrowed engine's search, was asked for.
+pub(super) struct Query {
+    pub(super) node: NodeId,
+    pub(super) stamp: u64,
+    pub(super) komi: f64,
+    pub(super) rules_rev: u64,
+    pub(super) to_play: Stone,
 }
 
 enum Readiness {
@@ -184,9 +186,13 @@ impl Workbench {
             .collect()
     }
 
-    /// `canContinueQuickAnalysisAfterHistoryNavigation` and the user's cancellation.
+    /// `canContinueQuickAnalysisAfterHistoryNavigation`, the user's cancellation, and no manual
+    /// flash analysis using the analysis engine.
     fn quick_allowed(&self) -> bool {
-        self.config.record.auto_quick_analyze_on_load && !self.paused && self.quick.cancelled_doc != Some(self.doc.id)
+        self.config.record.auto_quick_analyze_on_load
+            && !self.paused
+            && self.quick.cancelled_doc != Some(self.doc.id)
+            && !self.flash_active()
     }
 
     fn quick_readiness(&self, borrow: bool) -> Readiness {
@@ -355,40 +361,53 @@ impl Workbench {
         Ok((generated.command, created))
     }
 
-    /// The analysis process command for this launch: the lightweight model, the customized
-    /// command, or one made from the current engine (else the saved one), tuned for the request.
+    /// The analysis process command for this launch, tuned for the request.
     fn quick_command(&self) -> String {
+        self.tuned_analysis_command(&self.analysis_command_base(true))
+    }
+
+    /// The analysis engine command before tuning: the lightweight model (when `light` and it is
+    /// wanted), the customized command, or one made from the current engine (else the saved one).
+    pub(super) fn analysis_command_base(&self, light: bool) -> String {
         let a = &self.config.analysis_engine;
-        let light = self.quick_light_parts().and_then(|(exe, model)| {
-            let config = self.resources.store().analysis_config();
-            if !config.is_file() {
-                r::create_file_once(&config, r::ANALYSIS_EXAMPLE).ok()?;
-            }
-            join_command(&[
-                exe,
-                "analysis".into(),
-                "-model".into(),
-                model.to_string_lossy().into_owned(),
-                "-config".into(),
-                config.to_string_lossy().into_owned(),
-                "-quit-without-waiting".into(),
-            ])
-        });
-        let base = match light {
+        let light = light
+            .then(|| self.quick_light_parts())
+            .flatten()
+            .and_then(|(exe, model)| {
+                let config = self.resources.store().analysis_config();
+                if !config.is_file() {
+                    r::create_file_once(&config, r::ANALYSIS_EXAMPLE).ok()?;
+                }
+                join_command(&[
+                    exe,
+                    "analysis".into(),
+                    "-model".into(),
+                    model.to_string_lossy().into_owned(),
+                    "-config".into(),
+                    config.to_string_lossy().into_owned(),
+                    "-quit-without-waiting".into(),
+                ])
+            });
+        match light {
             Some(command) => command,
             None if a.command_customized => a.command.clone(),
             None => self
                 .generate_analysis_command(None)
                 .map_or_else(|_| a.command.clone(), |(c, _)| c),
-        };
+        }
+    }
+
+    /// `optimizeAnalysisEngineCommand`: one more visit than 单步计算量, the PV length and threads.
+    pub(super) fn tuned_analysis_command(&self, base: &str) -> String {
+        let a = &self.config.analysis_engine;
         // Apple Silicon runs this application's KataGo with its own thread profile.
         let apple = (cfg!(target_os = "macos") && cfg!(target_arch = "aarch64"))
-            .then(|| prepare_launch(&base, self.engines.roots()))
+            .then(|| prepare_launch(base, self.engines.roots()))
             .flatten()
             .filter(|spec| PathBuf::from(&spec.program).starts_with(self.resources.store().root()))
             .map(|_| recommended_threads(std::thread::available_parallelism().map_or(1, |n| n.get() as u32)));
         analysis_command::optimize(
-            &base,
+            base,
             a.max_visits.max(1) + 1,
             self.config.engine.analysis.limit_branch_length,
             apple,
@@ -396,7 +415,7 @@ impl Workbench {
     }
 
     /// `resolveLocalAnalysisRules`.
-    fn quick_rules(&self) -> serde_json::Value {
+    pub(super) fn quick_rules(&self) -> serde_json::Value {
         let a = &self.config.analysis_engine;
         let parse = |text: &str| {
             serde_json::from_str::<serde_json::Value>(text)
@@ -422,7 +441,7 @@ impl Workbench {
 
     /// The rules a borrowed engine searches with (`resolveRemoteGtpRules`): 使用指定规则, else
     /// the record's session rules.
-    fn quick_lease_rules(&self) -> Option<String> {
+    pub(super) fn quick_lease_rules(&self) -> Option<String> {
         let a = &self.config.analysis_engine;
         if a.use_current_rules {
             return self.target_rules().map(|r| r.to_gtp_argument());
@@ -431,7 +450,7 @@ impl Workbench {
         Some(if rules.is_empty() { "tromp-taylor" } else { rules }.to_string())
     }
 
-    fn quick_rules_signature(&self) -> RulesSignature {
+    pub(super) fn quick_rules_signature(&self) -> RulesSignature {
         let (a, e) = (&self.config.analysis_engine, &self.config.engine);
         (
             a.use_current_rules,
@@ -477,11 +496,25 @@ impl Workbench {
     /// Ends the task without resuming anything (`cancel`): a process stops at once, a borrowed
     /// engine is given back and that is awaited (`releasing`).
     pub(super) fn quick_cancel(&mut self) {
+        self.quick_end(false);
+    }
+
+    /// 闪电分析 takes over (`MANUAL_FLASH`): the task ends without the foreground engine resuming
+    /// in between; its analysis process stays for the flash analysis, a borrowed engine is given
+    /// back first (`returnAutomaticQuickAnalysisUse`).
+    pub(super) fn quick_hand_over(&mut self) {
+        self.quick_end(true);
+    }
+
+    fn quick_end(&mut self, keep_process: bool) {
         self.quick.start_at = None;
         let Some(mut task) = self.quick.task.take() else {
             return;
         };
         match task.attempt.take() {
+            Some(Attempt::Process { instance, command, .. }) if keep_process => {
+                self.keep_analysis_process(instance, command)
+            }
             Some(Attempt::Process { instance, .. }) => self.engines.terminate(instance),
             Some(Attempt::Lease { lease, closing, .. }) => {
                 if closing.is_none() {
@@ -494,6 +527,29 @@ impl Workbench {
             None => {}
         }
         self.drain_engine_events();
+    }
+
+    /// The idle analysis process (Java's one `analysisEngine`): kept for the next quick or flash
+    /// analysis with the same command; one it replaces ends.
+    pub(super) fn keep_analysis_process(&mut self, instance: InstanceId, command: String) {
+        if let Some((old, _)) = self.quick.warm.replace((instance, command)) {
+            if old != instance {
+                self.engines.terminate(old);
+            }
+        }
+    }
+
+    /// An analysis process running `command`: the idle one when it matches (`isAnalysisEngineReusable`),
+    /// else a new one (an idle one with another command ends).
+    pub(super) fn take_analysis_process(&mut self, command: &str) -> Result<InstanceId, String> {
+        match self.quick.warm.take() {
+            Some((id, warm)) if warm == command && self.engines.worker_alive(id) => Ok(id),
+            Some((id, _)) => {
+                self.engines.terminate(id);
+                self.engines.start_worker(command, "AnalysisEngine")
+            }
+            None => self.engines.start_worker(command, "AnalysisEngine"),
+        }
     }
 
     /// Space / 暂停 while a quick analysis runs: the pause also cancels this document's quick
@@ -513,13 +569,20 @@ impl Workbench {
         }
     }
 
-    /// The engine was switched, restarted or closed: the quick analysis ends (`ENGINE_SWITCH`).
+    /// The engine was switched, restarted or closed: the quick analysis ends (`ENGINE_SWITCH`),
+    /// as does a flash analysis borrowing it.
     pub(super) fn quick_engine_changed(&mut self) {
         self.quick_cancel();
+        self.flash_engine_changed();
     }
 
-    /// A finished read waits while a borrowed engine is being given back (the task is cancelled
-    /// first); returns the read when it can be adopted now.
+    /// A cancelled task's borrowed engine is still being given back.
+    pub(super) fn quick_releasing(&self) -> bool {
+        self.quick.releasing.is_some()
+    }
+
+    /// A finished read waits while a borrowed engine is being given back (background analyses
+    /// of the record end first); returns the read when it can be adopted now.
     pub(super) fn quick_defer_open(&mut self, open: DeferredOpen) -> Option<DeferredOpen> {
         if self
             .quick
@@ -529,11 +592,21 @@ impl Workbench {
         {
             self.quick_cancel();
         }
-        if self.quick.releasing.is_some() {
+        self.flash_document_closing();
+        if self.quick.releasing.is_some() || self.flash_releasing() {
             self.quick.deferred_open = Some(open);
             None
         } else {
             Some(open)
+        }
+    }
+
+    /// A borrowed engine came back: a read waiting for it is adopted once no other one is out.
+    pub(super) fn complete_deferred_open(&mut self) {
+        if self.quick.releasing.is_none() && !self.flash_releasing() {
+            if let Some((ticket, result)) = self.quick.deferred_open.take() {
+                self.complete_open(ticket, result);
+            }
         }
     }
 
@@ -596,21 +669,34 @@ impl Workbench {
 
     fn quick_start_process(&mut self, missing: Vec<NodeId>, now: Instant) {
         let command = self.quick_command();
-        let started = match self.quick.warm.take() {
-            Some((id, warm)) if warm == command && self.engines.worker_alive(id) => Ok(id),
-            Some((id, _)) => {
-                self.engines.terminate(id);
-                self.engines.start_worker(&command, "AnalysisEngine")
-            }
-            None => self.engines.start_worker(&command, "AnalysisEngine"),
-        };
-        let instance = match started {
+        let instance = match self.take_analysis_process(&command) {
             Ok(id) => id,
             Err(message) => {
                 self.log(true, format!("quick analysis engine failed to start: {message}"));
                 return self.quick_released(true, false, now);
             }
         };
+        let prefix = format!("quick{}", self.quick.next_task);
+        let (queries, sent) = self.send_analysis_queries(instance, &missing, &prefix);
+        self.quick.task.as_mut().unwrap().attempt = Some(Attempt::Process {
+            instance,
+            command,
+            queries,
+            failed: false,
+        });
+        if !sent {
+            self.quick_finish_attempt(true, now);
+        }
+    }
+
+    /// One query per node to analysis process `instance` (ids `<prefix>-<node>`), under the
+    /// current komi and analysis rules; returns what each asked for and whether all were written.
+    pub(super) fn send_analysis_queries(
+        &mut self,
+        instance: InstanceId,
+        nodes: &[NodeId],
+        prefix: &str,
+    ) -> (HashMap<String, Query>, bool) {
         let rec = self.doc.record.clone();
         let options = QueryOptions {
             max_visits: self.config.analysis_engine.max_visits.max(1) + 1,
@@ -622,8 +708,8 @@ impl Workbench {
         };
         let mut queries = HashMap::new();
         let mut sent = true;
-        for node in missing {
-            let id = format!("quick{}-{node}", self.quick.next_task);
+        for &node in nodes {
+            let id = format!("{prefix}-{node}");
             sent &= self
                 .engines
                 .worker_send(instance, &kata_analysis::query(&id, &rec, node, &options));
@@ -639,14 +725,7 @@ impl Workbench {
                 },
             );
         }
-        self.quick.task.as_mut().unwrap().attempt = Some(Attempt::Process {
-            instance,
-            queries,
-            failed: false,
-        });
-        if !sent {
-            self.quick_finish_attempt(true, now);
-        }
+        (queries, sent)
     }
 
     /// The attempt ended: its process stops; a borrowed engine is given back first.
@@ -739,25 +818,9 @@ impl Workbench {
         }
     }
 
-    /// Stores a quick-analysis result where it was asked for, if that still applies; a stored
-    /// result is replaced only by one with more visits unless 总是覆盖 is set. Its playouts are
-    /// the root's visits when reported; a borrowed search also takes the root's own winrate and
-    /// score (`AnalysisEngine.parseResult`, `completeRemoteGtpJob`).
-    #[allow(clippy::too_many_arguments)]
-    fn quick_store(
-        &mut self,
-        doc: u64,
-        node: NodeId,
-        stamp: u64,
-        komi: f64,
-        rules_rev: u64,
-        to_play: Stone,
-        line: InfoLine,
-        borrowed: bool,
-    ) {
-        if doc != self.doc.id || doc != self.store.doc() || komi != self.komi || rules_rev != self.rules_revision {
-            return;
-        }
+    /// Stores a quick-analysis result where it was asked for, while the task still asks under
+    /// the same rules settings.
+    fn quick_store(&mut self, doc: u64, q: &Query, line: InfoLine, borrowed: bool) {
         if self
             .quick
             .task
@@ -766,13 +829,24 @@ impl Workbench {
         {
             return;
         }
+        self.store_background_result(doc, q, line, borrowed);
+    }
+
+    /// Stores a quick or flash analysis result where it was asked for, if that still applies; a
+    /// stored result is replaced only by one with more visits unless 总是覆盖 is set. Its
+    /// playouts are the root's visits when reported; a borrowed search also takes the root's own
+    /// winrate and score (`AnalysisEngine.parseResult`, `completeRemoteGtpJob`).
+    pub(super) fn store_background_result(&mut self, doc: u64, q: &Query, line: InfoLine, borrowed: bool) {
+        if doc != self.doc.id || doc != self.store.doc() || q.komi != self.komi || q.rules_rev != self.rules_revision {
+            return;
+        }
         let rec = self.doc.record.clone();
-        if !rec.contains(node) || rec.node(node).stamp != stamp {
+        if !rec.contains(q.node) || rec.node(q.node).stamp != q.stamp {
             return;
         }
         let name = super::exporting::java_text(self.active_language, "AnalysisEngine.flashAnalyze");
         let (root_visits, root_winrate, root_score) = (line.root_visits, line.root_winrate, line.root_score_lead);
-        let Some((mut result, ownership)) = node_analysis(node, to_play, komi, name, line) else {
+        let Some((mut result, ownership)) = node_analysis(q.node, q.to_play, q.komi, name, line) else {
             return;
         };
         if let Some(visits) = root_visits.filter(|v| *v > 0) {
@@ -787,11 +861,11 @@ impl Workbench {
             }
         }
         let replace = self.config.analysis_engine.always_override
-            || self.store.get(&rec, node).is_none_or(|old| more_visits(&result, old));
+            || self.store.get(&rec, q.node).is_none_or(|old| more_visits(&result, old));
         if replace {
             let limit = self.config.engine.analysis.limit_branch_length;
-            fill_pv_captures(&mut result, &rec.position(node), limit, !self.config.edit.no_capture);
-            self.store.insert(node, stamp, result, ownership);
+            fill_pv_captures(&mut result, &rec.position(q.node), limit, !self.config.edit.no_capture);
+            self.store.insert(q.node, q.stamp, result, ownership);
         }
     }
 
@@ -802,8 +876,13 @@ impl Workbench {
             Some(Attempt::Lease { lease, closing, .. }) => Some((*lease, closing.is_some())),
             _ => None,
         };
+        let current_process = match self.quick.task.as_ref().and_then(|t| t.attempt.as_ref()) {
+            Some(Attempt::Process { instance, .. }) => Some(*instance),
+            _ => None,
+        };
+        let ours = |lease: u64| current_lease.is_some_and(|(l, _)| l == lease);
         match ev {
-            RuntimeEvent::LeaseReady { lease } => {
+            RuntimeEvent::LeaseReady { lease } if ours(lease) => {
                 if current_lease == Some((lease, false)) {
                     self.quick_lease_next(now);
                 }
@@ -817,18 +896,25 @@ impl Workbench {
                 rules_rev,
                 to_play,
                 line,
-            } => {
+            } if ours(lease) => {
                 if current_lease == Some((lease, false)) {
-                    self.quick_store(doc, node, stamp, komi, rules_rev, to_play, line, true);
+                    let q = Query {
+                        node,
+                        stamp,
+                        komi,
+                        rules_rev,
+                        to_play,
+                    };
+                    self.quick_store(doc, &q, line, true);
                     self.quick_lease_next(now);
                 }
             }
-            RuntimeEvent::LeaseSearchFailed { lease } => {
+            RuntimeEvent::LeaseSearchFailed { lease } if ours(lease) => {
                 if current_lease == Some((lease, false)) {
                     self.quick_finish_attempt(true, now);
                 }
             }
-            RuntimeEvent::LeaseEnded { lease, failure } => {
+            RuntimeEvent::LeaseEnded { lease, failure } if ours(lease) || self.quick.releasing == Some(lease) => {
                 let restore_failed = failure.is_some_and(LeaseFailure::unrestores);
                 if let Some(f) = failure {
                     self.log(true, format!("foreground engine lease {lease} ended: {f:?}"));
@@ -839,11 +925,9 @@ impl Workbench {
                     if restore_failed {
                         self.paused = true;
                     }
-                    if let Some((ticket, result)) = self.quick.deferred_open.take() {
-                        self.complete_open(ticket, result);
-                    }
+                    self.borrowed_engine_returned();
                     self.sync_engine();
-                } else if current_lease.is_some_and(|(l, _)| l == lease) {
+                } else {
                     let closing = match self.quick.task.as_mut().and_then(|t| t.attempt.take()) {
                         Some(Attempt::Lease { closing, .. }) => closing,
                         _ => None,
@@ -853,20 +937,20 @@ impl Workbench {
                     self.quick_released(failed, restore_failed, now);
                 }
             }
-            RuntimeEvent::WorkerLine { instance, line } => self.quick_worker_line(instance, &line, now),
+            RuntimeEvent::WorkerLine { instance, line } if current_process == Some(instance) => {
+                self.quick_worker_line(instance, &line, now)
+            }
             RuntimeEvent::WorkerExited {
                 instance,
                 message,
                 output,
-            } => {
+            } if current_process == Some(instance)
+                || self.quick.warm.as_ref().is_some_and(|(id, _)| *id == instance) =>
+            {
                 if self.quick.warm.as_ref().is_some_and(|(id, _)| *id == instance) {
                     self.quick.warm = None;
                 }
-                let current = matches!(
-                    self.quick.task.as_ref().and_then(|t| t.attempt.as_ref()),
-                    Some(Attempt::Process { instance: own, .. }) if *own == instance
-                );
-                if current {
+                if current_process == Some(instance) {
                     let tail = output
                         .iter()
                         .rev()
@@ -896,6 +980,7 @@ impl Workbench {
                     instance: own,
                     queries,
                     failed,
+                    ..
                 }),
             doc,
             watchdog,
@@ -912,7 +997,7 @@ impl Workbench {
             Response::Result { id, line } => {
                 if let Some(q) = queries.remove(&id) {
                     *watchdog = Some(now + WATCHDOG);
-                    self.quick_store(doc, q.node, q.stamp, q.komi, q.rules_rev, q.to_play, line, false);
+                    self.quick_store(doc, &q, line, false);
                 }
             }
             Response::Error { id, message } => {
@@ -938,12 +1023,13 @@ impl Workbench {
     }
 
     /// The foreground engine became ready: a preloaded analysis process starts
-    /// (`preloadConfiguredAnalysisEngineAfterStartup`).
+    /// (`preloadConfiguredAnalysisEngineAfterStartup`), unless an analysis already has one.
     pub(super) fn quick_preload(&mut self) {
         if !self.config.analysis_engine.preload
             || self.quick.warm.is_some()
             || self.quick.task.is_some()
             || self.quick_borrows()
+            || self.flash_active()
         {
             return;
         }

@@ -10,6 +10,20 @@ export function dialogOpen(): boolean {
   return open > 0;
 }
 
+/** A non-modal window that disables the main window while it is shown (WaitForAnalysis
+ *  disableOwnerFrame): the workbench is inert, while windows marked `data-free-window` (the GTP
+ *  console, that window itself) stay usable. Modal dialogs still block everything. */
+let ownerDisabled = false;
+
+export function setOwnerDisabled(disabled: boolean): void {
+  ownerDisabled = disabled;
+  setModal();
+}
+
+export function ownerIsDisabled(): boolean {
+  return ownerDisabled;
+}
+
 interface Button {
   label: string;
   value: boolean;
@@ -76,7 +90,8 @@ function show(title: string, body: HTMLElement | string, buttons: Button[], kind
 /** Only the newest dialog takes input; everything else in the window is inert. */
 function setModal() {
   for (const el of document.body.children) {
-    if (el !== host()) (el as HTMLElement).inert = open > 0;
+    const free = (el as HTMLElement).hasAttribute("data-free-window");
+    if (el !== host()) (el as HTMLElement).inert = open > 0 || (ownerDisabled && !free);
   }
   const overlays = [...host().children] as HTMLElement[];
   overlays.forEach((o, k) => (o.inert = k !== overlays.length - 1));

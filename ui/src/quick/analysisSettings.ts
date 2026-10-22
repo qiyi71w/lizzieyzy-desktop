@@ -149,7 +149,17 @@ function hintLabel(): HTMLElement {
   return el;
 }
 
-export async function openAnalysisEngineSettings(): Promise<void> {
+/** How the dialog was opened from a flash analysis (AnalysisSettings(isDuringAnalyze, fromError)). */
+export interface AnalysisSettingsOptions {
+  /** After a failed analysis process: 确定并重新计算 is shown (isDuringAnalyze). */
+  redo?: boolean;
+  /** The flash analysis to start after 确定 (promptForMissingFlashAnalysisCommand →
+   *  resumeFlashAnalysisAfterSettings); closing the dialog drops it. */
+  resume?: () => Promise<void>;
+}
+
+export async function openAnalysisEngineSettings(options: AnalysisSettingsOptions = {}): Promise<void> {
+  const fromError = options.redo === true || options.resume !== undefined;
   const view = state.view;
   if (!view) return;
   const saved: AnalysisEngineSettings = { ...view.settings.analysis_engine };
@@ -248,9 +258,12 @@ export async function openAnalysisEngineSettings(): Promise<void> {
   reuse.input.onchange = updateReuse;
   updateReuse();
   const confirm = place(panel, jbutton(t("AnalysisSettings.btnConfirm"), "confirm", () => {}), 484, 427, 93, 31);
+  const redo = place(panel, jbutton(t("AnalysisSettings.btnConfirmAndRedo"), "confirmAndRedo", () => {}), 375, 427, 99, 31);
+  redo.hidden = options.redo !== true;
   const dialog = formPanel(t("AnalysisSettings.title"), panel);
   let saving = false;
-  confirm.onclick = async () => {
+  /** saveConfig; `then` runs once the settings are kept and the dialog is closed. */
+  const save = async (then: () => Promise<unknown>) => {
     if (saving) return;
     saving = true;
     try {
@@ -268,11 +281,22 @@ export async function openAnalysisEngineSettings(): Promise<void> {
       };
       // A refusal (AnalysisSettings.commandRequired) is shown by run and keeps the dialog open.
       const result = await run({ type: "SaveAnalysisEngineSettings", settings, shown_command: shown, edited });
-      if (result && result.type !== "Refused") await dialog.close();
+      if (!result || result.type === "Refused") return;
+      await dialog.close();
+      await then();
     } finally {
       saving = false;
     }
   };
+  // 确定: from an error the running flash analysis ends (destroyAnalysisEngine) and a pending one
+  // starts with the new settings.
+  confirm.onclick = () => save(async () => {
+    if (!fromError) return;
+    await run({ type: "CancelFlashAnalysis" });
+    await options.resume?.();
+  });
+  // 确定并重新计算: the last flash analysis runs again with the new settings.
+  redo.onclick = () => save(() => run({ type: "RedoFlashAnalysis" }));
   showGeneratedConfig(generatedConfig);
   await dialog.closed;
 }

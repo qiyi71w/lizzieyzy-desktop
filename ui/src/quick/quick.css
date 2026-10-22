@@ -218,3 +218,30 @@
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* WaitForAnalysis: a non-modal 378x93 window over the disabled main window, below modal dialogs. */
+.flash-wait {
+  position: fixed;
+  z-index: 29;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 0;
+  padding-bottom: 8px;
+}
+.flash-wait[hidden] {
+  display: none;
+}
+.flash-wait .modal-body {
+  padding-top: 6px;
+}
+.flash-progress {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.flash-wait button,
+.flash-part button {
+  padding: 0;
+  font: inherit;
+}

@@ -39,6 +39,7 @@ import { startAutoSave } from "./recovery/commands";
 import { recoveryReport } from "./recovery/panel";
 import { bindProblemPanel, problemsReport, renderProblemPanel } from "./quick/problems";
 import "./quick/analysisSettings";
+import { flashWindowOpen, startFlash } from "./quick/flash";
 import {
   aiScoreText,
   loadImages,
@@ -387,7 +388,7 @@ function navigationFor(e: KeyboardEvent): Navigation | null {
 const JAVA_BOUND = new Set([..."ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", " ", ",", ".", "[", "]", "Enter", "Delete", "Backspace"]);
 
 document.addEventListener("keydown", (e) => {
-  if (dialogOpen() || menuOpen() || contextMenuOpen() || textTarget(e.target)) return;
+  if (dialogOpen() || flashWindowOpen() || menuOpen() || contextMenuOpen() || textTarget(e.target)) return;
   // The 存档与读档 controls keep their keys, like the Swing components holding the focus there.
   if (e.target instanceof Element && e.target.closest("#recovery")) return;
   if (handleLayoutKey(e) || handleEngineKey(e) || handleEditKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e)) {
@@ -428,6 +429,10 @@ document.addEventListener("keydown", (e) => {
   } else if (key === "B" && !ctrl && !e.altKey) {
     e.preventDefault();
     navigate({ op: "MainTrunk" });
+  } else if (key === "B" && ctrl && !e.shiftKey && !e.altKey) {
+    // Input.java VK_B: Ctrl+B 整盘速览（闪电）; Ctrl+Shift+B is 整盘深入分析.
+    e.preventDefault();
+    void startFlash({ kind: "WholeGame" });
   } else if (!e.metaKey && key !== " " && JAVA_BOUND.has(key)) {
     e.preventDefault();
     flash(product("unavailable"));
@@ -1065,6 +1070,7 @@ function uiReport() {
         key: el.dataset.key ?? el.dataset.name ?? el.id ?? "",
         text: el.textContent ?? "",
         checked: el instanceof HTMLInputElement && el.type === "checkbox" ? el.checked : undefined,
+        value: el instanceof HTMLInputElement && el.type === "text" ? el.value : undefined,
         x: Math.round(r.left + r.width / 2),
         y: Math.round(r.top + r.height / 2),
       })),

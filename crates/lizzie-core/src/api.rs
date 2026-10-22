@@ -311,6 +311,31 @@ pub enum Command {
     JumpToProblemMove {
         node: NodeId,
     },
+    /// 闪电分析 (`LizzieFrame.flashAnalyzeGame`): 整盘速览, 局部精析 (saving the move range, as
+    /// `AnalysisPartGame` does) or 全部分支精析. An automatic quick analysis hands its engine over
+    /// first (`MANUAL_FLASH`). Answers `Refused` with `LizzieFrame.analysisCommandMissing` when no
+    /// analysis command is set and the current engine is not reused, or with
+    /// `AnalysisSettings.reuseStatus.<availability>` when the foreground engine cannot be borrowed.
+    StartFlashAnalysis {
+        target: FlashTarget,
+    },
+    /// The progress dialog's 取消分析 (`destroyAnalysisEngine`): completed results stay.
+    CancelFlashAnalysis,
+    /// 精析设置 > 确定并重新计算: the running flash analysis stops and the last one starts again.
+    RedoFlashAnalysis,
+}
+
+/// What a flash analysis analyses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(tag = "kind")]
+pub enum FlashTarget {
+    /// 整盘速览（闪电）: every main-trunk move.
+    WholeGame,
+    /// 局部精析: main-trunk moves from `start_move` up to, not including, `end_move` (counted in
+    /// moves and passes; -1 leaves that end open).
+    MoveRange { start_move: i32, end_move: i32 },
+    /// 全部分支精析: every move of every branch.
+    AllBranches,
 }
 
 /// Kata形势显示 menu choices.
@@ -581,6 +606,8 @@ pub struct SettingsView {
     pub quick_model: QuickModelView,
     /// 评论/问题手 panel state.
     pub problems: crate::settings::ProblemListSettings,
+    /// 局部精析's move range (`analysis-start-move`, `analysis-end-move`).
+    pub flash_range: crate::settings::FlashRange,
 }
 
 /// 快速曲线轻量模型 card (`KataGoAutoSetupDialog`, `QuickAnalysisModelStatus`).
@@ -615,6 +642,34 @@ pub struct QuickAnalysisView {
     pub retrying: bool,
     /// The task borrows the foreground engine instead of running an analysis process.
     pub borrowed: bool,
+}
+
+/// A manual flash analysis in progress (`WaitForAnalysis`).
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct FlashAnalysisView {
+    /// Identity of this run; the UI's 隐藏界面 applies to one run.
+    pub run: u64,
+    /// The engine is still starting or being borrowed (进度: 引擎加载中...).
+    pub loading: bool,
+    /// Positions answered so far, of `total`.
+    pub done: u32,
+    pub total: u32,
+    /// The foreground engine is borrowed instead of an analysis process.
+    pub borrowed: bool,
+}
+
+/// How a flash analysis ended, once.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum FlashOutcome {
+    /// Every position was answered (分析完毕).
+    Completed { run: u64 },
+    /// Stopped with the Java resource key of the explanation
+    /// (`AnalysisEngine.requestDispatchFailed`, `AnalysisEngine.foregroundRestoreFailed`).
+    Failed { run: u64, message_key: String },
+    /// The analysis process failed (reported as `engine_failure`); 精析设置 opens with
+    /// 确定并重新计算 (`AnalysisSettings(true, true)`).
+    EngineFailed { run: u64 },
 }
 
 /// 问题手 list and its progress badge (`ProblemListSnapshot`).
@@ -719,6 +774,10 @@ pub struct WorkbenchView {
     pub engine: EngineView,
     /// Automatic quick analysis of the open record.
     pub quick: QuickAnalysisView,
+    /// Manual flash analysis in progress.
+    pub flash: Option<FlashAnalysisView>,
+    /// How a flash analysis ended, once.
+    pub flash_outcome: Option<FlashOutcome>,
     /// 问题手 list and its progress badge.
     pub problems: ProblemListView,
     /// Stored analysis of the current node (whether or not the engine is analysing it now).
@@ -931,6 +990,8 @@ pub enum ImportTarget {
     /// `problem-list-winrate-threshold`, `blunder-playouts-threshold`,
     /// `hide-blunder-table-control-pane`.
     ProblemList,
+    /// 局部精析: `ui.analysis-start-move`, `analysis-end-move`.
+    FlashRange,
 }
 
 /// A problem found with an imported engine without starting it.

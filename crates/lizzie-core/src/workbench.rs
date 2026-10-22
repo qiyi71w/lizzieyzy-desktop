@@ -17,6 +17,7 @@
 mod analysis;
 mod editing;
 mod exporting;
+mod flash;
 mod importing;
 mod information;
 mod quick;
@@ -30,6 +31,7 @@ use std::sync::Arc;
 use analysis::AnalysisStore;
 pub use analysis::LogLine;
 pub use editing::{NOT_SQUARE, SETUP_ENGINE_RUNNING, SETUP_MODE_ROOT_ONLY, SETUP_ROOT_ONLY};
+pub use flash::ANALYSIS_COMMAND_MISSING;
 pub use importing::{IMPORT_NEEDS_REPLACE, IMPORT_STALE};
 pub use recovery::RecoveryStep;
 pub use resources::{prepare_resource_setup, run_resource_job, ResourceCompletion, ResourceJob};
@@ -241,6 +243,8 @@ pub struct Workbench {
     scoring: Option<information::Scoring>,
     /// 自动棋谱快析 of the open record.
     quick: quick::QuickFlow,
+    /// 闪电分析 of the open record.
+    flash: flash::FlashFlow,
     /// The problem move a 问题手 jump marked, while browsing the position before it
     /// (`clickbadmove`): document, that position, the move's node.
     problem_mark: Option<(u64, NodeId, NodeId)>,
@@ -338,6 +342,7 @@ impl Workbench {
             estimate,
             scoring: None,
             quick: quick::QuickFlow::default(),
+            flash: flash::FlashFlow::default(),
             problem_mark: None,
         }
     }
@@ -854,6 +859,7 @@ impl Workbench {
             failure.repair = self.resource_repair_context(&failure.command);
         }
         v.engine_notice = self.engine_notice.take();
+        v.flash_outcome = self.take_flash_outcome();
         v.rules_prompt = self.rules_prompt.take();
         v.resources = self.take_resources_view(full);
         v.tuning = self.take_tuning_view(full);
@@ -872,6 +878,7 @@ impl Workbench {
             failure.repair = self.resource_repair_context(&failure.command);
         }
         v.engine_notice = self.engine_notice;
+        v.flash_outcome = self.flash_outcome();
         v.rules_prompt = self.rules_prompt.clone();
         v.resources = Some(self.resources_view());
         v.tuning = Some(self.tuning_view());
@@ -914,11 +921,14 @@ impl Workbench {
                 analysis_engine: self.config.analysis_engine.clone(),
                 quick_model: self.quick_model_view(),
                 problems: self.config.problems.clone(),
+                flash_range: self.config.flash_range,
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
             engine: self.engine_view(),
             quick: self.quick_view(),
+            flash: self.flash_view(),
+            flash_outcome: None,
             problems: self.problem_list(),
             analysis: self.current_analysis(),
             board: self.board_overlay(),

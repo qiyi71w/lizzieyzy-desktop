@@ -38,6 +38,8 @@ function append(lines: ConsoleLineView[]): void {
 export async function toggleConsole(): Promise<void> {
   if (pane) { pane.hidden = !pane.hidden; if (!pane.hidden) pane.querySelector<HTMLInputElement>("input")?.focus(); return; }
   pane = document.createElement("section"); pane.className = "gtp-console"; pane.setAttribute("aria-label", t("GtpConsolePane.title"));
+  // A window of its own in Java: usable while WaitForAnalysis disables the main window.
+  pane.dataset.freeWindow = "";
   const header = document.createElement("div"); header.className = "gtp-header";
   header.append(t("GtpConsolePane.title"), button(product("close"), () => { if (pane) pane.hidden = true; }));
   output = document.createElement("pre"); output.className = "gtp-output"; output.tabIndex = 0;

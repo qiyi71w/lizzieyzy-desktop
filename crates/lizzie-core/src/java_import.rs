@@ -162,6 +162,9 @@ pub struct Mapped {
     pub analysis_preload: Option<bool>,
     pub analysis_auto_quit: Option<bool>,
     pub analysis_reuse_current_engine: Option<bool>,
+    /// 局部精析's move range (`ui.analysis-start-move`, `analysis-end-move`).
+    pub flash_start_move: Option<i32>,
+    pub flash_end_move: Option<i32>,
     /// 快速曲线轻量模型.
     pub quick_model_enabled: Option<bool>,
     pub quick_model_path: Option<String>,
@@ -455,6 +458,8 @@ enum Kind {
     /// Non-negative integer up to `u32::MAX`.
     U32(fn(&mut Mapped, u32)),
     U64(fn(&mut Mapped, u64)),
+    /// Any `int` (`optInt`).
+    I32(fn(&mut Mapped, i32)),
     Str(fn(&mut Mapped, String)),
     /// A finite number of at least 0.
     NonNegative(fn(&mut Mapped, f64)),
@@ -716,6 +721,19 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         ImportTarget::AnalysisEngine,
         Kind::Bool(|m, v| m.analysis_reuse_current_engine = Some(v)),
     ),
+    // `AnalysisPartGame`'s range (`Config.java:1855-1856`).
+    (
+        "ui",
+        "analysis-start-move",
+        ImportTarget::FlashRange,
+        Kind::I32(|m, v| m.flash_start_move = Some(v)),
+    ),
+    (
+        "ui",
+        "analysis-end-move",
+        ImportTarget::FlashRange,
+        Kind::I32(|m, v| m.flash_end_move = Some(v)),
+    ),
     (
         "ui",
         "quick-analysis-lightweight-model-enabled",
@@ -955,6 +973,10 @@ impl Reader<'_> {
                     n.to_string()
                 }),
                 Kind::U64(set) => as_i64(v).and_then(|n| u64::try_from(n).ok()).map(|n| {
+                    set(&mut self.mapped, n);
+                    n.to_string()
+                }),
+                Kind::I32(set) => as_i64(v).and_then(|n| i32::try_from(n).ok()).map(|n| {
                     set(&mut self.mapped, n);
                     n.to_string()
                 }),
@@ -1899,6 +1921,8 @@ impl Mapped {
         set!(ae.preload, self.analysis_preload);
         set!(ae.auto_quit, self.analysis_auto_quit);
         set!(ae.reuse_current_engine, self.analysis_reuse_current_engine);
+        set!(c.flash_range.start_move, self.flash_start_move);
+        set!(c.flash_range.end_move, self.flash_end_move);
         set!(c.quick_model.enabled, self.quick_model_enabled);
         if let Some(path) = &self.quick_model_path {
             c.quick_model.path = (!path.trim().is_empty()).then(|| path.clone());
@@ -2091,6 +2115,11 @@ impl Mapped {
         ];
         if analysis_engine.contains(&true) {
             out.push(ImportTarget::AnalysisEngine);
+        }
+        if self.flash_start_move.is_some_and(|v| v != config.flash_range.start_move)
+            || self.flash_end_move.is_some_and(|v| v != config.flash_range.end_move)
+        {
+            out.push(ImportTarget::FlashRange);
         }
         let qm = &config.quick_model;
         if self.quick_model_enabled.is_some_and(|v| v != qm.enabled)

@@ -12,6 +12,7 @@ import { product, t } from "../i18n";
 import { javaDouble } from "../workbench/paint";
 import type { MenuNode } from "./javaMenus";
 import { openPopupMenu } from "./menubar";
+import { FLASH_MENU } from "../quick/flash";
 import "../editing/chrome.css";
 
 const updaters: (() => void)[] = [];
@@ -113,6 +114,16 @@ const RANK_POPUP: MenuNode[] = [
 function rankMarkButton(): HTMLElement {
   const b = liveIcon("RankMarkOff.png", "RankMarkOn.png", t("Menu.btnRankMark.toolTipText"), rankMarkLit, () => openPopupMenu(b, RANK_POPUP));
   b.dataset.key = "toolbar.rank-mark";
+  return b;
+}
+
+/** btnFlashAnalyze: opens FlashAnalyzeMenu below it (Menu.java:8406-8415). */
+function flashButton(): HTMLElement {
+  const b = icon("flash.png", t("Menu.btnAnalyze.btnFlashAnalyze"));
+  b.classList.remove("unavailable");
+  b.title = t("Menu.btnAnalyze.btnFlashAnalyze");
+  b.dataset.key = "toolbar.flash";
+  b.onclick = () => openPopupMenu(b, FLASH_MENU);
   return b;
 }
 
@@ -279,7 +290,7 @@ export function buildToolbar(host: HTMLElement): void {
       pill(t("Menu.tencentKifuButton"), "w80"),
       pill(t("Menu.playerStrengthEstimateButton"), "w80"),
     ),
-    buttons(setup, icon("flash.png", t("Menu.btnAnalyze.btnFlashAnalyze")), search),
+    buttons(setup, flashButton(), search),
     buttons(
       icon("hawkeye2.png", t("Menu.btnHawkeye.toolTipText")),
       rankMarkButton(),
