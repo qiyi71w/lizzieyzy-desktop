@@ -41,6 +41,7 @@ import { recoveryReport } from "./recovery/panel";
 import { bindProblemPanel, problemsReport, renderProblemPanel } from "./quick/problems";
 import "./quick/analysisSettings";
 import { flashWindowOpen, startFlash } from "./quick/flash";
+import { openWholeGameAnalysis } from "./quick/wholeGame";
 import {
   aiScoreText,
   loadImages,
@@ -285,7 +286,7 @@ function mainGeom(v: WorkbenchView, r: Rect): BoardGeom {
  *  and 鼠标悬停显示变化图 are on; 纯网络 and 显示策略网络 (T) show no variation
  *  (BoardRenderer.java:1639-1644), so R has nothing to replay either. */
 function hoverAllowed(v: WorkbenchView): boolean {
-  return candidatesShownFor(v.position.to_play) && v.settings.display.suggestionVariations && v.rawNet === null && !boardUi.policy && !v.score;
+  return (v.whole_game.show_results || candidatesShownFor(v.position.to_play)) && (v.whole_game.show_results || v.settings.display.suggestionVariations) && v.rawNet === null && !boardUi.policy && !v.score;
 }
 
 /** The 下一手 详细 point while it shows (isShowingNextMoveBlunder): hovering it previews the actual
@@ -433,6 +434,9 @@ document.addEventListener("keydown", (e) => {
   } else if (key === "B" && !ctrl && !e.altKey) {
     e.preventDefault();
     navigate({ op: "MainTrunk" });
+  } else if (key === "B" && ctrl && e.shiftKey && !e.altKey) {
+    e.preventDefault();
+    void openWholeGameAnalysis();
   } else if (key === "B" && ctrl && !e.shiftKey && !e.altKey) {
     // Input.java VK_B: Ctrl+B 整盘速览（闪电）; Ctrl+Shift+B is 整盘深入分析.
     e.preventDefault();
@@ -831,10 +835,10 @@ function render() {
     mainTrunk: pos.main_trunk,
     analysis: v.analysis,
     overlay: v.board,
-    display: v.settings.display,
+    display: v.whole_game.show_results ? { ...v.settings.display, suggestionWinrate: true, suggestionPlayouts: true, suggestionVariations: true } : v.settings.display,
     suggestionLimit: v.settings.engine.analysis.limitMaxSuggestion,
     unlimited: limitMemory.unlimited,
-    candidatesShown: candidatesShownFor(pos.to_play),
+    candidatesShown: v.whole_game.show_results || candidatesShownFor(pos.to_play),
     policy: boardUi.policy,
     rawNetOn: v.rawNet !== null,
     // A result for another position is never shown.
@@ -953,9 +957,11 @@ function renderDual(v: WorkbenchView, d: DualPanels, W: number, H: number, size:
   const allowed = hoverAllowed(v);
   const scene: BoardScene = {
     ...left,
+    display: v.settings.display,
+    candidatesShown: candidatesShownFor(v.position.to_play),
     analysis: s?.analysis ?? null,
     // Move numbers belong to the position; without a secondary view nothing else is drawn.
-    overlay: s?.board ?? { move_numbers: v.board.move_numbers, ranks: [], rank_corner: false, next_move: null, info_order_sample: v.board.info_order_sample },
+    overlay: s?.board ?? { move_numbers: v.board.move_numbers, ranks: [], rank_corner: false, ranks_after_numbers: false, next_move: null, info_order_sample: v.board.info_order_sample },
     unlimited: NO_POINTS,
     // A result for another position is never shown.
     rawNet: s?.rawNet?.node === v.position.node ? s.rawNet : null,

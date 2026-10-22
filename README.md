@@ -309,6 +309,27 @@ importing the matching LizzieYzy Next settings.
   this client's application data directory for a new record. They are copies, not a rename of
   the source. The root gets Java's AI-match/top-ten-difference summaries for sides with at least
   ten evaluable moves. Batch analysis and the popup's batch progress table are not available yet.
+- 整盘精析 (分析 menu, `Ctrl+Shift+B`, or 自动分析 popup): a modeless dialog selects 500, 1,000,
+  3,000, 10,000 or a custom 500–1,000,000 visits per position. It first fills the main trunk's
+  missing 32-visit overview, then searches missing deep results; real passes count, dummy passes
+  and side branches do not. Deeper cached results are reused even with 总是覆盖 enabled. The
+  progress bar gives the overview 20% and deep analysis 80%; a stored engine benchmark supplies
+  the pre-start estimate, otherwise the dialog shows the ordinary visits hint. 暂停分析 closes
+  the process or returns the borrowed foreground engine; 继续分析 re-plans only missing results.
+  停止分析 keeps all completed results. Closing the dialog hides an active session; reopening
+  shows it again. Completion closes it and shows a five-second result notice. Browsing remains
+  available throughout. The analysis process uses KataGo's whole-game throughput thread profile;
+  an explicitly accepted matching whole-game measured profile takes precedence after off-thread
+  artifact/hardware verification (stale or ambiguous profiles use the normal thread profile).
+  复用当前前台引擎 uses the same sequential foreground lease as quick analysis. The foreground
+  engine stopped by a dedicated run resumes on completion, cancellation or failure unless the
+  user paused it. Main-line edits, rules/komi changes or replacing the record stop the task
+  safely; game-info and komi editors refuse changes during the session. Analysed nodes show
+  suggestions, variation previews, win rate/playouts and move evaluation without changing saved
+  display preferences; this override ends on another document. Results are labelled 整盘精析,
+  never make the record unsaved, and remain available for an explicit SGF save. Remote analysis
+  engines are not supported yet. The chosen depth is saved on start in `wholeGame.deepVisits`;
+  invalid stored values fall back to 1,000, matching Java.
 - 快速曲线轻量模型 (引擎一键设置 > 权重管理): the official lightweight b10 model is downloaded on demand
   (size and SHA-256 checked), which turns 自动使用 on. A model file is used only while its SHA-256
   matches the catalog (checked again when the file changes); with 自动使用 and a KataGo of 1.17 or
@@ -347,7 +368,8 @@ importing the matching LizzieYzy Next settings.
   pure-network ownership style), the analysis-information settings above (graph, Kata形势,
   scoring rules, AI match, 独立选点列表 options, 记录选点信息到评论中; Java's window and column
   positions are reported as not usable), 自动棋谱快析, 精析设置 (except remote engines), 局部精析's range, the
-  lightweight model choice and the 问题手 settings — only values Java itself accepts.
+  lightweight model choice, 整盘精析 depth (`ui.whole-game-analysis-deep-visits`) and the 问题手
+  settings — only values Java itself accepts.
   Automatic-analysis conditions (`analyze-all-branch`, all ten `auto-ana-diff-*` keys,
   `exit-auto-analyze-by-pause`, `exit-auto-analyze-tip`) and `toolbar-parameter` slots 0–8,
   47 and 48 also migrate, including checked limit flags and values, start/end, auto-save and sides.

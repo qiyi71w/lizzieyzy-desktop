@@ -165,6 +165,7 @@ pub struct Mapped {
     /// 局部精析's move range (`ui.analysis-start-move`, `analysis-end-move`).
     pub flash_start_move: Option<i32>,
     pub flash_end_move: Option<i32>,
+    pub whole_game_visits: Option<u32>,
     /// 快速曲线轻量模型.
     pub quick_model_enabled: Option<bool>,
     pub quick_model_path: Option<String>,
@@ -734,6 +735,12 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "analysis-end-move",
         ImportTarget::FlashRange,
         Kind::I32(|m, v| m.flash_end_move = Some(v)),
+    ),
+    (
+        "ui",
+        "whole-game-analysis-deep-visits",
+        ImportTarget::WholeGameVisits,
+        Kind::I32(|m, v| m.whole_game_visits = Some(crate::settings::WholeGameSettings::from_stored(i64::from(v)).deep_visits)),
     ),
     (
         "ui",
@@ -1971,6 +1978,7 @@ impl Mapped {
         let mut auto = serde_json::to_value(&c.auto_analysis).expect("settings serialize");
         for value in &self.auto_analysis { value.set(&mut auto); }
         c.auto_analysis = serde_json::from_value(auto).expect("typed imported auto-analysis values");
+        set!(c.whole_game.deep_visits, self.whole_game_visits);
         set!(c.quick_model.enabled, self.quick_model_enabled);
         if let Some(path) = &self.quick_model_path {
             c.quick_model.path = (!path.trim().is_empty()).then(|| path.clone());
@@ -2172,6 +2180,9 @@ impl Mapped {
         let auto = serde_json::to_value(&config.auto_analysis).expect("settings serialize");
         if self.auto_analysis.iter().any(|v| v.current(&auto).as_ref() != Some(&v.value)) {
             out.push(ImportTarget::AutoAnalysis);
+        }
+        if self.whole_game_visits.is_some_and(|v| v != config.whole_game.deep_visits) {
+            out.push(ImportTarget::WholeGameVisits);
         }
         let qm = &config.quick_model;
         if self.quick_model_enabled.is_some_and(|v| v != qm.enabled)

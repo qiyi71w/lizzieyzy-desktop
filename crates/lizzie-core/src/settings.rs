@@ -194,6 +194,29 @@ impl Default for AutoAnalysisSettings {
     }
 }
 
+/// 整盘精析 (`ui.whole-game-analysis-deep-visits`). Invalid stored values use Java's 1000.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct WholeGameSettings {
+    #[serde(deserialize_with = "stored_whole_game_visits")]
+    pub deep_visits: u32,
+}
+
+impl WholeGameSettings {
+    pub fn from_stored(visits: i64) -> Self {
+        Self { deep_visits: if (500..=1_000_000).contains(&visits) { visits as u32 } else { 1000 } }
+    }
+}
+
+impl Default for WholeGameSettings {
+    fn default() -> Self { Self { deep_visits: 1000 } }
+}
+
+fn stored_whole_game_visits<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u32, D::Error> {
+    let value = serde_json::Value::deserialize(d)?;
+    Ok(WholeGameSettings::from_stored(value.as_i64().unwrap_or(1000)).deep_visits)
+}
+
 /// 快速曲线轻量模型 (`ui.quick-analysis-lightweight-model-enabled`, `katago-quick-analysis-model-path`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
@@ -677,6 +700,7 @@ pub struct Config {
     /// 局部精析's move range.
     pub flash_range: FlashRange,
     pub auto_analysis: AutoAnalysisSettings,
+    pub whole_game: WholeGameSettings,
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).

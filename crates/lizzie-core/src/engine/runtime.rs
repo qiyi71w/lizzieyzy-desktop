@@ -169,6 +169,9 @@ pub enum RuntimeEvent {
     LeaseEnded { lease: u64, failure: Option<LeaseFailure> },
     /// One stdout line of an analysis process.
     WorkerLine { instance: InstanceId, line: String },
+    /// A deferred analysis worker's fingerprint check and process launch completed.
+    WorkerReady { instance: InstanceId },
+    WorkerLaunchFailed { instance: InstanceId, message: String },
     /// An analysis process ended by itself (or could not be written to); it is gone.
     WorkerExited {
         instance: InstanceId,
@@ -274,6 +277,7 @@ struct Worker {
     name: String,
     io: Option<Box<dyn EngineIo>>,
     tail: VecDeque<String>,
+    queued: Option<Vec<String>>,
 }
 
 /// A console entry (GtpConsolePane): sent commands, engine output and errors.
@@ -449,6 +453,8 @@ pub struct LaunchCheck {
     spec: LaunchSpec,
     apple: Option<serde_json::Value>,
     measured: Option<(String, String, u64)>,
+    /// Saved GTP command when checking a whole-game analysis worker instead of a live engine.
+    whole_game: Option<String>,
 }
 
 /// The launch a [`LaunchCheck`] decided, for the instance it was made for.
@@ -464,16 +470,14 @@ impl LaunchCheck {
         if let Some(hardware) = &self.apple {
             super::tuning::apply_apple_launch_policy(&self.command, &self.policy, &mut spec, hardware);
         }
-        if let Some((gpu, driver, memory)) = &self.measured {
-            super::tuning::apply_measured_live(
-                &self.command,
-                &self.policy,
-                &self.roots,
-                &mut spec,
-                gpu,
-                driver,
-                *memory,
-            );
+        if let Some(hardware) = &self.measured {
+            if let Some(saved) = &self.whole_game {
+                super::tuning::apply_measured_whole_game(&self.command, saved, &self.policy, &self.roots,
+                    &mut spec, hardware);
+            } else {
+                super::tuning::apply_measured_live(&self.command, &self.policy, &self.roots, &mut spec,
+                    &hardware.0, &hardware.1, hardware.2);
+            }
         }
         CheckedLaunch {
             instance: self.instance,
@@ -935,6 +939,7 @@ impl Engines {
                 spec: spec.clone(),
                 apple,
                 measured,
+                whole_game: None,
             })
         });
         let (io, queued) = match check {
@@ -1002,6 +1007,25 @@ impl Engines {
     /// start-up.
     pub fn finish_launch(&mut self, checked: CheckedLaunch) -> Vec<RuntimeEvent> {
         let id = checked.instance;
+        if let Some(index) = self.workers.iter().position(|w| w.id == id && w.queued.is_some()) {
+            let launched = self.launcher.launch(id, &checked.spec);
+            match launched {
+                Ok(mut io) => {
+                    for line in self.workers[index].queued.take().unwrap_or_default() {
+                        if let Err(e) = io.send(&line) {
+                            io.terminate(); self.terminate(id);
+                            return vec![RuntimeEvent::WorkerExited { instance: id, message: e.to_string(), output: vec![] }];
+                        }
+                    }
+                    self.workers[index].io = Some(io);
+                    return vec![RuntimeEvent::WorkerReady { instance: id }];
+                }
+                Err(e) => {
+                    self.terminate(id);
+                    return vec![RuntimeEvent::WorkerLaunchFailed { instance: id, message: e.to_string() }];
+                }
+            }
+        }
         let Some(name) = self.get(id).filter(|i| i.queued.is_some()).map(Instance::display_name) else {
             return Vec::new();
         };
@@ -2299,7 +2323,23 @@ impl Engines {
             name: name.to_string(),
             io: Some(io),
             tail: VecDeque::new(),
+            queued: None,
         });
+        Ok(id)
+    }
+
+    /// A whole-game process can defer its launch for an accepted measured-scene fingerprint
+    /// check. JSON requests queue until the existing off-lock LaunchCheck returns.
+    pub fn start_whole_game_worker(&mut self, command: &str, configured: &str, saved: Option<&EngineProfile>) -> Result<InstanceId, String> {
+        let measured = saved.and_then(|p| p.thread_policy.as_ref()).zip(self.measured_hardware.as_ref());
+        let Some((policy, hardware)) = measured else { return self.start_worker(command, "整盘精析") };
+        let mut spec = gtp::prepare_launch(command, &self.roots).ok_or_else(|| "empty command".to_string())?;
+        spec.library_dirs = self.library_dirs.clone();
+        let id = self.next_instance; self.next_instance += 1;
+        self.checks.push(LaunchCheck { instance: id, command: configured.into(), policy: policy.clone(),
+            roots: self.roots.clone(), spec, apple: None, measured: Some(hardware.clone()),
+            whole_game: saved.map(|p| p.command.clone()) });
+        self.workers.push(Worker { id, name: "整盘精析".into(), io: None, tail: VecDeque::new(), queued: Some(Vec::new()) });
         Ok(id)
     }
 
@@ -2308,7 +2348,8 @@ impl Engines {
         let Some(w) = self.workers.iter_mut().find(|w| w.id == id) else {
             return false;
         };
-        let ok = w.io.as_mut().is_some_and(|io| io.send(line).is_ok());
+        let ok = if let Some(queue) = &mut w.queued { queue.push(line.into()); true }
+            else { w.io.as_mut().is_some_and(|io| io.send(line).is_ok()) };
         let name = w.name.clone();
         self.trace(&name, ">>", line);
         ok
@@ -2316,6 +2357,10 @@ impl Engines {
 
     pub fn worker_alive(&self, id: InstanceId) -> bool {
         self.workers.iter().any(|w| w.id == id)
+    }
+
+    pub fn worker_launch_pending(&self, id: InstanceId) -> bool {
+        self.workers.iter().any(|w| w.id == id && w.queued.is_some())
     }
 
     fn worker_input(&mut self, id: InstanceId, input: EngineInput, events: &mut Vec<RuntimeEvent>) {

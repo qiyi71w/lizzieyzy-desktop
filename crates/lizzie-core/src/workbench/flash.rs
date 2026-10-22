@@ -34,6 +34,8 @@ pub const ANALYSIS_COMMAND_MISSING: &str = "LizzieFrame.analysisCommandMissing";
 const REQUEST_DISPATCH_FAILED: &str = "AnalysisEngine.requestDispatchFailed";
 /// `AnalysisEngine.foregroundRestoreFailed`: the borrowed engine could not be given back.
 const FOREGROUND_RESTORE_FAILED: &str = "AnalysisEngine.foregroundRestoreFailed";
+/// `WholeGameAnalysis.conflict.analysis`: a whole-game session holds the analysis entries.
+pub const WHOLE_GAME_CONFLICT: &str = "WholeGameAnalysis.conflict.analysis";
 
 #[derive(Default)]
 pub(super) struct FlashFlow {
@@ -155,6 +157,9 @@ impl Workbench {
 
     /// 整盘速览 / 局部精析 / 全部分支精析 (`flashAnalyzeGame`). `Err` holds the Java key of a refusal.
     pub fn start_flash_analysis(&mut self, target: FlashTarget) -> Result<Result<bool, String>, ApiError> {
+        if self.whole_game_active() {
+            return Ok(Err(WHOLE_GAME_CONFLICT.to_string()));
+        }
         if let FlashTarget::MoveRange { start_move, end_move } = target {
             let range = FlashRange { start_move, end_move };
             if self.config.flash_range != range {
@@ -165,6 +170,8 @@ impl Workbench {
         if !borrow && self.analysis_command_base(false).trim().is_empty() {
             return Ok(Err(ANALYSIS_COMMAND_MISSING.to_string()));
         }
+        // `cancelPendingManualAutoAnalysisForExclusiveTask`.
+        self.auto_analysis_cancel_pending();
         self.flash.recent = Some(target);
         self.flash_replace();
         // `MANUAL_FLASH`: an automatic quick analysis hands its engine over.

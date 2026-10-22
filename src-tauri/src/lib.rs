@@ -620,8 +620,12 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             Ok(changed(&app, &shared, done))
         }
         Command::SetKomi { komi } => {
-            let done = shared.workbench.lock().unwrap().set_komi(komi)?;
-            Ok(changed(&app, &shared, done))
+            let result = shared.workbench.lock().unwrap().set_komi(komi);
+            match result {
+                Err(error) if error.message == "WholeGameAnalysis.conflict.analysis" =>
+                    Ok(changed_refused(&app, &shared, error.message)),
+                other => Ok(changed(&app, &shared, other?)),
+            }
         }
         Command::SetKataRules { rules, auto_load } => {
             let refused = shared.workbench.lock().unwrap().set_kata_rules(&rules, auto_load)?;
@@ -862,6 +866,29 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         Command::DismissAutoAnalysisTip { never_again } => {
             let done = shared.workbench.lock().unwrap().dismiss_auto_analysis_tip(never_again)?;
             Ok(changed(&app, &shared, done))
+        }
+        Command::StartWholeGameAnalysis { visits } => {
+            let started = shared.workbench.lock().unwrap().start_whole_game_analysis(visits)?;
+            Ok(match started {
+                Ok(done) => changed(&app, &shared, done),
+                Err(message_key) => changed_refused(&app, &shared, message_key),
+            })
+        }
+        Command::PauseWholeGameAnalysis => {
+            let done = shared.workbench.lock().unwrap().pause_whole_game_analysis();
+            Ok(changed(&app, &shared, done))
+        }
+        Command::ResumeWholeGameAnalysis => {
+            let done = shared.workbench.lock().unwrap().resume_whole_game_analysis();
+            Ok(changed(&app, &shared, done))
+        }
+        Command::StopWholeGameAnalysis => {
+            let done = shared.workbench.lock().unwrap().stop_whole_game_analysis();
+            Ok(changed(&app, &shared, done))
+        }
+        Command::EstimateWholeGameAnalysis { visits } => {
+            let millis = shared.workbench.lock().unwrap().estimate_whole_game_analysis(visits);
+            Ok(CommandResult::WholeGameEstimate { millis })
         }
     }
 }

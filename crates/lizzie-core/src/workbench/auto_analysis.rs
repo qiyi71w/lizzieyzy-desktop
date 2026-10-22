@@ -63,7 +63,8 @@ impl Workbench {
             || settings.first_visits_enabled && settings.first_visits > 0) {
             return Ok(Err("SetDiffAnalyze.noCondition"));
         }
-        if self.flash_active() || self.flash_releasing() { return Ok(Err("AutoAnalyze.conflict")); }
+        // hasManualAutoAnalysisStartConflict: a whole-game session or a running flash request.
+        if self.whole_game_active() || self.flash_active() || self.flash_releasing() { return Ok(Err("AutoAnalyze.conflict")); }
         let Some(engine) = self.engines.foreground().filter(|&f| self.engines.phase(f) == Some(Phase::Ready) && self.engines.can_analyse(f)) else {
             return Ok(Err("AutoAnalyze.engineUnavailable"));
         };
@@ -259,6 +260,14 @@ impl Workbench {
 
     /// Document/engine/rules replacement cancels without saving or borrowing results.
     pub(super) fn auto_analysis_abandon(&mut self) { self.auto_analysis.run = None; }
+
+    /// `cancelPendingManualAutoAnalysisForExclusiveTask`: a start still waiting for the quick
+    /// analysis hand-over is dropped; a running auto analysis is left alone.
+    pub(super) fn auto_analysis_cancel_pending(&mut self) {
+        if self.auto_analysis.run.as_ref().is_some_and(|r| r.starting) {
+            self.auto_analysis_abandon();
+        }
+    }
 
     fn auto_analysis_finish(&mut self, completed: bool) {
         let Some(run) = self.auto_analysis.run.take() else { return };

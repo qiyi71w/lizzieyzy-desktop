@@ -426,6 +426,7 @@ impl Workbench {
             && self.limit_stop.is_none()
             && !self.quick_holds_foreground()
             && !self.flash_holds_foreground()
+            && !self.whole_game_holds_foreground()
             && self.rules_permit_analysis();
         let target = self.analysis_target();
         if self.double_engine() {
@@ -474,6 +475,7 @@ impl Workbench {
         self.quick_cancel();
         self.flash_document_closing();
         self.auto_analysis_abandon();
+        self.whole_game_document_closing();
         self.reset_analysis();
         self.reset_editing();
         self.publish_record_rules(None);
@@ -717,7 +719,7 @@ impl Workbench {
     /// stopped. Never written to disk.
     pub fn toggle_analysis(&mut self) -> Result<bool, ApiError> {
         if self.auto_analysis_toggle_pause() { return Ok(true); }
-        if self.quick_toggle_pause() || self.flash_toggle_pause() {
+        if self.quick_toggle_pause() || self.flash_toggle_pause() || self.whole_game_toggle_pause() {
             self.limit_stop = None;
             self.secondary_limit_stop = None;
             self.sync_engine();
@@ -797,6 +799,9 @@ impl Workbench {
     /// sent to the engine, and engine profiles no longer change it (`GameInfo.changeKomi`) — not
     /// even a starting engine's, which Java would still apply once it is ready.
     pub fn set_komi(&mut self, komi: f64) -> Result<bool, ApiError> {
+        if self.whole_game_active() {
+            return Err(ApiError::new(ErrorKind::InvalidArgument, "WholeGameAnalysis.conflict.analysis"));
+        }
         if !komi.is_finite() {
             return Err(ApiError::new(ErrorKind::InvalidArgument, "komi"));
         }
@@ -1043,7 +1048,7 @@ impl Workbench {
     /// When timed work is due next: engine protocol timers and quick analysis (see
     /// [`Self::engine_tick`]).
     pub fn engine_timer(&self) -> Option<std::time::Instant> {
-        [self.engines.next_tick(), self.quick_deadline()]
+        [self.engines.next_tick(), self.quick_deadline(), self.whole_game_deadline()]
             .into_iter()
             .flatten()
             .min()
@@ -1055,7 +1060,8 @@ impl Workbench {
         let events = self.engines.tick(now);
         let engines = self.engine_events(events);
         let quick = self.quick_tick(now);
-        engines | quick
+        let whole = self.whole_game_tick(now);
+        engines | quick | whole
     }
 
     /// Handles runtime events produced by operations outside engine output.
@@ -1068,7 +1074,7 @@ impl Workbench {
         let mut changed = false;
         for ev in events {
             changed = true;
-            let Some(ev) = self.quick_event(ev).and_then(|ev| self.flash_event(ev)) else {
+            let Some(ev) = self.quick_event(ev).and_then(|ev| self.flash_event(ev)).and_then(|ev| self.whole_game_event(ev)) else {
                 continue;
             };
             match ev {
@@ -1455,10 +1461,22 @@ impl Workbench {
         let path = rec.path_to(self.cursor);
         let numbering = display::numbering(rec, &path);
         let analysis = |n: NodeId| store.get(rec, n);
+        let rank_override = self.whole_game_results_for_current()
+            && std::ptr::eq(store, &self.store)
+            && rec.node(self.cursor).parent.is_some_and(|n| store.get(rec, n).is_some_and(|a| a.visits > 0));
+        let ranks = if rank_override {
+            let mut effective = s.clone();
+            effective.move_numbers = 0;
+            if effective.move_rank < 0 { effective.move_rank = 1; }
+            display::rank_marks(rec, &path, &numbering, &effective, analysis)
+        } else {
+            display::rank_marks(rec, &path, &numbering, s, analysis)
+        };
         BoardOverlayView {
             move_numbers: display::number_labels(rec, &path, &numbering, s),
-            ranks: display::rank_marks(rec, &path, &numbering, s, analysis),
+            ranks,
             rank_corner: display::shows_ranks(s) && (s.move_rank == 0 || s.move_rank > 1),
+            ranks_after_numbers: rank_override,
             next_move: display::next_move_info(rec, self.cursor, s, self.config.edit.no_capture,
                 self.config.engine.analysis.limit_branch_length, analysis),
             info_order_sample: display::info_order_sample(s, rec.node(self.cursor).to_play, self.komi),

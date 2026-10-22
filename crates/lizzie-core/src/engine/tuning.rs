@@ -669,6 +669,35 @@ pub fn apply_measured_live(
     }
 }
 
+/// Whole-game scene: verify off-lock against the configured analysis command and the saved
+/// engine/model before applying its reviewed throughput parameters (MeasuredKataGoTuning).
+pub fn apply_measured_whole_game(
+    command: &str, saved_command: &str, policy: &ThreadPolicy, roots: &[PathBuf],
+    spec: &mut LaunchSpec, hardware: &(String, String, u64),
+) {
+    let Some(stored) = policy.measured_scenes.as_ref().and_then(|s| s.get("whole-game")) else { return };
+    if stored["schemaVersion"] != 1 || stored["command"].as_str() != Some(command)
+        || stored["report"]["scene"] != "whole-game" || validate_measured_report(&stored["report"]).is_err() { return; }
+    let Some(launch) = gtp::prepare_launch(command, roots) else { return };
+    let Ok(environment) = environment(command, &launch) else { return };
+    let mut target = super::benchmark::Target { command: command.into(), launch, environment };
+    let Ok(saved) = super::benchmark::Target::capture(saved_command, roots) else { return };
+    for artifact in ["engine", "model"] {
+        let (Some(a), Some(b)) = (target.environment[artifact]["path"].as_str(), saved.environment[artifact]["path"].as_str()) else { return };
+        if a != b && sha256(Path::new(a)).ok().zip(sha256(Path::new(b)).ok()).is_none_or(|(a,b)| a != b) { return; }
+    }
+    let budget = stored["report"]["budget"].as_u64().unwrap_or(1).min(u64::from(u32::MAX)) as u32;
+    let pv_len = overrides(&spec.args).get("analysispvlen").and_then(|n| n.parse().ok()).unwrap_or(0);
+    let verify_command = super::analysis_command::optimize(command, budget, pv_len, None);
+    let Some(launch) = gtp::prepare_launch(&verify_command, roots) else { return };
+    target.launch = launch;
+    if measured_fingerprint(&target, &hardware.0, &hardware.1, hardware.2).as_ref() != Ok(&stored["report"]["fingerprint"]) { return; }
+    if let Some(parameters) = stored["report"]["candidateParameters"].as_object() {
+        add_overrides(spec, parameters.iter().filter_map(|(k,v)| v.as_u64().map(|v| (k.clone(), v.to_string())))
+            .chain(std::iter::once(("numSearchThreads".into(), String::new()))));
+    }
+}
+
 fn metal_topology_key(key: &str) -> bool {
     let key = key.to_ascii_lowercase();
     key == "numnnserverthreadspermodel"

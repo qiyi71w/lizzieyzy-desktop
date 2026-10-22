@@ -165,6 +165,23 @@ pub fn optimize(command: &str, max_visits: u32, pv_len: u32, apple_threads: Opti
     }
 }
 
+/// `resolveWholeGameAnalysisProfile`: throughput rather than quick-analysis latency. Explicit
+/// command overrides stay authoritative, as in Java's wholeGameThroughput branch.
+pub fn whole_game(command: &str, pv_len: u32, recommended: u32) -> String {
+    let mut parts = split_command(command.trim());
+    if parts.first().is_none_or(String::is_empty) || !command.to_lowercase().contains("katago") {
+        return command.to_string();
+    }
+    if pv_len > 0 { append_override(&mut parts, &format!("analysisPVLen={pv_len}")); }
+    let budget = recommended.clamp(2, 24);
+    let parallel = (budget / 2).clamp(2, 8);
+    append_override(&mut parts, &format!("numAnalysisThreads={parallel}"));
+    if !has_override(&parts, "numSearchThreads") && !has_override(&parts, "numSearchThreadsPerAnalysisThread") {
+        append_search_threads(&mut parts, (budget / parallel).clamp(1, 2));
+    }
+    join_command(&parts).unwrap_or_else(|| command.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

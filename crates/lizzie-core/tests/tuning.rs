@@ -553,3 +553,44 @@ fn fingerprinted_launch_is_checked_off_the_workbench_and_keeps_queued_commands()
     let words: Vec<&str> = lines.iter().filter_map(|l| l.split_whitespace().nth(1)).collect();
     assert_eq!(words, ["name", "version", "list_commands"]);
 }
+
+#[test]
+fn whole_game_measured_worker_checks_off_lock_and_ignores_late_cancelled_launches() {
+    use lizzie_core::engine::{analysis_command, gtp, runtime::Engines};
+    let (dir, probe, id) = fixture();
+    let saved = probe.tuning_target(&id).unwrap();
+    let command = saved.command.replace(" gtp ", " analysis ");
+    let verify = analysis_command::optimize(&command, 800, 15, None);
+    let launch = gtp::prepare_launch(&verify, &[]).unwrap();
+    let target = benchmark::Target { environment: tuning::environment(&command, &launch).unwrap(), launch, command:command.clone() };
+    let mut measured = report();
+    measured["scene"] = serde_json::json!("whole-game");
+    measured["baselineParameters"] = serde_json::json!({"numAnalysisThreads":2,"numSearchThreadsPerAnalysisThread":1,"nnMaxBatchSize":4});
+    measured["candidateParameters"] = serde_json::json!({"numAnalysisThreads":6,"numSearchThreadsPerAnalysisThread":2,"nnMaxBatchSize":8});
+    for run in measured["runs"].as_array_mut().unwrap() {
+        let object = run.as_object_mut().unwrap();
+        object.remove("firstResultSeconds"); object.remove("observedRootVisits");
+        object.insert("rootVisitsByTurn".into(),serde_json::json!([800]));
+    }
+    measured["fingerprint"] = tuning::measured_fingerprint(&target,"GPU","driver",8000).unwrap();
+    assert!(tuning::validate_measured_report(&measured).is_ok());
+    let mut profile = probe.config().engine.engines[0].clone();
+    profile.thread_policy = Some(ThreadPolicy { measured_scenes:Some(serde_json::json!({"whole-game":{"schemaVersion":1,"command":command,"report":measured}})), ..Default::default() });
+    let launched = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let lines: Lines = Default::default();
+    let mut engines = Engines::new(Box::new(Recorder(launched.clone(),lines.clone())),vec![dir.path().into()]);
+    engines.set_measured_hardware(Some(("GPU".into(),"driver".into(),8000)));
+    let tuned = analysis_command::whole_game(&command,15,4);
+    let old = engines.start_whole_game_worker(&tuned,&command,Some(&profile)).unwrap();
+    engines.worker_send(old,"{\"id\":\"old\"}");
+    let stale = engines.take_launch_checks().pop().unwrap(); engines.terminate(old);
+    engines.finish_launch(stale.run()); assert!(launched.lock().unwrap().is_empty());
+    let worker = engines.start_whole_game_worker(&tuned,&command,Some(&profile)).unwrap();
+    engines.worker_send(worker,"{\"id\":\"current\"}");
+    assert!(launched.lock().unwrap().is_empty());
+    let current = engines.take_launch_checks().pop().unwrap(); engines.finish_launch(current.run());
+    let launch = launched.lock().unwrap(); assert_eq!(launch.len(),1);
+    let parameters = tuning::overrides(&launch[0].args);
+    assert_eq!(parameters["numanalysisthreads"],"6"); assert_eq!(parameters["numsearchthreads"],"");
+    assert_eq!(*lines.lock().unwrap(),vec!["{\"id\":\"current\"}".to_string()]);
+}

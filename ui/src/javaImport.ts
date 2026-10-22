@@ -108,6 +108,7 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   SuggestionsFrame: "Menu.SuggestionList",
   ExtraMode: "Menu.layoutMode",
   AutoAnalysis: "StartAnaDialog.title",
+  WholeGameVisits: "WholeGameAnalysis.visits.label",
 };
 
 function targetLabel(target: ImportTarget): string {

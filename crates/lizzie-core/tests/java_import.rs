@@ -1274,3 +1274,22 @@ fn automatic_analysis_imports_conditions_and_toolbar_parameters_transactionally(
     assert!(!s.exit_by_pause && !s.exit_tip);
     assert_eq!(&saved_config(&product).auto_analysis, s, "persisted on import");
 }
+
+#[test]
+fn whole_game_visits_imports_with_java_from_stored_validation() {
+    for (stored, expected) in [(3000, 3000), (499, 1000), (-1, 1000), (1_000_001, 1000)] {
+        let tmp = tempfile::tempdir().unwrap();
+        let java = tmp.path().join("java");
+        std::fs::create_dir_all(&java).unwrap();
+        std::fs::write(java.join("config.txt"), json!({"ui":{"whole-game-analysis-deep-visits":stored}}).to_string()).unwrap();
+        let product = tmp.path().join("product");
+        let mut wb = workbench(&product, Recorder::default());
+        let p = preview(&mut wb, &java);
+        let row = item(&p.items, "ui.whole-game-analysis-deep-visits");
+        assert_eq!(row.status, ImportStatus::Imported);
+        assert_eq!(row.target, Some(lizzie_core::api::ImportTarget::WholeGameVisits));
+        wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+        assert_eq!(wb.config().whole_game.deep_visits, expected);
+        assert_eq!(saved_config(&product).whole_game.deep_visits, expected);
+    }
+}
