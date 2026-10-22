@@ -109,6 +109,7 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   ExtraMode: "Menu.layoutMode",
   AutoAnalysis: "StartAnaDialog.title",
   WholeGameVisits: "WholeGameAnalysis.visits.label",
+  Hawkeye: "Menu.hawkEye",
 };
 
 function targetLabel(target: ImportTarget): string {

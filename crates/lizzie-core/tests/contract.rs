@@ -19,7 +19,7 @@ use lizzie_core::settings::{
     AnalysisEngineSettings, CoordinateStyle, DisplaySettings, EditSettings, EstimateStyle, ExtraMode, FlashRange,
     FramePlacement, KataEstimateState, Language, MoveRankMode, ProblemListSettings, ProblemSide, ProblemSort,
     PvVisitsMode, RecoverySettings, SubBoardMode, WindowPlacement,
-    AutoAnalysisSettings,
+    AutoAnalysisSettings, HawkeyeBranch, HawkeyePeriod, HawkeyePlacement, HawkeyeSettings,
 };
 use lizzie_core::viewpoint::{AsCandidate, ShownValues};
 use ts_rs::Config;
@@ -58,6 +58,8 @@ fn generate() -> String {
         FlashTarget, FlashRange, FlashAnalysisView, FlashOutcome,
         AutoAnalysisSettings, AutoAnalysisView, AutoAnalysisNotice,
         WholeGameState, WholeGameAnalysisView, lizzie_core::settings::WholeGameSettings,
+        HawkeyeCommand, HawkeyeSide, HawkeyeBand, HawkeyeSpread, HawkeyeStage, HawkeyeMistake, HawkeyeRunning,
+        HawkeyePane, HawkeyeView, HawkeyeSettings, HawkeyeBranch, HawkeyePeriod, HawkeyePlacement,
     ];
     // Engine resources and engine performance keep their own lists.
     decls.extend(resources::decls(&cfg));

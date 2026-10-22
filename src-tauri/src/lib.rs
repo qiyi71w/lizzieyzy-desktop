@@ -45,6 +45,12 @@ const SUGGESTIONS_WINDOW: &str = "suggestions";
 const SUGGESTIONS_SUB_WINDOW: &str = "suggestions-sub";
 /// The 独立选点列表 was closed by its own close box; the main window records it as closed.
 pub const SUGGESTIONS_CLOSED_EVENT: &str = "suggestions-frame-closed";
+/// 超级鹰眼 (`MoveListFrame(1)`).
+const HAWKEYE_WINDOW: &str = "hawkeye";
+/// 双引擎模式's secondary engine 超级鹰眼 (`MoveListFrame(2)`).
+const HAWKEYE_SUB_WINDOW: &str = "hawkeye-sub";
+/// A 超级鹰眼 window was closed by its own close box; the main window toggles it off.
+pub const HAWKEYE_CLOSED_EVENT: &str = "hawkeye-closed";
 
 pub struct Shared {
     pub workbench: Mutex<Workbench>,
@@ -76,6 +82,9 @@ struct TableLayout {
     frame_9: Option<FramePlacement>,
     /// The frame was opened this session: its last placement is written on exit.
     frame_last: Option<FramePlacement>,
+    /// 超级鹰眼's sort column and 详细列表 column widths as its window last reported them
+    /// (`badmoves-list-position[0]`, `[5..]`).
+    hawkeye: (i32, Vec<u32>),
 }
 
 impl TableLayout {
@@ -86,6 +95,10 @@ impl TableLayout {
             frame_7: persisted.suggestions_frame_7.clone(),
             frame_9: persisted.suggestions_frame_9.clone(),
             frame_last: None,
+            hawkeye: persisted
+                .hawkeye
+                .as_ref()
+                .map_or((2, Vec::new()), |p| (p.sort, p.columns.clone())),
         }
     }
 
@@ -890,7 +903,42 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let millis = shared.workbench.lock().unwrap().estimate_whole_game_analysis(visits);
             Ok(CommandResult::WholeGameEstimate { millis })
         }
+        Command::Hawkeye { op } => {
+            let done = shared.workbench.lock().unwrap().hawkeye(op)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetHawkeyeSettings { settings } => {
+            let done = shared.workbench.lock().unwrap().set_hawkeye_settings(settings)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::ExportTable { rows } => export_table(&app, rows).await,
     }
+}
+
+/// 导出为xls (`MoveListFrame` export listener, `Utils.exportTable`): Java's chooser has no title
+/// and only the `(*.xls)` filter; the file is replaced without asking and a name containing
+/// `.xlsx` writes nothing.
+async fn export_table(app: &AppHandle, rows: Vec<Vec<String>>) -> Result<CommandResult, ApiError> {
+    let dialog = app.dialog().clone();
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        dialog.file().add_filter("(*.xls)", &["xls"]).blocking_save_file()
+    })
+    .await
+    .map_err(|e| ApiError::new(ErrorKind::Unavailable, e.to_string()))?;
+    let Some(chosen) = picked.and_then(|p| p.into_path().ok()) else {
+        return Ok(CommandResult::Unchanged);
+    };
+    let Some(path) = formats::table::xls_target(&chosen.to_string_lossy()) else {
+        return Ok(CommandResult::Unchanged);
+    };
+    let bytes = formats::table::encode(&rows, formats::table::NEWLINE);
+    Ok(match std::fs::write(&path, bytes) {
+        Ok(()) => CommandResult::Exported { path },
+        Err(e) => CommandResult::ExportFailed {
+            path,
+            detail: e.to_string(),
+        },
+    })
 }
 
 /// A refusal after which state may still have changed (a quick analysis handed over, a range
@@ -1031,6 +1079,9 @@ fn prepare_exit(app: &AppHandle, shared: &Shared) -> bool {
     }
     if let Some(frame) = app.get_webview_window(SUGGESTIONS_WINDOW) {
         shared.tables.lock().unwrap().capture_frame(&frame);
+    }
+    if let Some(hawkeye) = app.get_webview_window(HAWKEYE_WINDOW) {
+        record_hawkeye(shared, &mut wb, &hawkeye);
     }
     persist_ui(app, shared, &mut wb);
     true
@@ -1194,6 +1245,102 @@ fn set_suggestions_columns(state: tauri::State<'_, State>, columns: Vec<u32>) {
     state.tables.lock().unwrap().frame_columns = columns;
 }
 
+/// The bounds a 超级鹰眼 window starts with (`MoveListFrame` constructor, 272-290): the saved
+/// bounds, the secondary window to the right of them; a saved position beyond the primary screen
+/// moves to (0, 0). Without saved bounds: (-9, 0), the secondary window at (737, 0), 856 x 565
+/// (996 wide when the UI language is not Chinese).
+fn hawkeye_bounds(app: &AppHandle, shared: &Shared, sub: bool, chinese: bool) -> (i32, i32, u32, u32) {
+    let saved = shared.workbench.lock().unwrap().persisted().hawkeye.clone();
+    let Some(p) = saved else {
+        return (if sub { 737 } else { -9 }, 0, if chinese { 856 } else { 996 }, 565);
+    };
+    let (mut x, mut y) = (if sub { p.x + p.width as i32 } else { p.x }, p.y);
+    if let Ok(Some(screen)) = app.primary_monitor() {
+        let size = screen.size().to_logical::<i32>(screen.scale_factor());
+        if x >= size.width - 50 || y >= size.height {
+            (x, y) = (0, 0);
+        }
+    }
+    (x, y, p.width, p.height)
+}
+
+/// Writes the primary 超级鹰眼's placement with the sort column and widths it last reported
+/// (`Config.persist`, `badmoves-list-position`).
+fn record_hawkeye(shared: &Shared, wb: &mut Workbench, window: &tauri::WebviewWindow) {
+    let (sort, columns) = shared.tables.lock().unwrap().hawkeye.clone();
+    let (Ok(scale), Ok(pos), Ok(size)) = (window.scale_factor(), window.outer_position(), window.inner_size()) else {
+        return;
+    };
+    let (pos, size) = (pos.to_logical::<i32>(scale), size.to_logical::<u32>(scale));
+    let placement = lizzie_core::settings::HawkeyePlacement {
+        x: pos.x,
+        y: pos.y,
+        width: size.width,
+        height: size.height,
+        sort,
+        columns,
+    };
+    if let Err(e) = wb.persist_hawkeye(placement) {
+        shared.log.warn(&e.message);
+    }
+}
+
+/// Opens a 超级鹰眼 window (`toggleBadMoves`), or retitles the open one; `sub` is 双引擎模式's
+/// secondary engine window. Returns the saved sort column and 详细列表 widths. Async: building a
+/// window inside a synchronous command deadlocks on Windows.
+#[tauri::command]
+async fn open_hawkeye(
+    app: AppHandle,
+    state: tauri::State<'_, State>,
+    sub: bool,
+    chinese: bool,
+    on_top: bool,
+    title: String,
+) -> Result<(i32, Vec<u32>), ApiError> {
+    let label = if sub { HAWKEYE_SUB_WINDOW } else { HAWKEYE_WINDOW };
+    let layout = state.tables.lock().unwrap().hawkeye.clone();
+    if let Some(window) = app.get_webview_window(label) {
+        let _ = window.set_title(&title);
+        let _ = window.set_always_on_top(on_top);
+        return Ok(layout);
+    }
+    let (x, y, width, height) = hawkeye_bounds(&app, &state, sub, chinese);
+    WebviewWindowBuilder::new(&app, label, WebviewUrl::App("hawkeye.html".into()))
+        .title(title)
+        .inner_size(f64::from(width), f64::from(height))
+        .position(f64::from(x), f64::from(y))
+        .always_on_top(on_top)
+        .disable_drag_drop_handler()
+        .build()
+        .map_err(|e| ApiError::new(ErrorKind::Unavailable, format!("opening the hawk eye failed: {e}")))?;
+    Ok(layout)
+}
+
+/// Closes both 超级鹰眼 windows from the main window (Y, the menus), writing the primary one's
+/// placement.
+#[tauri::command]
+fn close_hawkeye(app: AppHandle, state: tauri::State<'_, State>) {
+    if let Some(window) = app.get_webview_window(HAWKEYE_WINDOW) {
+        record_hawkeye(&state, &mut state.workbench.lock().unwrap(), &window);
+        let _ = window.destroy();
+    }
+    close_hawkeye_sub(app);
+}
+
+/// Closes the secondary engine's 超级鹰眼 (leaving 双引擎模式).
+#[tauri::command]
+fn close_hawkeye_sub(app: AppHandle) {
+    if let Some(window) = app.get_webview_window(HAWKEYE_SUB_WINDOW) {
+        let _ = window.destroy();
+    }
+}
+
+/// The primary 超级鹰眼's sort column and 详细列表 widths, as it lays them out.
+#[tauri::command]
+fn set_hawkeye_layout(state: tauri::State<'_, State>, sort: i32, columns: Vec<u32>) {
+    state.tables.lock().unwrap().hawkeye = (sort, columns);
+}
+
 /// The main 选点列表's saved column widths, for its first layout.
 #[tauri::command]
 fn main_list_columns(state: tauri::State<'_, State>) -> Option<Vec<u32>> {
@@ -1348,6 +1495,23 @@ pub fn run() {
                 }
                 let _ = app.emit_to("main", SUGGESTIONS_CLOSED_EVENT, ());
             }
+            // Either 超级鹰眼's own close box (MoveListFrame closing → toggleBadMoves): both close,
+            // the primary one's placement is written and the main window turns it off.
+            WindowEvent::CloseRequested { .. } if matches!(window.label(), HAWKEYE_WINDOW | HAWKEYE_SUB_WINDOW) => {
+                let app = window.app_handle();
+                let shared = app.state::<State>();
+                if let Some(primary) = app.get_webview_window(HAWKEYE_WINDOW) {
+                    record_hawkeye(&shared, &mut shared.workbench.lock().unwrap(), &primary);
+                }
+                for label in [HAWKEYE_WINDOW, HAWKEYE_SUB_WINDOW] {
+                    if label != window.label() {
+                        if let Some(other) = app.get_webview_window(label) {
+                            let _ = other.destroy();
+                        }
+                    }
+                }
+                let _ = app.emit_to("main", HAWKEYE_CLOSED_EVENT, ());
+            }
             WindowEvent::CloseRequested { api, .. } => {
                 let app = window.app_handle();
                 let shared = app.state::<State>();
@@ -1356,7 +1520,7 @@ pub fn run() {
                 } else {
                     // Java exits with the main window; the tool windows must not keep the
                     // application running.
-                    for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW] {
+                    for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW, HAWKEYE_WINDOW, HAWKEYE_SUB_WINDOW] {
                         if let Some(frame) = app.get_webview_window(label) {
                             let _ = frame.destroy();
                         }
@@ -1429,7 +1593,11 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         close_suggestions_sub,
         set_main_list_columns,
         set_suggestions_columns,
-        main_list_columns
+        main_list_columns,
+        open_hawkeye,
+        close_hawkeye,
+        close_hawkeye_sub,
+        set_hawkeye_layout
     ]
 }
 
@@ -1451,6 +1619,10 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         set_main_list_columns,
         set_suggestions_columns,
         main_list_columns,
+        open_hawkeye,
+        close_hawkeye,
+        close_hawkeye_sub,
+        set_hawkeye_layout,
         acceptance::acceptance_ui_report
     ]
 }

@@ -2,6 +2,7 @@
 //! result against the analysis of the position it was played in (统计, AI总评分, 问题手) and
 //! 终局点目.
 
+use super::analysis::AnalysisStore;
 use super::Workbench;
 use crate::api::{
     ApiError, ErrorKind, KataEstimateMode, KataEstimateView, MoveChange, MoveEvaluation, ProblemListView,
@@ -150,12 +151,18 @@ impl Workbench {
     /// `Board.isMatchAi` and `updateMovelist` for the move leading to `node`, when the position
     /// it was played in has analysis.
     pub(super) fn evaluation(&self, node: NodeId) -> Option<MoveEvaluation> {
+        self.evaluation_in(&self.store, node)
+    }
+
+    /// [`Self::evaluation`] from `store`'s results: the foreground engine's, or 双引擎模式's
+    /// secondary engine's (`updateMovelist2`, `nodeInfo2`).
+    pub(super) fn evaluation_in(&self, store: &AnalysisStore, node: NodeId) -> Option<MoveEvaluation> {
         let rec = &self.doc.record;
         let n = rec.node(node);
         let NodeKind::Move { color, point } = n.kind else {
             return None;
         };
-        let before = self.store.get(rec, n.parent?)?;
+        let before = store.get(rec, n.parent?)?;
         if before.visits == 0 {
             return None;
         }
@@ -172,26 +179,51 @@ impl Workbench {
             share = if i == 0 { 1.0 } else { ratio };
             matched = Some(i as u32 + 1);
         }
-        let change = self.change(n.parent?, node);
+        // `NodeInfo.analyzed` needs both positions (`previousPlayouts > 0 && playouts > 0`); then
+        // the position analysed before the move is its own parent, which `lastWinrateDiff` finds.
+        let after = store.get(rec, node).filter(|a| a.visits > 0);
+        let change = self.change_in(store, n.parent?, node);
+        // The mover's view of a result (`100 - winrate`, `-scoreMean` for the side to move next).
+        let mover = |a: &crate::api::NodeAnalysisView| {
+            let own = a.to_play == color;
+            (
+                if own { a.winrate } else { 100.0 - a.winrate },
+                a.score_lead.map(|v| if own { v } else { -v }),
+            )
+        };
+        let (best_winrate, best_score) = mover(before);
+        let (winrate, score) = after.map(mover).map_or((None, None), |(w, s)| (Some(w), s));
         Some(MoveEvaluation {
             node,
             move_number: n.move_number,
             mover: color,
+            point,
             matched,
             share,
             match_ai,
             best,
+            analyzed: after.is_some(),
             winrate_change: change.map(|c| c.winrate),
             score_change: change.and_then(|c| c.score),
+            winrate,
+            score,
+            best_winrate,
+            best_score,
+            visits_before: before.visits,
+            visits_after: after.map_or(0, |a| a.visits),
         })
     }
 
     /// The mover's change from the analysis at `from` to that at `to`, both analysed
     /// (`Board.lastWinrateDiff`, `drawMoveStatistics`).
     pub(super) fn change(&self, from: NodeId, to: NodeId) -> Option<MoveChange> {
+        self.change_in(&self.store, from, to)
+    }
+
+    fn change_in(&self, store: &AnalysisStore, from: NodeId, to: NodeId) -> Option<MoveChange> {
         let rec = &self.doc.record;
-        let before = self.store.get(rec, from).filter(|a| a.visits > 0)?;
-        let after = self.store.get(rec, to).filter(|a| a.visits > 0)?;
+        let before = store.get(rec, from).filter(|a| a.visits > 0)?;
+        let after = store.get(rec, to).filter(|a| a.visits > 0)?;
         // `after` is for the side to move after the move, the mover's opponent.
         let opponent = |a: &crate::api::NodeAnalysisView, value: f64, flipped: f64| {
             if a.to_play == after.to_play {
@@ -249,7 +281,7 @@ impl Workbench {
     // -------------------------------------------------------------------- 问题手
 
     /// The marked problem move while the position before it is browsed (`clickbadmove`).
-    fn problem_mark(&self) -> Option<NodeId> {
+    pub(super) fn problem_mark(&self) -> Option<NodeId> {
         self.problem_mark
             .filter(|&(doc, at, _)| doc == self.doc.id && at == self.cursor)
             .map(|(_, _, node)| node)

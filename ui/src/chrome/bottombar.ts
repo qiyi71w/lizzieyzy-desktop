@@ -54,6 +54,9 @@ const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" 
     { name: "kataEstimate", key: "BottomToolbar.kataEstimate", run: toggleKataEstimate, shown: () => !!state.view?.engine.foreground?.katago },
     // activeEngine.toggleHeatmap(false), as H (BottomToolbar.java:1365-1373)
     { name: "heatMap", key: "BottomToolbar.heatMap", run: toggleRawNet },
+    // toggleBadMoves (BottomToolbar.java:1311-1316); off while the top toolbar and the double
+    // menu are shown, as in the default layout (Config.java:1936)
+    { name: "badMoves", key: "BottomToolbar.badMoves", hidden: true, run: () => COMMANDS["analysis.bad-moves"].run() },
     { name: "liveButton", key: "BottomToolbar.liveButton" },
   ],
   center: [

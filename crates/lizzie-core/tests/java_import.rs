@@ -15,8 +15,8 @@ use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::java_import::{self, JavaSource};
 use lizzie_core::settings::{
-    Config, DisplaySettings, EstimateStyle, ExtraMode, Language, MoveRankMode, Persisted, ProblemSide, ProblemSort,
-    ProxyMode, Storage, SubBoardMode,
+    Config, DisplaySettings, EstimateStyle, ExtraMode, HawkeyeBranch, HawkeyePeriod, Language, MoveRankMode, Persisted,
+    ProblemSide, ProblemSort, ProxyMode, Storage, SubBoardMode,
 };
 use lizzie_core::workbench::{Workbench, IMPORT_NEEDS_REPLACE, IMPORT_STALE};
 use serde_json::json;
@@ -1292,4 +1292,93 @@ fn whole_game_visits_imports_with_java_from_stored_validation() {
         assert_eq!(wb.config().whole_game.deep_visits, expected);
         assert_eq!(saved_config(&product).whole_game.deep_visits, expected);
     }
+}
+
+#[test]
+fn hawkeye_settings_import_like_java_reads_them() {
+    // Config.java:1801-1827, 1891-1893, 1947-1956, 2021-2024; MoveListFrame.setFilterStatus.
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(
+        java.join("config.txt"),
+        json!({ "ui": {
+            "show-badmoves-frame": true,
+            "badmoves-always-ontop": true,
+            "badmoves-always-on-top": false,
+            "movelist-selected-indextop": 2,
+            "movelist-selected-index": 7,
+            "moveList-selected-branch": 1,
+            "show-movelist-matchai": false,
+            "show-winrate-matchai": true,
+            "move-list-winrate-threshold": 5,
+            "move-list-score-threshold": 2,
+            "move-list-visits-threshold": 100,
+            "movelist-top-curnode": true,
+            "opening-end-move": 50,
+            "middle-end-move": 150,
+            "game-statistics-custom-start": 10,
+            "game-statistics-custom-end": 200,
+            "winrate-diff-range1": 4,
+            "winrate-diff-range2": 12,
+            "score-diff-range1": 3,
+            "score-diff-range2": 6,
+            "loss-panel-select-winrate": true,
+            "move-list-filter-current": false,
+            "match-ai-firstmove": 50,
+            "match-ai-lastmove": 150
+        } })
+        .to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        java.join("persist"),
+        json!({ "ui-persist": { "badmoves-list-position": [10, 20, 900, 600, 3, 40, 40, 40, 40, 40, 40, 40, 40, 40] } })
+            .to_string(),
+    )
+    .unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    for key in ["show-badmoves-frame", "badmoves-always-ontop", "moveList-selected-branch", "match-ai-firstmove"] {
+        let it = item(&p.items, &format!("ui.{key}"));
+        assert_eq!((it.status, it.target), (ImportStatus::Imported, Some(ImportTarget::Hawkeye)), "{key}");
+    }
+    // Java writes this key but never reads it.
+    let unused = item(&p.items, "ui.badmoves-always-on-top");
+    assert_eq!((unused.status, unused.reason), (ImportStatus::NotMigrated, Some(ImportReason::Obsolete)));
+    let window = item(&p.items, "persist:ui-persist.badmoves-list-position");
+    assert_eq!(
+        (window.status, window.reason),
+        (ImportStatus::Incompatible, Some(ImportReason::WindowCoordinates))
+    );
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    let h = wb.config().hawkeye.clone();
+    assert!(h.show_frame && h.always_on_top && !h.show_list && h.show_graph && h.top_current_move && h.loss_winrate);
+    assert_eq!((h.top_page, h.chart, h.branch), (2, 7, HawkeyeBranch::Current));
+    assert_eq!((h.winrate_threshold, h.score_threshold, h.visits_threshold), (5, 2, 100));
+    assert_eq!((h.opening_end_move, h.middle_end_move), (50, 150));
+    assert_eq!((h.winrate_range1, h.winrate_range2, h.score_range1, h.score_range2), (4, 12, 3, 6));
+    // 50..150 is the saved 中盘 range for these period ends.
+    assert_eq!(h.period, HawkeyePeriod::Middle);
+    assert_eq!(saved_config(&product).hawkeye, h, "kept after a restart");
+}
+
+#[test]
+fn an_unmatched_hawkeye_range_becomes_a_custom_period() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(
+        java.join("config.txt"),
+        json!({ "ui": { "match-ai-firstmove": 29, "match-ai-lastmove": 90, "movelist-selected-index": 9 } }).to_string(),
+    )
+    .unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    assert_eq!(item(&p.items, "ui.movelist-selected-index").status, ImportStatus::Incompatible);
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    let h = &wb.config().hawkeye;
+    assert_eq!((h.period, h.custom_start, h.custom_end, h.chart), (HawkeyePeriod::Custom, 30, 90, 0));
 }

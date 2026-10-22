@@ -10,6 +10,7 @@ pub mod picture;
 pub mod saved_analysis;
 pub mod sgf;
 pub mod sgf_write;
+pub mod table;
 pub mod winrate_comment;
 
 use std::io::Write as _;

@@ -292,7 +292,7 @@ export function buildToolbar(host: HTMLElement): void {
     ),
     buttons(setup, flashButton(), search),
     buttons(
-      icon("hawkeye2.png", t("Menu.btnHawkeye.toolTipText")),
+      icon("hawkeye2.png", t("Menu.btnHawkeye.toolTipText"), "analysis.bad-moves"),
       rankMarkButton(),
       icon("pass.png", t("Menu.btnChangeTurn.toolTipText"), "toolbar.change-turn"),
       icon("setmain.png", t("Menu.btnSetMain.toolTipText"), "menu.setAsMain"),

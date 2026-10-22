@@ -6,6 +6,7 @@
 
 mod editing;
 mod export;
+mod hawkeye;
 mod recovery;
 mod resources;
 mod tuning;
@@ -15,6 +16,7 @@ use ts_rs::TS;
 
 pub use editing::*;
 pub use export::*;
+pub use hawkeye::*;
 pub use recovery::*;
 pub use resources::*;
 pub use tuning::*;
@@ -335,6 +337,23 @@ pub enum Command {
     StopWholeGameAnalysis,
     /// Pre-start estimate using the current engine's stored benchmark.
     EstimateWholeGameAnalysis { visits: u32 },
+    /// 超级鹰眼: open/close, the side boxes and navigation from its lists and charts.
+    Hawkeye {
+        op: HawkeyeCommand,
+    },
+    /// 超级鹰眼's remembered choices: pages, 分支, 统计 range, list thresholds, chart thresholds,
+    /// 总在最前 (`ui.*` keys of `MoveListFrame`, `SetThreshold`). Values outside the dialog's
+    /// ranges are an `InvalidArgument` error with nothing changed; the open state is `Toggle`'s.
+    SetHawkeyeSettings {
+        settings: crate::settings::HawkeyeSettings,
+    },
+    /// A 超级鹰眼 list's 导出为xls (`Utils.exportTable`): the save chooser (`(*.xls)`), `.xls`
+    /// appended to the chosen name (a name containing `.xlsx` writes nothing), then the cells as
+    /// tab-separated UTF-16LE text with a byte-order mark, header row first. Answers `Exported`,
+    /// `ExportFailed` or `Unchanged`.
+    ExportTable {
+        rows: Vec<Vec<String>>,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, TS)]
@@ -676,6 +695,8 @@ pub struct SettingsView {
     pub flash_range: crate::settings::FlashRange,
     pub auto_analysis: crate::settings::AutoAnalysisSettings,
     pub whole_game: crate::settings::WholeGameSettings,
+    /// 超级鹰眼's remembered choices.
+    pub hawkeye: crate::settings::HawkeyeSettings,
 }
 
 /// 快速曲线轻量模型 card (`KataGoAutoSetupDialog`, `QuickAnalysisModelStatus`).
@@ -865,6 +886,8 @@ pub struct WorkbenchView {
     /// Each move's result against the analysis of the position it was played in, and the AI
     /// match score (统计 panel, captured panel, 超级鹰眼).
     pub statistics: StatisticsView,
+    /// 超级鹰眼 while its window is open (computed only then).
+    pub hawkeye: Option<HawkeyeView>,
     /// Kata形势显示 and the ownership it draws.
     pub kata_estimate: KataEstimateView,
     /// 终局点目, while scoring.
@@ -1066,6 +1089,14 @@ pub enum ImportTarget {
     AutoAnalysis,
     /// 整盘精析: `ui.whole-game-analysis-deep-visits`.
     WholeGameVisits,
+    /// 超级鹰眼: `ui.show-badmoves-frame`, `badmoves-always-ontop`, `movelist-selected-indextop`,
+    /// `movelist-selected-index`, `moveList-selected-branch`, `show-movelist-matchai`,
+    /// `show-winrate-matchai`, `move-list-winrate-threshold`, `move-list-score-threshold`,
+    /// `move-list-visits-threshold`, `movelist-top-curnode`, `move-list-filter-current`,
+    /// `match-ai-firstmove`, `match-ai-lastmove`, `opening-end-move`, `middle-end-move`,
+    /// `game-statistics-custom-start`, `game-statistics-custom-end`, `winrate-diff-range1/2`,
+    /// `score-diff-range1/2`, `loss-panel-select-winrate`.
+    Hawkeye,
 }
 
 /// A problem found with an imported engine without starting it.
@@ -1291,7 +1322,9 @@ pub struct CandidateView {
 }
 
 /// One move's result against the analysis of the position it was played in (Java
-/// `Board.updateMovelist` / `NodeInfo`). Present for a move whose previous position has analysis.
+/// `Board.updateMovelist` / `NodeInfo`). Present for a move whose previous position has analysis
+/// (`analyzedMatchValue`). The changes are the raw differences (the lists show them); statistics
+/// count a `best` move as losing nothing (`NodeInfo.getWinrateDiff`, 一选免罚).
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 pub struct MoveEvaluation {
     /// The node the move leads to.
@@ -1299,6 +1332,7 @@ pub struct MoveEvaluation {
     pub move_number: u32,
     /// The side that played the move.
     pub mover: Stone,
+    pub point: Point,
     /// 1-based rank of the move among the previous position's candidates, if it is one.
     pub matched: Option<u32>,
     /// 1 for the first candidate, else its visits over the most visits; 0 when not a candidate.
@@ -1306,11 +1340,25 @@ pub struct MoveEvaluation {
     /// Among the first `match_ai_moves` candidates with at least `match_ai_percents_playouts`.
     pub match_ai: bool,
     pub best: bool,
+    /// The position after the move is analysed too (`NodeInfo.analyzed`); the fields below that
+    /// need it are `None` otherwise.
+    pub analyzed: bool,
     /// Win-rate change for the mover, percentage points (negative is a loss); both positions
     /// analysed.
     pub winrate_change: Option<f64>,
     /// Score-lead change for the mover (KataGo), points.
     pub score_change: Option<f64>,
+    /// The mover's win rate after the move (实战胜率).
+    pub winrate: Option<f64>,
+    /// The mover's score lead after the move (实战目数).
+    pub score: Option<f64>,
+    /// The previous position's best candidate for the mover (一选胜率 / 一选目数).
+    pub best_winrate: f64,
+    pub best_score: Option<f64>,
+    /// Visits of the position before the move (此手计算量) and after it (下一手计算量, 0 when not
+    /// analysed).
+    pub visits_before: u64,
+    pub visits_after: u64,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, TS)]

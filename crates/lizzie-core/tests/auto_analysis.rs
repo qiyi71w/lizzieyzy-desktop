@@ -99,6 +99,27 @@ fn advances_on_elapsed_time_only_after_foreground_packet() {
 }
 
 #[test]
+fn auto_analysis_excludes_whole_game_and_hawkeye_list_navigation() {
+    use lizzie_core::api::HawkeyeCommand;
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, id) = setup(dir.path(), LINE);
+    wb.hawkeye(HawkeyeCommand::Toggle).unwrap();
+    wb.start_auto_analysis(settings()).unwrap().unwrap();
+    serve(&mut wb, &world, id);
+    assert_eq!(wb.start_whole_game_analysis(1000).unwrap(), Err("WholeGameAnalysis.conflict".into()));
+    // A list row is ignored (`isAutoAna`), a chart position is not (`goToMoveNumberBeyondBranch`).
+    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoRow { node: 3 }), Ok(false));
+    assert_eq!(wb.view(true).position.node, 0);
+    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoMoveNumber { number: 2 }), Ok(true));
+    assert_eq!(wb.view(true).position.node, 2);
+    wb.stop_auto_analysis();
+    assert!(!wb.view(true).auto_analysis.active);
+    wb.goto_node(0).unwrap();
+    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoRow { node: 3 }), Ok(true));
+    assert_eq!(wb.view(true).position.node, 2);
+}
+
+#[test]
 fn start_end_side_skips_and_line_end_keep_cursor_and_results() {
     let dir = tempfile::tempdir().unwrap(); let (mut wb, world, id) = setup(dir.path(), LINE);
     let mut s = settings(); s.start_move = 2; s.end_move = 2; s.white = false;

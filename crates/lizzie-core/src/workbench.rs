@@ -19,6 +19,7 @@ mod auto_analysis;
 mod editing;
 mod exporting;
 mod flash;
+mod hawkeye;
 mod importing;
 mod information;
 mod quick;
@@ -254,6 +255,8 @@ pub struct Workbench {
     /// The problem move a 问题手 jump marked, while browsing the position before it
     /// (`clickbadmove`): document, that position, the move's node.
     problem_mark: Option<(u64, NodeId, NodeId)>,
+    /// 超级鹰眼's 黑 / 白 boxes this session.
+    hawkeye_session: hawkeye::HawkeyeSession,
 }
 
 impl Workbench {
@@ -352,6 +355,7 @@ impl Workbench {
             auto_analysis: auto_analysis::AutoAnalysisFlow::default(),
             whole_game: whole_game::WholeGameFlow::default(),
             problem_mark: None,
+            hawkeye_session: hawkeye::HawkeyeSession::default(),
         }
     }
 
@@ -935,6 +939,7 @@ impl Workbench {
                 flash_range: self.config.flash_range,
                 auto_analysis: self.config.auto_analysis.clone(),
                 whole_game: self.config.whole_game,
+                hawkeye: self.config.hawkeye.clone(),
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
@@ -950,6 +955,7 @@ impl Workbench {
             raw_net: self.raw_net_view(),
             history: self.history(),
             statistics: self.statistics(),
+            hawkeye: self.hawkeye_view(),
             kata_estimate: self.kata_estimate_view(),
             score: self.score_view(),
             secondary: self.secondary_view(),

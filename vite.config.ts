@@ -10,7 +10,13 @@ export default defineConfig({
     outDir: "../dist",
     emptyOutDir: true,
     target: "es2022",
-    // The workbench and the 独立选点列表 window.
-    rollupOptions: { input: { main: resolve(__dirname, "ui/index.html"), suggestions: resolve(__dirname, "ui/suggestions.html") } },
+    // The workbench, the 独立选点列表 window and the 超级鹰眼 window.
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, "ui/index.html"),
+        suggestions: resolve(__dirname, "ui/suggestions.html"),
+        hawkeye: resolve(__dirname, "ui/hawkeye.html"),
+      },
+    },
   },
 });
