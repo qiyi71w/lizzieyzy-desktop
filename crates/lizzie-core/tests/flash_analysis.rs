@@ -472,6 +472,47 @@ fn a_failed_hand_back_is_reported_and_the_engine_stays_isolated() {
 }
 
 #[test]
+fn restarting_the_engine_during_a_borrowed_run_ends_it_and_ignores_the_old_engine() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, true, false);
+    let old = with_engine(&mut wb, &world);
+    open(&mut wb, RECORD);
+    start(&mut wb, FlashTarget::WholeGame);
+    // Every move is searched; the hand-back `name` is still unanswered.
+    serve(&mut wb, &world, old, 20, false);
+    assert!(wb.view(false).flash.is_some());
+
+    assert!(wb.restart_engine().unwrap());
+    assert!(world.terminated(old));
+    // The old engine's late answer reaches nothing.
+    world.release_held(old);
+    serve(&mut wb, &world, old, 0, true);
+    let new = world.engine("/opt/katago");
+    assert_ne!(new, old);
+    let sent = serve(&mut wb, &world, new, 0, true);
+    let v = wb.view(false);
+    assert!(v.flash.is_none() && v.flash_outcome.is_none());
+    assert_eq!(v.engine.unrestored, None);
+    assert!(foreground_analyses(&sent), "the new engine analyses as usual {sent:?}");
+    assert_eq!(v.problems.analyzed, 3, "the answers so far stay");
+
+    // The new engine can be borrowed again (总是覆盖 asks the answered moves again).
+    let mut settings = wb.config().analysis_engine.clone();
+    settings.always_override = true;
+    wb.save_analysis_engine_settings(settings, "", false).unwrap().unwrap();
+    start(&mut wb, FlashTarget::WholeGame);
+    assert!(wb.view(false).flash.unwrap().borrowed);
+    let sent = serve(&mut wb, &world, new, 20, true);
+    assert!(sent.iter().any(|c| c.contains("maxmoves 1")), "{sent:?}");
+    assert!(matches!(
+        wb.view(false).flash_outcome,
+        Some(FlashOutcome::Completed { .. })
+    ));
+}
+
+#[test]
 fn a_running_quick_analysis_hands_its_process_over() {
     let dir = tempfile::tempdir().unwrap();
     let world = World::default();
