@@ -147,6 +147,154 @@ impl Default for FlashRange {
     }
 }
 
+/// 超级鹰眼 分支: which line it reads (`moveList-selected-branch`: 0 主干, 1 当前).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum HawkeyeBranch {
+    #[default]
+    Main,
+    Current,
+}
+
+/// 超级鹰眼's 统计 range choice (`applyChkPeriod`; Java keeps it as `move-list-filter-current`
+/// with `match-ai-firstmove` / `match-ai-lastmove`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum HawkeyePeriod {
+    /// 当前: up to the browsing position.
+    Current,
+    /// 全局.
+    #[default]
+    All,
+    /// 布局: up to the opening end.
+    Opening,
+    /// 中盘: after the opening end up to the middle end.
+    Middle,
+    /// 收官: after the middle end.
+    End,
+    /// 其他: the custom moves.
+    Custom,
+}
+
+/// 超级鹰眼 (`MoveListFrame`, `SetThreshold`), Java `ui.*` keys and defaults (`Config.java`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct HawkeyeSettings {
+    /// The window is open; reopened at the next start (`show-badmoves-frame`, off).
+    pub show_frame: bool,
+    /// 总在最前, Q (`badmoves-always-ontop`, off; Java wrote `badmoves-always-on-top` but read this
+    /// key, so the choice was lost on restart).
+    pub always_on_top: bool,
+    /// Top page: 0 统计信息, 1 简易列表, 2 详细列表 (`movelist-selected-indextop`, 0).
+    pub top_page: u8,
+    /// Chart page as Java numbers it (`movelist-selected-index`, 0): 0 胜率吻合, 1 吻合度走势,
+    /// 2 胜率损失分布, 3 目数损失分布, 4 分段吻合度, 5 胜率损失统计, 6 目数损失统计,
+    /// 7 翻车现场(胜率), 8 翻车现场(目数).
+    pub chart: u8,
+    /// 分支 (`moveList-selected-branch`, 主干).
+    pub branch: HawkeyeBranch,
+    /// The lists and statistics are shown (`show-movelist-matchai`, on).
+    pub show_list: bool,
+    /// The chart is shown (`show-winrate-matchai`, on).
+    pub show_graph: bool,
+    /// 列表筛选: rows need this win-rate change, score change (KataGo) and visits on both
+    /// positions (`move-list-winrate-threshold`, `-score-`, `-visits-`, all 0).
+    pub winrate_threshold: u32,
+    pub score_threshold: u32,
+    pub visits_threshold: u32,
+    /// 置顶当前手(仅详细列表) (`movelist-top-curnode`, off).
+    pub top_current_move: bool,
+    /// 统计 range (全局).
+    pub period: HawkeyePeriod,
+    /// 布局结束 / 中盘结束 (`opening-end-move` 60, `middle-end-move` 160).
+    pub opening_end_move: i32,
+    pub middle_end_move: i32,
+    /// 其他 (`game-statistics-custom-start` 10, `-end` 200).
+    pub custom_start: i32,
+    pub custom_end: i32,
+    /// 胜率损失 thresholds of the charts (`winrate-diff-range1` 3, `-range2` 10) and score
+    /// (`score-diff-range1` 2, `-range2` 5).
+    pub winrate_range1: i32,
+    pub winrate_range2: i32,
+    pub score_range1: i32,
+    pub score_range2: i32,
+    /// 损失分档 shows 胜率损失 rather than 目数损失 (`loss-panel-select-winrate`, off).
+    pub loss_winrate: bool,
+}
+
+impl Default for HawkeyeSettings {
+    fn default() -> Self {
+        HawkeyeSettings {
+            show_frame: false,
+            always_on_top: false,
+            top_page: 0,
+            chart: 0,
+            branch: HawkeyeBranch::Main,
+            show_list: true,
+            show_graph: true,
+            winrate_threshold: 0,
+            score_threshold: 0,
+            visits_threshold: 0,
+            top_current_move: false,
+            period: HawkeyePeriod::All,
+            opening_end_move: 60,
+            middle_end_move: 160,
+            custom_start: 10,
+            custom_end: 200,
+            winrate_range1: 3,
+            winrate_range2: 10,
+            score_range1: 2,
+            score_range2: 5,
+            loss_winrate: false,
+        }
+    }
+}
+
+impl HawkeyeSettings {
+    /// `applyChkPeriod`: the 统计 range (`matchAiFirstMove`, `matchAiLastMove`) of the chosen
+    /// period; 当前 ends at `current_move`.
+    pub fn range(&self, current_move: u32) -> (i32, i32) {
+        match self.period {
+            HawkeyePeriod::Current => (-1, i32::try_from(current_move).unwrap_or(i32::MAX)),
+            HawkeyePeriod::All => (-1, 1000),
+            HawkeyePeriod::Opening => (-1, self.opening_end_move),
+            HawkeyePeriod::Middle => (self.opening_end_move, self.middle_end_move),
+            HawkeyePeriod::End => (self.middle_end_move, 1000),
+            HawkeyePeriod::Custom => (self.custom_start - 1, self.custom_end),
+        }
+    }
+
+    /// `setFilterStatus`: the period Java shows for a saved range.
+    pub fn period_of(filter_current: bool, first: i32, last: i32, opening_end: i32, middle_end: i32) -> HawkeyePeriod {
+        if filter_current {
+            HawkeyePeriod::Current
+        } else if first <= 1 && last == opening_end {
+            HawkeyePeriod::Opening
+        } else if first == opening_end && last == middle_end {
+            HawkeyePeriod::Middle
+        } else if first == middle_end && last >= 500 {
+            HawkeyePeriod::End
+        } else if first <= 1 && last >= 500 {
+            HawkeyePeriod::All
+        } else {
+            HawkeyePeriod::Custom
+        }
+    }
+}
+
+/// 超级鹰眼's bounds, sort column and 详细列表 column widths (Java
+/// `persistedUi.badmoves-list-position`: `[sortnum, x, y, width, height, widths...]`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct HawkeyePlacement {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    /// The sort column (`sortnum`).
+    pub sort: i32,
+    /// The 详细列表's 9 or 12 column widths; empty for Java's preferred widths.
+    pub columns: Vec<u32>,
+}
+
 /// 快速曲线轻量模型 (`ui.quick-analysis-lightweight-model-enabled`, `katago-quick-analysis-model-path`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
@@ -629,6 +777,8 @@ pub struct Config {
     pub problems: ProblemListSettings,
     /// 局部精析's move range.
     pub flash_range: FlashRange,
+    /// 超级鹰眼.
+    pub hawkeye: HawkeyeSettings,
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).
@@ -698,6 +848,8 @@ pub struct Persisted {
     /// Column widths of the main window's 选点列表 (`persistedUi.main-window-list`, the five
     /// shown columns).
     pub main_list_columns: Option<Vec<u32>>,
+    /// 超级鹰眼's last placement (primary window only, like Java).
+    pub hawkeye: Option<HawkeyePlacement>,
 }
 
 /// File locations inside the product's per-user data directories.

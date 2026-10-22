@@ -7,7 +7,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { navigate, run, state, unavailable } from "../app";
+import { navigate, run, state } from "../app";
+import { toggleHawkeye } from "../hawkeye/commands";
 import { COMMANDS, setDisplay, type CommandEntry } from "../commands";
 import type { DisplaySettings, WorkbenchView } from "../contract/generated";
 import { t } from "../i18n";
@@ -145,9 +146,9 @@ function frameKey(code: string): void {
     case "Space":
       void run({ type: "ToggleAnalysis" });
       break;
-    // 恶手列表 (toggleBadMoves) is not available yet.
+    // AnalysisFrame.java:440, 458: Y toggles the 超级鹰眼.
     case "KeyY":
-      unavailable();
+      toggleHawkeye();
       break;
   }
 }

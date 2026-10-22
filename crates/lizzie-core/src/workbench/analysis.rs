@@ -107,6 +107,11 @@ impl AnalysisStore {
         self.nodes.is_empty()
     }
 
+    /// Some result carries a KataGo score (`Board.isContainsKataData`).
+    pub(super) fn has_scores(&self) -> bool {
+        self.nodes.values().any(|(_, v)| v.score_lead.is_some())
+    }
+
     pub(super) fn pda(&self, node: NodeId) -> f64 {
         self.metadata.get(&node).map_or(0.0, |m| m.pda)
     }
@@ -1413,9 +1418,14 @@ impl Workbench {
         if store.is_empty() {
             return Vec::new();
         }
+        self.points_of(store, self.graph_nodes())
+    }
+
+    /// `store`'s results of `nodes`, in that order, as the graphs draw them.
+    pub(super) fn points_of(&self, store: &AnalysisStore, nodes: Vec<NodeId>) -> Vec<HistoryPoint> {
         let rec = &self.doc.record;
         let vp = self.viewpoint();
-        self.graph_nodes()
+        nodes
             .into_iter()
             .filter_map(|n| {
                 let a = store.get(rec, n)?;

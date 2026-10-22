@@ -36,6 +36,16 @@ export function coordinateLabels(style: CoordinateStyle, cols: number, rows: num
   };
 }
 
+/** Board.maybeConvertNormalCoordsToOther of the engine coordinate: 含I letters for 含I and
+ *  野狐, rows from the top for 野狐; numeric styles and boards over 25 keep the plain name. */
+export function frameCoordinate(p: Point | null, style: CoordinateStyle, width: number, height: number): string {
+  if (!p) return "pass";
+  if (width > 25 || height > 25) return `(${p.x},${p.y})`;
+  if (style === "WithI") return `${"ABCDEFGHIJKLMNOPQRSTUVWXYZ"[p.x]}${height - p.y}`;
+  if (style === "Fox") return `${"ABCDEFGHIJKLMNOPQRSTUVWXYZ"[p.x]}${p.y + 1}`;
+  return `${"ABCDEFGHJKLMNOPQRSTUVWXYZ"[p.x]}${height - p.y}`;
+}
+
 const FONT = '"DejaVu Sans", "Noto Sans CJK SC", sans-serif';
 /** LizzieFrame.playoutsFont = Font("Dialog.plain", 12) (Utils.java:95): Arial on Windows, Lucida
  * Grande on macOS, DejaVu Sans on common Linux. */

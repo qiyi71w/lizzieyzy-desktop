@@ -30,6 +30,7 @@ import "./analysis/graphCommands";
 import { graphDestination, graphTarget, paintGraph, type GraphHits, type GraphReport } from "./analysis/graph";
 import { bindTables, boardPointerMoved, boardWheel, clearTableSelection, mainTableSignature, renderMainTable, resetTables, tableBranchLength, tablesReport } from "./analysis/table";
 import { frameReport, framesReport, handleTableKey, relayFrame, startFrame } from "./analysis/tableCommands";
+import { handleHawkeyeKey, hawkeyeReport, relayHawkeye, startHawkeye } from "./hawkeye/commands";
 import { bindCommentEditor, commentEditing } from "./editing/comment";
 import { contextMenuItems, contextMenuOpen } from "./editing/contextMenu";
 import { bindBoardInput, handleEditKey } from "./editing/input";
@@ -391,7 +392,7 @@ document.addEventListener("keydown", (e) => {
   if (dialogOpen() || flashWindowOpen() || menuOpen() || contextMenuOpen() || textTarget(e.target)) return;
   // The 存档与读档 controls keep their keys, like the Swing components holding the focus there.
   if (e.target instanceof Element && e.target.closest("#recovery")) return;
-  if (handleLayoutKey(e) || handleEngineKey(e) || handleEditKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e)) {
+  if (handleLayoutKey(e) || handleEngineKey(e) || handleEditKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e)) {
     e.preventDefault();
     return;
   }
@@ -851,6 +852,7 @@ function render() {
   if (dual) renderDual(v, dual, W, H, size, docSig, ui, scoreSig, scene);
   else renderPanels(v, P, H, size, docSig, ui, scene);
   relayFrame(v);
+  relayHawkeye(v);
   if (changed("bottombar", `${$("bottombar").clientWidth}`)) layoutBottomBar($("bottombar"));
   renderToolbar();
   const title = workbenchTitle(v, version, historyByNode, state.nodes.get(pos.node)?.parent ?? undefined);
@@ -1061,6 +1063,8 @@ function uiReport() {
     recovery: recoveryReport(),
     /** 评论/问题手 panel (T13): page, side, sort, badge, rows and the board's marked move. */
     problems: problemsReport(),
+    /** 超级鹰眼 (T15): the open windows, their titles and what each shows. */
+    hawkeye: hawkeyeReport(),
     /** Visible menu, toolbar, bottom-bar and dialog controls with client-area centres, so
      *  automation clicks the real controls. */
     targets: [...document.querySelectorAll<HTMLElement>("[data-key], [data-name], #moveInput, .modal-box button")]
@@ -1191,6 +1195,7 @@ async function boot() {
   early = null;
   render();
   await startFrame(schedule);
+  await startHawkeye(schedule);
   await getCurrentWindow().show();
   await getCurrentWindow().setFocus();
   schedule();

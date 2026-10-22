@@ -107,6 +107,7 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   Scoring: "BottomToolbar.finalScore",
   SuggestionsFrame: "Menu.SuggestionList",
   ExtraMode: "Menu.layoutMode",
+  Hawkeye: "Menu.hawkEye",
 };
 
 function targetLabel(target: ImportTarget): string {

@@ -31,8 +31,8 @@ use crate::engine::profile::{new_profile_id, EngineProfile, EngineStartup};
 use crate::engine::tuning::{GtpConfiguration, ThreadPolicy};
 use crate::sanitize::sanitize;
 use crate::settings::{
-    Config, DisplaySettings, ExtraMode, Language, NetworkSettings, Persisted, ProblemSide, ProblemSort, ProxyMode,
-    DEFAULT_ANALYSIS_COMMAND, RECENT_LIMIT,
+    Config, DisplaySettings, ExtraMode, HawkeyeSettings, Language, NetworkSettings, Persisted, ProblemSide, ProblemSort,
+    ProxyMode, DEFAULT_ANALYSIS_COMMAND, RECENT_LIMIT,
 };
 
 pub const CONFIG_FILE: &str = "config.txt";
@@ -175,6 +175,47 @@ pub struct Mapped {
     pub problem_winrate_threshold: Option<f64>,
     pub problem_playouts_threshold: Option<u64>,
     pub problem_hide_control_pane: Option<bool>,
+    /// 超级鹰眼 fields ([`HawkeyeSettings`] camelCase name and value).
+    pub hawkeye: Vec<(&'static str, Value)>,
+    /// 超级鹰眼's 统计 range as Java keeps it: `move-list-filter-current`, `match-ai-firstmove`,
+    /// `match-ai-lastmove`.
+    pub hawkeye_range: (Option<bool>, Option<i32>, Option<i32>),
+}
+
+/// [`HawkeyeSettings`] with the imported values; the 统计 range becomes the period Java shows for
+/// it (`setFilterStatus`), a 其他 range keeping its moves.
+fn with_hawkeye(current: &HawkeyeSettings, mapped: &Mapped) -> HawkeyeSettings {
+    let mut next = serde_json::to_value(current)
+        .ok()
+        .and_then(|mut json| {
+            for (field, value) in &mapped.hawkeye {
+                json[*field] = value.clone();
+            }
+            serde_json::from_value::<HawkeyeSettings>(json).ok()
+        })
+        .unwrap_or_else(|| current.clone());
+    if next.top_page > 2 {
+        next.top_page = current.top_page;
+    }
+    if next.chart > 8 {
+        next.chart = current.chart;
+    }
+    let (filter_current, first, last) = mapped.hawkeye_range;
+    if filter_current.is_some() || first.is_some() || last.is_some() {
+        let (first, last) = (first.unwrap_or(-1), last.unwrap_or(1000));
+        next.period = HawkeyeSettings::period_of(
+            filter_current.unwrap_or(false),
+            first,
+            last,
+            next.opening_end_move,
+            next.middle_end_move,
+        );
+        if next.period == crate::settings::HawkeyePeriod::Custom {
+            next.custom_start = first.saturating_add(1);
+            next.custom_end = last;
+        }
+    }
+    next
 }
 
 /// One imported [`DisplaySettings`] value: `field` is its camelCase name, with `.n` for an
@@ -1092,6 +1133,7 @@ impl Reader<'_> {
             }
         }
 
+        self.hawkeye(ui, &mut handled);
         self.network(ui, &mut handled);
         self.display(ui, leelaz, &mut handled);
         self.engines(ui, leelaz, &mut handled);
@@ -1371,6 +1413,87 @@ impl Reader<'_> {
         }
     }
 
+    /// 超级鹰眼 (`Config.java:1801-1827, 1891-1893, 1947-1956, 2021-2024`). Java writes 总在最前 as
+    /// `badmoves-always-on-top` but reads `badmoves-always-ontop`: only the key Java reads takes
+    /// effect, the other is reported as unused.
+    fn hawkeye(&mut self, ui: &Map<String, Value>, handled: &mut Handled) {
+        enum Read {
+            Bool,
+            /// An integer within the range.
+            Int(i64, i64),
+            Branch,
+        }
+        const KEYS: &[(&str, &str, Read)] = &[
+            ("show-badmoves-frame", "showFrame", Read::Bool),
+            ("badmoves-always-ontop", "alwaysOnTop", Read::Bool),
+            ("movelist-selected-indextop", "topPage", Read::Int(0, 2)),
+            ("movelist-selected-index", "chart", Read::Int(0, 8)),
+            ("moveList-selected-branch", "branch", Read::Branch),
+            ("show-movelist-matchai", "showList", Read::Bool),
+            ("show-winrate-matchai", "showGraph", Read::Bool),
+            ("move-list-winrate-threshold", "winrateThreshold", Read::Int(0, 99)),
+            ("move-list-score-threshold", "scoreThreshold", Read::Int(0, 99)),
+            ("move-list-visits-threshold", "visitsThreshold", Read::Int(0, 999_999)),
+            ("movelist-top-curnode", "topCurrentMove", Read::Bool),
+            ("opening-end-move", "openingEndMove", Read::Int(i32::MIN as i64, i32::MAX as i64)),
+            ("middle-end-move", "middleEndMove", Read::Int(i32::MIN as i64, i32::MAX as i64)),
+            ("game-statistics-custom-start", "customStart", Read::Int(i32::MIN as i64, i32::MAX as i64)),
+            ("game-statistics-custom-end", "customEnd", Read::Int(i32::MIN as i64, i32::MAX as i64)),
+            ("winrate-diff-range1", "winrateRange1", Read::Int(i32::MIN as i64, i32::MAX as i64)),
+            ("winrate-diff-range2", "winrateRange2", Read::Int(i32::MIN as i64, i32::MAX as i64)),
+            ("score-diff-range1", "scoreRange1", Read::Int(i32::MIN as i64, i32::MAX as i64)),
+            ("score-diff-range2", "scoreRange2", Read::Int(i32::MIN as i64, i32::MAX as i64)),
+            ("loss-panel-select-winrate", "lossWinrate", Read::Bool),
+        ];
+        for &(key, field, ref read) in KEYS {
+            let Some(v) = ui.get(key) else { continue };
+            handled.push(("ui", key));
+            let value = match read {
+                Read::Bool => as_bool(v).map(Value::from),
+                Read::Int(min, max) => as_i64(v).filter(|n| (*min..=*max).contains(n)).map(Value::from),
+                // `showBranch.setSelectedIndex`: 1 is 当前, anything else 主干.
+                Read::Branch => as_i64(v).map(|n| Value::from(if n == 1 { "Current" } else { "Main" })),
+            };
+            match value {
+                Some(value) => {
+                    self.mapped.hawkeye.push((field, value));
+                    self.imported(format!("ui.{key}"), ImportTarget::Hawkeye, shown(v));
+                }
+                None => self.invalid(format!("ui.{key}"), ImportTarget::Hawkeye, v),
+            }
+        }
+        if let Some(v) = ui.get("move-list-filter-current") {
+            handled.push(("ui", "move-list-filter-current"));
+            match as_bool(v) {
+                Some(b) => {
+                    self.mapped.hawkeye_range.0 = Some(b);
+                    self.imported("ui.move-list-filter-current".into(), ImportTarget::Hawkeye, shown(v));
+                }
+                None => self.invalid("ui.move-list-filter-current".into(), ImportTarget::Hawkeye, v),
+            }
+        }
+        for (key, first) in [("match-ai-firstmove", true), ("match-ai-lastmove", false)] {
+            let Some(v) = ui.get(key) else { continue };
+            handled.push(("ui", key));
+            match as_i64(v).and_then(|n| i32::try_from(n).ok()) {
+                Some(n) => {
+                    if first {
+                        self.mapped.hawkeye_range.1 = Some(n);
+                    } else {
+                        self.mapped.hawkeye_range.2 = Some(n);
+                    }
+                    self.imported(format!("ui.{key}"), ImportTarget::Hawkeye, shown(v));
+                }
+                None => self.invalid(format!("ui.{key}"), ImportTarget::Hawkeye, v),
+            }
+        }
+        if ui.contains_key("badmoves-always-on-top") {
+            handled.push(("ui", "badmoves-always-on-top"));
+            let it = self.item("ui.badmoves-always-on-top".into(), ImportStatus::NotMigrated);
+            it.reason = Some(ImportReason::Obsolete);
+        }
+    }
+
     /// `ui.network-proxy-mode` / `-host` / `-port` (`NetworkProxy.settings`): a missing mode is
     /// `direct`; `manual` needs a host and a port 1–65535. Values Java would reject are reported
     /// and the setting is left as it is.
@@ -1589,7 +1712,8 @@ impl Reader<'_> {
                     // Window bounds and the tables' column pixels follow Java's own scaling,
                     // fonts and layout.
                     ("ui-persist", "main-window-position" | "window-maximized" | "suggestions-list-position"
-                        | "suggestions-list-position-7" | "suggestions-list-position-9" | "main-window-list") => {
+                        | "suggestions-list-position-7" | "suggestions-list-position-9" | "main-window-list"
+                        | "badmoves-list-position") => {
                         let it = self.item(name, ImportStatus::Incompatible);
                         it.value = Some(shown(v));
                         it.reason = Some(ImportReason::WindowCoordinates);
@@ -1934,6 +2058,7 @@ impl Mapped {
         set!(pl.winrate_threshold, self.problem_winrate_threshold);
         set!(pl.playouts_threshold, self.problem_playouts_threshold);
         set!(pl.hide_control_pane, self.problem_hide_control_pane);
+        c.hawkeye = with_hawkeye(&c.hawkeye, self);
         if let Some(engines) = &self.engines {
             let kept: Vec<&MappedEngine> = engines
                 .iter()
@@ -2144,6 +2269,9 @@ impl Mapped {
         ];
         if problems.contains(&true) {
             out.push(ImportTarget::ProblemList);
+        }
+        if with_hawkeye(&config.hawkeye, self) != config.hawkeye {
+            out.push(ImportTarget::Hawkeye);
         }
         if let Some(engines) = &self.engines {
             let new: Vec<&EngineProfile> = engines.iter().map(|m| &m.profile).collect();

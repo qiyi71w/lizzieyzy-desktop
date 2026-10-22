@@ -5,9 +5,9 @@
 // Values come from the core projections; nothing is converted by side here.
 import { invoke } from "@tauri-apps/api/core";
 import { state } from "../app";
-import type { CandidateView, CoordinateStyle, HistoryPoint, Point, ShownValues, WorkbenchView } from "../contract/generated";
+import type { CandidateView, HistoryPoint, Point, ShownValues, WorkbenchView } from "../contract/generated";
 import { t } from "../i18n";
-import { playouts } from "../workbench/paint";
+import { frameCoordinate, playouts } from "../workbench/paint";
 import { bindColumnResize, layoutColumns, MIN_COLUMN, type FrameBar, type FrameCell, type FramePayload } from "./suggestionsFrame";
 
 /** One row of a table model (`data2`), as Java's MoveData. */
@@ -247,16 +247,6 @@ function orderLabel(r: TableRow, frame: boolean): string {
   if (r.order === -100) return t("AnalysisFrame.actual");
   if (r.actual) return `${r.order + 1}(${t("AnalysisFrame.actual")})`;
   return !frame && !r.point ? "Pass" : String(r.order + 1);
-}
-
-/** Board.maybeConvertNormalCoordsToOther of the engine coordinate: 含I letters for 含I and
- *  野狐, rows from the top for 野狐; numeric styles and boards over 25 keep the plain name. */
-function frameCoordinate(p: Point | null, style: CoordinateStyle, width: number, height: number): string {
-  if (!p) return "pass";
-  if (width > 25 || height > 25) return `(${p.x},${p.y})`;
-  if (style === "WithI") return `${"ABCDEFGHIJKLMNOPQRSTUVWXYZ"[p.x]}${height - p.y}`;
-  if (style === "Fox") return `${"ABCDEFGHIJKLMNOPQRSTUVWXYZ"[p.x]}${p.y + 1}`;
-  return `${"ABCDEFGHJKLMNOPQRSTUVWXYZ"[p.x]}${height - p.y}`;
 }
 
 /** The difference written before "(" in a cell, as the renderers parse it back. */

@@ -97,7 +97,7 @@ showPonderLimitedTips: boolean, };
 
 export type EngineScope = "Current" | "Others" | "All";
 
-export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SetExtraMode", mode: ExtraMode, } | { "type": "SwitchSecondaryEngine", index: number, } | { "type": "RestartSecondaryEngine" } | { "type": "ShutdownSecondaryEngine" } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "SetDisplaySettings", settings: DisplaySettings, } | { "type": "ToggleRawNet" } | { "type": "StopRawNet" } | { "type": "SetKataEstimate", mode: KataEstimateMode, } | { "type": "ToggleKataEstimate" } | { "type": "Score", op: ScoreCommand, } | { "type": "SetAutoQuickAnalyze", enabled: boolean, } | { "type": "SetLoadSgfLast", enabled: boolean, } | { "type": "SaveAnalysisEngineSettings", settings: AnalysisEngineSettings, shown_command: string, edited: boolean, } | { "type": "GenerateAnalysisCommand", index: number | null, } | { "type": "SetQuickModelEnabled", enabled: boolean, } | { "type": "SetProblemList", settings: ProblemListSettings, } | { "type": "JumpToProblemMove", node: number, } | { "type": "StartFlashAnalysis", target: FlashTarget, } | { "type": "CancelFlashAnalysis" } | { "type": "RedoFlashAnalysis" };
+export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SetExtraMode", mode: ExtraMode, } | { "type": "SwitchSecondaryEngine", index: number, } | { "type": "RestartSecondaryEngine" } | { "type": "ShutdownSecondaryEngine" } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "SetDisplaySettings", settings: DisplaySettings, } | { "type": "ToggleRawNet" } | { "type": "StopRawNet" } | { "type": "SetKataEstimate", mode: KataEstimateMode, } | { "type": "ToggleKataEstimate" } | { "type": "Score", op: ScoreCommand, } | { "type": "SetAutoQuickAnalyze", enabled: boolean, } | { "type": "SetLoadSgfLast", enabled: boolean, } | { "type": "SaveAnalysisEngineSettings", settings: AnalysisEngineSettings, shown_command: string, edited: boolean, } | { "type": "GenerateAnalysisCommand", index: number | null, } | { "type": "SetQuickModelEnabled", enabled: boolean, } | { "type": "SetProblemList", settings: ProblemListSettings, } | { "type": "JumpToProblemMove", node: number, } | { "type": "StartFlashAnalysis", target: FlashTarget, } | { "type": "CancelFlashAnalysis" } | { "type": "RedoFlashAnalysis" } | { "type": "Hawkeye", op: HawkeyeCommand, } | { "type": "SetHawkeyeSettings", settings: HawkeyeSettings, } | { "type": "ExportTable", rows: Array<Array<string>>, };
 
 export type CommandResult = { "type": "Done" } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "NeedsEditConfirmation", target: EditTarget, } | { "type": "Exported", path: string, } | { "type": "ExportFailed", path: string, detail: string, } | { "type": "Refused", message_key: string, } | { "type": "SaveStarted", ticket: number, } | { "type": "NeedsReplaceConfirmation", document: number, file_name: string, } | { "type": "NeedsOverwriteConfirmation", path: string, } | { "type": "NeedsExportOverwriteConfirmation", kind: ExportKind, path: string, } | { "type": "NeedsImageOverwriteConfirmation", path: string, } | { "type": "FolderChosen", path: string, } | { "type": "JavaImportPreview", preview: ImportPreviewView, } | { "type": "JavaImportFailed", failure: ImportFailure, } | { "type": "JavaImported", report: ImportReportView, } | { "type": "Resource", result: ResourceResult, } | { "type": "Tuning", result: TuningResult, } | { "type": "AnalysisCommand", command: string, generated_config: string | null, };
 
@@ -241,7 +241,11 @@ problems: ProblemListSettings,
 /**
  * 局部精析's move range (`analysis-start-move`, `analysis-end-move`).
  */
-flash_range: FlashRange, };
+flash_range: FlashRange, 
+/**
+ * 超级鹰眼's remembered choices.
+ */
+hawkeye: HawkeyeSettings, };
 
 export type StoneSound = "Stone" | "DeadStone" | "DeadStoneMore";
 
@@ -505,6 +509,10 @@ history: Array<HistoryPoint>,
  */
 statistics: StatisticsView, 
 /**
+ * 超级鹰眼 while its window is open (computed only then).
+ */
+hawkeye: HawkeyeView | null, 
+/**
  * Kata形势显示 and the ownership it draws.
  */
 kata_estimate: KataEstimateView, 
@@ -567,7 +575,7 @@ export type ImportStatus = "Imported" | "Incompatible" | "NotMigrated";
 
 export type ImportReason = "NotYetAvailable" | "Credential" | "InvalidValue" | "WindowCoordinates" | "RemoteEngine" | "CredentialNotConfirmed" | "Unreadable" | "NotChosen" | "Obsolete";
 
-export type ImportTarget = "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode" | "AutoQuickAnalysis" | "AnalysisEngine" | "QuickModel" | "ProblemList" | "FlashRange";
+export type ImportTarget = "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode" | "AutoQuickAnalysis" | "AnalysisEngine" | "QuickModel" | "ProblemList" | "FlashRange" | "Hawkeye";
 
 export type ImportItemView = { 
 /**
@@ -1166,7 +1174,7 @@ node: number, move_number: number,
 /**
  * The side that played the move.
  */
-mover: Stone, 
+mover: Stone, point: Point, 
 /**
  * 1-based rank of the move among the previous position's candidates, if it is one.
  */
@@ -1180,6 +1188,11 @@ share: number,
  */
 match_ai: boolean, best: boolean, 
 /**
+ * The position after the move is analysed too (`NodeInfo.analyzed`); the fields below that
+ * need it are `None` otherwise.
+ */
+analyzed: boolean, 
+/**
  * Win-rate change for the mover, percentage points (negative is a loss); both positions
  * analysed.
  */
@@ -1187,7 +1200,24 @@ winrate_change: number | null,
 /**
  * Score-lead change for the mover (KataGo), points.
  */
-score_change: number | null, };
+score_change: number | null, 
+/**
+ * The mover's win rate after the move (实战胜率).
+ */
+winrate: number | null, 
+/**
+ * The mover's score lead after the move (实战目数).
+ */
+score: number | null, 
+/**
+ * The previous position's best candidate for the mover (一选胜率 / 一选目数).
+ */
+best_winrate: number, best_score: number | null, 
+/**
+ * Visits of the position before the move (此手计算量) and after it (下一手计算量, 0 when not
+ * analysed).
+ */
+visits_before: number, visits_after: number, };
 
 export type MoveChange = { 
 /**
@@ -1431,6 +1461,233 @@ done: number, total: number,
 borrowed: boolean, };
 
 export type FlashOutcome = { "type": "Completed", run: number, } | { "type": "Failed", run: number, message_key: string, } | { "type": "EngineFailed", run: number, };
+
+export type HawkeyeCommand = { "type": "Toggle" } | { "type": "SetSides", black: boolean, white: boolean, } | { "type": "GotoMove", node: number, } | { "type": "GotoMoveNumber", number: number, };
+
+export type HawkeyeSide = { 
+/**
+ * Moves whose position before is analysed (`matchAnalyzedCount`): the match denominators.
+ */
+match_analyzed: number, 
+/**
+ * Of those, AI matches (`isMatchAi`).
+ */
+matched: number, 
+/**
+ * Of those, the first candidate (`isBest`).
+ */
+best: number, 
+/**
+ * Sum of match shares (`percentsMatch`).
+ */
+share_sum: number, 
+/**
+ * Moves with both positions analysed (`analyzedCount`): the loss denominators, the
+ * score one too (Java counts a move without a score lead as changing it by 0).
+ */
+analyzed: number, 
+/**
+ * Sum of win-rate losses, percentage points (best moves lose nothing).
+ */
+winrate_loss_sum: number, 
+/**
+ * Sum of score losses, points.
+ */
+score_loss_sum: number, };
+
+export type HawkeyeBand = { count: number, sum: number, 
+/**
+ * Sum of squared losses (Java's "方差" is this over the count).
+ */
+squares: number, };
+
+export type HawkeyeSpread = { analyzed: number, sum: number, squares: number, 
+/**
+ * At least the first (`winrate-diff-range1` / `score-diff-range1`) and the second threshold.
+ */
+above1: HawkeyeBand, above2: HawkeyeBand, };
+
+export type HawkeyeStage = { match_analyzed: number, share_sum: number, analyzed: number, winrate_loss_sum: number, score_loss_sum: number, };
+
+export type HawkeyeMistake = { 
+/**
+ * Index into [`HawkeyePane::moves`].
+ */
+index: number, 
+/**
+ * The loss (negative; 0 for a best move).
+ */
+change: number, };
+
+export type HawkeyeRunning = { share_sum: number, count: number, };
+
+export type HawkeyePane = { 
+/**
+ * KataGo / SAI columns and score pages (`isKatago`: the engine is KataGo or the record holds
+ * its score data).
+ */
+katago: boolean, 
+/**
+ * Move number at the end of the selected line (总手数).
+ */
+total_moves: number, 
+/**
+ * The analysed positions of the selected line, root first (the curves).
+ */
+points: Array<HistoryPoint>, 
+/**
+ * Move number of the selected line's first move off the main trunk; the score line is
+ * dashed from there (`!node.isMainTrunk()`).
+ */
+off_trunk_from: number | null, 
+/**
+ * Every move of the selected line whose position before is analysed, root first.
+ */
+moves: Array<MoveEvaluation>, 
+/**
+ * Running AI score of Black and White before each of `moves` and after the last one:
+ * share sum and count of the moves so far (吻合度走势, `getMatchValue`). `moves.len() + 1`
+ * entries, index i holding the moves before `moves[i]`.
+ */
+running: Array<[HawkeyeRunning, HawkeyeRunning]>, 
+/**
+ * The 简易列表 rows (indexes into `moves`, root first): both positions analysed, over the
+ * 列表筛选 thresholds; each table takes its side's. The window sorts them.
+ */
+rows: Array<number>, 
+/**
+ * The 详细列表 rows: `rows` of the sides whose 黑 / 白 box is checked.
+ */
+detail_rows: Array<number>, 
+/**
+ * 置顶当前手: the current move's row, shown first whatever the order.
+ */
+pinned: number | null, 
+/**
+ * Black and White over the 统计 range.
+ */
+sides: [HawkeyeSide, HawkeyeSide], 
+/**
+ * 损失分档 counts of Black and White over the 统计 range, best first: win rate and score.
+ */
+winrate_buckets: [[number, number, number, number, number, number], [number, number, number, number, number, number]], score_buckets: [[number, number, number, number, number, number], [number, number, number, number, number, number]], 
+/**
+ * 胜率损失分布 / 目数损失分布 summaries over the 统计 range.
+ */
+winrate_spread: [HawkeyeSpread, HawkeyeSpread], score_spread: [HawkeyeSpread, HawkeyeSpread], 
+/**
+ * 分段吻合度: Black and White in 布局, 中盘, 收官 of the whole line.
+ */
+stages: [[HawkeyeStage, HawkeyeStage, HawkeyeStage], [HawkeyeStage, HawkeyeStage, HawkeyeStage]], 
+/**
+ * 胜率损失统计 / 目数损失统计: Black and White moves per stage under the first threshold,
+ * between the thresholds and over the second.
+ */
+winrate_misses: [[[number, number, number], [number, number, number], [number, number, number]], [[number, number, number], [number, number, number], [number, number, number]]], score_misses: [[[number, number, number], [number, number, number], [number, number, number]], [[number, number, number], [number, number, number], [number, number, number]]], 
+/**
+ * 翻车现场(胜率) / (目数): up to five per side, in move order.
+ */
+winrate_mistakes: Array<HawkeyeMistake>, score_mistakes: Array<HawkeyeMistake>, };
+
+export type HawkeyeView = { 
+/**
+ * The 黑 / 白 boxes.
+ */
+black: boolean, white: boolean, 
+/**
+ * The 统计 range in effect (`matchAiFirstMove`, `matchAiLastMove`): moves after `first_move`
+ * up to `last_move`; 当前 follows the browsing position.
+ */
+first_move: number, last_move: number, 
+/**
+ * Move number of the browsing position.
+ */
+current_move: number, 
+/**
+ * The marked move (`clickbadmove`) while the position before it is browsed.
+ */
+mark: Point | null, primary: HawkeyePane, 
+/**
+ * 双引擎模式's secondary engine window.
+ */
+secondary: HawkeyePane | null, };
+
+export type HawkeyeSettings = { 
+/**
+ * The window is open; reopened at the next start (`show-badmoves-frame`, off).
+ */
+showFrame: boolean, 
+/**
+ * 总在最前, Q (`badmoves-always-ontop`, off; Java wrote `badmoves-always-on-top` but read this
+ * key, so the choice was lost on restart).
+ */
+alwaysOnTop: boolean, 
+/**
+ * Top page: 0 统计信息, 1 简易列表, 2 详细列表 (`movelist-selected-indextop`, 0).
+ */
+topPage: number, 
+/**
+ * Chart page as Java numbers it (`movelist-selected-index`, 0): 0 胜率吻合, 1 吻合度走势,
+ * 2 胜率损失分布, 3 目数损失分布, 4 分段吻合度, 5 胜率损失统计, 6 目数损失统计,
+ * 7 翻车现场(胜率), 8 翻车现场(目数).
+ */
+chart: number, 
+/**
+ * 分支 (`moveList-selected-branch`, 主干).
+ */
+branch: HawkeyeBranch, 
+/**
+ * The lists and statistics are shown (`show-movelist-matchai`, on).
+ */
+showList: boolean, 
+/**
+ * The chart is shown (`show-winrate-matchai`, on).
+ */
+showGraph: boolean, 
+/**
+ * 列表筛选: rows need this win-rate change, score change (KataGo) and visits on both
+ * positions (`move-list-winrate-threshold`, `-score-`, `-visits-`, all 0).
+ */
+winrateThreshold: number, scoreThreshold: number, visitsThreshold: number, 
+/**
+ * 置顶当前手(仅详细列表) (`movelist-top-curnode`, off).
+ */
+topCurrentMove: boolean, 
+/**
+ * 统计 range (全局).
+ */
+period: HawkeyePeriod, 
+/**
+ * 布局结束 / 中盘结束 (`opening-end-move` 60, `middle-end-move` 160).
+ */
+openingEndMove: number, middleEndMove: number, 
+/**
+ * 其他 (`game-statistics-custom-start` 10, `-end` 200).
+ */
+customStart: number, customEnd: number, 
+/**
+ * 胜率损失 thresholds of the charts (`winrate-diff-range1` 3, `-range2` 10) and score
+ * (`score-diff-range1` 2, `-range2` 5).
+ */
+winrateRange1: number, winrateRange2: number, scoreRange1: number, scoreRange2: number, 
+/**
+ * 损失分档 shows 胜率损失 rather than 目数损失 (`loss-panel-select-winrate`, off).
+ */
+lossWinrate: boolean, };
+
+export type HawkeyeBranch = "Main" | "Current";
+
+export type HawkeyePeriod = "Current" | "All" | "Opening" | "Middle" | "End" | "Custom";
+
+export type HawkeyePlacement = { x: number, y: number, width: number, height: number, 
+/**
+ * The sort column (`sortnum`).
+ */
+sort: number, 
+/**
+ * The 详细列表's 9 or 12 column widths; empty for Java's preferred widths.
+ */
+columns: Array<number>, };
 
 export type ManagedProfile = { command: string, assetId: string, weightPath: string, configPath: string, };
 

@@ -300,6 +300,30 @@ importing the matching LizzieYzy Next settings.
   white, sorted by loss or move number, with Java's empty states and the 评估中 / 已评估 / 评估完成
   badge. Clicking a row goes to the position before the move and marks it. The page, side,
   order and the 显示评论/问题手面板顶部控制条 choice are remembered.
+- 超级鹰眼 (`Y`, 视图 > 面板 and 分析 menus, the top toolbar's eye button, the bottom-bar button when
+  enabled): a separate window on the analysis already stored with the record (nothing is
+  analysed for it). Its 统计信息 page shows each side's 吻合度, 吻合率, 第一选点率, average score and
+  win-rate loss and the loss distribution; 简易列表 lists Black's and White's moves; 详细列表
+  lists the checked sides' moves (12 columns with KataGo, 9 without), sortable by every column
+  (the change columns cycle largest change, largest gain, largest loss). A move counts only when
+  the position before it is analysed, its losses only when both positions are, and a
+  first-candidate move loses nothing. 列表筛选 sets the win-rate / score / visits thresholds of
+  the lists and 置顶当前手; 统计阈值 sets the loss bands; 分支 chooses the main trunk or the current
+  line; the 统计 range is 当前, 全局, 布局, 中盘, 收官 or a custom move range. Below, nine charts
+  (胜率吻合, 吻合度走势, loss distributions and statistics, 分段吻合度, 翻车现场) can be clicked, dragged
+  or scrolled to browse. Clicking a row goes to the position before the move and marks it; under
+  主干 only main-trunk moves can be chosen. Right-click a list for 导出为xls (a UTF-16
+  tab-separated file named `.xls`, as Java writes it). `Q` keeps the window on top. 双引擎模式
+  opens a second window on the secondary engine's analysis. The open state, page, chart, filters,
+  range, the primary window's bounds, sort and column widths are remembered; the window reopens
+  at start when it was open. Java's `badmoves-always-ontop`, `show-badmoves-frame`,
+  `movelist-*`, `move-list-*`, `moveList-selected-branch`, `show-*-matchai`, `opening-end-move`,
+  `middle-end-move`, `game-statistics-custom-*`, `*-diff-range*`, `loss-panel-select-winrate` and
+  `match-ai-firstmove/lastmove` are imported; window coordinates are not. Difference from Java:
+  总在最前 is remembered (Java saved it under `badmoves-always-on-top` but read
+  `badmoves-always-ontop`, so it never survived a restart; the former key is reported as unused).
+  Not yet available: the 显示独立超级鹰眼 settings checkbox (with the settings dialog), the
+  engine-game hint, and ignoring row and chart clicks during 自动分析.
 - Rules: an SGF record's `RU` is applied to KataGo (`kata-set-rules`) before analysis. When the
   engine cannot confirm it, a dialog asks whether to continue with the engine's current rules
   (no pauses analysis). `Shift+D` opens the KataGo rules editor.
