@@ -182,36 +182,40 @@ function rightPress(ev: MouseEvent, point: Point | null): void {
   openContextMenu(ev.clientX, ev.clientY, stoneOn(point) ? stoneMenu(point) : pointMenu(point));
 }
 
-export function bindBoardInput(board: HTMLElement, boardHost: BoardHost): void {
+/** Binds the board panels: the main board and 双引擎模式's right board, whose points `pointAt`
+ *  resolves to the same intersections. */
+export function bindBoardInput(boards: HTMLElement[], boardHost: BoardHost): void {
   host = boardHost;
-  board.addEventListener("contextmenu", (ev) => ev.preventDefault());
-  board.addEventListener("mousedown", (ev) => {
-    if (!state.view || (ev.button !== 0 && ev.button !== 1 && ev.button !== 2)) return;
-    ev.preventDefault();
-    // processCommentMousePressed: a press on the board closes the comment edit pane.
-    commitComment();
-    if (ev.button === 1) return;
-    const point = host.pointAt(ev.clientX, ev.clientY);
-    if (state.view.editing.setup_mode) {
-      if (point) setupClick(point, ev.button === 2);
-      return;
-    }
-    if (moving?.picked) {
-      finishMove(point);
-      return;
-    }
-    if (contextMenuShowing()) return;
-    // Alt+press is the analysis region selection (selectPressed), not a board edit.
-    if (ev.altKey) return;
-    if (ev.button === 0) leftPress(ev, point);
-    else rightPress(ev, point);
-  });
-  // Middle release plays the previewed variation (playMiddleVariation).
-  board.addEventListener("mouseup", (ev) => {
-    if (ev.button !== 1 || contextMenuShowing()) return;
-    const moves = host.previewMoves();
-    if (moves) void edit({ op: "PlayVariation", moves });
-  });
+  for (const board of boards) {
+    board.addEventListener("contextmenu", (ev) => ev.preventDefault());
+    board.addEventListener("mousedown", (ev) => {
+      if (!state.view || (ev.button !== 0 && ev.button !== 1 && ev.button !== 2)) return;
+      ev.preventDefault();
+      // processCommentMousePressed: a press on the board closes the comment edit pane.
+      commitComment();
+      if (ev.button === 1) return;
+      const point = host.pointAt(ev.clientX, ev.clientY);
+      if (state.view.editing.setup_mode) {
+        if (point) setupClick(point, ev.button === 2);
+        return;
+      }
+      if (moving?.picked) {
+        finishMove(point);
+        return;
+      }
+      if (contextMenuShowing()) return;
+      // Alt+press is the analysis region selection (selectPressed), not a board edit.
+      if (ev.altKey) return;
+      if (ev.button === 0) leftPress(ev, point);
+      else rightPress(ev, point);
+    });
+    // Middle release plays the previewed variation (playMiddleVariation).
+    board.addEventListener("mouseup", (ev) => {
+      if (ev.button !== 1 || contextMenuShowing()) return;
+      const moves = host.previewMoves();
+      if (moves) void edit({ op: "PlayVariation", moves });
+    });
+  }
   window.addEventListener("mousemove", (ev) => {
     if (!moving) return;
     if (moving.picked || ev.buttons & 1) showGhost(ev.clientX, ev.clientY);

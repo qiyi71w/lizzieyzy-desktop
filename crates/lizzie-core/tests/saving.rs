@@ -649,23 +649,37 @@ fn normal_save_mixes_java_comments_before_capturing_the_revision() {
 
 #[test]
 fn changing_komi_drops_imported_analysis_without_resurrecting_read_in_tags() {
+    const SECONDARY: &str = "LZ2[b6 42 90 1 0.5\nmove D4 visits 90 winrate 5800 scoreMean 1 pv D4]";
+    let open = |wb: &mut Workbench| {
+        let ticket = wb.begin_open(OpenOrigin::Clipboard);
+        wb.complete_open(
+            ticket,
+            Workbench::read_clipboard_record(
+                &format!(
+                    "(;SZ[9]LZOP[b11 45 100 1.5 0.8\nmove E5 visits 100 winrate 5500 scoreMean 1.5 pv E5]\
+        ;B[ee]LZ[b11 40 120 2 1\nmove C3 visits 120 winrate 6000 scoreMean 2 pv C3]{SECONDARY})"
+                ),
+                false,
+            ),
+        );
+    };
     let dir = tempfile::tempdir().unwrap();
     let mut wb = workbench(dir.path());
-    let ticket = wb.begin_open(OpenOrigin::Clipboard);
-    wb.complete_open(
-        ticket,
-        Workbench::read_clipboard_record(
-            "(;SZ[9]LZOP[b11 45 100 1.5 0.8\nmove E5 visits 100 winrate 5500 scoreMean 1.5 pv E5]\
-        ;B[ee]LZ[b11 40 120 2 1\nmove C3 visits 120 winrate 6000 scoreMean 2 pv C3]LZ2[secondary preserved])",
-            false,
-        ),
-    );
+    open(&mut wb);
     assert!(wb.view(false).analysis.is_some());
     wb.set_komi(6.5).unwrap();
     assert!(wb.view(false).history.is_empty());
     let text = wb.begin_save("new-komi.sgf", AP).text;
     assert!(!text.contains("LZ[") && !text.contains("LZOP["), "{text}");
-    assert!(text.contains("LZ2[secondary preserved]"));
+    // Outside 双引擎模式 Java's `clearBestMovesAfter` leaves the secondary engine's results.
+    assert!(text.contains("LZ2[b6 42.0 90"), "{text}");
+
+    wb.set_extra_mode(lizzie_core::settings::ExtraMode::DoubleEngine)
+        .unwrap();
+    open(&mut wb);
+    wb.set_komi(5.5).unwrap();
+    let text = wb.begin_save("dual-komi.sgf", AP).text;
+    assert!(!text.contains("LZ[") && !text.contains("LZ2["), "{text}");
 }
 
 #[test]

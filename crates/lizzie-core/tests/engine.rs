@@ -1431,7 +1431,13 @@ fn stronger_live_analysis_replaces_loaded_results_and_is_saved_for_every_node() 
     assert!(!text.contains("old "), "stale primary tags must not accompany live data: {text}");
     assert_eq!(text.matches("LZOP[").count(), 1, "{text}");
     assert_eq!(text.matches("LZ[").count(), 1, "{text}");
-    assert!(text.contains("rootVisits=300") && text.contains("rootVisits=400") && text.contains("LZ2[secondary]"), "{text}");
+    assert!(
+        text.contains("rootVisits=300") && text.contains("rootVisits=400"),
+        "{text}"
+    );
+    // Secondary tags are written from the secondary engine's parsed results only, like Java's
+    // `hasSecondaryAnalysisPayload`: an unreadable `LZ2` carries none.
+    assert!(!text.contains("LZ2["), "{text}");
     let mut reopened = workbench(dir.path(), &world);
     open(&mut reopened, &text);
     let root = reopened.view(false).analysis.unwrap();

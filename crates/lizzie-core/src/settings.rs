@@ -79,12 +79,26 @@ impl Default for RecordSettings {
     }
 }
 
+/// 布局模式 (Java `ui.extra-mode`, `ExtraMode`): which workbench layout is shown. Only the modes
+/// this product has are listed; Java's other layout modes are added by their owners.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum ExtraMode {
+    /// 默认模式 (`Normal`, Java value 0).
+    #[default]
+    Normal,
+    /// 双引擎模式 (`Double_Engine`, Java value 2): two boards, the primary engine's on the left and
+    /// the secondary engine's on the right.
+    DoubleEngine,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct UiSettings {
     pub language: Language,
     /// Java `ui.play-sound`, default true.
     pub play_sound: bool,
+    /// Java `ui.extra-mode`, default `Normal`.
+    pub extra_mode: ExtraMode,
 }
 
 impl Default for UiSettings {
@@ -92,6 +106,7 @@ impl Default for UiSettings {
         UiSettings {
             language: Language::default(),
             play_sound: true,
+            extra_mode: ExtraMode::Normal,
         }
     }
 }

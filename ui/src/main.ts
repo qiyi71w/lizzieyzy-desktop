@@ -6,14 +6,15 @@ import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { apply, copyRecord, exportRecord, navigate, pasteRecord, run, saveRecord, saveRecordAs, state, subscribe, unavailable } from "./app";
 import { buildBottomBar, layoutBottomBar } from "./chrome/bottombar";
-import { buildMenubar, menuOpen } from "./chrome/menubar";
+import { buildMenubar, menuOpen, secondaryMenuTitle } from "./chrome/menubar";
 import { buildToolbar, renderToolbar } from "./chrome/toolbar";
 import { onUnavailable, onView, snapshot } from "./contract/client";
-import type { HistoryPoint, Navigation, NodeAnalysisView, Point, WorkbenchView } from "./contract/generated";
+import type { BoardOverlayView, HistoryPoint, Navigation, NodeAnalysisView, Point, WorkbenchView } from "./contract/generated";
 import { dialogOpen, message } from "./dialogs";
 import { isChinese, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
-import { boardGeom, inFrameLayout, mainMarginRatio, SUB_MARGIN_RATIO, type BoardGeom, type Panels, type Rect } from "./workbench/layout";
+import { boardGeom, doubleEngineLayout, inFrameLayout, mainMarginRatio, SUB_MARGIN_RATIO, type BoardGeom, type DualPanels, type Panels, type Rect } from "./workbench/layout";
+import { handleLayoutKey } from "./workbench/extraMode";
 import { boardUi, candidatesShownFor, onBoardUiChange } from "./display/state";
 import { bindReplayHost, finishReplayBranch, replayLength, replaying, type ReplayTarget } from "./display/replay";
 import { autoplayReport, autoReplayLength, bindAutoplayHost, subAutoplayLength, subWheeled } from "./display/autoplay";
@@ -22,13 +23,13 @@ import { handleEngineKey } from "./engine/keys";
 import { handleDisplayKey } from "./display/keys";
 import { handleInfoKey } from "./analysis/infoCommands";
 import { bindScoreDialog, scoreDialogReport, scorePoint } from "./analysis/scoreDialog";
-import { layerSignature, mainOwnership, startTitleUpdates, statScene, subOwnership, workbenchTitle } from "./analysis/info";
+import { layerSignature, mainOwnership, secondaryOwnership, startTitleUpdates, statScene, subOwnership, workbenchTitle } from "./analysis/info";
 import { mountSetupBanner } from "./setup/banner";
 import "./editing/commands";
 import "./analysis/graphCommands";
 import { graphDestination, graphTarget, paintGraph, type GraphHits, type GraphReport } from "./analysis/graph";
 import { bindTables, boardPointerMoved, boardWheel, clearTableSelection, mainTableSignature, renderMainTable, resetTables, tableBranchLength, tablesReport } from "./analysis/table";
-import { frameReport, handleTableKey, relayFrame, startFrame } from "./analysis/tableCommands";
+import { frameReport, framesReport, handleTableKey, relayFrame, startFrame } from "./analysis/tableCommands";
 import { bindCommentEditor, commentEditing } from "./editing/comment";
 import { contextMenuItems, contextMenuOpen } from "./editing/contextMenu";
 import { bindBoardInput, handleEditKey } from "./editing/input";
@@ -44,6 +45,8 @@ import {
   paintCaptured,
   paintStat,
   paintStatus,
+  paintDualStrip,
+  playouts,
   paintSubBoard,
   paintTree,
   prepare,
@@ -80,7 +83,10 @@ let treeScrollFor = "";
 /** A status-line notice replacing the shortcut hint for a few seconds. */
 let notice: { text: string; until: number } | null = null;
 let version = "";
+/** The hovered candidate rank of the main (left) board, and of 双引擎模式's right board. */
 let hoveredCandidate: number | null = null;
+let hoveredCandidate2: number | null = null;
+/** LizzieFrame.mouseOverCoordinate, shared by both boards: a point "x,y" or NEXT_MOVE. */
 let hoveredPoint: string | null = null;
 let subCandidate = 0;
 let subLength: number | null = null;
@@ -89,14 +95,21 @@ let subOver = false;
 /** The sub board's frozen analysis while the pointer rests there, for its position only. */
 let subFrozen: { node: number; analysis: NodeAnalysisView | null; revision: number } | null = null;
 let subFrozenRevision = 0;
+type FrozenVariation = { key: string; pv: (Point | null)[]; pv_captures: Point[][]; pv_visits: number[] };
 /** The hovered variation as first shown, kept while 鼠标悬停显示变化图时,变化图不刷新 is on. */
-let hoverFrozen: { key: string; pv: (Point | null)[]; pv_captures: Point[][]; pv_visits: number[] } | null = null;
+let hoverFrozen: FrozenVariation | null = null;
+let hoverFrozen2: FrozenVariation | null = null;
 let presentationFor = "";
 let boardReport: BoardReport | null = null;
 let subReport: SubBoardReport | null = null;
 let statReport: StatReport | null = null;
+/** 双引擎模式: the boards' rectangles, what the right board drew and the status strips as drawn. */
+let dual: DualPanels | null = null;
+let rightReport: BoardReport | null = null;
+let dualStatus: string[] = [];
 /** Everything the boards draw from the view besides the position and analysis, per view. */
 let displaySig = "";
+let displaySig2 = "";
 let displaySigFor: WorkbenchView | null = null;
 /** What the win-rate graph last drew, and its hit-test sources (WinrateGraph's rendered points). */
 let graphReport: GraphReport | null = null;
@@ -106,8 +119,10 @@ let graphHover: number | null = null;
 let historyByNode = new Map<number, HistoryPoint>();
 /** Bumped when the shown analysis / history differ field-wise from the previous view's. */
 let analysisRevision = 0;
+let secondaryRevision = 0;
 let historyRevision = 0;
 let projectedAnalysis: NodeAnalysisView | null = null;
+let projectedSecondary: NodeAnalysisView | null = null;
 let projectedHistory: HistoryPoint[] = [];
 let projectedView: WorkbenchView | null = null;
 
@@ -125,15 +140,26 @@ function rulesCaption(key: string | null): string | null {
   return captions[key] ?? t(key);
 }
 
-/** The hovered candidate rank, or -1 for the 下一手 详细 point (BoardRenderer.mouseOveredMove). */
-function hover(order: number | null) {
-  const candidate = state.view?.analysis?.candidates.find((c) => c.order === order);
-  const point = order === -1 ? NEXT_MOVE : candidate?.point ? `${candidate.point.x},${candidate.point.y}` : null;
-  if (hoveredCandidate === order && hoveredPoint === point) return;
-  hoveredCandidate = order;
+/** The rank of the candidate at the hovered point in `analysis`, -1 for the 下一手 详细 point
+ *  (BoardRenderer.mouseOveredMove). */
+function hoveredOrder(analysis: NodeAnalysisView | null | undefined): number | null {
+  if (hoveredPoint === null) return null;
+  if (hoveredPoint === NEXT_MOVE) return -1;
+  return analysis?.candidates.find((c) => c.point && `${c.point.x},${c.point.y}` === hoveredPoint)?.order ?? null;
+}
+
+/** Sets the hovered point; each board previews its own engine's candidate there (LizzieFrame.java:
+ *  10120-10160, selectNormalVariation on both renderers). */
+function hover(point: string | null) {
+  if (hoveredPoint === point) return;
   hoveredPoint = point;
+  hoveredCandidate = hoveredOrder(state.view?.analysis);
+  hoveredCandidate2 = hoveredOrder(state.view?.secondary?.analysis);
   // notChangedMouseOverMove: a variation kept by 变化图不刷新 lasts only while the pointer stays.
-  if (point === null) hoverFrozen = null;
+  if (point === null) {
+    hoverFrozen = null;
+    hoverFrozen2 = null;
+  }
   schedule();
 }
 
@@ -201,6 +227,9 @@ function projectAnalysis(v: WorkbenchView) {
     } else if (limitSettings !== limitedWith) limitMoves(v);
     limitedWith = limitSettings;
     projectedAnalysis = v.analysis;
+    const secondary = v.secondary?.analysis ?? null;
+    if (!sameAnalysis(projectedSecondary, secondary)) secondaryRevision++;
+    projectedSecondary = secondary;
     const historyChanged = !sameHistory(projectedHistory, v.history);
     projectedHistory = v.history;
     if (historyChanged) {
@@ -212,8 +241,10 @@ function projectAnalysis(v: WorkbenchView) {
   if (presentationFor !== lineKey) {
     presentationFor = lineKey;
     hoveredCandidate = null;
+    hoveredCandidate2 = null;
     hoveredPoint = null;
     hoverFrozen = null;
+    hoverFrozen2 = null;
     resetTables();
     // SubBoardRenderer.clearAfterMove; the frozen sub board belongs to the position it was taken at.
     subCandidate = 0;
@@ -221,12 +252,16 @@ function projectAnalysis(v: WorkbenchView) {
     subFrozen = null;
   }
   // Java keeps the hovered coordinate, even when streaming visits reorder the candidates.
-  hoveredCandidate = hoveredPoint === null ? null : hoveredPoint === NEXT_MOVE ? -1 : v.analysis?.candidates.find((c) => c.point && `${c.point.x},${c.point.y}` === hoveredPoint)?.order ?? null;
+  hoveredCandidate = hoveredOrder(v.analysis);
+  hoveredCandidate2 = hoveredOrder(v.secondary?.analysis);
   subCandidate = Math.min(subCandidate, Math.max(0, ((subFrozen?.analysis ?? v.analysis)?.candidates.length ?? 0) - 1));
   if (displaySigFor !== v) {
     displaySigFor = v;
     const fg = v.engine.foreground;
-    displaySig = JSON.stringify([v.settings.display, v.board, v.rawNet, fg?.katago ?? null, !!fg, v.settings.engine.analysis.limitMaxSuggestion, v.settings.engine.analysis.limitBranchLength]);
+    const limits = [v.settings.engine.analysis.limitMaxSuggestion, v.settings.engine.analysis.limitBranchLength];
+    displaySig = JSON.stringify([v.settings.display, v.board, v.rawNet, fg?.katago ?? null, !!fg, ...limits]);
+    const se = v.engine.secondary;
+    displaySig2 = JSON.stringify([v.settings.display, v.secondary?.board ?? null, v.secondary?.rawNet ?? null, v.rawNet !== null, se?.katago ?? null, !!se, ...limits]);
   }
 }
 
@@ -250,29 +285,38 @@ function hoverAllowed(v: WorkbenchView): boolean {
 }
 
 /** The 下一手 详细 point while it shows (isShowingNextMoveBlunder): hovering it previews the actual
- *  move followed by the next position's best variation, before any candidate (1780-1799). */
-function nextMoveTarget(v: WorkbenchView): Point | null {
-  return hoverAllowed(v) && v.settings.display.nextMoves && v.position.next_color ? v.board.next_move?.point ?? null : null;
+ *  move followed by the next position's best variation, before any candidate (1780-1799). Each
+ *  board takes it from its own engine's overlay. */
+function nextMoveTarget(v: WorkbenchView, overlay: BoardOverlayView | null = v.board): Point | null {
+  return hoverAllowed(v) && v.settings.display.nextMoves && v.position.next_color ? overlay?.next_move?.point ?? null : null;
 }
 
-/** The hovered candidate's variation (BoardRenderer.prepareSelection, BoardRenderer.java:1640-1711):
- *  frozen while 不刷新 is on, shortened by a running replay or auto-replay, and not shown for a
- *  candidate without enough playouts or beyond 最大候选点数 unless it is the next move or the
+/** The hovered candidate's variation (BoardRenderer.prepareSelection, BoardRenderer.java:1640-1711)
+ *  on the main board, or with `right` on 双引擎模式's right board from the secondary engine's
+ *  results: frozen while 不刷新 is on, shortened by a running replay or auto-replay, and not shown
+ *  for a candidate without enough playouts or beyond 最大候选点数 unless it is the next move or the
  *  variation auto-replays. */
-function hoveredVariation(v: WorkbenchView): { target: ReplayTarget; preview: PreviewVariation | null } | null {
-  const candidates = v.analysis?.candidates ?? [];
-  const nextPoint = hoveredCandidate === -1 ? nextMoveTarget(v) : null;
-  const c = hoverAllowed(v) && !nextPoint ? candidates.find((c) => c.order === hoveredCandidate) : undefined;
+function hoveredVariation(v: WorkbenchView, right = false): { target: ReplayTarget; preview: PreviewVariation | null } | null {
+  const analysis = right ? v.secondary?.analysis ?? null : v.analysis;
+  const overlay = right ? v.secondary?.board ?? null : v.board;
+  const hovered = right ? hoveredCandidate2 : hoveredCandidate;
+  const candidates = analysis?.candidates ?? [];
+  const nextPoint = hovered === -1 ? nextMoveTarget(v, overlay) : null;
+  const c = hoverAllowed(v) && !nextPoint ? candidates.find((c) => c.order === hovered) : undefined;
   const point = nextPoint ?? c?.point;
-  const info = v.board.next_move;
+  const info = overlay?.next_move;
   if (!point || (nextPoint && !info)) {
-    hoverFrozen = null;
+    if (right) hoverFrozen2 = null;
+    else hoverFrozen = null;
     return null;
   }
   const source = nextPoint ? { pv: info!.pv, pv_captures: info!.pv_captures, pv_visits: info!.pv_visits } : { pv: c!.pv, pv_captures: c!.pv_captures, pv_visits: c!.pv_visits };
-  const key = `${v.document.id}:${v.position.node}:${nextPoint ? "next" : ""}${point.x},${point.y}`;
-  if (!v.settings.display.noRefreshOnMouse || hoverFrozen?.key !== key) hoverFrozen = { key, ...source };
-  const { pv, pv_captures, pv_visits } = hoverFrozen;
+  const key = `${v.document.id}:${v.position.node}:${right ? "right:" : ""}${nextPoint ? "next" : ""}${point.x},${point.y}`;
+  const before = right ? hoverFrozen2 : hoverFrozen;
+  const frozen = !v.settings.display.noRefreshOnMouse || before?.key !== key ? { key, ...source } : before;
+  if (right) hoverFrozen2 = frozen;
+  else hoverFrozen = frozen;
+  const { pv, pv_captures, pv_visits } = frozen;
   const limit = v.settings.engine.analysis.limitBranchLength;
   const steps = limit > 0 ? Math.min(limit, pv.length) : pv.length;
   const target = { key, steps };
@@ -283,7 +327,8 @@ function hoveredVariation(v: WorkbenchView): { target: ReplayTarget; preview: Pr
     const needShow = !!next && next.x === point.x && next.y === point.y;
     const ratio = c.allocation_visits / Math.max(1, ...candidates.map((x) => x.allocation_visits));
     const maxSuggestion = v.settings.engine.analysis.limitMaxSuggestion;
-    const kept = limitMemory.unlimited.has(`${point.x},${point.y}`);
+    // lastTimeUnlimited is kept for the main board's candidates only.
+    const kept = !right && limitMemory.unlimited.has(`${point.x},${point.y}`);
     if (!needShow && (ratio <= v.settings.display.minPlayoutRatio || (maxSuggestion > 0 && c.order + 1 > maxSuggestion && !kept)))
       return { target, preview: null };
   }
@@ -343,7 +388,7 @@ document.addEventListener("keydown", (e) => {
   if (dialogOpen() || menuOpen() || contextMenuOpen() || textTarget(e.target)) return;
   // The 存档与读档 controls keep their keys, like the Swing components holding the focus there.
   if (e.target instanceof Element && e.target.closest("#recovery")) return;
-  if (handleEngineKey(e) || handleEditKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e)) {
+  if (handleLayoutKey(e) || handleEngineKey(e) || handleEditKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e)) {
     e.preventDefault();
     return;
   }
@@ -396,10 +441,10 @@ function bindPointer() {
   for (const type of ["mousedown", "mouseup", "click", "dblclick", "contextmenu"]) {
     main.addEventListener(type, (ev) => {
       const e = ev as MouseEvent;
-      if (!state.view?.score || !(e.target as HTMLElement).closest("#board, #sub, #graph, #tree, #captured, #stat")) return;
+      if (!state.view?.score || !(e.target as HTMLElement).closest("#board, #board2, #sub, #graph, #tree, #captured, #stat")) return;
       e.preventDefault();
       e.stopPropagation();
-      if (type !== "mousedown" || e.button !== 0 || !(e.target as HTMLElement).closest("#board")) return;
+      if (type !== "mousedown" || e.button !== 0 || !(e.target as HTMLElement).closest("#board, #board2")) return;
       const point = boardPointAt(e.clientX, e.clientY);
       if (point) scorePoint(point);
     }, true);
@@ -415,7 +460,9 @@ function bindPointer() {
     },
     { passive: false },
   );
-  bindBoardInput($("board"), {
+  // 双引擎模式: a press on the right board is a press on the same point of the main board
+  // (BoardRenderer.convertScreenToCoordinates, BoardRenderer.java:4451).
+  bindBoardInput([$("board"), $("board2")], {
     pointAt: boardPointAt,
     stoneAt: (p) => {
       const v = state.view;
@@ -434,30 +481,39 @@ function bindPointer() {
     },
     clearTableSelection,
   });
-  $("board").addEventListener("mousemove", (ev) => {
+  // LizzieFrame.onMouseMoved (LizzieFrame.java:10120-10160): the point under the pointer on either
+  // board is the hovered point of both.
+  const pointerMoved = (ev: MouseEvent, right: boolean) => {
     const v = state.view;
     if (!v || !panels) return;
     if (!boardPointerMoved(boardPointAt(ev.clientX, ev.clientY) !== null)) return;
     if (!hoverAllowed(v)) return hover(null);
-    const geo = mainGeom(v, panels.board);
+    const geo = mainGeom(v, right && dual ? dual.right : panels.board);
     const rect = $("main").getBoundingClientRect();
     const x = ev.clientX - rect.left - geo.x - geo.margin;
     const y = ev.clientY - rect.top - geo.y - geo.margin;
     const near = (p: Point) => Math.hypot(x - p.x * geo.square, y - p.y * geo.square) <= geo.stoneRadius + 1;
+    const doubleEngine = dual !== null;
     // The 下一手 详细 point comes first (BoardRenderer.mouseOveredMove).
-    const next = nextMoveTarget(v);
-    if (next && near(next)) return hover(-1);
+    const next = nextMoveTarget(v) ?? (doubleEngine ? nextMoveTarget(v, v.secondary?.board ?? null) : null);
+    if (next && near(next)) return hover(NEXT_MOVE);
     // Beyond 最大候选点数 the candidates exist only with show-nosugg-circle (BoardData.tryToLimitMoves).
     const limit = v.settings.engine.analysis.limitMaxSuggestion;
     const candidate = v.analysis?.candidates.find((c) => c.point && c.visits > 0 && near(c.point) &&
-      (limit === 0 || c.order < limit || v.settings.display.noSuggCircle || limitMemory.unlimited.has(`${c.point.x},${c.point.y}`)));
-    hover(candidate?.order ?? null);
-  });
+      (limit === 0 || c.order < limit || v.settings.display.noSuggCircle || limitMemory.unlimited.has(`${c.point.x},${c.point.y}`)))
+      ?? (doubleEngine ? v.secondary?.analysis?.candidates.find((c) => c.point && c.visits > 0 && near(c.point) &&
+        (limit === 0 || c.order < limit || v.settings.display.noSuggCircle)) : undefined);
+    hover(candidate?.point ? `${candidate.point.x},${candidate.point.y}` : null);
+  };
+  $("board").addEventListener("mousemove", (ev) => pointerMoved(ev, false));
+  $("board2").addEventListener("mousemove", (ev) => pointerMoved(ev, true));
   // The open board popup keeps the preview it was opened over.
-  $("board").addEventListener("mouseleave", () => {
-    finishReplayBranch();
-    if (!contextMenuOpen()) hover(null);
-  });
+  for (const id of ["board", "board2"]) {
+    $(id).addEventListener("mouseleave", () => {
+      finishReplayBranch();
+      if (!contextMenuOpen()) hover(null);
+    });
+  }
   // The replay ends when the window is no longer the active one (LizzieFrame.java:11650).
   window.addEventListener("blur", finishReplayBranch);
   const sub = $("sub");
@@ -641,12 +697,14 @@ function pressScrollbar(ev: MouseEvent, axis: "vertical" | "horizontal", at: num
   window.addEventListener("mouseup", () => window.removeEventListener("mousemove", drag), { once: true });
 }
 
+/** The intersection under a client point: on the main board, or in 双引擎模式 on whichever board
+ *  is there (both show the same position). */
 function boardPointAt(clientX: number, clientY: number): Point | null {
   const v = state.view;
   if (!panels || !v) return null;
   const { width, height } = v.document.size;
-  const geo = mainGeom(v, panels.board);
   const rect = $("main").getBoundingClientRect();
+  const geo = mainGeom(v, dual && clientX - rect.left >= dual.right.x ? dual.right : panels.board);
   const x = clientX - rect.left - geo.x - geo.margin;
   const y = clientY - rect.top - geo.y - geo.margin;
   const cx = Math.floor((x + geo.square / 2) / geo.square);
@@ -711,15 +769,23 @@ function render() {
   const H = main.clientHeight;
   // A hidden window has no allocation yet; the window minimum is 520x400 (LizzieFrame.java:686).
   if (W < 100 || H < 100) return;
-  panels = inFrameLayout(W, H);
-  const P = panels;
-  const size = `${W}x${H}:${window.devicePixelRatio}`;
   const pos = v.position;
   const { width: cols, height: rows } = v.document.size;
+  // 双引擎模式 shows the two boards and their status strips only (LizzieFrame.java:6640-6720).
+  dual = v.settings.extra_mode === "DoubleEngine" ? doubleEngineLayout(W, H, cols, rows) : null;
+  const normal = inFrameLayout(W, H);
+  panels = dual ? { ...normal, board: dual.left, glass: [] } : normal;
+  const P = panels;
+  const size = `${W}x${H}:${window.devicePixelRatio}`;
   // Edits change a node's position, marks or side to play in place: the revision moves on.
   const docSig = `${v.document.id}:${v.document.revision}:${pos.node}:${pos.to_play}`;
   projectAnalysis(v);
-  if (changed("bg", size)) installBackground(size, W, H, P.glass);
+  const background = `${size}:${dual !== null}`;
+  if (changed("bg", background)) installBackground(background, W, H, P.glass);
+  if (changed("mode", String(dual !== null))) {
+    for (const id of ["captured", "stat", "graph", "comment", "status", "tree", "table", "sub"]) $(id).style.display = dual ? "none" : "";
+    for (const id of ["board2", "dualStatus"]) $(id).style.display = dual ? "" : "none";
+  }
 
   const firstChildId = state.nodes.get(pos.node)?.children[0];
   const firstChild = firstChildId === undefined ? undefined : state.nodes.get(firstChildId);
@@ -759,8 +825,25 @@ function render() {
   const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}`;
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
   const scoreSig = v.score ? JSON.stringify(v.score) : "";
-  if (changed("board", `${size}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}`))
+  if (changed("board", `${background}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}`))
     boardReport = paintBoard(prepare($("board"), P.board), mainGeom(v, P.board), P.board, scene);
+  if (dual) renderDual(v, dual, W, H, size, docSig, ui, scoreSig, scene);
+  else renderPanels(v, P, H, size, docSig, ui, scene);
+  relayFrame(v);
+  if (changed("bottombar", `${$("bottombar").clientWidth}`)) layoutBottomBar($("bottombar"));
+  renderToolbar();
+  const title = workbenchTitle(v, version, historyByNode, state.nodes.get(pos.node)?.parent ?? undefined);
+  if (changed("title", title)) {
+    document.title = title;
+    getCurrentWindow().setTitle(title);
+  }
+}
+
+/** The Normal-mode panels beside the main board: sub board, captured and statistics panels, the
+ *  win-rate graph, the status lines, the variation tree, the comment and the 选点列表. */
+function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docSig: string, ui: string, scene: BoardScene) {
+  const pos = v.position;
+  const { width: cols, height: rows } = v.document.size;
   // The resting pointer freezes the sub board's variation for this position (no-refresh-on-sub).
   const over = subOver && v.settings.display.noRefreshOnSub;
   if (!over) subFrozen = null;
@@ -835,15 +918,55 @@ function render() {
   if (changed("comment", `${docSig}:${comment}`)) $("commentText").textContent = comment;
   place($("table"), P.table);
   if (changed("table", `${size}:${docSig}:${analysisRevision}:${historyRevision}:${mainTableSignature(v)}`)) renderMainTable($("table"), v);
-  relayFrame(v);
-  if (changed("bottombar", `${$("bottombar").clientWidth}`)) layoutBottomBar($("bottombar"));
-  renderToolbar();
-  const title = workbenchTitle(v, version, historyByNode, state.nodes.get(pos.node)?.parent ?? undefined);
-  if (changed("title", title)) {
-    document.title = title;
-    getCurrentWindow().setTitle(title);
-  }
 }
+
+/** 双引擎模式's right board (boardRenderer2): the main board's scene from the secondary engine's
+ *  results; with no secondary engine or result only the position. */
+function renderDual(v: WorkbenchView, d: DualPanels, W: number, H: number, size: string, docSig: string, ui: string, scoreSig: string, left: BoardScene) {
+  const s = v.secondary;
+  const allowed = hoverAllowed(v);
+  const scene: BoardScene = {
+    ...left,
+    analysis: s?.analysis ?? null,
+    // Move numbers belong to the position; without a secondary view nothing else is drawn.
+    overlay: s?.board ?? { move_numbers: v.board.move_numbers, ranks: [], rank_corner: false, next_move: null, info_order_sample: v.board.info_order_sample },
+    unlimited: NO_POINTS,
+    // A result for another position is never shown.
+    rawNet: s?.rawNet?.node === v.position.node ? s.rawNet : null,
+    katago: !!v.engine.secondary?.katago,
+    engine: !!v.engine.secondary,
+    hovered: allowed ? hoveredCandidate2 : null,
+    preview: hoveredVariation(v, true)?.preview ?? null,
+    ownership: secondaryOwnership(v, allowed ? hoveredCandidate2 : null),
+  };
+  const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
+  if (changed("board2", `${size}:${docSig}:${secondaryRevision}:${displaySig2}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("right", scene.ownership)}:${scoreSig}`))
+    rightReport = paintBoard(prepare($("board2"), d.right), mainGeom(v, d.right), d.right, scene);
+  // drawPonderingStateForExtraMode2 (LizzieFrame.java:6663-6719): each engine's name and 思考
+  // state, then its visits and side-to-move win rate for this node when it has a result. The
+  // secondary strip shows the secondary engine's own 思考 state (Java read the primary's).
+  const fg = v.engine.foreground;
+  const se = v.engine.secondary;
+  const name = (text: string) => (text.length > 15 ? text.substring(0, 10) : text);
+  const pondering = (on: boolean) => `${t("LizzieFrame.display.pondering")} ${on ? t("LizzieFrame.display.on") : t("LizzieFrame.display.off")}`;
+  const result = (a: NodeAnalysisView | null | undefined) =>
+    a && a.candidates.length ? `${t("LizzieFrame.visits")}${playouts(a.visits)} ${t("LizzieFrame.winrate")}${a.winrate.toFixed(1)}%` : null;
+  const text1 = `${t("LizzieFrame.mainEngine")}${name(fg?.name ?? "")} ${pondering(v.engine.analysing)}${t("LizzieFrame.display.space")}`;
+  const text2 = se ? `${t("LizzieFrame.subEngine")}${name(se.name)} ${pondering(se.analysing)}` : t("LizzieFrame.subEngine");
+  const result1 = result(v.analysis);
+  const result2 = result(s?.analysis);
+  if (!changed("dualStatus", `${size}:${d.size}:${text1}:${text2}:${result1}:${result2}`)) return;
+  const g = prepare($<HTMLCanvasElement>("dualStatus"), { x: 0, y: 0, w: W, h: H });
+  const first = paintDualStrip(g, text1, 0, d.size, 18, d.size, W, H);
+  const second = paintDualStrip(g, text2, d.size, d.size, 18, d.size, W, H);
+  const third = result1 === null ? null : paintDualStrip(g, result1, first.width + 5, d.size, 18, d.size, W, H);
+  const fourth = result2 === null ? null : paintDualStrip(g, result2, d.size + second.width + 5, d.size, 18, d.size, W, H);
+  dualStatus = [first, second, third, fourth].filter((strip) => !!strip?.text).map((strip) => strip!.text);
+}
+
+/** No candidate is kept beyond 最大候选点数 on the right board (lastTimeUnlimited is the main
+ *  board's). */
+const NO_POINTS = new Set<string>();
 
 // ------------------------------------------------------------------ acceptance probe
 
@@ -951,6 +1074,26 @@ function uiReport() {
       tree: { numbers: state.view?.settings.display.treeMoveNumbers ?? false, drawn: treeNumbersDrawn },
       autoplay: autoplayReport(),
     },
+    /** 双引擎模式 (T12): the mode, the right board's drawing, both boards' client geometry, the
+     *  status strips as drawn, the secondary engine menu's title and the candidate windows. */
+    dual: {
+      mode: state.view?.settings.extra_mode ?? null,
+      rightBoard: dual ? rightReport : null,
+      geometry: (() => {
+        const d = dual;
+        const v = state.view;
+        if (!d || !v) return null;
+        const m = $("main").getBoundingClientRect();
+        const at = (r: Rect) => {
+          const g = mainGeom(v, r);
+          return { x: m.left + g.x + g.margin, y: m.top + g.y + g.margin, square: g.square, margin: g.margin, size: g.size };
+        };
+        return { left: at(d.left), right: at(d.right) };
+      })(),
+      status: dual ? dualStatus : [],
+      menu2Title: secondaryMenuTitle(),
+      frames: framesReport(),
+    },
   };
 }
 
@@ -999,14 +1142,20 @@ async function boot() {
     showVariation: (point) => {
       const v = state.view;
       if (!point || !v) return hover(null);
-      const candidate = v.analysis?.candidates.find((c) => c.point?.x === point.x && c.point.y === point.y);
-      if (candidate) return hover(candidate.order);
-      const next = nextMoveTarget(v);
-      hover(next && next.x === point.x && next.y === point.y ? -1 : null);
+      // In 双引擎模式 the point is shared: the right board shows the secondary engine's candidate.
+      const doubleEngine = v.settings.extra_mode === "DoubleEngine";
+      const at = (c: { point: Point | null }) => c.point?.x === point.x && c.point.y === point.y;
+      if (v.analysis?.candidates.some(at) || (doubleEngine && v.secondary?.analysis?.candidates.some(at))) return hover(`${point.x},${point.y}`);
+      const next = nextMoveTarget(v) ?? (doubleEngine ? nextMoveTarget(v, v.secondary?.board ?? null) : null);
+      hover(next && next.x === point.x && next.y === point.y ? NEXT_MOVE : null);
     },
-    variation: () => {
-      const shown = state.view ? hoveredVariation(state.view) : null;
-      return shown?.preview ? { ...shown.target, length: shown.preview.length } : null;
+    variations: () => {
+      const v = state.view;
+      const shown = (right: boolean) => {
+        const variation = v ? hoveredVariation(v, right) : null;
+        return variation?.preview ? { ...variation.target, length: variation.preview.length } : null;
+      };
+      return { left: shown(false), right: v?.settings.extra_mode === "DoubleEngine" ? shown(true) : null };
     },
     repaint: schedule,
   });

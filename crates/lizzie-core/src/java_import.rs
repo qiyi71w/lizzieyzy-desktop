@@ -30,7 +30,9 @@ use crate::engine::gtp::{prepare_launch, split_command, FILE_PATH_OPTIONS};
 use crate::engine::profile::{new_profile_id, EngineProfile, EngineStartup};
 use crate::engine::tuning::{GtpConfiguration, ThreadPolicy};
 use crate::sanitize::sanitize;
-use crate::settings::{Config, DisplaySettings, Language, NetworkSettings, Persisted, ProxyMode, RECENT_LIMIT};
+use crate::settings::{
+    Config, DisplaySettings, ExtraMode, Language, NetworkSettings, Persisted, ProxyMode, RECENT_LIMIT,
+};
 
 pub const CONFIG_FILE: &str = "config.txt";
 pub const PERSIST_FILE: &str = "persist";
@@ -99,6 +101,8 @@ pub struct Mapped {
     pub append_winrate_to_comment: Option<bool>,
     pub language: Option<Language>,
     pub play_sound: Option<bool>,
+    /// 布局模式 (`ui.extra-mode`).
+    pub extra_mode: Option<ExtraMode>,
     pub recent_files: Option<Vec<String>>,
     pub last_folder: Option<String>,
     /// Local engines in Java order (remote ones are not included).
@@ -836,6 +840,26 @@ impl Reader<'_> {
                     self.imported("ui.use-language".into(), ImportTarget::Language, format!("{lang:?}"));
                 }
                 None => self.invalid("ui.use-language".into(), ImportTarget::Language, v),
+            }
+        }
+
+        if let Some(v) = ui.get("extra-mode") {
+            handled.push(("ui", "extra-mode"));
+            // `Config.readExtraMode`: a number or a mode name; anything else is 默认模式.
+            let text = v.as_str().map(str::trim);
+            let number = as_i64(v).or_else(|| text.and_then(|t| t.parse().ok()));
+            let mode = match (number, text) {
+                (Some(2), _) | (None, Some("Double_Engine")) => Some(ExtraMode::DoubleEngine),
+                (Some(1 | 3 | 7 | 8), _) | (None, Some("Four_Sub" | "Thinking" | "Min" | "Float_Board")) => None,
+                _ => Some(ExtraMode::Normal),
+            };
+            match mode {
+                Some(mode) => {
+                    self.mapped.extra_mode = Some(mode);
+                    self.imported("ui.extra-mode".into(), ImportTarget::ExtraMode, format!("{mode:?}"));
+                }
+                // 思考 / 四方图 / 精简 / 浮动棋盘 layouts are not in this product yet.
+                None => self.not_migrated("ui.extra-mode".into(), v),
             }
         }
 
@@ -1649,6 +1673,7 @@ impl Mapped {
         set!(c.record.append_winrate_to_comment, self.append_winrate_to_comment);
         set!(c.ui.language, self.language);
         set!(c.ui.play_sound, self.play_sound);
+        set!(c.ui.extra_mode, self.extra_mode);
         set!(c.recent_files, self.recent_files);
         if let Some(folder) = &self.last_folder {
             p.last_folder = Some(folder.clone());
@@ -1807,6 +1832,7 @@ impl Mapped {
         );
         cmp!(ImportTarget::Language, config.ui.language, self.language);
         cmp!(ImportTarget::PlaySound, config.ui.play_sound, self.play_sound);
+        cmp!(ImportTarget::ExtraMode, config.ui.extra_mode, self.extra_mode);
         cmp!(ImportTarget::RecentFiles, config.recent_files, self.recent_files);
         cmp!(
             ImportTarget::AnalysisInterval,

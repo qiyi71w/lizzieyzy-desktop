@@ -13,17 +13,18 @@
 //!   order).
 //! - Moves are `B[xy]`/`W[xy]`, real passes `B[]`/`W[]`, placeholders `DD[true]`.
 //! - Marks and comments come from the record; unknown properties (`MN`, `GM`, `FF`, `GN`, ...)
-//!   are retained. Workbench saves supply `LZ`/`LZOP` from the per-node analysis store, replacing
-//!   read-in primary tags; secondary-engine tags stay as read. Plain [`write`] retains all tags.
+//!   are retained. Workbench saves supply `LZ`/`LZOP` and the secondary engine's `LZ2`/`LZOP2`
+//!   from the per-node analysis stores, replacing read-in tags (`appendSerializedAnalysis`).
+//!   Plain [`write`] retains all tags.
 //! - Variations follow the child order; parentheses only where a node has several children.
 //!
 //! The 更多保存 exports ([`write_export`], `SGFParser.saveSnapshot(raw, comments, branch)`)
 //! write the same tree without the analysis `LZ`/`LZ2` and without this product's `AP` (an `AP`
 //! or `DZ` read with the record stays, as Java writes the root's properties as read). 纯净棋谱
-//! drops move comments (the root comment and root `LZOP`/`LZOP2` stay, as
-//! Java writes them from the root data); 带评论 keeps every comment and gives analysed nodes their
-//! win-rate summary; 纯净分支 writes one line (root to the current node, then first children)
-//! without any comment, root comment or root analysis.
+//! drops move comments (the root comment and root `LZOP`/`LZOP2` stay, as Java writes them from
+//! the root data: from the stores when supplied); 带评论 keeps every comment and gives analysed
+//! nodes their win-rate summary; 纯净分支 writes one line (root to the current node, then first
+//! children) without any comment, root comment or root analysis.
 //!
 //! Objective correction against the fixed Java build: every text value escapes `\` and `]`
 //! (SGF FF[4] Text/SimpleText). Java escaped only comments, so a `]` in a player name, label or
@@ -65,14 +66,22 @@ enum Comments<'a> {
     None,
 }
 
+/// Per-node analysis payloads (`formatNodeData`, `formatNodeData2`) of the primary engine
+/// (`LZ`/`LZOP`) and the 双引擎模式 secondary engine (`LZ2`/`LZOP2`).
+#[derive(Clone, Copy)]
+pub(crate) struct Analysis<'a> {
+    pub primary: &'a dyn Fn(NodeId) -> Option<String>,
+    pub secondary: &'a dyn Fn(NodeId) -> Option<String>,
+}
+
 struct Opts<'a> {
     /// `AP`; `None` for exports.
     application: Option<&'a str>,
     comments: Comments<'a>,
     /// The single line of a branch export, root first.
     line: Option<Vec<NodeId>>,
-    /// When supplied, primary analysis comes only from the per-node store.
-    analysis: Option<&'a dyn Fn(NodeId) -> Option<String>>,
+    /// When supplied, analysis comes only from the per-node stores.
+    analysis: Option<Analysis<'a>>,
 }
 
 /// Serialises a record. `application` is the `AP` value naming the writing program.
@@ -91,7 +100,7 @@ pub fn write(rec: &GameRecord, application: &str) -> String {
 pub(crate) fn write_analyzed(
     rec: &GameRecord,
     application: &str,
-    analysis: &dyn Fn(NodeId) -> Option<String>,
+    analysis: Analysis,
     comment: &dyn Fn(NodeId) -> Option<String>,
 ) -> String {
     write_with(
@@ -110,11 +119,7 @@ pub fn write_export(rec: &GameRecord, export: &Export) -> String {
     write_export_analyzed(rec, export, None)
 }
 
-pub(crate) fn write_export_analyzed(
-    rec: &GameRecord,
-    export: &Export,
-    analysis: Option<&dyn Fn(NodeId) -> Option<String>>,
-) -> String {
+pub(crate) fn write_export_analyzed(rec: &GameRecord, export: &Export, analysis: Option<Analysis>) -> String {
     let opts = match export {
         Export::Raw => Opts {
             application: None,
@@ -214,7 +219,8 @@ fn write_root(out: &mut String, rec: &GameRecord, opts: &Opts) {
     };
     prop(out, "SZ", &sz);
     let root = rec.node(ROOT);
-    let root_analysis = opts.analysis.and_then(|a| a(ROOT));
+    let root_analysis = opts.analysis.and_then(|a| (a.primary)(ROOT));
+    let root_secondary = opts.analysis.and_then(|a| (a.secondary)(ROOT));
     match opts.application {
         Some(application) => {
             prop(out, "AP", application);
@@ -222,7 +228,7 @@ fn write_root(out: &mut String, rec: &GameRecord, opts: &Opts) {
                 out,
                 root.properties
                     .iter()
-                    .filter(|p| opts.analysis.is_none() || !matches!(p.id.as_str(), "LZ" | "LZOP")),
+                    .filter(|p| opts.analysis.is_none() || !p.id.starts_with("LZ")),
                 ROOT_MODELLED,
             );
         }
@@ -230,18 +236,19 @@ fn write_root(out: &mut String, rec: &GameRecord, opts: &Opts) {
             // Exports: no analysis and no own application marker; what the record read (`AP`,
             // `DZ`) stays. A branch also drops the root's own analysis (`stripRootMetadata`).
             let branch = opts.line.is_some();
+            // An uninterpretable root property is opaque metadata in Java's raw export.
+            let opaque = |stored: &Option<String>, tags| {
+                !branch
+                    && (opts.analysis.is_none()
+                        || (stored.is_none()
+                            && crate::formats::saved_analysis::saved(&root.properties, tags).is_none()))
+            };
             write_retained(
                 out,
                 root.properties.iter().filter(|p| match p.id.as_str() {
                     "LZ" | "LZ2" => false,
-                    // An uninterpretable root property is opaque metadata in Java's raw export.
-                    "LZOP" => {
-                        !branch
-                            && (opts.analysis.is_none()
-                                || (root_analysis.is_none()
-                                    && crate::formats::saved_analysis::primary(&root.properties).is_none()))
-                    }
-                    "LZOP2" => !branch,
+                    "LZOP" => opaque(&root_analysis, crate::formats::saved_analysis::PRIMARY),
+                    "LZOP2" => opaque(&root_secondary, crate::formats::saved_analysis::SECONDARY),
                     _ => true,
                 }),
                 EXPORT_ROOT_MODELLED,
@@ -250,6 +257,9 @@ fn write_root(out: &mut String, rec: &GameRecord, opts: &Opts) {
     }
     if let Some(payload) = root_analysis {
         prop(out, "LZOP", &payload);
+    }
+    if let Some(payload) = root_secondary {
+        prop(out, "LZOP2", &payload);
     }
     // Root setup materialised from the position (`collectCurrentRootSetup`).
     let pos = rec.position(ROOT);
@@ -314,14 +324,20 @@ fn write_node(out: &mut String, rec: &GameRecord, id: NodeId, opts: &Opts) {
         write_retained(
             out,
             &node.properties,
-            if opts.analysis.is_some() { &["LZ", "LZOP"] } else { &[] },
+            if opts.analysis.is_some() {
+                &["LZ", "LZOP", "LZ2", "LZOP2"]
+            } else {
+                &[]
+            },
         );
-        if let Some(payload) = opts.analysis.and_then(|a| a(id)) {
-            prop(
-                out,
-                if node.kind == NodeKind::Snapshot { "LZOP" } else { "LZ" },
-                &payload,
-            );
+        if let Some(a) = opts.analysis {
+            let setup = node.kind == NodeKind::Snapshot;
+            if let Some(payload) = (a.primary)(id) {
+                prop(out, if setup { "LZOP" } else { "LZ" }, &payload);
+            }
+            if let Some(payload) = (a.secondary)(id) {
+                prop(out, if setup { "LZOP2" } else { "LZ2" }, &payload);
+            }
         }
     } else {
         write_retained(out, node.properties.iter().filter(|p| !p.id.starts_with("LZ")), &[]);

@@ -73,6 +73,8 @@ registerViewHandler((view) => {
   if (view.engine_notice === "StoppedByLimit") limitNotice();
   // EngineManager.showSetupModeEngineUnavailable: Utils.showMsg.
   if (view.engine_notice === "SetupModeActive") void message(t("Message.title"), t("EngineManager.setupModeActive"));
+  // EngineManager.rejectSameEngineSelection: the foreground and the secondary engine must differ.
+  if (view.engine_notice === "SameEngine") void message(t("Message.title"), t("EngineManager.sameEngineHint"));
   if (view.rules_prompt) {
     const prompt = view.rules_prompt;
     failures = failures.then(() => rulesPrompt(prompt));

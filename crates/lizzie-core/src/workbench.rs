@@ -40,9 +40,12 @@ use crate::api::{
 };
 use crate::browse::{self, Navigation};
 use crate::engine::runtime::{Engines, InstanceId, Launcher};
-use crate::formats::{self, ReadError};
+use crate::formats::{self, saved_analysis, ReadError};
 use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, RecordFormat, Stone, ROOT};
-use crate::settings::{self, Config, DisplaySettings, FramePlacement, Language, Persisted, PvVisitsMode, Storage, WindowPlacement};
+use crate::settings::{
+    self, Config, DisplaySettings, ExtraMode, FramePlacement, Language, Persisted, PvVisitsMode, Storage,
+    WindowPlacement,
+};
 
 /// Java `GameInfo.DEFAULT_KOMI`.
 pub const DEFAULT_KOMI: f64 = 7.5;
@@ -180,6 +183,9 @@ pub struct Workbench {
     sounds: Vec<StoneSound>,
     engines: Engines,
     store: AnalysisStore,
+    /// 双引擎模式's secondary engine results for the open document (`BoardData.bestMoves2` and
+    /// its summary), read from `LZ2`/`LZOP2` or reported by the secondary engine.
+    secondary_store: AnalysisStore,
     /// The user paused analysis (session only, like Java `userAnalysisPaused`).
     paused: bool,
     /// The user chose this game's komi (`GameInfo.changedKomi`): engine profiles no longer set it.
@@ -191,15 +197,23 @@ pub struct Workbench {
     limit_stop: Option<(u64, NodeId)>,
     /// The limit notice was shown since the foreground engine started.
     limit_tip_shown: bool,
+    /// A limit stopped the secondary engine's analysis of this position; only its own (Java
+    /// `leelaz2.nameCmd` is not mirrored back to the primary engine).
+    secondary_limit_stop: Option<(u64, NodeId)>,
+    /// The limit notice was shown since the secondary engine was chosen.
+    secondary_limit_tip_shown: bool,
+    /// A secondary engine still starting and the kept previous one it replaced, to return to if
+    /// the new one fails during start-up (`rollbackSecondaryEngineSelection`).
+    secondary_fallback: Option<(InstanceId, InstanceId)>,
     session_rules: analysis::SessionRules,
     /// Increases whenever the session rules are published anew.
     rules_revision: u64,
-    /// (rules revision, engine) the user chose to analyse with the engine's own rules.
-    rules_override: Option<(u64, InstanceId)>,
-    /// (rules revision, engine) already asked about.
-    rules_prompted: Option<(u64, InstanceId)>,
+    /// The rules target and engines the user chose to analyse with their own rules.
+    rules_override: Option<analysis::RulesKey>,
+    /// The rules target and engines already asked about.
+    rules_prompted: Option<analysis::RulesKey>,
     /// The open question: prompt id and what it is about.
-    pending_prompt: Option<(u64, (u64, InstanceId))>,
+    pending_prompt: Option<(u64, analysis::RulesKey)>,
     next_prompt: u64,
     rules_prompt: Option<RulesPromptView>,
     engine_failure: Option<EngineFailureView>,
@@ -256,6 +270,8 @@ impl Workbench {
         engines.set_ownership(estimate.state.shown, config.display.use_moves_ownership);
         let mut store = AnalysisStore::default();
         store.reset(1);
+        let mut secondary_store = AnalysisStore::default();
+        secondary_store.reset(1);
         Workbench {
             storage,
             config,
@@ -286,11 +302,15 @@ impl Workbench {
             sounds: Vec::new(),
             engines,
             store,
+            secondary_store,
             paused: false,
             komi_changed: false,
             start_komi: None,
             limit_stop: None,
             limit_tip_shown: false,
+            secondary_limit_stop: None,
+            secondary_limit_tip_shown: false,
+            secondary_fallback: None,
             session_rules: analysis::SessionRules::Unspecified,
             rules_revision: 0,
             rules_override: None,
@@ -450,12 +470,24 @@ impl Workbench {
                     saved_revision,
                     origin_name,
                 };
-                self.outcome = Some(OpenOutcome::Adopted { ticket, document: id });
                 // Loading is silent (Java turns sound off while it builds the history).
                 self.sounds.clear();
-                self.store.reset(id);
-                self.store.load(&self.doc.record, &self.config.engine.analysis, self.config.display.no_sugg_circle);
+                self.reset_analysis();
+                let (settings, no_circle) = (&self.config.engine.analysis, self.config.display.no_sugg_circle);
+                self.store
+                    .load(&self.doc.record, saved_analysis::PRIMARY, settings, no_circle);
+                self.secondary_store
+                    .load(&self.doc.record, saved_analysis::SECONDARY, settings, no_circle);
                 self.refresh_pv_captures();
+                // Secondary-engine data offers 双引擎模式 (`SGFParse.doubleEngineHint`); the data is
+                // kept whatever the answer.
+                let double_engine_hint =
+                    !self.secondary_store.is_empty() && self.config.ui.extra_mode != ExtraMode::DoubleEngine;
+                self.outcome = Some(OpenOutcome::Adopted {
+                    ticket,
+                    document: id,
+                    double_engine_hint,
+                });
                 // A loaded record is a new analysis context: its komi is not a user choice and
                 // a user pause of the previous record ends
                 // (`startNewKifuAnalysisContextAfterSuccessfulLoad`).
@@ -850,6 +882,7 @@ impl Workbench {
                 append_winrate_to_comment: self.config.record.append_winrate_to_comment,
                 play_sound: self.config.ui.play_sound,
                 replace_file_hint: self.config.record.show_replace_file_hint,
+                extra_mode: self.config.ui.extra_mode,
                 engine: self.engine_settings_view(),
                 edit: self.config.edit.clone(),
                 display: self.config.display.clone(),
@@ -864,6 +897,7 @@ impl Workbench {
             statistics: self.statistics(),
             kata_estimate: self.kata_estimate_view(),
             score: self.score_view(),
+            secondary: self.secondary_view(),
             comment_with_analysis: self.comment_with_analysis(),
             engine_failure: None,
             engine_notice: None,

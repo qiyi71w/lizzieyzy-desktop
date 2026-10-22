@@ -35,15 +35,26 @@ interface TableRow {
   bestScore: number | null;
 }
 
-type Table = "main" | "frame";
+/** The 独立选点列表 windows: the primary engine's (AnalysisFrame index 1) and, in 双引擎模式, the
+ *  secondary engine's (index 2). */
+export type FrameId = "frame" | "sub";
+type Table = "main" | FrameId;
 
-/** What the main window provides: the board's variation (mouseOverCoordinate) and repainting. */
+/** A variation a board shows, with its displayed length (hasSelectedVariation). */
+export interface ShownVariation {
+  key: string;
+  steps: number;
+  length: number;
+}
+
+/** What the main window provides: the boards' variation (mouseOverCoordinate) and repainting. */
 export interface TablesHost {
-  /** Shows the board's variation at `point` (mouseOverCoordinate): a candidate's, or the actual
+  /** Shows the boards' variation at `point` (mouseOverCoordinate): a candidate's, or the actual
    *  move's with the next position's variation; null shows none. */
   showVariation(point: Point | null): void;
-  /** The variation the board shows, with its displayed length (hasSelectedVariation). */
-  variation(): { key: string; steps: number; length: number } | null;
+  /** The variations the boards show: the main (left) board's and, in 双引擎模式, the right
+   *  board's (boardRenderer2). */
+  variations(): { left: ShownVariation | null; right: ShownVariation | null };
   repaint(): void;
 }
 
@@ -54,17 +65,20 @@ let suggestionClick: Point | null = null;
 const selection: Record<Table, { click: number; selected: number }> = {
   main: { click: -1, selected: -1 },
   frame: { click: -1, selected: -1 },
+  sub: { click: -1, selected: -1 },
 };
-/** AnalysisFrame.sortnum: the header last released, -1 for the engine's order. */
-let frameSort = -1;
-/** The variation length the wheel set over a table (doBranch), for that variation only. */
-let branch: { key: string; length: number } | null = null;
+/** Each window's sortnum (the header last released, -1 for the engine's order) and the rows and
+ *  cells it last showed. */
+const frames: Record<FrameId, { sort: number; rows: TableRow[]; cells: string[][] }> = {
+  frame: { sort: -1, rows: [], cells: [] },
+  sub: { sort: -1, rows: [], cells: [] },
+};
+/** The variation lengths the wheel set over a table (doBranch), each for its variation only. */
+const branches = new Map<string, number>();
 /** Bumped by every interaction, so the tables repaint. */
 let revision = 0;
 let mainRows: TableRow[] = [];
-let frameRows: TableRow[] = [];
 let mainCells: string[][] = [];
-let frameCells: string[][] = [];
 
 const samePoint = (a: Point | null, b: Point | null) => !!a && !!b && a.x === b.x && a.y === b.y;
 
@@ -91,14 +105,14 @@ export function tablesRevision(): number {
 
 /** The wheel-set displayed length of variation `key`, if any. */
 export function tableBranchLength(key: string): number | null {
-  return branch && branch.key === key ? branch.length : null;
+  return branches.get(key) ?? null;
 }
 
 /** A new position (Board.java:3656-3692): no clicked row, point or variation length remains. */
 export function resetTables(): void {
-  if (suggestionClick === null && branch === null && Object.values(selection).every((s) => s.click === -1 && s.selected === -1)) return;
+  if (suggestionClick === null && branches.size === 0 && Object.values(selection).every((s) => s.click === -1 && s.selected === -1)) return;
   suggestionClick = null;
-  branch = null;
+  branches.clear();
   for (const s of Object.values(selection)) {
     s.click = -1;
     s.selected = -1;
@@ -136,23 +150,24 @@ export function boardPointerMoved(inBoard: boolean): boolean {
 
 /** A new AnalysisFrame starts unsorted and unselected; closing one (toggleBestMoves, also when
  *  a box rebuilds it) clears the highlighted point. */
-export function resetFrame(closing: boolean): void {
-  frameSort = -1;
-  selection.frame.click = -1;
-  selection.frame.selected = -1;
+export function resetFrame(id: FrameId, closing: boolean): void {
+  frames[id].sort = -1;
+  selection[id].click = -1;
+  selection[id].selected = -1;
   if (closing) suggestionClick = null;
   touched();
 }
 
 // ------------------------------------------------------------------ rows
 
-/** The first child when it is a placed move (hasRealMoveCoordinates), with its analysis. */
-function nextMove(v: WorkbenchView): { point: Point; analysis: HistoryPoint | null } | null {
+/** The first child when it is a placed move (hasRealMoveCoordinates), with its analysis from
+ *  `history` (the secondary engine's for the 副引擎 list). */
+function nextMove(v: WorkbenchView, history: HistoryPoint[]): { point: Point; analysis: HistoryPoint | null } | null {
   const id = state.nodes.get(v.position.node)?.children[0];
   const child = id === undefined ? undefined : state.nodes.get(id);
   const point = v.position.next_moves[0];
   if (!child || child.pass || (child.kind !== "Black" && child.kind !== "White") || !point) return null;
-  return { point, analysis: v.history.find((p) => p.node === id) ?? null };
+  return { point, analysis: history.find((p) => p.node === id) ?? null };
 }
 
 function candidateRow(c: CandidateView): TableRow {
@@ -176,10 +191,15 @@ function candidateRow(c: CandidateView): TableRow {
 
 /** The table model's rows: the candidates in the engine's order, the actual move inserted first
  *  (LizzieFrame.java:14743-14814, AnalysisFrame.java:783-930). The frame keeps lcb, policy and
- *  stdev and counts an outside move with no visits; the main table does not show them. */
-function buildRows(v: WorkbenchView, frame: boolean): TableRow[] {
-  const rows = (v.analysis?.candidates ?? []).map(candidateRow);
-  const next = frame && !v.settings.display.frameShowNext ? null : nextMove(v);
+ *  stdev and counts an outside move with no visits; the main table does not show them. The
+ *  secondary window takes its candidates and the next position's result from the secondary
+ *  engine (bestMoves2, winrate2). */
+function buildRows(v: WorkbenchView, table: Table): TableRow[] {
+  const frame = table !== "main";
+  // The secondary window lists the secondary engine's candidates (bestMoves2).
+  const analysis = table === "sub" ? v.secondary?.analysis ?? null : v.analysis;
+  const rows = (analysis?.candidates ?? []).map(candidateRow);
+  const next = frame && !v.settings.display.frameShowNext ? null : nextMove(v, table === "sub" ? v.secondary?.history ?? [] : v.history);
   if (!next || !rows.length) return rows;
   const best = rows[0];
   const actual = { actual: true, bestWinrate: best.winrate, bestScore: best.score };
@@ -294,10 +314,10 @@ function colourCells(v: WorkbenchView, table: Table, rows: TableRow[], cells: st
 /** handleTableClick (LizzieFrame.java:14665-14692, AnalysisFrame.java:719-745): a row shows its
  *  variation and highlights its point; clicking the clicked point again clears both. */
 function leftClick(table: Table, row: number) {
-  const r = (table === "main" ? mainRows : frameRows)[row];
+  const r = (table === "main" ? mainRows : frames[table].rows)[row];
   if (!r) return;
   // boardRenderer.startNormalBoard: the whole variation again.
-  branch = null;
+  branches.clear();
   if (!r.point) return touched();
   const s = selection[table];
   if (s.click !== -1 && s.selected >= 0 && samePoint(r.point, suggestionClick)) {
@@ -321,7 +341,7 @@ function leftClick(table: Table, row: number) {
  *  point is highlighted, no variation; again on the same row clears it. Java draws nothing on the
  *  board for it (LizzieFrame.isMouseOversub has no caller). */
 function rightClick(table: Table, row: number) {
-  const r = (table === "main" ? mainRows : frameRows)[row];
+  const r = (table === "main" ? mainRows : frames[table].rows)[row];
   if (!r?.point) return;
   const s = selection[table];
   if (s.selected !== row) {
@@ -335,35 +355,50 @@ function rightClick(table: Table, row: number) {
   touched();
 }
 
-/** doBranch (LizzieFrame.java:12036-12073) for a table's clicked row: forward from the whole
- *  variation shows 2 moves, then one more; back from it shows all but the last, then one less. */
+/** doBranch (LizzieFrame.java:12036-12073) for a table's clicked row, on both boards at once:
+ *  forward from the left board's whole variation shows 2 moves on each board, then one more on
+ *  each with room; back, the left board shows all but the last, then one less, and the right board
+ *  goes from its whole variation to its replay length (Java's getReplayBranch), then one less. */
 function wheel(table: Table, down: boolean): boolean {
   if (selection[table].click === -1) return false;
-  const shown = host?.variation();
-  if (!shown) return true;
-  const current = tableBranchLength(shown.key);
+  const shown = host?.variations();
+  const left = shown?.left ?? null;
+  const right = shown?.right ?? null;
+  if (!left && !right) return true;
+  const leftLength = left ? tableBranchLength(left.key) : null;
+  const rightLength = right ? tableBranchLength(right.key) : null;
   if (down) {
-    if (current === null) branch = { key: shown.key, length: 2 };
-    else if (shown.steps > current) branch = { key: shown.key, length: current + 1 };
-  } else if (current === null) branch = { key: shown.key, length: shown.steps - 1 };
-  else if (current > 1) branch = { key: shown.key, length: current - 1 };
+    if (leftLength === null) {
+      if (left) branches.set(left.key, 2);
+      if (right) branches.set(right.key, 2);
+    } else {
+      if (left && left.steps > leftLength) branches.set(left.key, leftLength + 1);
+      if (right && rightLength !== null && right.steps > rightLength) branches.set(right.key, rightLength + 1);
+    }
+  } else {
+    if (left && leftLength === null) branches.set(left.key, left.steps - 1);
+    else if (left && leftLength !== null && leftLength > 1) branches.set(left.key, leftLength - 1);
+    if (right && rightLength === null) branches.set(right.key, right.steps);
+    else if (right && rightLength !== null && rightLength > 1) branches.set(right.key, rightLength - 1);
+  }
   touched();
   return true;
 }
 
 /** The workbench wheel (Input.mouseWheelMoved, Input.java:873-893): with a main-table row
- *  clicked and its variation shown (hasSelectedVariation) it steps the variation instead of
+ *  clicked and a variation shown (hasSelectedVariation) it steps the variation instead of
  *  browsing. Returns whether it did. */
 export function boardWheel(down: boolean): boolean {
-  return selection.main.click !== -1 && !!host?.variation() && wheel("main", down);
+  const shown = host?.variations();
+  return selection.main.click !== -1 && !!(shown?.left || shown?.right) && wheel("main", down);
 }
 
 /** AnalysisFrame mouseMoved with 鼠标悬停 and no clicked row: the row under the pointer shows its
  *  variation; the empty area clears it (AnalysisFrame.java:319-363). */
-export function frameHover(v: WorkbenchView, row: number): void {
-  const s = selection.frame;
+export function frameHover(v: WorkbenchView, id: FrameId, row: number): void {
+  const s = selection[id];
   if (!v.settings.display.frameMouseMove || s.click !== -1) return;
-  const r = frameRows[row];
+  const r = frames[id].rows[row];
   if (!r) {
     if (suggestionClick !== null) {
       suggestionClick = null;
@@ -382,8 +417,8 @@ export function frameHover(v: WorkbenchView, row: number): void {
 }
 
 /** mouseExited (AnalysisFrame.java:384-395). */
-export function frameLeave(v: WorkbenchView): void {
-  const s = selection.frame;
+export function frameLeave(v: WorkbenchView, id: FrameId): void {
+  const s = selection[id];
   if (!v.settings.display.frameMouseMove || s.click !== -1 || suggestionClick === null) return;
   suggestionClick = null;
   host?.showVariation(null);
@@ -391,18 +426,18 @@ export function frameLeave(v: WorkbenchView): void {
   touched();
 }
 
-export function frameClick(row: number, right: boolean): void {
-  if (right) rightClick("frame", row);
-  else leftClick("frame", row);
+export function frameClick(id: FrameId, row: number, right: boolean): void {
+  if (right) rightClick(id, row);
+  else leftClick(id, row);
 }
 
-export function frameWheel(down: boolean): void {
-  wheel("frame", down);
+export function frameWheel(id: FrameId, down: boolean): void {
+  wheel(id, down);
 }
 
 /** header.mouseReleased. */
-export function frameSortBy(column: number): void {
-  frameSort = column;
+export function frameSortBy(id: FrameId, column: number): void {
+  frames[id].sort = column;
   touched();
 }
 
@@ -471,7 +506,7 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
     table.append(colgroup, thead, body);
     host.replaceChildren(table);
   }
-  const all = buildRows(v, false);
+  const all = buildRows(v, "main");
   const total = totalAllocation(all);
   mainRows = all.slice(0, 20);
   mainCells = mainRows.map((r) => {
@@ -522,11 +557,13 @@ export function mainTableSignature(v: WorkbenchView): string {
 export const FRAME_WIDTHS = [35, 20, 40, 70, 35, 50, 35, 70, 35];
 
 /** getColumnCount (AnalysisFrame.java:769-781): 9 with a KataGo engine or when a main-line node
- *  holds score data (Board.isContainsKataData, Board.java:5854: from the start, the line's last
- *  node not checked). Java's Sai engine also gives 9; the core does not report Sai. */
-export function frameNine(v: WorkbenchView): boolean {
-  if (v.engine.foreground?.katago) return true;
-  const scored = new Set(v.history.filter((p) => p.score_lead !== null).map((p) => p.node));
+ *  holds score data (Board.isContainsKataData / isContainsKataData2, Board.java:5854-5870: from
+ *  the start, the line's last node not checked), each window from its own engine. Java's Sai
+ *  engine also gives 9; the core does not report Sai. */
+export function frameNine(v: WorkbenchView, id: FrameId): boolean {
+  if (id === "sub" ? v.engine.secondary?.katago : v.engine.foreground?.katago) return true;
+  const history = id === "sub" ? v.secondary?.history ?? [] : v.history;
+  const scored = new Set(history.filter((p) => p.score_lead !== null).map((p) => p.node));
   for (let id: number | undefined = state.root; id !== undefined; ) {
     const next: number | undefined = state.nodes.get(id)?.children[0];
     if (next === undefined) break;
@@ -548,16 +585,16 @@ const SORT_KEYS: Record<number, (r: TableRow) => number | null> = {
   8: (r) => r.stdev,
 };
 
-/** The frame's contents for its layout (`nine` columns), `widths` when the layout is new. */
-export function framePayload(v: WorkbenchView, nine: boolean, layout: number, widths: number[] | null): FramePayload {
+/** A window's contents for its layout (`nine` columns), `widths` when the layout is new. */
+export function framePayload(v: WorkbenchView, id: FrameId, nine: boolean, layout: number, widths: number[] | null): FramePayload {
   const d = v.settings.display;
-  const rows = buildRows(v, true);
-  const key = SORT_KEYS[frameSort];
+  const rows = buildRows(v, id);
+  const key = SORT_KEYS[frames[id].sort];
   if (key) rows.sort((a, b) => (key(b) ?? -Infinity) - (key(a) ?? -Infinity) || 0);
-  frameRows = rows;
+  frames[id].rows = rows;
   const total = totalAllocation(rows);
   const { width, height } = v.document.size;
-  frameCells = rows.map((r) => {
+  const cells = (frames[id].cells = rows.map((r) => {
     const cells = [
       orderLabel(r, true),
       frameCoordinate(r.point, d.coordinateStyle, width, height),
@@ -572,14 +609,15 @@ export function framePayload(v: WorkbenchView, nine: boolean, layout: number, wi
       cells.push(shown === null ? "--" : r.actual && r.order !== 0 ? difference(r.score, r.bestScore, shown) : shown.toFixed(1), r.stdev === null ? "--" : r.stdev.toFixed(1));
     }
     return cells;
-  });
+  }));
   const headers = [
     t("AnalysisFrame.column1"), t("AnalysisFrame.column2"), t("AnalysisFrame.column3"), t("AnalysisFrame.column4"),
     t("AnalysisFrame.column5"), t("AnalysisFrame.column6"), t("AnalysisFrame.column7"),
   ];
   if (nine) headers.push(t("AnalysisFrame.column8"), t("AnalysisFrame.column9"));
   // paintBottomPanel (AnalysisFrame.java:485-555): the candidates themselves, no actual row.
-  const best = v.analysis?.candidates ?? [];
+  const analysis = id === "sub" ? v.secondary?.analysis ?? null : v.analysis;
+  const best = analysis?.candidates ?? [];
   let stats: string | null = null;
   const bars: FrameBar[] = [];
   if (best.length) {
@@ -592,7 +630,7 @@ export function framePayload(v: WorkbenchView, nine: boolean, layout: number, wi
       spread += gap * gap;
     }
     const concentration = Math.sqrt(allocation > 0 ? spread / 10 / allocation / allocation : 0) * 100;
-    stats = `${t("AnalysisFrame.totalVisits")}${playouts(v.analysis!.visits)} ${t("AnalysisFrame.maxVisits")}${playouts(maxVisits)} ${t("AnalysisFrame.concentration")}${concentration.toFixed(2)}%`;
+    stats = `${t("AnalysisFrame.totalVisits")}${playouts(analysis!.visits)} ${t("AnalysisFrame.maxVisits")}${playouts(maxVisits)} ${t("AnalysisFrame.concentration")}${concentration.toFixed(2)}%`;
     for (const c of best)
       bars.push({
         ratio: maxAllocation > 0 ? c.allocation_visits / maxAllocation : 0,
@@ -603,7 +641,7 @@ export function framePayload(v: WorkbenchView, nine: boolean, layout: number, wi
     headers,
     widths,
     layout,
-    rows: colourCells(v, "frame", rows, frameCells, 5, 3, nine ? 7 : null),
+    rows: colourCells(v, id, rows, cells, 5, 3, nine ? 7 : null),
     list: d.bestMovesList,
     graph: d.bestMovesGraph,
     boxes: [
@@ -617,12 +655,13 @@ export function framePayload(v: WorkbenchView, nine: boolean, layout: number, wi
   };
 }
 
-/** What the acceptance probe reports of both tables. */
+/** What the acceptance probe reports of the tables. */
 export function tablesReport() {
   return {
     suggestionClick,
-    branchLength: branch?.length ?? null,
+    branchLength: branches.values().next().value ?? null,
     main: { rows: mainCells, selectedRow: selection.main.selected, clickedRow: selection.main.click, columns: mainWidths },
-    frame: { rows: frameCells, selectedRow: selection.frame.selected, clickedRow: selection.frame.click, sort: frameSort },
+    frame: { rows: frames.frame.cells, selectedRow: selection.frame.selected, clickedRow: selection.frame.click, sort: frames.frame.sort },
+    sub: { rows: frames.sub.cells, selectedRow: selection.sub.selected, clickedRow: selection.sub.click, sort: frames.sub.sort },
   };
 }

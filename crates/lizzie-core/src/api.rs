@@ -156,6 +156,22 @@ pub enum Command {
     ShutdownEngines {
         scope: EngineScope,
     },
+    /// 布局模式 > 默认模式(Alt+1) (`Normal`) and 双引擎模式(Alt+6) (`DoubleEngine`)
+    /// (`Config.toggleExtraMode`). Leaving 双引擎模式 stops the secondary engine's analysis and
+    /// keeps it running; entering resumes it.
+    SetExtraMode {
+        mode: crate::settings::ExtraMode,
+    },
+    /// Secondary engine menu `[n] name` (`EngineManager.switchEngine(index, false)`), in 双引擎模式
+    /// only: engine `index` becomes the secondary engine. The foreground engine is refused
+    /// (`EngineManager.sameEngineHint`).
+    SwitchSecondaryEngine {
+        index: u32,
+    },
+    /// Secondary engine menu > "重启当前引擎" (`EngineManager.restartEngine2`).
+    RestartSecondaryEngine,
+    /// Secondary engine menu > "关闭当前引擎" (`EngineManager.killThisEngines2`).
+    ShutdownSecondaryEngine,
     /// Engine settings (MoreEngines) saved: the whole engine list and the start-up choice.
     /// Entries with an empty id are new. Running engines whose command changed restart.
     SaveEngineSettings {
@@ -448,6 +464,9 @@ pub enum OpenOutcome {
     Adopted {
         ticket: u64,
         document: u64,
+        /// The record holds secondary-engine analysis (`LZ2`/`LZOP2`) and 双引擎模式 is off: ask
+        /// whether to switch to it (`SGFParse.doubleEngineHint`), then send `SetExtraMode`.
+        double_engine_hint: bool,
     },
     /// Reading failed; the previous document is unchanged. `message_key` is the Java resource
     /// key of the user message.
@@ -501,6 +520,8 @@ pub struct SettingsView {
     pub play_sound: bool,
     /// Ask before "保存" overwrites the record's own file (Java `ui.show-replace-file-hint`).
     pub replace_file_hint: bool,
+    /// 布局模式 (Java `ui.extra-mode`).
+    pub extra_mode: crate::settings::ExtraMode,
     pub engine: EngineSettingsView,
     pub edit: EditSettings,
     pub display: crate::settings::DisplaySettings,
@@ -568,6 +589,9 @@ pub struct WorkbenchView {
     pub kata_estimate: KataEstimateView,
     /// 终局点目, while scoring.
     pub score: Option<ScoreView>,
+    /// 双引擎模式's right board: the secondary engine's results for the current node. Present
+    /// only in 双引擎模式.
+    pub secondary: Option<SecondaryView>,
     /// 记录选点信息到评论中: the current comment as Java shows it while an engine analyses,
     /// with the analysis summary appended (Java writes it into the node, `appendComment`);
     /// absent when the comment pane shows `position.comment` unchanged.
@@ -742,6 +766,8 @@ pub enum ImportTarget {
     /// `show-bestmoves-list`, `show-bestmoves-graph`, `anaframe-show-next`,
     /// `anaframe-use-mousemove`.
     SuggestionsFrame,
+    /// 布局模式: `ui.extra-mode` (默认模式 / 双引擎模式).
+    ExtraMode,
 }
 
 /// A problem found with an imported engine without starting it.
@@ -868,10 +894,52 @@ pub struct ForegroundEngineView {
     pub commands: Vec<String>,
 }
 
+/// The secondary engine (副引擎, Java `Lizzie.leelaz2`) of 双引擎模式: it analyses the same
+/// position as the foreground engine but is never the foreground engine. The seat is kept while
+/// 双引擎模式 is off (its analysis stops); it is not remembered across restarts.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct SecondaryEngineView {
+    /// Position in the engine list.
+    pub index: u32,
+    /// The configured name, else the GTP name.
+    pub name: String,
+    pub katago: bool,
+    /// Speaks `kata-analyze` / `lz-analyze`.
+    pub can_analyse: bool,
+    /// Identified and synced to the current position.
+    pub ready: bool,
+    /// It is analysing the current node (its own 思考 开/关).
+    pub analysing: bool,
+    /// An analysis limit stopped its analysis of the current node.
+    pub stopped_by_limit: bool,
+}
+
+/// 双引擎模式's right board (Java `boardRenderer2`): the secondary engine's stored results for the
+/// current node and the board marks drawn from them. The position itself is `position`.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct SecondaryView {
+    /// Stored secondary analysis of the current node (`BoardData.bestMoves2` and summary).
+    pub analysis: Option<NodeAnalysisView>,
+    /// Move numbers, 落子评价 and 下一手 详细 drawn from the secondary analysis.
+    pub board: crate::display::BoardOverlayView,
+    /// The secondary engine's pure-network result for the current position.
+    #[serde(rename = "rawNet")]
+    pub raw_net: Option<crate::engine::raw_net::RawNetView>,
+    /// Kata形势 of the secondary engine (`estimateArray2`): Black-positive ownership of the current
+    /// node, else of its parent; absent while Kata形势 is off or nothing was reported.
+    pub ownership: Option<Vec<f64>>,
+    /// The secondary engine's stored results on the current line and the main trunk, like
+    /// `history` (`winrate2`, `scoreMean2` of each node): the 副引擎 独立选点列表's actual-move row
+    /// and its score columns (`isContainsKataData2`).
+    pub history: Vec<HistoryPoint>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 pub struct EngineView {
     pub engines: Vec<EngineEntryView>,
     pub foreground: Option<ForegroundEngineView>,
+    /// The 双引擎模式 secondary engine, while one is chosen.
+    pub secondary: Option<SecondaryEngineView>,
     /// The user paused analysis (Space); not remembered across restarts.
     pub paused: bool,
     /// The foreground engine is analysing the current node (Java `isPondering`).
@@ -1075,6 +1143,9 @@ pub enum EngineNotice {
     StoppedByLimit,
     /// No foreground engine starts while 起始局面设置模式 is on (`EngineManager.setupModeActive`).
     SetupModeActive,
+    /// In 双引擎模式 the foreground and the secondary engine must differ
+    /// (`EngineManager.sameEngineHint`); the switch was not made.
+    SameEngine,
 }
 
 /// GtpConsolePane line.

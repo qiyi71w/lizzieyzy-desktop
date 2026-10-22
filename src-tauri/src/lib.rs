@@ -41,6 +41,8 @@ pub const CONSOLE_EVENT: &str = "engine-console";
 const ENGINE_REFRESH: Duration = Duration::from_millis(50);
 /// The 独立选点列表 (`AnalysisFrame`) window.
 const SUGGESTIONS_WINDOW: &str = "suggestions";
+/// The secondary engine's 独立选点列表 in 双引擎模式 (`AnalysisFrame(2)`, 副引擎).
+const SUGGESTIONS_SUB_WINDOW: &str = "suggestions-sub";
 /// The 独立选点列表 was closed by its own close box; the main window records it as closed.
 pub const SUGGESTIONS_CLOSED_EVENT: &str = "suggestions-frame-closed";
 
@@ -132,13 +134,14 @@ fn write_logs(shared: &Shared, logs: Vec<lizzie_core::workbench::LogLine>) {
     }
 }
 
-/// Builds and sends each view under the workbench lock, preserving `seq` order.
+/// Builds and sends each view under the workbench lock, preserving `seq` order. Before the window
+/// subscribes no view is built, so one-shot parts (a command-line open's outcome) reach it with
+/// its first snapshot.
 pub fn publish(app: &AppHandle, shared: &Shared) {
     let mut wb = shared.workbench.lock().unwrap();
-    let view = wb.view(false);
     let mut views = shared.views.lock().unwrap();
     if let Some(channel) = &views.channel {
-        if channel.send(view).is_err() {
+        if channel.send(wb.view(false)).is_err() {
             views.channel = None;
         }
     }
@@ -560,6 +563,22 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().shutdown_engines(scope);
             Ok(changed(&app, &shared, done))
         }
+        Command::SetExtraMode { mode } => {
+            let done = shared.workbench.lock().unwrap().set_extra_mode(mode)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SwitchSecondaryEngine { index } => {
+            let done = shared.workbench.lock().unwrap().switch_secondary_engine(index)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::RestartSecondaryEngine => {
+            let done = shared.workbench.lock().unwrap().restart_secondary_engine()?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::ShutdownSecondaryEngine => {
+            let done = shared.workbench.lock().unwrap().shutdown_secondary_engine();
+            Ok(changed(&app, &shared, done))
+        }
         Command::SaveEngineSettings { engines, startup } => {
             let done = shared
                 .workbench
@@ -947,13 +966,63 @@ async fn open_suggestions_frame(
     Ok(columns)
 }
 
-/// Closes the 独立选点列表 from the main window (U, the menu), writing its bounds.
+/// Opens the secondary engine's 独立选点列表 next to the primary one (`AnalysisFrame(2)`): the
+/// saved layout for its own column count, moved to the primary frame's right edge. Its bounds
+/// are never written; Java only persists the primary frame.
+#[tauri::command]
+async fn open_suggestions_sub(
+    app: AppHandle,
+    state: tauri::State<'_, State>,
+    nine: bool,
+    on_top: bool,
+    title: String,
+) -> Result<Vec<u32>, ApiError> {
+    let ((mut x, mut y, width, height), columns) = frame_bounds(&app, &state, nine);
+    if let Some(primary) = app.get_webview_window(SUGGESTIONS_WINDOW) {
+        let scale = primary.scale_factor().unwrap_or(1.0);
+        if let (Ok(at), Ok(size)) = (primary.outer_position(), primary.outer_size()) {
+            let (at, size) = (at.to_logical::<i32>(scale), size.to_logical::<i32>(scale));
+            (x, y) = (at.x + size.width, at.y);
+        }
+    }
+    if let Some(window) = app.get_webview_window(SUGGESTIONS_SUB_WINDOW) {
+        let _ = window.set_size(tauri::LogicalSize::new(width, height));
+        let _ = window.set_position(tauri::LogicalPosition::new(x, y));
+        return Ok(columns);
+    }
+    WebviewWindowBuilder::new(&app, SUGGESTIONS_SUB_WINDOW, WebviewUrl::App("suggestions.html".into()))
+        .title(title)
+        .inner_size(f64::from(width), f64::from(height))
+        .position(f64::from(x), f64::from(y))
+        .always_on_top(on_top)
+        .disable_drag_drop_handler()
+        .build()
+        .map_err(|e| {
+            ApiError::new(
+                ErrorKind::Unavailable,
+                format!("opening the secondary candidates list failed: {e}"),
+            )
+        })?;
+    Ok(columns)
+}
+
+/// Closes the secondary engine's 独立选点列表 (leaving 双引擎模式).
+#[tauri::command]
+fn close_suggestions_sub(app: AppHandle) {
+    if let Some(window) = app.get_webview_window(SUGGESTIONS_SUB_WINDOW) {
+        let _ = window.destroy();
+    }
+}
+
+/// Closes the 独立选点列表 from the main window (U, the menu), writing its bounds; the secondary
+/// engine's list closes with it (`toggleBestMoves`).
 #[tauri::command]
 fn close_suggestions_frame(app: AppHandle, state: tauri::State<'_, State>) {
     if let Some(window) = app.get_webview_window(SUGGESTIONS_WINDOW) {
         frame_closing(&app, &state, &window);
         let _ = window.destroy();
     }
+    close_suggestions_sub(app);
 }
 
 /// The main 选点列表's column widths as laid out, `None` while its score column is hidden.
@@ -962,7 +1031,8 @@ fn set_main_list_columns(state: tauri::State<'_, State>, columns: Option<Vec<u32
     state.tables.lock().unwrap().main_list = columns;
 }
 
-/// The open 独立选点列表's column widths as laid out (7 or 9).
+/// The open 独立选点列表's column widths as laid out (7 or 9), relayed by the main window for the
+/// primary list only: the secondary list's widths are not remembered.
 #[tauri::command]
 fn set_suggestions_columns(state: tauri::State<'_, State>, columns: Vec<u32>) {
     state.tables.lock().unwrap().frame_columns = columns;
@@ -1104,11 +1174,21 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
-            // The 独立选点列表's own close box (AnalysisFrame windowClosing → toggleBestMoves).
-            WindowEvent::CloseRequested { .. } if window.label() == SUGGESTIONS_WINDOW => {
+            // Either 独立选点列表's own close box (AnalysisFrame windowClosing → toggleBestMoves):
+            // both lists close and the primary one's bounds are written.
+            WindowEvent::CloseRequested { .. }
+                if matches!(window.label(), SUGGESTIONS_WINDOW | SUGGESTIONS_SUB_WINDOW) =>
+            {
                 let app = window.app_handle();
                 if let Some(frame) = app.get_webview_window(SUGGESTIONS_WINDOW) {
                     frame_closing(app, &app.state::<State>(), &frame);
+                }
+                for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW] {
+                    if label != window.label() {
+                        if let Some(other) = app.get_webview_window(label) {
+                            let _ = other.destroy();
+                        }
+                    }
                 }
                 let _ = app.emit_to("main", SUGGESTIONS_CLOSED_EVENT, ());
             }
@@ -1117,10 +1197,14 @@ pub fn run() {
                 let shared = app.state::<State>();
                 if !prepare_exit(app, &shared) {
                     api.prevent_close();
-                } else if let Some(frame) = app.get_webview_window(SUGGESTIONS_WINDOW) {
-                    // Java exits with the main window; the tool window must not keep the
+                } else {
+                    // Java exits with the main window; the tool windows must not keep the
                     // application running.
-                    let _ = frame.destroy();
+                    for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW] {
+                        if let Some(frame) = app.get_webview_window(label) {
+                            let _ = frame.destroy();
+                        }
+                    }
                 }
             }
             WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
@@ -1185,6 +1269,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         output::recovery_thumbnail,
         open_suggestions_frame,
         close_suggestions_frame,
+        open_suggestions_sub,
+        close_suggestions_sub,
         set_main_list_columns,
         set_suggestions_columns,
         main_list_columns
@@ -1204,6 +1290,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         output::recovery_thumbnail,
         open_suggestions_frame,
         close_suggestions_frame,
+        open_suggestions_sub,
+        close_suggestions_sub,
         set_main_list_columns,
         set_suggestions_columns,
         main_list_columns,

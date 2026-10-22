@@ -67,7 +67,7 @@ impl Workbench {
             self.doc.revision += 1;
         }
         if applied.changed {
-            self.store.retain_valid(&self.doc.record);
+            self.retain_valid_analysis();
         }
         Ok(applied)
     }
@@ -486,10 +486,10 @@ impl Workbench {
         let komi = self.doc.record.info.komi;
         if komi != self.komi {
             self.komi = komi;
-            self.store.reset(self.doc.id);
+            self.reset_analysis();
             self.limit_stop = None;
         }
-        self.store.retain_valid(&self.doc.record);
+        self.retain_valid_analysis();
         let cursor = Some(kept.cursor)
             .filter(|&n| self.doc.record.contains(n))
             .unwrap_or(ROOT);

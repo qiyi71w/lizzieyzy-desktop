@@ -1,12 +1,14 @@
-//! Application flow for engines and analysis: which engine is in the foreground, the user's
-//! analysis pause, analysis limits, the stored analysis of the open document, and the engine
-//! settings. The engine runtime owns processes and protocol; this module decides what the
-//! foreground engine should do and where its results belong.
+//! Application flow for engines and analysis: which engine is in the foreground, 双引擎模式's
+//! secondary engine, the user's analysis pause, analysis limits, the stored analysis of the open
+//! document, and the engine settings. The engine runtime owns processes and protocol; this
+//! module decides what the foreground and the secondary engine should do and where their
+//! results belong.
 //!
 //! Results are stored on the node they were requested for, even when the user has moved on
 //! (a valid result for another node is history, not noise); only the current node's results are
 //! shown as current analysis. Results for a document that is no longer open, or for a komi that
-//! no longer applies, are dropped.
+//! no longer applies, are dropped. Each engine's results go to its own store: the secondary
+//! engine is never taken for the foreground engine.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,7 +17,7 @@ use super::Workbench;
 use crate::api::{
     ApiError, CandidateView, ConsoleLineKind, ConsoleLineView, EngineEntryView, EngineFailureView, EngineNotice,
     EngineScope, EngineSettingsView, EngineState, EngineView, ErrorKind, ForegroundEngineView, HistoryPoint,
-    NodeAnalysisView, RulesPromptView,
+    NodeAnalysisView, RulesPromptView, SecondaryEngineView, SecondaryView,
 };
 use crate::browse::Navigation;
 use crate::display::{self, BoardOverlayView};
@@ -28,7 +30,12 @@ use crate::engine::runtime::{
 };
 use crate::record::{BoardSize, DocumentEdit, GameRecord, NodeId, Position, Stone, ROOT};
 use crate::sanitize::sanitize;
+use crate::settings::ExtraMode;
 use crate::viewpoint::{ShownValues, Viewpoint};
+
+/// What a rules decision is about: the session rules revision, the foreground engine and the
+/// 双引擎模式 secondary engine taking part (`SessionRulesSynchronizer` checks both endpoints).
+pub(super) type RulesKey = (u64, InstanceId, Option<InstanceId>);
 
 /// The rules the open session asks for (`BoardHistoryList.SessionRulesTarget`).
 #[derive(Clone, Debug, Default)]
@@ -106,7 +113,14 @@ impl AnalysisStore {
             self.metadata.get(&node).copied().unwrap_or_default(), self.ownership(rec, node)))
     }
 
-    pub(super) fn load(&mut self, rec: &GameRecord, settings: &AnalysisSettings, no_sugg_circle: bool) {
+    /// The analysis saved under `tags` in every node of `rec`.
+    pub(super) fn load(
+        &mut self,
+        rec: &GameRecord,
+        tags: [&str; 2],
+        settings: &AnalysisSettings,
+        no_sugg_circle: bool,
+    ) {
         let max = if settings.limit_max_suggestion > 0 && !no_sugg_circle {
             settings.limit_max_suggestion as usize
         } else { 361 };
@@ -114,7 +128,16 @@ impl AnalysisStore {
         while let Some(id) = pending.pop() {
             let node = rec.node(id);
             pending.extend(node.children.iter().copied());
-            if let Some(p) = crate::formats::saved_analysis::load(&node.properties, id, rec.size, node.to_play, rec.info.komi, max, settings.limit_branch_length) {
+            if let Some(p) = crate::formats::saved_analysis::load(
+                &node.properties,
+                tags,
+                id,
+                rec.size,
+                node.to_play,
+                rec.info.komi,
+                max,
+                settings.limit_branch_length,
+            ) {
                 self.insert(id, node.stamp, p.view, p.ownership);
                 self.metadata.insert(id, p.metadata);
             }
@@ -239,7 +262,7 @@ impl Workbench {
         self.logs.push(LogLine { warn, text });
     }
 
-    // -------------------------------------------------------------------- the foreground wish
+    // -------------------------------------------------------------------- the engines' wishes
 
     fn analysis_target(&self) -> Target {
         Target {
@@ -255,44 +278,73 @@ impl Workbench {
         }
     }
 
-    /// The user chose to analyse this session with the foreground engine's current rules.
-    fn rules_overridden(&self) -> bool {
+    /// 双引擎模式 is shown: the secondary engine analyses with the foreground engine.
+    pub(super) fn double_engine(&self) -> bool {
+        self.config.ui.extra_mode == ExtraMode::DoubleEngine
+    }
+
+    /// The secondary engine whose rules take part: 双引擎模式 with a secondary engine that has
+    /// started up (one still loading does not hold back the foreground engine).
+    fn rules_secondary(&self) -> Option<InstanceId> {
         self.engines
-            .foreground()
-            .is_some_and(|fg| self.rules_override == Some((self.rules_revision, fg)))
+            .secondary()
+            .filter(|&s| self.double_engine() && self.engines.phase(s) == Some(Phase::Ready))
+    }
+
+    fn rules_key(&self) -> Option<RulesKey> {
+        Some((self.rules_revision, self.engines.foreground()?, self.rules_secondary()))
+    }
+
+    /// The user chose to analyse this session with the engines' current rules.
+    fn rules_overridden(&self) -> bool {
+        self.rules_key().is_some_and(|key| self.rules_override == Some(key))
     }
 
     /// `SessionRulesSynchronizer.permitsOrdinaryAnalysis`: no declared rules, an explicit
-    /// continue, or the engine confirmed exactly the declared rules.
+    /// continue, or the foreground engine and a taking-part secondary engine both confirmed
+    /// exactly the declared rules.
     fn rules_permit_analysis(&self) -> bool {
-        let Some(fg) = self.engines.foreground() else {
+        let Some((_, fg, secondary)) = self.rules_key() else {
             return true;
         };
         match &self.session_rules {
             SessionRules::Unspecified => true,
             _ if self.rules_overridden() => true,
-            SessionRules::Valid { rules, .. } => self.engines.rules_outcome(fg, rules) == RulesOutcome::Confirmed,
+            SessionRules::Valid { rules, .. } => [Some(fg), secondary]
+                .into_iter()
+                .flatten()
+                .all(|id| self.engines.rules_outcome(id, rules) == RulesOutcome::Confirmed),
             SessionRules::Invalid { .. } => false,
         }
     }
 
-    /// Asks once per (rules target, engine) when the declared rules cannot be applied
-    /// (`offerContinueAfterRulesFailure` / `requestLifecycleRulesOverride`).
+    /// Asks once per (rules target, engines) when the declared rules cannot be applied
+    /// (`offerContinueAfterRulesFailure` / `requestLifecycleRulesOverride`); a secondary engine
+    /// that cannot apply them asks too (`rulesFailure = mirrorRules`).
     fn check_rules_prompt(&mut self) {
-        let Some(fg) = self.engines.foreground() else { return };
+        let Some(key @ (_, fg, secondary)) = self.rules_key() else {
+            return;
+        };
         if self.engines.phase(fg) != Some(Phase::Ready) || self.rules_permit_analysis() {
             return;
         }
-        let key = (self.rules_revision, fg);
         if self.rules_prompted == Some(key) {
             return;
         }
-        let (target, failure) = match &self.session_rules {
-            SessionRules::Invalid { raw } => (raw.clone(), "INVALID_DECLARATION"),
-            SessionRules::Valid { raw, rules } => match self.engines.rules_outcome(fg, rules) {
-                RulesOutcome::Failed(f) => (raw.clone().unwrap_or_else(|| rules.field_summary()), f),
-                _ => return,
-            },
+        let (target, failure, engine) = match &self.session_rules {
+            SessionRules::Invalid { raw } => (raw.clone(), "INVALID_DECLARATION", fg),
+            SessionRules::Valid { raw, rules } => {
+                let failed = [Some(fg), secondary].into_iter().flatten().find_map(|id| {
+                    match self.engines.rules_outcome(id, rules) {
+                        RulesOutcome::Failed(f) => Some((id, f)),
+                        _ => None,
+                    }
+                });
+                match failed {
+                    Some((id, f)) => (raw.clone().unwrap_or_else(|| rules.field_summary()), f, id),
+                    None => return,
+                }
+            }
             SessionRules::Unspecified => return,
         };
         self.rules_prompted = Some(key);
@@ -301,17 +353,17 @@ impl Workbench {
         self.rules_prompt = Some(RulesPromptView {
             prompt: self.next_prompt,
             target,
-            observed: self.engines.confirmed_rules(fg).map(KataRules::field_summary),
+            observed: self.engines.confirmed_rules(engine).map(KataRules::field_summary),
             failure: failure.to_string(),
         });
     }
 
-    /// YES: analyse with the engine's current rules for this target and engine. NO: pause.
+    /// YES: analyse with the engines' current rules for this target and engines. NO: pause.
     pub fn answer_rules_prompt(&mut self, prompt: u64, accept: bool) -> bool {
         let Some((_, key)) = self.pending_prompt.take_if(|(id, _)| *id == prompt) else {
             return false;
         };
-        if self.engines.foreground().map(|fg| (self.rules_revision, fg)) != Some(key) {
+        if self.rules_key() != Some(key) {
             return false; // another document, rules or engine since the question
         }
         if accept {
@@ -340,16 +392,28 @@ impl Workbench {
         self.pending_prompt = None;
     }
 
-    /// Tells the runtime what the foreground engine should do now.
+    /// Tells the runtime what the foreground and the secondary engine should do now. Both hold
+    /// the browsing position; the secondary engine analyses only in 双引擎模式 and only while the
+    /// foreground engine may (the user's pause and a foreground limit stop it too, as Java
+    /// mirrors the primary engine's commands), and stops alone at its own limit.
     pub(super) fn sync_engine(&mut self) {
         let here = (self.doc.id, self.cursor);
+        // Java resumes after a limit stop once the position changes.
         if self.limit_stop.is_some_and(|l| l != here) {
-            // Java resumes after a limit stop once the position changes.
             self.limit_stop = None;
+        }
+        if self.secondary_limit_stop.is_some_and(|l| l != here) {
+            self.secondary_limit_stop = None;
         }
         let analyse =
             !self.paused && !self.benchmark_running() && self.limit_stop.is_none() && self.rules_permit_analysis();
         let target = self.analysis_target();
+        if self.double_engine() {
+            self.engines
+                .want_secondary(Some(target.clone()), analyse && self.secondary_limit_stop.is_none());
+        } else {
+            self.engines.want_secondary(None, false);
+        }
         self.engines.want(Some(target), analyse);
         self.check_rules_prompt();
     }
@@ -387,7 +451,7 @@ impl Workbench {
         };
         self.cursor = ROOT;
         self.sounds.clear();
-        self.store.reset(id);
+        self.reset_analysis();
         self.reset_editing();
         self.publish_record_rules(None);
     }
@@ -414,6 +478,11 @@ impl Workbench {
             .map(|p| p.id.clone());
         if current.as_deref() == Some(profile.id.as_str()) {
             return Ok(false);
+        }
+        if self.double_engine() && self.secondary_profile().as_deref() == Some(profile.id.as_str()) {
+            // `rejectSameEngineSelection`: the notice is part of the next view.
+            self.engine_notice = Some(EngineNotice::SameEngine);
+            return Ok(true);
         }
         // An engine's board size applies to a new empty game (`reopenOnlyBoard`).
         let size = BoardSize {
@@ -494,6 +563,123 @@ impl Workbench {
         !targets.is_empty()
     }
 
+    /// The profile id of the secondary engine.
+    fn secondary_profile(&self) -> Option<String> {
+        self.engines
+            .secondary()
+            .and_then(|s| self.engines.profile_of(s))
+            .map(|p| p.id.clone())
+    }
+
+    /// 布局模式 > 默认模式 / 双引擎模式 (`Config.toggleExtraMode`). Leaving 双引擎模式 stops the
+    /// secondary engine's analysis and keeps it running (`nameCmdfornoponder`); entering resumes
+    /// a chosen one at the current position. Remembered across restarts (`ui.extra-mode`).
+    pub fn set_extra_mode(&mut self, mode: ExtraMode) -> Result<bool, ApiError> {
+        if self.config.ui.extra_mode == mode {
+            return Ok(false);
+        }
+        self.commit_config(|c| c.ui.extra_mode = mode)?;
+        self.sync_engine();
+        Ok(true)
+    }
+
+    /// Secondary engine menu `[n] name` (`switchEngine(index, false)`): only in 双引擎模式, never
+    /// the foreground engine (`rejectSameEngineSelection`). A running instance (kept or
+    /// preloaded) is reused; a new one starts with the game komi (`targetKomi = frame.komi`).
+    /// The previous secondary engine keeps running with fast engine change, and is chosen again
+    /// if the new one fails while starting (`rollbackSecondaryEngineSelection`).
+    pub fn switch_secondary_engine(&mut self, index: u32) -> Result<bool, ApiError> {
+        let Some(profile) = self.config.engine.engines.get(index as usize) else {
+            return Err(ApiError::new(ErrorKind::InvalidArgument, format!("no engine {index}")));
+        };
+        if !self.double_engine() || self.secondary_profile().as_deref() == Some(profile.id.as_str()) {
+            return Ok(false);
+        }
+        // `submitEngineSwitchIfAvailable` refuses every engine switch during setup mode, the
+        // secondary one included (a restart of the chosen one is not refused).
+        if self.setup_mode() {
+            self.engine_notice = Some(EngineNotice::SetupModeActive);
+            return Ok(true);
+        }
+        let foreground = self
+            .engines
+            .foreground()
+            .and_then(|f| self.engines.profile_of(f))
+            .map(|p| p.id.clone());
+        if foreground.as_deref() == Some(profile.id.as_str()) {
+            self.engine_notice = Some(EngineNotice::SameEngine);
+            return Ok(true);
+        }
+        self.seat_secondary(index);
+        self.sync_engine();
+        Ok(true)
+    }
+
+    /// Makes engine `index` (a listed engine other than the foreground one) the secondary
+    /// engine: a running instance is reused, a new one started; a failed start leaves the seat
+    /// as it was.
+    fn seat_secondary(&mut self, index: u32) {
+        let profile = self.config.engine.engines[index as usize].clone();
+        let instance = match self.engines.instance_of(&profile.id) {
+            Some(i) => i,
+            None => match self.engines.start(&profile, self.bootstrap(&profile)) {
+                Ok(i) => {
+                    self.log(
+                        false,
+                        format!(
+                            "secondary engine start [{}] {}",
+                            profile.name,
+                            sanitize(&profile.command)
+                        ),
+                    );
+                    i
+                }
+                Err(f) => {
+                    self.engine_failed(*f);
+                    return;
+                }
+            },
+        };
+        let keep = self.config.engine.analysis.fast_engine_change;
+        self.secondary_fallback = match self.engines.secondary() {
+            Some(p) if keep && self.engines.phase(instance) != Some(Phase::Ready) => Some((instance, p)),
+            _ => None,
+        };
+        self.secondary_limit_stop = None;
+        self.secondary_limit_tip_shown = false;
+        self.engines.set_secondary(Some(instance), keep);
+    }
+
+    /// Secondary engine menu > "重启当前引擎" (`restartEngine2`): a new process of the same
+    /// engine, synced to the current position.
+    pub fn restart_secondary_engine(&mut self) -> Result<bool, ApiError> {
+        let Some(secondary) = self.engines.secondary() else {
+            return Ok(false);
+        };
+        let Some(id) = self.secondary_profile() else {
+            return Ok(false);
+        };
+        self.engines.terminate(secondary);
+        self.secondary_fallback = None;
+        if let Some(index) = self.config.engine.index_of(&id) {
+            self.seat_secondary(index as u32);
+        }
+        self.sync_engine();
+        Ok(true)
+    }
+
+    /// Secondary engine menu > "关闭当前引擎" (`killThisEngines2`): the process ends and no
+    /// secondary engine is chosen; its stored results stay.
+    pub fn shutdown_secondary_engine(&mut self) -> bool {
+        let Some(secondary) = self.engines.secondary() else {
+            return false;
+        };
+        self.engines.terminate(secondary);
+        self.secondary_fallback = None;
+        self.sync_engine();
+        true
+    }
+
     /// User pause / resume (`togglePonderMannul`). Resuming also restarts an analysis a limit
     /// stopped. Never written to disk.
     pub fn toggle_analysis(&mut self) -> Result<bool, ApiError> {
@@ -515,6 +701,7 @@ impl Workbench {
             self.stop_benchmark();
         }
         self.limit_stop = None;
+        self.secondary_limit_stop = None;
         self.sync_engine();
         Ok(true)
     }
@@ -522,9 +709,12 @@ impl Workbench {
     /// Java enables pondering when H is turned on; switching H off resumes the same analysis
     /// path as an ordinary resume, including limits and session-rules handling.
     pub fn toggle_raw_net(&mut self) -> bool {
-        if !self.engines.toggle_raw_net() { return false; }
+        if !self.engines.toggle_raw_net(self.double_engine()) {
+            return false;
+        }
         self.paused = false;
         self.limit_stop = None;
+        self.secondary_limit_stop = None;
         self.sync_engine();
         true
     }
@@ -533,12 +723,34 @@ impl Workbench {
         if !self.engines.stop_raw_net() { return false; }
         self.paused = false;
         self.limit_stop = None;
+        self.secondary_limit_stop = None;
         self.sync_engine();
         true
     }
 
     pub(super) fn raw_net_view(&self) -> Option<crate::engine::raw_net::RawNetView> {
         self.engines.raw_net_view(&self.analysis_target())
+    }
+
+    /// Drops every stored result of both engines for a new document or analysis context.
+    pub(super) fn reset_analysis(&mut self) {
+        self.store.reset(self.doc.id);
+        self.secondary_store.reset(self.doc.id);
+    }
+
+    /// Java's `clearBestMovesAfter(start)` for a changed analysis context (komi, manual rules):
+    /// the secondary engine's results only go in 双引擎模式; otherwise they are kept and saved.
+    fn clear_best_moves(&mut self) {
+        self.store.reset(self.doc.id);
+        if self.double_engine() {
+            self.secondary_store.reset(self.doc.id);
+        }
+    }
+
+    /// Drops both engines' results whose node was removed or edited.
+    pub(super) fn retain_valid_analysis(&mut self) {
+        self.store.retain_valid(&self.doc.record);
+        self.secondary_store.retain_valid(&self.doc.record);
     }
 
     /// The game komi chosen by the user (toolbar field, console `komi`): recorded in the game,
@@ -557,7 +769,7 @@ impl Workbench {
         Ok(true)
     }
 
-    /// Every komi change of the game: the document records it and every stored analysis of the
+    /// Every komi change of the game: the document records it and the stored analysis of the
     /// game is discarded (`clearBestMovesAfter(start)`).
     fn apply_komi(&mut self, komi: f64) -> bool {
         let recorded = matches!(self.edit_document(DocumentEdit::SetKomi { komi }), Ok(true));
@@ -565,7 +777,7 @@ impl Workbench {
             return false;
         }
         self.komi = komi;
-        self.store.reset(self.doc.id);
+        self.clear_best_moves();
         self.limit_stop = None;
         true
     }
@@ -592,7 +804,7 @@ impl Workbench {
             c.engine.auto_load_kata_rules = auto_load;
         })?;
         // A manual rules choice discards every stored analysis (`clearBestMovesAfter(start)`).
-        self.store.reset(self.doc.id);
+        self.clear_best_moves();
         self.session_rules = SessionRules::Valid {
             raw: None,
             rules: parsed,
@@ -620,7 +832,7 @@ impl Workbench {
             }
             _ => {}
         }
-        match self.engines.send_user(command) {
+        match self.engines.send_user(command, self.double_engine()) {
             Ok(()) => Ok(None),
             Err(UserCommandError::Empty) => Ok(Some("")),
             Err(UserCommandError::NoEngine) => Ok(Some("LizzieFrame.setParamNoEngineHint")),
@@ -702,14 +914,14 @@ impl Workbench {
         let length = self.config.engine.analysis.limit_branch_length;
         let capture = !self.config.edit.no_capture;
         let record = self.doc.record.clone();
-        for (node, (_, result)) in self.store.nodes.iter_mut() {
+        for (node, (_, result)) in self.store.nodes.iter_mut().chain(self.secondary_store.nodes.iter_mut()) {
             fill_pv_captures(result, &record.position(*node), length, capture);
         }
     }
 
     /// Engine settings saved (MoreEngines close). New entries get ids, one default at most.
     /// Engines whose launch-relevant fields changed restart; removed ones end. The foreground
-    /// engine comes back as the foreground engine.
+    /// and the secondary engine come back in their seats (`updateEnginesWhileMarkedUpdating`).
     pub fn save_engine_settings(
         &mut self,
         mut engines: Vec<EngineProfile>,
@@ -740,7 +952,8 @@ impl Workbench {
             .foreground()
             .and_then(|f| self.engines.profile_of(f))
             .map(|p| p.id.clone());
-        let mut restart_fg = None;
+        let secondary_profile = self.secondary_profile();
+        let (mut restart_fg, mut restart_secondary) = (None, None);
         for (instance, id, _) in self.engines.running() {
             let launch = |p: &EngineProfile| (p.command.clone(), p.initial_command.clone(), p.width, p.height);
             let before = old.iter().find(|p| p.id == id).map(launch);
@@ -751,10 +964,17 @@ impl Workbench {
                 if fg_profile.as_deref() == Some(id.as_str()) {
                     restart_fg = after;
                 }
+                if secondary_profile.as_deref() == Some(id.as_str()) {
+                    restart_secondary = after;
+                }
             }
         }
         if let Some(i) = restart_fg {
             self.switch_engine(i as u32)?;
+        }
+        if let Some(i) = restart_secondary {
+            self.seat_secondary(i as u32);
+            self.sync_engine();
         }
         Ok(true)
     }
@@ -807,7 +1027,19 @@ impl Workbench {
                 }
                 RuntimeEvent::Rules { .. } => {}
                 RuntimeEvent::RawNet { .. } => {}
-                RuntimeEvent::Failed(f) => self.engine_failed(f),
+                RuntimeEvent::Failed(f) => {
+                    // A secondary engine that fails while starting gives its seat back to the
+                    // one it replaced, when that one still runs.
+                    if let Some((_, previous)) = self.secondary_fallback.take_if(|(new, _)| *new == f.instance) {
+                        if f.during_startup
+                            && self.engines.phase(previous).is_some()
+                            && self.engines.secondary().is_none()
+                        {
+                            self.engines.set_secondary(Some(previous), true);
+                        }
+                    }
+                    self.engine_failed(f);
+                }
                 RuntimeEvent::Analysis {
                     instance,
                     doc,
@@ -820,9 +1052,11 @@ impl Workbench {
                     line,
                     elapsed,
                 } => {
-                    // Only the foreground engine's results count: a switched-away, preloaded or
-                    // background engine's late lines have no effect.
-                    if Some(instance) != self.engines.foreground() {
+                    // Only the foreground and the secondary engine's results count, each in its
+                    // own store: a switched-away, preloaded or background engine's late lines
+                    // have no effect.
+                    let secondary = Some(instance) == self.engines.secondary();
+                    if !secondary && Some(instance) != self.engines.foreground() {
                         continue;
                     }
                     if doc != self.doc.id
@@ -840,15 +1074,26 @@ impl Workbench {
                         continue;
                     };
                     let visits = result.visits;
-                    let replace = self.store.get(rec, node).is_none_or(|old| more_visits(&result, old));
+                    let store = if secondary {
+                        &mut self.secondary_store
+                    } else {
+                        &mut self.store
+                    };
+                    let replace = store.get(rec, node).is_none_or(|old| more_visits(&result, old));
                     if replace {
                         let mut result = result;
                         let limit = self.config.engine.analysis.limit_branch_length;
                         fill_pv_captures(&mut result, &rec.position(node), limit, !self.config.edit.no_capture);
-                        self.store.insert(node, stamp, result, ownership);
+                        store.insert(node, stamp, result, ownership);
                     }
-                    if node == self.cursor && !self.paused && self.limit_stop.is_none() && !self.engines.raw_net_active() {
+                    let running = node == self.cursor
+                        && !self.paused
+                        && self.limit_stop.is_none()
+                        && !self.engines.raw_net_active();
+                    if running && !secondary {
                         self.check_limits(visits, elapsed);
+                    } else if running && self.secondary_limit_stop.is_none() {
+                        self.check_secondary_limits(visits, elapsed);
                     }
                 }
             }
@@ -860,10 +1105,9 @@ impl Workbench {
         changed
     }
 
-    /// `Leelaz` analysis limits: past the time or visit limit the analysis of this node stops
-    /// (it resumes when the position changes) and the notice is shown once per engine start. A
-    /// time limit of 0 means 9999 minutes (`Config.java:2153-2155`).
-    fn check_limits(&mut self, visits: u64, elapsed: std::time::Duration) {
+    /// `Leelaz` analysis limits: past the time or visit limit (`limit-playout`, `limit-time`).
+    /// A time limit of 0 means 9999 minutes (`Config.java:2153-2155`).
+    fn limit_reached(&self, visits: u64, elapsed: std::time::Duration) -> bool {
         let a = &self.config.engine.analysis;
         let limit_seconds = match a.max_analyze_time_seconds {
             0 => 9999 * 60,
@@ -871,12 +1115,32 @@ impl Workbench {
         };
         let by_visits = a.limit_playout && visits > a.limit_playouts;
         let by_time = a.limit_time && elapsed.as_secs_f64() > limit_seconds as f64;
-        if !(by_visits || by_time) {
+        by_visits || by_time
+    }
+
+    /// The foreground engine's limit stops the analysis of this node, the secondary engine's
+    /// too (it resumes when the position changes); the notice is shown once per engine start.
+    fn check_limits(&mut self, visits: u64, elapsed: std::time::Duration) {
+        if !self.limit_reached(visits, elapsed) {
             return;
         }
         self.limit_stop = Some((self.doc.id, self.cursor));
-        if a.show_ponder_limited_tips && !self.limit_tip_shown {
+        if self.config.engine.analysis.show_ponder_limited_tips && !self.limit_tip_shown {
             self.limit_tip_shown = true;
+            self.engine_notice = Some(EngineNotice::StoppedByLimit);
+        }
+        self.sync_engine();
+    }
+
+    /// The secondary engine's own limit stops only its analysis of this node (Java `leelaz2`
+    /// stops itself; the stop is not mirrored back), with the notice once per choice.
+    fn check_secondary_limits(&mut self, visits: u64, elapsed: std::time::Duration) {
+        if !self.limit_reached(visits, elapsed) {
+            return;
+        }
+        self.secondary_limit_stop = Some((self.doc.id, self.cursor));
+        if self.config.engine.analysis.show_ponder_limited_tips && !self.secondary_limit_tip_shown {
+            self.secondary_limit_tip_shown = true;
             self.engine_notice = Some(EngineNotice::StoppedByLimit);
         }
         self.sync_engine();
@@ -948,9 +1212,23 @@ impl Workbench {
             })
         });
         let rules = fg.and_then(|f| self.engines.confirmed_rules(f));
+        let secondary = self.engines.secondary().and_then(|s| {
+            let profile = self.engines.profile_of(s)?;
+            let here = (self.doc.id, self.cursor);
+            Some(SecondaryEngineView {
+                index: self.config.engine.index_of(&profile.id)? as u32,
+                name: self.engines.display_name(s)?,
+                katago: self.engines.is_katago(s),
+                can_analyse: self.engines.can_analyse(s),
+                ready: self.engines.complete(s),
+                analysing: self.engines.analysing_by(s, here.0, here.1),
+                stopped_by_limit: self.secondary_limit_stop == Some(here),
+            })
+        });
         EngineView {
             engines,
             foreground,
+            secondary,
             paused: self.paused,
             analysing: self.engines.analysing(self.doc.id, self.cursor),
             stopped_by_limit: self.limit_stop == Some((self.doc.id, self.cursor)),
@@ -979,7 +1257,12 @@ impl Workbench {
     }
 
     pub(super) fn current_analysis(&self) -> Option<NodeAnalysisView> {
-        let s = self.store.get(&self.doc.record, self.cursor)?;
+        self.shown_analysis(&self.store)
+    }
+
+    /// `store`'s result for the current node as the displays show it.
+    fn shown_analysis(&self, store: &AnalysisStore) -> Option<NodeAnalysisView> {
+        let s = store.get(&self.doc.record, self.cursor)?;
         // Stored results keep the engine's numbers; what is shown follows the settings now. The
         // komi is the one the result was analysed with (results of another komi are dropped).
         let vp = self.viewpoint();
@@ -1022,6 +1305,33 @@ impl Workbench {
         })
     }
 
+    /// 双引擎模式's right board (`boardRenderer2`): the secondary engine's results of the current
+    /// node, the marks drawn from them, its pure network and its Kata形势 (`estimateArray2`, the
+    /// previous position's until this one has its own).
+    pub(super) fn secondary_view(&self) -> Option<SecondaryView> {
+        if !self.double_engine() {
+            return None;
+        }
+        let rec = &self.doc.record;
+        let store = &self.secondary_store;
+        let ownership = self.estimate.state.shown.then(|| {
+            store
+                .ownership(rec, self.cursor)
+                .or_else(|| rec.parent(self.cursor).and_then(|p| store.ownership(rec, p)))
+                .cloned()
+        });
+        Some(SecondaryView {
+            analysis: self.shown_analysis(store),
+            board: self.overlay(store),
+            raw_net: self
+                .engines
+                .secondary()
+                .and_then(|s| self.engines.raw_net_view_of(s, &self.analysis_target())),
+            ownership: ownership.flatten(),
+            history: self.history_of(store),
+        })
+    }
+
     /// The current line (root to the line end) and, off the trunk, the rest of the main trunk.
     pub(super) fn graph_nodes(&self) -> Vec<NodeId> {
         let rec = &self.doc.record;
@@ -1037,7 +1347,11 @@ impl Workbench {
 
     /// Stored results on the current line (root to the line end) and the main trunk.
     pub(super) fn history(&self) -> Vec<HistoryPoint> {
-        if self.store.is_empty() {
+        self.history_of(&self.store)
+    }
+
+    fn history_of(&self, store: &AnalysisStore) -> Vec<HistoryPoint> {
+        if store.is_empty() {
             return Vec::new();
         }
         let rec = &self.doc.record;
@@ -1045,7 +1359,7 @@ impl Workbench {
         self.graph_nodes()
             .into_iter()
             .filter_map(|n| {
-                let a = self.store.get(rec, n)?;
+                let a = store.get(rec, n)?;
                 Some(HistoryPoint {
                     node: n,
                     move_number: rec.node(n).move_number,
@@ -1063,11 +1377,16 @@ impl Workbench {
 
     /// Move numbers, 落子评价 and 下一手 详细 of the current position.
     pub(super) fn board_overlay(&self) -> BoardOverlayView {
+        self.overlay(&self.store)
+    }
+
+    /// The board marks of the current position, the analysis-based ones from `store`.
+    fn overlay(&self, store: &AnalysisStore) -> BoardOverlayView {
         let rec = &self.doc.record;
         let s = &self.config.display;
         let path = rec.path_to(self.cursor);
         let numbering = display::numbering(rec, &path);
-        let analysis = |n: NodeId| self.store.get(rec, n);
+        let analysis = |n: NodeId| store.get(rec, n);
         BoardOverlayView {
             move_numbers: display::number_labels(rec, &path, &numbering, s),
             ranks: display::rank_marks(rec, &path, &numbering, s, analysis),

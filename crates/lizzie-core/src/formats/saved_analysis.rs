@@ -1,6 +1,8 @@
-//! The primary analysis saved in a record (`LZ` on a move, `LZOP` on the root or a setup node),
-//! read with the fixed Java meaning (`SGFParser.applyAnalysisTagOnDetachedHistory`,
-//! `applyAnalysisHeader`, `parseAnalysisPlayouts`, `applyParsedAnalysisInfo`).
+//! Analysis saved in a record: the primary engine's (`LZ` on a move, `LZOP` on the root or a
+//! setup node) and 双引擎模式's secondary engine's (`LZ2`, `LZOP2`), read with the fixed Java
+//! meaning (`SGFParser.applyAnalysisTagOnDetachedHistory`, `applyAnalysisHeader`,
+//! `parseAnalysisPlayouts`, `applyParsedAnalysisInfo`). Both use the same payload
+//! (`formatAnalysisPayload`).
 //!
 //! The payload's first line is the header `<engine> <winrate> <playouts> [<scoreMean>
 //! [<scoreStdev> [<pda>]]] [rootVisits=<n>]`, the win rate being that of the side that just moved;
@@ -27,14 +29,24 @@ pub struct SavedAnalysis {
     pub pda: f64,
 }
 
-/// The node's saved primary analysis; the last valid `LZ`/`LZOP` payload wins, as Java applies
-/// them in order.
-pub fn primary(properties: &[Property]) -> Option<SavedAnalysis> {
+/// The primary engine's tags: on a move node, and on the root or a setup node.
+pub const PRIMARY: [&str; 2] = ["LZ", "LZOP"];
+/// The 双引擎模式 secondary engine's tags (`isSecondaryEngineAnalysisTag`).
+pub const SECONDARY: [&str; 2] = ["LZ2", "LZOP2"];
+
+/// The node's saved analysis under `tags`; the last valid payload wins, as Java applies them in
+/// order.
+pub fn saved(properties: &[Property], tags: [&str; 2]) -> Option<SavedAnalysis> {
     properties
         .iter()
-        .filter(|p| p.id == "LZ" || p.id == "LZOP")
+        .filter(|p| tags.contains(&p.id.as_str()))
         .rev()
         .find_map(|p| p.values.first().and_then(|v| read(v)))
+}
+
+/// The node's saved primary analysis.
+pub fn primary(properties: &[Property]) -> Option<SavedAnalysis> {
+    saved(properties, PRIMARY)
 }
 
 fn number(text: &str, default: f64) -> f64 {
@@ -130,9 +142,12 @@ pub(crate) struct Payload {
     pub metadata: Metadata,
 }
 
-/// Detached-history parsing: the header owns the node summary, not the first candidate.
+/// Detached-history parsing of the payload under `tags`: the header owns the node summary, not
+/// the first candidate.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn load(
     properties: &[Property],
+    tags: [&str; 2],
     node: NodeId,
     size: BoardSize,
     to_play: Stone,
@@ -143,7 +158,7 @@ pub(crate) fn load(
     let (payload, summary) = properties
         .iter()
         .rev()
-        .filter(|p| matches!(p.id.as_str(), "LZ" | "LZOP"))
+        .filter(|p| tags.contains(&p.id.as_str()))
         .filter_map(|p| p.values.first())
         .find_map(|p| read(p).map(|s| (p, s)))?;
     let (header, detail) = payload.split_once('\n').unwrap_or((payload, ""));

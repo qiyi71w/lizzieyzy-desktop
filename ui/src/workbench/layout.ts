@@ -90,6 +90,20 @@ export function inFrameLayout(width: number, height: number): Panels {
   };
 }
 
+/** 双引擎模式's main panel: the board size and the two boards' rectangles. */
+export interface DualPanels {
+  size: number;
+  left: Rect;
+  right: Rect;
+}
+
+/** 双引擎模式 (LizzieFrame.java:6640-6661): two square boards side by side from the panel's top
+ *  left, the primary engine's on the left; nothing else but the status strips at y = size. */
+export function doubleEngineLayout(width: number, height: number, cols: number, rows: number): DualPanels {
+  const size = Math.max(Math.min(i(width / 2), height - 20), Math.max(cols, rows) + 5);
+  return { size, left: { x: 0, y: 0, w: size, h: size }, right: { x: size, y: 0, w: size, h: size } };
+}
+
 export interface BoardGeom {
   /** Wood rectangle relative to the panel the board was laid out in. */
   x: number;

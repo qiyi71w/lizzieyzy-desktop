@@ -23,6 +23,9 @@ function visible(when: string | undefined): boolean {
       return !navigator.userAgent.includes("Windows");
     case "contribute":
       return true;
+    // Menu.setEngineMenuone2status: the secondary engine menu shows in 双引擎模式 only.
+    case "doubleEngine":
+      return state.view?.settings.extra_mode === "DoubleEngine";
     default:
       return false;
   }
@@ -115,21 +118,27 @@ function dropdown(items: MenuNode[]): HTMLElement {
     }
     if (!visible(node.when)) continue;
     if (node.t === "dynamic" && node.key === "engine.list") {
+      // engine.select-secondary: the same list for 双引擎模式's secondary slot (Menu.java:7453-7485).
+      const secondary = node.id === "engine.select-secondary";
+      const current = secondary ? state.view?.engine.secondary : state.view?.engine.foreground;
       const engines = state.view?.engine.engines ?? [];
       // Menu.java:7407-7429: the twentieth slot is the overflow chooser.
       engines.slice(0, engines.length > 20 ? 19 : 20).forEach((engine, index) => {
         const row = document.createElement("div"); row.className = "mi checkable";
         row.dataset.engineIndex = String(index); row.title = engine.command;
         const mark = document.createElement("span"); mark.className = "mark";
-        mark.textContent = state.view?.engine.foreground?.index === index ? "✓" : engine.state === "Ready" ? "●" : engine.state === "Loading" ? "◐" : "○";
+        mark.textContent = current?.index === index ? "✓" : engine.state === "Ready" ? "●" : engine.state === "Loading" ? "◐" : "○";
         const text = document.createElement("span"); text.className = "label"; text.textContent = `[${index + 1}] ${engine.name}`;
         row.append(mark, text);
-        row.onclick = (event) => { event.stopPropagation(); closeMenus(); void run({ type: "SwitchEngine", index }); };
+        row.onclick = (event) => {
+          event.stopPropagation(); closeMenus();
+          void run(secondary ? { type: "SwitchSecondaryEngine", index } : { type: "SwitchEngine", index });
+        };
         list.append(row);
       });
       if (engines.length > 20) {
         const more = document.createElement("div"); more.className = "mi"; more.textContent = t("Menu.moreEngines");
-        more.onclick = (event) => { event.stopPropagation(); closeMenus(); void chooseEngine(); }; list.append(more);
+        more.onclick = (event) => { event.stopPropagation(); closeMenus(); void chooseEngine(false, secondary); }; list.append(more);
       }
       continue;
     }
@@ -195,10 +204,14 @@ function recentItems(): MenuNode[] {
   return (state.view?.recent_files ?? []).map((path, k) => ({ t: "item", key: `${k + 1}: ${fileName(path)}`, id: `${RECENT}${path}` }));
 }
 
+/** The 双引擎模式 secondary engine menu's title element. */
+let secondaryMenu: HTMLElement | null = null;
+
 export function buildMenubar(host: HTMLElement): void {
   const measure = document.createElement("canvas").getContext("2d")!;
   for (const menu of JAVA_MENUS) {
-    if (!visible(menu.when)) continue;
+    // The secondary engine menu follows the layout mode; it is built hidden.
+    if (menu.when !== "doubleEngine" && !visible(menu.when)) continue;
     if (menu.key === "Menu.aiCoach" || menu.key === "Menu.aiCommentary") {
       // AI 陪练 / AI 解说 are buttons on the menu bar (Menu.java:5730-5732)
       const pill = document.createElement("span");
@@ -218,8 +231,17 @@ export function buildMenubar(host: HTMLElement): void {
     measure.font = getComputedStyle(top).font;
     top.style.width = `${Math.ceil(measure.measureText(top.textContent).width) + 20}px`;
     if (menu.key === "Menu.noEngine") {
+      // The engine menus' titles (Menu.java:10419, EngineManager.reStartEngine2): "[n]: name" of the
+      // foreground engine, or of the secondary engine on 双引擎模式's menu, else Menu.noEngine.
+      const secondary = menu.when === "doubleEngine";
+      if (secondary) secondaryMenu = top;
       const update = () => {
-        const engine = state.view?.engine.foreground;
+        if (secondary) {
+          const shown = visible(menu.when);
+          top.style.display = shown ? "" : "none";
+          if (!shown && openMenu === top) closeMenus();
+        }
+        const engine = secondary ? state.view?.engine.secondary : state.view?.engine.foreground;
         const text = engine ? `[${engine.index + 1}]: ${engine.name}` : t("Menu.noEngine");
         if (top.firstChild?.textContent === text) return;
         if (top.firstChild?.nodeType === Node.TEXT_NODE) top.firstChild.textContent = text;
@@ -258,4 +280,9 @@ export function buildMenubar(host: HTMLElement): void {
 /** Whether a menu is open (workbench shortcuts are inactive then, like a Swing popup). */
 export function menuOpen(): boolean {
   return openMenu !== null;
+}
+
+/** The secondary engine menu's title while it shows (acceptance probe), else null. */
+export function secondaryMenuTitle(): string | null {
+  return secondaryMenu && secondaryMenu.style.display !== "none" ? secondaryMenu.firstChild?.textContent ?? null : null;
 }

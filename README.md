@@ -229,6 +229,29 @@ importing the matching LizzieYzy Next settings.
     right after the root no longer start the count at 2; 纯网络形势 > 小方块 has its own effect
     (Java read the KataGo-estimate setting there); 设置自动播放's 落子最佳选点 shows its own setting
     (Java filled it from the other check box).
+- 双引擎模式 (显示 > 布局模式, `Alt+6`; 默认模式 `Alt+1`): a second engine analyses the same
+  position next to the foreground engine. The window takes Java's width for the mode (the board
+  height doubled, or 1.65 times it for 默认模式) unless it is maximized, and shows two equal
+  boards: the foreground engine's results on the left, the secondary engine's on the right, with
+  主引擎 / 副引擎 status strips. The secondary engine is chosen in its own menu (`[n]: name`, or
+  未加载引擎) with restart and shut-down entries; the same engine cannot be both (第一引擎不能与
+  第二引擎相同). Each result belongs to the engine and the node it was requested for, so results
+  arriving after fast navigation are not shown on another move. Pausing (Space) and the
+  foreground engine's analysis limits stop both engines; the secondary engine's own limits
+  stop only it. With fast engine change the previous secondary engine keeps running and is
+  chosen again when the new one fails while starting; no secondary engine is chosen during
+  setup mode. The game komi, record rules, GTP console commands and 纯网络 apply to both.
+  Hovering a point shows each engine's own variation, clicking either board plays there.
+  独立选点列表 (`U`) opens a 主引擎 and a 副引擎 window side by side, each with its own engine's
+  candidates, actual move and score columns (also from saved results without an engine);
+  closing either closes both. Saving writes the secondary analysis as `LZ2` / `LZOP2` (and its
+  summary in comments with 记录选点信息到评论中); opening a record that has it in 默认模式 asks
+  whether to switch. Leaving the mode stops the secondary analysis but keeps the engine for the
+  next time; the mode is remembered across restarts, the secondary engine is chosen again each
+  session, as in Java. Changes from Java: the secondary strip shows the secondary engine's own
+  开启 / 暂停 and only shows visits and win rate when that engine has a result (Java showed the
+  foreground's state and 0 / 50 %), it is no longer cut short when the window is wider than the
+  two boards, and the comment summary compares with the secondary engine's own previous result.
 - Rules: an SGF record's `RU` is applied to KataGo (`kata-set-rules`) before analysis. When the
   engine cannot confirm it, a dialog asks whether to continue with the engine's current rules
   (no pauses analysis). `Shift+D` opens the KataGo rules editor.
@@ -315,10 +338,11 @@ importing the matching LizzieYzy Next settings.
   starts without blocking the window. Apple Silicon deep tuning is experimental and asks first.
 
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
-as not yet available (greyed in menus; a notice when used). Not available yet: comparison and
-dual-engine analysis, remote/SSH and cloud engines, the quick-analysis and HumanSL models of the
-weights page, whole-game measured tuning, 启用点击棋子回看 (click review), 自由涂鸦, and the
-analysis-region items of the board context menu.
+as not yet available (greyed in menus; a notice when used). Not available yet: the other layout
+modes (classic, minimal, thinking, four sub boards, independent board, custom layouts),
+remote/SSH and cloud engines, the quick-analysis and HumanSL
+models of the weights page, whole-game measured tuning, 启用点击棋子回看 (click review),
+自由涂鸦, and the analysis-region items of the board context menu.
 
 Resource acquisition and real engine analysis have been verified on Linux (private X11,
 WebKitGTK), including downloads of the official KataGo v1.18.1 Eigen AVX2 AppImage and model

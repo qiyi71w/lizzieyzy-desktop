@@ -6,9 +6,10 @@
 
 use std::path::{Path, PathBuf};
 
+use super::analysis::AnalysisStore;
 use super::{PendingSave, SaveJob, Workbench};
 use crate::api::{CommentLabels, ExportKind, NodeAnalysisView};
-use crate::formats::sgf_write::{self, Export};
+use crate::formats::sgf_write::{self, Analysis, Export};
 use crate::formats::winrate_comment::{self, NodeEval};
 use crate::record::{DocumentEdit, NodeId, NodeKind, ROOT};
 use crate::viewpoint::Viewpoint;
@@ -63,16 +64,21 @@ fn comment_labels(language: crate::settings::Language) -> CommentLabels {
 }
 
 impl Workbench {
-    fn node_eval(&self, id: NodeId) -> Option<NodeEval> {
-        let mut a = eval(self.store.get(&self.doc.record, id)?);
-        a.pda = self.store.pda(id);
+    fn node_eval(&self, store: &AnalysisStore, id: NodeId) -> Option<NodeEval> {
+        let mut a = eval(store.get(&self.doc.record, id)?);
+        a.pda = store.pda(id);
         (a.visits > 0).then_some(a)
     }
 
+    /// The node's comment with its analysis summary (`formatComment`); in 双引擎模式 a node the
+    /// secondary engine analysed gets that engine's summary instead (`formatComment2`), its
+    /// changes taken against the secondary engine's result of the previous node.
     fn formatted_comment(&self, id: NodeId, labels: &CommentLabels) -> Option<String> {
         let rec = &self.doc.record;
-        let a = self.node_eval(id)?;
-        let previous = rec.node(id).parent.map(|p| self.node_eval(p));
+        let secondary = self.double_engine() && self.node_eval(&self.secondary_store, id).is_some();
+        let store = if secondary { &self.secondary_store } else { &self.store };
+        let a = self.node_eval(store, id)?;
+        let previous = rec.node(id).parent.map(|p| self.node_eval(store, p));
         Some(winrate_comment::format(
             labels,
             Viewpoint::from(&self.config.display),
@@ -80,6 +86,17 @@ impl Workbench {
             previous.as_ref().map(Option::as_ref),
             &rec.node(id).comment,
         ))
+    }
+
+    /// Both engines' saved-analysis payloads (`LZ`/`LZOP`, `LZ2`/`LZOP2`).
+    fn write_payloads<T>(&self, write: impl FnOnce(Analysis) -> T) -> T {
+        let rec = &self.doc.record;
+        let primary = |id| self.store.payload(rec, id);
+        let secondary = |id| self.secondary_store.payload(rec, id);
+        write(Analysis {
+            primary: &primary,
+            secondary: &secondary,
+        })
     }
 
     /// The comment pane while an engine is loaded (`LizzieFrame.appendComment` writes the
@@ -129,19 +146,15 @@ impl Workbench {
     pub fn export_text(&self, kind: ExportKind, labels: &CommentLabels) -> String {
         let rec = &self.doc.record;
         match kind {
-            ExportKind::Raw => {
-                sgf_write::write_export_analyzed(rec, &Export::Raw, Some(&|id| self.store.payload(rec, id)))
-            }
+            ExportKind::Raw => self.write_payloads(|a| sgf_write::write_export_analyzed(rec, &Export::Raw, Some(a))),
             ExportKind::Branch => sgf_write::write_export(rec, &Export::Branch { current: self.cursor }),
             ExportKind::RawWithComments => {
                 // The store is the one BoardData result: imported data was loaded into it and
                 // live analysis replaces it only when stronger.
                 let comment = |id| self.formatted_comment(id, labels);
-                sgf_write::write_export_analyzed(
-                    rec,
-                    &Export::RawWithComments { comment: &comment },
-                    Some(&|id| self.store.payload(rec, id)),
-                )
+                self.write_payloads(|a| {
+                    sgf_write::write_export_analyzed(rec, &Export::RawWithComments { comment: &comment }, Some(a))
+                })
             }
         }
     }
@@ -174,7 +187,7 @@ impl Workbench {
                 .then(|| self.formatted_comment(id, &labels))
                 .flatten()
         };
-        sgf_write::write_analyzed(rec, application, &|id| self.store.payload(rec, id), &comment)
+        self.write_payloads(|a| sgf_write::write_analyzed(rec, application, a, &comment))
     }
 
     /// Where the picture chooser starts: the last picture folder, else the last record folder

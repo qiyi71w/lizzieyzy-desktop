@@ -12,7 +12,8 @@ use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::java_import::{self, JavaSource};
 use lizzie_core::settings::{
-    Config, DisplaySettings, EstimateStyle, Language, MoveRankMode, Persisted, ProxyMode, Storage, SubBoardMode,
+    Config, DisplaySettings, EstimateStyle, ExtraMode, Language, MoveRankMode, Persisted, ProxyMode, Storage,
+    SubBoardMode,
 };
 use lizzie_core::workbench::{Workbench, IMPORT_NEEDS_REPLACE, IMPORT_STALE};
 use serde_json::json;
@@ -1030,6 +1031,36 @@ fn imported_kata_estimate_applies_to_the_running_session() {
         wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
         let v = wb.view(false).kata_estimate;
         assert_eq!((v.state.shown, v.state.on_main, v.state.on_sub, v.hidden), (shown, main, sub, hidden), "{ui}");
+    }
+}
+
+#[test]
+fn the_java_layout_mode_imports_double_engine_mode_and_reports_layouts_not_here() {
+    // `Config.readExtraMode`: numbers or names; anything unknown is 默认模式.
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    // Unsupported layouts follow different modes: they leave whichever mode is current.
+    for (value, status, mode) in [
+        (json!(2), ImportStatus::Imported, ExtraMode::DoubleEngine),
+        (json!(3), ImportStatus::NotMigrated, ExtraMode::DoubleEngine),
+        (json!("0"), ImportStatus::Imported, ExtraMode::Normal),
+        (json!("Four_Sub"), ImportStatus::NotMigrated, ExtraMode::Normal),
+        (json!("Double_Engine"), ImportStatus::Imported, ExtraMode::DoubleEngine),
+        (json!(99), ImportStatus::Imported, ExtraMode::Normal),
+    ] {
+        std::fs::write(
+            java.join("config.txt"),
+            json!({ "ui": { "extra-mode": value } }).to_string(),
+        )
+        .unwrap();
+        let p = preview(&mut wb, &java);
+        assert_eq!(item(&p.items, "ui.extra-mode").status, status, "{value}");
+        wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+        assert_eq!(wb.view(false).settings.extra_mode, mode, "{value}");
+        assert_eq!(saved_config(&product).ui.extra_mode, mode, "{value}");
     }
 }
 

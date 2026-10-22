@@ -1801,6 +1801,63 @@ export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[
   });
 }
 
+/** LizzieFrame.drawPonderingStateForExtraMode2 (LizzieFrame.java:8324-8354) with fitStatusFont /
+ *  truncateStatusText (8405-8430, 8553-8577): one status box of 双引擎模式 at (x, y) of a panel
+ *  `panelW` x `panelH`. The font (plain, `size`) shrinks to at most 10 to fit the width left on its
+ *  board's side (`split`, where the right board starts), then the text is cut with "..."; the box
+ *  is translucent black with a 1px outline, the text white and centred. Returns the text as drawn
+ *  and its width (0: nothing). Java split at half the panel, so a window wider than the two boards
+ *  cut the secondary engine's box (starting at the right board) down to a few characters. */
+export function paintDualStrip(g: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, split: number, panelW: number, panelH: number): { text: string; width: number } {
+  const rightEdge = x < split ? split : panelW;
+  const maxWidth = Math.max(1, rightEdge - x - 4);
+  const font = (px: number) => `${px}px ${UI_FONT}`;
+  const measure = (s: string) => Math.round(g.measureText(s).width);
+  let px = size;
+  g.font = font(px);
+  const measured = measure(text);
+  if (text && measured > maxWidth) {
+    const least = Math.min(size, 10);
+    px = Math.max(least, Math.min(size, Math.floor((size * maxWidth) / measured)));
+    g.font = font(px);
+    while (px > least && measure(text) > maxWidth) g.font = font(--px);
+  }
+  let shown = text;
+  if (measure(shown) > maxWidth) {
+    const dots = measure("...");
+    if (dots > maxWidth) shown = "";
+    else {
+      let low = 0;
+      let high = text.length;
+      while (low < high) {
+        const middle = i((low + high + 1) / 2);
+        if (measure(text.substring(0, middle)) + dots <= maxWidth) low = middle;
+        else high = middle - 1;
+      }
+      const prefix = text.substring(0, low).trim();
+      shown = prefix ? `${prefix}...` : "...";
+    }
+  }
+  const stringWidth = measure(shown);
+  if (stringWidth <= 0) return { text: "", width: 0 };
+  const { ascent, descent } = javaMetrics(g);
+  const fontHeight = ascent + descent;
+  const width = Math.min(maxWidth, Math.max(stringWidth, 1));
+  const height = Math.max(i(fontHeight * 1.2), 1);
+  const drawX = Math.max(0, Math.min(x, panelW - width));
+  const drawY = Math.max(0, Math.min(y, Math.max(0, panelH - height - 4)));
+  g.fillStyle = "rgba(0,0,0,0.51)";
+  g.fillRect(drawX, drawY, width, height);
+  g.strokeStyle = "rgba(0,0,0,0.51)";
+  g.lineWidth = 1;
+  g.strokeRect(drawX + 0.5, drawY + 0.5, width, height);
+  g.fillStyle = "#fff";
+  g.textAlign = "left";
+  g.textBaseline = "alphabetic";
+  g.fillText(shown, drawX + (width - stringWidth) / 2, drawY + i((height - fontHeight) / 2) + ascent);
+  return { text: shown, width: stringWidth };
+}
+
 /** LizzieFrame.createVarTreeImage + VariationTree.draw/drawTree (VariationTree.java:44-402): the
  * whole tree laid out from the root at (20, 20) with Java's lane allocation, shown through the scroll
  * pane that renderVarTree positions on the current node (LizzieFrame.java:13942-13975) unless the

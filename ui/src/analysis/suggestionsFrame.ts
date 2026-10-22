@@ -1,13 +1,19 @@
 // 独立选点列表 window (AnalysisFrame.java): it shows what the main window relays (rows and texts
 // formatted there from the core view, see analysis/table.ts) and reports its input back: hovers,
 // clicks, the wheel, keys, header sorts, the four boxes and its column widths. It holds no
-// analysis state of its own. Also the JTable column layout shared with the main window's 选点列表.
-import { emitTo, listen } from "@tauri-apps/api/event";
+// analysis state of its own. The same page serves 双引擎模式's secondary window (AnalysisFrame
+// index 2). Also the JTable column layout shared with the main window's 选点列表.
+import { emitTo } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
-/** Main window → frame. */
+/** The primary engine's window and 双引擎模式's secondary engine window (src-tauri). */
+export const FRAME_LABEL = "suggestions";
+export const SUB_FRAME_LABEL = "suggestions-sub";
+/** Main window → frame (sent to each window by its label). */
 export const FRAME_DATA_EVENT = "suggestions-frame-data";
-/** Frame → main window. */
+/** Frame → main window, one event per window. */
 export const FRAME_INPUT_EVENT = "suggestions-frame-input";
+export const SUB_FRAME_INPUT_EVENT = "suggestions-sub-frame-input";
 
 export interface FrameCell {
   text: string;
@@ -197,7 +203,9 @@ export function bootFrame(): void {
   let preferred: number[] = [];
   let widths: number[] = [];
 
-  const send = (input: FrameInput) => void emitTo("main", FRAME_INPUT_EVENT, input);
+  const self = getCurrentWebviewWindow();
+  const inputEvent = self.label === SUB_FRAME_LABEL ? SUB_FRAME_INPUT_EVENT : FRAME_INPUT_EVENT;
+  const send = (input: FrameInput) => void emitTo("main", inputEvent, input);
 
   const applyWidths = (w: number[]) => {
     widths = w;
@@ -338,7 +346,8 @@ export function bootFrame(): void {
     paintBottom();
   };
 
-  void listen<FramePayload>(FRAME_DATA_EVENT, (e) => {
+  // Only the rows sent to this window: the global listener would take the other window's too.
+  void self.listen<FramePayload>(FRAME_DATA_EVENT, (e) => {
     data = e.payload;
     render();
   }).then(() => send({ type: "ready" }));

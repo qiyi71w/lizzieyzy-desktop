@@ -97,7 +97,7 @@ showPonderLimitedTips: boolean, };
 
 export type EngineScope = "Current" | "Others" | "All";
 
-export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "SetDisplaySettings", settings: DisplaySettings, } | { "type": "ToggleRawNet" } | { "type": "StopRawNet" } | { "type": "SetKataEstimate", mode: KataEstimateMode, } | { "type": "ToggleKataEstimate" } | { "type": "Score", op: ScoreCommand, };
+export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SetExtraMode", mode: ExtraMode, } | { "type": "SwitchSecondaryEngine", index: number, } | { "type": "RestartSecondaryEngine" } | { "type": "ShutdownSecondaryEngine" } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "SetDisplaySettings", settings: DisplaySettings, } | { "type": "ToggleRawNet" } | { "type": "StopRawNet" } | { "type": "SetKataEstimate", mode: KataEstimateMode, } | { "type": "ToggleKataEstimate" } | { "type": "Score", op: ScoreCommand, };
 
 export type CommandResult = { "type": "Done" } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "NeedsEditConfirmation", target: EditTarget, } | { "type": "Exported", path: string, } | { "type": "ExportFailed", path: string, detail: string, } | { "type": "Refused", message_key: string, } | { "type": "SaveStarted", ticket: number, } | { "type": "NeedsReplaceConfirmation", document: number, file_name: string, } | { "type": "NeedsOverwriteConfirmation", path: string, } | { "type": "NeedsExportOverwriteConfirmation", kind: ExportKind, path: string, } | { "type": "NeedsImageOverwriteConfirmation", path: string, } | { "type": "FolderChosen", path: string, } | { "type": "JavaImportPreview", preview: ImportPreviewView, } | { "type": "JavaImportFailed", failure: ImportFailure, } | { "type": "JavaImported", report: ImportReportView, } | { "type": "Resource", result: ResourceResult, } | { "type": "Tuning", result: TuningResult, };
 
@@ -172,7 +172,12 @@ next_moves: Array<Point>,
  */
 next_color: Stone | null, };
 
-export type OpenOutcome = { "type": "Adopted", ticket: number, document: number, } | { "type": "Failed", ticket: number, message_key: string, detail: string, };
+export type OpenOutcome = { "type": "Adopted", ticket: number, document: number, 
+/**
+ * The record holds secondary-engine analysis (`LZ2`/`LZOP2`) and 双引擎模式 is off: ask
+ * whether to switch to it (`SGFParse.doubleEngineHint`), then send `SetExtraMode`.
+ */
+double_engine_hint: boolean, } | { "type": "Failed", ticket: number, message_key: string, detail: string, };
 
 export type SaveOutcome = { "type": "Saved", ticket: number, document: number, revision: number, path: string, 
 /**
@@ -208,7 +213,11 @@ play_sound: boolean,
 /**
  * Ask before "保存" overwrites the record's own file (Java `ui.show-replace-file-hint`).
  */
-replace_file_hint: boolean, engine: EngineSettingsView, edit: EditSettings, display: DisplaySettings, };
+replace_file_hint: boolean, 
+/**
+ * 布局模式 (Java `ui.extra-mode`).
+ */
+extra_mode: ExtraMode, engine: EngineSettingsView, edit: EditSettings, display: DisplaySettings, };
 
 export type StoneSound = "Stone" | "DeadStone" | "DeadStoneMore";
 
@@ -243,6 +252,10 @@ ready: boolean,
 commands: Array<string>, };
 
 export type EngineView = { engines: Array<EngineEntryView>, foreground: ForegroundEngineView | null, 
+/**
+ * The 双引擎模式 secondary engine, while one is chosen.
+ */
+secondary: SecondaryEngineView | null, 
 /**
  * The user paused analysis (Space); not remembered across restarts.
  */
@@ -365,7 +378,7 @@ output: Array<string>,
  */
 repair?: ResourceRepairView, };
 
-export type EngineNotice = "StoppedByLimit" | "SetupModeActive";
+export type EngineNotice = "StoppedByLimit" | "SetupModeActive" | "SameEngine";
 
 export type ConsoleLineKind = "Sent" | "Output" | "Error";
 
@@ -451,6 +464,11 @@ kata_estimate: KataEstimateView,
  */
 score: ScoreView | null, 
 /**
+ * 双引擎模式's right board: the secondary engine's results for the current node. Present
+ * only in 双引擎模式.
+ */
+secondary: SecondaryView | null, 
+/**
  * 记录选点信息到评论中: the current comment as Java shows it while an engine analyses,
  * with the analysis summary appended (Java writes it into the node, `appendComment`);
  * absent when the comment pane shows `position.comment` unchanged.
@@ -500,7 +518,7 @@ export type ImportStatus = "Imported" | "Incompatible" | "NotMigrated";
 
 export type ImportReason = "NotYetAvailable" | "Credential" | "InvalidValue" | "WindowCoordinates" | "RemoteEngine" | "CredentialNotConfirmed" | "Unreadable" | "NotChosen" | "Obsolete";
 
-export type ImportTarget = "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame";
+export type ImportTarget = "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode";
 
 export type ImportItemView = { 
 /**
@@ -1150,6 +1168,59 @@ ai_score_black: number | null, ai_score_white: number | null,
 last_move: MoveChange | null, };
 
 export type FramePlacement = { x: number, y: number, width: number, height: number, columns: Array<number>, };
+
+export type ExtraMode = "Normal" | "DoubleEngine";
+
+export type SecondaryEngineView = { 
+/**
+ * Position in the engine list.
+ */
+index: number, 
+/**
+ * The configured name, else the GTP name.
+ */
+name: string, katago: boolean, 
+/**
+ * Speaks `kata-analyze` / `lz-analyze`.
+ */
+can_analyse: boolean, 
+/**
+ * Identified and synced to the current position.
+ */
+ready: boolean, 
+/**
+ * It is analysing the current node (its own 思考 开/关).
+ */
+analysing: boolean, 
+/**
+ * An analysis limit stopped its analysis of the current node.
+ */
+stopped_by_limit: boolean, };
+
+export type SecondaryView = { 
+/**
+ * Stored secondary analysis of the current node (`BoardData.bestMoves2` and summary).
+ */
+analysis: NodeAnalysisView | null, 
+/**
+ * Move numbers, 落子评价 and 下一手 详细 drawn from the secondary analysis.
+ */
+board: BoardOverlayView, 
+/**
+ * The secondary engine's pure-network result for the current position.
+ */
+rawNet: RawNetView | null, 
+/**
+ * Kata形势 of the secondary engine (`estimateArray2`): Black-positive ownership of the current
+ * node, else of its parent; absent while Kata形势 is off or nothing was reported.
+ */
+ownership: Array<number> | null, 
+/**
+ * The secondary engine's stored results on the current line and the main trunk, like
+ * `history` (`winrate2`, `scoreMean2` of each node): the 副引擎 独立选点列表's actual-move row
+ * and its score columns (`isContainsKataData2`).
+ */
+history: Array<HistoryPoint>, };
 
 export type ManagedProfile = { command: string, assetId: string, weightPath: string, configPath: string, };
 

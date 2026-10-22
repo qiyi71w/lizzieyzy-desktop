@@ -106,6 +106,7 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   KataEstimate: "Menu.kataEstimate",
   Scoring: "BottomToolbar.finalScore",
   SuggestionsFrame: "Menu.SuggestionList",
+  ExtraMode: "Menu.layoutMode",
 };
 
 function targetLabel(target: ImportTarget): string {

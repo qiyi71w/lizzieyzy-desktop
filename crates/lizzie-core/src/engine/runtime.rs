@@ -391,6 +391,11 @@ pub struct Engines {
     next_instance: InstanceId,
     foreground: Option<InstanceId>,
     wish: Option<(Target, bool)>,
+    /// 双引擎模式's secondary engine (Java `Lizzie.leelaz2`): never the foreground engine. It
+    /// holds the position of its own wish; results name their instance, so they are never taken
+    /// for the foreground engine's.
+    secondary: Option<InstanceId>,
+    secondary_wish: Option<(Target, bool)>,
     interval_centisec: u32,
     /// What KataGo analysis also reports: `show-pv-visits` (each variation move's visits) and
     /// Kata形势 (`ownership`, with 按选点显示评估 `movesOwnership`).
@@ -487,6 +492,8 @@ impl Engines {
             next_instance: 1,
             foreground: None,
             wish: None,
+            secondary: None,
+            secondary_wish: None,
             interval_centisec: 10,
             options: StreamOptions::default(),
             console: VecDeque::new(),
@@ -507,6 +514,27 @@ impl Engines {
 
     pub fn foreground(&self) -> Option<InstanceId> {
         self.foreground
+    }
+
+    pub fn secondary(&self) -> Option<InstanceId> {
+        self.secondary
+    }
+
+    /// The foreground or the secondary engine: an instance the runtime drives to a wished
+    /// position.
+    fn seated(&self, id: InstanceId) -> bool {
+        self.foreground == Some(id) || self.secondary == Some(id)
+    }
+
+    /// What the seat of `id` should do; nothing for an unseated (kept or preloaded) instance.
+    fn wish_of(&self, id: InstanceId) -> Option<&(Target, bool)> {
+        if self.foreground == Some(id) {
+            self.wish.as_ref()
+        } else if self.secondary == Some(id) {
+            self.secondary_wish.as_ref()
+        } else {
+            None
+        }
     }
 
     pub fn instance_of(&self, profile_id: &str) -> Option<InstanceId> {
@@ -541,14 +569,22 @@ impl Engines {
     /// Foreground switch complete: identified, start-up answered and the board synced to the
     /// wished position at least once.
     pub fn foreground_complete(&self) -> bool {
-        self.foreground
-            .and_then(|id| self.get(id))
-            .is_some_and(|i| i.phase == Phase::Ready && i.synced)
+        self.foreground.is_some_and(|id| self.complete(id))
+    }
+
+    /// Identified, start-up answered and synced to its wished position at least once.
+    pub fn complete(&self, id: InstanceId) -> bool {
+        self.get(id).is_some_and(|i| i.phase == Phase::Ready && i.synced)
     }
 
     /// Whether the foreground engine is producing analysis for this node.
     pub fn analysing(&self, doc: u64, node: NodeId) -> bool {
-        self.foreground.and_then(|id| self.get(id)).is_some_and(|i| {
+        self.foreground.is_some_and(|id| self.analysing_by(id, doc, node))
+    }
+
+    /// Whether instance `id` is producing analysis for this node.
+    pub fn analysing_by(&self, id: InstanceId, doc: u64, node: NodeId) -> bool {
+        self.get(id).is_some_and(|i| {
             i.stream
                 .and_then(|n| i.request(n))
                 .is_some_and(|r| r.key.doc == doc && r.key.node == node)
@@ -855,13 +891,33 @@ impl Engines {
 
     /// Makes `id` (or nothing) the foreground engine. The previous foreground engine stops
     /// analysing; it keeps running when `keep_previous` (fast engine change) and is ended
-    /// otherwise.
+    /// otherwise. An instance taken from the secondary seat leaves it.
     pub fn set_foreground(&mut self, id: Option<InstanceId>, keep_previous: bool) {
         let previous = self.foreground;
         if previous == id {
             return;
         }
+        if id.is_some() && id == self.secondary {
+            self.secondary = None;
+            self.secondary_wish = None;
+        }
         self.foreground = id;
+        self.seat(previous, id, keep_previous);
+    }
+
+    /// Makes `id` (or nothing) the 双引擎模式 secondary engine; the foreground engine cannot be
+    /// it. The previous secondary engine stops analysing; it keeps running when `keep_previous`
+    /// and is ended otherwise. Its wish is set separately ([`want_secondary`](Self::want_secondary)).
+    pub fn set_secondary(&mut self, id: Option<InstanceId>, keep_previous: bool) {
+        let previous = self.secondary;
+        if previous == id || (id.is_some() && id == self.foreground) {
+            return;
+        }
+        self.secondary = id;
+        self.seat(previous, id, keep_previous);
+    }
+
+    fn seat(&mut self, previous: Option<InstanceId>, id: Option<InstanceId>, keep_previous: bool) {
         if let Some(p) = previous {
             if keep_previous {
                 self.stop_stream(p);
@@ -879,7 +935,7 @@ impl Engines {
         self.pump();
     }
 
-    /// Ends one instance. Its later output is ignored.
+    /// Ends one instance. Its later output is ignored; a seat it held is empty.
     pub fn terminate(&mut self, id: InstanceId) {
         self.checks.retain(|c| c.instance != id);
         let Some(at) = self.instances.iter().position(|i| i.id == id) else {
@@ -888,6 +944,10 @@ impl Engines {
         let mut inst = self.instances.remove(at);
         if self.foreground == Some(id) {
             self.foreground = None;
+        }
+        if self.secondary == Some(id) {
+            self.secondary = None;
+            self.secondary_wish = None;
         }
         self.trace(&inst.display_name(), "--", "terminate");
         if let Some(io) = inst.io.take() {
@@ -907,32 +967,55 @@ impl Engines {
     /// What the foreground engine should do: hold `target` (synced even while not analysing, so
     /// a switch completes) and analyse it when `analyse`. `None` stops and leaves the board.
     pub fn want(&mut self, target: Option<Target>, analyse: bool) {
-        let changed_target = self.wish.as_ref().map(|(t, _)| t.key()) != target.as_ref().map(Target::key);
-        self.wish = target.map(|t| (t, analyse));
-        if let Some(inst) = self
-            .foreground
-            .and_then(|id| self.instances.iter_mut().find(|i| i.id == id))
-        {
-            if changed_target {
-                inst.raw_revision += 1;
-                inst.raw_data = None;
-            }
-            let keep_pondering = self.wish.as_ref().is_some_and(|(target, analyse)| {
-                *analyse
-                    && inst
-                        .stream
-                        .and_then(|n| inst.request(n))
-                        .is_some_and(|r| r.key == target.key())
-            });
-            if !keep_pondering {
-                inst.ponder_due = None;
-            }
-        }
+        let wish = target.map(|t| (t, analyse));
+        Self::rewish(
+            self.foreground
+                .and_then(|id| self.instances.iter_mut().find(|i| i.id == id)),
+            &self.wish,
+            &wish,
+        );
+        self.wish = wish;
         self.pump();
     }
 
-    /// Pure network belongs to the foreground instance, not the document or profile.
-    pub fn toggle_raw_net(&mut self) -> bool {
+    /// The same for the secondary engine. `None` stops its analysis and keeps it running
+    /// (`nameCmdfornoponder` when leaving 双引擎模式).
+    pub fn want_secondary(&mut self, target: Option<Target>, analyse: bool) {
+        let wish = target.map(|t| (t, analyse));
+        Self::rewish(
+            self.secondary
+                .and_then(|id| self.instances.iter_mut().find(|i| i.id == id)),
+            &self.secondary_wish,
+            &wish,
+        );
+        self.secondary_wish = wish;
+        self.pump();
+    }
+
+    /// A seat's new wish: another position drops its pure-network answer; a pondering cycle
+    /// continues only for the position it is analysing.
+    fn rewish(inst: Option<&mut Instance>, old: &Option<(Target, bool)>, new: &Option<(Target, bool)>) {
+        let Some(inst) = inst else { return };
+        if old.as_ref().map(|(t, _)| t.key()) != new.as_ref().map(|(t, _)| t.key()) {
+            inst.raw_revision += 1;
+            inst.raw_data = None;
+        }
+        let keep_pondering = new.as_ref().is_some_and(|(target, analyse)| {
+            *analyse
+                && inst
+                    .stream
+                    .and_then(|n| inst.request(n))
+                    .is_some_and(|r| r.key == target.key())
+        });
+        if !keep_pondering {
+            inst.ponder_due = None;
+        }
+    }
+
+    /// Pure network (H) belongs to the foreground instance, not the document or profile. With
+    /// `mirror` (双引擎模式, Java `toggleHeatmapSub`) the secondary engine follows: the same state,
+    /// its policy instead of an ownership it cannot report.
+    pub fn toggle_raw_net(&mut self, mirror: bool) -> bool {
         let Some(inst) = self.foreground.and_then(|id| self.instances.iter_mut().find(|i| i.id == id)) else { return false };
         inst.raw_mode = match inst.raw_mode {
             RawNetMode::Off => RawNetMode::Policy,
@@ -941,6 +1024,20 @@ impl Engines {
         };
         inst.raw_revision += 1;
         inst.raw_data = None;
+        let mode = inst.raw_mode;
+        if mirror {
+            if let Some(sec) = self
+                .secondary
+                .and_then(|id| self.instances.iter_mut().find(|i| i.id == id))
+            {
+                sec.raw_mode = match mode {
+                    RawNetMode::Ownership if sec.kind != EngineKind::KataGo => RawNetMode::Policy,
+                    m => m,
+                };
+                sec.raw_revision += 1;
+                sec.raw_data = None;
+            }
+        }
         true
     }
 
@@ -950,6 +1047,14 @@ impl Engines {
         inst.raw_mode = RawNetMode::Off;
         inst.raw_revision += 1;
         inst.raw_data = None;
+        if let Some(sec) = self
+            .secondary
+            .and_then(|id| self.instances.iter_mut().find(|i| i.id == id))
+        {
+            sec.raw_mode = RawNetMode::Off;
+            sec.raw_revision += 1;
+            sec.raw_data = None;
+        }
         true
     }
 
@@ -957,17 +1062,23 @@ impl Engines {
         self.foreground.and_then(|id| self.get(id)).is_some_and(|i| i.raw_mode != RawNetMode::Off)
     }
 
+    /// The foreground engine's pure-network answer for `target`.
     pub fn raw_net_view(&self, target: &Target) -> Option<RawNetView> {
-        let inst = self.get(self.foreground?)?;
+        self.raw_net_view_of(self.foreground?, target)
+    }
+
+    /// Instance `id`'s pure-network answer for `target` (pending until it answers that position).
+    pub fn raw_net_view_of(&self, id: InstanceId, target: &Target) -> Option<RawNetView> {
+        let inst = self.get(id)?;
         if inst.raw_mode == RawNetMode::Off { return None; }
         let key = target.key();
         Some(inst.raw_data.as_ref().filter(|(k, _)| *k == key).map_or_else(
             || RawNetView::pending(inst.raw_mode, target.node), |(_, view)| view.clone()))
     }
 
-    /// When [`tick`](Self::tick) has work next (a Leela 0.11 pondering probe), if ever.
-    pub fn next_tick(&self) -> Option<Instant> {
-        let inst = self.get(self.foreground?)?;
+    /// A seated instance's next Leela 0.11 pondering probe.
+    fn due(&self, id: Option<InstanceId>) -> Option<Instant> {
+        let inst = self.get(id?)?;
         if inst.fence.is_none() && inst.stream.is_some() {
             inst.ponder_due
         } else {
@@ -975,14 +1086,23 @@ impl Engines {
         }
     }
 
+    /// When [`tick`](Self::tick) has work next (a Leela 0.11 pondering probe), if ever.
+    pub fn next_tick(&self) -> Option<Instant> {
+        match (self.due(self.foreground), self.due(self.secondary)) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
+    }
+
     /// Advances timed engine work without owning a thread: the platform calls this at
     /// [`next_tick`](Self::next_tick); controlled-protocol tests supply a later instant directly.
     pub fn tick(&mut self, now: Instant) {
-        let Some(id) = self.foreground else { return };
-        if self.next_tick().is_some_and(|due| now >= due) {
-            self.get_mut(id).unwrap().ponder_due = None;
-            self.send(id, "name", Purpose::Probe);
-            self.fence_last(id);
+        for id in [self.foreground, self.secondary].into_iter().flatten() {
+            if self.due(Some(id)).is_some_and(|due| now >= due) {
+                self.get_mut(id).unwrap().ponder_due = None;
+                self.send(id, "name", Purpose::Probe);
+                self.fence_last(id);
+            }
         }
     }
 
@@ -1001,27 +1121,34 @@ impl Engines {
         true
     }
 
-    /// Sends the next batch for the foreground wish when nothing is in flight.
+    /// Sends the next batch for each seat's wish when nothing is in flight for it.
     fn pump(&mut self) {
-        let Some(fg) = self.foreground else { return };
+        for id in [self.foreground, self.secondary].into_iter().flatten() {
+            self.pump_seat(id);
+        }
+    }
+
+    /// Sends the next batch of a seated instance (the foreground or the secondary engine) for
+    /// its wish when nothing is in flight.
+    fn pump_seat(&mut self, id: InstanceId) {
         let interval = self.interval_centisec;
-        let Some(inst) = self.get(fg) else { return };
+        let Some(inst) = self.get(id) else { return };
         if inst.phase != Phase::Ready || inst.fence.is_some() {
             return;
         }
         let first_new = inst.next_id;
-        match self.wish.clone() {
+        match self.wish_of(id).cloned() {
             None => {
-                self.stop_stream(fg);
+                self.stop_stream(id);
             }
             Some((target, analyse)) => {
                 let key = target.key();
                 if let Some(r) = &target.rules {
-                    self.request_rules(fg, r);
+                    self.request_rules(id, r);
                 }
-                let inst = self.get(fg).unwrap();
+                let inst = self.get(id).unwrap();
                 if inst.rejected == Some(key) {
-                    self.stop_stream(fg);
+                    self.stop_stream(id);
                 } else {
                     let (commands, board) = sync_commands(inst, &target);
                     let options = self.options_for(inst);
@@ -1030,20 +1157,20 @@ impl Engines {
                     let dialect = inst.dialect();
                     let root_info = inst.supports_root_info();
                     if commands.is_empty() {
-                        self.get_mut(fg).unwrap().synced = true;
+                        self.get_mut(id).unwrap().synced = true;
                     } else {
-                        let i = self.get_mut(fg).unwrap();
+                        let i = self.get_mut(id).unwrap();
                         i.board = Some(board);
                         i.syncing = Some(key);
                         for c in commands {
-                            self.send(fg, &c, Purpose::Sync);
+                            self.send(id, &c, Purpose::Sync);
                         }
                     }
-                    let streaming_here = streaming_here && self.get(fg).unwrap().stream.is_some();
-                    let raw_mode = self.get(fg).unwrap().raw_mode;
+                    let streaming_here = streaming_here && self.get(id).unwrap().stream.is_some();
+                    let raw_mode = self.get(id).unwrap().raw_mode;
                     if raw_mode != RawNetMode::Off {
-                        self.stop_stream(fg);
-                        let inst = self.get(fg).unwrap();
+                        self.stop_stream(id);
+                        let inst = self.get(id).unwrap();
                         let revision = inst.raw_revision;
                         if analyse && inst.raw_requested != Some((key, revision)) {
                             let request = Request {
@@ -1051,11 +1178,12 @@ impl Engines {
                                 size: target.record.size, started: Instant::now(),
                             };
                             let command = if inst.kind == EngineKind::KataGo {
-                                let symmetry = std::collections::hash_map::RandomState::new().hash_one((fg, first_new)) % 8;
+                                let symmetry =
+                                    std::collections::hash_map::RandomState::new().hash_one((id, first_new)) % 8;
                                 format!("kata-raw-nn {symmetry}")
                             } else { "heatmap".to_string() };
-                            if let Some(n) = self.send(fg, &command, Purpose::RawNet) {
-                                let inst = self.get_mut(fg).unwrap();
+                            if let Some(n) = self.send(id, &command, Purpose::RawNet) {
+                                let inst = self.get_mut(id).unwrap();
                                 inst.raw_requested = Some((key, revision));
                                 inst.raw_request = Some(RawRequest {
                                     id: n, request, revision, mode: raw_mode,
@@ -1063,7 +1191,7 @@ impl Engines {
                                 });
                             }
                         }
-                        let inst = self.get_mut(fg).unwrap();
+                        let inst = self.get_mut(id).unwrap();
                         if inst.next_id > first_new { inst.fence = Some(inst.next_id - 1); }
                         return;
                     }
@@ -1094,8 +1222,8 @@ impl Engines {
                             } else {
                                 Purpose::Analyze
                             };
-                            if let Some(n) = self.send(fg, &cmd, purpose) {
-                                let i = self.get_mut(fg).unwrap();
+                            if let Some(n) = self.send(id, &cmd, purpose) {
+                                let i = self.get_mut(id).unwrap();
                                 i.stream = Some(n);
                                 i.stream_options = options;
                                 i.requests.push_back((n, request));
@@ -1109,28 +1237,28 @@ impl Engines {
                             }
                         }
                         (true, Some(Dialect::Leela011)) => {
-                            let i = self.get(fg).unwrap();
+                            let i = self.get(id).unwrap();
                             let n = i.stream.unwrap();
                             // A completed table starts the next cycle for the same request;
                             // its elapsed time and position ownership do not restart.
                             if i.ponder_due.is_none() && !i.summaries.iter().any(|(owner, _, _)| *owner == n) {
                                 let request = i.request(n).unwrap();
-                                if self.send(fg, "time_left b 0 0", Purpose::Ponder).is_some() {
-                                    let i = self.get_mut(fg).unwrap();
+                                if self.send(id, "time_left b 0 0", Purpose::Ponder).is_some() {
+                                    let i = self.get_mut(id).unwrap();
                                     i.summaries.push_back((n, request, InfoLine::default()));
                                     i.ponder_due = Some(Instant::now() + PONDER_INTERVAL);
                                 }
                             }
                         }
                         (false, _) | (true, None) => {
-                            self.stop_stream(fg);
+                            self.stop_stream(id);
                         }
                         _ => {}
                     }
                 }
             }
         }
-        let i = self.get_mut(fg).unwrap();
+        let i = self.get_mut(id).unwrap();
         if i.next_id > first_new {
             i.fence = Some(i.next_id - 1);
         }
@@ -1171,9 +1299,11 @@ impl Engines {
 
     // -------------------------------------------------------------------- console and rules
 
-    /// GtpConsolePane send: a raw command to the foreground engine. Board-changing commands are
-    /// refused because the record owns the position. After its answer, analysis resumes.
-    pub fn send_user(&mut self, command: &str) -> Result<(), UserCommandError> {
+    /// GtpConsolePane send: a raw command to the foreground engine, and with `mirror` (双引擎模式,
+    /// Java `sendRawConsoleCommand` mirrors to `leelaz2`) to the secondary engine too.
+    /// Board-changing commands are refused because the record owns the position. After its
+    /// answer, analysis resumes.
+    pub fn send_user(&mut self, command: &str, mirror: bool) -> Result<(), UserCommandError> {
         let command = command.trim();
         if command.is_empty() {
             return Err(UserCommandError::Empty);
@@ -1185,8 +1315,11 @@ impl Engines {
         if BOARD_COMMANDS.contains(&word) {
             return Err(UserCommandError::ChangesBoard);
         }
-        self.send(fg, command, Purpose::User);
-        self.fence_last(fg);
+        let secondary = self.secondary.filter(|_| mirror);
+        for id in std::iter::once(fg).chain(secondary) {
+            self.send(id, command, Purpose::User);
+            self.fence_last(id);
+        }
         Ok(())
     }
 
@@ -1315,14 +1448,17 @@ impl Engines {
     }
 
     fn finish_raw(&mut self, id: InstanceId, events: &mut Vec<RuntimeEvent>) {
-        let current = self.wish.as_ref().map(|(t, _)| t.key());
-        let foreground = self.foreground == Some(id);
+        let current = self.wish_of(id).map(|(t, _)| t.key());
+        let seated = self.seated(id);
         let Some(inst) = self.get_mut(id) else { return };
         if !inst.raw_request.as_ref().is_some_and(|r| r.response.is_some() && r.complete) { return; }
         let raw = inst.raw_request.take().unwrap();
         let request = raw.request;
-        if raw.response == Some(true) && foreground && current == Some(request.key)
-            && raw.revision == inst.raw_revision && raw.mode == inst.raw_mode
+        if raw.response == Some(true)
+            && seated
+            && current == Some(request.key)
+            && raw.revision == inst.raw_revision
+            && raw.mode == inst.raw_mode
             && inst.rejected != Some(request.key)
         {
             let parsed = if inst.kind == EngineKind::KataGo {
@@ -1475,8 +1611,8 @@ impl Engines {
                     inst.phase = Phase::Ready;
                     inst.ready_fence = None;
                     events.push(RuntimeEvent::Ready { instance: id });
-                    if self.foreground == Some(id) {
-                        self.pump();
+                    if self.seated(id) {
+                        self.pump_seat(id);
                     }
                 }
                 self.answered(id, n);
@@ -1493,8 +1629,8 @@ impl Engines {
         if inst.board.is_some() {
             inst.synced = true;
         }
-        if self.foreground == Some(id) {
-            self.pump();
+        if self.seated(id) {
+            self.pump_seat(id);
         }
     }
 

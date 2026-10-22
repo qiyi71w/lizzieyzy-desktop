@@ -21,6 +21,26 @@ export function mainOwnership(v: WorkbenchView, hovered: number | null): Ownersh
   return estimateLayer(v, candidate);
 }
 
+/** The ownership 双引擎模式's right board draws (boardRenderer2: leelaz2's heatcount and
+ *  estimateArray2, BoardRenderer.java:753, 1602-1630) under the main board's rules: the secondary
+ *  engine's 纯网络 for this position, else its Kata形势 on the main board, the hovered candidate's
+ *  own with 按选点显示评估. Nothing while scoring. */
+export function secondaryOwnership(v: WorkbenchView, hovered: number | null): OwnershipLayer | null {
+  const s = v.secondary;
+  if (v.score || !s) return null;
+  if (v.rawNet) {
+    const net = s.rawNet;
+    const own = net && net.node === v.position.node && net.mode === "Ownership" && v.engine.secondary?.katago ? net.ownership : null;
+    return own ? { ownership: own, style: v.settings.display.pureEstimate, source: "rawNet" } : null;
+  }
+  const k = v.kata_estimate;
+  if (!k.state.shown || !k.state.onMain) return null;
+  const style = v.settings.display.kataEstimateStyle;
+  const candidate = hovered !== null && hovered >= 0 ? s.analysis?.candidates.find((c) => c.order === hovered) : undefined;
+  if (v.settings.display.useMovesOwnership && candidate?.ownership) return { ownership: candidate.ownership, style, source: "candidate" };
+  return s.ownership ? { ownership: s.ownership, style, source: "estimate" } : null;
+}
+
 /** The ownership the sub board draws (SubBoardRenderer.java:264-290, 880-901): 纯网络's, else
  *  Kata形势 on the sub board, the shown variation's candidate's own with 按选点显示评估. */
 export function subOwnership(v: WorkbenchView, candidate: CandidateView | undefined): OwnershipLayer | null {
@@ -46,8 +66,12 @@ function estimateLayer(v: WorkbenchView, candidate: CandidateView | undefined): 
 }
 
 /** Repaint signatures of the boards' ownership: a revision bumped when the squares' values change. */
-const layerSeen = { main: { own: null as number[] | null, revision: 0 }, sub: { own: null as number[] | null, revision: 0 } };
-export function layerSignature(board: "main" | "sub", layer: OwnershipLayer | null): string {
+const layerSeen = {
+  main: { own: null as number[] | null, revision: 0 },
+  sub: { own: null as number[] | null, revision: 0 },
+  right: { own: null as number[] | null, revision: 0 },
+};
+export function layerSignature(board: "main" | "sub" | "right", layer: OwnershipLayer | null): string {
   const seen = layerSeen[board];
   const own = layer?.ownership ?? null;
   if (!sameOwnership(seen.own, own)) {
