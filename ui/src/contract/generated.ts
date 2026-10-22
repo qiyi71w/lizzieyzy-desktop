@@ -1486,7 +1486,7 @@ show_results: boolean, save_failed: boolean, };
 
 export type WholeGameSettings = { deepVisits: number, };
 
-export type HawkeyeCommand = { "type": "Toggle" } | { "type": "SetSides", black: boolean, white: boolean, } | { "type": "GotoRow", node: number, } | { "type": "GotoMove", node: number, } | { "type": "GotoMoveNumber", number: number, };
+export type HawkeyeCommand = { "type": "Toggle" } | { "type": "SetSides", black: boolean, white: boolean, } | { "type": "GotoRow", document: number, node: number, } | { "type": "GotoMove", document: number, node: number, } | { "type": "GotoMoveNumber", document: number, number: number, };
 
 export type HawkeyeSide = { 
 /**

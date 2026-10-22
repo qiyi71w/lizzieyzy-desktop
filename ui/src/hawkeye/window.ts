@@ -286,8 +286,7 @@ export function bootHawkeye(): void {
   const self = getCurrentWebviewWindow();
   const inputEvent = self.label === HAWKEYE_SUB_LABEL ? HAWKEYE_SUB_INPUT_EVENT : HAWKEYE_INPUT_EVENT;
   const send = (input: HawkeyeInput) => void emitTo("main", inputEvent, input);
-  // The layout names the record the command was picked from; the relay drops stale navigation.
-  const run = (command: Command) => send({ type: "run", command, layout: data?.layout ?? -1 });
+  const run = (command: Command) => send({ type: "run", command });
   const display = (change: Partial<DisplaySettings>) => send({ type: "display", change });
 
   let data: HawkeyePayload | null = null;
@@ -329,7 +328,7 @@ export function bootHawkeye(): void {
 
   const onRow = (row: Row | undefined) => {
     // handleTableDoubleClick: any click; the core ignores it while auto analysis runs.
-    if (row) run({ type: "Hawkeye", op: { type: "GotoRow", node: row.e.node } });
+    if (row && data) run({ type: "Hawkeye", op: { type: "GotoRow", document: data.document, node: row.e.node } });
   };
   const sortBy = (column: number, threeState: boolean) => {
     sort.column = column;

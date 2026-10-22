@@ -66,22 +66,26 @@ impl Workbench {
     pub(super) fn whole_game_active(&self) -> bool {
         self.whole_game.session.as_ref().is_some_and(|s| s.state.active())
     }
-    /// A handback holds only the engine it returns; a successor foreground analyses at once.
+    /// A handback (pausing or completing) holds only the engine it returns; a successor
+    /// foreground analyses at once.
     pub(super) fn whole_game_holds_foreground(&self) -> bool {
         self.whole_game.releasing.is_some_and(|(_, i)| i == self.engines.foreground())
             || self.whole_game.session.as_ref().is_some_and(|s| {
-                s.state.active() && (s.holds || (s.borrowed && s.state != State::Paused))
+                s.state.active() && (s.holds
+                    || (s.borrowed && !s.completing && !matches!(s.state, State::Pausing | State::Paused)))
             })
     }
     pub(super) fn whole_game_releasing(&self) -> bool { self.whole_game.releasing.is_some() }
     pub(super) fn whole_game_document_closing(&mut self) {
         if self.whole_game_active() { self.whole_game_finish(State::Failed, "WholeGameAnalysis.error.gameChanged"); }
     }
-    /// The foreground engine was switched, restarted or closed: a run borrowing it stops, keeps
-    /// its answers and gives the engine back; a dedicated process continues without holding it.
+    /// The foreground engine was switched, restarted or closed: a run borrowing it, or still
+    /// giving it back after its last answer, stops with its answers kept; the old engine's return
+    /// cannot complete it afterwards. A dedicated process continues without holding the
+    /// foreground; a pause keeps waiting for its own handback.
     pub(super) fn whole_game_engine_changed(&mut self) {
         let Some(s) = self.whole_game.session.as_mut() else { return };
-        if matches!(s.engine, Some(Engine::Lease { .. })) {
+        if s.completing || matches!(s.engine, Some(Engine::Lease { .. })) {
             self.whole_game_finish(State::Failed, "WholeGameAnalysis.error.request");
         } else {
             s.holds = false;
@@ -311,8 +315,11 @@ impl Workbench {
             match engine {
                 Engine::Process { instance, .. } => self.engines.terminate(instance),
                 Engine::Lease { lease, instance, .. } => {
+                    // A failed final stop ends the lease at once; its queued LeaseEnded still
+                    // decides the outcome.
+                    let alive = self.engines.lease_alive(lease);
                     self.engines.end_lease(lease);
-                    if self.engines.lease_alive(lease) { self.whole_game.releasing = Some((lease, instance)); }
+                    if alive { self.whole_game.releasing = Some((lease, instance)); }
                 }
             }
         }

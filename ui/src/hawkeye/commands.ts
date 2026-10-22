@@ -104,6 +104,7 @@ function payload(id: Id, open: Open, v: WorkbenchView, pane: HawkeyePane): Hawke
     firstMove: h.first_move,
     lastMove: h.last_move,
     currentMove: h.current_move,
+    document: v.document.id,
     currentNode: v.position.node,
     onMainTrunk: v.position.main_trunk,
     mark: h.mark,
@@ -171,9 +172,6 @@ function input(id: Id, i: HawkeyeInput): void {
       open.lastSent = "";
       break;
     case "run":
-      // Node ids and move numbers belong to the record the window showed; a click that crossed
-      // a record change would land on another game.
-      if (i.command.type === "Hawkeye" && i.command.op.type.startsWith("Goto") && i.layout !== open.layout) break;
       void run(i.command);
       break;
     case "display":

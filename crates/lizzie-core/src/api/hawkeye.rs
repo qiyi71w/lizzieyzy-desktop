@@ -25,15 +25,16 @@ pub enum HawkeyeCommand {
     SetSides { black: bool, white: bool },
     /// A list row (`handleTableDoubleClick`, any click): the position before the move at `node`
     /// (on the main trunk when 分支 is 主干), with the move marked (`clickbadmove`). Ignored while
-    /// automatic analysis runs (`isAutoAna`).
-    GotoRow { node: NodeId },
+    /// automatic analysis runs (`isAutoAna`). Navigation names the `document` it was picked
+    /// from; a command for another record is ignored.
+    GotoRow { document: u64, node: NodeId },
     /// A 翻车现场 bar: the same position and mark; Java's chart click has no automatic-analysis
     /// check.
-    GotoMove { node: NodeId },
+    GotoMove { document: u64, node: NodeId },
     /// Clicking or dragging on a curve chart (`goToMoveNumberBeyondBranch`): move `number` of the
     /// current line, else of the main trunk when the line is shorter; 0 (Java's -1 left of the
     /// chart) is the root.
-    GotoMoveNumber { number: u32 },
+    GotoMoveNumber { document: u64, number: u32 },
 }
 
 /// One side's match and loss numbers over the 统计 range (`keyPanel`, 胜率吻合 / 吻合度走势 lines).

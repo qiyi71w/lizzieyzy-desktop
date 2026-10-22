@@ -321,14 +321,14 @@ importing the matching LizzieYzy Next settings.
   the process or returns the borrowed foreground engine; 继续分析 re-plans only missing results.
   停止分析 keeps all completed results. Closing the dialog hides an active session; reopening
   shows it again. Completion closes it and shows a five-second result notice; with a borrowed
-  engine this happens once the engine is confirmed back (until then progress stays at 99%).
-  Browsing remains
+  engine this happens once the engine is confirmed back (until then progress stays at 99%), and a
+  failed return reports the engine error instead. Browsing remains
   available throughout. The analysis process uses KataGo's whole-game throughput thread profile;
   an explicitly accepted matching whole-game measured profile takes precedence after off-thread
   artifact/hardware verification (stale or ambiguous profiles use the normal thread profile).
   复用当前前台引擎 uses the same sequential foreground lease as quick analysis; switching the
-  foreground engine stops such a run, keeps its results and returns the old engine while the new
-  one analyses. The foreground
+  foreground engine during such a run, or while it is still returning the engine after its last
+  answer, stops it with its results kept; the new engine analyses at once. The foreground
   engine stopped by a dedicated run resumes on completion, cancellation or failure unless the
   user paused it. Main-line edits, rules/komi changes or replacing the record stop the task
   safely; game-info and komi editors refuse changes during the session. Analysed nodes show
@@ -359,7 +359,7 @@ importing the matching LizzieYzy Next settings.
   (胜率吻合, 吻合度走势, loss distributions and statistics, 分段吻合度, 翻车现场) can be clicked, dragged
   or scrolled to browse. Clicking a row goes to the position before the move and marks it; under
   主干 only main-trunk moves can be chosen; during 自动分析 row clicks are ignored as in Java, chart
-  clicks are not. A click made just as another record opens is dropped. Right-click a list for 导出为xls (a UTF-16
+  clicks are not. A click on one record that arrives after another record opened is ignored. Right-click a list for 导出为xls (a UTF-16
   tab-separated file named `.xls`, as Java writes it). `Q` keeps the window on top. 双引擎模式
   opens a second window on the secondary engine's analysis. The open state, page, chart, filters,
   range, the primary window's bounds, sort and column widths are remembered; the window reopens

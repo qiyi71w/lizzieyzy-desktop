@@ -13,7 +13,7 @@ use lizzie_core::workbench::{OpenOrigin, Workbench};
 use serde_json::{json, Value};
 
 #[derive(Default)]
-struct Process { id: InstanceId, args: Vec<String>, sent: Vec<String>, ended: bool }
+struct Process { id: InstanceId, args: Vec<String>, sent: Vec<String>, ended: bool, broken: bool }
 #[derive(Clone, Default)]
 struct World(Arc<Mutex<Vec<Process>>>);
 impl World {
@@ -29,7 +29,10 @@ impl World {
 struct Io(World, InstanceId);
 impl EngineIo for Io {
     fn send(&mut self, line: &str) -> std::io::Result<()> {
-        self.0.0.lock().unwrap().iter_mut().find(|p| p.id == self.1).unwrap().sent.push(line.into()); Ok(())
+        let mut world = self.0.0.lock().unwrap();
+        let p = world.iter_mut().find(|p| p.id == self.1).unwrap();
+        if p.broken { return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "closed")); }
+        p.sent.push(line.into()); Ok(())
     }
     fn terminate(self: Box<Self>) { self.0.0.lock().unwrap().iter_mut().find(|p| p.id == self.1).unwrap().ended = true; }
 }
@@ -283,6 +286,58 @@ fn switching_away_from_a_borrowed_engine_retires_the_run_without_holding_the_suc
     assert!(!later.iter().any(|c| c.contains("maxmoves")), "{later:?}");
     assert_eq!(wb.view(false).whole_game.baseline_completed, stored);
     assert_eq!(wb.view(false).whole_game.state, State::Failed);
+}
+/// Answers the borrowed searches and returns the final handback `stop`, unanswered.
+fn run_to_handback(wb: &mut Workbench, world: &World, fg: InstanceId) -> String {
+    loop {
+        let pending = world.take(fg); assert!(!pending.is_empty(), "no handback");
+        for line in pending {
+            let v = wb.view(false).whole_game;
+            if line.ends_with(" stop") && v.deep_completed == v.total { return line; }
+            reply(wb, fg, &line, 1000);
+        }
+    }
+}
+#[test]
+fn switching_during_the_final_handback_fails_the_run_and_frees_the_successor() {
+    let dir = tempfile::tempdir().unwrap(); let world = World::default(); let mut wb = make(dir.path(), &world);
+    let profile = |name: &str, command: &str| EngineProfile { name: name.into(), command: command.into(), ..EngineProfile::default() };
+    wb.save_engine_settings(vec![profile("A", "/opt/katago gtp"), profile("B", "/opt/katago-b gtp")], EngineStartup::Default).unwrap();
+    wb.start_engines(); let a = world.0.lock().unwrap().last().unwrap().id; serve(&mut wb, &world, a, 0);
+    borrow(&mut wb); open(&mut wb, RECORD); serve(&mut wb, &world, a, 0); start(&mut wb);
+    let held = run_to_handback(&mut wb, &world, a);
+    assert!(wb.switch_engine(1).unwrap());
+    let v = wb.view(false).whole_game;
+    assert_eq!((v.state, v.detail_key.as_str(), v.deep_completed), (State::Failed, "WholeGameAnalysis.error.request", v.total));
+    let b = world.0.lock().unwrap().last().unwrap().id;
+    assert!(foreground_searches(&serve(&mut wb, &world, b, 0)), "the successor is not held by A's handback");
+    // A finishes returning afterwards: the run stays failed.
+    reply(&mut wb, a, &held, 0); serve(&mut wb, &world, a, 0);
+    assert_eq!(wb.view(false).whole_game.state, State::Failed);
+}
+#[test]
+fn a_handback_that_cannot_be_written_fails_the_run_and_keeps_its_answers() {
+    let dir = tempfile::tempdir().unwrap(); let world = World::default(); let mut wb = make(dir.path(), &world);
+    let fg = foreground(&mut wb,&world); borrow(&mut wb); open(&mut wb,RECORD); serve(&mut wb,&world,fg,0); start(&mut wb);
+    let mut states = vec![];
+    'serve: loop {
+        let pending = world.take(fg); if pending.is_empty() { break; }
+        for line in pending {
+            let v = wb.view(false).whole_game;
+            // Answering the last search's stop delivers its result; the final stop then fails to write.
+            if line.ends_with(" stop") && v.deep_completed + 1 == v.total {
+                world.0.lock().unwrap().iter_mut().find(|p| p.id == fg).unwrap().broken = true;
+                reply(&mut wb, fg, &line, 1000);
+                states.push(wb.view(false).whole_game.state);
+                break 'serve;
+            }
+            reply(&mut wb, fg, &line, 1000);
+            states.push(wb.view(false).whole_game.state);
+        }
+    }
+    let v = wb.view(false).whole_game;
+    assert!(!states.contains(&State::Complete), "{states:?}");
+    assert_eq!((v.state, v.deep_completed), (State::Failed, v.total));
 }
 #[test]
 fn borrowed_engine_pause_returns_before_resume_and_stop_returns_it_again() {

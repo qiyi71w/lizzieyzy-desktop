@@ -7,7 +7,7 @@ import { t } from "../i18n";
 import { fixed, settingsCommand, UI_FONT, type HawkeyePayload } from "./model";
 
 export interface ChartActions {
-  /** Core commands: { type: "Hawkeye", op: { type: "GotoMoveNumber", number } } for curve press/drag, { type: "Hawkeye", op: { type: "GotoMove", node } } for a 翻车现场 slot (node = pane.moves[mistake.index].node), { type: "Navigate", nav: { op: "Back"|"Forward", count: 1 } } for the wheel, SetHawkeyeSettings via settingsCommand(...) for chart tab / detail toggle / diff ranges. */
+  /** Core commands: { type: "Hawkeye", op: { type: "GotoMoveNumber", document, number } } for curve press/drag, { type: "Hawkeye", op: { type: "GotoMove", document, node } } for a 翻车现场 slot (node = pane.moves[mistake.index].node), { type: "Navigate", nav: { op: "Back"|"Forward", count: 1 } } for the wheel, SetHawkeyeSettings via settingsCommand(...) for chart tab / detail toggle / diff ranges. */
   run(command: Command): void;
   /** 吻合率条件 fields: { matchAiMoves } / { matchAiPercentsPlayouts }. */
   display(change: Partial<DisplaySettings>): void;
@@ -1335,9 +1335,9 @@ export function mountCharts(host: HTMLElement, actions: ChartActions): ChartPane
   /** goToMoveNumberBeyondBranch: -1 goes back to the start. */
   const goto = (n: number) => {
     const number = Math.max(0, n);
-    if (number === lastGoto) return;
+    if (number === lastGoto || !payload) return;
     lastGoto = number;
-    actions.run({ type: "Hawkeye", op: { type: "GotoMoveNumber", number } });
+    actions.run({ type: "Hawkeye", op: { type: "GotoMoveNumber", document: payload.document, number } });
   };
 
   chartCanvas.addEventListener("pointerdown", (e) => {
@@ -1350,7 +1350,7 @@ export function mountCharts(host: HTMLElement, actions: ChartActions): ChartPane
       if (index < 0) return;
       const list = chart === 7 ? payload.pane.winrate_mistakes : payload.pane.score_mistakes;
       const move = list[index] ? payload.pane.moves[list[index].index] : undefined;
-      if (move) actions.run({ type: "Hawkeye", op: { type: "GotoMove", node: move.node } });
+      if (move) actions.run({ type: "Hawkeye", op: { type: "GotoMove", document: payload.document, node: move.node } });
       return;
     }
     if (chart >= 4) return;

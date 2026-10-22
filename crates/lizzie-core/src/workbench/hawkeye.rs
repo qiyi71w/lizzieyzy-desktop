@@ -111,13 +111,17 @@ impl Workbench {
                 self.hawkeye_session = HawkeyeSession { black, white };
                 Ok(changed)
             }
+            HawkeyeCommand::GotoRow { document, .. }
+            | HawkeyeCommand::GotoMove { document, .. }
+            | HawkeyeCommand::GotoMoveNumber { document, .. }
+                if document != self.doc.id => Ok(false),
             HawkeyeCommand::GotoRow { .. } if self.auto_analysis_active() => Ok(false),
-            HawkeyeCommand::GotoRow { node } => self.hawkeye_goto_move(node),
-            HawkeyeCommand::GotoMove { node } => self.hawkeye_goto_move(node),
+            HawkeyeCommand::GotoRow { node, .. } => self.hawkeye_goto_move(node),
+            HawkeyeCommand::GotoMove { node, .. } => self.hawkeye_goto_move(node),
             // A click left of the chart sends Java's -1 (`moveNumber`), which walks back to the
             // root like move number 0 (`goToMoveNumberHelper` stops at the root).
-            HawkeyeCommand::GotoMoveNumber { number: 0 } => self.goto_node(ROOT),
-            HawkeyeCommand::GotoMoveNumber { number } => Ok(self.goto_move_number(number)),
+            HawkeyeCommand::GotoMoveNumber { number: 0, .. } => self.goto_node(ROOT),
+            HawkeyeCommand::GotoMoveNumber { number, .. } => Ok(self.goto_move_number(number)),
         }
     }
 

@@ -26,8 +26,8 @@ function grid(): { body: HTMLDivElement; rows: HTMLDivElement } {
   body.append(rows);
   return { body, rows };
 }
-function row(host: HTMLElement, key: string, control: HTMLElement): void {
-  const label = document.createElement("label"); label.textContent = t(key);
+function row(host: HTMLElement, text: string, control: HTMLElement): void {
+  const label = document.createElement("label"); label.textContent = text;
   if (control instanceof HTMLInputElement) { control.id = control.dataset.key!; label.htmlFor = control.id; }
   host.append(label, control);
 }
@@ -46,15 +46,15 @@ const integer = (el: HTMLInputElement) => parseJavaInt(el.value.replaceAll(" ", 
 async function openDiff(draft: AutoAnalysisSettings): Promise<void> {
   const { body, rows } = grid();
   const black = check(draft.diffBlack, "autoDiff.black"), white = check(draft.diffWhite, "autoDiff.white");
-  row(rows, "StartAnaDialog.analyzeBlack", black); row(rows, "StartAnaDialog.analyzeWhite", white);
+  row(rows, t("StartAnaDialog.analyzeBlack"), black); row(rows, t("StartAnaDialog.analyzeWhite"), white);
   const win = check(draft.diffUseWin, "autoDiff.useWin"), score = check(draft.diffUseScore, "autoDiff.useScore");
   const winValue = number(draft.diffWinThreshold, "autoDiff.win", true), scoreValue = number(draft.diffScoreThreshold, "autoDiff.score", true);
-  for (const [key, box, value] of [["SetDiffAnalyze.lblWinThreshold", win, winValue], ["SetDiffAnalyze.lblScoreThreshold", score, scoreValue]] as const) {
+  for (const [text, box, value] of [[t("SetDiffAnalyze.lblWinThreshold"), win, winValue], [t("SetDiffAnalyze.lblScoreThreshold"), score, scoreValue]] as const) {
     const group = document.createElement("div"); group.className = "auto-analysis-inline"; group.append(box, value);
-    value.disabled = !box.checked; box.onchange = () => { value.disabled = !box.checked; }; row(rows, key, group);
+    value.disabled = !box.checked; box.onchange = () => { value.disabled = !box.checked; }; row(rows, text, group);
   }
   const time = number(draft.diffTime, "autoDiff.time"), visits = number(draft.diffVisits, "autoDiff.visits"), first = number(draft.diffFirstVisits, "autoDiff.firstVisits");
-  row(rows, "StartAnaDialog.timePerMove", time); row(rows, "StartAnaDialog.totalVisitsPerMove", visits); row(rows, "StartAnaDialog.firstVisitsPerMove", first);
+  row(rows, t("StartAnaDialog.timePerMove"), time); row(rows, t("StartAnaDialog.totalVisitsPerMove"), visits); row(rows, t("StartAnaDialog.firstVisitsPerMove"), first);
   const dialog = formPanel(t("SetDiffAnalyze.title"), body);
   const apply = button(t("SetKataEngines.btnApply"), async () => {
     if (!black.checked && !white.checked) { await message(t("Message.title"), t("SetDiffAnalyze.noBlackWhite")); return; }
@@ -80,15 +80,15 @@ export async function openAutoAnalysis(): Promise<void> {
   const { body, rows } = grid();
   const start = number(draft.startMove, "autoAnalysis.start"), end = number(draft.endMove, "autoAnalysis.end");
   const time = number(draft.timeSeconds, "autoAnalysis.time"), visits = number(draft.visits, "autoAnalysis.visits"), first = number(draft.firstVisits, "autoAnalysis.firstVisits");
-  row(rows, "StartAnaDialog.startMove", start); row(rows, "StartAnaDialog.endMove", end);
-  row(rows, "StartAnaDialog.timePerMove", time); row(rows, "StartAnaDialog.totalVisitsPerMove", visits); row(rows, "StartAnaDialog.firstVisitsPerMove", first);
+  row(rows, t("StartAnaDialog.startMove"), start); row(rows, t("StartAnaDialog.endMove"), end);
+  row(rows, t("StartAnaDialog.timePerMove"), time); row(rows, t("StartAnaDialog.totalVisitsPerMove"), visits); row(rows, t("StartAnaDialog.firstVisitsPerMove"), first);
   const black = check(draft.black, "autoAnalysis.black"), white = check(draft.white, "autoAnalysis.white"), branches = check(draft.allBranches, "autoAnalysis.allBranches"), diff = check(draft.diffEnable, "autoAnalysis.diff");
-  row(rows, "StartAnaDialog.analyzeBlack", black); row(rows, "StartAnaDialog.analyzeWhite", white); row(rows, "StartAnaDialog.analyzeAllBranch", branches);
+  row(rows, t("StartAnaDialog.analyzeBlack"), black); row(rows, t("StartAnaDialog.analyzeWhite"), white); row(rows, t("StartAnaDialog.analyzeAllBranch"), branches);
   const conditions = button(t("StartAnaDialog.btnSetDiff"), () => void openDiff(draft)); conditions.dataset.key = "autoAnalysis.conditions";
   conditions.disabled = !diff.checked; diff.onchange = () => { conditions.disabled = !diff.checked; draft.diffEnable = diff.checked; };
-  const group = document.createElement("div"); group.className = "auto-analysis-inline"; group.append(diff, conditions); row(rows, "StartAnaDialog.lblDiffAnalyze", group);
+  const group = document.createElement("div"); group.className = "auto-analysis-inline"; group.append(diff, conditions); row(rows, t("StartAnaDialog.lblDiffAnalyze"), group);
   const pause = check(draft.exitByPause, "autoAnalysis.exitByPause"), save = check(draft.autoSave, "autoAnalysis.autoSave");
-  row(rows, "StartAnaDialog.chkExitByPause", pause); row(rows, "StartAnaDialog.autoSaveKifu", save);
+  row(rows, t("StartAnaDialog.chkExitByPause"), pause); row(rows, t("StartAnaDialog.autoSaveKifu"), save);
   const dialog = formPanel(t("StartAnaDialog.title"), body);
   const begin = button(t("StartAnaDialog.startAnalyze"), async () => {
     const settings: AutoAnalysisSettings = { ...draft, startMove: integer(start), endMove: integer(end), timeSeconds: integer(time), visits: integer(visits), firstVisits: integer(first), timeEnabled: integer(time) > 0, visitsEnabled: integer(visits) > 0, firstVisitsEnabled: integer(first) > 0, black: black.checked, white: white.checked, allBranches: branches.checked, diffEnable: diff.checked, exitByPause: pause.checked, autoSave: save.checked };

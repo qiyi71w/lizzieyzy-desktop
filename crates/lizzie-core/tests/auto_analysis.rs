@@ -108,14 +108,15 @@ fn auto_analysis_excludes_whole_game_and_hawkeye_list_navigation() {
     serve(&mut wb, &world, id);
     assert_eq!(wb.start_whole_game_analysis(1000).unwrap(), Err("WholeGameAnalysis.conflict".into()));
     // A list row is ignored (`isAutoAna`), a chart position is not (`goToMoveNumberBeyondBranch`).
-    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoRow { node: 3 }), Ok(false));
+    let document = wb.document().id;
+    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoRow { document, node: 3 }), Ok(false));
     assert_eq!(wb.view(true).position.node, 0);
-    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoMoveNumber { number: 2 }), Ok(true));
+    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoMoveNumber { document, number: 2 }), Ok(true));
     assert_eq!(wb.view(true).position.node, 2);
     wb.stop_auto_analysis();
     assert!(!wb.view(true).auto_analysis.active);
     wb.goto_node(0).unwrap();
-    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoRow { node: 3 }), Ok(true));
+    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoRow { document, node: 3 }), Ok(true));
     assert_eq!(wb.view(true).position.node, 2);
 }
 

@@ -212,34 +212,59 @@ fn rows_and_charts_navigate_and_mark_like_java() {
     let dir = tempfile::tempdir().unwrap();
     let mut wb = opened(dir.path());
     let line = main_line(&wb);
-    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoMove { node: line[3] }), Ok(true));
+    let document = wb.document().id;
+    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoMove { document, node: line[3] }), Ok(true));
     let v = view(&mut wb);
     assert_eq!(v.current_move, 2);
     assert!(v.mark.is_some());
-    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoMove { node: line[3] }), Ok(false), "already there");
+    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoMove { document, node: line[3] }), Ok(false), "already there");
 
     // Browse the side line: 主干 still reads the trunk; its move cannot be chosen.
     let side = *wb.document().record.node(line[1]).children.last().unwrap();
-    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoMove { node: side }).map_err(|_| ()), Err(()));
-    wb.hawkeye(HawkeyeCommand::GotoMoveNumber { number: 1 }).unwrap();
+    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoMove { document, node: side }).map_err(|_| ()), Err(()));
+    wb.hawkeye(HawkeyeCommand::GotoMoveNumber { document, number: 1 }).unwrap();
     assert_eq!(view(&mut wb).current_move, 1);
     wb.set_hawkeye_settings(HawkeyeSettings { show_frame: true, branch: HawkeyeBranch::Current, ..Default::default() })
         .unwrap();
-    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoMove { node: side }), Ok(true));
+    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoMove { document, node: side }), Ok(true));
     let v = view(&mut wb);
     assert_eq!(v.primary.total_moves, 5, "the current line is the trunk at move 1");
 
     // Chart: move 4, then 0 goes back to the root.
-    wb.hawkeye(HawkeyeCommand::GotoMoveNumber { number: 4 }).unwrap();
+    wb.hawkeye(HawkeyeCommand::GotoMoveNumber { document, number: 4 }).unwrap();
     assert_eq!(view(&mut wb).current_move, 4);
-    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoMoveNumber { number: 0 }), Ok(true));
+    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoMoveNumber { document, number: 0 }), Ok(true));
     assert_eq!(view(&mut wb).current_move, 0);
 
     // Closing clears the mark (`toggleBadMoves`).
-    wb.hawkeye(HawkeyeCommand::GotoMove { node: line[2] }).unwrap();
+    wb.hawkeye(HawkeyeCommand::GotoMove { document, node: line[2] }).unwrap();
     wb.hawkeye(HawkeyeCommand::Toggle).unwrap();
     wb.hawkeye(HawkeyeCommand::Toggle).unwrap();
     assert_eq!(view(&mut wb).mark, None);
+}
+
+/// A click picked from one record and delivered after another record opened does nothing there,
+/// even where the same node id holds a move; the new record's own clicks still work.
+#[test]
+fn navigation_from_a_replaced_record_is_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = opened(dir.path());
+    let old = wb.document().id;
+    open(&mut wb, &record());
+    let line = main_line(&wb);
+    assert_ne!(wb.document().id, old);
+    for op in [
+        HawkeyeCommand::GotoRow { document: old, node: line[3] },
+        HawkeyeCommand::GotoMove { document: old, node: line[3] },
+        HawkeyeCommand::GotoMoveNumber { document: old, number: 4 },
+    ] {
+        assert_eq!(wb.hawkeye(op), Ok(false));
+        let v = view(&mut wb);
+        assert_eq!((v.current_move, v.mark), (0, None));
+    }
+    let document = wb.document().id;
+    assert_eq!(wb.hawkeye(HawkeyeCommand::GotoRow { document, node: line[3] }), Ok(true));
+    assert_eq!(view(&mut wb).current_move, 2);
 }
 
 /// 当前 on a side line reads that line; its moves off the trunk dash the score line.
@@ -251,7 +276,7 @@ fn the_current_branch_reads_the_browsed_line() {
     wb.set_hawkeye_settings(HawkeyeSettings { show_frame: true, branch: HawkeyeBranch::Current, ..Default::default() })
         .unwrap();
     let side = *wb.document().record.node(line[1]).children.last().unwrap();
-    wb.hawkeye(HawkeyeCommand::GotoMove { node: side }).unwrap();
+    wb.hawkeye(HawkeyeCommand::GotoMove { document: wb.document().id, node: side }).unwrap();
     // The side move's own position: browse it.
     wb.goto_node(side).unwrap();
     let pane: HawkeyePane = view(&mut wb).primary;
