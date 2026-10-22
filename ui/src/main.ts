@@ -22,6 +22,7 @@ import { sameAnalysis, sameHistory } from "./workbench/viewEquality";
 import { handleEngineKey } from "./engine/keys";
 import { handleDisplayKey } from "./display/keys";
 import { handleInfoKey } from "./analysis/infoCommands";
+import { openAutoAnalysis } from "./quick/autoAnalysis";
 import { bindScoreDialog, scoreDialogReport, scorePoint } from "./analysis/scoreDialog";
 import { layerSignature, mainOwnership, secondaryOwnership, startTitleUpdates, statScene, subOwnership, workbenchTitle } from "./analysis/info";
 import { mountSetupBanner } from "./setup/banner";
@@ -407,6 +408,9 @@ document.addEventListener("keydown", (e) => {
   if (key === "O" && !ctrl && !e.altKey && !e.shiftKey) {
     e.preventDefault();
     run({ type: "ChooseAndOpenRecord" });
+  } else if (key === "A" && !ctrl && !e.altKey && !e.shiftKey) {
+    e.preventDefault();
+    void openAutoAnalysis();
   } else if (key === "V" && ctrl && !e.altKey) {
     e.preventDefault();
     pasteRecord();

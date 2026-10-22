@@ -11,6 +11,8 @@ import { product, t } from "../i18n";
 import { openAutoSetup } from "../setup/dialog";
 import { toggleKataEstimate } from "../analysis/infoCommands";
 import { toggleScore } from "../analysis/scoreDialog";
+import { AUTO_ANALYSIS_MENU } from "../quick/autoAnalysis";
+import { openPopupMenu } from "./menubar";
 
 interface Item {
   name: string;
@@ -136,6 +138,13 @@ export function buildBottomBar(host: HTMLElement): void {
       b.append(analyseIcon, analyseLabel);
       showAnalysis(false);
     } else b.textContent = t(item.key);
+    if (item.name === "batchOpen") {
+      b.dataset.key = "autoAnalysis.popup";
+      b.setAttribute("role", "button"); b.tabIndex = 0;
+      b.onclick = () => openPopupMenu(b, AUTO_ANALYSIS_MENU, true);
+      b.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); b.click(); } };
+      elements.set(item, b); host.append(b); continue;
+    }
     if (item.name === "downloadWeightButton") {
       b.dataset.key = "weights.download"; b.setAttribute("role", "button"); b.tabIndex = 0;
       b.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); item.run?.(); } };

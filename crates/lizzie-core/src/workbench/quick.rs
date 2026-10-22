@@ -193,6 +193,7 @@ impl Workbench {
             && !self.paused
             && self.quick.cancelled_doc != Some(self.doc.id)
             && !self.flash_active()
+            && !self.auto_analysis_active()
     }
 
     fn quick_readiness(&self, borrow: bool) -> Readiness {

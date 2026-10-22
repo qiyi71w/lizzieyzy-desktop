@@ -19,6 +19,7 @@ use lizzie_core::settings::{
     AnalysisEngineSettings, CoordinateStyle, DisplaySettings, EditSettings, EstimateStyle, ExtraMode, FlashRange,
     FramePlacement, KataEstimateState, Language, MoveRankMode, ProblemListSettings, ProblemSide, ProblemSort,
     PvVisitsMode, RecoverySettings, SubBoardMode, WindowPlacement,
+    AutoAnalysisSettings,
 };
 use lizzie_core::viewpoint::{AsCandidate, ShownValues};
 use ts_rs::Config;
@@ -55,6 +56,7 @@ fn generate() -> String {
         AnalysisEngineSettings, QuickModelView, QuickModelStatus, QuickAnalysisView, ProblemListSettings,
         ProblemSide, ProblemSort, ProblemListView, ProblemMoveView, LeaseAvailabilityView, UnrestoredReason,
         FlashTarget, FlashRange, FlashAnalysisView, FlashOutcome,
+        AutoAnalysisSettings, AutoAnalysisView, AutoAnalysisNotice,
     ];
     // Engine resources and engine performance keep their own lists.
     decls.extend(resources::decls(&cfg));

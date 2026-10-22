@@ -147,6 +147,53 @@ impl Default for FlashRange {
     }
 }
 
+/// Single-record 自动分析 and 波动过大时加强分析 (Java StartAnaDialog / SetDiffAnalyze).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AutoAnalysisSettings {
+    pub start_move: i32,
+    pub end_move: i32,
+    pub time_enabled: bool,
+    pub time_seconds: i32,
+    pub visits_enabled: bool,
+    pub visits: i32,
+    pub first_visits_enabled: bool,
+    pub first_visits: i32,
+    pub black: bool,
+    pub white: bool,
+    pub all_branches: bool,
+    pub auto_save: bool,
+    pub exit_by_pause: bool,
+    pub exit_tip: bool,
+    pub diff_enable: bool,
+    pub diff_black: bool,
+    pub diff_white: bool,
+    pub diff_use_win: bool,
+    pub diff_use_score: bool,
+    pub diff_win_threshold: f64,
+    pub diff_score_threshold: f64,
+    pub diff_time: i32,
+    pub diff_visits: i32,
+    pub diff_first_visits: i32,
+}
+
+impl Default for AutoAnalysisSettings {
+    fn default() -> Self {
+        Self {
+            start_move: 1, end_move: -1,
+            time_enabled: true, time_seconds: 2,
+            visits_enabled: false, visits: -1,
+            first_visits_enabled: false, first_visits: -1,
+            black: true, white: true, all_branches: false, auto_save: true,
+            exit_by_pause: true, exit_tip: true,
+            diff_enable: false, diff_black: true, diff_white: true,
+            diff_use_win: true, diff_use_score: false,
+            diff_win_threshold: 10.0, diff_score_threshold: 3.0,
+            diff_time: 10, diff_visits: -1, diff_first_visits: -1,
+        }
+    }
+}
+
 /// 快速曲线轻量模型 (`ui.quick-analysis-lightweight-model-enabled`, `katago-quick-analysis-model-path`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
@@ -629,6 +676,7 @@ pub struct Config {
     pub problems: ProblemListSettings,
     /// 局部精析's move range.
     pub flash_range: FlashRange,
+    pub auto_analysis: AutoAnalysisSettings,
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).

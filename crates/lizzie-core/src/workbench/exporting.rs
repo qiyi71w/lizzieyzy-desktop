@@ -176,6 +176,7 @@ impl Workbench {
             ticket,
             path: PathBuf::from(path),
             text: self.export_text(kind, labels),
+            create_parent: false,
         }
     }
 

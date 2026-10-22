@@ -291,6 +291,24 @@ importing the matching LizzieYzy Next settings.
   the run with Java's failure message; a failed analysis process shows the engine failure and then
   精析设置 with 确定并重新计算; a borrowed engine that cannot be given back stays "引擎状态未恢复".
   Results are stored like quick analysis results; opening another record ends the run silently.
+- 自动分析 (`A`, 分析 > 自动分析, or the bottom bar 自动分析 popup) opens Java's single-record
+  settings: start/end move, per-position time, total visits or first-candidate visits (any limit
+  advances), Black/White, all branches, stronger analysis on large fluctuations, pause-exit and
+  automatic SGF saving. An empty start means the current position; a positive start begins at
+  the position before that move. Defaults are start 1, 2 seconds, both sides, main line,
+  pause-exit and auto-save on. It uses the normal foreground GTP engine, not another analysis
+  process, and hands a running quick analysis back first. The board follows its progress;
+  reverse-child depth-first traversal visits side branches before the main continuation.
+  Stop (分析 > 终止自动分析 or the settings dialog) keeps the current position and results.
+  Natural completion optionally strengthens the before/after positions of sufficiently large
+  win-rate or score changes; forced stop asks before that phase. Space exits without saving when
+  手动暂停分析则退出自动分析 is on (the exit notice can be disabled); otherwise it pauses the
+  run until analysis resumes. Record or engine replacement ends the run without transferring it.
+  Automatic saves after at least one completed position use the existing serial save lane:
+  `<name>_已分析_<yyyyMMddHHmmss>.sgf` beside the source, or `AnalyzedGames/<timestamp>.sgf` in
+  this client's application data directory for a new record. They are copies, not a rename of
+  the source. The root gets Java's AI-match/top-ten-difference summaries for sides with at least
+  ten evaluable moves. Batch analysis and the popup's batch progress table are not available yet.
 - 快速曲线轻量模型 (引擎一键设置 > 权重管理): the official lightweight b10 model is downloaded on demand
   (size and SHA-256 checked), which turns 自动使用 on. A model file is used only while its SHA-256
   matches the catalog (checked again when the file changes); with 自动使用 and a KataGo of 1.17 or
@@ -329,8 +347,11 @@ importing the matching LizzieYzy Next settings.
   pure-network ownership style), the analysis-information settings above (graph, Kata形势,
   scoring rules, AI match, 独立选点列表 options, 记录选点信息到评论中; Java's window and column
   positions are reported as not usable), 自动棋谱快析, 精析设置 (except remote engines), 局部精析's range, the
-  lightweight model choice and the 问题手 settings — only values Java itself accepts. Java's marker for its own
-  bundled KataGo package is reported as not
+  lightweight model choice and the 问题手 settings — only values Java itself accepts.
+  Automatic-analysis conditions (`analyze-all-branch`, all ten `auto-ana-diff-*` keys,
+  `exit-auto-analyze-by-pause`, `exit-auto-analyze-tip`) and `toolbar-parameter` slots 0–8,
+  47 and 48 also migrate, including checked limit flags and values, start/end, auto-save and sides.
+  Java's marker for its own bundled KataGo package is reported as not
   applicable. Engines keep using the Java engine and
   model files: relative paths are resolved as Java launches them (a bare program name is looked
   up on `PATH`; relative files, including a Java engine's `-jar` file, in the Java folder or an

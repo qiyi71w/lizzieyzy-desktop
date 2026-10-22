@@ -1233,3 +1233,44 @@ fn the_move_range_of_flash_analysis_imports_like_java_reads_it() {
     assert_eq!((range.start_move, range.end_move), (30, -1));
     assert_eq!(saved_config(&product).flash_range, range, "kept after a restart");
 }
+
+#[test]
+fn automatic_analysis_imports_conditions_and_toolbar_parameters_transactionally() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), json!({ "ui": {
+        "analyze-all-branch": true,
+        "auto-ana-diff-enable": true, "auto-ana-diff-black": false,
+        "auto-ana-diff-white": true, "auto-ana-diff-use-win": false,
+        "auto-ana-diff-use-score": true, "auto-ana-diff-win-threshold": "12.5",
+        "auto-ana-diff-score-threshold": 4.5, "auto-ana-diff-time": 20,
+        "auto-ana-diff-playouts": 5000, "auto-ana-diff-first-playouts": 2000,
+        "exit-auto-analyze-by-pause": false, "exit-auto-analyze-tip": false
+    }}).to_string()).unwrap();
+    let mut toolbar = vec![json!(-1); 51];
+    for (index, value) in [(0, 15), (1, 80), (2, 1), (3, 4), (4, 1), (5, 1), (6, 300), (7, 1), (8, 200)] {
+        toolbar[index] = json!(value);
+    }
+    toolbar[47] = json!(false); toolbar[48] = json!(true);
+    std::fs::write(java.join("persist"), json!({"ui-persist": {"toolbar-parameter": toolbar}}).to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let before = wb.config().auto_analysis.clone();
+    let p = preview(&mut wb, &java);
+    assert_eq!(wb.config().auto_analysis, before, "preview writes nothing");
+    for key in ["ui.analyze-all-branch", "ui.auto-ana-diff-time", "ui.auto-ana-diff-win-threshold", "ui.exit-auto-analyze-tip", "persist:ui-persist.toolbar-parameter[0]", "persist:ui-persist.toolbar-parameter[48]"] {
+        let row = item(&p.items, key);
+        assert_eq!(row.status, ImportStatus::Imported, "{key}");
+        assert_eq!(row.target, Some(ImportTarget::AutoAnalysis));
+    }
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    let s = &wb.config().auto_analysis;
+    assert_eq!((s.start_move, s.end_move, s.time_seconds, s.visits, s.first_visits), (15, 80, 4, 300, 200));
+    assert!(s.time_enabled && s.visits_enabled && s.first_visits_enabled && s.auto_save);
+    assert!(!s.black && s.white && s.all_branches && s.diff_enable);
+    assert!(!s.diff_black && s.diff_white && !s.diff_use_win && s.diff_use_score);
+    assert_eq!((s.diff_win_threshold, s.diff_score_threshold, s.diff_time, s.diff_visits, s.diff_first_visits), (12.5, 4.5, 20, 5000, 2000));
+    assert!(!s.exit_by_pause && !s.exit_tip);
+    assert_eq!(&saved_config(&product).auto_analysis, s, "persisted on import");
+}

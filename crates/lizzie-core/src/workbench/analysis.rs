@@ -473,6 +473,7 @@ impl Workbench {
         self.sounds.clear();
         self.quick_cancel();
         self.flash_document_closing();
+        self.auto_analysis_abandon();
         self.reset_analysis();
         self.reset_editing();
         self.publish_record_rules(None);
@@ -518,6 +519,7 @@ impl Workbench {
         // once for a running engine, for a new one when it is ready and the game still empty.
         let target_komi = if self.komi_changed { self.komi } else { profile.komi };
         self.start_komi = None;
+        self.auto_analysis_abandon();
         self.quick_engine_changed();
         let instance = match self.engines.instance_of(&profile.id) {
             Some(i) => {
@@ -561,6 +563,7 @@ impl Workbench {
             return Ok(false);
         };
         self.quick_engine_changed();
+        self.auto_analysis_abandon();
         self.engines.terminate(fg);
         let Some(index) = self.config.engine.index_of(&id) else {
             return Ok(true);
@@ -583,6 +586,7 @@ impl Workbench {
             })
             .collect();
         if fg.is_some_and(|f| targets.contains(&f)) {
+            self.auto_analysis_abandon();
             self.quick_engine_changed();
         }
         for id in &targets {
@@ -712,6 +716,7 @@ impl Workbench {
     /// User pause / resume (`togglePonderMannul`). Resuming also restarts an analysis a limit
     /// stopped. Never written to disk.
     pub fn toggle_analysis(&mut self) -> Result<bool, ApiError> {
+        if self.auto_analysis_toggle_pause() { return Ok(true); }
         if self.quick_toggle_pause() || self.flash_toggle_pause() {
             self.limit_stop = None;
             self.secondary_limit_stop = None;
@@ -1129,12 +1134,14 @@ impl Workbench {
                         continue;
                     };
                     let visits = result.visits;
+                    let first_visits = result.candidates.first().map_or(0, |c| c.visits);
+                    let automatic = !secondary && self.auto_analysis_active();
                     let store = if secondary {
                         &mut self.secondary_store
                     } else {
                         &mut self.store
                     };
-                    let replace = store.get(rec, node).is_none_or(|old| more_visits(&result, old));
+                    let replace = automatic || store.get(rec, node).is_none_or(|old| more_visits(&result, old));
                     if replace {
                         let mut result = result;
                         let limit = self.config.engine.analysis.limit_branch_length;
@@ -1146,7 +1153,8 @@ impl Workbench {
                         && self.limit_stop.is_none()
                         && !self.engines.raw_net_active();
                     if running && !secondary {
-                        self.check_limits(visits, elapsed);
+                        if automatic { self.auto_analysis_result(node, visits, first_visits, elapsed); }
+                        else { self.check_limits(visits, elapsed); }
                     } else if running && self.secondary_limit_stop.is_none() {
                         self.check_secondary_limits(visits, elapsed);
                     }
@@ -1154,6 +1162,7 @@ impl Workbench {
                 _ => {}
             }
         }
+        self.auto_analysis_poll();
         if changed {
             // Readiness, rules answers and failures can change what the engine should do.
             self.sync_engine();

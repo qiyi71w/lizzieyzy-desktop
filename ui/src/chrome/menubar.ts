@@ -50,7 +50,7 @@ function closeMenus() {
 }
 
 /** A JPopupMenu shown below `anchor` (a toolbar button), drawn and closed like the menu bar's. */
-export function openPopupMenu(anchor: HTMLElement, items: MenuNode[]): void {
+export function openPopupMenu(anchor: HTMLElement, items: MenuNode[], above = false): void {
   closeMenus();
   const r = anchor.getBoundingClientRect();
   const holder = document.createElement("div");
@@ -59,6 +59,7 @@ export function openPopupMenu(anchor: HTMLElement, items: MenuNode[]): void {
   holder.style.top = `${r.bottom}px`;
   holder.append(dropdown(items));
   document.body.append(holder);
+  if (above) holder.style.top = `${r.top - holder.firstElementChild!.getBoundingClientRect().height}px`;
   openMenu = holder;
 }
 

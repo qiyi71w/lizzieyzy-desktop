@@ -323,6 +323,31 @@ pub enum Command {
     CancelFlashAnalysis,
     /// 精析设置 > 确定并重新计算: the running flash analysis stops and the last one starts again.
     RedoFlashAnalysis,
+    StartAutoAnalysis { settings: crate::settings::AutoAnalysisSettings },
+    StopAutoAnalysis,
+    AnswerAutoAnalysisDiff { accept: bool },
+    SaveAutoAnalysisSettings { settings: crate::settings::AutoAnalysisSettings },
+    DismissAutoAnalysisTip { never_again: bool },
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, TS)]
+pub struct AutoAnalysisView {
+    pub active: bool,
+    pub starting: bool,
+    pub diff: bool,
+    pub confirmation: bool,
+    pub diff_moves: u32,
+    pub diff_nodes: u32,
+    pub pause_tip: bool,
+    pub notice: Option<AutoAnalysisNotice>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct AutoAnalysisNotice {
+    pub id: u32,
+    pub message_key: String,
+    pub directory: Option<String>,
+    pub timed: bool,
 }
 
 /// What a flash analysis analyses.
@@ -608,6 +633,7 @@ pub struct SettingsView {
     pub problems: crate::settings::ProblemListSettings,
     /// 局部精析's move range (`analysis-start-move`, `analysis-end-move`).
     pub flash_range: crate::settings::FlashRange,
+    pub auto_analysis: crate::settings::AutoAnalysisSettings,
 }
 
 /// 快速曲线轻量模型 card (`KataGoAutoSetupDialog`, `QuickAnalysisModelStatus`).
@@ -776,6 +802,7 @@ pub struct WorkbenchView {
     pub quick: QuickAnalysisView,
     /// Manual flash analysis in progress.
     pub flash: Option<FlashAnalysisView>,
+    pub auto_analysis: AutoAnalysisView,
     /// How a flash analysis ended, once.
     pub flash_outcome: Option<FlashOutcome>,
     /// 问题手 list and its progress badge.
@@ -992,6 +1019,7 @@ pub enum ImportTarget {
     ProblemList,
     /// 局部精析: `ui.analysis-start-move`, `analysis-end-move`.
     FlashRange,
+    AutoAnalysis,
 }
 
 /// A problem found with an imported engine without starting it.

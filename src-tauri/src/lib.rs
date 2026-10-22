@@ -149,9 +149,15 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
     drop(views);
     let logs = wb.take_logs();
     let checks = wb.take_launch_checks();
+    let auto_saves = wb.take_auto_analysis_saves();
     drop(wb);
     write_logs(shared, logs);
     run_launch_checks(app, checks);
+    for job in auto_saves {
+        if let Err(mpsc::SendError(job)) = shared.saves.lock().unwrap().send(job) {
+            finish_save(app, shared, job.ticket, Err("save worker stopped".into()));
+        }
+    }
     // A command can schedule timed work (quick analysis waits for browsing to settle).
     shared.rearm_timer();
 }
@@ -336,7 +342,12 @@ fn spawn_save_lane(app: AppHandle) -> Sender<SaveJob> {
         .name("lizzie-sgf-save".into())
         .spawn(move || {
             for job in rx {
-                let result = formats::write_record_file(&job.path, &job.text).map_err(|e| e.to_string());
+                let result = (|| {
+                    if job.create_parent {
+                        if let Some(parent) = job.path.parent() { std::fs::create_dir_all(parent)?; }
+                    }
+                    formats::write_record_file(&job.path, &job.text)
+                })().map_err(|e: std::io::Error| e.to_string());
                 let shared = app.state::<State>().inner().clone();
                 finish_save(&app, &shared, job.ticket, result);
             }
@@ -825,6 +836,32 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
                 Ok(done) => changed(&app, &shared, done),
                 Err(message_key) => changed_refused(&app, &shared, message_key),
             })
+        }
+        Command::StartAutoAnalysis { settings } => {
+            let result = shared.workbench.lock().unwrap().start_auto_analysis(settings)?;
+            Ok(match result {
+                Ok(done) => changed(&app, &shared, done),
+                Err(key) => changed_refused(&app, &shared, key.into()),
+            })
+        }
+        Command::StopAutoAnalysis => {
+            let done = shared.workbench.lock().unwrap().stop_auto_analysis();
+            Ok(changed(&app, &shared, done))
+        }
+        Command::AnswerAutoAnalysisDiff { accept } => {
+            let done = shared.workbench.lock().unwrap().answer_auto_analysis_diff(accept);
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SaveAutoAnalysisSettings { settings } => {
+            let refusal = shared.workbench.lock().unwrap().save_auto_analysis_settings(settings)?;
+            Ok(match refusal {
+                Some(key) => CommandResult::Refused { message_key: key.into() },
+                None => changed(&app, &shared, true),
+            })
+        }
+        Command::DismissAutoAnalysisTip { never_again } => {
+            let done = shared.workbench.lock().unwrap().dismiss_auto_analysis_tip(never_again)?;
+            Ok(changed(&app, &shared, done))
         }
     }
 }

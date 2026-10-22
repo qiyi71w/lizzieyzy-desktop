@@ -175,6 +175,7 @@ pub struct Mapped {
     pub problem_winrate_threshold: Option<f64>,
     pub problem_playouts_threshold: Option<u64>,
     pub problem_hide_control_pane: Option<bool>,
+    pub auto_analysis: Vec<DisplayValue>,
 }
 
 /// One imported [`DisplaySettings`] value: `field` is its camelCase name, with `.n` for an
@@ -902,6 +903,12 @@ const LEGACY_ENGINE_KEYS: [&str; 7] = [
 type Handled = Vec<(&'static str, &'static str)>;
 
 impl Reader<'_> {
+    fn auto_analysis_value(&mut self, name: String, field: &'static str, value: Option<Value>, raw: &Value) {
+        if let Some(value) = value {
+            self.imported(name, ImportTarget::AutoAnalysis, shown(&value));
+            self.mapped.auto_analysis.push(DisplayValue { target: ImportTarget::AutoAnalysis, field, value });
+        } else { self.invalid(name, ImportTarget::AutoAnalysis, raw); }
+    }
     fn item(&mut self, key: String, status: ImportStatus) -> &mut ImportItemView {
         self.items.push(ImportItemView {
             key,
@@ -958,6 +965,30 @@ impl Reader<'_> {
         let leelaz = root.get("leelaz").and_then(Value::as_object).unwrap_or(&empty);
         let mut handled: Handled = Vec::new();
 
+        for (key, field, kind) in [
+            ("analyze-all-branch", "allBranches", 0),
+            ("exit-auto-analyze-by-pause", "exitByPause", 0),
+            ("exit-auto-analyze-tip", "exitTip", 0),
+            ("auto-ana-diff-enable", "diffEnable", 0),
+            ("auto-ana-diff-black", "diffBlack", 0),
+            ("auto-ana-diff-white", "diffWhite", 0),
+            ("auto-ana-diff-use-win", "diffUseWin", 0),
+            ("auto-ana-diff-use-score", "diffUseScore", 0),
+            ("auto-ana-diff-win-threshold", "diffWinThreshold", 1),
+            ("auto-ana-diff-score-threshold", "diffScoreThreshold", 1),
+            ("auto-ana-diff-time", "diffTime", 2),
+            ("auto-ana-diff-playouts", "diffVisits", 2),
+            ("auto-ana-diff-first-playouts", "diffFirstVisits", 2),
+        ] {
+            let Some(raw) = ui.get(key) else { continue };
+            handled.push(("ui", key));
+            let value = match kind {
+                0 => as_bool(raw).map(Value::from),
+                1 => as_f64(raw).map(Value::from),
+                _ => as_i64(raw).and_then(|n| i32::try_from(n).ok()).map(Value::from),
+            };
+            self.auto_analysis_value(format!("ui.{key}"), field, value, raw);
+        }
         for (section, key, target, kind) in SIMPLE {
             let map = if *section == "ui" { ui } else { leelaz };
             let Some(v) = map.get(*key) else { continue };
@@ -1585,6 +1616,20 @@ impl Reader<'_> {
                             let value = if as_i64(raw) == Some(-1) { Some(Value::from(-1)) } else { value };
                             self.display_value(format!("{name}[{index}]"), ImportTarget::Suggestions, field, value, raw);
                         }
+                        for (index, field, boolean) in [
+                            (0, "startMove", false), (1, "endMove", false),
+                            (2, "timeEnabled", true), (3, "timeSeconds", false),
+                            (4, "autoSave", true), (5, "visitsEnabled", true),
+                            (6, "visits", false), (7, "firstVisitsEnabled", true),
+                            (8, "firstVisits", false), (47, "black", true), (48, "white", true),
+                        ] {
+                            let raw = &values[index];
+                            let value = if boolean {
+                                if index >= 47 { as_bool(raw).map(Value::from) }
+                                else { as_i64(raw).map(|v| Value::from(v == 1)) }
+                            } else { as_i64(raw).and_then(|v| i32::try_from(v).ok()).map(Value::from) };
+                            self.auto_analysis_value(format!("{name}[{index}]"), field, value, raw);
+                        }
                     }
                     // Window bounds and the tables' column pixels follow Java's own scaling,
                     // fonts and layout.
@@ -1923,6 +1968,9 @@ impl Mapped {
         set!(ae.reuse_current_engine, self.analysis_reuse_current_engine);
         set!(c.flash_range.start_move, self.flash_start_move);
         set!(c.flash_range.end_move, self.flash_end_move);
+        let mut auto = serde_json::to_value(&c.auto_analysis).expect("settings serialize");
+        for value in &self.auto_analysis { value.set(&mut auto); }
+        c.auto_analysis = serde_json::from_value(auto).expect("typed imported auto-analysis values");
         set!(c.quick_model.enabled, self.quick_model_enabled);
         if let Some(path) = &self.quick_model_path {
             c.quick_model.path = (!path.trim().is_empty()).then(|| path.clone());
@@ -2120,6 +2168,10 @@ impl Mapped {
             || self.flash_end_move.is_some_and(|v| v != config.flash_range.end_move)
         {
             out.push(ImportTarget::FlashRange);
+        }
+        let auto = serde_json::to_value(&config.auto_analysis).expect("settings serialize");
+        if self.auto_analysis.iter().any(|v| v.current(&auto).as_ref() != Some(&v.value)) {
+            out.push(ImportTarget::AutoAnalysis);
         }
         let qm = &config.quick_model;
         if self.quick_model_enabled.is_some_and(|v| v != qm.enabled)

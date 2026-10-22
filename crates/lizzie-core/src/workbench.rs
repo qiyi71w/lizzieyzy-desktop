@@ -15,6 +15,7 @@
 //! serial writer, like Java `SgfSaveQueue`).
 
 mod analysis;
+mod auto_analysis;
 mod editing;
 mod exporting;
 mod flash;
@@ -107,6 +108,8 @@ pub enum SavePlan {
 pub struct SaveJob {
     pub ticket: u64,
     pub path: PathBuf,
+    /// Automatic-analysis output creates its parent folder on the serial writer.
+    pub create_parent: bool,
     pub text: String,
 }
 
@@ -245,6 +248,7 @@ pub struct Workbench {
     quick: quick::QuickFlow,
     /// 闪电分析 of the open record.
     flash: flash::FlashFlow,
+    auto_analysis: auto_analysis::AutoAnalysisFlow,
     /// The problem move a 问题手 jump marked, while browsing the position before it
     /// (`clickbadmove`): document, that position, the move's node.
     problem_mark: Option<(u64, NodeId, NodeId)>,
@@ -343,6 +347,7 @@ impl Workbench {
             scoring: None,
             quick: quick::QuickFlow::default(),
             flash: flash::FlashFlow::default(),
+            auto_analysis: auto_analysis::AutoAnalysisFlow::default(),
             problem_mark: None,
         }
     }
@@ -432,6 +437,7 @@ impl Workbench {
                 });
             }
             Ok(read) => {
+                self.auto_analysis_abandon();
                 // Opening waits while a borrowed foreground engine is given back.
                 let Some((_, Ok((format, mut record)))) = self.quick_defer_open((ticket, Ok(read))) else {
                     self.pending = Some(pending);
@@ -584,6 +590,7 @@ impl Workbench {
             ticket,
             path: PathBuf::from(&path),
             text: self.record_text(application),
+            create_parent: false,
         }
     }
 
@@ -597,6 +604,7 @@ impl Workbench {
             return false;
         };
         let save = self.saves.remove(at);
+        let automatic = self.auto_analysis_save_finished(ticket, result.is_ok());
         match result {
             Err(detail) => {
                 self.save_outcome = Some(SaveOutcome::Failed {
@@ -608,7 +616,7 @@ impl Workbench {
                 });
             }
             Ok(()) => {
-                if self.doc.id == save.document {
+                if self.doc.id == save.document && !automatic {
                     match save.export {
                         None => {
                             self.doc.path = Some(save.path.clone());
@@ -922,12 +930,14 @@ impl Workbench {
                 quick_model: self.quick_model_view(),
                 problems: self.config.problems.clone(),
                 flash_range: self.config.flash_range,
+                auto_analysis: self.config.auto_analysis.clone(),
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
             engine: self.engine_view(),
             quick: self.quick_view(),
             flash: self.flash_view(),
+            auto_analysis: self.auto_analysis_view(),
             flash_outcome: None,
             problems: self.problem_list(),
             analysis: self.current_analysis(),

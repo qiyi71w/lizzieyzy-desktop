@@ -149,7 +149,7 @@ impl Workbench {
 
     /// `Board.isMatchAi` and `updateMovelist` for the move leading to `node`, when the position
     /// it was played in has analysis.
-    fn evaluation(&self, node: NodeId) -> Option<MoveEvaluation> {
+    pub(super) fn evaluation(&self, node: NodeId) -> Option<MoveEvaluation> {
         let rec = &self.doc.record;
         let n = rec.node(node);
         let NodeKind::Move { color, point } = n.kind else {
@@ -188,7 +188,7 @@ impl Workbench {
 
     /// The mover's change from the analysis at `from` to that at `to`, both analysed
     /// (`Board.lastWinrateDiff`, `drawMoveStatistics`).
-    fn change(&self, from: NodeId, to: NodeId) -> Option<MoveChange> {
+    pub(super) fn change(&self, from: NodeId, to: NodeId) -> Option<MoveChange> {
         let rec = &self.doc.record;
         let before = self.store.get(rec, from).filter(|a| a.visits > 0)?;
         let after = self.store.get(rec, to).filter(|a| a.visits > 0)?;
