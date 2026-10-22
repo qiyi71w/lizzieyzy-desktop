@@ -310,9 +310,10 @@ importing the matching LizzieYzy Next settings.
   the source. The root gets Java's AI-match/top-ten-difference summaries for sides with at least
   ten evaluable moves. Batch analysis and the popup's batch progress table are not available yet.
 - 整盘精析 (分析 menu, `Ctrl+Shift+B`, or 自动分析 popup): a modeless dialog selects 500, 1,000,
-  3,000, 10,000 or a custom 500–1,000,000 visits per position. It first fills the main trunk's
-  missing 32-visit overview, then searches missing deep results; real passes count, dummy passes
-  and side branches do not. Deeper cached results are reused even with 总是覆盖 enabled. The
+  3,000, 10,000 or a custom 500–1,000,000 visits per position. It first fills the missing
+  32-visit overview of the starting position and every main-trunk move, then searches missing
+  deep results; real passes count, dummy passes and side branches do not. Deeper cached results
+  are reused even with 总是覆盖 enabled. The
   progress bar gives the overview 20% and deep analysis 80%; a stored engine benchmark supplies
   the pre-start estimate, otherwise the dialog shows the ordinary visits hint. 暂停分析 closes
   the process or returns the borrowed foreground engine; 继续分析 re-plans only missing results.

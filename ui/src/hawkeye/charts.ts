@@ -1049,7 +1049,7 @@ const STYLE_ID = "hawkeye-charts-style";
 const STYLE = `
 .hk-charts { overflow: hidden; background: ${PANEL_BG}; user-select: none; }
 .hk-charts canvas { position: absolute; display: block; }
-.hk-charts .hk-tab { position: absolute; cursor: default; }
+.hk-charts .hk-chart-tab { position: absolute; cursor: default; }
 .hk-charts .hk-min { position: absolute; overflow: hidden; }
 .hk-charts .hk-min > * { position: absolute; box-sizing: border-box; margin: 0; }
 .hk-charts .hk-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: 12px ${UI_FONT}; line-height: 20px; color: #000; }
@@ -1235,7 +1235,8 @@ export function mountCharts(host: HTMLElement, actions: ChartActions): ChartPane
     tabLayer.replaceChildren(
       ...boxes.map((b) => {
         const d = document.createElement("div");
-        d.className = "hk-tab";
+        // Not "hk-tab": the window's page-tab style would paint over the canvas-drawn labels.
+        d.className = "hk-chart-tab";
         d.dataset.key = `hawkeye.chart.tab.${b.chart}`;
         d.dataset.text = b.label;
         if (b.chart === chart) d.dataset.selected = "true";

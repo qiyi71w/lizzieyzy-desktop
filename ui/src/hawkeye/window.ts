@@ -49,7 +49,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #eee; font-f
 #hk-filter label { display: inline-flex; align-items: center; }
 #hk-filter input[type=checkbox] { margin: 0 2px; }
 #hk-filter input[type=text] { width: 3em; height: 16px; font: inherit; font-size: 12px; padding: 0 2px; }
-#hk-filter select { height: 20px; font: inherit; font-size: 12px; }
+#hk-filter select { height: 20px; box-sizing: border-box; padding: 0 2px; line-height: 18px; font: inherit; font-size: 12px; }
 #hk-bottom { position: absolute; left: 0; right: 0; bottom: 0; }
 .hk-menu { position: fixed; z-index: 50; background: #fff; border: 1px solid #888; box-shadow: 2px 2px 3px rgba(0,0,0,.3); padding: 2px 0; font-size: 12px; }
 .hk-menu div { padding: 3px 18px; cursor: default; }

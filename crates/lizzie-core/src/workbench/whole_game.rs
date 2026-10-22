@@ -81,9 +81,11 @@ impl Workbench {
         }
         false
     }
+    /// `WholeGameAnalysisPlan.create`: the root position, then every real action of the main
+    /// trunk (moves and non-dummy passes).
     fn whole_game_nodes(&self) -> Vec<NodeId> {
         let rec = &self.doc.record;
-        rec.path_to(rec.line_end(ROOT)).into_iter().filter(|&n| rec.node(n).kind.is_action()).collect()
+        rec.path_to(rec.line_end(ROOT)).into_iter().filter(|&n| n == ROOT || rec.node(n).kind.is_action()).collect()
     }
     fn whole_game_matches(&self, s: &Session) -> bool {
         if s.doc != self.doc.id || s.record.size != self.doc.record.size || s.komi != self.komi
@@ -132,8 +134,9 @@ impl Workbench {
         if self.whole_game_active() || self.whole_game.releasing.is_some() { return Ok(Ok(false)); }
         if !(500..=1_000_000).contains(&visits) { return Ok(Err("WholeGameAnalysis.visits.invalid".into())); }
         let path = self.doc.record.path_to(self.doc.record.line_end(ROOT));
-        let nodes: Vec<_> = path.iter().copied().filter(|&n| self.doc.record.node(n).kind.is_action()).collect();
-        if nodes.is_empty() { return Ok(Err("WholeGameAnalysis.noGame".into())); }
+        // `countMainlineMoves(start) == 0`: nothing but the root to analyse.
+        let nodes = self.whole_game_nodes();
+        if nodes.len() < 2 { return Ok(Err("WholeGameAnalysis.noGame".into())); }
         // isWholeGameAnalysisConflict: automatic analysis (isAutoAna) is an exclusive task.
         if self.auto_analysis_active() { return Ok(Err("WholeGameAnalysis.conflict".into())); }
         if self.flash_active() || self.flash_releasing() { return Ok(Err("WholeGameAnalysis.conflict.analysis".into())); }

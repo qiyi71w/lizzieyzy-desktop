@@ -106,13 +106,14 @@ fn foreground_searches(commands: &[String]) -> bool { commands.iter().any(|s| s.
 fn baseline_then_deep_use_exact_visits_progress_and_clean_result_storage() {
     let dir = tempfile::tempdir().unwrap(); let world = World::default(); let mut wb = make(dir.path(), &world);
     open(&mut wb, RECORD); let revision = wb.document().revision; start(&mut wb);
-    let worker = world.worker(); let qs = world.queries(worker); assert_eq!(qs.len(), 4);
+    let worker = world.worker(); let qs = world.queries(worker); assert_eq!(qs.len(), 5, "the root and four moves");
+    assert!(qs[0]["moves"].as_array().unwrap().is_empty(), "the root position is planned first");
     assert!(qs.iter().all(|q| q["maxVisits"] == 32));
-    answer(&mut wb, worker, &qs[0]); assert_eq!(wb.view(false).whole_game.percent, 5);
+    answer(&mut wb, worker, &qs[0]); assert_eq!(wb.view(false).whole_game.percent, 4);
     for q in &qs[1..] { answer(&mut wb, worker, q); }
-    let deep = world.queries(worker); assert_eq!(deep.len(), 4); assert!(deep.iter().all(|q| q["maxVisits"] == 1000));
+    let deep = world.queries(worker); assert_eq!(deep.len(), 5); assert!(deep.iter().all(|q| q["maxVisits"] == 1000));
     let v = wb.view(false).whole_game; assert_eq!((v.state,v.percent,v.completed),(State::Deep,20,0));
-    answer(&mut wb, worker, &deep[0]); assert_eq!(wb.view(false).whole_game.percent,40);
+    answer(&mut wb, worker, &deep[0]); assert_eq!(wb.view(false).whole_game.percent,36);
     for q in &deep[1..] { answer(&mut wb, worker, q); }
     let v = wb.view(false); assert_eq!((v.whole_game.state,v.whole_game.percent),(State::Complete,100));
     assert_eq!(wb.document().revision,revision); assert!(!wb.document().unsaved()); assert!(world.ended(worker));
@@ -124,15 +125,15 @@ fn only_real_main_trunk_actions_are_planned_and_browsing_is_free() {
     let dir = tempfile::tempdir().unwrap(); let world = World::default(); let mut wb = make(dir.path(), &world);
     open(&mut wb,"(;SZ[19];B[pd];W[];DD[true](;B[pp])(;B[dp]))"); start(&mut wb);
     // DD attaches a dummy first child to W; the B continuations are later siblings. The main
-    // trunk ends at that placeholder, so only B[pd] and the real W pass are requested.
-    let worker = world.worker(); let qs = world.queries(worker); assert_eq!(qs.len(),2);
-    assert_eq!(qs[1]["moves"].as_array().unwrap().last().unwrap()[1], "pass");
+    // trunk ends at that placeholder, so only the root, B[pd] and the real W pass are requested.
+    let worker = world.worker(); let qs = world.queries(worker); assert_eq!(qs.len(),3);
+    assert_eq!(qs[2]["moves"].as_array().unwrap().last().unwrap()[1], "pass");
     wb.navigate(Navigation::Last); assert_ne!(wb.cursor(),0); assert_eq!(wb.view(false).whole_game.state,State::Baseline);
     for q in qs { answer(&mut wb,worker,&q); } finish(&mut wb,&world,worker);
     assert_eq!(wb.view(false).whole_game.state,State::Complete);
     open(&mut wb,"(;SZ[19];B[pd];W[](;B[pp])(;DD[true])(;B[dp]))"); start(&mut wb);
-    let worker = world.worker(); let qs = world.queries(worker); assert_eq!(qs.len(),3);
-    assert!(qs.iter().all(|q| q["moves"].as_array().unwrap().last().unwrap()[1] != "D4"));
+    let worker = world.worker(); let qs = world.queries(worker); assert_eq!(qs.len(),4);
+    assert!(qs.iter().all(|q| q["moves"].as_array().unwrap().last().is_none_or(|m| m[1] != "D4")));
     for q in qs { answer(&mut wb,worker,&q); } finish(&mut wb,&world,worker);
     assert_eq!(wb.view(false).whole_game.state,State::Complete);
 }
@@ -152,10 +153,10 @@ fn pause_returns_process_resume_replans_only_missing_and_stop_keeps_answers() {
     open(&mut wb,RECORD); start(&mut wb); let first = world.worker(); let qs = world.queries(first);
     answer(&mut wb,first,&qs[0]); assert!(wb.pause_whole_game_analysis()); assert!(world.ended(first));
     assert_eq!(wb.view(false).whole_game.state,State::Paused); assert!(wb.resume_whole_game_analysis());
-    let worker = world.worker(); assert_ne!(worker,first); let qs = world.queries(worker); assert_eq!(qs.len(),3);
-    assert!(qs.iter().all(|q| q["moves"].as_array().unwrap().len() != 1));
+    let worker = world.worker(); assert_ne!(worker,first); let qs = world.queries(worker); assert_eq!(qs.len(),4);
+    assert!(qs.iter().all(|q| !q["moves"].as_array().unwrap().is_empty()), "the answered root is not asked again");
     assert!(wb.stop_whole_game_analysis()); assert!(world.ended(worker));
-    wb.navigate(Navigation::Forward(1)); let v = wb.view(false);
+    let v = wb.view(false);
     assert_eq!(v.whole_game.state,State::Cancelled); assert_eq!(v.analysis.unwrap().visits,32);
     // Late callbacks from the closed process are not written.
     answer(&mut wb,worker,&qs[0]); wb.navigate(Navigation::Forward(1)); assert!(wb.view(false).analysis.is_none());
@@ -200,7 +201,7 @@ fn request_errors_retry_only_missing_nodes_three_times_then_fail() {
     open(&mut wb,RECORD); start(&mut wb); let worker = world.worker();
     let first = world.queries(worker); answer(&mut wb,worker,&first[0]);
     for q in &first[1..] { output(&mut wb,worker,&json!({"id":q["id"],"error":"rejected"}).to_string()); }
-    for _ in 0..2 { let qs = world.queries(worker); assert_eq!(qs.len(),3); for q in qs { output(&mut wb,worker,&json!({"id":q["id"],"error":"rejected"}).to_string()); } }
+    for _ in 0..2 { let qs = world.queries(worker); assert_eq!(qs.len(),4); for q in qs { output(&mut wb,worker,&json!({"id":q["id"],"error":"rejected"}).to_string()); } }
     assert_eq!(wb.view(false).whole_game.detail_key,"WholeGameAnalysis.error.request"); assert!(world.ended(worker));
 }
 #[test]
@@ -276,7 +277,7 @@ fn ownership_is_requested_only_in_deep_and_refills_without_replacing_deeper_resu
     let worker = world.worker(); finish(&mut wb, &world, worker);
     wb.set_kata_estimate(lizzie_core::api::KataEstimateMode::Main).unwrap(); start(&mut wb);
     let worker = world.worker(); let qs = world.queries(worker);
-    assert_eq!(qs.len(),4); assert!(qs.iter().all(|q| q["maxVisits"] == 1000 && q["includeOwnership"] == true));
+    assert_eq!(qs.len(),5); assert!(qs.iter().all(|q| q["maxVisits"] == 1000 && q["includeOwnership"] == true));
     for q in qs { answer(&mut wb,worker,&q); }
     wb.navigate(Navigation::Last); let v = wb.view(false);
     assert_eq!(v.whole_game.state,State::Complete); assert_eq!(v.analysis.unwrap().visits,3000);
@@ -289,7 +290,7 @@ fn worker_exit_fails_request_and_does_not_discard_completed_nodes() {
     open(&mut wb,RECORD); start(&mut wb); let worker = world.worker(); let qs = world.queries(worker);
     answer(&mut wb,worker,&qs[0]); wb.engine_input(worker,EngineInput::Exited(Some(1)));
     assert_eq!(wb.view(false).whole_game.detail_key,"WholeGameAnalysis.error.request");
-    wb.navigate(Navigation::Forward(1)); assert_eq!(wb.view(false).analysis.unwrap().visits,32);
+    assert_eq!(wb.view(false).analysis.unwrap().visits,32, "the answered root keeps its result");
 }
 
 #[test]
@@ -299,7 +300,7 @@ fn stored_benchmark_estimates_only_missing_work_and_result_overrides_do_not_muta
     wb.save_engine_settings(vec![EngineProfile { name:"KataGo".into(), command:"/opt/katago gtp".into(),
         thread_policy: Some(lizzie_core::engine::tuning::ThreadPolicy { threads:4, visits_per_second:1000.0,
             ..Default::default() }), ..Default::default() }],EngineStartup::Default).unwrap();
-    assert_eq!(wb.estimate_whole_game_analysis(1000),Some(4128));
+    assert_eq!(wb.estimate_whole_game_analysis(1000),Some(5160));
     let mut d = wb.config().display.clone(); d.move_numbers = -1; d.move_rank = -1;
     d.suggestion_winrate = false; d.suggestion_playouts = false; d.suggestion_variations = false;
     wb.set_display_settings(d.clone()).unwrap(); start(&mut wb);
@@ -315,7 +316,7 @@ fn percent_caps_at_99_until_all_callbacks_finish_even_if_foreground_fills_last_p
     let fg = foreground(&mut wb,&world); open(&mut wb,RECORD); wb.navigate(Navigation::Last); serve(&mut wb,&world,fg,0);
     start(&mut wb); let worker = world.worker();
     for q in world.queries(worker) { answer(&mut wb,worker,&q); }
-    let deep = world.queries(worker); assert_eq!(deep.len(),4);
+    let deep = world.queries(worker); assert_eq!(deep.len(),5);
     wb.toggle_analysis().unwrap();
     assert!(foreground_searches(&serve(&mut wb,&world,fg,1000)));
     for q in deep.iter().filter(|q| q["moves"].as_array().unwrap().len() != 4) { answer(&mut wb,worker,q); }
