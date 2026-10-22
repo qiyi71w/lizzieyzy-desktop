@@ -136,7 +136,9 @@ export function boardGeom(r: Rect, cols: number, rows: number, ratio: number): B
   return { x: r.x + i((r.w - size) / 2), y: r.y + i((r.h - size) / 2), size, margin, square, stoneRadius, n, cols, rows };
 }
 
-/** WinrateGraph.java:585-678,2755-2761. Shared by painting and move-column navigation. */
-export function graphGeom(width: number, height: number, lineNodes: number) {
-  return { width: i((width - 6) * 0.98), height: height - 4, slots: Math.max(50, lineNodes - 2) };
+/** WinrateGraph.java:585-678,2755-2761: the plot width and height inside the graph panel and its
+ *  move slots for `moves` (the larger of the main trunk's and the current line's last move number
+ *  minus one), at least 50. Shared by painting and graph hit testing. */
+export function graphGeom(width: number, height: number, moves: number) {
+  return { width: i((width - 6) * 0.98), height: height - 4, slots: Math.max(50, moves) };
 }

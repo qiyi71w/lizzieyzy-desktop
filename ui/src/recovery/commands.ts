@@ -18,6 +18,10 @@ Object.assign(COMMANDS, {
   "menu.copyBoardScreen": { run: () => void copyMainBoardPicture() },
   "menu.copySubBoardScreen": { run: () => void copySubBoardPicture() },
   "menu.copySgf": { run: copyRecord },
+  "menu.appendWinrateToComment": {
+    run: () => run({ type: "SetAppendWinrateToComment", enabled: !state.view?.settings.append_winrate_to_comment }),
+    checked: () => state.view?.settings.append_winrate_to_comment ?? true,
+  },
 } satisfies Record<string, CommandEntry>);
 
 const AUTO_SAVE_INTERVAL = 60_000;

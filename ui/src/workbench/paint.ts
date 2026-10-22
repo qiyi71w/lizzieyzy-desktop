@@ -5,20 +5,20 @@ import type {
   CandidateView,
   CoordinateStyle,
   DisplaySettings,
-  HistoryPoint,
+  EstimateStyle,
   LastAction,
   Mark,
   MoveRank,
   NodeAnalysisView,
   Point,
   RawNetView,
+  ScoreView,
   Stone,
   SubBoardMode,
   TreeNodeView,
 } from "../contract/generated";
 import { t } from "../i18n";
 import type { BoardGeom, Rect } from "./layout";
-import { graphGeom } from "./layout";
 
 const COLS = "ABCDEFGHJKLMNOPQRSTUVWXYZ";
 const COLS_WITH_I = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -103,6 +103,10 @@ export interface BoardScene {
   hovered: number | null;
   /** The hovered candidate's variation, null when no preview shows. */
   preview: PreviewVariation | null;
+  /** Ownership squares: 纯网络's or Kata形势's (main.ts / analysis/info.ts decide which). */
+  ownership: OwnershipLayer | null;
+  /** 终局点目 in progress: its marks replace the analysis overlays (BoardRenderer.java:328-426). */
+  score: ScoreView | null;
 }
 
 /** What the main board drew, for the acceptance probe. */
@@ -131,6 +135,10 @@ export interface BoardReport {
   whiteOrderBadges: boolean;
   /** PV visits labels drawn on the hovered variation. */
   pvVisits: { x: number; y: number; text: string }[];
+  /** Kata形势 squares drawn: the style and whose ownership. */
+  estimate: { style: EstimateStyle; source: OwnershipLayer["source"] } | null;
+  /** 终局点目 marks drawn: red dots (neutral / 不计入) and owned squares. */
+  score: { neutral: number; black: number; white: number } | null;
 }
 
 export const images: Record<string, HTMLImageElement> = {};
@@ -598,9 +606,36 @@ function drawPreviewStones(g: CanvasRenderingContext2D, preview: Preview, px: (p
   }
 }
 
-// ------------------------------------------------------------------ ownership (纯网络 H)
+// ------------------------------------------------------------------ ownership (纯网络 H, Kata形势)
 
-type PureEstimate = DisplaySettings["pureEstimate"];
+/** Black-positive ownership with the style it is painted in: 纯网络's (`rawNet`), the position's
+ *  Kata形势 (`estimate`, the current node's or its parent's) or a candidate's movesOwnership. */
+export interface OwnershipLayer {
+  ownership: number[];
+  style: EstimateStyle;
+  source: "rawNet" | "estimate" | "candidate";
+}
+
+/** BoardRenderer.drawScore (BoardRenderer.java:4765-4796): a red dot on neutral and 不计入 points,
+ *  a square of the owner's colour on every other point, stones included. */
+function drawScoreMarks(g: CanvasRenderingContext2D, score: ScoreView, X: (x: number) => number, Y: (y: number) => number, sq: number, cols: number): { neutral: number; black: number; white: number } {
+  const counts = { neutral: 0, black: 0, white: 0 };
+  const dot = i((sq * 4) / 10), box = i((sq * 6) / 10);
+  score.points.forEach((p, k) => {
+    const x = X(k % cols), y = Y(i(k / cols));
+    if (p.owner === null || p.excluded) {
+      g.fillStyle = "#f00";
+      circle(g, x - i((sq * 2) / 10) + dot / 2, y - i((sq * 2) / 10) + dot / 2, dot / 2);
+      g.fill();
+      counts.neutral++;
+    } else {
+      g.fillStyle = p.owner === "Black" ? "#000" : "#fff";
+      g.fillRect(x - i((sq * 3) / 10), y - i((sq * 3) / 10), box, box);
+      counts[p.owner === "Black" ? "black" : "white"]++;
+    }
+  });
+  return counts;
+}
 
 /** BoardRenderer.convertLength. */
 function convertLength(v: number): number {
@@ -614,7 +649,7 @@ function convertLength(v: number): number {
  *  exactly when the Black-positive value is positive. "Small" uses the small squares Java drew
  *  when the KataGo estimate's own small option was set (an objective fix: the pure-network choice
  *  decides); the sub board has no small squares in Java. */
-function drawOwnership(g: CanvasRenderingContext2D, own: number[], stones: (Stone | null)[], cols: number, style: PureEstimate, X: (x: number) => number, Y: (y: number) => number, sq: number, main: boolean) {
+function drawOwnership(g: CanvasRenderingContext2D, own: number[], stones: (Stone | null)[], cols: number, style: EstimateStyle, X: (x: number) => number, Y: (y: number) => number, sq: number, main: boolean) {
   const big = style === "BigBelow";
   for (let k = 0; k < own.length; k++) {
     const o = own[k];
@@ -1065,6 +1100,8 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     unimportant: 0,
     whiteOrderBadges: false,
     pvVisits: [],
+    estimate: null,
+    score: null,
   };
   drawTexture(g, images["board.png"], ox, oy, geo.size, geo.size);
   const avail = geo.size - 2 * geo.margin;
@@ -1105,24 +1142,29 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     drawName(g, s, ox, oy, geo);
     report.bottomLine = "names";
   }
-  const ownership = s.rawNetOn && s.katago && s.rawNet?.mode === "Ownership" ? s.rawNet.ownership : null;
+  const layer = s.ownership;
   // shouldShowCountBlockBelow: the big squares go under the stones.
-  const below = d.pureEstimate === "BigBelow";
-  if (ownership) report.ownership = d.pureEstimate;
-  if (ownership && below) drawOwnership(g, ownership, s.stones, cols, d.pureEstimate, X, Y, sq, true);
+  const below = layer?.style === "BigBelow";
+  if (layer?.source === "rawNet") report.ownership = layer.style;
+  else if (layer) report.estimate = { style: layer.style, source: layer.source };
+  if (layer && below) drawOwnership(g, layer.ownership, s.stones, cols, layer.style, X, Y, sq, true);
   const preview = s.preview ? playVariation(s.stones, s.toPlay, cols, s.preview, s.preview.length, d.removeDeadInVariation) : null;
   const stones = preview?.stones ?? s.stones;
   for (let p = 0; p < stones.length; p++) {
     const stone = stones[p];
     if (stone) drawStone(g, px(p), py(p), r, stone === "Black");
   }
-  if (ownership && !below) drawOwnership(g, ownership, s.stones, cols, d.pureEstimate, X, Y, sq, true);
+  if (layer && !below) drawOwnership(g, layer.ownership, s.stones, cols, layer.style, X, Y, sq, true);
+  // renderImages ends with the score image; the move numbers still follow it.
+  if (s.score) report.score = drawScoreMarks(g, s.score, X, Y, sq, cols);
   const nextHover = s.preview?.order === -1 && s.overlay.next_move ? s.overlay.next_move.point : null;
   const hoverPoint = nextHover ?? (s.preview ? s.analysis?.candidates.find((c) => c.order === s.preview!.order)?.point ?? null : null);
   const hoverIndex = hoverPoint ? hoverPoint.y * cols + hoverPoint.x : -1;
   if (preview) drawPreviewStones(g, preview, px, py, r);
   const hideHoverInfo = drawMoveOverlay(g, s, geo, ox, oy, X, Y, preview, hoverIndex, report);
   if (preview) report.preview = { order: s.preview!.order, length: s.preview!.length, numbers: preview.numbers.size };
+  // While scoring no markup, next moves or candidates are drawn (BoardRenderer.java:363-364).
+  if (s.score) return report;
   drawMarks(g, s, px, py, r, ox, oy);
   const branch = !!preview;
   const showNext = d.nextMoves && !branch && !!s.nextColor;
@@ -1322,8 +1364,8 @@ export interface SubBoardScene {
   branchLimit: number;
   /** 变化图中去掉死子: the variation's captured stones are taken off. */
   removeDead: boolean;
-  ownership: number[] | null;
-  pureEstimate: PureEstimate;
+  /** 纯网络's or Kata形势's squares (the shown variation's movesOwnership with 按选点显示评估). */
+  ownership: OwnershipLayer | null;
 }
 
 export interface SubBoardReport {
@@ -1337,7 +1379,8 @@ export interface SubBoardReport {
   numbers: { x: number; y: number; text: string; red: boolean }[];
   heat: { x: number; y: number; size: number }[];
   frozen: boolean;
-  ownership: boolean;
+  /** Whose ownership squares were drawn, if any. */
+  ownership: OwnershipLayer["source"] | null;
 }
 
 /** SubBoardRenderer.draw (SubBoardRenderer.java:194-230): flat stones, no coordinates; 变化图 shows
@@ -1353,7 +1396,13 @@ export function paintSubBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origi
   const Y = (y: number) => oy + geo.margin + sq * y;
   const px = (p: number) => X(p % cols);
   const py = (p: number) => Y(i(p / cols));
-  const report: SubBoardReport = { mode: s.mode, icon: null, label: null, target: null, branchLength: null, numbers: [], heat: [], frozen: s.over, ownership: !!s.ownership };
+  // renderImages (SubBoardRenderer.java:1089-1115): squares over the stones only where the
+  // variation layer is drawn, so 仅棋盘棋子 keeps just the big squares under the stones. Java's
+  // one image serves Kata形势 and 纯网络 alike, so the rule holds for both.
+  const layer = s.ownership;
+  const below = layer?.style === "BigBelow";
+  const above = !!layer && !below && s.mode !== "Raw";
+  const report: SubBoardReport = { mode: s.mode, icon: null, label: null, target: null, branchLength: null, numbers: [], heat: [], frozen: s.over, ownership: layer && (below || above) ? layer.source : null };
   g.save();
   g.beginPath();
   g.rect(ox, oy, geo.size, geo.size);
@@ -1390,8 +1439,7 @@ export function paintSubBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origi
     }
     report.icon = s.over ? "pause" : "play";
   }
-  const below = s.pureEstimate === "BigBelow";
-  if (s.ownership && below) drawOwnership(g, s.ownership, s.stones, cols, s.pureEstimate, X, Y, sq, false);
+  if (layer && below) drawOwnership(g, layer.ownership, s.stones, cols, layer.style, X, Y, sq, false);
   s.stones.forEach((stone, p) => {
     if (stone) flatStone(p, stone);
   });
@@ -1438,7 +1486,7 @@ export function paintSubBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origi
     g.fillText(String(index + 1), ox + geo.size - i((r * 9) / 5), oy + geo.size - i(r / 5));
     report.label = index + 1;
   }
-  if (s.ownership && !below) drawOwnership(g, s.ownership, s.stones, cols, s.pureEstimate, X, Y, sq, false);
+  if (layer && above) drawOwnership(g, layer.ownership, s.stones, cols, layer.style, X, Y, sq, false);
   if (branch) drawSubNumbers(g, geo, ox, oy, branch, px, py, s, report);
   g.restore();
   return report;
@@ -1511,6 +1559,14 @@ export interface CapturedScene {
   komi: number;
   analysing: boolean;
   rules: string | null;
+  /** AI总评分 of Black / White (core `statistics`), null when none of their moves is evaluated. */
+  aiScoreBlack: number | null;
+  aiScoreWhite: number | null;
+}
+
+/** drawCaptured's AI总评分 text (LizzieFrame.AIscore + "%.1f"). */
+export function aiScoreText(score: number): string {
+  return `${t("LizzieFrame.AIscore")}${score.toFixed(1)}`;
 }
 
 /** Java String.valueOf(double) for komi values: whole numbers keep ".0". */
@@ -1553,6 +1609,8 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
   g.textBaseline = "alphabetic";
   stringMid(g, `${t("LizzieFrame.captures")}${s.blackCaptures}`, i(width / 4), i((height * 28) / 32), i(height / 6), i((width * 3) / 10));
   stringMid(g, `${t("LizzieFrame.captures")}${s.whiteCaptures}`, i((width * 3) / 4), i((height * 28) / 32), i(height / 6), i((width * 3) / 10));
+  if (s.aiScoreBlack !== null) stringMid(g, aiScoreText(s.aiScoreBlack), i(width / 4), i((height * 19) / 32), i(height / 5), i((width * 4) / 10));
+  if (s.aiScoreWhite !== null) stringMid(g, aiScoreText(s.aiScoreWhite), i((width * 3) / 4), i((height * 19) / 32), i(height / 5), i((width * 4) / 10));
   g.font = `${i(Math.max(11, height * 0.18))}px ${GRAPH_FONT}`;
   const komi = javaDouble(s.komi);
   g.fillText(komi, i(width / 2) - 1 - i(Math.round(g.measureText(komi).width) / 2), i((height * 7) / 8));
@@ -1560,10 +1618,47 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
   stringMid(g, caption, i(width / 2) - 1, i((height * 3) / 10), i(height / 5), i(width / 2));
 }
 
-/** LizzieFrame.drawMoveStatistics (LizzieFrame.java:8702-9025): black-perspective bar and
- * last-move deltas; preserve the unanalysed fallback when both payloads are absent. */
-export function paintStat(g: CanvasRenderingContext2D, r: Rect, current: HistoryPoint | null, previous: HistoryPoint | null, moveNumber: number, stdev: number | null, leadWithKomi: boolean) {
+/** What the statistics panel shows, from core projections only. */
+export interface StatScene {
+  /** Black's win rate on the bar: the current node's, else the last analysed one's before it
+   *  (parent, then grandparent); null when none is analysed. */
+  black: number | null;
+  /** Black's win rate at the position the change is measured from, for the change marker. */
+  before: number | null;
+  /** The mover's win-rate / score-lead change for the last move (core `last_move`), null unknown. */
+  change: number | null;
+  scoreChange: number | null;
+  /** Black's lead from the same node as `black` (the board difference under 盘面). */
+  lead: number | null;
+  leadWithKomi: boolean;
+  /** isKataStyle: a KataGo engine or KataGo data. */
+  kata: boolean;
+  /** 1-based candidate rank of the last move (lastMoveMatchCandidteNo). */
+  matched: number | null;
+  moveNumber: number;
+  /** shouldDrawMoveNumberDown: the captured panel shows the rules instead of the move number. */
+  moveNumberDown: boolean;
+}
+
+export interface StatReport {
+  text: string;
+  bar: { black: string; white: string } | null;
+  change: "gain" | "loss" | null;
+  moveNumber: boolean;
+}
+
+/** Java's sign rule: "+" only above zero (a zero change reads "-0.0"). */
+function javaSigned(v: number): string {
+  return `${v > 0 ? "+" : "-"}${Math.abs(v).toFixed(1)}`;
+}
+
+/** LizzieFrame.drawMoveStatistics (LizzieFrame.java:8702-9025) outside play mode: the score and
+ *  last-move line, the black/white bar with its 10% dashed grid, the change marker and the
+ *  percentages. Unknown values are left out instead of being drawn as zero. */
+export function paintStat(g: CanvasRenderingContext2D, r: Rect, s: StatScene): StatReport {
   const { w, h } = r;
+  const report: StatReport = { text: "", bar: null, change: null, moveNumber: false };
+  if (w < 10 || h < 5) return report;
   g.fillStyle = "rgba(0,0,0,0.51)";
   g.fillRect(0, 0, w, h);
   g.strokeStyle = "rgba(0,0,0,0.51)";
@@ -1572,209 +1667,123 @@ export function paintStat(g: CanvasRenderingContext2D, r: Rect, current: History
   g.moveTo(1, 1.5);
   g.lineTo(w - 1, 1.5);
   g.stroke();
+  const x0 = 2, y0 = 2;
   const width = w - 4;
   const height = h - 4;
-  let text = ` ${t("LizzieFrame.display.lastMove")}(#  ): -0.0%`;
-  const data = current && current.visits > 0 ? current : previous && previous.visits > 0 ? previous : null;
-  if (data) {
-    const black = data.black.winrate;
-    const barY = i(h * 0.32), barH = Math.max(4, i(h * 0.3));
-    const split = i(width * black / 100);
-    g.fillStyle = "#000";
-    g.fillRect(2, barY, split, barH);
-    g.fillStyle = "#fff";
-    g.fillRect(2 + split, barY, width - split, barH);
-    textMid(g, `${black.toFixed(1)}%`, w * 0.1, h * 0.17, Math.min(17, h * 0.24), w * 0.3, "#fff");
-    textMid(g, `${(100 - black).toFixed(1)}%`, w * 0.9, h * 0.17, Math.min(17, h * 0.24), w * 0.3, "#fff");
-    textMid(g, String(moveNumber), w / 2, h * 0.17, Math.min(17, h * 0.24), w * 0.25, "#fff");
-    text = "";
-    if (data.black.score_lead !== null) {
-      // drawMoveStatistics: Black's lead, the board difference under 盘面 (core `black`).
-      const label = leadWithKomi ? t("LizzieFrame.scoreLeadWithKomi") : t("LizzieFrame.scoreLeadJustScore");
-      text = `${label}${data.black.score_lead.toFixed(1)}${stdev === null ? "" : ` ±${stdev.toFixed(1)}`} `;
-    }
-    if (current && previous && current.visits > 0 && previous.visits > 0) {
-      const gain = 100 - previous.winrate - current.winrate;
-      const before = previous.black.winrate;
-      const beforeX = 2 + width * before / 100, nowX = 2 + split;
-      if (Math.abs(nowX - beforeX) > 5) {
-        g.strokeStyle = "#888";
-        g.lineWidth = 1;
-        g.beginPath(); g.moveTo(beforeX, barY); g.lineTo(beforeX, barY + barH); g.stroke();
-        g.fillStyle = gain >= 0 ? "#00ff00" : "#ff0000";
-        const direction = Math.sign(nowX - beforeX);
-        g.beginPath(); g.moveTo(beforeX, barY + barH / 2 - 2); g.lineTo(nowX - direction * 5, barY + barH / 2 - 2);
-        g.lineTo(nowX - direction * 5, barY + 1); g.lineTo(nowX, barY + barH / 2);
-        g.lineTo(nowX - direction * 5, barY + barH - 1); g.lineTo(nowX - direction * 5, barY + barH / 2 + 2);
-        g.lineTo(beforeX, barY + barH / 2 + 2); g.closePath(); g.fill();
-      }
-      text += `${t("LizzieFrame.display.lastMove")}(#  ): ${gain > 0 ? "+" : ""}${gain.toFixed(1)}%`;
-      if (previous.score_lead !== null && current.score_lead !== null) {
-        const scoreGain = -previous.score_lead - current.score_lead;
-        text += ` ${scoreGain > 0 ? "+" : ""}${scoreGain.toFixed(1)}${t("LizzieFrame.pts")}`;
-      }
-    }
+  let text = "";
+  if (s.kata && s.lead !== null) text += `${s.leadWithKomi ? t("LizzieFrame.scoreLeadWithKomi") : t("LizzieFrame.scoreLeadJustScore")}${s.lead.toFixed(1)}`;
+  text += ` ${t("LizzieFrame.display.lastMove")}${s.matched ? `(#${s.matched})` : "(#  )"}`;
+  if (s.change !== null) {
+    text += `: ${javaSigned(s.change)}%`;
+    if (s.kata && s.scoreChange !== null) text += ` ${javaSigned(s.scoreChange)}${t("LizzieFrame.pts")}`;
   }
+  report.text = text;
   // LizzieFrame.drawString: fit width * 20 / 21 at 12 px, capped at height / 4 and frame font + 4
   g.font = `12px ${GRAPH_FONT}`;
   const fit = Math.round((12 * i((width * 20) / 21)) / g.measureText(text).width);
   g.font = `${Math.min(i(height / 4), fit, 16)}px ${GRAPH_FONT}`;
-  const fm = javaMetrics(g);
+  let fm = javaMetrics(g);
   g.fillStyle = "#fff";
   g.textAlign = "left";
   g.textBaseline = "alphabetic";
-  g.fillText(text, 2, 2 + i((height * 17) / 20) + i((fm.ascent - fm.descent) / 2));
-}
-
-export interface GraphScene {
-  history: HistoryPoint[];
-  current: number;
-  line: Set<number>;
-  mainLine: Set<number>;
-  maxScore: number;
-}
-
-/** WinrateGraph.draw default single-engine branch, WinrateGraph.java:664-1060,1151-1470. */
-export function paintGraph(g: CanvasRenderingContext2D, r: Rect, lineNodes: number, scene: GraphScene): number {
-  const W0 = r.w;
-  const H0 = r.h;
-  g.fillStyle = "rgba(22,25,29,0.647)";
-  g.fillRect(0, 0, W0, H0);
-  const posx = 0;
-  const posy = 2;
-  let width = W0 - 6;
-  const height = H0 - 4;
-  const seg = (x1: number, y1: number, x2: number, y2: number) => {
-    g.beginPath();
-    g.moveTo(x1 + 0.5, y1 + 0.5);
-    g.lineTo(x2 + 0.5, y2 + 0.5);
-    g.stroke();
-  };
-  g.strokeStyle = "rgba(255,255,255,0.282)";
+  g.fillText(text, x0, y0 + i((height * 17) / 20) + i((fm.ascent - fm.descent) / 2));
+  const textWidth = (str: string) => Math.round(g.measureText(str).width);
+  const moveNumber = String(s.moveNumber);
+  if (s.black === null) {
+    if (s.moveNumberDown) {
+      g.font = `${i(Math.min(width * 0.63, height) * 0.24)}px ${UI_FONT}`;
+      fm = javaMetrics(g);
+      const swM = textWidth(moveNumber);
+      if (width > 2 * swM) {
+        g.fillText(moveNumber, x0 + i((width - swM) / 2), y0 + i(height / 6) + i((fm.ascent - fm.descent) / 2));
+        report.moveNumber = true;
+      }
+    }
+    return report;
+  }
+  const maxW = width;
+  const barW = i((s.black * maxW) / 100);
+  const barWW = i(((100 - s.black) * maxW) / 100);
+  const barY = y0 + i(height / 3), barH = i(height / 3);
+  const bx = x0, wx = bx + barW;
+  g.fillStyle = "#fff";
+  g.fillRect(wx, barY, barWW, barH);
+  g.fillStyle = "#000";
+  g.fillRect(bx, barY, barW, barH);
+  if (s.change !== null && s.before !== null) {
+    const lastX = bx + i((s.before * maxW) / 100);
+    const diffX = Math.min(wx, lastX), diffW = Math.abs(wx - lastX);
+    if (diffW > 0) {
+      const big = barH > 30, k = big ? 5 : 3, tip = big ? 7 : 5;
+      const gain = s.change >= 0;
+      report.change = gain ? "gain" : "loss";
+      const color = gain ? "#0f0" : "#f00";
+      g.strokeStyle = color;
+      g.fillStyle = color;
+      g.lineWidth = big ? 2 : 1;
+      const o = big ? 0 : 0.5;
+      const line = (xa: number, xb: number) => {
+        g.beginPath();
+        g.moveTo(xa, barY + o);
+        g.lineTo(xb + 1, barY + o);
+        g.stroke();
+      };
+      const triangle = (xs: number, xTip: number, yTip: number) => {
+        g.beginPath();
+        g.moveTo(xs, barY + 1 - k);
+        g.lineTo(xs, barY + 1 + k);
+        g.lineTo(xTip, yTip);
+        g.closePath();
+        g.fill();
+      };
+      // The arrow points from the win rate before the move to the one now (rightTri).
+      if (wx > lastX) {
+        if (diffW > 3) line(diffX, diffX + diffW - 3);
+        triangle(Math.max(diffX, diffX + diffW - tip), diffX + diffW, barY);
+      } else {
+        const end = diffX + diffW - 1;
+        if (diffW > 3) line(diffX + 2, end);
+        triangle(Math.min(end + 1, diffX + tip), diffX, barY + 1);
+      }
+      if (diffW > tip) {
+        g.strokeStyle = "rgb(128,128,128)";
+        g.beginPath();
+        g.moveTo(lastX + o, barY);
+        g.lineTo(lastX + o, barY + barH);
+        g.stroke();
+      }
+    }
+  }
+  g.font = `${i(Math.min(maxW * 0.63, height) * 0.24)}px ${UI_FONT}`;
+  fm = javaMetrics(g);
+  const fontHeight = fm.ascent - fm.descent;
+  const textY = y0 + barH - i((barH - fontHeight) / 2);
+  const winB = `${s.black.toFixed(1)}%`, winW = `${(100 - s.black).toFixed(1)}%`;
+  report.bar = { black: winB, white: winW };
+  g.fillStyle = "#fff";
+  g.fillText(winB, bx + 4, textY);
+  const swW = textWidth(winW);
+  g.fillText(winW, bx + maxW - swW - 4, textY);
+  if (s.moveNumberDown) {
+    const swM = textWidth(moveNumber);
+    if (maxW > 2 * swM + textWidth(winB) + swW) {
+      g.fillText(moveNumber, bx + i((maxW - swM) / 2), textY);
+      report.moveNumber = true;
+    }
+  }
+  // winRateGridLines = 9 dashed grey lines at the tenths (maxBarwidth / 10 in int arithmetic).
+  g.strokeStyle = "rgb(128,128,128)";
   g.lineWidth = 1;
   g.setLineDash([4, 4]);
-  for (const k of [1, 3]) seg(posx, posy + height - i((height * ((k * 100) / 4)) / 100), posx + width, posy + height - i((height * ((k * 100) / 4)) / 100));
-  const baselineY = posy + i(height / 2);
-  const baseline = (bw: number) => {
-    g.setLineDash([]);
-    g.strokeStyle = "rgba(236,232,224,0.659)";
-    g.lineWidth = 1.5;
-    seg(posx, baselineY, posx + bw, baselineY);
-  };
-  const { slots: numMoves, width: plotWidth } = graphGeom(r.w, r.h, lineNodes);
-  width = plotWidth;
-  baseline(width);
-  const x = (p: HistoryPoint) => i((Math.max(0, p.move_number - 1) * width) / numMoves);
-  // Black's numbers from the core (`black`; the lead with the komi under 盘面).
-  const wy = (p: HistoryPoint) => posy + height - i(p.black.winrate * height / 100);
-  const sy = (p: HistoryPoint) => baselineY - i(p.black.score_lead! * height / (2 * scene.maxScore));
-  const eligible = scene.history.filter((p) => p.visits > 0 && Number.isFinite(p.winrate));
-  if (eligible.length) {
-    g.fillStyle = "rgba(0,0,0,0.55)";
-    g.fillRect(0, baselineY - 7, 28, 14);
-    textMid(g, "50%", 14, baselineY, 10, 26, "#ddd");
+  g.beginPath();
+  for (let k = 1; k <= 9; k++) {
+    const x = bx + k * i(maxW / 10) + 0.5;
+    g.moveTo(x, barY);
+    g.lineTo(x, barY + barH);
   }
-  const fillSegment = (x1: number, y1: number, x2: number, y2: number) => {
-    const polygon = (a: number, b: number, c: number, d: number, above: boolean) => {
-      g.fillStyle = above ? "rgba(100,180,255,0.204)" : "rgba(232,225,210,0.165)";
-      g.beginPath(); g.moveTo(a, baselineY); g.lineTo(a, b); g.lineTo(c, d); g.lineTo(c, baselineY); g.closePath(); g.fill();
-    };
-    if ((y1 - baselineY) * (y2 - baselineY) < 0) {
-      const cross = x1 + (x2 - x1) * (baselineY - y1) / (y2 - y1);
-      polygon(x1, y1, cross, baselineY, y1 < baselineY);
-      polygon(cross, baselineY, x2, y2, y2 < baselineY);
-    } else polygon(x1, y1, x2, y2, y1 < baselineY || y2 < baselineY);
-  };
-  const drawLine = (points: HistoryPoint[], dashed: boolean) => {
-    points.sort((a, b) => a.move_number - b.move_number);
-    for (let k = 1; k < points.length; k++) {
-      const a = points[k - 1], b = points[k], gap = b.move_number - a.move_number;
-      if (gap <= 0 || gap >= 25) continue;
-      if (gap === 1) fillSegment(x(a), wy(a), x(b), wy(b));
-      g.setLineDash(dashed ? [4, 4] : []);
-      g.strokeStyle = gap > 1 ? "#fff" : "rgb(100,180,255)";
-      g.lineWidth = 1.7;
-      seg(x(a), wy(a), x(b), wy(b));
-    }
-    const scores = points.filter((p) => p.black.score_lead !== null);
-    for (let k = 1; k < scores.length; k++) {
-      const a = scores[k - 1], b = scores[k];
-      if (b.move_number - a.move_number >= 25) continue;
-      g.setLineDash(dashed ? [4, 4] : []);
-      g.strokeStyle = "#f0f";
-      g.lineWidth = 1;
-      seg(x(a), sy(a), x(b), sy(b));
-    }
-  };
-  if (scene.history.some((p) => !scene.line.has(p.node))) {
-    const trunk = eligible.filter((p) => scene.mainLine.has(p.node)).sort((a, b) => a.move_number - b.move_number);
-    const fork = trunk.findIndex((p) => !scene.line.has(p.node));
-    if (fork >= 0) drawLine(trunk.slice(Math.max(0, fork - 1)), true);
-  }
-  drawLine(eligible.filter((p) => scene.line.has(p.node)), false);
+  g.stroke();
   g.setLineDash([]);
-  const current = eligible.find((p) => p.node === scene.current);
-  if (current) {
-    const marker = (y: number, color: string, radius: number) => {
-      g.fillStyle = "rgba(255,255,255,0.18)"; circle(g, x(current), y, radius + 3); g.fill();
-      g.fillStyle = color; circle(g, x(current), y, radius); g.fill();
-      g.strokeStyle = "#fff"; g.lineWidth = 1; g.stroke();
-    };
-    const score = current.black.score_lead;
-    if (score !== null) marker(sy(current), "#ffd700", Math.abs(sy(current) - wy(current)) <= 12 ? 7 : 5);
-    marker(wy(current), "rgb(255,60,60)", 5);
-    textMid(g, current.black.winrate.toFixed(1), x(current), wy(current) - 12, 13, 70, "#fff");
-    if (score !== null) textMid(g, `${score >= 0 ? "B" : "W"}+${Math.abs(score).toFixed(1)}`, x(current), sy(current) - 9, 12, 80, "#ff0");
-  }
-  g.textAlign = "left";
-  g.textBaseline = "alphabetic";
-  g.font = `11px ${GRAPH_FONT}`;
-  if (width >= 150) {
-    g.fillStyle = "rgb(200,200,200)";
-    const step = numMoves <= 63 ? 10 : numMoves <= 125 ? 20 : numMoves < 205 ? 30 : 40;
-    for (let k = 1; k <= i(numMoves / step); k++)
-      if (numMoves - k * step > 3) g.fillText(`${k * step}`, posx + i(((k * step - 1) * width) / numMoves) - 3, posy + height - 1);
-  }
-  // drawLineLegend; the box outline keeps the grid's dashed stroke, as in Java
-  if (W0 >= 240) {
-    const fm = javaMetrics(g);
-    const labels: [string, string][] = [
-      [t("WinrateGraph.legendWinrate"), "rgb(100,180,255)"],
-      [t("WinrateGraph.legendScoreLead"), "rgb(255,0,255)"],
-    ];
-    const widths = labels.map(([s]) => Math.round(g.measureText(s).width));
-    const boxW = widths.reduce((sum, sw) => sum + 16 + 5 + sw + 12, 0) - 12 + 16;
-    const boxH = fm.ascent + fm.descent + 6;
-    const boxX = W0 - boxW - 6;
-    const boxY = 4;
-    g.fillStyle = "rgba(0,0,0,0.588)";
-    g.beginPath();
-    g.roundRect(boxX, boxY, boxW, boxH, 4);
-    g.fill();
-    g.strokeStyle = "rgba(255,255,255,0.098)";
-    g.lineWidth = 1;
-    g.setLineDash([4, 4]);
-    g.beginPath();
-    g.roundRect(boxX + 0.5, boxY + 0.5, boxW, boxH, 4);
-    g.stroke();
-    g.setLineDash([]);
-    const textY = boxY + 3 + fm.ascent;
-    const lineY = textY - i(fm.ascent / 2);
-    let cx = boxX + 8;
-    labels.forEach(([s, color], k) => {
-      g.strokeStyle = color;
-      g.lineWidth = 2;
-      g.beginPath();
-      g.moveTo(cx, lineY);
-      g.lineTo(cx + 16, lineY);
-      g.stroke();
-      cx += 21;
-      g.fillStyle = "rgb(210,210,210)";
-      g.fillText(s, cx, textY);
-      cx += widths[k] + 12;
-    });
-  }
-  return eligible.length;
+  return report;
 }
 
 /** Pondering status lines at ponderingY (LizzieFrame.drawPonderingState). */

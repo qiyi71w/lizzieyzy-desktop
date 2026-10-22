@@ -543,3 +543,175 @@ fn a_failed_save_reports_and_keeps_document_state() {
         "a finished ticket is not completed twice"
     );
 }
+
+#[test]
+fn java_saved_analysis_feeds_displays_and_round_trips_through_save() {
+    use lizzie_core::api::KataEstimateMode;
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    let ownership = vec!["0.125"; 81].join(" ");
+    let text = format!("(;SZ[9]KM[6.5]LZOP[b11 45.0 120 1.5 0.8 0 rootVisits=125\n\
+        move E5 visits 100 winrate 5500 prior 2000 scoreMean 9 order 1 pv E5 C3 pvVisits 100 40 info \
+        move D4 visits 20 winrate 5000 prior 1000 scoreMean -1 order 0 pv D4 ownership {ownership}]\
+        ;B[ee]LZ[b11 44.0 200 1.2 0.7 0.5 rootVisits=200\nmove C3 visits 150 winrate 5600 prior 3000 scoreMean 1.2 pv C3]\
+        ;AB[aa]LZOP[LeelaZero 60.0 1.3k\nmove C7 visits 900 winrate 4000 pv C7])");
+    let ticket = wb.begin_open(OpenOrigin::Clipboard);
+    wb.complete_open(ticket, Workbench::read_clipboard_record(&text, false));
+    wb.set_append_winrate_to_comment(false).unwrap();
+    wb.set_kata_estimate(KataEstimateMode::Both).unwrap();
+    let view = wb.view(false);
+    let a = view.analysis.unwrap();
+    assert_eq!(
+        (a.visits, a.root_visits, a.winrate, a.score_lead, a.score_stdev, a.komi),
+        (125, Some(125), 55.0, Some(1.5), Some(0.8), 6.5)
+    );
+    assert_eq!(
+        a.candidates.iter().map(|c| (c.order, c.visits)).collect::<Vec<_>>(),
+        [(1, 100), (0, 20)]
+    );
+    assert_eq!(
+        (
+            a.candidates[0].winrate,
+            a.candidates[0].prior,
+            a.candidates[0].lcb,
+            a.candidates[0].score_lead,
+            a.candidates[0].score_stdev
+        ),
+        (55.0, 20.0, Some(55.0), Some(9.0), Some(0.8))
+    );
+    assert_eq!(a.candidates[0].pv_visits, [100, 40]);
+    assert!(
+        a.candidates[0].ownership.is_none(),
+        "Java never writes per-candidate movesOwnership"
+    );
+    assert_eq!(view.kata_estimate.ownership, Some(vec![0.125; 81]));
+    assert_eq!(view.history.len(), 3);
+    let first = wb.document().record.main_child(ROOT).unwrap();
+    let setup = wb.document().record.main_child(first).unwrap();
+    wb.goto_node(first).unwrap();
+    let a = wb.view(false).analysis.unwrap();
+    assert_eq!((a.winrate, a.score_lead, a.komi), (56.0, Some(1.2), 6.5));
+    wb.goto_node(setup).unwrap();
+    let a = wb.view(false).analysis.unwrap();
+    assert_eq!((a.visits, a.winrate, a.score_lead), (1300, 40.0, None));
+    let saved = wb.begin_save("roundtrip.sgf", AP).text;
+    assert_eq!(saved.matches("LZOP[").count(), 2, "{saved}");
+    assert_eq!(saved.matches("LZ[").count(), 1, "{saved}");
+    let ticket = wb.begin_open(OpenOrigin::Clipboard);
+    wb.complete_open(ticket, Workbench::read_clipboard_record(&saved, false));
+    assert_eq!(wb.view(false).analysis.unwrap().candidates[0].pv_visits, [100, 40]);
+    assert_eq!(wb.begin_save("again.sgf", AP).text, saved);
+}
+
+#[test]
+fn normal_save_mixes_java_comments_before_capturing_the_revision() {
+    use lizzie_core::settings::Language;
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    wb.set_language(Language::EnUs).unwrap();
+    // Language changes apply after restart, including the words used in saved comments.
+    drop(wb);
+    let mut wb = workbench(dir.path());
+    let ticket = wb.begin_open(OpenOrigin::Clipboard);
+    wb.complete_open(ticket, Workbench::read_clipboard_record("(;SZ[9]KM[7.5]C[root note]\
+        LZOP[b11 45.0 120 1.5 0.8 0 rootVisits=120\nmove E5 visits 100 winrate 5500 scoreMean 1.5 pv E5]\
+        ;B[ee]C[first]LZ[b11 44.0 200 1.2 0.7 0.5 rootVisits=200\nmove C3 visits 150 winrate 5600 scoreMean 1.2 pv C3])", false));
+    assert!(wb.view(false).settings.append_winrate_to_comment);
+    let first = wb.document().record.main_child(ROOT).unwrap();
+    let job = wb.begin_save("comments.sgf", AP);
+    let expected =
+        "first\n\nBlack win rate: 44.0% (-11.0%)\nlead: -1.2 (-2.7) stdev: 0.7\n(b11 / 200 visits)\nkomi: 7.5 PDA:0.5";
+    assert_eq!(sgf::read(&job.text).unwrap().node(first).comment, expected);
+    assert_eq!(
+        wb.document().record.node(first).comment,
+        expected,
+        "Java updates the in-memory comment"
+    );
+    assert_eq!(
+        wb.document().record.node(ROOT).comment,
+        "root note",
+        "snapshots are not mixed"
+    );
+    let revision = wb.document().revision;
+    assert_eq!(revision, 1);
+    wb.complete_save(job.ticket, Ok(()));
+    assert!(!wb.view(false).document.unsaved);
+    assert_eq!(wb.begin_save("comments.sgf", AP).text, job.text);
+    assert_eq!(
+        wb.document().revision,
+        revision,
+        "an unchanged summary is not another content edit"
+    );
+    wb.set_append_winrate_to_comment(false).unwrap();
+    drop(wb);
+    assert!(!workbench(dir.path()).view(false).settings.append_winrate_to_comment);
+}
+
+#[test]
+fn changing_komi_drops_imported_analysis_without_resurrecting_read_in_tags() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    let ticket = wb.begin_open(OpenOrigin::Clipboard);
+    wb.complete_open(
+        ticket,
+        Workbench::read_clipboard_record(
+            "(;SZ[9]LZOP[b11 45 100 1.5 0.8\nmove E5 visits 100 winrate 5500 scoreMean 1.5 pv E5]\
+        ;B[ee]LZ[b11 40 120 2 1\nmove C3 visits 120 winrate 6000 scoreMean 2 pv C3]LZ2[secondary preserved])",
+            false,
+        ),
+    );
+    assert!(wb.view(false).analysis.is_some());
+    wb.set_komi(6.5).unwrap();
+    assert!(wb.view(false).history.is_empty());
+    let text = wb.begin_save("new-komi.sgf", AP).text;
+    assert!(!text.contains("LZ[") && !text.contains("LZOP["), "{text}");
+    assert!(text.contains("LZ2[secondary preserved]"));
+}
+
+#[test]
+fn legacy_saved_candidates_keep_java_scales_limits_and_black_positive_ownership() {
+    use lizzie_core::api::KataEstimateMode;
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    let mut limits = wb.config().engine.analysis.clone();
+    limits.limit_max_suggestion = 1;
+    limits.limit_branch_length = 2;
+    wb.set_analysis_settings(limits).unwrap();
+    let ownership = vec!["0.25"; 81].join(" ");
+    let ticket = wb.begin_open(OpenOrigin::Clipboard);
+    wb.complete_open(ticket, Workbench::read_clipboard_record(&format!("(;SZ[9]KM[7.5]PL[W]\
+        LZOP[b11 65.0 12.3k\nmove C3 visits 100 winrate 3456 prior 0.25 scoreMean -3.25 scoreStdev 9 order 3 edgeVisits 120 pv C3 D4 E5 pvVisits 100 50 40 info \
+        move D4 visits 50 winrate 5000 pv D4 ownership {ownership}])"), false));
+    wb.set_kata_estimate(KataEstimateMode::Both).unwrap();
+    let view = wb.view(false);
+    let a = view.analysis.unwrap();
+    assert_eq!(
+        (
+            a.to_play,
+            a.visits,
+            a.root_visits,
+            a.winrate,
+            a.score_lead,
+            a.score_stdev
+        ),
+        (lizzie_core::record::Stone::White, 12_300, None, 35.0, Some(-3.25), None)
+    );
+    assert_eq!(a.candidates.len(), 1);
+    let c = &a.candidates[0];
+    // The header has no uncertainty: unknown, not 0; the candidate keeps its own.
+    assert_eq!(
+        (c.winrate, c.lcb, c.prior, c.order, c.allocation_visits, c.score_stdev),
+        (34.56, Some(34.56), 0.25, 3, 120, Some(9.0))
+    );
+    assert_eq!(c.pv.len(), 2);
+    assert_eq!(
+        c.pv_visits,
+        [100, 50, 40],
+        "Java limits PV moves, not their reported visit vector"
+    );
+    assert_eq!(
+        view.kata_estimate.ownership,
+        Some(vec![0.25; 81]),
+        "saved ownership is already Black-positive even when White plays next"
+    );
+}

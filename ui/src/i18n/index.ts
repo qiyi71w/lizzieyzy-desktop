@@ -101,6 +101,7 @@ const IMPORT_TEXT: Record<string, Table> = {
     targetLastImageFolder: "上次保存图片的文件夹",
     targetWinrateAlwaysBlack: "总是显示黑胜率",
     targetScoreLeadWithKomi: "目差显示：盘面",
+    targetMatchAi: "AI 吻合判定（候选数、计算量比例）",
   },
   ZhTw: {
     javaImport: "從 LizzieYzy Next 匯入設定…",
@@ -194,6 +195,7 @@ const IMPORT_TEXT: Record<string, Table> = {
     targetLastImageFolder: "上次儲存圖片的資料夾",
     targetWinrateAlwaysBlack: "總是顯示黑勝率",
     targetScoreLeadWithKomi: "目差顯示：盤面",
+    targetMatchAi: "AI 吻合判定（候選數、計算量比例）",
   },
   EnUs: {
     javaImport: "Import settings from LizzieYzy Next…",
@@ -287,6 +289,7 @@ const IMPORT_TEXT: Record<string, Table> = {
     targetLastImageFolder: "Last picture folder",
     targetWinrateAlwaysBlack: "Always show black winrate",
     targetScoreLeadWithKomi: "Score lead: board difference",
+    targetMatchAi: "AI match (candidates, playout share)",
   },
 };
 

@@ -1400,8 +1400,45 @@ fn the_displays_follow_the_viewpoint_settings() {
                     winrate: row_winrate,
                     score_lead: Some(row_lead)
                 },
+                // The independent list ignores 总是显示黑胜率: Black moved, so Black's numbers.
+                side_to_move: ShownValues {
+                    winrate: 40.0,
+                    score_lead: Some(if with_komi { -1.5 + 7.5 } else { -1.5 })
+                },
             },
             "{at}"
         );
     }
+}
+
+#[test]
+fn stronger_live_analysis_replaces_loaded_results_and_is_saved_for_every_node() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    open(&mut wb, "(;SZ[9]KM[7.5]LZOP[old 48.0 200 0.5 1 0 rootVisits=200\nmove E5 visits 200 winrate 5200 scoreMean 0.5 pv E5]\
+        ;B[ee]LZ[old 47.0 200 0.8 1 0 rootVisits=200\nmove C3 visits 200 winrate 5300 scoreMean 0.8 pv C3]LZ2[secondary])");
+    wb.set_append_winrate_to_comment(false).unwrap();
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("D4", 100));
+    assert_eq!(wb.view(false).analysis.unwrap().engine, "old", "weaker live data leaves the imported result");
+    out(&mut wb, id, &info("D4", 300));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 300);
+    wb.navigate(Navigation::Forward(1));
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("C3", 400));
+    let text = wb.begin_save("live.sgf", "interop:test").text;
+    assert!(!text.contains("old "), "stale primary tags must not accompany live data: {text}");
+    assert_eq!(text.matches("LZOP[").count(), 1, "{text}");
+    assert_eq!(text.matches("LZ[").count(), 1, "{text}");
+    assert!(text.contains("rootVisits=300") && text.contains("rootVisits=400") && text.contains("LZ2[secondary]"), "{text}");
+    let mut reopened = workbench(dir.path(), &world);
+    open(&mut reopened, &text);
+    let root = reopened.view(false).analysis.unwrap();
+    assert_eq!((root.visits, root.root_visits, root.winrate, root.score_lead), (300, Some(300), 60.0, Some(1.5)));
+    assert_eq!(root.candidates[0].visits, 300);
+    reopened.navigate(Navigation::Forward(1));
+    let next = reopened.view(false).analysis.unwrap();
+    assert_eq!((next.visits, next.root_visits, next.winrate, next.score_lead), (400, Some(400), 60.0, Some(1.5)));
+    assert_eq!(next.candidates[0].visits, 400);
 }

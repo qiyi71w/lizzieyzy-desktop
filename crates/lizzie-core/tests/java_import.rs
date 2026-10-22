@@ -12,7 +12,7 @@ use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::java_import::{self, JavaSource};
 use lizzie_core::settings::{
-    Config, DisplaySettings, Language, MoveRankMode, Persisted, ProxyMode, PureEstimateStyle, Storage, SubBoardMode,
+    Config, DisplaySettings, EstimateStyle, Language, MoveRankMode, Persisted, ProxyMode, Storage, SubBoardMode,
 };
 use lizzie_core::workbench::{Workbench, IMPORT_NEEDS_REPLACE, IMPORT_STALE};
 use serde_json::json;
@@ -52,6 +52,7 @@ fn java_dir(root: &Path) -> PathBuf {
             "read-komi": false,
             "load-sgf-last": true,
             "show-replace-file-hint": false,
+            "append-winrate-to-comment": false,
             "play-sound": false,
             "allow-double-click": false,
             "allow-drag": true,
@@ -269,6 +270,7 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
     let c = saved_config(&product);
     assert_eq!(c.ui.language, Language::EnUs);
     assert!(!c.record.read_komi && c.record.load_sgf_last && !c.record.show_replace_file_hint && !c.ui.play_sound);
+    assert!(!c.record.append_winrate_to_comment);
     assert_eq!(
         c.recent_files,
         (2..=6).map(|i| format!("/games/{i}.sgf")).collect::<Vec<_>>()
@@ -832,7 +834,7 @@ fn board_display_settings_are_read_like_java_including_older_keys() {
         // 纯网络形势: the painter Java's drawing would use when several flags are on.
         (
             json!({ "show-pure-estimate-by-size": true, "show-pure-estimate-big-below": true }),
-            DisplaySettings { pure_estimate: PureEstimateStyle::BySize, ..defaults.clone() },
+            DisplaySettings { pure_estimate: EstimateStyle::BySize, ..defaults.clone() },
         ),
         (
             json!({
@@ -840,11 +842,11 @@ fn board_display_settings_are_read_like_java_including_older_keys() {
                 "show-pure-estimate-normal": true,
                 "show-pure-estimate-not-on-live": true,
             }),
-            DisplaySettings { pure_estimate: PureEstimateStyle::TransparentNotOnLive, ..defaults.clone() },
+            DisplaySettings { pure_estimate: EstimateStyle::TransparentNotOnLive, ..defaults.clone() },
         ),
         (
             json!({ "show-pure-estimate-big-below": false, "show-pure-estimate-small": true }),
-            DisplaySettings { pure_estimate: PureEstimateStyle::Small, ..defaults.clone() },
+            DisplaySettings { pure_estimate: EstimateStyle::Small, ..defaults.clone() },
         ),
         (
             json!({
@@ -932,6 +934,24 @@ fn remaining_java_display_keys_import_individually_and_persist() {
         ("ui", "continue-with-best-move", json!(true), "continueWithBestMove", json!(true)),
         ("ui", "directly-with-best-move", json!(true), "directlyWithBestMove", json!(true)),
         ("ui", "min-playouts-for-next-move", json!(i32::MIN), "nextMoveMinPlayouts", json!(i32::MIN)),
+        ("ui", "show-win-rate-line", json!(false), "winrateLine", json!(false)),
+        ("ui", "show-score-lead-line", json!(false), "scoreLeadLine", json!(false)),
+        ("ui", "show-winrate-graph-fill", json!(false), "winrateGraphFill", json!(false)),
+        ("ui", "show-mouse-over-winrate-graph", json!(false), "mouseOverWinrateGraph", json!(false)),
+        ("ui", "initial-max-score-lead", json!(30.5), "initialMaxScoreLead", json!(30.5)),
+        ("ui", "use-moves-ownership", json!(false), "useMovesOwnership", json!(false)),
+        ("ui", "shortcut-kata-estimate", json!(true), "kataEstimateShortcut", json!(true)),
+        ("ui", "save-kata-estimate-status", json!(true), "kataEstimateSaveStatus", json!(true)),
+        ("ui", "show-katago-estimate-big-below", json!(true), "kataEstimateStyle", json!("BigBelow")),
+        ("ui", "use-territory-in-score", json!(true), "territoryScoring", json!(true)),
+        ("ui", "match-ai-moves", json!(5), "matchAiMoves", json!(5)),
+        ("ui", "match-ai-percents-playouts", json!(12.5), "matchAiPercentsPlayouts", json!(12.5)),
+        ("ui", "show-suggestions-frame", json!(true), "suggestionsFrame", json!(true)),
+        ("ui", "suggestions-always-ontop", json!(true), "suggestionsOnTop", json!(true)),
+        ("ui", "show-bestmoves-list", json!(false), "bestMovesList", json!(false)),
+        ("ui", "show-bestmoves-graph", json!(true), "bestMovesGraph", json!(true)),
+        ("ui", "anaframe-show-next", json!(false), "frameShowNext", json!(false)),
+        ("ui", "anaframe-use-mousemove", json!(true), "frameMouseMove", json!(true)),
     ].into_iter().enumerate() {
         std::fs::write(java.join("config.txt"), json!({section: {key: value}}).to_string()).unwrap();
         let product = tmp.path().join(format!("product-{i}"));
@@ -966,6 +986,50 @@ fn java_display_flag_precedence_follows_the_board_consumers() {
         assert!(p.items.iter().all(|item| item.status == ImportStatus::Imported));
         wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
         assert_eq!(serde_json::to_value(wb.config().display.clone()).unwrap()[field], json!(expected));
+    }
+}
+
+#[test]
+fn java_estimate_and_blunder_bar_flags_follow_java_loading() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    for (i, (ui, field, expected)) in [
+        // Kata形势 squares as `drawEstimate` chooses them; the normal flag is never consulted.
+        (json!({"show-katago-estimate-small": true, "show-katago-estimate-by-size": true, "show-katago-estimate-big-below": true}), "kataEstimateStyle", json!("BySize")),
+        (json!({"show-katago-estimate-small": true, "show-katago-estimate-big-below": true}), "kataEstimateStyle", json!("BigBelow")),
+        (json!({"show-katago-estimate-small": true, "show-katago-estimate-not-on-live": true}), "kataEstimateStyle", json!("Small")),
+        (json!({"show-katago-estimate-small": false, "show-katago-estimate-not-on-live": true}), "kataEstimateStyle", json!("TransparentNotOnLive")),
+        (json!({"show-katago-estimate-small": false, "show-katago-estimate-normal": false}), "kataEstimateStyle", json!("Transparent")),
+        // Java hides the blunder bar once for a profile not yet migrated.
+        (json!({"show-blunder-bar": true}), "blunderBar", json!(false)),
+        (json!({"show-blunder-bar": true, "migrated-hide-blunder-bar-default-v1": true}), "blunderBar", json!(true)),
+        (json!({"show-katago-estimate": true, "show-katago-estimate-onmainboard": false, "show-katago-estimate-onsubbord": true}), "kataEstimate", json!({"shown": true, "onMain": false, "onSub": true})),
+    ].into_iter().enumerate() {
+        std::fs::write(java.join("config.txt"), json!({"ui": ui}).to_string()).unwrap();
+        let product = tmp.path().join(format!("product-{i}"));
+        let mut wb = workbench(&product, Recorder::default());
+        let p = preview(&mut wb, &java);
+        assert!(p.items.iter().all(|item| item.status == ImportStatus::Imported), "{ui}");
+        wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+        assert_eq!(serde_json::to_value(wb.config().display.clone()).unwrap()[field], expected, "{ui}");
+    }
+}
+
+#[test]
+fn imported_kata_estimate_applies_to_the_running_session() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    for (shown, main, sub, hidden) in [(true, true, false, false), (true, false, false, true), (false, true, true, false)] {
+        let ui = json!({"show-katago-estimate": shown, "show-katago-estimate-onmainboard": main, "show-katago-estimate-onsubbord": sub});
+        std::fs::write(java.join("config.txt"), json!({ "ui": ui }).to_string()).unwrap();
+        let p = preview(&mut wb, &java);
+        wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+        let v = wb.view(false).kata_estimate;
+        assert_eq!((v.state.shown, v.state.on_main, v.state.on_sub, v.hidden), (shown, main, sub, hidden), "{ui}");
     }
 }
 

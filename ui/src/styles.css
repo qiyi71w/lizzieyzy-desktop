@@ -437,15 +437,11 @@ body {
   white-space: nowrap;
   overflow: hidden;
 }
-#table tr.actual {
-  background-color: rgb(197, 235, 197);
+#table th {
+  user-select: none;
 }
-#table tr.selected {
-  color: #0000ff;
-  background-color: rgba(0, 0, 0, 0.275);
-}
-#table tbody tr:hover:not(.selected) {
-  background-color: rgba(0, 0, 0, 0.12);
+#table td {
+  cursor: default;
 }
 #table::-webkit-scrollbar {
   width: 8px;

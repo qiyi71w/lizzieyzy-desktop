@@ -123,6 +123,10 @@ pub enum Command {
     SetReadKomi {
         enabled: bool,
     },
+    /// 记录选点信息到评论中 (Java `ui.append-winrate-to-comment`).
+    SetAppendWinrateToComment {
+        enabled: bool,
+    },
     /// Settings language menu; takes effect after restart.
     SetLanguage {
         language: Language,
@@ -239,6 +243,43 @@ pub enum Command {
     ToggleRawNet,
     /// Turn pure network off, resuming ordinary analysis (policy T).
     StopRawNet,
+    /// 显示 > KataGo相关设置 > Kata形势显示: 关闭 / 隐藏 / 显示在大棋盘上 / 显示在小棋盘上 /
+    /// 显示在大小棋盘上.
+    SetKataEstimate {
+        mode: KataEstimateMode,
+    },
+    /// `.` (with 使用快捷键) and the bottom bar Kata形势 (`LizzieFrame.toggleShowKataEstimate`);
+    /// only with a KataGo foreground engine.
+    ToggleKataEstimate,
+    /// 终局点目 (Ctrl+Q, 棋局 menu, bottom bar) and its dialog.
+    Score {
+        op: ScoreCommand,
+    },
+}
+
+/// Kata形势显示 menu choices.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
+pub enum KataEstimateMode {
+    Close,
+    Hide,
+    Main,
+    Sub,
+    Both,
+}
+
+/// 终局点目 operations.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum ScoreCommand {
+    /// Enter (pausing analysis) or leave (resuming it) scoring at the current position.
+    Toggle,
+    /// Left click in scoring: an empty point toggles 不计入; a stone toggles its connected
+    /// stones as dead.
+    Point { point: Point },
+    /// 重新计算: start again from the position's stones.
+    Recalculate,
+    /// 确认结果: write the result into the game information (RE).
+    Confirm,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
@@ -455,6 +496,7 @@ pub struct SettingsView {
     /// Whether the saved language differs from the one in use until restart.
     pub restart_required: bool,
     pub read_komi: bool,
+    pub append_winrate_to_comment: bool,
     /// Settings > "播放落子音效" (Java `ui.play-sound`, default on).
     pub play_sound: bool,
     /// Ask before "保存" overwrites the record's own file (Java `ui.show-replace-file-hint`).
@@ -519,6 +561,17 @@ pub struct WorkbenchView {
     /// Stored results along the current line, its continuation and the main trunk, root first
     /// (the win-rate graph's data).
     pub history: Vec<HistoryPoint>,
+    /// Each move's result against the analysis of the position it was played in, and the AI
+    /// match score (统计 panel, captured panel, 超级鹰眼).
+    pub statistics: StatisticsView,
+    /// Kata形势显示 and the ownership it draws.
+    pub kata_estimate: KataEstimateView,
+    /// 终局点目, while scoring.
+    pub score: Option<ScoreView>,
+    /// 记录选点信息到评论中: the current comment as Java shows it while an engine analyses,
+    /// with the analysis summary appended (Java writes it into the node, `appendComment`);
+    /// absent when the comment pane shows `position.comment` unchanged.
+    pub comment_with_analysis: Option<String>,
     /// An engine that failed to start or stopped unexpectedly, once.
     pub engine_failure: Option<EngineFailureView>,
     /// A notice about analysis, once.
@@ -602,6 +655,7 @@ pub enum ImportTarget {
     ReadKomi,
     LoadSgfLast,
     ReplaceFileHint,
+    AppendWinrateToComment,
     Language,
     PlaySound,
     RecentFiles,
@@ -674,6 +728,20 @@ pub enum ImportTarget {
     SubBoard,
     /// 纯网络 ownership painter: Java's five `ui.show-pure-estimate-*` choice flags.
     PureNetwork,
+    /// 胜率图设置: `ui.show-win-rate-line`, `show-score-lead-line`, `show-winrate-graph-fill`,
+    /// `show-blunder-bar`, `show-mouse-over-winrate-graph`, `initial-max-score-lead`.
+    WinrateGraph,
+    /// Kata形势显示: `ui.show-katago-estimate*`, `save-kata-estimate-status`,
+    /// `use-moves-ownership`, `shortcut-kata-estimate`.
+    KataEstimate,
+    /// 终局点目 rules: `ui.use-territory-in-score`.
+    Scoring,
+    /// AI match: `ui.match-ai-moves`, `match-ai-percents-playouts`.
+    MatchAi,
+    /// 独立选点列表: `ui.show-suggestions-frame`, `suggestions-always-ontop`,
+    /// `show-bestmoves-list`, `show-bestmoves-graph`, `anaframe-show-next`,
+    /// `anaframe-use-mousemove`.
+    SuggestionsFrame,
 }
 
 /// A problem found with an imported engine without starting it.
@@ -844,6 +912,104 @@ pub struct CandidateView {
     /// Win rate and score lead as the board and the candidate table show them (总是显示黑胜率,
     /// 目差显示); set by the view projection.
     pub shown: crate::viewpoint::ShownValues,
+    /// The side to move's numbers with 盘面 applied, ignoring 总是显示黑胜率 (独立选点列表).
+    pub side_to_move: crate::viewpoint::ShownValues,
+    /// KataGo `movesOwnership` after this move, Black-positive, row-major from the top-left
+    /// (按选点显示评估); absent unless requested and reported.
+    pub ownership: Option<Vec<f64>>,
+}
+
+/// One move's result against the analysis of the position it was played in (Java
+/// `Board.updateMovelist` / `NodeInfo`). Present for a move whose previous position has analysis.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct MoveEvaluation {
+    /// The node the move leads to.
+    pub node: NodeId,
+    pub move_number: u32,
+    /// The side that played the move.
+    pub mover: Stone,
+    /// 1-based rank of the move among the previous position's candidates, if it is one.
+    pub matched: Option<u32>,
+    /// 1 for the first candidate, else its visits over the most visits; 0 when not a candidate.
+    pub share: f64,
+    /// Among the first `match_ai_moves` candidates with at least `match_ai_percents_playouts`.
+    pub match_ai: bool,
+    pub best: bool,
+    /// Win-rate change for the mover, percentage points (negative is a loss); both positions
+    /// analysed.
+    pub winrate_change: Option<f64>,
+    /// Score-lead change for the mover (KataGo), points.
+    pub score_change: Option<f64>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, TS)]
+pub struct StatisticsView {
+    /// Moves of the current line (to its end) and of the main trunk, in path order.
+    pub moves: Vec<MoveEvaluation>,
+    /// AI总评分 of Black and White, percent: the mean match share of their evaluated moves up to
+    /// the current position and the move played from it.
+    pub ai_score_black: Option<f64>,
+    pub ai_score_white: Option<f64>,
+    /// 统计 上一手 change for the move leading to the current node, the current node analysed:
+    /// against its parent's analysis, else (Java `drawMoveStatistics`) its grandparent's, two
+    /// moves back.
+    pub last_move: Option<MoveChange>,
+}
+
+/// A change for the side that played the move (negative is a loss).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, TS)]
+pub struct MoveChange {
+    /// Percentage points.
+    pub winrate: f64,
+    /// Points (KataGo).
+    pub score: Option<f64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct KataEstimateView {
+    /// Session state; [`crate::settings::DisplaySettings::kata_estimate`] is what the next
+    /// start begins with.
+    pub state: crate::settings::KataEstimateState,
+    /// 隐藏: requested but drawn on neither board; `.` toggles the boards.
+    pub hidden: bool,
+    /// Black-positive ownership of the current node, else (none yet) of its parent, row-major
+    /// from the top-left; absent while Kata形势 is off or nothing was reported.
+    pub ownership: Option<Vec<f64>>,
+}
+
+/// One intersection while scoring (`GroupStatus`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub struct ScorePoint {
+    /// Whose area the point counts for; `None` for neutral (dame).
+    pub owner: Option<Stone>,
+    /// A stone marked dead.
+    pub dead: bool,
+    /// An empty point marked 不计入.
+    pub excluded: bool,
+}
+
+/// 终局点目 result (`Board.showGroupResult`, `ScoreResult.setScore`).
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct ScoreView {
+    pub node: NodeId,
+    /// Row-major from the top-left.
+    pub points: Vec<ScorePoint>,
+    /// 数目 (territory) instead of 数子 (area).
+    pub territory: bool,
+    /// Living stones (less the handicap White's handicap bonus takes back under area scoring).
+    pub black_alive: u32,
+    pub white_alive: u32,
+    /// Counted points that are not the side's own living stones.
+    pub black_points: u32,
+    pub white_points: u32,
+    /// Prisoners each side took, dead stones included.
+    pub black_captures: u32,
+    pub white_captures: u32,
+    pub komi: f64,
+    pub black_total: f64,
+    pub white_total: f64,
+    /// SGF result written by 确认结果 (`B+3.5`, `W+0.5`; Black wins ties like Java).
+    pub result: String,
 }
 
 /// Analysis stored for a node (`BoardData.bestMoves` and summary).
@@ -883,6 +1049,8 @@ pub struct HistoryPoint {
     /// This position's result as a candidate of the previous position (the candidate table's
     /// actual-move row).
     pub as_candidate: crate::viewpoint::AsCandidate,
+    /// The best candidate's score uncertainty (KataGo), for the actual-move row's 目数标准差.
+    pub score_stdev: Option<f64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]

@@ -176,6 +176,13 @@ impl GameRecord {
                 white.clone_into(&mut self.info.white);
                 Ok(Applied::content(None))
             }
+            DocumentEdit::SetResult { result } => {
+                if &self.info.result == result {
+                    return Ok(Applied::unchanged(None));
+                }
+                result.clone_into(&mut self.info.result);
+                Ok(Applied::content(None))
+            }
             DocumentEdit::Play {
                 at,
                 color,

@@ -155,7 +155,9 @@ impl Workbench {
         if captures_changed && previous_analysis.limit_branch_length == self.config.engine.analysis.limit_branch_length {
             self.refresh_pv_captures();
         }
-        // The imported engine list and start-up choice take over, as after a start.
+        // The imported engine list, start-up choice and Kata形势 take over, as after a start.
+        self.estimate = super::information::EstimateSession::starting(self.config.display.kata_estimate);
+        self.apply_estimate();
         self.shutdown_engines(EngineScope::All);
         self.start_engines();
 

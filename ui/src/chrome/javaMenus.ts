@@ -941,28 +941,36 @@ export const JAVA_MENUS: TopMenu[] = [
       "items": [
        {
         "t": "check",
-        "key": "Menu.kataEstimateClose"
+        "key": "Menu.kataEstimateClose",
+        "id": "kataEstimate.Close"
        },
        {
         "t": "check",
-        "key": "Menu.kataEstimateCloseView"
+        "key": "Menu.kataEstimateCloseView",
+        "id": "kataEstimate.Hide"
        },
        {
         "t": "check",
-        "key": "Menu.kataEstimateOnMainBoard"
+        "key": "Menu.kataEstimateOnMainBoard",
+        "id": "kataEstimate.Main"
        },
        {
         "t": "check",
-        "key": "Menu.kataEstimateOnSubBoard"
+        "key": "Menu.kataEstimateOnSubBoard",
+        "id": "kataEstimate.Sub"
        },
        {
         "t": "check",
-        "key": "Menu.kataEstimateOnBothBoard"
+        "key": "Menu.kataEstimateOnBothBoard",
+        "id": "kataEstimate.Both"
        },
        {
         "t": "check",
         "key": "Menu.kataEstimateSaveState",
         "id": "menu.kataEstimateSaveState"
+       },
+       {
+        "t": "sep"
        },
        {
         "t": "check",
@@ -971,19 +979,23 @@ export const JAVA_MENUS: TopMenu[] = [
        },
        {
         "t": "check",
-        "key": "Menu.kataEstimateByTransparent"
+        "key": "Menu.kataEstimateByTransparent",
+        "id": "kataEstimate.Transparent"
        },
        {
         "t": "check",
-        "key": "Menu.kataEstimateByTransparentNotOnLive"
+        "key": "Menu.kataEstimateByTransparentNotOnLive",
+        "id": "kataEstimate.TransparentNotOnLive"
        },
        {
         "t": "check",
-        "key": "Menu.kataEstimateByBigSquare"
+        "key": "Menu.kataEstimateByBigSquare",
+        "id": "kataEstimate.BigBelow"
        },
        {
         "t": "check",
-        "key": "Menu.kataEstimateBySize"
+        "key": "Menu.kataEstimateBySize",
+        "id": "kataEstimate.BySize"
        },
        {
         "t": "submenu",
@@ -1016,6 +1028,9 @@ export const JAVA_MENUS: TopMenu[] = [
           "id": "pureEstimate.BySize"
          }
         ]
+       },
+       {
+        "t": "sep"
        },
        {
         "t": "check",

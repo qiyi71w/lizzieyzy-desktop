@@ -24,6 +24,7 @@ pub mod record;
 pub mod recovery;
 pub mod resources;
 pub mod sanitize;
+pub mod scoring;
 pub mod settings;
 pub mod viewpoint;
 pub mod workbench;

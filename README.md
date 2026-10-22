@@ -134,8 +134,8 @@ importing the matching LizzieYzy Next settings.
   nothing).
 - Analysis: candidates on the board (win rate, visits, score lead), the variation shown when
   hovering a candidate (captures are worked out by the core), the sub board cycling through
-  candidates on click, the candidate table, the black-perspective win-rate line with its 50%
-  fill and the score line (click to navigate), and the status and title lines. Candidates use
+  candidates on click, the candidate tables, the win-rate graph, 统计 and Kata形势 (below), and
+  the status and title lines. Candidates use
   Java's wood-backed allocation colours and row layout, including the separate visits font.
   Next-move dashed hints sit behind the labels; hovering a variation hides those hints until
   the pointer leaves. The bottom-bar analysis button uses pause/play
@@ -152,6 +152,39 @@ importing the matching LizzieYzy Next settings.
   the statistics panel and the title always show Black. 盘面目数差 turns every shown lead into the
   board difference (plus the komi for Black, minus it for White) and switches the statistics
   label to 盘面. The 带评论 export follows the same settings.
+- Analysis information (Java menus, keys and defaults; the settings are saved and taken over by
+  the LizzieYzy Next import):
+  - Win-rate graph (显示 > 胜率图设置): Black's win-rate line, the score line or both, 面积填充
+    (two-sided around 50 % when one curve shows), 恶手损失条, 鼠标悬停信息 and 初始最大目数差.
+    Gaps without analysis break the line, a branch shows the main line dashed from the fork,
+    and the current move and hovered move carry their values. Click or drag navigates (a click
+    on a branch may jump to the main line through the fork), the wheel steps through moves, and
+    a right click clears a selected table row or steps back.
+  - 统计 shows the score label, the bar of both sides' win rates and 最后一手 with the move's
+    candidate rank and the change for the side that played it (against the position before, or
+    two moves back when that one has no analysis). AI总评分 shows each side's mean match share
+    over its analysed moves (a move counts as matching AI among the first 匹配AI候选数
+    candidates with at least the given share of the most visits). Values the analysis has not
+    produced are left out rather than shown as zero.
+  - 选点列表 keeps the engine's order with the actual move marked or inserted (实战), Java's
+    colours and resizable, remembered columns; a click shows a row's variation (the wheel over
+    the list or the board lengthens it), a second click or a right click clears it.
+    独立选点列表 (`U`) opens it in its own window with 7 or 9 columns (sortable by header),
+    列表 / 柱状图 / 当前手 / 鼠标悬停, 总计算量 / 最高计算量 / 集中度, 总在最前 (`Q`) and a
+    remembered position for each layout. It shows the side to move's values, as in Java.
+  - Kata形势 (显示 > Kata形势显示, the bottom-bar button, `.` with 使用快捷键): KataGo is asked for
+    the ownership while it is shown, drawn on the main board, the sub board, both or hidden, in
+    the five square styles; 按选点显示评估 shows a hovered candidate's own ownership, 记忆评估显示状态
+    remembers the boards for the next start.
+  - 终局点目 (棋局 menu, `Ctrl+Q`, bottom bar when added): analysis pauses, clicks mark dead
+    groups and 不计入 points, the 点目结果 window counts by area or territory (切换规则), 重新计算
+    starts over, 确定 writes the result (`RE`, as `B+3.5` / `W+0.5`) into the game info, and
+    leaving resumes analysis. Unlike Java, which put its localized wording (黑胜3.5目) into
+    `RE`, the result is written in SGF form so other programs can read it.
+  - 记录选点信息到评论中 (显示 > 主界面设置, on by default): while an engine runs, the comment pane
+    shows the move's comment with its analysis summary, and saving writes those summaries into
+    the move comments. Saving also writes the analysis itself (`LZ`, `LZOP`) and opening a record
+    reads it back, so a reopened file shows its analysis without an engine.
 - Board display (显示 menu, keys, bottom bar and the top 选点 黑 / 白 boxes, Java defaults; the
   settings are saved and taken over by the LizzieYzy Next import):
   - 坐标 (`C`): a smaller board margin when off; 坐标格式 (综合设置 > 对局与操作): normal, with I,
@@ -222,7 +255,9 @@ importing the matching LizzieYzy Next settings.
   change, limit notice, KataGo rules, the start-up benchmark choice, the network proxy and the
   board display settings (coordinates, move numbers including the older `show-move-number` keys,
   move-rank marks and judgement, candidate rows and options, next-move hints, sub-board mode,
-  pure-network ownership style) — only values Java itself accepts. Java's marker for its own
+  pure-network ownership style), the analysis-information settings above (graph, Kata形势,
+  scoring rules, AI match, 独立选点列表 options, 记录选点信息到评论中; Java's window and column
+  positions are reported as not usable) — only values Java itself accepts. Java's marker for its own
   bundled KataGo package is reported as not
   applicable. Engines keep using the Java engine and
   model files: relative paths are resolved as Java launches them (a bare program name is looked

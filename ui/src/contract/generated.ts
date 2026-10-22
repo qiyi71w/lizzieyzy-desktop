@@ -97,7 +97,7 @@ showPonderLimitedTips: boolean, };
 
 export type EngineScope = "Current" | "Others" | "All";
 
-export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "SetDisplaySettings", settings: DisplaySettings, } | { "type": "ToggleRawNet" } | { "type": "StopRawNet" };
+export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "SetDisplaySettings", settings: DisplaySettings, } | { "type": "ToggleRawNet" } | { "type": "StopRawNet" } | { "type": "SetKataEstimate", mode: KataEstimateMode, } | { "type": "ToggleKataEstimate" } | { "type": "Score", op: ScoreCommand, };
 
 export type CommandResult = { "type": "Done" } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "NeedsEditConfirmation", target: EditTarget, } | { "type": "Exported", path: string, } | { "type": "ExportFailed", path: string, detail: string, } | { "type": "Refused", message_key: string, } | { "type": "SaveStarted", ticket: number, } | { "type": "NeedsReplaceConfirmation", document: number, file_name: string, } | { "type": "NeedsOverwriteConfirmation", path: string, } | { "type": "NeedsExportOverwriteConfirmation", kind: ExportKind, path: string, } | { "type": "NeedsImageOverwriteConfirmation", path: string, } | { "type": "FolderChosen", path: string, } | { "type": "JavaImportPreview", preview: ImportPreviewView, } | { "type": "JavaImportFailed", failure: ImportFailure, } | { "type": "JavaImported", report: ImportReportView, } | { "type": "Resource", result: ResourceResult, } | { "type": "Tuning", result: TuningResult, };
 
@@ -200,7 +200,7 @@ active_language: Language,
 /**
  * Whether the saved language differs from the one in use until restart.
  */
-restart_required: boolean, read_komi: boolean, 
+restart_required: boolean, read_komi: boolean, append_winrate_to_comment: boolean, 
 /**
  * Settings > "播放落子音效" (Java `ui.play-sound`, default on).
  */
@@ -298,7 +298,16 @@ pv_captures: Array<Array<Point>>,
  * Win rate and score lead as the board and the candidate table show them (总是显示黑胜率,
  * 目差显示); set by the view projection.
  */
-shown: ShownValues, };
+shown: ShownValues, 
+/**
+ * The side to move's numbers with 盘面 applied, ignoring 总是显示黑胜率 (独立选点列表).
+ */
+side_to_move: ShownValues, 
+/**
+ * KataGo `movesOwnership` after this move, Black-positive, row-major from the top-left
+ * (按选点显示评估); absent unless requested and reported.
+ */
+ownership: Array<number> | null, };
 
 export type NodeAnalysisView = { node: number, engine: string, to_play: Stone, 
 /**
@@ -336,7 +345,11 @@ black: ShownValues,
  * This position's result as a candidate of the previous position (the candidate table's
  * actual-move row).
  */
-as_candidate: AsCandidate, };
+as_candidate: AsCandidate, 
+/**
+ * The best candidate's score uncertainty (KataGo), for the actual-move row's 目数标准差.
+ */
+score_stdev: number | null, };
 
 export type EngineFailureView = { engine_name: string, 
 /**
@@ -425,6 +438,25 @@ rawNet: RawNetView | null,
  */
 history: Array<HistoryPoint>, 
 /**
+ * Each move's result against the analysis of the position it was played in, and the AI
+ * match score (统计 panel, captured panel, 超级鹰眼).
+ */
+statistics: StatisticsView, 
+/**
+ * Kata形势显示 and the ownership it draws.
+ */
+kata_estimate: KataEstimateView, 
+/**
+ * 终局点目, while scoring.
+ */
+score: ScoreView | null, 
+/**
+ * 记录选点信息到评论中: the current comment as Java shows it while an engine analyses,
+ * with the analysis summary appended (Java writes it into the node, `appendComment`);
+ * absent when the comment pane shows `position.comment` unchanged.
+ */
+comment_with_analysis: string | null, 
+/**
  * An engine that failed to start or stopped unexpectedly, once.
  */
 engine_failure: EngineFailureView | null, 
@@ -468,7 +500,7 @@ export type ImportStatus = "Imported" | "Incompatible" | "NotMigrated";
 
 export type ImportReason = "NotYetAvailable" | "Credential" | "InvalidValue" | "WindowCoordinates" | "RemoteEngine" | "CredentialNotConfirmed" | "Unreadable" | "NotChosen" | "Obsolete";
 
-export type ImportTarget = "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork";
+export type ImportTarget = "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame";
 
 export type ImportItemView = { 
 /**
@@ -814,7 +846,72 @@ noRefreshOnSub: boolean,
 /**
  * 纯网络 ownership painter (Java's five `show-pure-estimate-*` exclusive menu choices).
  */
-pureEstimate: PureEstimateStyle, };
+pureEstimate: EstimateStyle, 
+/**
+ * 胜率图设置 > 显示胜率/目数曲线: the win-rate line (`show-win-rate-line`, on) and the score
+ * lead line (`show-score-lead-line`, on); 胜率 / 目数 / 全部.
+ */
+winrateLine: boolean, scoreLeadLine: boolean, 
+/**
+ * 单曲线模式使用面积填充 (`show-winrate-graph-fill`, on): only while one line shows.
+ */
+winrateGraphFill: boolean, 
+/**
+ * 显示恶手损失条 (`show-blunder-bar`, off).
+ */
+blunderBar: boolean, 
+/**
+ * 显示鼠标悬停信息(仅限黑视角) (`show-mouse-over-winrate-graph`, on).
+ */
+mouseOverWinrateGraph: boolean, 
+/**
+ * 初始最大目数差 (`initial-max-score-lead`, 15): the score scale before larger leads widen it.
+ */
+initialMaxScoreLead: number, 
+/**
+ * Kata形势显示 square style (`show-katago-estimate-small` / `-normal` / `-not-on-live` /
+ * `-big-below` / `-by-size`; small).
+ */
+kataEstimateStyle: EstimateStyle, 
+/**
+ * 按选点显示评估 (`use-moves-ownership`, on): a hovered candidate shows its own ownership.
+ */
+useMovesOwnership: boolean, 
+/**
+ * 使用快捷键(大键盘点) (`shortcut-kata-estimate`, off): `.` toggles Kata形势.
+ */
+kataEstimateShortcut: boolean, 
+/**
+ * 记忆评估显示状态 (`save-kata-estimate-status`, off).
+ */
+kataEstimateSaveStatus: boolean, 
+/**
+ * The Kata形势 state the next start begins with (`show-katago-estimate`,
+ * `-onmainboard`, `-onsubbord`), written as Java writes those keys.
+ */
+kataEstimate: KataEstimateState, 
+/**
+ * 终局点目 counts territory (数目, `use-territory-in-score`, off) instead of area (数子).
+ */
+territoryScoring: boolean, 
+/**
+ * A move matches the AI when it is among the first `match-ai-moves` candidates (3) with at
+ * least `match-ai-percents-playouts` percent (20) of the most visited one's visits.
+ */
+matchAiMoves: number, matchAiPercentsPlayouts: number, 
+/**
+ * 独立选点列表 (U) is open (`show-suggestions-frame`, off); reopened at the next start.
+ */
+suggestionsFrame: boolean, 
+/**
+ * Its 总在最前 (`suggestions-always-ontop`, off; Q).
+ */
+suggestionsOnTop: boolean, 
+/**
+ * Its 列表 / 柱状图 / 当前手 / 鼠标悬停 boxes (`show-bestmoves-list` on,
+ * `show-bestmoves-graph` off, `anaframe-show-next` on, `anaframe-use-mousemove` off).
+ */
+bestMovesList: boolean, bestMovesGraph: boolean, frameShowNext: boolean, frameMouseMove: boolean, };
 
 export type ShownValues = { 
 /**
@@ -834,7 +931,11 @@ winrate: number,
 /**
  * For the side that moved.
  */
-score_lead: number | null, shown: ShownValues, };
+score_lead: number | null, shown: ShownValues, 
+/**
+ * For the side that moved, 盘面 applied, 总是显示黑胜率 ignored (独立选点列表).
+ */
+side_to_move: ShownValues, };
 
 export type MoveRankMode = "Auto" | "Score" | "Winrate" | "Combined";
 
@@ -922,11 +1023,133 @@ whiteWinrate: number | null, whiteLead: number | null, symmetry: number | null,
  */
 ownership: Array<number> | null, };
 
-export type PureEstimateStyle = "Small" | "Transparent" | "TransparentNotOnLive" | "BigBelow" | "BySize";
+export type EstimateStyle = "Small" | "Transparent" | "TransparentNotOnLive" | "BigBelow" | "BySize";
 
 export type CoordinateStyle = "Normal" | "WithI" | "Fox" | "NumbersFromTop" | "NumbersFromBottom";
 
 export type PvVisitsMode = "Off" | "LastMove" | "AllMoves";
+
+export type KataEstimateMode = "Close" | "Hide" | "Main" | "Sub" | "Both";
+
+export type KataEstimateState = { shown: boolean, onMain: boolean, onSub: boolean, };
+
+export type KataEstimateView = { 
+/**
+ * Session state; [`crate::settings::DisplaySettings::kata_estimate`] is what the next
+ * start begins with.
+ */
+state: KataEstimateState, 
+/**
+ * 隐藏: requested but drawn on neither board; `.` toggles the boards.
+ */
+hidden: boolean, 
+/**
+ * Black-positive ownership of the current node, else (none yet) of its parent, row-major
+ * from the top-left; absent while Kata形势 is off or nothing was reported.
+ */
+ownership: Array<number> | null, };
+
+export type ScoreCommand = { "type": "Toggle" } | { "type": "Point", point: Point, } | { "type": "Recalculate" } | { "type": "Confirm" };
+
+export type ScorePoint = { 
+/**
+ * Whose area the point counts for; `None` for neutral (dame).
+ */
+owner: Stone | null, 
+/**
+ * A stone marked dead.
+ */
+dead: boolean, 
+/**
+ * An empty point marked 不计入.
+ */
+excluded: boolean, };
+
+export type ScoreView = { node: number, 
+/**
+ * Row-major from the top-left.
+ */
+points: Array<ScorePoint>, 
+/**
+ * 数目 (territory) instead of 数子 (area).
+ */
+territory: boolean, 
+/**
+ * Living stones (less the handicap White's handicap bonus takes back under area scoring).
+ */
+black_alive: number, white_alive: number, 
+/**
+ * Counted points that are not the side's own living stones.
+ */
+black_points: number, white_points: number, 
+/**
+ * Prisoners each side took, dead stones included.
+ */
+black_captures: number, white_captures: number, komi: number, black_total: number, white_total: number, 
+/**
+ * SGF result written by 确认结果 (`B+3.5`, `W+0.5`; Black wins ties like Java).
+ */
+result: string, };
+
+export type MoveEvaluation = { 
+/**
+ * The node the move leads to.
+ */
+node: number, move_number: number, 
+/**
+ * The side that played the move.
+ */
+mover: Stone, 
+/**
+ * 1-based rank of the move among the previous position's candidates, if it is one.
+ */
+matched: number | null, 
+/**
+ * 1 for the first candidate, else its visits over the most visits; 0 when not a candidate.
+ */
+share: number, 
+/**
+ * Among the first `match_ai_moves` candidates with at least `match_ai_percents_playouts`.
+ */
+match_ai: boolean, best: boolean, 
+/**
+ * Win-rate change for the mover, percentage points (negative is a loss); both positions
+ * analysed.
+ */
+winrate_change: number | null, 
+/**
+ * Score-lead change for the mover (KataGo), points.
+ */
+score_change: number | null, };
+
+export type MoveChange = { 
+/**
+ * Percentage points.
+ */
+winrate: number, 
+/**
+ * Points (KataGo).
+ */
+score: number | null, };
+
+export type StatisticsView = { 
+/**
+ * Moves of the current line (to its end) and of the main trunk, in path order.
+ */
+moves: Array<MoveEvaluation>, 
+/**
+ * AI总评分 of Black and White, percent: the mean match share of their evaluated moves up to
+ * the current position and the move played from it.
+ */
+ai_score_black: number | null, ai_score_white: number | null, 
+/**
+ * 统计 上一手 change for the move leading to the current node, the current node analysed:
+ * against its parent's analysis, else (Java `drawMoveStatistics`) its grandparent's, two
+ * moves back.
+ */
+last_move: MoveChange | null, };
+
+export type FramePlacement = { x: number, y: number, width: number, height: number, columns: Array<number>, };
 
 export type ManagedProfile = { command: string, assetId: string, weightPath: string, configPath: string, };
 

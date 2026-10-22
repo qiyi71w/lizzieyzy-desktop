@@ -18,6 +18,7 @@ mod analysis;
 mod editing;
 mod exporting;
 mod importing;
+mod information;
 mod recovery;
 mod resources;
 mod tuning;
@@ -39,9 +40,9 @@ use crate::api::{
 };
 use crate::browse::{self, Navigation};
 use crate::engine::runtime::{Engines, InstanceId, Launcher};
-use crate::formats::{self, sgf_write, ReadError};
+use crate::formats::{self, ReadError};
 use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, RecordFormat, Stone, ROOT};
-use crate::settings::{self, Config, DisplaySettings, Language, Persisted, PvVisitsMode, Storage, WindowPlacement};
+use crate::settings::{self, Config, DisplaySettings, FramePlacement, Language, Persisted, PvVisitsMode, Storage, WindowPlacement};
 
 /// Java `GameInfo.DEFAULT_KOMI`.
 pub const DEFAULT_KOMI: f64 = 7.5;
@@ -219,6 +220,10 @@ pub struct Workbench {
     editing: editing::Editing,
     /// 存档与读档 slots.
     recovery: crate::recovery::Store,
+    /// Kata形势 this session.
+    estimate: information::EstimateSession,
+    /// 终局点目 in progress.
+    scoring: Option<information::Scoring>,
 }
 
 impl Workbench {
@@ -247,6 +252,8 @@ impl Workbench {
         }
         engines.set_interval(config.engine.analysis.interval_centisec);
         engines.set_pv_visits(config.display.pv_visits != PvVisitsMode::Off);
+        let estimate = information::EstimateSession::starting(config.display.kata_estimate);
+        engines.set_ownership(estimate.state.shown, config.display.use_moves_ownership);
         let mut store = AnalysisStore::default();
         store.reset(1);
         Workbench {
@@ -302,6 +309,8 @@ impl Workbench {
             tuning: tuning::TuningFlow::default(),
             editing: editing::Editing::default(),
             recovery,
+            estimate,
+            scoring: None,
         }
     }
 
@@ -445,6 +454,8 @@ impl Workbench {
                 // Loading is silent (Java turns sound off while it builds the history).
                 self.sounds.clear();
                 self.store.reset(id);
+                self.store.load(&self.doc.record, &self.config.engine.analysis, self.config.display.no_sugg_circle);
+                self.refresh_pv_captures();
                 // A loaded record is a new analysis context: its komi is not a user choice and
                 // a user pause of the previous record ends
                 // (`startNewKifuAnalysisContextAfterSuccessfulLoad`).
@@ -508,6 +519,7 @@ impl Workbench {
     /// gets its `.sgf` from [`formats::save_target`] before this). `application` is written as the
     /// record's `AP`.
     pub fn begin_save(&mut self, path: &str, application: &str) -> SaveJob {
+        self.prepare_save_comments();
         let ticket = self.next_save;
         self.next_save += 1;
         self.saves.push(PendingSave {
@@ -520,7 +532,7 @@ impl Workbench {
         SaveJob {
             ticket,
             path: PathBuf::from(&path),
-            text: sgf_write::write(&self.doc.record, application),
+            text: self.record_text(application),
         }
     }
 
@@ -642,10 +654,17 @@ impl Workbench {
         Ok(true)
     }
 
+    pub fn set_append_winrate_to_comment(&mut self, enabled: bool) -> Result<bool, ApiError> {
+        if self.config.record.append_winrate_to_comment == enabled { return Ok(false); }
+        self.commit_config(|c| c.record.append_winrate_to_comment = enabled)?;
+        Ok(true)
+    }
+
     /// 显示 settings: every display and the 带评论 export follow at once.
     pub fn set_display_settings(&mut self, settings: DisplaySettings) -> Result<bool, ApiError> {
         let finite = [settings.delay_candidates_seconds, settings.replay_interval_seconds, settings.min_playout_ratio,
-            settings.entire_variation_first_seconds, settings.autoplay_main_seconds]
+            settings.entire_variation_first_seconds, settings.autoplay_main_seconds, settings.initial_max_score_lead,
+            settings.match_ai_percents_playouts]
             .iter()
             .chain(&settings.win_loss_thresholds)
             .chain(&settings.score_loss_thresholds)
@@ -657,14 +676,21 @@ impl Workbench {
             || !(1..=3).contains(&settings.suggestion_color_ratio)
             || (settings.autoplay_main_seconds != -1.0 && settings.autoplay_main_seconds <= 0.0)
             || (settings.autoplay_sub_millis != -1 && settings.autoplay_sub_millis <= 0)
+            || settings.initial_max_score_lead < 0.0
         {
             return Err(ApiError::new(ErrorKind::InvalidArgument, "display settings"));
         }
         if self.config.display == settings {
             return Ok(false);
         }
+        let previous = self.config.display.clone();
+        let mut settings = settings;
+        if settings.kata_estimate_save_status != previous.kata_estimate_save_status {
+            settings.kata_estimate = self.remembered_estimate(settings.kata_estimate_save_status);
+        }
         self.commit_config(|c| c.display = settings)?;
         self.engines.set_pv_visits(self.config.display.pv_visits != PvVisitsMode::Off);
+        self.estimate_settings_changed(&previous);
         Ok(true)
     }
 
@@ -722,14 +748,31 @@ impl Workbench {
         Ok(())
     }
 
-    /// Normal exit: records the window placement unless the UI position was reset.
-    pub fn persist_on_exit(&mut self, window: Option<WindowPlacement>) -> Result<(), ApiError> {
+    /// `Config.persist` (on exit and whenever the 独立选点列表 closes): records the window
+    /// placement, the 独立选点列表's placement under its column layout (7 or 9 `columns`; only
+    /// when it was opened this session, the other layout's entry kept) and the main 选点列表's
+    /// column widths (`None` while its score column is hidden: Java then writes an empty
+    /// `main-window-list`), unless the UI position was reset.
+    pub fn persist_ui(
+        &mut self,
+        window: Option<WindowPlacement>,
+        suggestions_frame: Option<FramePlacement>,
+        main_list_columns: Option<Vec<u32>>,
+    ) -> Result<(), ApiError> {
         if self.persist_reset {
             return Ok(());
         }
         if window.is_some() {
             self.persisted.window = window;
         }
+        if let Some(frame) = suggestions_frame {
+            if frame.columns.len() == 9 {
+                self.persisted.suggestions_frame_9 = Some(frame);
+            } else {
+                self.persisted.suggestions_frame_7 = Some(frame);
+            }
+        }
+        self.persisted.main_list_columns = main_list_columns;
         self.save_persisted()
     }
 
@@ -804,6 +847,7 @@ impl Workbench {
                 restart_required: self.config.ui.language.resolve(self.system_locale.as_deref())
                     != self.active_language,
                 read_komi: self.config.record.read_komi,
+                append_winrate_to_comment: self.config.record.append_winrate_to_comment,
                 play_sound: self.config.ui.play_sound,
                 replace_file_hint: self.config.record.show_replace_file_hint,
                 engine: self.engine_settings_view(),
@@ -817,6 +861,10 @@ impl Workbench {
             board: self.board_overlay(),
             raw_net: self.raw_net_view(),
             history: self.history(),
+            statistics: self.statistics(),
+            kata_estimate: self.kata_estimate_view(),
+            score: self.score_view(),
+            comment_with_analysis: self.comment_with_analysis(),
             engine_failure: None,
             engine_notice: None,
             rules_prompt: None,

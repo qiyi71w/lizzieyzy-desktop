@@ -96,6 +96,7 @@ pub struct Mapped {
     pub read_komi: Option<bool>,
     pub load_sgf_last: Option<bool>,
     pub show_replace_file_hint: Option<bool>,
+    pub append_winrate_to_comment: Option<bool>,
     pub language: Option<Language>,
     pub play_sound: Option<bool>,
     pub recent_files: Option<Vec<String>>,
@@ -147,7 +148,7 @@ pub struct Mapped {
 }
 
 /// One imported [`DisplaySettings`] value: `field` is its camelCase name, with `.n` for an
-/// element of an array field.
+/// element of an array field or `.name` for a member of an object field.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DisplayValue {
     pub target: ImportTarget,
@@ -157,30 +158,28 @@ pub struct DisplayValue {
 
 impl DisplayValue {
     fn set(&self, settings: &mut Value) {
-        let (name, index) = match self.field.split_once('.') {
-            Some((name, i)) => (name, i.parse::<usize>().ok()),
-            None => (self.field, None),
+        let Some(slot) = (match self.field.split_once('.') {
+            Some((name, part)) => settings.get_mut(name).and_then(|s| match part.parse::<usize>() {
+                Ok(i) => s.get_mut(i),
+                Err(_) => s.get_mut(part),
+            }),
+            None => settings.get_mut(self.field),
+        }) else {
+            return;
         };
-        let Some(slot) = settings.get_mut(name) else { return };
-        match index {
-            Some(i) => {
-                if let Some(e) = slot.get_mut(i) {
-                    *e = self.value.clone();
-                }
-            }
-            None => *slot = self.value.clone(),
-        }
+        *slot = self.value.clone();
     }
 
     fn current(&self, settings: &Value) -> Option<Value> {
-        let (name, index) = match self.field.split_once('.') {
-            Some((name, i)) => (name, i.parse::<usize>().ok()),
-            None => (self.field, None),
-        };
-        let slot = settings.get(name)?;
-        match index {
-            Some(i) => slot.get(i).cloned(),
-            None => Some(slot.clone()),
+        match self.field.split_once('.') {
+            Some((name, part)) => {
+                let slot = settings.get(name)?;
+                match part.parse::<usize>() {
+                    Ok(i) => slot.get(i).cloned(),
+                    Err(_) => slot.get(part).cloned(),
+                }
+            }
+            None => settings.get(self.field).cloned(),
         }
     }
 }
@@ -455,6 +454,12 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
     ),
     (
         "ui",
+        "append-winrate-to-comment",
+        ImportTarget::AppendWinrateToComment,
+        Kind::Bool(|m, v| m.append_winrate_to_comment = Some(v)),
+    ),
+    (
+        "ui",
         "allow-double-click",
         ImportTarget::AllowDoubleClick,
         Kind::Bool(|m, v| m.allow_double_click = Some(v)),
@@ -628,6 +633,8 @@ enum DisplayKind {
     /// An integer within the bounds.
     Int(i64, i64),
     Num,
+    /// A number of at least 0.
+    NonNegative,
 }
 
 /// Board display keys mapped one to one: Java key (`ui`), target, [`DisplaySettings`] field,
@@ -682,6 +689,26 @@ const DISPLAY: &[(&str, ImportTarget, &str, DisplayKind)] = &[
     ("show-next-move-blunder", ImportTarget::NextMoves, "nextMoveInfo", DisplayKind::Bool),
     ("min-playouts-for-next-move", ImportTarget::NextMoves, "nextMoveMinPlayouts", DisplayKind::Int(i32::MIN as i64, i32::MAX as i64)),
     ("no-refresh-on-sub", ImportTarget::SubBoard, "noRefreshOnSub", DisplayKind::Bool),
+    ("show-win-rate-line", ImportTarget::WinrateGraph, "winrateLine", DisplayKind::Bool),
+    ("show-score-lead-line", ImportTarget::WinrateGraph, "scoreLeadLine", DisplayKind::Bool),
+    ("show-winrate-graph-fill", ImportTarget::WinrateGraph, "winrateGraphFill", DisplayKind::Bool),
+    ("show-mouse-over-winrate-graph", ImportTarget::WinrateGraph, "mouseOverWinrateGraph", DisplayKind::Bool),
+    ("initial-max-score-lead", ImportTarget::WinrateGraph, "initialMaxScoreLead", DisplayKind::NonNegative),
+    ("use-moves-ownership", ImportTarget::KataEstimate, "useMovesOwnership", DisplayKind::Bool),
+    ("shortcut-kata-estimate", ImportTarget::KataEstimate, "kataEstimateShortcut", DisplayKind::Bool),
+    ("save-kata-estimate-status", ImportTarget::KataEstimate, "kataEstimateSaveStatus", DisplayKind::Bool),
+    ("show-katago-estimate", ImportTarget::KataEstimate, "kataEstimate.shown", DisplayKind::Bool),
+    ("show-katago-estimate-onmainboard", ImportTarget::KataEstimate, "kataEstimate.onMain", DisplayKind::Bool),
+    ("show-katago-estimate-onsubbord", ImportTarget::KataEstimate, "kataEstimate.onSub", DisplayKind::Bool),
+    ("use-territory-in-score", ImportTarget::Scoring, "territoryScoring", DisplayKind::Bool),
+    ("match-ai-moves", ImportTarget::MatchAi, "matchAiMoves", DisplayKind::Int(0, u32::MAX as i64)),
+    ("match-ai-percents-playouts", ImportTarget::MatchAi, "matchAiPercentsPlayouts", DisplayKind::Num),
+    ("show-suggestions-frame", ImportTarget::SuggestionsFrame, "suggestionsFrame", DisplayKind::Bool),
+    ("suggestions-always-ontop", ImportTarget::SuggestionsFrame, "suggestionsOnTop", DisplayKind::Bool),
+    ("show-bestmoves-list", ImportTarget::SuggestionsFrame, "bestMovesList", DisplayKind::Bool),
+    ("show-bestmoves-graph", ImportTarget::SuggestionsFrame, "bestMovesGraph", DisplayKind::Bool),
+    ("anaframe-show-next", ImportTarget::SuggestionsFrame, "frameShowNext", DisplayKind::Bool),
+    ("anaframe-use-mousemove", ImportTarget::SuggestionsFrame, "frameMouseMove", DisplayKind::Bool),
 ];
 
 /// Keys read together with the engine list (`Utils.getEngineData` / `getEngineDataOld`,
@@ -865,6 +892,7 @@ impl Reader<'_> {
                 DisplayKind::Bool => as_bool(v).map(Value::from),
                 DisplayKind::Int(min, max) => as_i64(v).filter(|n| (*min..=*max).contains(n)).map(Value::from),
                 DisplayKind::Num => as_f64(v).map(Value::from),
+                DisplayKind::NonNegative => as_f64(v).filter(|n| *n >= 0.0).map(Value::from),
             };
             self.display_value(format!("ui.{key}"), *target, field, value, v);
         }
@@ -921,6 +949,53 @@ impl Reader<'_> {
                 self.mapped.display.push(DisplayValue {
                     target: ImportTarget::PureNetwork,
                     field: "pureEstimate",
+                    value: Value::from(style),
+                });
+            }
+        }
+
+        // 显示恶手损失条: Java turns it off once unless the profile was already migrated
+        // (`Config.hideBlunderBarDefaultOnce`).
+        const BLUNDER_MIGRATED: &str = "migrated-hide-blunder-bar-default-v1";
+        if let Some(v) = ui.get("show-blunder-bar") {
+            handled.push(("ui", "show-blunder-bar"));
+            let migrated = ui.get(BLUNDER_MIGRATED).and_then(as_bool).unwrap_or(false);
+            let value = as_bool(v).map(|on| Value::from(on && migrated));
+            self.display_value("ui.show-blunder-bar".into(), ImportTarget::WinrateGraph, "blunderBar", value, v);
+        }
+        if ui.contains_key(BLUNDER_MIGRATED) {
+            handled.push(("ui", BLUNDER_MIGRATED));
+        }
+
+        // Kata形势 squares: `drawEstimate` chooses by size first, then the big squares, then the
+        // small or half-square ones, skipping same-colour stones with not-on-live; the normal
+        // flag itself is not consulted.
+        const KATA_KEYS: [&str; 5] = [
+            "show-katago-estimate-small", "show-katago-estimate-normal", "show-katago-estimate-by-size",
+            "show-katago-estimate-big-below", "show-katago-estimate-not-on-live",
+        ];
+        if KATA_KEYS.iter().any(|k| ui.contains_key(*k)) {
+            let mut valid = true;
+            for key in KATA_KEYS {
+                let Some(v) = ui.get(key) else { continue };
+                handled.push(("ui", key));
+                if as_bool(v).is_some() {
+                    self.imported(format!("ui.{key}"), ImportTarget::KataEstimate, shown(v));
+                } else {
+                    valid = false;
+                    self.invalid(format!("ui.{key}"), ImportTarget::KataEstimate, v);
+                }
+            }
+            if valid {
+                let on = |key: &str, default| ui.get(key).and_then(as_bool).unwrap_or(default);
+                let style = if on(KATA_KEYS[2], false) { "BySize" }
+                    else if on(KATA_KEYS[3], false) { "BigBelow" }
+                    else if on(KATA_KEYS[0], true) { "Small" }
+                    else if on(KATA_KEYS[4], false) { "TransparentNotOnLive" }
+                    else { "Transparent" };
+                self.mapped.display.push(DisplayValue {
+                    target: ImportTarget::KataEstimate,
+                    field: "kataEstimateStyle",
                     value: Value::from(style),
                 });
             }
@@ -1283,7 +1358,10 @@ impl Reader<'_> {
                             self.display_value(format!("{name}[{index}]"), ImportTarget::Suggestions, field, value, raw);
                         }
                     }
-                    ("ui-persist", "main-window-position" | "window-maximized") => {
+                    // Window bounds and the tables' column pixels follow Java's own scaling,
+                    // fonts and layout.
+                    ("ui-persist", "main-window-position" | "window-maximized" | "suggestions-list-position"
+                        | "suggestions-list-position-7" | "suggestions-list-position-9" | "main-window-list") => {
                         let it = self.item(name, ImportStatus::Incompatible);
                         it.value = Some(shown(v));
                         it.reason = Some(ImportReason::WindowCoordinates);
@@ -1568,6 +1646,7 @@ impl Mapped {
         set!(c.record.read_komi, self.read_komi);
         set!(c.record.load_sgf_last, self.load_sgf_last);
         set!(c.record.show_replace_file_hint, self.show_replace_file_hint);
+        set!(c.record.append_winrate_to_comment, self.append_winrate_to_comment);
         set!(c.ui.language, self.language);
         set!(c.ui.play_sound, self.play_sound);
         set!(c.recent_files, self.recent_files);
@@ -1720,6 +1799,11 @@ impl Mapped {
             ImportTarget::ReplaceFileHint,
             config.record.show_replace_file_hint,
             self.show_replace_file_hint
+        );
+        cmp!(
+            ImportTarget::AppendWinrateToComment,
+            config.record.append_winrate_to_comment,
+            self.append_winrate_to_comment
         );
         cmp!(ImportTarget::Language, config.ui.language, self.language);
         cmp!(ImportTarget::PlaySound, config.ui.play_sound, self.play_sound);

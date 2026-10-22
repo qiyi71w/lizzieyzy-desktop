@@ -12,6 +12,7 @@ import type {
   ImportReportView,
   ImportSlotView,
   ImportStatus,
+  ImportTarget,
 } from "./contract/generated";
 import { formPanel, message } from "./dialogs";
 import { product, t } from "./i18n";
@@ -97,9 +98,24 @@ function count(items: ImportItemView[], status: ImportStatus): number {
   return items.filter((i) => i.status === status).length;
 }
 
+// Targets that are Java menu items take Java's own wording.
+const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
+  PureNetwork: "Menu.showHeatmap",
+  AppendWinrateToComment: "Menu.appendWinrateToComment",
+  WinrateGraph: "Menu.winrateGraphSettings",
+  KataEstimate: "Menu.kataEstimate",
+  Scoring: "BottomToolbar.finalScore",
+  SuggestionsFrame: "Menu.SuggestionList",
+};
+
+function targetLabel(target: ImportTarget): string {
+  const java = JAVA_TARGET_LABELS[target];
+  return java ? t(java) : product(`target${target}`);
+}
+
 function itemLine(i: ImportItemView): string {
   const parts = [i.key];
-  if (i.target) parts.push(`→ ${i.target === "PureNetwork" ? t("Menu.showHeatmap") : product(`target${i.target}`)}`);
+  if (i.target) parts.push(`→ ${targetLabel(i.target)}`);
   if (i.value !== null && !i.credential) parts.push(`= ${i.value.replaceAll("\n", ", ")}`);
   if (i.reason) parts.push(`（${product(`reason${i.reason}`)}）`);
   if (i.detail) parts.push(i.detail);
@@ -211,7 +227,7 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
   if (p.replaces.length) {
     const box = document.createElement("div");
     box.className = "java-import-replaces";
-    box.append(text("p", product("importReplaces", p.replaces.map((x) => product(`target${x}`)).join("、"))));
+    box.append(text("p", product("importReplaces", p.replaces.map(targetLabel).join("、"))));
     const confirm = checkbox(product("importReplaceConfirm"), false);
     confirm.input.dataset.key = "import-replace";
     replace = confirm.input;

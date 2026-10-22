@@ -83,6 +83,12 @@ impl Viewpoint {
         self.values(winrate, lead, to_play, self.side(to_play), komi)
     }
 
+    /// The side to move's own numbers with 盘面 applied, ignoring 总是显示黑胜率: the 独立选点列表
+    /// (`AnalysisFrame.getValueAt`).
+    pub fn side_to_move(self, winrate: f64, lead: Option<f64>, to_play: Stone, komi: f64) -> ShownValues {
+        self.values(winrate, lead, to_play, to_play, komi)
+    }
+
     /// Black's numbers: graph, statistics panel and title.
     pub fn black(self, winrate: f64, lead: Option<f64>, to_play: Stone, komi: f64) -> ShownValues {
         self.values(winrate, lead, to_play, Stone::Black, komi)
@@ -97,6 +103,7 @@ impl Viewpoint {
             winrate,
             score_lead,
             shown: self.candidate(winrate, score_lead, mover, komi),
+            side_to_move: self.side_to_move(winrate, score_lead, mover, komi),
         }
     }
 }
@@ -109,6 +116,8 @@ pub struct AsCandidate {
     /// For the side that moved.
     pub score_lead: Option<f64>,
     pub shown: ShownValues,
+    /// For the side that moved, 盘面 applied, 总是显示黑胜率 ignored (独立选点列表).
+    pub side_to_move: ShownValues,
 }
 
 #[cfg(test)]

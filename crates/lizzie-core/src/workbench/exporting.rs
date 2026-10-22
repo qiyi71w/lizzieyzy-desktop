@@ -8,10 +8,9 @@ use std::path::{Path, PathBuf};
 
 use super::{PendingSave, SaveJob, Workbench};
 use crate::api::{CommentLabels, ExportKind, NodeAnalysisView};
-use crate::formats::saved_analysis;
 use crate::formats::sgf_write::{self, Export};
 use crate::formats::winrate_comment::{self, NodeEval};
-use crate::record::{GameRecord, NodeId};
+use crate::record::{DocumentEdit, NodeId, NodeKind, ROOT};
 use crate::viewpoint::Viewpoint;
 
 fn eval(a: &NodeAnalysisView) -> NodeEval {
@@ -28,57 +27,121 @@ fn eval(a: &NodeAnalysisView) -> NodeEval {
     }
 }
 
-/// The analysis saved with node `id` in the record (KataGo data always has an uncertainty, as in
-/// Java's `isKataData` summary).
-fn saved(rec: &GameRecord, id: NodeId) -> Option<NodeEval> {
-    let node = rec.node(id);
-    let s = saved_analysis::primary(&node.properties)?;
-    Some(NodeEval {
-        engine: s.engine,
-        visits: s.visits,
-        winrate: s.winrate,
-        score_stdev: s.score_lead.map(|_| s.score_stdev),
-        score_lead: s.score_lead,
-        komi: rec.info.komi,
-        pda: s.pda,
-        to_play: node.to_play,
-    })
+/// Use the same fixed-Java localization catalog as the UI, not a second string table.
+fn comment_labels(language: crate::settings::Language) -> CommentLabels {
+    static CATALOG: std::sync::LazyLock<serde_json::Value> = std::sync::LazyLock::new(|| {
+        serde_json::from_str(include_str!("../../../../ui/src/i18n/javaStrings.json"))
+            .expect("bundled Java localization catalog")
+    });
+    use crate::settings::Language;
+    let lang = match language {
+        Language::System | Language::ZhCn => "ZhCn",
+        Language::EnUs => "EnUs",
+        Language::KoKr => "KoKr",
+        Language::JaJp => "JaJp",
+        Language::ZhTw => "ZhTw",
+        Language::ThTh => "ThTh",
+    };
+    let strings = &CATALOG["strings"][lang];
+    let label = |key: &str| {
+        strings[key]
+            .as_str()
+            .expect("SGF comment label in every bundled locale")
+            .to_string()
+    };
+    CommentLabels {
+        black: label("SGFParse.black"),
+        white: label("SGFParse.white"),
+        winrate: label("SGFParse.winrate"),
+        lead: label("SGFParse.leadJustScore"),
+        lead_with_komi: label("SGFParse.leadWithKomi"),
+        stdev: label("SGFParse.stdev"),
+        playouts: label("SGFParse.playouts"),
+        komi: label("SGFParse.komi"),
+        pda: label("SGFParse.pda"),
+    }
 }
 
 impl Workbench {
+    fn node_eval(&self, id: NodeId) -> Option<NodeEval> {
+        let mut a = eval(self.store.get(&self.doc.record, id)?);
+        a.pda = self.store.pda(id);
+        (a.visits > 0).then_some(a)
+    }
+
+    fn formatted_comment(&self, id: NodeId, labels: &CommentLabels) -> Option<String> {
+        let rec = &self.doc.record;
+        let a = self.node_eval(id)?;
+        let previous = rec.node(id).parent.map(|p| self.node_eval(p));
+        Some(winrate_comment::format(
+            labels,
+            Viewpoint::from(&self.config.display),
+            &a,
+            previous.as_ref().map(Option::as_ref),
+            &rec.node(id).comment,
+        ))
+    }
+
+    /// The comment pane while an engine is loaded (`LizzieFrame.appendComment` writes the
+    /// summary into the current move's comment; `setComment` shows the previous move's while
+    /// the current one has neither comment nor summary yet).
+    pub(super) fn comment_with_analysis(&self) -> Option<String> {
+        if !self.config.record.append_winrate_to_comment || self.engines.foreground().is_none() {
+            return None;
+        }
+        let rec = &self.doc.record;
+        let labels = comment_labels(self.active_language);
+        let summary = |id: NodeId| {
+            (id != ROOT && rec.node(id).kind != NodeKind::Snapshot)
+                .then(|| self.formatted_comment(id, &labels))
+                .flatten()
+        };
+        summary(self.cursor).or_else(|| {
+            let parent = rec.parent(self.cursor)?;
+            (rec.node(self.cursor).comment.is_empty() && self.engines.analysing(self.doc.id, self.cursor))
+                .then(|| summary(parent).unwrap_or_else(|| rec.node(parent).comment.clone()))
+        })
+    }
+
+    /// Java mutates move comments on save, but never snapshot comments. Do so through the
+    /// document's write entry before capturing the revision that the save will confirm.
+    pub(super) fn prepare_save_comments(&mut self) {
+        if !self.config.record.append_winrate_to_comment {
+            return;
+        }
+        let labels = comment_labels(self.active_language);
+        let mut pending = vec![ROOT];
+        let mut edits = Vec::new();
+        while let Some(id) = pending.pop() {
+            let node = self.doc.record.node(id);
+            pending.extend(node.children.iter().copied());
+            if id != ROOT && node.kind != NodeKind::Snapshot {
+                if let Some(comment) = self.formatted_comment(id, &labels).filter(|c| *c != node.comment) {
+                    edits.push(DocumentEdit::SetComment { node: id, comment });
+                }
+            }
+        }
+        for edit in edits {
+            self.edit_document(edit).expect("save comments target existing nodes");
+        }
+    }
     /// The export text of the current record.
     pub fn export_text(&self, kind: ExportKind, labels: &CommentLabels) -> String {
         let rec = &self.doc.record;
         match kind {
-            ExportKind::Raw => sgf_write::write_export(rec, &Export::Raw),
+            ExportKind::Raw => {
+                sgf_write::write_export_analyzed(rec, &Export::Raw, Some(&|id| self.store.payload(rec, id)))
+            }
             ExportKind::Branch => sgf_write::write_export(rec, &Export::Branch { current: self.cursor }),
             ExportKind::RawWithComments => {
-                // An analysed node (playouts > 0) gets its summary (`appendRawSerializedComment`):
-                // this session's analysis or the analysis read with the record, whichever has more
-                // visits (Java keeps one `BoardData` result per node and replaces it only with
-                // more visits).
-                let analysis = |id: NodeId| {
-                    let live = self.store.get(rec, id).map(eval);
-                    let saved = saved(rec, id);
-                    match (live, saved) {
-                        (Some(l), Some(s)) => Some(if s.visits > l.visits { s } else { l }),
-                        (l, s) => l.or(s),
-                    }
-                    .filter(|a| a.visits > 0)
-                };
-                let view = Viewpoint::from(&self.config.display);
-                let comment = |id: NodeId| {
-                    let a = analysis(id)?;
-                    let previous = rec.node(id).parent.map(analysis);
-                    Some(winrate_comment::format(
-                        labels,
-                        view,
-                        &a,
-                        previous.as_ref().map(Option::as_ref),
-                        &rec.node(id).comment,
-                    ))
-                };
-                sgf_write::write_export(rec, &Export::RawWithComments { comment: &comment })
+                // The store is the one BoardData result: imported data was loaded into it and
+                // live analysis replaces it only when stronger.
+                let comment = |id| self.formatted_comment(id, labels);
+                sgf_write::write_export_analyzed(
+                    rec,
+                    &Export::RawWithComments { comment: &comment },
+                    Some(&|id| self.store.payload(rec, id)),
+                )
             }
         }
     }
@@ -104,7 +167,14 @@ impl Workbench {
 
     /// 复制棋谱到剪贴板 (`SGFParser.saveToString(false)`): the record as a save writes it.
     pub fn record_text(&self, application: &str) -> String {
-        sgf_write::write(&self.doc.record, application)
+        let rec = &self.doc.record;
+        let labels = comment_labels(self.active_language);
+        let comment = |id| {
+            (self.config.record.append_winrate_to_comment && id != ROOT && rec.node(id).kind != NodeKind::Snapshot)
+                .then(|| self.formatted_comment(id, &labels))
+                .flatten()
+        };
+        sgf_write::write_analyzed(rec, application, &|id| self.store.payload(rec, id), &comment)
     }
 
     /// Where the picture chooser starts: the last picture folder, else the last record folder

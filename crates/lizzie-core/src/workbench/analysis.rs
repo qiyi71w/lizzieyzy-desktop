@@ -49,12 +49,18 @@ pub(super) enum SessionRules {
 pub(super) struct AnalysisStore {
     doc: u64,
     nodes: HashMap<NodeId, (u64, NodeAnalysisView)>,
+    /// The Kata形势 ownership (`BoardData.estimateArray`), Black-positive: read from a saved
+    /// payload, or reported live while ownership was requested.
+    ownership: HashMap<NodeId, Vec<f64>>,
+    metadata: HashMap<NodeId, crate::formats::saved_analysis::Metadata>,
 }
 
 impl AnalysisStore {
     pub(super) fn reset(&mut self, doc: u64) {
         self.doc = doc;
         self.nodes.clear();
+        self.ownership.clear();
+        self.metadata.clear();
     }
 
     pub(super) fn get(&self, rec: &GameRecord, node: NodeId) -> Option<&NodeAnalysisView> {
@@ -62,10 +68,57 @@ impl AnalysisStore {
         (rec.contains(node) && rec.node(node).stamp == *stamp).then_some(view)
     }
 
+    pub(super) fn ownership(&self, rec: &GameRecord, node: NodeId) -> Option<&Vec<f64>> {
+        self.get(rec, node)?;
+        self.ownership.get(&node)
+    }
+
+    /// Replaces the node's result and its ownership (none when the result has none).
+    pub(super) fn insert(&mut self, node: NodeId, stamp: u64, view: NodeAnalysisView, ownership: Option<Vec<f64>>) {
+        self.nodes.insert(node, (stamp, view));
+        self.metadata.remove(&node);
+        match ownership {
+            Some(o) => self.ownership.insert(node, o),
+            None => self.ownership.remove(&node),
+        };
+    }
+
     /// Drops results whose node was removed or edited.
     pub(super) fn retain_valid(&mut self, rec: &GameRecord) {
         self.nodes
             .retain(|&node, (stamp, _)| rec.contains(node) && rec.node(node).stamp == *stamp);
+        let nodes = &self.nodes;
+        self.ownership.retain(|node, _| nodes.contains_key(node));
+        self.metadata.retain(|node, _| nodes.contains_key(node));
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+
+    pub(super) fn pda(&self, node: NodeId) -> f64 {
+        self.metadata.get(&node).map_or(0.0, |m| m.pda)
+    }
+
+    pub(super) fn payload(&self, rec: &GameRecord, node: NodeId) -> Option<String> {
+        let a = self.get(rec, node)?;
+        Some(crate::formats::saved_analysis::write(a, rec.size,
+            self.metadata.get(&node).copied().unwrap_or_default(), self.ownership(rec, node)))
+    }
+
+    pub(super) fn load(&mut self, rec: &GameRecord, settings: &AnalysisSettings, no_sugg_circle: bool) {
+        let max = if settings.limit_max_suggestion > 0 && !no_sugg_circle {
+            settings.limit_max_suggestion as usize
+        } else { 361 };
+        let mut pending = vec![ROOT];
+        while let Some(id) = pending.pop() {
+            let node = rec.node(id);
+            pending.extend(node.children.iter().copied());
+            if let Some(p) = crate::formats::saved_analysis::load(&node.properties, id, rec.size, node.to_play, rec.info.komi, max, settings.limit_branch_length) {
+                self.insert(id, node.stamp, p.view, p.ownership);
+                self.metadata.insert(id, p.metadata);
+            }
+        }
     }
 }
 
@@ -75,11 +128,20 @@ pub struct LogLine {
     pub text: String,
 }
 
-fn node_analysis(node: NodeId, to_play: Stone, komi: f64, engine: String, line: InfoLine) -> Option<NodeAnalysisView> {
+/// KataGo ownership of the side to move, Black-positive and rounded to thousandths (the
+/// painters use it as an alpha of at most 255 levels).
+fn black_ownership(values: Vec<f64>, to_play: Stone) -> Vec<f64> {
+    let sign = if to_play == Stone::Black { 1.0 } else { -1.0 };
+    values.into_iter().map(|v| (v * sign * 1000.0).round() / 1000.0 + 0.0).collect()
+}
+
+/// A reported line as a stored result and its Black-positive ownership.
+fn node_analysis(node: NodeId, to_play: Stone, komi: f64, engine: String, line: InfoLine) -> Option<(NodeAnalysisView, Option<Vec<f64>>)> {
     let best = line.candidates.first()?;
     let (winrate, score_lead, score_stdev) = (best.winrate, best.score_lead, best.score_stdev);
     let visits = line.candidates.iter().map(|c| c.visits).sum();
-    Some(NodeAnalysisView {
+    let ownership = line.ownership.map(|o| black_ownership(o, to_play));
+    let view = NodeAnalysisView {
         node,
         engine,
         to_play,
@@ -106,10 +168,13 @@ fn node_analysis(node: NodeId, to_play: Stone, komi: f64, engine: String, line: 
                 pv_visits: c.pv_visits,
                 pv_captures: Vec::new(),
                 shown: ShownValues::default(),
+                side_to_move: ShownValues::default(),
+                ownership: c.ownership.map(|o| black_ownership(o, to_play)),
             })
             .collect(),
         black: ShownValues::default(),
-    })
+    };
+    Some((view, ownership))
 }
 
 /// Plays every candidate's variation out from `base` (`Branch`, at most `limit` moves; 0 = the
@@ -771,7 +836,7 @@ impl Workbench {
                     if !rec.contains(node) || rec.node(node).stamp != stamp {
                         continue; // the node was removed or edited since the request
                     }
-                    let Some(result) = node_analysis(node, to_play, komi, engine_name, line) else {
+                    let Some((result, ownership)) = node_analysis(node, to_play, komi, engine_name, line) else {
                         continue;
                     };
                     let visits = result.visits;
@@ -780,7 +845,7 @@ impl Workbench {
                         let mut result = result;
                         let limit = self.config.engine.analysis.limit_branch_length;
                         fill_pv_captures(&mut result, &rec.position(node), limit, !self.config.edit.no_capture);
-                        self.store.nodes.insert(node, (stamp, result));
+                        self.store.insert(node, stamp, result, ownership);
                     }
                     if node == self.cursor && !self.paused && self.limit_stop.is_none() && !self.engines.raw_net_active() {
                         self.check_limits(visits, elapsed);
@@ -914,34 +979,70 @@ impl Workbench {
     }
 
     pub(super) fn current_analysis(&self) -> Option<NodeAnalysisView> {
-        let mut a = self.store.get(&self.doc.record, self.cursor).cloned()?;
+        let s = self.store.get(&self.doc.record, self.cursor)?;
         // Stored results keep the engine's numbers; what is shown follows the settings now. The
         // komi is the one the result was analysed with (results of another komi are dropped).
         let vp = self.viewpoint();
-        for c in &mut a.candidates {
-            c.shown = vp.candidate(c.winrate, c.score_lead, a.to_play, a.komi);
+        // A candidate's own ownership is drawn only while Kata形势 and 按选点显示评估 are on;
+        // otherwise it is not copied at all.
+        let moves_ownership = self.estimate.state.shown && self.config.display.use_moves_ownership;
+        let candidates = s
+            .candidates
+            .iter()
+            .map(|c| CandidateView {
+                point: c.point,
+                visits: c.visits,
+                allocation_visits: c.allocation_visits,
+                winrate: c.winrate,
+                score_lead: c.score_lead,
+                score_stdev: c.score_stdev,
+                prior: c.prior,
+                lcb: c.lcb,
+                order: c.order,
+                pv: c.pv.clone(),
+                pv_visits: c.pv_visits.clone(),
+                pv_captures: c.pv_captures.clone(),
+                shown: vp.candidate(c.winrate, c.score_lead, s.to_play, s.komi),
+                side_to_move: vp.side_to_move(c.winrate, c.score_lead, s.to_play, s.komi),
+                ownership: if moves_ownership { c.ownership.clone() } else { None },
+            })
+            .collect();
+        Some(NodeAnalysisView {
+            node: s.node,
+            engine: s.engine.clone(),
+            to_play: s.to_play,
+            visits: s.visits,
+            root_visits: s.root_visits,
+            winrate: s.winrate,
+            score_lead: s.score_lead,
+            score_stdev: s.score_stdev,
+            komi: s.komi,
+            candidates,
+            black: vp.black(s.winrate, s.score_lead, s.to_play, s.komi),
+        })
+    }
+
+    /// The current line (root to the line end) and, off the trunk, the rest of the main trunk.
+    pub(super) fn graph_nodes(&self) -> Vec<NodeId> {
+        let rec = &self.doc.record;
+        let mut nodes = rec.path_to(rec.line_end(self.cursor));
+        if !rec.is_main_trunk(self.cursor) {
+            let mut line = nodes.clone();
+            line.sort_unstable();
+            let trunk = rec.path_to(rec.line_end(ROOT));
+            nodes.extend(trunk.into_iter().filter(|n| line.binary_search(n).is_err()));
         }
-        a.black = vp.black(a.winrate, a.score_lead, a.to_play, a.komi);
-        Some(a)
+        nodes
     }
 
     /// Stored results on the current line (root to the line end) and the main trunk.
     pub(super) fn history(&self) -> Vec<HistoryPoint> {
-        if self.store.nodes.is_empty() {
+        if self.store.is_empty() {
             return Vec::new();
         }
         let rec = &self.doc.record;
         let vp = self.viewpoint();
-        let mut nodes = rec.path_to(rec.line_end(self.cursor));
-        if !rec.is_main_trunk(self.cursor) {
-            let trunk: Vec<NodeId> = rec
-                .path_to(rec.line_end(ROOT))
-                .into_iter()
-                .filter(|n| !nodes.contains(n))
-                .collect();
-            nodes.extend(trunk);
-        }
-        nodes
+        self.graph_nodes()
             .into_iter()
             .filter_map(|n| {
                 let a = self.store.get(rec, n)?;
@@ -954,6 +1055,7 @@ impl Workbench {
                     score_lead: a.score_lead,
                     black: vp.black(a.winrate, a.score_lead, a.to_play, a.komi),
                     as_candidate: vp.as_candidate(a.winrate, a.score_lead, a.to_play, a.komi),
+                    score_stdev: a.score_stdev,
                 })
             })
             .collect()

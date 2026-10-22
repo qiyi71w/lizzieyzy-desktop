@@ -24,6 +24,8 @@ function sameList<T>(item: (a: T, b: T) => boolean) {
 const samePoint = (a: Point, b: Point) => a.x === b.x && a.y === b.y;
 const sameMove = (a: Point | null, b: Point | null) => a === b || (a !== null && b !== null && samePoint(a, b));
 const sameShown = (a: ShownValues, b: ShownValues) => a.winrate === b.winrate && a.score_lead === b.score_lead;
+const sameNumbers = sameList(same);
+export const sameOwnership = (a: number[] | null, b: number[] | null) => a === b || (a !== null && b !== null && sameNumbers(a, b));
 
 const CANDIDATE: Fields<CandidateView> = {
   point: sameMove,
@@ -39,6 +41,8 @@ const CANDIDATE: Fields<CandidateView> = {
   pv_captures: sameList(sameList(samePoint)),
   pv_visits: sameList(same),
   shown: sameShown,
+  side_to_move: sameShown,
+  ownership: sameOwnership,
 };
 const sameCandidates = sameList((a: CandidateView, b: CandidateView) => sameBy(CANDIDATE, a, b));
 
@@ -63,8 +67,9 @@ const HISTORY_POINT: Fields<HistoryPoint> = {
   visits: same,
   winrate: same,
   score_lead: same,
+  score_stdev: same,
   black: sameShown,
-  as_candidate: (a, b) => a.winrate === b.winrate && a.score_lead === b.score_lead && sameShown(a.shown, b.shown),
+  as_candidate: (a, b) => a.winrate === b.winrate && a.score_lead === b.score_lead && sameShown(a.shown, b.shown) && sameShown(a.side_to_move, b.side_to_move),
 };
 
 export function sameAnalysis(a: NodeAnalysisView | null, b: NodeAnalysisView | null): boolean {

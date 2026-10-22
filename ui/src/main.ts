@@ -4,24 +4,31 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { apply, copyRecord, exportRecord, navigate, pasteRecord, run, saveRecord, saveRecordAs, state, subscribe, unavailable, windowTitle } from "./app";
+import { apply, copyRecord, exportRecord, navigate, pasteRecord, run, saveRecord, saveRecordAs, state, subscribe, unavailable } from "./app";
 import { buildBottomBar, layoutBottomBar } from "./chrome/bottombar";
 import { buildMenubar, menuOpen } from "./chrome/menubar";
 import { buildToolbar, renderToolbar } from "./chrome/toolbar";
 import { onUnavailable, onView, snapshot } from "./contract/client";
-import type { CandidateView, HistoryPoint, Navigation, NodeAnalysisView, Point, WorkbenchView } from "./contract/generated";
+import type { HistoryPoint, Navigation, NodeAnalysisView, Point, WorkbenchView } from "./contract/generated";
 import { dialogOpen, message } from "./dialogs";
 import { isChinese, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
-import { boardGeom, graphGeom, inFrameLayout, mainMarginRatio, SUB_MARGIN_RATIO, type BoardGeom, type Panels, type Rect } from "./workbench/layout";
+import { boardGeom, inFrameLayout, mainMarginRatio, SUB_MARGIN_RATIO, type BoardGeom, type Panels, type Rect } from "./workbench/layout";
 import { boardUi, candidatesShownFor, onBoardUiChange } from "./display/state";
 import { bindReplayHost, finishReplayBranch, replayLength, replaying, type ReplayTarget } from "./display/replay";
 import { autoplayReport, autoReplayLength, bindAutoplayHost, subAutoplayLength, subWheeled } from "./display/autoplay";
 import { sameAnalysis, sameHistory } from "./workbench/viewEquality";
 import { handleEngineKey } from "./engine/keys";
 import { handleDisplayKey } from "./display/keys";
+import { handleInfoKey } from "./analysis/infoCommands";
+import { bindScoreDialog, scoreDialogReport, scorePoint } from "./analysis/scoreDialog";
+import { layerSignature, mainOwnership, startTitleUpdates, statScene, subOwnership, workbenchTitle } from "./analysis/info";
 import { mountSetupBanner } from "./setup/banner";
 import "./editing/commands";
+import "./analysis/graphCommands";
+import { graphDestination, graphTarget, paintGraph, type GraphHits, type GraphReport } from "./analysis/graph";
+import { bindTables, boardPointerMoved, boardWheel, clearTableSelection, mainTableSignature, renderMainTable, resetTables, tableBranchLength, tablesReport } from "./analysis/table";
+import { frameReport, handleTableKey, relayFrame, startFrame } from "./analysis/tableCommands";
 import { bindCommentEditor, commentEditing } from "./editing/comment";
 import { contextMenuItems, contextMenuOpen } from "./editing/contextMenu";
 import { bindBoardInput, handleEditKey } from "./editing/input";
@@ -30,22 +37,22 @@ import { bindCaptureSurface, copyMainBoardPicture, copySubBoardPicture, saveMain
 import { startAutoSave } from "./recovery/commands";
 import { recoveryReport } from "./recovery/panel";
 import {
+  aiScoreText,
   loadImages,
   paintBackground,
   paintBoard,
   paintCaptured,
-  paintGraph,
   paintStat,
   paintStatus,
   paintSubBoard,
   paintTree,
   prepare,
-  playouts,
   ARROW,
   SCROLLBAR,
   type BoardReport,
   type BoardScene,
   type PreviewVariation,
+  type StatReport,
   type SubBoardReport,
   type TreeViewport,
 } from "./workbench/paint";
@@ -75,7 +82,6 @@ let notice: { text: string; until: number } | null = null;
 let version = "";
 let hoveredCandidate: number | null = null;
 let hoveredPoint: string | null = null;
-let selectedCandidate: number | null = null;
 let subCandidate = 0;
 let subLength: number | null = null;
 /** The pointer rests on the sub board (SubBoardRenderer.isMouseOver with no-refresh-on-sub). */
@@ -88,17 +94,15 @@ let hoverFrozen: { key: string; pv: (Point | null)[]; pv_captures: Point[][]; pv
 let presentationFor = "";
 let boardReport: BoardReport | null = null;
 let subReport: SubBoardReport | null = null;
+let statReport: StatReport | null = null;
 /** Everything the boards draw from the view besides the position and analysis, per view. */
 let displaySig = "";
 let displaySigFor: WorkbenchView | null = null;
-let tableRowCount = 0;
-let graphPointCount = 0;
-let maxScoreLead = 15;
-let graphDocument = -1;
-let graphNodesSource = state.nodes;
-let graphLineKey = "";
-let graphLineByMove = new Map<number, number>();
-let mainLine = new Set<number>();
+/** What the win-rate graph last drew, and its hit-test sources (WinrateGraph's rendered points). */
+let graphReport: GraphReport | null = null;
+let graphHits: GraphHits | null = null;
+/** WinrateGraph.mouseOverNode: the node under the pointer while 显示鼠标悬停信息 is on. */
+let graphHover: number | null = null;
 let historyByNode = new Map<number, HistoryPoint>();
 /** Bumped when the shown analysis / history differ field-wise from the previous view's. */
 let analysisRevision = 0;
@@ -203,37 +207,14 @@ function projectAnalysis(v: WorkbenchView) {
       historyRevision++;
       historyByNode = new Map(v.history.map((p) => [p.node, p]));
     }
-    const documentChanged = graphDocument !== v.document.id;
-    if (documentChanged) {
-      graphDocument = v.document.id;
-      maxScoreLead = 15;
-    }
-    if (historyChanged || documentChanged)
-      for (const p of v.history) if (p.black.score_lead !== null) maxScoreLead = Math.max(maxScoreLead, Math.abs(p.black.score_lead));
   }
   const lineKey = `${v.document.id}:${v.position.node}:${v.position.line_end}`;
-  if (graphNodesSource !== state.nodes || graphLineKey !== lineKey) {
-    graphNodesSource = state.nodes;
-    graphLineKey = lineKey;
-    graphLineByMove = new Map();
-    mainLine = new Set();
-    for (let id: number | undefined = state.root; id !== undefined; id = state.nodes.get(id)?.children[0]) {
-      mainLine.add(id);
-      const n = state.nodes.get(id);
-      if (n) graphLineByMove.set(n.move_number, id);
-    }
-    // The displayed branch owns overlapping columns; the dashed trunk owns its continuation.
-    for (const id of state.line) {
-      const n = state.nodes.get(id);
-      if (n) graphLineByMove.set(n.move_number, id);
-    }
-  }
   if (presentationFor !== lineKey) {
     presentationFor = lineKey;
     hoveredCandidate = null;
     hoveredPoint = null;
     hoverFrozen = null;
-    selectedCandidate = null;
+    resetTables();
     // SubBoardRenderer.clearAfterMove; the frozen sub board belongs to the position it was taken at.
     subCandidate = 0;
     subLength = null;
@@ -265,7 +246,7 @@ function mainGeom(v: WorkbenchView, r: Rect): BoardGeom {
  *  and 鼠标悬停显示变化图 are on; 纯网络 and 显示策略网络 (T) show no variation
  *  (BoardRenderer.java:1639-1644), so R has nothing to replay either. */
 function hoverAllowed(v: WorkbenchView): boolean {
-  return candidatesShownFor(v.position.to_play) && v.settings.display.suggestionVariations && v.rawNet === null && !boardUi.policy;
+  return candidatesShownFor(v.position.to_play) && v.settings.display.suggestionVariations && v.rawNet === null && !boardUi.policy && !v.score;
 }
 
 /** The 下一手 详细 point while it shows (isShowingNextMoveBlunder): hovering it previews the actual
@@ -295,7 +276,7 @@ function hoveredVariation(v: WorkbenchView): { target: ReplayTarget; preview: Pr
   const limit = v.settings.engine.analysis.limitBranchLength;
   const steps = limit > 0 ? Math.min(limit, pv.length) : pv.length;
   const target = { key, steps };
-  const replayed = replayLength(key) ?? autoReplayLength(key, steps);
+  const replayed = replayLength(key) ?? tableBranchLength(key) ?? autoReplayLength(key, steps);
   const order = nextPoint ? -1 : c!.order;
   if (c && replayed === null && !v.settings.display.autoReplayBranch) {
     const next = v.position.next_moves[0];
@@ -311,22 +292,6 @@ function hoveredVariation(v: WorkbenchView): { target: ReplayTarget; preview: Pr
 
 function subAnalysis(v: WorkbenchView): NodeAnalysisView | null {
   return subFrozen && subFrozen.node === v.position.node ? subFrozen.analysis : v.analysis;
-}
-
-function engineTitle(v: WorkbenchView): string {
-  // LizzieFrame.updateTitle returns while trying: the title stays LizzieFrame.tryTitle.
-  if (v.editing.trying) return windowTitle(version);
-  const base = windowTitle(version), foreground = v.engine.foreground, a = v.analysis;
-  let prefix = "";
-  if (a && a.visits > 0) {
-    // updateTitle: Black's win rate and Black's lead (core `black`; the board difference under 盘面).
-    const { winrate, score_lead: lead } = a.black;
-    prefix = `[${winrate.toFixed(1)}${lead === null ? "" : ` ${lead.toFixed(1)}`} ${playouts(a.visits)}] `;
-  }
-  if (!foreground) return prefix + base;
-  const engine = `${foreground.name}${v.engine.analysing && a ? ` ${playouts(a.visits)} visits` : ` - ${t("LizzieFrame.speedUnit")}`}`;
-  const stem = `LizzieYzy Tauri ${version}`;
-  return `${prefix}${stem} - ${engine}${base.slice(stem.length)}`;
 }
 
 function flash(text: string) {
@@ -378,7 +343,7 @@ document.addEventListener("keydown", (e) => {
   if (dialogOpen() || menuOpen() || contextMenuOpen() || textTarget(e.target)) return;
   // The 存档与读档 controls keep their keys, like the Swing components holding the focus there.
   if (e.target instanceof Element && e.target.closest("#recovery")) return;
-  if (handleEngineKey(e) || handleEditKey(e) || handleDisplayKey(e)) {
+  if (handleEngineKey(e) || handleEditKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e)) {
     e.preventDefault();
     return;
   }
@@ -426,14 +391,27 @@ document.addEventListener("keydown", (e) => {
 
 function bindPointer() {
   const main = $("main");
+  // Input.mousePressed (Input.java:68-72): while scoring, a press on the drawn workbench (board,
+  // sub board, graph, variation tree, panels) does nothing but a left click marks the board point.
+  for (const type of ["mousedown", "mouseup", "click", "dblclick", "contextmenu"]) {
+    main.addEventListener(type, (ev) => {
+      const e = ev as MouseEvent;
+      if (!state.view?.score || !(e.target as HTMLElement).closest("#board, #sub, #graph, #tree, #captured, #stat")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (type !== "mousedown" || e.button !== 0 || !(e.target as HTMLElement).closest("#board")) return;
+      const point = boardPointAt(e.clientX, e.clientY);
+      if (point) scorePoint(point);
+    }, true);
+  }
   // Input.mouseWheelMoved: one move per notch over the workbench. Scroll panes take their own
   // wheel: the comment, the candidate list and the variation tree (a JScrollPane, scrolled below).
   main.addEventListener(
     "wheel",
     (ev) => {
-      if ((ev.target as HTMLElement).closest("#comment, #table, #tree, #sub, #graph, #recovery")) return;
+      if ((ev.target as HTMLElement).closest("#comment, #table, #tree, #sub, #recovery")) return;
       ev.preventDefault();
-      if (ev.deltaY !== 0) navigate(ev.deltaY > 0 ? { op: "Forward", count: 1 } : { op: "Back", count: 1 });
+      if (ev.deltaY !== 0 && !boardWheel(ev.deltaY > 0)) navigate(ev.deltaY > 0 ? { op: "Forward", count: 1 } : { op: "Back", count: 1 });
     },
     { passive: false },
   );
@@ -454,17 +432,12 @@ function bindPointer() {
       const moves = preview.pv.slice(0, preview.length).filter((p): p is Point => p !== null);
       return moves.length ? moves : null;
     },
-    clearTableSelection: () => {
-      if (selectedCandidate === null) return false;
-      selectedCandidate = null;
-      hover(null);
-      schedule();
-      return true;
-    },
+    clearTableSelection,
   });
   $("board").addEventListener("mousemove", (ev) => {
     const v = state.view;
     if (!v || !panels) return;
+    if (!boardPointerMoved(boardPointAt(ev.clientX, ev.clientY) !== null)) return;
     if (!hoverAllowed(v)) return hover(null);
     const geo = mainGeom(v, panels.board);
     const rect = $("main").getBoundingClientRect();
@@ -487,7 +460,6 @@ function bindPointer() {
   });
   // The replay ends when the window is no longer the active one (LizzieFrame.java:11650).
   window.addEventListener("blur", finishReplayBranch);
-  $("table").addEventListener("mouseleave", () => hover(null));
   const sub = $("sub");
   sub.addEventListener("contextmenu", (ev) => ev.preventDefault());
   // LizzieFrame.java:10522-10532: left click the next candidate, right click the previous one; the
@@ -535,34 +507,59 @@ function bindPointer() {
     schedule();
   });
   const graph = $("graph");
-  let queuedGraphNode: { node: number; document: number } | null = null;
+  /** The graph target a click (or the latest drag event) asks for; Swing's invokeLater coalescing. */
+  let queuedGraph: { node: number; document: number; withinBranch: boolean } | null = null;
   let navigatingGraph = false;
-  graph.addEventListener("mousedown", (ev) => {
-    if (ev.button !== 0 || !panels || !state.view) return;
-    ev.preventDefault();
-    const nodes = new Map(graphLineByMove), documentId = state.view.document.id;
+  const graphNodeAt = (e: MouseEvent): number | null => {
     const r = graph.getBoundingClientRect();
-    const geo = graphGeom(panels.graph.w, panels.graph.h, Math.max(state.mainLineNodes, state.line.size));
-    const scrub = async (e: MouseEvent) => {
-      const move = Math.min(geo.slots - 1, Math.max(0, Math.round((e.clientX - r.left) * geo.slots / geo.width))) + 1;
-      const node = nodes.get(move);
-      if (node === undefined || state.view?.document.id !== documentId) return;
-      queuedGraphNode = { node, document: documentId };
-      if (navigatingGraph) return;
-      navigatingGraph = true;
-      try {
-        while (queuedGraphNode) {
-          const target = queuedGraphNode;
-          queuedGraphNode = null;
-          if (state.view?.document.id === target.document && state.view.position.node !== target.node) await run({ type: "GotoNode", node: target.node });
-        }
-      } finally { navigatingGraph = false; }
-    };
-    scrub(ev);
-    const end = () => { document.removeEventListener("mousemove", scrub); document.removeEventListener("mouseup", end); };
-    document.addEventListener("mousemove", scrub);
+    return graphHits ? graphTarget(graphHits, Math.floor(e.clientX - r.left), Math.floor(e.clientY - r.top)) : null;
+  };
+  /** LizzieFrame.onClicked / onMouseDragged: the latest target wins and a drag miss clears it;
+   *  each one is reached from the position current when it runs (goToWinrateGraphTarget). */
+  const goToGraphNode = async (target: number | null, withinBranch: boolean) => {
+    const v = state.view;
+    queuedGraph = target === null || !v ? null : { node: target, document: v.document.id, withinBranch };
+    if (!queuedGraph || navigatingGraph) return;
+    navigatingGraph = true;
+    try {
+      while (queuedGraph) {
+        const q = queuedGraph;
+        queuedGraph = null;
+        const now = state.view;
+        if (!now || now.document.id !== q.document) continue;
+        const node = graphDestination(state.nodes, now.position.node, q.node, q.withinBranch);
+        if (node !== null) await run({ type: "GotoNode", node });
+      }
+    } finally { navigatingGraph = false; }
+  };
+  const setGraphHover = (node: number | null) => {
+    if (graphHover === node) return;
+    graphHover = node;
+    schedule();
+  };
+  graph.addEventListener("contextmenu", (ev) => ev.preventDefault());
+  graph.addEventListener("mousedown", (ev) => {
+    if (!state.view) return;
+    if (ev.button === 2) {
+      // Off the board: openRightClickMenu clears the table selection, else undoForRightClick.
+      ev.preventDefault();
+      if (!clearTableSelection()) navigate({ op: "Back", count: 1 });
+      return;
+    }
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    const target = graphNodeAt(ev);
+    if (target !== null) void goToGraphNode(target, false);
+    const drag = (e: MouseEvent) => void goToGraphNode(graphNodeAt(e), true);
+    const end = () => { document.removeEventListener("mousemove", drag); document.removeEventListener("mouseup", end); };
+    document.addEventListener("mousemove", drag);
     document.addEventListener("mouseup", end);
   });
+  // processMouseMoveOnWinrateGraph: hovering redraws the graph only; a drag keeps the hovered node.
+  graph.addEventListener("mousemove", (ev) => {
+    if (ev.buttons === 0 && state.view?.settings.display.mouseOverWinrateGraph) setGraphHover(graphNodeAt(ev));
+  });
+  graph.addEventListener("mouseleave", () => setGraphHover(null));
   const tree = $("tree");
   // BasicScrollPaneUI: the vertical bar if shown, else the horizontal one; unit increment 16 x 3
   // rows per notch (LizzieFrame.java:806-807).
@@ -756,18 +753,23 @@ function render() {
     engine: !!v.engine.foreground,
     hovered: hoverAllowed(v) ? hoveredCandidate : null,
     preview: hoveredVariation(v)?.preview ?? null,
+    ownership: mainOwnership(v, hoverAllowed(v) ? hoveredCandidate : null),
+    score: v.score,
   };
   const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}`;
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
-  if (changed("board", `${size}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}`))
+  const scoreSig = v.score ? JSON.stringify(v.score) : "";
+  if (changed("board", `${size}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}`))
     boardReport = paintBoard(prepare($("board"), P.board), mainGeom(v, P.board), P.board, scene);
   // The resting pointer freezes the sub board's variation for this position (no-refresh-on-sub).
   const over = subOver && v.settings.display.noRefreshOnSub;
   if (!over) subFrozen = null;
   else if (!subFrozen || subFrozen.node !== pos.node) subFrozen = { node: pos.node, analysis: v.analysis, revision: ++subFrozenRevision };
-  const ownership = scene.rawNet?.mode === "Ownership" && scene.katago ? scene.rawNet.ownership : null;
+  // The sub board's ownership follows its shown variation's candidate (SubBoardRenderer.getEstimateArray).
+  const subVariation = v.settings.display.subBoard === "Variation" && scene.candidatesShown && scene.engine ? subAnalysis(v)?.candidates : undefined;
+  const subLayer = subOwnership(v, subVariation?.[Math.min(subCandidate, subVariation.length - 1)]);
   const subShown = subLength ?? subAutoplayLength();
-  if (changed("sub", `${size}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${subCandidate}:${subShown}:${over}:${subFrozen?.revision}`))
+  if (changed("sub", `${size}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${subCandidate}:${subShown}:${over}:${subFrozen?.revision}:${layerSignature("sub", subLayer)}`))
     subReport = paintSubBoard(prepare($("sub"), P.sub), boardGeom(P.sub, cols, rows, SUB_MARGIN_RATIO), P.sub, {
       cols,
       rows,
@@ -783,10 +785,10 @@ function render() {
       engine: scene.engine,
       branchLimit: v.settings.engine.analysis.limitBranchLength,
       removeDead: v.settings.display.removeDeadInVariation,
-      ownership,
-      pureEstimate: v.settings.display.pureEstimate,
+      ownership: subLayer,
     });
-  if (changed("captured", `${size}:${docSig}:${v.komi}:${v.engine.analysing}:${v.engine.rules_key}`))
+  const ai = v.statistics;
+  if (changed("captured", `${size}:${docSig}:${v.komi}:${v.engine.analysing}:${v.engine.rules_key}:${ai.ai_score_black}:${ai.ai_score_white}`))
     paintCaptured(prepare($("captured"), P.captured), P.captured, {
       toPlay: pos.to_play,
       blackCaptures: pos.black_captures,
@@ -795,16 +797,20 @@ function render() {
       komi: v.komi,
       analysing: v.engine.analysing,
       rules: rulesCaption(v.engine.rules_key),
+      aiScoreBlack: ai.ai_score_black,
+      aiScoreWhite: ai.ai_score_white,
     });
-  const parent = state.nodes.get(pos.node)?.parent ?? -1;
-  const current = historyByNode.get(pos.node) ?? null;
-  const previous = historyByNode.get(parent) ?? null;
-  const leadWithKomi = v.settings.display.scoreLeadWithKomi;
-  if (changed("stat", `${size}:${docSig}:${parent}:${historyRevision}:${v.analysis?.score_stdev}:${leadWithKomi}`))
-    paintStat(prepare($("stat"), P.stat), P.stat, current, previous, pos.move_number, v.analysis?.score_stdev ?? null, leadWithKomi);
-  const lineNodes = Math.max(state.mainLineNodes, state.line.size);
-  if (changed("graph", `${size}:${docSig}:${lineNodes}:${historyRevision}`))
-    graphPointCount = paintGraph(prepare($("graph"), P.graph), P.graph, lineNodes, { history: v.history, current: pos.node, line: state.line, mainLine, maxScore: maxScoreLead });
+  const stat = statScene(v, historyByNode, (node) => state.nodes.get(node)?.parent ?? undefined);
+  if (changed("stat", `${size}:${JSON.stringify(stat)}`)) statReport = paintStat(prepare($("stat"), P.stat), P.stat, stat);
+  const graphDisplay = v.settings.display;
+  // Turning 显示鼠标悬停信息 off clears the hovered node (clearMouseOverWinrateGraph).
+  if (!graphDisplay.mouseOverWinrateGraph) graphHover = null;
+  const graphSettings = `${graphDisplay.winrateLine}:${graphDisplay.scoreLeadLine}:${graphDisplay.winrateGraphFill}:${graphDisplay.blunderBar}:${graphDisplay.initialMaxScoreLead}`;
+  if (changed("graph", `${size}:${docSig}:${pos.line_end}:${historyRevision}:${graphSettings}:${graphHover}`)) {
+    const painted = paintGraph(prepare($("graph"), P.graph), P.graph, { nodes: state.nodes, current: pos.node, history: historyByNode, display: graphDisplay, hover: graphHover });
+    graphReport = painted.report;
+    graphHits = painted.hits;
+  }
   const statusRect = { x: 0, y: P.ponderingY, w: P.board.x, h: H - P.ponderingY };
   const lines = statusLines();
   if (changed("status", `${size}:${lines.join("|")}`)) paintStatus(prepare($("status"), statusRect), statusRect, lines);
@@ -824,121 +830,19 @@ function render() {
     treeNumbersDrawn = painted.numbers;
   }
   place($("comment"), P.comment);
-  if (changed("comment", `${docSig}:${pos.comment}`)) $("commentText").textContent = pos.comment;
+  // 记录选点信息到评论中: Java's pane shows the summary its engine writes into the comment.
+  const comment = v.comment_with_analysis ?? pos.comment;
+  if (changed("comment", `${docSig}:${comment}`)) $("commentText").textContent = comment;
   place($("table"), P.table);
-  if (changed("table", `${size}:${docSig}:${analysisRevision}:${historyRevision}:${selectedCandidate}`)) renderTable();
+  if (changed("table", `${size}:${docSig}:${analysisRevision}:${historyRevision}:${mainTableSignature(v)}`)) renderMainTable($("table"), v);
+  relayFrame(v);
   if (changed("bottombar", `${$("bottombar").clientWidth}`)) layoutBottomBar($("bottombar"));
   renderToolbar();
-  const title = engineTitle(v);
+  const title = workbenchTitle(v, version, historyByNode, state.nodes.get(pos.node)?.parent ?? undefined);
   if (changed("title", title)) {
     document.title = title;
     getCurrentWindow().setTitle(title);
   }
-}
-
-/** SuggestionTableScrollPane / LizzieFrame.java:14725-15015. Coordinates stay hidden by default. */
-const TABLE_HEADER = navigator.userAgent.includes("Windows") ? 19 : 17;
-const TABLE_BASE_WIDTHS = [15, 30, 30, 45, 30];
-let tableStructure = "";
-function renderTable() {
-  const host = $("table"), v = state.view;
-  const candidates = v?.analysis?.candidates ?? [];
-  const hasScore = candidates.some((c) => c.score_lead !== null);
-  const bases = hasScore ? TABLE_BASE_WIDTHS : TABLE_BASE_WIDTHS.slice(0, 4);
-  const structure = `${host.clientWidth}:${hasScore}:${t("AnalysisFrame.column1")}`;
-  if (tableStructure !== structure) {
-    tableStructure = structure;
-    const extra = host.clientWidth - bases.reduce((s, w) => s + w, 0);
-    const widths = bases.map((w, k) => w + Math.floor(extra * (k + 1) / bases.length) - Math.floor(extra * k / bases.length));
-    const heads = [t("AnalysisFrame.column1"), t("LizzieFrame.listColumn2"), t("AnalysisFrame.column5"), t("LizzieFrame.listColumn4")];
-    if (hasScore) heads.push(t("AnalysisFrame.column8"));
-    const table = document.createElement("table");
-    table.style.width = `${host.clientWidth}px`;
-    const colgroup = document.createElement("colgroup");
-    for (const w of widths) {
-      const col = document.createElement("col");
-      col.style.width = `${w}px`;
-      colgroup.append(col);
-    }
-    const headRow = document.createElement("tr");
-    headRow.style.height = `${TABLE_HEADER}px`;
-    for (const h of heads) {
-      const th = document.createElement("th");
-      th.textContent = h;
-      headRow.append(th);
-    }
-    const thead = document.createElement("thead"), body = document.createElement("tbody");
-    thead.append(headRow);
-    body.addEventListener("mousemove", (ev) => {
-      const row = (ev.target as HTMLElement).closest<HTMLTableRowElement>("tr[data-order]");
-      if (row) hover(Number(row.dataset.order));
-    });
-    body.addEventListener("click", (ev) => {
-      const row = (ev.target as HTMLElement).closest<HTMLTableRowElement>("tr[data-order]");
-      if (!row) return;
-      const order = Number(row.dataset.order);
-      selectedCandidate = selectedCandidate === order ? null : order;
-      hover(selectedCandidate);
-      schedule();
-    });
-    table.append(colgroup, thead, body);
-    host.replaceChildren(table);
-  }
-  const data: { candidate: CandidateView; actual: boolean }[] = candidates.slice().sort((a, b) => b.visits - a.visits).map((candidate) => ({ candidate, actual: false }));
-  const next = v?.position.next_moves[0];
-  const actual = next ? data.find((row) => row.candidate.point?.x === next.x && row.candidate.point.y === next.y) : undefined;
-  if (actual) {
-    if (actual.candidate.order === 0) {
-      actual.actual = true;
-      data.splice(data.indexOf(actual), 1);
-      data.unshift(actual);
-    } else {
-      const nextId = v ? state.nodes.get(v.position.node)?.children[0] : undefined;
-      const nextData = nextId === undefined ? undefined : historyByNode.get(nextId);
-      const candidate = nextData && nextData.visits > actual.candidate.visits
-        ? { ...actual.candidate, visits: nextData.visits, allocation_visits: nextData.visits, ...nextData.as_candidate }
-        : actual.candidate;
-      data.unshift({ candidate, actual: true });
-    }
-  }
-  if (!actual && next && candidates.length && v) {
-    const nextId = state.nodes.get(v.position.node)?.children[0];
-    const nextData = nextId === undefined ? undefined : historyByNode.get(nextId);
-    if (nextData && nextData.visits > 0) data.unshift({ actual: true, candidate: {
-      point: next, order: -100, visits: nextData.visits, allocation_visits: nextData.visits,
-      ...nextData.as_candidate,
-      score_stdev: null, prior: 0, lcb: null, pv: [], pv_visits: [], pv_captures: [],
-    } });
-  }
-  const shown = data.slice(0, 20), best = candidates[0];
-  tableRowCount = shown.length;
-  const body = host.querySelector("tbody")!;
-  while (body.rows.length > shown.length) body.deleteRow(body.rows.length - 1);
-  shown.forEach(({ candidate: c, actual: isActual }, k) => {
-    const row = body.rows[k] ?? body.insertRow();
-    row.dataset.order = String(c.order);
-    row.dataset.point = c.point ? `${c.point.x},${c.point.y}` : "pass";
-    row.className = `${isActual ? "actual " : ""}${selectedCandidate === c.order ? "selected" : ""}`;
-    row.style.height = `${TABLE_HEADER + 3}px`;
-    // Java's table: the change against the best move from the side to move, the value as shown
-    // (总是显示黑胜率 / 目差显示, core `shown`).
-    const difference = (value: number, baseline: number, shown: number) => `${value - baseline > 0 ? "↑" : "↓"}${(value - baseline).toFixed(1)}(${shown.toFixed(1)})`;
-    const share = c.allocation_visits / Math.max(1, v?.analysis?.visits ?? 0) * 100;
-    const values = [
-      isActual ? c.order === -100 ? t("AnalysisFrame.actual") : `${c.order + 1}(${t("AnalysisFrame.actual")})` : c.point ? String(c.order + 1) : "Pass",
-      isActual && c.order !== 0 && best ? difference(c.winrate, best.winrate, c.shown.winrate) : c.shown.winrate.toFixed(1),
-      playouts(c.visits),
-      share.toFixed(1),
-    ];
-    if (hasScore) values.push(c.score_lead === null || c.shown.score_lead === null ? "" : isActual && c.order !== 0 && best?.score_lead !== null && best?.score_lead !== undefined ? difference(c.score_lead, best.score_lead, c.shown.score_lead) : c.shown.score_lead.toFixed(1));
-    while (row.cells.length > values.length) row.deleteCell(row.cells.length - 1);
-    values.forEach((text, column) => {
-      const cell = row.cells[column] ?? row.insertCell();
-      if (cell.textContent !== text) cell.textContent = text;
-      cell.title = text;
-      cell.style.backgroundImage = column === 3 ? `linear-gradient(to right, #c0c0c0 ${Math.min(100, share)}%, transparent ${Math.min(100, share)}%)` : "";
-    });
-  });
 }
 
 // ------------------------------------------------------------------ acceptance probe
@@ -960,9 +864,13 @@ function uiReport() {
     hoveredCandidate,
     subBoardCandidateIndex: subCandidate,
     subBoardBranchLength: subLength,
-    tableRowCount,
-    tableRows: [...$("table").querySelectorAll("tbody tr")].map((row) => [...(row as HTMLTableRowElement).cells].map((cell) => cell.textContent ?? "")),
-    graphPointCount,
+    tableRowCount: tablesReport().main.rows.length,
+    tableRows: tablesReport().main.rows,
+    /** Both 选点列表 tables (cells as drawn, clicked / selected rows, the 独立选点列表's sort) and
+     *  the frame window. */
+    tables: { ...tablesReport(), window: frameReport() },
+    graphPointCount: graphReport?.pointCount ?? 0,
+    graph: graphReport,
     statusLines: statusLines(),
     candidates: state.view?.analysis?.candidates.map((c) => ({ order: c.order, point: c.point, visits: c.visits, pvLength: c.pv.length })) ?? [],
     /** Client-area geometry so automation points at real board / sub-board / graph / table spots. */
@@ -1025,6 +933,13 @@ function uiReport() {
       rawNet: state.view?.rawNet ? { mode: state.view.rawNet.mode, node: state.view.rawNet.node, hasPolicy: !!state.view.rawNet.policy } : null,
       board: boardReport,
       sub: subReport && { ...subReport, candidateIndex: subCandidate },
+      /** Kata形势 / 统计 / AI总评分 / 终局点目 (T11): what the panels and overlays drew. */
+      information: {
+        stat: statReport,
+        aiScore: state.view ? { black: state.view.statistics.ai_score_black === null ? null : aiScoreText(state.view.statistics.ai_score_black), white: state.view.statistics.ai_score_white === null ? null : aiScoreText(state.view.statistics.ai_score_white) } : null,
+        kataEstimate: state.view ? { ...state.view.kata_estimate.state, hidden: state.view.kata_estimate.hidden, style: state.view.settings.display.kataEstimateStyle, mainBoard: boardReport?.estimate ?? null, subBoard: subReport?.ownership ?? null } : null,
+        score: { overlay: boardReport?.score ?? null, result: state.view?.score?.result ?? null, dialog: scoreDialogReport() },
+      },
       replay: {
         running: replaying(),
         length: boardReport?.preview && replaying() ? boardReport.preview.length : null,
@@ -1065,6 +980,8 @@ async function boot() {
     document.fonts.load('12px "Lizzie Winrate"'),
   ]);
   subscribe(schedule);
+  bindScoreDialog(() => (panels ? $("board").getBoundingClientRect() : null));
+  startTitleUpdates(schedule);
   // F, holding Z, 延迟显示候选点 and T repaint both boards at once.
   onBoardUiChange(schedule);
   bindAutoplayHost({
@@ -1075,6 +992,24 @@ async function boot() {
     target: () => (state.view ? hoveredVariation(state.view)?.target ?? null : null),
     repaint: schedule,
   });
+  bindTables({
+    // handleTableClick sets mouseOverCoordinate (LizzieFrame.java:14665-14691): a candidate's point
+    // shows that candidate; the actual move outside the candidates is the 下一手 详细 point, which
+    // previews it followed by the next position's variation (BoardRenderer.mouseOveredMove).
+    showVariation: (point) => {
+      const v = state.view;
+      if (!point || !v) return hover(null);
+      const candidate = v.analysis?.candidates.find((c) => c.point?.x === point.x && c.point.y === point.y);
+      if (candidate) return hover(candidate.order);
+      const next = nextMoveTarget(v);
+      hover(next && next.x === point.x && next.y === point.y ? -1 : null);
+    },
+    variation: () => {
+      const shown = state.view ? hoveredVariation(state.view) : null;
+      return shown?.preview ? { ...shown.target, length: shown.preview.length } : null;
+    },
+    repaint: schedule,
+  });
   await onUnavailable(() => unavailable());
   await listen("acceptance-probe", () => invoke("acceptance_ui_report", { report: uiReport() }));
   await startAutoSave();
@@ -1083,6 +1018,7 @@ async function boot() {
   for (const v of early) apply(v);
   early = null;
   render();
+  await startFrame(schedule);
   await getCurrentWindow().show();
   await getCurrentWindow().setFocus();
   schedule();

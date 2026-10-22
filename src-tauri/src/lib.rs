@@ -22,10 +22,13 @@ use lizzie_core::api::{
 use lizzie_core::engine::process::{ProcessLauncher, ProcessWaiter};
 use lizzie_core::formats;
 use lizzie_core::java_import::{self, JavaSource};
-use lizzie_core::settings::{Storage, WindowPlacement};
+use lizzie_core::settings::{FramePlacement, Persisted, Storage, WindowPlacement};
 use lizzie_core::workbench::{OpenOrigin, PasteDecision, SaveJob, SavePlan, Workbench};
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, RunEvent, WindowEvent};
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, RunEvent, WebviewUrl, WebviewWindowBuilder,
+    WindowEvent,
+};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
@@ -36,6 +39,10 @@ pub const UNAVAILABLE_EVENT: &str = "capability-unavailable";
 pub const CONSOLE_EVENT: &str = "engine-console";
 /// Engine output is published at most this often; user commands publish at once.
 const ENGINE_REFRESH: Duration = Duration::from_millis(50);
+/// The 独立选点列表 (`AnalysisFrame`) window.
+const SUGGESTIONS_WINDOW: &str = "suggestions";
+/// The 独立选点列表 was closed by its own close box; the main window records it as closed.
+pub const SUGGESTIONS_CLOSED_EVENT: &str = "suggestions-frame-closed";
 
 pub struct Shared {
     pub workbench: Mutex<Workbench>,
@@ -50,6 +57,61 @@ pub struct Shared {
     /// The exit automatic save (自动存档) of the window being closed.
     exit_save: Mutex<output::ExitSave>,
     views: Mutex<ViewSubscription>,
+    tables: Mutex<TableLayout>,
+}
+
+/// Column widths and the 独立选点列表's bounds as the UI last laid them out; written on exit
+/// (`Config.persist`: `main-window-list`, `suggestions-list-position-7/9`).
+struct TableLayout {
+    /// The main window's 选点列表, `None` while its score column is hidden.
+    main_list: Option<Vec<u32>>,
+    /// The open frame's column widths (7 or 9).
+    frame_columns: Vec<u32>,
+    /// Placements per layout as the frame last had them this session (Java rereads the
+    /// in-memory `persistedUi` that closing the frame updates).
+    frame_7: Option<FramePlacement>,
+    frame_9: Option<FramePlacement>,
+    /// The frame was opened this session: its last placement is written on exit.
+    frame_last: Option<FramePlacement>,
+}
+
+impl TableLayout {
+    fn new(persisted: &Persisted) -> TableLayout {
+        TableLayout {
+            main_list: persisted.main_list_columns.clone(),
+            frame_columns: Vec::new(),
+            frame_7: persisted.suggestions_frame_7.clone(),
+            frame_9: persisted.suggestions_frame_9.clone(),
+            frame_last: None,
+        }
+    }
+
+    /// Records where the open frame is (closing it, or on exit).
+    fn capture_frame(&mut self, window: &tauri::WebviewWindow) {
+        let Some(placement) = frame_placement(window, &self.frame_columns) else {
+            return;
+        };
+        if placement.columns.len() == 9 {
+            self.frame_9 = Some(placement.clone());
+        } else {
+            self.frame_7 = Some(placement.clone());
+        }
+        self.frame_last = Some(placement);
+    }
+}
+
+/// Logical bounds (Java pixels) with the inner size the frame is created with again.
+fn frame_placement(window: &tauri::WebviewWindow, columns: &[u32]) -> Option<FramePlacement> {
+    let scale = window.scale_factor().ok()?;
+    let pos = window.outer_position().ok()?.to_logical::<i32>(scale);
+    let size = window.inner_size().ok()?.to_logical::<u32>(scale);
+    Some(FramePlacement {
+        x: pos.x,
+        y: pos.y,
+        width: size.width,
+        height: size.height,
+        columns: columns.to_vec(),
+    })
 }
 
 #[derive(Default)]
@@ -421,6 +483,14 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().set_read_komi(enabled)?;
             Ok(changed(&app, &shared, done))
         }
+        Command::SetAppendWinrateToComment { enabled } => {
+            let done = shared
+                .workbench
+                .lock()
+                .unwrap()
+                .set_append_winrate_to_comment(enabled)?;
+            Ok(changed(&app, &shared, done))
+        }
         Command::SetLanguage { language } => {
             let done = shared.workbench.lock().unwrap().set_language(language)?;
             Ok(changed(&app, &shared, done))
@@ -640,6 +710,18 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().stop_raw_net();
             Ok(changed(&app, &shared, done))
         }
+        Command::SetKataEstimate { mode } => {
+            let done = shared.workbench.lock().unwrap().set_kata_estimate(mode)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::ToggleKataEstimate => {
+            let done = shared.workbench.lock().unwrap().toggle_kata_estimate();
+            Ok(changed(&app, &shared, done))
+        }
+        Command::Score { op } => {
+            let done = shared.workbench.lock().unwrap().score(op)?;
+            Ok(changed(&app, &shared, done))
+        }
     }
 }
 
@@ -760,9 +842,9 @@ fn prepare_exit(app: &AppHandle, shared: &Shared) -> bool {
     // Force exit destroys the window first (Java `System.exit`, no automatic save). It must not
     // enter a save barrier whose continuation closes that window, or the application would
     // remain headless.
-    let Some(window) = app.get_webview_window("main") else {
+    if app.get_webview_window("main").is_none() {
         return true;
-    };
+    }
     let mut wb = shared.workbench.lock().unwrap();
     if wb.has_pending_saves() {
         shared.close_after_saves.store(true, Ordering::SeqCst);
@@ -772,11 +854,124 @@ fn prepare_exit(app: &AppHandle, shared: &Shared) -> bool {
     if wb.auto_save_on_exit() && !output::exit_saved(app, shared) {
         return false;
     }
-    let placement = window_placement(&window, wb.persisted().window);
-    if let Err(e) = wb.persist_on_exit(placement) {
+    if let Some(frame) = app.get_webview_window(SUGGESTIONS_WINDOW) {
+        shared.tables.lock().unwrap().capture_frame(&frame);
+    }
+    persist_ui(app, shared, &mut wb);
+    true
+}
+
+/// `Config.persist`: the main window's placement, the 独立选点列表's last placement and the main
+/// 选点列表's column widths. Java writes it on exit and whenever the frame closes
+/// (`LizzieFrame.toggleBestMoves`).
+fn persist_ui(app: &AppHandle, shared: &Shared, wb: &mut Workbench) {
+    let placement = app
+        .get_webview_window("main")
+        .and_then(|w| window_placement(&w, wb.persisted().window));
+    let (frame, main_list) = {
+        let tables = shared.tables.lock().unwrap();
+        (tables.frame_last.clone(), tables.main_list.clone())
+    };
+    if let Err(e) = wb.persist_ui(placement, frame, main_list) {
         shared.log.warn(&e.message);
     }
-    true
+}
+
+/// Records the open frame's bounds and writes them, as closing an AnalysisFrame does.
+fn frame_closing(app: &AppHandle, shared: &Shared, frame: &tauri::WebviewWindow) {
+    shared.tables.lock().unwrap().capture_frame(frame);
+    persist_ui(app, shared, &mut shared.workbench.lock().unwrap());
+}
+
+/// The bounds an AnalysisFrame starts with in a layout (AnalysisFrame.java:260-302): its saved
+/// bounds, else Java's default (-9, 550 / 480, 650 x 320); a saved 7-column position beyond the
+/// primary screen moves to (0, 0). Also the column widths to lay out (empty: the defaults).
+fn frame_bounds(app: &AppHandle, shared: &Shared, nine: bool) -> ((i32, i32, u32, u32), Vec<u32>) {
+    let saved = {
+        let tables = shared.tables.lock().unwrap();
+        if nine {
+            tables.frame_9.clone()
+        } else {
+            tables.frame_7.clone()
+        }
+    };
+    let Some(p) = saved else {
+        return ((-9, if nine { 550 } else { 480 }, 650, 320), Vec::new());
+    };
+    let (mut x, mut y) = (p.x, p.y);
+    if !nine {
+        if let Ok(Some(screen)) = app.primary_monitor() {
+            let size = screen.size().to_logical::<i32>(screen.scale_factor());
+            if x >= size.width || y >= size.height {
+                (x, y) = (0, 0);
+            }
+        }
+    }
+    ((x, y, p.width, p.height), p.columns)
+}
+
+/// Opens the 独立选点列表 (`LizzieFrame.toggleBestMoves`, `AnalysisFrame` constructor) in the
+/// layout for 9 columns (score data) or 7. With the frame open this is Java's rebuild (a box
+/// toggled): it is closed and written, then placed again for the layout now. Returns the column
+/// widths to lay out (empty: the defaults). Async: building a window inside a synchronous command
+/// deadlocks on Windows.
+#[tauri::command]
+async fn open_suggestions_frame(
+    app: AppHandle,
+    state: tauri::State<'_, State>,
+    nine: bool,
+    on_top: bool,
+    title: String,
+) -> Result<Vec<u32>, ApiError> {
+    if let Some(window) = app.get_webview_window(SUGGESTIONS_WINDOW) {
+        frame_closing(&app, &state, &window);
+        let ((x, y, width, height), columns) = frame_bounds(&app, &state, nine);
+        let _ = window.set_size(tauri::LogicalSize::new(width, height));
+        let _ = window.set_position(tauri::LogicalPosition::new(x, y));
+        return Ok(columns);
+    }
+    let ((x, y, width, height), columns) = frame_bounds(&app, &state, nine);
+    WebviewWindowBuilder::new(&app, SUGGESTIONS_WINDOW, WebviewUrl::App("suggestions.html".into()))
+        .title(title)
+        .inner_size(f64::from(width), f64::from(height))
+        .position(f64::from(x), f64::from(y))
+        .always_on_top(on_top)
+        .disable_drag_drop_handler()
+        .build()
+        .map_err(|e| {
+            ApiError::new(
+                ErrorKind::Unavailable,
+                format!("opening the candidates list failed: {e}"),
+            )
+        })?;
+    Ok(columns)
+}
+
+/// Closes the 独立选点列表 from the main window (U, the menu), writing its bounds.
+#[tauri::command]
+fn close_suggestions_frame(app: AppHandle, state: tauri::State<'_, State>) {
+    if let Some(window) = app.get_webview_window(SUGGESTIONS_WINDOW) {
+        frame_closing(&app, &state, &window);
+        let _ = window.destroy();
+    }
+}
+
+/// The main 选点列表's column widths as laid out, `None` while its score column is hidden.
+#[tauri::command]
+fn set_main_list_columns(state: tauri::State<'_, State>, columns: Option<Vec<u32>>) {
+    state.tables.lock().unwrap().main_list = columns;
+}
+
+/// The open 独立选点列表's column widths as laid out (7 or 9).
+#[tauri::command]
+fn set_suggestions_columns(state: tauri::State<'_, State>, columns: Vec<u32>) {
+    state.tables.lock().unwrap().frame_columns = columns;
+}
+
+/// The main 选点列表's saved column widths, for its first layout.
+#[tauri::command]
+fn main_list_columns(state: tauri::State<'_, State>) -> Option<Vec<u32>> {
+    state.tables.lock().unwrap().main_list.clone()
 }
 
 /// Cocoa's predefined Quit calls terminate: without Tauri's cancellable ExitRequested.
@@ -858,6 +1053,7 @@ pub fn run() {
             let mut workbench = Workbench::new(storage, locale.as_deref(), Box::new(launcher), engine_roots());
             workbench.set_java_import_locations(java_locations());
             let placement = workbench.persisted().window;
+            let tables = TableLayout::new(workbench.persisted());
             let shared: State = Arc::new(Shared {
                 workbench: Mutex::new(workbench),
                 log,
@@ -868,6 +1064,7 @@ pub fn run() {
                 close_after_saves: AtomicBool::new(false),
                 exit_save: Mutex::new(output::ExitSave::Idle),
                 views: Mutex::new(ViewSubscription::default()),
+                tables: Mutex::new(tables),
             });
             let _ = cell.set(shared.clone());
             app.manage(shared.clone());
@@ -907,10 +1104,23 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
+            // The 独立选点列表's own close box (AnalysisFrame windowClosing → toggleBestMoves).
+            WindowEvent::CloseRequested { .. } if window.label() == SUGGESTIONS_WINDOW => {
+                let app = window.app_handle();
+                if let Some(frame) = app.get_webview_window(SUGGESTIONS_WINDOW) {
+                    frame_closing(app, &app.state::<State>(), &frame);
+                }
+                let _ = app.emit_to("main", SUGGESTIONS_CLOSED_EVENT, ());
+            }
             WindowEvent::CloseRequested { api, .. } => {
-                let shared = window.app_handle().state::<State>();
-                if !prepare_exit(window.app_handle(), &shared) {
+                let app = window.app_handle();
+                let shared = app.state::<State>();
+                if !prepare_exit(app, &shared) {
                     api.prevent_close();
+                } else if let Some(frame) = app.get_webview_window(SUGGESTIONS_WINDOW) {
+                    // Java exits with the main window; the tool window must not keep the
+                    // application running.
+                    let _ = frame.destroy();
                 }
             }
             WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
@@ -972,7 +1182,12 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         logs_directory,
         engine_console,
         open_katago_releases,
-        output::recovery_thumbnail
+        output::recovery_thumbnail,
+        open_suggestions_frame,
+        close_suggestions_frame,
+        set_main_list_columns,
+        set_suggestions_columns,
+        main_list_columns
     ]
 }
 
@@ -987,6 +1202,11 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         engine_console,
         open_katago_releases,
         output::recovery_thumbnail,
+        open_suggestions_frame,
+        close_suggestions_frame,
+        set_main_list_columns,
+        set_suggestions_columns,
+        main_list_columns,
         acceptance::acceptance_ui_report
     ]
 }

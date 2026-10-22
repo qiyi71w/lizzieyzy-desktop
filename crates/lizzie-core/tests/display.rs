@@ -250,6 +250,8 @@ fn candidate(at: &str, order: u32, visits: u64, winrate: f64, score: Option<f64>
         pv_visits: Vec::new(),
         pv_captures: vec![Vec::new()],
         shown: Default::default(),
+        side_to_move: Default::default(),
+        ownership: None,
     }
 }
 

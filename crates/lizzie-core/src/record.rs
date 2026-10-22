@@ -437,6 +437,10 @@ pub enum DocumentEdit {
         black: String,
         white: String,
     },
+    /// The game result (`GameInfo.setResult`, 终局点目 > 确认结果), saved as `RE`.
+    SetResult {
+        result: String,
+    },
     /// A stone on `at`'s position (`Board.place`). `alternate`: the colour is the side to play
     /// (交替落子), so a click on the main continuation's point follows it.
     Play {

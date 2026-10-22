@@ -12,8 +12,9 @@
 //!   points that now hold one (a replaced stone is `AE[p]` + `AW[p]`, which both readers apply in
 //!   order).
 //! - Moves are `B[xy]`/`W[xy]`, real passes `B[]`/`W[]`, placeholders `DD[true]`.
-//! - Marks and comments come from the record; properties the record does not interpret (`MN`,
-//!   analysis `LZ`/`LZ2`/`LZOP`/`LZOP2`, `GM`, `FF`, `GN`, ...) are written back as read.
+//! - Marks and comments come from the record; unknown properties (`MN`, `GM`, `FF`, `GN`, ...)
+//!   are retained. Workbench saves supply `LZ`/`LZOP` from the per-node analysis store, replacing
+//!   read-in primary tags; secondary-engine tags stay as read. Plain [`write`] retains all tags.
 //! - Variations follow the child order; parentheses only where a node has several children.
 //!
 //! The 更多保存 exports ([`write_export`], `SGFParser.saveSnapshot(raw, comments, branch)`)
@@ -70,6 +71,8 @@ struct Opts<'a> {
     comments: Comments<'a>,
     /// The single line of a branch export, root first.
     line: Option<Vec<NodeId>>,
+    /// When supplied, primary analysis comes only from the per-node store.
+    analysis: Option<&'a dyn Fn(NodeId) -> Option<String>>,
 }
 
 /// Serialises a record. `application` is the `AP` value naming the writing program.
@@ -80,22 +83,50 @@ pub fn write(rec: &GameRecord, application: &str) -> String {
             application: Some(application),
             comments: Comments::All,
             line: None,
+            analysis: None,
+        },
+    )
+}
+
+pub(crate) fn write_analyzed(
+    rec: &GameRecord,
+    application: &str,
+    analysis: &dyn Fn(NodeId) -> Option<String>,
+    comment: &dyn Fn(NodeId) -> Option<String>,
+) -> String {
+    write_with(
+        rec,
+        &Opts {
+            application: Some(application),
+            comments: Comments::Formatted(comment),
+            line: None,
+            analysis: Some(analysis),
         },
     )
 }
 
 /// Serialises a 更多保存 export of the record (see the module notes).
 pub fn write_export(rec: &GameRecord, export: &Export) -> String {
+    write_export_analyzed(rec, export, None)
+}
+
+pub(crate) fn write_export_analyzed(
+    rec: &GameRecord,
+    export: &Export,
+    analysis: Option<&dyn Fn(NodeId) -> Option<String>>,
+) -> String {
     let opts = match export {
         Export::Raw => Opts {
             application: None,
             comments: Comments::RootOnly,
             line: None,
+            analysis,
         },
         Export::RawWithComments { comment } => Opts {
             application: None,
             comments: Comments::Formatted(*comment),
             line: None,
+            analysis,
         },
         Export::Branch { current } => {
             let mut line = rec.path_to(*current);
@@ -108,6 +139,7 @@ pub fn write_export(rec: &GameRecord, export: &Export) -> String {
                 application: None,
                 comments: Comments::None,
                 line: Some(line),
+                analysis: None,
             }
         }
     };
@@ -182,27 +214,42 @@ fn write_root(out: &mut String, rec: &GameRecord, opts: &Opts) {
     };
     prop(out, "SZ", &sz);
     let root = rec.node(ROOT);
+    let root_analysis = opts.analysis.and_then(|a| a(ROOT));
     match opts.application {
         Some(application) => {
             prop(out, "AP", application);
-            write_retained(out, &root.properties, ROOT_MODELLED);
+            write_retained(
+                out,
+                root.properties
+                    .iter()
+                    .filter(|p| opts.analysis.is_none() || !matches!(p.id.as_str(), "LZ" | "LZOP")),
+                ROOT_MODELLED,
+            );
         }
         None => {
             // Exports: no analysis and no own application marker; what the record read (`AP`,
             // `DZ`) stays. A branch also drops the root's own analysis (`stripRootMetadata`).
             let branch = opts.line.is_some();
-            let kept: Vec<Property> = root
-                .properties
-                .iter()
-                .filter(|p| match p.id.as_str() {
+            write_retained(
+                out,
+                root.properties.iter().filter(|p| match p.id.as_str() {
                     "LZ" | "LZ2" => false,
-                    "LZOP" | "LZOP2" => !branch,
+                    // An uninterpretable root property is opaque metadata in Java's raw export.
+                    "LZOP" => {
+                        !branch
+                            && (opts.analysis.is_none()
+                                || (root_analysis.is_none()
+                                    && crate::formats::saved_analysis::primary(&root.properties).is_none()))
+                    }
+                    "LZOP2" => !branch,
                     _ => true,
-                })
-                .cloned()
-                .collect();
-            write_retained(out, &kept, EXPORT_ROOT_MODELLED);
+                }),
+                EXPORT_ROOT_MODELLED,
+            );
         }
+    }
+    if let Some(payload) = root_analysis {
+        prop(out, "LZOP", &payload);
     }
     // Root setup materialised from the position (`collectCurrentRootSetup`).
     let pos = rec.position(ROOT);
@@ -264,15 +311,20 @@ fn write_node(out: &mut String, rec: &GameRecord, id: NodeId, opts: &Opts) {
         NodeKind::DummyPass => prop(out, "DD", "true"),
     }
     if opts.application.is_some() {
-        write_retained(out, &node.properties, &[]);
+        write_retained(
+            out,
+            &node.properties,
+            if opts.analysis.is_some() { &["LZ", "LZOP"] } else { &[] },
+        );
+        if let Some(payload) = opts.analysis.and_then(|a| a(id)) {
+            prop(
+                out,
+                if node.kind == NodeKind::Snapshot { "LZOP" } else { "LZ" },
+                &payload,
+            );
+        }
     } else {
-        let kept: Vec<Property> = node
-            .properties
-            .iter()
-            .filter(|p| !p.id.starts_with("LZ"))
-            .cloned()
-            .collect();
-        write_retained(out, &kept, &[]);
+        write_retained(out, node.properties.iter().filter(|p| !p.id.starts_with("LZ")), &[]);
     }
     let formatted;
     let comment = match opts.comments {
@@ -286,7 +338,7 @@ fn write_node(out: &mut String, rec: &GameRecord, id: NodeId, opts: &Opts) {
     write_marks_and_comment(out, rec, id, comment);
 }
 
-fn write_retained(out: &mut String, properties: &[Property], also_modelled: &[&str]) {
+fn write_retained<'a>(out: &mut String, properties: impl IntoIterator<Item = &'a Property>, also_modelled: &[&str]) {
     for p in properties {
         let id = p.id.as_str();
         if MODELLED.contains(&id) || also_modelled.contains(&id) || p.values.is_empty() {

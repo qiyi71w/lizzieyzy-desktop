@@ -340,6 +340,8 @@ pub struct CandidateLine {
     pub is_symmetry: bool,
     pub pv: Vec<Option<Point>>,
     pub pv_visits: Vec<u64>,
+    /// KataGo `movesOwnership` (side-to-move-positive, row-major from the top-left).
+    pub ownership: Option<Vec<f64>>,
 }
 
 /// Candidates of one analysis line, sorted by `order`, and the `rootInfo visits` if present.
@@ -347,6 +349,8 @@ pub struct CandidateLine {
 pub struct InfoLine {
     pub candidates: Vec<CandidateLine>,
     pub root_visits: Option<u64>,
+    /// KataGo `ownership` (side-to-move-positive, row-major from the top-left).
+    pub ownership: Option<Vec<f64>>,
 }
 
 const STREAM_TAGS: [&str; 5] = [
@@ -357,7 +361,20 @@ const STREAM_TAGS: [&str; 5] = [
     "movesOwnership",
 ];
 
+/// The `points` numbers after the stream tag `tag`, or nothing when the line has fewer.
+fn ownership_after(toks: &[&str], tag: &str, points: usize) -> Option<Vec<f64>> {
+    let start = toks.iter().position(|t| *t == tag)? + 1;
+    let values: Vec<f64> = toks.get(start..start + points)?.iter().map(|t| t.parse().ok()).collect::<Option<_>>()?;
+    Some(values)
+}
+
 pub fn parse_info(line: &str, dialect: Dialect, size: BoardSize) -> InfoLine {
+    let points = size.width as usize * size.height as usize;
+    // The root ownership follows the last candidate (or `rootInfo`); a candidate's own is
+    // `movesOwnership`, a different tag.
+    let ownership = (dialect == Dialect::Kata)
+        .then(|| ownership_after(&line.split_whitespace().collect::<Vec<_>>(), "ownership", points))
+        .flatten();
     let (infos, root) = match line.split_once(" rootInfo ") {
         Some((a, b)) => (a, Some(b)),
         None => (line, None),
@@ -396,6 +413,7 @@ pub fn parse_info(line: &str, dialect: Dialect, size: BoardSize) -> InfoLine {
             is_symmetry: false,
             pv: Vec::new(),
             pv_visits: Vec::new(),
+            ownership: None,
         };
         let mut edge = None;
         let mut i = 0;
@@ -433,12 +451,16 @@ pub fn parse_info(line: &str, dialect: Dialect, size: BoardSize) -> InfoLine {
         c.point = p;
         c.pv_visits = pv_visits;
         c.allocation_visits = edge.unwrap_or(c.visits);
+        if dialect == Dialect::Kata {
+            c.ownership = ownership_after(&toks, "movesOwnership", points);
+        }
         candidates.push(c);
     }
     candidates.sort_by_key(|c| c.order);
     InfoLine {
         candidates,
         root_visits,
+        ownership,
     }
 }
 
@@ -472,6 +494,7 @@ pub fn parse_leela011_summary(line: &str, size: BoardSize) -> Option<CandidateLi
         is_symmetry: false,
         pv,
         pv_visits: Vec::new(),
+        ownership: None,
     })
 }
 

@@ -62,6 +62,8 @@ impl Language {
 pub struct RecordSettings {
     pub read_komi: bool,
     pub load_sgf_last: bool,
+    /// Java `ui.append-winrate-to-comment`.
+    pub append_winrate_to_comment: bool,
     /// Ask before "保存" overwrites the record's own file.
     pub show_replace_file_hint: bool,
 }
@@ -71,6 +73,7 @@ impl Default for RecordSettings {
         RecordSettings {
             read_komi: true,
             load_sgf_last: false,
+            append_winrate_to_comment: true,
             show_replace_file_hint: true,
         }
     }
@@ -251,7 +254,47 @@ pub struct DisplaySettings {
     /// The sub board keeps its variation while the pointer is over it (`no-refresh-on-sub`, on).
     pub no_refresh_on_sub: bool,
     /// 纯网络 ownership painter (Java's five `show-pure-estimate-*` exclusive menu choices).
-    pub pure_estimate: PureEstimateStyle,
+    pub pure_estimate: EstimateStyle,
+    /// 胜率图设置 > 显示胜率/目数曲线: the win-rate line (`show-win-rate-line`, on) and the score
+    /// lead line (`show-score-lead-line`, on); 胜率 / 目数 / 全部.
+    pub winrate_line: bool,
+    pub score_lead_line: bool,
+    /// 单曲线模式使用面积填充 (`show-winrate-graph-fill`, on): only while one line shows.
+    pub winrate_graph_fill: bool,
+    /// 显示恶手损失条 (`show-blunder-bar`, off).
+    pub blunder_bar: bool,
+    /// 显示鼠标悬停信息(仅限黑视角) (`show-mouse-over-winrate-graph`, on).
+    pub mouse_over_winrate_graph: bool,
+    /// 初始最大目数差 (`initial-max-score-lead`, 15): the score scale before larger leads widen it.
+    pub initial_max_score_lead: f64,
+    /// Kata形势显示 square style (`show-katago-estimate-small` / `-normal` / `-not-on-live` /
+    /// `-big-below` / `-by-size`; small).
+    pub kata_estimate_style: EstimateStyle,
+    /// 按选点显示评估 (`use-moves-ownership`, on): a hovered candidate shows its own ownership.
+    pub use_moves_ownership: bool,
+    /// 使用快捷键(大键盘点) (`shortcut-kata-estimate`, off): `.` toggles Kata形势.
+    pub kata_estimate_shortcut: bool,
+    /// 记忆评估显示状态 (`save-kata-estimate-status`, off).
+    pub kata_estimate_save_status: bool,
+    /// The Kata形势 state the next start begins with (`show-katago-estimate`,
+    /// `-onmainboard`, `-onsubbord`), written as Java writes those keys.
+    pub kata_estimate: KataEstimateState,
+    /// 终局点目 counts territory (数目, `use-territory-in-score`, off) instead of area (数子).
+    pub territory_scoring: bool,
+    /// A move matches the AI when it is among the first `match-ai-moves` candidates (3) with at
+    /// least `match-ai-percents-playouts` percent (20) of the most visited one's visits.
+    pub match_ai_moves: u32,
+    pub match_ai_percents_playouts: f64,
+    /// 独立选点列表 (U) is open (`show-suggestions-frame`, off); reopened at the next start.
+    pub suggestions_frame: bool,
+    /// Its 总在最前 (`suggestions-always-ontop`, off; Q).
+    pub suggestions_on_top: bool,
+    /// Its 列表 / 柱状图 / 当前手 / 鼠标悬停 boxes (`show-bestmoves-list` on,
+    /// `show-bestmoves-graph` off, `anaframe-show-next` on, `anaframe-use-mousemove` off).
+    pub best_moves_list: bool,
+    pub best_moves_graph: bool,
+    pub frame_show_next: bool,
+    pub frame_mouse_move: bool,
 }
 
 impl Default for DisplaySettings {
@@ -305,7 +348,27 @@ impl Default for DisplaySettings {
             next_move_min_playouts: 30,
             sub_board: SubBoardMode::Variation,
             no_refresh_on_sub: true,
-            pure_estimate: PureEstimateStyle::BigBelow,
+            pure_estimate: EstimateStyle::BigBelow,
+            winrate_line: true,
+            score_lead_line: true,
+            winrate_graph_fill: true,
+            blunder_bar: false,
+            mouse_over_winrate_graph: true,
+            initial_max_score_lead: 15.0,
+            kata_estimate_style: EstimateStyle::Small,
+            use_moves_ownership: true,
+            kata_estimate_shortcut: false,
+            kata_estimate_save_status: false,
+            kata_estimate: KataEstimateState::default(),
+            territory_scoring: false,
+            match_ai_moves: 3,
+            match_ai_percents_playouts: 20.0,
+            suggestions_frame: false,
+            suggestions_on_top: false,
+            best_moves_list: true,
+            best_moves_graph: false,
+            frame_show_next: true,
+            frame_mouse_move: false,
         }
     }
 }
@@ -330,15 +393,42 @@ pub enum PvVisitsMode {
     AllMoves,
 }
 
-/// 纯网络 ownership rendering, separate from KataGo's search estimate settings.
+/// Ownership square style of the 纯网络 and the Kata形势 estimates (Java's five exclusive choices).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
-pub enum PureEstimateStyle {
+pub enum EstimateStyle {
     Small,
     Transparent,
     TransparentNotOnLive,
     #[default]
     BigBelow,
     BySize,
+}
+
+/// Kata形势显示: the search ownership is requested (`shown`) and drawn on the main and/or sub
+/// board. Shown with neither board is 隐藏 (`isHiddenKataEstimate`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct KataEstimateState {
+    pub shown: bool,
+    pub on_main: bool,
+    pub on_sub: bool,
+}
+
+impl Default for KataEstimateState {
+    fn default() -> Self {
+        KataEstimateState {
+            shown: false,
+            on_main: true,
+            on_sub: true,
+        }
+    }
+}
+
+impl KataEstimateState {
+    /// `isHiddenKataEstimate` (`Config.java:1759-1760`).
+    pub fn hidden(&self) -> bool {
+        self.shown && !self.on_main && !self.on_sub
+    }
 }
 
 /// 落子评价 > 判定依据 (`MoveRankEvaluationMode`).
@@ -434,6 +524,17 @@ pub struct WindowPlacement {
     pub maximized: bool,
 }
 
+/// A tool window's bounds and column widths (Java `persistedUi.suggestions-list-position-7/9`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FramePlacement {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub columns: Vec<u32>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Persisted {
@@ -441,6 +542,12 @@ pub struct Persisted {
     /// Where the picture chooser starts (Java `filesystem.last-image-folder`, else `last-folder`).
     pub last_image_folder: Option<String>,
     pub window: Option<WindowPlacement>,
+    /// 独立选点列表 with 7 columns (no score) and with 9 columns (KataGo / Sai).
+    pub suggestions_frame_7: Option<FramePlacement>,
+    pub suggestions_frame_9: Option<FramePlacement>,
+    /// Column widths of the main window's 选点列表 (`persistedUi.main-window-list`, the five
+    /// shown columns).
+    pub main_list_columns: Option<Vec<u32>>,
 }
 
 /// File locations inside the product's per-user data directories.

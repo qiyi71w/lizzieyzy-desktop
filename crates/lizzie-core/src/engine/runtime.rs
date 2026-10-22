@@ -250,8 +250,8 @@ struct Instance {
     board: Option<EngineBoard>,
     /// GTP id of the analysis stream the engine is producing (or about to).
     stream: Option<u64>,
-    /// The stream was asked for `pvVisits` (KataGo).
-    stream_pv_visits: bool,
+    /// What the stream was asked to report besides the candidates (KataGo).
+    stream_options: StreamOptions,
     /// Analysis requests by GTP id, so late lines still reach the position they were for.
     requests: VecDeque<(u64, Request)>,
     /// One summary per Leela 0.11 pondering cycle, retained across stop/navigation: stderr
@@ -372,6 +372,14 @@ pub enum UserCommandError {
     ChangesBoard,
 }
 
+/// Optional `kata-analyze` reports (`Leelaz.addKataTag`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct StreamOptions {
+    pv_visits: bool,
+    ownership: bool,
+    moves_ownership: bool,
+}
+
 pub struct Engines {
     launcher: Box<dyn Launcher>,
     roots: Vec<PathBuf>,
@@ -384,8 +392,9 @@ pub struct Engines {
     foreground: Option<InstanceId>,
     wish: Option<(Target, bool)>,
     interval_centisec: u32,
-    /// `show-pv-visits`: KataGo analysis also reports each variation move's visits.
-    pv_visits: bool,
+    /// What KataGo analysis also reports: `show-pv-visits` (each variation move's visits) and
+    /// Kata形势 (`ownership`, with 按选点显示评估 `movesOwnership`).
+    options: StreamOptions,
     console: VecDeque<ConsoleLine>,
     console_seq: u64,
     trace: Option<Box<dyn Write + Send>>,
@@ -416,6 +425,18 @@ impl Instance {
             _ if self.has("lz-analyze") => Some(Dialect::Leela),
             _ => None,
         }
+    }
+
+    /// `supportMovesOwnership`: KataGo after 1.10 (`Leelaz.java:6298-6304`).
+    fn supports_moves_ownership(&self) -> bool {
+        let v: Vec<u32> = self
+            .version
+            .split(|c: char| !c.is_ascii_digit())
+            .filter(|s| !s.is_empty())
+            .take(2)
+            .filter_map(|s| s.parse().ok())
+            .collect();
+        self.kind == EngineKind::KataGo && v.len() == 2 && (v[0] > 1 || v[1] > 10)
     }
 
     /// `supportRootInfo`: KataGo 1.16.4 and later report `rootInfo`.
@@ -467,7 +488,7 @@ impl Engines {
             foreground: None,
             wish: None,
             interval_centisec: 10,
-            pv_visits: false,
+            options: StreamOptions::default(),
             console: VecDeque::new(),
             console_seq: 0,
             trace: None,
@@ -638,10 +659,27 @@ impl Engines {
     /// `show-pv-visits` (`Leelaz` adds ` pvVisits true` to `kata-analyze`); a KataGo stream asked
     /// with the other choice is requested again.
     pub fn set_pv_visits(&mut self, on: bool) {
-        if self.pv_visits != on {
-            self.pv_visits = on;
+        if self.options.pv_visits != on {
+            self.options.pv_visits = on;
             self.pump();
         }
+    }
+
+    /// Kata形势 (`ownership true`) and 按选点显示评估 (`movesOwnership true`, KataGo after 1.10)
+    /// (`Leelaz.java:20068-20074`); a KataGo stream asked otherwise is requested again
+    /// (`Leelaz.ponder`).
+    pub fn set_ownership(&mut self, ownership: bool, moves_ownership: bool) {
+        let moves_ownership = ownership && moves_ownership;
+        if (self.options.ownership, self.options.moves_ownership) != (ownership, moves_ownership) {
+            self.options.ownership = ownership;
+            self.options.moves_ownership = moves_ownership;
+            self.pump();
+        }
+    }
+
+    /// The stream options for `inst`: what it can report of what is wanted.
+    fn options_for(&self, inst: &Instance) -> StreamOptions {
+        StreamOptions { moves_ownership: self.options.moves_ownership && inst.supports_moves_ownership(), ..self.options }
     }
 
     /// Full trace (诊断与日志 > 完整日志, engine GTP scope): every line to and from engines.
@@ -768,7 +806,7 @@ impl Engines {
             raw_requested: None,
             raw_request: None,
             raw_data: None,
-            stream_pv_visits: false,
+            stream_options: StreamOptions::default(),
         });
         let name = profile.name.clone();
         self.trace(&name, "--", &format!("start {}", profile.command));
@@ -986,8 +1024,9 @@ impl Engines {
                     self.stop_stream(fg);
                 } else {
                     let (commands, board) = sync_commands(inst, &target);
+                    let options = self.options_for(inst);
                     let streaming_here = inst.stream.and_then(|n| inst.request(n)).is_some_and(|r| r.key == key)
-                        && (inst.dialect() != Some(Dialect::Kata) || inst.stream_pv_visits == self.pv_visits);
+                        && (inst.dialect() != Some(Dialect::Kata) || inst.stream_options == options);
                     let dialect = inst.dialect();
                     let root_info = inst.supports_root_info();
                     if commands.is_empty() {
@@ -1034,9 +1073,11 @@ impl Engines {
                             let color = if to_play == Stone::Black { "B" } else { "W" };
                             let cmd = match d {
                                 Dialect::Kata => format!(
-                                    "kata-analyze {color} {interval}{}{}",
+                                    "kata-analyze {color} {interval}{}{}{}{}",
                                     if root_info { " rootInfo true" } else { "" },
-                                    if self.pv_visits { " pvVisits true" } else { "" }
+                                    if options.ownership { " ownership true" } else { "" },
+                                    if options.pv_visits { " pvVisits true" } else { "" },
+                                    if options.moves_ownership { " movesOwnership true" } else { "" }
                                 ),
                                 Dialect::Leela | Dialect::Sai => format!("lz-analyze {color} {interval}"),
                                 Dialect::Sayuri => format!("analyze {color} {interval}"),
@@ -1054,10 +1095,9 @@ impl Engines {
                                 Purpose::Analyze
                             };
                             if let Some(n) = self.send(fg, &cmd, purpose) {
-                                let pv_visits = self.pv_visits;
                                 let i = self.get_mut(fg).unwrap();
                                 i.stream = Some(n);
-                                i.stream_pv_visits = pv_visits;
+                                i.stream_options = options;
                                 i.requests.push_back((n, request));
                                 if d == Dialect::Leela011 {
                                     i.summaries.push_back((n, request, InfoLine::default()));
