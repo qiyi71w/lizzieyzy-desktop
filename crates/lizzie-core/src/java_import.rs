@@ -165,6 +165,7 @@ pub struct Mapped {
     /// 局部精析's move range (`ui.analysis-start-move`, `analysis-end-move`).
     pub flash_start_move: Option<i32>,
     pub flash_end_move: Option<i32>,
+    pub whole_game_visits: Option<u32>,
     /// 快速曲线轻量模型.
     pub quick_model_enabled: Option<bool>,
     pub quick_model_path: Option<String>,
@@ -733,6 +734,12 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "analysis-end-move",
         ImportTarget::FlashRange,
         Kind::I32(|m, v| m.flash_end_move = Some(v)),
+    ),
+    (
+        "ui",
+        "whole-game-analysis-deep-visits",
+        ImportTarget::WholeGameVisits,
+        Kind::I32(|m, v| m.whole_game_visits = Some(crate::settings::WholeGameSettings::from_stored(i64::from(v)).deep_visits)),
     ),
     (
         "ui",
@@ -1923,6 +1930,7 @@ impl Mapped {
         set!(ae.reuse_current_engine, self.analysis_reuse_current_engine);
         set!(c.flash_range.start_move, self.flash_start_move);
         set!(c.flash_range.end_move, self.flash_end_move);
+        set!(c.whole_game.deep_visits, self.whole_game_visits);
         set!(c.quick_model.enabled, self.quick_model_enabled);
         if let Some(path) = &self.quick_model_path {
             c.quick_model.path = (!path.trim().is_empty()).then(|| path.clone());
@@ -2120,6 +2128,9 @@ impl Mapped {
             || self.flash_end_move.is_some_and(|v| v != config.flash_range.end_move)
         {
             out.push(ImportTarget::FlashRange);
+        }
+        if self.whole_game_visits.is_some_and(|v| v != config.whole_game.deep_visits) {
+            out.push(ImportTarget::WholeGameVisits);
         }
         let qm = &config.quick_model;
         if self.quick_model_enabled.is_some_and(|v| v != qm.enabled)

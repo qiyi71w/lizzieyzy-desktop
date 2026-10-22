@@ -323,6 +323,46 @@ pub enum Command {
     CancelFlashAnalysis,
     /// 精析设置 > 确定并重新计算: the running flash analysis stops and the last one starts again.
     RedoFlashAnalysis,
+    /// 整盘精析 (Ctrl+Shift+B): two-stage main-trunk analysis.
+    StartWholeGameAnalysis { visits: u32 },
+    PauseWholeGameAnalysis,
+    ResumeWholeGameAnalysis,
+    StopWholeGameAnalysis,
+    /// Pre-start estimate using the current engine's stored benchmark.
+    EstimateWholeGameAnalysis { visits: u32 },
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, TS)]
+pub enum WholeGameState {
+    #[default]
+    Idle,
+    Preparing,
+    Baseline,
+    Deep,
+    Pausing,
+    Paused,
+    Complete,
+    Cancelled,
+    Failed,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct WholeGameAnalysisView {
+    pub run: u64,
+    pub state: WholeGameState,
+    pub completed: u32,
+    pub total: u32,
+    pub baseline_completed: u32,
+    pub deep_completed: u32,
+    pub target_visits: u32,
+    pub visits: u32,
+    pub percent: u32,
+    pub remaining_ms: Option<u64>,
+    pub mode_key: Option<String>,
+    pub detail_key: String,
+    /// Force result display for this document/node without changing saved display settings.
+    pub show_results: bool,
+    pub save_failed: bool,
 }
 
 /// What a flash analysis analyses.
@@ -375,6 +415,7 @@ pub enum EngineScope {
 pub enum CommandResult {
     /// Applied; the new state arrives as a [`WorkbenchView`].
     Done,
+    WholeGameEstimate { millis: Option<u64> },
     /// Nothing to do (no movement, chooser or prompt cancelled, clipboard without SGF).
     Unchanged,
     /// Reading started; its end arrives as [`OpenOutcome`] in a later view.
@@ -608,6 +649,7 @@ pub struct SettingsView {
     pub problems: crate::settings::ProblemListSettings,
     /// 局部精析's move range (`analysis-start-move`, `analysis-end-move`).
     pub flash_range: crate::settings::FlashRange,
+    pub whole_game: crate::settings::WholeGameSettings,
 }
 
 /// 快速曲线轻量模型 card (`KataGoAutoSetupDialog`, `QuickAnalysisModelStatus`).
@@ -778,6 +820,8 @@ pub struct WorkbenchView {
     pub flash: Option<FlashAnalysisView>,
     /// How a flash analysis ended, once.
     pub flash_outcome: Option<FlashOutcome>,
+    /// Session projection, retained after completion/cancel/failure.
+    pub whole_game: WholeGameAnalysisView,
     /// 问题手 list and its progress badge.
     pub problems: ProblemListView,
     /// Stored analysis of the current node (whether or not the engine is analysing it now).
@@ -992,6 +1036,8 @@ pub enum ImportTarget {
     ProblemList,
     /// 局部精析: `ui.analysis-start-move`, `analysis-end-move`.
     FlashRange,
+    /// 整盘精析: `ui.whole-game-analysis-deep-visits`.
+    WholeGameVisits,
 }
 
 /// A problem found with an imported engine without starting it.

@@ -1220,8 +1220,18 @@ function drawMoveOverlay(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardG
   } else if (last && !last.point && !s.snapshot) drawPassDisc(g, ox, oy, geo, s.toPlay === "Black");
   const ring = Math.round(sq * 0.22);
   const hiddenByBranch = (p: number) => !!preview && (!preview.stones[p] || preview.numbers.has(p));
+  const drawNumbers = () => {
+    for (const label of s.overlay.move_numbers) {
+      const x = X(label.point.x), y = Y(label.point.y);
+      if (label.last) { g.fillStyle = "#f00"; smallTriangle(g, x, y, r); }
+      else g.fillStyle = s.stones[label.point.y * cols + label.point.x] === "Black" ? "#fff" : "#000";
+      jString(g, String(label.number), x, y, UI_FONT, r * 1.4, i(r * (label.number >= 100 ? 1.85 : 1.4)));
+      report.moveNumbers.push({ x: label.point.x, y: label.point.y, text: String(label.number), red: label.last });
+    }
+  };
+  if (s.overlay.ranks_after_numbers && !preview) drawNumbers();
   // drawMoveRankMark (BoardRenderer.java:529-658).
-  if (d.moveNumbers === 0 && d.moveRank >= 0) {
+  if (s.overlay.ranks_after_numbers || (d.moveNumbers === 0 && d.moveRank >= 0)) {
     for (const m of s.overlay.ranks) {
       if (hiddenByBranch(m.point.y * cols + m.point.x)) continue;
       g.fillStyle = RANK_COLOR[m.rank];
@@ -1252,15 +1262,7 @@ function drawMoveOverlay(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardG
     }
     return false;
   }
-  for (const label of s.overlay.move_numbers) {
-    const x = X(label.point.x), y = Y(label.point.y);
-    if (label.last) {
-      g.fillStyle = "#f00";
-      smallTriangle(g, x, y, r);
-    } else g.fillStyle = s.stones[label.point.y * cols + label.point.x] === "Black" ? "#fff" : "#000";
-    jString(g, String(label.number), x, y, UI_FONT, r * 1.4, i(r * (label.number >= 100 ? 1.85 : 1.4)));
-    report.moveNumbers.push({ x: label.point.x, y: label.point.y, text: String(label.number), red: label.last });
-  }
+  drawNumbers();
   return false;
 }
 

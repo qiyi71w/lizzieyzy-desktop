@@ -24,6 +24,7 @@ mod quick;
 mod recovery;
 mod resources;
 mod tuning;
+mod whole_game;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -245,6 +246,7 @@ pub struct Workbench {
     quick: quick::QuickFlow,
     /// 闪电分析 of the open record.
     flash: flash::FlashFlow,
+    whole_game: whole_game::WholeGameFlow,
     /// The problem move a 问题手 jump marked, while browsing the position before it
     /// (`clickbadmove`): document, that position, the move's node.
     problem_mark: Option<(u64, NodeId, NodeId)>,
@@ -343,6 +345,7 @@ impl Workbench {
             scoring: None,
             quick: quick::QuickFlow::default(),
             flash: flash::FlashFlow::default(),
+            whole_game: whole_game::WholeGameFlow::default(),
             problem_mark: None,
         }
     }
@@ -922,6 +925,7 @@ impl Workbench {
                 quick_model: self.quick_model_view(),
                 problems: self.config.problems.clone(),
                 flash_range: self.config.flash_range,
+                whole_game: self.config.whole_game,
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
@@ -929,6 +933,7 @@ impl Workbench {
             quick: self.quick_view(),
             flash: self.flash_view(),
             flash_outcome: None,
+            whole_game: self.whole_game_view(),
             problems: self.problem_list(),
             analysis: self.current_analysis(),
             board: self.board_overlay(),

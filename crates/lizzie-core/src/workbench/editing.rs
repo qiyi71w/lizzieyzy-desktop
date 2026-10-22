@@ -320,6 +320,9 @@ impl Workbench {
                 done(applied.changed)
             }
             EditCommand::SetGameInfo { black, white, komi } => {
+                if self.whole_game_active() {
+                    return Ok(CommandResult::Refused { message_key: "WholeGameAnalysis.conflict.analysis".into() });
+                }
                 if !komi.is_finite() {
                     return Err(ApiError::new(ErrorKind::InvalidArgument, "komi"));
                 }

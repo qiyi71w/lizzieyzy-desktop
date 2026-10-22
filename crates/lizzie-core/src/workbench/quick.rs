@@ -193,6 +193,7 @@ impl Workbench {
             && !self.paused
             && self.quick.cancelled_doc != Some(self.doc.id)
             && !self.flash_active()
+            && !self.whole_game_active()
     }
 
     fn quick_readiness(&self, borrow: bool) -> Readiness {
@@ -539,6 +540,11 @@ impl Workbench {
         }
     }
 
+    /// 整盘精析 owns a distinct workload; an idle quick/flash process must not survive takeover.
+    pub(super) fn discard_analysis_process(&mut self) {
+        if let Some((instance, _)) = self.quick.warm.take() { self.engines.terminate(instance); }
+    }
+
     /// An analysis process running `command`: the idle one when it matches (`isAnalysisEngineReusable`),
     /// else a new one (an idle one with another command ends).
     pub(super) fn take_analysis_process(&mut self, command: &str) -> Result<InstanceId, String> {
@@ -593,7 +599,8 @@ impl Workbench {
             self.quick_cancel();
         }
         self.flash_document_closing();
-        if self.quick.releasing.is_some() || self.flash_releasing() {
+        self.whole_game_document_closing();
+        if self.quick.releasing.is_some() || self.flash_releasing() || self.whole_game_releasing() {
             self.quick.deferred_open = Some(open);
             None
         } else {
@@ -603,7 +610,7 @@ impl Workbench {
 
     /// A borrowed engine came back: a read waiting for it is adopted once no other one is out.
     pub(super) fn complete_deferred_open(&mut self) {
-        if self.quick.releasing.is_none() && !self.flash_releasing() {
+        if self.quick.releasing.is_none() && !self.flash_releasing() && !self.whole_game_releasing() {
             if let Some((ticket, result)) = self.quick.deferred_open.take() {
                 self.complete_open(ticket, result);
             }
@@ -1030,6 +1037,7 @@ impl Workbench {
             || self.quick.task.is_some()
             || self.quick_borrows()
             || self.flash_active()
+            || self.whole_game_active()
         {
             return;
         }

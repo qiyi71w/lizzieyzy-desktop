@@ -55,6 +55,7 @@ fn generate() -> String {
         AnalysisEngineSettings, QuickModelView, QuickModelStatus, QuickAnalysisView, ProblemListSettings,
         ProblemSide, ProblemSort, ProblemListView, ProblemMoveView, LeaseAvailabilityView, UnrestoredReason,
         FlashTarget, FlashRange, FlashAnalysisView, FlashOutcome,
+        WholeGameState, WholeGameAnalysisView, lizzie_core::settings::WholeGameSettings,
     ];
     // Engine resources and engine performance keep their own lists.
     decls.extend(resources::decls(&cfg));

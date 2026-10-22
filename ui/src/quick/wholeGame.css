@@ -1,0 +1,38 @@
+/* WholeGameAnalysisDialog: Java's cream card, green accent, dense 12px metadata and 112x40
+   actions. Modeless: no scrim and no owner inertness; the board remains interactive. */
+.whole-game-window {
+  position: fixed; z-index: 28; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 730px; max-width: calc(100vw - 36px); max-height: calc(100vh - 36px); overflow: auto;
+  box-sizing: border-box; padding: 22px 24px 20px; background: #f7f4ec; color: #272f2b;
+  font: 12px "DejaVu Sans", "Noto Sans CJK SC", sans-serif; box-shadow: 0 5px 28px #0005;
+  resize: both;
+}
+.whole-game-window[hidden] { display: none; }
+.whole-game-window header { display: flex; gap: 14px; margin-bottom: 30px; }
+.whole-game-icon { flex: 0 0 46px; height: 46px; background: #dfcc9b; border-radius: 8px; font-size: 38px; line-height: 40px; color: #272f2b; position: relative; }
+.whole-game-icon::after { content: ""; width: 23px; height: 23px; border-radius: 50%; background: #fafaf5; border: 1px solid #c6c6bc; position: absolute; left: 20px; top: 22px; }
+.whole-game-window h2 { font-size: 24px; margin: 0 0 4px; }
+.whole-game-window p { margin: 0; line-height: 1.55; }
+.whole-game-window header p, .whole-game-visits p { color: #676b63; }
+.whole-game-card { background: #fffdf8; border: 1px solid #dad0bc; border-radius: 9px; padding: 34px 22px 24px; min-height: 270px; box-sizing: border-box; }
+.whole-game-visits { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.whole-game-visits label { font-weight: bold; margin-right: 6px; }
+.whole-game-visits select { flex: 1; min-width: 170px; height: 34px; font: inherit; background: white; color: inherit; }
+.whole-game-visits input { width: 132px; height: 34px; box-sizing: border-box; font: inherit; }
+.whole-game-visits input[hidden] { display: none; }
+.whole-game-visits p { width: 100%; min-height: 38px; }
+.whole-game-visits p.invalid { color: #ad3431; }
+.whole-game-window h3 { font-size: 18px; margin: 15px 0 14px; }
+.whole-game-bar { position: relative; height: 24px; margin-bottom: 10px; }
+.whole-game-bar progress { appearance: none; border: 0; width: 100%; height: 24px; background: #e1f0ea; }
+.whole-game-bar progress::-webkit-progress-bar { background: #e1f0ea; }
+.whole-game-bar progress::-webkit-progress-value { background: #146f5b; }
+.whole-game-bar span { position: absolute; inset: 0; display: grid; place-items: center; color: #6485a8; pointer-events: none; }
+.whole-game-metadata { display: flex; justify-content: space-between; gap: 18px; margin-top: 16px; min-height: 18px; color: #676b63; }
+.whole-game-metadata span:first-child { color: #146f5b; font-weight: bold; }
+.whole-game-window footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+.whole-game-window footer button { min-width: 112px; height: 40px; border: 1px solid #dad0bc; border-radius: 7px; background: #fffdf8; color: #272f2b; font: inherit; }
+.whole-game-window footer button.primary { background: #146f5b; color: white; border-color: #146f5b; }
+.whole-game-window footer button:disabled { background: #e8e5dc; color: #676b63; opacity: .6; }
+.whole-game-close { position: absolute; top: 3px; right: 5px; border: 0; background: transparent; color: #676b63; font-size: 18px; }
+.whole-game-notice { position: fixed; z-index: 31; left: 50%; bottom: 65px; transform: translateX(-50%); padding: 12px 18px; background: #fffdf8; color: #272f2b; border: 1px solid #dad0bc; box-shadow: 0 3px 15px #0005; max-width: 80vw; }

@@ -225,6 +225,8 @@ pub struct BoardOverlayView {
     pub ranks: Vec<RankMark>,
     /// The last-move ring gets the red corner triangle (落子评价 of several moves).
     pub rank_corner: bool,
+    /// 整盘精析 result view draws move numbers before evaluation marks.
+    pub ranks_after_numbers: bool,
     /// 下一手 详细, while the next-move hints are on.
     pub next_move: Option<NextMoveInfo>,
     /// The 自定义信息顺序 dialog's KataGo sample as a candidate of this position would show it.
