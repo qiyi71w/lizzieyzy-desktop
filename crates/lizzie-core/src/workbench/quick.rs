@@ -577,10 +577,11 @@ impl Workbench {
     }
 
     /// The engine was switched, restarted or closed: the quick analysis ends (`ENGINE_SWITCH`),
-    /// as does a flash analysis borrowing it.
+    /// as do flash and whole-game analyses borrowing it.
     pub(super) fn quick_engine_changed(&mut self) {
         self.quick_cancel();
         self.flash_engine_changed();
+        self.whole_game_engine_changed();
     }
 
     /// A cancelled task's borrowed engine is still being given back.

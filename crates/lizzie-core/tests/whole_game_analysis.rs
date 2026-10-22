@@ -72,25 +72,27 @@ fn serve(wb: &mut Workbench, world: &World, engine: InstanceId, visits: u64) -> 
     let mut result = vec![];
     loop {
         let pending = world.take(engine); if pending.is_empty() { return result; }
-        for line in pending {
-            output(wb, engine, "");
-            let (id, cmd) = line.split_once(' ').unwrap();
-            let text = match cmd.split(' ').next().unwrap() {
-                "name" => "KataGo", "version" => "1.18.2", "list_commands" => KATA, "kata-get-rules" => RULES, _ => "",
-            };
-            if cmd.starts_with("kata-analyze") {
-                // KataGo's response stays open until stop. A blank here would end/refuse the
-                // stream, and any subsequent info would be unattributable to this request.
-                output(wb, engine, &format!("={id}"));
-                if visits > 0 {
-                    output(wb, engine, &format!("info move K10 visits {visits} winrate 0.5 scoreLead 0.5 prior 0.2 order 0 pv K10 rootInfo visits {visits} winrate 0.4 scoreLead -0.5"));
-                }
-            } else {
-                output(wb, engine, &format!("={id} {text}")); output(wb, engine, "");
-            }
-            result.push(cmd.to_string());
-        }
+        for line in pending { result.push(reply(wb, engine, &line, visits)); }
     }
+}
+/// Answers one GTP command of the foreground engine; returns the command without its id.
+fn reply(wb: &mut Workbench, engine: InstanceId, line: &str, visits: u64) -> String {
+    output(wb, engine, "");
+    let (id, cmd) = line.split_once(' ').unwrap();
+    let text = match cmd.split(' ').next().unwrap() {
+        "name" => "KataGo", "version" => "1.18.2", "list_commands" => KATA, "kata-get-rules" => RULES, _ => "",
+    };
+    if cmd.starts_with("kata-analyze") {
+        // KataGo's response stays open until stop. A blank here would end/refuse the
+        // stream, and any subsequent info would be unattributable to this request.
+        output(wb, engine, &format!("={id}"));
+        if visits > 0 {
+            output(wb, engine, &format!("info move K10 visits {visits} winrate 0.5 scoreLead 0.5 prior 0.2 order 0 pv K10 rootInfo visits {visits} winrate 0.4 scoreLead -0.5"));
+        }
+    } else {
+        output(wb, engine, &format!("={id} {text}")); output(wb, engine, "");
+    }
+    cmd.to_string()
 }
 fn foreground(wb: &mut Workbench, world: &World) -> InstanceId {
     wb.save_engine_settings(vec![EngineProfile { name:"KataGo".into(), command:"/opt/katago gtp".into(), ..EngineProfile::default() }], EngineStartup::Default).unwrap();
@@ -227,6 +229,60 @@ fn borrowed_engine_searches_sequentially_and_is_returned_on_completion() {
     assert!(commands.iter().any(|c| c.starts_with("kata-analyze") && c.contains("maxmoves")));
     assert_eq!(wb.view(false).whole_game.state,State::Complete); assert!(!world.ended(fg));
     assert!(foreground_searches(&commands),"foreground analysis resumes after handback");
+}
+#[test]
+fn borrowed_completion_is_published_only_after_the_engine_is_confirmed_back() {
+    for fail in [false, true] {
+        let dir = tempfile::tempdir().unwrap(); let world = World::default(); let mut wb = make(dir.path(), &world);
+        let fg = foreground(&mut wb,&world); borrow(&mut wb); open(&mut wb,RECORD); serve(&mut wb,&world,fg,0); start(&mut wb);
+        let mut states = vec![]; let mut handbacks = 0;
+        loop {
+            let pending = world.take(fg); if pending.is_empty() { break; }
+            for line in pending {
+                let v = wb.view(false).whole_game;
+                // The final stop follows the last stored answer; the session still owns the engine.
+                if line.ends_with(" stop") && v.deep_completed == v.total {
+                    handbacks += 1;
+                    assert!(matches!(v.state, State::Baseline | State::Deep) && v.percent == 99, "no success before the handback: {:?}", v.state);
+                    assert!(wb.start_flash_analysis(FlashTarget::WholeGame).unwrap().is_err(), "still exclusive");
+                    if fail {
+                        let id = line.split_once(' ').unwrap().0;
+                        output(&mut wb, fg, ""); output(&mut wb, fg, &format!("?{id} failed")); output(&mut wb, fg, "");
+                        states.push(wb.view(false).whole_game.state);
+                        continue;
+                    }
+                }
+                reply(&mut wb, fg, &line, 1000);
+                states.push(wb.view(false).whole_game.state);
+            }
+        }
+        assert_eq!(handbacks, 1);
+        let finals: Vec<_> = states.iter().filter(|s| matches!(s, State::Complete | State::Failed)).collect();
+        assert_eq!(finals.first().copied(), Some(&if fail { State::Failed } else { State::Complete }));
+        assert!(finals.iter().all(|&&s| s == *finals[0]), "the outcome is published once: {finals:?}");
+    }
+}
+#[test]
+fn switching_away_from_a_borrowed_engine_retires_the_run_without_holding_the_successor() {
+    let dir = tempfile::tempdir().unwrap(); let world = World::default(); let mut wb = make(dir.path(), &world);
+    let profile = |name: &str, command: &str| EngineProfile { name: name.into(), command: command.into(), ..EngineProfile::default() };
+    wb.save_engine_settings(vec![profile("A", "/opt/katago gtp"), profile("B", "/opt/katago-b gtp")], EngineStartup::Default).unwrap();
+    wb.start_engines(); let a = world.0.lock().unwrap().last().unwrap().id; serve(&mut wb, &world, a, 0);
+    borrow(&mut wb); open(&mut wb, RECORD); serve(&mut wb, &world, a, 0); start(&mut wb);
+    // The first borrowed search is sent and left unanswered.
+    assert!(serve(&mut wb, &world, a, 0).iter().any(|c| c.starts_with("kata-analyze") && c.contains("maxmoves")));
+    let stored = wb.view(false).whole_game.baseline_completed;
+    assert!(wb.switch_engine(1).unwrap());
+    let v = wb.view(false).whole_game;
+    assert_eq!((v.state, v.detail_key.as_str()), (State::Failed, "WholeGameAnalysis.error.request"));
+    let b = world.0.lock().unwrap().last().unwrap().id; assert_ne!(a, b);
+    assert!(foreground_searches(&serve(&mut wb, &world, b, 0)), "the successor is not held by the old handback");
+    // A's late answer is neither adopted nor followed by another search of A.
+    output(&mut wb, a, "info move K10 visits 1000 winrate 0.5 scoreLead 0.5 prior 0.2 order 0 pv K10 rootInfo visits 1000 winrate 0.4 scoreLead -0.5");
+    let later = serve(&mut wb, &world, a, 1000);
+    assert!(!later.iter().any(|c| c.contains("maxmoves")), "{later:?}");
+    assert_eq!(wb.view(false).whole_game.baseline_completed, stored);
+    assert_eq!(wb.view(false).whole_game.state, State::Failed);
 }
 #[test]
 fn borrowed_engine_pause_returns_before_resume_and_stop_returns_it_again() {

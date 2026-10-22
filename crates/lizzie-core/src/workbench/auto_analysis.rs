@@ -145,17 +145,27 @@ impl Workbench {
         let zen = self.engines.identity(r.engine).is_some_and(|(name, _, _)| name.eq_ignore_ascii_case("Zen")) && number < 3;
         if !(skip || zen || best > 0 && first >= best as u64 || total > 0 && visits >= total as u64 || time > 0 && elapsed >= Duration::from_secs(time as u64)) { return; }
         let (all_branches, end_move) = (s.all_branches, s.end_move);
+        let next = self.auto_next_pending();
         let r = self.auto_analysis.run.as_mut().unwrap();
         r.analyzed.insert(node);
         // Java mainline skipping calls analyzeNextMove (autoAnalysed); branch skipping doesn't.
         r.any |= !skip || !all_branches;
         if r.diff {
-            if let Some(next) = r.pending.pop_front() { self.move_to(next); } else { self.auto_analysis_finish(true); }
+            if let Some(next) = next { self.move_to(next); } else { self.auto_analysis_finish(true); }
         } else if all_branches {
             if self.doc.record.is_main_trunk(node) && (end_move >= 0 && number > end_move as u32 || self.doc.record.main_child(node).is_none()) {
                 self.auto_analysis_stop(false);
-            } else if let Some(next) = r.pending.pop_front() { self.move_to(next); } else { self.auto_analysis_stop(false); }
+            } else if let Some(next) = next { self.move_to(next); } else { self.auto_analysis_stop(false); }
         } else if let Some(next) = self.doc.record.main_child(node) { self.move_to(next); } else { self.auto_analysis_stop(false); }
+    }
+
+    /// The next queued node still in the record; nodes deleted since planning are skipped.
+    fn auto_next_pending(&mut self) -> Option<NodeId> {
+        let r = self.auto_analysis.run.as_mut()?;
+        while let Some(node) = r.pending.pop_front() {
+            if self.doc.record.contains(node) { return Some(node); }
+        }
+        None
     }
 
     fn auto_diff_nodes(&self) -> (u32, VecDeque<NodeId>) {
@@ -178,7 +188,7 @@ impl Workbench {
         let mut unique = HashSet::new();
         let mut result = VecDeque::new();
         for n in nodes {
-            if !r.analyzed.contains(&n) { continue; }
+            if !r.analyzed.contains(&n) || !rec.contains(n) { continue; }
             let Some(parent) = rec.parent(n) else { continue };
             let mover = rec.node(n).to_play.opposite();
             if mover == Stone::Black && !s.diff_black || mover == Stone::White && !s.diff_white { continue; }
@@ -216,10 +226,10 @@ impl Workbench {
     pub fn stop_auto_analysis(&mut self) -> bool { self.auto_analysis_stop(true) }
 
     fn auto_begin_diff(&mut self) {
+        let Some(node) = self.auto_next_pending() else { return self.auto_analysis_finish(true) };
         let r = self.auto_analysis.run.as_mut().unwrap();
         r.confirmation = false;
         r.diff = true;
-        let node = r.pending.pop_front().unwrap();
         self.paused = false;
         self.limit_stop = None;
         self.move_to(node);
@@ -274,12 +284,16 @@ impl Workbench {
         self.paused = true;
         self.sync_engine();
         if run.settings.auto_save && run.any {
+            // Java writes the summary (and the save's analysis comments) into the open record
+            // without marking it modified: a clean record stays clean, its file unchanged.
+            let clean = !self.doc.unsaved();
             self.auto_append_summary();
             let stamp = chrono::Local::now().format("%Y%m%d%H%M%S").to_string();
             let label = super::exporting::java_text(self.active_language, "Leelaz.analyzed");
             let path = self.auto_analysis_output(&stamp, &label);
             let directory = path.parent().unwrap_or(Path::new("")).to_string_lossy().into_owned();
             let mut job = self.begin_save(&path.to_string_lossy(), "LizzieYzy Tauri");
+            if clean { self.doc.saved_revision = Some(self.doc.revision); }
             job.create_parent = true;
             self.auto_analysis.saves.push((job.ticket, self.doc.id, completed, directory));
             self.auto_analysis.jobs.push(job);

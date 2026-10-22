@@ -184,8 +184,9 @@ pub struct Mapped {
     pub hawkeye_range: (Option<bool>, Option<i32>, Option<i32>),
 }
 
-/// [`HawkeyeSettings`] with the imported values; the 统计 range becomes the period Java shows for
-/// it (`setFilterStatus`), a 其他 range keeping its moves.
+/// [`HawkeyeSettings`] with the imported values; the 统计 range selects the period Java shows for
+/// it (`setFilterStatus`). 其他 then applies the imported `game-statistics-custom-*` moves, not
+/// the saved range.
 fn with_hawkeye(current: &HawkeyeSettings, mapped: &Mapped) -> HawkeyeSettings {
     let mut next = serde_json::to_value(current)
         .ok()
@@ -212,10 +213,6 @@ fn with_hawkeye(current: &HawkeyeSettings, mapped: &Mapped) -> HawkeyeSettings {
             next.opening_end_move,
             next.middle_end_move,
         );
-        if next.period == crate::settings::HawkeyePeriod::Custom {
-            next.custom_start = first.saturating_add(1);
-            next.custom_end = last;
-        }
     }
     next
 }
@@ -1746,19 +1743,28 @@ impl Reader<'_> {
                             let value = if as_i64(raw) == Some(-1) { Some(Value::from(-1)) } else { value };
                             self.display_value(format!("{name}[{index}]"), ImportTarget::Suggestions, field, value, raw);
                         }
-                        for (index, field, boolean) in [
-                            (0, "startMove", false), (1, "endMove", false),
-                            (2, "timeEnabled", true), (3, "timeSeconds", false),
-                            (4, "autoSave", true), (5, "visitsEnabled", true),
-                            (6, "visits", false), (7, "firstVisitsEnabled", true),
-                            (8, "firstVisits", false), (47, "black", true), (48, "white", true),
+                        // BottomToolbar restores a field only past its sentinel (start >= 0, the
+                        // others > 0), otherwise keeping the control's default: start 1, time 2,
+                        // the rest empty. Its checkboxes are only ever switched on, and 按时间
+                        // starts selected, so Java always shows it on.
+                        for (index, field) in [
+                            (0, "startMove"), (1, "endMove"), (2, "timeEnabled"), (3, "timeSeconds"),
+                            (4, "autoSave"), (5, "visitsEnabled"), (6, "visits"),
+                            (7, "firstVisitsEnabled"), (8, "firstVisits"),
                         ] {
                             let raw = &values[index];
-                            let value = if boolean {
-                                if index >= 47 { as_bool(raw).map(Value::from) }
-                                else { as_i64(raw).map(|v| Value::from(v == 1)) }
-                            } else { as_i64(raw).and_then(|v| i32::try_from(v).ok()).map(Value::from) };
+                            let value = as_i64(raw).and_then(|n| i32::try_from(n).ok()).map(|n| match index {
+                                0 => Value::from(if n >= 0 { n } else { 1 }),
+                                2 => Value::from(true),
+                                4 | 5 | 7 => Value::from(n > 0),
+                                3 => Value::from(if n > 0 { n } else { 2 }),
+                                _ => Value::from(if n > 0 { n } else { -1 }),
+                            });
                             self.auto_analysis_value(format!("{name}[{index}]"), field, value, raw);
+                        }
+                        for (index, field) in [(47, "black"), (48, "white")] {
+                            let raw = &values[index];
+                            self.auto_analysis_value(format!("{name}[{index}]"), field, as_bool(raw).map(Value::from), raw);
                         }
                     }
                     // Window bounds and the tables' column pixels follow Java's own scaling,

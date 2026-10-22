@@ -19,8 +19,9 @@ use crate::settings::{PvVisitsMode, WholeGameSettings};
 pub(super) struct WholeGameFlow {
     next: u64,
     session: Option<Session>,
-    /// A lease must finish returning before the dialog can resume or start another run.
-    releasing: Option<u64>,
+    /// A lease must finish returning before the dialog can resume or start another run: the
+    /// lease and the foreground engine it borrowed.
+    releasing: Option<(u64, Option<InstanceId>)>,
 }
 struct Session {
     id: u64,
@@ -47,10 +48,13 @@ struct Session {
     deep_completed: u32,
     detail: String,
     save_failed: bool,
+    /// Every search is answered and the borrowed engine is being given back: the run reports
+    /// completion only once the handback is confirmed.
+    completing: bool,
 }
 enum Engine {
     Process { instance: InstanceId, queries: HashMap<String, Query> },
-    Lease { lease: u64, queue: VecDeque<NodeId>, ready: bool },
+    Lease { lease: u64, instance: Option<InstanceId>, queue: VecDeque<NodeId>, ready: bool },
 }
 impl State {
     fn active(self) -> bool {
@@ -62,14 +66,26 @@ impl Workbench {
     pub(super) fn whole_game_active(&self) -> bool {
         self.whole_game.session.as_ref().is_some_and(|s| s.state.active())
     }
+    /// A handback holds only the engine it returns; a successor foreground analyses at once.
     pub(super) fn whole_game_holds_foreground(&self) -> bool {
-        self.whole_game.releasing.is_some() || self.whole_game.session.as_ref().is_some_and(|s| {
-            s.state.active() && (s.holds || (s.borrowed && s.state != State::Paused))
-        })
+        self.whole_game.releasing.is_some_and(|(_, i)| i == self.engines.foreground())
+            || self.whole_game.session.as_ref().is_some_and(|s| {
+                s.state.active() && (s.holds || (s.borrowed && s.state != State::Paused))
+            })
     }
     pub(super) fn whole_game_releasing(&self) -> bool { self.whole_game.releasing.is_some() }
     pub(super) fn whole_game_document_closing(&mut self) {
         if self.whole_game_active() { self.whole_game_finish(State::Failed, "WholeGameAnalysis.error.gameChanged"); }
+    }
+    /// The foreground engine was switched, restarted or closed: a run borrowing it stops, keeps
+    /// its answers and gives the engine back; a dedicated process continues without holding it.
+    pub(super) fn whole_game_engine_changed(&mut self) {
+        let Some(s) = self.whole_game.session.as_mut() else { return };
+        if matches!(s.engine, Some(Engine::Lease { .. })) {
+            self.whole_game_finish(State::Failed, "WholeGameAnalysis.error.request");
+        } else {
+            s.holds = false;
+        }
     }
     /// Space resumes the temporarily idled dedicated foreground first (Java
     /// shouldPauseFromAnalysisControl tests actual pondering, not the session's existence).
@@ -158,7 +174,7 @@ impl Workbench {
             ownership: self.estimate.state.shown && !borrow, borrowed: borrow,
             holds: !borrow && !self.paused, engine: None, attempts: 0,
             stage_started: now, stage_total: 0, answered: 0, guard_at: now + Duration::from_millis(500),
-            baseline_completed: 0, deep_completed: 0, detail: "WholeGameAnalysis.preparing".into(), save_failed,
+            baseline_completed: 0, deep_completed: 0, detail: "WholeGameAnalysis.preparing".into(), save_failed, completing: false,
         };
         self.whole_game_refresh(&mut s);
         self.whole_game.session = Some(s);
@@ -177,7 +193,7 @@ impl Workbench {
         if s.engine.is_some() { self.whole_game.session = Some(s); return; }
         let engine = if s.borrowed {
             match self.engines.begin_lease() {
-                Ok(lease) => Some(Engine::Lease { lease, queue: VecDeque::new(), ready: false }),
+                Ok(lease) => Some(Engine::Lease { lease, instance: self.engines.foreground(), queue: VecDeque::new(), ready: false }),
                 Err(_) => None,
             }
         } else {
@@ -254,7 +270,7 @@ impl Workbench {
         }
         loop {
             let Some(s) = self.whole_game.session.as_mut() else { return };
-            let Some(Engine::Lease { lease, queue, ready: true }) = s.engine.as_mut() else { return };
+            let Some(Engine::Lease { lease, queue, ready: true, .. }) = s.engine.as_mut() else { return };
             let (lease, node, visits) = (*lease, queue.pop_front(), if s.deep { s.visits } else { 32 });
             let Some(node) = node else { return self.whole_game_dispatch(); };
             let mut target = self.analysis_target(); target.node = node;
@@ -290,15 +306,21 @@ impl Workbench {
     fn whole_game_finish(&mut self, state: State, detail: &str) {
         let Some(mut s) = self.whole_game.session.take() else { return };
         self.whole_game_refresh(&mut s);
-        s.state = state; s.detail = detail.into();
+        s.completing = false;
         if let Some(engine) = s.engine.take() {
             match engine {
                 Engine::Process { instance, .. } => self.engines.terminate(instance),
-                Engine::Lease { lease, .. } => {
+                Engine::Lease { lease, instance, .. } => {
                     self.engines.end_lease(lease);
-                    if self.engines.lease_alive(lease) { self.whole_game.releasing = Some(lease); }
+                    if self.engines.lease_alive(lease) { self.whole_game.releasing = Some((lease, instance)); }
                 }
             }
+        }
+        if state == State::Complete && self.whole_game.releasing.is_some() {
+            // Stays in the deep stage (99%, still exclusive) until LeaseEnded confirms the return.
+            s.completing = true;
+        } else {
+            s.state = state; s.detail = detail.into();
         }
         if state == State::Pausing && self.whole_game.releasing.is_none() { s.state = State::Paused; s.detail = "WholeGameAnalysis.paused".into(); }
         self.whole_game.session = Some(s);
@@ -306,7 +328,7 @@ impl Workbench {
         self.sync_engine();
     }
     pub fn pause_whole_game_analysis(&mut self) -> bool {
-        if !self.whole_game.session.as_ref().is_some_and(|s| matches!(s.state, State::Preparing | State::Baseline | State::Deep)) { return false; }
+        if !self.whole_game.session.as_ref().is_some_and(|s| !s.completing && matches!(s.state, State::Preparing | State::Baseline | State::Deep)) { return false; }
         self.whole_game_finish(State::Pausing, "WholeGameAnalysis.pausing"); true
     }
     pub fn resume_whole_game_analysis(&mut self) -> bool {
@@ -320,10 +342,10 @@ impl Workbench {
         self.whole_game_finish(State::Cancelled, "WholeGameAnalysis.cancelled"); true
     }
     pub(super) fn whole_game_deadline(&self) -> Option<Instant> {
-        self.whole_game.session.as_ref().filter(|s| s.state.active()).map(|s| s.guard_at)
+        self.whole_game.session.as_ref().filter(|s| s.state.active() && !s.completing).map(|s| s.guard_at)
     }
     pub(super) fn whole_game_tick(&mut self, now: Instant) -> bool {
-        let Some(s) = self.whole_game.session.as_ref().filter(|s| s.state.active()) else { return false };
+        let Some(s) = self.whole_game.session.as_ref().filter(|s| s.state.active() && !s.completing) else { return false };
         if !self.whole_game_matches(s) { self.whole_game_finish(State::Failed, "WholeGameAnalysis.error.gameChanged"); return true; }
         self.whole_game.session.as_mut().unwrap().guard_at = now + Duration::from_millis(500);
         self.whole_game_prepare();
@@ -365,10 +387,13 @@ impl Workbench {
                 self.whole_game_lease_next();
             }
             RuntimeEvent::LeaseSearchFailed { lease: l } if lease == Some(l) => self.whole_game_lease_next(),
-            RuntimeEvent::LeaseEnded { lease: l, failure } if lease == Some(l) || self.whole_game.releasing == Some(l) => {
+            RuntimeEvent::LeaseEnded { lease: l, failure } if lease == Some(l) || self.whole_game.releasing.is_some_and(|r| r.0 == l) => {
                 let requested = self.whole_game.releasing.take().is_some();
                 if failure.is_some() || !requested { self.whole_game_finish(State::Failed, "WholeGameAnalysis.error.request"); }
-                else if let Some(s) = self.whole_game.session.as_mut().filter(|s| s.state == State::Pausing) { s.state = State::Paused; s.detail = "WholeGameAnalysis.paused".into(); }
+                else if let Some(s) = self.whole_game.session.as_mut() {
+                    if s.completing { s.completing = false; s.state = State::Complete; s.detail = "WholeGameAnalysis.complete".into(); }
+                    else if s.state == State::Pausing { s.state = State::Paused; s.detail = "WholeGameAnalysis.paused".into(); }
+                }
                 self.borrowed_engine_returned(); self.sync_engine();
             }
             other => return Some(other),

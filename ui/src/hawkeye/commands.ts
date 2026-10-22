@@ -171,6 +171,9 @@ function input(id: Id, i: HawkeyeInput): void {
       open.lastSent = "";
       break;
     case "run":
+      // Node ids and move numbers belong to the record the window showed; a click that crossed
+      // a record change would land on another game.
+      if (i.command.type === "Hawkeye" && i.command.op.type.startsWith("Goto") && i.layout !== open.layout) break;
       void run(i.command);
       break;
     case "display":

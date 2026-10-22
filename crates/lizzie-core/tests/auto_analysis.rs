@@ -152,6 +152,43 @@ fn all_branches_are_reverse_child_depth_first() {
 }
 
 #[test]
+fn nodes_deleted_after_planning_are_skipped_in_branches_and_strengthening() {
+    use lizzie_core::record::DocumentEdit;
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, id) = setup(dir.path(), "(;SZ[19];B[pd](;W[dd];B[pp])(;W[dp];B[dc]))");
+    let mut s = settings(); s.all_branches = true;
+    wb.start_auto_analysis(s).unwrap().unwrap();
+    serve(&mut wb, &world, id);
+    assert!(wb.edit_document(DocumentEdit::Remove { node: 4 }).unwrap());
+    let mut order = vec![];
+    for _ in 0..6 {
+        if !wb.view(true).auto_analysis.active { break; }
+        serve(&mut wb, &world, id); order.push(wb.view(true).position.node); info(&mut wb, id, 10, 0, 0.5);
+    }
+    assert_eq!(order, vec![0, 1, 2, 3]);
+    assert!(!wb.view(true).auto_analysis.active);
+
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, id) = setup(dir.path(), "(;SZ[19];B[pd];W[dd])");
+    let mut s = settings(); s.diff_enable = true; s.diff_time = -1; s.diff_visits = 20;
+    wb.start_auto_analysis(s).unwrap().unwrap(); serve(&mut wb, &world, id);
+    info(&mut wb, id, 10, 0, 0.8); serve(&mut wb, &world, id);
+    info(&mut wb, id, 10, 0, 0.8); serve(&mut wb, &world, id);
+    wb.stop_auto_analysis();
+    assert_eq!(wb.view(true).auto_analysis.diff_nodes, 2); // root and move 1; move 2 had no result yet
+    // The confirmation leaves the root queued first; the rest of the plan is deleted meanwhile.
+    wb.goto_node(0).unwrap();
+    assert!(wb.edit_document(DocumentEdit::Remove { node: 1 }).unwrap());
+    wb.answer_auto_analysis_diff(true);
+    serve(&mut wb, &world, id);
+    assert_eq!(wb.view(true).position.node, 0);
+    info(&mut wb, id, 20, 0, 0.5);
+    let view = wb.view(true);
+    assert!(!view.auto_analysis.active);
+    assert_eq!(view.position.node, 0);
+}
+
+#[test]
 fn forced_stop_keeps_position_and_pause_exit_respects_setting() {
     for exit in [false, true] {
         let dir = tempfile::tempdir().unwrap(); let (mut wb, world, id) = setup(dir.path(), LINE);
@@ -294,18 +331,30 @@ fn score_diff_obeys_mover_filter_and_stop_during_strengthening_is_final() {
 
 #[test]
 fn autosave_summary_includes_the_final_moves_and_never_runs_without_autosave() {
-    for save in [false, true] {
+    use lizzie_core::record::DocumentEdit;
+    // (auto-save, 保存时附加胜率到评论, the user edited the record before)
+    for (save, append, edited) in [(false, true, false), (true, true, false), (true, false, false), (true, true, true)] {
         let mut record = String::from("(;SZ[19]");
         for i in 0..20 { record.push_str(&format!(";{}[{}{}]", if i % 2 == 0 { "B" } else { "W" }, (b'a' + (i % 19) as u8) as char, (b'a' + (i / 19) as u8) as char)); }
         record.push(')');
         let dir = tempfile::tempdir().unwrap(); let (mut wb, world, id) = setup(dir.path(), &record);
+        wb.set_append_winrate_to_comment(append).unwrap();
+        if edited { wb.edit_document(DocumentEdit::SetComment { node: 3, comment: "mine".into() }).unwrap(); }
+        assert_eq!(wb.document().unsaved(), edited);
         let mut s = settings(); s.auto_save = save;
         wb.start_auto_analysis(s).unwrap().unwrap();
         for _ in 0..21 { serve(&mut wb, &world, id); info(&mut wb, id, 10, 0, 0.5); }
         assert!(!wb.view(true).auto_analysis.active);
-        let text = wb.record_text("test");
-        assert_eq!(text.contains("黑吻合度:"), save); assert_eq!(text.contains("白吻合度:"), save);
-        assert_eq!(wb.take_auto_analysis_saves().len(), usize::from(save));
+        // Like Java, the summary is in the open record too, which keeps its saved state.
+        assert_eq!(wb.document().record.node(0).comment.contains("黑吻合度:"), save);
+        assert_eq!(wb.document().unsaved(), edited, "analysis never marks the record unsaved");
+        let jobs = wb.take_auto_analysis_saves();
+        assert_eq!(jobs.len(), usize::from(save));
+        if let Some(job) = jobs.first() {
+            assert!(job.text.contains("黑吻合度:") && job.text.contains("白吻合度:"));
+            assert!(wb.complete_save(job.ticket, Ok(())));
+            assert_eq!(wb.document().unsaved(), edited, "the analysed copy confirms nothing");
+        }
     }
 }
 

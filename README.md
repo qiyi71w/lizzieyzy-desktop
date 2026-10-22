@@ -303,12 +303,14 @@ importing the matching LizzieYzy Next settings.
   Natural completion optionally strengthens the before/after positions of sufficiently large
   win-rate or score changes; forced stop asks before that phase. Space exits without saving when
   手动暂停分析则退出自动分析 is on (the exit notice can be disabled); otherwise it pauses the
-  run until analysis resumes. Record or engine replacement ends the run without transferring it.
+  run until analysis resumes. Record or engine replacement ends the run without transferring it;
+  positions deleted after the run planned them are skipped.
   Automatic saves after at least one completed position use the existing serial save lane:
   `<name>_已分析_<yyyyMMddHHmmss>.sgf` beside the source, or `AnalyzedGames/<timestamp>.sgf` in
   this client's application data directory for a new record. They are copies, not a rename of
   the source. The root gets Java's AI-match/top-ten-difference summaries for sides with at least
-  ten evaluable moves. Batch analysis and the popup's batch progress table are not available yet.
+  ten evaluable moves; like Java, the open record shows them too without becoming unsaved. Batch
+  analysis and the popup's batch progress table are not available yet.
 - 整盘精析 (分析 menu, `Ctrl+Shift+B`, or 自动分析 popup): a modeless dialog selects 500, 1,000,
   3,000, 10,000 or a custom 500–1,000,000 visits per position. It first fills the missing
   32-visit overview of the starting position and every main-trunk move, then searches missing
@@ -318,11 +320,15 @@ importing the matching LizzieYzy Next settings.
   the pre-start estimate, otherwise the dialog shows the ordinary visits hint. 暂停分析 closes
   the process or returns the borrowed foreground engine; 继续分析 re-plans only missing results.
   停止分析 keeps all completed results. Closing the dialog hides an active session; reopening
-  shows it again. Completion closes it and shows a five-second result notice. Browsing remains
+  shows it again. Completion closes it and shows a five-second result notice; with a borrowed
+  engine this happens once the engine is confirmed back (until then progress stays at 99%).
+  Browsing remains
   available throughout. The analysis process uses KataGo's whole-game throughput thread profile;
   an explicitly accepted matching whole-game measured profile takes precedence after off-thread
   artifact/hardware verification (stale or ambiguous profiles use the normal thread profile).
-  复用当前前台引擎 uses the same sequential foreground lease as quick analysis. The foreground
+  复用当前前台引擎 uses the same sequential foreground lease as quick analysis; switching the
+  foreground engine stops such a run, keeps its results and returns the old engine while the new
+  one analyses. The foreground
   engine stopped by a dedicated run resumes on completion, cancellation or failure unless the
   user paused it. Main-line edits, rules/komi changes or replacing the record stop the task
   safely; game-info and komi editors refuse changes during the session. Analysed nodes show
@@ -352,18 +358,20 @@ importing the matching LizzieYzy Next settings.
   line; the 统计 range is 当前, 全局, 布局, 中盘, 收官 or a custom move range. Below, nine charts
   (胜率吻合, 吻合度走势, loss distributions and statistics, 分段吻合度, 翻车现场) can be clicked, dragged
   or scrolled to browse. Clicking a row goes to the position before the move and marks it; under
-  主干 only main-trunk moves can be chosen. Right-click a list for 导出为xls (a UTF-16
+  主干 only main-trunk moves can be chosen; during 自动分析 row clicks are ignored as in Java, chart
+  clicks are not. A click made just as another record opens is dropped. Right-click a list for 导出为xls (a UTF-16
   tab-separated file named `.xls`, as Java writes it). `Q` keeps the window on top. 双引擎模式
   opens a second window on the secondary engine's analysis. The open state, page, chart, filters,
   range, the primary window's bounds, sort and column widths are remembered; the window reopens
   at start when it was open. Java's `badmoves-always-ontop`, `show-badmoves-frame`,
   `movelist-*`, `move-list-*`, `moveList-selected-branch`, `show-*-matchai`, `opening-end-move`,
   `middle-end-move`, `game-statistics-custom-*`, `*-diff-range*`, `loss-panel-select-winrate` and
-  `match-ai-firstmove/lastmove` are imported; window coordinates are not. Difference from Java:
+  `match-ai-firstmove/lastmove` are imported (an unmatched range selects 其他 with the imported
+  custom moves, 10–200 by default, as Java does); window coordinates are not. Difference from Java:
   总在最前 is remembered (Java saved it under `badmoves-always-on-top` but read
   `badmoves-always-ontop`, so it never survived a restart; the former key is reported as unused).
-  Not yet available: the 显示独立超级鹰眼 settings checkbox (with the settings dialog), the
-  engine-game hint, and ignoring row and chart clicks during 自动分析.
+  Not yet available: the 显示独立超级鹰眼 settings checkbox (with the settings dialog) and the
+  engine-game hint.
 - Rules: an SGF record's `RU` is applied to KataGo (`kata-set-rules`) before analysis. When the
   engine cannot confirm it, a dialog asks whether to continue with the engine's current rules
   (no pauses analysis). `Shift+D` opens the KataGo rules editor.
@@ -397,7 +405,9 @@ importing the matching LizzieYzy Next settings.
   settings — only values Java itself accepts.
   Automatic-analysis conditions (`analyze-all-branch`, all ten `auto-ana-diff-*` keys,
   `exit-auto-analyze-by-pause`, `exit-auto-analyze-tip`) and `toolbar-parameter` slots 0–8,
-  47 and 48 also migrate, including checked limit flags and values, start/end, auto-save and sides.
+  47 and 48 also migrate with Java's restore rules: an empty start becomes 1, empty time 2
+  seconds, other empty limits stay empty, 按时间 is on as Java always shows it, and the visit
+  limits, auto-save and sides follow their saved choices.
   Java's marker for its own bundled KataGo package is reported as not
   applicable. Engines keep using the Java engine and
   model files: relative paths are resolved as Java launches them (a bare program name is looked

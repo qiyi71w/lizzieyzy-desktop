@@ -286,7 +286,8 @@ export function bootHawkeye(): void {
   const self = getCurrentWebviewWindow();
   const inputEvent = self.label === HAWKEYE_SUB_LABEL ? HAWKEYE_SUB_INPUT_EVENT : HAWKEYE_INPUT_EVENT;
   const send = (input: HawkeyeInput) => void emitTo("main", inputEvent, input);
-  const run = (command: Command) => send({ type: "run", command });
+  // The layout names the record the command was picked from; the relay drops stale navigation.
+  const run = (command: Command) => send({ type: "run", command, layout: data?.layout ?? -1 });
   const display = (change: Partial<DisplaySettings>) => send({ type: "display", change });
 
   let data: HawkeyePayload | null = null;

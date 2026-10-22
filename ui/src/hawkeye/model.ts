@@ -69,8 +69,9 @@ export interface HawkeyePayload {
 /** A window's input. */
 export type HawkeyeInput =
   | { type: "ready" }
-  /** A core command (navigation, side boxes, settings, table export). */
-  | { type: "run"; command: Command }
+  /** A core command (navigation, side boxes, settings, table export), with the payload layout
+   *  it was picked from. */
+  | { type: "run"; command: Command; layout: number }
   /** Y, Q (MoveListFrame key listeners), arrows / Space the main window handles like its own keys. */
   | { type: "key"; code: string }
   /** The sort column (sortnum) and the 详细列表's laid-out column widths. */

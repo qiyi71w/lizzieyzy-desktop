@@ -1276,6 +1276,38 @@ fn automatic_analysis_imports_conditions_and_toolbar_parameters_transactionally(
 }
 
 #[test]
+fn toolbar_sentinels_keep_javas_control_defaults() {
+    // BottomToolbar.java:2385-2412: start replaces "1" only when >= 0; end, time and visits
+    // replace their fields only when > 0; the condition boxes are only ever switched on.
+    struct Case { slots: [i64; 9], start: i32, end: i32, time: (bool, i32), visits: (bool, i32), first: (bool, i32), save: bool }
+    let cases = [
+        Case { slots: [-1, -1, 1, -1, -1, -1, -1, -1, -1], start: 1, end: -1, time: (true, 2), visits: (false, -1), first: (false, -1), save: false },
+        Case { slots: [0, 0, 0, 0, 0, 0, 0, 0, 0], start: 0, end: -1, time: (true, 2), visits: (false, -1), first: (false, -1), save: false },
+        Case { slots: [7, 90, -1, 5, 1, 1, 400, -1, 50], start: 7, end: 90, time: (true, 5), visits: (true, 400), first: (false, 50), save: true },
+    ];
+    for (i, c) in cases.iter().enumerate() {
+        let tmp = tempfile::tempdir().unwrap();
+        let java = tmp.path().join("java");
+        std::fs::create_dir_all(&java).unwrap();
+        std::fs::write(java.join("config.txt"), json!({ "ui": {} }).to_string()).unwrap();
+        let mut toolbar = vec![json!(-1); 51];
+        for (index, value) in c.slots.iter().enumerate() { toolbar[index] = json!(value); }
+        toolbar[47] = json!(true); toolbar[48] = json!(true);
+        std::fs::write(java.join("persist"), json!({"ui-persist": {"toolbar-parameter": toolbar}}).to_string()).unwrap();
+        let product = tmp.path().join("product");
+        let mut wb = workbench(&product, Recorder::default());
+        let p = preview(&mut wb, &java);
+        wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+        let s = wb.config().auto_analysis.clone();
+        assert_eq!((s.start_move, s.end_move), (c.start, c.end), "case {i}");
+        assert_eq!(((s.time_enabled, s.time_seconds), (s.visits_enabled, s.visits), (s.first_visits_enabled, s.first_visits)), (c.time, c.visits, c.first), "case {i}");
+        assert_eq!(s.auto_save, c.save, "case {i}");
+        // The restored conditions are enough to start; only the missing engine refuses it.
+        assert_eq!(wb.start_auto_analysis(s).unwrap(), Err("AutoAnalyze.engineUnavailable"), "case {i}");
+    }
+}
+
+#[test]
 fn whole_game_visits_imports_with_java_from_stored_validation() {
     for (stored, expected) in [(3000, 3000), (499, 1000), (-1, 1000), (1_000_001, 1000)] {
         let tmp = tempfile::tempdir().unwrap();
@@ -1365,20 +1397,21 @@ fn hawkeye_settings_import_like_java_reads_them() {
 }
 
 #[test]
-fn an_unmatched_hawkeye_range_becomes_a_custom_period() {
-    let tmp = tempfile::tempdir().unwrap();
-    let java = tmp.path().join("java");
-    std::fs::create_dir_all(&java).unwrap();
-    std::fs::write(
-        java.join("config.txt"),
-        json!({ "ui": { "match-ai-firstmove": 29, "match-ai-lastmove": 90, "movelist-selected-index": 9 } }).to_string(),
-    )
-    .unwrap();
-    let product = tmp.path().join("product");
-    let mut wb = workbench(&product, Recorder::default());
-    let p = preview(&mut wb, &java);
-    assert_eq!(item(&p.items, "ui.movelist-selected-index").status, ImportStatus::Incompatible);
-    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
-    let h = &wb.config().hawkeye;
-    assert_eq!((h.period, h.custom_start, h.custom_end, h.chart), (HawkeyePeriod::Custom, 30, 90, 0));
+fn an_unmatched_hawkeye_range_selects_custom_with_javas_custom_moves() {
+    // setFilterStatus picks 其他 for 29..90, then applies game-statistics-custom-start/end.
+    for (custom, expected) in [(json!({}), (10, 200)), (json!({ "game-statistics-custom-start": 40, "game-statistics-custom-end": 120 }), (40, 120))] {
+        let tmp = tempfile::tempdir().unwrap();
+        let java = tmp.path().join("java");
+        std::fs::create_dir_all(&java).unwrap();
+        let mut ui = json!({ "match-ai-firstmove": 29, "match-ai-lastmove": 90, "movelist-selected-index": 9 });
+        ui.as_object_mut().unwrap().extend(custom.as_object().unwrap().clone());
+        std::fs::write(java.join("config.txt"), json!({ "ui": ui }).to_string()).unwrap();
+        let product = tmp.path().join("product");
+        let mut wb = workbench(&product, Recorder::default());
+        let p = preview(&mut wb, &java);
+        assert_eq!(item(&p.items, "ui.movelist-selected-index").status, ImportStatus::Incompatible);
+        wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+        let h = &wb.config().hawkeye;
+        assert_eq!((h.period, (h.custom_start, h.custom_end), h.chart), (HawkeyePeriod::Custom, expected, 0));
+    }
 }
