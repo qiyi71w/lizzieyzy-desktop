@@ -1,13 +1,15 @@
 //! Analysis information beside the candidates: Kata形势 (the search ownership), each move's
-//! result against the analysis of the position it was played in (统计, AI总评分) and 终局点目.
+//! result against the analysis of the position it was played in (统计, AI总评分, 问题手) and
+//! 终局点目.
 
 use super::Workbench;
 use crate::api::{
-    ApiError, KataEstimateMode, KataEstimateView, MoveChange, MoveEvaluation, ScoreCommand, ScoreView, StatisticsView,
+    ApiError, ErrorKind, KataEstimateMode, KataEstimateView, MoveChange, MoveEvaluation, ProblemListView,
+    ProblemMoveView, ScoreCommand, ScoreView, StatisticsView,
 };
 use crate::record::{DocumentEdit, NodeId, NodeKind, Stone, ROOT};
 use crate::scoring::Marks;
-use crate::settings::KataEstimateState;
+use crate::settings::{KataEstimateState, ProblemListSettings, ProblemSort};
 
 /// Kata形势 this session (`Config.showKataGoEstimate*`, `isHiddenKataEstimate`).
 #[derive(Clone, Copy, Debug)]
@@ -242,6 +244,122 @@ impl Workbench {
             ai_score_white: mean(white),
             last_move,
         }
+    }
+
+    // -------------------------------------------------------------------- 问题手
+
+    /// The marked problem move while the position before it is browsed (`clickbadmove`).
+    fn problem_mark(&self) -> Option<NodeId> {
+        self.problem_mark
+            .filter(|&(doc, at, _)| doc == self.doc.id && at == self.cursor)
+            .map(|(_, _, node)| node)
+    }
+
+    /// `refreshProblemListSnapshot` / `buildProblemMoveEntry`: main-trunk moves from move 2 whose
+    /// mover lost at least the threshold of win rate, best moves excepted.
+    pub(super) fn problem_list(&self) -> ProblemListView {
+        let rec = &self.doc.record;
+        let s = &self.config.problems;
+        let thresholds = self.config.display.win_loss_thresholds.map(f64::abs);
+        let mark = self.problem_mark();
+        let current_number = rec.node(self.cursor).move_number;
+        let (mut black, mut white, mut analyzed, mut total) = (Vec::new(), Vec::new(), 0, 0);
+        for node in rec.path_to(rec.line_end(ROOT)) {
+            let n = rec.node(node);
+            let NodeKind::Move { color, point } = n.kind else {
+                continue;
+            };
+            let Some(parent) = n.parent.filter(|_| n.move_number > 1) else {
+                continue;
+            };
+            total += 1;
+            let analysed = |at| self.store.get(rec, at).filter(|a| a.visits > 0);
+            let (Some(before), Some(after)) = (analysed(parent), analysed(node)) else {
+                continue;
+            };
+            analyzed += 1;
+            let Some(e) = self.evaluation(node).filter(|e| !e.best) else {
+                continue;
+            };
+            if before.visits < s.playouts_threshold || after.visits < s.playouts_threshold {
+                continue;
+            }
+            let loss = (-e.winrate_change.unwrap_or(0.0)).max(0.0);
+            if loss < s.winrate_threshold {
+                continue;
+            }
+            let tier = (1..=5u8)
+                .rev()
+                .find(|&k| loss >= thresholds[usize::from(k) - 1])
+                .unwrap_or(u8::from(loss > 0.0));
+            let entry = ProblemMoveView {
+                node,
+                move_number: n.move_number,
+                mover: color,
+                point,
+                winrate_loss: loss,
+                score_loss: e.score_change.map(|c| (-c).max(0.0)),
+                playouts: after.visits,
+                tier,
+                // `isCurrentProblemMove`: by move number, or the marked move one ahead.
+                current: current_number == n.move_number || (mark == Some(node) && current_number + 1 == n.move_number),
+            };
+            if color == Stone::Black {
+                black.push(entry);
+            } else {
+                white.push(entry);
+            }
+        }
+        for list in [&mut black, &mut white] {
+            match s.sort {
+                ProblemSort::LossDesc => list.sort_by(|a, b| {
+                    b.winrate_loss
+                        .total_cmp(&a.winrate_loss)
+                        .then(a.move_number.cmp(&b.move_number))
+                }),
+                ProblemSort::MoveAsc => list.sort_by_key(|e| e.move_number),
+                ProblemSort::MoveDesc => list.sort_by_key(|e| std::cmp::Reverse(e.move_number)),
+            }
+        }
+        ProblemListView {
+            black,
+            white,
+            analyzed,
+            total,
+            running: self.quick_running(),
+            mark: mark.and_then(|m| match rec.node(m).kind {
+                NodeKind::Move { point, .. } => Some(point),
+                _ => None,
+            }),
+        }
+    }
+
+    /// `jumpToProblemMove`: the position before the main-trunk move, with the move marked.
+    pub fn jump_to_problem_move(&mut self, node: NodeId) -> Result<bool, ApiError> {
+        let rec = &self.doc.record;
+        let parent = rec
+            .contains(node)
+            .then(|| rec.node(node))
+            .filter(|n| matches!(n.kind, NodeKind::Move { .. }) && rec.is_main_trunk(node))
+            .and_then(|n| n.parent)
+            .ok_or_else(|| ApiError::new(ErrorKind::InvalidArgument, format!("no problem move {node}")))?;
+        let moved = self.goto_node(parent)?;
+        let mark = Some((self.doc.id, parent, node));
+        let marked = self.problem_mark != mark;
+        self.problem_mark = mark;
+        Ok(moved || marked)
+    }
+
+    /// The 评论/问题手 page, 黑/白, 问题手排序 and the control bar (`SidebarPanel`, `BlunderListPanel`).
+    pub fn set_problem_list(&mut self, settings: ProblemListSettings) -> Result<bool, ApiError> {
+        if !settings.winrate_threshold.is_finite() || settings.winrate_threshold < 0.0 {
+            return Err(ApiError::new(ErrorKind::InvalidArgument, "problem list threshold"));
+        }
+        if self.config.problems == settings {
+            return Ok(false);
+        }
+        self.commit_config(|c| c.problems = settings)?;
+        Ok(true)
     }
 
     // -------------------------------------------------------------------- 终局点目

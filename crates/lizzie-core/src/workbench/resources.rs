@@ -23,6 +23,9 @@ use std::{
     },
 };
 
+/// Catalog model of the 快速曲线轻量模型 (Java `TRANSFORMER_LIGHTWEIGHT_MODEL`).
+pub(super) const QUICK_MODEL: &str = "b10-lightweight";
+
 struct Active {
     id: u64,
     cancel: Arc<AtomicBool>,
@@ -92,6 +95,12 @@ impl ResourceFlow {
             projected_version: None,
         }
     }
+    pub(super) fn store(&self) -> &r::ResourceStore {
+        &self.store
+    }
+    pub(super) fn catalog(&self) -> &r::Catalog {
+        &self.catalog
+    }
 }
 impl Drop for ResourceFlow {
     fn drop(&mut self) {
@@ -126,6 +135,8 @@ pub struct ResourceCompletion {
     pub cache_bytes: Option<u64>,
     pub weight_headers: BTreeMap<String, String>,
     pub runtime_present: bool,
+    /// The 快速曲线轻量模型 file a download installed.
+    pub quick_model: Option<String>,
 }
 fn refused(key: &str) -> ResourceResult {
     ResourceResult::Refused {
@@ -221,6 +232,7 @@ impl Workbench {
                     ResourceItem::Model { model } => model.clone(),
                     ResourceItem::OnlineWeight { name } => name.clone(),
                     ResourceItem::NvidiaRuntime { backend, .. } => backend.clone(),
+                    ResourceItem::QuickModel => QUICK_MODEL.into(),
                 },
                 "downloading",
             ),
@@ -247,7 +259,7 @@ impl Workbench {
         };
         let integrity_key = match &operation {
             ResourceCommand::Download {
-                item: ResourceItem::Model { .. } | ResourceItem::OnlineWeight { .. },
+                item: ResourceItem::Model { .. } | ResourceItem::OnlineWeight { .. } | ResourceItem::QuickModel,
             }
             | ResourceCommand::ImportWeight { .. } => "AutoSetup.weightChecksumFailed",
             ResourceCommand::Download {
@@ -382,6 +394,15 @@ impl Workbench {
                 if let Some((engine, weight)) = done.chosen {
                     self.resources.view.chosen_engine = Some(engine);
                     self.resources.view.chosen_weight = Some(weight);
+                }
+                // `rememberQuickAnalysisModel(target, true)`: the downloaded model is used.
+                if let Some(path) = done.quick_model {
+                    self.quick_model_downloaded(std::path::Path::new(&path));
+                    let _ = self.commit_config(|c| {
+                        c.quick_model.path = Some(path);
+                        c.quick_model.enabled = true;
+                    });
+                    self.quick_drop_warm();
                 }
                 if done.runtime_present {
                     self.engines.set_library_dirs(vec![self.resources.store.runtime_dir()]);
@@ -786,7 +807,8 @@ pub fn run_resource_job(
         return Err(r::ResourceError::Cancelled);
     }
     let mut out = ResourceCompletion::default();
-    let download_item =
+    let mut quick_model = None;
+    let mut download_item =
         |item: &ResourceItem, progress: &mut dyn FnMut(&str, u64, Option<u64>)| -> r::ResourceResult<()> {
             match item {
                 ResourceItem::Package { asset, backend, .. } => {
@@ -839,6 +861,19 @@ pub fn run_resource_job(
                         progress("downloading", p.bytes, p.total)
                     })?;
                     job.store.register_weight(&job.catalog, &d)?;
+                }
+                ResourceItem::QuickModel => {
+                    let m = job.catalog.model(QUICK_MODEL)?;
+                    let spec = r::DownloadSpec {
+                        url: job.catalog.model_url(m),
+                        file_name: m.file_name.clone(),
+                        size: Some(m.size_bytes),
+                        sha256: Some(m.sha256.clone()),
+                    };
+                    let d = r::download(fetch, &job.store.quick_models_dir(), &spec, &job.cancel, |p| {
+                        progress("downloading", p.bytes, p.total)
+                    })?;
+                    quick_model = Some(d.path.to_string_lossy().into_owned());
                 }
                 ResourceItem::NvidiaRuntime { backend, .. } => {
                     let cuda = fetch_text(fetch, r::CUDA_MANIFEST_URL)?;
@@ -972,6 +1007,7 @@ pub fn run_resource_job(
             ))
         }
     }
+    out.quick_model = quick_model;
     if job.cancel.load(Ordering::Acquire)
         && matches!(
             job.operation,

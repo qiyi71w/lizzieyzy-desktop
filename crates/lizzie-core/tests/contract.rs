@@ -16,8 +16,9 @@ use lizzie_core::record::{
 };
 use lizzie_core::display::{BoardOverlayView, MoveNumberLabel, MoveRank, NextMoveInfo, NextMoveVerdict, RankMark};
 use lizzie_core::settings::{
-    CoordinateStyle, DisplaySettings, EditSettings, EstimateStyle, ExtraMode, FramePlacement, KataEstimateState,
-    Language, MoveRankMode, PvVisitsMode, RecoverySettings, SubBoardMode, WindowPlacement,
+    AnalysisEngineSettings, CoordinateStyle, DisplaySettings, EditSettings, EstimateStyle, ExtraMode, FramePlacement,
+    KataEstimateState, Language, MoveRankMode, ProblemListSettings, ProblemSide, ProblemSort, PvVisitsMode,
+    RecoverySettings, SubBoardMode, WindowPlacement,
 };
 use lizzie_core::viewpoint::{AsCandidate, ShownValues};
 use ts_rs::Config;
@@ -51,6 +52,8 @@ fn generate() -> String {
         KataEstimateMode, KataEstimateState, KataEstimateView, ScoreCommand, ScorePoint, ScoreView,
         MoveEvaluation, MoveChange, StatisticsView, FramePlacement,
         ExtraMode, SecondaryEngineView, SecondaryView,
+        AnalysisEngineSettings, QuickModelView, QuickModelStatus, QuickAnalysisView, ProblemListSettings,
+        ProblemSide, ProblemSort, ProblemListView, ProblemMoveView, LeaseAvailabilityView, UnrestoredReason,
     ];
     // Engine resources and engine performance keep their own lists.
     decls.extend(resources::decls(&cfg));

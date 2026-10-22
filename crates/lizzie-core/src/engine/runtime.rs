@@ -149,6 +149,131 @@ pub enum RuntimeEvent {
     RawNet { instance: InstanceId },
     /// The process failed to start or ended unexpectedly; the instance is gone.
     Failed(EngineFailure),
+    /// The borrowed foreground engine stopped and its rules were captured: searches may start.
+    LeaseReady { lease: u64 },
+    /// A finite search of the borrowed engine reached its visits, for the position it was made
+    /// for.
+    LeaseResult {
+        lease: u64,
+        doc: u64,
+        node: NodeId,
+        stamp: u64,
+        komi: f64,
+        rules_rev: u64,
+        to_play: Stone,
+        line: InfoLine,
+    },
+    /// A finite search of the borrowed engine stalled, was refused or produced nothing.
+    LeaseSearchFailed { lease: u64 },
+    /// The lease is over: the engine was given back (`None`), or giving it back failed.
+    LeaseEnded { lease: u64, failure: Option<LeaseFailure> },
+    /// One stdout line of an analysis process.
+    WorkerLine { instance: InstanceId, line: String },
+    /// An analysis process ended by itself (or could not be written to); it is gone.
+    WorkerExited {
+        instance: InstanceId,
+        message: String,
+        output: Vec<String>,
+    },
+}
+
+/// Whether the foreground engine can be borrowed (Java `ExclusiveGtpLeaseAvailability`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LeaseAvailability {
+    Available,
+    NoForegroundEngine,
+    EngineNotReady,
+    NotKatago,
+    MissingCapability,
+    ExistingLease,
+    EngineStateUnrestored,
+}
+
+/// How borrowing or giving back the foreground engine failed (Java
+/// `ForegroundAnalysisLeaseFailure`). The `Final*`, `RestoreFailed` and `TransportClosed` ones
+/// leave the engine unrestored.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LeaseFailure {
+    InitialStopError,
+    InitialStopTimeout,
+    FinalStopError,
+    FinalStopTimeout,
+    RestoreFailed,
+    TransportClosed,
+}
+
+impl LeaseFailure {
+    /// Whether the engine's state is unknown afterwards.
+    pub fn unrestores(self) -> bool {
+        !matches!(self, LeaseFailure::InitialStopError | LeaseFailure::InitialStopTimeout)
+    }
+}
+
+/// Commands a borrowed engine needs (Java `FLASH_ANALYSIS_GTP_COMMANDS`).
+const LEASE_COMMANDS: [&str; 9] = [
+    "stop",
+    "boardsize",
+    "komi",
+    "kata-get-rules",
+    "kata-set-rules",
+    "clear_board",
+    "play",
+    "set_position",
+    "kata-analyze",
+];
+/// Java `FOREGROUND_INITIAL_STOP_TIMEOUT_MILLIS`, `REMOTE_GTP_SETUP_ACK_TIMEOUT_MILLIS`,
+/// `REMOTE_GTP_ANALYZE_STALL_TIMEOUT_MILLIS`, `FOREGROUND_RELEASE_STOP_TIMEOUT_MILLIS`.
+const LEASE_ACK: Duration = Duration::from_millis(8000);
+/// Java `REMOTE_GTP_STOP_ACK_TIMEOUT_MILLIS`.
+const LEASE_STOP_ACK: Duration = Duration::from_millis(1200);
+/// Java's foreground restore watchdog.
+const LEASE_RESTORE: Duration = Duration::from_millis(30_000);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LeaseStep {
+    /// The `stop` that takes the engine over.
+    InitialStop(u64),
+    /// `kata-get-rules`, kept for giving the engine back.
+    Capture(u64),
+    Idle,
+    /// A finite search in flight.
+    Search,
+    /// The `stop` that ends a search.
+    SearchStop(u64),
+    /// The `stop` that starts giving the engine back.
+    FinalStop(u64),
+    /// Rules and position restored; `name` confirms the engine follows again.
+    Restore(u64),
+}
+
+struct LeaseSearch {
+    analyze: u64,
+    request: Request,
+    target_visits: u64,
+    best: Option<InfoLine>,
+    failed: bool,
+}
+
+/// The foreground engine lent to a background task (Java `ForegroundAnalysisLease`): the seat's
+/// wish is not followed until the engine is given back.
+struct Lease {
+    id: u64,
+    instance: InstanceId,
+    step: LeaseStep,
+    deadline: Option<Instant>,
+    captured_rules: Option<String>,
+    rules_changed: bool,
+    releasing: bool,
+    restore_failed: bool,
+    search: Option<LeaseSearch>,
+}
+
+/// A KataGo analysis process (`katago analysis`): JSON lines in and out, no GTP.
+struct Worker {
+    id: InstanceId,
+    name: String,
+    io: Option<Box<dyn EngineIo>>,
+    tail: VecDeque<String>,
 }
 
 /// A console entry (GtpConsolePane): sent commands, engine output and errors.
@@ -191,6 +316,8 @@ enum Purpose {
     Probe,
     Stop,
     User,
+    /// A command of the foreground lease; its answer goes to the lease.
+    Lease,
 }
 
 /// What the engine will hold once it has processed every command sent so far: the anchor
@@ -273,6 +400,9 @@ struct Instance {
     raw_requested: Option<(TargetKey, u64)>,
     raw_request: Option<RawRequest>,
     raw_data: Option<(TargetKey, RawNetView)>,
+    /// Giving the engine back after a lease failed: its state is unknown and it no longer
+    /// follows the seat's wish until it is restarted.
+    unrestored: Option<LeaseFailure>,
 }
 
 const OUTPUT_TAIL: usize = 40;
@@ -403,6 +533,11 @@ pub struct Engines {
     console: VecDeque<ConsoleLine>,
     console_seq: u64,
     trace: Option<Box<dyn Write + Send>>,
+    lease: Option<Lease>,
+    next_lease: u64,
+    workers: Vec<Worker>,
+    /// Events produced outside engine output, handed out with the next events.
+    pending: Vec<RuntimeEvent>,
 }
 
 impl Instance {
@@ -499,6 +634,10 @@ impl Engines {
             console: VecDeque::new(),
             console_seq: 0,
             trace: None,
+            lease: None,
+            next_lease: 1,
+            workers: Vec::new(),
+            pending: Vec::new(),
         }
     }
 
@@ -843,6 +982,7 @@ impl Engines {
             raw_request: None,
             raw_data: None,
             stream_options: StreamOptions::default(),
+            unrestored: None,
         });
         let name = profile.name.clone();
         self.trace(&name, "--", &format!("start {}", profile.command));
@@ -935,9 +1075,19 @@ impl Engines {
         self.pump();
     }
 
-    /// Ends one instance. Its later output is ignored; a seat it held is empty.
+    /// Ends one instance (an engine or an analysis process). Its later output is ignored; a seat
+    /// it held is empty, and a lease of it ends as [`LeaseFailure::TransportClosed`] (reported by
+    /// [`take_events`](Self::take_events)).
     pub fn terminate(&mut self, id: InstanceId) {
         self.checks.retain(|c| c.instance != id);
+        if let Some(at) = self.workers.iter().position(|w| w.id == id) {
+            let mut w = self.workers.remove(at);
+            self.trace(&w.name, "--", "terminate");
+            if let Some(io) = w.io.take() {
+                io.terminate();
+            }
+            return;
+        }
         let Some(at) = self.instances.iter().position(|i| i.id == id) else {
             return;
         };
@@ -949,6 +1099,12 @@ impl Engines {
             self.secondary = None;
             self.secondary_wish = None;
         }
+        if let Some(lease) = self.lease.take_if(|l| l.instance == id) {
+            self.pending.push(RuntimeEvent::LeaseEnded {
+                lease: lease.id,
+                failure: Some(LeaseFailure::TransportClosed),
+            });
+        }
         self.trace(&inst.display_name(), "--", "terminate");
         if let Some(io) = inst.io.take() {
             io.terminate();
@@ -956,10 +1112,20 @@ impl Engines {
     }
 
     pub fn terminate_all(&mut self) {
-        let ids: Vec<InstanceId> = self.instances.iter().map(|i| i.id).collect();
+        let ids: Vec<InstanceId> = self
+            .instances
+            .iter()
+            .map(|i| i.id)
+            .chain(self.workers.iter().map(|w| w.id))
+            .collect();
         for id in ids {
             self.terminate(id);
         }
+    }
+
+    /// Events produced outside engine output (a lease lost with its terminated engine).
+    pub fn take_events(&mut self) -> Vec<RuntimeEvent> {
+        std::mem::take(&mut self.pending)
     }
 
     // -------------------------------------------------------------------- wishes
@@ -1086,17 +1252,22 @@ impl Engines {
         }
     }
 
-    /// When [`tick`](Self::tick) has work next (a Leela 0.11 pondering probe), if ever.
+    /// When [`tick`](Self::tick) has work next (a Leela 0.11 pondering probe, a lease deadline),
+    /// if ever.
     pub fn next_tick(&self) -> Option<Instant> {
-        match (self.due(self.foreground), self.due(self.secondary)) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
+        [
+            self.due(self.foreground),
+            self.due(self.secondary),
+            self.lease.as_ref().and_then(|l| l.deadline),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     /// Advances timed engine work without owning a thread: the platform calls this at
     /// [`next_tick`](Self::next_tick); controlled-protocol tests supply a later instant directly.
-    pub fn tick(&mut self, now: Instant) {
+    pub fn tick(&mut self, now: Instant) -> Vec<RuntimeEvent> {
         for id in [self.foreground, self.secondary].into_iter().flatten() {
             if self.due(Some(id)).is_some_and(|due| now >= due) {
                 self.get_mut(id).unwrap().ponder_due = None;
@@ -1104,6 +1275,12 @@ impl Engines {
                 self.fence_last(id);
             }
         }
+        let mut events = Vec::new();
+        if self.lease.as_ref().and_then(|l| l.deadline).is_some_and(|d| now >= d) {
+            self.lease_timeout(&mut events);
+        }
+        events.append(&mut self.pending);
+        events
     }
 
     fn stop_stream(&mut self, id: InstanceId) -> bool {
@@ -1133,7 +1310,7 @@ impl Engines {
     fn pump_seat(&mut self, id: InstanceId) {
         let interval = self.interval_centisec;
         let Some(inst) = self.get(id) else { return };
-        if inst.phase != Phase::Ready || inst.fence.is_some() {
+        if inst.phase != Phase::Ready || inst.fence.is_some() || inst.unrestored.is_some() || self.leased(id) {
             return;
         }
         let first_new = inst.next_id;
@@ -1392,7 +1569,11 @@ impl Engines {
 
     /// Output of instance `id`. Returns what the application flow must act on.
     pub fn input(&mut self, id: InstanceId, input: EngineInput) -> Vec<RuntimeEvent> {
-        let mut events = Vec::new();
+        let mut events = std::mem::take(&mut self.pending);
+        if self.workers.iter().any(|w| w.id == id) {
+            self.worker_input(id, input, &mut events);
+            return events;
+        }
         let Some(inst) = self.get_mut(id) else {
             return events; // a retired instance
         };
@@ -1444,6 +1625,8 @@ impl Engines {
                 }
             }
         }
+        // Lease steps that could not be written report through `pending`.
+        events.append(&mut self.pending);
         events
     }
 
@@ -1514,6 +1697,9 @@ impl Engines {
     }
 
     fn frame(&mut self, id: InstanceId, frame: Frame, events: &mut Vec<RuntimeEvent>) {
+        if self.lease.as_ref().is_some_and(|l| l.instance == id) && self.lease_frame(&frame, events) {
+            return;
+        }
         let Some(inst) = self.get_mut(id) else { return };
         match frame {
             Frame::Header { id: n } => {
@@ -1683,6 +1869,482 @@ impl Engines {
         let inst = self.get_mut(id).unwrap();
         inst.ready_fence = inst.next_id.checked_sub(1);
         inst.board = None;
+    }
+
+    // -------------------------------------------------------------------- foreground lease
+
+    fn leased(&self, id: InstanceId) -> bool {
+        self.lease.as_ref().is_some_and(|l| l.instance == id)
+    }
+
+    /// Whether the foreground engine can be borrowed now (`previewForegroundAnalysisLeaseAvailability`).
+    pub fn lease_availability(&self) -> LeaseAvailability {
+        let Some(inst) = self.foreground.and_then(|id| self.get(id)) else {
+            return LeaseAvailability::NoForegroundEngine;
+        };
+        if inst.unrestored.is_some() {
+            LeaseAvailability::EngineStateUnrestored
+        } else if inst.phase != Phase::Ready {
+            LeaseAvailability::EngineNotReady
+        } else if inst.kind != EngineKind::KataGo {
+            LeaseAvailability::NotKatago
+        } else if !LEASE_COMMANDS.iter().all(|c| inst.has(c)) {
+            LeaseAvailability::MissingCapability
+        } else if self.lease.is_some() {
+            LeaseAvailability::ExistingLease
+        } else {
+            LeaseAvailability::Available
+        }
+    }
+
+    /// How giving instance `id` back failed, while it stays unrestored.
+    pub fn unrestored(&self, id: InstanceId) -> Option<LeaseFailure> {
+        self.get(id)?.unrestored
+    }
+
+    /// Takes the foreground engine over (`acquireForegroundAnalysisLease`): `stop`, then its rules
+    /// are captured; it does not follow its wish until given back. Searches may start after
+    /// [`RuntimeEvent::LeaseReady`].
+    pub fn begin_lease(&mut self) -> Result<u64, LeaseAvailability> {
+        match self.lease_availability() {
+            LeaseAvailability::Available => {}
+            other => return Err(other),
+        }
+        let id = self.foreground.expect("an available lease has a foreground engine");
+        let Some(n) = self.send(id, "stop", Purpose::Lease) else {
+            return Err(LeaseAvailability::EngineNotReady);
+        };
+        let lease = self.next_lease;
+        self.next_lease += 1;
+        self.lease = Some(Lease {
+            id: lease,
+            instance: id,
+            step: LeaseStep::InitialStop(n),
+            deadline: Some(Instant::now() + LEASE_ACK),
+            captured_rules: None,
+            rules_changed: false,
+            releasing: false,
+            restore_failed: false,
+            search: None,
+        });
+        Ok(lease)
+    }
+
+    /// Whether lease `lease` is still out (neither given back nor lost).
+    pub fn lease_alive(&self, lease: u64) -> bool {
+        self.lease.as_ref().is_some_and(|l| l.id == lease)
+    }
+
+    /// Whether lease `lease` is ready for a search.
+    pub fn lease_idle(&self, lease: u64) -> bool {
+        self.lease
+            .as_ref()
+            .is_some_and(|l| l.id == lease && l.step == LeaseStep::Idle && !l.releasing)
+    }
+
+    /// A finite search of `target` on the borrowed engine: its position, `rules` (a
+    /// `kata-set-rules` argument) when given, then `kata-analyze … 1 maxmoves 1 rootInfo true`
+    /// stopped once the root has `visits` visits.
+    pub fn lease_search(&mut self, lease: u64, target: &Target, visits: u64, rules: Option<&str>) -> bool {
+        // Rules are changed only when the engine's own can be put back.
+        if !self.lease_idle(lease)
+            || (rules.is_some() && self.lease.as_ref().is_some_and(|l| l.captured_rules.is_none()))
+        {
+            return false;
+        }
+        let id = self.lease.as_ref().unwrap().instance;
+        let Some(inst) = self.get(id) else { return false };
+        let (commands, board) = sync_commands(inst, target);
+        self.get_mut(id).unwrap().board = Some(board);
+        for c in commands {
+            self.send(id, &c, Purpose::Lease);
+        }
+        if let Some(r) = rules {
+            self.send(id, &format!("kata-set-rules {r}"), Purpose::Lease);
+        }
+        let to_play = target.record.node(target.node).to_play;
+        let Some(n) = self.send(
+            id,
+            &format!("kata-analyze {} 1 maxmoves 1 rootInfo true", color_letter(to_play)),
+            Purpose::Lease,
+        ) else {
+            return false;
+        };
+        let l = self.lease.as_mut().unwrap();
+        l.rules_changed |= rules.is_some();
+        l.step = LeaseStep::Search;
+        l.deadline = Some(Instant::now() + LEASE_ACK);
+        l.search = Some(LeaseSearch {
+            analyze: n,
+            request: Request {
+                key: target.key(),
+                to_play,
+                size: target.record.size,
+                started: Instant::now(),
+            },
+            target_visits: visits,
+            best: None,
+            failed: false,
+        });
+        true
+    }
+
+    /// Gives the engine back (`endForegroundAnalysisLease`): a search is stopped, then `stop`,
+    /// the captured rules, the seat's position and `name`; [`RuntimeEvent::LeaseEnded`] tells
+    /// how it went.
+    pub fn end_lease(&mut self, lease: u64) {
+        let Some(l) = self.lease.as_mut().filter(|l| l.id == lease && !l.releasing) else {
+            return;
+        };
+        l.releasing = true;
+        match l.step {
+            LeaseStep::Idle => self.lease_final_stop(),
+            LeaseStep::Search => self.lease_stop_search(),
+            // The step in flight continues the release when answered.
+            _ => {}
+        }
+    }
+
+    fn lease_stop_search(&mut self) {
+        let id = self.lease.as_ref().unwrap().instance;
+        let n = self.send(id, "stop", Purpose::Lease);
+        let l = self.lease.as_mut().unwrap();
+        match n {
+            Some(n) => {
+                l.step = LeaseStep::SearchStop(n);
+                l.deadline = Some(Instant::now() + LEASE_STOP_ACK);
+            }
+            None => {
+                l.step = LeaseStep::Idle;
+                l.deadline = None;
+            }
+        }
+    }
+
+    fn lease_final_stop(&mut self) {
+        let id = self.lease.as_ref().unwrap().instance;
+        match self.send(id, "stop", Purpose::Lease) {
+            Some(n) => {
+                let l = self.lease.as_mut().unwrap();
+                l.step = LeaseStep::FinalStop(n);
+                l.deadline = Some(Instant::now() + LEASE_ACK);
+            }
+            None => {
+                let mut events = Vec::new();
+                self.lease_failed(LeaseFailure::FinalStopError, &mut events);
+                self.pending.append(&mut events);
+            }
+        }
+    }
+
+    /// After the final `stop`: the captured rules when a search changed them, the position the
+    /// seat wishes, then `name` to confirm the engine answers in order.
+    fn lease_restore(&mut self) {
+        let (id, rules) = {
+            let l = self.lease.as_ref().unwrap();
+            (l.instance, l.captured_rules.clone().filter(|_| l.rules_changed))
+        };
+        if let Some(r) = rules {
+            self.send(id, &format!("kata-set-rules {r}"), Purpose::Lease);
+        }
+        let target = self.wish_of(id).map(|(t, _)| t.clone());
+        if let (Some(target), Some(inst)) = (target, self.get(id)) {
+            let (commands, board) = sync_commands(inst, &target);
+            let inst = self.get_mut(id).unwrap();
+            inst.board = Some(board);
+            inst.syncing = Some(target.key());
+            for c in commands {
+                self.send(id, &c, Purpose::Lease);
+            }
+        }
+        let n = self.send(id, "name", Purpose::Lease);
+        let l = self.lease.as_mut().unwrap();
+        match n {
+            Some(n) => {
+                l.step = LeaseStep::Restore(n);
+                l.deadline = Some(Instant::now() + LEASE_RESTORE);
+            }
+            None => l.restore_failed = true,
+        }
+        if n.is_none() {
+            let mut events = Vec::new();
+            self.lease_failed(LeaseFailure::RestoreFailed, &mut events);
+            self.pending.append(&mut events);
+        }
+    }
+
+    /// The lease is over without the engine confirmed back. A failure after the take-over leaves
+    /// the engine unrestored: it follows no wish until restarted.
+    fn lease_failed(&mut self, failure: LeaseFailure, events: &mut Vec<RuntimeEvent>) {
+        let Some(l) = self.lease.take() else { return };
+        if failure.unrestores() {
+            if let Some(inst) = self.get_mut(l.instance) {
+                inst.unrestored = Some(failure);
+                inst.stream = None;
+            }
+        }
+        let name = self.display_name(l.instance).unwrap_or_default();
+        self.trace(&name, "--", &format!("lease {} failed: {failure:?}", l.id));
+        events.push(RuntimeEvent::LeaseEnded {
+            lease: l.id,
+            failure: Some(failure),
+        });
+        if !failure.unrestores() {
+            self.pump_seat(l.instance);
+        }
+    }
+
+    /// A search's end: its result, or a failure.
+    fn lease_search_done(&mut self, events: &mut Vec<RuntimeEvent>) {
+        let l = self.lease.as_mut().unwrap();
+        let lease = l.id;
+        l.step = LeaseStep::Idle;
+        l.deadline = None;
+        let releasing = l.releasing;
+        let search = l.search.take();
+        match search {
+            Some(s) if !s.failed && s.best.as_ref().is_some_and(|b| !b.candidates.is_empty()) => {
+                let line = s.best.unwrap();
+                events.push(RuntimeEvent::LeaseResult {
+                    lease,
+                    doc: s.request.key.doc,
+                    node: s.request.key.node,
+                    stamp: s.request.key.stamp,
+                    komi: f64::from_bits(s.request.key.komi_bits),
+                    rules_rev: s.request.key.rules_rev,
+                    to_play: s.request.to_play,
+                    line,
+                });
+            }
+            _ if releasing => {}
+            _ => events.push(RuntimeEvent::LeaseSearchFailed { lease }),
+        }
+        if releasing {
+            self.lease_final_stop();
+        }
+    }
+
+    /// A frame of the leased engine: `true` when it belonged to the lease.
+    fn lease_frame(&mut self, frame: &Frame, events: &mut Vec<RuntimeEvent>) -> bool {
+        let (id, step, analyze) = {
+            let l = self.lease.as_ref().unwrap();
+            (l.instance, l.step, l.search.as_ref().map(|s| s.analyze))
+        };
+        match frame {
+            Frame::Header { id: n } => matches!(self.get(id).and_then(|i| i.waiting.get(n)), Some(Purpose::Lease)),
+            Frame::Info { id: n, line } => {
+                if analyze != Some(*n) {
+                    return false;
+                }
+                let l = self.lease.as_mut().unwrap();
+                let s = l.search.as_mut().unwrap();
+                let info = gtp::parse_info(line, Dialect::Kata, s.request.size);
+                let total = info
+                    .root_visits
+                    .unwrap_or_else(|| info.candidates.iter().map(|c| c.visits).sum());
+                if !info.candidates.is_empty() {
+                    s.best = Some(info);
+                }
+                if total >= s.target_visits && step == LeaseStep::Search {
+                    self.lease_stop_search();
+                }
+                true
+            }
+            Frame::Response { id: n, ok, text } => {
+                let Some(inst) = self.get_mut(id) else { return false };
+                if !matches!(inst.waiting.get(n), Some(Purpose::Lease)) {
+                    return false;
+                }
+                inst.waiting.remove(n);
+                let (n, ok) = (*n, *ok);
+                match step {
+                    LeaseStep::InitialStop(s) if s == n => {
+                        if !ok {
+                            self.lease_failed(LeaseFailure::InitialStopError, events);
+                        } else if self.lease.as_ref().unwrap().releasing {
+                            self.lease_restore();
+                        } else if let Some(m) = self.send(id, "kata-get-rules", Purpose::Lease) {
+                            let l = self.lease.as_mut().unwrap();
+                            l.step = LeaseStep::Capture(m);
+                            l.deadline = Some(Instant::now() + LEASE_ACK);
+                        }
+                    }
+                    LeaseStep::Capture(s) if s == n => {
+                        // Without the engine's own rules it could not be given back as it was
+                        // (`setRestoreRules`): the attempt fails before searching.
+                        let captured = Some(text.trim())
+                            .filter(|t| {
+                                ok && serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(t).is_ok()
+                            })
+                            .map(str::to_string);
+                        let l = self.lease.as_mut().unwrap();
+                        l.step = LeaseStep::Idle;
+                        l.deadline = None;
+                        let ready = captured.is_some();
+                        l.captured_rules = captured;
+                        if l.releasing {
+                            self.lease_final_stop();
+                        } else if ready {
+                            events.push(RuntimeEvent::LeaseReady { lease: l.id });
+                        } else {
+                            events.push(RuntimeEvent::LeaseSearchFailed { lease: l.id });
+                        }
+                    }
+                    LeaseStep::Search if analyze == Some(n) => {
+                        // The stream ended without a stop: the request was refused.
+                        self.lease.as_mut().unwrap().search.as_mut().unwrap().failed = true;
+                        self.lease_search_done(events);
+                    }
+                    LeaseStep::SearchStop(s) if s == n => {
+                        if !ok {
+                            self.lease.as_mut().unwrap().search.as_mut().unwrap().failed = true;
+                        }
+                        self.lease_search_done(events);
+                    }
+                    LeaseStep::FinalStop(s) if s == n => {
+                        if ok {
+                            self.lease_restore();
+                        } else {
+                            self.lease_failed(LeaseFailure::FinalStopError, events);
+                        }
+                    }
+                    LeaseStep::Restore(s) if s == n => {
+                        if ok && !self.lease.as_ref().unwrap().restore_failed {
+                            let l = self.lease.take().unwrap();
+                            if let Some(inst) = self.get_mut(id) {
+                                inst.synced = inst.board.is_some();
+                                inst.syncing = None;
+                            }
+                            events.push(RuntimeEvent::LeaseEnded {
+                                lease: l.id,
+                                failure: None,
+                            });
+                            self.pump_seat(id);
+                        } else {
+                            self.lease_failed(LeaseFailure::RestoreFailed, events);
+                        }
+                    }
+                    // Position, rules and other answers within a step. A refused position leaves
+                    // the engine's board unknown: giving it back rebuilds the position.
+                    _ if !ok => {
+                        let l = self.lease.as_mut().unwrap();
+                        let searching = matches!(l.step, LeaseStep::Search | LeaseStep::SearchStop(_));
+                        match l.step {
+                            LeaseStep::Search | LeaseStep::SearchStop(_) => {
+                                if let Some(s) = l.search.as_mut() {
+                                    s.failed = true;
+                                }
+                            }
+                            LeaseStep::Restore(_) => l.restore_failed = true,
+                            _ => {}
+                        }
+                        if searching {
+                            if let Some(inst) = self.get_mut(id) {
+                                inst.board = None;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                true
+            }
+        }
+    }
+
+    /// A lease step that was not answered in time.
+    fn lease_timeout(&mut self, events: &mut Vec<RuntimeEvent>) {
+        let l = self.lease.as_mut().unwrap();
+        l.deadline = None;
+        match l.step {
+            LeaseStep::InitialStop(_) => self.lease_failed(LeaseFailure::InitialStopTimeout, events),
+            LeaseStep::Capture(_) => {
+                l.step = LeaseStep::Idle;
+                if l.releasing {
+                    self.lease_final_stop();
+                } else {
+                    events.push(RuntimeEvent::LeaseSearchFailed { lease: l.id });
+                }
+            }
+            LeaseStep::Search => {
+                if let Some(s) = l.search.as_mut() {
+                    s.failed = true;
+                }
+                self.lease_stop_search();
+            }
+            LeaseStep::SearchStop(_) => {
+                if let Some(s) = l.search.as_mut() {
+                    s.failed = true;
+                }
+                self.lease_search_done(events);
+            }
+            LeaseStep::FinalStop(_) => self.lease_failed(LeaseFailure::FinalStopTimeout, events),
+            LeaseStep::Restore(_) => self.lease_failed(LeaseFailure::RestoreFailed, events),
+            LeaseStep::Idle => {}
+        }
+    }
+
+    // -------------------------------------------------------------------- analysis processes
+
+    /// Starts a KataGo analysis process for `command` (`AnalysisEngine.startEngine`); relative
+    /// paths resolve like an engine's. Its stdout lines arrive as [`RuntimeEvent::WorkerLine`].
+    pub fn start_worker(&mut self, command: &str, name: &str) -> Result<InstanceId, String> {
+        let mut spec = gtp::prepare_launch(command, &self.roots).ok_or_else(|| "empty command".to_string())?;
+        spec.library_dirs = self.library_dirs.clone();
+        let id = self.next_instance;
+        self.next_instance += 1;
+        self.trace(name, "--", &format!("start {command}"));
+        let io = self.launcher.launch(id, &spec).map_err(|e| e.to_string())?;
+        self.workers.push(Worker {
+            id,
+            name: name.to_string(),
+            io: Some(io),
+            tail: VecDeque::new(),
+        });
+        Ok(id)
+    }
+
+    /// Writes one line to analysis process `id`; `false` when it is gone or its input closed.
+    pub fn worker_send(&mut self, id: InstanceId, line: &str) -> bool {
+        let Some(w) = self.workers.iter_mut().find(|w| w.id == id) else {
+            return false;
+        };
+        let ok = w.io.as_mut().is_some_and(|io| io.send(line).is_ok());
+        let name = w.name.clone();
+        self.trace(&name, ">>", line);
+        ok
+    }
+
+    pub fn worker_alive(&self, id: InstanceId) -> bool {
+        self.workers.iter().any(|w| w.id == id)
+    }
+
+    fn worker_input(&mut self, id: InstanceId, input: EngineInput, events: &mut Vec<RuntimeEvent>) {
+        let w = self.workers.iter_mut().find(|w| w.id == id).unwrap();
+        let name = w.name.clone();
+        match input {
+            EngineInput::Stdout(line) => {
+                self.trace(&name, "<<", &line);
+                events.push(RuntimeEvent::WorkerLine { instance: id, line });
+            }
+            EngineInput::Stderr(line) => {
+                push_tail(&mut w.tail, &line);
+                self.trace(&name, "!!", &line);
+            }
+            EngineInput::Exited(code) => {
+                let message = match code {
+                    Some(c) => format!("exit code {c}"),
+                    None => "terminated".to_string(),
+                };
+                let output = w.tail.iter().cloned().collect();
+                self.trace(&name, "--", &format!("exited: {message}"));
+                self.terminate(id);
+                events.push(RuntimeEvent::WorkerExited {
+                    instance: id,
+                    message,
+                    output,
+                });
+            }
+        }
     }
 }
 

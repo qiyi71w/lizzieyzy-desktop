@@ -58,6 +58,22 @@ pub fn split_command(line: &str) -> Vec<String> {
     out
 }
 
+/// The inverse of [`split_command`]: tokens with spaces or quotes are quoted. `None` when a
+/// token holds both kinds of quote, which the Java syntax cannot express.
+pub fn join_command(tokens: &[String]) -> Option<String> {
+    let mut out = Vec::with_capacity(tokens.len());
+    for t in tokens {
+        let needs_quotes = t.is_empty() || t.contains([' ', '"', '\'']);
+        out.push(match (needs_quotes, t.contains('"'), t.contains('\'')) {
+            (false, _, _) => t.clone(),
+            (true, false, _) => format!("\"{t}\""),
+            (true, true, false) => format!("'{t}'"),
+            (true, true, true) => return None,
+        });
+    }
+    Some(out.join(" "))
+}
+
 /// Options whose value is a file path (`CommandLaunchHelper.FILE_PATH_OPTIONS`).
 pub(crate) const FILE_PATH_OPTIONS: [&str; 12] = [
     "-model",
@@ -344,11 +360,14 @@ pub struct CandidateLine {
     pub ownership: Option<Vec<f64>>,
 }
 
-/// Candidates of one analysis line, sorted by `order`, and the `rootInfo visits` if present.
+/// Candidates of one analysis line, sorted by `order`, and the `rootInfo` values if present.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InfoLine {
     pub candidates: Vec<CandidateLine>,
     pub root_visits: Option<u64>,
+    /// `rootInfo winrate` (0–100) and `scoreLead`, the position's own evaluation.
+    pub root_winrate: Option<f64>,
+    pub root_score_lead: Option<f64>,
     /// KataGo `ownership` (side-to-move-positive, row-major from the top-left).
     pub ownership: Option<Vec<f64>>,
 }
@@ -379,17 +398,19 @@ pub fn parse_info(line: &str, dialect: Dialect, size: BoardSize) -> InfoLine {
         Some((a, b)) => (a, Some(b)),
         None => (line, None),
     };
-    let root_visits = root.and_then(|r| {
-        let t: Vec<&str> = r.split_whitespace().collect();
-        t.iter()
-            .position(|x| *x == "visits")
-            .and_then(|i| t.get(i + 1)?.parse().ok())
-    });
+    let root_tokens: Vec<&str> = root.map(|r| r.split_whitespace().collect()).unwrap_or_default();
+    let root_value = |key: &str| {
+        let at = root_tokens.iter().position(|x| *x == key)?;
+        root_tokens.get(at + 1)?.parse::<f64>().ok()
+    };
+    let root_visits = root_value("visits").map(|v| v as u64);
     let scale = match dialect {
         Dialect::Kata => 100.0,
         Dialect::Leela | Dialect::Sai | Dialect::Sayuri => 0.01,
         Dialect::Leela011 => 1.0,
     };
+    let root_winrate = root_value("winrate").map(|w| w * scale);
+    let root_score_lead = root_value("scoreLead");
     let mut candidates = Vec::new();
     for chunk in infos.split("info ").filter(|c| !c.trim().is_empty()) {
         let toks: Vec<&str> = chunk.split_whitespace().collect();
@@ -460,6 +481,8 @@ pub fn parse_info(line: &str, dialect: Dialect, size: BoardSize) -> InfoLine {
     InfoLine {
         candidates,
         root_visits,
+        root_winrate,
+        root_score_lead,
         ownership,
     }
 }

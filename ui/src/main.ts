@@ -11,7 +11,7 @@ import { buildToolbar, renderToolbar } from "./chrome/toolbar";
 import { onUnavailable, onView, snapshot } from "./contract/client";
 import type { BoardOverlayView, HistoryPoint, Navigation, NodeAnalysisView, Point, WorkbenchView } from "./contract/generated";
 import { dialogOpen, message } from "./dialogs";
-import { isChinese, product, setLanguage, t } from "./i18n";
+import { format, isChinese, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
 import { boardGeom, doubleEngineLayout, inFrameLayout, mainMarginRatio, SUB_MARGIN_RATIO, type BoardGeom, type DualPanels, type Panels, type Rect } from "./workbench/layout";
 import { handleLayoutKey } from "./workbench/extraMode";
@@ -37,6 +37,8 @@ import { editing } from "./editing/state";
 import { bindCaptureSurface, copyMainBoardPicture, copySubBoardPicture, saveMainBoardPicture, saveSubBoardPicture, saveWinratePicture } from "./recovery/capture";
 import { startAutoSave } from "./recovery/commands";
 import { recoveryReport } from "./recovery/panel";
+import { bindProblemPanel, problemsReport, renderProblemPanel } from "./quick/problems";
+import "./quick/analysisSettings";
 import {
   aiScoreText,
   loadImages,
@@ -651,7 +653,6 @@ function bindPointer() {
       }
     }
   });
-  for (const id of ["problemsTab"]) $(id).addEventListener("click", unavailable);
 }
 
 /** JScrollBar unit increment of the variation tree. */
@@ -751,12 +752,26 @@ async function installBackground(size: string, w: number, h: number, glass: Rect
   main.style.backgroundSize = `${w}px ${h}px`;
 }
 
-/** LizzieFrame.drawPonderingState: only ambient status depends on active pondering. */
+/** LizzieFrame.drawPonderingState: only ambient status depends on active pondering. An engine left
+ *  unrestored after a borrow shows its cause and the way back instead (loadingStatusLines,
+ *  java:7871-7890); a retrying quick analysis replaces the shortcut hint (drawCommandString). */
 function statusLines(): string[] {
-  const hint = notice && notice.until > performance.now() ? notice.text : t("LizzieFrame.prompt.showControlsHint");
+  const v = state.view;
+  const hint = notice && notice.until > performance.now()
+    ? notice.text
+    : v?.quick.retrying ? t("LizzieFrame.quickAnalysis.retrying") : t("LizzieFrame.prompt.showControlsHint");
+  const unrestored = v?.engine.unrestored;
+  if (unrestored) {
+    const reason = unrestored === "Stop" ? t("LizzieFrame.foregroundUnrestored.reason.stop") : t("LizzieFrame.foregroundUnrestored.reason.restore");
+    return [
+      format(t("LizzieFrame.display.foregroundUnrestored"), reason),
+      format(t("LizzieFrame.display.foregroundUnrestoredAction"), t("Menu.restartCurrentEngine")),
+      hint,
+    ];
+  }
   return [
-    state.view?.engine.foreground?.name ?? t("LizzieFrame.noEngineText"),
-    `${t("LizzieFrame.display.pondering")} ${state.view?.engine.analysing ? t("LizzieFrame.display.on") : t("LizzieFrame.display.off")}${t("LizzieFrame.display.space")}`,
+    v?.engine.foreground?.name ?? t("LizzieFrame.noEngineText"),
+    `${t("LizzieFrame.display.pondering")} ${v?.engine.analysing ? t("LizzieFrame.display.on") : t("LizzieFrame.display.off")}${t("LizzieFrame.display.space")}`,
     hint,
   ];
 }
@@ -821,11 +836,12 @@ function render() {
     preview: hoveredVariation(v)?.preview ?? null,
     ownership: mainOwnership(v, hoverAllowed(v) ? hoveredCandidate : null),
     score: v.score,
+    mark: v.problems.mark,
   };
   const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}`;
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
   const scoreSig = v.score ? JSON.stringify(v.score) : "";
-  if (changed("board", `${background}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}`))
+  if (changed("board", `${background}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}`))
     boardReport = paintBoard(prepare($("board"), P.board), mainGeom(v, P.board), P.board, scene);
   if (dual) renderDual(v, dual, W, H, size, docSig, ui, scoreSig, scene);
   else renderPanels(v, P, H, size, docSig, ui, scene);
@@ -916,6 +932,7 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
   // 记录选点信息到评论中: Java's pane shows the summary its engine writes into the comment.
   const comment = v.comment_with_analysis ?? pos.comment;
   if (changed("comment", `${docSig}:${comment}`)) $("commentText").textContent = comment;
+  renderProblemPanel(v);
   place($("table"), P.table);
   if (changed("table", `${size}:${docSig}:${analysisRevision}:${historyRevision}:${mainTableSignature(v)}`)) renderMainTable($("table"), v);
 }
@@ -940,7 +957,7 @@ function renderDual(v: WorkbenchView, d: DualPanels, W: number, H: number, size:
     ownership: secondaryOwnership(v, allowed ? hoveredCandidate2 : null),
   };
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
-  if (changed("board2", `${size}:${docSig}:${secondaryRevision}:${displaySig2}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("right", scene.ownership)}:${scoreSig}`))
+  if (changed("board2", `${size}:${docSig}:${secondaryRevision}:${displaySig2}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("right", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}`))
     rightReport = paintBoard(prepare($("board2"), d.right), mainGeom(v, d.right), d.right, scene);
   // drawPonderingStateForExtraMode2 (LizzieFrame.java:6663-6719): each engine's name and 思考
   // state, then its visits and side-to-move win rate for this node when it has a result. The
@@ -1037,6 +1054,8 @@ function uiReport() {
     },
     lastSound: state.lastSound,
     recovery: recoveryReport(),
+    /** 评论/问题手 panel (T13): page, side, sort, badge, rows and the board's marked move. */
+    problems: problemsReport(),
     /** Visible menu, toolbar, bottom-bar and dialog controls with client-area centres, so
      *  automation clicks the real controls. */
     targets: [...document.querySelectorAll<HTMLElement>("[data-key], [data-name], #moveInput, .modal-box button")]
@@ -1112,9 +1131,7 @@ async function boot() {
   buildToolbar($("toolbar"));
   buildBottomBar($("bottombar"));
   mountSetupBanner();
-  $("commentsTab").textContent = t("SidebarHeader.comments");
-  $("problemsTab").textContent = t("SidebarHeader.problems");
-  $("problemsTab").title = product("unavailable");
+  bindProblemPanel();
   bindPointer();
   bindCommentEditor($("commentText"));
   bindCaptureSurface(() => panels && { panels, width: $("main").clientWidth, height: $("main").clientHeight, background: backgroundUrl }, render);

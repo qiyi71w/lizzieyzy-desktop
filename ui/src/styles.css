@@ -375,22 +375,34 @@ body {
   overflow: hidden;
 }
 /* SidebarHeaderPanel classic layout: a 48 px header (SidebarHeaderPanel.java:28-37); label
-   position measured on the Linux capture */
+   position measured on the Linux capture. A narrow panel wraps the side filter onto a second
+   32 px row (CLASSIC_ROW_HEIGHT). */
 #comment .tabs {
   flex: none;
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
-  height: 48px;
+  min-height: 48px;
   padding: 21px 9px 0 19px;
-  gap: 22px;
+  gap: 17px 22px;
   font-size: 12px;
   color: rgb(200, 200, 200);
+  outline: none;
+}
+#comment .tab {
+  cursor: default;
 }
 #comment .tab.on {
   color: #fff;
   font-weight: bold;
   border-bottom: 2px solid rgb(90, 140, 220);
   padding-bottom: 3px;
+}
+#commentPage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 #commentText {
   flex: 1;
@@ -568,10 +580,6 @@ body {
   margin: 3px 4px;
   background: rgb(160, 165, 170);
 }
-#comment .tab.unavailable {
-  cursor: default;
-}
-
 /* ---- modal dialogs (JOptionPane roles) */
 #dialog {
   position: fixed;

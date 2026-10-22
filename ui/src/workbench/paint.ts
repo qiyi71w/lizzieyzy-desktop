@@ -107,6 +107,8 @@ export interface BoardScene {
   ownership: OwnershipLayer | null;
   /** 终局点目 in progress: its marks replace the analysis overlays (BoardRenderer.java:328-426). */
   score: ScoreView | null;
+  /** The problem move a 问题手 jump marked (LizzieFrame.clickbadmove), while its parent shows. */
+  mark: Point | null;
 }
 
 /** What the main board drew, for the acceptance probe. */
@@ -139,6 +141,8 @@ export interface BoardReport {
   estimate: { style: EstimateStyle; source: OwnershipLayer["source"] } | null;
   /** 终局点目 marks drawn: red dots (neutral / 不计入) and owned squares. */
   score: { neutral: number; black: number; white: number } | null;
+  /** The marked problem move's magenta ring (drawFocusStone). */
+  mark: Point | null;
 }
 
 export const images: Record<string, HTMLImageElement> = {};
@@ -1102,6 +1106,7 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     pvVisits: [],
     estimate: null,
     score: null,
+    mark: null,
   };
   drawTexture(g, images["board.png"], ox, oy, geo.size, geo.size);
   const avail = geo.size - 2 * geo.margin;
@@ -1192,6 +1197,16 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     drawCandidateLabels(g, geo, shown, s, branch, hideHoverInfo, hoverIndex >= 0 && preview?.stones[hoverIndex] === "Black", report);
   } else if (next.length) drawNextMoveOutlines(g, next, s.nextColor!, X, Y, r);
   if (nextHover) drawNextFirstMove(g, s, geo, X, Y, report);
+  // drawFocusStone (BoardRenderer.java:421-422, 1410-1416): a magenta ring of 7/6 the stone
+  // radius, stroke radius / 11.5, while no branch shows.
+  if (s.mark && !branch) {
+    const ring = i((r * 7) / 6);
+    g.strokeStyle = "#f0f";
+    g.lineWidth = ring / 11.5;
+    circle(g, X(s.mark.x), Y(s.mark.y), ring);
+    g.stroke();
+    report.mark = s.mark;
+  }
   return report;
 }
 

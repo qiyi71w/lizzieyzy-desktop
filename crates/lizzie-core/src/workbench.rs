@@ -19,6 +19,7 @@ mod editing;
 mod exporting;
 mod importing;
 mod information;
+mod quick;
 mod recovery;
 mod resources;
 mod tuning;
@@ -238,6 +239,11 @@ pub struct Workbench {
     estimate: information::EstimateSession,
     /// 终局点目 in progress.
     scoring: Option<information::Scoring>,
+    /// 自动棋谱快析 of the open record.
+    quick: quick::QuickFlow,
+    /// The problem move a 问题手 jump marked, while browsing the position before it
+    /// (`clickbadmove`): document, that position, the move's node.
+    problem_mark: Option<(u64, NodeId, NodeId)>,
 }
 
 impl Workbench {
@@ -331,6 +337,8 @@ impl Workbench {
             recovery,
             estimate,
             scoring: None,
+            quick: quick::QuickFlow::default(),
+            problem_mark: None,
         }
     }
 
@@ -418,7 +426,12 @@ impl Workbench {
                     detail: e.to_string(),
                 });
             }
-            Ok((format, mut record)) => {
+            Ok(read) => {
+                // Opening waits while a borrowed foreground engine is given back.
+                let Some((_, Ok((format, mut record)))) = self.quick_defer_open((ticket, Ok(read))) else {
+                    self.pending = Some(pending);
+                    return true;
+                };
                 // Java applies a record komi when automatic loading is on or the game starts
                 // from setup/handicap; otherwise the session komi stays (`resetAllNoKomi`).
                 let use_record_komi =
@@ -501,6 +514,7 @@ impl Workbench {
                 };
                 self.publish_record_rules(declared.as_deref());
                 self.sync_engine();
+                self.quick_after_load();
             }
         }
         true
@@ -649,6 +663,7 @@ impl Workbench {
         };
         self.cursor = target;
         self.sync_engine();
+        self.quick_navigated();
         true
     }
 
@@ -677,6 +692,14 @@ impl Workbench {
     }
 
     // ---------------------------------------------------------------- settings and data
+
+    pub fn set_load_sgf_last(&mut self, enabled: bool) -> Result<bool, ApiError> {
+        if self.config.record.load_sgf_last == enabled {
+            return Ok(false);
+        }
+        self.commit_config(|c| c.record.load_sgf_last = enabled)?;
+        Ok(true)
+    }
 
     pub fn set_read_komi(&mut self, enabled: bool) -> Result<bool, ApiError> {
         if self.config.record.read_komi == enabled {
@@ -879,6 +902,8 @@ impl Workbench {
                 restart_required: self.config.ui.language.resolve(self.system_locale.as_deref())
                     != self.active_language,
                 read_komi: self.config.record.read_komi,
+                load_sgf_last: self.config.record.load_sgf_last,
+                auto_quick_analyze_on_load: self.config.record.auto_quick_analyze_on_load,
                 append_winrate_to_comment: self.config.record.append_winrate_to_comment,
                 play_sound: self.config.ui.play_sound,
                 replace_file_hint: self.config.record.show_replace_file_hint,
@@ -886,10 +911,15 @@ impl Workbench {
                 engine: self.engine_settings_view(),
                 edit: self.config.edit.clone(),
                 display: self.config.display.clone(),
+                analysis_engine: self.config.analysis_engine.clone(),
+                quick_model: self.quick_model_view(),
+                problems: self.config.problems.clone(),
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
             engine: self.engine_view(),
+            quick: self.quick_view(),
+            problems: self.problem_list(),
             analysis: self.current_analysis(),
             board: self.board_overlay(),
             raw_net: self.raw_net_view(),

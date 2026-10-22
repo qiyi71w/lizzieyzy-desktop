@@ -32,8 +32,9 @@ pub enum TuningCommand {
         engine_id: String,
         configuration: GtpConfiguration,
     },
-    /// Scan helper chooser; engine_type is KataGo, LeelaZero, ikatago or other.
-    Scan { engine_type: String },
+    /// Scan helper chooser; engine_type is KataGo, LeelaZero, ikatago or other. `analysis`: a
+    /// KataGo analysis engine line (`analysis … -quit-without-waiting`, 精析设置 > 自动生成).
+    Scan { engine_type: String, analysis: bool },
     /// ikatago Scan prompts for platform/account in UI, then chooses its executable in the shell.
     ScanIkatago {
         platform: String,

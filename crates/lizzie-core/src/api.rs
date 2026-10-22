@@ -271,6 +271,46 @@ pub enum Command {
     Score {
         op: ScoreCommand,
     },
+    /// 设置 > 加载棋谱后快速刷新胜率曲线 (`ui.auto-quick-analyze-on-load`). Turning it off cancels a
+    /// running automatic quick analysis.
+    SetAutoQuickAnalyze {
+        enabled: bool,
+    },
+    /// 设置 > 打开后跳到最后一手 (`ui.load-sgf-last`).
+    SetLoadSgfLast {
+        enabled: bool,
+    },
+    /// 精析设置 > 确定 (`AnalysisSettings.saveConfig`). `shown_command` is the command the dialog
+    /// showed when it opened; `edited` is set once 自动生成 / 选择引擎 changed the command. A command
+    /// becomes customized when it differs from what was shown, or was edited, unless the current
+    /// engine is reused. Answers `Refused { AnalysisSettings.commandRequired }` for an empty
+    /// command without reuse; `command_customized` in `settings` is ignored.
+    SaveAnalysisEngineSettings {
+        settings: crate::settings::AnalysisEngineSettings,
+        shown_command: String,
+        edited: bool,
+    },
+    /// 精析设置 > 选择引擎, and opening the dialog while the command is not customized: the
+    /// analysis command made from engine `index` (`None`: the foreground engine, else the default
+    /// one) by turning `gtp` into `analysis` and its config into the `analysis.cfg` beside it,
+    /// which is created from KataGo's example when missing (`AnalysisEngineCommandHelper`).
+    /// Answers `AnalysisCommand` or `Refused` with the helper's message key.
+    GenerateAnalysisCommand {
+        index: Option<u32>,
+    },
+    /// 快速曲线轻量模型 > 自动使用.
+    SetQuickModelEnabled {
+        enabled: bool,
+    },
+    /// The 评论/问题手 panel: page, side filter, sort, control bar.
+    SetProblemList {
+        settings: crate::settings::ProblemListSettings,
+    },
+    /// A 问题手 row (click, Enter, Space; `jumpToProblemMove`): browse to the position before the
+    /// move at `node` and mark the move that was played there.
+    JumpToProblemMove {
+        node: NodeId,
+    },
 }
 
 /// Kata形势显示 menu choices.
@@ -351,6 +391,12 @@ pub enum CommandResult {
     Resource { result: ResourceResult },
     /// Answer to a [`Command::Tuning`].
     Tuning { result: TuningResult },
+    /// A generated analysis engine command ([`Command::GenerateAnalysisCommand`]);
+    /// `generated_config` is the `analysis.cfg` created for it, if one was.
+    AnalysisCommand {
+        command: String,
+        generated_config: Option<String>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -515,6 +561,10 @@ pub struct SettingsView {
     /// Whether the saved language differs from the one in use until restart.
     pub restart_required: bool,
     pub read_komi: bool,
+    /// 打开后跳到最后一手 (`ui.load-sgf-last`).
+    pub load_sgf_last: bool,
+    /// 打开棋谱后自动快速分析 (`ui.auto-quick-analyze-on-load`).
+    pub auto_quick_analyze_on_load: bool,
     pub append_winrate_to_comment: bool,
     /// Settings > "播放落子音效" (Java `ui.play-sound`, default on).
     pub play_sound: bool,
@@ -525,6 +575,102 @@ pub struct SettingsView {
     pub engine: EngineSettingsView,
     pub edit: EditSettings,
     pub display: crate::settings::DisplaySettings,
+    /// 精析设置 as saved.
+    pub analysis_engine: crate::settings::AnalysisEngineSettings,
+    /// 快速曲线轻量模型 on the weights page.
+    pub quick_model: QuickModelView,
+    /// 评论/问题手 panel state.
+    pub problems: crate::settings::ProblemListSettings,
+}
+
+/// 快速曲线轻量模型 card (`KataGoAutoSetupDialog`, `QuickAnalysisModelStatus`).
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct QuickModelView {
+    pub status: QuickModelStatus,
+    /// The installed model file.
+    pub path: Option<String>,
+    /// 自动使用 is on.
+    pub enabled: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum QuickModelStatus {
+    /// 未下载: download offered.
+    Missing,
+    /// Installed, but the engine that would run it is not KataGo 1.17 or later.
+    RequiresKataGo117,
+    /// 已安装.
+    Installed,
+    /// 自动使用.
+    Enabled,
+}
+
+/// Automatic quick analysis (自动棋谱快析) of the open record.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct QuickAnalysisView {
+    /// A task is active (waiting, starting, running or giving its engine back).
+    pub running: bool,
+    /// An attempt failed and the task retries in the background
+    /// (`LizzieFrame.quickAnalysis.retrying`).
+    pub retrying: bool,
+    /// The task borrows the foreground engine instead of running an analysis process.
+    pub borrowed: bool,
+}
+
+/// 问题手 list and its progress badge (`ProblemListSnapshot`).
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct ProblemListView {
+    /// Moves of each side over the win-rate threshold, in the chosen order.
+    pub black: Vec<ProblemMoveView>,
+    pub white: Vec<ProblemMoveView>,
+    /// Main-trunk moves from move 2 whose position before and after are analysed.
+    pub analyzed: u32,
+    /// Main-trunk moves from move 2.
+    pub total: u32,
+    /// Background analysis is running (`评估中`).
+    pub running: bool,
+    /// The move a jump marked on the board (`clickbadmove`), while browsing the position before it.
+    pub mark: Option<Point>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct ProblemMoveView {
+    /// The move's node.
+    pub node: NodeId,
+    pub move_number: u32,
+    pub mover: Stone,
+    pub point: Point,
+    /// Win rate lost by the mover, percentage points.
+    pub winrate_loss: f64,
+    /// Points lost, when both positions have KataGo scores.
+    pub score_loss: Option<f64>,
+    /// Visits of the position after the move.
+    pub playouts: u64,
+    /// 1–5 by the 落子评价 win-rate thresholds; 5 is shown in the loss colour.
+    pub tier: u8,
+    /// The browsing position is this move, or the position before it with the move marked.
+    pub current: bool,
+}
+
+/// Whether the foreground engine can be borrowed (`AnalysisSettings.reuseStatus.*`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum LeaseAvailabilityView {
+    Available,
+    NoForegroundEngine,
+    EngineNotReady,
+    NotKatago,
+    MissingCapability,
+    ExistingLease,
+    EngineStateUnrestored,
+}
+
+/// Why the foreground engine was not given back (`LizzieFrame.foregroundUnrestored.reason.*`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum UnrestoredReason {
+    /// 停止失败.
+    Stop,
+    /// 恢复失败.
+    Restore,
 }
 
 /// Committed engine settings, for the engine settings dialog and the settings pages.
@@ -571,6 +717,10 @@ pub struct WorkbenchView {
     /// Current session komi (toolbar komi field).
     pub komi: f64,
     pub engine: EngineView,
+    /// Automatic quick analysis of the open record.
+    pub quick: QuickAnalysisView,
+    /// 问题手 list and its progress badge.
+    pub problems: ProblemListView,
     /// Stored analysis of the current node (whether or not the engine is analysing it now).
     pub analysis: Option<NodeAnalysisView>,
     /// Move numbers, 落子评价 and 下一手 详细 of the current position, as the display settings
@@ -768,6 +918,19 @@ pub enum ImportTarget {
     SuggestionsFrame,
     /// 布局模式: `ui.extra-mode` (默认模式 / 双引擎模式).
     ExtraMode,
+    /// 加载棋谱后快速刷新胜率曲线: `ui.auto-quick-analyze-on-load`.
+    AutoQuickAnalysis,
+    /// 精析设置: `ui.analysis-engine-command`, `-command-customized`, `analysis-max-visits`,
+    /// `analysis-use-current-rules`, `analysis-specific-rules`, `analysis-always-override`,
+    /// `analysis-engine-preload`, `analysis-auto-quit`, `analysis-reuse-current-engine`.
+    AnalysisEngine,
+    /// 快速曲线轻量模型: `ui.quick-analysis-lightweight-model-enabled`,
+    /// `katago-quick-analysis-model-path`.
+    QuickModel,
+    /// 问题手: `ui.is-showing-blunder-table`, `problem-list-side-filter`, `problem-list-sort`,
+    /// `problem-list-winrate-threshold`, `blunder-playouts-threshold`,
+    /// `hide-blunder-table-control-pane`.
+    ProblemList,
 }
 
 /// A problem found with an imported engine without starting it.
@@ -954,6 +1117,11 @@ pub struct EngineView {
     pub console_seq: u64,
     /// Full trace of engine GTP traffic is being written.
     pub full_trace: bool,
+    /// 复用当前前台引擎 target status (`AnalysisSettings.reuseStatus`).
+    pub lease: LeaseAvailabilityView,
+    /// The foreground engine was not given back after it was borrowed: it does not analyse until
+    /// it is restarted (`LizzieFrame.display.foregroundUnrestored`).
+    pub unrestored: Option<UnrestoredReason>,
 }
 
 /// One candidate (`MoveData`). Percentages 0–100 from the side to move.

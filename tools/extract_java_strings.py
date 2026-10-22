@@ -66,12 +66,15 @@ def unescape(s: str) -> str:
 
 def used_keys() -> set[str]:
     """Keys passed to t("...") literally, plus `key: "..."` fields of the UI's data tables
-    (menus, toolbars), which reach t() through the table."""
+    (menus, toolbars), which reach t() through the table, and keys the Rust core writes into
+    records through `java_text("...")`."""
     keys: set[str] = set()
     for ts in (ROOT / "ui/src").rglob("*.ts"):
         text = ts.read_text(encoding="utf-8")
         keys.update(re.findall(r"\bt\(\s*\"([^\"]+)\"", text))
         keys.update(re.findall(r"\"?\bkey\"?:\s*\"([^\"]+)\"", text))
+    for rs in (ROOT / "crates").rglob("*.rs"):
+        keys.update(re.findall(r"\bjava_text\(\s*[^,()]+,\s*\"([^\"]+)\"", rs.read_text(encoding="utf-8")))
     return keys
 
 

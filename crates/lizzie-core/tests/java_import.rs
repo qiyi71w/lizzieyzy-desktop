@@ -3,6 +3,9 @@
 //! this product's settings change only on a confirmed, complete import; credentials are copied
 //! only when confirmed and never appear in the preview or report.
 
+// The Java `config.txt` fixture is one large `json!` literal.
+#![recursion_limit = "256"]
+
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -12,8 +15,8 @@ use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::java_import::{self, JavaSource};
 use lizzie_core::settings::{
-    Config, DisplaySettings, EstimateStyle, ExtraMode, Language, MoveRankMode, Persisted, ProxyMode, Storage,
-    SubBoardMode,
+    Config, DisplaySettings, EstimateStyle, ExtraMode, Language, MoveRankMode, Persisted, ProblemSide, ProblemSort,
+    ProxyMode, Storage, SubBoardMode,
 };
 use lizzie_core::workbench::{Workbench, IMPORT_NEEDS_REPLACE, IMPORT_STALE};
 use serde_json::json;
@@ -83,6 +86,16 @@ fn java_dir(root: &Path) -> PathBuf {
             "network-proxy-port": "7897",
             "win-rate-always-black": true,
             "show-katago-score-lead-with-komi": true,
+            "auto-quick-analyze-on-load": false,
+            "analysis-engine-command": "engines/fake-katago analysis -model weights/model.bin.gz -config cfg/gtp.cfg",
+            "analysis-engine-command-customized": true,
+            "analysis-max-visits": 0,
+            "analysis-reuse-current-engine": true,
+            "quick-analysis-lightweight-model-enabled": true,
+            "is-showing-blunder-table": true,
+            "problem-list-side-filter": "white",
+            "problem-list-sort": "move-desc",
+            "problem-list-winrate-threshold": 5.5,
             "up-load-passwd": SECRETS[0],
         },
         "leelaz": {
@@ -272,6 +285,19 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
     assert_eq!(c.ui.language, Language::EnUs);
     assert!(!c.record.read_komi && c.record.load_sgf_last && !c.record.show_replace_file_hint && !c.ui.play_sound);
     assert!(!c.record.append_winrate_to_comment);
+    // 自动快析, 精析设置 (a relative command resolved in the Java folder), 轻量模型, 问题手.
+    assert!(!c.record.auto_quick_analyze_on_load);
+    let ae = &c.analysis_engine;
+    assert!(
+        ae.command.contains("Lizzie Next/engines/fake-katago") && ae.command.contains(" analysis "),
+        "{}",
+        ae.command
+    );
+    assert!(ae.command_customized && ae.reuse_current_engine && ae.max_visits == 1);
+    assert!(c.quick_model.enabled);
+    let pl = &c.problems;
+    assert!(pl.showing && pl.side == ProblemSide::White && pl.sort == ProblemSort::MoveDesc);
+    assert_eq!(pl.winrate_threshold, 5.5);
     assert_eq!(
         c.recent_files,
         (2..=6).map(|i| format!("/games/{i}.sgf")).collect::<Vec<_>>()
@@ -1115,4 +1141,73 @@ fn autoplay_intervals_import_from_java_persist_toolbar_slots() {
         assert_eq!(wb.config().display.autoplay_main_seconds, if valid { f64::from(main) } else { -1.0 });
         assert_eq!(wb.config().display.autoplay_sub_millis, if valid { sub } else { -1 });
     }
+}
+
+#[test]
+fn an_analysis_command_without_its_customized_flag_is_judged_like_older_java() {
+    // `AnalysisEngineCommandHelper.isAnalysisCommandCustomized`: without the flag, a command
+    // other than the default one counts as the user's.
+    const DEFAULT: &str = "katago analysis -model model.bin.gz -config analysis.cfg -quit-without-waiting";
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let own = "katago analysis -model mine.bin.gz -config a.cfg";
+    for (i, (command, flag, customized)) in [
+        (own, None, true),
+        (DEFAULT, None, false),
+        (
+            "  katago  analysis -model model.bin.gz -config analysis.cfg -quit-without-waiting ",
+            None,
+            false,
+        ),
+        (own, Some(false), false),
+        (DEFAULT, Some(true), true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut ui = json!({ "analysis-engine-command": command });
+        if let Some(flag) = flag {
+            ui["analysis-engine-command-customized"] = json!(flag);
+        }
+        std::fs::write(java.join("config.txt"), json!({ "ui": ui }).to_string()).unwrap();
+        let product = tmp.path().join(format!("product-{i}"));
+        let mut wb = workbench(&product, Recorder::default());
+        let p = preview(&mut wb, &java);
+        wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+        assert_eq!(
+            wb.config().analysis_engine.command_customized,
+            customized,
+            "{command:?} {flag:?}"
+        );
+    }
+}
+
+#[test]
+fn a_relative_lightweight_model_path_is_found_in_the_java_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    let model = java.join("quick-analysis-models/b10c384h6nbttflrs.bin.gz");
+    std::fs::create_dir_all(model.parent().unwrap()).unwrap();
+    std::fs::write(&model, b"model").unwrap();
+    std::fs::write(
+        java.join("config.txt"),
+        json!({ "ui": { "katago-quick-analysis-model-path": "quick-analysis-models/b10c384h6nbttflrs.bin.gz" } })
+            .to_string(),
+    )
+    .unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    assert_eq!(
+        wb.config().quick_model.path.as_deref().map(Path::new),
+        Some(model.as_path())
+    );
+    assert_eq!(
+        saved_config(&product).quick_model.path,
+        wb.config().quick_model.path,
+        "kept after a restart"
+    );
+    assert_eq!(std::fs::read(&model).unwrap(), b"model", "the Java file is untouched");
 }

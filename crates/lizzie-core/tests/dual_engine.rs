@@ -151,6 +151,8 @@ fn open(wb: &mut Workbench, text: &str) -> Option<OpenOutcome> {
 /// engine; both answered through start-up and analysing the current position.
 fn dual(dir: &std::path::Path, world: &World) -> (Workbench, InstanceId, InstanceId) {
     let mut wb = Workbench::new(storage(dir), None, Box::new(FakeLauncher(world.clone())), Vec::new());
+    // About the foreground engines; automatic quick analysis has its own tests.
+    wb.set_auto_quick_analyze(false).unwrap();
     let engines = vec![profile("A", "/opt/a"), profile("B", "/opt/b"), profile("C", "/opt/c")];
     wb.save_engine_settings(engines, EngineStartup::Default).unwrap();
     wb.start_engines();

@@ -76,6 +76,8 @@ fn settle(wb: &mut Workbench, world: &World, id: InstanceId, kata: bool) -> Vec<
 fn started(dir: &std::path::Path, kata: bool) -> (Workbench, World, InstanceId) {
     let world = World::default();
     let mut wb = Workbench::new(Storage::in_dirs(&dir.join("config"), &dir.join("data")), None, Box::new(world.clone()), Vec::new());
+    // About the foreground engine; automatic quick analysis has its own tests.
+    wb.set_auto_quick_analyze(false).unwrap();
     wb.save_engine_settings(vec![EngineProfile {
         name: "Test".into(), command: "/fake/engine gtp".into(), width: 3, height: 3,
         ..EngineProfile::default()

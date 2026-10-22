@@ -1,9 +1,10 @@
 // Java KataGoAutoSetupDialog.createWeightsSection / createWeightCatalogBlock.
+import { run, state } from "../app";
 import type { Model, ResourceItem, ResourcesView } from "../contract/generated";
 import { ask } from "../dialogs";
 import { product, t } from "../i18n";
 import type { SetupCard, SetupContext } from "./card";
-import { currentTarget, packageTarget, planSetup, resourceCommand, resourceView, setupVerified } from "./dialog";
+import { currentTarget, packageTarget, planSetup, resourceCommand, resourceView, setupStatus, setupVerified } from "./dialog";
 import { action, actions, future, node, notice, resourceText, section, size } from "./setupText";
 
 interface WeightRow {
@@ -114,8 +115,37 @@ export function weightsCard(_ctx: SetupContext): SetupCard {
     if (r.remoteStatus === "refreshing") catalog.append(node("p", t("AutoSetup.loadingRemote"), "setup-hint"));
     else if (r.remoteStatus.startsWith("AutoSetup.")) catalog.append(node("p", resourceText(r.remoteStatus), "setup-warning"));
     element.append(catalog);
-    const quick = section(t("AutoSetup.quickAnalysisModel"), t("AutoSetup.quickAnalysisModelDescription")); actions(quick, future("setup.quick.download", t("AutoSetup.downloadOnDemand"))); quick.append(node("small", product("unavailable"))); element.append(quick);
+    element.append(quickModelCard());
     const human = section(t("AutoSetup.humanSlModel"), t("AutoSetup.humanSlModelDescription")); actions(human, future("setup.humansl.download", t("AutoSetup.downloadOnDemand")), future("setup.humansl.import", t("AutoSetup.importWeight"))); human.append(node("small", product("unavailable"))); element.append(human);
   };
-  return { element, update() { if (resourceView() !== last) render(); } };
+  let lastQuick = "";
+  return { element, update(view) { const quick = JSON.stringify(view.settings.quick_model); if (resourceView() !== last || quick !== lastQuick) { lastQuick = quick; render(); } } };
+}
+
+/** 快速曲线轻量模型 (KataGoAutoSetupDialog.renderQuickAnalysisModel, java:2589-2622): a status tag,
+ *  按需下载 while it is missing, else the 自动使用 check box (disabled until KataGo 1.17). */
+function quickModelCard(): HTMLElement {
+  const quick = state.view?.settings.quick_model ?? { status: "Missing" as const, path: null, enabled: false };
+  const card = section(t("AutoSetup.quickAnalysisModel"), t("AutoSetup.quickAnalysisModelDescription"));
+  card.querySelector("p")!.title = quick.status !== "Missing" && quick.path ? quick.path : t("AutoSetup.quickAnalysisModelMissing");
+  const [text, tone] = quick.status === "Missing" ? [t("AutoSetup.notDownloaded"), "gold"]
+    : quick.status === "RequiresKataGo117" ? [t("AutoSetup.quickAnalysisModelRequires117"), "gold"]
+    : quick.status === "Enabled" ? [t("AutoSetup.quickAnalysisModelEnabled"), "success"]
+    : [t("AutoSetup.quickAnalysisModelInstalled"), "teal"];
+  const tag = node("span", text, `setup-status-tag ${tone}`); tag.dataset.key = "setup.quick.status";
+  if (quick.status === "Missing") {
+    actions(card, tag, action("setup.quick.download", t("AutoSetup.downloadOnDemand"), () => resourceCommand({ type: "Download", item: { type: "QuickModel" } })));
+    return card;
+  }
+  const use = node("label", "", "setup-quick-use"), box = node("input");
+  box.type = "checkbox"; box.dataset.key = "setup.quick.enabled"; box.checked = quick.enabled; box.disabled = quick.status === "RequiresKataGo117" && !quick.enabled;
+  box.onchange = async () => {
+    const enabled = box.checked;
+    const result = await run({ type: "SetQuickModelEnabled", enabled });
+    if (!result || result.type === "Refused") { box.checked = !enabled; return; }
+    setupStatus(enabled ? t("AutoSetup.quickAnalysisModelEnabledMessage") : t("AutoSetup.quickAnalysisModelDisabledMessage"));
+  };
+  use.append(box, t("AutoSetup.quickAnalysisModelUse"));
+  actions(card, tag, use);
+  return card;
 }

@@ -321,9 +321,14 @@ export function t(key: string): string {
   return JAVA[lang]?.[key] ?? JAVA.ZhCn?.[key] ?? key;
 }
 
-/** MessageFormat-style `{0}` substitution. */
+/** MessageFormat-style `{0}` substitution; `{0,number,integer}` rounds and groups the digits like
+ *  Java's integer NumberFormat (every UI locale groups with ","). */
 export function format(text: string, ...args: (string | number)[]): string {
-  return text.replace(/\{(\d+)\}/g, (_, k) => `${args[Number(k)] ?? ""}`);
+  return text.replace(/\{(\d+)(,number,integer)?\}/g, (_, k, integer) => {
+    const arg = args[Number(k)];
+    if (integer && typeof arg === "number") return Math.round(arg).toLocaleString("en-US");
+    return `${arg ?? ""}`;
+  });
 }
 
 /** Product-only messages of a feature module, kept next to that feature; same language rules as

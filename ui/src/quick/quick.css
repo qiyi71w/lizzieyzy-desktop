@@ -1,0 +1,220 @@
+/* 评论 / 问题手 panel: SidebarPanel's dark surface palette (SidebarPanel.createSurfacePalette):
+   primary (239,242,241), secondary (185,195,191), accent (105,211,186), loss (255,176,164);
+   row highlight is the accent at alpha 25 (selected / current) or 12 (hovered). */
+#comment [hidden] {
+  display: none !important;
+}
+#comment .tabs:focus-visible {
+  outline: 1px solid rgb(105, 211, 186);
+  outline-offset: -2px;
+}
+/* Side filter: CLASSIC_LABEL_GAP 16 after 问题手, the active side underlined in the accent. */
+#problemSides {
+  display: flex;
+  gap: 22px;
+  margin-left: -6px;
+}
+#comment .side {
+  cursor: default;
+  padding-bottom: 2px;
+  border-bottom: 3px solid transparent;
+  border-radius: 1px;
+}
+#comment .side.on {
+  color: rgb(239, 242, 241);
+  border-bottom-color: rgb(105, 211, 186);
+}
+/* Progress pill: right-aligned, 22 px high, arc 11, 8 px text inset (classicProgressBounds). */
+#problemProgress {
+  margin: -4px 0 0 auto;
+  height: 22px;
+  line-height: 20px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border-radius: 11px;
+  white-space: nowrap;
+  color: rgb(185, 195, 191);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.118);
+}
+#problemProgress.running {
+  color: rgb(239, 242, 241);
+  background: rgba(255, 184, 77, 0.157);
+  border-color: rgba(255, 213, 153, 0.251);
+}
+/* BlunderListPanel: BorderLayout(0, 4) toolbar over the list inside the 10 px sidebar border. */
+#problemPage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 10px 10px;
+  font-size: 12px;
+  container-type: inline-size;
+}
+.problem-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 16px;
+  flex: none;
+}
+#problemCount {
+  color: rgb(185, 195, 191);
+}
+#problemSort {
+  font: inherit;
+  height: 24px;
+  min-width: 140px;
+  max-width: 100%;
+  margin-left: auto;
+  color: #111;
+  background: #fff;
+  border: 1px solid rgb(160, 165, 170);
+}
+#problemList {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  outline: none;
+}
+#problemList:focus-visible .problem-row.selected {
+  outline: 1px solid rgb(105, 211, 186);
+  outline-offset: -2px;
+}
+#problemEmpty {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 8px;
+  color: rgb(185, 195, 191);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* ProblemRow.arrange: ordinal (>= 18 px), 16 px to the text, title and detail 4 px apart, the
+   loss and its caption on the right, 8 px above and 9 px below, a separator at the bottom. */
+.problem-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-areas: "ordinal title loss" ". detail caption";
+  column-gap: 16px;
+  row-gap: 4px;
+  padding: 8px 8px 9px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.11);
+  cursor: default;
+}
+.problem-row:hover {
+  background: rgba(105, 211, 186, 0.047);
+}
+.problem-row.current,
+.problem-row.selected {
+  background: rgba(105, 211, 186, 0.098);
+}
+.problem-row.current::before,
+.problem-row.selected::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 5px;
+  bottom: 10px;
+  width: 2px;
+  background: rgb(105, 211, 186);
+}
+.problem-ordinal {
+  grid-area: ordinal;
+  text-align: right;
+  color: rgb(185, 195, 191);
+}
+.problem-title {
+  grid-area: title;
+  font-weight: bold;
+  color: rgb(239, 242, 241);
+  overflow-wrap: anywhere;
+}
+.problem-detail {
+  grid-area: detail;
+  color: rgb(185, 195, 191);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.problem-loss {
+  grid-area: loss;
+  text-align: right;
+  font-weight: bold;
+  color: rgb(239, 242, 241);
+}
+.problem-loss.severe {
+  color: rgb(255, 176, 164);
+}
+.problem-caption {
+  grid-area: caption;
+  text-align: right;
+  color: rgb(185, 195, 191);
+}
+.problem-caption-stacked {
+  display: none;
+  color: rgb(185, 195, 191);
+}
+/* A narrow sidebar stacks a fully labelled loss under the detail instead of shrinking the font. */
+@container (max-width: 240px) {
+  .problem-row {
+    grid-template-columns: 18px minmax(0, 1fr);
+    grid-template-areas: "ordinal title" ". detail" ". stacked";
+  }
+  .problem-loss,
+  .problem-caption {
+    display: none;
+  }
+  .problem-caption-stacked {
+    display: block;
+    grid-area: stacked;
+    margin-top: 4px;
+  }
+}
+
+/* 精析设置 (AnalysisSettings null layout). */
+.analysis-settings textarea {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 2px 4px;
+  font: inherit;
+  resize: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid rgb(160, 165, 170);
+}
+.analysis-settings input[type="text"] {
+  padding: 0 2px;
+  border: 1px solid rgb(160, 165, 170);
+}
+.analysis-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.analysis-settings-row button {
+  min-width: 68px;
+  height: 23px;
+  font: inherit;
+}
+.analysis-settings-row .unavailable,
+.analysis-settings .unavailable {
+  opacity: 0.55;
+}
+/* LinkLabel paints the hint on the comment colours (black, white text). */
+.analysis-settings-hint {
+  display: block;
+  overflow: hidden;
+  padding: 0 3px;
+  line-height: 20px;
+  background: #000;
+  color: #fff;
+}
+.analysis-settings-link {
+  font-weight: bold;
+  text-decoration: underline;
+  cursor: pointer;
+}

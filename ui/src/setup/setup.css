@@ -86,6 +86,12 @@
 .setup-weight-details small { display: block; font-size: 10px; color: #71786f; overflow-wrap: anywhere; }
 .setup-weight-details .setup-actions { flex-shrink: 0; margin-top: 0; max-width: 250px; }
 .setup-warning { color: #ac7130 !important; }
+/* StatusTag tones of the 快速曲线轻量模型 card (未下载 / 需要 1.17 gold, 已安装 teal, 自动使用 success). */
+.setup-status-tag { border: 1px solid; border-radius: 3px; padding: 1px 5px; font-size: 11px; white-space: nowrap; }
+.setup-status-tag.gold { color: #a0661c; border-color: #e3c27c; background: #fdf3dc; }
+.setup-status-tag.teal { color: #0f6f68; border-color: #8fcfc6; background: #e3f4f1; }
+.setup-status-tag.success { color: #fff; border-color: #0d7b74; background: #0d7b74; }
+.setup-quick-use { display: inline-flex; align-items: center; gap: 5px; }
 .setup-acceleration select { width: 100%; }
 .setup-plan { max-width: 760px; min-width: min(520px, 70vw); }
 .setup-plan label { display: flex; align-items: center; gap: 9px; margin: 14px 0; }

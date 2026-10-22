@@ -99,6 +99,10 @@ impl AnalysisStore {
         self.metadata.retain(|node, _| nodes.contains_key(node));
     }
 
+    pub(super) fn doc(&self) -> u64 {
+        self.doc
+    }
+
     pub(super) fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
@@ -159,7 +163,13 @@ fn black_ownership(values: Vec<f64>, to_play: Stone) -> Vec<f64> {
 }
 
 /// A reported line as a stored result and its Black-positive ownership.
-fn node_analysis(node: NodeId, to_play: Stone, komi: f64, engine: String, line: InfoLine) -> Option<(NodeAnalysisView, Option<Vec<f64>>)> {
+pub(super) fn node_analysis(
+    node: NodeId,
+    to_play: Stone,
+    komi: f64,
+    engine: String,
+    line: InfoLine,
+) -> Option<(NodeAnalysisView, Option<Vec<f64>>)> {
     let best = line.candidates.first()?;
     let (winrate, score_lead, score_stdev) = (best.winrate, best.score_lead, best.score_stdev);
     let visits = line.candidates.iter().map(|c| c.visits).sum();
@@ -204,7 +214,7 @@ fn node_analysis(node: NodeId, to_play: Stone, komi: f64, engine: String, line: 
 /// whole variation): what each move captures; nothing under `no-capture`. Whether the board
 /// removes them (变化图中去掉死子, `removeDeadChainInVariation`) is the drawing's choice, so a kept
 /// (frozen) preview follows that setting at once (`withSimulation`).
-fn fill_pv_captures(result: &mut NodeAnalysisView, base: &Position, limit: u32, capture: bool) {
+pub(super) fn fill_pv_captures(result: &mut NodeAnalysisView, base: &Position, limit: u32, capture: bool) {
     for c in &mut result.candidates {
         c.pv_captures = display::pv_captures(base, result.to_play, &c.pv, limit, capture);
     }
@@ -212,7 +222,7 @@ fn fill_pv_captures(result: &mut NodeAnalysisView, base: &Position, limit: u32, 
 
 /// `BoardData.adoptOrdinaryAnalysis` with the cache on: a result replaces the stored one only
 /// with more visits (root visits when both report them).
-fn more_visits(new: &NodeAnalysisView, old: &NodeAnalysisView) -> bool {
+pub(super) fn more_visits(new: &NodeAnalysisView, old: &NodeAnalysisView) -> bool {
     match (new.root_visits, old.root_visits) {
         (Some(n), Some(o)) => n > o,
         _ => new.visits > old.visits,
@@ -264,16 +274,21 @@ impl Workbench {
 
     // -------------------------------------------------------------------- the engines' wishes
 
-    fn analysis_target(&self) -> Target {
+    /// The session rules the engines are given: the record's valid declaration, unless overridden.
+    pub(super) fn target_rules(&self) -> Option<&KataRules> {
+        match &self.session_rules {
+            SessionRules::Valid { rules, .. } if !self.rules_overridden() => Some(rules),
+            _ => None,
+        }
+    }
+
+    pub(super) fn analysis_target(&self) -> Target {
         Target {
             doc: self.doc.id,
             node: self.cursor,
             record: self.doc.record.clone(),
             komi: self.komi,
-            rules: match &self.session_rules {
-                SessionRules::Valid { rules, .. } if !self.rules_overridden() => Some(rules.clone()),
-                _ => None,
-            },
+            rules: self.target_rules().cloned(),
             rules_rev: self.rules_revision,
         }
     }
@@ -405,8 +420,12 @@ impl Workbench {
         if self.secondary_limit_stop.is_some_and(|l| l != here) {
             self.secondary_limit_stop = None;
         }
-        let analyse =
-            !self.paused && !self.benchmark_running() && self.limit_stop.is_none() && self.rules_permit_analysis();
+        // A running quick analysis leaves the foreground engine idle until it ends.
+        let analyse = !self.paused
+            && !self.benchmark_running()
+            && self.limit_stop.is_none()
+            && !self.quick_holds_foreground()
+            && self.rules_permit_analysis();
         let target = self.analysis_target();
         if self.double_engine() {
             self.engines
@@ -451,6 +470,7 @@ impl Workbench {
         };
         self.cursor = ROOT;
         self.sounds.clear();
+        self.quick_cancel();
         self.reset_analysis();
         self.reset_editing();
         self.publish_record_rules(None);
@@ -496,6 +516,7 @@ impl Workbench {
         // once for a running engine, for a new one when it is ready and the game still empty.
         let target_komi = if self.komi_changed { self.komi } else { profile.komi };
         self.start_komi = None;
+        self.quick_engine_changed();
         let instance = match self.engines.instance_of(&profile.id) {
             Some(i) => {
                 self.apply_komi(target_komi);
@@ -525,6 +546,7 @@ impl Workbench {
             let _ = self.commit_config(|c| c.engine.last_engine = Some(id));
         }
         self.sync_engine();
+        self.drain_engine_events();
         Ok(true)
     }
 
@@ -536,6 +558,7 @@ impl Workbench {
         let Some(id) = self.engines.profile_of(fg).map(|p| p.id.clone()) else {
             return Ok(false);
         };
+        self.quick_engine_changed();
         self.engines.terminate(fg);
         let Some(index) = self.config.engine.index_of(&id) else {
             return Ok(true);
@@ -557,9 +580,13 @@ impl Workbench {
                 EngineScope::All => true,
             })
             .collect();
+        if fg.is_some_and(|f| targets.contains(&f)) {
+            self.quick_engine_changed();
+        }
         for id in &targets {
             self.engines.terminate(*id);
         }
+        self.drain_engine_events();
         !targets.is_empty()
     }
 
@@ -683,6 +710,12 @@ impl Workbench {
     /// User pause / resume (`togglePonderMannul`). Resuming also restarts an analysis a limit
     /// stopped. Never written to disk.
     pub fn toggle_analysis(&mut self) -> Result<bool, ApiError> {
+        if self.quick_toggle_pause() {
+            self.limit_stop = None;
+            self.secondary_limit_stop = None;
+            self.sync_engine();
+            return Ok(true);
+        }
         if self.engines.foreground().is_none() {
             // Java retries the unavailable primary engine.
             if let Some(i) = self
@@ -1000,24 +1033,44 @@ impl Workbench {
         self.engine_events(events)
     }
 
-    /// When the engine runtime has timed protocol work next (see [`Self::engine_tick`]).
+    /// When timed work is due next: engine protocol timers and quick analysis (see
+    /// [`Self::engine_tick`]).
     pub fn engine_timer(&self) -> Option<std::time::Instant> {
-        self.engines.next_tick()
+        [self.engines.next_tick(), self.quick_deadline()]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
-    /// Advances engine protocol timers; the platform calls it at [`Self::engine_timer`].
-    pub fn engine_tick(&mut self, now: std::time::Instant) {
-        self.engines.tick(now);
+    /// Advances engine protocol timers and quick analysis; the platform calls it at
+    /// [`Self::engine_timer`]. Returns whether the view changed.
+    pub fn engine_tick(&mut self, now: std::time::Instant) -> bool {
+        let events = self.engines.tick(now);
+        let engines = self.engine_events(events);
+        let quick = self.quick_tick(now);
+        engines | quick
     }
 
-    fn engine_events(&mut self, events: Vec<RuntimeEvent>) -> bool {
+    /// Handles runtime events produced by operations outside engine output.
+    pub(super) fn drain_engine_events(&mut self) -> bool {
+        let events = self.engines.take_events();
+        !events.is_empty() && self.engine_events(events)
+    }
+
+    pub(super) fn engine_events(&mut self, events: Vec<RuntimeEvent>) -> bool {
         let mut changed = false;
         for ev in events {
             changed = true;
+            let Some(ev) = self.quick_event(ev) else {
+                continue;
+            };
             match ev {
                 RuntimeEvent::Ready { instance } => {
                     if let Some((name, version, _)) = self.engines.identity(instance) {
                         self.log(false, format!("engine ready: {name} {version}"));
+                    }
+                    if Some(instance) == self.engines.foreground() {
+                        self.quick_preload();
                     }
                     if let Some((_, komi)) = self.start_komi.take_if(|(i, _)| *i == instance) {
                         if self.game_is_empty() {
@@ -1096,6 +1149,7 @@ impl Workbench {
                         self.check_secondary_limits(visits, elapsed);
                     }
                 }
+                _ => {}
             }
         }
         if changed {
@@ -1225,6 +1279,7 @@ impl Workbench {
                 stopped_by_limit: self.secondary_limit_stop == Some(here),
             })
         });
+        let (lease, unrestored) = self.lease_view();
         EngineView {
             engines,
             foreground,
@@ -1236,6 +1291,8 @@ impl Workbench {
             rules: rules.map(KataRules::to_gtp_argument),
             console_seq: self.engines.console_seq(),
             full_trace: self.engines.tracing(),
+            lease,
+            unrestored,
         }
     }
 

@@ -439,7 +439,7 @@ pub async fn dispatch(app: AppHandle, shared: State, op: TuningCommand) -> Resul
         })
         .await
         .map_err(|e| api_error(e.to_string()))?,
-        TuningCommand::Scan { engine_type } => tauri::async_runtime::spawn_blocking(move || {
+        TuningCommand::Scan { engine_type, analysis } => tauri::async_runtime::spawn_blocking(move || {
             let Some(exe) = chosen(&app, None) else {
                 return result(TuningResult::Cancelled);
             };
@@ -452,7 +452,16 @@ pub async fn dispatch(app: AppHandle, shared: State, op: TuningCommand) -> Resul
                     let Some(config) = chosen(&app, Some(("*.cfg", &["cfg"]))) else {
                         return result(TuningResult::Cancelled);
                     };
-                    format!("{} gtp -model {} -config {}", q(&exe), q(&model), q(&config))
+                    if analysis {
+                        format!(
+                            "{} analysis -model {} -config {} -quit-without-waiting",
+                            q(&exe),
+                            q(&model),
+                            q(&config)
+                        )
+                    } else {
+                        format!("{} gtp -model {} -config {}", q(&exe), q(&model), q(&config))
+                    }
                 }
                 "LeelaZero" => {
                     let Some(model) = chosen(&app, Some(("*.gz", &["gz"]))) else {

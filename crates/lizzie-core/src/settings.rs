@@ -56,7 +56,7 @@ impl Language {
 }
 
 /// Record open/save settings (Java `read-komi` default true, `load-sgf-last` default false,
-/// `ui.show-replace-file-hint` default true).
+/// `ui.show-replace-file-hint` default true, `ui.auto-quick-analyze-on-load` default true).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct RecordSettings {
@@ -66,6 +66,9 @@ pub struct RecordSettings {
     pub append_winrate_to_comment: bool,
     /// Ask before "保存" overwrites the record's own file.
     pub show_replace_file_hint: bool,
+    /// 打开棋谱后自动快速分析 (`ui.auto-quick-analyze-on-load`): a loaded record's main trunk is
+    /// analysed in the background where it has no analysis yet.
+    pub auto_quick_analyze_on_load: bool,
 }
 
 impl Default for RecordSettings {
@@ -75,6 +78,112 @@ impl Default for RecordSettings {
             load_sgf_last: false,
             append_winrate_to_comment: true,
             show_replace_file_hint: true,
+            auto_quick_analyze_on_load: true,
+        }
+    }
+}
+
+/// Java `AnalysisEngineCommandHelper.DEFAULT_ANALYSIS_COMMAND`.
+pub const DEFAULT_ANALYSIS_COMMAND: &str =
+    "katago analysis -model model.bin.gz -config analysis.cfg -quit-without-waiting";
+
+/// 精析设置 (Java `AnalysisSettings`, `ui.analysis-*`): the KataGo analysis engine used by automatic
+/// quick analysis and flash analysis. The SSH fields of the dialog belong to remote engines.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AnalysisEngineSettings {
+    /// 分析引擎命令 (`analysis-engine-command`).
+    pub command: String,
+    /// The command was written by the user rather than generated (`analysis-engine-command-customized`):
+    /// a command that is not customized follows a managed engine.
+    pub command_customized: bool,
+    /// 单步计算量 (`analysis-max-visits`, at least 1): a request searches one more visit.
+    pub max_visits: u32,
+    /// 使用当前引擎规则 (`analysis-use-current-rules`) versus 使用指定规则 (`analysis-specific-rules`).
+    pub use_current_rules: bool,
+    pub specific_rules: String,
+    /// 总是覆盖已有分析结果 (`analysis-always-override`).
+    pub always_override: bool,
+    /// 启动Lizzie时预加载引擎 (`analysis-engine-preload`).
+    pub preload: bool,
+    /// 结束分析后退出引擎 (`analysis-auto-quit`).
+    pub auto_quit: bool,
+    /// 复用当前前台引擎 (`analysis-reuse-current-engine`): borrow the foreground engine instead of
+    /// starting an analysis process.
+    pub reuse_current_engine: bool,
+}
+
+impl Default for AnalysisEngineSettings {
+    fn default() -> Self {
+        AnalysisEngineSettings {
+            command: DEFAULT_ANALYSIS_COMMAND.to_string(),
+            command_customized: false,
+            max_visits: 1,
+            use_current_rules: true,
+            specific_rules: String::new(),
+            always_override: false,
+            preload: false,
+            auto_quit: true,
+            reuse_current_engine: false,
+        }
+    }
+}
+
+/// 快速曲线轻量模型 (`ui.quick-analysis-lightweight-model-enabled`, `katago-quick-analysis-model-path`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct QuickModelSettings {
+    /// 自动使用: quick analysis runs the lightweight model when it is installed.
+    pub enabled: bool,
+    /// A model file kept elsewhere (imported from Java); the resource folder's copy otherwise.
+    pub path: Option<String>,
+}
+
+/// 问题手 side filter (`ui.problem-list-side-filter`; anything but `white` is Black).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum ProblemSide {
+    #[default]
+    Black,
+    White,
+}
+
+/// 问题手排序 (`ui.problem-list-sort`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum ProblemSort {
+    /// 失误最大优先: win rate loss, larger first; ties by move number.
+    #[default]
+    LossDesc,
+    /// 手数从小到大.
+    MoveAsc,
+    /// 手数从大到小.
+    MoveDesc,
+}
+
+/// The 评论/问题手 panel (Java `SidebarPanel`, `BlunderListPanel`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ProblemListSettings {
+    /// The 问题手 page is shown instead of 评论 (`is-showing-blunder-table`).
+    pub showing: bool,
+    pub side: ProblemSide,
+    pub sort: ProblemSort,
+    /// Moves losing less win rate are not listed (`problem-list-winrate-threshold`, 10 points).
+    pub winrate_threshold: f64,
+    /// Both positions need this many visits (`blunder-playouts-threshold`, 0).
+    pub playouts_threshold: u64,
+    /// 显示评论/问题手面板顶部控制条 is off (`hide-blunder-table-control-pane`).
+    pub hide_control_pane: bool,
+}
+
+impl Default for ProblemListSettings {
+    fn default() -> Self {
+        ProblemListSettings {
+            showing: false,
+            side: ProblemSide::Black,
+            sort: ProblemSort::LossDesc,
+            winrate_threshold: 10.0,
+            playouts_threshold: 0,
+            hide_control_pane: false,
         }
     }
 }
@@ -494,6 +603,12 @@ pub struct Config {
     pub recovery: RecoverySettings,
     /// Analysis numbers (Java `ui.win-rate-always-black`, `show-katago-score-lead-with-komi`).
     pub display: DisplaySettings,
+    /// 精析设置 (Java `ui.analysis-*`).
+    pub analysis_engine: AnalysisEngineSettings,
+    /// 快速曲线轻量模型.
+    pub quick_model: QuickModelSettings,
+    /// 评论/问题手 panel.
+    pub problems: ProblemListSettings,
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).

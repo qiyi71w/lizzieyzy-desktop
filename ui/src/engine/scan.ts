@@ -37,7 +37,7 @@ export async function scanEngine(): Promise<string | null> {
     result = await run({ type: "Tuning", op: { type: "ScanIkatago", platform: platform.value, user_name: user.value, password: password.value } });
     password.value = "";
   } else {
-    result = await run({ type: "Tuning", op: { type: "Scan", engine_type: type } });
+    result = await run({ type: "Tuning", op: { type: "Scan", engine_type: type, analysis: false } });
   }
   return result?.type === "Tuning" && result.result.type === "Scanned" ? result.result.command : null;
 }

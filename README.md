@@ -252,6 +252,39 @@ importing the matching LizzieYzy Next settings.
   开启 / 暂停 and only shows visits and win rate when that engine has a result (Java showed the
   foreground's state and 0 / 50 %), it is no longer cut short when the window is wider than the
   two boards, and the comment summary compares with the secondary engine's own previous result.
+- 自动棋谱快析 (综合设置 > 棋谱加载 > 打开棋谱后自动快速分析, on by default): after a record is opened,
+  every main-trunk move without analysis is analysed in the background. Which engine does it
+  follows Java: a KataGo `analysis` process started for the task, or the foreground engine
+  itself when 精析设置 > 复用当前前台引擎 is on or the foreground engine is this client's Windows
+  NVIDIA (CUDA/TensorRT) KataGo. A record that declares rules waits until the engine confirms
+  them. The foreground engine stays idle while an attempt runs and resumes when the task ends. A
+  borrowed engine is taken over with `stop` and its rules are read (without them it is given back
+  unsearched); it searches each move to 16 visits (longer games get an overview of every 8th move
+  first) with the record's rules or 精析设置's specific rules, and is given back with its own rules
+  and the browsing position; only an answered hand-back counts as given back, otherwise it stays
+  "引擎状态未恢复" until 重启当前引擎. A failed attempt lets the foreground engine analyse until
+  the next attempt, which comes 3.6 s later and twice as late after each further failure, up to
+  30 s (the status line says so). Results are stored on the node they were requested for under
+  闪电分析, never mark the record as changed and are saved with it like any analysis; results for
+  a record that is no longer open, or asked under rules settings changed since, are dropped.
+  Pausing analysis (Space) also cancels the record's quick analysis for good (resuming does not
+  bring it back; a newly opened record starts afresh); opening another record while the engine is
+  borrowed waits until it is given back.
+- 精析设置 (分析 menu): the analysis engine command, 单步计算量, current or specific rules, 总是覆盖,
+  preload, auto quit and 复用当前前台引擎 with its availability. A command that was never edited
+  follows the current engine (`gtp` becomes `analysis` and the config becomes the `analysis.cfg`
+  beside it, created from KataGo's example when missing); 选择引擎 makes it the same way from a
+  saved engine, and 自动生成 asks for the KataGo program, model and config files. Remote (SSH)
+  analysis engines are not available yet.
+- 快速曲线轻量模型 (引擎一键设置 > 权重管理): the official lightweight b10 model is downloaded on demand
+  (size and SHA-256 checked), which turns 自动使用 on. A model file is used only while its SHA-256
+  matches the catalog (checked again when the file changes); with 自动使用 and a KataGo of 1.17 or
+  later in the foreground, quick analysis runs it in an analysis process of that KataGo.
+- 问题手 (the 评论/问题手 panel): moves from move 2 on the main trunk whose player lost at least 10
+  win-rate points against the analysis of the position before, best moves excepted, for black or
+  white, sorted by loss or move number, with Java's empty states and the 评估中 / 已评估 / 评估完成
+  badge. Clicking a row goes to the position before the move and marks it. The page, side,
+  order and the 显示评论/问题手面板顶部控制条 choice are remembered.
 - Rules: an SGF record's `RU` is applied to KataGo (`kata-set-rules`) before analysis. When the
   engine cannot confirm it, a dialog asks whether to continue with the engine's current rules
   (no pauses analysis). `Shift+D` opens the KataGo rules editor.
@@ -280,7 +313,8 @@ importing the matching LizzieYzy Next settings.
   move-rank marks and judgement, candidate rows and options, next-move hints, sub-board mode,
   pure-network ownership style), the analysis-information settings above (graph, Kata形势,
   scoring rules, AI match, 独立选点列表 options, 记录选点信息到评论中; Java's window and column
-  positions are reported as not usable) — only values Java itself accepts. Java's marker for its own
+  positions are reported as not usable), 自动棋谱快析, 精析设置 (except remote engines), the
+  lightweight model choice and the 问题手 settings — only values Java itself accepts. Java's marker for its own
   bundled KataGo package is reported as not
   applicable. Engines keep using the Java engine and
   model files: relative paths are resolved as Java launches them (a bare program name is looked
@@ -392,7 +426,7 @@ prompt, and full input-method coverage on Windows and macOS.
 
 | Path | Contents |
 | --- | --- |
-| `crates/lizzie-core` | Platform-independent core: game record model, SGF/GIB readers and SGF writer, browsing, settings, the LizzieYzy Next settings reader (`java_import`), the engine runtime (GTP framing, launch, analysis requests, rules, thread policy and benchmark), engine resources (`resources`: trusted package/model catalog, machine detection, recommendation, downloads, installs, verification), the credential sanitizer and the workbench command/view contract. No Tauri or DOM dependency. |
+| `crates/lizzie-core` | Platform-independent core: game record model, SGF/GIB readers and SGF writer, browsing, settings, the LizzieYzy Next settings reader (`java_import`), the engine runtime (GTP framing, launch, analysis requests, rules, the foreground lease, KataGo analysis processes, thread policy and benchmark), automatic quick analysis, engine resources (`resources`: trusted package/model catalog, machine detection, recommendation, downloads, installs, verification), the credential sanitizer and the workbench command/view contract. No Tauri or DOM dependency. |
 | `src-tauri` | Desktop shell: window, file dialogs, drag and drop, engine and helper processes, HTTP downloads, logging, diagnostics export, and the optional acceptance channel. |
 | `ui` | Web UI: menus, toolbars, canvas painters, dialogs and the Java UI strings. |
 | `fixtures` | Sample records used by tests and manual checks. |
@@ -507,7 +541,8 @@ a missing WebView2 Runtime) is also written to `crash.log` and, on Windows, show
 box. Downloaded and imported engine resources
 live under `resources/` in the same data directory (`engines/<package>/` with a receipt,
 `weights/`, `configs/gtp.cfg` and `configs/analysis.cfg` (created once from the package's example
-files and never overwritten), `runtime/nvidia/` on Windows, `downloads/` for package archives; an
+files and never overwritten), `quick-analysis-models/` for the lightweight model, `runtime/nvidia/`
+on Windows, `downloads/` for package archives; an
 interrupted download stays next to its target as `<name>.part` and resumes from there); "打开程序目录"
 opens it. LizzieYzy Next keeps its own
 `config.txt` and `persist` elsewhere (for example `~/.lizzieyzy-next/`); this client never writes

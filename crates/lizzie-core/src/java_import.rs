@@ -26,12 +26,13 @@ use serde_json::{Map, Value};
 use crate::api::{
     EngineProblem, ImportEngineView, ImportFailure, ImportItemView, ImportReason, ImportStatus, ImportTarget,
 };
-use crate::engine::gtp::{prepare_launch, split_command, FILE_PATH_OPTIONS};
+use crate::engine::gtp::{join_command, prepare_launch, split_command, FILE_PATH_OPTIONS};
 use crate::engine::profile::{new_profile_id, EngineProfile, EngineStartup};
 use crate::engine::tuning::{GtpConfiguration, ThreadPolicy};
 use crate::sanitize::sanitize;
 use crate::settings::{
-    Config, DisplaySettings, ExtraMode, Language, NetworkSettings, Persisted, ProxyMode, RECENT_LIMIT,
+    Config, DisplaySettings, ExtraMode, Language, NetworkSettings, Persisted, ProblemSide, ProblemSort, ProxyMode,
+    DEFAULT_ANALYSIS_COMMAND, RECENT_LIMIT,
 };
 
 pub const CONFIG_FILE: &str = "config.txt";
@@ -149,6 +150,28 @@ pub struct Mapped {
     pub score_lead_with_komi: Option<bool>,
     /// Board display settings ([`DisplaySettings`] fields other than the two above).
     pub display: Vec<DisplayValue>,
+    /// `ui.auto-quick-analyze-on-load`.
+    pub auto_quick_analyze_on_load: Option<bool>,
+    /// 精析设置 (`ui.analysis-*`); a relative command resolved like an engine's.
+    pub analysis_command: Option<String>,
+    pub analysis_command_customized: Option<bool>,
+    pub analysis_max_visits: Option<u32>,
+    pub analysis_use_current_rules: Option<bool>,
+    pub analysis_specific_rules: Option<String>,
+    pub analysis_always_override: Option<bool>,
+    pub analysis_preload: Option<bool>,
+    pub analysis_auto_quit: Option<bool>,
+    pub analysis_reuse_current_engine: Option<bool>,
+    /// 快速曲线轻量模型.
+    pub quick_model_enabled: Option<bool>,
+    pub quick_model_path: Option<String>,
+    /// 问题手 panel.
+    pub problems_showing: Option<bool>,
+    pub problem_side: Option<ProblemSide>,
+    pub problem_sort: Option<ProblemSort>,
+    pub problem_winrate_threshold: Option<f64>,
+    pub problem_playouts_threshold: Option<u64>,
+    pub problem_hide_control_pane: Option<bool>,
 }
 
 /// One imported [`DisplaySettings`] value: `field` is its camelCase name, with `.n` for an
@@ -433,6 +456,8 @@ enum Kind {
     U32(fn(&mut Mapped, u32)),
     U64(fn(&mut Mapped, u64)),
     Str(fn(&mut Mapped, String)),
+    /// A finite number of at least 0.
+    NonNegative(fn(&mut Mapped, f64)),
 }
 
 /// `config.txt` keys mapped one to one: section, key, target, reader. Sections and defaults:
@@ -630,6 +655,128 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         ImportTarget::ZoomThumbnails,
         Kind::Bool(|m, v| m.zoom_thumbnails = Some(v)),
     ),
+    // `Config.java:1857-1866`, `AnalysisSettings.saveConfig`.
+    (
+        "ui",
+        "auto-quick-analyze-on-load",
+        ImportTarget::AutoQuickAnalysis,
+        Kind::Bool(|m, v| m.auto_quick_analyze_on_load = Some(v)),
+    ),
+    (
+        "ui",
+        "analysis-engine-command",
+        ImportTarget::AnalysisEngine,
+        Kind::Str(|m, v| m.analysis_command = Some(v)),
+    ),
+    (
+        "ui",
+        "analysis-engine-command-customized",
+        ImportTarget::AnalysisEngine,
+        Kind::Bool(|m, v| m.analysis_command_customized = Some(v)),
+    ),
+    (
+        "ui",
+        "analysis-max-visits",
+        ImportTarget::AnalysisEngine,
+        Kind::U32(|m, v| m.analysis_max_visits = Some(v.max(1))),
+    ),
+    (
+        "ui",
+        "analysis-use-current-rules",
+        ImportTarget::AnalysisEngine,
+        Kind::Bool(|m, v| m.analysis_use_current_rules = Some(v)),
+    ),
+    (
+        "ui",
+        "analysis-specific-rules",
+        ImportTarget::AnalysisEngine,
+        Kind::Str(|m, v| m.analysis_specific_rules = Some(v)),
+    ),
+    (
+        "ui",
+        "analysis-always-override",
+        ImportTarget::AnalysisEngine,
+        Kind::Bool(|m, v| m.analysis_always_override = Some(v)),
+    ),
+    (
+        "ui",
+        "analysis-engine-preload",
+        ImportTarget::AnalysisEngine,
+        Kind::Bool(|m, v| m.analysis_preload = Some(v)),
+    ),
+    (
+        "ui",
+        "analysis-auto-quit",
+        ImportTarget::AnalysisEngine,
+        Kind::Bool(|m, v| m.analysis_auto_quit = Some(v)),
+    ),
+    (
+        "ui",
+        "analysis-reuse-current-engine",
+        ImportTarget::AnalysisEngine,
+        Kind::Bool(|m, v| m.analysis_reuse_current_engine = Some(v)),
+    ),
+    (
+        "ui",
+        "quick-analysis-lightweight-model-enabled",
+        ImportTarget::QuickModel,
+        Kind::Bool(|m, v| m.quick_model_enabled = Some(v)),
+    ),
+    (
+        "ui",
+        "katago-quick-analysis-model-path",
+        ImportTarget::QuickModel,
+        Kind::Str(|m, v| m.quick_model_path = Some(v)),
+    ),
+    // `SidebarPanel`, `ProblemListSideFilter.fromConfigValue`, `ProblemListSort`.
+    (
+        "ui",
+        "is-showing-blunder-table",
+        ImportTarget::ProblemList,
+        Kind::Bool(|m, v| m.problems_showing = Some(v)),
+    ),
+    (
+        "ui",
+        "problem-list-side-filter",
+        ImportTarget::ProblemList,
+        Kind::Str(|m, v| {
+            m.problem_side = Some(if v.trim().eq_ignore_ascii_case("white") {
+                ProblemSide::White
+            } else {
+                ProblemSide::Black
+            })
+        }),
+    ),
+    (
+        "ui",
+        "problem-list-sort",
+        ImportTarget::ProblemList,
+        Kind::Str(|m, v| {
+            m.problem_sort = Some(match v.trim().to_ascii_lowercase().as_str() {
+                "move-asc" => ProblemSort::MoveAsc,
+                "move-desc" => ProblemSort::MoveDesc,
+                _ => ProblemSort::LossDesc,
+            })
+        }),
+    ),
+    (
+        "ui",
+        "problem-list-winrate-threshold",
+        ImportTarget::ProblemList,
+        Kind::NonNegative(|m, v| m.problem_winrate_threshold = Some(v)),
+    ),
+    (
+        "ui",
+        "blunder-playouts-threshold",
+        ImportTarget::ProblemList,
+        Kind::U64(|m, v| m.problem_playouts_threshold = Some(v)),
+    ),
+    (
+        "ui",
+        "hide-blunder-table-control-pane",
+        ImportTarget::ProblemList,
+        Kind::Bool(|m, v| m.problem_hide_control_pane = Some(v)),
+    ),
 ];
 
 enum DisplayKind {
@@ -815,11 +962,46 @@ impl Reader<'_> {
                     set(&mut self.mapped, s.to_string());
                     s.to_string()
                 }),
+                Kind::NonNegative(set) => as_f64(v).filter(|n| n.is_finite() && *n >= 0.0).map(|n| {
+                    set(&mut self.mapped, n);
+                    n.to_string()
+                }),
             };
             match value {
                 Some(value) => self.imported(name, *target, value),
                 None => self.invalid(name, *target, v),
             }
+        }
+        // `isAnalysisCommandCustomized`: without its flag, a command other than the default one
+        // was the user's.
+        if self.mapped.analysis_command_customized.is_none() {
+            if let Some(command) = &self.mapped.analysis_command {
+                let normalized = |c: &str| join_command(&split_command(c.trim())).unwrap_or_default();
+                let command = normalized(command);
+                self.mapped.analysis_command_customized =
+                    Some(!command.is_empty() && command != normalized(DEFAULT_ANALYSIS_COMMAND));
+            }
+        }
+        // The analysis command's relative files resolve like an engine command's.
+        if let Some(command) = self.mapped.analysis_command.take() {
+            self.mapped.analysis_command = Some(resolve_command(&command, &self.source.roots(), &mut Vec::new()));
+        }
+        // `resolveConfiguredPath`: a relative model path is found under the Java folders.
+        if let Some(path) = self.mapped.quick_model_path.take() {
+            let relative = Path::new(path.trim());
+            let roots = self.source.roots();
+            let resolved = if path.trim().is_empty() || relative.is_absolute() {
+                path
+            } else {
+                roots
+                    .iter()
+                    .map(|root| root.join(relative))
+                    .find(|p| p.is_file())
+                    .unwrap_or_else(|| roots[0].join(relative))
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            self.mapped.quick_model_path = Some(resolved);
         }
 
         if let Some(v) = ui.get("use-language") {
@@ -1623,22 +1805,6 @@ fn resolve_command(command: &str, roots: &[PathBuf], problems: &mut Vec<EnginePr
     join_command(&tokens).unwrap_or_else(|| command.to_string())
 }
 
-/// The inverse of `Utils.splitCommand`: tokens with spaces or quotes are quoted. `None` when a
-/// token holds both kinds of quote, which the Java syntax cannot express.
-fn join_command(tokens: &[String]) -> Option<String> {
-    let mut out = Vec::with_capacity(tokens.len());
-    for t in tokens {
-        let needs_quotes = t.is_empty() || t.contains([' ', '"', '\'']);
-        out.push(match (needs_quotes, t.contains('"'), t.contains('\'')) {
-            (false, _, _) => t.clone(),
-            (true, false, _) => format!("\"{t}\""),
-            (true, true, false) => format!("'{t}'"),
-            (true, true, true) => return None,
-        });
-    }
-    Some(out.join(" "))
-}
-
 fn on_path(name: &str) -> bool {
     let Some(paths) = std::env::var_os("PATH") else {
         return false;
@@ -1722,6 +1888,28 @@ impl Mapped {
         set!(c.display.winrate_always_black, self.winrate_always_black);
         set!(c.display.score_lead_with_komi, self.score_lead_with_komi);
         c.display = with_display(&c.display, &self.display);
+        set!(c.record.auto_quick_analyze_on_load, self.auto_quick_analyze_on_load);
+        let ae = &mut c.analysis_engine;
+        set!(ae.command, self.analysis_command);
+        set!(ae.command_customized, self.analysis_command_customized);
+        set!(ae.max_visits, self.analysis_max_visits);
+        set!(ae.use_current_rules, self.analysis_use_current_rules);
+        set!(ae.specific_rules, self.analysis_specific_rules);
+        set!(ae.always_override, self.analysis_always_override);
+        set!(ae.preload, self.analysis_preload);
+        set!(ae.auto_quit, self.analysis_auto_quit);
+        set!(ae.reuse_current_engine, self.analysis_reuse_current_engine);
+        set!(c.quick_model.enabled, self.quick_model_enabled);
+        if let Some(path) = &self.quick_model_path {
+            c.quick_model.path = (!path.trim().is_empty()).then(|| path.clone());
+        }
+        let pl = &mut c.problems;
+        set!(pl.showing, self.problems_showing);
+        set!(pl.side, self.problem_side);
+        set!(pl.sort, self.problem_sort);
+        set!(pl.winrate_threshold, self.problem_winrate_threshold);
+        set!(pl.playouts_threshold, self.problem_playouts_threshold);
+        set!(pl.hide_control_pane, self.problem_hide_control_pane);
         if let Some(engines) = &self.engines {
             let kept: Vec<&MappedEngine> = engines
                 .iter()
@@ -1879,6 +2067,55 @@ impl Mapped {
             self.startup_benchmark
         );
         cmp!(ImportTarget::NetworkProxy, config.network, self.network);
+        cmp!(
+            ImportTarget::AutoQuickAnalysis,
+            config.record.auto_quick_analyze_on_load,
+            self.auto_quick_analyze_on_load
+        );
+        let ae = &config.analysis_engine;
+        let analysis_engine = [
+            self.analysis_command.as_ref().is_some_and(|v| *v != ae.command),
+            self.analysis_command_customized
+                .is_some_and(|v| v != ae.command_customized),
+            self.analysis_max_visits.is_some_and(|v| v != ae.max_visits),
+            self.analysis_use_current_rules
+                .is_some_and(|v| v != ae.use_current_rules),
+            self.analysis_specific_rules
+                .as_ref()
+                .is_some_and(|v| *v != ae.specific_rules),
+            self.analysis_always_override.is_some_and(|v| v != ae.always_override),
+            self.analysis_preload.is_some_and(|v| v != ae.preload),
+            self.analysis_auto_quit.is_some_and(|v| v != ae.auto_quit),
+            self.analysis_reuse_current_engine
+                .is_some_and(|v| v != ae.reuse_current_engine),
+        ];
+        if analysis_engine.contains(&true) {
+            out.push(ImportTarget::AnalysisEngine);
+        }
+        let qm = &config.quick_model;
+        if self.quick_model_enabled.is_some_and(|v| v != qm.enabled)
+            || self
+                .quick_model_path
+                .as_ref()
+                .is_some_and(|v| qm.path.as_ref() != Some(v))
+        {
+            out.push(ImportTarget::QuickModel);
+        }
+        let pl = &config.problems;
+        let problems = [
+            self.problems_showing.is_some_and(|v| v != pl.showing),
+            self.problem_side.is_some_and(|v| v != pl.side),
+            self.problem_sort.is_some_and(|v| v != pl.sort),
+            self.problem_winrate_threshold
+                .is_some_and(|v| v != pl.winrate_threshold),
+            self.problem_playouts_threshold
+                .is_some_and(|v| v != pl.playouts_threshold),
+            self.problem_hide_control_pane
+                .is_some_and(|v| v != pl.hide_control_pane),
+        ];
+        if problems.contains(&true) {
+            out.push(ImportTarget::ProblemList);
+        }
         if let Some(engines) = &self.engines {
             let new: Vec<&EngineProfile> = engines.iter().map(|m| &m.profile).collect();
             let current: Vec<&EngineProfile> = config.engine.engines.iter().collect();

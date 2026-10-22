@@ -95,6 +95,8 @@ fn storage(dir: &std::path::Path) -> Storage {
 
 fn started(dir: &std::path::Path, world: &World) -> (Workbench, InstanceId) {
     let mut wb = Workbench::new(storage(dir), None, Box::new(FakeLauncher(world.clone())), Vec::new());
+    // About the foreground engine; automatic quick analysis has its own tests.
+    wb.set_auto_quick_analyze(false).unwrap();
     let profile = EngineProfile {
         name: "KataGo".into(),
         command: "/opt/katago gtp".into(),

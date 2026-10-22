@@ -107,7 +107,10 @@ fn profile(name: &str, program: &str) -> EngineProfile {
 }
 
 fn workbench(dir: &std::path::Path, world: &World) -> Workbench {
-    Workbench::new(storage(dir), None, Box::new(FakeLauncher(world.clone())), Vec::new())
+    let mut wb = Workbench::new(storage(dir), None, Box::new(FakeLauncher(world.clone())), Vec::new());
+    // About the foreground engine; automatic quick analysis has its own tests.
+    wb.set_auto_quick_analyze(false).unwrap();
+    wb
 }
 
 /// One stdout line from instance `id`.

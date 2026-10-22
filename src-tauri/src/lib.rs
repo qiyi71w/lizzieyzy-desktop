@@ -49,7 +49,8 @@ pub const SUGGESTIONS_CLOSED_EVENT: &str = "suggestions-frame-closed";
 pub struct Shared {
     pub workbench: Mutex<Workbench>,
     pub log: logging::Log,
-    refresh: Mutex<(bool, bool)>,
+    /// Engine-caused view change, console lines, and a timer the refresher must re-read.
+    refresh: Mutex<(bool, bool, bool)>,
     refresh_cv: Condvar,
     processes: ProcessWaiter,
     /// The one serial writer of record files (Java `SgfSaveQueue`: a single worker thread).
@@ -151,6 +152,8 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
     drop(wb);
     write_logs(shared, logs);
     run_launch_checks(app, checks);
+    // A command can schedule timed work (quick analysis waits for browsing to settle).
+    shared.rearm_timer();
 }
 
 /// Engine starts whose overlays need artifact fingerprints (measured or Apple tuning) are hashed
@@ -180,6 +183,12 @@ impl Shared {
         r.1 |= console;
         self.refresh_cv.notify_one();
     }
+
+    /// Makes the refresher re-read [`Workbench::engine_timer`].
+    fn rearm_timer(&self) {
+        self.refresh.lock().unwrap().2 = true;
+        self.refresh_cv.notify_one();
+    }
 }
 
 /// Coalesces engine output into at most one view (and one console batch) per
@@ -191,11 +200,12 @@ fn run_refresher(app: AppHandle, shared: State) {
             let mut last = Instant::now() - ENGINE_REFRESH;
             let mut console_seq = 0;
             loop {
-                let (view, mut console) = {
+                let (mut view, mut console) = {
                     // Taken before the refresh lock: other threads lock the workbench first.
                     let due = shared.workbench.lock().unwrap().engine_timer();
                     let mut r = shared.refresh.lock().unwrap();
-                    while !r.0 && !r.1 {
+                    let mut due_now = false;
+                    while !r.0 && !r.1 && !r.2 {
                         match due {
                             None => r = shared.refresh_cv.wait(r).unwrap(),
                             Some(due) => {
@@ -203,21 +213,28 @@ fn run_refresher(app: AppHandle, shared: State) {
                                 let (next, timeout) = shared.refresh_cv.wait_timeout(r, wait).unwrap();
                                 r = next;
                                 if timeout.timed_out() {
+                                    due_now = true;
                                     break;
                                 }
                             }
                         }
                     }
+                    r.2 = false;
+                    if !r.0 && !r.1 && !due_now {
+                        continue; // only the timer changed: wait for the new one
+                    }
                     drop(r);
                     std::thread::sleep(ENGINE_REFRESH.saturating_sub(last.elapsed()));
-                    std::mem::take(&mut *shared.refresh.lock().unwrap())
+                    let mut r = shared.refresh.lock().unwrap();
+                    (std::mem::take(&mut r.0), std::mem::take(&mut r.1))
                 };
                 last = Instant::now();
                 {
-                    // Timed engine work (a pondering probe) shows up as console output.
+                    // Timed engine work (a pondering probe) shows up as console output; quick
+                    // analysis timers can change the view.
                     let mut wb = shared.workbench.lock().unwrap();
                     let before = wb.console_seq();
-                    wb.engine_tick(last);
+                    view |= wb.engine_tick(last);
                     console |= wb.console_seq() != before;
                 }
                 if view {
@@ -741,6 +758,56 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().score(op)?;
             Ok(changed(&app, &shared, done))
         }
+        Command::SetAutoQuickAnalyze { enabled } => {
+            let done = shared.workbench.lock().unwrap().set_auto_quick_analyze(enabled)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetLoadSgfLast { enabled } => {
+            let done = shared.workbench.lock().unwrap().set_load_sgf_last(enabled)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SaveAnalysisEngineSettings {
+            settings,
+            shown_command,
+            edited,
+        } => {
+            let saved =
+                shared
+                    .workbench
+                    .lock()
+                    .unwrap()
+                    .save_analysis_engine_settings(settings, &shown_command, edited)?;
+            Ok(match saved {
+                Ok(done) => changed(&app, &shared, done),
+                Err(key) => CommandResult::Refused {
+                    message_key: key.to_string(),
+                },
+            })
+        }
+        Command::GenerateAnalysisCommand { index } => {
+            let generated = shared.workbench.lock().unwrap().generate_analysis_command(index);
+            Ok(match generated {
+                Ok((command, generated_config)) => CommandResult::AnalysisCommand {
+                    command,
+                    generated_config,
+                },
+                Err(key) => CommandResult::Refused {
+                    message_key: key.to_string(),
+                },
+            })
+        }
+        Command::SetQuickModelEnabled { enabled } => {
+            let done = shared.workbench.lock().unwrap().set_quick_model_enabled(enabled)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetProblemList { settings } => {
+            let done = shared.workbench.lock().unwrap().set_problem_list(settings)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::JumpToProblemMove { node } => {
+            let done = shared.workbench.lock().unwrap().jump_to_problem_move(node)?;
+            Ok(changed(&app, &shared, done))
+        }
     }
 }
 
@@ -1127,7 +1194,7 @@ pub fn run() {
             let shared: State = Arc::new(Shared {
                 workbench: Mutex::new(workbench),
                 log,
-                refresh: Mutex::new((false, false)),
+                refresh: Mutex::new((false, false, false)),
                 refresh_cv: Condvar::new(),
                 processes,
                 saves: Mutex::new(spawn_save_lane(app.handle().clone())),

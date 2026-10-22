@@ -28,8 +28,9 @@ fn eval(a: &NodeAnalysisView) -> NodeEval {
     }
 }
 
-/// Use the same fixed-Java localization catalog as the UI, not a second string table.
-fn comment_labels(language: crate::settings::Language) -> CommentLabels {
+/// A string of the fixed-Java localization catalog the UI uses, not a second string table.
+/// `tools/extract_java_strings.py` collects the keys passed here.
+pub(super) fn java_text(language: crate::settings::Language, key: &str) -> String {
     static CATALOG: std::sync::LazyLock<serde_json::Value> = std::sync::LazyLock::new(|| {
         serde_json::from_str(include_str!("../../../../ui/src/i18n/javaStrings.json"))
             .expect("bundled Java localization catalog")
@@ -43,23 +44,23 @@ fn comment_labels(language: crate::settings::Language) -> CommentLabels {
         Language::ZhTw => "ZhTw",
         Language::ThTh => "ThTh",
     };
-    let strings = &CATALOG["strings"][lang];
-    let label = |key: &str| {
-        strings[key]
-            .as_str()
-            .expect("SGF comment label in every bundled locale")
-            .to_string()
-    };
+    CATALOG["strings"][lang][key]
+        .as_str()
+        .expect("Java string in every bundled locale")
+        .to_string()
+}
+
+fn comment_labels(language: crate::settings::Language) -> CommentLabels {
     CommentLabels {
-        black: label("SGFParse.black"),
-        white: label("SGFParse.white"),
-        winrate: label("SGFParse.winrate"),
-        lead: label("SGFParse.leadJustScore"),
-        lead_with_komi: label("SGFParse.leadWithKomi"),
-        stdev: label("SGFParse.stdev"),
-        playouts: label("SGFParse.playouts"),
-        komi: label("SGFParse.komi"),
-        pda: label("SGFParse.pda"),
+        black: java_text(language, "SGFParse.black"),
+        white: java_text(language, "SGFParse.white"),
+        winrate: java_text(language, "SGFParse.winrate"),
+        lead: java_text(language, "SGFParse.leadJustScore"),
+        lead_with_komi: java_text(language, "SGFParse.leadWithKomi"),
+        stdev: java_text(language, "SGFParse.stdev"),
+        playouts: java_text(language, "SGFParse.playouts"),
+        komi: java_text(language, "SGFParse.komi"),
+        pda: java_text(language, "SGFParse.pda"),
     }
 }
 

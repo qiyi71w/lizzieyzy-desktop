@@ -142,6 +142,10 @@ impl ResourceStore {
     pub fn analysis_config(&self) -> PathBuf {
         self.root.join("configs/analysis.cfg")
     }
+    /// 快速曲线轻量模型 (Java `quick-analysis-models/`), apart from the weights list.
+    pub fn quick_models_dir(&self) -> PathBuf {
+        self.root.join("quick-analysis-models")
+    }
     pub fn package_dir(&self, asset: &Asset, backend: Option<ExperimentalBackend>) -> ResourceResult<PathBuf> {
         safe_id(&asset.id)?;
         super::validate_sha256(&asset.sha256)?;
@@ -328,7 +332,7 @@ impl ResourceStore {
         let bytes = if let Some(source) = source {
             fs::read(source)?
         } else {
-            include_bytes!("analysis_example.cfg").to_vec()
+            ANALYSIS_EXAMPLE.to_vec()
         };
         create_file_once(&target, &bytes)?;
         Ok(target)
@@ -683,7 +687,11 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> ResourceResult<()> {
     let _ = fs::remove_file(staged);
     result
 }
-fn create_file_once(path: &Path, bytes: &[u8]) -> ResourceResult<()> {
+/// KataGo's `analysis_example.cfg`, for an `analysis.cfg` that is missing.
+pub const ANALYSIS_EXAMPLE: &[u8] = include_bytes!("analysis_example.cfg");
+
+/// Writes `path` unless it exists (config files belong to the user once created).
+pub fn create_file_once(path: &Path, bytes: &[u8]) -> ResourceResult<()> {
     fs::create_dir_all(path.parent().ok_or_else(|| invalid("No resource parent directory"))?)?;
     let staged = sibling_path(path, "writing");
     let result = (|| -> ResourceResult<()> {

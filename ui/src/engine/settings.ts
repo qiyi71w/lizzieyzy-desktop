@@ -1,6 +1,6 @@
-// ConfigDialog2.java:6701-6711, 6851-6854 and the modern 引擎与分析 / 对局与操作 / 高级 sections.
+// ConfigDialog2.java:6701-6711, 6851-6854 and the modern 棋谱加载 / 引擎与分析 / 对局与操作 / 高级 sections.
 import { run, state } from "../app";
-import type { AnalysisSettings, ProxyMode } from "../contract/generated";
+import type { AnalysisSettings, Command, ProxyMode } from "../contract/generated";
 import { confirm, formPanel, message } from "../dialogs";
 import { product, t } from "../i18n";
 import { actions, button, checkbox, field, input } from "./controls";
@@ -17,11 +17,14 @@ export async function openAnalysisSettings(): Promise<void> {
   const form = document.createElement("div"); form.className = "engine-settings-form";
   const advanced = document.createElement("div"); advanced.className = "engine-settings-form"; advanced.hidden = true;
   const play = document.createElement("div"); play.className = "engine-settings-form"; play.hidden = true;
+  const kifu = document.createElement("div"); kifu.className = "engine-settings-form"; kifu.hidden = true;
+  const pages = { engine: form, advanced, play, kifu } as Record<string, HTMLElement>;
+  const showPage = (key: string) => { for (const [id, page] of Object.entries(pages)) page.hidden = id !== key; };
   for (const [key, text] of [["display", t("ConfigDialog2.modern.nav.display")], ["kifu", t("ConfigDialog2.modern.nav.kifu")], ["engine", t("ConfigDialog2.modern.nav.engine")], ["play", t("ConfigDialog2.modern.nav.play")], ["theme", t("ConfigDialog2.modern.nav.theme")], ["advanced", t("ConfigDialog2.modern.nav.advanced")], ["about", t("ConfigDialog2.modern.nav.about")]]) {
     const item = document.createElement("button"); item.textContent = text; item.dataset.key = `settings.nav.${key}`;
-    item.disabled = key !== "engine" && key !== "advanced" && key !== "play";
+    item.disabled = !(key in pages);
     if (item.disabled) { item.title = product("unavailable"); item.className = "unavailable"; }
-    else item.onclick = () => { form.hidden = key !== "engine"; advanced.hidden = key !== "advanced"; play.hidden = key !== "play"; };
+    else item.onclick = () => showPage(key);
     nav.append(item);
   }
   body.append(nav);
@@ -56,6 +59,18 @@ export async function openAnalysisSettings(): Promise<void> {
     if (noCapture.input.checked && !(await confirm(t("ConfigDialog2.chkNoCapture.title"), t("ConfigDialog2.chkNoCapture.content"), "info"))) noCapture.input.checked = false;
   };
   const noCaptureHint = document.createElement("p"); noCaptureHint.textContent = t("ConfigDialog2.modern.advanced.noCaptureSub"); advanced.append(noCaptureHint);
+  // 棋谱加载 > 打开 SGF 后行为 (ConfigDialog2.java:2956-2987): applied with 保存设置 (6641-6644).
+  const sgfTitle = document.createElement("h3"); sgfTitle.textContent = t("ConfigDialog2.modern.kifu.title");
+  const sgfSubtitle = document.createElement("p"); sgfSubtitle.textContent = t("ConfigDialog2.modern.kifu.subtitle"); kifu.append(sgfTitle, sgfSubtitle);
+  const kifuRow = (field: string, title: string, sub: string, value: boolean) => {
+    const row = checkbox(title, value); row.input.dataset.key = `settings.kifu.${field}`; row.label.title = sub;
+    const hint = document.createElement("p"); hint.textContent = sub; kifu.append(row.label, hint);
+    return row.input;
+  };
+  const loading = state.view.settings;
+  const autoAnalyze = kifuRow("auto_quick_analyze_on_load", t("ConfigDialog2.modern.kifu.autoAnalyze"), t("ConfigDialog2.modern.kifu.autoAnalyzeSub"), loading.auto_quick_analyze_on_load);
+  const jumpLast = kifuRow("load_sgf_last", t("ConfigDialog2.modern.kifu.jumpLast"), t("ConfigDialog2.modern.kifu.jumpLastSub"), loading.load_sgf_last);
+  const readKomi = kifuRow("read_komi", t("ConfigDialog2.modern.kifu.readKomi"), t("ConfigDialog2.modern.kifu.readKomiSub"), loading.read_komi);
   const proxyTitle = document.createElement("h3"); proxyTitle.textContent = t("ConfigDialog2.modern.proxy.title");
   const proxySubtitle = document.createElement("p"); proxySubtitle.textContent = t("ConfigDialog2.modern.proxy.subtitle"); advanced.append(proxyTitle, proxySubtitle);
   const mode = document.createElement("select"); mode.dataset.key = "settings.proxy.mode";
@@ -71,15 +86,15 @@ export async function openAnalysisSettings(): Promise<void> {
   const manualRow = document.createElement("div"); manualRow.className = "engine-field";
   const manualTitle = document.createElement("span"); manualTitle.textContent = t("ConfigDialog2.modern.proxy.manual"); manualRow.append(manualTitle, address); advanced.append(manualRow);
   const toggleManual = () => { host.disabled = port.disabled = mode.value !== "Manual"; }; mode.onchange = toggleManual; toggleManual();
-  body.append(form, play, advanced);
+  body.append(form, kifu, play, advanced);
   const dialog = formPanel(t("Menu.comprehensiveSettings"), body);
   const save = button(t("SetKataRules.btnApply"), async () => {
     const invalid = inputs.find((control) => !control.checkValidity());
-    if (invalid) { form.hidden = false; advanced.hidden = true; play.hidden = true; invalid.reportValidity(); return; }
+    if (invalid) { showPage("engine"); invalid.reportValidity(); return; }
     const proxyMode: ProxyMode = mode.value === "System" ? "System" : mode.value === "Manual" ? "Manual" : "Direct";
     const validPort = /^\d+$/.test(port.value) && Number(port.value) >= 1 && Number(port.value) <= 65535;
     if (proxyMode === "Manual" && (!host.value.trim() || !validPort)) {
-      advanced.hidden = false; form.hidden = true; play.hidden = true;
+      showPage("advanced");
       await message(t("ConfigDialog2.modern.proxy.title"), !host.value.trim() ? t("ConfigDialog2.modern.proxy.hostRequired") : t("ConfigDialog2.modern.proxy.invalidPort"), "warning");
       (!host.value.trim() ? host : port).focus(); return;
     }
@@ -93,6 +108,16 @@ export async function openAnalysisSettings(): Promise<void> {
     }
     if (noCapture.input.checked !== edit.noCapture) {
       const result = await run({ type: "SetEditSettings", settings: { ...edit, noCapture: noCapture.input.checked } }); if (!result || result.type === "Refused") return;
+    }
+    const now = state.view?.settings ?? loading;
+    const kifuChanges: [boolean, Command][] = [
+      [autoAnalyze.checked !== now.auto_quick_analyze_on_load, { type: "SetAutoQuickAnalyze", enabled: autoAnalyze.checked }],
+      [jumpLast.checked !== now.load_sgf_last, { type: "SetLoadSgfLast", enabled: jumpLast.checked }],
+      [readKomi.checked !== now.read_komi, { type: "SetReadKomi", enabled: readKomi.checked }],
+    ];
+    for (const [changed, command] of kifuChanges) {
+      if (!changed) continue;
+      const result = await run(command); if (!result || result.type === "Refused") return;
     }
     if (!(await displayRows.save())) return;
     const result = await run({ type: "SetAnalysisSettings", settings });
