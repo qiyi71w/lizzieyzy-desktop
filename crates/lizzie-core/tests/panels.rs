@@ -99,6 +99,10 @@ fn display_page_snapshot_and_top_toolbar_are_committed_together() {
     draft.show_sub_board = false;
     draft.show_top_toolbar = false;
     draft.show_double_menu = true;
+    draft.independent_main_locked = true;
+    draft.independent_sub_locked = true;
+    draft.independent_main_top = true;
+    draft.independent_sub_top = true;
     assert_eq!(wb.config().panels, PanelSettings::default(), "draft is not committed");
     wb.set_panel_settings(draft.clone()).unwrap();
     assert_eq!(wb.view(false).settings.panels, draft);
