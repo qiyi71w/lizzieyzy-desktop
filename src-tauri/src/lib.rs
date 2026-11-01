@@ -678,11 +678,7 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             Ok(changed(&app, &shared, done))
         }
         Command::CloseIndependentBoard { board } => {
-            let done = {
-                let mut wb = shared.workbench.lock().unwrap();
-                independent::capture(&app, &mut wb)?;
-                wb.close_independent_board(board)?
-            };
+            let done = independent::close(&app, &shared, board)?;
             Ok(changed(&app, &shared, done))
         }
         Command::SaveCustomLayout { slot, window } => {
@@ -695,8 +691,10 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         }
         Command::ApplyCustomLayout { slot } => {
             let done = shared.workbench.lock().unwrap().apply_custom_layout(slot)?;
-            if done { independent::apply(&app, &shared, slot).await?; }
-            Ok(changed(&app, &shared, done))
+            let placed = if done { independent::apply(&app, &shared, slot).await } else { Ok(()) };
+            let result = changed(&app, &shared, done);
+            placed?;
+            Ok(result)
         }
         Command::SwitchSecondaryEngine { index } => {
             let done = shared.workbench.lock().unwrap().switch_secondary_engine(index)?;

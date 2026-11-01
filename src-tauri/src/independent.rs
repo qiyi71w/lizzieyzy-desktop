@@ -27,10 +27,31 @@ pub(super) fn capture(app: &AppHandle, wb: &mut Workbench) -> Result<(), ApiErro
     }
     Ok(())
 }
+pub(super) fn close(app: &AppHandle, shared: &Shared, board: IndependentBoard) -> Result<bool, ApiError> {
+    let (done, restore, toolbar) = {
+        let mut wb = shared.workbench.lock().unwrap();
+        capture(app, &mut wb)?;
+        let restore = board == IndependentBoard::Main && wb.config().ui.extra_mode == lizzie_core::settings::ExtraMode::FloatBoard;
+        let toolbar = wb.persisted().bottom_toolbar;
+        (wb.close_independent_board(board)?, restore, toolbar)
+    };
+    if restore {
+        if let Some(window) = app.get_webview_window("main") {
+            if !window.is_maximized().unwrap_or(false) {
+                if let (Some(mut p), Ok(scale)) = (placement(&window), window.scale_factor()) {
+                    let bar = match toolbar { lizzie_core::settings::BottomToolbar::Hidden => 0.0,
+                        lizzie_core::settings::BottomToolbar::Simple => 26.0, lizzie_core::settings::BottomToolbar::Detailed => 70.0 };
+                    p.width = ((f64::from(p.height) - bar * scale) * 1.65).max(1.0) as u32;
+                    if let Err(error) = set_outer(&window, p) { shared.log.warn(&error.message); }
+                }
+            }
+        }
+    }
+    Ok(done)
+}
+
 pub(super) fn closing(shared: &Shared, window: &WebviewWindow, board: IndependentBoard) {
-    let mut wb = shared.workbench.lock().unwrap();
-    if let Err(error) = wb.record_independent_board(board, placement(window)) { shared.log.warn(&error.message); }
-    if let Err(error) = wb.close_independent_board(board) { shared.log.warn(&error.message); }
+    if let Err(error) = close(window.app_handle(), shared, board) { shared.log.warn(&error.message); }
 }
 
 fn set_outer(window: &WebviewWindow, p: WindowPlacement) -> Result<(), ApiError> {
