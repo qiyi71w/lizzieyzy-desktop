@@ -215,6 +215,20 @@ export function autoplayReport() {
   };
 }
 
+/** The detailed bottom toolbar's 自动播放(大)(秒) box (chkAutoMain, BottomToolbar.java:1849-1856)
+ *  and its txtAutoMain / txtAutoSub fields, which the players read at every step. */
+export const toolbarAutoplay = {
+  mainRunning: (): boolean => main.running,
+  setMain(on: boolean): void {
+    if (on) startMain();
+    else stopMain();
+  },
+  interval: (kind: "main" | "sub"): number => intervals[kind],
+  setInterval(kind: "main" | "sub", value: number): void {
+    intervals[kind] = value;
+  },
+};
+
 // ------------------------------------------------------------------ 设置自动播放
 
 function choice(panel: HTMLElement, text: string, checked: boolean, x: number, y: number, w: number, h: number): HTMLInputElement {

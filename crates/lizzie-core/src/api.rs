@@ -259,6 +259,15 @@ pub enum Command {
     SetDisplaySettings {
         settings: crate::settings::DisplaySettings,
     },
+    /// 界面 > 面板 and its Java keyboard shortcuts.
+    TogglePanel { panel: crate::settings::WorkbenchPanel },
+    /// 综合设置 > 显示; drafts become committed together on 保存设置.
+    SetPanelSettings { settings: crate::settings::PanelSettings },
+    /// A finished in-frame separator drag; motion drafts never enter the core.
+    SetPanelSizes { sizes: crate::settings::PanelSizes },
+    NudgeBoardPosition { delta: i32 },
+    RestoreDefaultPanelSizes,
+    SetBottomToolbar { mode: crate::settings::BottomToolbar },
     /// 纯网络 (H): Off → Policy → Ownership → Off for KataGo, Off ↔ Policy otherwise.
     ToggleRawNet,
     /// Turn pure network off, resuming ordinary analysis (policy T).
@@ -688,6 +697,10 @@ pub struct SettingsView {
     pub replace_file_hint: bool,
     /// 布局模式 (Java `ui.extra-mode`).
     pub extra_mode: crate::settings::ExtraMode,
+    pub panels: crate::settings::PanelSettings,
+    pub panel_sizes: crate::settings::PanelSizes,
+    pub bottom_toolbar: crate::settings::BottomToolbar,
+    pub comment_panel_auto_hidden: bool,
     pub engine: EngineSettingsView,
     pub edit: EditSettings,
     pub display: crate::settings::DisplaySettings,
@@ -1079,6 +1092,10 @@ pub enum ImportTarget {
     SuggestionsFrame,
     /// 布局模式: `ui.extra-mode` (默认模式 / 双引擎模式).
     ExtraMode,
+    /// Fixed workbench panel/toolbar flags and in-frame persisted shares.
+    WorkbenchPanels,
+    PanelSizes,
+    BottomToolbar,
     /// 加载棋谱后快速刷新胜率曲线: `ui.auto-quick-analyze-on-load`.
     AutoQuickAnalysis,
     /// 精析设置: `ui.analysis-engine-command`, `-command-customized`, `analysis-max-visits`,

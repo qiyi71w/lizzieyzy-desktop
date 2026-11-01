@@ -1,7 +1,8 @@
 // Java BottomToolbar main bar: the default button set (Config.java:1900-1936) in its groups
 // (BottomToolbar.java:5209-5235), placed by layoutMainBar (5237-5320). Navigation, the move field,
 // the record-editing and board display buttons are implemented here; the other buttons report
-// that the capability is not available yet.
+// that the capability is not available yet. 工具栏 > 底部工具栏 hides the bar or adds the 详细工具栏
+// panels below it (bottomDetail.ts); the mode is the core's window presentation setting.
 import { navigate, run, state, subscribe, unavailable } from "../app";
 import { COMMANDS } from "../commands";
 import { toggleCoordinates, toggleMoveNumbers } from "../display/commands";
@@ -13,6 +14,7 @@ import { toggleKataEstimate } from "../analysis/infoCommands";
 import { toggleScore } from "../analysis/scoreDialog";
 import { AUTO_ANALYSIS_MENU } from "../quick/autoAnalysis";
 import { openPopupMenu } from "./menubar";
+import { buildBottomDetail, layoutBottomDetail } from "./bottomDetail";
 
 interface Item {
   name: string;
@@ -54,9 +56,9 @@ const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" 
     { name: "kataEstimate", key: "BottomToolbar.kataEstimate", run: toggleKataEstimate, shown: () => !!state.view?.engine.foreground?.katago },
     // activeEngine.toggleHeatmap(false), as H (BottomToolbar.java:1365-1373)
     { name: "heatMap", key: "BottomToolbar.heatMap", run: toggleRawNet },
-    // toggleBadMoves (BottomToolbar.java:1311-1316); off while the top toolbar and the double
-    // menu are shown, as in the default layout (Config.java:1936)
-    { name: "badMoves", key: "BottomToolbar.badMoves", hidden: true, run: () => COMMANDS["analysis.bad-moves"].run() },
+    // toggleBadMoves (BottomToolbar.java:1311-1316); badMoves defaults to off while the top
+    // toolbar and the double menu were shown at start-up (Config.java:1936)
+    { name: "badMoves", key: "BottomToolbar.badMoves", shown: () => badMovesShown, run: () => COMMANDS["analysis.bad-moves"].run() },
     { name: "liveButton", key: "BottomToolbar.liveButton" },
   ],
   center: [
@@ -89,6 +91,10 @@ const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" 
   ],
 };
 const MORE: Item = { name: "moreActionsButton", key: "BottomToolbar.moreActions" };
+
+/** Config.badMoves's default, from the toolbar flags the program started with. */
+let badMovesShown = false;
+let badMovesDecided = false;
 
 const elements = new Map<Item, HTMLElement>();
 const widths = new Map<Item, number>();
@@ -162,11 +168,25 @@ export function buildBottomBar(host: HTMLElement): void {
     host.append(b);
   }
   measure(host);
+  buildBottomDetail(host);
   let lastAnalysis = false;
   let lastTrying = false;
   const tryPlay = elements.get(GROUPS.rightPrimary.find((item) => item.name === "tryPlay")!)!;
   let lastShown = "";
+  let lastMode = "";
   subscribe(() => {
+    const v = state.view;
+    if (v && !badMovesDecided) {
+      badMovesDecided = true;
+      badMovesShown = !(v.settings.panels.showTopToolbar && v.settings.panels.showDoubleMenu);
+    }
+    // 显示 / 不显示 / 使用详细工具栏 (Menu.java:4532-4591): the bar's height 26, 0 or the panels'.
+    const mode = v?.settings.bottom_toolbar ?? "Simple";
+    if (mode !== lastMode) {
+      lastMode = mode;
+      host.style.display = mode === "Hidden" ? "none" : "";
+      layoutBottomBar(host);
+    }
     const analysing = state.view?.engine.analysing ?? false;
     if (analysing !== lastAnalysis) {
       lastAnalysis = analysing;
@@ -193,7 +213,8 @@ export function buildBottomBar(host: HTMLElement): void {
  *  from the right (optional ones overflow first); overflowed buttons go to "更多", which reserves
  *  its width in a second pass. */
 export function layoutBottomBar(host: HTMLElement): void {
-  const W = host.clientWidth;
+  const height = layoutBottomDetail(host, state.view?.settings.bottom_toolbar === "Detailed");
+  if (host.style.height !== `${height}px`) host.style.height = `${height}px`;
   const PAD = 10;
   const GAP = 6;
   const width = (item: Item) => widths.get(item) ?? 52;

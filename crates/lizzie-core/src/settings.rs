@@ -440,6 +440,93 @@ pub enum ExtraMode {
     DoubleEngine,
 }
 
+/// Workbench presentation (`Config.java:1609-1613,1677-1683,1828,1939,1981`).
+/// `extra_mode` remains in `UiSettings`; these flags also serve later fixed Java layouts.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PanelSettings {
+    pub show_sub_board: bool,
+    pub show_winrate_graph: bool,
+    pub large_winrate_graph: bool,
+    pub show_comment: bool,
+    pub show_variation_graph: bool,
+    pub show_list_pane: bool,
+    pub show_captured: bool,
+    pub show_status: bool,
+    pub large_sub_board: bool,
+    pub show_top_toolbar: bool,
+    pub show_double_menu: bool,
+    pub always_on_top: bool,
+    pub show_winrate_in_title: bool,
+    /// Java remembers a sub board hidden by 大胜率图 and restores it when leaving that mode.
+    pub hide_sub_board_from_large_winrate: bool,
+}
+
+impl Default for PanelSettings {
+    fn default() -> Self {
+        Self {
+            show_sub_board: true,
+            show_winrate_graph: true,
+            large_winrate_graph: false,
+            show_comment: true,
+            show_variation_graph: true,
+            show_list_pane: true,
+            show_captured: true,
+            show_status: true,
+            large_sub_board: false,
+            show_top_toolbar: true,
+            show_double_menu: true,
+            always_on_top: false,
+            show_winrate_in_title: true,
+            hide_sub_board_from_large_winrate: false,
+        }
+    }
+}
+
+/// Java's in-frame shares (`LizzieFrame.java:7976-8035`), independent of panel visibility.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PanelSizes {
+    pub leftover_left_share: Option<f64>,
+    pub board_position_proportion: u8,
+    pub comment_height_share: Option<f64>,
+    pub variation_graph_share: Option<f64>,
+}
+
+impl Default for PanelSizes {
+    fn default() -> Self {
+        Self {
+            leftover_left_share: None,
+            board_position_proportion: 4,
+            comment_height_share: None,
+            variation_graph_share: None,
+        }
+    }
+}
+
+/// `main-window-other[0]`: Java toolbar heights 0, 26 and 70 (`Menu.java:4532-4588`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum BottomToolbar {
+    Hidden,
+    #[default]
+    Simple,
+    Detailed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum WorkbenchPanel {
+    SubBoard,
+    WinrateGraph,
+    LargeWinrateGraph,
+    Comment,
+    VariationGraph,
+    ListPane,
+    Captured,
+    Status,
+    LargeSubBoard,
+    AlwaysOnTop,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct UiSettings {
@@ -855,6 +942,8 @@ pub struct Config {
     pub whole_game: WholeGameSettings,
     /// 超级鹰眼.
     pub hawkeye: HawkeyeSettings,
+    /// Fixed Java workbench panel and toolbar presentation.
+    pub panels: PanelSettings,
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).
@@ -926,6 +1015,8 @@ pub struct Persisted {
     pub main_list_columns: Option<Vec<u32>>,
     /// 超级鹰眼's last placement (primary window only, like Java).
     pub hawkeye: Option<HawkeyePlacement>,
+    pub panel_sizes: PanelSizes,
+    pub bottom_toolbar: BottomToolbar,
 }
 
 /// File locations inside the product's per-user data directories.

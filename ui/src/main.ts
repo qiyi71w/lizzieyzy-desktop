@@ -13,8 +13,10 @@ import type { BoardOverlayView, HistoryPoint, Navigation, NodeAnalysisView, Poin
 import { dialogOpen, message } from "./dialogs";
 import { format, isChinese, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
-import { boardGeom, doubleEngineLayout, inFrameLayout, mainMarginRatio, SUB_MARGIN_RATIO, type BoardGeom, type DualPanels, type Panels, type Rect } from "./workbench/layout";
+import { boardGeom, doubleEngineLayout, mainMarginRatio, SUB_MARGIN_RATIO, workbenchLayout, type BoardGeom, type DualPanels, type PanelId, type Panels, type Rect } from "./workbench/layout";
 import { handleLayoutKey } from "./workbench/extraMode";
+import { bindPanels, controlsShowing, handlePanelKey, layoutRequest, placeHandles } from "./workbench/panels";
+import "./workbench/displayPage";
 import { boardUi, candidatesShownFor, onBoardUiChange } from "./display/state";
 import { bindReplayHost, finishReplayBranch, replayLength, replaying, type ReplayTarget } from "./display/replay";
 import { autoplayReport, autoReplayLength, bindAutoplayHost, subAutoplayLength, subWheeled } from "./display/autoplay";
@@ -68,6 +70,7 @@ import {
 } from "./workbench/paint";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const PANEL_IDS: PanelId[] = ["captured", "stat", "graph", "comment", "status", "tree", "table", "sub"];
 
 // Java's chrome fonts are platform-resolved (Dialog / Microsoft YaHei UI on Windows, DejaVu / Noto
 // on Linux); styles.css selects the matching set from this attribute.
@@ -395,7 +398,7 @@ document.addEventListener("keydown", (e) => {
   if (dialogOpen() || flashWindowOpen() || menuOpen() || contextMenuOpen() || textTarget(e.target)) return;
   // The 存档与读档 controls keep their keys, like the Swing components holding the focus there.
   if (e.target instanceof Element && e.target.closest("#recovery")) return;
-  if (handleLayoutKey(e) || handleEngineKey(e) || handleEditKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e)) {
+  if (handleLayoutKey(e) || handlePanelKey(e) || handleEngineKey(e) || handleEditKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e)) {
     e.preventDefault();
     return;
   }
@@ -803,19 +806,26 @@ function render() {
   const { width: cols, height: rows } = v.document.size;
   // 双引擎模式 shows the two boards and their status strips only (LizzieFrame.java:6640-6720).
   dual = v.settings.extra_mode === "DoubleEngine" ? doubleEngineLayout(W, H, cols, rows) : null;
-  const normal = inFrameLayout(W, H);
-  panels = dual ? { ...normal, board: dual.left, glass: [] } : normal;
+  const normal = workbenchLayout(W, H, layoutRequest(v));
+  panels = dual ? { ...normal, board: dual.left, glass: [], handles: null } : normal;
   const P = panels;
   const size = `${W}x${H}:${window.devicePixelRatio}`;
   // Edits change a node's position, marks or side to play in place: the revision moves on.
   const docSig = `${v.document.id}:${v.document.revision}:${pos.node}:${pos.to_play}`;
   projectAnalysis(v);
-  const background = `${size}:${dual !== null}`;
+  const background = `${size}:${dual !== null}:${JSON.stringify(P.glass)}`;
   if (changed("bg", background)) installBackground(background, W, H, P.glass);
+  // 界面 > 面板 flags; holding X hides the tree, the list and the comment (Input.java:616-623).
+  const controls = controlsShowing();
+  for (const id of PANEL_IDS) {
+    const shown = !dual && P.shown[id] && !(controls && (id === "tree" || id === "table" || id === "comment"));
+    const display = shown ? "" : "none";
+    if ($(id).style.display !== display) $(id).style.display = display;
+  }
   if (changed("mode", String(dual !== null))) {
-    for (const id of ["captured", "stat", "graph", "comment", "status", "tree", "table", "sub"]) $(id).style.display = dual ? "none" : "";
     for (const id of ["board2", "dualStatus"]) $(id).style.display = dual ? "" : "none";
   }
+  placeHandles(P.handles);
 
   const firstChildId = state.nodes.get(pos.node)?.children[0];
   const firstChild = firstChildId === undefined ? undefined : state.nodes.get(firstChildId);
@@ -856,13 +866,17 @@ function render() {
   const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}`;
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
   const scoreSig = v.score ? JSON.stringify(v.score) : "";
-  if (changed("board", `${background}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}`))
+  if (changed("board", `${background}:${P.board.x},${P.board.y},${P.board.w}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}`))
     boardReport = paintBoard(prepare($("board"), P.board), mainGeom(v, P.board), P.board, scene);
   if (dual) renderDual(v, dual, W, H, size, docSig, ui, scoreSig, scene);
   else renderPanels(v, P, H, size, docSig, ui, scene);
   relayFrame(v);
   relayHawkeye(v);
-  if (changed("bottombar", `${$("bottombar").clientWidth}`)) layoutBottomBar($("bottombar"));
+  if (changed("bottombar", `${$("bottombar").clientWidth}`)) {
+    layoutBottomBar($("bottombar"));
+    // 详细工具栏 wraps its panels by width: a new height resizes the workbench.
+    if (main.clientHeight !== H) schedule();
+  }
   renderToolbar();
   const title = workbenchTitle(v, version, historyByNode, state.nodes.get(pos.node)?.parent ?? undefined);
   if (changed("title", title)) {
@@ -884,7 +898,10 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
   const subVariation = v.settings.display.subBoard === "Variation" && scene.candidatesShown && scene.engine ? subAnalysis(v)?.candidates : undefined;
   const subLayer = subOwnership(v, subVariation?.[Math.min(subCandidate, subVariation.length - 1)]);
   const subShown = subLength ?? subAutoplayLength();
-  if (changed("sub", `${size}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${subCandidate}:${subShown}:${over}:${subFrozen?.revision}:${layerSignature("sub", subLayer)}`))
+  // Panel rectangles follow the panel flags and separators, not just the size; hidden panels are
+  // not drawn (their signatures keep what they last showed).
+  const at = (r: Rect) => `${size}:${r.x},${r.y},${r.w},${r.h}`;
+  if (P.shown.sub && changed("sub", `${at(P.sub)}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${subCandidate}:${subShown}:${over}:${subFrozen?.revision}:${layerSignature("sub", subLayer)}`))
     subReport = paintSubBoard(prepare($("sub"), P.sub), boardGeom(P.sub, cols, rows, SUB_MARGIN_RATIO), P.sub, {
       cols,
       rows,
@@ -903,7 +920,7 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
       ownership: subLayer,
     });
   const ai = v.statistics;
-  if (changed("captured", `${size}:${docSig}:${v.komi}:${v.engine.analysing}:${v.engine.rules_key}:${ai.ai_score_black}:${ai.ai_score_white}`))
+  if (P.shown.captured && changed("captured", `${at(P.captured)}:${docSig}:${v.komi}:${v.engine.analysing}:${v.engine.rules_key}:${ai.ai_score_black}:${ai.ai_score_white}`))
     paintCaptured(prepare($("captured"), P.captured), P.captured, {
       toPlay: pos.to_play,
       blackCaptures: pos.black_captures,
@@ -916,19 +933,19 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
       aiScoreWhite: ai.ai_score_white,
     });
   const stat = statScene(v, historyByNode, (node) => state.nodes.get(node)?.parent ?? undefined);
-  if (changed("stat", `${size}:${JSON.stringify(stat)}`)) statReport = paintStat(prepare($("stat"), P.stat), P.stat, stat);
+  if (P.shown.stat && changed("stat", `${at(P.stat)}:${JSON.stringify(stat)}`)) statReport = paintStat(prepare($("stat"), P.stat), P.stat, stat);
   const graphDisplay = v.settings.display;
   // Turning 显示鼠标悬停信息 off clears the hovered node (clearMouseOverWinrateGraph).
   if (!graphDisplay.mouseOverWinrateGraph) graphHover = null;
   const graphSettings = `${graphDisplay.winrateLine}:${graphDisplay.scoreLeadLine}:${graphDisplay.winrateGraphFill}:${graphDisplay.blunderBar}:${graphDisplay.initialMaxScoreLead}`;
-  if (changed("graph", `${size}:${docSig}:${pos.line_end}:${historyRevision}:${graphSettings}:${graphHover}`)) {
+  if (P.shown.graph && changed("graph", `${at(P.graph)}:${docSig}:${pos.line_end}:${historyRevision}:${graphSettings}:${graphHover}`)) {
     const painted = paintGraph(prepare($("graph"), P.graph), P.graph, { nodes: state.nodes, current: pos.node, history: historyByNode, display: graphDisplay, hover: graphHover });
     graphReport = painted.report;
     graphHits = painted.hits;
   }
   const statusRect = { x: 0, y: P.ponderingY, w: P.board.x, h: H - P.ponderingY };
   const lines = statusLines();
-  if (changed("status", `${size}:${lines.join("|")}`)) paintStatus(prepare($("status"), statusRect), statusRect, lines);
+  if (P.shown.status && changed("status", `${at(statusRect)}:${lines.join("|")}`)) paintStatus(prepare($("status"), statusRect), statusRect, lines);
   if (treeScrollFor !== docSig) {
     treeScroll = null;
     treeScrollFor = docSig;
@@ -938,7 +955,7 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
     treeRevision++;
   }
   const treeNumbers = v.settings.display.treeMoveNumbers;
-  if (changed("tree", `${size}:${docSig}:${treeRevision}:${treeNumbers}:${treeScroll?.top}:${treeScroll?.left}`)) {
+  if (P.shown.tree && changed("tree", `${at(P.tree)}:${docSig}:${treeRevision}:${treeNumbers}:${treeScroll?.top}:${treeScroll?.left}`)) {
     const painted = paintTree(prepare($("tree"), P.tree), P.tree, state.nodes, state.root, pos.node, state.line, treeScroll, treeNumbers);
     treeHits = painted.hits;
     treeView = painted.viewport;
@@ -950,7 +967,7 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
   if (changed("comment", `${docSig}:${comment}`)) $("commentText").textContent = comment;
   renderProblemPanel(v);
   place($("table"), P.table);
-  if (changed("table", `${size}:${docSig}:${analysisRevision}:${historyRevision}:${mainTableSignature(v)}`)) renderMainTable($("table"), v);
+  if (P.shown.table && changed("table", `${at(P.table)}:${docSig}:${analysisRevision}:${historyRevision}:${mainTableSignature(v)}`)) renderMainTable($("table"), v);
 }
 
 /** 双引擎模式's right board (boardRenderer2): the main board's scene from the secondary engine's
@@ -1047,6 +1064,16 @@ function uiReport() {
         comment: { x: ct.left, y: ct.top, w: ct.width, h: ct.height },
       };
     })(),
+    /** 界面 > 面板 / 工具栏 (T18): the panels shown, their rectangles, the separator zones (panel
+     *  coordinates), the X overlay and the toolbars' heights. */
+    layout: panels && {
+      shown: panels.shown,
+      rects: { board: panels.board, captured: panels.captured, stat: panels.stat, graph: panels.graph, comment: panels.comment, tree: panels.tree, table: panels.table, sub: panels.sub },
+      handles: panels.handles,
+      controls: controlsShowing(),
+      topToolbar: $("toolbar").offsetHeight,
+      bottomToolbar: $("bottombar").offsetHeight,
+    },
     comment: $("commentText").textContent,
     moveField: $<HTMLInputElement>("moveInput").value,
     bottomBar: [...document.querySelectorAll<HTMLElement>("#bottombar .bb")].filter((b) => b.style.display !== "none").map((b) => b.textContent),
@@ -1156,6 +1183,7 @@ async function boot() {
   mountSetupBanner();
   bindProblemPanel();
   bindPointer();
+  bindPanels(schedule);
   bindCommentEditor($("commentText"));
   bindCaptureSurface(() => panels && { panels, width: $("main").clientWidth, height: $("main").clientHeight, background: backgroundUrl }, render);
   await Promise.all([

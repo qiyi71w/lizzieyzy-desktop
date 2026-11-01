@@ -1417,3 +1417,73 @@ fn an_unmatched_hawkeye_range_selects_custom_with_javas_custom_moves() {
         assert_eq!((h.period, (h.custom_start, h.custom_end), h.chart), (HawkeyePeriod::Custom, expected, 0));
     }
 }
+
+#[test]
+fn workbench_panels_and_persisted_shares_are_imported_and_consumed_after_restart() {
+    use lizzie_core::settings::{BottomToolbar, PanelSizes};
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let source = json!({"ui": {
+        "show-subboard": false, "show-winrate-graph": false, "large-winrate-graph": true,
+        "show-comment": false, "show-variation-graph": false, "show-list-pane": false,
+        "show-captured": false, "show-status": false, "large-subboard": true,
+        "show-top-tool-bar": false, "show-double-menu": false, "mains-always-ontop": true,
+        "show-title-wr": false, "hide-subboard-from-large-winrate": true
+    }}).to_string();
+    let persisted = json!({"ui-persist": {
+        "leftover-left-share": 0.25, "board-postion-propotion": 2,
+        "comment-height-share": 0.6, "variation-graph-share": 0.75,
+        "main-window-other": [70, 1, 2, 3, 4]
+    }}).to_string();
+    std::fs::write(java.join("config.txt"), &source).unwrap();
+    std::fs::write(java.join("persist"), &persisted).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    for key in ["ui.show-subboard", "ui.show-title-wr", "ui.show-top-tool-bar",
+        "persist:ui-persist.leftover-left-share", "persist:ui-persist.comment-height-share",
+        "persist:ui-persist.variation-graph-share", "persist:ui-persist.board-postion-propotion",
+        "persist:ui-persist.main-window-other[0]"] {
+        assert_eq!(item(&p.items, key).status, ImportStatus::Imported, "{key}");
+    }
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    drop(wb);
+    let s = workbench(&product, Recorder::default()).view(false).settings;
+    assert!(!s.panels.show_sub_board && !s.panels.show_winrate_graph && !s.panels.show_comment);
+    assert!(!s.panels.show_variation_graph && !s.panels.show_list_pane && !s.panels.show_captured);
+    assert!(!s.panels.show_status && !s.panels.show_top_toolbar && !s.panels.show_double_menu);
+    assert!(s.panels.large_winrate_graph && s.panels.large_sub_board && s.panels.always_on_top);
+    assert!(!s.panels.show_winrate_in_title && s.panels.hide_sub_board_from_large_winrate);
+    assert_eq!(s.panel_sizes, PanelSizes { leftover_left_share: Some(0.25), board_position_proportion: 2,
+        comment_height_share: Some(0.6), variation_graph_share: Some(0.75) });
+    assert_eq!(s.bottom_toolbar, BottomToolbar::Detailed);
+    assert_eq!(std::fs::read_to_string(java.join("config.txt")).unwrap(), source);
+    assert_eq!(std::fs::read_to_string(java.join("persist")).unwrap(), persisted);
+}
+
+#[test]
+fn imported_double_engine_comment_policy_and_invalid_layout_values_do_not_leak() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), json!({"ui": {
+        "extra-mode": 2, "show-comment": true, "show-status": "not-a-bool"
+    }}).to_string()).unwrap();
+    std::fs::write(java.join("persist"), json!({"ui-persist": {
+        "leftover-left-share": 1.5, "board-postion-propotion": -5,
+        "comment-height-share": "invalid", "variation-graph-share": -0.2
+    }}).to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    assert_eq!(item(&p.items, "ui.show-status").status, ImportStatus::Incompatible);
+    assert_eq!(item(&p.items, "persist:ui-persist.comment-height-share").status, ImportStatus::Incompatible);
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    let s = wb.view(false).settings;
+    assert!(s.comment_panel_auto_hidden && !s.panels.show_comment && s.panels.show_status);
+    assert_eq!(s.panel_sizes.leftover_left_share, Some(1.0));
+    assert_eq!(s.panel_sizes.board_position_proportion, 0);
+    assert_eq!(s.panel_sizes.comment_height_share, None);
+    assert_eq!(s.panel_sizes.variation_graph_share, Some(0.0));
+}

@@ -49,7 +49,8 @@ export const COMMANDS: Record<string, CommandEntry> = {
   "weights.download": { run: () => openAutoSetup("weights") },
   "engine.acceleration": { run: () => openAutoSetup("acceleration") },
   "engine.rules": { run: openRules },
-  "settings.general": { run: openAnalysisSettings },
+  // 综合设置 opens at its first page, 棋盘与显示 (Menu.java:5395-5399, ConfigDialog2.java:4168-4171).
+  "settings.general": { run: () => void openAnalysisSettings("display") },
   "menu.gtpPanel": { run: toggleConsole, checked: consoleVisible },
   "menu.restartCurrentEngine": { run: () => run({ type: "RestartEngine" }), enabled: () => !!state.view?.engine.foreground },
   "menu.shutdownCurrentEngine": { run: () => run({ type: "ShutdownEngines", scope: "Current" }), enabled: () => !!state.view?.engine.foreground },
