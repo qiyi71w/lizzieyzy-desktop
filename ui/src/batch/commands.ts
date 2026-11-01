@@ -137,7 +137,8 @@ function click(button: BatchButton): void {
       return;
     case "stopStart":
       if (flash) return;
-      if (v.auto_analysis.active || v.auto_analysis.starting) void send({ type: "StopAutoAnalysis" });
+      // isAutoAna || isManualAutoAnalysisStarting, which includes 批量分析 loading its next record.
+      if (v.auto_analysis.active || v.auto_analysis.starting || v.batch.running?.mode === "Ordinary") void send({ type: "StopAutoAnalysis" });
       else void setup({ type: "Setup", mode: "Ordinary" });
       return;
     case "stopStartAnalysisMode":

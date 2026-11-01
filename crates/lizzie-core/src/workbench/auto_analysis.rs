@@ -146,8 +146,8 @@ impl Workbench {
         if self.auto_analysis.run.is_some() { return Ok(Ok(false)); }
         if let Err(key) = check_auto_settings(&settings) { return Ok(Err(key)); }
         // hasManualAutoAnalysisStartConflict: a whole-game session, a running flash request or
-        // a batch (`isBatchAna`, `isBatchAnalysisMode`).
-        if self.whole_game_active() || self.flash_active() || self.flash_releasing() || self.batch_flash_engaged() {
+        // a batch (`isBatchAna`, `isBatchAnalysisMode`), also while its next record loads.
+        if self.whole_game_active() || self.flash_active() || self.flash_releasing() || self.batch_engaged() {
             return Ok(Err("AutoAnalyze.conflict"));
         }
         let Some(engine) = self.auto_engine() else { return Ok(Err("AutoAnalyze.engineUnavailable")) };
@@ -332,7 +332,8 @@ impl Workbench {
         true
     }
 
-    pub fn stop_auto_analysis(&mut self) -> bool { self.auto_analysis_stop(true) }
+    /// 停止自动(批量)分析; a 批量分析 whose next record is still loading ends there.
+    pub fn stop_auto_analysis(&mut self) -> bool { self.batch_stop_loading() || self.auto_analysis_stop(true) }
 
     /// 进度表's 清空 while 批量分析 runs (`stopAutoAna(false, true)`): a forced stop without the
     /// strengthening question; the current record is saved.

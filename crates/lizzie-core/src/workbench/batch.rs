@@ -7,7 +7,8 @@
 //! identity, analysis store, komi and rules: the open record is never replaced, moved, written or
 //! marked by the batch, unlike Java, which loads every queued record into the main board. Each
 //! queued file is read off the workbench lock like an open, analysed, then saved beside its
-//! source as `<name>_<已分析>_<yyyyMMddHHmmss>.sgf` through the one serial writer.
+//! source as `<name>_<已分析>_<yyyyMMddHHmmss>.sgf` through the one serial writer. The first
+//! record is read before the settings dialog, as Java loads it first.
 //!
 //! - 批量分析 runs the automatic analysis ([`super::auto_analysis`]) of each record with the
 //!   foreground engine; the foreground engine follows that record while it runs. A natural end
@@ -15,13 +16,14 @@
 //!   batch; either end forgets the queue (`endBatchAutoAnalysis`).
 //! - 批量精析 is a flash analysis of each record (`max(2, batch-analysis-playouts)` visits) with
 //!   the 精析设置 analysis process, or the borrowed foreground engine, kept for the whole batch.
-//!   取消分析 ends the engine without saving the current record and keeps the queue at it, so the
-//!   batch can continue from 进度表.
+//!   取消分析 ends the engine without saving the current record and keeps the queue at it, with
+//!   the record and its results, so the batch can continue from 进度表.
 //!
-//! A record that cannot be read ends the batch with that file named (Java's ordinary batch ends
-//! at a load failure; Java's flash batch would analyse the previous board under the bad file's
-//! name, which is not kept). A failed save is reported with the batch's end instead of being
-//! dropped (Java prints the stack trace and reports success).
+//! A record that cannot be read ends 批量分析 with that file named (Java's ordinary batch ends at
+//! a load failure); 批量精析 skips it (Java would analyse the previous board under the bad file's
+//! name). A failed save is reported with the batch's end instead of being dropped (Java prints
+//! the stack trace and reports success). A new batch waits until the previous batch's copies are
+//! written, so each end reports its own failures.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -103,6 +105,9 @@ enum FlashEngine {
 
 struct Run {
     work: Work,
+    /// 批量精析 borrows the foreground engine (复用当前前台引擎 when the batch started); the route
+    /// stays for the whole batch.
+    borrow: bool,
     item: u64,
     /// The read of the current record in flight.
     read: Option<u64>,
@@ -120,6 +125,12 @@ pub(super) struct BatchFlow {
     queue: VecDeque<Item>,
     next_item: u64,
     setup: Option<BatchMode>,
+    /// The first record's read before its settings dialog (`loadBatchAutoAnalysisFile(0)`,
+    /// `openFileWithAna`): ticket and the dialog it opens.
+    preload: Option<(u64, BatchMode)>,
+    /// A record already read for the queue item it belongs to: the first record read before the
+    /// settings, or 批量精析's cancelled record with its results, kept to continue from.
+    ready: Option<(u64, BatchDoc)>,
     run: Option<Run>,
     open_table: u32,
     notice: Option<BatchNotice>,
@@ -129,6 +140,9 @@ pub(super) struct BatchFlow {
     pending_notice: Option<Option<&'static str>>,
     reads: Vec<(u64, PathBuf, bool)>,
     next_read: u64,
+    /// Numbers each 批量精析 request round, so a reply of an earlier round is never taken for
+    /// a later one on a kept process.
+    next_attempt: u64,
     saves: Vec<(u64, String)>,
     jobs: Vec<SaveJob>,
     /// A stopped batch's borrowed engine still being given back.
@@ -239,11 +253,18 @@ impl Workbench {
 
     /// A batch that could not start from a drop shows its refusal (`AutoAnalyze.conflict`).
     pub fn refuse_batch(&mut self, message_key: &str) {
-        self.batch_publish_notice(message_key.to_string());
+        self.batch_publish_notice(message_key.to_string(), Vec::new());
     }
 
+    /// A batch still running, or one whose copies are still being written (its end and failures
+    /// belong to it until the writes finish).
     fn batch_conflict(&self, mode: BatchMode) -> Option<&'static str> {
-        if self.batch.run.is_some() || self.batch.releasing.is_some() || self.auto_analysis_running() {
+        if self.batch.run.is_some()
+            || self.batch.releasing.is_some()
+            || !self.batch.saves.is_empty()
+            || self.batch.pending_notice.is_some()
+            || self.auto_analysis_running()
+        {
             return Some(CONFLICT);
         }
         if self.whole_game_active() {
@@ -271,8 +292,9 @@ impl Workbench {
             .collect()
     }
 
-    /// The chosen or dropped records become the queue (`Batchfiles = files`) and that mode's
-    /// settings dialog opens. `Err` holds the Java key of a refusal.
+    /// The chosen or dropped records become the queue (`Batchfiles = files`). The first record
+    /// is read before that mode's settings dialog opens, as Java loads it first
+    /// (`openOrdinaryBatchAnalysis`, `openFileWithAna`). `Err` holds the Java key of a refusal.
     pub fn open_batch(
         &mut self,
         mode: BatchMode,
@@ -287,7 +309,10 @@ impl Workbench {
         }
         let items = self.batch_items(paths, source);
         self.batch.queue = items.into();
-        self.batch.setup = Some(mode);
+        self.batch.setup = None;
+        self.batch.ready = None;
+        let ticket = self.batch_push_read();
+        self.batch.preload = Some((ticket, mode));
         Ok(true)
     }
 
@@ -299,6 +324,7 @@ impl Workbench {
         if let Some(key) = self.batch_conflict(mode) {
             return Err(key);
         }
+        self.batch.preload = None;
         self.batch.setup = Some(mode);
         Ok(true)
     }
@@ -309,6 +335,7 @@ impl Workbench {
         match self.batch.setup.take() {
             Some(BatchMode::Ordinary) => {
                 self.batch.queue.clear();
+                self.batch.ready = None;
                 true
             }
             Some(BatchMode::Flash) => true,
@@ -331,18 +358,12 @@ impl Workbench {
         let changed = self.batch.run.is_some() || !self.batch.queue.is_empty() || self.batch.setup.is_some();
         if self.auto_analysis_batch() {
             self.stop_batch_auto_analysis_now();
-        } else if self
-            .batch
-            .run
-            .as_ref()
-            .is_some_and(|r| matches!(r.work, Work::Ordinary(_)))
-        {
-            self.batch.run = None;
-            self.batch_end(Some(STOPPED), true);
-        } else if self.batch.run.is_some() {
+        } else if !self.batch_stop_loading() && self.batch.run.is_some() {
             self.cancel_batch_flash();
         }
         self.batch.setup = None;
+        self.batch.preload = None;
+        self.batch.ready = None;
         self.batch.queue.clear();
         self.sync_engine();
         changed
@@ -398,9 +419,10 @@ impl Workbench {
         if self.auto_engine().is_none() {
             return Ok(Err("AutoAnalyze.engineUnavailable"));
         }
-        // The batch dialog has no 自动保存棋谱 box; the single-record choice stays.
+        // The batch dialog has no 自动保存棋谱 box: Java checks the shared box for the batch
+        // (`chkAnaAutoSave.setSelected(true)`), and it stays checked afterwards.
         let saved = AutoAnalysisSettings {
-            auto_save: self.config.auto_analysis.auto_save,
+            auto_save: true,
             ..settings.clone()
         };
         if let Some(key) = self.save_auto_analysis_settings(saved)? {
@@ -410,7 +432,7 @@ impl Workbench {
         if self.batch.queue.len() > 1 {
             self.batch.open_table = self.batch.open_table.wrapping_add(1);
         }
-        self.batch_begin(Work::Ordinary(settings), false);
+        self.batch_begin(Work::Ordinary(settings), false, false);
         Ok(Ok(true))
     }
 
@@ -449,20 +471,29 @@ impl Workbench {
             visits,
             all_branches,
         };
-        self.batch_begin(Work::Flash(params), !borrow && !self.paused);
+        self.batch_begin(Work::Flash(params), borrow, !borrow && !self.paused);
         Ok(Ok(true))
     }
 
-    fn batch_begin(&mut self, work: Work, holds: bool) {
+    fn batch_begin(&mut self, work: Work, borrow: bool, holds: bool) {
         self.batch.setup = None;
+        self.batch.preload = None;
         self.batch.failures.clear();
-        self.batch.pending_notice = None;
         self.auto_analysis_cancel_pending();
         // `MANUAL_FLASH` / manual auto analysis: an automatic quick analysis hands its engine over.
         self.quick_hand_over();
         let item = self.batch.queue.front().expect("a started batch has a record").id;
+        // The record read before the settings, or kept by a cancelled 批量精析 with its results,
+        // is analysed as it is.
+        let ready = self
+            .batch
+            .ready
+            .take()
+            .filter(|(id, _)| *id == item)
+            .map(|(_, doc)| doc);
         self.batch.run = Some(Run {
             work,
+            borrow,
             item,
             read: None,
             doc: None,
@@ -471,17 +502,29 @@ impl Workbench {
             done: 0,
             total: 0,
         });
-        self.batch_read_current();
+        match ready {
+            Some(doc) => self.batch_analyse(doc),
+            None => self.batch_read_current(),
+        }
         self.sync_engine();
     }
 
     // -------------------------------------------------------------------- reading
 
-    fn batch_read_current(&mut self) {
-        let Some(item) = self.batch.queue.front() else { return };
-        let (id, path) = (item.id, PathBuf::from(&item.path));
+    /// Asks the adapter to read the first row's file; returns the read's ticket.
+    fn batch_push_read(&mut self) -> u64 {
+        let path = PathBuf::from(&self.batch.queue.front().expect("a queued record").path);
         self.batch.next_read += 1;
         let ticket = self.batch.next_read;
+        self.batch.reads.push((ticket, path, self.config.edit.no_capture));
+        ticket
+    }
+
+    fn batch_read_current(&mut self) {
+        let Some(id) = self.batch.queue.front().map(|item| item.id) else {
+            return;
+        };
+        let ticket = self.batch_push_read();
         if let Some(run) = self.batch.run.as_mut() {
             run.item = id;
             run.read = Some(ticket);
@@ -489,7 +532,6 @@ impl Workbench {
             run.done = 0;
             run.total = 0;
         }
-        self.batch.reads.push((ticket, path, self.config.edit.no_capture));
     }
 
     /// Reads for the adapter to run off the lock: ticket, file and the `ui.no-capture` rule.
@@ -499,25 +541,73 @@ impl Workbench {
 
     /// Hands back a queued record's read. Returns `false` for a read the batch no longer wants.
     pub fn complete_batch_read(&mut self, ticket: u64, result: Result<(RecordFormat, GameRecord), ReadError>) -> bool {
+        if let Some((preload, mode)) = self.batch.preload {
+            if preload == ticket {
+                self.batch.preload = None;
+                self.batch_preloaded(mode, result);
+                return true;
+            }
+        }
         if !self.batch.run.as_ref().is_some_and(|r| r.read == Some(ticket)) {
             return false;
         }
         self.batch.run.as_mut().unwrap().read = None;
+        match result {
+            Ok((format, record)) => {
+                let doc = self.batch_make_doc(format, record);
+                self.batch_analyse(doc);
+            }
+            Err(e) => {
+                self.batch_unreadable(&e);
+                self.batch_read_failed();
+            }
+        }
+        true
+    }
+
+    /// The first record, read before the settings dialog. An unreadable one ends 批量分析
+    /// without the dialog (`loadBatchAutoAnalysisFile` → `endBatchAutoAnalysis`); 批量精析's
+    /// dialog opens anyway (`openFileWithAna` ignores the failed load) and the record is read
+    /// again, and skipped, when the batch starts.
+    fn batch_preloaded(&mut self, mode: BatchMode, result: Result<(RecordFormat, GameRecord), ReadError>) {
+        let Some(item) = self.batch.queue.front().map(|item| item.id) else {
+            return;
+        };
+        match result {
+            Ok((format, record)) => {
+                let doc = self.batch_make_doc(format, record);
+                self.batch.ready = Some((item, doc));
+                self.batch.setup = Some(mode);
+            }
+            Err(e) if mode == BatchMode::Ordinary => {
+                self.batch_unreadable(&e);
+                self.batch_end(Some(FAILED_TO_OPEN_FILE), true);
+            }
+            Err(_) => self.batch.setup = Some(mode),
+        }
+    }
+
+    fn batch_unreadable(&mut self, e: &ReadError) {
+        let path = self
+            .batch
+            .queue
+            .front()
+            .expect("the read record is the first row")
+            .path
+            .clone();
+        self.batch.failures.push(BatchFailure {
+            path,
+            message_key: FAILED_TO_OPEN_FILE.into(),
+            detail: e.to_string(),
+        });
+    }
+
+    /// The first row's record as a background document of the batch, opened like an open: komi
+    /// rule, branch numbering, its saved analysis, the recent list unless it came from a drop.
+    fn batch_make_doc(&mut self, format: RecordFormat, mut record: GameRecord) -> BatchDoc {
         let (path, remember) = {
             let item = self.batch.queue.front().expect("the read record is the first row");
             (item.path.clone(), item.remember)
-        };
-        let (format, mut record) = match result {
-            Ok(read) => read,
-            Err(e) => {
-                self.batch.failures.push(BatchFailure {
-                    path,
-                    message_key: FAILED_TO_OPEN_FILE.into(),
-                    detail: e.to_string(),
-                });
-                self.batch_read_failed();
-                return true;
-            }
         };
         // The open's komi rule (`resetAllNoKomi`), against the session komi.
         let use_record_komi = record.komi_declared && (self.config.record.read_komi || record.has_setup_or_handicap);
@@ -551,8 +641,7 @@ impl Workbench {
             let _ = self.save_config();
             let _ = self.save_persisted();
         }
-        let run = self.batch.run.as_mut().unwrap();
-        run.doc = Some(BatchDoc {
+        BatchDoc {
             id,
             path,
             record: Arc::new(record),
@@ -560,7 +649,14 @@ impl Workbench {
             komi,
             rules,
             cursor: ROOT,
-        });
+        }
+    }
+
+    /// The run analyses `doc`, the first row's record.
+    fn batch_analyse(&mut self, doc: BatchDoc) {
+        let (id, komi) = (doc.id, doc.komi);
+        let run = self.batch.run.as_mut().expect("a running batch");
+        run.doc = Some(doc);
         match &run.work {
             Work::Ordinary(settings) => {
                 let settings = settings.clone();
@@ -572,7 +668,6 @@ impl Workbench {
             }
             Work::Flash(_) => self.batch_flash_record(),
         }
-        true
     }
 
     /// A queued record that could not be read. 批量分析 ends and forgets its queue
@@ -589,6 +684,34 @@ impl Workbench {
             Some(false) => self.batch_flash_advance(),
             None => {}
         }
+    }
+
+    /// 停止自动(批量)分析 / 进度表's 开始/结束 while 批量分析's next record is still being read:
+    /// the batch ends there and nothing more is read or analysed (`stopAutoAna` cancelling a
+    /// pending start).
+    pub(super) fn batch_stop_loading(&mut self) -> bool {
+        if self.auto_analysis_batch()
+            || !self
+                .batch
+                .run
+                .as_ref()
+                .is_some_and(|r| matches!(r.work, Work::Ordinary(_)))
+        {
+            return false;
+        }
+        self.batch.run = None;
+        self.paused = true;
+        self.batch_end(Some(STOPPED), true);
+        self.sync_engine();
+        true
+    }
+
+    /// Exit: the batch ends with the application, so a read still in flight starts nothing.
+    pub(super) fn batch_shutdown(&mut self) {
+        self.batch.run = None;
+        self.batch.preload = None;
+        self.batch.ready = None;
+        self.batch.reads.clear();
     }
 
     // -------------------------------------------------------------------- 批量分析
@@ -694,7 +817,7 @@ impl Workbench {
                 end_move: p.end_move,
             }
         };
-        let (nodes, rec, komi, item) = {
+        let (nodes, rec, komi, rules) = {
             let d = self.batch_doc().expect("a read batch record");
             let nodes = flash_nodes_of(
                 &d.record,
@@ -703,7 +826,7 @@ impl Workbench {
                 u64::from(visits),
                 self.config.analysis_engine.always_override,
             );
-            (nodes, d.record.clone(), d.komi, self.batch.run.as_ref().unwrap().item)
+            (nodes, d.record.clone(), d.komi, self.batch_query_rules())
         };
         {
             let run = self.batch.run.as_mut().unwrap();
@@ -713,7 +836,7 @@ impl Workbench {
         if nodes.is_empty() {
             return self.batch_flash_record_done();
         }
-        if self.config.analysis_engine.reuse_current_engine {
+        if self.batch.run.as_ref().unwrap().borrow {
             match self.batch.run.as_mut().unwrap().engine.as_mut() {
                 Some(FlashEngine::Lease { queue, ready, .. }) => {
                     *queue = nodes.into();
@@ -753,8 +876,9 @@ impl Workbench {
                 Ok(instance) => instance,
                 Err(message) => return self.batch_flash_engine_failed(&command, true, message, Vec::new()),
             };
-            let (queries, sent) =
-                self.send_record_queries(instance, &rec, komi, 0, visits, &nodes, &format!("batch{item}"));
+            self.batch.next_attempt += 1;
+            let prefix = format!("batch{}", self.batch.next_attempt);
+            let (queries, sent) = self.send_record_queries(instance, &rec, komi, 0, visits, &nodes, &prefix, rules);
             if !sent {
                 self.engines.terminate(instance);
                 return self.batch_flash_engine_failed(&command, true, "input closed".into(), Vec::new());
@@ -767,6 +891,20 @@ impl Workbench {
         }
         self.drain_engine_events();
         self.sync_engine();
+    }
+
+    /// The rules an analysis process searches a batch record with (`resolveLocalAnalysisRules`):
+    /// under 使用当前规则 the record's own declared rules, as Java's engine takes them on when it
+    /// loads the record; otherwise as for any flash analysis.
+    fn batch_query_rules(&self) -> serde_json::Value {
+        if self.config.analysis_engine.use_current_rules {
+            if let Some(rules) = self.batch_doc().and_then(|d| d.rules.as_ref()) {
+                if let Ok(value) = serde_json::from_str(&rules.to_gtp_argument()) {
+                    return value;
+                }
+            }
+        }
+        self.quick_rules()
     }
 
     /// The rules a borrowed engine searches a batch record with (`resolveRemoteGtpRules`):
@@ -885,7 +1023,14 @@ impl Workbench {
             return false;
         }
         self.batch_stop_flash_engine(true);
-        self.batch.run = None;
+        // The record and the results it has stay for 开始/结束(闪电模式) to continue from
+        // (`verifyCurrentKifu` keeps the board when it is still the first row's record).
+        if let Some(Run {
+            item, doc: Some(doc), ..
+        }) = self.batch.run.take()
+        {
+            self.batch.ready = Some((item, doc));
+        }
         self.batch_end(None, false);
         self.sync_engine();
         true
@@ -944,7 +1089,8 @@ impl Workbench {
     fn batch_flash_failed_owned(&mut self, key: String) {
         // The availability keys are Java resource keys; the notice carries them as text.
         self.batch.run = None;
-        self.batch_publish_notice(key);
+        let failures = std::mem::take(&mut self.batch.failures);
+        self.batch_publish_notice(key, failures);
         self.sync_engine();
     }
 
@@ -1056,7 +1202,7 @@ impl Workbench {
                 if releasing == Some(l) {
                     self.batch.releasing = None;
                     if restore_failed {
-                        self.batch_publish_notice(FOREGROUND_RESTORE_FAILED.into());
+                        self.batch_publish_notice(FOREGROUND_RESTORE_FAILED.into(), Vec::new());
                     }
                     self.borrowed_engine_returned();
                 } else {
@@ -1209,6 +1355,7 @@ impl Workbench {
     fn batch_end(&mut self, key: Option<&'static str>, clear: bool) {
         if clear {
             self.batch.queue.clear();
+            self.batch.ready = None;
         }
         if self.batch.saves.is_empty() {
             self.batch_notify(key);
@@ -1226,15 +1373,16 @@ impl Workbench {
                 None => return,
             },
         };
-        self.batch_publish_notice(key);
+        let failures = std::mem::take(&mut self.batch.failures);
+        self.batch_publish_notice(key, failures);
     }
 
-    fn batch_publish_notice(&mut self, message_key: String) {
+    fn batch_publish_notice(&mut self, message_key: String, failures: Vec<BatchFailure>) {
         self.batch.notice_id = self.batch.notice_id.wrapping_add(1);
         self.batch.notice = Some(BatchNotice {
             id: self.batch.notice_id,
             message_key,
-            failures: std::mem::take(&mut self.batch.failures),
+            failures,
         });
     }
 
@@ -1244,7 +1392,7 @@ impl Workbench {
         let running = self.batch.run.as_ref().map(|r| {
             let (mode, borrowed) = match r.work {
                 Work::Ordinary(_) => (BatchMode::Ordinary, false),
-                Work::Flash(_) => (BatchMode::Flash, self.config.analysis_engine.reuse_current_engine),
+                Work::Flash(_) => (BatchMode::Flash, r.borrow),
             };
             let (done, total, loading) = match mode {
                 BatchMode::Ordinary => match self.auto_analysis_progress().filter(|_| self.auto_analysis_batch()) {

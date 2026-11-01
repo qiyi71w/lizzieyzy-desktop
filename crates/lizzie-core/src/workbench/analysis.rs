@@ -259,9 +259,11 @@ impl Workbench {
         }
     }
 
-    /// Exit: every engine is ended (quit, then killed after the grace period). The platform
-    /// adapter waits for the processes outside the workbench lock.
+    /// Exit: every engine is ended (quit, then killed after the grace period) and the batch with
+    /// them, so a read still in flight starts nothing. The platform adapter waits for the
+    /// processes outside the workbench lock.
     pub fn end_engines(&mut self) {
+        self.batch_shutdown();
         self.engines.terminate_all();
     }
 

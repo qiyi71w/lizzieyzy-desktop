@@ -711,10 +711,12 @@ impl Workbench {
         let rec = self.doc.record.clone();
         let (komi, rules_rev) = (self.komi, self.rules_revision);
         let visits = self.config.analysis_engine.max_visits.max(1) + 1;
-        self.send_record_queries(instance, &rec, komi, rules_rev, visits, nodes, prefix)
+        let rules = self.quick_rules();
+        self.send_record_queries(instance, &rec, komi, rules_rev, visits, nodes, prefix, rules)
     }
 
-    /// [`Self::send_analysis_queries`] for any record: `rec` under `komi`, searching `visits`.
+    /// [`Self::send_analysis_queries`] for any record: `rec` under `komi` and `rules`, searching
+    /// `visits`.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn send_record_queries(
         &mut self,
@@ -725,11 +727,12 @@ impl Workbench {
         visits: u32,
         nodes: &[NodeId],
         prefix: &str,
+        rules: serde_json::Value,
     ) -> (HashMap<String, Query>, bool) {
         let options = QueryOptions {
             max_visits: visits,
             komi,
-            rules: self.quick_rules(),
+            rules,
             pv_visits: self.config.display.pv_visits != PvVisitsMode::Off,
             ownership: false,
             moves_ownership: false,

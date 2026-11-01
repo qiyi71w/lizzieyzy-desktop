@@ -1423,14 +1423,6 @@ async fn open_batch_table(app: AppHandle, title: String, on_top: bool) -> Result
     Ok(())
 }
 
-/// Closes 批量分析进度表 from the main window.
-#[tauri::command]
-fn close_batch_table(app: AppHandle) {
-    if let Some(window) = app.get_webview_window(BATCH_WINDOW) {
-        let _ = window.destroy();
-    }
-}
-
 /// Closes both 超级鹰眼 windows from the main window (Y, the menus), writing the primary one's
 /// placement.
 #[tauri::command]
@@ -1627,6 +1619,8 @@ pub fn run() {
                 }
                 let _ = app.emit_to("main", HAWKEYE_CLOSED_EVENT, ());
             }
+            // 批量分析进度表's own close box closes only it (AnalysisTable's JFrame does not exit).
+            WindowEvent::CloseRequested { .. } if window.label() == BATCH_WINDOW => {}
             WindowEvent::CloseRequested { api, .. } => {
                 let app = window.app_handle();
                 let shared = app.state::<State>();
@@ -1719,8 +1713,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         close_hawkeye,
         close_hawkeye_sub,
         set_hawkeye_layout,
-        open_batch_table,
-        close_batch_table
+        open_batch_table
     ]
 }
 
@@ -1747,7 +1740,6 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         close_hawkeye_sub,
         set_hawkeye_layout,
         open_batch_table,
-        close_batch_table,
         acceptance::acceptance_ui_report
     ]
 }

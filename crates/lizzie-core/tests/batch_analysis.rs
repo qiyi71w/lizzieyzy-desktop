@@ -258,6 +258,8 @@ fn ordinary_batch_analyses_each_record_in_the_background_while_the_open_record_i
         wb.open_batch(BatchMode::Ordinary, vec![a.clone(), b.clone()], OpenSource::Chooser),
         Ok(true)
     );
+    assert_eq!(wb.view(false).batch.setup, None, "the first record is read first");
+    assert_eq!(deliver_reads(&mut wb), 1);
     let v = wb.view(false);
     assert_eq!(v.batch.setup, Some(BatchMode::Ordinary));
     assert_eq!(
@@ -271,7 +273,7 @@ fn ordinary_batch_analyses_each_record_in_the_background_while_the_open_record_i
         table + 1,
         "进度表 opens for several records"
     );
-    assert_eq!(deliver_reads(&mut wb), 1);
+    assert_eq!(deliver_reads(&mut wb), 0, "a was read before its settings");
 
     // The user edits the open record while the background record is analysed.
     wb.edit_document(DocumentEdit::SetComment {
@@ -327,6 +329,7 @@ fn a_forced_stop_saves_the_current_record_and_forgets_the_queue() {
     let b = write(dir.path(), "b.sgf", GAME_B);
     wb.open_batch(BatchMode::Ordinary, vec![a, b], OpenSource::Chooser)
         .unwrap();
+    deliver_reads(&mut wb);
     wb.start_batch_ordinary(ordinary()).unwrap().unwrap();
     deliver_reads(&mut wb);
     serve(&mut wb, &world, fg, 3); // below 每手总计算量: still at the first position
@@ -350,6 +353,7 @@ fn an_unreadable_record_ends_the_ordinary_batch_naming_it_after_the_finished_rec
     let c = write(dir.path(), "c.sgf", GAME_B);
     wb.open_batch(BatchMode::Ordinary, vec![a, bad.clone(), c], OpenSource::Chooser)
         .unwrap();
+    deliver_reads(&mut wb);
     wb.start_batch_ordinary(ordinary()).unwrap().unwrap();
     deliver_reads(&mut wb);
     serve(&mut wb, &world, fg, 10);
@@ -386,6 +390,7 @@ fn flash_batch_skips_an_unreadable_record_and_writes_nothing_under_its_name() {
     let c = write(dir.path(), "c.sgf", GAME_B);
     wb.open_batch(BatchMode::Flash, vec![a, bad.clone(), c], OpenSource::Chooser)
         .unwrap();
+    deliver_reads(&mut wb);
     wb.start_batch_flash(-1, -1, 2, false).unwrap().unwrap();
     deliver_reads(&mut wb);
     let worker = *world.workers().last().expect("an analysis process");
@@ -423,6 +428,7 @@ fn a_failed_save_is_reported_instead_of_a_plain_success() {
     let a = write(dir.path(), "a.sgf", GAME_A);
     wb.open_batch(BatchMode::Ordinary, vec![a], OpenSource::Chooser)
         .unwrap();
+    deliver_reads(&mut wb);
     wb.start_batch_ordinary(ordinary()).unwrap().unwrap();
     assert_eq!(wb.view(false).batch.open_table, 0, "one record does not open 进度表");
     deliver_reads(&mut wb);
@@ -446,6 +452,7 @@ fn flash_batch_searches_batch_visits_and_a_cancel_keeps_the_current_record_to_co
     let c = write(dir.path(), "c.sgf", GAME_B);
     wb.open_batch(BatchMode::Flash, vec![a, b, c], OpenSource::Chooser)
         .unwrap();
+    deliver_reads(&mut wb);
     assert_eq!(wb.start_batch_flash(-1, -1, 1, false).unwrap(), Ok(true));
     assert_eq!(
         wb.config().analysis_engine.batch_visits,
@@ -497,7 +504,7 @@ fn flash_batch_searches_batch_visits_and_a_cancel_keeps_the_current_record_to_co
     deliver_reads(&mut wb);
     let worker = *world.workers().last().unwrap();
     let qs = queries(&world, worker);
-    assert_eq!(qs.len(), 2);
+    assert_eq!(qs.len(), 1, "b keeps its answered position");
     for q in &qs {
         answer(&mut wb, worker, q);
     }
@@ -526,6 +533,7 @@ fn a_running_batch_excludes_other_analyses_and_its_rows_move_like_java() {
         .collect();
     wb.open_batch(BatchMode::Ordinary, paths.clone(), OpenSource::Chooser)
         .unwrap();
+    deliver_reads(&mut wb);
     wb.start_batch_ordinary(ordinary()).unwrap().unwrap();
     deliver_reads(&mut wb);
     serve(&mut wb, &world, fg, 3);
@@ -587,14 +595,16 @@ fn dropped_records_skip_the_recent_list_only_for_the_first_and_cancelled_dialogs
     let b = write(dir.path(), "b.sgf", GAME_B);
     wb.open_batch(BatchMode::Ordinary, vec![a.clone(), b.clone()], OpenSource::Drop)
         .unwrap();
+    deliver_reads(&mut wb);
     assert!(wb.cancel_batch_setup());
     assert!(
         wb.view(false).batch.items.is_empty(),
         "批量分析's cancelled dialog ends the batch"
     );
 
-    wb.open_batch(BatchMode::Flash, vec![a.clone()], OpenSource::Chooser)
-        .unwrap();
+    let c = write(dir.path(), "c.sgf", GAME_B);
+    wb.open_batch(BatchMode::Flash, vec![c], OpenSource::Chooser).unwrap();
+    deliver_reads(&mut wb);
     assert!(wb.cancel_batch_setup());
     assert_eq!(
         wb.view(false).batch.items.len(),
@@ -604,6 +614,7 @@ fn dropped_records_skip_the_recent_list_only_for_the_first_and_cancelled_dialogs
 
     wb.open_batch(BatchMode::Ordinary, vec![a.clone(), b.clone()], OpenSource::Drop)
         .unwrap();
+    deliver_reads(&mut wb);
     wb.start_batch_ordinary(ordinary()).unwrap().unwrap();
     deliver_reads(&mut wb);
     serve(&mut wb, &world, fg, 10);
@@ -615,4 +626,272 @@ fn dropped_records_skip_the_recent_list_only_for_the_first_and_cancelled_dialogs
         recent.contains(&b),
         "later records load like Java's loadFile(file, false)"
     );
+}
+
+#[test]
+fn flash_batch_keeps_its_engine_route_when_reuse_changes_mid_queue() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, _fg) = setup(dir.path(), false);
+    let a = write(dir.path(), "a.sgf", GAME_B);
+    let b = write(dir.path(), "b.sgf", GAME_B);
+    wb.open_batch(BatchMode::Flash, vec![a, b], OpenSource::Chooser)
+        .unwrap();
+    deliver_reads(&mut wb);
+    wb.start_batch_flash(-1, -1, 2, false).unwrap().unwrap();
+    deliver_reads(&mut wb);
+    let worker = *world.workers().last().unwrap();
+    for q in &queries(&world, worker) {
+        answer(&mut wb, worker, q);
+    }
+    write_saves(&mut wb, None);
+    // 精析设置 switches to 复用当前前台引擎 while the queue runs.
+    let reuse = AnalysisEngineSettings {
+        reuse_current_engine: true,
+        ..wb.config().analysis_engine.clone()
+    };
+    wb.save_analysis_engine_settings(reuse, ANALYSIS, false)
+        .unwrap()
+        .unwrap();
+    deliver_reads(&mut wb);
+    let qs = queries(&world, worker);
+    assert_eq!(qs.len(), 2, "b goes on with the batch's own process");
+    for q in &qs {
+        answer(&mut wb, worker, q);
+    }
+    write_saves(&mut wb, None);
+    assert_eq!(
+        wb.view(false).batch.notice.unwrap().message_key,
+        "Leelaz.batchAutoAnalyzeComplete"
+    );
+    assert!(world.terminated(worker), "the process ends with the batch");
+    assert_eq!(world.workers().len(), 1);
+}
+
+#[test]
+fn a_new_batch_waits_for_the_previous_batch_to_finish_writing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, fg) = setup(dir.path(), false);
+    let a = write(dir.path(), "a.sgf", GAME_A);
+    let b = write(dir.path(), "b.sgf", GAME_B);
+    wb.open_batch(BatchMode::Ordinary, vec![a], OpenSource::Chooser)
+        .unwrap();
+    deliver_reads(&mut wb);
+    wb.start_batch_ordinary(ordinary()).unwrap().unwrap();
+    deliver_reads(&mut wb);
+    serve(&mut wb, &world, fg, 10);
+    let jobs = wb.take_background_saves();
+    assert_eq!(jobs.len(), 1, "a's copy is being written");
+    assert_eq!(
+        wb.open_batch(BatchMode::Ordinary, vec![b], OpenSource::Chooser),
+        Err("AutoAnalyze.conflict")
+    );
+    for job in jobs {
+        wb.complete_save(job.ticket, Err("read-only folder".into()));
+    }
+    let notice = wb.view(false).batch.notice.expect("the first batch's end");
+    assert_eq!(notice.message_key, "Leelaz.batchAutoAnalyzeComplete");
+    assert_eq!(notice.failures.len(), 1, "its failed save is reported");
+}
+
+#[test]
+fn a_read_finishing_after_exit_starts_no_engine() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, _fg) = setup(dir.path(), false);
+    let a = write(dir.path(), "a.sgf", GAME_B);
+    let b = write(dir.path(), "b.sgf", GAME_B);
+    wb.open_batch(BatchMode::Flash, vec![a, b], OpenSource::Chooser)
+        .unwrap();
+    deliver_reads(&mut wb);
+    wb.start_batch_flash(-1, -1, 2, false).unwrap().unwrap();
+    let worker = *world.workers().last().unwrap();
+    for q in &queries(&world, worker) {
+        answer(&mut wb, worker, q);
+    }
+    write_saves(&mut wb, None);
+    let reads = wb.take_batch_reads();
+    assert_eq!(reads.len(), 1, "b is being read");
+    wb.end_engines();
+    for (ticket, path, no_capture) in reads {
+        assert!(!wb.complete_batch_read(ticket, formats::read_file(&path, no_capture)));
+    }
+    assert_eq!(world.workers().len(), 1, "no analysis process after exit");
+    assert!(queries(&world, worker).is_empty());
+    assert!(wb.take_background_saves().is_empty());
+}
+
+/// Delivers the reads in flight, expecting each to be one the batch still wants or not.
+fn deliver_reads_expecting(wb: &mut Workbench, wanted: bool) -> usize {
+    let reads = wb.take_batch_reads();
+    for (ticket, path, no_capture) in &reads {
+        assert_eq!(
+            wb.complete_batch_read(*ticket, formats::read_file(path, *no_capture)),
+            wanted
+        );
+    }
+    reads.len()
+}
+
+#[test]
+fn stopping_an_ordinary_batch_while_its_record_loads_starts_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, fg) = setup(dir.path(), false);
+    let a = write(dir.path(), "a.sgf", GAME_A);
+    let b = write(dir.path(), "b.sgf", GAME_B);
+    wb.open_batch(BatchMode::Ordinary, vec![a, b], OpenSource::Chooser)
+        .unwrap();
+    deliver_reads(&mut wb);
+    wb.start_batch_ordinary(ordinary()).unwrap().unwrap();
+    serve(&mut wb, &world, fg, 10); // a done: its copy is written and b is being read
+    write_saves(&mut wb, None);
+    assert!(wb.view(false).batch.running.is_some());
+    assert!(wb.stop_auto_analysis(), "停止自动(批量)分析 stops the loading batch");
+    deliver_reads_expecting(&mut wb, false);
+    assert!(
+        !serve(&mut wb, &world, fg, 10)
+            .iter()
+            .any(|c| c.starts_with("kata-analyze")),
+        "b is not analysed"
+    );
+    let v = wb.view(false);
+    assert!(v.batch.running.is_none() && v.batch.items.is_empty());
+    assert_eq!(v.batch.notice.unwrap().message_key, "Leelaz.batchAutoAnalyzeStopped");
+    assert!(analysed_copies(dir.path(), "b").is_empty());
+}
+
+#[test]
+fn single_record_auto_analysis_is_refused_while_a_batch_record_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, fg) = setup(dir.path(), false);
+    let a = write(dir.path(), "a.sgf", GAME_A);
+    let b = write(dir.path(), "b.sgf", GAME_B);
+    wb.open_batch(BatchMode::Ordinary, vec![a, b], OpenSource::Chooser)
+        .unwrap();
+    deliver_reads(&mut wb);
+    wb.start_batch_ordinary(ordinary()).unwrap().unwrap();
+    deliver_reads(&mut wb);
+    serve(&mut wb, &world, fg, 10); // a done: b is being read
+    write_saves(&mut wb, None);
+    assert!(wb.view(false).batch.running.is_some());
+    assert!(!wb.take_batch_reads().is_empty(), "b's read is in flight");
+    assert_eq!(wb.start_auto_analysis(ordinary()).unwrap(), Err("AutoAnalyze.conflict"));
+}
+
+#[test]
+fn continuing_a_cancelled_flash_batch_asks_only_for_the_positions_still_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, _fg) = setup(dir.path(), false);
+    let a = write(dir.path(), "a.sgf", GAME_A);
+    wb.open_batch(BatchMode::Flash, vec![a], OpenSource::Chooser).unwrap();
+    deliver_reads(&mut wb);
+    wb.start_batch_flash(-1, -1, 2, false).unwrap().unwrap();
+    deliver_reads(&mut wb);
+    let worker = *world.workers().last().unwrap();
+    let qs = queries(&world, worker);
+    assert_eq!(qs.len(), 4);
+    answer(&mut wb, worker, &qs[0]);
+    assert!(wb.cancel_batch_flash());
+    assert_eq!(wb.setup_batch(BatchMode::Flash), Ok(true));
+    wb.start_batch_flash(-1, -1, 2, false).unwrap().unwrap();
+    deliver_reads(&mut wb);
+    let worker = *world.workers().last().unwrap();
+    let qs = queries(&world, worker);
+    assert_eq!(qs.len(), 3, "the answered position keeps its result");
+    for q in &qs {
+        answer(&mut wb, worker, q);
+    }
+    let saved = write_saves(&mut wb, None);
+    assert_eq!(saved.len(), 1);
+    let text = std::fs::read_to_string(&saved[0]).unwrap();
+    assert_eq!(text.matches("LZ[").count(), 4, "all four moves are in the copy");
+}
+
+#[test]
+fn a_late_reply_of_a_failed_flash_attempt_is_not_taken_for_the_next_attempt() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, _fg) = setup(dir.path(), false);
+    let a = write(dir.path(), "a.sgf", GAME_A);
+    wb.open_batch(BatchMode::Flash, vec![a], OpenSource::Chooser).unwrap();
+    deliver_reads(&mut wb);
+    wb.start_batch_flash(-1, -1, 2, false).unwrap().unwrap();
+    deliver_reads(&mut wb);
+    let worker = *world.workers().last().unwrap();
+    let old = queries(&world, worker);
+    let error = serde_json::json!({"id": old[0]["id"], "error": "illegal query"});
+    out(&mut wb, worker, &error.to_string());
+    assert_eq!(
+        wb.view(false).batch.notice.unwrap().message_key,
+        "AnalysisEngine.requestDispatchFailed"
+    );
+    assert_eq!(wb.setup_batch(BatchMode::Flash), Ok(true));
+    wb.start_batch_flash(-1, -1, 2, false).unwrap().unwrap();
+    deliver_reads(&mut wb);
+    assert_eq!(*world.workers().last().unwrap(), worker, "the kept process is reused");
+    queries(&world, worker);
+    answer(&mut wb, worker, &old[1]);
+    assert_eq!(wb.view(false).batch.running.unwrap().done, 0);
+}
+
+#[test]
+fn flash_batch_queries_use_each_records_own_rules() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, _fg) = setup(dir.path(), false);
+    let a = write(dir.path(), "a.sgf", "(;SZ[19]RU[Japanese];B[dd];W[pp])");
+    wb.open_batch(BatchMode::Flash, vec![a], OpenSource::Chooser).unwrap();
+    deliver_reads(&mut wb);
+    wb.start_batch_flash(-1, -1, 2, false).unwrap().unwrap();
+    deliver_reads(&mut wb);
+    let worker = *world.workers().last().unwrap();
+    let qs = queries(&world, worker);
+    assert!(!qs.is_empty());
+    assert!(
+        qs.iter().all(|q| q["rules"]["scoring"] == "TERRITORY"),
+        "{}",
+        qs[0]["rules"]
+    );
+}
+
+#[test]
+fn an_unreadable_first_record_ends_batch_analysis_before_its_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, _world, _fg) = setup(dir.path(), false);
+    let bad = write(dir.path(), "bad.sgf", "not a game record");
+    let b = write(dir.path(), "b.sgf", GAME_B);
+    wb.open_batch(BatchMode::Ordinary, vec![bad.clone(), b], OpenSource::Chooser)
+        .unwrap();
+    deliver_reads(&mut wb);
+    let v = wb.view(false);
+    assert!(v.batch.setup.is_none(), "no settings dialog");
+    assert!(v.batch.items.is_empty());
+    let notice = v.batch.notice.unwrap();
+    assert_eq!(notice.message_key, "LizzieFrame.prompt.failedToOpenFile");
+    assert_eq!(notice.failures[0].path, bad);
+}
+
+#[test]
+fn the_first_chosen_record_is_remembered_even_if_the_settings_are_cancelled() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, _world, _fg) = setup(dir.path(), false);
+    let a = write(dir.path(), "a.sgf", GAME_A);
+    let b = write(dir.path(), "b.sgf", GAME_B);
+    wb.open_batch(BatchMode::Ordinary, vec![a.clone(), b], OpenSource::Chooser)
+        .unwrap();
+    deliver_reads(&mut wb);
+    assert_eq!(wb.view(false).batch.setup, Some(BatchMode::Ordinary));
+    assert!(wb.cancel_batch_setup());
+    assert!(wb.view(false).recent_files.contains(&a));
+}
+
+#[test]
+fn batch_analysis_leaves_single_record_auto_save_on_like_java() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, _world, _fg) = setup(dir.path(), false);
+    let a = write(dir.path(), "a.sgf", GAME_A);
+    wb.open_batch(BatchMode::Ordinary, vec![a], OpenSource::Chooser)
+        .unwrap();
+    deliver_reads(&mut wb);
+    // 自动保存棋谱 was unchecked for single-record analysis.
+    assert_eq!(wb.save_auto_analysis_settings(ordinary()).unwrap(), None);
+    assert!(!wb.config().auto_analysis.auto_save);
+    wb.start_batch_ordinary(ordinary()).unwrap().unwrap();
+    assert!(wb.config().auto_analysis.auto_save);
 }
