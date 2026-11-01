@@ -215,6 +215,7 @@ export function buildBottomBar(host: HTMLElement): void {
 export function layoutBottomBar(host: HTMLElement): void {
   const height = layoutBottomDetail(host, state.view?.settings.bottom_toolbar === "Detailed");
   if (host.style.height !== `${height}px`) host.style.height = `${height}px`;
+  const W = host.clientWidth;
   const PAD = 10;
   const GAP = 6;
   const width = (item: Item) => widths.get(item) ?? 52;

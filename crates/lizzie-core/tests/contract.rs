@@ -63,6 +63,8 @@ fn generate() -> String {
         HawkeyePane, HawkeyeView, HawkeyeSettings, HawkeyeBranch, HawkeyePeriod, HawkeyePlacement,
         BatchMode, BatchMove, BatchCommand, BatchItemView, BatchRunView, BatchFailure, BatchNotice, BatchView,
         FunctionMatch, FunctionTarget, MatchLevel, SettingsSection,
+        lizzie_core::settings::PanelSettings, lizzie_core::settings::PanelSizes,
+        lizzie_core::settings::BottomToolbar, lizzie_core::settings::WorkbenchPanel,
     ];
     // Engine resources and engine performance keep their own lists.
     decls.extend(resources::decls(&cfg));
