@@ -254,11 +254,6 @@ body {
   justify-content: center;
   column-gap: 4px;
 }
-.tb-pill.search img {
-  width: 16px;
-  height: 16px;
-  flex: none;
-}
 .tb-pill.newgame {
   width: 52px;
 }

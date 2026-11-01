@@ -6,8 +6,29 @@ import { product } from "./i18n";
 const host = () => document.getElementById("dialog")!;
 let open = 0;
 
-export function dialogOpen(): boolean {
-  return open > 0;
+/** A modal dialog or layer is open. `except` leaves out one layer (openModalLayer), so a modal
+ *  asking about the others does not count itself. */
+export function dialogOpen(except?: HTMLElement): boolean {
+  return open - (except && except.parentElement === host() ? 1 : 0) > 0;
+}
+
+/** A custom modal layer (the function search) under the same modal state as these dialogs: it
+ *  joins the dialog host, only the newest layer or dialog takes input and everything else is
+ *  inert. A dialog opened over it gets the input until it closes. Returns the layer's close. */
+export function openModalLayer(layer: HTMLElement): () => void {
+  host().append(layer);
+  host().hidden = false;
+  open++;
+  setModal();
+  let closed = false;
+  return () => {
+    if (closed) return;
+    closed = true;
+    layer.remove();
+    open--;
+    host().hidden = open === 0;
+    setModal();
+  };
 }
 
 /** A non-modal window that disables the main window while it is shown (WaitForAnalysis

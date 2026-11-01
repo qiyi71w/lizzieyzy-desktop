@@ -44,6 +44,7 @@ import { bindProblemPanel, problemsReport, renderProblemPanel } from "./quick/pr
 import "./quick/analysisSettings";
 import { flashWindowOpen, startFlash } from "./quick/flash";
 import { openWholeGameAnalysis } from "./quick/wholeGame";
+import { bindFunctionSearch, functionSearchReport } from "./search/controller";
 import {
   aiScoreText,
   loadImages,
@@ -448,6 +449,10 @@ document.addEventListener("keydown", (e) => {
     flash(product("unavailable"));
   }
 });
+
+// 搜索功能 (toolbar button, Ctrl+K / Cmd+K) is refused where workbench shortcuts are: in text controls
+// (their own editing and the input method keep the key), menus, the context menu and progress windows.
+bindFunctionSearch((target) => textTarget(target) || dialogOpen() || flashWindowOpen() || menuOpen() || contextMenuOpen());
 
 // ------------------------------------------------------------------ pointer
 
@@ -1200,7 +1205,11 @@ async function boot() {
     repaint: schedule,
   });
   await onUnavailable(() => unavailable());
-  await listen("acceptance-probe", () => invoke("acceptance_ui_report", { report: uiReport() }));
+  // The function search report reads the whole catalog from the core, so the reply waits for it.
+  await listen("acceptance-probe", async () => {
+    const functionSearch = await functionSearchReport().catch((e: unknown) => ({ error: String(e) }));
+    await invoke("acceptance_ui_report", { report: { ...uiReport(), functionSearch } });
+  });
   await startAutoSave();
   window.addEventListener("resize", schedule);
   apply(first);

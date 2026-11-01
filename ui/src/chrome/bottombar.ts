@@ -23,7 +23,16 @@ interface Item {
   hidden?: boolean;
   /** Shown only while this holds (reSetButtonLocation); re-laid out when it changes. */
   shown?: () => boolean;
+  /** Java action id function search locates here (BottomToolbar.functionTarget). Buttons that are
+   *  off by default have none: there is nothing on screen to locate. */
+  located?: string;
 }
+
+// BottomToolbar.functionTarget's actions (BottomToolbar.java:565-579): the navigation buttons.
+COMMANDS["review.previous-ten"] = { run: () => navigate({ op: "Back", count: 10 }) };
+COMMANDS["review.previous"] = { run: () => navigate({ op: "Back", count: 1 }) };
+COMMANDS["review.next"] = { run: () => navigate({ op: "Forward", count: 1 }) };
+COMMANDS["review.next-ten"] = { run: () => navigate({ op: "Forward", count: 10 }) };
 
 /** Text of the move field; goto clears it and leaves the field (BottomToolbar.java:1013-1027,
  *  1435-1449). Integer.parseInt semantics: anything but an optionally signed integer is 0. */
@@ -61,12 +70,12 @@ const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" 
   ],
   center: [
     { name: "firstButton", key: "|<", cls: "nav", run: () => navigate({ op: "First" }) },
-    { name: "backward10", key: "<<", cls: "nav", run: () => navigate({ op: "Back", count: 10 }) },
-    { name: "backward1", key: "<", cls: "nav", run: () => navigate({ op: "Back", count: 1 }) },
-    { name: "txtMoveNumber", key: "" },
+    { name: "backward10", key: "<<", cls: "nav", run: () => COMMANDS["review.previous-ten"].run() },
+    { name: "backward1", key: "<", cls: "nav", run: () => COMMANDS["review.previous"].run() },
+    { name: "txtMoveNumber", key: "", located: "review.goto" },
     { name: "gotomove", key: "BottomToolbar.gotomove", run: () => gotoMove(moveInput) },
-    { name: "forward1", key: ">", cls: "nav", run: () => navigate({ op: "Forward", count: 1 }) },
-    { name: "forward10", key: ">>", cls: "nav", run: () => navigate({ op: "Forward", count: 10 }) },
+    { name: "forward1", key: ">", cls: "nav", run: () => COMMANDS["review.next"].run() },
+    { name: "forward10", key: ">>", cls: "nav", run: () => COMMANDS["review.next-ten"].run() },
     { name: "lastButton", key: ">|", cls: "nav", run: () => navigate({ op: "Last" }) },
     // new AutoPlay().setVisible(true) (BottomToolbar.java:1296-1302)
     { name: "autoPlay", key: "BottomToolbar.autoPlay", run: () => COMMANDS["menu.makeAutoPlay"].run() },
@@ -85,7 +94,7 @@ const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" 
     { name: "finalScore", key: "BottomToolbar.finalScore", hidden: true, run: toggleScore },
     // newEmptyBoard (1490) and deleteMoveNoHint (1307)
     { name: "clearButton", key: "BottomToolbar.clearButton", cls: "danger", run: () => COMMANDS["files.new"].run() },
-    { name: "deleteMove", key: "BottomToolbar.deleteMove", cls: "danger", run: () => COMMANDS["board.delete-without-prompt"].run() },
+    { name: "deleteMove", key: "BottomToolbar.deleteMove", cls: "danger", run: () => COMMANDS["board.delete-without-prompt"].run(), located: "board.delete-without-prompt" },
   ],
 };
 const MORE: Item = { name: "moreActionsButton", key: "BottomToolbar.moreActions" };
@@ -123,6 +132,7 @@ export function buildBottomBar(host: HTMLElement): void {
     if (item.name === "txtMoveNumber") {
       moveInput = document.createElement("input");
       moveInput.id = "moveInput";
+      if (item.located) moveInput.dataset.function = item.located;
       moveInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter") gotoMove(moveInput);
       });
@@ -133,6 +143,7 @@ export function buildBottomBar(host: HTMLElement): void {
     const b = document.createElement("span");
     b.className = `bb ${item.cls ?? ""}`;
     b.dataset.name = item.name;
+    if (item.located) b.dataset.function = item.located;
     if (item.name === "analyse") {
       b.classList.add("icon");
       analyseIcon = document.createElement("img");

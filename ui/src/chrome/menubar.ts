@@ -5,8 +5,9 @@ import { COMMANDS, type CommandEntry } from "../commands";
 import type { DisplaySettings } from "../contract/generated";
 import { setRankCustomText } from "../display/commands";
 import { isChinese, product, t } from "../i18n";
-import { JAVA_MENUS, type MenuNode } from "./javaMenus";
+import { JAVA_MENUS, type MenuNode, type TopMenu } from "./javaMenus";
 import { chooseEngine } from "../engine/catalog";
+import { highlight } from "../search/highlight";
 
 /** Java defaults for conditional menus (Config.java: show-quick-links false, show-Contribute true;
  *  the secondary engine menu needs double-engine mode; ReadBoard is Windows only). */
@@ -104,6 +105,18 @@ function fileName(path: string): string {
 /** Recent entries carry their path in the id. */
 const RECENT = "recent:";
 
+/** The catalog node each shown row stands for, so a function search can find it again. */
+const rowNodes = new WeakMap<Element, MenuNode>();
+
+/** Shows a submenu's dropdown beside its row, closing the row's open siblings first. */
+function expand(row: HTMLElement, list: HTMLElement, children: MenuNode[]): HTMLElement {
+  list.querySelectorAll(":scope > .mi > .dropdown").forEach((d) => d.remove());
+  const sub = dropdown(children);
+  if (sub.childElementCount === 0) sub.classList.add("empty");
+  row.append(sub);
+  return sub;
+}
+
 /** One dropdown level, rebuilt each time it opens so checked/enabled states are current. */
 function dropdown(items: MenuNode[]): HTMLElement {
   const list = document.createElement("div");
@@ -125,7 +138,7 @@ function dropdown(items: MenuNode[]): HTMLElement {
       const engines = state.view?.engine.engines ?? [];
       // Menu.java:7407-7429: the twentieth slot is the overflow chooser.
       engines.slice(0, engines.length > 20 ? 19 : 20).forEach((engine, index) => {
-        const row = document.createElement("div"); row.className = "mi checkable";
+        const row = document.createElement("div"); row.className = "mi checkable"; rowNodes.set(row, node);
         row.dataset.engineIndex = String(index); row.title = engine.command;
         const mark = document.createElement("span"); mark.className = "mark";
         mark.textContent = current?.index === index ? "✓" : engine.state === "Ready" ? "●" : engine.state === "Loading" ? "◐" : "○";
@@ -147,6 +160,7 @@ function dropdown(items: MenuNode[]): HTMLElement {
     const row = document.createElement("div");
     row.className = "mi";
     row.dataset.key = node.key;
+    rowNodes.set(row, node);
     const text = document.createElement("span");
     text.className = "label";
     text.textContent = label(node);
@@ -163,12 +177,7 @@ function dropdown(items: MenuNode[]): HTMLElement {
         row.classList.add("disabled", "unavailable");
         row.title = product("unavailable");
       }
-      row.addEventListener("mouseenter", () => {
-        list.querySelectorAll(":scope > .mi > .dropdown").forEach((d) => d.remove());
-        const sub = dropdown(children);
-        if (sub.childElementCount === 0) sub.classList.add("empty");
-        row.append(sub);
-      });
+      row.addEventListener("mouseenter", () => expand(row, list, children));
     } else {
       const recent = node.id?.startsWith(RECENT) ? node.id.slice(RECENT.length) : null;
       if (recent) row.title = recent;
@@ -207,6 +216,9 @@ function recentItems(): MenuNode[] {
 
 /** The 双引擎模式 secondary engine menu's title element. */
 let secondaryMenu: HTMLElement | null = null;
+
+/** The built top-level menus and how each opens. */
+const tops = new Map<TopMenu, { top: HTMLElement; open: () => void }>();
 
 export function buildMenubar(host: HTMLElement): void {
   const measure = document.createElement("canvas").getContext("2d")!;
@@ -258,6 +270,7 @@ export function buildMenubar(host: HTMLElement): void {
       top.classList.add("open");
       top.append(dropdown(menu.items));
     };
+    tops.set(menu, { top, open });
     top.addEventListener("mousedown", (e) => {
       e.preventDefault();
       if (openMenu === top && !(e.target as HTMLElement).closest(".dropdown")) closeMenus();
@@ -286,4 +299,82 @@ export function menuOpen(): boolean {
 /** The secondary engine menu's title while it shows (acceptance probe), else null. */
 export function secondaryMenuTitle(): string | null {
   return secondaryMenu && secondaryMenu.style.display !== "none" ? secondaryMenu.firstChild?.textContent ?? null : null;
+}
+
+/** Menu.functionPath: the first item with this Java action id, depth first in menu order, with the
+ *  submenus leading to it. */
+function functionPath(id: string): { menu: TopMenu; nodes: MenuNode[] } | null {
+  const find = (items: MenuNode[]): MenuNode[] | null => {
+    for (const node of items) {
+      if (node.t === "sep") continue;
+      if (node.id === id) return [node];
+      const below = node.items && find(node.items);
+      if (below) return [node, ...below];
+    }
+    return null;
+  };
+  for (const menu of JAVA_MENUS) {
+    const nodes = find(menu.items);
+    if (nodes) return { menu, nodes };
+  }
+  return null;
+}
+
+/** Whether a submenu leads to anything this client implements. */
+function implemented(items: MenuNode[]): boolean {
+  return items.some((node) => node.t !== "sep" && (node.t === "dynamic" || (node.t === "submenu" ? implemented(node.items ?? []) : (COMMANDS[node.id ?? ""] ?? COMMANDS[node.key]) !== undefined)));
+}
+
+/** A Java menu destination: null when no menu has the id, "missing" when its item is not
+ *  available in this client, "hidden" when it is not shown now, else "ok". Read-only. */
+export function menuItemState(id: string): "ok" | "hidden" | "missing" | null {
+  const path = functionPath(id);
+  if (!path) return null;
+  const leaf = path.nodes[path.nodes.length - 1];
+  if (leaf.t === "sep") return null;
+  if (leaf.t === "dynamic" && leaf.key !== "engine.list" && leaf.key !== "Menu.openRecent") return "missing";
+  if (leaf.t === "submenu" && !implemented(leaf.items ?? [])) return "missing";
+  const entry = leaf.t === "item" || leaf.t === "check" || leaf.t === "radio" ? (COMMANDS[leaf.id ?? ""] ?? COMMANDS[leaf.key]) : null;
+  if (entry === undefined) return "missing";
+  const shown = tops.has(path.menu) && visible(path.menu.when) && path.nodes.every((node) => node.t === "sep" || visible(node.when));
+  if (!shown || (entry?.visible && !entry.visible())) return "hidden";
+  if (leaf.t === "dynamic" && leaf.key === "engine.list" && (state.view?.engine.engines.length ?? 0) === 0) return "hidden";
+  return "ok";
+}
+
+/** Menu.locateFunction: opens the real menu path and selects the item (focus and the gold line)
+ *  without invoking it or changing its setting. Enter then acts on it like the selected Swing item. */
+export function locateMenuItem(id: string): boolean {
+  const path = functionPath(id);
+  const opener = path && tops.get(path.menu);
+  if (!path || !opener || menuItemState(id) !== "ok") return false;
+  opener.open();
+  let list = opener.top.querySelector<HTMLElement>(":scope > .dropdown");
+  let row: HTMLElement | undefined;
+  for (const [depth, node] of path.nodes.entries()) {
+    if (!list) return false;
+    const rows = [...list.children].filter((child): child is HTMLElement => rowNodes.get(child) === node);
+    if (node.t === "dynamic" && node.key === "engine.list") {
+      // The selected engine's row, else the first one.
+      const current = node.id === "engine.select-secondary" ? state.view?.engine.secondary : state.view?.engine.foreground;
+      row = rows.find((r) => r.dataset.engineIndex === String(current?.index)) ?? rows[0];
+    } else row = rows[0];
+    if (!row) return false;
+    if (depth < path.nodes.length - 1) list = expand(row, list, node.t === "sep" ? [] : (node.items ?? []));
+  }
+  if (!row) return false;
+  const located = row;
+  const leaf = path.nodes[path.nodes.length - 1];
+  located.tabIndex = -1;
+  located.classList.add("located-item");
+  located.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    if (leaf.t === "submenu" && list) expand(located, list, leaf.items ?? []);
+    else located.click();
+  });
+  located.scrollIntoView({ block: "nearest", inline: "nearest" });
+  located.focus({ preventScroll: true });
+  highlight(located);
+  return true;
 }
