@@ -123,7 +123,8 @@ function parseJava(text: string): number | null {
 
 /** The few Graphics2D operations MoveListFrame paints with, on Java's pixel grid. */
 class G {
-  constructor(readonly c: CanvasRenderingContext2D) {
+  /** fonts: Lizzie.config.uiFontName / fontName as the main window resolved them. */
+  constructor(readonly c: CanvasRenderingContext2D, readonly fonts: { ui: string; info: string }) {
     c.textBaseline = "alphabetic";
     c.textAlign = "left";
   }
@@ -140,8 +141,9 @@ class G {
     this.c.lineCap = dash ? "butt" : "square";
   }
 
-  font(size: number, bold: boolean): void {
-    this.c.font = `${bold ? "bold " : ""}${size}px ${UI_FONT}`;
+  /** Font(family, BOLD|PLAIN, size): Config.sysDefaultFontName unless a theme font is named. */
+  font(size: number, bold: boolean, family: string = UI_FONT): void {
+    this.c.font = `${bold ? "bold " : ""}${size}px ${family}`;
   }
 
   line(x1: number, y1: number, x2: number, y2: number): void {
@@ -195,7 +197,7 @@ class G {
 }
 
 /** Sizes a canvas for the device pixel ratio and returns its context in CSS pixels. */
-function fit(canvas: HTMLCanvasElement, w: number, h: number): G {
+function fit(canvas: HTMLCanvasElement, w: number, h: number, fonts: { ui: string; info: string }): G {
   const dpr = window.devicePixelRatio || 1;
   canvas.style.width = `${w}px`;
   canvas.style.height = `${h}px`;
@@ -206,7 +208,7 @@ function fit(canvas: HTMLCanvasElement, w: number, h: number): G {
   const c = canvas.getContext("2d")!;
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, w, h);
-  return new G(c);
+  return new G(c, fonts);
 }
 
 // ------------------------------------------------------------------ the selected line
@@ -523,7 +525,7 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
         g.color(BLACK);
         g.text(String(cur), x + 3, posy + origH - 10);
         g.stroke(2);
-        g.font(15, true);
+        g.font(15, true, g.fonts.info); // Font(Lizzie.config.fontName, BOLD, 15), MoveListFrame.java:5473
         const hi = posy + height - jint((Math.max(lastMatchValueB, lastMatchValueW) * height) / 100) - 4;
         const lo = posy + height - jint((Math.min(lastMatchValueB, lastMatchValueW) * height) / 100) + 16;
         const bx = xOf(movenum) - 5;
@@ -577,7 +579,7 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
 
   // move number ticks (MoveListFrame.java:5679-5756)
   g.color(WHITE);
-  g.font(10, true);
+  g.font(10, true, g.fonts.ui); // Font(Lizzie.config.uiFontName, BOLD, 10), MoveListFrame.java:5680
   const step = numMoves <= 100 ? 10 : 20;
   if (chart === 2 || chart === 3) {
     // String concatenation as Java does: "0" + 10 → "010" (MoveListFrame.java:5685-5687)
@@ -589,7 +591,7 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
     g.font(10, true);
     g.text(String(cur), x + 3, posy + origH - 5);
     if (cmovenumCase2 > 0) {
-      g.font(13, true);
+      g.font(13, true, g.fonts.info); // MoveListFrame.java:5715
       const text = fixed(cdiffwinCase2, 1);
       const mw = g.width(text);
       g.color(RED);
@@ -656,11 +658,11 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
     const textY = (wr: number) => posy + (height - jint((wr * height) / 100)) + (wr > 50 ? 6 * DOT_RADIUS : -2 * DOT_RADIUS);
     const scoreText = (s: number, n: number) => {
       g.color(WHITE);
-      g.font(13, true);
+      g.font(13, true, g.fonts.ui); // MoveListFrame.java:5891, 5929
       g.text(fixed(s, 1), numMoves - n < 2 ? xOf(n) - 13 : xOf(n), scoreY(s));
     };
     if (cmovenum > 0) {
-      g.font(16, true);
+      g.font(16, true, g.fonts.ui); // MoveListFrame.java:5860
       const wrString = fixed(cwr, 1);
       const strWidth = g.width(wrString);
       const cPosX = xOf(cmovenum) - shift;
@@ -673,7 +675,7 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
       }
     }
     if (mmovenum > 0) {
-      g.font(16, true);
+      g.font(16, true, g.fonts.ui); // MoveListFrame.java:5906
       g.color(BLACK);
       g.text(fixed(mwr, 1), mPosX, textY(mwr));
       g.color(YELLOW);
@@ -723,7 +725,7 @@ function drawMisses(g: G, p: HawkeyePayload, posx: number, posy: number, width: 
   const r1 = score ? s.scoreRange1 : s.winrateRange1;
   const r2 = score ? s.scoreRange2 : s.winrateRange2;
   const unit = score ? "" : "%";
-  g.font(12, true);
+  g.font(12, true, g.fonts.info); // MoveListFrame.java:3453, 4082
   g.color(BLACK);
   const y = posy + height - jint((height * ((2 * 100.0) / (gridLines + 1))) / 100);
   const y2 = posy + height - jint((height * (100.0 / (gridLines + 1))) / 100);
@@ -765,7 +767,7 @@ function drawStages(g: G, p: HawkeyePayload, posx: number, posy: number, width: 
   const o = p.settings.openingEndMove;
   const m = p.settings.middleEndMove;
   const share = (st: HawkeyeStage) => (st.match_analyzed > 0 ? st.share_sum / st.match_analyzed : 0);
-  g.font(12, true);
+  g.font(12, true, g.fonts.info); // MoveListFrame.java:4726
   g.color(BLACK);
   const labelY = posy + idiv(height * 4, 5) + 15;
   const centred = (text: string, k: number) => g.text(text, posx + idiv(k * width, 16) - idiv(g.width(text), 2), labelY);
@@ -1205,7 +1207,7 @@ export function mountCharts(host: HTMLElement, actions: ChartActions): ChartPane
     const w = chartCanvas.clientWidth || parseFloat(chartCanvas.style.width) || 0;
     const h = chartCanvas.clientHeight || parseFloat(chartCanvas.style.height) || 0;
     if (w <= 0 || h <= 0) return;
-    const g = fit(chartCanvas, w, h);
+    const g = fit(chartCanvas, w, h, p.fonts);
     g.color(PANEL_BG);
     g.rect(0, 0, w, h);
     const done = draw(g, p, line, w - 5, h, hover);
@@ -1217,7 +1219,7 @@ export function mountCharts(host: HTMLElement, actions: ChartActions): ChartPane
     if (!p || min.style.display === "none") return;
     const w = min.clientWidth || parseFloat(min.style.width) || 0;
     if (w <= 0) return;
-    drawMin(fit(minCanvas, w, MIN_HEIGHT), p, w, MIN_HEIGHT);
+    drawMin(fit(minCanvas, w, MIN_HEIGHT, p.fonts), p, w, MIN_HEIGHT);
   };
 
   const paint = () => {
@@ -1225,7 +1227,7 @@ export function mountCharts(host: HTMLElement, actions: ChartActions): ChartPane
     if (!p) return;
     const W = host.clientWidth;
     const H = host.clientHeight;
-    const g = fit(frame, Math.max(1, W), Math.max(1, H));
+    const g = fit(frame, Math.max(1, W), Math.max(1, H), p.fonts);
     const chart = p.settings.chart;
     const tabs = layoutTabs(g, W, chart);
     boxes = tabs.boxes;

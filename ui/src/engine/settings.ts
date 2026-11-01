@@ -19,8 +19,16 @@ export interface SettingsPage {
   save: () => Promise<boolean>;
 }
 
+/** What a page may ask of its dialog: Java's `setVisible(false); openConfigDialog2(tab)` after
+ *  saveConfig (`saveAndReopen`, false when the save did not go through) or without it (`reopen`,
+ *  every unsaved edit dropped). */
+export interface SettingsDialog {
+  saveAndReopen: (section: SettingsSection) => Promise<boolean>;
+  reopen: (section: SettingsSection) => Promise<void>;
+}
+
 /** Section pages registered by their owners; a section without a page stays unavailable. */
-export const SETTINGS_PAGES: Partial<Record<SettingsSection, (host: HTMLElement) => SettingsPage>> = {};
+export const SETTINGS_PAGES: Partial<Record<SettingsSection, (host: HTMLElement, dialog: SettingsDialog) => SettingsPage>> = {};
 
 /** A row's description line, shown below it as in Java's design rows. */
 function hint(text: string): HTMLParagraphElement {
@@ -55,9 +63,20 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   const pages = { engine: form, advanced, play, kifu } as Record<string, HTMLElement>;
   const panels = beginPanelDraft();
   const registered: SettingsPage[] = [];
+  const owner: SettingsDialog = {
+    saveAndReopen: async (target) => {
+      if (!(await apply())) return false;
+      void openAnalysisSettings(target);
+      return true;
+    },
+    reopen: async (target) => {
+      await dialog.close();
+      void openAnalysisSettings(target);
+    },
+  };
   for (const [key, build] of Object.entries(SETTINGS_PAGES)) {
     const page = document.createElement("div"); page.className = "engine-settings-form"; page.hidden = true;
-    pages[key] = page; registered.push(build(page));
+    pages[key] = page; registered.push(build(page, owner));
   }
   const showPage = (key: string) => { for (const [id, page] of Object.entries(pages)) page.hidden = id !== key; };
   for (const [key, text] of [["display", t("ConfigDialog2.modern.nav.display")], ["kifu", t("ConfigDialog2.modern.nav.kifu")], ["engine", t("ConfigDialog2.modern.nav.engine")], ["play", t("ConfigDialog2.modern.nav.play")], ["theme", t("ConfigDialog2.modern.nav.theme")], ["advanced", t("ConfigDialog2.modern.nav.advanced")], ["about", t("ConfigDialog2.modern.nav.about")]]) {
@@ -151,33 +170,34 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   body.append(...Object.values(pages));
   showPage(section in pages ? section : "engine");
   const dialog = formPanel(t("Menu.comprehensiveSettings"), body);
-  const save = button(t("SetKataRules.btnApply"), async () => {
+  /** 保存设置 (saveConfig): true once everything was applied and the dialog closed. */
+  const apply = async (): Promise<boolean> => {
     const invalid = inputs.find((control) => !control.checkValidity());
-    if (invalid) { showPage(Object.keys(pages).find((id) => pages[id].contains(invalid)) ?? "engine"); invalid.reportValidity(); return; }
+    if (invalid) { showPage(Object.keys(pages).find((id) => pages[id].contains(invalid)) ?? "engine"); invalid.reportValidity(); return false; }
     const proxyMode: ProxyMode = mode.value === "System" ? "System" : mode.value === "Manual" ? "Manual" : "Direct";
     const validPort = /^\d+$/.test(port.value) && Number(port.value) >= 1 && Number(port.value) <= 65535;
     if (proxyMode === "Manual" && (!host.value.trim() || !validPort)) {
       showPage("advanced");
       await message(t("ConfigDialog2.modern.proxy.title"), !host.value.trim() ? t("ConfigDialog2.modern.proxy.hostRequired") : t("ConfigDialog2.modern.proxy.invalidPort"), "warning");
-      (!host.value.trim() ? host : port).focus(); return;
+      (!host.value.trim() ? host : port).focus(); return false;
     }
     settings.limitTime = time.checked; settings.limitPlayout = visits.checked; settings.fastEngineChange = fast.checked;
     const proxy = { proxyMode, proxyHost: host.value.trim(), proxyPort: validPort ? Number(port.value) : 7897 };
     if (JSON.stringify(proxy) !== JSON.stringify(network)) {
-      const result = await resourceCommand({ type: "SetNetworkProxy", settings: proxy }); if (!result || result.type === "Refused") return;
+      const result = await resourceCommand({ type: "SetNetworkProxy", settings: proxy }); if (!result || result.type === "Refused") return false;
     }
     if (benchmark.checked !== startupBenchmark) {
-      const result = await run({ type: "Tuning", op: { type: "SetStartupBenchmark", enabled: benchmark.checked } }); if (!result || result.type === "Refused") return;
+      const result = await run({ type: "Tuning", op: { type: "SetStartupBenchmark", enabled: benchmark.checked } }); if (!result || result.type === "Refused") return false;
     }
     // The draft's rows over the currently committed settings; untouched fields keep their values.
     const committed = state.view?.settings ?? loading;
     const nextEdit = { ...committed.edit, noCapture: noCapture.checked, allowDoubleClick: doubleClick.checked, allowDrag: drag.checked, showRightMenu: rightClick.value === "menu" };
     if (JSON.stringify(nextEdit) !== JSON.stringify(committed.edit)) {
-      const result = await run({ type: "SetEditSettings", settings: nextEdit }); if (!result || result.type === "Refused") return;
+      const result = await run({ type: "SetEditSettings", settings: nextEdit }); if (!result || result.type === "Refused") return false;
     }
     const nowProblems = state.view?.settings.problems ?? problems;
     if (hideControls.checked !== nowProblems.hideControlPane) {
-      const result = await run({ type: "SetProblemList", settings: { ...nowProblems, hideControlPane: hideControls.checked } }); if (!result || result.type === "Refused") return;
+      const result = await run({ type: "SetProblemList", settings: { ...nowProblems, hideControlPane: hideControls.checked } }); if (!result || result.type === "Refused") return false;
     }
     const now = state.view?.settings ?? loading;
     const kifuChanges: [boolean, Command][] = [
@@ -187,14 +207,17 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
     ];
     for (const [changed, command] of kifuChanges) {
       if (!changed) continue;
-      const result = await run(command); if (!result || result.type === "Refused") return;
+      const result = await run(command); if (!result || result.type === "Refused") return false;
     }
-    if (!(await displayRows.save())) return;
-    for (const page of registered) if (!(await page.save())) return;
-    if (!(await panels.save())) return;
+    if (!(await displayRows.save())) return false;
+    for (const page of registered) if (!(await page.save())) return false;
+    if (!(await panels.save())) return false;
     const result = await run({ type: "SetAnalysisSettings", settings });
-    if (result && result.type !== "Refused") await dialog.close();
-  }); save.dataset.key = "settings.apply";
+    if (!result || result.type === "Refused") return false;
+    await dialog.close();
+    return true;
+  };
+  const save = button(t("SetKataRules.btnApply"), () => void apply()); save.dataset.key = "settings.apply";
   const cancel = button(t("SetKataRules.btnCancel"), () => dialog.close()); cancel.dataset.key = "settings.cancel";
   actions(body, save, cancel);
   onOpened?.(body);

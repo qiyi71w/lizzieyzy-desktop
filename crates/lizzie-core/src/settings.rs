@@ -944,6 +944,9 @@ pub struct Config {
     pub hawkeye: HawkeyeSettings,
     /// Fixed Java workbench panel and toolbar presentation.
     pub panels: PanelSettings,
+    pub appearance: crate::appearance::AppearanceSettings,
+    /// Default theme edits live in config; named themes have their own theme.txt.
+    pub appearance_defaults: crate::appearance::ThemeSettings,
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).

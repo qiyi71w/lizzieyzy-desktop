@@ -17,7 +17,9 @@ import type {
   SubBoardMode,
   TreeNodeView,
 } from "../contract/generated";
-import { t } from "../i18n";
+import { language, t } from "../i18n";
+import { appearance, onAppearanceChange } from "../appearance/state";
+import { chineseClassicLabel, cssColor, customFont, drawChineseClassicMarkers, javaHue, localeFonts, opaque, rankColor, reverseColor, themedFont } from "../appearance/model";
 import type { BoardGeom, Rect } from "./layout";
 
 const COLS = "ABCDEFGHJKLMNOPQRSTUVWXYZ";
@@ -58,10 +60,96 @@ const DIALOG_FONT = navigator.userAgent.includes("Windows")
 export const GRAPH_FONT = `${DIALOG_FONT}, "Noto Sans CJK SC", "Microsoft YaHei", sans-serif`;
 const i = Math.trunc;
 
-/** LizzieFrame.uiFont and playoutsFont: Font(Config.sysDefaultFontName, PLAIN, 12) (Utils.java:94-95). */
-const UI_FONT = GRAPH_FONT;
-/** LizzieFrame.winrateFont: the bundled Lizzie font (Utils.java:96-101). */
-const WINRATE_FONT = `"Lizzie Winrate", ${FONT}`;
+/** LizzieFrame.uiFont (ui-font-name), playoutsFont (font-name, 计算量及其他字体) and winrateFont
+ *  (winrate-font-name): Font(Config.sysDefaultFontName, PLAIN, 12) and the bundled Lizzie font
+ *  unless the theme names a font (Utils.loadFonts, Utils.java:92-114; Config.readThemeVaule
+ *  2231-2240). Startup resolves "Lizzie Default" for the UI font to Dialog (Theme.uiFontName's
+ *  Chinese 微软雅黑 swap needs Lizzie.config, which is not yet set while Config loads). */
+let UI_FONT = GRAPH_FONT;
+let PLAYOUTS_FONT = GRAPH_FONT;
+const LIZZIE_WINRATE_FONT = `"Lizzie Winrate", ${FONT}`;
+let WINRATE_FONT = LIZZIE_WINRATE_FONT;
+/** A configured winrate font is created BOLD (Utils.java:111-114). */
+let winrateBold = false;
+/** Font weight prefix of a family as Java created it. */
+const weightOf = (family: string, bold = false) => (bold || (winrateBold && family === WINRATE_FONT) ? "bold " : "");
+/** Lizzie.config.uiFontName and Lizzie.config.fontName as CSS stacks, for the windows that
+ *  create their own fonts from them (MoveListFrame.java:320-321, 3453, 5473, 5680, 5860). */
+export function themeFonts(): { ui: string; info: string } {
+  return { ui: UI_FONT, info: PLAYOUTS_FONT };
+}
+
+/** The committed theme as the painters use it (Config.readThemeVaule, Config.java:2241-2285): the
+ *  values the Java default theme loads until the first appearance arrives. */
+const look = {
+  showShadow: true,
+  shadowSize: 85,
+  pureStone: false,
+  pureBoard: null as string | null,
+  pureBackground: null as string | null,
+  indicator: 1,
+  bestHue: 0.5,
+  bestColor: "rgb(255,0,0)",
+  morandi: false,
+  apple: false,
+  chinese: false,
+  customBoard: false,
+  showCommentNode: true,
+  commentNode: "rgb(0,0,255)",
+  board: undefined as HTMLImageElement | undefined,
+  themeBoard: undefined as HTMLImageElement | undefined,
+  background: undefined as HTMLImageElement | undefined,
+  black: undefined as HTMLImageElement | undefined,
+  white: undefined as HTMLImageElement | undefined,
+  /** glass-effect-level (Config.java:1809, default 1) and the theme's background-filter. */
+  glassLevel: 1,
+  backgroundFilter: 20,
+  /** glass-blur-radius, liquid-blur-radius and the glass panel colours (Theme.java:738-767). */
+  glassBlur: 10,
+  liquidBlur: 15,
+  glassOverlay: "rgba(24,24,26,0.4)",
+  glassBorder: "rgba(255,255,255,0.102)",
+  glassHighlight: "rgba(255,255,255,0.302)",
+};
+onAppearanceChange(() => {
+  const a = appearance();
+  if (!a) return;
+  const th = a.theme;
+  // LocaleFontSupport.resolveConfiguredFontName: the locale's candidates follow the Dialog fonts,
+  // ahead of the generic family that would end the fallback.
+  const dialog = GRAPH_FONT.replace(/, sans-serif$/, `${localeFonts(language())}, sans-serif`);
+  UI_FONT = themedFont(th.uiFontName, dialog, dialog);
+  PLAYOUTS_FONT = themedFont(th.fontName, dialog, dialog);
+  winrateBold = customFont(th.winrateFontName);
+  // A configured winrate font is a BOLD Font of its own: its stack ends with the bundled font so it
+  // never equals the plain UI / info stack of the same family.
+  WINRATE_FONT = winrateBold ? `${themedFont(th.winrateFontName, LIZZIE_WINRATE_FONT, dialog)}, "Lizzie Winrate"` : LIZZIE_WINRATE_FONT;
+  Object.assign(look, {
+    showShadow: th.showStoneShadow,
+    shadowSize: th.shadowSize,
+    pureStone: th.usePureStone,
+    pureBoard: th.usePureBoard ? cssColor(opaque(th.pureBoardColor)) : null,
+    pureBackground: th.usePureBackground ? cssColor(opaque(th.pureBackgroundColor)) : null,
+    indicator: th.stoneIndicatorType,
+    bestHue: javaHue(th.bestMoveColor),
+    bestColor: cssColor(reverseColor(th.bestMoveColor)),
+    // Menu.java:747-751: Apple style turns the Morandi colours on.
+    morandi: a.settings.morandiColors || a.settings.appleStyle,
+    apple: a.settings.appleStyle,
+    chinese: a.settings.boardStyle === "ChineseClassic",
+    customBoard: a.customBoard,
+    showCommentNode: th.showCommentNodeColor,
+    commentNode: cssColor(th.commentNodeColor),
+    glassLevel: a.settings.glassEffectLevel,
+    backgroundFilter: th.backgroundFilter,
+    glassBlur: th.glassBlurRadius,
+    liquidBlur: th.liquidBlurRadius,
+    glassOverlay: cssColor(th.glassPanelOverlayColor),
+    glassBorder: cssColor(th.glassPanelBorderColor),
+    glassHighlight: cssColor(th.glassPanelHighlightColor),
+    ...a.images,
+  });
+});
 
 /** The hovered candidate's variation as the main board shows it (BoardRenderer.drawBranch); `order`
  *  is -1 for the 下一手 详细 point's variation (BoardRenderer.mouseOveredMove). */
@@ -212,6 +300,27 @@ function drawTexture(g: CanvasRenderingContext2D, img: HTMLImageElement | undefi
   g.fillRect(x, y, w, h);
 }
 
+/** The goban being painted: its origin and size anchor the texture of the board and of every disc
+ *  cut from it (BoardRenderer `paint`), and `image` / `custom` say what covers it. */
+const surface = { x: 0, y: 0, size: 0, image: undefined as HTMLImageElement | undefined, custom: false };
+
+/** The board paint over a rect (BoardRenderer.drawWoodenBoard, BoardRenderer.java:3620-3651): the
+ *  pure-board colour; a custom board image scaled to cover the board and centred
+ *  (drawCoverTextureImage, 4020-4038); else the theme texture tiled from the board origin. */
+function boardFill(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
+  const img = surface.image;
+  if (look.pureBoard) {
+    g.fillStyle = look.pureBoard;
+    g.fillRect(x, y, w, h);
+  } else if (surface.custom && img?.naturalWidth) {
+    const scale = Math.max(surface.size / img.naturalWidth, surface.size / img.naturalHeight);
+    const pattern = g.createPattern(img, "repeat")!;
+    pattern.setTransform(new DOMMatrix([scale, 0, 0, scale, surface.x + (surface.size - img.naturalWidth * scale) / 2, surface.y + (surface.size - img.naturalHeight * scale) / 2]));
+    g.fillStyle = pattern;
+    g.fillRect(x, y, w, h);
+  } else drawTexture(g, img, x, y, w, h, surface.x, surface.y);
+}
+
 /** jhlabs GaussianFilter(radius) on an opaque region: makeKernel (sigma = radius / 3, taps beyond
  * the radius zeroed, normalised), then two convolveAndTranspose passes with CLAMP_EDGES, each
  * rounding to (int)(v + 0.5). Canvas `filter` is not used: WebKitGTK ignores it. */
@@ -258,49 +367,111 @@ function blurRegion(g: CanvasRenderingContext2D, r: Rect, radius: number) {
   g.putImageData(img, x, y);
 }
 
+/** GlassEffectRenderer.drawLiquidEffects (GlassEffectRenderer.java:226-266) at the moment the
+ *  background is painted: the moving highlight (6 s cycle) and the top / bottom inner shadows. */
+function liquidEffects(g: CanvasRenderingContext2D, r: Rect) {
+  const phase = (Date.now() % 6000) / 6000;
+  const cx = r.x + r.w * (0.5 + 0.3 * Math.sin(phase * Math.PI * 2));
+  const cy = r.y + r.h * (0.5 + 0.3 * Math.cos(phase * Math.PI * 2 * 0.7));
+  const highlight = g.createRadialGradient(cx, cy, 0, cx, cy, Math.max(r.w, r.h) * 0.5);
+  highlight.addColorStop(0, "rgba(255,255,255,0.196)");
+  highlight.addColorStop(0.5, "rgba(255,255,255,0.059)");
+  highlight.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = highlight;
+  g.beginPath();
+  g.roundRect(r.x, r.y, r.w, r.h, 8);
+  g.fill();
+  const top = g.createLinearGradient(0, r.y, 0, r.y + 15);
+  top.addColorStop(0, "rgba(0,0,0,0.157)");
+  top.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = top;
+  g.beginPath();
+  g.roundRect(r.x + 2, r.y + 2, r.w - 4, 15, 8);
+  g.fill();
+  const bottom = g.createLinearGradient(0, r.y + r.h - 10, 0, r.y + r.h);
+  bottom.addColorStop(0, "rgba(0,0,0,0)");
+  bottom.addColorStop(1, "rgba(0,0,0,0.098)");
+  g.fillStyle = bottom;
+  g.beginPath();
+  g.roundRect(r.x + 2, r.y + r.h - 10, r.w - 4, 10, 8);
+  g.fill();
+}
+
 /** LizzieFrame.createBackground (wallpaper tiled from the panel origin) plus drawContainer for each
- * panel: GlassEffectRenderer.drawGlassPanel(FROSTED, corner 16) with the baseline theme values
- * glass-blur-radius 10, overlay (24,24,26,102), border (255,255,255,26), highlight (255,255,255,77).
+ * panel (LizzieFrame.java:8221-8245): with Apple style or glass-effect-level above 0,
+ * GlassEffectRenderer.drawGlassPanel (corner 16) FROSTED (glass-blur-radius 10) or, from level 2,
+ * LIQUID (liquid-blur-radius 15 plus its highlight and inner shadows), overlay (24,24,26,102),
+ * border (255,255,255,26), highlight (255,255,255,77); at level 0 without Apple style only the
+ * region blurred by the theme's background-filter. The pure background colour replaces the
+ * wallpaper and the containers; Apple style darkens the wallpaper with (20,20,20,160)
+ * (LizzieFrame.java:8197-8208).
  * Painted once per size into a detached canvas and returned as a PNG blob: a live full-window canvas
  * layer would be recomposited every frame by WebKitGTK. */
 export function paintBackground(w: number, h: number, glass: Rect[]): Promise<Blob | null> {
   const canvas = document.createElement("canvas");
   const g = prepare(canvas, { x: 0, y: 0, w, h });
-  drawTexture(g, images["background.jpg"], 0, 0, w, h, 0, 0);
+  if (look.pureBackground) {
+    g.fillStyle = look.pureBackground;
+    g.fillRect(0, 0, w, h);
+    glass = [];
+  } else {
+    drawTexture(g, look.background, 0, 0, w, h, 0, 0);
+    if (look.apple) {
+      g.fillStyle = "rgba(20,20,20,0.627)";
+      g.fillRect(0, 0, w, h);
+    }
+  }
+  const glassy = look.apple || look.glassLevel > 0;
+  const liquid = look.glassLevel >= 2;
   for (const r of glass) {
     if (r.w <= 0 || r.h <= 0 || r.x < 0 || r.y < 0 || r.x + r.w > w || r.y + r.h > h) continue;
-    blurRegion(g, r, 10);
-    g.fillStyle = "rgba(24,24,26,0.4)";
+    if (!glassy) {
+      // GaussianFilter(0) leaves the region as it is.
+      if (look.backgroundFilter > 0) blurRegion(g, r, look.backgroundFilter);
+      continue;
+    }
+    // drawGlassPanel: the theme's glass values (Theme.java:738-767); the panel corner is the 16
+    // drawContainer passes, not glass-corner-radius.
+    const radius = liquid ? look.liquidBlur : look.glassBlur;
+    if (radius > 0) blurRegion(g, r, radius);
+    g.fillStyle = look.glassOverlay;
     g.beginPath();
     g.roundRect(r.x, r.y, r.w, r.h, 8);
     g.fill();
-    g.strokeStyle = "rgba(255,255,255,0.102)";
+    g.strokeStyle = look.glassBorder;
     g.lineWidth = 1;
     g.beginPath();
     g.roundRect(r.x + 0.5, r.y + 0.5, r.w, r.h, 8);
     g.stroke();
     const light = g.createLinearGradient(0, r.y, 0, r.y + r.h * 0.3);
-    light.addColorStop(0, "rgba(255,255,255,0.302)");
+    light.addColorStop(0, look.glassHighlight);
     light.addColorStop(1, "rgba(255,255,255,0)");
     g.fillStyle = light;
     g.beginPath();
     g.roundRect(r.x + 1, r.y + 1, r.w - 2, i(r.h / 3), 8);
     g.fill();
+    if (liquid) liquidEffects(g, r);
   }
   const { promise, resolve } = Promise.withResolvers<Blob | null>();
   canvas.toBlob(resolve);
   return promise;
 }
 
-/** BoardRenderer.drawShadow (theme shadow-size 85). */
+/** BoardRenderer.drawShadow with show-stone-shadow and shadow-size (BoardRenderer.java:3796-3860):
+ *  the cached shadow grows with cachedR = stoneRadius * shadow-size / 100; at the default 85 it is
+ *  the shape measured on the Java capture. */
 function stoneShadow(g: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
+  if (!look.showShadow) return;
+  const k = look.shadowSize / 85;
+  const off = r * 0.12 * k;
+  const outer = r + r * 0.18 * k;
   g.save();
   g.globalAlpha = 0.85;
-  const sh = g.createRadialGradient(cx + r * 0.12, cy + r * 0.12, r * 0.6, cx + r * 0.12, cy + r * 0.12, r * 1.18);
+  const sh = g.createRadialGradient(cx + off, cy + off, r * 0.6, cx + off, cy + off, outer);
   sh.addColorStop(0, "rgba(0,0,0,0.55)");
   sh.addColorStop(1, "rgba(0,0,0,0)");
   g.fillStyle = sh;
-  circle(g, cx + r * 0.12, cy + r * 0.12, r * 1.18);
+  circle(g, cx + off, cy + off, outer);
   g.fill();
   g.restore();
 }
@@ -325,11 +496,19 @@ function ghostShadow(g: CanvasRenderingContext2D, cx: number, cy: number, r: num
   g.restore();
 }
 
-/** BoardRenderer.drawShadow + theme stone image (shadow-size 85). */
+/** BoardRenderer.drawStone with the theme stone images, or drawStoneSimple with use-pure-stone:
+ *  a black or white disc, the white one outlined max(r / 16, 1) (BoardRenderer.java:3901-3916). */
 function drawStone(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, black: boolean) {
   stoneShadow(g, cx, cy, r);
-  const img = images[black ? "black0.png" : "white0.png"];
-  if (img?.naturalWidth) g.drawImage(img, cx - r, cy - r, r * 2 + 1, r * 2 + 1);
+  const img = black ? look.black : look.white;
+  if (look.pureStone) {
+    g.fillStyle = black ? "#000" : "#fff";
+    fillCircle(g, cx, cy, r);
+    if (!black) {
+      g.strokeStyle = "#000";
+      strokeCircle(g, cx, cy, r, Math.max(r / 16, 1));
+    }
+  } else if (img?.naturalWidth) g.drawImage(img, cx - r, cy - r, r * 2 + 1, r * 2 + 1);
   else {
     g.fillStyle = black ? "#111" : "#f4f4f4";
     circle(g, cx, cy, r);
@@ -433,10 +612,10 @@ function hsb(hue: number, saturation: number, brightness: number, alpha = 255): 
   return `rgba(${i(r * 255 + 0.5)},${i(g * 255 + 0.5)},${i(b * 255 + 0.5)},${alpha / 255})`;
 }
 
-/** drawLeelazSuggestions hues: RGBtoHSB(2, 0, 0), RGBtoHSB(0, 255, 0) and best-move-color (cyan). */
+/** drawLeelazSuggestions hues: RGBtoHSB(2, 0, 0), RGBtoHSB(0, 255, 0); the best candidate takes
+ *  Config.bestMoveColor, the hue of best-move-color (look.bestHue, cyan 0.5 by default). */
 const RED_HUE = 0;
 const GREEN_HUE = 1 / 3;
-const CYAN_HUE = 0.5;
 /** BoardRenderer.maxAlpha and drawLeelazSuggestions' minAlpha / alphaFactor. */
 const MAX_ALPHA = 240;
 const MIN_ALPHA = 32;
@@ -447,7 +626,7 @@ function suggestionAlpha(percent: number): number {
 /** BoardRenderer.drawString (BoardRenderer.java:4253-4289): the 100-point font scaled to `maxW`,
  *  capped at `maxH`, centred on x; aboveOrBelow 0 centres on y, 1 puts the baseline on y. */
 function jString(g: CanvasRenderingContext2D, s: string, x: number, y: number, family: string, maxH: number, maxW: number, aboveOrBelow = 0, bold = false) {
-  const weight = bold ? "bold " : "";
+  const weight = weightOf(family, bold);
   g.font = `${weight}100px ${family}`;
   const size = Math.min(maxH, Math.round((100 * maxW) / Math.max(1, Math.round(g.measureText(s).width))));
   g.font = `${weight}${Math.max(1, size)}px ${family}`;
@@ -459,14 +638,14 @@ function jString(g: CanvasRenderingContext2D, s: string, x: number, y: number, f
   g.fillText(s, x - i(Math.round(g.measureText(s).width) / 2), y + i(height / 2) + offset);
 }
 
-/** The wood texture under a disc (drawLeelazSuggestions / drawCircleBackground: setPaint(paint)). */
-function woodDisc(g: CanvasRenderingContext2D, x: number, y: number, radius: number, alpha: number, ox: number, oy: number) {
+/** The board paint under a disc (drawLeelazSuggestions / drawCircleBackground: setPaint(paint)). */
+function woodDisc(g: CanvasRenderingContext2D, x: number, y: number, radius: number, alpha: number) {
   g.save();
   g.beginPath();
   g.arc(x + 0.5, y + 0.5, radius + 0.5, 0, Math.PI * 2);
   g.clip();
   g.globalAlpha = alpha;
-  drawTexture(g, images["board.png"], x - radius - 1, y - radius - 1, 2 * radius + 3, 2 * radius + 3, ox, oy);
+  boardFill(g, x - radius - 1, y - radius - 1, 2 * radius + 3, 2 * radius + 3);
   g.restore();
 }
 
@@ -481,15 +660,7 @@ function scoreDiff(diff: number): string {
   return diff > 0 ? `+${javaDouble(rounded)}` : diff < 0 ? `-${javaDouble(rounded)}` : javaDouble(Math.round(diff * 10) / 10 + 0);
 }
 
-/** MoveRankDefinition.Rank colours (classic palette) and boardMarkRadiusFactor. */
-const RANK_COLOR: Record<MoveRank, string> = {
-  Best: "rgb(0,180,0)",
-  Good: "rgb(140,202,34)",
-  Normal: "rgb(180,180,0)",
-  Inaccuracy: "rgb(200,140,50)",
-  Mistake: "rgb(208,16,19)",
-  Blunder: "rgb(155,25,150)",
-};
+/** MoveRankDefinition boardMarkRadiusFactor; the colours follow use-morandi-colors (rankColor). */
 const RANK_RADIUS: Record<MoveRank, number> = { Best: 0.1, Good: 0.1, Normal: 0.1225, Inaccuracy: 0.145, Mistake: 0.1675, Blunder: 0.19 };
 
 // ------------------------------------------------------------------ variations
@@ -698,9 +869,10 @@ function orderBadge(g: CanvasRenderingContext2D, x: number, y: number, order: nu
   const bx = Math.round(x + sq * 0.43) + (order === 0 ? 1 : 0);
   const by = Math.round(y - sq * 0.358) - (order === 0 ? 1 : 0);
   const label = String(order + 1);
-  g.font = `100px ${WINRATE_FONT}`;
+  const weight = weightOf(WINRATE_FONT);
+  g.font = `${weight}100px ${WINRATE_FONT}`;
   const size = Math.min(sq * 0.36, Math.round((100 * sq * 0.39) / Math.max(1, Math.round(g.measureText(label).width))));
-  g.font = `${size}px ${WINRATE_FONT}`;
+  g.font = `${weight}${size}px ${WINRATE_FONT}`;
   g.textAlign = "left";
   g.textBaseline = "alphabetic";
   const fm = javaMetrics(g);
@@ -722,9 +894,10 @@ function whiteBadges(s: BoardScene): boolean {
 function suggestionText(g: CanvasRenderingContext2D, s: string, x: number, y: number, maxH: number, maxW: number, family: string) {
   g.textAlign = "left";
   g.textBaseline = "alphabetic";
-  g.font = `100px ${family}`;
+  const weight = weightOf(family);
+  g.font = `${weight}100px ${family}`;
   const size = Math.min(maxH, Math.round((100 * maxW) / Math.max(1, Math.round(g.measureText(s).width))));
-  g.font = `${size}px ${family}`;
+  g.font = `${weight}${size}px ${family}`;
   g.fillText(s, x - i(Math.round(g.measureText(s).width) / 2), y);
 }
 
@@ -732,7 +905,7 @@ function suggestionText(g: CanvasRenderingContext2D, s: string, x: number, y: nu
  *  (win rate 0, playouts 1, score 2) in the rows of 自定义信息顺序. */
 function drawSuggestionText(g: CanvasRenderingContext2D, geo: BoardGeom, x: number, y: number, texts: string[], colors: string[], fields: number[], defaultOrder: boolean, roundedWinrate: number, visits: number) {
   const r = geo.stoneRadius, sq = geo.square;
-  const font = (field: number) => (field === 1 ? UI_FONT : WINRATE_FONT);
+  const font = (field: number) => (field === 1 ? PLAYOUTS_FONT : WINRATE_FONT);
   if (fields.length === 3) {
     fields.forEach((field, row) => {
       g.fillStyle = colors[field];
@@ -818,7 +991,7 @@ function drawUnimportant(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardG
     if (!draw) continue;
     const ratio = max > 0 ? Math.min(1, c.allocation_visits / max) : 0;
     const alphaRatio = Math.max(0, Math.log(ratio) / 5 + 1);
-    g.fillStyle = hsb(k === 0 ? CYAN_HUE : RED_HUE + (GREEN_HUE - RED_HUE) * hueFraction(ratio, s), 1, 0.85, i(MIN_ALPHA + (MAX_ALPHA - MIN_ALPHA) * alphaRatio));
+    g.fillStyle = hsb(k === 0 ? look.bestHue : RED_HUE + (GREEN_HUE - RED_HUE) * hueFraction(ratio, s), 1, 0.85, i(MIN_ALPHA + (MAX_ALPHA - MIN_ALPHA) * alphaRatio));
     fillCircle(g, X(pt.x), Y(pt.y), r + 1);
     g.strokeStyle = `rgba(0,0,0,${i(48 + 48 * alphaRatio) / 255})`;
     strokeCircle(g, X(pt.x), Y(pt.y), r + 1, (r + 1) / 26.5);
@@ -873,14 +1046,14 @@ function shownCandidates(s: BoardScene, X: (x: number) => number, Y: (y: number)
  *  its ring: the best candidate's blue ring (show-blue-ring; dimmed on a next move) or else the
  *  faint black ring the others get, which a next move's dashed ring replaces (isOnNext). A point
  *  under an unimportant circle is not painted again unless hovered. Nothing while a branch shows. */
-function drawCandidateDiscs(g: CanvasRenderingContext2D, geo: BoardGeom, shown: ShownCandidate[], next: Point[], ox: number, oy: number, s: BoardScene, report: BoardReport) {
+function drawCandidateDiscs(g: CanvasRenderingContext2D, geo: BoardGeom, shown: ShownCandidate[], next: Point[], s: BoardScene, report: BoardReport) {
   const r = geo.stoneRadius;
   for (const { c, k, x, y, ratio, fraction, hovered, needShow, skipNumbers, background } of shown) {
     if (background && !hovered) continue;
-    if (!skipNumbers) woodDisc(g, x, y, r + 1, ratio < 0.05 && !hovered && !needShow ? 0.8 : 1, ox, oy);
+    if (!skipNumbers) woodDisc(g, x, y, r + 1, ratio < 0.05 && !hovered && !needShow ? 0.8 : 1);
     const onNext = next.some((n) => n.x === c.point!.x && n.y === c.point!.y);
     const alphaRatio = Math.max(0, Math.log(ratio) / 5 + 1);
-    g.fillStyle = hsb(k === 0 ? CYAN_HUE : RED_HUE + (GREEN_HUE - RED_HUE) * fraction, 1, 0.85, i(MIN_ALPHA + (MAX_ALPHA - MIN_ALPHA) * alphaRatio));
+    g.fillStyle = hsb(k === 0 ? look.bestHue : RED_HUE + (GREEN_HUE - RED_HUE) * fraction, 1, 0.85, i(MIN_ALPHA + (MAX_ALPHA - MIN_ALPHA) * alphaRatio));
     fillCircle(g, x, y, r + 1);
     if (k === 0 && s.display.blueRing) {
       g.strokeStyle = onNext ? "rgba(0,0,255,0.667)" : "#00f";
@@ -919,7 +1092,8 @@ function drawCandidateLabels(g: CanvasRenderingContext2D, geo: BoardGeom, shown:
     }
     let normal = d.whiteSuggestionWhite && s.toPlay === "White" ? "#fff" : "#000";
     if (branch) normal = hoverStoneBlack ? "#fff" : "#000";
-    const maxColor = k === 0 || fraction > 0.375 ? "#f00" : "rgb(100,255,235)";
+    // Config.bestColor, the reverse of best-move-color (BoardRenderer.java:2686-2689).
+    const maxColor = k === 0 ? look.bestColor : fraction > 0.375 ? "#f00" : "rgb(100,255,235)";
     const canMax = d.suggestionMaxRed && !(hovered && branch);
     // 总是显示黑胜率 / 目差显示 are applied by the core (`shown`).
     const roundedWinrate = Math.round(c.shown.winrate * 10) / 10;
@@ -955,7 +1129,7 @@ function drawPolicy(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardGeom, 
     const x = X(c.point.x), y = Y(c.point.y);
     const percent = c.prior / max;
     ghostShadow(g, x, y, r);
-    g.fillStyle = hsb(c.prior === max ? CYAN_HUE : RED_HUE + (GREEN_HUE - RED_HUE) * percent, 1, 0.85, suggestionAlpha(percent));
+    g.fillStyle = hsb(c.prior === max ? look.bestHue : RED_HUE + (GREEN_HUE - RED_HUE) * percent, 1, 0.85, suggestionAlpha(percent));
     fillCircle(g, x, y, r);
     const text = c.prior.toFixed(1);
     g.fillStyle = "#fff";
@@ -981,7 +1155,7 @@ function drawRawNetPolicy(g: CanvasRenderingContext2D, s: BoardScene, geo: Board
     const best = heat[k] === max;
     if (!owner) {
       ghostShadow(g, x, y, r);
-      g.fillStyle = hsb(best ? CYAN_HUE : RED_HUE + (GREEN_HUE - RED_HUE) * percent, 1, 0.85, suggestionAlpha(percent));
+      g.fillStyle = hsb(best ? look.bestHue : RED_HUE + (GREEN_HUE - RED_HUE) * percent, 1, 0.85, suggestionAlpha(percent));
       fillCircle(g, x, y, r);
     }
     const text = (heat[k] / 10).toFixed(1);
@@ -1023,12 +1197,12 @@ function nextMoveTexts(g: CanvasRenderingContext2D, s: BoardScene, sq: number, x
 }
 
 /** 下一手 详细 (BoardRenderer.java:3264-3321, 3487-3618): the move's result inside its ring. */
-function drawNextMoveInfo(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardGeom, X: (x: number) => number, Y: (y: number) => number, ox: number, oy: number, report: BoardReport) {
+function drawNextMoveInfo(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardGeom, X: (x: number) => number, Y: (y: number) => number, report: BoardReport) {
   const info = s.overlay.next_move!;
   const r = geo.stoneRadius;
   const x = X(info.point.x), y = Y(info.point.y);
   const fill = info.verdict === "Bad" ? "rgba(220,80,30,0.333)" : info.verdict === "Questionable" ? "rgb(220,150,30)" : "rgb(0,220,0)";
-  if (info.verdict === "Bad") woodDisc(g, x, y, r + 1, 0.8, ox, oy);
+  if (info.verdict === "Bad") woodDisc(g, x, y, r + 1, 0.8);
   g.fillStyle = fill;
   fillCircle(g, x, y, r + 1);
   g.strokeStyle = s.nextColor === "White" ? "#fff" : "#000";
@@ -1118,25 +1292,38 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     score: null,
     mark: null,
   };
-  drawTexture(g, images["board.png"], ox, oy, geo.size, geo.size);
+  // drawWoodenBoard (BoardRenderer.java:3620-3651): a custom board image gets a (0,0,0,50) wash.
+  Object.assign(surface, { x: ox, y: oy, size: geo.size, image: look.board, custom: look.customBoard });
+  boardFill(g, ox, oy, geo.size, geo.size);
+  if (look.customBoard && !look.pureBoard) {
+    g.fillStyle = "rgba(0,0,0,0.196)";
+    g.fillRect(ox, oy, geo.size, geo.size);
+  }
   const avail = geo.size - 2 * geo.margin;
   grid(g, geo, ox, oy, Math.max(geo.size > 560 ? 2 : 1, avail / 481), Math.max(1, avail / 750));
-  // star points radius (int)(0.015*size)/2
-  const star = i(i(0.015 * geo.size) / 2);
-  g.fillStyle = "#000";
-  for (const [a, b] of hoshi(geo.cols, geo.rows)) {
-    circle(g, X(a) + 0.5, Y(b) + 0.5, star + 1);
-    g.fill();
+  // drawStarPoints (BoardRenderer.java:1119-1143): 中式经典 corner markers, else the star points
+  // of radius (int)(0.015*size)/2.
+  if (look.chinese) drawChineseClassicMarkers(g, geo.cols, geo.rows, sq, (x) => X(x) + 0.5, (y) => Y(y) + 0.5);
+  else {
+    const star = i(i(0.015 * geo.size) / 2);
+    g.fillStyle = "#000";
+    for (const [a, b] of hoshi(geo.cols, geo.rows)) {
+      circle(g, X(a) + 0.5, Y(b) + 0.5, star + 1);
+      g.fill();
+    }
   }
   // The pure network's line replaces the names (BoardRenderer.java:303-311).
   const rawLine = s.rawNetOn || (s.policy && s.engine && !s.katago);
-  // Coordinates (BoardRenderer.java:1038-1100) in the 坐标格式; the bottom row gives way to the
+  // Coordinates (BoardRenderer.java:1038-1100) in the 坐标格式, or 中式经典's line numbers from the
+  // nearer edge (BoardStylePainter.chineseClassicCoordinateLabel); the bottom row gives way to the
   // names and the line.
   if (d.coordinates) {
     g.fillStyle = "#000";
     const at = i((geo.margin * 4) / 10);
     const bottom = !s.names && !rawLine;
-    const labels = coordinateLabels(d.coordinateStyle, geo.cols, geo.rows);
+    const labels = look.chinese
+      ? { cols: Array.from({ length: geo.cols }, (_, k) => chineseClassicLabel(k, geo.cols)), rows: Array.from({ length: geo.rows }, (_, k) => chineseClassicLabel(k, geo.rows)) }
+      : coordinateLabels(d.coordinateStyle, geo.cols, geo.rows);
     labels.cols.forEach((label, k) => {
       jString(g, label, X(k), oy + at, UI_FONT, i((r * 4) / 5), r);
       if (bottom) jString(g, label, X(k), oy + geo.size - at, UI_FONT, i((r * 4) / 5), r);
@@ -1150,7 +1337,8 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
   if (rawLine) {
     const text = rawNetLine(s);
     g.fillStyle = "#000";
-    jString(g, text, ox + i(geo.size / 2), oy - i((geo.margin * 13) / 40) + geo.size, GRAPH_FONT, i(geo.margin / 2), geo.size, 0, true);
+    // Font(Lizzie.config.fontName, PLAIN, 16) (BoardRenderer.java:786).
+    jString(g, text, ox + i(geo.size / 2), oy - i((geo.margin * 13) / 40) + geo.size, PLAYOUTS_FONT, i(geo.margin / 2), geo.size, 0, true);
     report.bottomLine = "rawNet";
     report.rawNetInfo = text;
   } else if (s.names) {
@@ -1180,12 +1368,12 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
   if (preview) report.preview = { order: s.preview!.order, length: s.preview!.length, numbers: preview.numbers.size };
   // While scoring no markup, next moves or candidates are drawn (BoardRenderer.java:363-364).
   if (s.score) return report;
-  drawMarks(g, s, px, py, r, ox, oy);
+  drawMarks(g, s, px, py, r);
   const branch = !!preview;
   const showNext = d.nextMoves && !branch && !!s.nextColor;
   // 下一手 详细 only beside the statistics (BoardRenderer.java:3214-3221).
   const nextInfo = showNext && s.candidatesShown && !s.policy && !s.rawNetOn ? s.overlay.next_move : null;
-  if (nextInfo) drawNextMoveInfo(g, s, geo, X, Y, ox, oy, report);
+  if (nextInfo) drawNextMoveInfo(g, s, geo, X, Y, report);
   const next = showNext ? s.nextMoves : [];
   if (s.candidatesShown && s.rawNetOn) {
     report.candidateMode = "rawNet";
@@ -1198,7 +1386,7 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     report.whiteOrderBadges = whiteBadges(s);
     const covered = drawUnimportant(g, s, geo, X, Y, !branch, report);
     const { shown, ignoredCandidate } = shownCandidates(s, X, Y, nextInfo?.hides_candidate ? nextInfo.point : null, covered);
-    if (!branch) drawCandidateDiscs(g, geo, shown, next, ox, oy, s, report);
+    if (!branch) drawCandidateDiscs(g, geo, shown, next, s, report);
     // Java strokes the hints over finished candidates; with the rows on their Java baselines the
     // dashes would cross the score row, so the hints go between the discs and the labels.
     if (next.length) drawNextMoveOutlines(g, next, s.nextColor!, X, Y, r);
@@ -1218,6 +1406,18 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     report.mark = s.mark;
   }
   return report;
+}
+
+/** drawPolygon / drawPolygonCircle (BoardRenderer.java:4184-4198): the stone-indicator-type 0
+ *  triangle with Java's integer vertices, filled or stroked. */
+function indicatorTriangle(g: CanvasRenderingContext2D, x: number, y: number, r: number, fill: boolean) {
+  g.beginPath();
+  g.moveTo(x, y - i((10 * r) / 22));
+  g.lineTo(x - i(r / 2), y + i((8 * r) / 22));
+  g.lineTo(x + i(r / 2), y + i((8 * r) / 22));
+  g.closePath();
+  if (fill) g.fill();
+  else g.stroke();
 }
 
 /** moveOverlayOrder (BoardRenderer.java:210-231, 337-361): 落子评价 while move numbers are off,
@@ -1244,17 +1444,26 @@ function drawMoveOverlay(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardG
   if (s.overlay.ranks_after_numbers || (d.moveNumbers === 0 && d.moveRank >= 0)) {
     for (const m of s.overlay.ranks) {
       if (hiddenByBranch(m.point.y * cols + m.point.x)) continue;
-      g.fillStyle = RANK_COLOR[m.rank];
-      fillCircle(g, X(m.point.x), Y(m.point.y), m.last ? ring : Math.round(sq * RANK_RADIUS[m.rank]));
+      g.fillStyle = rankColor(m.rank, look.morandi);
+      // drawMoveRankMarkCircle (BoardRenderer.java:644-657): the last move's mark is the triangle
+      // with stone-indicator-type 0.
+      if (m.last && look.indicator === 0) indicatorTriangle(g, X(m.point.x), Y(m.point.y), r, true);
+      else fillCircle(g, X(m.point.x), Y(m.point.y), m.last ? ring : Math.round(sq * RANK_RADIUS[m.rank]));
       report.ranks.push({ x: m.point.x, y: m.point.y, rank: m.rank, last: m.last });
     }
+    // BoardRenderer.java:590-602: the triangle outline with type 0, else the ring and the corner.
     if (last?.point && !s.snapshot && !hiddenByBranch(last.point.y * cols + last.point.x)) {
       g.strokeStyle = last.color === "White" ? "#000" : "#fff";
-      strokeCircle(g, X(last.point.x), Y(last.point.y), ring, ring / 5);
-      if (s.overlay.rank_corner) {
-        g.fillStyle = "#f00";
-        smallTriangle(g, X(last.point.x), Y(last.point.y), r);
-        report.rankCorner = true;
+      if (look.indicator === 0) {
+        g.lineWidth = ring / 5;
+        indicatorTriangle(g, X(last.point.x), Y(last.point.y), r, false);
+      } else {
+        strokeCircle(g, X(last.point.x), Y(last.point.y), ring, ring / 5);
+        if (s.overlay.rank_corner) {
+          g.fillStyle = "#f00";
+          smallTriangle(g, X(last.point.x), Y(last.point.y), r);
+          report.rankCorner = true;
+        }
       }
       report.lastMoveMarker = last.point;
     }
@@ -1264,10 +1473,21 @@ function drawMoveOverlay(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardG
   if (s.snapshot) return false;
   // drawMoveNumbers (BoardRenderer.java:1898-2101); the core chose the numbers.
   if (d.moveNumbers === 0 && !(d.allNumbersInBranch && !s.mainTrunk)) {
-    // stone-indicator-type 1: a ring in the opposite colour.
-    if (last?.point) {
-      g.strokeStyle = last.color === "White" ? "#000" : "#fff";
-      strokeCircle(g, X(last.point.x), Y(last.point.y), ring, ring / 5);
+    // stone-indicator-type (BoardRenderer.java:1932-1953): 0 a red triangle, 1 a ring and 2 a dot
+    // of (int)(r * 0.325) in the opposite colour, 3 nothing.
+    if (last?.point && look.indicator !== 3) {
+      const [x, y] = [X(last.point.x), Y(last.point.y)];
+      const opposite = last.color === "White" ? "#000" : "#fff";
+      if (look.indicator === 0) {
+        g.fillStyle = "#f00";
+        indicatorTriangle(g, x, y, r, true);
+      } else if (look.indicator === 2) {
+        g.fillStyle = opposite;
+        fillCircle(g, x, y, i(r * 0.325));
+      } else {
+        g.strokeStyle = opposite;
+        strokeCircle(g, x, y, ring, ring / 5);
+      }
       report.lastMoveMarker = last.point;
     }
     return false;
@@ -1277,7 +1497,7 @@ function drawMoveOverlay(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardG
 }
 
 /** BoardRenderer markup: TR / SQ / CR / MA / LB, drawn in the contrasting colour of the point. */
-function drawMarks(g: CanvasRenderingContext2D, scene: BoardScene, px: (p: number) => number, py: (p: number) => number, r: number, ox: number, oy: number) {
+function drawMarks(g: CanvasRenderingContext2D, scene: BoardScene, px: (p: number) => number, py: (p: number) => number, r: number) {
   const cols = scene.cols;
   g.lineWidth = Math.max(1.5, r / 10);
   for (const m of scene.marks) {
@@ -1311,11 +1531,11 @@ function drawMarks(g: CanvasRenderingContext2D, scene: BoardScene, px: (p: numbe
         break;
       case "Label":
         if (!scene.stones[p]) {
-          // label over an empty point: the grid under it is covered with the wood texture
+          // label over an empty point: the grid under it is covered with the board paint
           g.save();
           circle(g, x, y, r * 0.7);
           g.clip();
-          drawTexture(g, images["board.png"], x - r, y - r, r * 2, r * 2, ox, oy);
+          boardFill(g, x - r, y - r, r * 2, r * 2);
           g.restore();
         }
         textMid(g, m.mark.text, x, y, r * 1.1, r * 1.6, color);
@@ -1434,10 +1654,15 @@ export function paintSubBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origi
   g.beginPath();
   g.rect(ox, oy, geo.size, geo.size);
   g.clip();
-  drawTexture(g, images["board.png"], ox, oy, geo.size, geo.size);
+  // SubBoardRenderer.drawWoodenBoard (SubBoardRenderer.java:1330-1345): the pure-board colour or
+  // Theme.defaultBoard, the theme's board without the custom image; drawStarPoints (527-550) puts
+  // the 中式经典 markers in place of the star points.
+  Object.assign(surface, { x: ox, y: oy, size: geo.size, image: look.themeBoard, custom: false });
+  boardFill(g, ox, oy, geo.size, geo.size);
   grid(g, geo, ox, oy, 1.5, 1);
+  if (look.chinese) drawChineseClassicMarkers(g, geo.cols, geo.rows, sq, (x) => X(x) + 0.5, (y) => Y(y) + 0.5);
   g.fillStyle = "#000";
-  for (const [a, b] of geo.cols === 19 ? hoshi(geo.cols, geo.rows) : []) {
+  for (const [a, b] of geo.cols === 19 && !look.chinese ? hoshi(geo.cols, geo.rows) : []) {
     circle(g, X(a) + 0.5, Y(b) + 0.5, Math.max(1.5, sq * 0.12));
     g.fill();
   }
@@ -1486,7 +1711,7 @@ export function paintSubBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origi
         const captured = preview.captured.get(p);
         const stone = preview.stones[p];
         if (captured && !stone) {
-          woodDisc(g, px(p), py(p), r + 1, 1, ox, oy);
+          woodDisc(g, px(p), py(p), r + 1, 1);
           if (s.stones[p]) {
             const x = p % cols, y = i(p / cols);
             g.strokeStyle = "#000";
@@ -1816,7 +2041,8 @@ export function paintStat(g: CanvasRenderingContext2D, r: Rect, s: StatScene): S
 /** Pondering status lines at ponderingY (LizzieFrame.drawPonderingState). */
 export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[]) {
   const lh = Math.max(14, i(r.h / 3));
-  g.font = `${i(lh * 0.78)}px ${FONT}`;
+  // LizzieFrame.createStatusFont (LizzieFrame.java:8432-8448): Config.fontName first.
+  g.font = `${i(lh * 0.78)}px ${PLAYOUTS_FONT}`;
   g.textBaseline = "middle";
   g.textAlign = "left";
   lines.forEach((s, k) => {
@@ -1838,7 +2064,8 @@ export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[
 export function paintDualStrip(g: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, split: number, panelW: number, panelH: number): { text: string; width: number } {
   const rightEdge = x < split ? split : panelW;
   const maxWidth = Math.max(1, rightEdge - x - 4);
-  const font = (px: number) => `${px}px ${UI_FONT}`;
+  // fitStatusFont over createStatusFont (LizzieFrame.java:8405-8448): Config.fontName first.
+  const font = (px: number) => `${px}px ${PLAYOUTS_FONT}`;
   const measure = (s: string) => Math.round(g.measureText(s).width);
   let px = size;
   g.font = font(px);
@@ -1888,10 +2115,13 @@ export function paintDualStrip(g: CanvasRenderingContext2D, text: string, x: num
 /** LizzieFrame.createVarTreeImage + VariationTree.draw/drawTree (VariationTree.java:44-402): the
  * whole tree laid out from the root at (20, 20) with Java's lane allocation, shown through the scroll
  * pane that renderVarTree positions on the current node (LizzieFrame.java:13942-13975) unless the
- * user scrolled it (`scroll`). Nodes off the current line are dimmed; commented nodes get the blue
- * ring; 显示分支面板上的手数 (`numbers`) writes each node's core display number beside it
- * (VariationTree.java:159-176, 285-304). Returns node centres (panel coordinates) for click
- * hit-testing and the viewport. */
+ * user scrolled it (`scroll`). Nodes off the current line are dimmed; with show-comment-node-color
+ * commented nodes get the comment-node-color ring, and every node is filled with the 错误节点
+ * colour the core projects for it (`nodeColors`, LizzieFrame.getBlunderNodeColor 11465-11536 with
+ * Board.updateIsBest; VariationTree.java:136-158), white without one; 显示分支面板上的手数 (`numbers`)
+ * writes each node's core display
+ * number beside it (VariationTree.java:159-176, 285-304). Returns node centres (panel coordinates)
+ * for click hit-testing and the viewport. */
 export function paintTree(
   g: CanvasRenderingContext2D,
   r: Rect,
@@ -1901,6 +2131,7 @@ export function paintTree(
   line: Set<number>,
   scroll: { top: number; left: number } | null,
   numbers: boolean,
+  nodeColors: Map<number, number[]>,
 ): { hits: Map<string, number>; viewport: TreeViewport; numbers: number } {
   const hits = new Map<string, number>();
   const { w, h } = r;
@@ -1940,7 +2171,7 @@ export function paintTree(
     if (!numbers || k === 0) return;
     drawnNumbers++;
     ops.push((g) => {
-      g.font = `9px ${GRAPH_FONT}`;
+      g.font = `9px ${UI_FONT}`;
       g.fillStyle = "#fff";
       g.textAlign = "left";
       g.textBaseline = "alphabetic";
@@ -1949,7 +2180,9 @@ export function paintTree(
   };
   const dot = (n: number, x: number, y: number) => {
     const dim = !line.has(n);
-    const commented = node(n).has_comment;
+    const commented = look.showCommentNode && node(n).has_comment;
+    const projected = nodeColors.get(n);
+    const fill = projected ? cssColor(projected) : "#fff";
     if (n === current) [curX, curY] = [x, y];
     hits.set(`${x + 5},${y + 5}`, n);
     ops.push((g) => {
@@ -1958,8 +2191,8 @@ export function paintTree(
         circle(g, x + 5.5, y + 5.5, d / 2);
         g.fill();
       };
-      if (commented) disc("rgb(0,0,255)", RING);
-      disc("#fff", DOT);
+      if (commented) disc(look.commentNode, RING);
+      disc(fill, DOT);
       if (dim) disc("rgba(0,0,0,0.153)", commented ? RING : DOT);
       if (n === current) disc("#000", CENTER);
     });

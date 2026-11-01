@@ -47,6 +47,8 @@ import "./quick/analysisSettings";
 import { flashWindowOpen, startFlash } from "./quick/flash";
 import { openWholeGameAnalysis } from "./quick/wholeGame";
 import { bindFunctionSearch, functionSearchReport } from "./search/controller";
+import { appearanceRevision, onAppearanceChange, startAppearance } from "./appearance/state";
+import "./appearance/commands";
 import {
   aiScoreText,
   loadImages,
@@ -814,7 +816,8 @@ function render() {
   const normal = workbenchLayout(W, H, layoutRequest(v));
   panels = dual ? { ...normal, board: dual.left, glass: [], handles: null } : normal;
   const P = panels;
-  const size = `${W}x${H}:${window.devicePixelRatio}`;
+  // A committed appearance repaints every themed panel and the wallpaper (Config.readThemeVaule).
+  const size = `${W}x${H}:${window.devicePixelRatio}:${appearanceRevision()}`;
   // Edits change a node's position, marks or side to play in place: the revision moves on.
   const docSig = `${v.document.id}:${v.document.revision}:${pos.node}:${pos.to_play}`;
   projectAnalysis(v);
@@ -960,8 +963,10 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
     treeRevision++;
   }
   const treeNumbers = v.settings.display.treeMoveNumbers;
-  if (P.shown.tree && changed("tree", `${at(P.tree)}:${docSig}:${treeRevision}:${treeNumbers}:${treeScroll?.top}:${treeScroll?.left}`)) {
-    const painted = paintTree(prepare($("tree"), P.tree), P.tree, state.nodes, state.root, pos.node, state.line, treeScroll, treeNumbers);
+  // The core's 错误节点 colours of every node (white ones omitted); they change with the analysis.
+  const nodeColors = JSON.stringify(v.theme_nodes);
+  if (P.shown.tree && changed("tree", `${at(P.tree)}:${docSig}:${treeRevision}:${nodeColors}:${treeNumbers}:${treeScroll?.top}:${treeScroll?.left}`)) {
+    const painted = paintTree(prepare($("tree"), P.tree), P.tree, state.nodes, state.root, pos.node, state.line, treeScroll, treeNumbers, new Map(v.theme_nodes.map((n) => [n.node, n.color] as const)));
     treeHits = painted.hits;
     treeView = painted.viewport;
     treeNumbersDrawn = painted.numbers;
@@ -1197,9 +1202,11 @@ async function boot() {
   bindCommentEditor($("commentText"));
   bindCaptureSurface(() => panels && { panels, width: $("main").clientWidth, height: $("main").clientHeight, background: backgroundUrl }, render);
   await Promise.all([
-    loadImages(["board.png", "black0.png", "white0.png", "background.jpg", "heatmap.png", "smallUp.png", "smallDown.png", "smallLeft.png", "smallRight.png"]),
+    loadImages(["board.png", "heatmap.png", "smallUp.png", "smallDown.png", "smallLeft.png", "smallRight.png"]),
     document.fonts.load('12px "Lizzie Winrate"'),
+    startAppearance(first),
   ]);
+  onAppearanceChange(schedule);
   subscribe(schedule);
   bindScoreDialog(() => (panels ? $("board").getBoundingClientRect() : null));
   startTitleUpdates(schedule);

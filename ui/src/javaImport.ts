@@ -114,6 +114,7 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   WorkbenchPanels: "Menu.panel",
   PanelSizes: "Menu.restoreDefaultPanelSizes",
   BottomToolbar: "Menu.bottomToolBar",
+  Appearance: "Menu.appearanceTheme",
 };
 
 function targetLabel(target: ImportTarget): string {

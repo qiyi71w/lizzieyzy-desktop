@@ -15,6 +15,7 @@
 //!   acquisition and verification.
 
 pub mod api;
+pub mod appearance;
 pub mod browse;
 pub mod display;
 pub mod engine;

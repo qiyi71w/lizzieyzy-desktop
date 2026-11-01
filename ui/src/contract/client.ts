@@ -2,7 +2,8 @@
 // immutable function search is independent of the workbench and its lock.
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { ApiError, Command, CommandResult, ConsoleLineView, FunctionMatch, Language, LogsStatus, SlotRef, WorkbenchView } from "./generated";
+import type { ApiError, AppearanceSettings, Command, CommandResult, ConsoleLineView, FunctionMatch, Language, LogsStatus, SlotRef, ThemeSettings, WorkbenchView } from "./generated";
+import type { AppearanceCatalog, ThemeImages } from "../appearance/model";
 
 export function dispatch(command: Command): Promise<CommandResult> {
   return invoke<CommandResult>("dispatch_command", { command });
@@ -46,6 +47,21 @@ export function onUnavailable(handler: (capability: string) => void): Promise<Un
 /** The picture of a 存档与读档 slot as stored (empty when it has none). */
 export function recoveryThumbnail(slot: SlotRef): Promise<ArrayBuffer> {
   return invoke<ArrayBuffer>("recovery_thumbnail", { slot });
+}
+
+/** The themes (default first) and the system font families. Read-only. */
+export function appearanceCatalog(): Promise<AppearanceCatalog> {
+  return invoke<AppearanceCatalog>("appearance_catalog");
+}
+
+/** Loadable URLs of the images these values select (custom overrides first). Read-only. */
+export function appearanceImages(settings: AppearanceSettings, theme: ThemeSettings): Promise<ThemeImages> {
+  return invoke<ThemeImages>("appearance_images", { settings, theme });
+}
+
+/** The system chooser for one image file (JFileChooser FILES_ONLY); null when cancelled. */
+export function chooseAppearanceImage(): Promise<string | null> {
+  return invoke<string | null>("appearance_choose_image");
 }
 
 /** The window is closing with 自动存档 on: answer with `Recovery { op: ExitAutoSave }`. */

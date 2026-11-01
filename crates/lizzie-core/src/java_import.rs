@@ -18,6 +18,7 @@
 //! The 存档与读档 slots in `save/` are read by [`slots`] and imported only when the user chooses.
 
 pub mod slots;
+mod appearance;
 
 use std::path::{Path, PathBuf};
 
@@ -187,6 +188,9 @@ pub struct Mapped {
     /// 超级鹰眼's 统计 range as Java keeps it: `move-list-filter-current`, `match-ai-firstmove`,
     /// `match-ai-lastmove`.
     pub hawkeye_range: (Option<bool>, Option<i32>, Option<i32>),
+    /// Appearance/default-theme fields, validated against the same types as the live command.
+    pub appearance: Vec<(&'static str, Value)>,
+    pub theme: Vec<(&'static str, Value)>,
 }
 
 /// [`HawkeyeSettings`] with the imported values; the 统计 range selects the period Java shows for
@@ -1203,6 +1207,7 @@ impl Reader<'_> {
             }
         }
 
+        self.appearance(ui, &mut handled);
         self.hawkeye(ui, &mut handled);
         self.network(ui, &mut handled);
         self.display(ui, leelaz, &mut handled);
@@ -1866,6 +1871,10 @@ impl Reader<'_> {
     /// (`save`) is read separately ([`slots`]).
     fn other_files(&mut self) {
         let dir = self.source.config_dir.clone();
+        if dir.join("theme").is_dir() {
+            let it = self.item("file:theme".into(), ImportStatus::NotMigrated);
+            it.reason = Some(ImportReason::NotYetAvailable);
+        }
         for (name, credential) in [("teacher.properties", true), ("secure-credentials", true)] {
             if dir.join(name).exists() {
                 let it = self.item(format!("file:{name}"), ImportStatus::NotMigrated);
@@ -2213,6 +2222,12 @@ impl Mapped {
         set!(pl.playouts_threshold, self.problem_playouts_threshold);
         set!(pl.hide_control_pane, self.problem_hide_control_pane);
         c.hawkeye = with_hawkeye(&c.hawkeye, self);
+        let mut appearance = serde_json::to_value(&c.appearance).expect("appearance serializes");
+        for (field, value) in &self.appearance { appearance[*field] = value.clone(); }
+        c.appearance = serde_json::from_value(appearance).expect("validated appearance values");
+        let mut theme = serde_json::to_value(&c.appearance_defaults).expect("theme serializes");
+        for (field, value) in &self.theme { theme[*field] = value.clone(); }
+        c.appearance_defaults = serde_json::from_value(theme).expect("validated theme values");
         if let Some(engines) = &self.engines {
             let kept: Vec<&MappedEngine> = engines
                 .iter()
@@ -2261,6 +2276,12 @@ impl Mapped {
                     out.push($target);
                 }
             };
+        }
+        let a_json = serde_json::to_value(&config.appearance).expect("appearance serializes");
+        let t_json = serde_json::to_value(&config.appearance_defaults).expect("theme serializes");
+        if self.appearance.iter().any(|(field,v)| a_json.get(*field) != Some(v))
+            || self.theme.iter().any(|(field,v)| t_json.get(*field) != Some(v)) {
+            out.push(ImportTarget::Appearance);
         }
         let a = &config.engine.analysis;
         cmp!(ImportTarget::ReadKomi, config.record.read_komi, self.read_komi);
