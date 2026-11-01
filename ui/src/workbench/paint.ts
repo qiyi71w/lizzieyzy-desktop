@@ -6,15 +6,18 @@ import type {
   CoordinateStyle,
   DisplaySettings,
   EstimateStyle,
+  FocusView,
   LastAction,
   Mark,
   MoveRank,
   NodeAnalysisView,
   Point,
   RawNetView,
+  RegionView,
   ScoreView,
   Stone,
   SubBoardMode,
+  TrackingSettings,
   TreeNodeView,
 } from "../contract/generated";
 import { t } from "../i18n";
@@ -119,6 +122,13 @@ export interface BoardScene {
   score: ScoreView | null;
   /** The problem move a 问题手 jump marked (LizzieFrame.clickbadmove), while its parent shows. */
   mark: Point | null;
+  /** 强制计算区域 (main board only). */
+  region: RegionView | null;
+  /** The region selection being dragged (main board only). */
+  selecting: { allow: boolean; from: Point; to: Point } | null;
+  /** 选点重点研究 of this position (main board only) and its outline settings. */
+  focus: FocusView | null;
+  tracking: TrackingSettings;
 }
 
 /** What the main board drew, for the acceptance probe. */
@@ -153,6 +163,12 @@ export interface BoardReport {
   score: { neutral: number; black: number; white: number } | null;
   /** The marked problem move's magenta ring (drawFocusStone). */
   mark: Point | null;
+  /** The region squares drawn (drawAllSelectedRectByCoords) and the dragged rectangle. */
+  region: { allow: boolean; points: number } | null;
+  selecting: { allow: boolean; from: Point; to: Point } | null;
+  /** Tracked-point markers: the quality outline colour (null when hidden), the progress ratio
+   *  while still searched, and the pending-cancel arc. */
+  tracked: { x: number; y: number; outline: string | null; progress: number | null; cancelling: boolean }[];
 }
 
 export const images: Record<string, HTMLImageElement> = {};
@@ -491,6 +507,82 @@ const RANK_COLOR: Record<MoveRank, string> = {
   Blunder: "rgb(155,25,150)",
 };
 const RANK_RADIUS: Record<MoveRank, number> = { Best: 0.1, Good: 0.1, Normal: 0.1225, Inaccuracy: 0.145, Mistake: 0.1675, Blunder: 0.19 };
+
+/** Selection squares: allowed blue, avoided red, alpha 45 (BoardRenderer.java:1172-1177). */
+const REGION_COLOR = { allow: "rgba(0,0,120,0.1765)", avoid: "rgba(120,0,0,0.1765)" };
+
+/** drawAllSelectedRectByCoords and the dragged drawSelectedRect: a square of the square width
+ *  centred on each point, the dragged rectangle over the points it covers. */
+function drawRegion(g: CanvasRenderingContext2D, s: BoardScene, X: (x: number) => number, Y: (y: number) => number, sq: number, report: BoardReport): void {
+  const half = i(sq / 2);
+  if (s.region?.points.length) {
+    g.fillStyle = s.region.allow ? REGION_COLOR.allow : REGION_COLOR.avoid;
+    for (const p of s.region.points) g.fillRect(X(p.x) - half, Y(p.y) - half, sq, sq);
+    report.region = { allow: s.region.allow, points: s.region.points.length };
+  }
+  const d = s.selecting;
+  if (d) {
+    g.fillStyle = d.allow ? REGION_COLOR.allow : REGION_COLOR.avoid;
+    g.fillRect(X(d.from.x) - half, Y(d.from.y) - half, sq * (d.to.x - d.from.x + 1), sq * (d.to.y - d.from.y + 1));
+    report.selecting = d;
+  }
+}
+
+/** drawTrackedPointMarkers (BoardRenderer.java:2916-3017): on each empty tracked point a dashed
+ *  quality ring in the 落子评价 colour of its candidate against the best one (grey without both),
+ *  then, while it is still searched, a blue progress ring filling clockwise from the top towards
+ *  the target visits, or the orange arc while a cancel is pending. */
+function drawTracking(g: CanvasRenderingContext2D, s: BoardScene, X: (x: number) => number, Y: (y: number) => number, sq: number, r: number, report: BoardReport): void {
+  const focus = s.focus;
+  if (!focus?.points.length) return;
+  const quality = Math.max(r + 2, Math.round(sq * 0.48));
+  const progress = quality + Math.max(3, Math.round(sq * 0.075));
+  const qualityWidth = Math.max(2.2, sq * 0.055);
+  const progressWidth = Math.max(2.4, sq * 0.065);
+  g.save();
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  for (const p of focus.points) {
+    const { x, y } = p.point;
+    if (x >= s.cols || y >= s.rows || s.stones[y * s.cols + x]) continue;
+    const cx = X(x), cy = Y(y);
+    const marker: BoardReport["tracked"][number] = { x, y, outline: null, progress: null, cancelling: false };
+    if (s.tracking.showOutline) {
+      marker.outline = p.rank ? RANK_COLOR[p.rank] : "rgb(112,118,124)";
+      g.globalAlpha = s.tracking.outlineOpacity / 100;
+      g.setLineDash([Math.max(4.5, sq * 0.14), Math.max(3, sq * 0.09)]);
+      g.lineWidth = qualityWidth;
+      g.strokeStyle = marker.outline;
+      circle(g, cx, cy, quality);
+      g.stroke();
+    }
+    g.globalAlpha = 1;
+    g.setLineDash([]);
+    g.lineWidth = progressWidth;
+    if (p.active) {
+      const ratio = focus.target_visits <= 0 ? 0 : Math.max(0, Math.min(1, p.visits / focus.target_visits));
+      marker.progress = ratio;
+      g.strokeStyle = "rgba(25,118,210,0.4118)";
+      circle(g, cx, cy, progress);
+      g.stroke();
+      const degrees = Math.round(360 * ratio);
+      if (degrees > 0) {
+        g.strokeStyle = "rgb(66,165,245)";
+        g.beginPath();
+        g.arc(cx, cy, progress, -Math.PI / 2, -Math.PI / 2 + (degrees * Math.PI) / 180);
+        g.stroke();
+      }
+    } else if (focus.cancellation_pending) {
+      marker.cancelling = true;
+      g.strokeStyle = "rgb(245,166,35)";
+      g.beginPath();
+      g.arc(cx, cy, progress, (-145 * Math.PI) / 180, (-35 * Math.PI) / 180);
+      g.stroke();
+    }
+    report.tracked.push(marker);
+  }
+  g.restore();
+}
 
 // ------------------------------------------------------------------ variations
 
@@ -1117,6 +1209,9 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     estimate: null,
     score: null,
     mark: null,
+    region: null,
+    selecting: null,
+    tracked: [],
   };
   drawTexture(g, images["board.png"], ox, oy, geo.size, geo.size);
   const avail = geo.size - 2 * geo.margin;
@@ -1170,6 +1265,8 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     if (stone) drawStone(g, px(p), py(p), r, stone === "Black");
   }
   if (layer && !below) drawOwnership(g, layer.ownership, s.stones, cols, layer.style, X, Y, sq, true);
+  // renderImages draws the selection images after Kata形势 (BoardRenderer.java:1884-1887).
+  drawRegion(g, s, X, Y, sq, report);
   // renderImages ends with the score image; the move numbers still follow it.
   if (s.score) report.score = drawScoreMarks(g, s.score, X, Y, sq, cols);
   const nextHover = s.preview?.order === -1 && s.overlay.next_move ? s.overlay.next_move.point : null;
@@ -1207,6 +1304,8 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     drawCandidateLabels(g, geo, shown, s, branch, hideHoverInfo, hoverIndex >= 0 && preview?.stones[hoverIndex] === "Black", report);
   } else if (next.length) drawNextMoveOutlines(g, next, s.nextColor!, X, Y, r);
   if (nextHover) drawNextFirstMove(g, s, geo, X, Y, report);
+  // drawTrackingOverlay (BoardRenderer.java:414, 2721-2734): main board, no branch shown.
+  if (!branch) drawTracking(g, s, X, Y, sq, r, report);
   // drawFocusStone (BoardRenderer.java:421-422, 1410-1416): a magenta ring of 7/6 the stone
   // radius, stroke radius / 11.5, while no branch shows.
   if (s.mark && !branch) {

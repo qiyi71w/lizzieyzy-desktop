@@ -44,8 +44,9 @@ pub(super) struct FlashFlow {
     /// The last flash analysis asked for, for 确定并重新计算 (`analysisRecentIsPartGame`,
     /// `analysisRecentIsAllBranches`).
     recent: Option<FlashTarget>,
-    /// A run waiting for a borrowed engine to come back before it starts (`whenSettled`).
-    waiting: Option<(u64, FlashTarget)>,
+    /// A run waiting for a borrowed engine to come back before it starts (`whenSettled`), with
+    /// the positions it was accepted for.
+    waiting: Option<(u64, Vec<(NodeId, u64)>)>,
     /// A cancelled run's borrowed engine still being given back: run and lease.
     releasing: Option<(u64, u64)>,
     outcome: Option<FlashOutcome>,
@@ -72,7 +73,8 @@ enum Engine {
     },
     Lease {
         lease: u64,
-        queue: VecDeque<NodeId>,
+        /// The positions still to search: node and the stamp it had when the run was asked for.
+        queue: VecDeque<(NodeId, u64)>,
         /// Giving the engine back after the last search (`true`) or a failed one.
         ending: Option<bool>,
     },
@@ -153,6 +155,16 @@ impl Workbench {
             .collect()
     }
 
+    /// The positions a run is asked for, frozen when it is accepted: each node with its stamp, so
+    /// a later edit or deletion makes it a position the run no longer searches.
+    fn flash_plan(&self, target: FlashTarget) -> Vec<(NodeId, u64)> {
+        let rec = &self.doc.record;
+        self.flash_nodes(target)
+            .into_iter()
+            .map(|n| (n, rec.node(n).stamp))
+            .collect()
+    }
+
     // -------------------------------------------------------------------- operations
 
     /// 整盘速览 / 局部精析 / 全部分支精析 (`flashAnalyzeGame`). `Err` holds the Java key of a refusal.
@@ -178,12 +190,13 @@ impl Workbench {
         self.quick_hand_over();
         self.flash.next_run += 1;
         let id = self.flash.next_run;
+        let plan = self.flash_plan(target);
         if self.quick_releasing() || self.flash_releasing() {
-            self.flash.waiting = Some((id, target));
+            self.flash.waiting = Some((id, plan));
             self.sync_engine();
             return Ok(Ok(true));
         }
-        Ok(self.flash_begin(id, target).map(|()| true))
+        Ok(self.flash_begin(id, plan).map(|()| true))
     }
 
     /// 取消分析 (`destroyAnalysisEngine`): the answers so far stay. An analysis process ends and
@@ -220,7 +233,7 @@ impl Workbench {
     }
 
     /// Starts run `id` now. `Err` holds the Java key of why it cannot.
-    fn flash_begin(&mut self, id: u64, target: FlashTarget) -> Result<(), String> {
+    fn flash_begin(&mut self, id: u64, plan: Vec<(NodeId, u64)>) -> Result<(), String> {
         let borrow = self.config.analysis_engine.reuse_current_engine;
         if borrow {
             let availability = self.engines.lease_availability();
@@ -229,7 +242,13 @@ impl Workbench {
                 return Err(reuse_status_key(availability));
             }
         }
-        let nodes = self.flash_nodes(target);
+        // Positions edited or removed since the run was asked for are not searched.
+        let rec = self.doc.record.clone();
+        let plan: Vec<(NodeId, u64)> = plan
+            .into_iter()
+            .filter(|&(n, stamp)| rec.contains(n) && rec.node(n).stamp == stamp)
+            .collect();
+        let nodes: Vec<NodeId> = plan.iter().map(|&(n, _)| n).collect();
         if nodes.is_empty() {
             // `finishSuccessfulEmptyRequest`: nothing to ask, nothing to report.
             self.sync_engine();
@@ -241,7 +260,7 @@ impl Workbench {
             let lease = self.engines.begin_lease().map_err(reuse_status_key)?;
             Engine::Lease {
                 lease,
-                queue: nodes.into(),
+                queue: plan.into(),
                 ending: None,
             }
         } else {
@@ -351,8 +370,8 @@ impl Workbench {
         if self.quick_releasing() || self.flash_releasing() {
             return;
         }
-        if let Some((id, target)) = self.flash.waiting.take() {
-            if let Err(message_key) = self.flash_begin(id, target) {
+        if let Some((id, plan)) = self.flash.waiting.take() {
+            if let Err(message_key) = self.flash_begin(id, plan) {
                 self.flash.outcome = Some(FlashOutcome::Failed { run: id, message_key });
             }
         }
@@ -470,10 +489,11 @@ impl Workbench {
                 return;
             };
             let lease = *lease;
-            let Some(node) = queue.pop_front() else {
+            let Some((node, stamp)) = queue.pop_front() else {
                 return self.flash_lease_end(true);
             };
-            if !self.doc.record.contains(node) {
+            let rec = &self.doc.record;
+            if !rec.contains(node) || rec.node(node).stamp != stamp {
                 *done += 1;
                 continue;
             }
@@ -603,9 +623,9 @@ impl Workbench {
     // -------------------------------------------------------------------- projection
 
     pub(super) fn flash_view(&self) -> Option<FlashAnalysisView> {
-        if let Some((run, _)) = self.flash.waiting {
+        if let Some((run, _)) = &self.flash.waiting {
             return Some(FlashAnalysisView {
-                run,
+                run: *run,
                 loading: true,
                 done: 0,
                 total: 0,

@@ -147,6 +147,74 @@ impl Default for FlashRange {
     }
 }
 
+/// 强制计算区域's depth choices (Menu `selectAllowPopup` / `selectAvoidPopup`): how many moves
+/// deep a region restricts the search (999 = 限制整个搜索过程, 1 = 仅限制第一手, otherwise the
+/// custom number). Java sends at least 1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct RegionSettings {
+    /// `ui.select-allow-moves` [999].
+    pub allow_moves: i32,
+    /// `ui.select-avoid-moves` [999].
+    pub avoid_moves: i32,
+    /// `ui.select-allow-custom-moves` [5].
+    pub allow_custom_moves: i32,
+    /// `ui.select-avoid-custom-moves` [5].
+    pub avoid_custom_moves: i32,
+}
+
+impl Default for RegionSettings {
+    fn default() -> Self {
+        RegionSettings {
+            allow_moves: 999,
+            avoid_moves: 999,
+            allow_custom_moves: 5,
+            avoid_custom_moves: 5,
+        }
+    }
+}
+
+impl RegionSettings {
+    /// The depth a region of this kind is sent with.
+    pub fn until_move(&self, allow: bool) -> u32 {
+        (if allow { self.allow_moves } else { self.avoid_moves }).max(1) as u32
+    }
+}
+
+/// 选点重点研究 (`ui.tracking-analysis-max-visits`, `show-tracking-point-outline`,
+/// `tracking-point-outline-opacity`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TrackingSettings {
+    /// Cumulative visits each tracked point is searched to [500]; 0 is stored as 500.
+    pub max_visits: u32,
+    /// The dashed quality outline around tracked points [true].
+    pub show_outline: bool,
+    /// Its opacity in percent, 0–100 [92].
+    pub outline_opacity: u32,
+}
+
+impl Default for TrackingSettings {
+    fn default() -> Self {
+        TrackingSettings {
+            max_visits: 500,
+            show_outline: true,
+            outline_opacity: 92,
+        }
+    }
+}
+
+impl TrackingSettings {
+    /// Java's stored form: a target of 0 means the default, the opacity is clamped.
+    pub fn normalized(self) -> Self {
+        TrackingSettings {
+            max_visits: if self.max_visits == 0 { 500 } else { self.max_visits },
+            show_outline: self.show_outline,
+            outline_opacity: self.outline_opacity.min(100),
+        }
+    }
+}
+
 /// Single-record 自动分析 and 波动过大时加强分析 (Java StartAnaDialog / SetDiffAnalyze).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
@@ -851,6 +919,10 @@ pub struct Config {
     pub whole_game: WholeGameSettings,
     /// 超级鹰眼.
     pub hawkeye: HawkeyeSettings,
+    /// 强制计算区域's depth choices.
+    pub region: RegionSettings,
+    /// 选点重点研究.
+    pub tracking: TrackingSettings,
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).

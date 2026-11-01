@@ -19,6 +19,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use serde::Serialize;
+use ts_rs::TS;
+
 use super::gtp::{self, Dialect, Frame, Framer, InfoLine, LaunchSpec};
 use super::profile::EngineProfile;
 use super::raw_net::{self, RawNetMode, RawNetView};
@@ -178,6 +181,9 @@ pub enum RuntimeEvent {
         message: String,
         output: Vec<String>,
     },
+    /// The focus points an instance's analysis stream searches changed: a stream with them was
+    /// accepted, or the stream that searched them ended.
+    FocusConfirmed { instance: InstanceId },
 }
 
 /// Whether the foreground engine can be borrowed (Java `ExclusiveGtpLeaseAvailability`).
@@ -322,6 +328,8 @@ enum Purpose {
     User,
     /// A command of the foreground lease; its answer goes to the lease.
     Lease,
+    /// The start-up probe `kata-analyze … focus pass 0`: its answer decides [`FocusCapability`].
+    FocusProbe,
 }
 
 /// What the engine will hold once it has processed every command sent so far: the anchor
@@ -407,6 +415,19 @@ struct Instance {
     /// Giving the engine back after a lease failed: its state is unknown and it no longer
     /// follows the seat's wish until it is restarted.
     unrestored: Option<LeaseFailure>,
+    /// Whether this process accepts `focus` (its own start-up probe decided it).
+    focus: FocusCapability,
+    /// The probe in flight: its GTP id and the arguments sent after `kata-analyze`.
+    focus_probe: Option<(u64, String)>,
+    /// Region and focus arguments of the analysis stream, its region arguments alone, and the
+    /// focus points it asked for.
+    stream_args: String,
+    stream_region: String,
+    stream_focus: Vec<Point>,
+    /// Focus points the engine accepted (the header of the stream that asked for them arrived)
+    /// and the request that asked for them; empty once that stream ended.
+    installed_focus: Vec<Point>,
+    installed_from: Option<u64>,
 }
 
 const OUTPUT_TAIL: usize = 40;
@@ -514,6 +535,58 @@ struct StreamOptions {
     moves_ownership: bool,
 }
 
+/// Whether an engine accepts `kata-analyze … focus` (选点重点研究). Each process is probed during
+/// its own start-up, whatever the analysis pause; the capability is never inferred from a version
+/// or a download source.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, TS)]
+pub enum FocusCapability {
+    /// Not decided: still starting, or not a KataGo speaking `kata-analyze`.
+    #[default]
+    Unknown,
+    Supported,
+    /// The engine rejected the `focus` option (`unknown analyze option focus` or KataGo's
+    /// argument error for exactly the probe's arguments).
+    Unsupported,
+    /// The probe was answered with another error: unknown until the engine starts again.
+    Failed,
+}
+
+/// 强制计算区域 (`LizzieFrame.allowcoords` / `avoidcoords`): the foreground engine's analysis
+/// only considers (`allow`) or never considers (`avoid`) these points for both colours, up to
+/// `until_move` moves deep (Java sends at least 1).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SearchRegion {
+    pub allow: bool,
+    pub points: Vec<Point>,
+    pub until_move: u32,
+}
+
+/// 选点重点研究: extra search directed into `points` (`focus … 0.5`), for one instance and one
+/// position (document, node and its stamp). It is sent only to that instance, only while it
+/// holds that position and only when the instance supports `focus`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SearchFocus {
+    pub instance: InstanceId,
+    pub doc: u64,
+    pub node: NodeId,
+    pub stamp: u64,
+    pub points: Vec<Point>,
+}
+
+/// The region and focus arguments of one analysis request.
+#[derive(Default)]
+struct StreamArgs {
+    region: String,
+    focus: String,
+    focus_points: Vec<Point>,
+}
+
+impl StreamArgs {
+    fn text(&self) -> String {
+        format!("{}{}", self.region, self.focus)
+    }
+}
+
 pub struct Engines {
     launcher: Box<dyn Launcher>,
     roots: Vec<PathBuf>,
@@ -542,6 +615,9 @@ pub struct Engines {
     workers: Vec<Worker>,
     /// Events produced outside engine output, handed out with the next events.
     pending: Vec<RuntimeEvent>,
+    /// The foreground engine's 强制计算区域 and 选点重点研究.
+    region: Option<SearchRegion>,
+    focus: Option<SearchFocus>,
 }
 
 impl Instance {
@@ -642,6 +718,8 @@ impl Engines {
             next_lease: 1,
             workers: Vec::new(),
             pending: Vec::new(),
+            region: None,
+            focus: None,
         }
     }
 
@@ -745,6 +823,16 @@ impl Engines {
 
     pub fn supports(&self, id: InstanceId, command: &str) -> bool {
         self.get(id).is_some_and(|i| i.has(command))
+    }
+
+    /// What instance `id`'s start-up probe found about `focus`.
+    pub fn focus_capability(&self, id: InstanceId) -> FocusCapability {
+        self.get(id).map_or(FocusCapability::Unknown, |i| i.focus)
+    }
+
+    /// The focus points instance `id`'s current analysis stream was accepted with.
+    pub fn installed_focus(&self, id: InstanceId) -> &[Point] {
+        self.get(id).map_or(&[], |i| &i.installed_focus)
     }
 
     /// `list_commands` of the engine (GtpConsolePane 常用命令).
@@ -854,6 +942,60 @@ impl Engines {
             self.options.moves_ownership = moves_ownership;
             self.pump();
         }
+    }
+
+    /// 强制计算区域 and 选点重点研究 of the foreground engine, taking effect with the next
+    /// [`want`](Self::want): a request whose arguments differ is sent again. When only the focus
+    /// changes, the same analysis request is re-sent with other `focus` points, which KataGo
+    /// continues with the same search tree (no restart, no `clear_board`).
+    pub fn set_search(&mut self, region: Option<SearchRegion>, focus: Option<SearchFocus>) {
+        self.region = region;
+        self.focus = focus;
+    }
+
+    /// The region and focus arguments for a request of instance `id` at `target`: only the
+    /// foreground engine has them, a region only for engines whose analysis command takes
+    /// `allow` / `avoid`, the focus only for its own instance, position and a supporting engine.
+    fn search_args(&self, id: InstanceId, target: &Target, inst: &Instance) -> StreamArgs {
+        let mut args = StreamArgs::default();
+        if self.foreground != Some(id) {
+            return args;
+        }
+        let size = target.record.size;
+        let names = |points: &[Point]| {
+            let mut names: Vec<String> = points
+                .iter()
+                .filter(|p| p.x < size.width && p.y < size.height)
+                .map(|&p| gtp::vertex(size, p))
+                .collect();
+            names.dedup();
+            names
+        };
+        if let Some(region) = &self.region {
+            let list = names(&region.points);
+            if !list.is_empty() && !matches!(inst.dialect(), None | Some(Dialect::Leela011)) {
+                let kind = if region.allow { "allow" } else { "avoid" };
+                let (list, until) = (list.join(","), region.until_move.max(1));
+                args.region = format!(" {kind} b {list} {until} {kind} w {list} {until}");
+            }
+        }
+        if let Some(focus) = self.focus.as_ref().filter(|f| {
+            f.instance == id
+                && inst.focus == FocusCapability::Supported
+                && inst.dialect() == Some(Dialect::Kata)
+                && f.doc == target.doc
+                && f.node == target.node
+                && target.record.node(target.node).stamp == f.stamp
+        }) {
+            let mut list = names(&focus.points);
+            list.sort();
+            list.dedup();
+            if !list.is_empty() {
+                args.focus = format!(" focus {} 0.5", list.join(","));
+                args.focus_points = focus.points.clone();
+            }
+        }
+        args
     }
 
     /// The stream options for `inst`: what it can report of what is wanted.
@@ -988,6 +1130,13 @@ impl Engines {
             raw_data: None,
             stream_options: StreamOptions::default(),
             unrestored: None,
+            focus: FocusCapability::Unknown,
+            focus_probe: None,
+            stream_args: String::new(),
+            stream_region: String::new(),
+            stream_focus: Vec::new(),
+            installed_focus: Vec::new(),
+            installed_from: None,
         });
         let name = profile.name.clone();
         self.trace(&name, "--", &format!("start {}", profile.command));
@@ -1179,7 +1328,10 @@ impl Engines {
             &wish,
         );
         self.secondary_wish = wish;
-        self.pump();
+        // Only the secondary seat's wish changed: the foreground engine waits for its own `want`.
+        if let Some(id) = self.secondary {
+            self.pump_seat(id);
+        }
     }
 
     /// A seat's new wish: another position drops its pure-network answer; a pondering cycle
@@ -1353,8 +1505,16 @@ impl Engines {
                 } else {
                     let (commands, board) = sync_commands(inst, &target);
                     let options = self.options_for(inst);
-                    let streaming_here = inst.stream.and_then(|n| inst.request(n)).is_some_and(|r| r.key == key)
-                        && (inst.dialect() != Some(Dialect::Kata) || inst.stream_options == options);
+                    let args = self.search_args(id, &target, inst);
+                    // The stream searching this position with the same options and region: a
+                    // request changing only its focus continues that search, and its time.
+                    let same_search = inst.stream.and_then(|n| inst.request(n)).filter(|r| {
+                        r.key == key
+                            && (inst.dialect() != Some(Dialect::Kata) || inst.stream_options == options)
+                            && inst.stream_region == args.region
+                    });
+                    let streaming_here = same_search.is_some() && inst.stream_args == args.text();
+                    let started = same_search.filter(|_| commands.is_empty()).map(|r| r.started);
                     let dialect = inst.dialect();
                     let root_info = inst.supports_root_info();
                     if commands.is_empty() {
@@ -1402,21 +1562,24 @@ impl Engines {
                             let color = if to_play == Stone::Black { "B" } else { "W" };
                             let cmd = match d {
                                 Dialect::Kata => format!(
-                                    "kata-analyze {color} {interval}{}{}{}{}",
+                                    "kata-analyze {color} {interval}{}{}{}{}{}{}{}",
+                                    args.region,
                                     if root_info { " rootInfo true" } else { "" },
                                     if options.ownership { " ownership true" } else { "" },
                                     if options.pv_visits { " pvVisits true" } else { "" },
-                                    if options.moves_ownership { " movesOwnership true" } else { "" }
+                                    if options.moves_ownership { " movesOwnership true" } else { "" },
+                                    if !args.focus.is_empty() && !root_info { " rootInfo true" } else { "" },
+                                    args.focus
                                 ),
-                                Dialect::Leela | Dialect::Sai => format!("lz-analyze {color} {interval}"),
-                                Dialect::Sayuri => format!("analyze {color} {interval}"),
+                                Dialect::Leela | Dialect::Sai => format!("lz-analyze {color} {interval}{}", args.region),
+                                Dialect::Sayuri => format!("analyze {color} {interval}{}", args.region),
                                 Dialect::Leela011 => "time_left b 0 0".to_string(),
                             };
                             let request = Request {
                                 key,
                                 to_play,
                                 size: target.record.size,
-                                started: Instant::now(),
+                                started: started.unwrap_or_else(Instant::now),
                             };
                             let purpose = if d == Dialect::Leela011 {
                                 Purpose::Ponder
@@ -1425,8 +1588,16 @@ impl Engines {
                             };
                             if let Some(n) = self.send(id, &cmd, purpose) {
                                 let i = self.get_mut(id).unwrap();
+                                // A changed region is another search of the same position: the old
+                                // stream's late lines, searched without it, are not published.
+                                if let Some(old) = i.stream.filter(|_| i.stream_region != args.region) {
+                                    i.requests.retain(|(r, q)| *r != old || q.key != key);
+                                }
                                 i.stream = Some(n);
                                 i.stream_options = options;
+                                i.stream_args = args.text();
+                                i.stream_region = args.region;
+                                i.stream_focus = args.focus_points;
                                 i.requests.push_back((n, request));
                                 if d == Dialect::Leela011 {
                                     i.summaries.push_back((n, request, InfoLine::default()));
@@ -1731,6 +1902,14 @@ impl Engines {
                 // batch is answered even though its stream keeps going.
                 if matches!(inst.waiting.get(&n), Some(Purpose::Analyze)) {
                     inst.waiting.remove(&n);
+                    // The stream still wished for accepted its focus points.
+                    if inst.stream == Some(n) {
+                        inst.installed_from = Some(n);
+                        if inst.installed_focus != inst.stream_focus {
+                            inst.installed_focus = inst.stream_focus.clone();
+                            events.push(RuntimeEvent::FocusConfirmed { instance: id });
+                        }
+                    }
                     self.answered(id, n);
                 }
             }
@@ -1754,6 +1933,14 @@ impl Engines {
                 if inst.stream == Some(n) && !matches!(inst.waiting.get(&n), Some(Purpose::Ponder)) {
                     inst.stream = None;
                 }
+                // The stream that searched the installed focus points ended.
+                if inst.installed_from == Some(n) {
+                    inst.installed_from = None;
+                    if !inst.installed_focus.is_empty() {
+                        inst.installed_focus.clear();
+                        events.push(RuntimeEvent::FocusConfirmed { instance: id });
+                    }
+                }
                 match inst.waiting.remove(&n) {
                     Some(Purpose::Name) => {
                         if !ok {
@@ -1766,6 +1953,19 @@ impl Engines {
                         inst.gtp_name = text;
                     }
                     Some(Purpose::Version) => inst.version = text,
+                    Some(Purpose::FocusProbe) => {
+                        let args = inst.focus_probe.take().map(|(_, a)| a).unwrap_or_default();
+                        let payload = text.trim();
+                        inst.focus = if ok {
+                            FocusCapability::Supported
+                        } else if payload.eq_ignore_ascii_case("unknown analyze option focus")
+                            || payload == format!("Could not parse analyze arguments or arguments out of range: '{args}'")
+                        {
+                            FocusCapability::Unsupported
+                        } else {
+                            FocusCapability::Failed
+                        };
+                    }
                     Some(Purpose::ListCommands) => {
                         inst.commands = text
                             .lines()
@@ -1889,6 +2089,17 @@ impl Engines {
         }
         if get_rules {
             self.send(id, "kata-get-rules", Purpose::GetRules);
+        }
+        // 选点重点研究's capability probe (`Leelaz.startMoveFocusProbe…`), part of every start-up
+        // so neither a paused start nor an engine switch skips it: an empty-board analysis with
+        // a zero-probability focus, stopped at once. Its lines are attributed to no request.
+        let probe = katago && self.get(id).is_some_and(|i| !i.no_analyze && i.has("kata-analyze"));
+        if probe {
+            let args = format!("{} rootInfo true focus pass 0", self.interval_centisec);
+            if let Some(n) = self.send(id, &format!("kata-analyze {args}"), Purpose::FocusProbe) {
+                self.get_mut(id).unwrap().focus_probe = Some((n, args));
+            }
+            self.send(id, "stop", Purpose::Setup);
         }
         let inst = self.get_mut(id).unwrap();
         inst.ready_fence = inst.next_id.checked_sub(1);

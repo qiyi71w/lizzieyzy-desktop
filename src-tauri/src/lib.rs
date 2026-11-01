@@ -854,6 +854,22 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
                 Err(message_key) => changed_refused(&app, &shared, message_key),
             })
         }
+        Command::Region { op } => {
+            let done = shared.workbench.lock().unwrap().region(op)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetRegionSettings { settings } => {
+            let done = shared.workbench.lock().unwrap().set_region_settings(settings)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::Tracking { op } => {
+            let done = shared.workbench.lock().unwrap().tracking(op)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetTrackingSettings { settings } => {
+            let done = shared.workbench.lock().unwrap().set_tracking_settings(settings)?;
+            Ok(changed(&app, &shared, done))
+        }
         Command::StartAutoAnalysis { settings } => {
             let result = shared.workbench.lock().unwrap().start_auto_analysis(settings)?;
             Ok(match result {

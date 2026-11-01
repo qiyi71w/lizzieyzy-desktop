@@ -166,6 +166,15 @@ pub struct Mapped {
     pub flash_start_move: Option<i32>,
     pub flash_end_move: Option<i32>,
     pub whole_game_visits: Option<u32>,
+    /// 强制计算区域 depths (`ui.select-*-moves`).
+    pub region_allow_moves: Option<i32>,
+    pub region_avoid_moves: Option<i32>,
+    pub region_allow_custom_moves: Option<i32>,
+    pub region_avoid_custom_moves: Option<i32>,
+    /// 选点重点研究 (`ui.tracking-analysis-max-visits`, outline appearance).
+    pub tracking_max_visits: Option<u32>,
+    pub tracking_show_outline: Option<bool>,
+    pub tracking_outline_opacity: Option<u32>,
     /// 快速曲线轻量模型.
     pub quick_model_enabled: Option<bool>,
     pub quick_model_path: Option<String>,
@@ -779,6 +788,43 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "whole-game-analysis-deep-visits",
         ImportTarget::WholeGameVisits,
         Kind::I32(|m, v| m.whole_game_visits = Some(crate::settings::WholeGameSettings::from_stored(i64::from(v)).deep_visits)),
+    ),
+    // 强制计算区域's depth choices (`Config.java:1879-1882`). Java reads the avoid custom depth
+    // from `select-allow-custom-moves`; its own key is read here.
+    ("ui", "select-allow-moves", ImportTarget::AnalysisRegion, Kind::I32(|m, v| m.region_allow_moves = Some(v))),
+    ("ui", "select-avoid-moves", ImportTarget::AnalysisRegion, Kind::I32(|m, v| m.region_avoid_moves = Some(v))),
+    (
+        "ui",
+        "select-allow-custom-moves",
+        ImportTarget::AnalysisRegion,
+        Kind::I32(|m, v| m.region_allow_custom_moves = Some(v)),
+    ),
+    (
+        "ui",
+        "select-avoid-custom-moves",
+        ImportTarget::AnalysisRegion,
+        Kind::I32(|m, v| m.region_avoid_custom_moves = Some(v)),
+    ),
+    // 选点重点研究 (`Config.migrateTrackingAnalysisConfig`, `loadTrackingPointAppearanceConfig`): the
+    // older key first, so the current one wins; 0 or less is the default 500.
+    (
+        "ui",
+        "tracking-engine-max-visits",
+        ImportTarget::Tracking,
+        Kind::I32(|m, v| m.tracking_max_visits = Some(if v <= 0 { 500 } else { v as u32 })),
+    ),
+    (
+        "ui",
+        "tracking-analysis-max-visits",
+        ImportTarget::Tracking,
+        Kind::I32(|m, v| m.tracking_max_visits = Some(if v <= 0 { 500 } else { v as u32 })),
+    ),
+    ("ui", "show-tracking-point-outline", ImportTarget::Tracking, Kind::Bool(|m, v| m.tracking_show_outline = Some(v))),
+    (
+        "ui",
+        "tracking-point-outline-opacity",
+        ImportTarget::Tracking,
+        Kind::I32(|m, v| m.tracking_outline_opacity = Some(v.clamp(0, 100) as u32)),
     ),
     (
         "ui",
@@ -2109,6 +2155,13 @@ impl Mapped {
         for value in &self.auto_analysis { value.set(&mut auto); }
         c.auto_analysis = serde_json::from_value(auto).expect("typed imported auto-analysis values");
         set!(c.whole_game.deep_visits, self.whole_game_visits);
+        set!(c.region.allow_moves, self.region_allow_moves);
+        set!(c.region.avoid_moves, self.region_avoid_moves);
+        set!(c.region.allow_custom_moves, self.region_allow_custom_moves);
+        set!(c.region.avoid_custom_moves, self.region_avoid_custom_moves);
+        set!(c.tracking.max_visits, self.tracking_max_visits);
+        set!(c.tracking.show_outline, self.tracking_show_outline);
+        set!(c.tracking.outline_opacity, self.tracking_outline_opacity);
         set!(c.quick_model.enabled, self.quick_model_enabled);
         if let Some(path) = &self.quick_model_path {
             c.quick_model.path = (!path.trim().is_empty()).then(|| path.clone());
@@ -2314,6 +2367,21 @@ impl Mapped {
         }
         if self.whole_game_visits.is_some_and(|v| v != config.whole_game.deep_visits) {
             out.push(ImportTarget::WholeGameVisits);
+        }
+        let region = &config.region;
+        if self.region_allow_moves.is_some_and(|v| v != region.allow_moves)
+            || self.region_avoid_moves.is_some_and(|v| v != region.avoid_moves)
+            || self.region_allow_custom_moves.is_some_and(|v| v != region.allow_custom_moves)
+            || self.region_avoid_custom_moves.is_some_and(|v| v != region.avoid_custom_moves)
+        {
+            out.push(ImportTarget::AnalysisRegion);
+        }
+        let tracking = &config.tracking;
+        if self.tracking_max_visits.is_some_and(|v| v != tracking.max_visits)
+            || self.tracking_show_outline.is_some_and(|v| v != tracking.show_outline)
+            || self.tracking_outline_opacity.is_some_and(|v| v != tracking.outline_opacity)
+        {
+            out.push(ImportTarget::Tracking);
         }
         let qm = &config.quick_model;
         if self.quick_model_enabled.is_some_and(|v| v != qm.enabled)

@@ -10,7 +10,7 @@
 //! no longer applies, are dropped. Each engine's results go to its own store: the secondary
 //! engine is never taken for the foreground engine.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use super::Workbench;
@@ -60,6 +60,9 @@ pub(super) struct AnalysisStore {
     /// payload, or reported live while ownership was requested.
     ownership: HashMap<NodeId, Vec<f64>>,
     metadata: HashMap<NodeId, crate::formats::saved_analysis::Metadata>,
+    /// Results the next live result replaces even with fewer visits (`BoardData.isChanged`): a
+    /// 强制计算区域 changed the search they were made with.
+    stale: HashSet<NodeId>,
 }
 
 impl AnalysisStore {
@@ -68,6 +71,7 @@ impl AnalysisStore {
         self.nodes.clear();
         self.ownership.clear();
         self.metadata.clear();
+        self.stale.clear();
     }
 
     pub(super) fn get(&self, rec: &GameRecord, node: NodeId) -> Option<&NodeAnalysisView> {
@@ -84,6 +88,7 @@ impl AnalysisStore {
     pub(super) fn insert(&mut self, node: NodeId, stamp: u64, view: NodeAnalysisView, ownership: Option<Vec<f64>>) {
         self.nodes.insert(node, (stamp, view));
         self.metadata.remove(&node);
+        self.stale.remove(&node);
         match ownership {
             Some(o) => self.ownership.insert(node, o),
             None => self.ownership.remove(&node),
@@ -97,6 +102,23 @@ impl AnalysisStore {
         let nodes = &self.nodes;
         self.ownership.retain(|node, _| nodes.contains_key(node));
         self.metadata.retain(|node, _| nodes.contains_key(node));
+        self.stale.retain(|node| nodes.contains_key(node));
+    }
+
+    /// `clearBestMovesAfter(start)`: every stored result gives way to the next live one.
+    pub(super) fn invalidate_all(&mut self) {
+        self.stale = self.nodes.keys().copied().collect();
+    }
+
+    /// `clearbestmoves`: the node's stored result gives way to the next live one.
+    pub(super) fn invalidate(&mut self, node: NodeId) {
+        if self.nodes.contains_key(&node) {
+            self.stale.insert(node);
+        }
+    }
+
+    pub(super) fn is_stale(&self, node: NodeId) -> bool {
+        self.stale.contains(&node)
     }
 
     pub(super) fn doc(&self) -> u64 {
@@ -434,6 +456,7 @@ impl Workbench {
             && !self.whole_game_holds_foreground()
             && self.rules_permit_analysis();
         let target = self.analysis_target();
+        self.sync_search(analyse);
         if self.double_engine() {
             self.engines
                 .want_secondary(Some(target.clone()), analyse && self.secondary_limit_stop.is_none());
@@ -1053,7 +1076,7 @@ impl Workbench {
     /// When timed work is due next: engine protocol timers and quick analysis (see
     /// [`Self::engine_tick`]).
     pub fn engine_timer(&self) -> Option<std::time::Instant> {
-        [self.engines.next_tick(), self.quick_deadline(), self.whole_game_deadline()]
+        [self.engines.next_tick(), self.quick_deadline(), self.whole_game_deadline(), self.tracking_deadline()]
             .into_iter()
             .flatten()
             .min()
@@ -1066,7 +1089,8 @@ impl Workbench {
         let engines = self.engine_events(events);
         let quick = self.quick_tick(now);
         let whole = self.whole_game_tick(now);
-        engines | quick | whole
+        let tracking = self.tracking_tick(now);
+        engines | quick | whole | tracking
     }
 
     /// Handles runtime events produced by operations outside engine output.
@@ -1137,8 +1161,7 @@ impl Workbench {
                     {
                         continue; // another document, a komi or rules that no longer apply
                     }
-                    let rec = &self.doc.record;
-                    if !rec.contains(node) || rec.node(node).stamp != stamp {
+                    if !self.doc.record.contains(node) || self.doc.record.node(node).stamp != stamp {
                         continue; // the node was removed or edited since the request
                     }
                     let Some((result, ownership)) = node_analysis(node, to_play, komi, engine_name, line) else {
@@ -1146,13 +1169,25 @@ impl Workbench {
                     };
                     let visits = result.visits;
                     let first_visits = result.candidates.first().map_or(0, |c| c.visits);
+                    // The foreground engine's line is the current search: 选点重点研究 counts its
+                    // candidates, and the tracked position shows its result.
+                    let tracked = !secondary
+                        && self.tracking_line(
+                            instance,
+                            (doc, node, stamp),
+                            result.candidates.iter().filter_map(|c| Some((c.point?, c.visits))),
+                        );
                     let automatic = !secondary && self.auto_analysis_active();
+                    let rec = &self.doc.record;
                     let store = if secondary {
                         &mut self.secondary_store
                     } else {
                         &mut self.store
                     };
-                    let replace = automatic || store.get(rec, node).is_none_or(|old| more_visits(&result, old));
+                    let replace = automatic
+                        || tracked
+                        || store.is_stale(node)
+                        || store.get(rec, node).is_none_or(|old| more_visits(&result, old));
                     if replace {
                         let mut result = result;
                         let limit = self.config.engine.analysis.limit_branch_length;

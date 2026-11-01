@@ -291,6 +291,37 @@ importing the matching LizzieYzy Next settings.
   the run with Java's failure message; a failed analysis process shows the engine failure and then
   精析设置 with 确定并重新计算; a borrowed engine that cannot be given back stays "引擎状态未恢复".
   Results are stored like quick analysis results; opening another record ends the run silently.
+  Each run searches the positions as they were when it was started: a position edited, deleted
+  or added while it runs gets no result from it, answers land only on the node they were asked
+  for, and browsing stays where the user went (only completion at the root steps to move 1, as
+  in Java). A cancelled run's late answers never count for the next run.
+- 强制计算区域 (toolbar region buttons, Alt+drag, the board's right-click menu): 设置强制计算区域
+  / 设置强制不计算区域 lights its button and the next drag on the board selects the intersections
+  inside the rectangle (Alt+drag always selects a calculation region; Alt+click clears an existing
+  region, like 清除强制区域). The foreground KataGo request then carries `allow`/`avoid` for both
+  colours; the depth comes from each button's popup (限制整个搜索过程 999, 仅限制第一手 1, or
+  自定义限制手数, saved as `select-*-moves`). The board shades the region. A toolbar or Alt
+  selection stays for later positions until cleared; a right-click 只分析此点 / 增加分析此点 /
+  去除分析此点 (depth 1) or 不分析此点 lasts for that request only unless 持续分析/不分析 is
+  checked; 清除分析/不分析 clears it. Regions are session state: they never change the record.
+  Stored results of the position give way to the next restricted live result.
+- 选点重点研究 (right-click 评估此点 / 取消评估 / 清除所有评估选点 on an empty point): on a local
+  KataGo whose `kata-analyze` accepts `focus`, each tracked point gets extra search until its
+  candidate reaches 选点重点研究累计计算量目标 (综合设置 > 引擎与分析, default 500) or makes no
+  progress for 8 seconds, counted from the current search (a stored result with more visits does
+  not count, and while points are tracked the position shows the current search's result).
+  Adding or removing points re-sends only the analysis request, so KataGo keeps its search tree
+  and the ordinary analysis time limit keeps counting; the engine is not restarted. The board
+  draws a dashed outline in the move-rank colour of the point's candidate against the best one
+  (综合设置 > 主题 > 关注点质量外框, with its opacity) and a blue progress ring while it is searched.
+  Tracked points belong to one position, engine and setting: browsing, editing, komi/rules
+  changes or another engine end them, and pausing ends the extra search. Support is decided by
+  each engine instance's own probe (`kata-analyze … focus pass 0`, then `stop`) when it starts,
+  restarts or becomes the foreground engine, paused or not; the probe's output is never shown as
+  analysis and never resumes a paused engine. An engine that rejects `focus` (for example the
+  official v1.18.1 release build) keeps ordinary analysis, and the menu item is disabled as
+  选点评估需要升级引擎; a failed probe says so and is repeated by restarting the engine. This
+  client does not ship a KataGo build with `focus`.
 - 自动分析 (`A`, 分析 > 自动分析, or the bottom bar 自动分析 popup) opens Java's single-record
   settings: start/end move, per-position time, total visits or first-candidate visits (any limit
   advances), Black/White, all branches, stronger analysis on large fluctuations, pause-exit and

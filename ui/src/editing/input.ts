@@ -2,6 +2,7 @@
 // mouseMoved and keyPressed, LizzieFrame onClicked / onClickedRight / openRightClickMenu /
 // DraggedReleased). Every document change goes through the Edit command or a catalog entry.
 import { navigate, state, unavailable } from "../app";
+import { regionMenuEntries, selecting, selectionClicked, selectionDragged, selectionPressed, selectionReleased } from "../analysis/region";
 import { COMMANDS } from "../commands";
 import type { Point, Stone } from "../contract/generated";
 import { t } from "../i18n";
@@ -21,6 +22,9 @@ export interface BoardHost {
   /** A suggestion clicked in the candidate table is cleared by a right click
    *  (openRightClickMenu `clickOrder != -1`); true when there was one. */
   clearTableSelection(): boolean;
+  /** The intersections strictly inside the client rectangle between two corners on the board the
+   *  first corner is on (convertScreenToCoordinatesForSelect), or null when it holds none. */
+  selectRange(x1: number, y1: number, x2: number, y2: number): { from: Point; to: Point } | null;
 }
 
 function command(id: string): void {
@@ -87,16 +91,12 @@ function startPick(point: Point): void {
 
 // ------------------------------------------------------------------ context menus
 
-/** RightClickMenu (empty intersection), Java order with its visibility outside engine games;
- *  the analysis-region items are not migrated yet and stay disabled. */
+/** RightClickMenu (empty intersection), Java order with its visibility outside engine games. */
 function pointMenu(point: Point): ContextEntry[] {
   const v = state.view!;
   const preview = host.previewMoves();
   const entries: ContextEntry[] = [
-    { key: "RightClickMenu.allow", label: t("RightClickMenu.allow"), icon: "setpoint.png" },
-    { key: "RightClickMenu.avoid", label: t("RightClickMenu.avoid"), icon: "forbidpoint.png" },
-    { key: "RightClickMenu.avoid2", label: t("RightClickMenu.avoid2"), checked: false },
-    { key: "RightClickMenu.trackPoint", label: t("RightClickMenu.trackPoint"), icon: "trackingpoint.png" },
+    ...regionMenuEntries(point),
     "sep",
     { key: "RightClickMenu.previousMove", label: t("RightClickMenu.previousMove"), icon: "left.png", run: () => navigate({ op: "Back", count: 1 }) },
     { key: "RightClickMenu.findMove", label: t("RightClickMenu.findMove"), icon: "search.png", run: () => void edit({ op: "FindMove", point, any_branch: true }) },
@@ -204,8 +204,12 @@ export function bindBoardInput(boards: HTMLElement[], boardHost: BoardHost): voi
         return;
       }
       if (contextMenuShowing()) return;
-      // Alt+press is the analysis region selection (selectPressed), not a board edit.
-      if (ev.altKey) return;
+      // Alt or a lit region button: the press starts a region selection (selectPressed), not a
+      // board edit; the release ends it, wherever it is.
+      if (selecting(ev.altKey)) {
+        startSelection(ev);
+        return;
+      }
       if (ev.button === 0) leftPress(ev, point);
       else rightPress(ev, point);
     });
@@ -226,6 +230,23 @@ export function bindBoardInput(boards: HTMLElement[], boardHost: BoardHost): voi
     if (v && !v.editing.trying && v.settings.edit.allowDrag) finishMove(host.pointAt(ev.clientX, ev.clientY));
     else finishMove(null);
   });
+}
+
+/** A region selection from its press to the release (selectPressed / selectDragged /
+ *  selectReleased); a release with Alt where it was pressed is mouseClicked's 清除区域. */
+function startSelection(press: MouseEvent): void {
+  selectionPressed(press.altKey);
+  const range = (ev: MouseEvent) => host.selectRange(press.clientX, press.clientY, ev.clientX, ev.clientY);
+  const move = (ev: MouseEvent) => selectionDragged(range(ev));
+  const up = (ev: MouseEvent) => {
+    if (ev.button !== press.button) return;
+    window.removeEventListener("mousemove", move);
+    window.removeEventListener("mouseup", up);
+    selectionReleased(range(ev));
+    if (ev.altKey && ev.clientX === press.clientX && ev.clientY === press.clientY) selectionClicked();
+  };
+  window.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", up);
 }
 
 // ------------------------------------------------------------------ keys (Input.keyPressed)

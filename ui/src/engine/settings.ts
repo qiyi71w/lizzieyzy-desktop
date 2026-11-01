@@ -18,7 +18,8 @@ export async function openAnalysisSettings(): Promise<void> {
   const advanced = document.createElement("div"); advanced.className = "engine-settings-form"; advanced.hidden = true;
   const play = document.createElement("div"); play.className = "engine-settings-form"; play.hidden = true;
   const kifu = document.createElement("div"); kifu.className = "engine-settings-form"; kifu.hidden = true;
-  const pages = { engine: form, advanced, play, kifu } as Record<string, HTMLElement>;
+  const theme = document.createElement("div"); theme.className = "engine-settings-form"; theme.hidden = true;
+  const pages = { engine: form, advanced, play, kifu, theme } as Record<string, HTMLElement>;
   const showPage = (key: string) => { for (const [id, page] of Object.entries(pages)) page.hidden = id !== key; };
   for (const [key, text] of [["display", t("ConfigDialog2.modern.nav.display")], ["kifu", t("ConfigDialog2.modern.nav.kifu")], ["engine", t("ConfigDialog2.modern.nav.engine")], ["play", t("ConfigDialog2.modern.nav.play")], ["theme", t("ConfigDialog2.modern.nav.theme")], ["advanced", t("ConfigDialog2.modern.nav.advanced")], ["about", t("ConfigDialog2.modern.nav.about")]]) {
     const item = document.createElement("button"); item.textContent = text; item.dataset.key = `settings.nav.${key}`;
@@ -43,6 +44,21 @@ export async function openAnalysisSettings(): Promise<void> {
     control.oninput = () => { Object.assign(settings, { [key]: Number(control.value) }); };
     field(form, label, control); inputs.push(control);
   }
+  // 引擎与分析 > 选点重点研究累计计算量目标 (ConfigDialog2.java:3041-3047, after 候选点最高值红色高亮).
+  const tracking = { ...state.view.settings.tracking };
+  const trackingVisits = input(tracking.maxVisits, "number"); trackingVisits.dataset.key = "settings.tracking.maxVisits"; trackingVisits.min = "0"; trackingVisits.step = "1"; trackingVisits.required = true;
+  trackingVisits.title = t("ConfigDialog2.modern.analysis.trackingVisitsSub");
+  field(form, t("ConfigDialog2.modern.analysis.trackingVisits"), trackingVisits); inputs.push(trackingVisits);
+  // 主题 > 关注点质量外框 (ConfigDialog2.java:3923-3943).
+  const outlineTitle = document.createElement("h3"); outlineTitle.textContent = t("ConfigDialog2.modern.trackingAppearance.title");
+  const outlineSubtitle = document.createElement("p"); outlineSubtitle.textContent = t("ConfigDialog2.modern.trackingAppearance.subtitle"); theme.append(outlineTitle, outlineSubtitle);
+  const outline = checkbox(t("ConfigDialog2.modern.trackingAppearance.outline"), tracking.showOutline); outline.input.dataset.key = "settings.tracking.showOutline"; outline.label.title = t("ConfigDialog2.modern.trackingAppearance.outlineSub"); theme.append(outline.label);
+  const opacity = input(tracking.outlineOpacity, "range"); opacity.dataset.key = "settings.tracking.outlineOpacity"; opacity.min = "0"; opacity.max = "100"; opacity.step = "1";
+  opacity.title = t("ConfigDialog2.modern.trackingAppearance.outlineOpacitySub");
+  const opacityValue = document.createElement("span"); opacityValue.textContent = `${opacity.value}%`;
+  opacity.oninput = () => { opacityValue.textContent = `${opacity.value}%`; };
+  const opacityRow = document.createElement("span"); opacityRow.className = "engine-actions"; opacityRow.append(opacity, opacityValue);
+  field(theme, t("ConfigDialog2.modern.trackingAppearance.outlineOpacity"), opacityRow);
   const time = checkbox(t("ConfigDialog2.modern.analysis.limitTime"), settings.limitTime); time.input.dataset.key = "settings.analysis.limitTime";
   const visits = checkbox(t("ConfigDialog2.modern.analysis.limitVisits"), settings.limitPlayout); visits.input.dataset.key = "settings.analysis.limitPlayout";
   const fast = checkbox(t("ConfigDialog2.modern.advanced.fastSwitch"), settings.fastEngineChange); fast.input.dataset.key = "settings.analysis.fastEngineChange";
@@ -86,7 +102,7 @@ export async function openAnalysisSettings(): Promise<void> {
   const manualRow = document.createElement("div"); manualRow.className = "engine-field";
   const manualTitle = document.createElement("span"); manualTitle.textContent = t("ConfigDialog2.modern.proxy.manual"); manualRow.append(manualTitle, address); advanced.append(manualRow);
   const toggleManual = () => { host.disabled = port.disabled = mode.value !== "Manual"; }; mode.onchange = toggleManual; toggleManual();
-  body.append(form, kifu, play, advanced);
+  body.append(form, kifu, play, theme, advanced);
   const dialog = formPanel(t("Menu.comprehensiveSettings"), body);
   const save = button(t("SetKataRules.btnApply"), async () => {
     const invalid = inputs.find((control) => !control.checkValidity());
@@ -120,6 +136,10 @@ export async function openAnalysisSettings(): Promise<void> {
       const result = await run(command); if (!result || result.type === "Refused") return;
     }
     if (!(await displayRows.save())) return;
+    const trackingNow = { maxVisits: Number(trackingVisits.value), showOutline: outline.input.checked, outlineOpacity: Number(opacity.value) };
+    if (JSON.stringify(trackingNow) !== JSON.stringify(tracking)) {
+      const result = await run({ type: "SetTrackingSettings", settings: trackingNow }); if (!result || result.type === "Refused") return;
+    }
     const result = await run({ type: "SetAnalysisSettings", settings });
     if (result && result.type !== "Refused") await dialog.close();
   }); save.dataset.key = "settings.apply";

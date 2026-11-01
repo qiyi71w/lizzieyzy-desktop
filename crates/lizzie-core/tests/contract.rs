@@ -60,6 +60,9 @@ fn generate() -> String {
         WholeGameState, WholeGameAnalysisView, lizzie_core::settings::WholeGameSettings,
         HawkeyeCommand, HawkeyeSide, HawkeyeBand, HawkeyeSpread, HawkeyeStage, HawkeyeMistake, HawkeyeRunning,
         HawkeyePane, HawkeyeView, HawkeyeSettings, HawkeyeBranch, HawkeyePeriod, HawkeyePlacement,
+        RegionCommand, TrackingCommand, RegionView, FocusView, TrackedPointView,
+        lizzie_core::engine::runtime::FocusCapability, lizzie_core::settings::RegionSettings,
+        lizzie_core::settings::TrackingSettings,
     ];
     // Engine resources and engine performance keep their own lists.
     decls.extend(resources::decls(&cfg));

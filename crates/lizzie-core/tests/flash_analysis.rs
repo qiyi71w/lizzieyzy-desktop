@@ -6,13 +6,13 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use lizzie_core::api::{FlashOutcome, FlashTarget, OpenSource, UnrestoredReason};
+use lizzie_core::api::{CommandResult, EditCommand, FlashOutcome, FlashTarget, OpenSource, UnrestoredReason};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
 use lizzie_core::formats::sgf;
-use lizzie_core::record::RecordFormat;
+use lizzie_core::record::{Point, RecordFormat};
 use lizzie_core::settings::{AnalysisEngineSettings, Storage};
 use lizzie_core::workbench::{OpenOrigin, Workbench, ANALYSIS_COMMAND_MISSING};
 
@@ -420,6 +420,185 @@ fn a_borrowed_run_searches_each_move_and_completes_only_once_the_engine_is_back(
         "given back: the foreground analyses again {after:?}"
     );
     assert_eq!(v.problems.analyzed, 3);
+}
+
+#[test]
+fn a_borrowed_run_searches_the_positions_it_was_asked_for_not_later_versions() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, true, false);
+    let fg = with_engine(&mut wb, &world);
+    open(&mut wb, RECORD);
+    serve(&mut wb, &world, fg, 0, true);
+    start(
+        &mut wb,
+        FlashTarget::MoveRange {
+            start_move: 1,
+            end_move: -1,
+        },
+    );
+    // While the engine is being taken over, the third move's position changes (its side to play).
+    wb.navigate(Navigation::Forward(3));
+    let third = wb.cursor();
+    wb.edit(lizzie_core::api::EditCommand::ChangeTurn).unwrap();
+    let mut sent = serve(&mut wb, &world, fg, 20, false);
+    let searches = sent.iter().filter(|c| c.contains("maxmoves 1")).count();
+    assert_eq!(searches, 3, "the changed position is not searched: {sent:?}");
+    world.release_held(fg);
+    sent.extend(serve(&mut wb, &world, fg, 0, true));
+    let v = wb.view(false);
+    assert!(
+        matches!(v.flash_outcome, Some(FlashOutcome::Completed { .. })),
+        "{sent:?}"
+    );
+    assert_eq!(wb.cursor(), third, "the run does not move browsing off the third move");
+    assert!(v.analysis.is_none(), "no result for the changed position");
+    assert_eq!(
+        v.history
+            .iter()
+            .filter(|h| h.node != third && h.move_number > 0)
+            .count(),
+        3
+    );
+}
+
+/// The user's own edit while a process run is out: the branch added during the run is not asked,
+/// browsing stays where the user went, and the answers land on the positions they were asked for.
+#[test]
+fn a_branch_added_during_a_run_is_not_asked_and_browsing_stays_on_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, false, false);
+    open(&mut wb, "(;SZ[19];B[pd](;W[dd];B[pp])(;W[dp]))");
+    start(&mut wb, FlashTarget::AllBranches);
+    let worker = *world.workers().last().unwrap();
+    let qs = queries(&world, worker);
+    assert_eq!(qs.len(), 4);
+
+    wb.navigate(Navigation::Forward(1));
+    let first = wb.cursor();
+    wb.edit(EditCommand::Play {
+        point: Point { x: 2, y: 2 },
+        color: None,
+    })
+    .unwrap();
+    let added = wb.cursor();
+    assert_ne!(added, first);
+    qs.iter().for_each(|q| answer(&mut wb, worker, q));
+
+    let v = wb.view(false);
+    assert!(matches!(v.flash_outcome, Some(FlashOutcome::Completed { .. })));
+    assert_eq!(wb.cursor(), added, "the run does not move browsing");
+    assert!(v.analysis.is_none(), "the branch added during the run has no result");
+    assert!(queries(&world, worker).is_empty(), "nothing more is asked");
+    wb.navigate(Navigation::Back(1));
+    assert!(wb.view(false).analysis.is_some(), "its parent got its answer");
+}
+
+/// Deleting a branch the run asked about: its answers reach nothing, the others are kept.
+#[test]
+fn answers_for_a_branch_deleted_during_a_run_are_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, false, false);
+    open(&mut wb, "(;SZ[19];B[pd](;W[dd];B[pp])(;W[dp]))");
+    start(&mut wb, FlashTarget::AllBranches);
+    let worker = *world.workers().last().unwrap();
+    let qs = queries(&world, worker);
+    assert_eq!(last_moves(&qs), ["Q16", "D16", "Q4", "D4"]);
+
+    // The side branch W[dp] goes (删除一手 on it); the run already asked about it.
+    wb.navigate(Navigation::Forward(2));
+    wb.navigate(Navigation::NextBranch);
+    let side = wb.cursor();
+    let deleted = wb.edit(EditCommand::DeleteMove { confirmed: None }).unwrap();
+    assert!(matches!(deleted, CommandResult::Done), "{deleted:?}");
+    assert_ne!(wb.cursor(), side);
+    qs.iter().for_each(|q| answer(&mut wb, worker, q));
+
+    let v = wb.view(false);
+    assert!(matches!(v.flash_outcome, Some(FlashOutcome::Completed { .. })));
+    // B[pd] (where the deletion left browsing), W[dd] and B[pp] keep theirs.
+    assert!(v.analysis.is_some());
+    wb.navigate(Navigation::Forward(2));
+    assert!(wb.view(false).analysis.is_some());
+    assert_eq!(wb.view(false).history.iter().filter(|h| h.move_number > 0).count(), 3);
+}
+
+/// A range run whose record is replaced: the run ends without a report and its late answers do
+/// not reach the new record.
+#[test]
+fn opening_a_record_during_a_range_run_ends_it_and_drops_its_answers() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, false, false);
+    open(&mut wb, RECORD);
+    start(
+        &mut wb,
+        FlashTarget::MoveRange {
+            start_move: 1,
+            end_move: -1,
+        },
+    );
+    let worker = *world.workers().last().unwrap();
+    let qs = queries(&world, worker);
+    assert_eq!(qs.len(), 4);
+    assert!(open(&mut wb, "(;SZ[19];B[pd];W[dd])"));
+    let v = wb.view(false);
+    assert!(v.flash.is_none() && v.flash_outcome.is_none());
+    qs.iter().for_each(|q| answer(&mut wb, worker, q));
+    for _ in 0..2 {
+        wb.navigate(Navigation::Forward(1));
+        assert!(
+            wb.view(false).analysis.is_none(),
+            "nothing of the old run reaches the new record"
+        );
+    }
+    assert!(wb.view(false).flash_outcome.is_none());
+}
+
+/// Cancel, then start again: the cancelled run's late answer does not count for the new run.
+#[test]
+fn a_cancelled_runs_late_answer_does_not_count_for_the_next_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, false, false);
+    open(&mut wb, RECORD);
+    start(
+        &mut wb,
+        FlashTarget::MoveRange {
+            start_move: 2,
+            end_move: 4,
+        },
+    );
+    let old = *world.workers().last().unwrap();
+    let old_qs = queries(&world, old);
+    assert!(wb.cancel_flash_analysis());
+    start(
+        &mut wb,
+        FlashTarget::MoveRange {
+            start_move: 2,
+            end_move: 4,
+        },
+    );
+    let worker = *world.workers().last().unwrap();
+    assert_ne!(worker, old, "the cancelled run's process is gone");
+    let qs = queries(&world, worker);
+    assert_eq!(last_moves(&qs), ["D16", "Q4"]);
+
+    old_qs.iter().for_each(|q| answer(&mut wb, old, q));
+    assert_eq!(wb.view(false).flash.as_ref().map(|f| f.done), Some(0));
+    wb.navigate(Navigation::Forward(2));
+    assert!(wb.view(false).analysis.is_none());
+    qs.iter().for_each(|q| answer(&mut wb, worker, q));
+    let v = wb.view(false);
+    assert!(matches!(v.flash_outcome, Some(FlashOutcome::Completed { .. })));
+    assert!(v.analysis.is_some());
 }
 
 #[test]

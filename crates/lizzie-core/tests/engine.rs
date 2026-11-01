@@ -209,6 +209,9 @@ fn start_up_identifies_then_syncs_and_analyses_the_current_position() {
             "komi 7.5",
             "boardsize 19",
             "kata-get-rules",
+            // 选点重点研究's capability probe, stopped before the engine counts as started.
+            "kata-analyze 10 rootInfo true focus pass 0",
+            "stop",
             "boardsize 19",
             "clear_board",
             "komi 7.5",

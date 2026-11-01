@@ -16,6 +16,7 @@ import { openJavaImport } from "./javaImport";
 import { boardGeom, doubleEngineLayout, inFrameLayout, mainMarginRatio, SUB_MARGIN_RATIO, type BoardGeom, type DualPanels, type Panels, type Rect } from "./workbench/layout";
 import { handleLayoutKey } from "./workbench/extraMode";
 import { boardUi, candidatesShownFor, onBoardUiChange } from "./display/state";
+import { onRegionUiChange, regionDrag } from "./analysis/region";
 import { bindReplayHost, finishReplayBranch, replayLength, replaying, type ReplayTarget } from "./display/replay";
 import { autoplayReport, autoReplayLength, bindAutoplayHost, subAutoplayLength, subWheeled } from "./display/autoplay";
 import { sameAnalysis, sameHistory } from "./workbench/viewEquality";
@@ -496,6 +497,27 @@ function bindPointer() {
       return moves.length ? moves : null;
     },
     clearTableSelection,
+    selectRange: (x1, y1, x2, y2) => {
+      const v = state.view;
+      if (!panels || !v) return null;
+      const { width, height } = v.document.size;
+      const rect = $("main").getBoundingClientRect();
+      const geo = mainGeom(v, dual && x1 - rect.left >= dual.right.x ? dual.right : panels.board);
+      // convertScreenToCoordinatesForSelect: corners clamped to the grid (or just before it), then
+      // the intersections after the low corner up to the high one; none when both corners are in
+      // the same column or row of squares.
+      const span = (a: number, b: number, origin: number, n: number) => {
+        const clamp = (c: number) => Math.min(Math.max(c - origin, -1), geo.square * (n - 1));
+        const lo = clamp(Math.min(a, b));
+        const hi = clamp(Math.max(a, b));
+        if (Math.floor(lo / geo.square) === Math.floor(hi / geo.square)) return null;
+        return [Math.floor((lo + geo.square) / geo.square), Math.floor(hi / geo.square)] as const;
+      };
+      const xs = span(x1, x2, rect.left + geo.x + geo.margin, width);
+      const ys = span(y1, y2, rect.top + geo.y + geo.margin, height);
+      if (!xs || !ys || xs[0] > xs[1] || ys[0] > ys[1]) return null;
+      return { from: { x: xs[0], y: ys[0] }, to: { x: xs[1], y: ys[1] } };
+    },
   });
   // LizzieFrame.onMouseMoved (LizzieFrame.java:10120-10160): the point under the pointer on either
   // board is the hovered point of both.
@@ -851,11 +873,16 @@ function render() {
     ownership: mainOwnership(v, hoverAllowed(v) ? hoveredCandidate : null),
     score: v.score,
     mark: v.problems.mark,
+    region: v.region,
+    selecting: regionDrag(),
+    focus: v.focus,
+    tracking: v.settings.tracking,
   };
   const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}`;
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
   const scoreSig = v.score ? JSON.stringify(v.score) : "";
-  if (changed("board", `${background}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}`))
+  const searchSig = JSON.stringify([v.region, scene.selecting, v.focus, v.settings.tracking]);
+  if (changed("board", `${background}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}:${searchSig}`))
     boardReport = paintBoard(prepare($("board"), P.board), mainGeom(v, P.board), P.board, scene);
   if (dual) renderDual(v, dual, W, H, size, docSig, ui, scoreSig, scene);
   else renderPanels(v, P, H, size, docSig, ui, scene);
@@ -972,6 +999,10 @@ function renderDual(v: WorkbenchView, d: DualPanels, W: number, H: number, size:
     hovered: allowed ? hoveredCandidate2 : null,
     preview: hoveredVariation(v, true)?.preview ?? null,
     ownership: secondaryOwnership(v, allowed ? hoveredCandidate2 : null),
+    // The region and the tracked points are the main board's (boardRenderer only).
+    region: null,
+    selecting: null,
+    focus: null,
   };
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
   if (changed("board2", `${size}:${docSig}:${secondaryRevision}:${displaySig2}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("right", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}`))
@@ -1085,6 +1116,8 @@ function uiReport() {
         text: el.textContent ?? "",
         checked: el instanceof HTMLInputElement && el.type === "checkbox" ? el.checked : undefined,
         value: el instanceof HTMLInputElement && el.type === "text" ? el.value : undefined,
+        disabled: el.classList.contains("disabled") || undefined,
+        title: el.title || undefined,
         x: Math.round(r.left + r.width / 2),
         y: Math.round(r.top + r.height / 2),
       })),
@@ -1164,6 +1197,8 @@ async function boot() {
   startTitleUpdates(schedule);
   // F, holding Z, 延迟显示候选点 and T repaint both boards at once.
   onBoardUiChange(schedule);
+  // A region selection being dragged, and the lit region buttons.
+  onRegionUiChange(schedule);
   bindAutoplayHost({
     target: () => (state.view ? hoveredVariation(state.view)?.target ?? null : null),
     repaint: schedule,
