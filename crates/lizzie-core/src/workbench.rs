@@ -23,6 +23,7 @@ mod flash;
 mod hawkeye;
 mod importing;
 mod information;
+mod panels;
 mod quick;
 mod recovery;
 mod resources;
@@ -278,9 +279,19 @@ impl Workbench {
         // The start-up rotation of a crashed session's periodic save happens here, before any
         // resume (see `recovery`).
         let recovery = crate::recovery::Store::open(&storage.save_dir);
-        let config: Config = settings::load_json(&storage.config_file);
-        let persisted: Persisted = settings::load_json(&storage.persist_file);
+        let mut config: Config = settings::load_json(&storage.config_file);
+        // Config.java:3907-3912: mode policy also applies when opening an older config.
+        if config.ui.extra_mode == crate::settings::ExtraMode::DoubleEngine {
+            config.panels.show_comment = false;
+        }
+        let mut persisted: Persisted = settings::load_json(&storage.persist_file);
         let active_language = config.ui.language.resolve(system_locale);
+        // LizzieFrame.java:946-950: the obsolete detailed toolbar is Chinese-only.
+        if !matches!(active_language, Language::ZhCn | Language::ZhTw)
+            && persisted.bottom_toolbar == crate::settings::BottomToolbar::Detailed
+        {
+            persisted.bottom_toolbar = crate::settings::BottomToolbar::Simple;
+        }
         let mut engines = Engines::new(launcher, engine_roots);
         let runtime = storage.resources_dir.join("runtime/nvidia");
         if runtime.is_dir() {
@@ -826,6 +837,8 @@ impl Workbench {
             }
         }
         self.persist_reset = true;
+        self.persisted.panel_sizes = crate::settings::PanelSizes::default();
+        self.persisted.bottom_toolbar = crate::settings::BottomToolbar::default();
         self.set_replace_file_hint(true)?;
         Ok(())
     }
@@ -937,6 +950,10 @@ impl Workbench {
                 play_sound: self.config.ui.play_sound,
                 replace_file_hint: self.config.record.show_replace_file_hint,
                 extra_mode: self.config.ui.extra_mode,
+                panels: self.config.panels.clone(),
+                panel_sizes: self.persisted.panel_sizes,
+                bottom_toolbar: self.persisted.bottom_toolbar,
+                comment_panel_auto_hidden: self.config.ui.extra_mode == crate::settings::ExtraMode::DoubleEngine,
                 engine: self.engine_settings_view(),
                 edit: self.config.edit.clone(),
                 display: self.config.display.clone(),

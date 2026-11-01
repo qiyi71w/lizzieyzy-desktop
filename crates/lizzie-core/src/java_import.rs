@@ -150,6 +150,9 @@ pub struct Mapped {
     pub score_lead_with_komi: Option<bool>,
     /// Board display settings ([`DisplaySettings`] fields other than the two above).
     pub display: Vec<DisplayValue>,
+    pub panels: Vec<DisplayValue>,
+    pub panel_sizes: Vec<DisplayValue>,
+    pub bottom_toolbar: Option<crate::settings::BottomToolbar>,
     /// `ui.auto-quick-analyze-on-load`.
     pub auto_quick_analyze_on_load: Option<bool>,
     /// 精析设置 (`ui.analysis-*`); a relative command resolved like an engine's.
@@ -1042,6 +1045,30 @@ impl Reader<'_> {
             };
             self.auto_analysis_value(format!("ui.{key}"), field, value, raw);
         }
+        // Config.java:1609-1613,1677-1683,1828,1939,1981. Java's actual top key is
+        // show-top-tool-bar (not show-top-toolbar).
+        for (key, field) in [
+            ("show-subboard", "showSubBoard"), ("show-winrate-graph", "showWinrateGraph"),
+            ("large-winrate-graph", "largeWinrateGraph"), ("show-comment", "showComment"),
+            ("show-variation-graph", "showVariationGraph"), ("show-list-pane", "showListPane"),
+            ("show-captured", "showCaptured"), ("show-status", "showStatus"),
+            ("large-subboard", "largeSubBoard"), ("show-top-tool-bar", "showTopToolbar"),
+            ("show-double-menu", "showDoubleMenu"), ("mains-always-ontop", "alwaysOnTop"),
+            ("show-title-wr", "showWinrateInTitle"),
+            ("hide-subboard-from-large-winrate", "hideSubBoardFromLargeWinrate"),
+        ] {
+            let Some(raw) = ui.get(key) else { continue };
+            handled.push(("ui", key));
+            match as_bool(raw) {
+                Some(value) => {
+                    self.mapped.panels.push(DisplayValue {
+                        target: ImportTarget::WorkbenchPanels, field, value: Value::from(value),
+                    });
+                    self.imported(format!("ui.{key}"), ImportTarget::WorkbenchPanels, value.to_string());
+                }
+                None => self.invalid(format!("ui.{key}"), ImportTarget::WorkbenchPanels, raw),
+            }
+        }
         for (section, key, target, kind) in SIMPLE {
             let map = if *section == "ui" { ui } else { leelaz };
             let Some(v) = map.get(*key) else { continue };
@@ -1734,6 +1761,51 @@ impl Reader<'_> {
                         }
                         other => self.invalid(name, ImportTarget::LastImageFolder, other),
                     },
+                    ("ui-persist", "leftover-left-share" | "comment-height-share" | "variation-graph-share") => {
+                        let field = match key.as_str() {
+                            "leftover-left-share" => "leftoverLeftShare",
+                            "comment-height-share" => "commentHeightShare",
+                            _ => "variationGraphShare",
+                        };
+                        match as_f64(v).filter(|n| n.is_finite()) {
+                            Some(value) => {
+                                // LizzieFrame.java:7984-8008 clamps Java's persisted shares.
+                                self.mapped.panel_sizes.push(DisplayValue {
+                                    target: ImportTarget::PanelSizes, field, value: Value::from(value.clamp(0.0, 1.0)),
+                                });
+                                self.imported(name, ImportTarget::PanelSizes, shown(v));
+                            }
+                            None => self.invalid(name, ImportTarget::PanelSizes, v),
+                        }
+                    }
+                    ("ui-persist", "board-postion-propotion") => {
+                        match as_i64(v) {
+                            Some(value) => {
+                                self.mapped.panel_sizes.push(DisplayValue {
+                                    target: ImportTarget::PanelSizes, field: "boardPositionProportion",
+                                    value: Value::from(value.clamp(0, 8)),
+                                });
+                                self.imported(name, ImportTarget::PanelSizes, shown(v));
+                            }
+                            None => self.invalid(name, ImportTarget::PanelSizes, v),
+                        }
+                    }
+                    ("ui-persist", "main-window-other") => {
+                        // LizzieFrame.java:946-950 reads exactly five entries, first is the toolbar.
+                        match v.as_array().filter(|a| a.len() == 5).and_then(|a| as_i64(&a[0])) {
+                            Some(height) => {
+                                self.mapped.bottom_toolbar = Some(match height {
+                                    0 => crate::settings::BottomToolbar::Hidden,
+                                    70 => crate::settings::BottomToolbar::Detailed,
+                                    _ => crate::settings::BottomToolbar::Simple,
+                                });
+                                self.imported(format!("{name}[0]"), ImportTarget::BottomToolbar, height.to_string());
+                                let item = self.item(name, ImportStatus::Incompatible);
+                                item.reason = Some(ImportReason::WindowCoordinates);
+                            }
+                            None => self.invalid(name, ImportTarget::BottomToolbar, v),
+                        }
+                    }
                     ("ui-persist", "toolbar-parameter") => {
                         // Only these two interval slots belong to board display. Preserve a
                         // not-migrated report for the remaining toolbar state.
@@ -2052,6 +2124,17 @@ impl Mapped {
         set!(c.ui.language, self.language);
         set!(c.ui.play_sound, self.play_sound);
         set!(c.ui.extra_mode, self.extra_mode);
+        if let Ok(mut values) = serde_json::to_value(&c.panels) {
+            for value in &self.panels { value.set(&mut values); }
+            c.panels = serde_json::from_value(values).unwrap_or(c.panels);
+        }
+        // Config.loadPanelModeSettings (3907-3912) applies this after loading the flags.
+        if c.ui.extra_mode == ExtraMode::DoubleEngine { c.panels.show_comment = false; }
+        if let Ok(mut values) = serde_json::to_value(p.panel_sizes) {
+            for value in &self.panel_sizes { value.set(&mut values); }
+            p.panel_sizes = serde_json::from_value(values).unwrap_or(p.panel_sizes);
+        }
+        set!(p.bottom_toolbar, self.bottom_toolbar);
         set!(c.recent_files, self.recent_files);
         if let Some(folder) = &self.last_folder {
             p.last_folder = Some(folder.clone());
@@ -2161,6 +2244,14 @@ impl Mapped {
                 out.push(ImportTarget::LastImageFolder);
             }
         }
+        if let Ok(current) = serde_json::to_value(persisted.panel_sizes) {
+            if self.panel_sizes.iter().any(|v| v.current(&current).is_none_or(|c| c != v.value)) {
+                out.push(ImportTarget::PanelSizes);
+            }
+        }
+        if self.bottom_toolbar.is_some_and(|v| v != persisted.bottom_toolbar) {
+            out.push(ImportTarget::BottomToolbar);
+        }
         if !has_settings {
             return out;
         }
@@ -2209,6 +2300,11 @@ impl Mapped {
                 if v.current(&current).is_none_or(|c| c != v.value) && !out.contains(&v.target) {
                     out.push(v.target);
                 }
+            }
+        }
+        if let Ok(current) = serde_json::to_value(&config.panels) {
+            if self.panels.iter().any(|v| v.current(&current).is_none_or(|c| c != v.value)) {
+                out.push(ImportTarget::WorkbenchPanels);
             }
         }
         let r = &config.recovery;

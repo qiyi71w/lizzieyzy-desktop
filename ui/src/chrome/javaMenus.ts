@@ -1,8 +1,9 @@
 // Java main-window menu bar, in Menu.java add() order: fixed Java
 // wimi321/lizzieyzy-next cb53acc55eda42c6c671b5f668cd3b597456bf07, src/main/java/featurecat/lizzie/gui/Menu.java.
 // `key` is the DisplayStrings resource key (literal text where Java uses literal text), `id` the
-// Java action id (AutoAnalyzeMenu.ACTION_PROPERTY / FunctionCatalog). Which entries are available is
-// decided by the command catalog (commands.ts), not here.
+// Java action id (AutoAnalyzeMenu.ACTION_PROPERTY / FunctionCatalog), or a product id for an item
+// Java gave none whose key another item shares (工具栏's 显示 / 不显示). Which entries are available
+// is decided by the command catalog (commands.ts), not here.
 
 export type MenuNode =
   | { t: "sep" }
@@ -262,15 +263,18 @@ export const JAVA_MENUS: TopMenu[] = [
       "items": [
        {
         "t": "check",
-        "key": "Menu.topToolBarSeparated"
+        "key": "Menu.topToolBarSeparated",
+        "id": "menu.topToolBar.separated"
        },
        {
         "t": "check",
-        "key": "Menu.topToolBarCombined"
+        "key": "Menu.topToolBarCombined",
+        "id": "menu.topToolBar.combined"
        },
        {
         "t": "check",
-        "key": "Menu.inVisible"
+        "key": "Menu.inVisible",
+        "id": "menu.topToolBar.invisible"
        },
        {
         "t": "sep"
@@ -356,11 +360,13 @@ export const JAVA_MENUS: TopMenu[] = [
       "items": [
        {
         "t": "check",
-        "key": "Menu.visible"
+        "key": "Menu.visible",
+        "id": "menu.bottomToolBar.visible"
        },
        {
         "t": "check",
-        "key": "Menu.inVisible"
+        "key": "Menu.inVisible",
+        "id": "menu.bottomToolBar.invisible"
        },
        {
         "t": "submenu",

@@ -169,7 +169,8 @@ export function workbenchTitle(v: WorkbenchView, version: string, history: Map<n
   const rest = base.slice(stem.length + 1);
   const a = v.analysis;
   const previous = parent === undefined ? undefined : history.get(parent);
-  const values = a && a.visits > 0 ? { black: a.black, visits: a.visits } : previous && previous.visits > 0 ? previous : null;
+  // 窗口标题显示胜率 (show-title-wr, LizzieFrame.java:10966) off drops the bracketed values.
+  const values = !v.settings.panels.showWinrateInTitle ? null : a && a.visits > 0 ? { black: a.black, visits: a.visits } : previous && previous.visits > 0 ? previous : null;
   const lead = values?.black.score_lead ?? null;
   const prefix = values ? `[${values.black.winrate.toFixed(1)}${lead === null ? "" : ` ${lead.toFixed(1)}`} ${playouts(values.visits)}] ` : "";
   const foreground = v.engine.foreground;

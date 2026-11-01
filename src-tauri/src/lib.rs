@@ -826,6 +826,30 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().set_display_settings(settings)?;
             Ok(changed(&app, &shared, done))
         }
+        Command::TogglePanel { panel } => {
+            let done = shared.workbench.lock().unwrap().toggle_panel(panel)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetPanelSettings { settings } => {
+            let done = shared.workbench.lock().unwrap().set_panel_settings(settings)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetPanelSizes { sizes } => {
+            let done = shared.workbench.lock().unwrap().set_panel_sizes(sizes)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::NudgeBoardPosition { delta } => {
+            let done = shared.workbench.lock().unwrap().nudge_board_position(delta)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::RestoreDefaultPanelSizes => {
+            let done = shared.workbench.lock().unwrap().restore_default_panel_sizes()?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetBottomToolbar { mode } => {
+            let done = shared.workbench.lock().unwrap().set_bottom_toolbar(mode)?;
+            Ok(changed(&app, &shared, done))
+        }
         Command::ToggleRawNet => {
             let done = shared.workbench.lock().unwrap().toggle_raw_net();
             Ok(changed(&app, &shared, done))

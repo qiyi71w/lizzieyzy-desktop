@@ -515,6 +515,64 @@ body {
   font: inherit;
   text-align: center;
 }
+/* 详细工具栏 panels (BottomToolbar.java:1556-1572): 44 px high, a 1 px black line border, their
+   components at Java's absolute bounds */
+.bb-detail,
+.bb-detail-group {
+  position: absolute;
+  box-sizing: border-box;
+  font-size: 12px;
+}
+.bb-detail {
+  border: 1px solid #000;
+}
+.bb-detail > *,
+.bb-detail-group > * {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.bb-detail label {
+  display: flex;
+  align-items: center;
+}
+.bb-detail input[type="checkbox"] {
+  margin: 0 2px;
+}
+.bb-detail input[type="text"],
+.bb-detail select {
+  padding: 0 2px;
+  font: inherit;
+  border: 1px solid rgb(122, 138, 153);
+}
+.bb-detail button {
+  padding: 0;
+  font: inherit;
+}
+.bb-detail.unavailable,
+.bb-detail-group.unavailable {
+  color: rgb(140, 140, 140);
+}
+
+/* ---- in-frame separators (InFrameLeftoverDragHandles): transparent hot zones over the seams */
+.panel-handle {
+  z-index: 3;
+  background: transparent;
+  touch-action: none;
+}
+.panel-handle.edge {
+  cursor: e-resize;
+}
+.panel-handle.seam {
+  cursor: n-resize;
+}
+/* holding X: the key list over the workbench (LizzieFrame.drawControls) */
+#controls {
+  z-index: 4;
+  pointer-events: none;
+}
 
 /* ---- menu dropdowns (Swing JPopupMenu on the fixed build: white, grey border, 25 px rows,
    12 px text indented past the check column, full-width separators) */

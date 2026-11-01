@@ -229,6 +229,27 @@ importing the matching LizzieYzy Next settings.
     right after the root no longer start the count at 2; 纯网络形势 > 小方块 has its own effect
     (Java read the KataGo-estimate setting there); 设置自动播放's 落子最佳选点 shows its own setting
     (Java filled it from the other check box).
+- Workbench panels (界面 > 面板, Java shortcuts): 小棋盘 (`Alt+Z`), 胜率图 (`Alt+W`), 评论/问题手面板
+  (`Alt+T`; disabled in 双引擎模式), 分支面板 (`Shift+G`), 选点列表面板 (`Alt+G`), 信息面板 and 状态面板
+  show or hide their panels and are remembered; 放大小棋盘 (`Ctrl+F`) and 放大胜率图 (`Ctrl+W`) use
+  Java's enlarged layouts (the large win-rate graph hides the list and, with the variation tree
+  shown, the sub board until it is left again), 总在最前 (`Ctrl+Z`) keeps the main window on top.
+  On macOS `Command` also works for `Ctrl+W` / `Ctrl+F`; `Ctrl+Z` takes the Control key only, as in
+  Java. The panels sit where Java's fixed in-frame layout puts them for
+  each combination. Dragging the board's left or right edge moves the board, dragging the
+  comment's top edge changes its height (at least 68 px) and dragging the line between the
+  variation tree and the list shares that column (the list keeps at least 36 px); a drag is
+  saved when the button is released and `Esc` cancels it. `[` / `]` (界面 > 主棋盘位置) move the
+  board one eighth of the free width; 面板 > 恢复默认面板尺寸 restores the default sizes. Holding
+  `X` shows Java's key list over the workbench until the key is released; moving over the board,
+  the variation tree or the list returns the keyboard to the workbench unless a comment is being
+  edited. 工具栏 > 顶部工具栏 is 分开 (the second toolbar row), 合并 or 不显示 (no toolbar row, as in
+  the fixed Java build); 底部工具栏 is 显示, 不显示 or (Chinese interface) 使用详细工具栏, which adds
+  Java's 自动分析 and 自动播放 panels under the bar (its 自动落子 and 引擎对战 controls are shown but
+  not available). `Shift+X` and 设置 > 综合设置 open 综合设置 at 棋盘与显示, whose 启动时加载 rows
+  (窗口总在最前, 显示状态面板, 显示小棋盘, 窗口标题显示胜率) apply with 保存设置; Java's 显示快速启动
+  row is not shown because this client has no quick-launch links. Panel sizes and the bottom
+  toolbar are window placement (`persist.json`), cleared by 重置界面位置.
 - 双引擎模式 (显示 > 布局模式, `Alt+6`; 默认模式 `Alt+1`): a second engine analyses the same
   position next to the foreground engine. The window takes Java's width for the mode (the board
   height doubled, or 1.65 times it for 默认模式) unless it is maximized, and shows two equal
