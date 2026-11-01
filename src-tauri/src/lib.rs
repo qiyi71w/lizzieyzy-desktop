@@ -1078,6 +1078,12 @@ fn workbench_snapshot(state: tauri::State<'_, State>) -> WorkbenchView {
     state.workbench.lock().unwrap().view(true)
 }
 
+/// Immutable catalog search does not acquire the workbench lock or read mutable application state.
+#[tauri::command]
+fn search_functions(query: String, language: lizzie_core::settings::Language) -> Vec<lizzie_core::function_search::FunctionMatch> {
+    lizzie_core::function_search::search(&query, language)
+}
+
 /// Channels transfer large views as IPC data instead of compiling a new JS object literal.
 #[tauri::command]
 fn subscribe_workbench(state: tauri::State<'_, State>, channel: Channel<WorkbenchView>) -> u64 {
@@ -1696,6 +1702,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         dispatch_command,
         workbench_snapshot,
+        search_functions,
         subscribe_workbench,
         unsubscribe_workbench,
         logs_directory,
@@ -1722,6 +1729,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         dispatch_command,
         workbench_snapshot,
+        search_functions,
         subscribe_workbench,
         unsubscribe_workbench,
         logs_directory,
