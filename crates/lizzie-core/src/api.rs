@@ -160,12 +160,15 @@ pub enum Command {
     ShutdownEngines {
         scope: EngineScope,
     },
-    /// 布局模式 > 默认模式(Alt+1) (`Normal`) and 双引擎模式(Alt+6) (`DoubleEngine`)
-    /// (`Config.toggleExtraMode`). Leaving 双引擎模式 stops the secondary engine's analysis and
-    /// keeps it running; entering resumes it.
+    /// Fixed Java layout entry; leaving DoubleEngine stops secondary analysis, not its process.
     SetExtraMode {
         mode: crate::settings::ExtraMode,
     },
+    SetClassicMode,
+    ToggleIndependentBoard { board: crate::settings::IndependentBoard },
+    CloseIndependentBoard { board: crate::settings::IndependentBoard },
+    SaveCustomLayout { slot: u8, window: Option<crate::settings::WindowPlacement> },
+    ApplyCustomLayout { slot: u8 },
     /// Secondary engine menu `[n] name` (`EngineManager.switchEngine(index, false)`), in 双引擎模式
     /// only: engine `index` becomes the secondary engine. The foreground engine is refused
     /// (`EngineManager.sameEngineHint`).
@@ -701,6 +704,9 @@ pub struct SettingsView {
     pub panel_sizes: crate::settings::PanelSizes,
     pub bottom_toolbar: crate::settings::BottomToolbar,
     pub comment_panel_auto_hidden: bool,
+    pub custom_layouts: [Option<crate::settings::CustomLayout>; 2],
+    pub independent_main_board: Option<crate::settings::WindowPlacement>,
+    pub independent_sub_board: Option<crate::settings::WindowPlacement>,
     pub engine: EngineSettingsView,
     pub edit: EditSettings,
     pub display: crate::settings::DisplaySettings,

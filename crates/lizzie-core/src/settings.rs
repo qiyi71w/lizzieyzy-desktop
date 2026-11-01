@@ -428,8 +428,7 @@ impl Default for ProblemListSettings {
     }
 }
 
-/// 布局模式 (Java `ui.extra-mode`, `ExtraMode`): which workbench layout is shown. Only the modes
-/// this product has are listed; Java's other layout modes are added by their owners.
+/// Fixed Java workbench layouts (`ui.extra-mode`); classic is a separate persisted flag.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum ExtraMode {
     /// 默认模式 (`Normal`, Java value 0).
@@ -438,6 +437,33 @@ pub enum ExtraMode {
     /// 双引擎模式 (`Double_Engine`, Java value 2): two boards, the primary engine's on the left and
     /// the secondary engine's on the right.
     DoubleEngine,
+    FourSub,
+    Thinking,
+    Min,
+    FloatBoard,
+}
+
+impl ExtraMode {
+    pub fn hides_comment(self) -> bool {
+        matches!(self, Self::FourSub | Self::DoubleEngine)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum IndependentBoard {
+    Main,
+    Sub,
+}
+
+/// Config.saveCustomMode's snapshot. Toolbar, theme and domain settings are not restored.
+/// All snapshot placements use physical outer-window bounds, matching Java's setBounds.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+pub struct CustomLayout {
+    pub panels: PanelSettings,
+    pub board_position_proportion: u8,
+    pub window: Option<WindowPlacement>,
+    pub independent_main: Option<WindowPlacement>,
+    pub independent_sub: Option<WindowPlacement>,
 }
 
 /// Workbench presentation (`Config.java:1609-1613,1677-1683,1828,1939,1981`).
@@ -445,6 +471,9 @@ pub enum ExtraMode {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
 pub struct PanelSettings {
+    pub classic_mode: bool,
+    pub showing_independent_main: bool,
+    pub showing_independent_sub: bool,
     pub show_sub_board: bool,
     pub show_winrate_graph: bool,
     pub large_winrate_graph: bool,
@@ -465,6 +494,9 @@ pub struct PanelSettings {
 impl Default for PanelSettings {
     fn default() -> Self {
         Self {
+            classic_mode: false,
+            showing_independent_main: false,
+            showing_independent_sub: false,
             show_sub_board: true,
             show_winrate_graph: true,
             large_winrate_graph: false,
@@ -944,6 +976,7 @@ pub struct Config {
     pub hawkeye: HawkeyeSettings,
     /// Fixed Java workbench panel and toolbar presentation.
     pub panels: PanelSettings,
+    pub custom_layouts: [Option<CustomLayout>; 2],
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).
@@ -1017,6 +1050,9 @@ pub struct Persisted {
     pub hawkeye: Option<HawkeyePlacement>,
     pub panel_sizes: PanelSizes,
     pub bottom_toolbar: BottomToolbar,
+    /// Independent boards use physical outer-window bounds (Java's four-element arrays).
+    pub independent_main_board: Option<WindowPlacement>,
+    pub independent_sub_board: Option<WindowPlacement>,
 }
 
 /// File locations inside the product's per-user data directories.

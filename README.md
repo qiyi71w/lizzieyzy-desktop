@@ -230,7 +230,7 @@ importing the matching LizzieYzy Next settings.
     (Java read the KataGo-estimate setting there); 设置自动播放's 落子最佳选点 shows its own setting
     (Java filled it from the other check box).
 - Workbench panels (界面 > 面板, Java shortcuts): 小棋盘 (`Alt+Z`), 胜率图 (`Alt+W`), 评论/问题手面板
-  (`Alt+T`; disabled in 双引擎模式), 分支面板 (`Shift+G`), 选点列表面板 (`Alt+G`), 信息面板 and 状态面板
+  (`Alt+T`; disabled in 四方图 and 双引擎模式), 分支面板 (`Shift+G`), 选点列表面板 (`Alt+G`), 信息面板 and 状态面板
   show or hide their panels and are remembered; 放大小棋盘 (`Ctrl+F`) and 放大胜率图 (`Ctrl+W`) use
   Java's enlarged layouts (the large win-rate graph hides the list and, with the variation tree
   shown, the sub board until it is left again), 总在最前 (`Ctrl+Z`) keeps the main window on top.
@@ -250,6 +250,20 @@ importing the matching LizzieYzy Next settings.
   (窗口总在最前, 显示状态面板, 显示小棋盘, 窗口标题显示胜率) apply with 保存设置; Java's 显示快速启动
   row is not shown because this client has no quick-launch links. Panel sizes and the bottom
   toolbar are window placement (`persist.json`), cleared by 重置界面位置.
+- Fixed Java layout modes: 默认 (`Alt+1`), 经典 (`Alt+2`), 精简 (`Alt+3`), 思考 (`Alt+4`),
+  四方图 (`Alt+5`), 双引擎 (`Alt+6`) and 浮动双棋盘 (`Alt+7`). Their panel choices are remembered;
+  selecting 默认 restores the standard panels, while enabling the graph, comment or candidate
+  list in 精简 leaves that mode without restoring the other hidden panels. 经典 hides the status
+  display without discarding its normal-mode preference. Unmaximized windows take Java's mode
+  proportions; maximized windows keep their size.
+  浮动主棋盘 (`Alt+Q`) and 浮动小棋盘 (`Alt+A`) are independent board windows with remembered
+  bounds. Closing the floating main board in 浮动双棋盘 restores 默认; closing the floating sub
+  board brings back the in-frame sub board. 自定义布局 1 / 2 (`Alt+8` / `Alt+9`) save and apply
+  Java's panel flags, board position, main-window bounds/maximization and floating-window
+  choices/bounds, independently of themes, toolbars and analysis settings. As in Java, applying
+  a saved layout chooses 浮动棋盘 when its main board is floating, otherwise 普通布局; it does
+  not restore a former 思考 / 四方图 / 双引擎 mode. Java configuration import recognizes these
+  modes, the classic flag and both saved layouts.
 - 双引擎模式 (显示 > 布局模式, `Alt+6`; 默认模式 `Alt+1`): a second engine analyses the same
   position next to the foreground engine. The window takes Java's width for the mode (the board
   height doubled, or 1.65 times it for 默认模式) unless it is maximized, and shows two equal

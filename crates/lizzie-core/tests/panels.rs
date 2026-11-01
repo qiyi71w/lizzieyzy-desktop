@@ -166,3 +166,158 @@ fn non_chinese_startup_restores_the_simple_toolbar_instead_of_obsolete_details()
     drop(wb);
     assert_eq!(workbench(dir.path()).view(false).settings.bottom_toolbar, BottomToolbar::Simple);
 }
+
+#[test]
+fn fixed_modes_apply_java_panel_policies_and_survive_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    wb.set_classic_mode().unwrap();
+    let p = wb.view(false).settings.panels;
+    assert!(p.classic_mode && p.large_sub_board && p.show_sub_board && p.show_captured);
+    assert!(!p.show_comment && !p.show_variation_graph);
+    wb.set_extra_mode(ExtraMode::Thinking).unwrap();
+    let s = wb.view(false).settings;
+    assert!(s.panels.large_sub_board && s.panels.show_sub_board && s.panels.show_list_pane);
+    assert!(!s.panels.show_comment && !s.comment_panel_auto_hidden);
+    wb.toggle_panel(WorkbenchPanel::Comment).unwrap();
+    assert!(wb.view(false).settings.panels.show_comment, "Thinking allows comment toggles");
+    wb.set_extra_mode(ExtraMode::FourSub).unwrap();
+    assert!(!wb.toggle_panel(WorkbenchPanel::Comment).unwrap());
+    wb.toggle_panel(WorkbenchPanel::ListPane).unwrap();
+    assert!(!wb.view(false).settings.panels.show_list_pane);
+    wb.toggle_panel(WorkbenchPanel::ListPane).unwrap();
+    assert_eq!(wb.view(false).settings.extra_mode, ExtraMode::FourSub);
+    drop(wb);
+    let mut wb = workbench(dir.path());
+    let s = wb.view(false).settings;
+    assert_eq!(s.extra_mode, ExtraMode::FourSub);
+    assert!(s.comment_panel_auto_hidden && !s.panels.show_comment);
+    wb.set_extra_mode(ExtraMode::Normal).unwrap();
+    assert!(!wb.view(false).settings.panels.classic_mode);
+}
+
+#[test]
+fn enabling_minimal_graph_comment_or_list_exits_without_restoring_other_panels() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    for panel in [WorkbenchPanel::WinrateGraph, WorkbenchPanel::Comment, WorkbenchPanel::ListPane] {
+        wb.set_extra_mode(ExtraMode::Min).unwrap();
+        let s = wb.view(false).settings;
+        assert!(!s.panels.show_sub_board && !s.panels.show_comment && !s.panels.show_list_pane);
+        wb.toggle_panel(panel).unwrap();
+        let s = wb.view(false).settings;
+        assert_eq!(s.extra_mode, ExtraMode::Normal);
+        assert!(!s.panels.show_sub_board && !s.panels.show_captured && !s.panels.show_variation_graph);
+    }
+}
+
+#[test]
+fn independent_window_close_and_panel_toggle_have_distinct_java_policies() {
+    use lizzie_core::settings::{IndependentBoard, WindowPlacement};
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    wb.set_extra_mode(ExtraMode::FloatBoard).unwrap();
+    let placement = WindowPlacement { x: -20, y: 50, width: 600, height: 650, maximized: false };
+    wb.record_independent_board(IndependentBoard::Main, Some(placement)).unwrap();
+    drop(wb);
+    let mut wb = workbench(dir.path());
+    let s = wb.view(false).settings;
+    assert_eq!(s.independent_main_board, Some(placement));
+    assert!(s.panels.showing_independent_main && s.panels.showing_independent_sub);
+    wb.close_independent_board(IndependentBoard::Sub).unwrap();
+    let s = wb.view(false).settings;
+    assert_eq!(s.extra_mode, ExtraMode::FloatBoard);
+    assert!(s.panels.show_sub_board && !s.panels.showing_independent_sub);
+    wb.toggle_independent_board(IndependentBoard::Main).unwrap();
+    let s = wb.view(false).settings;
+    assert_eq!(s.extra_mode, ExtraMode::Normal);
+    assert!(s.panels.showing_independent_main);
+    wb.set_extra_mode(ExtraMode::FloatBoard).unwrap();
+    wb.close_independent_board(IndependentBoard::Main).unwrap();
+    let s = wb.view(false).settings;
+    assert_eq!(s.extra_mode, ExtraMode::Normal);
+    assert!(!s.panels.showing_independent_main && s.panels.show_sub_board && s.panels.show_comment);
+}
+
+#[test]
+fn custom_slots_restore_only_java_snapshot_fields_after_restart() {
+    use lizzie_core::settings::{IndependentBoard, WindowPlacement};
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    wb.toggle_panel(WorkbenchPanel::Comment).unwrap();
+    wb.toggle_panel(WorkbenchPanel::Status).unwrap();
+    wb.set_panel_sizes(PanelSizes { board_position_proportion: 6, ..PanelSizes::default() }).unwrap();
+    let bounds = WindowPlacement { x: 10, y: 20, width: 1400, height: 900, maximized: false };
+    wb.persist_ui(Some(bounds), None, None).unwrap();
+    wb.save_custom_layout(1, Some(bounds)).unwrap();
+    wb.set_extra_mode(ExtraMode::FloatBoard).unwrap();
+    wb.record_independent_board(IndependentBoard::Main, Some(bounds)).unwrap();
+    wb.save_custom_layout(2, Some(bounds)).unwrap();
+    wb.toggle_panel(WorkbenchPanel::AlwaysOnTop).unwrap();
+    wb.set_bottom_toolbar(BottomToolbar::Hidden).unwrap();
+    wb.restore_default_panel_sizes().unwrap();
+    drop(wb);
+    let mut wb = workbench(dir.path());
+    wb.apply_custom_layout(1).unwrap();
+    let s = wb.view(false).settings;
+    assert_eq!(s.extra_mode, ExtraMode::Normal);
+    assert!(!s.panels.show_comment && !s.panels.show_status);
+    assert!(s.panels.always_on_top && s.panels.showing_independent_main, "snapshot does not close existing windows");
+    assert_eq!(s.panel_sizes.board_position_proportion, 6);
+    assert_eq!(s.bottom_toolbar, BottomToolbar::Hidden);
+    wb.apply_custom_layout(2).unwrap();
+    let s = wb.view(false).settings;
+    assert_eq!(s.extra_mode, ExtraMode::FloatBoard);
+    assert!(s.panels.show_comment && !s.panels.show_sub_board);
+    assert_eq!(s.independent_main_board, Some(bounds));
+    assert!(wb.save_custom_layout(0, None).is_err());
+    assert!(wb.apply_custom_layout(3).is_err());
+}
+
+#[test]
+fn failed_custom_layout_apply_keeps_both_committed_settings_and_projection() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    wb.toggle_panel(WorkbenchPanel::Comment).unwrap();
+    wb.save_custom_layout(1, None).unwrap();
+    wb.set_extra_mode(ExtraMode::FourSub).unwrap();
+    let before = wb.view(false).settings;
+    let config_before = std::fs::read(storage(dir.path()).config_file).unwrap();
+    // A failed persist write rolls the settings file back before publishing the projection.
+    std::fs::create_dir_all(&storage(dir.path()).persist_file).unwrap();
+    assert!(wb.apply_custom_layout(1).is_err());
+    let after = wb.view(false).settings;
+    assert_eq!(after.panels, before.panels);
+    assert_eq!(after.extra_mode, before.extra_mode);
+    assert_eq!(after.panel_sizes, before.panel_sizes);
+    assert_eq!(std::fs::read(storage(dir.path()).config_file).unwrap(), config_before);
+}
+
+#[test]
+fn classic_status_is_hidden_without_losing_normal_preference_and_toggle_leaves_classic() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    wb.set_classic_mode().unwrap();
+    wb.set_extra_mode(ExtraMode::Normal).unwrap();
+    assert!(wb.view(false).settings.panels.show_status);
+    wb.set_classic_mode().unwrap();
+    wb.toggle_panel(WorkbenchPanel::Status).unwrap();
+    let p = wb.view(false).settings.panels;
+    assert!(p.show_status && !p.classic_mode);
+}
+
+#[test]
+fn every_fixed_layout_selection_and_panel_preference_is_reloaded() {
+    let dir = tempfile::tempdir().unwrap();
+    for mode in [ExtraMode::Normal, ExtraMode::Thinking, ExtraMode::FourSub,
+        ExtraMode::DoubleEngine, ExtraMode::Min, ExtraMode::FloatBoard] {
+        let mut wb = workbench(dir.path());
+        wb.set_extra_mode(mode).unwrap();
+        wb.toggle_panel(WorkbenchPanel::AlwaysOnTop).unwrap();
+        let panels = wb.view(false).settings.panels;
+        drop(wb);
+        let s = workbench(dir.path()).view(false).settings;
+        assert_eq!(s.extra_mode, mode);
+        assert_eq!(s.panels, panels);
+    }
+}

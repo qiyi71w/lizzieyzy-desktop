@@ -65,6 +65,7 @@ fn generate() -> String {
         FunctionMatch, FunctionTarget, MatchLevel, SettingsSection,
         lizzie_core::settings::PanelSettings, lizzie_core::settings::PanelSizes,
         lizzie_core::settings::BottomToolbar, lizzie_core::settings::WorkbenchPanel,
+        lizzie_core::settings::CustomLayout, lizzie_core::settings::IndependentBoard,
     ];
     // Engine resources and engine performance keep their own lists.
     decls.extend(resources::decls(&cfg));

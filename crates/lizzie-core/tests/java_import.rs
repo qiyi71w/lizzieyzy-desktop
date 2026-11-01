@@ -1063,20 +1063,24 @@ fn imported_kata_estimate_applies_to_the_running_session() {
 }
 
 #[test]
-fn the_java_layout_mode_imports_double_engine_mode_and_reports_layouts_not_here() {
+fn the_java_layout_modes_import_numbers_and_names_and_unknown_values_use_normal() {
     // `Config.readExtraMode`: numbers or names; anything unknown is 默认模式.
     let tmp = tempfile::tempdir().unwrap();
     let java = tmp.path().join("java");
     std::fs::create_dir_all(&java).unwrap();
     let product = tmp.path().join("product");
     let mut wb = workbench(&product, Recorder::default());
-    // Unsupported layouts follow different modes: they leave whichever mode is current.
     for (value, status, mode) in [
         (json!(2), ImportStatus::Imported, ExtraMode::DoubleEngine),
-        (json!(3), ImportStatus::NotMigrated, ExtraMode::DoubleEngine),
+        (json!(3), ImportStatus::Imported, ExtraMode::Thinking),
         (json!("0"), ImportStatus::Imported, ExtraMode::Normal),
-        (json!("Four_Sub"), ImportStatus::NotMigrated, ExtraMode::Normal),
+        (json!("Four_Sub"), ImportStatus::Imported, ExtraMode::FourSub),
         (json!("Double_Engine"), ImportStatus::Imported, ExtraMode::DoubleEngine),
+        (json!(7), ImportStatus::Imported, ExtraMode::Min),
+        (json!(8), ImportStatus::Imported, ExtraMode::FloatBoard),
+        (json!("Thinking"), ImportStatus::Imported, ExtraMode::Thinking),
+        (json!("Min"), ImportStatus::Imported, ExtraMode::Min),
+        (json!("Float_Board"), ImportStatus::Imported, ExtraMode::FloatBoard),
         (json!(99), ImportStatus::Imported, ExtraMode::Normal),
     ] {
         std::fs::write(
@@ -1486,4 +1490,55 @@ fn imported_double_engine_comment_policy_and_invalid_layout_values_do_not_leak()
     assert_eq!(s.panel_sizes.board_position_proportion, 0);
     assert_eq!(s.panel_sizes.comment_height_share, None);
     assert_eq!(s.panel_sizes.variation_graph_share, Some(0.0));
+}
+
+#[test]
+fn imported_custom_layouts_restore_java_snapshot_fields_and_independent_bounds() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let snapshot = json!({
+        "show-subboard": false, "show-winrate-graph": true, "show-comment": true,
+        "show-status": false, "show-variation-graph": true, "show-captured": false,
+        "show-list-pane": true, "large-subboard": false, "large-winrate-graph": false,
+        "board-position-proportion": 6, "main-frame-maxsize": false,
+        "main-frame-position": [10, 20, 600, 800], "independent-main-board": true,
+        "independent-sub-board": true, "independent-main-board-position": [30, 40, 700, 700],
+        "independent-sub-board-position": [50, 60, 400, 400]
+    });
+    std::fs::write(java.join("config.txt"), json!({"ui": {
+        "is-classic-mode": true, "extra-mode": 1, "show-comment": true,
+        "custom-layout-1": snapshot, "custom-layout-2": {"show-subboard": true,
+            "main-frame-maxsize": true}
+    }}).to_string()).unwrap();
+    std::fs::write(java.join("persist"), json!({"ui-persist": {
+        "independent-main-board": [1, 2, 500, 500], "independent-sub-board": [3, 4, 300, 300]
+    }}).to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    for name in ["ui.custom-layout-1", "ui.custom-layout-2", "ui.is-classic-mode",
+        "persist:ui-persist.independent-main-board", "persist:ui-persist.independent-sub-board"] {
+        assert_eq!(item(&p.items, name).status, ImportStatus::Imported, "{name}");
+    }
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    let s = wb.view(false).settings;
+    assert!(s.panels.classic_mode && !s.panels.show_comment && s.comment_panel_auto_hidden);
+    assert_eq!(s.independent_main_board.unwrap().x, 1);
+    wb.apply_custom_layout(1).unwrap();
+    let s = wb.view(false).settings;
+    assert_eq!(s.extra_mode, ExtraMode::FloatBoard);
+    assert!(s.panels.show_comment && s.panels.showing_independent_main && s.panels.showing_independent_sub);
+    assert!(!s.panels.show_sub_board && !s.panels.show_status && !s.panels.show_captured);
+    assert_eq!(s.panel_sizes.board_position_proportion, 6);
+    assert_eq!(s.independent_main_board.unwrap().x, 30);
+    assert_eq!(s.independent_sub_board.unwrap().height, 400);
+    drop(wb);
+    let mut wb = workbench(&product, Recorder::default());
+    assert_eq!(wb.view(false).settings.extra_mode, ExtraMode::FloatBoard);
+    wb.apply_custom_layout(2).unwrap();
+    let s = wb.view(false).settings;
+    assert_eq!(s.extra_mode, ExtraMode::Normal);
+    assert!(s.custom_layouts[1].as_ref().unwrap().window.unwrap().maximized);
+    assert!(s.panels.show_sub_board && !s.panels.show_comment);
 }

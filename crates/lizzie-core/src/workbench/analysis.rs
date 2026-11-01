@@ -633,39 +633,6 @@ impl Workbench {
             .map(|p| p.id.clone())
     }
 
-    /// 布局模式 > 默认模式 / 双引擎模式 (`Config.toggleExtraMode`). Leaving 双引擎模式 stops the
-    /// secondary engine's analysis and keeps it running (`nameCmdfornoponder`); entering resumes
-    /// a chosen one at the current position. Remembered across restarts (`ui.extra-mode`).
-    pub fn set_extra_mode(&mut self, mode: ExtraMode) -> Result<bool, ApiError> {
-        let mut panels = self.config.panels.clone();
-        if mode == ExtraMode::DoubleEngine {
-            // LizzieFrame.java:3322-3329 (entry, not startup): hide its ordinary panels.
-            panels.show_sub_board = false;
-            panels.show_comment = false;
-            panels.show_captured = false;
-            panels.show_variation_graph = false;
-            panels.show_winrate_graph = false;
-        } else {
-            // 默认模式 is a restore operation even when already Normal (3501-3517).
-            panels.show_sub_board = true;
-            panels.show_list_pane = true;
-            panels.show_winrate_graph = true;
-            panels.show_comment = true;
-            panels.show_captured = true;
-            panels.show_variation_graph = true;
-            panels.large_sub_board = false;
-            panels.large_winrate_graph = false;
-        }
-        if self.config.ui.extra_mode == mode && panels == self.config.panels {
-            return Ok(false);
-        }
-        self.commit_config(|c| {
-            c.ui.extra_mode = mode;
-            c.panels = panels;
-        })?;
-        self.sync_engine();
-        Ok(true)
-    }
 
     /// Secondary engine menu `[n] name` (`switchEngine(index, false)`): only in 双引擎模式, never
     /// the foreground engine (`rejectSameEngineSelection`). A running instance (kept or

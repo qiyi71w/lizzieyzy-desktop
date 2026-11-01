@@ -281,7 +281,7 @@ impl Workbench {
         let recovery = crate::recovery::Store::open(&storage.save_dir);
         let mut config: Config = settings::load_json(&storage.config_file);
         // Config.java:3907-3912: mode policy also applies when opening an older config.
-        if config.ui.extra_mode == crate::settings::ExtraMode::DoubleEngine {
+        if config.ui.extra_mode.hides_comment() {
             config.panels.show_comment = false;
         }
         let mut persisted: Persisted = settings::load_json(&storage.persist_file);
@@ -839,6 +839,8 @@ impl Workbench {
         self.persist_reset = true;
         self.persisted.panel_sizes = crate::settings::PanelSizes::default();
         self.persisted.bottom_toolbar = crate::settings::BottomToolbar::default();
+        self.persisted.independent_main_board = None;
+        self.persisted.independent_sub_board = None;
         self.set_replace_file_hint(true)?;
         Ok(())
     }
@@ -953,7 +955,10 @@ impl Workbench {
                 panels: self.config.panels.clone(),
                 panel_sizes: self.persisted.panel_sizes,
                 bottom_toolbar: self.persisted.bottom_toolbar,
-                comment_panel_auto_hidden: self.config.ui.extra_mode == crate::settings::ExtraMode::DoubleEngine,
+                comment_panel_auto_hidden: self.config.ui.extra_mode.hides_comment(),
+                custom_layouts: self.config.custom_layouts.clone(),
+                independent_main_board: self.persisted.independent_main_board,
+                independent_sub_board: self.persisted.independent_sub_board,
                 engine: self.engine_settings_view(),
                 edit: self.config.edit.clone(),
                 display: self.config.display.clone(),
