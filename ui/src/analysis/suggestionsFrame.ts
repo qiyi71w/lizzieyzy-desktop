@@ -44,6 +44,11 @@ export interface FramePayload {
   /** 总计算量 / 最高计算量 / 集中度 line; null without candidates (nothing is painted then). */
   stats: string | null;
   bars: FrameBar[];
+  /** Lizzie.config.uiFontName as the main window resolved it, Config.menuHeight and
+   *  Config.frameFontSize of this session: the table fonts and rows (AnalysisFrame.java:95-101). */
+  uiFont: string;
+  menuHeight: number;
+  frameFontSize: number;
 }
 
 export type FrameInput =
@@ -129,8 +134,6 @@ export function bindColumnResize(
 /** AnalysisFrame bottom panel: 22 px with the list, half the window with the 柱状图, all of it
  *  without the list (componentResized, AnalysisFrame.java:199-215). */
 const BOTTOM = 22;
-/** Config.menuHeight with the default frame font. */
-const ROW_HEIGHT = 20;
 /** Lizzie.config.uiFontName (Dialog) as the main window resolves it. */
 const UI_FONT = navigator.userAgent.includes("Windows")
   ? 'Arial, "Microsoft YaHei UI", "Microsoft YaHei", sans-serif'
@@ -142,9 +145,11 @@ const STYLE = `
 html, body { margin: 0; height: 100%; overflow: hidden; background: #eee; font-family: ${UI_FONT}; }
 #top { position: absolute; left: 0; top: 0; right: 0; overflow-x: hidden; overflow-y: auto; background: #fff; }
 #top table { border-collapse: separate; border-spacing: 0; table-layout: fixed; }
-#top th { position: sticky; top: 0; z-index: 1; height: ${ROW_HEIGHT}px; padding: 0; font-weight: normal; font-size: 13px;
+/* rows Config.menuHeight, header Font(uiFontName, PLAIN, max(frameFontSize, 13)), cells
+   Font(uiFontName, BOLD, max(frameFontSize, 14)) (AnalysisFrame.java:95-101), set from each payload */
+#top th { position: sticky; top: 0; z-index: 1; height: var(--af-row, 20px); padding: 0; font-weight: normal; font-family: var(--af-ui-font, inherit); font-size: var(--af-head-size, 13px);
   background: rgb(238, 238, 238); border: solid rgb(128, 128, 128); border-width: 0 1px 1px 0; white-space: nowrap; overflow: hidden; user-select: none; }
-#top td { height: ${ROW_HEIGHT}px; padding: 0; text-align: center; font-weight: bold; font-size: 14px; color: #000;
+#top td { height: var(--af-row, 20px); padding: 0; text-align: center; font-weight: bold; font-family: var(--af-ui-font, inherit); font-size: var(--af-cell-size, 14px); color: #000;
   border: solid rgb(128, 128, 128); border-width: 0 1px 1px 0; white-space: nowrap; overflow: hidden; cursor: default; }
 #bottom { position: absolute; left: 0; right: 0; bottom: 0; background: #eee; }
 #bottom canvas { position: absolute; left: 0; top: 0; }
@@ -349,6 +354,11 @@ export function bootFrame(): void {
   // Only the rows sent to this window: the global listener would take the other window's too.
   void self.listen<FramePayload>(FRAME_DATA_EVENT, (e) => {
     data = e.payload;
+    const root = document.documentElement.style;
+    root.setProperty("--af-row", `${data.menuHeight}px`);
+    root.setProperty("--af-ui-font", data.uiFont);
+    root.setProperty("--af-head-size", `${Math.max(data.frameFontSize, 13)}px`);
+    root.setProperty("--af-cell-size", `${Math.max(data.frameFontSize, 14)}px`);
     render();
   }).then(() => send({ type: "ready" }));
   window.addEventListener("resize", () => {

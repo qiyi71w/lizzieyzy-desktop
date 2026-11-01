@@ -96,7 +96,14 @@ impl Workbench {
             self.java_preview = Some((id, candidate));
             return Ok(Err(IMPORT_NEEDS_REPLACE));
         }
-        let (config, persisted) = candidate.mapped.apply(&self.config, &self.persisted, copy_credentials);
+        let (mut config, persisted) = candidate.mapped.apply(&self.config, &self.persisted, copy_credentials);
+        let images = match crate::appearance::capture_external_images(&self.storage, &mut config.appearance, &mut config.appearance_defaults) {
+            Ok(images) => images,
+            Err(e) => {
+                self.java_preview = Some((id, candidate));
+                return Err(ApiError::new(ErrorKind::Io, format!("importing appearance images failed: {e}")));
+            }
+        };
         // After "重置界面位置" the persist file stays deleted until the next start
         // (`Config.deletePersist`), except for the folder the user imports now: it is written
         // alone, without the placement that was reset.
@@ -144,10 +151,12 @@ impl Workbench {
                 format!("saving imported settings failed: {e}"),
             ));
         }
+        images.keep();
 
         let previous_analysis = self.config.engine.analysis.clone();
         let captures_changed = self.config.edit.no_capture != config.edit.no_capture;
         self.config = config;
+        self.reload_appearance_theme();
         self.persisted = persisted;
         self.new_profile = false;
         self.analysis_settings_changed(&previous_analysis);
@@ -183,7 +192,8 @@ impl Workbench {
             config_file: candidate.config_file.to_string_lossy().into_owned(),
             items,
             engines,
-            restart_required: self.config.ui.language.resolve(self.system_locale.as_deref()) != self.active_language,
+            restart_required: self.config.ui.language.resolve(self.system_locale.as_deref()) != self.active_language
+                || self.config.appearance.frame_font_size != self.active_frame_font_size,
             recovery,
         }))
     }

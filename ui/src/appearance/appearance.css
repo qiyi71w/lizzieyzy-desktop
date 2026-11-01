@@ -1,0 +1,186 @@
+/* 主题外观 cards and rows (ConfigDialog2 createDesignSettingsCard / createDesignRow) at the
+   settings dialog's Swing form density; controls keep the engine dialog's native look. */
+.appearance-card { display: grid; gap: 4px; padding: 6px 0 10px; border-bottom: 1px solid #ccc; }
+.appearance-card h3 { margin: 0; font-size: 14px; }
+.appearance-card-sub { margin: 0 0 4px; color: #555; }
+.appearance-row { display: grid; grid-template-columns: minmax(150px, 220px) minmax(0, 1fr); align-items: center; gap: 12px; padding: 4px 0; }
+.appearance-row-title { font-weight: bold; }
+.appearance-row-sub { color: #666; font-size: 12px; }
+.appearance-row-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.appearance-check { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.appearance-color { display: inline-flex; align-items: center; gap: 6px; }
+.appearance-color input[type=color] { width: 74px; height: 28px; padding: 1px; }
+.appearance-number { width: 66px; }
+.appearance-path { display: inline-flex; align-items: center; gap: 4px; }
+.appearance-path input { width: 300px; }
+.appearance-preview { display: block; border: 1px solid #999; }
+.appearance-blunder-table { overflow: auto; width: 440px; height: 116px; border: 1px solid #888; background: #fff; }
+.appearance-rules { width: 100%; border-collapse: collapse; table-layout: fixed; color: #111; }
+.appearance-rules th, .appearance-rules td { width: 50%; padding: 2px 4px; border: 1px solid #aaa; }
+.appearance-rules th { position: sticky; top: 0; background: #eee; font-weight: normal; }
+.appearance-rules tr.selected { background: #b8d4ed; }
+.appearance-rules input[type=number] { width: 100%; box-sizing: border-box; }
+.appearance-rule-buttons { display: flex; flex-direction: column; gap: 6px; }
+.appearance-frame-size { padding: 10px 12px 0; }
+.appearance-frame-size label { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.appearance-frame-size input { width: 70px; }
+.appearance-frame-size input.invalid { background: rgb(255, 0, 0); }
+/* 评论 / 问题手 underline: withAlpha(glass-accent-color, 220) (SidebarHeaderPanel.java:226-238);
+   the measured default stays unless the theme names another accent */
+:root #comment .tab.on {
+  border-bottom-color: var(--glass-accent-underline, rgb(90, 140, 220));
+}
+
+/* ---- 苹果风格 / 莫兰迪 chrome (AppleStyleSupport.java:459-493, 505-595, 683-711; MorandiPalette
+   toolbar and menu colours; BottomToolbar.paintComponent 313-338). The classic palette is the
+   workbench's own styles; state.ts sets data-chrome from the committed appearance, live like
+   Menu.java:752-755 / 771-778 (refreshMainChrome). */
+:root[data-chrome="morandi"] #menubar,
+:root[data-chrome="morandi"] #toolbar {
+  /* paintToolbarSurface(top): TOOLBAR_BG with a TOOLBAR_BORDER hairline */
+  background: rgb(225, 220, 213);
+  border-bottom-color: rgb(195, 190, 183);
+  color: rgb(62, 58, 57);
+}
+:root[data-chrome="morandi"] #bottombar {
+  /* Morandi without Apple: the dark strip with its 26 px main-bar band and hairlines */
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.102), rgba(255, 255, 255, 0.102)) 0 0 / 100% 1px no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.071), rgba(255, 255, 255, 0.071)) 0 0 / 100% 26px no-repeat,
+    rgba(15, 18, 22, 0.973);
+  color: rgb(72, 68, 65);
+}
+:root[data-chrome="morandi"] #menubar .m:hover,
+:root[data-chrome="morandi"] #menubar .m.open {
+  background: rgb(218, 213, 206);
+}
+:root[data-chrome="morandi"] .tb-icon,
+:root[data-chrome="morandi"] .tb-pill.plain,
+:root[data-chrome="morandi"] .tb-pill.small,
+:root[data-chrome="morandi"] .tb-input,
+:root[data-chrome="morandi"] .bb,
+:root[data-chrome="morandi"] #menubar .commentary {
+  background: rgb(238, 233, 226);
+  border-color: rgb(200, 195, 188);
+  color: rgb(72, 68, 65);
+}
+:root[data-chrome="morandi"] .tb-icon:hover,
+:root[data-chrome="morandi"] .tb-pill.plain:hover,
+:root[data-chrome="morandi"] .bb:hover {
+  background: rgb(218, 213, 206);
+}
+:root[data-chrome="morandi"] .tb-icon:active,
+:root[data-chrome="morandi"] .tb-pill.plain:active,
+:root[data-chrome="morandi"] .bb:active {
+  background: rgb(205, 200, 193);
+}
+/* primary / danger roles away from classic: glass accent (96,165,250) and red fills, white text */
+:root[data-chrome="morandi"] .tb-pill:not(.plain):not(.small):not(.disabled),
+:root[data-chrome="morandi"] .bb.primary,
+:root[data-chrome="apple"] .tb-pill:not(.plain):not(.small):not(.disabled),
+:root[data-chrome="apple"] .bb.primary {
+  background: rgba(var(--glass-accent, 96, 165, 250), 0.745);
+  border-color: rgba(var(--glass-accent, 96, 165, 250), 0.863);
+  color: #fff;
+}
+:root[data-chrome="morandi"] .bb.danger,
+:root[data-chrome="apple"] .bb.danger {
+  background: rgba(210, 62, 62, 0.725);
+  border-color: rgba(255, 130, 130, 0.863);
+  color: #fff;
+}
+:root[data-chrome="apple"] .bb.danger {
+  border-color: rgba(255, 130, 130, 0.706);
+}
+:root[data-chrome="morandi"] .dropdown {
+  background: rgb(240, 235, 228);
+  color: rgb(62, 58, 57);
+}
+:root[data-chrome="morandi"] .mi:hover:not(.disabled) {
+  background: rgb(195, 190, 183);
+}
+
+/* Apple: one flat translucent strip (24,26,31,232), 14 px rounded, glass border (255,255,255,26)
+   and an inner edge line, for both strips; light text (244,247,251) on translucent controls. */
+:root[data-chrome="apple"] #menubar,
+:root[data-chrome="apple"] #toolbar,
+:root[data-chrome="apple"] #bottombar {
+  background: rgba(24, 26, 31, 0.91);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.102));
+  border-radius: 7px;
+  color: rgb(244, 247, 251);
+}
+:root[data-chrome="apple"] #menubar,
+:root[data-chrome="apple"] #toolbar {
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.11);
+}
+:root[data-chrome="apple"] #bottombar {
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.235);
+}
+/* WindowMenuStrip.MenuButton: white 24 / 40 alpha on hover / open, blue underline when open */
+:root[data-chrome="apple"] #menubar .m:hover {
+  background: rgba(255, 255, 255, 0.094);
+}
+:root[data-chrome="apple"] #menubar .m.open {
+  background: rgba(255, 255, 255, 0.157);
+  box-shadow: inset 0 -2px 0 rgba(120, 190, 255, 0.863);
+}
+:root[data-chrome="apple"] .tb-icon,
+:root[data-chrome="apple"] .tb-pill.plain,
+:root[data-chrome="apple"] .tb-pill.small,
+:root[data-chrome="apple"] .bb,
+:root[data-chrome="apple"] #menubar .commentary {
+  background: rgba(255, 255, 255, 0.063);
+  border-color: var(--glass-border, rgba(255, 255, 255, 0.102));
+  /* RoundedLineBorder(controlBorderColor, controlCornerRadius = max(8, glass-corner-radius)) */
+  border-radius: var(--control-radius, 6px);
+  color: rgb(244, 247, 251);
+}
+:root[data-chrome="apple"] .tb-icon:hover,
+:root[data-chrome="apple"] .tb-pill.plain:hover,
+:root[data-chrome="apple"] .bb:hover {
+  background: rgba(255, 255, 255, 0.188);
+}
+:root[data-chrome="apple"] .tb-icon:active,
+:root[data-chrome="apple"] .tb-pill.plain:active,
+:root[data-chrome="apple"] .bb:active {
+  background: rgba(255, 255, 255, 0.275);
+}
+:root[data-chrome="apple"] .tb-pill.disabled {
+  background: rgba(255, 255, 255, 0.063);
+  color: rgba(244, 247, 251, 0.5);
+}
+:root[data-chrome="apple"] .tb-input,
+:root[data-chrome="apple"] #moveInput {
+  background: rgba(255, 255, 255, 0.086);
+  border-color: var(--glass-border, rgba(255, 255, 255, 0.102));
+  border-radius: var(--control-radius, 6px);
+  color: rgb(244, 247, 251);
+}
+:root[data-chrome="apple"] .tb-spin i:first-child::after {
+  border-bottom-color: rgb(244, 247, 251);
+}
+:root[data-chrome="apple"] .tb-spin i:last-child::after {
+  border-top-color: rgb(244, 247, 251);
+}
+:root[data-chrome="apple"] .tb-sep {
+  background-image: linear-gradient(rgb(78, 84, 88), rgb(78, 84, 88));
+}
+:root[data-chrome="apple"] .dropdown {
+  background: rgb(38, 41, 47);
+  border-color: var(--glass-border, rgba(255, 255, 255, 0.102));
+  color: rgb(244, 247, 251);
+}
+:root[data-chrome="apple"] .mi:hover:not(.disabled) {
+  background: rgba(var(--glass-accent, 96, 165, 250), 0.706);
+}
+:root[data-chrome="apple"] .mi.sub::after {
+  border-left-color: rgb(244, 247, 251);
+}
+/* brightenIcon (AppleStyleSupport.java:601-616): opaque icon pixels become #E0E4EA. Icons are
+   built once, so this follows the style the session started with (Menu.restartRequiredForIcons). */
+:root[data-apple-icons] .tb-icon img,
+:root[data-apple-icons] .bb.icon img,
+:root[data-apple-icons] .tb-pill.search img {
+  filter: url(#apple-icon);
+}

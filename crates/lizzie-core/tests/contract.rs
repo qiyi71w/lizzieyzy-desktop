@@ -61,6 +61,9 @@ fn generate() -> String {
         HawkeyeCommand, HawkeyeSide, HawkeyeBand, HawkeyeSpread, HawkeyeStage, HawkeyeMistake, HawkeyeRunning,
         HawkeyePane, HawkeyeView, HawkeyeSettings, HawkeyeBranch, HawkeyePeriod, HawkeyePlacement,
         BatchMode, BatchMove, BatchCommand, BatchItemView, BatchRunView, BatchFailure, BatchNotice, BatchView,
+        lizzie_core::appearance::AppearanceSettings, lizzie_core::appearance::BoardStyle,
+        lizzie_core::appearance::ThemeSettings,
+        lizzie_core::appearance::ThemeNodeColor,
     ];
     // Engine resources and engine performance keep their own lists.
     decls.extend(resources::decls(&cfg));

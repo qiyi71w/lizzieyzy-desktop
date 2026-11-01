@@ -42,6 +42,14 @@ pub enum OpenSource {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
 #[serde(tag = "type")]
 pub enum Command {
+    /// 主题 drafts apply together only on 保存设置 (ConfigDialog2.java:6191-6286).
+    SetAppearanceSettings {
+        settings: crate::appearance::AppearanceSettings,
+        theme: crate::appearance::ThemeSettings,
+    },
+    SetFrameFontSize { size: i32 },
+    AddTheme { name: String },
+    DeleteTheme { name: String },
     /// "打开棋谱(O)", toolbar open buttons, `O`: the system chooser, then open the choice.
     ChooseAndOpenRecord,
     /// Open a known path (recent entry, drop, command line, automation).
@@ -674,7 +682,7 @@ pub struct SettingsView {
     pub language: Language,
     /// Language the UI is displaying in this session (resolved at start).
     pub active_language: Language,
-    /// Whether the saved language differs from the one in use until restart.
+    /// Whether the saved language or frame font size differs from this session until restart.
     pub restart_required: bool,
     pub read_komi: bool,
     /// 打开后跳到最后一手 (`ui.load-sgf-last`).
@@ -703,6 +711,10 @@ pub struct SettingsView {
     pub whole_game: crate::settings::WholeGameSettings,
     /// 超级鹰眼's remembered choices.
     pub hawkeye: crate::settings::HawkeyeSettings,
+    pub appearance: crate::appearance::AppearanceSettings,
+    pub theme: crate::appearance::ThemeSettings,
+    /// Frame size in use until the next start (LizzieFrame.java:20766-20768).
+    pub active_frame_font_size: i32,
 }
 
 /// 快速曲线轻量模型 card (`KataGoAutoSetupDialog`, `QuickAnalysisModelStatus`).
@@ -891,6 +903,8 @@ pub struct WorkbenchView {
     /// Stored results along the current line, its continuation and the main trunk, root first
     /// (the win-rate graph's data).
     pub history: Vec<HistoryPoint>,
+    /// Coloured analysed tree nodes, including branches outside the graph's current line.
+    pub theme_nodes: Vec<crate::appearance::ThemeNodeColor>,
     /// Each move's result against the analysis of the position it was played in, and the AI
     /// match score (统计 panel, captured panel, 超级鹰眼).
     pub statistics: StatisticsView,
@@ -987,6 +1001,7 @@ pub struct ImportItemView {
 /// This product's settings that can be imported from Java.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, TS)]
 pub enum ImportTarget {
+    Appearance,
     ReadKomi,
     LoadSgfLast,
     ReplaceFileHint,

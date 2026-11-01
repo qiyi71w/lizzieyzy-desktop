@@ -7,6 +7,8 @@ import type { DisplaySettings, HistoryPoint, TreeNodeView } from "../contract/ge
 import { t } from "../i18n";
 import { graphGeom, type Rect } from "../workbench/layout";
 import { GRAPH_FONT } from "../workbench/paint";
+import { appearance } from "../appearance/state";
+import { belowBaselineFill, cssColor, graphBackground } from "../appearance/model";
 
 const i = Math.trunc;
 
@@ -80,19 +82,37 @@ export interface GraphReport {
 
 // ------------------------------------------------------------------ colours (Java defaults)
 
-/** resolveGraphBackgroundColor with the theme's comment background (0,0,0,200): (22,25,29,165). */
-const BACKGROUND = "rgba(22,25,29,0.647)";
 const GRID = "rgba(255,255,255,0.282)";
 const BASELINE = "rgba(236,232,224,0.659)";
-const LINE_RGB = [100, 180, 255];
-const SCORE_RGB = [255, 0, 255];
-const LINE = "rgb(100,180,255)";
-const MISS = "rgb(240,240,240)";
-const SCORE = "rgb(255,0,255)";
 const GUIDE = "rgba(232,225,210,0.706)";
-/** resolveBelowBaselineFillColor on the dark background. */
-const BELOW_FILL = "rgba(232,225,210,0.165)";
 const rgba = (c: number[], a: number) => `rgba(${c[0]},${c[1]},${c[2]},${+(a / 255).toFixed(3)})`;
+
+/** The theme's graph values (Config.readThemeVaule, Config.java:2248-2264): winrate-line-color,
+ *  winrate-miss-line-color, scoremean-line-color, blunder-bar-color, the two stroke widths and
+ *  minimum-blunder-bar-width (WinrateGraph.java:174-184, 261-295, 654-656, 1208-1209). The panel
+ *  takes resolveGraphBackgroundColor of comment-background-color and Apple style and its
+ *  resolveBelowBaselineFillColor (312-323, 396-399). Java always loads a theme at start-up
+ *  (Config.java:2159), so the colours of its null fallbacks never show. */
+function graphTheme() {
+  const a = appearance();
+  const th = a?.theme;
+  const background = graphBackground(th?.commentBackgroundColor ?? [0, 0, 0, 200], a?.settings.appleStyle ?? false);
+  const line = th?.winrateLineColor ?? [100, 180, 255];
+  const score = th?.scoremeanLineColor ?? [255, 0, 255];
+  return {
+    lineRgb: line,
+    scoreRgb: score,
+    line: cssColor(line),
+    miss: cssColor(th?.winrateMissLineColor ?? [0, 0, 178]),
+    score: cssColor(score),
+    bar: cssColor(th?.blunderBarColor ?? [255, 204, 255, 170]),
+    winrateWidth: th?.winrateStrokeWidth ?? 1.7,
+    scoreWidth: th?.scoreLeadStrokeWidth ?? 1,
+    barMinimum: Math.max(1, th?.minimumBlunderBarWidth ?? 1),
+    background: cssColor(background),
+    belowFill: cssColor(belowBaselineFill(background)),
+  };
+}
 
 const DOT_RADIUS = 3;
 const ANCHOR_HALF = 2;
@@ -134,15 +154,6 @@ function blunderBarHeight(graphHeight: number, winrateDrop: number, scoreDrop: n
   if (severity <= 0.01) return Math.max(1, Math.min(3, i(usable / 24)));
   const eased = Math.sqrt(Math.min(1, severity));
   return Math.max(1, Math.min(maxHeight, Math.floor(minHeight + (maxHeight - minHeight) * eased + 0.5)));
-}
-
-/** getBlunderColor (WinrateGraph.java:261-270). */
-function blunderColor(winrateDrop: number, scoreDrop: number): string {
-  if (scoreDrop > 5 || winrateDrop > 20) return rgba([235, 60, 60], 220);
-  if (scoreDrop > 2 || winrateDrop > 10) return rgba([230, 140, 40], 220);
-  if (scoreDrop > 1 || winrateDrop > 5) return rgba([230, 200, 50], 200);
-  if (scoreDrop > 0.3 || winrateDrop > 2) return rgba([150, 180, 80], 150);
-  return rgba([120, 120, 120], 50);
 }
 
 // ------------------------------------------------------------------ tree helpers (BoardHistoryNode)
@@ -284,6 +295,9 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   const H0 = r.h;
   const d = s.display;
   const nodes = s.nodes;
+  const theme = graphTheme();
+  const LINE = theme.line;
+  const SCORE = theme.score;
   const background: Op[] = [];
   const blunder: Op[] = [];
   const front: Op[] = [];
@@ -337,7 +351,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   };
 
   background.push(() => {
-    g.fillStyle = BACKGROUND;
+    g.fillStyle = theme.background;
     g.fillRect(0, 0, W0, H0);
   });
   const posx = 0;
@@ -400,7 +414,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   const X = (moveIndex: number) => posx + i((moveIndex * width) / numMoves);
   const WY = (wr: number) => posy + height - jInt((wr * height) / 100);
   const clampDotY = (y: number) => Math.max(0, Math.min(H0 - DOT_RADIUS * 2, y));
-  const activeCurve = scoreRenderable && !winrateRenderable ? SCORE_RGB : LINE_RGB;
+  const activeCurve = scoreRenderable && !winrateRenderable ? theme.scoreRgb : theme.lineRgb;
   const aboveFill = rgba(activeCurve, 52);
 
   /** drawFilledGraphLine: the fill under the segment (only for analysed neighbours), then the line. */
@@ -409,7 +423,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
       const polygon = (above: boolean, points: number[][]) => {
         report.fillShapes++;
         background.push(() => {
-          g.fillStyle = above ? aboveFill : BELOW_FILL;
+          g.fillStyle = above ? aboveFill : theme.belowFill;
           g.beginPath();
           g.moveTo(points[0][0], points[0][1]);
           for (const [px, py] of points.slice(1)) g.lineTo(px, py);
@@ -433,8 +447,8 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     const barHeight = blunderBarHeight(height, winrateDrop, scoreDrop);
     const start = posx + i((Math.min(from, to) * width) / numMoves);
     const stop = posx + i((Math.max(from, to) * width) / numMoves);
-    const barWidth = Math.max(1, stop - start);
-    const color = blunderColor(winrateDrop, scoreDrop);
+    const barWidth = Math.max(theme.barMinimum, stop - start);
+    const color = theme.bar;
     report.blunderBars++;
     blunder.push(() => {
       g.fillStyle = color;
@@ -472,11 +486,11 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
       wr = shown;
       plotted.add(node);
       const score = p ? p.black.score_lead ?? 0 : lastScore;
-      const color = lastNodeOk ? LINE : MISS;
+      const color = lastNodeOk ? LINE : theme.miss;
       if (lastOkMove > 0 && lastOkMove - movenum < 25) {
         if (canDrawBlunderBar && d.blunderBar && p) blunderBar(lastOkMove, movenum, Math.abs(lastWr - wr), Math.abs(lastScore - score));
         if (d.winrateLine) {
-          filledLine(!lastNodeOk, X(lastOkMove), WY(lastWr), X(movenum), WY(wr), color, dashed ? 1 : 1.7, dashed);
+          filledLine(!lastNodeOk, X(lastOkMove), WY(lastWr), X(movenum), WY(wr), color, dashed ? 1 : theme.winrateWidth, dashed);
           if (!pieceOpen) report.segments++;
           if (!lastNodeOk) report.missSegments++;
           pieceOpen = true;
@@ -578,7 +592,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
           drawHoverScore = lead;
         }
         if (lastOkMove > 0 && Math.abs(movenum - lastOkMove) < 25 && lastMean > -500)
-          filledLine(!lastNodeOk, X(lastOkMove), SY(lastMean), X(movenum), SY(lead), SCORE, 1, false);
+          filledLine(!lastNodeOk, X(lastOkMove), SY(lastMean), X(movenum), SY(lead), SCORE, theme.scoreWidth, false);
         lastMean = lead;
         lastOkMove = movenum;
         lastNodeOk = true;
@@ -782,7 +796,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     const half = anchorHalfWidth(anchors);
     front.push(() => {
       for (const a of anchors) {
-        g.fillStyle = nodes.get(a.node)?.kind === "Snapshot" ? rgba([255, 208, 84], 110) : rgba(LINE_RGB, 80);
+        g.fillStyle = nodes.get(a.node)?.kind === "Snapshot" ? rgba([255, 208, 84], 110) : rgba(theme.lineRgb, 80);
         g.fillRect(a.x - half, a.y - ANCHOR_HALF, half * 2 + 1, ANCHOR_HALF * 2 + 1);
       }
     });

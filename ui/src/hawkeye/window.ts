@@ -24,8 +24,6 @@ import {
 } from "./model";
 import { mountStatistics } from "./statistics";
 
-/** Config.menuHeight with the default frame font: the row height of the lists. */
-const ROW_HEIGHT = 20;
 /** The 详细列表's preferred widths (MoveListFrame.java:1272-1280); later columns keep JTable's 75. */
 const DETAIL_WIDTHS = [52, 50, 57, 72, 77, 70, 70, 70, 70, 75, 75, 75];
 
@@ -39,9 +37,12 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #eee; font-f
 .hk-page { position: absolute; inset: 0; }
 .hk-scroll { position: absolute; overflow-x: hidden; overflow-y: auto; background: #fff; }
 .hk-scroll table { border-collapse: separate; border-spacing: 0; table-layout: fixed; }
-.hk-scroll th { position: sticky; top: 0; z-index: 1; height: ${ROW_HEIGHT}px; padding: 0; font-weight: normal; font-size: 13px;
+/* tables (MoveListFrame.java:320-325): row height Config.menuHeight, header
+   Font(uiFontName, PLAIN, max(frameFontSize, 13)), cells Font(uiFontName, BOLD, max(frameFontSize, 14));
+   the main window sends the values with every payload */
+.hk-scroll th { position: sticky; top: 0; z-index: 1; height: var(--hk-row, 20px); padding: 0; font-weight: normal; font-family: var(--hk-ui-font, inherit); font-size: var(--hk-head-size, 13px);
   background: rgb(238, 238, 238); border: solid rgb(128, 128, 128); border-width: 0 1px 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none; }
-.hk-scroll td { height: ${ROW_HEIGHT}px; padding: 0; text-align: center; font-weight: bold; font-size: 14px; color: #000; background: #fff;
+.hk-scroll td { height: var(--hk-row, 20px); padding: 0; text-align: center; font-weight: bold; font-family: var(--hk-ui-font, inherit); font-size: var(--hk-cell-size, 14px); color: #000; background: #fff;
   border: solid rgb(128, 128, 128); border-width: 0 1px 1px 0; white-space: nowrap; overflow: hidden; cursor: default; }
 #hk-filter { position: absolute; left: 0; right: 0; height: 24px; display: flex; align-items: center; justify-content: center; gap: 1px; white-space: nowrap; background: #eee; user-select: none; }
 #hk-filter button { height: 20px; padding: 0 2px; font: inherit; font-size: 12px; }
@@ -631,6 +632,11 @@ export function bootHawkeye(): void {
 
   void self.listen<HawkeyePayload>(HAWKEYE_DATA_EVENT, (e) => {
     data = e.payload;
+    const root = document.documentElement.style;
+    root.setProperty("--hk-row", `${data.menuHeight}px`);
+    root.setProperty("--hk-ui-font", data.fonts.ui);
+    root.setProperty("--hk-head-size", `${Math.max(data.frameFontSize, 13)}px`);
+    root.setProperty("--hk-cell-size", `${Math.max(data.frameFontSize, 14)}px`);
     document.documentElement.lang = isChinese() ? "zh" : "en";
     render();
   }).then(() => send({ type: "ready" }));

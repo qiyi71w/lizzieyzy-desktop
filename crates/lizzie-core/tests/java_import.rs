@@ -1417,3 +1417,81 @@ fn an_unmatched_hawkeye_range_selects_custom_with_javas_custom_moves() {
         assert_eq!((h.period, (h.custom_start, h.custom_end), h.chart), (HawkeyePeriod::Custom, expected, 0));
     }
 }
+
+#[test]
+fn appearance_import_applies_defaults_styles_fonts_and_owned_images() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(java.join("theme")).unwrap();
+    std::fs::write(java.join("theme/selected.png"), include_bytes!("../../../ui/public/assets/board.png")).unwrap();
+    let input = json!({"ui": {
+        "theme":"default", "board-style":"chinese-classic", "is-apple-style":true,
+        "use-morandi-colors":true, "custom-board-image":"selected.png",
+        "custom-window-background-image":"missing.jpg", "font-name":"Board Font",
+        "ui-font-name":"UI Font", "winrate-font-name":"Win Font", "frame-font-size":16,
+        "glass-effect-level":0, "glass-blur-radius":-1, "liquid-blur-radius":8,
+        "glass-corner-radius":1, "glass-panel-overlay-color":[1,2,3,100],
+        "comment-font-size":21, "winrate-stroke-width":2.5, "use-pure-board":true,
+        "pure-board-color":[100,110,120], "blunder-winrate-thresholds":[-10,100],
+        "blunder-node-colors":[[100,0,0],[0,100,0]]
+    }}).to_string();
+    std::fs::write(java.join("config.txt"), &input).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    assert_eq!(item(&p.items,"ui.custom-board-image").status, ImportStatus::Imported);
+    assert_eq!(item(&p.items,"ui.custom-window-background-image").status, ImportStatus::Incompatible);
+    assert_eq!(item(&p.items,"file:theme").status, ImportStatus::NotMigrated);
+    wb.apply_java_import(p.id,&[],true,None).unwrap().unwrap();
+    let s = wb.view(true).settings;
+    assert_eq!(s.appearance.board_style,lizzie_core::appearance::BoardStyle::ChineseClassic);
+    assert!(s.appearance.apple_style && s.appearance.morandi_colors);
+    assert_eq!(s.appearance.frame_font_size,16); assert_eq!(s.active_frame_font_size,12);
+    assert_eq!((&*s.theme.font_name,&*s.theme.ui_font_name,&*s.theme.winrate_font_name),("Board Font","UI Font","Win Font"));
+    assert_eq!((s.theme.comment_font_size,s.theme.winrate_stroke_width),(21,2.5));
+    assert_eq!(s.theme.blunder_winrate_thresholds,vec![-10.,100.]);
+    assert!(s.theme.use_pure_board); assert_eq!(s.theme.pure_board_color,vec![100,110,120]);
+    assert_eq!(s.appearance.glass_effect_level,0);
+    assert_eq!((s.theme.glass_blur_radius,s.theme.liquid_blur_radius,s.theme.glass_corner_radius),(0,8,4));
+    assert_eq!(s.theme.glass_panel_overlay_color,vec![1,2,3,100]);
+    assert_eq!(std::fs::read_to_string(java.join("config.txt")).unwrap(),input);
+    std::fs::remove_file(java.join("theme/selected.png")).unwrap();
+    let mut reopened = workbench(&product, Recorder::default());
+    let v = reopened.view(true).settings;
+    assert_eq!(v.active_frame_font_size,16);
+    assert!(lizzie_core::appearance::images(reopened.storage(),&v.appearance,&v.theme).board.starts_with("data:image/png;"));
+}
+
+#[test]
+fn importing_a_bundled_theme_selects_it_but_reports_java_theme_folders_separately() {
+    let tmp=tempfile::tempdir().unwrap(); let java=tmp.path().join("java");
+    std::fs::create_dir_all(java.join("theme/Personal")).unwrap();
+    std::fs::write(java.join("config.txt"),json!({"ui":{"theme":"sabaki"}}).to_string()).unwrap();
+    let mut wb=workbench(&tmp.path().join("product"),Recorder::default());
+    let p=preview(&mut wb,&java);
+    wb.apply_java_import(p.id,&[],true,None).unwrap().unwrap();
+    let v=wb.view(true).settings;
+    assert_eq!(v.appearance.theme,"sabaki"); assert_eq!(v.theme.shadow_size,100);
+    assert_eq!(v.theme.stone_indicator_type,0);
+}
+
+#[test]
+fn appearance_import_requires_replacement_and_keeps_failed_image_out_of_configuration() {
+    let tmp=tempfile::tempdir().unwrap(); let java=tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"),json!({"ui":{
+        "font-name":"Imported Font", "custom-board-image":"missing.png", "theme":"UnknownPersonalTheme"
+    }}).to_string()).unwrap();
+    let mut wb=workbench(&tmp.path().join("product"),Recorder::default());
+    wb.set_frame_font_size(16).unwrap();
+    let p=preview(&mut wb,&java);
+    assert!(p.replaces.contains(&ImportTarget::Appearance));
+    assert_eq!(item(&p.items,"ui.theme").status,ImportStatus::NotMigrated);
+    assert_eq!(item(&p.items,"ui.custom-board-image").reason,Some(ImportReason::Unreadable));
+    assert_eq!(wb.apply_java_import(p.id,&[],false,None).unwrap(),Err(IMPORT_NEEDS_REPLACE));
+    assert_eq!(wb.view(false).settings.theme.font_name,"Lizzie Default");
+    wb.apply_java_import(p.id,&[],true,None).unwrap().unwrap();
+    let s=wb.view(false).settings;
+    assert_eq!(s.theme.font_name,"Imported Font"); assert!(s.appearance.custom_board_image.is_empty());
+    assert_eq!(s.appearance.theme,"default");
+}

@@ -7,7 +7,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { state } from "../app";
 import type { CandidateView, HistoryPoint, Point, ShownValues, WorkbenchView } from "../contract/generated";
 import { t } from "../i18n";
-import { frameCoordinate, playouts } from "../workbench/paint";
+import { frameCoordinate, playouts, themeFonts } from "../workbench/paint";
+import { appearance, frameMetrics } from "../appearance/state";
+import { customFont } from "../appearance/model";
 import { bindColumnResize, layoutColumns, MIN_COLUMN, type FrameBar, type FrameCell, type FramePayload } from "./suggestionsFrame";
 
 /** One row of a table model (`data2`), as Java's MoveData. */
@@ -434,6 +436,28 @@ export function frameSortBy(id: FrameId, column: number): void {
 // ------------------------------------------------------------------ main window table
 
 const TABLE_HEADER = navigator.userAgent.includes("Windows") ? 19 : 17;
+
+/** refreshSuggestionTableStyle (LizzieFrame.java:2697-2721): the list takes
+ *  workspaceFont(PLAIN, frameFontSize) — the theme's UI font when one is named — and rows of
+ *  max(Config.menuHeight - 4, font height + 8) (SuggestionTableScrollPane.rowHeightFor); the header
+ *  is the font height plus its insets. The 12 px heights are the measured ones above; other sizes
+ *  add the font's own height difference, and the row never drops below menuHeight - 4. */
+function mainTableStyle(table: HTMLTableElement): { row: number; header: number } {
+  const { frameFontSize, menuHeight } = frameMetrics();
+  const a = appearance();
+  table.style.fontFamily = a && customFont(a.theme.uiFontName) ? themeFonts().ui : "";
+  table.style.fontSize = `${frameFontSize}px`;
+  const family = getComputedStyle(table).fontFamily;
+  const c = document.createElement("canvas").getContext("2d")!;
+  const height = (size: number) => {
+    c.font = `${size}px ${family}`;
+    const m = c.measureText("Hg");
+    return Math.ceil(m.fontBoundingBoxAscent + m.fontBoundingBoxDescent);
+  };
+  const grow = frameFontSize === 12 ? 0 : height(frameFontSize) - height(12);
+  return { row: Math.max(menuHeight - 4, TABLE_HEADER + 3 + grow), header: TABLE_HEADER + grow };
+}
+let mainRowHeight = TABLE_HEADER + 3;
 /** setPreferredWidth of 序号, 胜率, 计算量, 占比, 目数 (LizzieFrame.java:907-912); 序号's 10 is
  *  raised to TableColumn's minimum. */
 let mainPreferred = [15, 30, 30, 45, 30];
@@ -445,7 +469,7 @@ let mainStructure = "";
 export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
   const hasScore = !!v.analysis?.candidates.some((c) => c.score_lead !== null);
   const columns = hasScore ? 5 : 4;
-  const structure = `${host.clientWidth}:${columns}:${t("AnalysisFrame.column1")}`;
+  const structure = `${host.clientWidth}:${columns}:${t("AnalysisFrame.column1")}:${appearance()?.theme.uiFontName}`;
   if (mainStructure !== structure) {
     mainStructure = structure;
     const heads = [t("AnalysisFrame.column1"), t("LizzieFrame.listColumn2"), t("AnalysisFrame.column5"), t("LizzieFrame.listColumn4"), t("AnalysisFrame.column8")].slice(0, columns);
@@ -453,7 +477,6 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
     const colgroup = document.createElement("colgroup");
     const thead = document.createElement("thead"), body = document.createElement("tbody");
     const headRow = thead.insertRow();
-    headRow.style.height = `${TABLE_HEADER}px`;
     for (const h of heads) {
       const th = document.createElement("th");
       th.textContent = h;
@@ -495,6 +518,10 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
     }, { passive: false });
     table.append(colgroup, thead, body);
     host.replaceChildren(table);
+    // Measured once attached, so the stylesheet's font family applies.
+    const style = mainTableStyle(table);
+    mainRowHeight = style.row;
+    headRow.style.height = `${style.header}px`;
   }
   const all = buildRows(v, "main");
   const total = totalAllocation(all);
@@ -520,7 +547,7 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
     const r = mainRows[k];
     // The hidden 坐标 column.
     row.dataset.point = r.point ? `${r.point.x},${r.point.y}` : "pass";
-    row.style.height = `${TABLE_HEADER + 3}px`;
+    row.style.height = `${mainRowHeight}px`;
     while (row.cells.length > cells.length) row.deleteCell(row.cells.length - 1);
     cells.forEach((c, column) => {
       const cell = row.cells[column] ?? row.insertCell();
@@ -642,6 +669,9 @@ export function framePayload(v: WorkbenchView, id: FrameId, nine: boolean, layou
     ],
     stats,
     bars,
+    uiFont: themeFonts().ui,
+    menuHeight: frameMetrics().menuHeight,
+    frameFontSize: frameMetrics().frameFontSize,
   };
 }
 

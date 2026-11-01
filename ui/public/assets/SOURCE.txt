@@ -14,3 +14,11 @@ buttons up.png / down.png and settings.png per MoveListFrame.java:780-830 and th
 images matchform.png / matchformeng.png per SetMatchAiPara.java.
 The application icons in src-tauri/icons were generated with `tauri icon` from
 packaging/icons/app-icon-1024.png of the same commit.
+The five complete theme folders in ../themes (sabaki, yasnaya, Megapack, Custom, Fast)
+are copied byte-for-byte from theme/ of the same fixed commit, under the repository's
+GPL-3.0 LICENSE.txt. No additional per-theme license or attribution files are present
+in those source folders. Bundled themes are read-only; user changes shadow them in
+the application's own configuration directory.
+The assets/newtheme template (theme.txt, black.png, white.png) is copied unchanged
+from src/main/resources/assets/newtheme/ of the same commit. New themes use that
+template plus the default board.png and background.jpg (Utils.java:1268-1277).

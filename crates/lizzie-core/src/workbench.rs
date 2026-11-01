@@ -15,6 +15,7 @@
 //! serial writer, like Java `SgfSaveQueue`).
 
 mod analysis;
+mod appearance;
 mod auto_analysis;
 mod batch;
 mod editing;
@@ -176,6 +177,8 @@ pub struct Workbench {
     persist_reset: bool,
     active_language: Language,
     system_locale: Option<String>,
+    active_frame_font_size: i32,
+    appearance_theme: crate::appearance::ThemeSettings,
     doc: Document,
     cursor: NodeId,
     komi: f64,
@@ -281,6 +284,8 @@ impl Workbench {
         let config: Config = settings::load_json(&storage.config_file);
         let persisted: Persisted = settings::load_json(&storage.persist_file);
         let active_language = config.ui.language.resolve(system_locale);
+        let active_frame_font_size = config.appearance.frame_font_size;
+        let appearance_theme = crate::appearance::load_theme(&storage, &config.appearance.theme, &config.appearance_defaults);
         let mut engines = Engines::new(launcher, engine_roots);
         let runtime = storage.resources_dir.join("runtime/nvidia");
         if runtime.is_dir() {
@@ -300,6 +305,8 @@ impl Workbench {
             persisted,
             persist_reset: false,
             active_language,
+            active_frame_font_size,
+            appearance_theme,
             system_locale: system_locale.map(str::to_string),
             doc: Document {
                 id: 1,
@@ -928,8 +935,8 @@ impl Workbench {
             settings: SettingsView {
                 language: self.config.ui.language,
                 active_language: self.active_language,
-                restart_required: self.config.ui.language.resolve(self.system_locale.as_deref())
-                    != self.active_language,
+                restart_required: self.config.ui.language.resolve(self.system_locale.as_deref()) != self.active_language
+                    || self.config.appearance.frame_font_size != self.active_frame_font_size,
                 read_komi: self.config.record.read_komi,
                 load_sgf_last: self.config.record.load_sgf_last,
                 auto_quick_analyze_on_load: self.config.record.auto_quick_analyze_on_load,
@@ -947,6 +954,9 @@ impl Workbench {
                 auto_analysis: self.config.auto_analysis.clone(),
                 whole_game: self.config.whole_game,
                 hawkeye: self.config.hawkeye.clone(),
+                appearance: self.config.appearance.clone(),
+                theme: self.appearance_theme.clone(),
+                active_frame_font_size: self.active_frame_font_size,
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
@@ -962,6 +972,7 @@ impl Workbench {
             board: self.board_overlay(),
             raw_net: self.raw_net_view(),
             history: self.history(),
+            theme_nodes: self.theme_node_colors(),
             statistics: self.statistics(),
             hawkeye: self.hawkeye_view(),
             kata_estimate: self.kata_estimate_view(),

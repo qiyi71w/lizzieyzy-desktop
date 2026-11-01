@@ -11,6 +11,8 @@ import { run, state } from "../app";
 import { COMMANDS, setDisplay, type CommandEntry } from "../commands";
 import type { HawkeyePane, WorkbenchView } from "../contract/generated";
 import { isChinese, language, t } from "../i18n";
+import { frameMetrics } from "../appearance/state";
+import { themeFonts } from "../workbench/paint";
 import {
   HAWKEYE_DATA_EVENT,
   HAWKEYE_INPUT_EVENT,
@@ -118,6 +120,8 @@ function payload(id: Id, open: Open, v: WorkbenchView, pane: HawkeyePane): Hawke
     layout: open.layout,
     sort: open.sort,
     columns: open.columns,
+    fonts: themeFonts(),
+    ...frameMetrics(),
   };
 }
 

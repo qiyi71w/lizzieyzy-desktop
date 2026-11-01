@@ -3,6 +3,7 @@
 
 #[cfg(feature = "acceptance")]
 mod acceptance;
+mod appearance;
 mod diagnostics;
 mod logging;
 mod output;
@@ -821,6 +822,25 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         Command::SetEditSettings { settings } => {
             let done = shared.workbench.lock().unwrap().set_edit_settings(settings)?;
             Ok(changed(&app, &shared, done))
+        }
+        Command::SetAppearanceSettings { settings, theme } => {
+            let done = shared.workbench.lock().unwrap().set_appearance_settings(settings, theme)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetFrameFontSize { size } => {
+            let done = shared.workbench.lock().unwrap().set_frame_font_size(size)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::AddTheme { name } => {
+            shared.workbench.lock().unwrap().add_theme(&name)?;
+            Ok(CommandResult::Done)
+        }
+        Command::DeleteTheme { name } => {
+            // ConfigDialog2.java:4423-4427: keep the dialog open and show Java's failure text.
+            Ok(match shared.workbench.lock().unwrap().delete_theme(&name) {
+                Ok(()) => CommandResult::Done,
+                Err(_) => CommandResult::Refused { message_key: "ConfigDialog2.deleteThemeFailed".into() },
+            })
         }
         Command::SetDisplaySettings { settings } => {
             let done = shared.workbench.lock().unwrap().set_display_settings(settings)?;
@@ -1695,6 +1715,9 @@ pub fn run() {
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         dispatch_command,
+        appearance::appearance_catalog,
+        appearance::appearance_images,
+        appearance::appearance_choose_image,
         workbench_snapshot,
         subscribe_workbench,
         unsubscribe_workbench,
@@ -1721,6 +1744,9 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         dispatch_command,
+        appearance::appearance_catalog,
+        appearance::appearance_images,
+        appearance::appearance_choose_image,
         workbench_snapshot,
         subscribe_workbench,
         unsubscribe_workbench,

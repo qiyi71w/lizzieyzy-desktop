@@ -68,16 +68,18 @@ body {
   border-radius: 5px;
   background: #fff;
 }
+/* Config.menuIconSize: 16 / 20 / 24 for frame font 12 / 13-16 / larger (Config.java:1873); the
+   black/white toggle draws its icon at menuIconSize + 8 (Menu.java:3674-3680) */
 .tb-icon img {
-  width: 16px;
-  height: 16px;
+  width: var(--menu-icon-size, 16px);
+  height: var(--menu-icon-size, 16px);
 }
 .tb-icon.bw {
   overflow: hidden;
 }
 .tb-icon.bw img {
-  width: 24px;
-  height: 24px;
+  width: calc(var(--menu-icon-size, 16px) + 8px);
+  height: calc(var(--menu-icon-size, 16px) + 8px);
   flex: none;
 }
 .tb-pill {
@@ -363,11 +365,13 @@ body {
   position: absolute;
 }
 
-/* comment / problem-move panel: SidebarPanel.paintComponent fills comment-background (0,0,0,200)
-   as a square and outlines it with rowSeparatorColor (255,255,255,28) */
+/* comment / problem-move panel: SidebarPanel.paintComponent fills comment-background-color
+   (0,0,0,200) as a square and outlines it with rowSeparatorColor (255,255,255,28); the text takes
+   comment-font-color and, when above 0, comment-font-size (LizzieFrame.java:11292-11304). The
+   appearance module sets the variables from the committed theme. */
 #comment {
-  background: rgba(0, 0, 0, 0.8);
-  color: #fff;
+  background: var(--comment-background, rgba(0, 0, 0, 0.784));
+  color: var(--comment-color, #fff);
   border: 1px solid rgba(255, 255, 255, 0.11);
   box-sizing: border-box;
   display: flex;
@@ -407,7 +411,7 @@ body {
 #commentText {
   flex: 1;
   padding: 8px 9px;
-  font-size: 14px;
+  font-size: var(--comment-font-size, 14px);
   line-height: 1.3;
   white-space: pre-wrap;
   overflow-y: auto;
@@ -518,8 +522,14 @@ body {
 
 /* ---- menu dropdowns (Swing JPopupMenu on the fixed build: white, grey border, 25 px rows,
    12 px text indented past the check column, full-width separators) */
+/* Menu font: Font(Config.sysDefaultFontName, PLAIN, frame-font-size) (Menu.java:245) at the size
+   this session started with (界面字体大小 applies after a restart, LizzieFrame.java:20764-20767). */
 #menubar .m {
   position: relative;
+  font-size: var(--frame-font-size, 12px);
+}
+.dropdown .mi {
+  font-size: var(--frame-font-size, 12px);
 }
 #menubar .m.open {
   background: rgb(226, 230, 236);

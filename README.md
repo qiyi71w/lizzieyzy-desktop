@@ -229,6 +229,41 @@ importing the matching LizzieYzy Next settings.
     right after the root no longer start the count at 2; 纯网络形势 > 小方块 has its own effect
     (Java read the KataGo-estimate setting there); 设置自动播放's 落子最佳选点 shows its own setting
     (Java filled it from the other check box).
+- Appearance (Java defaults; saved and taken over by the LizzieYzy Next import):
+  - 设置 > 主题 opens 综合设置 > 主题外观: the theme (默认 plus the bundled sabaki, yasnaya,
+    Megapack, Custom and Fast, and the user's own), a preview of the edited background, board and
+    stones, line widths, the stone shadow, the three fonts (计算量及其他字体, UI 字体, 胜率目数字体;
+    Lizzie默认, 系统默认 or a system font), pure-colour background / board / stones and the image
+    files of a named theme (the default theme's images are fixed, as in Java), the background
+    blur (as in Java it blurs the panels only when the glass effect is off: `glass-effect-level`
+    0 in an imported Java configuration, without Apple style; the default level 1 draws the
+    frosted glass, level 2 the liquid glass, both with the theme's imported glass colours and
+    blur radii), the graph, comment and best-move colours, the comment font size, the
+    last-move marker (圆圈, 三角, 实心, 无), the comment-node colour, the 错误节点 thresholds and
+    colours (添加 / 删除 / 重置) and 同时考虑胜率与目数. The edits apply with 保存设置 and are
+    dropped by 取消. As in Java, 重置 saves the whole dialog with the default 错误节点 rules and
+    reopens it, and 添加 (a new theme) and 删除 take effect at once and reopen the dialog,
+    dropping unsaved edits. Bundled themes are read-only: deleting one hides it, and edits are
+    kept as the user's copy.
+  - 显示 > 外观主题: 棋盘风格 日式 / 中式经典 (corner markers instead of star points, Chinese
+    numerals counted from the nearer edge as coordinates), Apple 风格界面 (also turns the Morandi
+    colours on; dark translucent menu, tool and bottom bars, darkened wallpaper), 经典配色 (off:
+    Morandi colours for the bars, menus and move marks; the bottom bar turns dark), and a custom
+    board image (scaled to cover the main board under a light shade; the sub board keeps the
+    theme's board) with its 清除 entry. The bar colours change at once; the light toolbar icons of
+    Apple style follow from the next start.
+  - 设置 > 界面字体大小 (12, 16, 20 or 自定义 12-20) sets, from the next start, the menu font
+    size, the toolbar icon size (16, 20 or 24), the font and row height of the main 选点 list,
+    and the list rows and fonts of 超级鹰眼 and the 选点列表 window; outside Chinese a size above
+    12 first warns that some text may not fit.
+  - The fonts follow the UI language: Japanese, Korean, Thai and Traditional Chinese text fall
+    back to that language's fonts. 超级鹰眼's charts and lists use the theme's fonts.
+  - The variation tree colours nodes by the 错误节点 rules and rings commented nodes in the
+    comment-node colour; the win-rate graph uses the theme's line, miss-line, score-line and
+    blunder-bar colours and widths. A change from the earlier versions of this client: the
+    graph's unanalysed stretches and blunder bars now use the theme colours Java shows (dark blue
+    and pink by default) instead of light grey and graded bar colours, and the comment panel
+    background is Java's (0,0,0,200) instead of a slightly darker black.
 - 双引擎模式 (显示 > 布局模式, `Alt+6`; 默认模式 `Alt+1`): a second engine analyses the same
   position next to the foreground engine. The window takes Java's width for the mode (the board
   height doubled, or 1.65 times it for 默认模式) unless it is maximized, and shows two equal

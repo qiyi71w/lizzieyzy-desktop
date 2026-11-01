@@ -66,6 +66,12 @@ export interface HawkeyePayload {
   /** badmoves-list-position[0] and the saved 详细列表 widths (empty: Java's preferred widths). */
   sort: number;
   columns: number[];
+  /** Lizzie.config.uiFontName / fontName as the main window resolved them (CSS stacks). */
+  fonts: { ui: string; info: string };
+  /** Config.menuHeight of this session: the lists' row height (MoveListFrame.java table rows). */
+  menuHeight: number;
+  /** Config.frameFontSize of this session. */
+  frameFontSize: number;
 }
 
 /** A window's input. */
@@ -106,7 +112,7 @@ export function fixed(v: number, digits: number): string {
 /** Bar / text colours shared by the statistics panel, the dialogs and the cell renderers. */
 export const LOSS_COLORS = ["rgb(22,222,0)", "rgb(158,232,34)", "rgb(222,222,0)", "rgb(200,140,50)", "rgb(172,16,19)", "rgb(85,25,80)"];
 
-/** Lizzie.config.uiFontName (Dialog) as the main window resolves it. */
+/** Config.sysDefaultFontName (Dialog) as the main window resolves it. */
 export const UI_FONT = navigator.userAgent.includes("Windows")
   ? 'Arial, "Microsoft YaHei UI", "Microsoft YaHei", sans-serif'
   : navigator.userAgent.includes("Mac OS")
