@@ -2,6 +2,7 @@
 import { state } from "../app";
 import { dialogOpen } from "../dialogs";
 import { openAnalysisSettings, SETTINGS_PAGES, type SettingsSection } from "./settings";
+import { highlight } from "../search/highlight";
 
 // Only actual product rows belong here. A catalog entry alone never makes a setting available.
 const targets = new Map<string, SettingsSection>([
@@ -41,8 +42,6 @@ export function settingTargetAvailable(target: string): boolean {
     || section === "advanced" || SETTINGS_PAGES[section] !== undefined);
 }
 
-let clearHighlight: (() => void) | undefined;
-
 /** Opens 综合设置 at the actual control, without changing it or applying the draft.
  *  Resolves when the location is shown, not when the user later closes settings. */
 export function openSettingsAt(target: string): Promise<boolean> {
@@ -55,19 +54,7 @@ export function openSettingsAt(target: string): Promise<boolean> {
     if (!row) { resolve(false); return; }
     requestAnimationFrame(() => {
       if (!row.isConnected) { resolve(false); return; }
-      clearHighlight?.();
-      const outline = row.style.outline;
-      const offset = row.style.outlineOffset;
-      row.style.outline = "2px solid #B99C5D";
-      row.style.outlineOffset = "2px";
-      const clear = () => {
-        clearTimeout(timer);
-        row.style.outline = outline;
-        row.style.outlineOffset = offset;
-        if (clearHighlight === clear) clearHighlight = undefined;
-      };
-      const timer = window.setTimeout(clear, 2400);
-      clearHighlight = clear;
+      highlight(row);
       row.scrollIntoView({ block: "nearest", inline: "nearest" });
       const control = [...row.querySelectorAll<HTMLElement>(
         "input:not(:disabled):not([type='hidden']), select:not(:disabled), textarea:not(:disabled), button:not(:disabled), [tabindex]",

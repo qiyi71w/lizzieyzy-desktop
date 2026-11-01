@@ -1079,6 +1079,11 @@ function uiReport() {
       topToolbar: $("toolbar").offsetHeight,
       bottomToolbar: $("bottombar").offsetHeight,
     },
+    /** The control or row function search located last (its 2.4 s highlight), if still shown. */
+    located: (() => {
+      const el = document.querySelector<HTMLElement>(".located");
+      return el && { target: el.dataset.settingTarget ?? null, key: el.dataset.key ?? null, text: (el.textContent ?? "").trim().slice(0, 80) };
+    })(),
     comment: $("commentText").textContent,
     moveField: $<HTMLInputElement>("moveInput").value,
     bottomBar: [...document.querySelectorAll<HTMLElement>("#bottombar .bb")].filter((b) => b.style.display !== "none").map((b) => b.textContent),
