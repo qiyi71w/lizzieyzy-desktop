@@ -32,6 +32,7 @@ import { graphDestination, graphTarget, paintGraph, type GraphHits, type GraphRe
 import { bindTables, boardPointerMoved, boardWheel, clearTableSelection, mainTableSignature, renderMainTable, resetTables, tableBranchLength, tablesReport } from "./analysis/table";
 import { frameReport, framesReport, handleTableKey, relayFrame, startFrame } from "./analysis/tableCommands";
 import { handleHawkeyeKey, hawkeyeReport, relayHawkeye, startHawkeye } from "./hawkeye/commands";
+import { batchReport, handleBatchKey, startBatchTable } from "./batch/commands";
 import { bindCommentEditor, commentEditing } from "./editing/comment";
 import { contextMenuItems, contextMenuOpen } from "./editing/contextMenu";
 import { bindBoardInput, handleEditKey } from "./editing/input";
@@ -394,7 +395,7 @@ document.addEventListener("keydown", (e) => {
   if (dialogOpen() || flashWindowOpen() || menuOpen() || contextMenuOpen() || textTarget(e.target)) return;
   // The 存档与读档 controls keep their keys, like the Swing components holding the focus there.
   if (e.target instanceof Element && e.target.closest("#recovery")) return;
-  if (handleLayoutKey(e) || handleEngineKey(e) || handleEditKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e)) {
+  if (handleLayoutKey(e) || handleEngineKey(e) || handleEditKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e)) {
     e.preventDefault();
     return;
   }
@@ -1075,6 +1076,8 @@ function uiReport() {
     problems: problemsReport(),
     /** 超级鹰眼 (T15): the open windows, their titles and what each shows. */
     hawkeye: hawkeyeReport(),
+    /** 批量分析 (T17): whether its settings dialog is shown and what the 进度表 window last drew. */
+    batch: batchReport(),
     /** Visible menu, toolbar, bottom-bar and dialog controls with client-area centres, so
      *  automation clicks the real controls. */
     targets: [...document.querySelectorAll<HTMLElement>("[data-key], [data-name], #moveInput, .modal-box button")]
@@ -1206,6 +1209,7 @@ async function boot() {
   render();
   await startFrame(schedule);
   await startHawkeye(schedule);
+  await startBatchTable();
   await getCurrentWindow().show();
   await getCurrentWindow().setFocus();
   schedule();

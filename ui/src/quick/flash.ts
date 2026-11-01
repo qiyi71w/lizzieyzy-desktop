@@ -1,10 +1,11 @@
 // 闪电分析 (LizzieFrame.flashAnalyzeGame / flashAnalyzePart, FlashAnalyzeMenu, AnalysisPartGame,
 // WaitForAnalysis): the four entries, the move-range dialog, the progress window and the notices
-// a run ends with. The core owns the run; this module holds only the window and its 隐藏界面.
+// a run ends with; the progress window also follows a running 批量精析. The core owns the runs;
+// this module holds only the window and its 隐藏界面.
 import { registerViewHandler, run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
 import { dispatch, isApiError } from "../contract/client";
-import type { FlashAnalysisView, FlashOutcome, FlashTarget, WorkbenchView } from "../contract/generated";
+import type { AnalysisEngineSettings, Command, FlashOutcome, FlashTarget, WorkbenchView } from "../contract/generated";
 import { confirm, formPanel, message, setOwnerDisabled } from "../dialogs";
 import { absolute, parseJavaInt, place } from "../display/dialogs";
 import { toggleConsole } from "../engine/console";
@@ -15,25 +16,31 @@ import "./quick.css";
 
 const COMMAND_MISSING = "LizzieFrame.analysisCommandMissing";
 
-/** flashAnalyzeGame: a refusal is explained like Java (Utils.showMsg); a missing command offers
- *  精析设置, whose 确定 starts the same analysis (resumeFlashAnalysisAfterSettings). */
-export async function startFlash(target: FlashTarget): Promise<void> {
+/** flashAnalyzeGame's start: a refusal is explained like Java (Utils.showMsg); a missing command
+ *  offers 精析设置 (in its BATCH context for 批量精析), whose 确定 runs `retry`
+ *  (resumeFlashAnalysisAfterSettings). Resolves true once the analysis started. */
+export async function requestFlash(command: Command, retry: (kept: AnalysisEngineSettings) => Promise<void>, batch = false): Promise<boolean> {
   let result;
   try {
-    result = await dispatch({ type: "StartFlashAnalysis", target });
+    result = await dispatch(command);
   } catch (e) {
     await message("Error", isApiError(e) ? e.message : String(e), "error");
-    return;
+    return false;
   }
-  if (result.type !== "Refused") return;
+  if (result.type !== "Refused") return true;
   if (result.message_key === COMMAND_MISSING) {
     if (await confirm(t("LizzieFrame.analysisCommandMissingTitle"), t("LizzieFrame.analysisCommandMissing"))) {
-      await openAnalysisEngineSettings({ resume: () => startFlash(target) });
+      await openAnalysisEngineSettings({ resume: retry, batch });
     }
-    return;
+    return false;
   }
-  // AnalysisSettings.reuseStatus.* (showFlashAnalysisReuseUnavailable).
+  // AnalysisSettings.reuseStatus.* (showFlashAnalysisReuseUnavailable) and the conflicts.
   await message(t("Message.title"), t(result.message_key));
+  return false;
+}
+
+export async function startFlash(target: FlashTarget): Promise<void> {
+  await requestFlash({ type: "StartFlashAnalysis", target }, () => startFlash(target));
 }
 
 /** Utils.parseTextToInt with the dialog's own rule that an empty field means "from the first /
@@ -108,12 +115,22 @@ export const FLASH_MENU: MenuNode[] = [
 
 // ------------------------------------------------------------------ WaitForAnalysis
 
+/** What the window shows: a flash analysis run, or the record a 批量精析 analyses (Java opens
+ *  one window per record). `key` names either; 取消分析 sends `cancel`. */
+interface Progress {
+  key: string;
+  loading: boolean;
+  done: number;
+  total: number;
+  cancel: Command;
+}
+
 let win: HTMLElement | null = null;
 let title: HTMLElement;
 let progress: HTMLElement;
-/** The run the window shows, and the run its 隐藏界面 hid. */
-let shown: number | null = null;
-let hidden: number | null = null;
+/** The progress the window shows, and the one its 隐藏界面 hid. */
+let shown: Progress | null = null;
+let hidden: string | null = null;
 let closeTimer: number | undefined;
 
 function hideWindow(): void {
@@ -143,11 +160,12 @@ function buildWindow(): HTMLElement {
     b.onclick = action;
   };
   button(t("WaitForAnalysis.btnCancel"), "cancel", 71, () => {
+    const cancel = shown?.cancel;
     hideWindow();
-    void run({ type: "CancelFlashAnalysis" });
+    if (cancel) void run(cancel);
   });
   button(t("WaitForAnalysis.btnHide"), "hide", 148, () => {
-    hidden = shown;
+    hidden = shown?.key ?? null;
     hideWindow();
   });
   button(t("WaitForAnalysis.btnGtpConsole"), "console", 225, () => void toggleConsole());
@@ -156,25 +174,28 @@ function buildWindow(): HTMLElement {
   return box;
 }
 
-function showRun(f: FlashAnalysisView): void {
+function showProgress(p: Progress): void {
   win ??= buildWindow();
   window.clearTimeout(closeTimer);
   closeTimer = undefined;
-  shown = f.run;
+  shown = p;
   title.textContent = t("WaitForAnalysis.title");
-  progress.textContent = f.loading ? t("WaitForAnalysis.lblAnalsisProgress") : `${t("WaitForAnalysis.progress")}${f.done}/${f.total}`;
+  progress.textContent = p.loading ? t("WaitForAnalysis.lblAnalsisProgress") : `${t("WaitForAnalysis.progress")}${p.done}/${p.total}`;
   if (win.hidden) win.hidden = false;
   setOwnerDisabled(true);
 }
 
+const runKey = (run: number) => `run:${run}`;
+
 /** setProgress(n, n): 分析完毕! for a second, then closed. A hidden window stays hidden. */
 function completed(run: number): void {
-  if (shown !== run || !win) return;
+  const key = runKey(run);
+  if (shown?.key !== key || !win) return;
   title.textContent = t("AnalysisEngine.analyzeComplete");
   progress.textContent = `${t("AnalysisEngine.analyzeComplete")}!`;
   window.clearTimeout(closeTimer);
   closeTimer = window.setTimeout(() => {
-    if (shown === run) hideWindow();
+    if (shown?.key === key) hideWindow();
   }, 1000);
 }
 
@@ -194,22 +215,32 @@ function outcome(o: FlashOutcome): void {
       completed(o.run);
       return;
     case "Failed":
-      if (shown === o.run) hideWindow();
+      if (shown?.key === runKey(o.run)) hideWindow();
       // AnalysisEngine.requestDispatchFailed / foregroundRestoreFailed / reuseStatus.*.
       void message(t("Message.title"), failureText(o.message_key), "warning");
       return;
     case "EngineFailed":
-      if (shown === o.run) hideWindow();
+      if (shown?.key === runKey(o.run)) hideWindow();
       // showErrMsg: the failure itself is shown as an engine failure; then AnalysisSettings(true, true).
       void openAnalysisEngineSettings({ redo: true });
       return;
   }
 }
 
+/** A flash analysis, else a running 批量精析 (Java's batch closes each record's window at its
+ *  end and opens the next one's; 隐藏界面 lasts for that record). */
 function render(view: WorkbenchView): void {
   if (view.flash_outcome) outcome(view.flash_outcome);
   const f = view.flash;
-  if (f && f.run !== hidden) showRun(f);
+  const b = view.batch.running;
+  const p: Progress | null = f
+    ? { key: runKey(f.run), loading: f.loading, done: f.done, total: f.total, cancel: { type: "CancelFlashAnalysis" } }
+    : b?.mode === "Flash"
+      ? { key: `batch:${b.item}`, loading: b.loading, done: b.done, total: b.total, cancel: { type: "Batch", op: { type: "CancelFlash" } } }
+      : null;
+  // A later run of the same record (取消分析, then 进度表's 开始) shows again.
+  if (!p) hidden = null;
+  if (p && p.key !== hidden) showProgress(p);
   else if (shown !== null && closeTimer === undefined) hideWindow();
 }
 

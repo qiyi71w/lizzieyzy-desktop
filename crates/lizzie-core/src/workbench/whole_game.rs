@@ -160,6 +160,8 @@ impl Workbench {
         // isWholeGameAnalysisConflict: automatic analysis (isAutoAna) is an exclusive task.
         if self.auto_analysis_active() { return Ok(Err("WholeGameAnalysis.conflict".into())); }
         if self.flash_active() || self.flash_releasing() { return Ok(Err("WholeGameAnalysis.conflict.analysis".into())); }
+        // isWholeGameAnalysisConflict: `isBatchAna`, `isBatchAnalysisMode`.
+        if self.batch_engaged() { return Ok(Err("WholeGameAnalysis.conflict".into())); }
         let borrow = self.config.analysis_engine.reuse_current_engine;
         // Silent automatic analysis relinquishes its process/lease without resuming in between.
         self.quick_cancel();

@@ -111,6 +111,9 @@ pub struct AnalysisEngineSettings {
     /// 复用当前前台引擎 (`analysis-reuse-current-engine`): borrow the foreground engine instead of
     /// starting an analysis process.
     pub reuse_current_engine: bool,
+    /// 批量精析's 每手总计算量 (`batch-analysis-playouts`, default 100): a batch request searches
+    /// at least 2 visits (`AnalysisEngine.targetAnalysisVisits`).
+    pub batch_visits: u32,
 }
 
 impl Default for AnalysisEngineSettings {
@@ -125,6 +128,7 @@ impl Default for AnalysisEngineSettings {
             preload: false,
             auto_quit: true,
             reuse_current_engine: false,
+            batch_visits: 100,
         }
     }
 }

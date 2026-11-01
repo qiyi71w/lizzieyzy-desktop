@@ -19,21 +19,22 @@
 
 use std::collections::{HashMap, VecDeque};
 
+use super::analysis::AnalysisStore;
 use super::quick::{Query, RulesSignature};
 use super::Workbench;
 use crate::api::{ApiError, FlashAnalysisView, FlashOutcome, FlashTarget};
 use crate::browse::Navigation;
 use crate::engine::kata_analysis::{self, Response};
 use crate::engine::runtime::{EngineFailure, InstanceId, LeaseAvailability, LeaseFailure, RuntimeEvent};
-use crate::record::{NodeId, ROOT};
+use crate::record::{GameRecord, NodeId, ROOT};
 use crate::settings::FlashRange;
 
 /// `LizzieFrame.analysisCommandMissing`: no analysis command and the current engine not reused.
 pub const ANALYSIS_COMMAND_MISSING: &str = "LizzieFrame.analysisCommandMissing";
 /// `AnalysisEngine.requestDispatchFailed`: the borrowed engine refused or lost a search.
-const REQUEST_DISPATCH_FAILED: &str = "AnalysisEngine.requestDispatchFailed";
+pub(super) const REQUEST_DISPATCH_FAILED: &str = "AnalysisEngine.requestDispatchFailed";
 /// `AnalysisEngine.foregroundRestoreFailed`: the borrowed engine could not be given back.
-const FOREGROUND_RESTORE_FAILED: &str = "AnalysisEngine.foregroundRestoreFailed";
+pub(super) const FOREGROUND_RESTORE_FAILED: &str = "AnalysisEngine.foregroundRestoreFailed";
 /// `WholeGameAnalysis.conflict.analysis`: a whole-game session holds the analysis entries.
 pub const WHOLE_GAME_CONFLICT: &str = "WholeGameAnalysis.conflict.analysis";
 
@@ -79,7 +80,7 @@ enum Engine {
 }
 
 /// `AnalysisSettings.reuseStatus.<availability>` (`Leelaz.ExclusiveGtpLeaseAvailability`).
-fn reuse_status_key(availability: LeaseAvailability) -> String {
+pub(super) fn reuse_status_key(availability: LeaseAvailability) -> String {
     let name = match availability {
         LeaseAvailability::Available => "available",
         LeaseAvailability::NoForegroundEngine => "no_foreground_engine",
@@ -116,41 +117,11 @@ impl Workbench {
                 .is_some_and(|r| r.holds || matches!(r.engine, Engine::Lease { .. }))
     }
 
-    /// The moves a run asks about, in order: main-trunk moves and passes counted from 1 within
-    /// `[start, end)` (`shouldAnalyzeTurn`), or every move of every branch, depth first with the
-    /// main line first (`startRequestAllBranchesNow`); moves with enough visits are skipped unless
-    /// 总是覆盖 (`shouldAnalyzeNode`).
+    /// The moves a run asks about, in order (see [`flash_nodes_of`]).
     fn flash_nodes(&self, target: FlashTarget) -> Vec<NodeId> {
         let a = &self.config.analysis_engine;
         let visits = u64::from(a.max_visits.max(1)) + 1;
-        let rec = &self.doc.record;
-        let wanted = |n: NodeId| {
-            rec.node(n).kind.is_action()
-                && (a.always_override || self.store.get(rec, n).map_or(0, |r| r.visits) < visits)
-        };
-        let (start, end) = match target {
-            FlashTarget::AllBranches => {
-                let mut nodes = Vec::new();
-                let mut stack = vec![ROOT];
-                while let Some(n) = stack.pop() {
-                    if wanted(n) {
-                        nodes.push(n);
-                    }
-                    stack.extend(rec.node(n).children.iter().rev().filter(|&&c| rec.contains(c)));
-                }
-                return nodes;
-            }
-            FlashTarget::WholeGame => (-1, -1),
-            FlashTarget::MoveRange { start_move, end_move } => (start_move, end_move),
-        };
-        rec.path_to(rec.line_end(ROOT))
-            .into_iter()
-            .filter(|&n| rec.node(n).kind.is_action())
-            .zip(1..)
-            .filter(|&(_, number)| (start < 0 || number >= start) && (end < 0 || number < end))
-            .map(|(n, _)| n)
-            .filter(|&n| wanted(n))
-            .collect()
+        flash_nodes_of(&self.doc.record, &self.store, target, visits, a.always_override)
     }
 
     // -------------------------------------------------------------------- operations
@@ -159,6 +130,10 @@ impl Workbench {
     pub fn start_flash_analysis(&mut self, target: FlashTarget) -> Result<Result<bool, String>, ApiError> {
         if self.whole_game_active() {
             return Ok(Err(WHOLE_GAME_CONFLICT.to_string()));
+        }
+        // A batch holds the analysis engine or the foreground engine for its own records.
+        if self.batch_engaged() {
+            return Ok(Err(super::batch::CONFLICT.to_string()));
         }
         if let FlashTarget::MoveRange { start_move, end_move } = target {
             let range = FlashRange { start_move, end_move };
@@ -629,4 +604,43 @@ impl Workbench {
     pub(super) fn flash_outcome(&self) -> Option<FlashOutcome> {
         self.flash.outcome.clone()
     }
+}
+
+/// The moves a flash request asks about, in order: main-trunk moves and passes counted from 1
+/// within `[start, end)` (`shouldAnalyzeTurn`), or every move of every branch, depth first with
+/// the main line first (`startRequestAllBranchesNow`); moves with `visits` already are skipped
+/// unless 总是覆盖 (`shouldAnalyzeNode`).
+pub(super) fn flash_nodes_of(
+    rec: &GameRecord,
+    store: &AnalysisStore,
+    target: FlashTarget,
+    visits: u64,
+    always_override: bool,
+) -> Vec<NodeId> {
+    let wanted = |n: NodeId| {
+        rec.node(n).kind.is_action() && (always_override || store.get(rec, n).map_or(0, |r| r.visits) < visits)
+    };
+    let (start, end) = match target {
+        FlashTarget::AllBranches => {
+            let mut nodes = Vec::new();
+            let mut stack = vec![ROOT];
+            while let Some(n) = stack.pop() {
+                if wanted(n) {
+                    nodes.push(n);
+                }
+                stack.extend(rec.node(n).children.iter().rev().filter(|&&c| rec.contains(c)));
+            }
+            return nodes;
+        }
+        FlashTarget::WholeGame => (-1, -1),
+        FlashTarget::MoveRange { start_move, end_move } => (start_move, end_move),
+    };
+    rec.path_to(rec.line_end(ROOT))
+        .into_iter()
+        .filter(|&n| rec.node(n).kind.is_action())
+        .zip(1..)
+        .filter(|&(_, number)| (start < 0 || number >= start) && (end < 0 || number < end))
+        .map(|(n, _)| n)
+        .filter(|&n| wanted(n))
+        .collect()
 }

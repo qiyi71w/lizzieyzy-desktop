@@ -11,7 +11,7 @@ use super::{PendingSave, SaveJob, Workbench};
 use crate::api::{CommentLabels, ExportKind, NodeAnalysisView};
 use crate::formats::sgf_write::{self, Analysis, Export};
 use crate::formats::winrate_comment::{self, NodeEval};
-use crate::record::{DocumentEdit, NodeId, NodeKind, ROOT};
+use crate::record::{DocumentEdit, GameRecord, NodeId, NodeKind, ROOT};
 use crate::viewpoint::Viewpoint;
 
 fn eval(a: &NodeAnalysisView) -> NodeEval {
@@ -65,21 +65,32 @@ fn comment_labels(language: crate::settings::Language) -> CommentLabels {
 }
 
 impl Workbench {
-    fn node_eval(&self, store: &AnalysisStore, id: NodeId) -> Option<NodeEval> {
-        let mut a = eval(store.get(&self.doc.record, id)?);
+    fn node_eval(&self, rec: &GameRecord, store: &AnalysisStore, id: NodeId) -> Option<NodeEval> {
+        let mut a = eval(store.get(rec, id)?);
         a.pda = store.pda(id);
         (a.visits > 0).then_some(a)
     }
 
-    /// The node's comment with its analysis summary (`formatComment`); in 双引擎模式 a node the
-    /// secondary engine analysed gets that engine's summary instead (`formatComment2`), its
-    /// changes taken against the secondary engine's result of the previous node.
-    fn formatted_comment(&self, id: NodeId, labels: &CommentLabels) -> Option<String> {
-        let rec = &self.doc.record;
-        let secondary = self.double_engine() && self.node_eval(&self.secondary_store, id).is_some();
-        let store = if secondary { &self.secondary_store } else { &self.store };
-        let a = self.node_eval(store, id)?;
-        let previous = rec.node(id).parent.map(|p| self.node_eval(store, p));
+    /// The open record's secondary-engine results where they take part in its comments: in
+    /// 双引擎模式 only.
+    fn comment_secondary(&self) -> Option<&AnalysisStore> {
+        self.double_engine().then_some(&self.secondary_store)
+    }
+
+    /// The node's comment with its analysis summary (`formatComment`); a node `secondary`
+    /// analysed gets that engine's summary instead (`formatComment2`), its changes taken against
+    /// the secondary engine's result of the previous node.
+    fn formatted_comment(
+        &self,
+        rec: &GameRecord,
+        store: &AnalysisStore,
+        secondary: Option<&AnalysisStore>,
+        id: NodeId,
+        labels: &CommentLabels,
+    ) -> Option<String> {
+        let store = secondary.filter(|s| self.node_eval(rec, s, id).is_some()).unwrap_or(store);
+        let a = self.node_eval(rec, store, id)?;
+        let previous = rec.node(id).parent.map(|p| self.node_eval(rec, store, p));
         Some(winrate_comment::format(
             labels,
             Viewpoint::from(&self.config.display),
@@ -89,7 +100,7 @@ impl Workbench {
         ))
     }
 
-    /// Both engines' saved-analysis payloads (`LZ`/`LZOP`, `LZ2`/`LZOP2`).
+    /// Both engines' saved-analysis payloads (`LZ`/`LZOP`, `LZ2`/`LZOP2`) of the open record.
     fn write_payloads<T>(&self, write: impl FnOnce(Analysis) -> T) -> T {
         let rec = &self.doc.record;
         let primary = |id| self.store.payload(rec, id);
@@ -111,7 +122,7 @@ impl Workbench {
         let labels = comment_labels(self.active_language);
         let summary = |id: NodeId| {
             (id != ROOT && rec.node(id).kind != NodeKind::Snapshot)
-                .then(|| self.formatted_comment(id, &labels))
+                .then(|| self.formatted_comment(rec, &self.store, self.comment_secondary(), id, &labels))
                 .flatten()
         };
         summary(self.cursor).or_else(|| {
@@ -124,24 +135,35 @@ impl Workbench {
     /// Java mutates move comments on save, but never snapshot comments. Do so through the
     /// document's write entry before capturing the revision that the save will confirm.
     pub(super) fn prepare_save_comments(&mut self) {
+        let edits = self.save_comment_edits(&self.doc.record, &self.store, self.comment_secondary());
+        for edit in edits {
+            self.edit_document(edit).expect("save comments target existing nodes");
+        }
+    }
+
+    /// The comment edits a save of `rec` makes when 记录选点信息到评论中 is on.
+    pub(super) fn save_comment_edits(
+        &self,
+        rec: &GameRecord,
+        store: &AnalysisStore,
+        secondary: Option<&AnalysisStore>,
+    ) -> Vec<DocumentEdit> {
         if !self.config.record.append_winrate_to_comment {
-            return;
+            return Vec::new();
         }
         let labels = comment_labels(self.active_language);
         let mut pending = vec![ROOT];
         let mut edits = Vec::new();
         while let Some(id) = pending.pop() {
-            let node = self.doc.record.node(id);
+            let node = rec.node(id);
             pending.extend(node.children.iter().copied());
             if id != ROOT && node.kind != NodeKind::Snapshot {
-                if let Some(comment) = self.formatted_comment(id, &labels).filter(|c| *c != node.comment) {
+                if let Some(comment) = self.formatted_comment(rec, store, secondary, id, &labels).filter(|c| *c != node.comment) {
                     edits.push(DocumentEdit::SetComment { node: id, comment });
                 }
             }
         }
-        for edit in edits {
-            self.edit_document(edit).expect("save comments target existing nodes");
-        }
+        edits
     }
     /// The export text of the current record.
     pub fn export_text(&self, kind: ExportKind, labels: &CommentLabels) -> String {
@@ -152,7 +174,7 @@ impl Workbench {
             ExportKind::RawWithComments => {
                 // The store is the one BoardData result: imported data was loaded into it and
                 // live analysis replaces it only when stronger.
-                let comment = |id| self.formatted_comment(id, labels);
+                let comment = |id| self.formatted_comment(rec, &self.store, self.comment_secondary(), id, labels);
                 self.write_payloads(|a| {
                     sgf_write::write_export_analyzed(rec, &Export::RawWithComments { comment: &comment }, Some(a))
                 })
@@ -182,14 +204,28 @@ impl Workbench {
 
     /// 复制棋谱到剪贴板 (`SGFParser.saveToString(false)`): the record as a save writes it.
     pub fn record_text(&self, application: &str) -> String {
-        let rec = &self.doc.record;
+        self.analyzed_text(&self.doc.record, &self.store, Some(&self.secondary_store), self.comment_secondary(), application)
+    }
+
+    /// `rec` as a save writes it: `store`'s and `payload_secondary`'s analysis payloads and, when
+    /// 记录选点信息到评论中 is on, the comments with `store`'s (or `comment_secondary`'s) summary.
+    pub(super) fn analyzed_text(
+        &self,
+        rec: &GameRecord,
+        store: &AnalysisStore,
+        payload_secondary: Option<&AnalysisStore>,
+        comment_secondary: Option<&AnalysisStore>,
+        application: &str,
+    ) -> String {
         let labels = comment_labels(self.active_language);
         let comment = |id| {
             (self.config.record.append_winrate_to_comment && id != ROOT && rec.node(id).kind != NodeKind::Snapshot)
-                .then(|| self.formatted_comment(id, &labels))
+                .then(|| self.formatted_comment(rec, store, comment_secondary, id, &labels))
                 .flatten()
         };
-        self.write_payloads(|a| sgf_write::write_analyzed(rec, application, a, &comment))
+        let primary = |id| store.payload(rec, id);
+        let secondary = |id| payload_secondary.and_then(|s| s.payload(rec, id));
+        sgf_write::write_analyzed(rec, application, Analysis { primary: &primary, secondary: &secondary }, &comment)
     }
 
     /// Where the picture chooser starts: the last picture folder, else the last record folder

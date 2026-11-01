@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime};
 
-use super::analysis::{fill_pv_captures, more_visits, node_analysis};
+use super::analysis::{fill_pv_captures, more_visits, node_analysis, AnalysisStore};
 use super::resources::QUICK_MODEL;
 use super::Workbench;
 use crate::api::{
@@ -195,6 +195,7 @@ impl Workbench {
             && !self.flash_active()
             && !self.auto_analysis_active()
             && !self.whole_game_active()
+            && !self.batch_engaged()
     }
 
     fn quick_readiness(&self, borrow: bool) -> Readiness {
@@ -401,19 +402,19 @@ impl Workbench {
 
     /// `optimizeAnalysisEngineCommand`: one more visit than 单步计算量, the PV length and threads.
     pub(super) fn tuned_analysis_command(&self, base: &str) -> String {
-        let a = &self.config.analysis_engine;
+        self.tuned_command_for(base, self.config.analysis_engine.max_visits.max(1) + 1)
+    }
+
+    /// [`Self::tuned_analysis_command`] for requests of `visits` (批量精析's
+    /// `max(2, batch-analysis-playouts)`).
+    pub(super) fn tuned_command_for(&self, base: &str, visits: u32) -> String {
         // Apple Silicon runs this application's KataGo with its own thread profile.
         let apple = (cfg!(target_os = "macos") && cfg!(target_arch = "aarch64"))
             .then(|| prepare_launch(base, self.engines.roots()))
             .flatten()
             .filter(|spec| PathBuf::from(&spec.program).starts_with(self.resources.store().root()))
             .map(|_| recommended_threads(std::thread::available_parallelism().map_or(1, |n| n.get() as u32)));
-        analysis_command::optimize(
-            base,
-            a.max_visits.max(1) + 1,
-            self.config.engine.analysis.limit_branch_length,
-            apple,
-        )
+        analysis_command::optimize(base, visits, self.config.engine.analysis.limit_branch_length, apple)
     }
 
     /// `resolveLocalAnalysisRules`.
@@ -582,6 +583,7 @@ impl Workbench {
         self.quick_cancel();
         self.flash_engine_changed();
         self.whole_game_engine_changed();
+        self.batch_engine_changed();
     }
 
     /// A cancelled task's borrowed engine is still being given back.
@@ -707,9 +709,26 @@ impl Workbench {
         prefix: &str,
     ) -> (HashMap<String, Query>, bool) {
         let rec = self.doc.record.clone();
+        let (komi, rules_rev) = (self.komi, self.rules_revision);
+        let visits = self.config.analysis_engine.max_visits.max(1) + 1;
+        self.send_record_queries(instance, &rec, komi, rules_rev, visits, nodes, prefix)
+    }
+
+    /// [`Self::send_analysis_queries`] for any record: `rec` under `komi`, searching `visits`.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn send_record_queries(
+        &mut self,
+        instance: InstanceId,
+        rec: &GameRecord,
+        komi: f64,
+        rules_rev: u64,
+        visits: u32,
+        nodes: &[NodeId],
+        prefix: &str,
+    ) -> (HashMap<String, Query>, bool) {
         let options = QueryOptions {
-            max_visits: self.config.analysis_engine.max_visits.max(1) + 1,
-            komi: self.komi,
+            max_visits: visits,
+            komi,
             rules: self.quick_rules(),
             pv_visits: self.config.display.pv_visits != PvVisitsMode::Off,
             ownership: false,
@@ -721,15 +740,15 @@ impl Workbench {
             let id = format!("{prefix}-{node}");
             sent &= self
                 .engines
-                .worker_send(instance, &kata_analysis::query(&id, &rec, node, &options));
+                .worker_send(instance, &kata_analysis::query(&id, rec, node, &options));
             let n = rec.node(node);
             queries.insert(
                 id,
                 Query {
                     node,
                     stamp: n.stamp,
-                    komi: self.komi,
-                    rules_rev: self.rules_revision,
+                    komi,
+                    rules_rev,
                     to_play: n.to_play,
                 },
             );
@@ -850,6 +869,21 @@ impl Workbench {
             return;
         }
         let rec = self.doc.record.clone();
+        let mut store = std::mem::take(&mut self.store);
+        self.absorb_background_result(&mut store, &rec, q, line, borrowed);
+        self.store = store;
+    }
+
+    /// Stores a background result for `rec` in `store` when its node still has the position it
+    /// was asked for.
+    pub(super) fn absorb_background_result(
+        &self,
+        store: &mut AnalysisStore,
+        rec: &GameRecord,
+        q: &Query,
+        line: InfoLine,
+        borrowed: bool,
+    ) {
         if !rec.contains(q.node) || rec.node(q.node).stamp != q.stamp {
             return;
         }
@@ -870,11 +904,11 @@ impl Workbench {
             }
         }
         let replace = self.config.analysis_engine.always_override
-            || self.store.get(&rec, q.node).is_none_or(|old| more_visits(&result, old));
+            || store.get(rec, q.node).is_none_or(|old| more_visits(&result, old));
         if replace {
             let limit = self.config.engine.analysis.limit_branch_length;
             fill_pv_captures(&mut result, &rec.position(q.node), limit, !self.config.edit.no_capture);
-            self.store.insert(q.node, q.stamp, result, ownership);
+            store.insert(q.node, q.stamp, result, ownership);
         }
     }
 
@@ -1040,6 +1074,7 @@ impl Workbench {
             || self.quick_borrows()
             || self.flash_active()
             || self.whole_game_active()
+            || self.batch_flash_engaged()
         {
             return;
         }

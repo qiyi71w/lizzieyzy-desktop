@@ -16,6 +16,7 @@
 
 mod analysis;
 mod auto_analysis;
+mod batch;
 mod editing;
 mod exporting;
 mod flash;
@@ -252,6 +253,8 @@ pub struct Workbench {
     flash: flash::FlashFlow,
     auto_analysis: auto_analysis::AutoAnalysisFlow,
     whole_game: whole_game::WholeGameFlow,
+    /// 批量分析 / 批量精析: the queue and its background record.
+    batch: batch::BatchFlow,
     /// The problem move a 问题手 jump marked, while browsing the position before it
     /// (`clickbadmove`): document, that position, the move's node.
     problem_mark: Option<(u64, NodeId, NodeId)>,
@@ -354,6 +357,7 @@ impl Workbench {
             flash: flash::FlashFlow::default(),
             auto_analysis: auto_analysis::AutoAnalysisFlow::default(),
             whole_game: whole_game::WholeGameFlow::default(),
+            batch: batch::BatchFlow::default(),
             problem_mark: None,
             hawkeye_session: hawkeye::HawkeyeSession::default(),
         }
@@ -444,7 +448,7 @@ impl Workbench {
                 });
             }
             Ok(read) => {
-                self.auto_analysis_abandon();
+                self.auto_analysis_document_replaced();
                 // Opening waits while a borrowed foreground engine is given back.
                 let Some((_, Ok((format, mut record)))) = self.quick_defer_open((ticket, Ok(read))) else {
                     self.pending = Some(pending);
@@ -611,6 +615,9 @@ impl Workbench {
             return false;
         };
         let save = self.saves.remove(at);
+        if self.batch_save_finished(ticket, &result) {
+            return true;
+        }
         let automatic = self.auto_analysis_save_finished(ticket, result.is_ok());
         match result {
             Err(detail) => {
@@ -947,6 +954,7 @@ impl Workbench {
             quick: self.quick_view(),
             flash: self.flash_view(),
             auto_analysis: self.auto_analysis_view(),
+            batch: self.batch_view(),
             flash_outcome: None,
             whole_game: self.whole_game_view(),
             problems: self.problem_list(),

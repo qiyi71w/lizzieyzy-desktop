@@ -4,6 +4,7 @@
 //! them (see `tests/contract.rs`); the UI, its shortcuts and the acceptance channel all send the
 //! same [`Command`] values and read the same [`WorkbenchView`].
 
+mod batch;
 mod editing;
 mod export;
 mod hawkeye;
@@ -14,6 +15,7 @@ mod tuning;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+pub use batch::*;
 pub use editing::*;
 pub use export::*;
 pub use hawkeye::*;
@@ -353,6 +355,10 @@ pub enum Command {
     /// `ExportFailed` or `Unchanged`.
     ExportTable {
         rows: Vec<Vec<String>>,
+    },
+    /// 批量分析 / 批量精析 and their 进度表.
+    Batch {
+        op: BatchCommand,
     },
 }
 
@@ -866,6 +872,8 @@ pub struct WorkbenchView {
     /// Manual flash analysis in progress.
     pub flash: Option<FlashAnalysisView>,
     pub auto_analysis: AutoAnalysisView,
+    /// 批量分析 / 批量精析 and their 进度表.
+    pub batch: BatchView,
     /// How a flash analysis ended, once.
     pub flash_outcome: Option<FlashOutcome>,
     /// Session projection, retained after completion/cancel/failure.

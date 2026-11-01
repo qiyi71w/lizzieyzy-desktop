@@ -222,7 +222,7 @@ impl Workbench {
         let d = &self.config.display;
         let line = self.hawkeye_line();
         let katago = engine_katago || store.has_scores();
-        let moves: Vec<MoveEvaluation> = line.iter().filter_map(|&n| self.evaluation_in(store, n)).collect();
+        let moves: Vec<MoveEvaluation> = line.iter().filter_map(|&n| self.evaluation_of(rec, store, n)).collect();
         let parent_number = |e: &MoveEvaluation| i64::from(rec.parent(e.node).map_or(0, |p| rec.node(p).move_number));
         // Java keeps move N's numbers on node N - 1: `moveNumber + 1 <= last && moveNumber >= first`.
         let in_range = |e: &MoveEvaluation| {

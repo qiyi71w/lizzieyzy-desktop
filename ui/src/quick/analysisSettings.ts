@@ -149,19 +149,27 @@ function hintLabel(): HTMLElement {
   return el;
 }
 
-/** How the dialog was opened from a flash analysis (AnalysisSettings(isDuringAnalyze, fromError)). */
+/** How the dialog was opened from a flash analysis (AnalysisSettings(isDuringAnalyze, fromError,
+ *  context)). */
 export interface AnalysisSettingsOptions {
   /** After a failed analysis process: 确定并重新计算 is shown (isDuringAnalyze). */
   redo?: boolean;
-  /** The flash analysis to start after 确定 (promptForMissingFlashAnalysisCommand →
-   *  resumeFlashAnalysisAfterSettings); closing the dialog drops it. */
-  resume?: () => Promise<void>;
+  /** The flash analysis to start after 确定 with the settings it kept
+   *  (promptForMissingFlashAnalysisCommand → resumeFlashAnalysisAfterSettings); closing the
+   *  dialog drops it. */
+  resume?: (kept: AnalysisEngineSettings) => Promise<void>;
+  /** Context.BATCH: the 单步计算量 field shows and saves 批量精析's `batchVisits` instead of
+   *  `maxVisits`. Without it the dialog follows Java's default: BATCH while a 批量精析 runs
+   *  (`isBatchAnalysisMode`). */
+  batch?: boolean;
 }
 
-export async function openAnalysisEngineSettings(options: AnalysisSettingsOptions = {}): Promise<void> {
+/** Resolves to the settings 确定 kept, or null when the dialog was closed without saving. */
+export async function openAnalysisEngineSettings(options: AnalysisSettingsOptions = {}): Promise<AnalysisEngineSettings | null> {
   const fromError = options.redo === true || options.resume !== undefined;
   const view = state.view;
-  if (!view) return;
+  if (!view) return null;
+  const batch = options.batch ?? view.batch.running?.mode === "Flash";
   const saved: AnalysisEngineSettings = { ...view.settings.analysis_engine };
   // resolveAnalysisEngineCommandForDisplay: a command that follows the managed engine is
   // generated again from the current engine; otherwise (or when that fails) the saved one shows.
@@ -223,8 +231,9 @@ export async function openAnalysisEngineSettings(options: AnalysisSettingsOption
   place(panel, text(t("AnalysisSettings.lblMaxVisits")), 10, 233, 136, 20);
   const visits = place(panel, document.createElement("input"), 80, 231, 66, 24);
   visits.type = "text";
-  visits.value = String(saved.maxVisits);
-  visits.dataset.key = "analysisSettings.maxVisits";
+  // Context.BATCH (java:303-306): the same label edits `batch-analysis-playouts`.
+  visits.value = String(batch ? saved.batchVisits : saved.maxVisits);
+  visits.dataset.key = batch ? "analysisSettings.batchVisits" : "analysisSettings.maxVisits";
   visits.setAttribute("aria-label", t("AnalysisSettings.lblMaxVisits"));
   place(panel, text(t("AnalysisSettings.lblRules")), 10, 258, 54, 20);
   const current = choice("radio", t("AnalysisSettings.rdoUseCurrentRules"), "useCurrentRules", saved.useCurrentRules);
@@ -262,16 +271,19 @@ export async function openAnalysisEngineSettings(options: AnalysisSettingsOption
   redo.hidden = options.redo !== true;
   const dialog = formPanel(t("AnalysisSettings.title"), panel);
   let saving = false;
+  let kept: AnalysisEngineSettings | null = null;
   /** saveConfig; `then` runs once the settings are kept and the dialog is closed. */
   const save = async (then: () => Promise<unknown>) => {
     if (saving) return;
     saving = true;
     try {
       const typed = parseJavaInt(visits.value.trim());
+      // saveConfig (java:660-668): BATCH keeps the typed number as it is; otherwise at least 1.
       const settings: AnalysisEngineSettings = {
         ...saved,
         command: command.value.trim(),
-        maxVisits: Math.max(1, typed ?? saved.maxVisits),
+        maxVisits: batch ? saved.maxVisits : Math.max(1, typed ?? saved.maxVisits),
+        batchVisits: batch ? (typed ?? saved.batchVisits) : saved.batchVisits,
         useCurrentRules: current.input.checked,
         specificRules: rules,
         alwaysOverride: override.input.checked,
@@ -282,6 +294,7 @@ export async function openAnalysisEngineSettings(options: AnalysisSettingsOption
       // A refusal (AnalysisSettings.commandRequired) is shown by run and keeps the dialog open.
       const result = await run({ type: "SaveAnalysisEngineSettings", settings, shown_command: shown, edited });
       if (!result || result.type === "Refused") return;
+      kept = settings;
       await dialog.close();
       await then();
     } finally {
@@ -293,12 +306,13 @@ export async function openAnalysisEngineSettings(options: AnalysisSettingsOption
   confirm.onclick = () => save(async () => {
     if (!fromError) return;
     await run({ type: "CancelFlashAnalysis" });
-    await options.resume?.();
+    if (kept) await options.resume?.(kept);
   });
   // 确定并重新计算: the last flash analysis runs again with the new settings.
   redo.onclick = () => save(() => run({ type: "RedoFlashAnalysis" }));
   showGeneratedConfig(generatedConfig);
   await dialog.closed;
+  return kept;
 }
 
 Object.assign(COMMANDS, {

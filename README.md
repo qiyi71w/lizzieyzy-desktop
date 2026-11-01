@@ -309,8 +309,31 @@ importing the matching LizzieYzy Next settings.
   `<name>_已分析_<yyyyMMddHHmmss>.sgf` beside the source, or `AnalyzedGames/<timestamp>.sgf` in
   this client's application data directory for a new record. They are copies, not a rename of
   the source. The root gets Java's AI-match/top-ten-difference summaries for sides with at least
-  ten evaluable moves; like Java, the open record shows them too without becoming unsaved. Batch
-  analysis and the popup's batch progress table are not available yet.
+  ten evaluable moves; like Java, the open record shows them too without becoming unsaved.
+- 批量分析 (`Ctrl+O` on the board, 分析 menu or the 自动分析 popup; also several record files
+  dropped on the window) and 批量精析 choose several SGF/GIB files and open Java's settings:
+  批量分析 uses the 自动分析 fields (its start move defaults to the first move and its records are
+  always saved); 批量精析 asks for the move range, 每手总计算量 (`batch-analysis-playouts`,
+  default 100; a search uses at least 2) and 分析所有分支, and its 设置 button edits that value in
+  精析设置. Each record is read and analysed in turn, then saved beside its source as
+  `<name>_已分析_<yyyyMMddHHmmss>.sgf` (always SGF; the source is not changed). Unlike Java, the
+  records are analysed as background documents: the open record stays on the board and can be
+  browsed, edited and saved meanwhile, and nothing the batch does marks it saved or moves it.
+  批量分析 runs automatic analysis with the foreground engine (which follows the batch record
+  while it runs); 终止自动分析 or 进度表's 开始/结束 asks about strengthening as single-record
+  analysis does, saves the current record and ends the batch. 批量精析 uses the 精析设置
+  analysis process (or the borrowed foreground engine) for the whole batch and shows its
+  progress window; 取消分析 ends the engine without saving the current record, which stays first
+  in 进度表 so 开始/结束(闪电模式) continues from it. 批量分析进度表 lists the current record and
+  the ones still to analyse (finished ones leave the list), with the current record's progress,
+  增加棋谱, 清空 (which stops a running batch first), and per-row 优先 / 上移 / 下移 / 删除;
+  it opens by itself when 批量分析 of several records starts. A record that cannot be read ends
+  批量分析 naming that file, as in Java; 批量精析 reports it and goes on with the next record
+  (Java analyses the previous record again and saves it under the unreadable file's name).
+  Unreadable records and any save that fails are listed when the batch ends, and records already
+  saved stay. The queue is not kept across restarts (Java keeps it only in memory).
+  While a batch runs, single-record automatic, flash and whole-game analyses are refused with
+  Java's conflict message.
 - 整盘精析 (分析 menu, `Ctrl+Shift+B`, or 自动分析 popup): a modeless dialog selects 500, 1,000,
   3,000, 10,000 or a custom 500–1,000,000 visits per position. It first fills the missing
   32-visit overview of the starting position and every main-trunk move, then searches missing

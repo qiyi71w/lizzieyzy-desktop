@@ -272,7 +272,7 @@ fn autosave_is_a_captured_copy_and_settings_survive_restart() {
     let mut s = settings(); s.auto_save = true; s.exit_tip = false;
     wb.start_auto_analysis(s.clone()).unwrap().unwrap(); serve(&mut wb, &world, id);
     info(&mut wb, id, 10, 0, 0.5); wb.stop_auto_analysis();
-    let jobs = wb.take_auto_analysis_saves(); assert_eq!(jobs.len(), 1);
+    let jobs = wb.take_background_saves(); assert_eq!(jobs.len(), 1);
     assert!(jobs[0].create_parent); assert!(jobs[0].path.to_string_lossy().contains("test_已分析_"));
     // Only the root was searched: Java saves root/setup analysis as LZOP, not move-node LZ.
     let captured = sgf::read(&jobs[0].text).unwrap();
@@ -295,7 +295,7 @@ fn validation_and_stop_before_first_result_do_not_save() {
     assert_eq!(wb.start_auto_analysis(AutoAnalysisSettings { time_enabled: false, ..Default::default() }).unwrap(), Err("SetDiffAnalyze.noCondition"));
     let mut s = settings(); s.auto_save = true;
     wb.start_auto_analysis(s).unwrap().unwrap(); serve(&mut wb, &world, id); wb.stop_auto_analysis();
-    assert!(wb.take_auto_analysis_saves().is_empty());
+    assert!(wb.take_background_saves().is_empty());
 }
 
 #[test]
@@ -349,7 +349,7 @@ fn autosave_summary_includes_the_final_moves_and_never_runs_without_autosave() {
         // Like Java, the summary is in the open record too, which keeps its saved state.
         assert_eq!(wb.document().record.node(0).comment.contains("黑吻合度:"), save);
         assert_eq!(wb.document().unsaved(), edited, "analysis never marks the record unsaved");
-        let jobs = wb.take_auto_analysis_saves();
+        let jobs = wb.take_background_saves();
         assert_eq!(jobs.len(), usize::from(save));
         if let Some(job) = jobs.first() {
             assert!(job.text.contains("黑吻合度:") && job.text.contains("白吻合度:"));
@@ -366,7 +366,7 @@ fn engine_failure_ends_auto_without_saving_or_adopting_late_results() {
     wb.start_auto_analysis(s).unwrap().unwrap(); serve(&mut wb, &world, id);
     info(&mut wb, id, 10, 0, 0.5); serve(&mut wb, &world, id);
     wb.engine_input(id, EngineInput::Exited(Some(1)));
-    assert!(!wb.view(true).auto_analysis.active); assert!(wb.take_auto_analysis_saves().is_empty());
+    assert!(!wb.view(true).auto_analysis.active); assert!(wb.take_background_saves().is_empty());
     info(&mut wb, id, 1000, 0, 0.5); assert_eq!(wb.view(true).position.node, 1);
 }
 
@@ -399,7 +399,7 @@ fn failed_quick_handback_refuses_auto_and_keeps_the_foreground_quarantined() {
     let view = wb.view(true);
     assert!(!view.auto_analysis.active); assert!(view.engine.unrestored.is_some());
     assert_eq!(view.auto_analysis.notice.unwrap().message_key, "AutoAnalyze.releaseFailed");
-    assert!(wb.take_auto_analysis_saves().is_empty());
+    assert!(wb.take_background_saves().is_empty());
 }
 
 #[test]
@@ -408,7 +408,7 @@ fn unavailable_engine_and_failed_autosave_have_java_messages() {
     let mut s = settings(); s.auto_save = true;
     wb.start_auto_analysis(s).unwrap().unwrap(); serve(&mut wb, &world, id);
     info(&mut wb, id, 10, 0, 0.5); wb.stop_auto_analysis();
-    let job = wb.take_auto_analysis_saves().remove(0);
+    let job = wb.take_background_saves().remove(0);
     wb.complete_save(job.ticket, Err("read-only directory".into()));
     assert_eq!(wb.view(true).auto_analysis.notice.unwrap().message_key, "LizzieFrame.saveFileFailed");
     wb.shutdown_engines(lizzie_core::api::EngineScope::Current);

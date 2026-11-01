@@ -298,6 +298,17 @@ impl Workbench {
         }
     }
 
+    /// The position the foreground engine is given: 批量分析's record while it runs there, else
+    /// the browsing position.
+    pub(super) fn foreground_target(&self) -> Target {
+        if self.auto_analysis_holds_foreground() {
+            if let Some(target) = self.batch_target() {
+                return target;
+            }
+        }
+        self.analysis_target()
+    }
+
     /// 双引擎模式 is shown: the secondary engine analyses with the foreground engine.
     pub(super) fn double_engine(&self) -> bool {
         self.config.ui.extra_mode == ExtraMode::DoubleEngine
@@ -425,6 +436,14 @@ impl Workbench {
         if self.secondary_limit_stop.is_some_and(|l| l != here) {
             self.secondary_limit_stop = None;
         }
+        // 批量分析 analyses its own record with the foreground engine (the user's pause stops it,
+        // as Java's ponder toggle does); the secondary engine stays idle meanwhile.
+        if self.auto_analysis_holds_foreground() {
+            let analyse = !self.paused && !self.benchmark_running() && !self.quick_holds_foreground();
+            self.engines.want_secondary(None, false);
+            self.engines.want(Some(self.foreground_target()), analyse);
+            return;
+        }
         // A running quick analysis leaves the foreground engine idle until it ends.
         let analyse = !self.paused
             && !self.benchmark_running()
@@ -432,6 +451,7 @@ impl Workbench {
             && !self.quick_holds_foreground()
             && !self.flash_holds_foreground()
             && !self.whole_game_holds_foreground()
+            && !self.batch_holds_foreground()
             && self.rules_permit_analysis();
         let target = self.analysis_target();
         if self.double_engine() {
@@ -479,7 +499,7 @@ impl Workbench {
         self.sounds.clear();
         self.quick_cancel();
         self.flash_document_closing();
-        self.auto_analysis_abandon();
+        self.auto_analysis_document_replaced();
         self.whole_game_document_closing();
         self.reset_analysis();
         self.reset_editing();
@@ -724,7 +744,7 @@ impl Workbench {
     /// stopped. Never written to disk.
     pub fn toggle_analysis(&mut self) -> Result<bool, ApiError> {
         if self.auto_analysis_toggle_pause() { return Ok(true); }
-        if self.quick_toggle_pause() || self.flash_toggle_pause() || self.whole_game_toggle_pause() {
+        if self.quick_toggle_pause() || self.flash_toggle_pause() || self.whole_game_toggle_pause() || self.batch_toggle_pause() {
             self.limit_stop = None;
             self.secondary_limit_stop = None;
             self.sync_engine();
@@ -1079,7 +1099,12 @@ impl Workbench {
         let mut changed = false;
         for ev in events {
             changed = true;
-            let Some(ev) = self.quick_event(ev).and_then(|ev| self.flash_event(ev)).and_then(|ev| self.whole_game_event(ev)) else {
+            let Some(ev) = self
+                .quick_event(ev)
+                .and_then(|ev| self.flash_event(ev))
+                .and_then(|ev| self.whole_game_event(ev))
+                .and_then(|ev| self.batch_event(ev))
+            else {
                 continue;
             };
             match ev {
@@ -1128,6 +1153,11 @@ impl Workbench {
                     // have no effect.
                     let secondary = Some(instance) == self.engines.secondary();
                     if !secondary && Some(instance) != self.engines.foreground() {
+                        continue;
+                    }
+                    // 批量分析's record has its own store and run.
+                    if !secondary && Some(doc) == self.batch_doc_id() {
+                        self.batch_foreground_result(doc, node, stamp, komi, to_play, engine_name, line, elapsed);
                         continue;
                     }
                     if doc != self.doc.id

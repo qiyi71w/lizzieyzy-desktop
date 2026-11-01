@@ -162,6 +162,8 @@ pub struct Mapped {
     pub analysis_preload: Option<bool>,
     pub analysis_auto_quit: Option<bool>,
     pub analysis_reuse_current_engine: Option<bool>,
+    /// 批量精析 visits (`ui.batch-analysis-playouts`).
+    pub analysis_batch_visits: Option<u32>,
     /// 局部精析's move range (`ui.analysis-start-move`, `analysis-end-move`).
     pub flash_start_move: Option<i32>,
     pub flash_end_move: Option<i32>,
@@ -724,6 +726,12 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "analysis-max-visits",
         ImportTarget::AnalysisEngine,
         Kind::U32(|m, v| m.analysis_max_visits = Some(v.max(1))),
+    ),
+    (
+        "ui",
+        "batch-analysis-playouts",
+        ImportTarget::AnalysisEngine,
+        Kind::U32(|m, v| m.analysis_batch_visits = Some(v)),
     ),
     (
         "ui",
@@ -2103,6 +2111,7 @@ impl Mapped {
         set!(ae.preload, self.analysis_preload);
         set!(ae.auto_quit, self.analysis_auto_quit);
         set!(ae.reuse_current_engine, self.analysis_reuse_current_engine);
+        set!(ae.batch_visits, self.analysis_batch_visits);
         set!(c.flash_range.start_move, self.flash_start_move);
         set!(c.flash_range.end_move, self.flash_end_move);
         let mut auto = serde_json::to_value(&c.auto_analysis).expect("settings serialize");
@@ -2299,6 +2308,7 @@ impl Mapped {
             self.analysis_auto_quit.is_some_and(|v| v != ae.auto_quit),
             self.analysis_reuse_current_engine
                 .is_some_and(|v| v != ae.reuse_current_engine),
+            self.analysis_batch_visits.is_some_and(|v| v != ae.batch_visits),
         ];
         if analysis_engine.contains(&true) {
             out.push(ImportTarget::AnalysisEngine);

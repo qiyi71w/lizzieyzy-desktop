@@ -97,7 +97,7 @@ showPonderLimitedTips: boolean, };
 
 export type EngineScope = "Current" | "Others" | "All";
 
-export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SetExtraMode", mode: ExtraMode, } | { "type": "SwitchSecondaryEngine", index: number, } | { "type": "RestartSecondaryEngine" } | { "type": "ShutdownSecondaryEngine" } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "SetDisplaySettings", settings: DisplaySettings, } | { "type": "ToggleRawNet" } | { "type": "StopRawNet" } | { "type": "SetKataEstimate", mode: KataEstimateMode, } | { "type": "ToggleKataEstimate" } | { "type": "Score", op: ScoreCommand, } | { "type": "SetAutoQuickAnalyze", enabled: boolean, } | { "type": "SetLoadSgfLast", enabled: boolean, } | { "type": "SaveAnalysisEngineSettings", settings: AnalysisEngineSettings, shown_command: string, edited: boolean, } | { "type": "GenerateAnalysisCommand", index: number | null, } | { "type": "SetQuickModelEnabled", enabled: boolean, } | { "type": "SetProblemList", settings: ProblemListSettings, } | { "type": "JumpToProblemMove", node: number, } | { "type": "StartFlashAnalysis", target: FlashTarget, } | { "type": "CancelFlashAnalysis" } | { "type": "RedoFlashAnalysis" } | { "type": "StartAutoAnalysis", settings: AutoAnalysisSettings, } | { "type": "StopAutoAnalysis" } | { "type": "AnswerAutoAnalysisDiff", accept: boolean, } | { "type": "SaveAutoAnalysisSettings", settings: AutoAnalysisSettings, } | { "type": "DismissAutoAnalysisTip", never_again: boolean, } | { "type": "StartWholeGameAnalysis", visits: number, } | { "type": "PauseWholeGameAnalysis" } | { "type": "ResumeWholeGameAnalysis" } | { "type": "StopWholeGameAnalysis" } | { "type": "EstimateWholeGameAnalysis", visits: number, } | { "type": "Hawkeye", op: HawkeyeCommand, } | { "type": "SetHawkeyeSettings", settings: HawkeyeSettings, } | { "type": "ExportTable", rows: Array<Array<string>>, };
+export type Command = { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SetExtraMode", mode: ExtraMode, } | { "type": "SwitchSecondaryEngine", index: number, } | { "type": "RestartSecondaryEngine" } | { "type": "ShutdownSecondaryEngine" } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "SetDisplaySettings", settings: DisplaySettings, } | { "type": "ToggleRawNet" } | { "type": "StopRawNet" } | { "type": "SetKataEstimate", mode: KataEstimateMode, } | { "type": "ToggleKataEstimate" } | { "type": "Score", op: ScoreCommand, } | { "type": "SetAutoQuickAnalyze", enabled: boolean, } | { "type": "SetLoadSgfLast", enabled: boolean, } | { "type": "SaveAnalysisEngineSettings", settings: AnalysisEngineSettings, shown_command: string, edited: boolean, } | { "type": "GenerateAnalysisCommand", index: number | null, } | { "type": "SetQuickModelEnabled", enabled: boolean, } | { "type": "SetProblemList", settings: ProblemListSettings, } | { "type": "JumpToProblemMove", node: number, } | { "type": "StartFlashAnalysis", target: FlashTarget, } | { "type": "CancelFlashAnalysis" } | { "type": "RedoFlashAnalysis" } | { "type": "StartAutoAnalysis", settings: AutoAnalysisSettings, } | { "type": "StopAutoAnalysis" } | { "type": "AnswerAutoAnalysisDiff", accept: boolean, } | { "type": "SaveAutoAnalysisSettings", settings: AutoAnalysisSettings, } | { "type": "DismissAutoAnalysisTip", never_again: boolean, } | { "type": "StartWholeGameAnalysis", visits: number, } | { "type": "PauseWholeGameAnalysis" } | { "type": "ResumeWholeGameAnalysis" } | { "type": "StopWholeGameAnalysis" } | { "type": "EstimateWholeGameAnalysis", visits: number, } | { "type": "Hawkeye", op: HawkeyeCommand, } | { "type": "SetHawkeyeSettings", settings: HawkeyeSettings, } | { "type": "ExportTable", rows: Array<Array<string>>, } | { "type": "Batch", op: BatchCommand, };
 
 export type CommandResult = { "type": "Done" } | { "type": "WholeGameEstimate", millis: number | null, } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "NeedsEditConfirmation", target: EditTarget, } | { "type": "Exported", path: string, } | { "type": "ExportFailed", path: string, detail: string, } | { "type": "Refused", message_key: string, } | { "type": "SaveStarted", ticket: number, } | { "type": "NeedsReplaceConfirmation", document: number, file_name: string, } | { "type": "NeedsOverwriteConfirmation", path: string, } | { "type": "NeedsExportOverwriteConfirmation", kind: ExportKind, path: string, } | { "type": "NeedsImageOverwriteConfirmation", path: string, } | { "type": "FolderChosen", path: string, } | { "type": "JavaImportPreview", preview: ImportPreviewView, } | { "type": "JavaImportFailed", failure: ImportFailure, } | { "type": "JavaImported", report: ImportReportView, } | { "type": "Resource", result: ResourceResult, } | { "type": "Tuning", result: TuningResult, } | { "type": "AnalysisCommand", command: string, generated_config: string | null, };
 
@@ -477,6 +477,10 @@ quick: QuickAnalysisView,
  * Manual flash analysis in progress.
  */
 flash: FlashAnalysisView | null, auto_analysis: AutoAnalysisView, 
+/**
+ * 批量分析 / 批量精析 and their 进度表.
+ */
+batch: BatchView, 
 /**
  * How a flash analysis ended, once.
  */
@@ -1343,7 +1347,12 @@ autoQuit: boolean,
  * 复用当前前台引擎 (`analysis-reuse-current-engine`): borrow the foreground engine instead of
  * starting an analysis process.
  */
-reuseCurrentEngine: boolean, };
+reuseCurrentEngine: boolean, 
+/**
+ * 批量精析's 每手总计算量 (`batch-analysis-playouts`, default 100): a batch request searches
+ * at least 2 visits (`AnalysisEngine.targetAnalysisVisits`).
+ */
+batchVisits: number, };
 
 export type QuickModelView = { status: QuickModelStatus, 
 /**
@@ -1712,6 +1721,71 @@ sort: number,
  * The 详细列表's 9 or 12 column widths; empty for Java's preferred widths.
  */
 columns: Array<number>, };
+
+export type BatchMode = "Ordinary" | "Flash";
+
+export type BatchMove = "Prior" | "Up" | "Down";
+
+export type BatchCommand = { "type": "Choose", mode: BatchMode, } | { "type": "Open", mode: BatchMode, paths: Array<string>, source: OpenSource, } | { "type": "Setup", mode: BatchMode, } | { "type": "StartOrdinary", settings: AutoAnalysisSettings, } | { "type": "StartFlash", start_move: number, end_move: number, visits: number, all_branches: boolean, } | { "type": "CancelSetup" } | { "type": "CancelFlash" } | { "type": "AddFiles" } | { "type": "Clear" } | { "type": "Move", item: number, to: BatchMove, } | { "type": "Remove", item: number, };
+
+export type BatchItemView = { id: number, 
+/**
+ * The file name shown in the 文件名 column.
+ */
+name: string, path: string, };
+
+export type BatchRunView = { mode: BatchMode, 
+/**
+ * The queued record, the first row.
+ */
+item: number, 
+/**
+ * The record is being read, or its engine is starting or being borrowed
+ * (进度: 引擎加载中...).
+ */
+loading: boolean, 
+/**
+ * Positions analysed so far, of `total`.
+ */
+done: number, total: number, 
+/**
+ * 批量精析 borrows the foreground engine instead of an analysis process.
+ */
+borrowed: boolean, };
+
+export type BatchFailure = { path: string, 
+/**
+ * `LizzieFrame.prompt.failedToOpenFile` or `LizzieFrame.saveFileFailed`.
+ */
+message_key: string, detail: string, };
+
+export type BatchNotice = { id: number, 
+/**
+ * `Leelaz.batchAutoAnalyzeComplete`, `Leelaz.batchAutoAnalyzeStopped`,
+ * `LizzieFrame.prompt.failedToOpenFile`, `AnalysisEngine.requestDispatchFailed`,
+ * `AnalysisEngine.foregroundRestoreFailed` or `AutoAnalyze.engineUnavailable`.
+ */
+message_key: string, 
+/**
+ * Every record of this batch that could not be read or saved, in order.
+ */
+failures: Array<BatchFailure>, };
+
+export type BatchView = { 
+/**
+ * 批量分析进度表's rows: the current record first, then the records still to analyse
+ * (finished records leave the table, as `Batchfiles` from `BatchAnaNum`).
+ */
+items: Array<BatchItemView>, 
+/**
+ * The settings dialog to show for the queue.
+ */
+setup: BatchMode | null, running: BatchRunView | null, 
+/**
+ * Increases when 进度表 should open (`openAnalysisTable` as 批量分析 of several records
+ * starts).
+ */
+open_table: number, notice: BatchNotice | null, };
 
 export type ManagedProfile = { command: string, assetId: string, weightPath: string, configPath: string, };
 

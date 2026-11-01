@@ -1,4 +1,5 @@
-// StartAnaDialog(false), SetDiffAnalyze and AutoAnalyzeMenu. Drafts only; Rust owns the run.
+// StartAnaDialog (the automatic analysis and the two batch variants), SetDiffAnalyze and
+// AutoAnalyzeMenu. Drafts only; Rust owns the run.
 import { registerViewHandler, run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
 import type { AutoAnalysisSettings, WorkbenchView } from "../contract/generated";
@@ -7,6 +8,8 @@ import { parseJavaInt } from "../display/dialogs";
 import { actions, button } from "../engine/controls";
 import { t } from "../i18n";
 import type { MenuNode } from "../chrome/javaMenus";
+import { openAnalysisEngineSettings } from "./analysisSettings";
+import { requestFlash } from "./flash";
 import "./autoAnalysis.css";
 
 export const AUTO_ANALYSIS_MENU: MenuNode[] = [
@@ -73,14 +76,17 @@ async function openDiff(draft: AutoAnalysisSettings): Promise<void> {
   await dialog.closed;
 }
 
-export async function openAutoAnalysis(): Promise<void> {
+/** StartAnaDialog(false). `batch`: the batch queue's variant (Lizzie.frame.isBatchAna): the
+ *  start label names the batch, there is no 自动保存棋谱 row, 开始分析 starts the batch and
+ *  closing the dialog or 终止分析 gives the queue's setup up (cancelBatchSettings). */
+export async function openAutoAnalysis(batch = false): Promise<void> {
   const saved = state.view?.settings.auto_analysis;
   if (!saved) return;
   const draft = { ...saved };
   const { body, rows } = grid();
   const start = number(draft.startMove, "autoAnalysis.start"), end = number(draft.endMove, "autoAnalysis.end");
   const time = number(draft.timeSeconds, "autoAnalysis.time"), visits = number(draft.visits, "autoAnalysis.visits"), first = number(draft.firstVisits, "autoAnalysis.firstVisits");
-  row(rows, t("StartAnaDialog.startMove"), start); row(rows, t("StartAnaDialog.endMove"), end);
+  row(rows, batch ? t("StartAnaDialog.startMoveBatch") : t("StartAnaDialog.startMove"), start); row(rows, t("StartAnaDialog.endMove"), end);
   row(rows, t("StartAnaDialog.timePerMove"), time); row(rows, t("StartAnaDialog.totalVisitsPerMove"), visits); row(rows, t("StartAnaDialog.firstVisitsPerMove"), first);
   const black = check(draft.black, "autoAnalysis.black"), white = check(draft.white, "autoAnalysis.white"), branches = check(draft.allBranches, "autoAnalysis.allBranches"), diff = check(draft.diffEnable, "autoAnalysis.diff");
   row(rows, t("StartAnaDialog.analyzeBlack"), black); row(rows, t("StartAnaDialog.analyzeWhite"), white); row(rows, t("StartAnaDialog.analyzeAllBranch"), branches);
@@ -88,17 +94,60 @@ export async function openAutoAnalysis(): Promise<void> {
   conditions.disabled = !diff.checked; diff.onchange = () => { conditions.disabled = !diff.checked; draft.diffEnable = diff.checked; };
   const group = document.createElement("div"); group.className = "auto-analysis-inline"; group.append(diff, conditions); row(rows, t("StartAnaDialog.lblDiffAnalyze"), group);
   const pause = check(draft.exitByPause, "autoAnalysis.exitByPause"), save = check(draft.autoSave, "autoAnalysis.autoSave");
-  row(rows, t("StartAnaDialog.chkExitByPause"), pause); row(rows, t("StartAnaDialog.autoSaveKifu"), save);
+  row(rows, t("StartAnaDialog.chkExitByPause"), pause);
+  if (!batch) row(rows, t("StartAnaDialog.autoSaveKifu"), save);
   const dialog = formPanel(t("StartAnaDialog.title"), body);
+  let started = false;
   const begin = button(t("StartAnaDialog.startAnalyze"), async () => {
     const settings: AutoAnalysisSettings = { ...draft, startMove: integer(start), endMove: integer(end), timeSeconds: integer(time), visits: integer(visits), firstVisits: integer(first), timeEnabled: integer(time) > 0, visitsEnabled: integer(visits) > 0, firstVisitsEnabled: integer(first) > 0, black: black.checked, white: white.checked, allBranches: branches.checked, diffEnable: diff.checked, exitByPause: pause.checked, autoSave: save.checked };
-    const result = await run({ type: "StartAutoAnalysis", settings });
-    if (result && result.type !== "Refused") await dialog.close();
+    const result = await run(batch ? { type: "Batch", op: { type: "StartOrdinary", settings } } : { type: "StartAutoAnalysis", settings });
+    if (!result || result.type === "Refused") return;
+    started = true;
+    await dialog.close();
   });
   begin.dataset.key = "autoAnalysis.begin";
-  const stop = button(t("StartAnaDialog.stopAnalyze"), async () => { await dialog.close(); await run({ type: "StopAutoAnalysis" }); }); stop.dataset.key = "autoAnalysis.stop";
+  const stop = button(t("StartAnaDialog.stopAnalyze"), async () => { await dialog.close(); if (!batch) await run({ type: "StopAutoAnalysis" }); }); stop.dataset.key = "autoAnalysis.stop";
   actions(body, begin, stop);
   await dialog.closed;
+  if (batch && !started) await run({ type: "Batch", op: { type: "CancelSetup" } });
+}
+
+/** StartAnaDialog(true): 批量精析's four rows (the start / end fields are the ones automatic
+ *  analysis keeps), 设置 opens 精析设置 in its BATCH context and refreshes 每手总计算量 from
+ *  it; closing the dialog or 终止分析 gives the queue's setup up. */
+export async function openFlashBatchSetup(): Promise<void> {
+  const view = state.view;
+  if (!view) return;
+  const range = view.settings.auto_analysis;
+  const savedVisits = () => state.view?.settings.analysis_engine.batchVisits ?? view.settings.analysis_engine.batchVisits;
+  const { body, rows } = grid();
+  const start = number(range.startMove, "flashBatch.start"), end = number(range.endMove, "flashBatch.end");
+  const visits = number(savedVisits(), "flashBatch.visits"), branches = check(false, "flashBatch.allBranches");
+  row(rows, t("StartAnaDialog.startMoveBatch"), start); row(rows, t("StartAnaDialog.endMove"), end);
+  row(rows, t("StartAnaDialog.totalVisitsPerMove"), visits); row(rows, t("StartAnaDialog.chkAllBranches"), branches);
+  const dialog = formPanel(t("StartAnaDialog.title"), body);
+  let started = false;
+  /** apply(): Utils.parseTextToInt keeps the saved 每手总计算量 for text that is no number. */
+  const begin = async (): Promise<void> => {
+    const op = { type: "StartFlash", start_move: integer(start), end_move: integer(end), visits: parseJavaInt(visits.value.trim()) ?? savedVisits(), all_branches: branches.checked } as const;
+    const ok = await requestFlash({ type: "Batch", op }, async (kept) => {
+      visits.value = String(kept.batchVisits);
+      await begin();
+    }, true);
+    if (!ok) return;
+    started = true;
+    await dialog.close();
+  };
+  const settings = button(t("WaitForAnalysis.btnSettings"), async () => {
+    const kept = await openAnalysisEngineSettings({ batch: true });
+    visits.value = String(kept?.batchVisits ?? savedVisits());
+  });
+  settings.dataset.key = "flashBatch.settings";
+  const ok = button(t("StartAnaDialog.startAnalyze"), () => void begin()); ok.dataset.key = "flashBatch.begin";
+  const stop = button(t("StartAnaDialog.stopAnalyze"), () => void dialog.close()); stop.dataset.key = "flashBatch.stop";
+  actions(body, settings, ok, stop);
+  await dialog.closed;
+  if (!started) await run({ type: "Batch", op: { type: "CancelSetup" } });
 }
 
 Object.assign(COMMANDS, {

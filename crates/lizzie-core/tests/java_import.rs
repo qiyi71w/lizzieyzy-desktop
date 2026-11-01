@@ -90,6 +90,7 @@ fn java_dir(root: &Path) -> PathBuf {
             "analysis-engine-command": "engines/fake-katago analysis -model weights/model.bin.gz -config cfg/gtp.cfg",
             "analysis-engine-command-customized": true,
             "analysis-max-visits": 0,
+            "batch-analysis-playouts": 300,
             "analysis-reuse-current-engine": true,
             "quick-analysis-lightweight-model-enabled": true,
             "is-showing-blunder-table": true,
@@ -294,6 +295,7 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
         ae.command
     );
     assert!(ae.command_customized && ae.reuse_current_engine && ae.max_visits == 1);
+    assert_eq!(ae.batch_visits, 300, "批量精析 每手总计算量");
     assert!(c.quick_model.enabled);
     let pl = &c.problems;
     assert!(pl.showing && pl.side == ProblemSide::White && pl.sort == ProblemSort::MoveDesc);

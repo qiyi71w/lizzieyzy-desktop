@@ -17,7 +17,8 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use lizzie_core::api::{
-    ApiError, Command, CommandResult, ConsoleLineView, ErrorKind, LogsStatus, OpenSource, WorkbenchView,
+    ApiError, BatchCommand, BatchMode, Command, CommandResult, ConsoleLineView, ErrorKind, LogsStatus, OpenSource,
+    WorkbenchView,
 };
 use lizzie_core::engine::process::{ProcessLauncher, ProcessWaiter};
 use lizzie_core::formats;
@@ -49,6 +50,8 @@ pub const SUGGESTIONS_CLOSED_EVENT: &str = "suggestions-frame-closed";
 const HAWKEYE_WINDOW: &str = "hawkeye";
 /// 双引擎模式's secondary engine 超级鹰眼 (`MoveListFrame(2)`).
 const HAWKEYE_SUB_WINDOW: &str = "hawkeye-sub";
+/// 批量分析进度表 (`AnalysisTable`).
+const BATCH_WINDOW: &str = "batch-table";
 /// A 超级鹰眼 window was closed by its own close box; the main window toggles it off.
 pub const HAWKEYE_CLOSED_EVENT: &str = "hawkeye-closed";
 
@@ -162,7 +165,8 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
     drop(views);
     let logs = wb.take_logs();
     let checks = wb.take_launch_checks();
-    let auto_saves = wb.take_auto_analysis_saves();
+    let auto_saves = wb.take_background_saves();
+    let batch_reads = wb.take_batch_reads();
     drop(wb);
     write_logs(shared, logs);
     run_launch_checks(app, checks);
@@ -170,6 +174,9 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
         if let Err(mpsc::SendError(job)) = shared.saves.lock().unwrap().send(job) {
             finish_save(app, shared, job.ticket, Err("save worker stopped".into()));
         }
+    }
+    for (ticket, path, no_capture) in batch_reads {
+        read_batch_record(app, ticket, path, no_capture);
     }
     // A command can schedule timed work (quick analysis waits for browsing to settle).
     shared.rearm_timer();
@@ -305,6 +312,59 @@ pub(crate) fn read_record(app: &AppHandle, shared: &State, ticket: u64, path: Pa
                 .info(&format!("open ticket {ticket} superseded; result dropped"));
         }
     });
+}
+
+/// Reads a queued batch record on its own thread and hands it to the batch.
+fn read_batch_record(app: &AppHandle, ticket: u64, path: PathBuf, no_capture: bool) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let shared = app.state::<State>().inner().clone();
+        let result = formats::read_file(&path, no_capture);
+        if let Err(e) = &result {
+            shared.log.warn(&format!(
+                "batch read failed ({}): {}",
+                logging::file_label(&path.to_string_lossy()),
+                logging::read_error(e)
+            ));
+        }
+        if shared.workbench.lock().unwrap().complete_batch_read(ticket, result) {
+            publish(&app, &shared);
+        }
+    });
+}
+
+/// The system chooser for several records (`LizzieFrame.chooseKifuFiles(…, true)`): the SGF/GIB
+/// filter in the last folder. Empty when cancelled.
+async fn choose_records(app: &AppHandle, shared: &State) -> Result<Vec<String>, ApiError> {
+    let start_dir = shared.workbench.lock().unwrap().persisted().last_folder.clone();
+    let dialog = app.dialog().clone();
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        let mut builder = dialog
+            .file()
+            .add_filter("SGF/GIB (*.sgf, *.gib)", &["sgf", "gib", "SGF", "GIB"]);
+        if let Some(dir) = start_dir.filter(|d| std::path::Path::new(d).is_dir()) {
+            builder = builder.set_directory(dir);
+        }
+        builder.blocking_pick_files()
+    })
+    .await
+    .map_err(|e| ApiError::new(ErrorKind::Unavailable, e.to_string()))?;
+    Ok(picked
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|p| p.into_path().ok())
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect())
+}
+
+fn batch_result(app: &AppHandle, shared: &Shared, result: Result<bool, String>) -> CommandResult {
+    match result {
+        Ok(done) => changed(app, shared, done),
+        Err(message_key) => {
+            publish(app, shared);
+            CommandResult::Refused { message_key }
+        }
+    }
 }
 
 /// The `AP` value written into saved records.
@@ -907,6 +967,23 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().hawkeye(op)?;
             Ok(changed(&app, &shared, done))
         }
+        Command::Batch { op: BatchCommand::Choose { mode } } => {
+            let paths = choose_records(&app, &shared).await?;
+            if paths.is_empty() {
+                return Ok(CommandResult::Unchanged);
+            }
+            let result = shared.workbench.lock().unwrap().open_batch(mode, paths, OpenSource::Chooser);
+            Ok(batch_result(&app, &shared, result.map_err(str::to_string)))
+        }
+        Command::Batch { op: BatchCommand::AddFiles } => {
+            let paths = choose_records(&app, &shared).await?;
+            let done = shared.workbench.lock().unwrap().add_batch_files(paths);
+            Ok(changed(&app, &shared, done))
+        }
+        Command::Batch { op } => {
+            let result = shared.workbench.lock().unwrap().batch_command(op)?;
+            Ok(batch_result(&app, &shared, result))
+        }
         Command::SetHawkeyeSettings { settings } => {
             let done = shared.workbench.lock().unwrap().set_hawkeye_settings(settings)?;
             Ok(changed(&app, &shared, done))
@@ -1316,6 +1393,44 @@ async fn open_hawkeye(
     Ok(layout)
 }
 
+/// Opens 批量分析进度表 (`openAnalysisTable`), or brings the open one forward: a fixed 617 x 317
+/// window centred on the main window (`setLocationRelativeTo(Lizzie.frame)`, not resizable).
+/// Async: building a window inside a synchronous command deadlocks on Windows.
+#[tauri::command]
+async fn open_batch_table(app: AppHandle, title: String, on_top: bool) -> Result<(), ApiError> {
+    if let Some(window) = app.get_webview_window(BATCH_WINDOW) {
+        let _ = window.set_title(&title);
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    let (width, height) = (617.0, 317.0);
+    let mut builder = WebviewWindowBuilder::new(&app, BATCH_WINDOW, WebviewUrl::App("batch.html".into()))
+        .title(title)
+        .inner_size(width, height)
+        .resizable(false)
+        .always_on_top(on_top)
+        .disable_drag_drop_handler();
+    if let Some(main) = app.get_webview_window("main") {
+        if let (Ok(scale), Ok(pos), Ok(size)) = (main.scale_factor(), main.outer_position(), main.outer_size()) {
+            let (pos, size) = (pos.to_logical::<f64>(scale), size.to_logical::<f64>(scale));
+            builder = builder.position(pos.x + (size.width - width) / 2.0, pos.y + (size.height - height) / 2.0);
+        }
+    }
+    builder
+        .build()
+        .map_err(|e| ApiError::new(ErrorKind::Unavailable, format!("opening the batch table failed: {e}")))?;
+    Ok(())
+}
+
+/// Closes 批量分析进度表 from the main window.
+#[tauri::command]
+fn close_batch_table(app: AppHandle) {
+    if let Some(window) = app.get_webview_window(BATCH_WINDOW) {
+        let _ = window.destroy();
+    }
+}
+
 /// Closes both 超级鹰眼 windows from the main window (Y, the menus), writing the primary one's
 /// placement.
 #[tauri::command]
@@ -1520,7 +1635,7 @@ pub fn run() {
                 } else {
                     // Java exits with the main window; the tool windows must not keep the
                     // application running.
-                    for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW, HAWKEYE_WINDOW, HAWKEYE_SUB_WINDOW] {
+                    for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW, HAWKEYE_WINDOW, HAWKEYE_SUB_WINDOW, BATCH_WINDOW] {
                         if let Some(frame) = app.get_webview_window(label) {
                             let _ = frame.destroy();
                         }
@@ -1536,9 +1651,15 @@ pub fn run() {
                         start_open(app, &shared, path.to_string_lossy().into_owned(), OpenSource::Drop);
                     }
                     [] => {}
-                    // Several files start batch analysis in Java, which is not available yet.
+                    // Several files start 批量分析 (`openOrdinaryBatchAnalysis(files, true)`).
                     _ => {
-                        let _ = app.emit(UNAVAILABLE_EVENT, "batchAnalysis");
+                        let paths = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+                        let mut wb = shared.workbench.lock().unwrap();
+                        if let Err(key) = wb.open_batch(BatchMode::Ordinary, paths, OpenSource::Drop) {
+                            wb.refuse_batch(key);
+                        }
+                        drop(wb);
+                        publish(app, &shared);
                     }
                 }
             }
@@ -1597,7 +1718,9 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         open_hawkeye,
         close_hawkeye,
         close_hawkeye_sub,
-        set_hawkeye_layout
+        set_hawkeye_layout,
+        open_batch_table,
+        close_batch_table
     ]
 }
 
@@ -1623,6 +1746,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         close_hawkeye,
         close_hawkeye_sub,
         set_hawkeye_layout,
+        open_batch_table,
+        close_batch_table,
         acceptance::acceptance_ui_report
     ]
 }

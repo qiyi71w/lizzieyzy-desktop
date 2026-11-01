@@ -8,7 +8,7 @@ use crate::api::{
     ApiError, ErrorKind, KataEstimateMode, KataEstimateView, MoveChange, MoveEvaluation, ProblemListView,
     ProblemMoveView, ScoreCommand, ScoreView, StatisticsView,
 };
-use crate::record::{DocumentEdit, NodeId, NodeKind, Stone, ROOT};
+use crate::record::{DocumentEdit, GameRecord, NodeId, NodeKind, Stone, ROOT};
 use crate::scoring::Marks;
 use crate::settings::{KataEstimateState, ProblemListSettings, ProblemSort};
 
@@ -151,13 +151,13 @@ impl Workbench {
     /// `Board.isMatchAi` and `updateMovelist` for the move leading to `node`, when the position
     /// it was played in has analysis.
     pub(super) fn evaluation(&self, node: NodeId) -> Option<MoveEvaluation> {
-        self.evaluation_in(&self.store, node)
+        self.evaluation_of(&self.doc.record, &self.store, node)
     }
 
-    /// [`Self::evaluation`] from `store`'s results: the foreground engine's, or 双引擎模式's
-    /// secondary engine's (`updateMovelist2`, `nodeInfo2`).
-    pub(super) fn evaluation_in(&self, store: &AnalysisStore, node: NodeId) -> Option<MoveEvaluation> {
-        let rec = &self.doc.record;
+    /// [`Self::evaluation`] from `store`'s results for `rec`: the open record with the foreground
+    /// engine's or 双引擎模式's secondary engine's results (`updateMovelist2`, `nodeInfo2`), or a
+    /// batch record with its own results.
+    pub(super) fn evaluation_of(&self, rec: &GameRecord, store: &AnalysisStore, node: NodeId) -> Option<MoveEvaluation> {
         let n = rec.node(node);
         let NodeKind::Move { color, point } = n.kind else {
             return None;
@@ -182,7 +182,7 @@ impl Workbench {
         // `NodeInfo.analyzed` needs both positions (`previousPlayouts > 0 && playouts > 0`); then
         // the position analysed before the move is its own parent, which `lastWinrateDiff` finds.
         let after = store.get(rec, node).filter(|a| a.visits > 0);
-        let change = self.change_in(store, n.parent?, node);
+        let change = self.change_of(rec, store, n.parent?, node);
         // The mover's view of a result (`100 - winrate`, `-scoreMean` for the side to move next).
         let mover = |a: &crate::api::NodeAnalysisView| {
             let own = a.to_play == color;
@@ -217,11 +217,10 @@ impl Workbench {
     /// The mover's change from the analysis at `from` to that at `to`, both analysed
     /// (`Board.lastWinrateDiff`, `drawMoveStatistics`).
     pub(super) fn change(&self, from: NodeId, to: NodeId) -> Option<MoveChange> {
-        self.change_in(&self.store, from, to)
+        self.change_of(&self.doc.record, &self.store, from, to)
     }
 
-    fn change_in(&self, store: &AnalysisStore, from: NodeId, to: NodeId) -> Option<MoveChange> {
-        let rec = &self.doc.record;
+    pub(super) fn change_of(&self, rec: &GameRecord, store: &AnalysisStore, from: NodeId, to: NodeId) -> Option<MoveChange> {
         let before = store.get(rec, from).filter(|a| a.visits > 0)?;
         let after = store.get(rec, to).filter(|a| a.visits > 0)?;
         // `after` is for the side to move after the move, the mover's opponent.
