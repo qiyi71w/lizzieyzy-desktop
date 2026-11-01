@@ -7,7 +7,19 @@ import { actions, button, checkbox, field, input } from "./controls";
 import { resourceCommand, resourceView } from "../setup/dialog";
 import { buildDisplaySettings } from "../display/settingsPage";
 
-export async function openAnalysisSettings(): Promise<void> {
+/** 综合设置's navigation sections in Java order (ConfigDialog2 `SettingSection` plus 关于). */
+export type SettingsSection = "display" | "kifu" | "engine" | "play" | "theme" | "advanced" | "about";
+
+/** A section page built by the module that owns its settings (显示, 主题). `save` applies the
+ *  page's edits with 保存设置 and is false when they were invalid or the core refused them. */
+export interface SettingsPage {
+  save: () => Promise<boolean>;
+}
+
+/** Section pages registered by their owners; a section without a page stays unavailable. */
+export const SETTINGS_PAGES: Partial<Record<SettingsSection, (host: HTMLElement) => SettingsPage>> = {};
+
+export async function openAnalysisSettings(section: SettingsSection = "engine"): Promise<void> {
   if (!state.view) return;
   const settings = { ...state.view.settings.engine.analysis };
   const network = { ...(resourceView()?.network ?? { proxyMode: "Direct" as const, proxyHost: "127.0.0.1", proxyPort: 7897 }) };
@@ -19,6 +31,11 @@ export async function openAnalysisSettings(): Promise<void> {
   const play = document.createElement("div"); play.className = "engine-settings-form"; play.hidden = true;
   const kifu = document.createElement("div"); kifu.className = "engine-settings-form"; kifu.hidden = true;
   const pages = { engine: form, advanced, play, kifu } as Record<string, HTMLElement>;
+  const registered: SettingsPage[] = [];
+  for (const [key, build] of Object.entries(SETTINGS_PAGES)) {
+    const page = document.createElement("div"); page.className = "engine-settings-form"; page.hidden = true;
+    pages[key] = page; registered.push(build(page));
+  }
   const showPage = (key: string) => { for (const [id, page] of Object.entries(pages)) page.hidden = id !== key; };
   for (const [key, text] of [["display", t("ConfigDialog2.modern.nav.display")], ["kifu", t("ConfigDialog2.modern.nav.kifu")], ["engine", t("ConfigDialog2.modern.nav.engine")], ["play", t("ConfigDialog2.modern.nav.play")], ["theme", t("ConfigDialog2.modern.nav.theme")], ["advanced", t("ConfigDialog2.modern.nav.advanced")], ["about", t("ConfigDialog2.modern.nav.about")]]) {
     const item = document.createElement("button"); item.textContent = text; item.dataset.key = `settings.nav.${key}`;
@@ -86,7 +103,8 @@ export async function openAnalysisSettings(): Promise<void> {
   const manualRow = document.createElement("div"); manualRow.className = "engine-field";
   const manualTitle = document.createElement("span"); manualTitle.textContent = t("ConfigDialog2.modern.proxy.manual"); manualRow.append(manualTitle, address); advanced.append(manualRow);
   const toggleManual = () => { host.disabled = port.disabled = mode.value !== "Manual"; }; mode.onchange = toggleManual; toggleManual();
-  body.append(form, kifu, play, advanced);
+  body.append(...Object.values(pages));
+  showPage(section in pages ? section : "engine");
   const dialog = formPanel(t("Menu.comprehensiveSettings"), body);
   const save = button(t("SetKataRules.btnApply"), async () => {
     const invalid = inputs.find((control) => !control.checkValidity());
@@ -120,6 +138,7 @@ export async function openAnalysisSettings(): Promise<void> {
       const result = await run(command); if (!result || result.type === "Refused") return;
     }
     if (!(await displayRows.save())) return;
+    for (const page of registered) if (!(await page.save())) return;
     const result = await run({ type: "SetAnalysisSettings", settings });
     if (result && result.type !== "Refused") await dialog.close();
   }); save.dataset.key = "settings.apply";
