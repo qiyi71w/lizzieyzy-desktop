@@ -314,8 +314,10 @@ importing the matching LizzieYzy Next settings.
   dropped on the window) and 批量精析 choose several SGF/GIB files; as in Java, the first record
   is read before Java's settings dialog opens (an unreadable first record ends 批量分析 without
   the dialog; stopping automatic analysis during that read cancels the batch). As in Java,
-  showing either batch dialog checks 自动保存棋谱 for single-record analysis, even if the dialog
-  is cancelled. 批量分析 uses the 自动分析 fields (its start move defaults to the first move and
+  choosing or dropping records for either batch, and 进度表's 开始/结束, check 自动保存棋谱 for
+  single-record analysis before the dialog shows, even if it is then cancelled; 开始/结束 starts
+  批量分析 of the remaining rows the same way, reading their first record again. 批量分析 uses
+  the 自动分析 fields (its start move defaults to the first move and
   its records are always saved); 批量精析 asks for the move range, 每手总计算量
   (`batch-analysis-playouts`, default 100; a search uses at least 2) and 分析所有分支, and its 设置
   button edits that value in 精析设置. Each record is read

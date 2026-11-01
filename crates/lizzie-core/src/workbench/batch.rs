@@ -320,7 +320,10 @@ impl Workbench {
         Ok(true)
     }
 
-    /// 进度表's 开始/结束 or 开始/结束(闪电模式) while not running: the dialog for the queue.
+    /// 进度表's 开始/结束 or 开始/结束(闪电模式) while not running. 开始/结束 opens 批量分析 of the
+    /// remaining records as the menu does (`openOrdinaryBatchAnalysis(remaining, false)`): the
+    /// first record is read again, remembered, before the dialog. 开始/结束(闪电模式) shows the
+    /// dialog for the queue as it is (`verifyCurrentKifu`, then `StartAnaDialog`).
     pub fn setup_batch(&mut self, mode: BatchMode) -> Result<bool, &'static str> {
         if self.batch.queue.is_empty() {
             return Ok(false);
@@ -328,8 +331,21 @@ impl Workbench {
         if let Some(key) = self.batch_conflict(mode) {
             return Err(key);
         }
-        self.batch.preload = None;
-        self.batch.setup = Some(mode);
+        match mode {
+            BatchMode::Ordinary => {
+                for item in &mut self.batch.queue {
+                    item.remember = true;
+                }
+                self.batch.setup = None;
+                self.batch.ready = None;
+                let ticket = self.batch_push_read();
+                self.batch.preload = Some((ticket, mode));
+            }
+            BatchMode::Flash => {
+                self.batch.preload = None;
+                self.batch.setup = Some(mode);
+            }
+        }
         Ok(true)
     }
 

@@ -938,3 +938,32 @@ fn single_record_auto_analysis_is_refused_while_the_first_batch_record_loads() {
         .unwrap();
     assert_eq!(wb.start_auto_analysis(ordinary()).unwrap(), Err("AutoAnalyze.conflict"));
 }
+
+#[test]
+fn the_tables_start_opens_batch_analysis_of_the_remaining_records_like_the_menu() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, _world, _fg) = setup(dir.path(), false);
+    let a = write(dir.path(), "a.sgf", GAME_A);
+    let b = write(dir.path(), "b.sgf", GAME_B);
+    // 批量精析's cancelled dialog leaves the records in 进度表.
+    wb.open_batch(BatchMode::Flash, vec![a, b], OpenSource::Drop).unwrap();
+    deliver_reads(&mut wb);
+    assert!(wb.cancel_batch_setup());
+    assert_eq!(wb.save_auto_analysis_settings(ordinary()).unwrap(), None);
+    assert!(!wb.config().auto_analysis.auto_save);
+
+    // 进度表's 开始/结束: `openOrdinaryBatchAnalysis(remaining, false)`.
+    assert_eq!(wb.setup_batch(BatchMode::Ordinary), Ok(true));
+    assert_eq!(wb.view(false).batch.setup, None, "the first record is read first");
+    assert_eq!(deliver_reads(&mut wb), 1);
+    let v = wb.view(false);
+    assert_eq!(v.batch.setup, Some(BatchMode::Ordinary));
+    assert!(wb.config().auto_analysis.auto_save, "自动保存棋谱 is checked first");
+    assert!(
+        v.recent_files.iter().any(|f| f.ends_with("a.sgf")),
+        "loaded with fromTemp = false"
+    );
+    assert!(wb.cancel_batch_setup());
+    assert!(wb.view(false).batch.items.is_empty(), "cancelling ends the batch");
+    assert!(wb.config().auto_analysis.auto_save);
+}
