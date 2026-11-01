@@ -152,9 +152,13 @@ pub(super) struct BatchFlow {
 impl Workbench {
     // -------------------------------------------------------------------- state
 
-    /// A batch runs (its record being read or analysed).
+    /// A batch runs: its first record being read before the settings (Java's `isBatchAna` is
+    /// set before that load), or its record read or analysed.
     pub(super) fn batch_engaged(&self) -> bool {
-        self.batch.run.is_some() || self.auto_analysis_batch() || self.batch.releasing.is_some()
+        self.batch.preload.is_some()
+            || self.batch.run.is_some()
+            || self.auto_analysis_batch()
+            || self.batch.releasing.is_some()
     }
 
     /// 批量精析 runs or gives its borrowed engine back.
@@ -577,13 +581,25 @@ impl Workbench {
             Ok((format, record)) => {
                 let doc = self.batch_make_doc(format, record);
                 self.batch.ready = Some((item, doc));
-                self.batch.setup = Some(mode);
+                self.batch_show_setup(mode);
             }
             Err(e) if mode == BatchMode::Ordinary => {
                 self.batch_unreadable(&e);
                 self.batch_end(Some(FAILED_TO_OPEN_FILE), true);
             }
-            Err(_) => self.batch.setup = Some(mode),
+            Err(_) => self.batch_show_setup(mode),
+        }
+    }
+
+    /// The settings dialog for the opened records. Java checks the shared 自动保存棋谱 box
+    /// before showing either batch dialog (`chkAnaAutoSave.setSelected(true)`), and it stays
+    /// checked even if the dialog is cancelled.
+    fn batch_show_setup(&mut self, mode: BatchMode) {
+        self.batch.setup = Some(mode);
+        if !self.config.auto_analysis.auto_save {
+            if let Err(e) = self.commit_config(|c| c.auto_analysis.auto_save = true) {
+                self.log(true, format!("batch: auto-save setting not written: {}", e.message));
+            }
         }
     }
 
@@ -686,10 +702,17 @@ impl Workbench {
         }
     }
 
-    /// 停止自动(批量)分析 / 进度表's 开始/结束 while 批量分析's next record is still being read:
-    /// the batch ends there and nothing more is read or analysed (`stopAutoAna` cancelling a
-    /// pending start).
+    /// 停止自动(批量)分析 / 进度表's 开始/结束 while 批量分析's record is still being read: the
+    /// batch ends there and nothing more is read or analysed (`stopAutoAna` cancelling a pending
+    /// start). Before its settings, the cancelled start ends the batch without a message
+    /// (`ManualAutoAnalysisStartFailure.CANCELLED`).
     pub(super) fn batch_stop_loading(&mut self) -> bool {
+        if matches!(self.batch.preload, Some((_, BatchMode::Ordinary))) {
+            self.batch.preload = None;
+            self.batch.queue.clear();
+            self.batch.ready = None;
+            return true;
+        }
         if self.auto_analysis_batch()
             || !self
                 .batch
@@ -1427,6 +1450,7 @@ impl Workbench {
                 })
                 .collect(),
             setup: self.batch.setup,
+            loading: self.batch.preload.map(|(_, mode)| mode),
             running,
             open_table: self.batch.open_table,
             notice: self.batch.notice.clone(),

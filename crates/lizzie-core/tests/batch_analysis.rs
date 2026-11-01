@@ -895,3 +895,46 @@ fn batch_analysis_leaves_single_record_auto_save_on_like_java() {
     wb.start_batch_ordinary(ordinary()).unwrap().unwrap();
     assert!(wb.config().auto_analysis.auto_save);
 }
+
+#[test]
+fn the_batch_dialogs_check_single_record_auto_save_even_when_cancelled() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, _world, _fg) = setup(dir.path(), false);
+    let a = write(dir.path(), "a.sgf", GAME_A);
+    for mode in [BatchMode::Ordinary, BatchMode::Flash] {
+        assert_eq!(wb.save_auto_analysis_settings(ordinary()).unwrap(), None);
+        assert!(!wb.config().auto_analysis.auto_save);
+        wb.open_batch(mode, vec![a.clone()], OpenSource::Chooser).unwrap();
+        deliver_reads(&mut wb);
+        assert!(wb.cancel_batch_setup());
+        assert!(wb.config().auto_analysis.auto_save, "{mode:?}");
+        wb.clear_batch();
+    }
+}
+
+#[test]
+fn stopping_batch_analysis_while_its_first_record_loads_ends_it_quietly() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, _world, _fg) = setup(dir.path(), false);
+    let a = write(dir.path(), "a.sgf", GAME_A);
+    let b = write(dir.path(), "b.sgf", GAME_B);
+    wb.open_batch(BatchMode::Ordinary, vec![a, b], OpenSource::Chooser)
+        .unwrap();
+    assert_eq!(wb.view(false).batch.loading, Some(BatchMode::Ordinary));
+    assert!(wb.stop_auto_analysis(), "停止自动(批量)分析 cancels the pending start");
+    deliver_reads_expecting(&mut wb, false);
+    let v = wb.view(false);
+    assert!(v.batch.setup.is_none(), "no settings dialog");
+    assert!(v.batch.items.is_empty() && v.batch.running.is_none());
+    assert!(v.batch.notice.is_none(), "a cancelled start shows nothing");
+}
+
+#[test]
+fn single_record_auto_analysis_is_refused_while_the_first_batch_record_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, _world, _fg) = setup(dir.path(), false);
+    let a = write(dir.path(), "a.sgf", GAME_A);
+    wb.open_batch(BatchMode::Ordinary, vec![a], OpenSource::Chooser)
+        .unwrap();
+    assert_eq!(wb.start_auto_analysis(ordinary()).unwrap(), Err("AutoAnalyze.conflict"));
+}

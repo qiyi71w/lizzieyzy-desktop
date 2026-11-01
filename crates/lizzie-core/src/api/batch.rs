@@ -132,6 +132,9 @@ pub struct BatchView {
     pub items: Vec<BatchItemView>,
     /// The settings dialog to show for the queue.
     pub setup: Option<BatchMode>,
+    /// The first record is being read before that mode's settings dialog (a pending start:
+    /// 停止自动(批量)分析 cancels 批量分析 here).
+    pub loading: Option<BatchMode>,
     pub running: Option<BatchRunView>,
     /// Increases when 进度表 should open (`openAnalysisTable` as 批量分析 of several records
     /// starts).

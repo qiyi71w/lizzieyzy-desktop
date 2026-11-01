@@ -135,12 +135,14 @@ function click(button: BatchButton): void {
       // togglePonder; disabled while a 批量精析 runs (resetAnalysisMode).
       if (!flash) void send({ type: "ToggleAnalysis" });
       return;
-    case "stopStart":
+    case "stopStart": {
       if (flash) return;
-      // isAutoAna || isManualAutoAnalysisStarting, which includes 批量分析 loading its next record.
-      if (v.auto_analysis.active || v.auto_analysis.starting || v.batch.running?.mode === "Ordinary") void send({ type: "StopAutoAnalysis" });
+      // isAutoAna || isManualAutoAnalysisStarting: 批量分析 loading a record counts as starting.
+      const ordinary = v.batch.running?.mode === "Ordinary" || v.batch.loading === "Ordinary";
+      if (v.auto_analysis.active || v.auto_analysis.starting || ordinary) void send({ type: "StopAutoAnalysis" });
       else void setup({ type: "Setup", mode: "Ordinary" });
       return;
+    }
     case "stopStartAnalysisMode":
       if (flash) void batch({ type: "CancelFlash" });
       else void setup({ type: "Setup", mode: "Flash" });

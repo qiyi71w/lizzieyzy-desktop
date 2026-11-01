@@ -313,10 +313,12 @@ importing the matching LizzieYzy Next settings.
 - 批量分析 (`Ctrl+O` on the board, 分析 menu or the 自动分析 popup; also several record files
   dropped on the window) and 批量精析 choose several SGF/GIB files; as in Java, the first record
   is read before Java's settings dialog opens (an unreadable first record ends 批量分析 without
-  the dialog). 批量分析 uses the 自动分析 fields (its start move defaults to the first move, its
-  records are always saved, and 自动保存棋谱 stays checked afterwards as in Java); 批量精析 asks
-  for the move range, 每手总计算量 (`batch-analysis-playouts`, default 100; a search uses at
-  least 2) and 分析所有分支, and its 设置 button edits that value in 精析设置. Each record is read
+  the dialog; stopping automatic analysis during that read cancels the batch). As in Java,
+  showing either batch dialog checks 自动保存棋谱 for single-record analysis, even if the dialog
+  is cancelled. 批量分析 uses the 自动分析 fields (its start move defaults to the first move and
+  its records are always saved); 批量精析 asks for the move range, 每手总计算量
+  (`batch-analysis-playouts`, default 100; a search uses at least 2) and 分析所有分支, and its 设置
+  button edits that value in 精析设置. Each record is read
   and analysed in turn, then saved beside its source as `<name>_已分析_<yyyyMMddHHmmss>.sgf`
   (always SGF; the source is not changed). Unlike Java, the records are analysed as background
   documents with their own komi and declared rules: the open record stays on the board and can
@@ -328,7 +330,8 @@ importing the matching LizzieYzy Next settings.
   foreground engine, as chosen when the batch started) for the whole batch and shows its
   progress window; 取消分析 ends the engine without saving the current record, which stays first
   in 进度表 with the results it has, so 开始/结束(闪电模式) continues from it and asks only for
-  the positions still missing. 批量分析进度表 lists the current record and the ones still to
+  the positions still below the requested visits (all of them with 总是覆盖已有分析结果).
+  批量分析进度表 lists the current record and the ones still to
   analyse (finished ones leave the list), with the current record's progress, 增加棋谱, 清空
   (which stops a running batch first), and per-row 优先 / 上移 / 下移 / 删除; it opens by itself
   when 批量分析 of several records starts, and closing it leaves the batch running. A record
