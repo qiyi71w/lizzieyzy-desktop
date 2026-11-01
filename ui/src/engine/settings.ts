@@ -8,6 +8,7 @@ import { product, t } from "../i18n";
 import { actions, button, checkbox, field, input } from "./controls";
 import { resourceCommand, resourceView } from "../setup/dialog";
 import { buildDisplaySettings } from "../display/settingsPage";
+import { beginPanelDraft } from "../workbench/panelDraft";
 
 /** 综合设置's navigation sections in Java order (ConfigDialog2 `SettingSection` plus 关于). */
 export type SettingsSection = "display" | "kifu" | "engine" | "play" | "theme" | "advanced" | "about";
@@ -52,6 +53,7 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   const play = document.createElement("div"); play.className = "engine-settings-form"; play.hidden = true;
   const kifu = document.createElement("div"); kifu.className = "engine-settings-form"; kifu.hidden = true;
   const pages = { engine: form, advanced, play, kifu } as Record<string, HTMLElement>;
+  const panels = beginPanelDraft();
   const registered: SettingsPage[] = [];
   for (const [key, build] of Object.entries(SETTINGS_PAGES)) {
     const page = document.createElement("div"); page.className = "engine-settings-form"; page.hidden = true;
@@ -91,12 +93,14 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   const visits = input("", "checkbox"); visits.checked = settings.limitPlayout; visits.dataset.key = "settings.analysis.limitPlayout";
   numberRow(analysisRows, "config.analysis.limit-visits", "limitPlayouts", t("ConfigDialog2.modern.analysis.limitVisits"), t("ConfigDialog2.modern.analysis.limitVisitsSub"), t("ConfigDialog2.modern.unit.visits"), visits);
   // 对局与操作 (3162-3191) and 鼠标交互与坐标格式 > 右键行为 (3215-3220, 1430-1496, 6650-6657, 6819-6826).
-  // The 点击复盘 / 评论面板 / 落子矩形 rows are not part of this product's settings yet.
+  // The 点击复盘 / 落子矩形 rows are not part of this product's settings yet.
   const edit = state.view.settings.edit;
   const problems = state.view.settings.problems;
   const playRows = document.createDocumentFragment();
   const doubleClick = toggleRow(playRows, "config.play.double-click", "settings.edit.allowDoubleClick", t("ConfigDialog2.modern.play.doubleClick"), t("ConfigDialog2.modern.play.doubleClickSub"), edit.allowDoubleClick);
   const drag = toggleRow(playRows, "config.play.drag-stone", "settings.edit.allowDrag", t("ConfigDialog2.modern.play.drag"), t("ConfigDialog2.modern.play.dragSub"), edit.allowDrag);
+  // chkShowComment is disabled while the layout mode hides the panel (ConfigDialog2.java:4270-4283).
+  panels.row(playRows, "showComment", "config.play.comment-panel", t("ConfigDialog2.modern.play.commentPanel"), t("ConfigDialog2.modern.play.commentPanelSub"), state.view.settings.comment_panel_auto_hidden);
   // Checked hides the control bar (chkHideCommentControlPane -> hide-blunder-table-control-pane).
   const hideControls = toggleRow(playRows, "config.play.hide-panel-controls", "settings.problems.hideControlPane", t("ConfigDialog2.modern.play.hidePanelControls"), t("ConfigDialog2.modern.play.hidePanelControlsSub"), problems.hideControlPane);
   const interactionRows = document.createElement("div");
@@ -187,6 +191,7 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
     }
     if (!(await displayRows.save())) return;
     for (const page of registered) if (!(await page.save())) return;
+    if (!(await panels.save())) return;
     const result = await run({ type: "SetAnalysisSettings", settings });
     if (result && result.type !== "Refused") await dialog.close();
   }); save.dataset.key = "settings.apply";

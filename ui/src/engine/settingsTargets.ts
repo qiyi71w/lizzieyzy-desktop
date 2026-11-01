@@ -9,7 +9,7 @@ const targets = new Map<string, SettingsSection>([
     "config.kifu.auto-analyze", "config.kifu.jump-last", "config.kifu.read-komi",
   ].map((id): [string, SettingsSection] => [id, "kifu"]),
   ...[
-    "settings.black-winrate", "config.analysis.blunder-bar", "config.analysis.hover",
+    "config.analysis.winrate", "settings.black-winrate", "config.analysis.variation", "config.analysis.blunder-bar", "config.analysis.hover",
     "config.analysis.graph-fill", "config.analysis.max-red", "config.analysis.suggestion-limit",
     "config.analysis.variation-limit", "config.analysis.limit-time", "config.analysis.limit-visits",
     "config.candidates.blue-ring", "config.candidates.color-ratio", "config.candidates.white-style",
@@ -17,7 +17,7 @@ const targets = new Map<string, SettingsSection>([
     "config.pv.mode", "config.pv.visit-limit", "config.pv.remove-dead",
   ].map((id): [string, SettingsSection] => [id, "engine"]),
   ...[
-    "config.play.double-click", "config.play.drag-stone", "config.play.hide-panel-controls",
+    "config.play.double-click", "config.play.drag-stone", "config.play.comment-panel", "config.play.hide-panel-controls",
     "config.play.coordinates", "config.play.freeze-sub-board", "config.interaction.right-click",
     "config.interaction.coordinates",
   ].map((id): [string, SettingsSection] => [id, "play"]),

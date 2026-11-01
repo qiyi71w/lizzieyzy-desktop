@@ -8,6 +8,7 @@ import type { CoordinateStyle, DisplaySettings, PvVisitsMode } from "../contract
 import { t } from "../i18n";
 import { checkbox, field, input } from "../engine/controls";
 import { javaDouble } from "../workbench/paint";
+import { panelDraft } from "../workbench/panelDraft";
 
 function card(host: HTMLElement, title: string, subtitle: string): void {
   const heading = document.createElement("h3");
@@ -93,9 +94,11 @@ export function buildDisplaySettings(engine: HTMLElement, play: HTMLElement, sha
   const s = state.view!.settings.display;
 
   // 分析与胜率曲线 (ConfigDialog2.java:2994-3062, 6534-6553, 6739, 6780, 6829); the 胜率曲线 and
-  // 分支面板 visibility rows belong to the panel layout.
+  // 分支面板 visibility rows edit the dialog's panel draft (panelDraft.ts).
   card(engine, t("ConfigDialog2.modern.analysis.title"), t("ConfigDialog2.modern.analysis.subtitle"));
+  panelDraft().row(engine, "showWinrateGraph", "config.analysis.winrate", t("ConfigDialog2.modern.analysis.winrate"), t("ConfigDialog2.modern.analysis.winrateSub"));
   const blackWinrate = check(engine, "settings.black-winrate", "winrateAlwaysBlack", t("Menu.alwaysShowBlackWinrate"), t("FunctionSearch.description.blackWinrate"), s.winrateAlwaysBlack);
+  panelDraft().row(engine, "showVariationGraph", "config.analysis.variation", t("ConfigDialog2.modern.analysis.variation"), t("ConfigDialog2.modern.analysis.variationSub"));
   const blunderBar = check(engine, "config.analysis.blunder-bar", "blunderBar", t("ConfigDialog2.modern.analysis.blunderBar"), t("ConfigDialog2.modern.analysis.blunderBarSub"), s.blunderBar);
   const hover = check(engine, "config.analysis.hover", "mouseOverWinrateGraph", t("ConfigDialog2.modern.analysis.hover"), t("ConfigDialog2.modern.analysis.hoverSub"), s.mouseOverWinrateGraph);
   const graphFill = check(engine, "config.analysis.graph-fill", "winrateGraphFill", t("ConfigDialog2.modern.analysis.graphFill"), t("ConfigDialog2.modern.analysis.graphFillSub"), s.winrateGraphFill);
