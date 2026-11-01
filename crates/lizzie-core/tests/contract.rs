@@ -11,6 +11,7 @@ use lizzie_core::api::*;
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup};
 use lizzie_core::engine::raw_net::{RawNetMode, RawNetView};
+use lizzie_core::function_search::{FunctionMatch, FunctionTarget, MatchLevel, SettingsSection};
 use lizzie_core::record::{
     BoardSize, GameInfo, Mark, MarkKind, MarkTool, Point, RecordFormat, Stone, StoneChange, Transform,
 };
@@ -61,6 +62,7 @@ fn generate() -> String {
         HawkeyeCommand, HawkeyeSide, HawkeyeBand, HawkeyeSpread, HawkeyeStage, HawkeyeMistake, HawkeyeRunning,
         HawkeyePane, HawkeyeView, HawkeyeSettings, HawkeyeBranch, HawkeyePeriod, HawkeyePlacement,
         BatchMode, BatchMove, BatchCommand, BatchItemView, BatchRunView, BatchFailure, BatchNotice, BatchView,
+        FunctionMatch, FunctionTarget, MatchLevel, SettingsSection,
     ];
     // Engine resources and engine performance keep their own lists.
     decls.extend(resources::decls(&cfg));

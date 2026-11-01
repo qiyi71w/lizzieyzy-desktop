@@ -1,11 +1,15 @@
-// The only bridge to the Rust side. Every UI entry (menus, toolbars, shortcuts, mouse) sends a
-// `Command` through `dispatch`; state arrives only as `WorkbenchView`s.
+// The only bridge to the Rust side. Mutating UI entries send `Command` through `dispatch`;
+// immutable function search is independent of the workbench and its lock.
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { ApiError, Command, CommandResult, ConsoleLineView, LogsStatus, SlotRef, WorkbenchView } from "./generated";
+import type { ApiError, Command, CommandResult, ConsoleLineView, FunctionMatch, Language, LogsStatus, SlotRef, WorkbenchView } from "./generated";
 
 export function dispatch(command: Command): Promise<CommandResult> {
   return invoke<CommandResult>("dispatch_command", { command });
+}
+
+export function searchFunctions(query: string, language: Language): Promise<FunctionMatch[]> {
+  return invoke<FunctionMatch[]>("search_functions", { query, language });
 }
 
 export function snapshot(): Promise<WorkbenchView> {

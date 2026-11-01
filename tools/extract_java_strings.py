@@ -75,6 +75,11 @@ def used_keys() -> set[str]:
         keys.update(re.findall(r"\"?\bkey\"?:\s*\"([^\"]+)\"", text))
     for rs in (ROOT / "crates").rglob("*.rs"):
         keys.update(re.findall(r"\bjava_text\(\s*[^,()]+,\s*\"([^\"]+)\"", rs.read_text(encoding="utf-8")))
+    catalog = json.loads((ROOT / "crates/lizzie-core/src/function_search/catalog.json").read_text(encoding="utf-8"))
+    keys.update(catalog["categories"])
+    for entry in catalog["entries"]:
+        keys.update(entry[field] for field in ("title", "description", "category", "aliases", "weakAliases") if entry[field])
+        keys.update(entry["path"])
     return keys
 
 
@@ -86,10 +91,13 @@ def main() -> None:
     l10n = java / "src/main/resources/l10n"
     base = load_properties(l10n / "DisplayStrings.properties")
     keys = used_keys()
+    keys.update(key for key in base if key.startswith("FunctionSearch."))
+    bundles = {locale: load_properties(l10n / file) for locale, file in LOCALES.items()}
+    for bundle in bundles.values():
+        keys.update(key for key in bundle if key.startswith("FunctionSearch."))
     result: dict[str, dict[str, str]] = {}
     missing: set[str] = set()
-    for locale, file in LOCALES.items():
-        bundle = load_properties(l10n / file)
+    for locale, bundle in bundles.items():
         table = {}
         for k in sorted(keys):
             if k in bundle:
