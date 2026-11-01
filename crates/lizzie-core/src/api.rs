@@ -1096,9 +1096,9 @@ pub enum ImportTarget {
     /// `show-bestmoves-list`, `show-bestmoves-graph`, `anaframe-show-next`,
     /// `anaframe-use-mousemove`.
     SuggestionsFrame,
-    /// 布局模式: `ui.extra-mode` (默认模式 / 双引擎模式).
+    /// Fixed Java layout selection (`ui.extra-mode`: 0, 1, 2, 3, 7, 8).
     ExtraMode,
-    /// Fixed workbench panel/toolbar flags and in-frame persisted shares.
+    /// Workbench panel/toolbar flags, floating board bounds and custom layout snapshots.
     WorkbenchPanels,
     PanelSizes,
     BottomToolbar,
