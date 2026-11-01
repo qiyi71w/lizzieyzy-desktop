@@ -124,6 +124,26 @@ importing the matching LizzieYzy Next settings.
 - Help > 诊断与日志 shows this client's logs, opens the log folder and exports a diagnostics zip;
   Help > 清除所有个人数据 clears the recent-record list; View > 重置界面位置 resets the saved
   window placement and last folder and turns the overwrite prompt back on.
+- 搜索功能 (the top toolbar button, or `Ctrl+K`, `⌘K` on macOS, with no other modifier) opens a
+  search bar centred over the window; it is refused while a text field has the focus (the key
+  stays with the field and its input method) and while a dialog, menu or context menu is open.
+  The bar stays in place and the results unfold below it: typing searches the Java function
+  catalog in every interface language, pinyin and aliases included; 浏览功能, `Up` or `Down` with
+  an empty query lists the whole catalog, which the category box narrows. A typed query lists
+  its best 50 results and counts all of them. Each result shows its title and Java path; the
+  selected one adds what it does, its shortcut, a prerequisite note and, when it cannot be used
+  now, why. A click selects, a double click or 打开 or `Enter` (acted on when released, never
+  while the input method is composing or on the key that commits its text) opens it, and `Esc`
+  or 取消 closes the bar and gives the focus back to the control that had it, unless another
+  control was chosen meanwhile. Opening a result does what the Java search does: a setting opens
+  综合设置 at its section and focuses its row (2.4 s gold outline) without changing it; a menu or
+  toolbar entry opens its menu path or shows its toolbar and focuses that control with the gold
+  outline, without running it; a board context entry explains where to right-click and returns
+  to the board; only an action entry runs. Entries this client does not provide yet, or that the
+  current state refuses (no engine, no KataGo, no edit to restore, a whole-game analysis
+  running, …), are greyed with their reason and cannot be opened. While the bar is open the
+  workbench shortcuts are inactive. Below a 900 px wide window the toolbar button shows its
+  icon only.
 - Engines: the engine list (更多引擎 / `Alt+X`) adds, edits, orders and removes engine profiles
   with Java's fields (name, command with Java quoting, initial commands, board size, komi,
   default engine, preload). The engine at start-up is the default one, the last one, none, or
@@ -632,6 +652,41 @@ cargo clippy --workspace --all-targets
   `l10n/DisplayStrings_*.properties` bundles. Regenerate it with
   `python3 tools/extract_java_strings.py <java-checkout>`; the script requires the checkout to be
   at the reference commit and lists keys that are shown literally.
+
+### Commands, settings rows and function search
+
+Function search reads the Java catalog from the core (`searchFunctions(query, language)` in
+`ui/src/contract/client.ts`, resource keys in the core's order) and decides each result's
+destination in `ui/src/search/targets.ts`. A feature makes its entries reachable by registering
+them where its control lives:
+
+- Actions and windows: an entry in the `COMMANDS` catalog (`ui/src/commands.ts`, extended by each
+  feature module) under the Java action id. Search runs it only for ACTION entries and for the
+  Java openers listed in `targets.ts` (weights download, acceleration, komi, rules, …).
+- Menu items: the item's `id` in `ui/src/chrome/javaMenus.ts` plus its `COMMANDS` entry. Search
+  opens the menu path and focuses the item (`locateMenuItem`); it does not run it.
+- Toolbar controls: `data-function="<Java action id>"` on the control (`at()` in
+  `chrome/toolbar.ts`, `located` in `chrome/bottombar.ts`). A control marked `unavailable` or
+  disabled does not count.
+- Settings rows: the section page (`SETTINGS_PAGES` in `ui/src/engine/settings.ts`) builds the
+  row with `data-setting-target="<Java setting id>"` and registers the ids with
+  `registerSettingTargets(section, ids)` (`ui/src/engine/settingsTargets.ts`).
+
+Two mappings live in `targets.ts` itself:
+
+- `OPENERS`: the Java ids that `FunctionSearchController.activate` opens with its own owner
+  method (weights download, acceleration, komi, rules, AI coach, private and public kifu
+  history). Each still needs its product `COMMANDS` entry; without one it is unavailable.
+- `CONTEXT_ITEMS`: the board context-menu keys (`RightClickMenu.*`, `RightClickMenu2.*`) that act
+  in `ui/src/editing/input.ts`. The context menu has no registration of its own yet, so a change
+  that makes another context item act (or stops one) must update this list in the same change.
+
+An entry without its destination is shown as not yet available. The acceptance probe's
+`functionSearch.entries` lists every catalog entry with its destination `kind` (`action`,
+`menu`, `toolbar`, `setting`, `window`, `context`), whether the destination is `missing`, the
+current `reason` and `registered` (the id has a `COMMANDS` entry), so a smoke check can require
+registered commands to reach a real destination; `functionSearch.open` describes the open search
+bar (query, rows, selection, focus) and `lastActivation` the last opened result.
 
 ### Acceptance channel
 

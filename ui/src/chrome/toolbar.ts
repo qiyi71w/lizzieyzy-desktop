@@ -13,6 +13,7 @@ import { javaDouble } from "../workbench/paint";
 import type { MenuNode } from "./javaMenus";
 import { openPopupMenu } from "./menubar";
 import { FLASH_MENU } from "../quick/flash";
+import { functionSearchRefused, openFunctionSearch } from "../search/controller";
 import "../editing/chrome.css";
 
 const updaters: (() => void)[] = [];
@@ -43,25 +44,32 @@ function commandIcon(off: string, on: string, tip: string, command: string): HTM
   return b;
 }
 
+/** Marks the control function search locates for a Java top-toolbar action id
+ *  (Menu.topFunctionTarget / AutoAnalyzeMenu.ACTION_PROPERTY). */
+function at(id: string, control: HTMLElement): HTMLElement {
+  control.dataset.function = id;
+  return control;
+}
+
 /** btnMarkup and, while show-markup-tools is on, the markup buttons after it in Java's rightArea
  *  order (Menu.java:8694-8703; the circle button is created but never added). */
 function markupTools(): HTMLElement[] {
   const tools = document.createElement("span");
   tools.className = "tb-markup";
   tools.append(
-    commandIcon("label.png", "label2.png", t("Accessibility.markupLetter"), "toolbar.markup-letter"),
-    commandIcon("labelnum1.png", "labelnum2.png", t("Accessibility.markupNumber"), "toolbar.markup-number"),
-    commandIcon("x.png", "x2.png", t("Accessibility.markupCross"), "toolbar.markup-cross"),
-    commandIcon("square.png", "square2.png", t("Accessibility.markupSquare"), "toolbar.markup-square"),
-    commandIcon("sanjiao.png", "sanjiao2.png", t("Accessibility.markupTriangle"), "toolbar.markup-triangle"),
-    commandIcon("eraser.png", "eraser2.png", t("Accessibility.markupEraser"), "toolbar.markup-eraser"),
-    icon("clear.png", t("Menu.btnMarkupClear.toolTipText"), "toolbar.markup-clear"),
+    at("toolbar.markup-letter", commandIcon("label.png", "label2.png", t("Accessibility.markupLetter"), "toolbar.markup-letter")),
+    at("toolbar.markup-number", commandIcon("labelnum1.png", "labelnum2.png", t("Accessibility.markupNumber"), "toolbar.markup-number")),
+    at("toolbar.markup-cross", commandIcon("x.png", "x2.png", t("Accessibility.markupCross"), "toolbar.markup-cross")),
+    at("toolbar.markup-square", commandIcon("square.png", "square2.png", t("Accessibility.markupSquare"), "toolbar.markup-square")),
+    at("toolbar.markup-triangle", commandIcon("sanjiao.png", "sanjiao2.png", t("Accessibility.markupTriangle"), "toolbar.markup-triangle")),
+    at("toolbar.markup-eraser", commandIcon("eraser.png", "eraser2.png", t("Accessibility.markupEraser"), "toolbar.markup-eraser")),
+    at("toolbar.markup-clear", icon("clear.png", t("Menu.btnMarkupClear.toolTipText"), "toolbar.markup-clear")),
   );
   updaters.push(() => {
     const display = state.view?.settings.edit.showMarkupTools ? "" : "none";
     if (tools.style.display !== display) tools.style.display = display;
   });
-  return [commandIcon("mark1.png", "mark2.png", t("Menu.btnMarkup.toolTipText"), "toolbar.markup-tools"), tools];
+  return [at("toolbar.markup-tools", commandIcon("mark1.png", "mark2.png", t("Menu.btnMarkup.toolTipText"), "toolbar.markup-tools")), tools];
 }
 
 /** Edit bar (Menu.java:7552-7643): 添加黑子 / 添加白子 toggle back to alternate play when chosen
@@ -267,12 +275,47 @@ function komiField(): HTMLInputElement {
   return control;
 }
 
+/** The search features button (Menu.java:8660-8685): FunctionSearchDialog.SearchIcon and the title,
+ *  which collapses to the icon alone below a 900 px wide window. Not focusable, so the control
+ *  that had the focus gets it back when the search is cancelled. */
+function searchButton(): HTMLElement {
+  const title = t("FunctionSearch.title");
+  const b = document.createElement("span");
+  b.className = "tb-pill plain search";
+  b.dataset.key = "function.search";
+  b.title = title;
+  b.setAttribute("role", "button");
+  b.setAttribute("aria-label", title);
+  const glass = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  glass.setAttribute("viewBox", "0 0 16 16");
+  glass.setAttribute("aria-hidden", "true");
+  glass.innerHTML = '<circle cx="5.5" cy="5.5" r="4.5"/><line x1="9" y1="9" x2="14" y2="14"/>';
+  const text = document.createElement("span");
+  text.className = "label";
+  b.append(glass, text);
+  const fit = () => {
+    const narrow = window.innerWidth < 900;
+    text.textContent = narrow ? "" : title;
+    b.classList.toggle("collapsed", narrow);
+  };
+  fit();
+  window.addEventListener("resize", fit);
+  // Decided on the press: a text control keeps the focus (preventDefault) and the press has not
+  // yet closed an open menu, so both still refuse the search as the shortcut does.
+  let admitted = false;
+  b.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    admitted = !functionSearchRefused();
+  });
+  b.onclick = () => {
+    if (admitted) void openFunctionSearch();
+    admitted = false;
+  };
+  return b;
+}
+
 export function buildToolbar(host: HTMLElement): void {
-  const search = pill(t("FunctionSearch.title"), "plain search");
-  const glass = document.createElement("img");
-  glass.src = "/assets/search.png";
-  glass.alt = "";
-  search.prepend(glass);
+  const search = searchButton();
   // disabled while no game is running (Menu.java:9101-9104)
   const pause = document.createElement("span");
   pause.className = "tb-pill disabled pause";
@@ -294,7 +337,7 @@ export function buildToolbar(host: HTMLElement): void {
     buttons(
       icon("hawkeye2.png", t("Menu.btnHawkeye.toolTipText"), "analysis.bad-moves"),
       rankMarkButton(),
-      icon("pass.png", t("Menu.btnChangeTurn.toolTipText"), "toolbar.change-turn"),
+      at("toolbar.change-turn", icon("pass.png", t("Menu.btnChangeTurn.toolTipText"), "toolbar.change-turn")),
       icon("setmain.png", t("Menu.btnSetMain.toolTipText"), "menu.setAsMain"),
       icon("backmain.png", t("Menu.btnBackMain.toolTipText"), "menu.backToMainBranch"),
       icon("control.png", t("Menu.btnContrlPanel.toolTipText")),
@@ -303,11 +346,11 @@ export function buildToolbar(host: HTMLElement): void {
     sep(),
     ...editBar(),
     sep(),
-    icon("blueallow.png", t("Menu.selectAllowToolTipText"), undefined, "force"),
-    icon("horizonDown.png", t("Accessibility.allowMoveOptions"), undefined, "more"),
-    icon("redavoid.png", t("Menu.selectAvoidToolTipText"), undefined, "force"),
-    icon("horizonDown.png", t("Accessibility.avoidMoveOptions"), undefined, "more"),
-    icon("clear.png", t("Menu.clearSelectToolTipText"), undefined, "force"),
+    at("toolbar.force-allow", icon("blueallow.png", t("Menu.selectAllowToolTipText"), undefined, "force")),
+    at("toolbar.force-allow-options", icon("horizonDown.png", t("Accessibility.allowMoveOptions"), undefined, "more")),
+    at("toolbar.force-avoid", icon("redavoid.png", t("Menu.selectAvoidToolTipText"), undefined, "force")),
+    at("toolbar.force-avoid-options", icon("horizonDown.png", t("Accessibility.avoidMoveOptions"), undefined, "more")),
+    at("toolbar.force-clear", icon("clear.png", t("Menu.clearSelectToolTipText"), undefined, "force")),
     sep(),
     pill(t("Menu.newGameBtn"), "newgame"),
     pause,
@@ -316,10 +359,10 @@ export function buildToolbar(host: HTMLElement): void {
     sep("dash"),
     // KataGo parameter fields stay empty and unchecked without an engine
     group("pda", check(false), label(withColon(t("Menu.separateLblPda"))), field()),
-    group("wrn", check(false), label(withColon(t("Menu.separateLblWrn"))), field()),
+    group("wrn", at("toolbar.wrn", check(false)), label(withColon(t("Menu.separateLblWrn"))), field()),
     sep(),
     label(t("Menu.lblShowCandidate")),
-    candidateCheck(t("Menu.Black"), true),
+    at("toolbar.candidate-sides", candidateCheck(t("Menu.Black"), true)),
     candidateCheck(t("Menu.White"), false),
     sep(),
     pill(t("Menu.rulesBtn"), "small", "engine.rules"),
