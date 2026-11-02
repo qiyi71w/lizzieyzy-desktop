@@ -695,7 +695,7 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         }
         Command::ApplyCustomLayout { slot } => {
             let done = shared.workbench.lock().unwrap().apply_custom_layout(slot)?;
-            let placed = if done { independent::apply(&app, &shared, slot).await } else { Ok(()) };
+            let placed = if done { independent::apply(&app, &shared, slot) } else { Ok(()) };
             let result = changed(&app, &shared, done);
             placed?;
             Ok(result)

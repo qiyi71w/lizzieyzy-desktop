@@ -108,8 +108,10 @@ pub(super) fn close_independent_board_window(app: AppHandle, state: tauri::State
     Ok(())
 }
 
-/// Apply saved native bounds after the core has committed the snapshot's flags.
-pub(super) async fn apply(app: &AppHandle, shared: &Shared, slot: u8) -> Result<(), ApiError> {
+/// Apply saved native bounds after the core has committed the snapshot's flags. The core also
+/// stored the snapshot's floating-board bounds, so a board that is not open yet opens there from
+/// the workbench (with its title); an open one moves.
+pub(super) fn apply(app: &AppHandle, shared: &Shared, slot: u8) -> Result<(), ApiError> {
     let layout = shared.workbench.lock().unwrap().config().custom_layouts[usize::from(slot - 1)].clone();
     let Some(layout) = layout else { return Ok(()); };
     if let (Some(window), Some(bounds)) = (app.get_webview_window("main"), layout.window) { set_outer(&window, bounds)?; }
@@ -117,10 +119,7 @@ pub(super) async fn apply(app: &AppHandle, shared: &Shared, slot: u8) -> Result<
         (IndependentBoard::Main, layout.panels.showing_independent_main, layout.independent_main),
         (IndependentBoard::Sub, layout.panels.showing_independent_sub, layout.independent_sub),
     ] {
-        if shown {
-            open_independent_board(app.clone(), app.state::<State>(), board, String::new()).await?;
-            if let (Some(window), Some(bounds)) = (app.get_webview_window(label(board)), bounds) { set_outer(&window, bounds)?; }
-        }
+        if let (true, Some(window), Some(bounds)) = (shown, app.get_webview_window(label(board)), bounds) { set_outer(&window, bounds)?; }
     }
     Ok(())
 }
