@@ -177,7 +177,9 @@ export function formPanel(title: string, body: HTMLElement, beforeClose: () => P
     e.stopPropagation();
     if (e.key === "Escape") { e.preventDefault(); void close(); }
     if (e.key === "Tab") {
-      const items = [...box.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex='0']")];
+      // Only rendered controls: 综合设置 keeps its other sections in the dialog, hidden.
+      const items = [...box.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex='0']")]
+        .filter((el) => el.getClientRects().length > 0);
       const at = items.indexOf(document.activeElement as HTMLElement);
       e.preventDefault();
       items[(at + (e.shiftKey ? -1 : 1) + items.length) % items.length]?.focus();

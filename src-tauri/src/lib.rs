@@ -682,11 +682,14 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = independent::close(&app, &shared, board)?;
             Ok(changed(&app, &shared, done))
         }
-        Command::SaveCustomLayout { slot, window } => {
+        Command::CommitLayout { mode, panels, board_position_proportion, save_slot, window } => {
             let done = {
                 let mut wb = shared.workbench.lock().unwrap();
-                independent::capture(&app, &mut wb)?;
-                wb.save_custom_layout(slot, window)?
+                // A slot snapshot records the floating boards where they are now.
+                if save_slot.is_some() {
+                    independent::capture(&app, &mut wb)?;
+                }
+                wb.commit_layout(mode, panels, board_position_proportion, save_slot.map(|slot| (slot, window)))?
             };
             Ok(changed(&app, &shared, done))
         }

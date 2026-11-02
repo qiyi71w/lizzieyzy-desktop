@@ -7,7 +7,7 @@ import type { EditSettings, MarkTool, Stone, Transform } from "../contract/gener
 import { message } from "../dialogs";
 import { t } from "../i18n";
 import { openBoardSize, openGameInfo } from "./dialogs";
-import { convertToStartingPosition, deleteWithPrompt, edit, editing, newBoardWithPrompt, setEditing, setSetupMode, type Placement, type SetupTool } from "./state";
+import { convertToStartingPosition, deleteWithPrompt, edit, editing, markupToolsShown, newBoardWithPrompt, setEditing, setSetupMode, type Placement, type SetupTool } from "./state";
 
 /** The 交替落子 toolbar icon (blackwhite) is lit only once 交替落子 was chosen explicitly: from the
  *  menu (Menu.java:3792-3796) or the button itself (7606-7617). Choosing black/white again from
@@ -118,12 +118,14 @@ Object.assign(COMMANDS, {
   // Top toolbar (Menu.java:8473-8637)
   "toolbar.change-turn": { run: () => void edit({ op: "ChangeTurn" }) },
   "toolbar.markup-tools": {
-    // setMarkupType(false, 0), then show/hide the markup buttons (show-markup-tools).
+    // setMarkupType(false, 0), then flip the shown markup buttons and save that (show-markup-tools,
+    // Menu.java:8505-8510); a search reveal counts as shown.
     run: () => {
-      setEditing({ markup: null });
-      setEdit("showMarkupTools", !state.view?.settings.edit.showMarkupTools);
+      const shown = markupToolsShown();
+      setEditing({ markup: null, markupRevealed: false });
+      setEdit("showMarkupTools", !shown);
     },
-    checked: () => state.view?.settings.edit.showMarkupTools ?? false,
+    checked: markupToolsShown,
   },
   "toolbar.markup-letter": markup("Letter"),
   "toolbar.markup-number": markup("Number"),

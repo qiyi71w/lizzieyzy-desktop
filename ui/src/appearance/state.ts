@@ -3,9 +3,9 @@
 // change arrived meanwhile (Menu.refreshCustomBackgrounds / Config.readThemeVaule clear every board
 // and wallpaper cache, Menu.java:7075-7122, Config.java:2287-2323). The frame font size is the
 // value this session started with (LizzieFrame.java:20764-20767: applied after a restart).
-import type { AppearanceSettings, ThemeSettings, WorkbenchView } from "../contract/generated";
+import type { AppearanceSettings, ThemeImages, ThemeSettings, WorkbenchView } from "../contract/generated";
 import { appearanceImages } from "../contract/client";
-import { cssColor, type ThemeImages } from "./model";
+import { cssColor } from "./model";
 
 export interface LoadedImages {
   board?: HTMLImageElement;

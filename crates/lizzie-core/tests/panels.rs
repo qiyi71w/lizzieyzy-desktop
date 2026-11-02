@@ -16,6 +16,11 @@ fn storage(dir: &std::path::Path) -> Storage {
 fn workbench(dir: &std::path::Path) -> Workbench {
     Workbench::new(storage(dir), Some("zh-CN"), Box::new(NoEngines), Vec::new())
 }
+/// SetCustomMode(slot) 确定 with the dialog left as it opened: the current layout is the snapshot.
+fn save_slot(wb: &mut Workbench, slot: u8, window: Option<lizzie_core::settings::WindowPlacement>) -> Result<bool, lizzie_core::api::ApiError> {
+    let s = wb.view(false).settings;
+    wb.commit_layout(s.extra_mode, s.panels, s.panel_sizes.board_position_proportion, Some((slot, window)))
+}
 
 #[test]
 fn panel_toggles_are_projected_and_survive_restart() {
@@ -253,10 +258,10 @@ fn custom_slots_restore_only_java_snapshot_fields_after_restart() {
     wb.set_panel_sizes(PanelSizes { board_position_proportion: 6, ..PanelSizes::default() }).unwrap();
     let bounds = WindowPlacement { x: 10, y: 20, width: 1400, height: 900, maximized: false };
     wb.persist_ui(Some(bounds), None, None).unwrap();
-    wb.save_custom_layout(1, Some(bounds)).unwrap();
+    save_slot(&mut wb, 1, Some(bounds)).unwrap();
     wb.set_extra_mode(ExtraMode::FloatBoard).unwrap();
     wb.record_independent_board(IndependentBoard::Main, Some(bounds)).unwrap();
-    wb.save_custom_layout(2, Some(bounds)).unwrap();
+    save_slot(&mut wb, 2, Some(bounds)).unwrap();
     wb.toggle_panel(WorkbenchPanel::AlwaysOnTop).unwrap();
     wb.set_bottom_toolbar(BottomToolbar::Hidden).unwrap();
     wb.restore_default_panel_sizes().unwrap();
@@ -274,7 +279,7 @@ fn custom_slots_restore_only_java_snapshot_fields_after_restart() {
     assert_eq!(s.extra_mode, ExtraMode::FloatBoard);
     assert!(s.panels.show_comment && !s.panels.show_sub_board);
     assert_eq!(s.independent_main_board, Some(bounds));
-    assert!(wb.save_custom_layout(0, None).is_err());
+    assert!(save_slot(&mut wb, 0, None).is_err());
     assert!(wb.apply_custom_layout(3).is_err());
 }
 
@@ -283,18 +288,68 @@ fn failed_custom_layout_apply_keeps_both_committed_settings_and_projection() {
     let dir = tempfile::tempdir().unwrap();
     let mut wb = workbench(dir.path());
     wb.toggle_panel(WorkbenchPanel::Comment).unwrap();
-    wb.save_custom_layout(1, None).unwrap();
+    save_slot(&mut wb, 1, None).unwrap();
     wb.set_extra_mode(ExtraMode::FourSub).unwrap();
     let before = wb.view(false).settings;
     let config_before = std::fs::read(storage(dir.path()).config_file).unwrap();
     // A failed persist write rolls the settings file back before publishing the projection.
-    std::fs::create_dir_all(&storage(dir.path()).persist_file).unwrap();
+    let persist = storage(dir.path()).persist_file;
+    let _ = std::fs::remove_file(&persist);
+    std::fs::create_dir_all(&persist).unwrap();
     assert!(wb.apply_custom_layout(1).is_err());
     let after = wb.view(false).settings;
     assert_eq!(after.panels, before.panels);
     assert_eq!(after.extra_mode, before.extra_mode);
     assert_eq!(after.panel_sizes, before.panel_sizes);
     assert_eq!(std::fs::read(storage(dir.path()).config_file).unwrap(), config_before);
+}
+
+#[test]
+fn applying_a_custom_layout_moves_a_dragged_board_share_to_the_saved_position() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    wb.set_panel_sizes(PanelSizes { board_position_proportion: 2, ..PanelSizes::default() }).unwrap();
+    save_slot(&mut wb, 1, None).unwrap();
+    // A separator drag leaves a fine share far to the right of position 2.
+    wb.set_panel_sizes(PanelSizes { board_position_proportion: 7, leftover_left_share: Some(0.9), ..PanelSizes::default() }).unwrap();
+    wb.apply_custom_layout(1).unwrap();
+    let sizes = wb.view(false).settings.panel_sizes;
+    assert_eq!(sizes.board_position_proportion, 2);
+    assert_eq!(sizes.leftover_left_share, Some(0.25));
+    drop(wb);
+    assert_eq!(workbench(dir.path()).view(false).settings.panel_sizes.leftover_left_share, Some(0.25));
+}
+
+#[test]
+fn layout_dialog_commit_is_all_or_nothing_and_keeps_an_untouched_board_share() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    wb.set_panel_sizes(PanelSizes { board_position_proportion: 4, leftover_left_share: Some(0.6), ..PanelSizes::default() }).unwrap();
+    let before = wb.view(false).settings;
+    let config_before = std::fs::read(storage(dir.path()).config_file).ok();
+    let mut panels = before.panels.clone();
+    panels.show_variation_graph = false;
+    // The position file cannot be written: neither the panels, the position nor the slot change.
+    let persist = storage(dir.path()).persist_file;
+    let saved = std::fs::read(&persist).unwrap();
+    std::fs::remove_file(&persist).unwrap();
+    std::fs::create_dir_all(&persist).unwrap();
+    assert!(wb.commit_layout(ExtraMode::Normal, panels.clone(), 6, Some((1, None))).is_err());
+    let after = wb.view(false).settings;
+    assert_eq!((after.panels, after.panel_sizes, after.custom_layouts[0].is_none()), (before.panels.clone(), before.panel_sizes, true));
+    assert_eq!(std::fs::read(storage(dir.path()).config_file).ok(), config_before);
+    std::fs::remove_dir(&persist).unwrap();
+    std::fs::write(&persist, saved).unwrap();
+    // The retry saves all of it; a moved slider moves the fine share with it.
+    assert!(wb.commit_layout(ExtraMode::Normal, panels.clone(), 6, Some((1, None))).unwrap());
+    let s = wb.view(false).settings;
+    assert!(!s.panels.show_variation_graph);
+    assert_eq!((s.panel_sizes.board_position_proportion, s.panel_sizes.leftover_left_share), (6, Some(0.75)));
+    assert_eq!(s.custom_layouts[0].as_ref().unwrap().board_position_proportion, 6);
+    // An untouched slider keeps the dragged share.
+    wb.set_panel_sizes(PanelSizes { board_position_proportion: 6, leftover_left_share: Some(0.7), ..PanelSizes::default() }).unwrap();
+    wb.commit_layout(ExtraMode::Normal, panels, 6, None).unwrap();
+    assert_eq!(wb.view(false).settings.panel_sizes.leftover_left_share, Some(0.7));
 }
 
 #[test]

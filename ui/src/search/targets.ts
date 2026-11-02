@@ -11,6 +11,7 @@ import { dialogOpen, message } from "../dialogs";
 import { openSettingsAt, settingTargetAvailable } from "../engine/settingsTargets";
 import { isChinese, product, t } from "../i18n";
 import { resourceView } from "../setup/dialog";
+import { markupToolsShown, setEditing } from "../editing/state";
 import { revealToolbar } from "../workbench/panels";
 import { clearHighlight, highlight } from "./highlight";
 
@@ -204,8 +205,8 @@ function dependencyReason(id: string): Reason | null {
   }
 }
 
-/** A toolbar control inside a tool group its own setting switched off (标记工具 while
- *  show-markup-tools is off). The whole toolbar being hidden does not count: locating shows it. */
+/** A toolbar control inside a tool group its own setting switched off. The whole toolbar being
+ *  hidden does not count (locating shows it), nor the markup buttons, which locating shows too. */
 function groupHidden(control: HTMLElement): boolean {
   for (let el = control.parentElement; el && el.id !== "toolbar" && el.id !== "bottombar"; el = el.parentElement) {
     if (getComputedStyle(el).display === "none") return true;
@@ -218,7 +219,7 @@ function unavailableReason(m: FunctionMatch, kind: DestinationKind | null, absen
   if (dialogOpen(search ?? undefined)) return { key: "FunctionSearch.unavailable.modal" };
   if (absent) return UNAVAILABLE;
   if (kind === "context") return state.view.settings.edit.showRightMenu ? null : CONTEXT;
-  if (kind === "toolbar" && groupHidden(toolbarControl(m.id)!)) return TOOLBAR;
+  if (kind === "toolbar" && !revealsMarkup(m.id) && groupHidden(toolbarControl(m.id)!)) return TOOLBAR;
   const reason = entryReason(m.id);
   if (reason) return reason;
   if (kind === "menu" && menuItemState(m.id) === "hidden") return CONTEXT;
@@ -254,12 +255,19 @@ async function navigateBoard(m: FunctionMatch): Promise<null> {
   return null;
 }
 
-/** BottomToolbar.locateFunction / Menu.locateTopFunction: shows the toolbar, then scrolls to and
- *  focuses the control with the gold line. The control is not clicked and no setting changes, so
- *  a tool group switched off by its own setting stays off and reports Java's toolbar reason. */
+/** Menu.locateTopFunction (Menu.java:6997-7001): locating a markup button shows the markup tools
+ *  for this session (Config.isShowingMarkupTools, not saved); btnMarkup itself does not. */
+function revealsMarkup(id: string): boolean {
+  return id.startsWith("toolbar.markup-") && id !== "toolbar.markup-tools";
+}
+
+/** BottomToolbar.locateFunction / Menu.locateTopFunction: shows the toolbar (and the markup tools
+ *  for a markup button), then scrolls to and focuses the control with the gold line. The control
+ *  is not clicked and no saved setting changes. */
 async function locateToolbarControl(id: string): Promise<Reason | null> {
   const control = toolbarControl(id);
   if (!control) return TOOLBAR;
+  if (revealsMarkup(id) && !markupToolsShown()) setEditing({ markupRevealed: true });
   await revealToolbar(control.closest("#bottombar") ? "bottom" : "top");
   if (!control.isConnected || control.getClientRects().length === 0) return TOOLBAR;
   control.scrollIntoView({ block: "nearest", inline: "nearest" });

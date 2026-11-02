@@ -19,7 +19,15 @@ export const editing = {
   /** LizzieFrame.isMarkuping + markupType: the selected markup tool, or none. */
   markup: null as MarkTool | null,
   setupTool: "black" as SetupTool,
+  /** Function search showed the markup tools for this session: Menu.locateTopFunction
+   *  (Menu.java:6997-7001) sets Config.isShowingMarkupTools without saving show-markup-tools. */
+  markupRevealed: false,
 };
+
+/** Whether the markup buttons after btnMarkup are shown (saved preference or search reveal). */
+export function markupToolsShown(): boolean {
+  return editing.markupRevealed || !!state.view?.settings.edit.showMarkupTools;
+}
 
 const changeListeners: (() => void)[] = [];
 

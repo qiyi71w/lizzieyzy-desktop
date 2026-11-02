@@ -35,10 +35,12 @@ export function layoutRequest(v: WorkbenchView): LayoutRequest {
   const shown = presentation(v);
   const p = shown.panels;
   const committed = draft ?? v.settings.panel_sizes;
-  // The dialog's 主棋盘位置 slider sets the discrete proportion (setBoardPositionProportion).
-  const sizes = shown.boardPositionProportion === committed.boardPositionProportion
+  // The dialog's 主棋盘位置 slider sets the proportion (setBoardPositionProportion); a dragged fine
+  // share moves to that position's own share, proportion / 8 (leftoverShareAfterAssignedProportion).
+  const moved = shown.boardPositionProportion;
+  const sizes = moved === committed.boardPositionProportion
     ? committed
-    : { ...committed, boardPositionProportion: shown.boardPositionProportion, leftoverLeftShare: null };
+    : { ...committed, boardPositionProportion: moved, leftoverLeftShare: committed.leftoverLeftShare === null ? null : moved / 8 };
   return {
     cols: v.document.size.width,
     rows: v.document.size.height,

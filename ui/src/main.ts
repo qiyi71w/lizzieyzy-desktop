@@ -1169,10 +1169,11 @@ let clientOrigin = { x: 0, y: 0 };
 
 /** Pointer input from the floating boards. 浮动主棋盘 (IndependentMainBoard.java:308-443) is the main
  *  board's own input: hover, presses, release and wheel; 浮动小棋盘 steps its own cursor
- *  (IndependentSubBoard.java:361-420). */
+ *  (IndependentSubBoard.java:361-420). An application-modal dialog or function search
+ *  (ConfigDialog2's APPLICATION_MODAL) blocks them like the main window; leaving still clears. */
 function independentInput(input: IndependentInput): void {
   const v = state.view;
-  if (!v) return;
+  if (!v || (dialogOpen() && input.type !== "leave")) return;
   if (input.board === "Sub") {
     const analysis = floatSub.frozen && floatSub.frozen.node === v.position.node ? floatSub.frozen.analysis : v.analysis;
     switch (input.type) {
@@ -1286,7 +1287,7 @@ function uiReport() {
   const active = document.activeElement as HTMLElement | null;
   return {
     title: document.title,
-    focus: active ? { tag: active.tagName.toLowerCase(), id: active.id, className: active.className } : null,
+    focus: active ? { tag: active.tagName.toLowerCase(), id: active.id, className: active.className, key: active.dataset.key ?? null } : null,
     menuOpen: menuOpen(),
     dialogs: [...document.querySelectorAll(".modal-box")].map((box) => ({
       title: box.querySelector(".modal-title")?.textContent ?? "",

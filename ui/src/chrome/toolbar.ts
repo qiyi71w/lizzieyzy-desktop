@@ -7,7 +7,7 @@ import { COMMANDS } from "../commands";
 import { rankMarkLit, setCandidateSide } from "../display/commands";
 import { boardUi, onBoardUiChange } from "../display/state";
 import { choosePlacement, placementLit } from "../editing/commands";
-import { editing, onEditingChange } from "../editing/state";
+import { editing, markupToolsShown, onEditingChange } from "../editing/state";
 import { product, t } from "../i18n";
 import { javaDouble } from "../workbench/paint";
 import type { MenuNode } from "./javaMenus";
@@ -66,7 +66,7 @@ function markupTools(): HTMLElement[] {
     at("toolbar.markup-clear", icon("clear.png", t("Menu.btnMarkupClear.toolTipText"), "toolbar.markup-clear")),
   );
   updaters.push(() => {
-    const display = state.view?.settings.edit.showMarkupTools ? "" : "none";
+    const display = markupToolsShown() ? "" : "none";
     if (tools.style.display !== display) tools.style.display = display;
   });
   return [at("toolbar.markup-tools", commandIcon("mark1.png", "mark2.png", t("Menu.btnMarkup.toolTipText"), "toolbar.markup-tools")), tools];

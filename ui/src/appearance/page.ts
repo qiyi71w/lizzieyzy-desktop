@@ -7,12 +7,12 @@
 // has no tracking display for it to control.
 import { run, state } from "../app";
 import { appearanceCatalog, chooseAppearanceImage } from "../contract/client";
-import type { ThemeSettings } from "../contract/generated";
+import type { AppearanceCatalog, ThemeSettings } from "../contract/generated";
 import { ask, confirm, message } from "../dialogs";
 import { SETTINGS_PAGES, type SettingsDialog } from "../engine/settings";
 import { registerSettingTargets } from "../engine/settingsTargets";
 import { product, t } from "../i18n";
-import { cssColor, DEFAULT_BLUNDER_COLORS, DEFAULT_BLUNDER_THRESHOLDS, DEFAULT_THEME, LIZZIE_DEFAULT_FONT, opaque, SYSTEM_DEFAULT_FONT, type AppearanceCatalog } from "./model";
+import { cssColor, DEFAULT_BLUNDER_COLORS, DEFAULT_BLUNDER_THRESHOLDS, DEFAULT_THEME, LIZZIE_DEFAULT_FONT, opaque, SYSTEM_DEFAULT_FONT } from "./model";
 import { loadThemeImages, type LoadedImages } from "./state";
 
 /** ConfigSettingTargets THEME rows this page has (ConfigSettingTargets.java:61-86), in row order. */
@@ -191,6 +191,13 @@ function fontCombo(key: string): FontCombo {
   const select = el("select");
   select.dataset.key = key;
   let fonts: string[] = [];
+  let loaded = false;
+  // setFontValue (6114-6118): an unknown name selects index 0. "Dialog.plain" selects 系统默认,
+  // which Java's combo could not find again (its items are display names).
+  const pick = (name: string) => {
+    select.value = [...select.options].some((o) => o.value === name) ? name : LIZZIE_DEFAULT_FONT;
+    select.style.fontFamily = select.selectedIndex > 1 ? `"${select.value}"` : "";
+  };
   const fill = (selected: string) => {
     select.replaceChildren();
     const add = (value: string, text: string) => {
@@ -201,25 +208,23 @@ function fontCombo(key: string): FontCombo {
     };
     add(LIZZIE_DEFAULT_FONT, t("FontList.lizzieDefault"));
     add(SYSTEM_DEFAULT_FONT, t("FontList.systemDefault"));
-    for (const font of fonts) if (font !== LIZZIE_DEFAULT_FONT && font !== SYSTEM_DEFAULT_FONT) add(font, font);
-    combo.set(selected);
+    // Java fills the whole list before selecting (4513-4526): until the system list arrives the
+    // requested font is kept as its own item instead of falling back to index 0.
+    for (const font of loaded ? fonts : [selected]) if (font !== LIZZIE_DEFAULT_FONT && font !== SYSTEM_DEFAULT_FONT) add(font, font);
+    pick(selected);
   };
   const combo: FontCombo = {
     select,
     setFonts(next) {
       const selected = combo.get();
       fonts = next;
+      loaded = true;
       fill(selected);
     },
     get: () => select.value || LIZZIE_DEFAULT_FONT,
-    // setFontValue (6114-6118): an unknown name selects index 0. "Dialog.plain" selects 系统默认,
-    // which Java's combo could not find again (its items are display names).
-    set(name) {
-      select.value = [...select.options].some((o) => o.value === name) ? name : LIZZIE_DEFAULT_FONT;
-      select.style.fontFamily = select.selectedIndex > 1 ? `"${select.value}"` : "";
-    },
+    set: (name) => (loaded ? pick(name) : fill(name)),
   };
-  select.addEventListener("change", () => combo.set(select.value));
+  select.addEventListener("change", () => pick(select.value));
   fill(LIZZIE_DEFAULT_FONT);
   return combo;
 }
@@ -536,9 +541,6 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   useScoreDiff.addEventListener("change", () => (scoreDiffPercent.disabled = !useScoreDiff.checked));
   row(blunders, "config.theme.score-blunders", t("ConfigDialog2.modern.theme.scoreBlunders"), t("ConfigDialog2.modern.theme.scoreBlundersSub"), useScoreDiff, scoreDiffPercent);
 
-  // validateSettingRows(content, SettingSection.THEME): every row id is known to 功能搜索.
-  registerSettingTargets("theme", [...TARGETS]);
-
   /** readThemeValues / readDefaultTheme: the controls show `v`. */
   const fill = (v: ThemeSettings) => {
     base = structuredClone(v);
@@ -741,3 +743,6 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
 }
 
 SETTINGS_PAGES.theme = buildThemePage;
+// validateSettingRows(content, SettingSection.THEME): every row id is known to 功能搜索 from start-up,
+// before the page is ever built (registration is metadata only).
+registerSettingTargets("theme", TARGETS);

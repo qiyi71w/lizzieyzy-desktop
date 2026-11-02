@@ -307,17 +307,43 @@ impl Workbench {
         Ok(())
     }
 
-    pub fn save_custom_layout(&mut self, slot: u8, window: Option<WindowPlacement>) -> Result<bool, ApiError> {
-        let index = custom_index(slot)?;
-        let layout = CustomLayout {
-            panels: self.config.panels.clone(),
-            board_position_proportion: self.persisted.panel_sizes.board_position_proportion,
-            window,
-            independent_main: self.persisted.independent_main_board,
-            independent_sub: self.persisted.independent_sub_board,
-        };
-        if self.config.custom_layouts[index].as_ref() == Some(&layout) { return Ok(false); }
-        self.commit_config(|c| c.custom_layouts[index] = Some(layout))?;
+    /// SetCustomMode 确定 (SetCustomMode.java; Config.savePanelConfig, then saveCustomMode for a
+    /// slot): the dialog's mode (published without the mode's entry defaults), panel flags and
+    /// board position, and for a 自定义布局 slot its snapshot, saved as one change. A failed write
+    /// keeps every committed value and projection.
+    pub fn commit_layout(&mut self, mode: ExtraMode, mut panels: PanelSettings, board_position_proportion: u8, save: Option<(u8, Option<WindowPlacement>)>) -> Result<bool, ApiError> {
+        if board_position_proportion > 8 {
+            return Err(ApiError::new(ErrorKind::InvalidArgument, "board position proportion must be 0..8"));
+        }
+        let slot = save.map(|(slot, window)| custom_index(slot).map(|index| (index, window))).transpose()?;
+        if mode.hides_comment() {
+            panels.show_comment = false;
+        }
+        let mut next = self.config.clone();
+        let mut persisted = self.persisted.clone();
+        next.ui.extra_mode = mode;
+        next.panels = panels;
+        // The 主棋盘位置 slider (setBoardPositionProportion) acts only when it was moved.
+        if persisted.panel_sizes.board_position_proportion != board_position_proportion {
+            set_board_position(&mut persisted.panel_sizes, board_position_proportion);
+        }
+        if let Some((index, window)) = slot {
+            next.custom_layouts[index] = Some(CustomLayout {
+                panels: next.panels.clone(),
+                board_position_proportion,
+                window,
+                independent_main: persisted.independent_main_board,
+                independent_sub: persisted.independent_sub_board,
+            });
+        }
+        if next == self.config && persisted == self.persisted {
+            return Ok(false);
+        }
+        let mode_changed = next.ui.extra_mode != self.config.ui.extra_mode;
+        self.commit_layout_files(next, persisted)?;
+        if mode_changed {
+            self.sync_engine();
+        }
         Ok(true)
     }
 
@@ -343,17 +369,32 @@ impl Workbench {
             p.showing_independent_main |= layout.panels.showing_independent_main;
             p.showing_independent_sub |= layout.panels.showing_independent_sub;
         }
-        persisted.panel_sizes.board_position_proportion = layout.board_position_proportion;
+        // Config.loadCustomLayout → setBoardPositionProportion.
+        set_board_position(&mut persisted.panel_sizes, layout.board_position_proportion);
         if layout.panels.showing_independent_main { persisted.independent_main_board = layout.independent_main; }
         if layout.panels.showing_independent_sub { persisted.independent_sub_board = layout.independent_sub; }
-        crate::settings::save_both(&self.storage, &next, (!self.persist_reset).then_some(&persisted))
-            .map_err(|e| ApiError::new(ErrorKind::Io, format!("saving custom layout failed: {e}")))?;
-        self.config = next;
-        self.persisted = persisted;
+        self.commit_layout_files(next, persisted)?;
         self.sync_engine();
         Ok(true)
     }
 
+    /// Settings and window presentation as one write: the projection changes only once both files
+    /// are saved (`save_both` puts the settings file back when the second write fails).
+    fn commit_layout_files(&mut self, next: crate::settings::Config, persisted: crate::settings::Persisted) -> Result<(), ApiError> {
+        crate::settings::save_both(&self.storage, &next, (!self.persist_reset).then_some(&persisted))
+            .map_err(|e| ApiError::new(ErrorKind::Io, format!("saving layout failed: {e}")))?;
+        self.config = next;
+        self.persisted = persisted;
+        Ok(())
+    }
+}
+
+/// LizzieFrame.setBoardPositionProportion (LizzieFrame.java:8038-8042) with
+/// InFrameLayout.leftoverShareAfterAssignedProportion (InFrameLayout.java:15-20): a dragged fine
+/// share, if any, moves to the chosen position's own share, proportion / 8.
+fn set_board_position(sizes: &mut PanelSizes, proportion: u8) {
+    sizes.board_position_proportion = proportion;
+    sizes.leftover_left_share = sizes.leftover_left_share.map(|_| f64::from(proportion) / 8.0);
 }
 
 fn custom_index(slot: u8) -> Result<usize, ApiError> {

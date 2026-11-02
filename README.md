@@ -138,11 +138,13 @@ importing the matching LizzieYzy Next settings.
   control was chosen meanwhile. Opening a result does what the Java search does: a setting opens
   综合设置 at its section and focuses its row (2.4 s gold outline) without changing it; a menu or
   toolbar entry opens its menu path or shows its toolbar and focuses that control with the gold
-  outline, without running it; a board context entry explains where to right-click and returns
-  to the board; only an action entry runs. Entries this client does not provide yet, or that the
-  current state refuses (no engine, no KataGo, no edit to restore, a whole-game analysis
-  running, …), are greyed with their reason and cannot be opened. While the bar is open the
-  workbench shortcuts are inactive. Below a 900 px wide window the toolbar button shows its
+  outline, without running it (a markup button also shows the 标记工具 buttons for this
+  session, as Java does, without changing the saved 标记工具 choice); a board context entry
+  explains where to right-click and returns to the board; only an action entry runs. Entries
+  this client does not provide yet, or that the current state refuses (no engine, no KataGo, no
+  edit to restore, a whole-game analysis running, …), are greyed with their reason and cannot be
+  opened. While the bar or any other dialog is open, the workbench shortcuts and the floating
+  boards' mouse input are inactive. Below a 900 px wide window the toolbar button shows its
   icon only.
 - Engines: the engine list (更多引擎 / `Alt+X`) adds, edits, orders and removes engine profiles
   with Java's fields (name, command with Java quoting, initial commands, board size, komi,
@@ -324,8 +326,11 @@ importing the matching LizzieYzy Next settings.
   Java's panel flags, board position, main-window bounds/maximization and floating-window
   choices/bounds, independently of themes, toolbars and analysis settings. As in Java, applying
   a saved layout chooses 浮动棋盘 when its main board is floating, otherwise 普通布局; it does
-  not restore a former 思考 / 四方图 / 双引擎 mode. Java configuration import recognizes these
-  modes, the classic flag and both saved layouts.
+  not restore a former 思考 / 四方图 / 双引擎 mode; a board position dragged by hand moves to the
+  saved position. Their 设置 dialog and 面板 > 可视化面板设置 preview each change at once; 确定
+  saves the panels, board position and (for a slot) the snapshot together, and a save that fails
+  keeps the dialog open with its choices. Java configuration import recognizes these modes, the
+  classic flag and both saved layouts.
 - 双引擎模式 (显示 > 布局模式, `Alt+6`; 默认模式 `Alt+1`): a second engine analyses the same
   position next to the foreground engine. The window takes Java's width for the mode (the board
   height doubled, or 1.65 times it for 默认模式) unless it is maximized, and shows two equal
@@ -725,8 +730,9 @@ them where its control lives:
   `chrome/toolbar.ts`, `located` in `chrome/bottombar.ts`). A control marked `unavailable` or
   disabled does not count.
 - Settings rows: the section page (`SETTINGS_PAGES` in `ui/src/engine/settings.ts`) builds the
-  row with `data-setting-target="<Java setting id>"` and registers the ids with
-  `registerSettingTargets(section, ids)` (`ui/src/engine/settingsTargets.ts`).
+  row with `data-setting-target="<Java setting id>"`, and its module registers the ids with
+  `registerSettingTargets(section, ids)` (`ui/src/engine/settingsTargets.ts`) when it loads, so
+  they are searchable before 综合设置 is ever opened.
 
 Two mappings live in `targets.ts` itself:
 

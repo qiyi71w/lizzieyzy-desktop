@@ -68,6 +68,8 @@ fn generate() -> String {
         lizzie_core::appearance::AppearanceSettings, lizzie_core::appearance::BoardStyle,
         lizzie_core::appearance::ThemeSettings,
         lizzie_core::appearance::ThemeNodeColor,
+        lizzie_core::appearance::ThemeEntry, lizzie_core::appearance::AppearanceCatalog,
+        lizzie_core::appearance::ThemeImages,
         lizzie_core::settings::CustomLayout, lizzie_core::settings::IndependentBoard,
     ];
     // Engine resources and engine performance keep their own lists.

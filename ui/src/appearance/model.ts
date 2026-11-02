@@ -1,32 +1,7 @@
 // Presentation rules of the Java theme values (wimi321/lizzieyzy-next cb53acc): colour arrays,
 // derived colours, font roles, the 中式经典 board style and the 错误节点 rules. Pure functions only;
 // the active committed values live in ./state.
-import type { Language, MoveRank, ThemeSettings } from "../contract/generated";
-
-/** One entry of the theme combo box (ConfigDialog2.loadThemeTab, ConfigDialog2.java:4372-4384);
- *  "default" is Java's LizzieConfig.title.defaultTheme item. */
-export interface ThemeEntry {
-  name: string;
-  values: ThemeSettings;
-}
-
-/** `appearance_catalog`: the themes and the system font families (GraphicsEnvironment). */
-export interface AppearanceCatalog {
-  themes: ThemeEntry[];
-  fonts: string[];
-}
-
-/** `appearance_images`: loadable URLs of the four theme images. */
-export interface ThemeImages {
-  board: string;
-  background: string;
-  black: string;
-  /** Theme.isUsingCustomBoardImage / isUsingCustomBackgroundImage (Theme.java:210-217): the
-   *  configured override decoded. */
-  customBoard: boolean;
-  customBackground: boolean;
-  white: string;
-}
+import type { Language, MoveRank } from "../contract/generated";
 
 export const DEFAULT_THEME = "default";
 /** ConfigDialog2.getFontItemName (ConfigDialog2.java:6374-6380): combo index 0 and 1. */

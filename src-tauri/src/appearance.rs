@@ -1,13 +1,10 @@
 //! Read-only image transport and system font discovery. Work is done off the UI thread and
 //! outside the workbench lock. IPC returns decoded image bytes as data URLs: no blanket asset
 //! protocol scope is needed for either user themes or the rest of the filesystem.
-use lizzie_core::appearance::{self, AppearanceSettings, ThemeEntry, ThemeImages, ThemeSettings};
-use serde::Serialize;
+use lizzie_core::appearance::{self, AppearanceCatalog, AppearanceSettings, ThemeImages, ThemeSettings};
 use crate::{State, ApiError, ErrorKind};
 
 fn error(e: impl std::fmt::Display) -> ApiError { ApiError::new(ErrorKind::Io,format!("appearance: {e}")) }
-#[derive(Serialize)]
-pub struct AppearanceCatalog { themes:Vec<ThemeEntry>, fonts:Vec<String> }
 
 #[tauri::command]
 pub async fn appearance_catalog(state:tauri::State<'_,State>) -> Result<AppearanceCatalog,ApiError> {

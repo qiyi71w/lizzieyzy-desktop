@@ -2,8 +2,7 @@
 // immutable function search is independent of the workbench and its lock.
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { ApiError, AppearanceSettings, Command, CommandResult, ConsoleLineView, FunctionMatch, Language, LogsStatus, SlotRef, ThemeSettings, WorkbenchView } from "./generated";
-import type { AppearanceCatalog, ThemeImages } from "../appearance/model";
+import type { ApiError, AppearanceCatalog, AppearanceSettings, Command, CommandResult, ConsoleLineView, FunctionMatch, Language, LogsStatus, SlotRef, ThemeImages, ThemeSettings, WorkbenchView } from "./generated";
 
 export function dispatch(command: Command): Promise<CommandResult> {
   return invoke<CommandResult>("dispatch_command", { command });

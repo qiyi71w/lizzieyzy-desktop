@@ -61,7 +61,9 @@ export function openSetCustomMode(slot: 1 | 2 | null): void {
   const pondering = v.engine.analysing;
   if (pondering) void run({ type: "ToggleAnalysis" });
   const committed = presentation(v);
-  const d: Presentation = slot === null ? { ...committed, panels: { ...committed.panels } } : loadSnapshot(committed, slot);
+  // The draft owns its panels: the committed projection is never written (an empty slot loads it).
+  const loaded = slot === null ? committed : loadSnapshot(committed, slot);
+  const d: Presentation = { ...loaded, panels: { ...loaded.panels } };
   const p = d.panels;
   const show = () => setPresentationDraft({ ...d, panels: { ...p } });
   show();
@@ -72,7 +74,7 @@ export function openSetCustomMode(slot: 1 | 2 | null): void {
     const label = document.createElement("label");
     label.textContent = text;
     if (tooltip) label.title = tooltip;
-    label.htmlFor = control.id = `custom-mode-${grid.childElementCount / 2}`;
+    label.htmlFor = control.id = control.dataset.key = `custom-mode-${grid.childElementCount / 2}`;
     grid.append(label, control);
     return control;
   };
@@ -217,7 +219,11 @@ export function openSetCustomMode(slot: 1 | 2 | null): void {
 
   let confirmed = false;
   const finish = async () => {
-    if (confirmed) await commit(d, slot);
+    // A failed save keeps the dialog and its draft for another 确定 or 取消.
+    if (confirmed && !(await commit(d, slot))) {
+      confirmed = false;
+      return false;
+    }
     setPresentationDraft(null);
     openDialog = false;
     if (pondering) void run({ type: "ToggleAnalysis" });
@@ -232,17 +238,17 @@ export function openSetCustomMode(slot: 1 | 2 | null): void {
   cancel.onclick = () => void dialog.close();
 }
 
-/** 确定: Config.savePanelConfig, then Config.saveCustomMode for a slot. The mode is set first
- *  (its entry defaults are then replaced by the dialog's flags, as Java changes only the mode). */
-async function commit(d: Presentation, slot: 1 | 2 | null): Promise<void> {
-  await holdIndependent(async () => {
-    const v = state.view;
-    if (!v) return;
-    if (d.mode !== v.settings.extra_mode) await run({ type: "SetExtraMode", mode: d.mode });
-    await run({ type: "SetPanelSettings", settings: d.panels });
-    const sizes = state.view?.settings.panel_sizes ?? v.settings.panel_sizes;
-    if (d.boardPositionProportion !== sizes.boardPositionProportion)
-      await run({ type: "SetPanelSizes", sizes: { ...sizes, boardPositionProportion: d.boardPositionProportion, leftoverLeftShare: null } });
-    if (slot !== null) await run({ type: "SaveCustomLayout", slot, window: await framePlacement() });
-  });
+/** 确定: Config.savePanelConfig, then Config.saveCustomMode for a slot, as one core operation
+ *  (the mode is published without its entry defaults). Whether it was saved. */
+async function commit(d: Presentation, slot: 1 | 2 | null): Promise<boolean> {
+  const window = slot === null ? null : await framePlacement();
+  const result = await holdIndependent(() => run({
+    type: "CommitLayout",
+    mode: d.mode,
+    panels: d.panels,
+    board_position_proportion: d.boardPositionProportion,
+    save_slot: slot,
+    window,
+  }));
+  return result?.type === "Done" || result?.type === "Unchanged";
 }

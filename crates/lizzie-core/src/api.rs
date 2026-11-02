@@ -175,7 +175,15 @@ pub enum Command {
     SetClassicMode,
     ToggleIndependentBoard { board: crate::settings::IndependentBoard },
     CloseIndependentBoard { board: crate::settings::IndependentBoard },
-    SaveCustomLayout { slot: u8, window: Option<crate::settings::WindowPlacement> },
+    /// SetCustomMode / 可视化面板设置 确定: mode, panel flags and board position, plus the
+    /// 自定义布局 `save_slot` snapshot with the main `window` bounds, as one change.
+    CommitLayout {
+        mode: crate::settings::ExtraMode,
+        panels: crate::settings::PanelSettings,
+        board_position_proportion: u8,
+        save_slot: Option<u8>,
+        window: Option<crate::settings::WindowPlacement>,
+    },
     ApplyCustomLayout { slot: u8 },
     /// Secondary engine menu `[n] name` (`EngineManager.switchEngine(index, false)`), in 双引擎模式
     /// only: engine `index` becomes the secondary engine. The foreground engine is refused

@@ -162,8 +162,13 @@ pub fn load_theme(storage: &Storage, name: &str, defaults: &ThemeSettings) -> Th
     }
     theme
 }
-#[derive(Serialize)]
+/// One entry of the theme combo box (ConfigDialog2.loadThemeTab, ConfigDialog2.java:4372-4384);
+/// "default" is Java's LizzieConfig.title.defaultTheme item.
+#[derive(Serialize, TS)]
 pub struct ThemeEntry { pub name: String, pub values: ThemeSettings }
+/// `appearance_catalog`: the themes and the system font families (GraphicsEnvironment).
+#[derive(Serialize, TS)]
+pub struct AppearanceCatalog { pub themes: Vec<ThemeEntry>, pub fonts: Vec<String> }
 pub fn catalog(storage: &Storage, defaults: &ThemeSettings) -> Vec<ThemeEntry> {
     let dir = themes_dir(storage);
     let hidden: Vec<String> = settings::load_json(&storage.config_file.with_file_name("hidden-themes.json"));
@@ -221,7 +226,10 @@ fn image_bytes(bytes: &[u8]) -> std::io::Result<String> {
         image::ImageFormat::Gif=>"image/gif",image::ImageFormat::Bmp=>"image/bmp",_=>return Err(std::io::Error::other("unsupported image format")) };
     Ok(format!("data:{mime};base64,{}",base64::engine::general_purpose::STANDARD.encode(bytes)))
 }
-#[derive(Serialize)]
+/// `appearance_images`: loadable URLs of the four theme images; `custom_board` /
+/// `custom_background` are Theme.isUsingCustomBoardImage / isUsingCustomBackgroundImage
+/// (Theme.java:210-217), the configured override decoded.
+#[derive(Serialize, TS)]
 #[serde(rename_all="camelCase")]
 pub struct ThemeImages {
     pub board:String, pub background:String, pub black:String, pub white:String,
