@@ -1361,6 +1361,7 @@ function uiReport() {
       })(),
     },
     lastSound: state.lastSound,
+    soundRequests: state.soundRequests,
     recovery: recoveryReport(),
     /** 评论/问题手 panel (T13): page, side, sort, badge, rows and the board's marked move. */
     problems: problemsReport(),

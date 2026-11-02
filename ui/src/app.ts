@@ -17,8 +17,9 @@ export const state = {
   line: new Set<number>(),
   /** Node count of the main line (first children from the root). */
   mainLineNodes: 1,
-  /** Last stone sound requested (reported to acceptance automation). */
+  /** Last stone sound requested and how many were requested (reported to acceptance automation). */
   lastSound: null as StoneSound | null,
+  soundRequests: 0,
 };
 
 const listeners: (() => void)[] = [];
@@ -76,6 +77,7 @@ let soundsPlaying = 0;
  *  playing stays silent. Playback failures are ignored (sound is optional). */
 function playSound(sound: StoneSound) {
   state.lastSound = sound;
+  state.soundRequests++;
   if (soundsPlaying >= 2) return;
   soundsPlaying++;
   const audio = new Audio(SOUND_FILES[sound]);
