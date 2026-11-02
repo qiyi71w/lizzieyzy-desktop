@@ -736,6 +736,26 @@ body {
   border: 1px solid rgb(160, 165, 170);
   padding: 0 2px;
 }
+/* 自定义布局's 设置 button inside the menu item (JFontButton with zero margins) */
+.mi .mi-button {
+  height: 20px;
+  margin-left: 8px;
+  padding: 0 6px;
+  font: inherit;
+}
+/* SetCustomMode: GridLayout(12, 2, 45, 4) of labels and controls, 12 px dialog padding */
+.custom-mode-grid {
+  display: grid;
+  grid-template-columns: auto auto;
+  column-gap: 45px;
+  row-gap: 4px;
+  align-items: center;
+  padding: 12px 12px 0;
+  font-size: 12px;
+}
+.custom-mode-grid input[type="range"] {
+  width: 100px;
+}
 
 /* ---- board display dialogs: Swing null layouts at their setBounds */
 .modal-body.display-abs {

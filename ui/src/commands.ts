@@ -23,6 +23,8 @@ export interface CommandEntry {
   enabled?: () => boolean;
   /** Java items hidden by a menu-open listener (setVisible(false)) while this is false. */
   visible?: () => boolean;
+  /** A button inside the menu item, beside its label (自定义布局's 设置, Menu.java:1985-2050). */
+  button?: { label: () => string; run: () => void };
 }
 
 /** Settings > 语言 (Menu.java:7025-7034): saved now, applied after a restart. */

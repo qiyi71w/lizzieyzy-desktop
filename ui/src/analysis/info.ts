@@ -65,14 +65,12 @@ function estimateLayer(v: WorkbenchView, candidate: CandidateView | undefined): 
   return own ? { ownership: own, style, source: "estimate" } : null;
 }
 
-/** Repaint signatures of the boards' ownership: a revision bumped when the squares' values change. */
-const layerSeen = {
-  main: { own: null as number[] | null, revision: 0 },
-  sub: { own: null as number[] | null, revision: 0 },
-  right: { own: null as number[] | null, revision: 0 },
-};
-export function layerSignature(board: "main" | "sub" | "right", layer: OwnershipLayer | null): string {
-  const seen = layerSeen[board];
+/** Repaint signatures of the boards' ownership: a revision bumped when the squares' values change.
+ *  `raw` is 思考模式's raw board, `quadN` 四方图模式's sub boards. */
+type LayerBoard = "main" | "sub" | "right" | "raw" | `quad${number}`;
+const layerSeen: Partial<Record<LayerBoard, { own: number[] | null; revision: number }>> = {};
+export function layerSignature(board: LayerBoard, layer: OwnershipLayer | null): string {
+  const seen = (layerSeen[board] ??= { own: null, revision: 0 });
   const own = layer?.ownership ?? null;
   if (!sameOwnership(seen.own, own)) {
     seen.own = own;

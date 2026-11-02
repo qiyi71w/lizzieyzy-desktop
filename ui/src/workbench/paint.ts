@@ -1393,6 +1393,9 @@ export interface SubBoardScene {
   removeDead: boolean;
   /** 纯网络's or Kata形势's squares (the shown variation's movesOwnership with 按选点显示评估). */
   ownership: OwnershipLayer | null;
+  /** 四方图模式's renderer order (SubBoardRenderer.setOrder): with fewer candidates than order + 1
+   *  the board shows no variation (getBestMove returns empty). 0 for the ordinary sub board. */
+  order?: number;
 }
 
 export interface SubBoardReport {
@@ -1476,8 +1479,9 @@ export function paintSubBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origi
   let branch: { preview: Preview; candidate: CandidateView } | null = null;
   if (s.mode === "Variation" && s.candidatesShown && s.engine) {
     const candidates = s.analysis?.candidates ?? [];
-    const index = candidates.length ? Math.min(s.candidate, candidates.length - 1) : s.candidate;
-    const c = candidates[index];
+    const enough = candidates.length >= (s.order ?? 0) + 1;
+    const index = enough ? Math.min(s.candidate, candidates.length - 1) : s.candidate;
+    const c = enough ? candidates[index] : undefined;
     if (c) {
       const full = s.branchLimit > 0 ? Math.min(s.branchLimit, c.pv.length) : c.pv.length;
       const preview = playVariation(s.stones, s.toPlay, cols, c, s.length ?? full, s.removeDead);
@@ -1589,6 +1593,8 @@ export interface CapturedScene {
   /** AI总评分 of Black / White (core `statistics`), null when none of their moves is evaluated. */
   aiScoreBlack: number | null;
   aiScoreWhite: number | null;
+  /** isSmallCap: 四方图 / 思考模式's captured strip (LizzieFrame.java:9189-9373). */
+  small?: boolean;
 }
 
 /** drawCaptured's AI总评分 text (LizzieFrame.AIscore + "%.1f"). */
@@ -1634,6 +1640,18 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
   g.fillStyle = "#fff";
   g.textAlign = "left";
   g.textBaseline = "alphabetic";
+  if (s.small) {
+    // The small strip has no capture counts; AI总评分 sits lower and larger, komi and the
+    // move / rules caption use min(w * 0.4, h * 0.85) * 0.2 capped at frameFontSize + 6.
+    if (s.aiScoreBlack !== null) stringMid(g, aiScoreText(s.aiScoreBlack), i(width / 4), i((height * 5) / 7), i((height * 2) / 5), i((width * 4) / 10));
+    if (s.aiScoreWhite !== null) stringMid(g, aiScoreText(s.aiScoreWhite), i((width * 3) / 4), i((height * 5) / 7), i((height * 2) / 5), i((width * 4) / 10));
+    g.font = `${i(Math.min(18, Math.max(Math.min(width * 0.4, height * 0.85) * 0.2, 11)))}px ${GRAPH_FONT}`;
+    const komi = javaDouble(s.komi);
+    g.fillText(komi, i(width / 2) - 1 - i(Math.round(g.measureText(komi).width) / 2), i((height * 15) / 16));
+    const caption = s.rules ?? `${s.moveNumber}`;
+    g.fillText(caption, i(width / 2) - 1 - i(Math.round(g.measureText(caption).width) / 2), i((height * 5) / 16));
+    return;
+  }
   stringMid(g, `${t("LizzieFrame.captures")}${s.blackCaptures}`, i(width / 4), i((height * 28) / 32), i(height / 6), i((width * 3) / 10));
   stringMid(g, `${t("LizzieFrame.captures")}${s.whiteCaptures}`, i((width * 3) / 4), i((height * 28) / 32), i(height / 6), i((width * 3) / 10));
   if (s.aiScoreBlack !== null) stringMid(g, aiScoreText(s.aiScoreBlack), i(width / 4), i((height * 19) / 32), i(height / 5), i((width * 4) / 10));

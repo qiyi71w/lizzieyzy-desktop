@@ -11,6 +11,8 @@ forbidpoint, trackingpoint, upSearch.png per RightClickMenu.java:222-287 and
 RightClickMenu2.java:93-105; the sub-board heat image heatmap.png per SubBoardRenderer.java:1452-1466;
 the 落子评价 button states RankMarkOn / RankMarkOff.png per Menu.java:8432-8447; the 超级鹰眼 fold
 buttons up.png / down.png and settings.png per MoveListFrame.java:780-830 and the 吻合度 formula
-images matchform.png / matchformeng.png per SetMatchAiPara.java.
+images matchform.png / matchformeng.png per SetMatchAiPara.java; the floating boards' close,
+always-on-top and lock buttons close.png, top.png / btm.png and Locked.png / Unlocked.png per
+IndependentMainBoard.java:125-279 and IndependentSubBoard.java:84-238.
 The application icons in src-tauri/icons were generated with `tauri icon` from
 packaging/icons/app-icon-1024.png of the same commit.
