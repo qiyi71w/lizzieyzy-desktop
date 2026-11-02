@@ -84,10 +84,10 @@ function applyStyles(settings: AppearanceSettings, theme: ThemeSettings): void {
   else root.setProperty("--glass-accent-underline", `rgba(${r}, ${g}, ${b}, ${220 / 255})`);
 }
 
-/** Applies a published view's appearance. Unchanged values do nothing; a newer change wins over a
- *  slower earlier one, so images of a superseded change never reach the painters. */
-export async function syncAppearance(view: WorkbenchView): Promise<void> {
-  const { appearance: settings, theme } = view.settings;
+/** Applies a published appearance (the workbench's view, or the one a floating board window is
+ *  sent). Unchanged values do nothing; a newer change wins over a slower earlier one, so images of
+ *  a superseded change never reach the painters. */
+export async function syncAppearance(settings: AppearanceSettings, theme: ThemeSettings): Promise<void> {
   const key = JSON.stringify([settings, theme]);
   if (key === requested) return;
   requested = key;
@@ -121,7 +121,7 @@ export async function startAppearance(first: WorkbenchView): Promise<void> {
   root.setProperty("--frame-font-size", `${size}px`);
   root.setProperty("--menu-icon-size", `${metrics.menuIconSize}px`);
   if (first.settings.appearance.appleStyle) installAppleIcons();
-  await syncAppearance(first);
+  await syncAppearance(first.settings.appearance, first.settings.theme);
 }
 
 /** brightenIcon's recolouring as an SVG filter: every visible pixel becomes #E0E4EA. */

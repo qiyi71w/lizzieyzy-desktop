@@ -154,6 +154,9 @@ pub struct Mapped {
     pub panels: Vec<DisplayValue>,
     pub panel_sizes: Vec<DisplayValue>,
     pub bottom_toolbar: Option<crate::settings::BottomToolbar>,
+    pub custom_layouts: [Option<crate::settings::CustomLayout>; 2],
+    pub independent_main_board: Option<crate::settings::WindowPlacement>,
+    pub independent_sub_board: Option<crate::settings::WindowPlacement>,
     /// `ui.auto-quick-analyze-on-load`.
     pub auto_quick_analyze_on_load: Option<bool>,
     /// 精析设置 (`ui.analysis-*`); a relative command resolved like an engine's.
@@ -1052,6 +1055,13 @@ impl Reader<'_> {
         // Config.java:1609-1613,1677-1683,1828,1939,1981. Java's actual top key is
         // show-top-tool-bar (not show-top-toolbar).
         for (key, field) in [
+            ("is-classic-mode", "classicMode"),
+            ("showing-independent-main", "showingIndependentMain"),
+            ("showing-independent-sub", "showingIndependentSub"),
+            ("independent-mainboard-locked", "independentMainLocked"),
+            ("independent-subboard-locked", "independentSubLocked"),
+            ("independent-main-board-top", "independentMainTop"),
+            ("independent-sub-board-top", "independentSubTop"),
             ("show-subboard", "showSubBoard"), ("show-winrate-graph", "showWinrateGraph"),
             ("large-winrate-graph", "largeWinrateGraph"), ("show-comment", "showComment"),
             ("show-variation-graph", "showVariationGraph"), ("show-list-pane", "showListPane"),
@@ -1069,6 +1079,17 @@ impl Reader<'_> {
                         target: ImportTarget::WorkbenchPanels, field, value: Value::from(value),
                     });
                     self.imported(format!("ui.{key}"), ImportTarget::WorkbenchPanels, value.to_string());
+                }
+                None => self.invalid(format!("ui.{key}"), ImportTarget::WorkbenchPanels, raw),
+            }
+        }
+        for (index, key) in [(0, "custom-layout-1"), (1, "custom-layout-2")] {
+            let Some(raw) = ui.get(key) else { continue };
+            handled.push(("ui", key));
+            match custom_layout(raw) {
+                Some(layout) => {
+                    self.mapped.custom_layouts[index] = Some(layout);
+                    self.imported(format!("ui.{key}"), ImportTarget::WorkbenchPanels, shown(raw));
                 }
                 None => self.invalid(format!("ui.{key}"), ImportTarget::WorkbenchPanels, raw),
             }
@@ -1164,22 +1185,9 @@ impl Reader<'_> {
 
         if let Some(v) = ui.get("extra-mode") {
             handled.push(("ui", "extra-mode"));
-            // `Config.readExtraMode`: a number or a mode name; anything else is 默认模式.
-            let text = v.as_str().map(str::trim);
-            let number = as_i64(v).or_else(|| text.and_then(|t| t.parse().ok()));
-            let mode = match (number, text) {
-                (Some(2), _) | (None, Some("Double_Engine")) => Some(ExtraMode::DoubleEngine),
-                (Some(1 | 3 | 7 | 8), _) | (None, Some("Four_Sub" | "Thinking" | "Min" | "Float_Board")) => None,
-                _ => Some(ExtraMode::Normal),
-            };
-            match mode {
-                Some(mode) => {
-                    self.mapped.extra_mode = Some(mode);
-                    self.imported("ui.extra-mode".into(), ImportTarget::ExtraMode, format!("{mode:?}"));
-                }
-                // 思考 / 四方图 / 精简 / 浮动棋盘 layouts are not in this product yet.
-                None => self.not_migrated("ui.extra-mode".into(), v),
-            }
+            let mode = read_extra_mode(v);
+            self.mapped.extra_mode = Some(mode);
+            self.imported("ui.extra-mode".into(), ImportTarget::ExtraMode, format!("{mode:?}"));
         }
 
         if let Some(v) = ui.get("recent-file-paths") {
@@ -1749,6 +1757,16 @@ impl Reader<'_> {
             for (key, v) in map {
                 let name = format!("persist:{section}.{key}");
                 match (section.as_str(), key.as_str()) {
+                    ("ui-persist", "independent-main-board" | "independent-sub-board") => {
+                        match java_window(v) {
+                            Some(placement) => {
+                                if key == "independent-main-board" { self.mapped.independent_main_board = Some(placement); }
+                                else { self.mapped.independent_sub_board = Some(placement); }
+                                self.imported(name, ImportTarget::WorkbenchPanels, shown(v));
+                            }
+                            None => self.invalid(name, ImportTarget::WorkbenchPanels, v),
+                        }
+                    }
                     ("filesystem", "last-folder") => match v {
                         // Java's default is "" (no folder yet).
                         Value::String(s) if s.is_empty() => {}
@@ -2138,7 +2156,12 @@ impl Mapped {
             c.panels = serde_json::from_value(values).unwrap_or(c.panels);
         }
         // Config.loadPanelModeSettings (3907-3912) applies this after loading the flags.
-        if c.ui.extra_mode == ExtraMode::DoubleEngine { c.panels.show_comment = false; }
+        if c.ui.extra_mode.hides_comment() { c.panels.show_comment = false; }
+        for (index, layout) in self.custom_layouts.iter().enumerate() {
+            if let Some(layout) = layout { c.custom_layouts[index] = Some(layout.clone()); }
+        }
+        set!(p.independent_main_board, self.independent_main_board.map(Some));
+        set!(p.independent_sub_board, self.independent_sub_board.map(Some));
         if let Ok(mut values) = serde_json::to_value(p.panel_sizes) {
             for value in &self.panel_sizes { value.set(&mut values); }
             p.panel_sizes = serde_json::from_value(values).unwrap_or(p.panel_sizes);
@@ -2266,6 +2289,11 @@ impl Mapped {
         }
         if self.bottom_toolbar.is_some_and(|v| v != persisted.bottom_toolbar) {
             out.push(ImportTarget::BottomToolbar);
+        }
+        if self.custom_layouts.iter().enumerate().any(|(i, layout)| layout.is_some() && layout != &config.custom_layouts[i])
+            || self.independent_main_board.is_some_and(|v| Some(v) != persisted.independent_main_board)
+            || self.independent_sub_board.is_some_and(|v| Some(v) != persisted.independent_sub_board) {
+            out.push(ImportTarget::WorkbenchPanels);
         }
         if !has_settings {
             return out;
@@ -2487,4 +2515,60 @@ impl Mapped {
         }
         out
     }
+}
+
+fn read_extra_mode(value: &Value) -> ExtraMode {
+    let text = value.as_str().map(str::trim);
+    let number = as_i64(value).or_else(|| text.and_then(|t| t.parse().ok()));
+    match (number, text) {
+        (Some(1), _) | (None, Some("Four_Sub")) => ExtraMode::FourSub,
+        (Some(2), _) | (None, Some("Double_Engine")) => ExtraMode::DoubleEngine,
+        (Some(3), _) | (None, Some("Thinking")) => ExtraMode::Thinking,
+        (Some(7), _) | (None, Some("Min")) => ExtraMode::Min,
+        (Some(8), _) | (None, Some("Float_Board")) => ExtraMode::FloatBoard,
+        _ => ExtraMode::Normal,
+    }
+}
+
+fn java_window(value: &Value) -> Option<crate::settings::WindowPlacement> {
+    let a = value.as_array().filter(|a| a.len() == 4)?;
+    Some(crate::settings::WindowPlacement {
+        x: i32::try_from(as_i64(&a[0])?).ok()?,
+        y: i32::try_from(as_i64(&a[1])?).ok()?,
+        width: u32::try_from(as_i64(&a[2])?).ok()?,
+        height: u32::try_from(as_i64(&a[3])?).ok()?,
+        maximized: false,
+    })
+}
+
+fn custom_layout(value: &Value) -> Option<crate::settings::CustomLayout> {
+    let o = value.as_object()?;
+    // JSONObject.optBoolean/optInt use false/0 when absent, not the new-profile defaults.
+    let flag = |key: &str| o.get(key).and_then(as_bool).unwrap_or(false);
+    let panels = crate::settings::PanelSettings {
+        show_sub_board: flag("show-subboard"),
+        show_winrate_graph: flag("show-winrate-graph"),
+        show_comment: flag("show-comment"),
+        show_status: flag("show-status"),
+        show_variation_graph: flag("show-variation-graph"),
+        show_captured: flag("show-captured"),
+        show_list_pane: flag("show-list-pane"),
+        large_sub_board: flag("large-subboard"),
+        large_winrate_graph: flag("large-winrate-graph"),
+        showing_independent_main: flag("independent-main-board"),
+        showing_independent_sub: flag("independent-sub-board"),
+        ..Default::default()
+    };
+    let window = o.get("main-frame-position").and_then(java_window).map(|mut p| {
+        p.maximized = flag("main-frame-maxsize"); p
+    }).or_else(|| flag("main-frame-maxsize").then_some(crate::settings::WindowPlacement {
+        x: 0, y: 0, width: 0, height: 0, maximized: true,
+    }));
+    Some(crate::settings::CustomLayout {
+        panels,
+        board_position_proportion: o.get("board-position-proportion").and_then(as_i64).unwrap_or(0).clamp(0, 8) as u8,
+        window,
+        independent_main: o.get("independent-main-board-position").and_then(java_window),
+        independent_sub: o.get("independent-sub-board-position").and_then(java_window),
+    })
 }

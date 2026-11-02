@@ -201,6 +201,19 @@ function dropdown(items: MenuNode[]): HTMLElement {
           entry.run();
         });
       }
+      if (entry?.button) {
+        const inner = entry.button;
+        const b = document.createElement("button");
+        b.className = "mi-button";
+        b.dataset.key = `${node.id ?? node.key}.set`;
+        b.textContent = inner.label();
+        b.addEventListener("click", (e) => {
+          e.stopPropagation();
+          closeMenus();
+          inner.run();
+        });
+        row.append(b);
+      }
     }
     list.append(row);
   }

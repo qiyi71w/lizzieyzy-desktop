@@ -45,7 +45,7 @@ pub enum Command {
     /// 主题 drafts apply together only on 保存设置 (ConfigDialog2.java:6191-6286).
     SetAppearanceSettings {
         settings: crate::appearance::AppearanceSettings,
-        theme: crate::appearance::ThemeSettings,
+        theme: Box<crate::appearance::ThemeSettings>,
     },
     SetFrameFontSize { size: i32 },
     AddTheme { name: String },
@@ -168,12 +168,15 @@ pub enum Command {
     ShutdownEngines {
         scope: EngineScope,
     },
-    /// 布局模式 > 默认模式(Alt+1) (`Normal`) and 双引擎模式(Alt+6) (`DoubleEngine`)
-    /// (`Config.toggleExtraMode`). Leaving 双引擎模式 stops the secondary engine's analysis and
-    /// keeps it running; entering resumes it.
+    /// Fixed Java layout entry; leaving DoubleEngine stops secondary analysis, not its process.
     SetExtraMode {
         mode: crate::settings::ExtraMode,
     },
+    SetClassicMode,
+    ToggleIndependentBoard { board: crate::settings::IndependentBoard },
+    CloseIndependentBoard { board: crate::settings::IndependentBoard },
+    SaveCustomLayout { slot: u8, window: Option<crate::settings::WindowPlacement> },
+    ApplyCustomLayout { slot: u8 },
     /// Secondary engine menu `[n] name` (`EngineManager.switchEngine(index, false)`), in 双引擎模式
     /// only: engine `index` becomes the secondary engine. The foreground engine is refused
     /// (`EngineManager.sameEngineHint`).
@@ -709,6 +712,9 @@ pub struct SettingsView {
     pub panel_sizes: crate::settings::PanelSizes,
     pub bottom_toolbar: crate::settings::BottomToolbar,
     pub comment_panel_auto_hidden: bool,
+    pub custom_layouts: [Option<crate::settings::CustomLayout>; 2],
+    pub independent_main_board: Option<crate::settings::WindowPlacement>,
+    pub independent_sub_board: Option<crate::settings::WindowPlacement>,
     pub engine: EngineSettingsView,
     pub edit: EditSettings,
     pub display: crate::settings::DisplaySettings,
@@ -1105,9 +1111,9 @@ pub enum ImportTarget {
     /// `show-bestmoves-list`, `show-bestmoves-graph`, `anaframe-show-next`,
     /// `anaframe-use-mousemove`.
     SuggestionsFrame,
-    /// 布局模式: `ui.extra-mode` (默认模式 / 双引擎模式).
+    /// Fixed Java layout selection (`ui.extra-mode`: 0, 1, 2, 3, 7, 8).
     ExtraMode,
-    /// Fixed workbench panel/toolbar flags and in-frame persisted shares.
+    /// Workbench panel/toolbar flags, floating board bounds and custom layout snapshots.
     WorkbenchPanels,
     PanelSizes,
     BottomToolbar,

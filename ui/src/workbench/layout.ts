@@ -31,6 +31,10 @@ export interface Panels {
   shown: Record<PanelId, boolean>;
   /** The separator drag zones; only the locked in-frame layout has them. */
   handles: Handles | null;
+  /** The status lines' rectangle when it is not the strip left of the board (浮动棋盘模式). */
+  status?: Rect;
+  /** drawCaptured's isSmallCap: 四方图模式 and 思考模式 draw the captured panel in its small form. */
+  smallCaptured?: boolean;
 }
 
 /** What the layout depends on (LizzieFrame.java:7164-7228). */
@@ -77,11 +81,14 @@ const MIN_COMMENT_HEIGHT = 68;
 const MIN_CANDIDATE_TABLE_HEIGHT = 36;
 
 /** The Normal mode workbench: the locked in-frame layout unless 放大小棋盘 or 放大胜率图 shows
- *  (useLockedInFrameLayout, LizzieFrame.java:7176-7180); the drag zones exist in landscape only. */
-export function workbenchLayout(width: number, height: number, r: LayoutRequest): Panels {
+ *  (useLockedInFrameLayout, LizzieFrame.java:7176-7180); the drag zones exist in landscape only.
+ *  `locked` is false outside Config.isNormalMode (简洁模式): the same geometry without the
+ *  persisted drag shares or drag zones. */
+export function workbenchLayout(width: number, height: number, r: LayoutRequest, locked = true): Panels {
   const largeSub = r.showSubBoard && r.largeSubBoard;
   const largeWinrate = r.showWinrateGraph && r.largeWinrateGraph;
   if (largeSub || largeWinrate) return enlargedLayout(width, height, r, largeSub, largeWinrate);
+  if (!locked) return inFrameLayout(width, height, { ...r, leftoverLeftShare: null, commentHeightShare: null, variationGraphShare: null }, false);
   return inFrameLayout(width, height, r, width >= height);
 }
 
@@ -467,6 +474,235 @@ export interface DualPanels {
 export function doubleEngineLayout(width: number, height: number, cols: number, rows: number): DualPanels {
   const size = Math.max(Math.min(i(width / 2), height - 20), Math.max(cols, rows) + 5);
   return { size, left: { x: 0, y: 0, w: size, h: size }, right: { x: size, y: 0, w: size, h: size } };
+}
+
+/** 思考模式 / 四方图模式's main panel: the in-frame panels plus the left square (`aux`): 思考模式's
+ *  raw board, or 四方图模式's four sub boards (`quadrants`, in renderer order 1-4). */
+export interface SidePanels extends Panels {
+  aux: Rect;
+  quadrants: Rect[];
+}
+
+/** 四方图模式 (LizzieFrame.java:6395-6639) and 思考模式 (6721-6961) share one geometry: a square of the
+ *  panel's shorter side on the left, the main board at the bottom right and the panels above it
+ *  (or left of it when the space beside the square is wide). No status lines are drawn. */
+export function sideLayout(width: number, height: number, r: LayoutRequest): SidePanels {
+  const least = Math.max(r.cols, r.rows) + 5;
+  const subMax = Math.max(Math.min(width, height), least);
+  const half = i(subMax / 2);
+  const aux = { x: 0, y: 0, w: subMax, h: subMax };
+  const quadrants = [
+    { x: 0, y: 0, w: half, h: half },
+    { x: half, y: 0, w: half, h: half },
+    { x: 0, y: half, w: half, h: half },
+    { x: half, y: half, w: half, h: half },
+  ];
+  const noWinrate = !r.showWinrateGraph;
+  const noVariation = !r.showVariationGraph;
+  const noBasic = !r.showCaptured;
+  // noComment counts the list as covering the comment (`!showComment || showListPane()`).
+  const noComment = !r.showComment || r.showListPane;
+  const noListPane = !r.showListPane;
+  const noCommentAndList = noComment && noListPane;
+  const trueWidth = width - subMax;
+  const trueHeight = height;
+  let board: Rect;
+  let tree = NONE;
+  let side = NONE;
+  let graph = NONE;
+  let stat = NONE;
+  let captured = NONE;
+  const glass: Rect[] = [];
+  if (trueWidth * 0.72 > trueHeight) {
+    const maxSize = Math.max(Math.min(trueWidth, trueHeight), least);
+    board = { x: width - maxSize, y: trueHeight - maxSize, w: maxSize, h: maxSize };
+    const vh = trueHeight;
+    const vw = board.x - subMax;
+    const vx = subMax;
+    if (!noVariation) {
+      if (!noCommentAndList) {
+        if (noWinrate && noBasic) {
+          glass.push({ x: vx, y: 0, w: vw, h: vh });
+          // Java's own y = vy + vh puts the tree below the panel (createVarTreeImage, 6767).
+          tree = { x: vx, y: vh, w: vw, h: i(vh / 2) };
+          side = { x: vx, y: i(vh / 2), w: vw, h: i(vh / 2) };
+        } else {
+          glass.push({ x: vx, y: i(vh / 2), w: vw, h: i(vh / 2) });
+          tree = { x: vx, y: i(vh / 2), w: vw, h: i(vh / 4) };
+          side = { x: vx, y: i((vh * 3) / 4), w: vw, h: i(vh / 4) };
+        }
+      } else if (noWinrate && noBasic) {
+        glass.push({ x: vx, y: 0, w: vw, h: vh });
+        tree = { x: vx, y: 0, w: vw, h: vh };
+      } else {
+        glass.push({ x: vx, y: i(vh / 2), w: vw, h: i(vh / 2) });
+        tree = { x: vx, y: i(vh / 2), w: vw, h: i(vh / 2) };
+      }
+    } else if (!noCommentAndList) side = { x: vx, y: i(vh / 2), w: vw, h: i(vh / 2) };
+    if (!noWinrate) {
+      glass.push({ x: subMax, y: 0, w: vw, h: i(vh / 2) });
+      if (!noBasic) {
+        graph = { x: vx, y: i(vh / 4), w: vw, h: i(vh / 4) };
+        const stath = i(vh / 4);
+        stat = { x: vx, y: i(stath / 2), w: vw, h: i(stath / 2) };
+        captured = { x: vx, y: 0, w: vw, h: i(stath / 2) };
+      } else graph = { x: vx, y: 0, w: vw, h: i(vh / 2) };
+    } else if (!noBasic) {
+      glass.push({ x: subMax, y: 0, w: vw, h: i(vh / 2) });
+      const stath = i(vh / 2);
+      stat = { x: vx, y: i(stath / 2), w: vw, h: i(stath / 2) };
+      captured = { x: vx, y: 0, w: vw, h: i(stath / 2) };
+    }
+  } else {
+    const maxSize = Math.max(i(Math.min(trueWidth, 0.77 * trueHeight)), least);
+    board = { x: subMax, y: trueHeight - maxSize, w: maxSize, h: maxSize };
+    const vx = board.x;
+    const vw = trueWidth;
+    const vh = board.y;
+    const halfH = i(vh / 2);
+    if (!noVariation) {
+      if (noWinrate && noBasic) {
+        glass.push({ x: vx, y: 0, w: vw, h: vh });
+        if (!noCommentAndList) {
+          side = { x: vx, y: 0, w: i(vw / 2), h: vh };
+          tree = { x: vx + i(vw / 2), y: 0, w: i(vw / 2), h: vh };
+        } else tree = { x: vx, y: 0, w: vw, h: vh };
+      } else {
+        glass.push({ x: vx, y: halfH, w: vw, h: halfH });
+        if (!noCommentAndList) {
+          side = { x: vx, y: halfH, w: i(vw / 2), h: halfH };
+          tree = { x: vx + i(vw / 2), y: halfH, w: i(vw / 2), h: halfH };
+        } else tree = { x: vx, y: halfH, w: vw, h: halfH };
+      }
+    } else if (noWinrate && noBasic) {
+      glass.push({ x: vx, y: 0, w: vw, h: vh });
+      side = { x: vx, y: 0, w: vw, h: vh };
+    } else if (!noCommentAndList) {
+      glass.push({ x: vx, y: halfH, w: vw, h: halfH });
+      side = { x: vx, y: halfH, w: vw, h: halfH };
+    }
+    const whole = noCommentAndList && noVariation;
+    const top = whole ? vh : halfH;
+    if (!noWinrate || !noBasic) glass.push({ x: vx, y: 0, w: vw, h: top });
+    if (!noWinrate && !noBasic) {
+      graph = { x: vx + i(vw / 2), y: 0, w: i(vw / 2), h: top };
+      captured = { x: vx, y: 0, w: i(vw / 2), h: i(top / 2) };
+      stat = { x: vx, y: i(top / 2), w: i(vw / 2), h: i(top / 2) };
+    } else if (!noWinrate) graph = { x: vx, y: 0, w: vw, h: top };
+    else if (!noBasic) {
+      captured = { x: vx, y: 0, w: vw, h: i(top / 2) };
+      stat = { x: vx, y: i(top / 2), w: vw, h: i(top / 2) };
+    }
+  }
+  // The list (setListScrollpane) or else the comment (drawComment) takes the side slot.
+  const table = r.showListPane ? side : NONE;
+  const comment = !noComment ? side : NONE;
+  return {
+    board,
+    captured,
+    stat,
+    graph,
+    comment,
+    ponderingY: height,
+    tree,
+    table,
+    sub: NONE,
+    glass,
+    shown: {
+      captured: !noBasic,
+      stat: !noBasic,
+      graph: !noWinrate,
+      comment: !noComment,
+      status: false,
+      tree: !noVariation,
+      table: r.showListPane && table.w >= 10 && table.h >= 5,
+      sub: false,
+    },
+    handles: null,
+    smallCaptured: true,
+    aux,
+    quadrants,
+  };
+}
+
+/** 浮动棋盘模式's main window (LizzieFrame.java:6963-7153): the main board is in its own window;
+ *  the frame keeps the captured / statistics panel, the graph and the comment on the left
+ *  (`BoardPositionProportion` eighths wide) and the sub board, tree and list on the right, one
+ *  frosted container behind them all and the status lines across the bottom. */
+export function floatBoardLayout(width: number, height: number, r: LayoutRequest): Panels {
+  const noBasic = !r.showCaptured;
+  const noWinrate = !r.showWinrateGraph;
+  const noComment = !r.showComment;
+  const noVariation = !r.showVariationGraph;
+  const noListPane = !r.showListPane;
+  const noSubBoard = !r.showSubBoard;
+  const eighths = i(width / 8) * r.boardPositionProportion;
+  let vh = height;
+  const vw = noVariation && noListPane && noSubBoard ? width : eighths;
+  const maxSize = Math.min(width, height);
+  let ponderingY = height;
+  if (r.showStatus) {
+    ponderingY = ponderingY - i(maxSize * 0.023) - i(Math.max(width, height) * 0.04);
+    vh = ponderingY;
+  }
+  let captured = NONE;
+  let stat = NONE;
+  if (!noBasic) {
+    const stath = noComment && noWinrate ? vh : noComment || noWinrate ? i(vh / 2) : i(vh / 3);
+    stat = { x: 0, y: i(stath / 2), w: vw, h: i(stath / 2) };
+    captured = { x: 0, y: 0, w: vw, h: i(stath / 2) };
+  }
+  let graph = NONE;
+  if (!noWinrate) {
+    if (noComment && noBasic) graph = { x: 0, y: 0, w: vw, h: vh };
+    else if (noComment) graph = { x: 0, y: i(vh / 2), w: vw, h: i(vh / 2) };
+    else if (noBasic) graph = { x: 0, y: 0, w: vw, h: i(vh / 2) };
+    else graph = { x: 0, y: i(vh / 3), w: vw, h: i(vh / 3) };
+  }
+  let comment = NONE;
+  if (!noComment) {
+    if (noWinrate && noBasic) comment = { x: 0, y: 0, w: vw, h: vh };
+    else if (noWinrate || noBasic) comment = { x: 0, y: i(vh / 2), w: vw, h: i(vh / 2) };
+    else comment = { x: 0, y: i((vh * 2) / 3), w: vw, h: i(vh / 3) };
+  }
+  const rh = height;
+  const rw = noBasic && noWinrate && noComment ? width : width - eighths;
+  const rx = width - rw;
+  let sub = NONE;
+  let subLength = 0;
+  if (!noSubBoard) {
+    subLength = Math.min(rw, i((rh * 3) / 4));
+    sub = { x: rx, y: rh - subLength, w: subLength, h: subLength };
+  }
+  const above = rh - subLength;
+  let tree = NONE;
+  if (!noVariation) tree = { x: rx, y: 0, w: rw, h: noListPane ? above : i(above / 2) };
+  let table = NONE;
+  if (!noListPane) table = noVariation ? { x: rx, y: 0, w: rw, h: above } : { x: rx, y: i(above / 2), w: rw, h: i(above / 2) };
+  return {
+    board: NONE,
+    captured,
+    stat,
+    graph,
+    comment,
+    ponderingY,
+    tree,
+    table,
+    sub,
+    glass: [{ x: 0, y: 0, w: width, h: height }],
+    shown: {
+      captured: !noBasic,
+      stat: !noBasic,
+      graph: !noWinrate,
+      comment: !noComment,
+      status: r.showStatus,
+      tree: !noVariation,
+      table: !noListPane && table.w >= 10 && table.h >= 5,
+      sub: !noSubBoard,
+    },
+    handles: null,
+    status: { x: 0, y: ponderingY, w: width, h: height - ponderingY },
+  };
 }
 
 export interface BoardGeom {

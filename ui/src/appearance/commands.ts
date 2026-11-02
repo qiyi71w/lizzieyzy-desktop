@@ -13,7 +13,7 @@ import { syncAppearance } from "./state";
 import "./page";
 import "./appearance.css";
 
-registerViewHandler((view) => void syncAppearance(view));
+registerViewHandler((view) => void syncAppearance(view.settings.appearance, view.settings.theme));
 
 /** One change to the appearance settings, the theme values as they are. */
 async function setAppearance(change: Partial<AppearanceSettings>): Promise<boolean> {

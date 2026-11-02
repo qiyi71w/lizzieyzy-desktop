@@ -137,11 +137,11 @@ function setupClick(point: Point, right: boolean): void {
   void edit({ op: "SetupStone", point, stone });
 }
 
-function leftPress(ev: MouseEvent, point: Point | null): void {
+function leftPress(detail: number, point: Point | null): void {
   const v = state.view!;
   const settings = v.settings.edit;
   // Input.java:116: the second press of a double click finds the move instead of clicking.
-  if (ev.detail === 2 && !v.editing.trying && settings.allowDoubleClick) {
+  if (detail === 2 && !v.editing.trying && settings.allowDoubleClick) {
     if (point) void edit({ op: "FindMove", point, any_branch: false });
     return;
   }
@@ -164,12 +164,12 @@ function leftPress(ev: MouseEvent, point: Point | null): void {
   void edit({ op: "Play", point, color: editing.placement === "alternate" ? null : editing.placement });
 }
 
-function rightPress(ev: MouseEvent, point: Point | null): void {
+function rightPress(clientX: number, clientY: number, point: Point | null): void {
   const v = state.view!;
   // onClickedRight (java:9609): with 添加黑子 / 添加白子 a right click plays the other colour,
   // and a stone opens its menu whatever show-right-menu says.
   if (point && editing.placement !== "alternate") {
-    if (stoneOn(point)) openContextMenu(ev.clientX, ev.clientY, stoneMenu(point));
+    if (stoneOn(point)) openContextMenu(clientX, clientY, stoneMenu(point));
     else void edit({ op: "Play", point, color: editing.placement === "Black" ? "White" : "Black" });
     return;
   }
@@ -179,11 +179,48 @@ function rightPress(ev: MouseEvent, point: Point | null): void {
     navigate({ op: "Back", count: 1 });
     return;
   }
-  openContextMenu(ev.clientX, ev.clientY, stoneOn(point) ? stoneMenu(point) : pointMenu(point));
+  openContextMenu(clientX, clientY, stoneOn(point) ? stoneMenu(point) : pointMenu(point));
 }
 
-/** Binds the board panels: the main board and 双引擎模式's right board, whose points `pointAt`
- *  resolves to the same intersections. */
+/** Input.mousePressed / IndependentMainBoard.mousePressed: a press at `point` (null off the grid);
+ *  a popup opens at the main-window client point (`clientX`, `clientY`). */
+export function pressBoard(point: Point | null, button: number, detail: number, altKey: boolean, clientX: number, clientY: number): void {
+  if (!state.view || (button !== 0 && button !== 1 && button !== 2)) return;
+  // processCommentMousePressed: a press on the board closes the comment edit pane.
+  commitComment();
+  if (button === 1) return;
+  if (state.view.editing.setup_mode) {
+    if (point) setupClick(point, button === 2);
+    return;
+  }
+  if (moving?.picked) {
+    finishMove(point);
+    return;
+  }
+  if (contextMenuShowing()) return;
+  // Alt+press is the analysis region selection (selectPressed), not a board edit.
+  if (altKey) return;
+  if (button === 0) leftPress(detail, point);
+  else rightPress(clientX, clientY, point);
+}
+
+/** mouseReleased: the middle button plays the previewed variation (playMiddleVariation); the left
+ *  one ends a stone dragged with 启用拖动棋子 at `point` (DraggedReleased). */
+export function releaseBoard(point: Point | null, button: number): void {
+  if (button === 1) {
+    if (contextMenuShowing()) return;
+    const moves = host.previewMoves();
+    if (moves) void edit({ op: "PlayVariation", moves });
+    return;
+  }
+  if (button !== 0 || !moving || moving.picked) return;
+  const v = state.view;
+  if (v && !v.editing.trying && v.settings.edit.allowDrag) finishMove(point);
+  else finishMove(null);
+}
+
+/** Binds the board panels: the main board and the second board (双引擎模式's right board, 思考模式's
+ *  raw board), whose points `pointAt` resolves to the same intersections. */
 export function bindBoardInput(boards: HTMLElement[], boardHost: BoardHost): void {
   host = boardHost;
   for (const board of boards) {
@@ -191,29 +228,10 @@ export function bindBoardInput(boards: HTMLElement[], boardHost: BoardHost): voi
     board.addEventListener("mousedown", (ev) => {
       if (!state.view || (ev.button !== 0 && ev.button !== 1 && ev.button !== 2)) return;
       ev.preventDefault();
-      // processCommentMousePressed: a press on the board closes the comment edit pane.
-      commitComment();
-      if (ev.button === 1) return;
-      const point = host.pointAt(ev.clientX, ev.clientY);
-      if (state.view.editing.setup_mode) {
-        if (point) setupClick(point, ev.button === 2);
-        return;
-      }
-      if (moving?.picked) {
-        finishMove(point);
-        return;
-      }
-      if (contextMenuShowing()) return;
-      // Alt+press is the analysis region selection (selectPressed), not a board edit.
-      if (ev.altKey) return;
-      if (ev.button === 0) leftPress(ev, point);
-      else rightPress(ev, point);
+      pressBoard(ev.button === 1 ? null : host.pointAt(ev.clientX, ev.clientY), ev.button, ev.detail, ev.altKey, ev.clientX, ev.clientY);
     });
-    // Middle release plays the previewed variation (playMiddleVariation).
     board.addEventListener("mouseup", (ev) => {
-      if (ev.button !== 1 || contextMenuShowing()) return;
-      const moves = host.previewMoves();
-      if (moves) void edit({ op: "PlayVariation", moves });
+      if (ev.button === 1) releaseBoard(null, 1);
     });
   }
   window.addEventListener("mousemove", (ev) => {
@@ -221,10 +239,7 @@ export function bindBoardInput(boards: HTMLElement[], boardHost: BoardHost): voi
     if (moving.picked || ev.buttons & 1) showGhost(ev.clientX, ev.clientY);
   });
   window.addEventListener("mouseup", (ev) => {
-    if (ev.button !== 0 || !moving || moving.picked) return;
-    const v = state.view;
-    if (v && !v.editing.trying && v.settings.edit.allowDrag) finishMove(host.pointAt(ev.clientX, ev.clientY));
-    else finishMove(null);
+    if (ev.button === 0) releaseBoard(host.pointAt(ev.clientX, ev.clientY), 0);
   });
 }
 

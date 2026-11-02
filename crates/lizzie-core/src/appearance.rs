@@ -215,8 +215,8 @@ pub fn image_data(path: &Path) -> std::io::Result<String> {
     image_bytes(&std::fs::read(path)?)
 }
 fn image_bytes(bytes: &[u8]) -> std::io::Result<String> {
-    let format = image::guess_format(&bytes).map_err(std::io::Error::other)?;
-    image::load_from_memory_with_format(&bytes,format).map_err(std::io::Error::other)?;
+    let format = image::guess_format(bytes).map_err(std::io::Error::other)?;
+    image::load_from_memory_with_format(bytes,format).map_err(std::io::Error::other)?;
     let mime = match format { image::ImageFormat::Png=>"image/png",image::ImageFormat::Jpeg=>"image/jpeg",
         image::ImageFormat::Gif=>"image/gif",image::ImageFormat::Bmp=>"image/bmp",_=>return Err(std::io::Error::other("unsupported image format")) };
     Ok(format!("data:{mime};base64,{}",base64::engine::general_purpose::STANDARD.encode(bytes)))

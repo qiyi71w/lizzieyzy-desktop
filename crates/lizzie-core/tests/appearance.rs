@@ -37,7 +37,7 @@ fn frame_size_is_saved_but_the_session_keeps_its_original_size() {
 #[test]
 fn named_theme_edits_use_the_selected_theme_file_and_leave_default_values_alone() {
     let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
-    let mut settings=AppearanceSettings::default(); settings.theme="sabaki".into();
+    let settings=AppearanceSettings { theme:"sabaki".into(), ..Default::default() };
     let mut theme=appearance::load_theme(wb.storage(),"sabaki",&ThemeSettings::default());
     theme.comment_font_color=vec![10,20,30,240]; theme.score_lead_stroke_width=3.2;
     wb.set_appearance_settings(settings,theme.clone()).unwrap();
@@ -80,7 +80,7 @@ fn custom_images_are_owned_copies_and_clear_restores_the_default() {
     let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
     let external=dir.path().join("selected.png");
     std::fs::write(&external,include_bytes!("../../../ui/public/assets/board.png")).unwrap();
-    let mut settings=AppearanceSettings::default(); settings.custom_board_image=external.to_string_lossy().into_owned();
+    let settings=AppearanceSettings { custom_board_image:external.to_string_lossy().into_owned(), ..Default::default() };
     wb.set_appearance_settings(settings,ThemeSettings::default()).unwrap();
     std::fs::remove_file(external).unwrap();
     let s=wb.view(false).settings;
@@ -106,7 +106,7 @@ fn failed_image_settings_commit_removes_its_uncommitted_copies() {
     let external=dir.path().join("selected.png");
     std::fs::write(&external,include_bytes!("../../../ui/public/assets/board.png")).unwrap();
     std::fs::create_dir_all(&storage(dir.path()).config_file).unwrap();
-    let mut settings=AppearanceSettings::default(); settings.custom_board_image=external.to_string_lossy().into_owned();
+    let settings=AppearanceSettings { custom_board_image:external.to_string_lossy().into_owned(), ..Default::default() };
     assert!(wb.set_appearance_settings(settings,ThemeSettings::default()).is_err());
     let images=appearance::themes_dir(wb.storage()).join(".images");
     assert_eq!(std::fs::read_dir(images).unwrap().count(),0);

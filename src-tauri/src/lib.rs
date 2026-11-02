@@ -5,6 +5,7 @@
 mod acceptance;
 mod appearance;
 mod diagnostics;
+mod independent;
 mod logging;
 mod output;
 mod resources;
@@ -669,6 +670,33 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().set_extra_mode(mode)?;
             Ok(changed(&app, &shared, done))
         }
+        Command::SetClassicMode => {
+            let done = shared.workbench.lock().unwrap().set_classic_mode()?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::ToggleIndependentBoard { board } => {
+            let done = shared.workbench.lock().unwrap().toggle_independent_board(board)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::CloseIndependentBoard { board } => {
+            let done = independent::close(&app, &shared, board)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SaveCustomLayout { slot, window } => {
+            let done = {
+                let mut wb = shared.workbench.lock().unwrap();
+                independent::capture(&app, &mut wb)?;
+                wb.save_custom_layout(slot, window)?
+            };
+            Ok(changed(&app, &shared, done))
+        }
+        Command::ApplyCustomLayout { slot } => {
+            let done = shared.workbench.lock().unwrap().apply_custom_layout(slot)?;
+            let placed = if done { independent::apply(&app, &shared, slot).await } else { Ok(()) };
+            let result = changed(&app, &shared, done);
+            placed?;
+            Ok(result)
+        }
         Command::SwitchSecondaryEngine { index } => {
             let done = shared.workbench.lock().unwrap().switch_secondary_engine(index)?;
             Ok(changed(&app, &shared, done))
@@ -824,7 +852,7 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             Ok(changed(&app, &shared, done))
         }
         Command::SetAppearanceSettings { settings, theme } => {
-            let done = shared.workbench.lock().unwrap().set_appearance_settings(settings, theme)?;
+            let done = shared.workbench.lock().unwrap().set_appearance_settings(settings, *theme)?;
             Ok(changed(&app, &shared, done))
         }
         Command::SetFrameFontSize { size } => {
@@ -1210,6 +1238,7 @@ fn prepare_exit(app: &AppHandle, shared: &Shared) -> bool {
     if let Some(hawkeye) = app.get_webview_window(HAWKEYE_WINDOW) {
         record_hawkeye(shared, &mut wb, &hawkeye);
     }
+    if let Err(error) = independent::capture(app, &mut wb) { shared.log.warn(&error.message); }
     persist_ui(app, shared, &mut wb);
     true
 }
@@ -1634,6 +1663,15 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
+            WindowEvent::CloseRequested { .. } if independent::board(window.label()).is_some() => {
+                let app = window.app_handle();
+                let shared = app.state::<State>();
+                let board = independent::board(window.label()).unwrap();
+                if let Some(frame) = app.get_webview_window(window.label()) {
+                    independent::closing(&shared, &frame, board);
+                }
+                publish(app, &shared);
+            }
             // Either 独立选点列表's own close box (AnalysisFrame windowClosing → toggleBestMoves):
             // both lists close and the primary one's bounds are written.
             WindowEvent::CloseRequested { .. }
@@ -1679,7 +1717,7 @@ pub fn run() {
                 } else {
                     // Java exits with the main window; the tool windows must not keep the
                     // application running.
-                    for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW, HAWKEYE_WINDOW, HAWKEYE_SUB_WINDOW, BATCH_WINDOW] {
+                    for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW, HAWKEYE_WINDOW, HAWKEYE_SUB_WINDOW, BATCH_WINDOW, independent::MAIN, independent::SUB] {
                         if let Some(frame) = app.get_webview_window(label) {
                             let _ = frame.destroy();
                         }
@@ -1767,6 +1805,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         close_hawkeye,
         close_hawkeye_sub,
         set_hawkeye_layout,
+        independent::open_independent_board,
+        independent::close_independent_board_window,
         open_batch_table
     ]
 }
@@ -1797,6 +1837,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         close_hawkeye,
         close_hawkeye_sub,
         set_hawkeye_layout,
+        independent::open_independent_board,
+        independent::close_independent_board_window,
         open_batch_table,
         acceptance::acceptance_ui_report
     ]

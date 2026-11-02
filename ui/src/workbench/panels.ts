@@ -14,17 +14,12 @@ import { openAnalysisSettings } from "../engine/settings";
 import { product, t } from "../i18n";
 import type { Handles, LayoutRequest, Rect } from "./layout";
 import { GRAPH_FONT, prepare } from "./paint";
+import { listShown, presentation, statusShown } from "./presentation";
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 
 function panels(): PanelSettings | undefined {
   return state.view?.settings.panels;
-}
-
-/** Config.showListPane(): 大胜率图 hides the list without forgetting it (Config.java:2538-2546). */
-function listShown(v: WorkbenchView): boolean {
-  const p = v.settings.panels;
-  return p.showListPane && v.settings.extra_mode === "Normal" && !p.largeWinrateGraph;
 }
 
 function toggle(panel: WorkbenchPanel): void {
@@ -34,18 +29,24 @@ function toggle(panel: WorkbenchPanel): void {
 /** The sizes shown: a separator drag's draft while the pointer is held, else the committed ones. */
 let draft: PanelSizes | null = null;
 
-/** What the Normal mode layout is computed from (LizzieFrame.java:7199-7228). */
+/** What the in-frame layout is computed from (LizzieFrame.java:7199-7228), with the open
+ *  SetCustomMode dialog's draft when there is one. */
 export function layoutRequest(v: WorkbenchView): LayoutRequest {
-  const p = v.settings.panels;
-  const sizes = draft ?? v.settings.panel_sizes;
+  const shown = presentation(v);
+  const p = shown.panels;
+  const committed = draft ?? v.settings.panel_sizes;
+  // The dialog's 主棋盘位置 slider sets the discrete proportion (setBoardPositionProportion).
+  const sizes = shown.boardPositionProportion === committed.boardPositionProportion
+    ? committed
+    : { ...committed, boardPositionProportion: shown.boardPositionProportion, leftoverLeftShare: null };
   return {
     cols: v.document.size.width,
     rows: v.document.size.height,
     showComment: p.showComment,
     showSubBoard: p.showSubBoard,
     showVariationGraph: p.showVariationGraph,
-    showListPane: listShown(v),
-    showStatus: p.showStatus,
+    showListPane: listShown(shown.mode, p),
+    showStatus: statusShown(shown.mode, p),
     showCaptured: p.showCaptured,
     showWinrateGraph: p.showWinrateGraph,
     largeSubBoard: p.largeSubBoard,
@@ -129,9 +130,10 @@ Object.assign(COMMANDS, {
     checked: () => !!state.view && !state.view.settings.comment_panel_auto_hidden && state.view.settings.panels.showComment,
   },
   "menu.variationPane": flag("VariationGraph", (p) => p.showVariationGraph),
-  "menu.listPane": flag("ListPane", (_, v) => listShown(v)),
+  "menu.listPane": flag("ListPane", (p, v) => listShown(v.settings.extra_mode, p)),
   "menu.informationPane": flag("Captured", (p) => p.showCaptured),
-  "menu.statusPanel": flag("Status", (p) => p.showStatus),
+  // 经典模式 turns the status off for the session only (Config.showStatus, Menu.java:2797).
+  "menu.statusPanel": flag("Status", (p) => p.showStatus && !p.classicMode),
   "menu.restoreDefaultPanelSizes": { run: () => void run({ type: "RestoreDefaultPanelSizes" }) },
   // 界面 > 放大小棋盘 / 放大胜率图 / 总在最前 (Menu.java:966-986, 1027-1036, 2768-2782).
   "menu.largeSubBoard": flag("LargeSubBoard", (p) => p.showSubBoard && p.largeSubBoard),
