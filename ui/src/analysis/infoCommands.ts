@@ -60,7 +60,7 @@ export function handleInfoKey(e: KeyboardEvent): boolean {
     if (display()?.kataEstimateShortcut) toggleKataEstimate();
     return true;
   }
-  if (e.code === "KeyQ" && (e.ctrlKey || e.metaKey)) {
+  if (e.code === "KeyQ" && e.ctrlKey) {
     toggleScore();
     return true;
   }

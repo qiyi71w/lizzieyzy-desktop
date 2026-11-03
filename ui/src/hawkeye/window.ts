@@ -4,6 +4,7 @@
 // issorted, isOriginOrder) and lays them out.
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { appMenuKey } from "../appMenuKey";
 import type { Command, DisplaySettings, HawkeyePeriod, HawkeyeSettings, MoveEvaluation } from "../contract/generated";
 import { isChinese, setLanguage, t } from "../i18n";
 import { bindColumnResize, layoutColumns } from "../analysis/suggestionsFrame";
@@ -622,7 +623,7 @@ export function bootHawkeye(): void {
   // Keys of the frame and its tables (MoveListFrame.java:1562-1690): Y closes, Q 总在最前.
   document.addEventListener("keydown", (ev) => {
     const target = ev.target as HTMLElement;
-    if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) return;
+    if (appMenuKey(ev) || target instanceof HTMLInputElement || target instanceof HTMLSelectElement) return;
     if (ev.code === "KeyY" || ev.code === "KeyQ") {
       ev.preventDefault();
       send({ type: "key", code: ev.code });

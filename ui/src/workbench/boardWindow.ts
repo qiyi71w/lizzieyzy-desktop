@@ -7,6 +7,7 @@ import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
 import type { IndependentBoard, Point } from "../contract/generated";
+import { appMenuKey } from "../appMenuKey";
 import { setLanguage } from "../i18n";
 import { INDEPENDENT_DATA_EVENT, INDEPENDENT_INPUT_EVENT, INDEPENDENT_LABELS, type IndependentInput, type IndependentPayload, type KeyInit } from "./independentModel";
 import { boardGeom, mainMarginRatio, selectRange, SUB_MARGIN_RATIO, type BoardGeom } from "./layout";
@@ -200,6 +201,7 @@ export function bootBoardWindow(): void {
 
   // ---------------------------------------------------------------- keys (InputIndependentMainBoard)
   const forward = (kind: "keydown" | "keyup") => (e: KeyboardEvent) => {
+    if (appMenuKey(e)) return;
     e.preventDefault();
     const init: KeyInit = { key: e.key, code: e.code, altKey: e.altKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, metaKey: e.metaKey, repeat: e.repeat };
     send({ type: "key", kind, init });

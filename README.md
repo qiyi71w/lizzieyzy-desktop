@@ -42,8 +42,9 @@ importing the matching LizzieYzy Next settings.
   Next reads the files with the same meaning. A file is written to an owner-only temporary file
   next to it and then renamed, so a failed save ("保存失败") leaves the old file untouched; a
   replaced file keeps its permissions. Normal window close and application Quit both wait for
-  saves still being written and record the window placement. On macOS, unhandled Command
-  shortcuts remain available to the native application menu, including `⌘Q` to quit.
+  saves still being written and record the window placement. On macOS, `⌘Q` (Quit), `⌘H` and
+  `⌥⌘H` (Hide) always belong to the native application menu, in every window, as in Java;
+  other Command shortcuts act as Java's Ctrl, and unhandled ones remain available to the menu.
   On Linux, the saved size is the WebView content area, excluding GTK window decorations,
   so reopening does not enlarge the content area by the title bar or shadow dimensions.
   File > 强制退出 skips both the pending-save wait and window-placement capture; use normal

@@ -5,6 +5,7 @@
 // index 2). Also the JTable column layout shared with the main window's 选点列表.
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { appMenuKey } from "../appMenuKey";
 
 /** The primary engine's window and 双引擎模式's secondary engine window (src-tauri). */
 export const FRAME_LABEL = "suggestions";
@@ -266,7 +267,7 @@ export function bootFrame(): void {
     if (ev.deltaY !== 0) send({ type: "wheel", down: ev.deltaY > 0 });
   }, { passive: true });
   document.addEventListener("keydown", (ev) => {
-    if (["KeyU", "KeyQ", "KeyY", "Space", "ArrowUp", "ArrowDown"].includes(ev.code)) {
+    if (!appMenuKey(ev) && ["KeyU", "KeyQ", "KeyY", "Space", "ArrowUp", "ArrowDown"].includes(ev.code)) {
       ev.preventDefault();
       send({ type: "key", code: ev.code });
     }
