@@ -355,6 +355,28 @@ pub enum Command {
     CancelFlashAnalysis,
     /// 精析设置 > 确定并重新计算: the running flash analysis stops and the last one starts again.
     RedoFlashAnalysis,
+    /// 强制计算区域 (toolbar 设置计算区域 / 设置不计算区域 / 清除区域, Alt+drag and Alt+click, and the
+    /// board's right-click 只分析此点 … 清除分析与不分析). The region belongs to the session, not the
+    /// record: it never changes the game.
+    Region {
+        op: RegionCommand,
+    },
+    /// 强制计算区域's depth choices (`selectAllowPopup` / `selectAvoidPopup`); an analysis running
+    /// with a region is asked again with the new depth.
+    SetRegionSettings {
+        settings: crate::settings::RegionSettings,
+    },
+    /// 选点重点研究 (right-click 评估此点 / 取消评估 / 清除所有评估选点) on the current position. A
+    /// point that cannot be tracked now (engine without `focus`, occupied, outside a kept region,
+    /// already tracked) answers `Unchanged`.
+    Tracking {
+        op: TrackingCommand,
+    },
+    /// Settings > 选点重点研究累计计算量目标 and 选点评估关注外框; a changed target ends the tracking of
+    /// the current position (`invalidateTrackingAnalysis`).
+    SetTrackingSettings {
+        settings: crate::settings::TrackingSettings,
+    },
     StartAutoAnalysis { settings: crate::settings::AutoAnalysisSettings },
     StopAutoAnalysis,
     AnswerAutoAnalysisDiff { accept: bool },
@@ -454,6 +476,79 @@ pub enum FlashTarget {
     MoveRange { start_move: i32, end_move: i32 },
     /// 全部分支精析: every move of every branch.
     AllBranches,
+}
+
+/// 强制计算区域 operations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum RegionCommand {
+    /// A rectangle chosen by dragging (`selectForceAllowAvoid`): its intersections from `from` to
+    /// `to` join the region of that kind (a region of the other kind is replaced); the region is
+    /// kept across positions.
+    Select { allow: bool, from: Point, to: Point },
+    /// The toolbar region button was pressed (`isKeepingForce`): the region is kept across
+    /// positions from now on.
+    Keep,
+    /// 只分析此点: only this empty point is analysed, its first request one move deep.
+    AllowPoint { point: Point },
+    /// 增加分析此点.
+    AddAllowPoint { point: Point },
+    /// 去除分析此点.
+    RemoveAllowPoint { point: Point },
+    /// 不分析此点.
+    AvoidPoint { point: Point },
+    /// 持续分析/不分析 (`isKeepForcing`): every region is kept across positions while on.
+    ToggleKeepForcing,
+    /// 清除分析与不分析: the region is removed and analysis resumes.
+    ClearForcing,
+    /// Toolbar 清除区域 / Alt+click: the region is removed and no longer kept.
+    Clear,
+}
+
+/// 选点重点研究 operations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum TrackingCommand {
+    Track { point: Point },
+    Untrack { point: Point },
+    Clear,
+}
+
+/// 强制计算区域 of this session.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct RegionView {
+    /// The region analyses only these points (`allow`), or never these (`avoid`).
+    pub allow: bool,
+    /// Empty when there is no region.
+    pub points: Vec<Point>,
+    /// 持续分析/不分析 is on.
+    pub keep_forcing: bool,
+}
+
+/// 选点重点研究 on the current position and the foreground engine's `focus` capability.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct FocusView {
+    /// What the foreground engine's own start-up probe found (`Unknown` without one).
+    pub capability: crate::engine::runtime::FocusCapability,
+    /// A point can be tracked now (`canStartTrackingAnalysis`).
+    pub available: bool,
+    pub target_visits: u32,
+    /// Tracked points, in the order they were chosen.
+    pub points: Vec<TrackedPointView>,
+    /// The engine still searches focus points the user no longer tracks (the change is sent,
+    /// not yet accepted).
+    pub cancellation_pending: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct TrackedPointView {
+    pub point: Point,
+    /// Still searched extra (below the target, progressing).
+    pub active: bool,
+    /// The highest visits seen for this candidate.
+    pub visits: u64,
+    /// 落子评价 of the candidate against the best one, when both are in the analysis.
+    pub rank: Option<crate::display::MoveRank>,
 }
 
 /// Kata形势显示 menu choices.
@@ -742,6 +837,10 @@ pub struct SettingsView {
     pub theme: crate::appearance::ThemeSettings,
     /// Frame size in use until the next start (LizzieFrame.java:20766-20768).
     pub active_frame_font_size: i32,
+    /// 强制计算区域's depth choices.
+    pub region: crate::settings::RegionSettings,
+    /// 选点重点研究.
+    pub tracking: crate::settings::TrackingSettings,
 }
 
 /// 快速曲线轻量模型 card (`KataGoAutoSetupDialog`, `QuickAnalysisModelStatus`).
@@ -915,6 +1014,10 @@ pub struct WorkbenchView {
     pub batch: BatchView,
     /// How a flash analysis ended, once.
     pub flash_outcome: Option<FlashOutcome>,
+    /// 强制计算区域 of this session.
+    pub region: RegionView,
+    /// 选点重点研究 of the current position.
+    pub focus: FocusView,
     /// Session projection, retained after completion/cancel/failure.
     pub whole_game: WholeGameAnalysisView,
     /// 问题手 list and its progress badge.
@@ -1143,6 +1246,12 @@ pub enum ImportTarget {
     AutoAnalysis,
     /// 整盘精析: `ui.whole-game-analysis-deep-visits`.
     WholeGameVisits,
+    /// 强制计算区域: `ui.select-allow-moves`, `select-avoid-moves`, `select-allow-custom-moves`,
+    /// `select-avoid-custom-moves`.
+    AnalysisRegion,
+    /// 选点重点研究: `ui.tracking-analysis-max-visits` (older `tracking-engine-max-visits`),
+    /// `show-tracking-point-outline`, `tracking-point-outline-opacity`.
+    Tracking,
     /// 超级鹰眼: `ui.show-badmoves-frame`, `badmoves-always-ontop`, `movelist-selected-indextop`,
     /// `movelist-selected-index`, `moveList-selected-branch`, `show-movelist-matchai`,
     /// `show-winrate-matchai`, `move-list-winrate-threshold`, `move-list-score-threshold`,

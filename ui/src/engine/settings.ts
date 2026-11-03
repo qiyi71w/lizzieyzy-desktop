@@ -92,18 +92,25 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   // Numeric analysis fields (addInputRow / addToggleInputRow): checked with 保存设置. A limit's
   // switch shares the row with its value, so locating the row reaches both.
   const inputs: HTMLInputElement[] = [];
-  const numberRow = (host: ParentNode, target: string, key: keyof AnalysisSettings, title: string, sub: string, unit: string, toggle?: HTMLInputElement) => {
-    const control = input(settings[key] as number, "number"); control.dataset.key = `settings.analysis.${key}`; control.min = "0"; control.step = "1"; control.required = true;
-    control.title = sub; control.setAttribute("aria-label", title);
-    control.oninput = () => { Object.assign(settings, { [key]: Number(control.value) }); };
+  const inputRow = (host: ParentNode, target: string, title: string, sub: string, unit: string, control: HTMLInputElement, toggle?: HTMLInputElement) => {
     const row = document.createElement(toggle ? "div" : "label"); row.className = "engine-field"; row.dataset.settingTarget = target;
     const name = document.createElement("span"); name.textContent = title;
     const value = document.createElement("span"); value.className = "engine-unit";
     if (toggle) { toggle.title = sub; toggle.setAttribute("aria-label", title); value.append(toggle); }
     value.append(control, ` ${unit}`); row.append(name, value); host.append(row, hint(sub)); inputs.push(control);
   };
-  // 分析与胜率曲线 after its display toggles (ConfigDialog2.java:3048-3061), then 实况分析限制 (3063-3086).
+  const numberRow = (host: ParentNode, target: string, key: keyof AnalysisSettings, title: string, sub: string, unit: string, toggle?: HTMLInputElement) => {
+    const control = input(settings[key] as number, "number"); control.dataset.key = `settings.analysis.${key}`; control.min = "0"; control.step = "1"; control.required = true;
+    control.title = sub; control.setAttribute("aria-label", title);
+    control.oninput = () => { Object.assign(settings, { [key]: Number(control.value) }); };
+    inputRow(host, target, title, sub, unit, control, toggle);
+  };
+  // 分析与胜率曲线 after its display toggles (ConfigDialog2.java:3041-3061), then 实况分析限制 (3063-3086).
   const analysisRows = document.createDocumentFragment();
+  // 选点评估计算量 (3041-3047): a 选点重点研究 setting, saved with SetTrackingSettings.
+  const trackingVisits = input(state.view.settings.tracking.maxVisits, "number"); trackingVisits.dataset.key = "settings.tracking.maxVisits"; trackingVisits.min = "0"; trackingVisits.step = "1"; trackingVisits.required = true;
+  trackingVisits.title = t("ConfigDialog2.modern.analysis.trackingVisitsSub"); trackingVisits.setAttribute("aria-label", t("ConfigDialog2.modern.analysis.trackingVisits"));
+  inputRow(analysisRows, "config.analysis.tracking-visits", t("ConfigDialog2.modern.analysis.trackingVisits"), t("ConfigDialog2.modern.analysis.trackingVisitsSub"), t("ConfigDialog2.modern.unit.visits"), trackingVisits);
   numberRow(analysisRows, "config.analysis.suggestion-limit", "limitMaxSuggestion", t("ConfigDialog2.modern.analysis.suggestionLimit"), t("ConfigDialog2.modern.analysis.suggestionLimitSub"), t("ConfigDialog2.modern.unit.items"));
   numberRow(analysisRows, "config.analysis.variation-limit", "limitBranchLength", t("ConfigDialog2.modern.analysis.variationLimit"), t("ConfigDialog2.modern.analysis.variationLimitSub"), t("ConfigDialog2.modern.unit.moves"));
   heading(analysisRows, t("ConfigDialog2.modern.analysis.liveLimits"), t("ConfigDialog2.modern.analysis.liveLimitsSub"));
@@ -212,6 +219,11 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
     if (!(await displayRows.save())) return false;
     for (const page of registered) if (!(await page.save())) return false;
     if (!(await panels.save())) return false;
+    // Over the committed tracking settings: the 主题 page may have just saved its outline rows.
+    const nowTracking = state.view?.settings.tracking ?? loading.tracking;
+    if (Number(trackingVisits.value) !== nowTracking.maxVisits) {
+      const result = await run({ type: "SetTrackingSettings", settings: { ...nowTracking, maxVisits: Number(trackingVisits.value) } }); if (!result || result.type === "Refused") return false;
+    }
     const result = await run({ type: "SetAnalysisSettings", settings });
     if (!result || result.type === "Refused") return false;
     await dialog.close();

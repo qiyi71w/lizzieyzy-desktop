@@ -80,6 +80,12 @@ function rankCustomField(): HTMLInputElement {
   return field;
 }
 
+/** Text fields typed into a popup item (a JCheckBoxMenuItem holding a JTextField), by item id. */
+const itemFields = new Map<string, () => HTMLElement>();
+export function registerItemField(id: string, make: () => HTMLElement): void {
+  itemFields.set(id, make);
+}
+
 /** Java setToolTipText on menu items (Menu.java:892-929, 9564-9569). */
 function tooltip(key: string): string | undefined {
   switch (key) {
@@ -170,6 +176,8 @@ function dropdown(items: MenuNode[]): HTMLElement {
     const tip = tooltip(node.key);
     if (tip) row.title = tip;
     if (node.key === "Menu.rankMenu.lblCustomMove") row.append(rankCustomField());
+    const itemField = node.id ? itemFields.get(node.id) : undefined;
+    if (itemField) row.append(itemField());
     if (node.t === "submenu" || node.key === "Menu.openRecent") {
       row.classList.add("sub");
       const children = node.key === "Menu.openRecent" ? recentItems() : (node.items ?? []);

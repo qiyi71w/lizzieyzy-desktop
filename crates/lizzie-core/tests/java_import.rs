@@ -1241,6 +1241,50 @@ fn the_move_range_of_flash_analysis_imports_like_java_reads_it() {
 }
 
 #[test]
+fn region_depths_and_tracking_import_with_the_older_tracking_key_and_their_own_avoid_key() {
+    // `Config.java:1879-1882` (Java reads the avoid custom depth from the allow key; its own key
+    // is imported here), `migrateTrackingAnalysisConfig` and `loadTrackingPointAppearanceConfig`.
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(
+        java.join("config.txt"),
+        json!({ "ui": {
+            "select-allow-moves": 1, "select-avoid-moves": 7,
+            "select-allow-custom-moves": 3, "select-avoid-custom-moves": 9,
+            "tracking-engine-max-visits": 800,
+            "show-tracking-point-outline": false, "tracking-point-outline-opacity": 150,
+        }})
+        .to_string(),
+    )
+    .unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    assert_eq!(item(&p.items, "ui.select-avoid-custom-moves").status, ImportStatus::Imported);
+    assert_eq!(item(&p.items, "ui.tracking-engine-max-visits").status, ImportStatus::Imported);
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    let region = wb.config().region;
+    assert_eq!(
+        (region.allow_moves, region.avoid_moves, region.allow_custom_moves, region.avoid_custom_moves),
+        (1, 7, 3, 9)
+    );
+    let tracking = wb.config().tracking;
+    assert_eq!((tracking.max_visits, tracking.show_outline, tracking.outline_opacity), (800, false, 100));
+    assert_eq!(saved_config(&product).tracking, tracking, "kept after a restart");
+
+    // The current key wins over the older one; 0 is the default.
+    std::fs::write(
+        java.join("config.txt"),
+        json!({ "ui": { "tracking-engine-max-visits": 800, "tracking-analysis-max-visits": 0 } }).to_string(),
+    )
+    .unwrap();
+    let p = preview(&mut wb, &java);
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    assert_eq!(wb.config().tracking.max_visits, 500);
+}
+
+#[test]
 fn automatic_analysis_imports_conditions_and_toolbar_parameters_transactionally() {
     let tmp = tempfile::tempdir().unwrap();
     let java = tmp.path().join("java");

@@ -2,6 +2,7 @@
 // mouseMoved and keyPressed, LizzieFrame onClicked / onClickedRight / openRightClickMenu /
 // DraggedReleased). Every document change goes through the Edit command or a catalog entry.
 import { navigate, state, unavailable } from "../app";
+import { regionMenuEntries, selecting, selectionClicked, selectionDragged, selectionPressed, selectionReleased } from "../analysis/region";
 import { COMMANDS } from "../commands";
 import type { Point, Stone } from "../contract/generated";
 import { t } from "../i18n";
@@ -21,6 +22,9 @@ export interface BoardHost {
   /** A suggestion clicked in the candidate table is cleared by a right click
    *  (openRightClickMenu `clickOrder != -1`); true when there was one. */
   clearTableSelection(): boolean;
+  /** The intersections strictly inside the client rectangle between two corners on the board the
+   *  first corner is on (convertScreenToCoordinatesForSelect), or null when it holds none. */
+  selectRange(x1: number, y1: number, x2: number, y2: number): { from: Point; to: Point } | null;
 }
 
 function command(id: string): void {
@@ -87,16 +91,12 @@ function startPick(point: Point): void {
 
 // ------------------------------------------------------------------ context menus
 
-/** RightClickMenu (empty intersection), Java order with its visibility outside engine games;
- *  the analysis-region items are not migrated yet and stay disabled. */
+/** RightClickMenu (empty intersection), Java order with its visibility outside engine games. */
 function pointMenu(point: Point): ContextEntry[] {
   const v = state.view!;
   const preview = host.previewMoves();
   const entries: ContextEntry[] = [
-    { key: "RightClickMenu.allow", label: t("RightClickMenu.allow"), icon: "setpoint.png" },
-    { key: "RightClickMenu.avoid", label: t("RightClickMenu.avoid"), icon: "forbidpoint.png" },
-    { key: "RightClickMenu.avoid2", label: t("RightClickMenu.avoid2"), checked: false },
-    { key: "RightClickMenu.trackPoint", label: t("RightClickMenu.trackPoint"), icon: "trackingpoint.png" },
+    ...regionMenuEntries(point),
     "sep",
     { key: "RightClickMenu.previousMove", label: t("RightClickMenu.previousMove"), icon: "left.png", run: () => navigate({ op: "Back", count: 1 }) },
     { key: "RightClickMenu.findMove", label: t("RightClickMenu.findMove"), icon: "search.png", run: () => void edit({ op: "FindMove", point, any_branch: true }) },
@@ -183,25 +183,30 @@ function rightPress(clientX: number, clientY: number, point: Point | null): void
 }
 
 /** Input.mousePressed / IndependentMainBoard.mousePressed: a press at `point` (null off the grid);
- *  a popup opens at the main-window client point (`clientX`, `clientY`). */
-export function pressBoard(point: Point | null, button: number, detail: number, altKey: boolean, clientX: number, clientY: number): void {
-  if (!state.view || (button !== 0 && button !== 1 && button !== 2)) return;
+ *  a popup opens at the main-window client point (`clientX`, `clientY`). True when the press
+ *  started a region selection (selectPressed), which the pressed surface drags to its release. */
+export function pressBoard(point: Point | null, button: number, detail: number, altKey: boolean, clientX: number, clientY: number): boolean {
+  if (!state.view || (button !== 0 && button !== 1 && button !== 2)) return false;
   // processCommentMousePressed: a press on the board closes the comment edit pane.
   commitComment();
-  if (button === 1) return;
+  if (button === 1) return false;
   if (state.view.editing.setup_mode) {
     if (point) setupClick(point, button === 2);
-    return;
+    return false;
   }
   if (moving?.picked) {
     finishMove(point);
-    return;
+    return false;
   }
-  if (contextMenuShowing()) return;
-  // Alt+press is the analysis region selection (selectPressed), not a board edit.
-  if (altKey) return;
+  if (contextMenuShowing()) return false;
+  // Alt or a lit region button: the press starts a region selection, not a board edit.
+  if (selecting(altKey)) {
+    selectionPressed(altKey);
+    return true;
+  }
   if (button === 0) leftPress(detail, point);
   else rightPress(clientX, clientY, point);
+  return false;
 }
 
 /** mouseReleased: the middle button plays the previewed variation (playMiddleVariation); the left
@@ -228,7 +233,8 @@ export function bindBoardInput(boards: HTMLElement[], boardHost: BoardHost): voi
     board.addEventListener("mousedown", (ev) => {
       if (!state.view || (ev.button !== 0 && ev.button !== 1 && ev.button !== 2)) return;
       ev.preventDefault();
-      pressBoard(ev.button === 1 ? null : host.pointAt(ev.clientX, ev.clientY), ev.button, ev.detail, ev.altKey, ev.clientX, ev.clientY);
+      const point = ev.button === 1 ? null : host.pointAt(ev.clientX, ev.clientY);
+      if (pressBoard(point, ev.button, ev.detail, ev.altKey, ev.clientX, ev.clientY)) trackSelection(ev);
     });
     board.addEventListener("mouseup", (ev) => {
       if (ev.button === 1) releaseBoard(null, 1);
@@ -243,7 +249,21 @@ export function bindBoardInput(boards: HTMLElement[], boardHost: BoardHost): voi
   });
 }
 
-// ------------------------------------------------------------------ keys (Input.keyPressed)
+/** A region selection on the main window's boards from its press to the release (selectDragged /
+ *  selectReleased); a release with Alt where it was pressed is mouseClicked's 清除区域. */
+function trackSelection(press: MouseEvent): void {
+  const range = (ev: MouseEvent) => host.selectRange(press.clientX, press.clientY, ev.clientX, ev.clientY);
+  const move = (ev: MouseEvent) => selectionDragged(range(ev));
+  const up = (ev: MouseEvent) => {
+    if (ev.button !== press.button) return;
+    window.removeEventListener("mousemove", move);
+    window.removeEventListener("mouseup", up);
+    selectionReleased(range(ev));
+    if (ev.altKey && ev.clientX === press.clientX && ev.clientY === press.clientY) selectionClicked();
+  };
+  window.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", up);
+}
 
 /** The record-editing keys of Input.keyPressed, in its precedence; browsing keys are left to
  *  the caller. Returns whether the key was handled. */

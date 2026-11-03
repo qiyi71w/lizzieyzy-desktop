@@ -13,7 +13,7 @@ import type { BoardOverlayView, HistoryPoint, Navigation, NodeAnalysisView, Poin
 import { dialogOpen, message } from "./dialogs";
 import { format, isChinese, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
-import { boardGeom, doubleEngineLayout, floatBoardLayout, mainMarginRatio, sideLayout, SUB_MARGIN_RATIO, workbenchLayout, type BoardGeom, type DualPanels, type PanelId, type Panels, type Rect, type SidePanels } from "./workbench/layout";
+import { boardGeom, doubleEngineLayout, floatBoardLayout, mainMarginRatio, selectRange, sideLayout, SUB_MARGIN_RATIO, workbenchLayout, type BoardGeom, type DualPanels, type PanelId, type Panels, type Rect, type SidePanels } from "./workbench/layout";
 import { handleLayoutKey } from "./workbench/extraMode";
 import { bindPanels, controlsShowing, handlePanelKey, layoutRequest, placeHandles } from "./workbench/panels";
 import { onPresentationChange, presentation } from "./workbench/presentation";
@@ -21,6 +21,7 @@ import { independentReport, relayIndependent, startIndependent } from "./workben
 import type { IndependentInput } from "./workbench/independentModel";
 import "./workbench/displayPage";
 import { boardUi, candidatesShownFor, onBoardUiChange } from "./display/state";
+import { onRegionUiChange, regionDrag, selectionClicked, selectionDragged, selectionReleased } from "./analysis/region";
 import { bindReplayHost, finishReplayBranch, replayLength, replaying, type ReplayTarget } from "./display/replay";
 import { autoplayReport, autoReplayLength, bindAutoplayHost, subAutoplayLength, subWheeled } from "./display/autoplay";
 import { sameAnalysis, sameHistory } from "./workbench/viewEquality";
@@ -607,6 +608,13 @@ function bindPointer() {
       return moves.length ? moves : null;
     },
     clearTableSelection,
+    selectRange: (x1, y1, x2, y2) => {
+      const v = state.view;
+      if (!panels || !v) return null;
+      const rect = $("main").getBoundingClientRect();
+      const geo = mainGeom(v, dual && x1 - rect.left >= dual.right.x ? dual.right : panels.board);
+      return selectRange(geo, x1 - rect.left, y1 - rect.top, x2 - rect.left, y2 - rect.top);
+    },
   });
   // LizzieFrame.onMouseMoved (LizzieFrame.java:10120-10160): the point under the pointer on either
   // board is the hovered point of both. 思考模式's raw board takes no hover (the main renderer's
@@ -1007,11 +1015,16 @@ function render() {
     ownership: mainOwnership(v, hoverAllowed(v) ? hoveredCandidate : null),
     score: v.score,
     mark: v.problems.mark,
+    region: v.region,
+    selecting: regionDrag(),
+    focus: v.focus,
+    tracking: v.settings.tracking,
   };
   const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}`;
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
   const scoreSig = v.score ? JSON.stringify(v.score) : "";
-  if (!floating && changed("board", `${background}:${P.board.x},${P.board.y},${P.board.w}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}`))
+  const searchSig = JSON.stringify([v.region, scene.selecting, v.focus, v.settings.tracking]);
+  if (!floating && changed("board", `${background}:${P.board.x},${P.board.y},${P.board.w}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}:${searchSig}`))
     boardReport = paintBoard(prepare($("board"), P.board), mainGeom(v, P.board), P.board, scene);
   if (dual) renderDual(v, dual, W, H, size, docSig, ui, scoreSig, scene);
   else renderPanels(v, P, H, size, docSig, ui, scene);
@@ -1166,6 +1179,8 @@ function floatSubScene(v: WorkbenchView, scene: BoardScene): SubBoardScene | nul
 /** The main window's client origin on the screen, read when the pointer enters 浮动主棋盘: its
  *  popups open at the pressed screen point, kept inside the main window. */
 let clientOrigin = { x: 0, y: 0 };
+/** A region selection pressed on 浮动主棋盘 is being dragged. */
+let floatSelecting = false;
 
 /** Pointer input from the floating boards. 浮动主棋盘 (IndependentMainBoard.java:308-443) is the main
  *  board's own input: hover, presses, release and wheel; 浮动小棋盘 steps its own cursor
@@ -1218,7 +1233,18 @@ function independentInput(input: IndependentInput): void {
         if (input.button === 0 && input.point) scorePoint(input.point);
         return;
       }
-      pressBoard(input.point, input.button, input.detail, input.alt, input.sx - clientOrigin.x, input.sy - clientOrigin.y);
+      floatSelecting = pressBoard(input.point, input.button, input.detail, input.alt, input.sx - clientOrigin.x, input.sy - clientOrigin.y);
+      break;
+    case "select":
+      // The window reports every selection press; only one that started a selection moves it.
+      if (!floatSelecting) break;
+      if (!input.end) {
+        selectionDragged(input.range);
+        break;
+      }
+      floatSelecting = false;
+      selectionReleased(input.range);
+      if (input.click) selectionClicked();
       break;
     case "release":
       if (!v.score) releaseBoard(input.point, input.button);
@@ -1249,6 +1275,10 @@ function renderDual(v: WorkbenchView, d: DualPanels, W: number, H: number, size:
     hovered: allowed ? hoveredCandidate2 : null,
     preview: hoveredVariation(v, true)?.preview ?? null,
     ownership: secondaryOwnership(v, allowed ? hoveredCandidate2 : null),
+    // The region and the tracked points are the main board's (boardRenderer only).
+    region: null,
+    selecting: null,
+    focus: null,
   };
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
   if (changed("board2", `${size}:${docSig}:${secondaryRevision}:${displaySig2}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("right", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}`))
@@ -1380,6 +1410,8 @@ function uiReport() {
         text: el.textContent ?? "",
         checked: el instanceof HTMLInputElement && el.type === "checkbox" ? el.checked : undefined,
         value: el instanceof HTMLInputElement && el.type === "text" ? el.value : undefined,
+        disabled: el.classList.contains("disabled") || undefined,
+        title: el.title || undefined,
         x: Math.round(r.left + r.width / 2),
         y: Math.round(r.top + r.height / 2),
       })),
@@ -1482,6 +1514,8 @@ async function boot() {
   onBoardUiChange(schedule);
   // An open 自定义布局 设置 dialog's draft relays out the workbench and the floating boards.
   onPresentationChange(schedule);
+  // A region selection being dragged, and the lit region buttons.
+  onRegionUiChange(schedule);
   bindAutoplayHost({
     target: () => (state.view ? hoveredVariation(state.view)?.target ?? null : null),
     repaint: schedule,

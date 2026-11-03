@@ -71,6 +71,9 @@ fn generate() -> String {
         lizzie_core::appearance::ThemeEntry, lizzie_core::appearance::AppearanceCatalog,
         lizzie_core::appearance::ThemeImages,
         lizzie_core::settings::CustomLayout, lizzie_core::settings::IndependentBoard,
+        RegionCommand, TrackingCommand, RegionView, FocusView, TrackedPointView,
+        lizzie_core::engine::runtime::FocusCapability, lizzie_core::settings::RegionSettings,
+        lizzie_core::settings::TrackingSettings,
     ];
     // Engine resources and engine performance keep their own lists.
     decls.extend(resources::decls(&cfg));

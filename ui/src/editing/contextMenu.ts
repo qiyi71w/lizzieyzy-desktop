@@ -13,6 +13,10 @@ export interface ContextItem {
   icon?: string;
   /** JCheckBoxMenuItem state. */
   checked?: boolean;
+  /** setToolTipText. */
+  title?: string;
+  /** setEnabled(false): shown greyed, not chosen. */
+  disabled?: boolean;
   /** Absent: a Java entry whose capability is not migrated yet (shown disabled). */
   run?: () => void;
 }
@@ -65,7 +69,10 @@ export function openContextMenu(clientX: number, clientY: number, entries: Conte
     text.textContent = entry.label;
     row.append(mark, text);
     const action = entry.run;
-    if (action) {
+    if (entry.title) row.title = entry.title;
+    if (action && entry.disabled) {
+      row.classList.add("disabled");
+    } else if (action) {
       row.addEventListener("click", (e) => {
         e.stopPropagation();
         closeContextMenu();

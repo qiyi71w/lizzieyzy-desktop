@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { run, state } from "../app";
+import { selecting } from "../analysis/region";
 import type { IndependentBoard, PanelSettings, WorkbenchView } from "../contract/generated";
 import { language, t } from "../i18n";
 import { INDEPENDENT_DATA_EVENT, INDEPENDENT_INPUT_EVENT, INDEPENDENT_LABELS, type IndependentInput, type IndependentPayload, type WireBoardScene } from "./independentModel";
@@ -100,7 +101,7 @@ export function relayIndependent(v: WorkbenchView, scenes: IndependentScenes): v
     let payload: IndependentPayload;
     if (board === "Main") {
       if (!scenes.main) continue;
-      payload = { ...common, board, bigMargin: scenes.main.bigMargin, allowDrag: v.settings.edit.allowDrag, scene: scenes.main.scene };
+      payload = { ...common, board, bigMargin: scenes.main.bigMargin, allowDrag: v.settings.edit.allowDrag, selectMode: selecting(false), scene: scenes.main.scene };
     } else {
       if (!scenes.sub) continue;
       payload = { ...common, board, scene: scenes.sub };

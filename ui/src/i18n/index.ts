@@ -102,6 +102,8 @@ const IMPORT_TEXT: Record<string, Table> = {
     targetWinrateAlwaysBlack: "总是显示黑胜率",
     targetScoreLeadWithKomi: "目差显示：盘面",
     targetMatchAi: "AI 吻合判定（候选数、计算量比例）",
+    targetAnalysisRegion: "强制计算区域的限制手数",
+    targetTracking: "选点重点研究",
   },
   ZhTw: {
     javaImport: "從 LizzieYzy Next 匯入設定…",
@@ -196,6 +198,8 @@ const IMPORT_TEXT: Record<string, Table> = {
     targetWinrateAlwaysBlack: "總是顯示黑勝率",
     targetScoreLeadWithKomi: "目差顯示：盤面",
     targetMatchAi: "AI 吻合判定（候選數、計算量比例）",
+    targetAnalysisRegion: "強制計算區域的限制手數",
+    targetTracking: "選點重點研究",
   },
   EnUs: {
     javaImport: "Import settings from LizzieYzy Next…",
@@ -290,6 +294,8 @@ const IMPORT_TEXT: Record<string, Table> = {
     targetWinrateAlwaysBlack: "Always show black winrate",
     targetScoreLeadWithKomi: "Score lead: board difference",
     targetMatchAi: "AI match (candidates, playout share)",
+    targetAnalysisRegion: "Calculation region move limits",
+    targetTracking: "Point evaluation",
   },
 };
 

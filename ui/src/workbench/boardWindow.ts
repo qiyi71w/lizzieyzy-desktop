@@ -9,7 +9,7 @@ import { LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
 import type { IndependentBoard, Point } from "../contract/generated";
 import { setLanguage } from "../i18n";
 import { INDEPENDENT_DATA_EVENT, INDEPENDENT_INPUT_EVENT, INDEPENDENT_LABELS, type IndependentInput, type IndependentPayload, type KeyInit } from "./independentModel";
-import { boardGeom, mainMarginRatio, SUB_MARGIN_RATIO, type BoardGeom } from "./layout";
+import { boardGeom, mainMarginRatio, selectRange, SUB_MARGIN_RATIO, type BoardGeom } from "./layout";
 import { loadImages, paintBoard, paintSubBoard, prepare } from "./paint";
 import { onAppearanceChange, syncAppearance } from "../appearance/state";
 
@@ -141,10 +141,18 @@ export function bootBoardWindow(): void {
     document.body.classList.remove("over");
     send({ type: "leave" });
   });
+  /** The press of a region selection (Alt, or a lit region button): it drags the selection, not
+   *  the window (IndependentMainBoard.mousePressed / mouseDragged / mouseReleased). */
+  let selection: { x: number; y: number; button: number } | null = null;
+  const range = (e: MouseEvent) => (geo && selection ? selectRange(geo, selection.x, selection.y, e.clientX, e.clientY) : null);
   canvas.addEventListener("mousedown", (e) => {
     e.preventDefault();
     const point = pointAt(e.offsetX, e.offsetY);
     send({ type: "press", point, button: e.button, detail: e.detail, alt: e.altKey, sx: e.screenX, sy: e.screenY });
+    if (data?.board === "Main" && e.button !== 1 && (e.altKey || data.selectMode)) {
+      selection = { x: e.clientX, y: e.clientY, button: e.button };
+      return;
+    }
     if (e.button !== 0 || !data || data.locked) return;
     // A press on a stone with 启用拖动棋子 drags the stone (Draggedmode), not the window.
     if (data.board === "Main" && point && data.allowDrag && data.scene.stones[point.y * data.scene.cols + point.x]) return;
@@ -155,6 +163,10 @@ export function bootBoardWindow(): void {
     if (e.button === 0) canvas.setPointerCapture(e.pointerId);
   });
   window.addEventListener("mousemove", (e) => {
+    if (selection) {
+      send({ type: "select", range: range(e), end: false, click: false });
+      return;
+    }
     if (grab && e.buttons & 1) {
       dragTo(e);
       return;
@@ -172,6 +184,12 @@ export function bootBoardWindow(): void {
     }
   });
   window.addEventListener("mouseup", (e) => {
+    if (selection) {
+      if (e.button !== selection.button) return;
+      send({ type: "select", range: range(e), end: true, click: e.altKey && e.clientX === selection.x && e.clientY === selection.y });
+      selection = null;
+      return;
+    }
     grab = null;
     send({ type: "release", point: pointAt(e.clientX, e.clientY), button: e.button });
   });

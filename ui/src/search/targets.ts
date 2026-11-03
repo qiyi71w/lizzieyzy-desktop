@@ -62,12 +62,22 @@ const OPENERS: Record<string, true> = {
   "share.public-history": true, // openPublicKifuSearch
 };
 
-/** Board context-menu items (editing/input.ts pointMenu / stoneMenu) that act in this product,
- *  by the Java menu key the catalog path ends with. The others are shown disabled there. */
+/** Board context-menu items (editing/input.ts pointMenu / stoneMenu, analysis/region.ts
+ *  regionMenuEntries) that act in this product, by the Java menu key the catalog path ends with.
+ *  The others are shown disabled there. */
 const CONTEXT_ITEMS: Record<string, true> = {
   "RightClickMenu.cleanedittemp": true,
   "RightClickMenu.addblack": true,
   "RightClickMenu.addwhite": true,
+  "RightClickMenu.allow": true,
+  "RightClickMenu.allow2": true,
+  "RightClickMenu.allow3": true,
+  "RightClickMenu.avoid": true,
+  "RightClickMenu.avoid2": true,
+  "RightClickMenu.cancelavoid": true,
+  "RightClickMenu.trackPoint": true,
+  "RightClickMenu.untrackPoint": true,
+  "RightClickMenu.clearAllTracked": true,
   "RightClickMenu.addSuggestionAsBranch": true,
   "RightClickMenu.previousMove": true,
   "RightClickMenu2.findStone": true,

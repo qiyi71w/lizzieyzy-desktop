@@ -14,6 +14,7 @@ import type { MenuNode } from "./javaMenus";
 import { openPopupMenu } from "./menubar";
 import { FLASH_MENU } from "../quick/flash";
 import { functionSearchRefused, openFunctionSearch } from "../search/controller";
+import { limitPopup } from "../analysis/region";
 import "../editing/chrome.css";
 
 const updaters: (() => void)[] = [];
@@ -37,9 +38,9 @@ function liveIcon(off: string, on: string, tip: string, selected: () => boolean,
 }
 
 /** A catalog toggle shown as a two-image button. */
-function commandIcon(off: string, on: string, tip: string, command: string): HTMLElement {
+function commandIcon(off: string, on: string, tip: string, command: string, cls = ""): HTMLElement {
   const entry = COMMANDS[command];
-  const b = liveIcon(off, on, tip, () => entry.checked?.() ?? false, entry.run);
+  const b = liveIcon(off, on, tip, () => entry.checked?.() ?? false, entry.run, cls);
   b.dataset.key = command;
   return b;
 }
@@ -132,6 +133,16 @@ function flashButton(): HTMLElement {
   b.title = t("Menu.btnAnalyze.btnFlashAnalyze");
   b.dataset.key = "toolbar.flash";
   b.onclick = () => openPopupMenu(b, FLASH_MENU);
+  return b;
+}
+
+/** selectAllowMore / selectAvoidMore: the region's limit popup below the button. */
+function limitButton(allow: boolean, tip: string): HTMLElement {
+  const b = icon("horizonDown.png", tip, undefined, "more");
+  b.classList.remove("unavailable");
+  b.title = tip;
+  b.dataset.key = allow ? "toolbar.force-allow-options" : "toolbar.force-avoid-options";
+  b.onclick = () => openPopupMenu(b, limitPopup(allow));
   return b;
 }
 
@@ -346,11 +357,11 @@ export function buildToolbar(host: HTMLElement): void {
     sep(),
     ...editBar(),
     sep(),
-    at("toolbar.force-allow", icon("blueallow.png", t("Menu.selectAllowToolTipText"), undefined, "force")),
-    at("toolbar.force-allow-options", icon("horizonDown.png", t("Accessibility.allowMoveOptions"), undefined, "more")),
-    at("toolbar.force-avoid", icon("redavoid.png", t("Menu.selectAvoidToolTipText"), undefined, "force")),
-    at("toolbar.force-avoid-options", icon("horizonDown.png", t("Accessibility.avoidMoveOptions"), undefined, "more")),
-    at("toolbar.force-clear", icon("clear.png", t("Menu.clearSelectToolTipText"), undefined, "force")),
+    at("toolbar.force-allow", commandIcon("blueallow.png", "blueallow2.png", t("Menu.selectAllowToolTipText"), "toolbar.force-allow", "force")),
+    at("toolbar.force-allow-options", limitButton(true, t("Accessibility.allowMoveOptions"))),
+    at("toolbar.force-avoid", commandIcon("redavoid.png", "redavoid2.png", t("Menu.selectAvoidToolTipText"), "toolbar.force-avoid", "force")),
+    at("toolbar.force-avoid-options", limitButton(false, t("Accessibility.avoidMoveOptions"))),
+    at("toolbar.force-clear", icon("clear.png", t("Menu.clearSelectToolTipText"), "toolbar.force-clear", "force")),
     sep(),
     pill(t("Menu.newGameBtn"), "newgame"),
     pause,

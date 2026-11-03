@@ -28,6 +28,7 @@ mod panels;
 mod quick;
 mod recovery;
 mod resources;
+mod search;
 mod tuning;
 mod whole_game;
 
@@ -259,6 +260,8 @@ pub struct Workbench {
     whole_game: whole_game::WholeGameFlow,
     /// 批量分析 / 批量精析: the queue and its background record.
     batch: batch::BatchFlow,
+    /// 强制计算区域 and 选点重点研究 of the foreground engine's analysis.
+    search: search::SearchFlow,
     /// The problem move a 问题手 jump marked, while browsing the position before it
     /// (`clickbadmove`): document, that position, the move's node.
     problem_mark: Option<(u64, NodeId, NodeId)>,
@@ -376,6 +379,7 @@ impl Workbench {
             auto_analysis: auto_analysis::AutoAnalysisFlow::default(),
             whole_game: whole_game::WholeGameFlow::default(),
             batch: batch::BatchFlow::default(),
+            search: search::SearchFlow::default(),
             problem_mark: None,
             hawkeye_session: hawkeye::HawkeyeSession::default(),
         }
@@ -979,6 +983,8 @@ impl Workbench {
                 appearance: self.config.appearance.clone(),
                 theme: self.appearance_theme.clone(),
                 active_frame_font_size: self.active_frame_font_size,
+                region: self.config.region,
+                tracking: self.config.tracking,
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
@@ -988,6 +994,8 @@ impl Workbench {
             auto_analysis: self.auto_analysis_view(),
             batch: self.batch_view(),
             flash_outcome: None,
+            region: self.region_view(),
+            focus: self.focus_view(),
             whole_game: self.whole_game_view(),
             problems: self.problem_list(),
             analysis: self.current_analysis(),

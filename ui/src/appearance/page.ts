@@ -3,8 +3,8 @@
 // theme (readThemeValues / readDefaultTheme 6120-6372) and sent with 保存设置 (writeThemeValues /
 // writeDefaultTheme 6191-6471, saveConfig 6863-6867); 取消 discards them. 添加 / 删除 manage the
 // theme list at once like Java, without touching the committed appearance. 棋盘预览 paints the
-// draft on its own canvas (pnlBoardPreview 4980-5197). 选点评估关注外框 is not shown: this product
-// has no tracking display for it to control.
+// draft on its own canvas (pnlBoardPreview 4980-5197). 选点评估关注外框 (3923-3943) edits the
+// 选点重点研究 settings, not the theme, and is saved on its own.
 import { run, state } from "../app";
 import { appearanceCatalog, chooseAppearanceImage } from "../contract/client";
 import type { AppearanceCatalog, ThemeSettings } from "../contract/generated";
@@ -39,6 +39,8 @@ const TARGETS = [
   "config.theme.comment-font-size",
   "config.theme.stone-indicator",
   "config.theme.comment-node-color",
+  "config.tracking.outline",
+  "config.tracking.outline-opacity",
   "config.theme.blunder-rules",
   "config.theme.score-blunders",
 ] as const;
@@ -457,6 +459,25 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   const commentNodeColor = colorControl("settings.theme.commentNodeColor", true, false);
   row(colors, "config.theme.comment-node-color", commentNodeTitle, t("ConfigDialog2.modern.theme.commentNodeSub"), showCommentNode, commentNodeColor.root);
 
+  // 选点评估关注外框.
+  const tracking = view.settings.tracking;
+  const trackingCard = card(host, t("ConfigDialog2.modern.trackingAppearance.title"), t("ConfigDialog2.modern.trackingAppearance.subtitle"));
+  const outlineTitle = t("ConfigDialog2.modern.trackingAppearance.outline");
+  const outline = check("settings.tracking.showOutline", outlineTitle);
+  outline.checked = tracking.showOutline;
+  row(trackingCard, "config.tracking.outline", outlineTitle, t("ConfigDialog2.modern.trackingAppearance.outlineSub"), outline);
+  const opacity = el("input");
+  opacity.type = "range";
+  opacity.min = "0";
+  opacity.max = "100";
+  opacity.step = "1";
+  opacity.value = String(tracking.outlineOpacity);
+  opacity.dataset.key = "settings.tracking.outlineOpacity";
+  opacity.setAttribute("aria-label", t("ConfigDialog2.modern.trackingAppearance.outlineOpacity"));
+  const opacityValue = el("span", undefined, `${opacity.value}%`);
+  opacity.oninput = () => (opacityValue.textContent = `${opacity.value}%`);
+  row(trackingCard, "config.tracking.outline-opacity", t("ConfigDialog2.modern.trackingAppearance.outlineOpacity"), t("ConfigDialog2.modern.trackingAppearance.outlineOpacitySub"), opacity, opacityValue);
+
   // 错误节点.
   const blunders = card(host, t("ConfigDialog2.modern.theme.blunders"), t("ConfigDialog2.modern.theme.blundersSub"));
   const tableWrap = el("div", "appearance-blunder-table");
@@ -733,6 +754,11 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
 
   return {
     save: async () => {
+      const nowTracking = state.view?.settings.tracking ?? tracking;
+      if (outline.checked !== nowTracking.showOutline || Number(opacity.value) !== nowTracking.outlineOpacity) {
+        const result = await run({ type: "SetTrackingSettings", settings: { ...nowTracking, showOutline: outline.checked, outlineOpacity: Number(opacity.value) } });
+        if (!result || result.type === "Refused") return false;
+      }
       const values = collect();
       const settings = { ...view.settings.appearance, ...state.view?.settings.appearance, theme: selected };
       if (selected === committed.name && JSON.stringify(values) === JSON.stringify(committed.values)) return true;

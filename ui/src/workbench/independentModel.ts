@@ -32,6 +32,8 @@ export type IndependentPayload = {
       bigMargin: boolean;
       /** 启用拖动棋子: a press on a stone drags the stone instead of the window. */
       allowDrag: boolean;
+      /** Input.selectMode: a lit region button makes a press select a region, like Alt. */
+      selectMode: boolean;
       scene: WireBoardScene;
     }
   | { board: "Sub"; scene: SubBoardScene }
@@ -58,6 +60,9 @@ export type IndependentInput = { board: IndependentBoard } & (
   /** `sx`, `sy`: the pressed screen point (CSS px), where a popup opens. */
   | { type: "press"; point: Point | null; button: number; detail: number; alt: boolean; sx: number; sy: number }
   | { type: "release"; point: Point | null; button: number }
+  /** A region selection's press dragged (selectDragged) or released (`end`, selectReleased): the
+   *  points it covers; `click` is an Alt release where it was pressed (mouseClicked's 清除区域). */
+  | { type: "select"; range: { from: Point; to: Point } | null; end: boolean; click: boolean }
   | { type: "wheel"; down: boolean }
   | { type: "key"; kind: "keydown" | "keyup"; init: KeyInit }
   /** The window's close button (btnClose): the same as closing the window. */

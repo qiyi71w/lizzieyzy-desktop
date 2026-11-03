@@ -4,6 +4,7 @@
 //  - InFrameLeftoverDragHandles' hot zones (InFrameLeftoverDragHandles.java:61-162)
 //  - BoardRenderer.calculatePixelMargins (BoardRenderer.java:3678-3746) and re-centering (:743)
 //  - SubBoardRenderer.calculatePixelMargins (SubBoardRenderer.java:1353-1422)
+import type { Point } from "../contract/generated";
 
 export interface Rect {
   x: number;
@@ -749,6 +750,24 @@ export function boardGeom(r: Rect, cols: number, rows: number, ratio: number): B
   const square = i((avail - 1) / (n - 1));
   const stoneRadius = square < 4 ? 1 : i(square / 2) - 1;
   return { x: r.x + i((r.w - size) / 2), y: r.y + i((r.h - size) / 2), size, margin, square, stoneRadius, n, cols, rows };
+}
+
+/** BoardRenderer.convertScreenToCoordinatesForSelect: the intersections inside the rectangle between
+ *  two corners, given relative to the panel `geo` was laid out in. The corners are clamped to the
+ *  grid (or just before it); the result runs from the intersection after the low corner to the
+ *  high one, and is null when both corners are in the same column or row of squares. */
+export function selectRange(geo: BoardGeom, x1: number, y1: number, x2: number, y2: number): { from: Point; to: Point } | null {
+  const span = (a: number, b: number, origin: number, n: number) => {
+    const clamp = (c: number) => Math.min(Math.max(c - origin, -1), geo.square * (n - 1));
+    const lo = clamp(Math.min(a, b));
+    const hi = clamp(Math.max(a, b));
+    if (Math.floor(lo / geo.square) === Math.floor(hi / geo.square)) return null;
+    return [Math.floor((lo + geo.square) / geo.square), Math.floor(hi / geo.square)] as const;
+  };
+  const xs = span(x1, x2, geo.x + geo.margin, geo.cols);
+  const ys = span(y1, y2, geo.y + geo.margin, geo.rows);
+  if (!xs || !ys || xs[0] > xs[1] || ys[0] > ys[1]) return null;
+  return { from: { x: xs[0], y: ys[0] }, to: { x: xs[1], y: ys[1] } };
 }
 
 /** WinrateGraph.java:585-678,2755-2761: the plot width and height inside the graph panel and its

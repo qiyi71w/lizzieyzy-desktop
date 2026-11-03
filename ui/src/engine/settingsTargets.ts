@@ -11,7 +11,7 @@ const targets = new Map<string, SettingsSection>([
   ].map((id): [string, SettingsSection] => [id, "kifu"]),
   ...[
     "config.analysis.winrate", "settings.black-winrate", "config.analysis.variation", "config.analysis.blunder-bar", "config.analysis.hover",
-    "config.analysis.graph-fill", "config.analysis.max-red", "config.analysis.suggestion-limit",
+    "config.analysis.graph-fill", "config.analysis.max-red", "config.analysis.tracking-visits", "config.analysis.suggestion-limit",
     "config.analysis.variation-limit", "config.analysis.limit-time", "config.analysis.limit-visits",
     "config.candidates.blue-ring", "config.candidates.color-ratio", "config.candidates.white-style",
     "config.candidates.no-suggestion-circle", "config.candidates.minimum-playout-ratio",
