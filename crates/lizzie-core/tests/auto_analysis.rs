@@ -10,8 +10,11 @@ use lizzie_core::record::RecordFormat;
 use lizzie_core::settings::{AnalysisEngineSettings, AutoAnalysisSettings, Storage};
 use lizzie_core::workbench::{OpenOrigin, Workbench};
 
+/// The lines each launched instance has been sent, in launch order.
+type Sent = Vec<(InstanceId, Vec<String>)>;
+
 #[derive(Clone, Default)]
-struct World(Arc<Mutex<Vec<(InstanceId, Vec<String>)>>>);
+struct World(Arc<Mutex<Sent>>);
 struct Io(World, InstanceId);
 impl EngineIo for Io {
     fn send(&mut self, text: &str) -> std::io::Result<()> {

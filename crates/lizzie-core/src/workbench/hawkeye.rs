@@ -227,7 +227,7 @@ impl Workbench {
         // Java keeps move N's numbers on node N - 1: `moveNumber + 1 <= last && moveNumber >= first`.
         let in_range = |e: &MoveEvaluation| {
             let p = parent_number(e);
-            p + 1 <= i64::from(range.1) && p >= i64::from(range.0)
+            p < i64::from(range.1) && p >= i64::from(range.0)
         };
 
         let mut pane = HawkeyePane {

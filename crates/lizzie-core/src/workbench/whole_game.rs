@@ -374,9 +374,9 @@ impl Workbench {
                     Response::Result { id, line } => (id, Some(line)),
                     Response::Error { id: Some(id), .. } => (id, None), _ => return None,
                 };
-                let Some(s) = self.whole_game.session.as_mut() else { return None };
+                let s = self.whole_game.session.as_mut()?;
                 let Some(Engine::Process { queries, .. }) = s.engine.as_mut() else { return None };
-                let Some(q) = queries.remove(&id) else { return None };
+                let q = queries.remove(&id)?;
                 let done = queries.is_empty(); s.answered += 1;
                 if let Some(line) = result { self.whole_game_store(&q, line, false); }
                 if done { self.whole_game_dispatch(); }
