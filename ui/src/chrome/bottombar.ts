@@ -184,6 +184,7 @@ export function buildBottomBar(host: HTMLElement): void {
   let lastAnalysis = false;
   let lastTrying = false;
   const tryPlay = elements.get(GROUPS.rightPrimary.find((item) => item.name === "tryPlay")!)!;
+  const analyse = elements.get(Object.values(GROUPS).flat().find((item) => item.name === "analyse")!)!;
   let lastShown = "";
   let lastMode = "";
   subscribe(() => {
@@ -204,6 +205,8 @@ export function buildBottomBar(host: HTMLElement): void {
       lastAnalysis = analysing;
       showAnalysis(analysing);
     }
+    // enableDisabelForEngineGame: 分析 is off while an 引擎对战 batch runs.
+    analyse.classList.toggle("match-off", !!state.view?.engine_match);
     // LizzieFrame.tryPlay / clearTryPlay: "恢复" while trying, "试下" otherwise.
     const trying = state.view?.editing.trying ?? false;
     if (trying !== lastTrying) {

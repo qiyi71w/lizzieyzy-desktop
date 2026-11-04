@@ -16,6 +16,7 @@ import { FLASH_MENU } from "../quick/flash";
 import { functionSearchRefused, openFunctionSearch } from "../search/controller";
 import { limitPopup } from "../analysis/region";
 import { clockText } from "../game/commands";
+import { matchPlaying } from "../match/state";
 import "../editing/chrome.css";
 
 const updaters: (() => void)[] = [];
@@ -344,19 +345,23 @@ function gamePill(text: string, cls: string, key: string, run: () => void): HTML
 }
 
 /** The double menu's game controls (toggleDoubleMenuGameStatus, Menu.java:10321-10362): 新对局
- *  becomes the red 结束对局 while a game runs, 暂停 / 继续 is enabled only then and 认输 is
- *  shown only then. */
+ *  becomes the red 结束对局 while a 人机对弈 game or an 引擎对战 batch runs, 暂停 / 继续 is enabled
+ *  only then and 认输 is shown only in 人机对弈. */
 function gameControls(): HTMLElement[] {
   const newGame = gamePill(t("Menu.newGameBtn"), "newgame", "game-new", () => openPopupMenu(newGame, NEW_GAME_POPUP));
   const stop = at("toolbar.game-stop", gamePill(t("Menu.endGameBtn"), "newgame danger", "game-end", () => COMMANDS["toolbar.game-stop"].run()));
-  const pause = at("toolbar.game-pause", gamePill(t("Menu.pauseGameBtn"), "pause", "game-pause", () => { if (state.view?.game) COMMANDS["toolbar.game-pause"].run(); }));
+  const pause = at("toolbar.game-pause", gamePill(t("Menu.pauseGameBtn"), "pause", "game-pause", () => { if (state.view?.game || state.view?.engine_match) COMMANDS["toolbar.game-pause"].run(); }));
   const resign = at("toolbar.game-resign", gamePill(t("Menu.resignBtn"), "pause danger", "game-resign", () => COMMANDS["toolbar.game-resign"].run()));
   updaters.push(() => {
     const game = state.view?.game;
-    newGame.style.display = game ? "none" : "";
-    stop.style.display = resign.style.display = game ? "" : "none";
-    pause.classList.toggle("disabled", !game);
-    pause.textContent = game?.phase === "Paused" ? t("Menu.continueGameBtn") : t("Menu.pauseGameBtn");
+    // EngineGameSnapshot.playing(): between games of a batch the 新对局 button is back.
+    const match = matchPlaying() ? state.view?.engine_match : null;
+    newGame.style.display = game || match ? "none" : "";
+    stop.style.display = game || match ? "" : "none";
+    resign.style.display = game ? "" : "none";
+    pause.classList.toggle("disabled", !game && !match);
+    const paused = match ? match.phase === "Paused" : game?.phase === "Paused";
+    pause.textContent = paused ? t("Menu.continueGameBtn") : t("Menu.pauseGameBtn");
   });
   return [newGame, stop, pause, resign];
 }

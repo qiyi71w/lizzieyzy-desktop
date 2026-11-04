@@ -148,6 +148,9 @@ impl Workbench {
         store: &AnalysisStore,
         secondary: Option<&AnalysisStore>,
     ) -> Vec<DocumentEdit> {
+        if self.match_active() || rec.node(ROOT).properties.iter().any(|p|p.id=="DZ" && p.values.iter().any(|v|matches!(v.as_str(),"Y"|"KB"|"KW"))) {
+            return Vec::new();
+        }
         if !self.config.record.append_winrate_to_comment {
             return Vec::new();
         }
@@ -218,8 +221,9 @@ impl Workbench {
         application: &str,
     ) -> String {
         let labels = comment_labels(self.active_language);
+        let engine_match = self.match_active() || rec.node(ROOT).properties.iter().any(|p|p.id=="DZ" && p.values.iter().any(|v|matches!(v.as_str(),"Y"|"KB"|"KW")));
         let comment = |id| {
-            (self.config.record.append_winrate_to_comment && id != ROOT && rec.node(id).kind != NodeKind::Snapshot)
+            (!engine_match && self.config.record.append_winrate_to_comment && id != ROOT && rec.node(id).kind != NodeKind::Snapshot)
                 .then(|| self.formatted_comment(rec, store, comment_secondary, id, &labels))
                 .flatten()
         };

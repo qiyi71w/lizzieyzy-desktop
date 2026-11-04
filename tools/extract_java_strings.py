@@ -92,6 +92,10 @@ def main() -> None:
     base = load_properties(l10n / "DisplayStrings.properties")
     keys = used_keys()
     keys.update(key for key in base if key.startswith("FunctionSearch."))
+    # Match summaries and notices select Java keys dynamically by side/outcome.
+    keys.update(key for key in base if key.startswith(("EngineGameInfo.", "EnginePkConfig.",
+        "NewEngineGameDialog.", "Mannul.")))
+    keys.add("GtpConsolePane.isEngineGame")
     bundles = {locale: load_properties(l10n / file) for locale, file in LOCALES.items()}
     for bundle in bundles.values():
         keys.update(key for key in bundle if key.startswith("FunctionSearch."))

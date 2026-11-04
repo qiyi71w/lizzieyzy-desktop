@@ -276,7 +276,11 @@ export function buildMenubar(host: HTMLElement): void {
           if (!shown && openMenu === top) closeMenus();
         }
         const engine = secondary ? state.view?.engine.secondary : state.view?.engine.foreground;
-        const text = engine ? `[${engine.index + 1}]: ${engine.name}` : t("Menu.noEngine");
+        // SwingEngineGameChrome: 对战中 and disabled while a batch runs (the menu strip shows no
+        // menu icons, so Playing2 / ready2 are not visible there; java-ref-ui j08a, j09a).
+        const match = secondary ? null : state.view?.engine_match;
+        top.classList.toggle("match-off", !!match);
+        const text = match ? t("EngineManager.engineGamePlaying") : engine ? `[${engine.index + 1}]: ${engine.name}` : t("Menu.noEngine");
         if (top.firstChild?.textContent === text) return;
         if (top.firstChild?.nodeType === Node.TEXT_NODE) top.firstChild.textContent = text;
         else top.prepend(document.createTextNode(text));

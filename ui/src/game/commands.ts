@@ -30,6 +30,8 @@ function cont(kind: GameKind, human: Stone): CommandEntry {
 }
 
 const inGame = () => !!state.view?.game;
+/** applyDoubleMenuGameStatus: 结束对局 and 暂停/继续 serve 人机对弈 and a running 引擎对战 batch. */
+const inGameOrMatch = () => !!state.view?.game || !!state.view?.engine_match;
 
 Object.assign(COMMANDS, {
   "menu.newGenmoveGame": { run: () => void openNewGame() },
@@ -49,8 +51,9 @@ Object.assign(COMMANDS, {
   "menu.setAiTime": { run: () => void openSetAiTime() },
   // 终止人机对局(空格): togglePonderMannul, which outside a game toggles the analysis.
   "game.stop-human": { run: () => void run({ type: "ToggleAnalysis" }) },
-  "toolbar.game-pause": { run: () => void game({ type: "Pause" }), enabled: inGame },
-  "toolbar.game-stop": { run: () => void game({ type: "End" }), visible: inGame },
+  // During 引擎对战 the same buttons end or pause the match (EngineGameDesktop.stop / togglePause).
+  "toolbar.game-pause": { run: () => void (state.view?.engine_match ? run({ type: "Match", op: { type: "Pause" } }) : game({ type: "Pause" })), enabled: inGameOrMatch },
+  "toolbar.game-stop": { run: () => void (state.view?.engine_match ? run({ type: "Match", op: { type: "Stop" } }) : game({ type: "End" })), visible: inGameOrMatch },
   // doubleMenuResign: no confirmation.
   "toolbar.game-resign": { run: () => void game({ type: "Resign" }), visible: inGame },
 } satisfies Record<string, CommandEntry>);

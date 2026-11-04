@@ -34,6 +34,17 @@ export function engineConsole(since: number): Promise<ConsoleLineView[]> {
   return invoke<ConsoleLineView[]>("engine_console", { since });
 }
 
+/** 引擎对战 加载开局SGF: the adapter reads the files (an empty list opens the native multi-file SGF
+ *  chooser) and replaces the match openings (Match ReplaceOpenings). */
+export function openMatchOpenings(paths: string[]): Promise<CommandResult> {
+  return invoke<CommandResult>("open_match_openings", { paths });
+}
+
+/** The finished game's 胜率图 PNG for 自动保存胜率图, written to the path the core chose. */
+export function writeMatchWinrate(game: number, bytes: number[]): Promise<CommandResult> {
+  return invoke<CommandResult>("write_match_winrate", { game, bytes });
+}
+
 export function onConsole(handler: (lines: ConsoleLineView[]) => void): Promise<UnlistenFn> {
   return listen<ConsoleLineView[]>("engine-console", (event) => handler(event.payload));
 }

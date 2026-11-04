@@ -268,8 +268,8 @@ importing the matching LizzieYzy Next settings.
   the variation tree or the list returns the keyboard to the workbench unless a comment is being
   edited. 工具栏 > 顶部工具栏 is 分开 (the second toolbar row), 合并 or 不显示 (no toolbar row, as in
   the fixed Java build); 底部工具栏 is 显示, 不显示 or (Chinese interface) 使用详细工具栏, which adds
-  Java's 自动分析, 自动播放 and 自动落子 panels under the bar (its 引擎对战 controls are shown but
-  not available). `Shift+X` and 设置 > 综合设置 open 综合设置 at 棋盘与显示, whose 启动时加载 rows
+  Java's 自动分析, 自动播放, 自动落子 and 引擎对战 panels under the bar. `Shift+X` and 设置 > 综合设置
+  open 综合设置 at 棋盘与显示, whose 启动时加载 rows
   (窗口总在最前, 显示状态面板, 显示小棋盘, 窗口标题显示胜率) apply with 保存设置; Java's 显示快速启动
   row is not shown because this client has no quick-launch links. Panel sizes and the bottom
   toolbar are window placement (`persist.json`), cleared by 重置界面位置.
@@ -534,6 +534,35 @@ importing the matching LizzieYzy Next settings.
   even when cancelled), a new board during a game ends the game first, and AI随机开局 weights
   close candidates by their share of the most searched candidate's visits (Java compares with
   that count only when its unrelated `check-random-visits` option is on).
+- 引擎对战 (棋局 > 新对局 > 引擎对局, `Alt+E`, the detailed toolbar's 引擎对战 panel): two different
+  engines of the engine list play each other in Java's Genmove模式 (the engines' own `genmove`
+  with per-side 每手用时, the engine's own time or a raw GTP time command) or 分析模式 (the mover's
+  analysis plays when its time, total or first-candidate visits are reached, with per-side
+  resignation thresholds and 随机落子). The dialog, 引擎对局设置 (from the dialog or the panel's 设置),
+  the panel, 人工干预 (立即落子, 允许人工落子, 黑认输, 白认输), 终止 / 暂停继续引擎对局 and
+  修改多盘引擎对局数 follow Java, including 本局规则 (verified on KataGo with `kata-get-rules`; an
+  engine that cannot confirm them asks for consent), komi, handicap (19×19), 多盘对局 with
+  交换黑白, 当前局面续弈, 加载开局SGF (in order or at random), 最大手数 and 后台计算. Both engines run
+  as their own processes (other running engines are closed); the engine to move is the
+  foreground engine, so its analysis is what the board, the lists and the graph show. A match
+  is accepted before it starts: it starts only once both engines are ready and answered their
+  setup. A move counts only if it answers the game, record and position it was asked for; a
+  late answer after 结束, a new game or an engine exit changes nothing. 暂停 lets a Genmove move
+  already being chosen land (as Java) and asks for no further move until 继续. A game ends by
+  resignation, two passes, a full board or 最大手数 (the board area × 2 when off or 0);
+  two-pass and move-limit games are saved but not scored.
+  Games are saved as Java names them under `EngineGames/` (a batch under
+  `EngineGames/<batch name>/`, default `<first>_VS_<second>_<time>`) in this client's application
+  data directory, with Java's move comments, together with the batch's `结果<time>.txt` summary
+  (score, wins as black/white, time, visits, Elo and confidence intervals) and, with 自动保存胜率图,
+  the winrate graph. The next game of a batch starts only after both engines confirmed they are
+  given back (parameters and rules the match changed are restored; a refusal or missing
+  confirmation marks the engine unrestored and stops the batch); an engine exit retires the
+  game and ends the batch. While a match runs, opening records, browsing, engine switching,
+  editing and the other analysis modes are refused. Differences from Java: results are always
+  SGF `B+R` / `W+R`; the batch summary lists each engine's own settings after colours are
+  exchanged (Java mixed the black and white sides there); a custom batch folder name made only
+  of dots or separators is refused, so files stay under `EngineGames`.
 - 快速曲线轻量模型 (引擎一键设置 > 权重管理): the official lightweight b10 model is downloaded on demand
   (size and SHA-256 checked), which turns 自动使用 on. A model file is used only while its SHA-256
   matches the catalog (checked again when the file changes); with 自动使用 and a KataGo of 1.17 or
@@ -600,8 +629,10 @@ importing the matching LizzieYzy Next settings.
   positions are reported as not usable), 自动棋谱快析, 精析设置 (except remote engines), 局部精析's range, the
   lightweight model choice, 整盘精析 depth (`ui.whole-game-analysis-deep-visits`) and the 问题手
   settings, the 人机对弈 dialog values, AI time, random start and 后台思考 (`new-game-handicap` is
-  Java's list position) and the 自动落子 conditions in `toolbar-parameter` slots 9–16 — only values
-  Java itself accepts.
+  Java's list position), the 引擎对战 dialog and 引擎对局设置 values (`engine-pk-*`,
+  `new-engine-game-*`, `engine-game-match-rules`, per-side time modes and resignation thresholds)
+  and the 自动落子 and 引擎对战 toolbar values in `toolbar-parameter` — only values Java itself
+  accepts.
   Automatic-analysis conditions (`analyze-all-branch`, all ten `auto-ana-diff-*` keys,
   `exit-auto-analyze-by-pause`, `exit-auto-analyze-tip`) and `toolbar-parameter` slots 0–8,
   47 and 48 also migrate with Java's restore rules: an empty start becomes 1, empty time 2

@@ -24,6 +24,7 @@ mod flash;
 mod hawkeye;
 mod importing;
 mod information;
+mod matches;
 mod panels;
 mod play;
 mod quick;
@@ -270,6 +271,7 @@ pub struct Workbench {
     hawkeye_session: hawkeye::HawkeyeSession,
     /// 人机对弈 and the bottom toolbar's 自动落子.
     play: play::PlayFlow,
+    matches: matches::MatchFlow,
 }
 
 impl Workbench {
@@ -386,6 +388,7 @@ impl Workbench {
             problem_mark: None,
             hawkeye_session: hawkeye::HawkeyeSession::default(),
             play: play::PlayFlow::default(),
+            matches: matches::MatchFlow::default(),
         }
     }
 
@@ -473,7 +476,7 @@ impl Workbench {
                     detail: e.to_string(),
                 });
             }
-            Ok(_) if self.game_active() => {
+            Ok(_) if self.game_active() || self.match_active() => {
                 // A read started before the game began is not adopted into it.
                 self.outcome = Some(OpenOutcome::Failed {
                     ticket,
@@ -649,7 +652,7 @@ impl Workbench {
             return false;
         };
         let save = self.saves.remove(at);
-        if self.batch_save_finished(ticket, &result) || self.play_save_finished(ticket, &result) {
+        if self.batch_save_finished(ticket, &result) || self.play_save_finished(ticket, &result) || self.match_save_finished(ticket, &result) {
             return true;
         }
         let automatic = self.auto_analysis_save_finished(ticket, result.is_ok());
@@ -729,11 +732,13 @@ impl Workbench {
     }
 
     pub fn navigate(&mut self, nav: Navigation) -> bool {
+        if self.match_active() { return false; }
         let target = browse::navigate(&self.doc.record, self.cursor, nav);
         self.move_to(target)
     }
 
     pub fn goto_node(&mut self, node: NodeId) -> Result<bool, ApiError> {
+        if self.match_active() { return Ok(false); }
         if !browse::is_browsable(&self.doc.record, node) {
             return Err(ApiError::new(
                 ErrorKind::InvalidArgument,
@@ -745,6 +750,7 @@ impl Workbench {
 
     /// A number of 0 is ignored like Java's empty/invalid move field.
     pub fn goto_move_number(&mut self, number: u32) -> bool {
+        if self.match_active() { return false; }
         if number == 0 {
             return false;
         }
@@ -924,6 +930,7 @@ impl Workbench {
         v.resources = self.take_resources_view(full);
         v.tuning = self.take_tuning_view(full);
         (v.game_outcome, v.game_notices, v.byoyomi_voices) = self.take_play_outcome();
+        (v.match_outcome, v.match_notices, v.match_winrate_image) = self.take_match_outcome();
         v
     }
 
@@ -944,6 +951,7 @@ impl Workbench {
         v.resources = Some(self.resources_view());
         v.tuning = Some(self.tuning_view());
         (v.game_outcome, v.game_notices, v.byoyomi_voices) = self.play_outcome_copy();
+        (v.match_outcome, v.match_notices, v.match_winrate_image) = self.match_outcome_copy();
         v
     }
 
@@ -1004,6 +1012,7 @@ impl Workbench {
                     enabled: self.play_autoplay_enabled(),
                     settings: self.persisted.autoplay,
                 },
+                matches: self.match_settings_view(),
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
@@ -1039,6 +1048,10 @@ impl Workbench {
             game: self.play_view(),
             game_outcome: None,
             game_notices: Vec::new(),
+            engine_match: self.match_view(),
+            match_outcome: None,
+            match_notices: Vec::new(),
+            match_winrate_image: None,
             byoyomi_voices: Vec::new(),
         }
     }

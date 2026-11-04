@@ -77,6 +77,26 @@ export async function editAnalysisRules(current: string): Promise<string | null>
   return result;
 }
 
+/** SetKataRules.composeMatchRules (SetKataRules.java:63-72): the editor alone, for 本局规则's
+ *  自定义; nothing is sent to an engine. Resolves to the composed rules JSON, null on 取消. */
+export async function composeMatchRules(initialJson: string): Promise<string | null> {
+  const body = document.createElement("div"); body.className = "engine-rules";
+  let initial: Rules = {};
+  try { const parsed: unknown = JSON.parse(initialJson || "{}"); if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) initial = { ...parsed }; } catch { /* Unreadable prefill: leave choices unset. */ }
+  const rules = rulesEditor(body, initial);
+  let result: string | null = null;
+  const dialog = formPanel(t("SetKataRules.title"), body);
+  actions(body,
+    button(t("SetKataRules.btnApply"), () => {
+      const r = rules();
+      result = JSON.stringify({ ...r, suicide: r.suicide ?? false, hasButton: r.hasButton ?? false, friendlyPassOk: r.friendlyPassOk ?? false });
+      void dialog.close();
+    }),
+    button(t("SetKataRules.btnCancel"), () => dialog.close()));
+  await dialog.closed;
+  return result;
+}
+
 export async function openRules(): Promise<void> {
   const view = state.view;
   if (!view?.engine.foreground?.ready) { await message(t("Message.title"), t("LizzieFrame.setParamNoEngineHint")); return; }

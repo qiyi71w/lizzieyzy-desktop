@@ -463,6 +463,7 @@ impl Workbench {
         let mut jobs = std::mem::take(&mut self.auto_analysis.jobs);
         jobs.extend(self.take_batch_saves());
         jobs.extend(self.take_play_saves());
+        jobs.extend(self.take_match_saves());
         jobs
     }
 

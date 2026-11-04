@@ -9,6 +9,9 @@
 //!   位置" deletes it and stops it being written again before the next start, like Java
 //!   `Config.deletePersist`.
 
+mod matches;
+pub use matches::*;
+
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -1282,6 +1285,8 @@ pub struct Config {
     pub tracking: TrackingSettings,
     /// 人机对弈.
     pub game: GameSettings,
+    /// 引擎对战.
+    pub matches: MatchSettings,
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).
@@ -1360,6 +1365,9 @@ pub struct Persisted {
     pub independent_sub_board: Option<WindowPlacement>,
     /// The bottom detailed toolbar's 自动落子 sides and conditions.
     pub autoplay: AutoPlaySettings,
+    /// Java toolbar-parameter's engine-match values (not the folder/start-number session fields).
+    #[serde(serialize_with = "matches::serialize_toolbar", deserialize_with = "matches::deserialize_toolbar")]
+    pub matches: crate::api::MatchSessionSettings,
 }
 
 /// File locations inside the product's per-user data directories.

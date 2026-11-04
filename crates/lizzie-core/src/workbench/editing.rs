@@ -167,6 +167,8 @@ impl Workbench {
     /// Runs one editing command; during a game only the human's moves and annotations go
     /// through, and a human move asks the engine for its answer.
     pub fn edit(&mut self, op: EditCommand) -> Result<CommandResult, ApiError> {
+        if let Some(refusal) = self.match_edit_refusal(&op) { return Ok(refusal); }
+        let match_move = self.match_active() && matches!(op, EditCommand::Play { .. } | EditCommand::Pass);
         if let Some(refusal) = self.play_edit_refusal(&op) {
             return Ok(refusal);
         }
@@ -176,6 +178,7 @@ impl Workbench {
         if human && self.cursor != before {
             self.play_after_human();
         }
+        if match_move && self.cursor != before { self.match_after_manual(); }
         Ok(result)
     }
 

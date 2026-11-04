@@ -19,6 +19,7 @@
 
 pub mod slots;
 mod appearance;
+mod matches;
 
 use std::path::{Path, PathBuf};
 
@@ -199,6 +200,8 @@ pub struct Mapped {
     pub game: Vec<DisplayValue>,
     /// Bottom toolbar 自动落子 sides and conditions (not its session enable flag).
     pub autoplay: Vec<DisplayValue>,
+    pub matches: Vec<DisplayValue>,
+    pub match_toolbar: Vec<DisplayValue>,
     /// 超级鹰眼 fields ([`HawkeyeSettings`] camelCase name and value).
     pub hawkeye: Vec<(&'static str, Value)>,
     /// 超级鹰眼's 统计 range as Java keeps it: `move-list-filter-current`, `match-ai-firstmove`,
@@ -1305,6 +1308,7 @@ impl Reader<'_> {
         self.network(ui, &mut handled);
         self.display(ui, leelaz, &mut handled);
         self.game(ui, leelaz, &mut handled);
+        self.matches(ui, &mut handled);
         self.engines(ui, leelaz, &mut handled);
 
         for (section, value) in root {
@@ -2012,6 +2016,7 @@ impl Reader<'_> {
                                 self.invalid(format!("{name}[{index}]"), ImportTarget::AutoPlay, raw);
                             }
                         }
+                        self.match_toolbar(values, &name);
                         for (index, field) in [(40, "autoplayMainSeconds"), (41, "autoplaySubMillis")] {
                             let raw = &values[index];
                             let value = as_i64(raw).filter(|n| *n > 0 && *n <= i64::from(i32::MAX))
@@ -2348,6 +2353,12 @@ impl Mapped {
         let mut autoplay = serde_json::to_value(p.autoplay).expect("settings serialize");
         for value in &self.autoplay { value.set(&mut autoplay); }
         p.autoplay = serde_json::from_value(autoplay).expect("typed imported autoplay values");
+        let mut matches = serde_json::to_value(&c.matches).expect("settings serialize");
+        for value in &self.matches { value.set(&mut matches); }
+        c.matches = serde_json::from_value(matches).expect("typed imported match values");
+        let mut toolbar = serde_json::to_value(&p.matches).expect("settings serialize");
+        for value in &self.match_toolbar { value.set(&mut toolbar); }
+        p.matches = serde_json::from_value(toolbar).expect("typed imported match toolbar values");
         set!(c.recent_files, self.recent_files);
         if let Some(folder) = &self.last_folder {
             p.last_folder = Some(folder.clone());
@@ -2487,6 +2498,12 @@ impl Mapped {
             || self.independent_main_board.is_some_and(|v| Some(v) != persisted.independent_main_board)
             || self.independent_sub_board.is_some_and(|v| Some(v) != persisted.independent_sub_board) {
             out.push(ImportTarget::WorkbenchPanels);
+        }
+        let matches = serde_json::to_value(&config.matches).expect("settings serialize");
+        let toolbar = serde_json::to_value(&persisted.matches).expect("settings serialize");
+        if self.matches.iter().any(|v|v.current(&matches).is_none_or(|c|c!=v.value))
+            || self.match_toolbar.iter().any(|v|v.current(&toolbar).is_none_or(|c|c!=v.value)) {
+            out.push(ImportTarget::EngineMatch);
         }
         if !has_settings {
             return out;

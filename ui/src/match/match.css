@@ -1,0 +1,47 @@
+/* NewEngineGameDialog / EnginePkConfig: a scrolling column of line-bordered sections (16/18 px
+   border, 12 px between sections) above the button bar. */
+.match-dialog-box { width: min(720px, 94vw); }
+.match-dialog { font: 12px Arial, "Microsoft YaHei", sans-serif; display: flex; flex-direction: column; max-height: min(560px, 86vh); }
+.match-config-toolbar .match-dialog { max-height: min(650px, 86vh); }
+.match-config .match-dialog { max-height: min(590px, 86vh); }
+.match-scroll { overflow-y: auto; overflow-x: hidden; padding: 16px 18px 12px; display: flex; flex-direction: column; gap: 12px; }
+.match-section { border: 1px solid rgb(220, 224, 230); padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.match-section [hidden] { display: none; }
+.match-inline { display: flex; align-items: center; gap: 8px; white-space: nowrap; flex-wrap: wrap; }
+.match-check { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.match-dialog input[type="text"], .match-dialog select { height: 24px; box-sizing: border-box; font: inherit; }
+.match-dialog button { font: inherit; }
+/* The engine rows: label, the toolbar's own box, 黑方设置, 白方设置 (8 px row gap, 10 px columns). */
+.match-engines { display: grid; grid-template-columns: max-content 24px minmax(120px, 1fr) minmax(120px, 1fr); column-gap: 10px; row-gap: 8px; align-items: center; }
+.match-engines > select, .match-engines > input { width: 100%; }
+.match-side { font-weight: bold; text-align: center; }
+.match-resign { display: grid; grid-template-columns: max-content max-content 58px max-content 58px max-content 68px max-content; column-gap: 8px; row-gap: 8px; align-items: center; justify-content: start; }
+.match-resign[hidden] { display: none; }
+.match-resign input { width: 100%; }
+.match-setup { display: grid; grid-template-columns: max-content max-content max-content 1fr; column-gap: 12px; row-gap: 10px; align-items: center; }
+.match-setup > select[data-key="match.sgfRandom"] { width: 90px; }
+.match-setup > button[data-key="match.chooseSgf"] { width: 104px; justify-self: start; }
+.match-setup .disabled { color: GrayText; }
+.match-hint { white-space: pre-wrap; line-height: 1.4; }
+.match-help { display: inline-flex; align-items: center; justify-content: center; padding: 0; width: 24px; height: 24px; }
+.match-help img { width: 16px; height: 16px; }
+.match-buttons { display: flex; align-items: center; gap: 10px; padding: 10px 18px 14px; }
+.match-buttons .match-fill { flex: 1; }
+.match-buttons button { min-width: 104px; height: 28px; }
+.match-buttons button[data-key="match.moreSettings"] { min-width: 120px; }
+
+/* Manual: a 189x165 always-on-top window that leaves the main window usable. */
+.match-manual, .match-notice { position: fixed; z-index: 30; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.match-manual[hidden] { display: none; }
+.match-manual .modal-title { display: flex; justify-content: space-between; align-items: center; }
+.match-close { border: 0; background: none; font: inherit; padding: 0 4px; cursor: pointer; }
+.match-manual button[data-key^="match."] { font: 12px Arial, "Microsoft YaHei", sans-serif; padding: 0; }
+.match-notice { max-width: min(520px, 90vw); }
+.match-notice .modal-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.match-consent { white-space: pre-wrap; max-width: min(560px, 86vw); }
+.match-input { display: flex; flex-direction: column; gap: 6px; }
+
+/* enableDisabelForEngineGame: the bottom bar's 分析 button is off while a match runs. */
+.bb.match-off { opacity: .5; pointer-events: none; }
+/* Menu.engineMenu.setEnabled(false) during a match. */
+.m.match-off { color: GrayText; pointer-events: none; }

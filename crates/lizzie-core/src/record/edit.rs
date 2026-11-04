@@ -161,6 +161,15 @@ impl GameRecord {
                 comment.clone_into(target);
                 Ok(Applied::content(None))
             }
+            DocumentEdit::SetProperty { node, property } => {
+                known(self, *node)?;
+                let properties = &mut self.node_mut(*node).properties;
+                if let Some(existing) = properties.iter_mut().find(|p|p.id==property.id) {
+                    if existing == property { return Ok(Applied::unchanged(None)); }
+                    existing.clone_from(property);
+                } else { properties.push(property.clone()); }
+                Ok(Applied::content(None))
+            }
             DocumentEdit::SetKomi { komi } => {
                 if self.info.komi == *komi {
                     return Ok(Applied::unchanged(None));

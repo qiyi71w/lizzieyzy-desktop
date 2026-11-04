@@ -170,6 +170,7 @@ impl Workbench {
     /// game whose engine does not confirm its restore (a move it never answers) can be released
     /// by restarting or closing that engine.
     pub fn game_gate(&self, command: &Command) -> Option<CommandResult> {
+        if self.match_active() { return self.match_gate(command); }
         if !self.game_active() {
             return None;
         }
@@ -213,6 +214,7 @@ impl Workbench {
     // -------------------------------------------------------------------- commands
 
     pub fn game(&mut self, op: GameCommand) -> Result<CommandResult, ApiError> {
+        if self.match_active() { return Ok(refused(PLAY_MODE)); }
         match op {
             GameCommand::Start { kind, settings, autoplay, engine } => self.game_start(kind, settings, autoplay, engine),
             GameCommand::Continue { kind, human } => self.game_continue(kind, human),

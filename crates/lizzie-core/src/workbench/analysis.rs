@@ -28,7 +28,7 @@ use crate::engine::runtime::{
     Bootstrap, CheckedLaunch, ConsoleKind, EngineFailure, EngineInput, InstanceId, LaunchCheck, Phase, RulesOutcome,
     RuntimeEvent, Target, UserCommandError,
 };
-use crate::record::{BoardSize, DocumentEdit, GameRecord, NodeId, Position, Stone, ROOT};
+use crate::record::{BoardSize, DocumentEdit, GameRecord, NodeId, NodeKind, Position, Stone, ROOT};
 use crate::sanitize::sanitize;
 use crate::settings::ExtraMode;
 use crate::viewpoint::{ShownValues, Viewpoint};
@@ -317,7 +317,7 @@ impl Workbench {
             node: self.cursor,
             record: self.doc.record.clone(),
             komi: self.komi,
-            rules: self.target_rules().cloned(),
+            rules: if self.match_active() { self.match_rules() } else { self.target_rules().cloned() },
             rules_rev: self.rules_revision,
         }
     }
@@ -466,6 +466,15 @@ impl Workbench {
             let analyse = !self.paused && !self.benchmark_running() && !self.quick_holds_foreground();
             self.engines.want_secondary(None, false);
             self.engines.want(Some(self.foreground_target()), analyse);
+            return;
+        }
+        if let Some(analyse) = self.match_analyse() {
+            self.engines.want_secondary(None, false);
+            if !self.match_foreground_current() {
+                self.engines.want(None, false);
+                return;
+            }
+            self.engines.want(Some(self.analysis_target()), analyse);
             return;
         }
         // A game decides whether its engine analyses; the secondary engine stays idle.
@@ -858,6 +867,7 @@ impl Workbench {
         if !komi.is_finite() {
             return Err(ApiError::new(ErrorKind::InvalidArgument, "komi"));
         }
+        if self.match_active() { return Ok(self.match_revise_komi(komi)); }
         self.komi_changed = true;
         self.start_komi = None;
         if !self.apply_komi(komi) {
@@ -1107,6 +1117,7 @@ impl Workbench {
             self.whole_game_deadline(),
             self.tracking_deadline(),
             self.play_deadline(),
+            self.match_deadline(),
         ]
             .into_iter()
             .flatten()
@@ -1122,7 +1133,8 @@ impl Workbench {
         let whole = self.whole_game_tick(now);
         let tracking = self.tracking_tick(now);
         let play = self.play_tick(now);
-        engines | quick | whole | tracking | play
+        let matches = self.match_tick(now);
+        engines | quick | whole | tracking | play | matches
     }
 
     /// Handles runtime events produced by operations outside engine output.
@@ -1136,7 +1148,8 @@ impl Workbench {
         for ev in events {
             changed = true;
             let Some(ev) = self
-                .play_event(ev)
+                .match_event(ev)
+                .and_then(|ev| self.play_event(ev))
                 .and_then(|ev| self.quick_event(ev))
                 .and_then(|ev| self.flash_event(ev))
                 .and_then(|ev| self.whole_game_event(ev))
@@ -1212,6 +1225,7 @@ impl Workbench {
                     };
                     let visits = result.visits;
                     let played = (!secondary && self.play_wants_analysis(node)).then(|| result.clone());
+                    let matched = (!secondary && self.match_wants_analysis(node)).then(|| result.clone());
                     let first_visits = result.candidates.first().map_or(0, |c| c.visits);
                     // The foreground engine's line is the current search: 选点重点研究 counts its
                     // candidates, and the tracked position shows its result.
@@ -1251,6 +1265,7 @@ impl Workbench {
                     if let Some(result) = played {
                         self.play_analysis(&result, elapsed);
                     }
+                    if let Some(result) = matched { self.match_analysis(&result, elapsed); }
                 }
                 _ => {}
             }
@@ -1418,12 +1433,33 @@ impl Workbench {
     }
 
     pub(super) fn current_analysis(&self) -> Option<NodeAnalysisView> {
+        if self.match_active() && self.config.matches.show_previous_bestmoves {
+            let node = self.doc.record.parent(self.cursor)?;
+            let mut result = self.shown_analysis_at(&self.store, node)?;
+            if self.config.matches.previous_bestmove_only {
+                let played = match self.doc.record.node(self.cursor).kind {
+                    NodeKind::Move { point, .. } => Some(point),
+                    _ => None,
+                };
+                if let Some(index) = played.and_then(|point| result.candidates.iter().position(|candidate| candidate.point == Some(point))) {
+                    result.candidates.swap(0, index);
+                    result.candidates.truncate(1);
+                } else {
+                    result.candidates.clear();
+                }
+            }
+            return Some(result);
+        }
         self.shown_analysis(&self.store)
     }
 
     /// `store`'s result for the current node as the displays show it.
     fn shown_analysis(&self, store: &AnalysisStore) -> Option<NodeAnalysisView> {
-        let s = store.get(&self.doc.record, self.cursor)?;
+        self.shown_analysis_at(store, self.cursor)
+    }
+
+    fn shown_analysis_at(&self, store: &AnalysisStore, node: NodeId) -> Option<NodeAnalysisView> {
+        let s = store.get(&self.doc.record, node)?;
         // Stored results keep the engine's numbers; what is shown follows the settings now. The
         // komi is the one the result was analysed with (results of another komi are dropped).
         let vp = self.viewpoint();

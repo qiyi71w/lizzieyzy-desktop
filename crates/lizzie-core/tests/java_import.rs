@@ -1697,10 +1697,11 @@ fn human_engine_game_imports_java_dialog_values_and_reports_each_key() {
     assert_eq!(wb.config().game, before, "preview writes nothing");
     for section in ["ui", "leelaz"] {
         for key in source[section].as_object().unwrap().keys() {
-            assert_eq!(item(&p.items, &format!("{section}.{key}")).status,
-                if key.starts_with("new-engine-game-") || key.starts_with("pk-") {
-                    ImportStatus::NotMigrated
-                } else { ImportStatus::Imported }, "{section}.{key}");
+            let row = item(&p.items, &format!("{section}.{key}"));
+            assert_eq!(row.status, ImportStatus::Imported, "{section}.{key}");
+            if key.starts_with("new-engine-game-") || key.starts_with("pk-") {
+                assert_eq!(row.target, Some(ImportTarget::EngineMatch));
+            }
         }
     }
     wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
@@ -1816,4 +1817,65 @@ fn autoplay_imports_toolbar_slots_with_java_empty_and_checkbox_restore_semantics
         drop(wb);
         assert_eq!(workbench(&product, Recorder::default()).persisted().autoplay, a, "persisted on import");
     }
+}
+
+#[test]
+fn engine_match_imports_dialog_and_toolbar_values_with_one_shared_wrn_owner() {
+    // Config.java:1718–1723,1747–1748,1793–1795,1874–1877,1957–1958,1980,2070;
+    // DesktopTimeControl.java:102–123; BottomToolbar.java:2437–2520.
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let values = json!({"ui": {
+        "engine-pk-black-commands": "first gtp", "engine-pk-black-name": "First",
+        "engine-pk-white-commands": "second gtp", "engine-pk-white-name": "Second",
+        "new-engine-game-komi": 6.5, "new-engine-game-handicap": 4,
+        "engine-game-match-rules": "japanese", "engine-pk-ponder": true,
+        "engine-sgf-start": true, "engine-sgf-random": false, "disable-wrn-in-game": false,
+        "pk-black-time-mode": "ENGINE_OWNED", "pk-white-time-mode": "RAW_ADVANCED",
+        "pk-advance-time-settings": false, "advance-black-time-txt": "time_settings 10 5 1",
+        "advance-white-time-txt": "time_settings 20 10 1", "first-engine-min-move": 30,
+        "second-engine-min-move": 40, "first-engine-resign-move-counts": 3,
+        "second-engine-resign-move-counts": 4, "first-engine-resign-winrate": 2.5,
+        "second-engine-resign-winrate": 3.5, "check-random-visits": true,
+        "percents-random-visits": 25.0, "show-previous-bestmoves-in-enginegame": true,
+        "show-previous-bestmoves-only-first-move": false
+    }});
+    std::fs::write(java.join("config.txt"), values.to_string()).unwrap();
+    let mut toolbar = vec![json!(-1); 51];
+    for (index,value) in [(17,50),(18,60),(19,3),(20,500),(21,600),(22,7),(23,1),(24,1),(25,1),(26,1),(27,-1),(36,300),(38,4),(45,12)] {
+        toolbar[index] = json!(value);
+    }
+    for (index,value) in [(30,false),(31,true),(35,false),(37,true),(44,true),(49,true)] { toolbar[index] = json!(value); }
+    toolbar[46] = json!(0.75);
+    std::fs::write(java.join("persist"),json!({"ui-persist":{"toolbar-parameter":toolbar}}).to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product,Recorder::default());
+    let preview = preview(&mut wb,&java);
+    for key in values["ui"].as_object().unwrap().keys() {
+        let row = item(&preview.items,&format!("ui.{key}"));
+        assert_eq!(row.status,ImportStatus::Imported,"{key}");
+        assert_eq!(row.target,Some(if key=="disable-wrn-in-game" { ImportTarget::HumanEngineGame } else { ImportTarget::EngineMatch }));
+    }
+    wb.apply_java_import(preview.id,&[],true,None).unwrap().unwrap();
+    let s = &wb.config().matches;
+    assert_eq!((&*s.first.commands,&*s.first.name,&*s.second.commands,&*s.second.name),("first gtp","First","second gtp","Second"));
+    assert_eq!((s.komi,s.handicap,s.rules.as_str()),(6.5,4,"japanese"));
+    assert!(s.ponder && s.sgf_start && !s.sgf_random && !s.advanced_time);
+    assert_eq!((s.first_time_mode,s.second_time_mode),(lizzie_core::settings::MatchTimeMode::EngineOwned,lizzie_core::settings::MatchTimeMode::RawAdvanced));
+    assert_eq!((s.first_time_command.as_str(),s.second_time_command.as_str()),("time_settings 10 5 1","time_settings 20 10 1"));
+    assert_eq!((s.first_resign.min_move,s.first_resign.consecutive_moves,s.first_resign.winrate),(30,3,2.5));
+    assert_eq!((s.second_resign.min_move,s.second_resign.consecutive_moves,s.second_resign.winrate),(40,4,3.5));
+    assert!(s.check_random_visits && s.show_previous_bestmoves && !s.previous_bestmove_only);
+    assert_eq!(s.random_visits_percent,25.0);
+    assert!(!wb.config().game.disable_wrn);
+    let v = wb.persisted().matches.clone();
+    assert_eq!((v.first_move_visits,v.second_move_visits,v.first_visits,v.second_visits),(50,60,500,600));
+    assert_eq!((v.first_seconds,v.second_seconds,v.batch_limit),(3.0,4.0,7));
+    assert!(v.batch_enabled && v.continue_position && v.first_move_visits_enabled && v.visits_enabled && v.time_enabled);
+    assert_eq!(v.kind,lizzie_core::api::GameKind::Genmove);
+    assert!(!v.auto_save && !v.exchange_colors && v.max_moves_enabled && v.random_moves_enabled && v.save_winrate);
+    assert_eq!((v.max_moves,v.random_moves,v.random_winrate_diff),(300,12,0.75));
+    drop(wb);
+    assert_eq!(workbench(&product,Recorder::default()).persisted().matches,v);
 }

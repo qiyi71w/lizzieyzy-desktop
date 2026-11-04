@@ -428,6 +428,8 @@ pub enum DocumentEdit {
         node: NodeId,
         comment: String,
     },
+    /// A retained SGF metadata property; interpreted game fields use their dedicated operations.
+    SetProperty { node: NodeId, property: Property },
     /// The game komi (`GameInfo.setKomi`), saved as `KM`.
     SetKomi {
         komi: f64,

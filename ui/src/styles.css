@@ -561,10 +561,6 @@ body {
   padding: 0;
   font: inherit;
 }
-.bb-detail.unavailable,
-.bb-detail-group.unavailable {
-  color: rgb(140, 140, 140);
-}
 
 /* ---- in-frame separators (InFrameLeftoverDragHandles): transparent hot zones over the seams */
 .panel-handle {

@@ -8,6 +8,7 @@ mod batch;
 mod editing;
 mod export;
 mod hawkeye;
+mod matches;
 mod recovery;
 mod resources;
 mod tuning;
@@ -19,6 +20,7 @@ pub use batch::*;
 pub use editing::*;
 pub use export::*;
 pub use hawkeye::*;
+pub use matches::*;
 pub use recovery::*;
 pub use resources::*;
 pub use tuning::*;
@@ -415,6 +417,8 @@ pub enum Command {
     Game {
         op: GameCommand,
     },
+    /// 引擎对战.
+    Match { op: MatchCommand },
 }
 
 /// 人机对弈's two modes (`isPlayingAgainstLeelaz` / `isAnaPlayingAgainstLeelaz`).
@@ -981,6 +985,7 @@ pub struct SettingsView {
     pub game: crate::settings::GameSettings,
     /// The bottom toolbar's 自动落子.
     pub autoplay: AutoPlayView,
+    pub matches: MatchSettingsView,
 }
 
 /// 快速曲线轻量模型 card (`KataGoAutoSetupDialog`, `QuickAnalysisModelStatus`).
@@ -1203,6 +1208,10 @@ pub struct WorkbenchView {
     pub game_outcome: Option<GameOutcomeView>,
     /// 人机对弈 messages, once each, in order.
     pub game_notices: Vec<GameNotice>,
+    pub engine_match: Option<MatchView>,
+    pub match_outcome: Option<MatchOutcomeView>,
+    pub match_notices: Vec<MatchNotice>,
+    pub match_winrate_image: Option<MatchWinrateImageRequest>,
     /// 读秒 countdown voices to play (`sound/<n>.wav`), once each.
     pub byoyomi_voices: Vec<u8>,
     /// The session rules could not be applied to the foreground engine; ask whether to analyse
@@ -1412,6 +1421,8 @@ pub enum ImportTarget {
     GameRandomStart,
     /// 自动落子: `persist:ui-persist.toolbar-parameter` slots 9–16.
     AutoPlay,
+    /// 引擎对战 dialog and toolbar values.
+    EngineMatch,
     /// 整盘精析: `ui.whole-game-analysis-deep-visits`.
     WholeGameVisits,
     /// 强制计算区域: `ui.select-allow-moves`, `select-avoid-moves`, `select-allow-custom-moves`,

@@ -7,6 +7,7 @@ mod appearance;
 mod diagnostics;
 mod independent;
 mod logging;
+mod matches;
 mod output;
 mod resources;
 mod startup;
@@ -857,6 +858,11 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         }
         Command::Game { op } => {
             let result = shared.workbench.lock().unwrap().game(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
+        Command::Match { op } => {
+            let result = shared.workbench.lock().unwrap().engine_match(op)?;
             publish(&app, &shared);
             Ok(result)
         }
@@ -1812,6 +1818,8 @@ pub fn run() {
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         dispatch_command,
+        matches::open_match_openings,
+        matches::write_match_winrate,
         appearance::appearance_catalog,
         appearance::appearance_images,
         appearance::appearance_choose_image,
@@ -1844,6 +1852,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         dispatch_command,
+        matches::open_match_openings,
+        matches::write_match_winrate,
         appearance::appearance_catalog,
         appearance::appearance_images,
         appearance::appearance_choose_image,

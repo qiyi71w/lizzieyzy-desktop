@@ -12,6 +12,7 @@ use super::{
     Target, TargetKey, LEASE_RESTORE,
 };
 use crate::engine::gtp;
+use crate::engine::rules::KataRules;
 use crate::record::{Point, Stone};
 
 /// What an engine answered to its move request.
@@ -53,6 +54,8 @@ pub(super) struct GameSeat {
     /// The restore commands not answered yet; one refused leaves the engine unrestored.
     restoring: Vec<u64>,
     restore_failed: bool,
+    release_answered: bool,
+    verify_rules: Option<(u64, KataRules)>,
     deadline: Option<Instant>,
 }
 
@@ -67,37 +70,31 @@ impl Engines {
     /// without a foreground engine, while it is lent or unrestored, or while another game holds it.
     pub fn reserve_game(&mut self) -> Result<u64, super::LeaseAvailability> {
         use super::LeaseAvailability as A;
-        let Some(id) = self.foreground.filter(|&f| self.get(f).is_some()) else {
-            return Err(A::NoForegroundEngine);
-        };
-        if self.get(id).unwrap().unrestored.is_some() {
-            return Err(A::EngineStateUnrestored);
-        }
-        if self.lease.is_some() {
-            return Err(A::ExistingLease);
-        }
-        if self.game.is_some() {
-            return Err(A::PlayMode);
-        }
+        if !self.games.is_empty() { return Err(A::PlayMode); }
+        let id = self.foreground.ok_or(A::NoForegroundEngine)?;
+        self.reserve_game_instance(id)
+    }
+
+    /// Reserves a particular process; different participants hold independent reservations.
+    pub fn reserve_game_instance(&mut self, id: InstanceId) -> Result<u64, super::LeaseAvailability> {
+        use super::LeaseAvailability as A;
+        let inst = self.get(id).ok_or(A::NoForegroundEngine)?;
+        if inst.unrestored.is_some() { return Err(A::EngineStateUnrestored); }
+        if self.lease.is_some() { return Err(A::ExistingLease); }
+        if self.games.iter().any(|g| g.instance == id) { return Err(A::PlayMode); }
         let game = self.next_lease;
         self.next_lease += 1;
-        self.game = Some(GameSeat {
-            id: game,
-            instance: id,
-            wanted: None,
-            genmove: None,
-            placed: None,
-            releasing: None,
-            restoring: Vec::new(),
-            restore_failed: false,
-            deadline: None,
+        self.games.push(GameSeat {
+            id: game, instance: id, wanted: None, genmove: None, placed: None,
+            releasing: None, restoring: Vec::new(), restore_failed: false, release_answered: false,
+            verify_rules: None, deadline: None,
         });
         Ok(game)
     }
 
     /// The instance `game` holds, while it holds one.
     pub fn game_instance(&self, game: u64) -> Option<InstanceId> {
-        self.game.as_ref().filter(|g| g.id == game).map(|g| g.instance)
+        self.games.iter().find(|g| g.id == game).map(|g| g.instance)
     }
 
     /// Whether instance `id` listed `command` (`list_commands`).
@@ -117,12 +114,12 @@ impl Engines {
 
     /// Whether the reservation is being given back (restore not yet confirmed).
     pub fn game_releasing(&self, game: u64) -> bool {
-        self.game.as_ref().is_some_and(|g| g.id == game && g.releasing.is_some())
+        self.games.iter().any(|g| g.id == game && g.releasing.is_some())
     }
 
     /// Whether `game`'s engine is thinking about a move (asked or answering).
     pub fn game_thinking(&self, game: u64) -> bool {
-        self.game.as_ref().is_some_and(|g| g.id == game && (g.wanted.is_some() || g.genmove.is_some()))
+        self.games.iter().any(|g| g.id == game && (g.wanted.is_some() || g.genmove.is_some()))
     }
 
     /// Sends a command of `game` now; its answer comes back as [`RuntimeEvent::GameReply`].
@@ -137,7 +134,7 @@ impl Engines {
     /// board is synced; `time_left` goes first. Replaces a request not sent yet. The answer comes
     /// back as [`RuntimeEvent::Genmove`] with `request`.
     pub fn genmove(&mut self, game: u64, request: u64, target: Target, color: Stone, time_left: Option<String>, stop_after: bool) -> bool {
-        let Some(seat) = self.game.as_mut().filter(|g| g.id == game && g.releasing.is_none()) else {
+        let Some(seat) = self.games.iter_mut().find(|g| g.id == game && g.releasing.is_none()) else {
             return false;
         };
         seat.wanted = Some(Wanted { request, target, color, time_left, stop_after });
@@ -148,7 +145,7 @@ impl Engines {
 
     /// Forgets a move request not sent yet; one in flight still answers (and is then stale).
     pub fn cancel_genmove(&mut self, game: u64) {
-        if let Some(seat) = self.game.as_mut().filter(|g| g.id == game) {
+        if let Some(seat) = self.games.iter_mut().find(|g| g.id == game) {
             seat.wanted = None;
         }
     }
@@ -156,7 +153,7 @@ impl Engines {
     /// The record took the engine's answered move as the node stamped `stamp`: the engine board
     /// holds that node now instead of the placeholder.
     pub fn game_move_committed(&mut self, game: u64, request: u64, stamp: u64) {
-        let Some(seat) = self.game.as_mut().filter(|g| g.id == game) else { return };
+        let Some(seat) = self.games.iter_mut().find(|g| g.id == game) else { return };
         let Some((_, mark)) = seat.placed.take_if(|(r, _)| *r == request) else { return };
         let id = seat.instance;
         if let Some(board) = self.get_mut(id).and_then(|i| i.board.as_mut()) {
@@ -170,7 +167,7 @@ impl Engines {
     /// The record did not take the engine's answered move (a stale answer, an illegal move or
     /// the end of the game): the next sync undoes it on the engine board.
     pub fn game_move_dropped(&mut self, game: u64, request: u64) {
-        let Some(seat) = self.game.as_mut().filter(|g| g.id == game) else { return };
+        let Some(seat) = self.games.iter_mut().find(|g| g.id == game) else { return };
         if seat.placed.take_if(|(r, _)| *r == request).is_some() {
             let id = seat.instance;
             self.pump_seat(id);
@@ -181,46 +178,73 @@ impl Engines {
     /// [`RuntimeEvent::GameReleased`] reports the confirmation, or a restore failure when any of
     /// them is refused (the engine then stays unrestored).
     pub fn release_game(&mut self, game: u64, restore: &[String]) {
-        let Some(seat) = self.game.as_mut().filter(|g| g.id == game && g.releasing.is_none()) else { return };
+        self.begin_game_release(game, restore, None);
+    }
+
+    /// Match-only handback: the restored rules must be read back semantically equal to the
+    /// captured original (Java EngineManager.restoreMatchRulesSide, 3233–3255).
+    pub fn release_game_verified(&mut self, game: u64, restore: &[String], original: Option<KataRules>) {
+        self.begin_game_release(game, restore, original);
+    }
+
+    fn begin_game_release(&mut self, game: u64, restore: &[String], original: Option<KataRules>) {
+        let Some(seat) = self.games.iter_mut().find(|g| g.id == game && g.releasing.is_none()) else { return };
         seat.wanted = None;
         let id = seat.instance;
         let mut restoring = Vec::new();
         for c in restore {
             restoring.extend(self.send(id, c, Purpose::Game));
         }
+        let verify_rules = original.and_then(|rules| {
+            self.send(id, "kata-get-rules", Purpose::Game).map(|command| {
+                restoring.push(command);
+                (command, rules)
+            })
+        });
         let Some(n) = self.send(id, "name", Purpose::Game) else {
-            self.game = None;
+            self.games.retain(|g| g.id != game);
             self.pending.push(RuntimeEvent::GameReleased { game, failure: Some(LeaseFailure::TransportClosed) });
             return;
         };
         self.fence_last(id);
-        let seat = self.game.as_mut().unwrap();
+        let seat = self.games.iter_mut().find(|g| g.id == game).unwrap();
         seat.releasing = Some(n);
         seat.restoring = restoring;
+        seat.verify_rules = verify_rules;
         if seat.genmove.is_none() {
             seat.deadline = Some(Instant::now() + LEASE_RESTORE);
         }
     }
 
+    /// A match setup deadline expired with commands still unanswered. The reservation is
+    /// retired as unrestored; late answers cannot make it usable or write into another game.
+    pub fn abandon_game(&mut self, game: u64) {
+        let Some(at) = self.games.iter().position(|seat| seat.id == game) else { return };
+        let seat = self.games.remove(at);
+        if let Some(instance) = self.get_mut(seat.instance) {
+            instance.unrestored = Some(LeaseFailure::RestoreFailed);
+        }
+        self.pending.push(RuntimeEvent::GameReleased { game, failure: Some(LeaseFailure::RestoreFailed) });
+    }
+
     pub(super) fn game_deadline(&self) -> Option<Instant> {
-        self.game.as_ref().and_then(|g| g.deadline)
+        self.games.iter().filter_map(|g| g.deadline).min()
     }
 
-    /// The restore was not confirmed in time: the engine's state is unknown until it restarts.
+    /// A restore timeout leaves only that participant unrestored.
     pub(super) fn game_timeout(&mut self, now: Instant, events: &mut Vec<RuntimeEvent>) {
-        if !self.game.as_ref().and_then(|g| g.deadline).is_some_and(|d| now >= d) {
-            return;
+        let mut at = 0;
+        while at < self.games.len() {
+            if !self.games[at].deadline.is_some_and(|d| now >= d) { at += 1; continue; }
+            let seat = self.games.remove(at);
+            if let Some(inst) = self.get_mut(seat.instance) { inst.unrestored = Some(LeaseFailure::RestoreFailed); }
+            events.push(RuntimeEvent::GameReleased { game: seat.id, failure: Some(LeaseFailure::RestoreFailed) });
         }
-        let seat = self.game.take().unwrap();
-        if let Some(inst) = self.get_mut(seat.instance) {
-            inst.unrestored = Some(LeaseFailure::RestoreFailed);
-        }
-        events.push(RuntimeEvent::GameReleased { game: seat.id, failure: Some(LeaseFailure::RestoreFailed) });
     }
 
-    /// The reserved instance ended.
     pub(super) fn game_instance_ended(&mut self, id: InstanceId) {
-        if let Some(seat) = self.game.take_if(|g| g.instance == id) {
+        if let Some(at) = self.games.iter().position(|g| g.instance == id) {
+            let seat = self.games.remove(at);
             self.pending.push(RuntimeEvent::GameReleased { game: seat.id, failure: Some(LeaseFailure::TransportClosed) });
         }
     }
@@ -253,10 +277,10 @@ impl Engines {
     /// holds the engine board as it is; a move to ask for syncs the position, then asks.
     /// Returns whether the seat's wish waits.
     pub(super) fn game_pump(&mut self, id: InstanceId) -> bool {
-        if self.game.as_ref().is_some_and(|g| g.instance == id && g.placed.is_some()) {
+        if self.games.iter().any(|g| g.instance == id && g.placed.is_some()) {
             return true;
         }
-        let Some(seat) = self.game.as_mut().filter(|g| g.instance == id && g.wanted.is_some() && g.genmove.is_none()) else {
+        let Some(seat) = self.games.iter_mut().find(|g| g.instance == id && g.wanted.is_some() && g.genmove.is_none()) else {
             return false;
         };
         let w = seat.wanted.take().unwrap();
@@ -277,7 +301,7 @@ impl Engines {
         let command = self.genmove_command(id, w.color);
         let Some(n) = self.send(id, &command, Purpose::Genmove) else {
             self.pending.push(RuntimeEvent::Genmove {
-                game: self.game.as_ref().unwrap().id,
+                game: self.games.iter().find(|g| g.instance == id).unwrap().id,
                 request: w.request,
                 doc: key.doc,
                 node: key.node,
@@ -292,14 +316,14 @@ impl Engines {
             Request { key, to_play: w.color, size: w.target.record.size, started: Instant::now() },
         ));
         i.fence = Some(n);
-        let seat = self.game.as_mut().unwrap();
+        let seat = self.games.iter_mut().find(|g| g.instance == id).unwrap();
         seat.genmove = Some(InFlight { request: w.request, gtp: n, key, stop_after: w.stop_after });
         true
     }
 
     /// The answer to a game command or move.
     pub(super) fn game_answer(&mut self, id: InstanceId, n: u64, genmove: bool, ok: bool, text: String, events: &mut Vec<RuntimeEvent>) {
-        let Some(seat) = self.game.as_mut().filter(|g| g.instance == id) else { return };
+        let Some(seat) = self.games.iter_mut().find(|g| g.instance == id) else { return };
         let game = seat.id;
         if genmove {
             let Some(f) = seat.genmove.take_if(|f| f.gtp == n) else { return };
@@ -328,7 +352,7 @@ impl Engines {
                 if let Some(board) = inst.board.as_mut() {
                     board.actions.push(mark);
                 }
-                self.game.as_mut().unwrap().placed = Some((f.request, mark));
+                self.games.iter_mut().find(|g| g.instance == id).unwrap().placed = Some((f.request, mark));
             }
             if f.stop_after {
                 let stop = if self.get(id).unwrap().kind == EngineKind::KataGo { "stop" } else { "name" };
@@ -348,9 +372,17 @@ impl Engines {
             seat.restoring.remove(at);
             seat.restore_failed |= !ok;
         }
+        if let Some((_, expected)) = seat.verify_rules.take_if(|(command, _)| *command == n) {
+            let observed = KataRules::parse(&text).filter(KataRules::has_required_fields);
+            seat.restore_failed |= !ok || observed.as_ref() != Some(&expected);
+        }
         if seat.releasing == Some(n) {
-            let failed = !ok || seat.restore_failed;
-            let seat = self.game.take().unwrap();
+            seat.release_answered = true;
+            seat.restore_failed |= !ok;
+        }
+        if seat.releasing.is_some() && seat.release_answered && seat.restoring.is_empty() {
+            let failed = seat.restore_failed;
+            let seat = self.games.remove(self.games.iter().position(|g| g.id == game).unwrap());
             let failure = failed.then_some(LeaseFailure::RestoreFailed);
             if failed {
                 if let Some(inst) = self.get_mut(seat.instance) {

@@ -643,7 +643,7 @@ pub struct Engines {
     region: Option<SearchRegion>,
     focus: Option<SearchFocus>,
     /// The play mode holding the foreground engine.
-    game: Option<game::GameSeat>,
+    games: Vec<game::GameSeat>,
 }
 
 impl Instance {
@@ -746,7 +746,7 @@ impl Engines {
             pending: Vec::new(),
             region: None,
             focus: None,
-            game: None,
+            games: Vec::new(),
         }
     }
 
@@ -2154,7 +2154,7 @@ impl Engines {
             return LeaseAvailability::NoForegroundEngine;
         };
         // A game is checked first (`foregroundEngineUseAvailability`, Leelaz.java:14903).
-        if self.game.is_some() {
+        if !self.games.is_empty() {
             LeaseAvailability::PlayMode
         } else if inst.unrestored.is_some() {
             LeaseAvailability::EngineStateUnrestored
