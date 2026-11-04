@@ -167,6 +167,13 @@ impl Workbench {
     /// Runs one editing command; during a game only the human's moves and annotations go
     /// through, and a human move asks the engine for its answer.
     pub fn edit(&mut self, op: EditCommand) -> Result<CommandResult, ApiError> {
+        if self.human_sl_active() {
+            return Ok(match op {
+                EditCommand::Play { point, .. } => self.human_sl_human_move(Some(point)),
+                EditCommand::Pass => self.human_sl_human_move(None),
+                _ => CommandResult::Refused { message_key: "AnalysisSettings.reuseStatus.human_sl_game".into() },
+            });
+        }
         if let Some(refusal) = self.match_edit_refusal(&op) { return Ok(refusal); }
         let match_move = self.match_active() && matches!(op, EditCommand::Play { .. } | EditCommand::Pass);
         if let Some(refusal) = self.play_edit_refusal(&op) {

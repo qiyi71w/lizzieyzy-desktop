@@ -21,6 +21,7 @@ pub mod display;
 pub mod engine;
 pub mod formats;
 pub mod function_search;
+pub mod humansl;
 pub mod java_import;
 pub mod play;
 pub mod record;

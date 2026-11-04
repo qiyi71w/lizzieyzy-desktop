@@ -440,5 +440,6 @@ fn reuse_key(a: LeaseAvailability) -> String {
         LeaseAvailability::EngineNotReady => "engine_not_ready", LeaseAvailability::NotKatago => "not_katago",
         LeaseAvailability::MissingCapability => "missing_capability", LeaseAvailability::ExistingLease => "existing_lease",
         LeaseAvailability::EngineStateUnrestored => "engine_state_unrestored", LeaseAvailability::PlayMode => "play_mode",
+        LeaseAvailability::HumanSlGame => "human_sl_game",
     })
 }

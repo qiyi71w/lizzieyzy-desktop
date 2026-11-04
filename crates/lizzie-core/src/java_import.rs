@@ -188,6 +188,9 @@ pub struct Mapped {
     /// 快速曲线轻量模型.
     pub quick_model_enabled: Option<bool>,
     pub quick_model_path: Option<String>,
+    pub human_sl_training: Option<crate::settings::HumanSlTrainingSettings>,
+    pub human_sl_advanced_visible: Option<bool>,
+    pub human_sl_model_path: Option<String>,
     /// 问题手 panel.
     pub problems_showing: Option<bool>,
     pub problem_side: Option<ProblemSide>,
@@ -863,6 +866,12 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         ImportTarget::QuickModel,
         Kind::Str(|m, v| m.quick_model_path = Some(v)),
     ),
+    (
+        "ui",
+        "katago-human-sl-model-path",
+        ImportTarget::HumanSlModel,
+        Kind::Str(|m, v| m.human_sl_model_path = Some(v)),
+    ),
     // `SidebarPanel`, `ProblemListSideFilter.fromConfigValue`, `ProblemListSort`.
     (
         "ui",
@@ -1248,6 +1257,40 @@ impl Reader<'_> {
                     .into_owned()
             };
             self.mapped.quick_model_path = Some(resolved);
+        }
+        if let Some(path) = self.mapped.human_sl_model_path.take() {
+            let relative = Path::new(path.trim());
+            let roots = self.source.roots();
+            let resolved = if path.trim().is_empty() || relative.is_absolute() {
+                path
+            } else {
+                roots.iter().map(|root| root.join(relative)).find(|p| p.is_file())
+                    .unwrap_or_else(|| roots[0].join(relative)).to_string_lossy().into_owned()
+            };
+            self.mapped.human_sl_model_path = Some(resolved);
+        }
+        if let Some(raw) = ui.get("human-sl-training-last-settings") {
+            handled.push(("ui", "human-sl-training-last-settings"));
+            if raw.is_object() {
+                let mut training = serde_json::Map::new();
+                for (java, product) in [
+                    ("mode", "mode"), ("opponent-preset", "opponent"),
+                    ("dan-rank", "danRank"), ("rank", "rank"),
+                    ("player-color", "playerColor"), ("move-time-seconds", "moveTimeSeconds"),
+                    ("handicap", "handicap"), ("komi", "komi"),
+                ] {
+                    if let Some(value) = raw.get(java) { training.insert(product.into(), value.clone()); }
+                }
+                let training: crate::settings::HumanSlTrainingSettings =
+                    serde_json::from_value(Value::Object(training)).unwrap_or_default();
+                let advanced = raw.get("advanced-visible").and_then(as_bool).unwrap_or(false);
+                self.mapped.human_sl_training = Some(training.clone());
+                self.mapped.human_sl_advanced_visible = Some(advanced);
+                self.imported("ui.human-sl-training-last-settings".into(), ImportTarget::HumanSlTraining,
+                    shown(&serde_json::json!({"training": training, "advancedVisible": advanced})));
+            } else {
+                self.invalid("ui.human-sl-training-last-settings".into(), ImportTarget::HumanSlTraining, raw);
+            }
         }
 
         if let Some(v) = ui.get("use-language") {
@@ -2436,6 +2479,13 @@ impl Mapped {
         if let Some(path) = &self.quick_model_path {
             c.quick_model.path = (!path.trim().is_empty()).then(|| path.clone());
         }
+        if let Some(training) = &self.human_sl_training {
+            c.human_sl.training = training.clone().normalized();
+        }
+        set!(c.human_sl.advanced_visible, self.human_sl_advanced_visible);
+        if let Some(path) = &self.human_sl_model_path {
+            c.human_sl.model_path = (!path.trim().is_empty()).then(|| path.clone());
+        }
         let pl = &mut c.problems;
         set!(pl.showing, self.problems_showing);
         set!(pl.side, self.problem_side);
@@ -2710,6 +2760,14 @@ impl Mapped {
                 .is_some_and(|v| qm.path.as_ref() != Some(v))
         {
             out.push(ImportTarget::QuickModel);
+        }
+        if self.human_sl_training.as_ref().is_some_and(|v| v != &config.human_sl.training)
+            || self.human_sl_advanced_visible.is_some_and(|v| v != config.human_sl.advanced_visible)
+        {
+            out.push(ImportTarget::HumanSlTraining);
+        }
+        if self.human_sl_model_path.as_ref().is_some_and(|v| config.human_sl.model_path.as_ref() != Some(v)) {
+            out.push(ImportTarget::HumanSlModel);
         }
         let pl = &config.problems;
         let problems = [

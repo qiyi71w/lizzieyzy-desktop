@@ -4,8 +4,8 @@ import type { Model, ResourceItem, ResourcesView } from "../contract/generated";
 import { ask } from "../dialogs";
 import { product, t } from "../i18n";
 import type { SetupCard, SetupContext } from "./card";
-import { currentTarget, packageTarget, planSetup, resourceCommand, resourceView, setupStatus, setupVerified } from "./dialog";
-import { action, actions, future, node, notice, resourceText, section, size } from "./setupText";
+import { currentTarget, packageTarget, planSetup, resourceCommand, resourceView, setupBusy, setupStatus, setupVerified } from "./dialog";
+import { action, actions, node, notice, resourceText, section, size } from "./setupText";
 
 interface WeightRow {
   id: string;
@@ -116,10 +116,27 @@ export function weightsCard(_ctx: SetupContext): SetupCard {
     else if (r.remoteStatus.startsWith("AutoSetup.")) catalog.append(node("p", resourceText(r.remoteStatus), "setup-warning"));
     element.append(catalog);
     element.append(quickModelCard());
-    const human = section(t("AutoSetup.humanSlModel"), t("AutoSetup.humanSlModelDescription")); actions(human, future("setup.humansl.download", t("AutoSetup.downloadOnDemand")), future("setup.humansl.import", t("AutoSetup.importWeight"))); human.append(node("small", product("unavailable"))); element.append(human);
+    element.append(humanSlModelCard());
   };
-  let lastQuick = "";
-  return { element, update(view) { const quick = JSON.stringify(view.settings.quick_model); if (resourceView() !== last || quick !== lastQuick) { lastQuick = quick; render(); } } };
+  let lastModels = "";
+  return { element, update(view) { const models = JSON.stringify([view.settings.quick_model, view.settings.human_sl.model]); if (resourceView() !== last || models !== lastModels) { lastModels = models; render(); } } };
+}
+
+/** HumanSL 人类权重 (KataGoAutoSetupDialog.createHumanSlModelBlock / renderHumanSlModel,
+ *  java:1560-1583, 2565-2587): the description with the release, a status tag, 按需下载 while the
+ *  model is missing and 导入 HumanSL 模型 (importHumanSlModel, java:3862-3908). */
+function humanSlModelCard(): HTMLElement {
+  const model = state.view?.settings.human_sl.model ?? { status: "Missing" as const, path: null };
+  const installed = model.status === "Installed";
+  const card = section(t("AutoSetup.humanSlModel"), `${t("AutoSetup.humanSlModelDescription")}  ·  ${t("AutoSetup.humanSlModelRelease")}`);
+  card.querySelector("p")!.title = installed && model.path ? model.path : t("AutoSetup.humanSlModelMissing");
+  const tag = node("span", installed ? t("AutoSetup.humanSlModelDownloaded") : t("AutoSetup.notDownloaded"), `setup-status-tag ${installed ? "success" : "gold"}`);
+  tag.dataset.key = "setup.humansl.status";
+  const importButton = action("setup.humansl.import", t("AutoSetup.importHumanSlModel"), () => resourceCommand({ type: "ImportHumanSlModel", path: null }), !setupBusy());
+  importButton.title = t("AutoSetup.importHumanSlModel");
+  if (installed) actions(card, tag, importButton);
+  else actions(card, tag, action("setup.humansl.download", t("AutoSetup.downloadOnDemand"), () => resourceCommand({ type: "Download", item: { type: "HumanSlModel" } }), !setupBusy()), importButton);
+  return card;
 }
 
 /** 快速曲线轻量模型 (KataGoAutoSetupDialog.renderQuickAnalysisModel, java:2589-2622): a status tag,

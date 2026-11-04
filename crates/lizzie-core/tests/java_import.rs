@@ -1879,3 +1879,62 @@ fn engine_match_imports_dialog_and_toolbar_values_with_one_shared_wrn_owner() {
     drop(wb);
     assert_eq!(workbench(&product,Recorder::default()).persisted().matches,v);
 }
+
+#[test]
+fn humansl_training_and_model_import_preserve_java_files_and_migrate_live_correction() {
+    use lizzie_core::settings::{OpponentPreset, PlayerColor, TrainingMode};
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    let model = java.join("human-sl-models/custom.bin.gz");
+    std::fs::create_dir_all(model.parent().unwrap()).unwrap();
+    std::fs::File::create(&model).unwrap().set_len(1024 * 1024 + 1).unwrap();
+    let source = json!({"ui": {
+        "katago-human-sl-model-path": "human-sl-models/custom.bin.gz",
+        "human-sl-training-last-settings": {
+            "mode": "LIVE_CORRECTION", "opponent-preset": "ONLINE_9D", "dan-rank": false,
+            "rank": 18, "player-color": "WHITE", "move-time-seconds": 86400,
+            "handicap": 2, "komi": 0.5, "advanced-visible": true
+        }
+    }}).to_string();
+    std::fs::write(java.join("config.txt"), &source).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    for target in [ImportTarget::HumanSlTraining, ImportTarget::HumanSlModel] {
+        assert!(p.items.iter().any(|row| row.target == Some(target) && row.status == ImportStatus::Imported));
+    }
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    let h = &wb.config().human_sl;
+    assert_eq!(h.model_path.as_deref().map(Path::new), Some(model.as_path()));
+    let s = &h.training;
+    assert_eq!((s.mode, s.opponent, s.player_color), (TrainingMode::LiveAnalysis, OpponentPreset::Online9d, PlayerColor::White));
+    assert_eq!((s.rank, s.move_time_seconds, s.handicap, s.komi), (18, 86400, 2, 0.5));
+    assert!(!s.dan_rank && h.advanced_visible);
+    assert_eq!(wb.view(false).settings.human_sl.model.status, lizzie_core::api::HumanSlModelStatus::Installed);
+    assert_eq!(saved_config(&product).human_sl, wb.config().human_sl);
+    assert_eq!(std::fs::read_to_string(java.join("config.txt")).unwrap(), source);
+    assert_eq!(std::fs::metadata(&model).unwrap().len(), 1024 * 1024 + 1);
+}
+
+#[test]
+fn humansl_java_corrupt_or_future_fields_fall_back_independently() {
+    use lizzie_core::settings::{OpponentPreset, PlayerColor, TrainingMode};
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), json!({"ui": {
+        "human-sl-training-last-settings": {
+            "mode": "FUTURE_MODE", "opponent-preset": "UNKNOWN_STYLE", "dan-rank": true,
+            "rank": 99, "player-color": "PURPLE", "move-time-seconds": 17,
+            "handicap": 99, "komi": "not-a-number", "advanced-visible": true
+        }
+    }}).to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    let s = &wb.config().human_sl.training;
+    assert_eq!((s.mode, s.opponent, s.player_color), (TrainingMode::PostGameReview, OpponentPreset::Rank, PlayerColor::Random));
+    assert_eq!((s.rank, s.move_time_seconds, s.handicap, s.komi), (9, 10, 9, 7.5));
+    assert!(wb.config().human_sl.advanced_visible);
+}

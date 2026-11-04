@@ -169,7 +169,8 @@ impl Workbench {
     /// commands that would change or borrow the game's engine are refused as play mode. An ended
     /// game whose engine does not confirm its restore (a move it never answers) can be released
     /// by restarting or closing that engine.
-    pub fn game_gate(&self, command: &Command) -> Option<CommandResult> {
+    pub fn game_gate(&mut self, command: &Command) -> Option<CommandResult> {
+        if let Some(result) = self.human_sl_gate(command) { return Some(result); }
         if self.match_active() { return self.match_gate(command); }
         if !self.game_active() {
             return None;
@@ -215,6 +216,7 @@ impl Workbench {
 
     pub fn game(&mut self, op: GameCommand) -> Result<CommandResult, ApiError> {
         if self.match_active() { return Ok(refused(PLAY_MODE)); }
+        if self.human_sl_active() { return Ok(refused("AnalysisSettings.reuseStatus.human_sl_game")); }
         match op {
             GameCommand::Start { kind, settings, autoplay, engine } => self.game_start(kind, settings, autoplay, engine),
             GameCommand::Continue { kind, human } => self.game_continue(kind, human),
@@ -1031,6 +1033,18 @@ impl Workbench {
 
     /// Engine events of the game; others pass on.
     pub(super) fn play_event(&mut self, ev: RuntimeEvent) -> Option<RuntimeEvent> {
+        let owned = match &ev {
+            RuntimeEvent::GameReply { game, .. }
+            | RuntimeEvent::Genmove { game, .. }
+            | RuntimeEvent::GameReleased { game, .. } => {
+                self.play.session.as_ref().is_some_and(|s| s.reservation == *game)
+                    || self.play.manual.as_ref().is_some_and(|s| s.reservation == *game)
+            }
+            _ => true,
+        };
+        if !owned {
+            return Some(ev);
+        }
         match ev {
             RuntimeEvent::Ready { instance } => {
                 if self.play.session.as_ref().is_some_and(|s| self.engines.game_instance(s.reservation) == Some(instance)) {

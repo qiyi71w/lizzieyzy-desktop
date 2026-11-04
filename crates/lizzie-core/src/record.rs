@@ -461,6 +461,10 @@ pub enum DocumentEdit {
         at: NodeId,
         color: Stone,
     },
+    /// A training pass that must start a fresh variation, even if an equal pass exists.
+    PassBranch { at: NodeId, color: Stone },
+    /// A legal stone that always starts a fresh variation; returns the new node.
+    PlayBranch { at: NodeId, color: Stone, point: Point, rules: PlayRules },
     /// An engine variation added as a new branch of `at` without moving there
     /// (`BoardRenderer.addSuggestionAsBranch`): a node without continuation first gets an end
     /// placeholder so the variation stays a side branch; the first move always starts a new

@@ -216,6 +216,7 @@ pub enum LeaseAvailability {
     EngineStateUnrestored,
     /// A play mode holds the engine (Java `PLAY_MODE`).
     PlayMode,
+    HumanSlGame,
 }
 
 /// How borrowing or giving back the foreground engine failed (Java
@@ -304,6 +305,7 @@ struct Worker {
     io: Option<Box<dyn EngineIo>>,
     tail: VecDeque<String>,
     queued: Option<Vec<String>>,
+    report_diagnostics: bool,
 }
 
 /// A console entry (GtpConsolePane): sent commands, engine output and errors.
@@ -644,6 +646,8 @@ pub struct Engines {
     focus: Option<SearchFocus>,
     /// The play mode holding the foreground engine.
     games: Vec<game::GameSeat>,
+    human_sl: bool,
+    human_sl_restore: Option<u64>,
 }
 
 impl Instance {
@@ -747,6 +751,8 @@ impl Engines {
             region: None,
             focus: None,
             games: Vec::new(),
+            human_sl: false,
+            human_sl_restore: None,
         }
     }
 
@@ -2150,13 +2156,15 @@ impl Engines {
 
     /// Whether the foreground engine can be borrowed now (`previewForegroundAnalysisLeaseAvailability`).
     pub fn lease_availability(&self) -> LeaseAvailability {
+        // Java's mode order is play, HumanSL, then ordinary foreground availability.
+        if self.games.iter().any(|g| Some(g.id) != self.human_sl_restore) {
+            return LeaseAvailability::PlayMode;
+        }
+        if self.human_sl { return LeaseAvailability::HumanSlGame; }
         let Some(inst) = self.foreground.and_then(|id| self.get(id)) else {
             return LeaseAvailability::NoForegroundEngine;
         };
-        // A game is checked first (`foregroundEngineUseAvailability`, Leelaz.java:14903).
-        if !self.games.is_empty() {
-            LeaseAvailability::PlayMode
-        } else if inst.unrestored.is_some() {
+        if inst.unrestored.is_some() {
             LeaseAvailability::EngineStateUnrestored
         } else if inst.phase != Phase::Ready {
             LeaseAvailability::EngineNotReady
@@ -2558,6 +2566,26 @@ impl Engines {
     }
 
     // -------------------------------------------------------------------- analysis processes
+    /// HumanSL uses a separate analysis process, but owns foreground-mode admission.
+    pub fn set_human_sl(&mut self, active: bool) {
+        self.human_sl = active;
+        if !active { self.human_sl_restore = None; }
+    }
+
+    /// Confirm foreground recovery with the same fenced handback used by play modes. No
+    /// engine parameters were changed by the companion; only board synchronization remains.
+    pub fn restore_human_sl(&mut self, target: &Target) -> Result<Option<u64>, LeaseAvailability> {
+        let Some(id) = self.foreground else { return Ok(None) };
+        if let Some(inst) = self.get_mut(id) { inst.unrestored = None; inst.board = None; }
+        let seat = self.reserve_game_instance(id)?;
+        self.human_sl_restore = Some(seat);
+        let (commands, board) = sync_commands(self.get(id).unwrap(), target);
+        let inst = self.get_mut(id).unwrap();
+        inst.board = Some(board);
+        inst.syncing = Some(target.key());
+        self.release_game(seat, &commands);
+        Ok(Some(seat))
+    }
 
     /// Starts a KataGo analysis process for `command` (`AnalysisEngine.startEngine`); relative
     /// paths resolve like an engine's. Its stdout lines arrive as [`RuntimeEvent::WorkerLine`].
@@ -2574,8 +2602,14 @@ impl Engines {
             io: Some(io),
             tail: VecDeque::new(),
             queued: None,
+            report_diagnostics: false,
         });
         Ok(id)
+    }
+
+    /// Forward stderr startup stages only for a consumer that explicitly requests them.
+    pub fn report_worker_diagnostics(&mut self, id: InstanceId) {
+        if let Some(worker) = self.workers.iter_mut().find(|w| w.id == id) { worker.report_diagnostics = true; }
     }
 
     /// A whole-game process can defer its launch for an accepted measured-scene fingerprint
@@ -2589,7 +2623,7 @@ impl Engines {
         self.checks.push(LaunchCheck { instance: id, command: configured.into(), policy: policy.clone(),
             roots: self.roots.clone(), spec, apple: None, measured: Some(hardware.clone()),
             whole_game: saved.map(|p| p.command.clone()) });
-        self.workers.push(Worker { id, name: "整盘精析".into(), io: None, tail: VecDeque::new(), queued: Some(Vec::new()) });
+        self.workers.push(Worker { id, name: "整盘精析".into(), io: None, tail: VecDeque::new(), queued: Some(Vec::new()), report_diagnostics: false });
         Ok(id)
     }
 
@@ -2623,7 +2657,9 @@ impl Engines {
             }
             EngineInput::Stderr(line) => {
                 push_tail(&mut w.tail, &line);
+                let report = w.report_diagnostics;
                 self.trace(&name, "!!", &line);
+                if report { events.push(RuntimeEvent::WorkerLine { instance: id, line }); }
             }
             EngineInput::Exited(code) => {
                 let message = match code {

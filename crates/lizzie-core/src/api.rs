@@ -8,6 +8,8 @@ mod batch;
 mod editing;
 mod export;
 mod hawkeye;
+mod humansl;
+mod humansl_settings;
 mod matches;
 mod recovery;
 mod resources;
@@ -20,6 +22,8 @@ pub use batch::*;
 pub use editing::*;
 pub use export::*;
 pub use hawkeye::*;
+pub use humansl::*;
+pub use humansl_settings::*;
 pub use matches::*;
 pub use recovery::*;
 pub use resources::*;
@@ -419,6 +423,7 @@ pub enum Command {
     },
     /// 引擎对战.
     Match { op: MatchCommand },
+    HumanSl { op: HumanSlCommand },
 }
 
 /// 人机对弈's two modes (`isPlayingAgainstLeelaz` / `isAnaPlayingAgainstLeelaz`).
@@ -965,6 +970,7 @@ pub struct SettingsView {
     pub analysis_engine: crate::settings::AnalysisEngineSettings,
     /// 快速曲线轻量模型 on the weights page.
     pub quick_model: QuickModelView,
+    pub human_sl: HumanSlSettingsView,
     /// 评论/问题手 panel state.
     pub problems: crate::settings::ProblemListSettings,
     /// 局部精析's move range (`analysis-start-move`, `analysis-end-move`).
@@ -1097,6 +1103,7 @@ pub enum LeaseAvailabilityView {
     EngineStateUnrestored,
     /// 人机对弈 holds the engine (`AnalysisSettings.reuseStatus.play_mode`).
     PlayMode,
+    HumanSlGame,
 }
 
 /// Why the foreground engine was not given back (`LizzieFrame.foregroundUnrestored.reason.*`).
@@ -1212,6 +1219,9 @@ pub struct WorkbenchView {
     pub match_outcome: Option<MatchOutcomeView>,
     pub match_notices: Vec<MatchNotice>,
     pub match_winrate_image: Option<MatchWinrateImageRequest>,
+    pub human_sl: Option<HumanSlView>,
+    pub human_sl_notices: Vec<HumanSlNotice>,
+    pub human_sl_continuation: Option<HumanSlContinuation>,
     /// 读秒 countdown voices to play (`sound/<n>.wav`), once each.
     pub byoyomi_voices: Vec<u8>,
     /// The session rules could not be applied to the foreground engine; ask whether to analyse
@@ -1396,6 +1406,8 @@ pub enum ImportTarget {
     /// 快速曲线轻量模型: `ui.quick-analysis-lightweight-model-enabled`,
     /// `katago-quick-analysis-model-path`.
     QuickModel,
+    HumanSlTraining,
+    HumanSlModel,
     /// 问题手: `ui.is-showing-blunder-table`, `problem-list-side-filter`, `problem-list-sort`,
     /// `problem-list-winrate-threshold`, `blunder-playouts-threshold`,
     /// `hide-blunder-table-control-pane`.

@@ -466,3 +466,128 @@ fn import_and_cache_cleanup_have_specific_completion_messages() {
     assert_eq!(outcome.message_key, "AutoSetup.cleanTensorRtCacheDone");
     assert_eq!(outcome.detail, "6 bytes");
 }
+
+struct NoFetch;
+impl r::Fetch for NoFetch {
+    fn get(&self, _: &str, _: Option<u64>) -> r::ResourceResult<r::FetchResponse> {
+        panic!("an installed valid HumanSL model must not contact the network")
+    }
+}
+
+#[test]
+fn humansl_official_digest_failure_is_missing_and_import_leaves_nothing_installed() {
+    use lizzie_core::api::HumanSlModelStatus;
+    let (dir, mut wb) = fixture();
+    let official = r::Catalog::embedded().unwrap().model("humansl-b18c384nbt-v0").unwrap().clone();
+    let source = dir.path().join(&official.file_name);
+    std::fs::File::create(&source).unwrap().set_len(official.size_bytes).unwrap();
+    let destination = wb.resource_store().human_sl_models_dir();
+    std::fs::create_dir_all(&destination).unwrap();
+    let broken = destination.join(&official.file_name);
+    std::fs::File::create(&broken).unwrap().set_len(official.size_bytes).unwrap();
+    assert_eq!(wb.view(false).settings.human_sl.model.status, HumanSlModelStatus::Missing);
+    std::fs::remove_file(&broken).unwrap();
+    let job = wb.begin_resource_task(ResourceCommand::ImportHumanSlModel {
+        path: Some(source.to_string_lossy().into_owned()),
+    }).unwrap();
+    run(&mut wb, &job, &NoFetch);
+    assert_eq!(wb.resource_snapshot().last_outcome.unwrap().message_key, "AutoSetup.humanSlModelChecksumFailed");
+    assert!(wb.config().human_sl.model_path.is_none());
+    assert_eq!(std::fs::read_dir(destination).unwrap().count(), 0);
+}
+
+#[test]
+fn humansl_custom_model_import_is_unique_persisted_and_not_an_analysis_weight() {
+    use lizzie_core::api::HumanSlModelStatus;
+    let (dir, mut wb) = fixture();
+    let source = dir.path().join("custom.txt.gz");
+    std::fs::File::create(&source).unwrap().set_len(1024 * 1024 + 1).unwrap();
+    for name in ["custom.txt.gz", "custom_1.txt.gz"] {
+        let job = wb.begin_resource_task(ResourceCommand::ImportHumanSlModel {
+            path: Some(source.to_string_lossy().into_owned()),
+        }).unwrap();
+        run(&mut wb, &job, &NoFetch);
+        let path = wb.resource_store().human_sl_models_dir().join(name);
+        assert_eq!(wb.config().human_sl.model_path.as_deref().map(Path::new), Some(path.as_path()));
+        assert_eq!(wb.view(false).settings.human_sl.model.status, HumanSlModelStatus::Installed);
+    }
+    let snapshot = wb.resource_snapshot();
+    assert!(snapshot.models.iter().all(|m| m.analysis && m.id != "humansl-b18c384nbt-v0"));
+    assert!(snapshot.online_weights.iter().all(|m| m.name != "b18c384nbt-humanv0"));
+    assert!(snapshot.inventory.weights.is_empty());
+    let expected = wb.config().human_sl.clone();
+    drop(wb);
+    let reopened = Workbench::new(
+        Storage::in_dirs(&dir.path().join("config"), &dir.path().join("data")),
+        None, Box::new(NoLaunch), vec![dir.path().into()],
+    );
+    assert_eq!(reopened.config().human_sl, expected);
+}
+
+#[test]
+fn humansl_valid_installed_download_reuses_without_network_and_integrity_failures_clean_parts() {
+    let (_dir, mut wb) = fixture();
+    let bytes = b"fixture HumanSL model".to_vec();
+    let mut job = wb.begin_resource_task(ResourceCommand::Download { item: ResourceItem::HumanSlModel }).unwrap();
+    let model = job.catalog.models.get_mut("humansl-b18c384nbt-v0").unwrap();
+    model.size_bytes = bytes.len() as u64;
+    model.sha256 = digest(&bytes);
+    let name = model.file_name.clone();
+    let folder = job.store.human_sl_models_dir();
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join(&name), &bytes).unwrap();
+    run(&mut wb, &job, &NoFetch);
+    assert_eq!(wb.config().human_sl.model_path.as_deref().map(Path::new), Some(folder.join(&name).as_path()));
+    for (bad_bytes, key) in [
+        (vec![0; bytes.len()], "AutoSetup.humanSlModelChecksumFailed"),
+        (vec![0; bytes.len() - 1], "AutoSetup.humanSlModelIncomplete"),
+    ] {
+        std::fs::remove_file(folder.join(&name)).unwrap();
+        let mut next = wb.begin_resource_task(ResourceCommand::Download { item: ResourceItem::HumanSlModel }).unwrap();
+        next.catalog = job.catalog.clone();
+        run(&mut wb, &next, &Fetch(bad_bytes));
+        assert_eq!(wb.resource_snapshot().last_outcome.unwrap().message_key, key);
+        assert!(!folder.join(format!("{name}.part")).exists());
+        assert!(!folder.join(&name).exists());
+        // The committed reference is not silently replaced on a failed acquisition.
+        assert!(wb.config().human_sl.model_path.is_some());
+        std::fs::write(folder.join(&name), &bytes).unwrap();
+    }
+}
+
+#[test]
+fn humansl_download_uses_resource_busy_and_cancellation_contract() {
+    let (_dir, mut wb) = fixture();
+    let mut job = wb.begin_resource_task(ResourceCommand::Download { item: ResourceItem::HumanSlModel }).unwrap();
+    assert!(wb.begin_resource_task(ResourceCommand::Inspect { refresh: false }).is_err());
+    let model = job.catalog.models.get_mut("humansl-b18c384nbt-v0").unwrap();
+    let bytes = vec![0; 1024];
+    model.size_bytes = bytes.len() as u64;
+    model.sha256 = digest(&bytes);
+    run(&mut wb, &job, &CancelFetch { bytes, cancel: job.cancel.clone() });
+    assert_eq!(wb.resource_snapshot().last_outcome.unwrap().status, "cancelled");
+    assert!(wb.config().human_sl.model_path.is_none());
+}
+
+#[test]
+fn humansl_settings_normalize_and_corrupt_fields_do_not_drop_the_config() {
+    use lizzie_core::settings::{Config, HumanSlTrainingSettings, OpponentPreset, PlayerColor, TrainingMode};
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "humanSl": { "modelPath": 4, "advancedVisible": "broken", "training": {
+            "mode": "FUTURE", "opponent": "UNKNOWN", "danRank": false, "rank": 99,
+            "playerColor": "PURPLE", "moveTimeSeconds": 17, "handicap": 99, "komi": "not-a-number"
+        } }, "record": {"readKomi": false}
+    })).unwrap();
+    let settings = config.human_sl;
+    let s = settings.training;
+    assert_eq!((s.mode, s.opponent, s.player_color), (TrainingMode::PostGameReview, OpponentPreset::Rank, PlayerColor::Random));
+    assert_eq!((s.rank, s.move_time_seconds, s.handicap, s.komi), (20, 10, 9, 7.5));
+    assert!(!settings.advanced_visible && settings.model_path.is_none() && !config.record.read_komi);
+    let s = HumanSlTrainingSettings { rank: 0, handicap: 255, komi: f64::INFINITY, ..Default::default() }.normalized();
+    assert_eq!((s.rank, s.handicap, s.komi), (1, 9, 7.5));
+    for seconds in [10, 30, 60, 86400] {
+        assert_eq!(HumanSlTrainingSettings { move_time_seconds: seconds, ..Default::default() }.normalized().move_time_seconds, seconds);
+    }
+    let config: Config = serde_json::from_value(serde_json::json!({"humanSl": "broken"})).unwrap();
+    assert_eq!(config.human_sl, Default::default());
+}

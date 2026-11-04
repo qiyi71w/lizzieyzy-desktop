@@ -1,0 +1,408 @@
+/* AI 陪练 (HumanSlTrainingStyle with the light workspace colours of AppleStyleSupport: background
+   246,247,249, card white, border 213,220,218, text 31,41,38, muted 85,99,94, accent 15,118,110,
+   accent dark 18,107,98, accent soft 226,241,236, warning 191,75,48). Buttons are RoundedButtonUI:
+   arc 12, 7/14 px padding, bold; disabled fills blend 55% into the background, pressed or selected
+   ones 12% into black, hovered ones 10% into white. */
+
+/* ---- menu strip button (Menu.aiCoachButton: coach icon 18 px, 6 px gap, primary style) */
+#menubar .pill.coach {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: default;
+}
+#menubar .coach .coach-icon {
+  width: 18px;
+  height: 18px;
+  /* AppleStyleSupport.brightenIcon: every visible pixel becomes 224,228,234. */
+  filter: brightness(0) invert(0.9);
+}
+#menubar .coach:hover {
+  background: rgb(39, 132, 124);
+}
+#menubar .coach.selected {
+  background: rgb(13, 104, 97);
+}
+
+/* ---- buttons */
+.hs-button {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: bold;
+  padding: 7px 14px;
+  border: 1px solid;
+  border-radius: 6px;
+  white-space: nowrap;
+  cursor: default;
+}
+.hs-button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -5px;
+}
+.hs-button.primary {
+  background: rgb(15, 118, 110);
+  border-color: rgb(15, 118, 110);
+  color: #fff;
+}
+.hs-button.primary:hover:not(:disabled) {
+  background: rgb(39, 132, 124);
+}
+.hs-button.primary:active:not(:disabled) {
+  background: rgb(13, 104, 97);
+}
+.hs-button.primary:disabled {
+  background: rgb(142, 189, 186);
+}
+.hs-button.secondary {
+  background: #fff;
+  border-color: rgb(213, 220, 218);
+  color: rgb(31, 41, 38);
+}
+.hs-button.secondary:active:not(:disabled),
+.hs-button.secondary.selected {
+  background: rgb(224, 224, 224);
+}
+.hs-button.secondary:disabled {
+  background: rgb(251, 251, 252);
+  color: rgb(160, 165, 170);
+}
+.hs-button.danger {
+  background: rgb(191, 75, 48);
+  border-color: rgb(191, 75, 48);
+  color: #fff;
+}
+.hs-button.danger:hover:not(:disabled) {
+  background: rgb(197, 93, 69);
+}
+.hs-button.danger:disabled {
+  background: rgb(221, 170, 159);
+}
+
+/* ---- setup dialog (NewHumanSlGameDialog: 920 x 410, 500 with the fold, a download or the
+   startup, at least 860 x 390, all within the window less 40 px) */
+.modal-box.humansl-dialog {
+  box-sizing: border-box;
+  width: min(920px, calc(100vw - 40px));
+  min-width: min(860px, calc(100vw - 40px));
+  max-width: none;
+  min-height: min(390px, calc(100vh - 40px));
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+  background: rgb(246, 247, 249);
+  overflow: hidden;
+}
+.humansl-dialog:focus {
+  outline: none;
+}
+.humansl-dialog [hidden] {
+  display: none !important;
+}
+.hs-setup {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 22px;
+  color: rgb(31, 41, 38);
+  font-size: 12px;
+}
+.hs-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.hs-header-icon {
+  width: 42px;
+  height: 42px;
+  padding: 2px;
+}
+.hs-copy {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.hs-title {
+  font-size: 24px;
+  font-weight: bold;
+}
+.hs-subtitle,
+.hs-hint {
+  color: rgb(85, 99, 94);
+}
+.hs-hint {
+  font-size: 11px;
+}
+.hs-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: flex-start;
+}
+.hs-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.hs-check.disabled {
+  color: rgb(160, 165, 170);
+}
+/* buildForm: GridBag weights 0.18 / 0.34 / 0.16 / 0.15 / 0.17, 14 px between the columns */
+.hs-card {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 18fr 34fr 16fr 15fr 17fr;
+  column-gap: 14px;
+  row-gap: 8px;
+  align-content: start;
+  padding: 18px 18px 14px;
+  background: #fff;
+  border: 1px solid rgb(213, 220, 218);
+  border-radius: 8px;
+}
+.hs-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.hs-label {
+  font-weight: bold;
+}
+.hs-choice,
+.hs-komi,
+.hs-rank {
+  box-sizing: border-box;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  font: inherit;
+  border: 1px solid rgb(213, 220, 218);
+  border-radius: 4px;
+  background: #fff;
+  color: inherit;
+}
+.hs-rank {
+  width: 70px;
+  text-align: right;
+  font-size: 14px;
+  font-weight: bold;
+}
+.hs-opponent,
+.hs-rank-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.hs-rank-panel {
+  gap: 4px;
+}
+.hs-segments {
+  display: flex;
+}
+.hs-segments .hs-button {
+  border-radius: 0;
+}
+.hs-segments .hs-button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+.hs-segments .hs-button:last-child {
+  border-radius: 0 6px 6px 0;
+}
+.hs-rank-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hs-start {
+  align-self: start;
+  margin-top: 20px;
+  min-width: 142px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.hs-start-icon {
+  width: 20px;
+  height: 20px;
+  filter: brightness(0) invert(0.9);
+}
+.hs-summary,
+.hs-advanced,
+.hs-download {
+  grid-column: 1 / -1;
+}
+.hs-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 5px;
+  padding-top: 10px;
+  border-top: 1px solid rgb(213, 220, 218);
+}
+.hs-model-status {
+  color: rgb(18, 107, 98);
+  font-weight: bold;
+}
+.hs-status {
+  flex: 1;
+  text-align: center;
+  font-size: 11px;
+  color: rgb(85, 99, 94);
+  overflow-wrap: anywhere;
+}
+.hs-status.error {
+  color: rgb(191, 75, 48);
+}
+.hs-advanced {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  column-gap: 14px;
+  align-items: end;
+  margin-top: 10px;
+}
+.hs-more-hint {
+  padding-bottom: 7px;
+}
+.hs-download {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.hs-progress {
+  flex: 1;
+  position: relative;
+  height: 18px;
+  overflow: hidden;
+  background: rgb(226, 241, 236);
+}
+.hs-progress-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  background: rgb(15, 118, 110);
+}
+.hs-progress.indeterminate .hs-progress-fill,
+.hs-bar-thinking-run {
+  width: 16%;
+  animation: hs-indeterminate 1.6s linear infinite alternate;
+}
+@keyframes hs-indeterminate {
+  from { left: 0; }
+  to { left: 84%; }
+}
+.hs-progress-text {
+  position: relative;
+  display: block;
+  line-height: 18px;
+  text-align: center;
+  font-size: 11px;
+  color: rgb(18, 107, 98);
+}
+.hs-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* ---- training bar (HumanSlTrainingBar: 58 px, background 30,42,42, 7/14 px border, 16 px gaps) */
+.hs-bar {
+  flex: none;
+  box-sizing: border-box;
+  height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 7px 14px;
+  background: rgb(30, 42, 42);
+  color: #fff;
+}
+.hs-bar[hidden] {
+  display: none;
+}
+.hs-bar-identity {
+  display: flex;
+  flex-direction: column;
+}
+.hs-bar-caption {
+  font-size: 11px;
+  color: rgb(174, 193, 190);
+}
+.hs-bar-opponent {
+  font-size: 14px;
+  font-weight: bold;
+}
+.hs-bar-status {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.hs-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 0 12px;
+}
+.hs-bar-clock {
+  font-size: 13px;
+  font-weight: bold;
+  white-space: pre;
+}
+.hs-bar-turn {
+  flex: 1;
+  text-align: center;
+  font-size: 13px;
+  font-weight: bold;
+  color: rgb(213, 236, 230);
+}
+.hs-bar-thinking {
+  position: relative;
+  height: 3px;
+  margin: 3px 12px 0;
+  overflow: hidden;
+  background: rgb(64, 82, 80);
+  visibility: hidden;
+}
+.hs-bar-thinking.on {
+  visibility: visible;
+}
+.hs-bar-thinking-run {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgb(15, 118, 110);
+}
+.hs-bar-actions {
+  display: flex;
+  gap: 8px;
+}
+.hs-bar-actions [hidden] {
+  display: none;
+}
+
+/* ---- Utils.showMsgNoModalForTime */
+.hs-notice {
+  position: fixed;
+  z-index: 30;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: min(520px, 90vw);
+}
+.hs-notice .modal-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -24,6 +24,8 @@ mod flash;
 mod hawkeye;
 mod importing;
 mod information;
+mod humansl;
+mod humansl_model;
 mod matches;
 mod panels;
 mod play;
@@ -272,6 +274,7 @@ pub struct Workbench {
     /// 人机对弈 and the bottom toolbar's 自动落子.
     play: play::PlayFlow,
     matches: matches::MatchFlow,
+    human_sl: humansl::HumanSlFlow,
 }
 
 impl Workbench {
@@ -389,6 +392,7 @@ impl Workbench {
             hawkeye_session: hawkeye::HawkeyeSession::default(),
             play: play::PlayFlow::default(),
             matches: matches::MatchFlow::default(),
+            human_sl: humansl::HumanSlFlow::default(),
         }
     }
 
@@ -725,6 +729,7 @@ impl Workbench {
         } else {
             Vec::new()
         };
+        self.human_sl_position_changed();
         self.cursor = target;
         self.sync_engine();
         self.quick_navigated();
@@ -931,6 +936,8 @@ impl Workbench {
         v.tuning = self.take_tuning_view(full);
         (v.game_outcome, v.game_notices, v.byoyomi_voices) = self.take_play_outcome();
         (v.match_outcome, v.match_notices, v.match_winrate_image) = self.take_match_outcome();
+        v.human_sl_notices = self.take_human_sl_notices();
+        v.human_sl_continuation = self.take_human_sl_continuation();
         v
     }
 
@@ -952,6 +959,8 @@ impl Workbench {
         v.tuning = Some(self.tuning_view());
         (v.game_outcome, v.game_notices, v.byoyomi_voices) = self.play_outcome_copy();
         (v.match_outcome, v.match_notices, v.match_winrate_image) = self.match_outcome_copy();
+        v.human_sl_notices = self.human_sl_notices();
+        v.human_sl_continuation = self.human_sl_continuation();
         v
     }
 
@@ -997,6 +1006,7 @@ impl Workbench {
                 display: self.config.display.clone(),
                 analysis_engine: self.config.analysis_engine.clone(),
                 quick_model: self.quick_model_view(),
+                human_sl: self.human_sl_settings_view(),
                 problems: self.config.problems.clone(),
                 flash_range: self.config.flash_range,
                 auto_analysis: self.config.auto_analysis.clone(),
@@ -1052,6 +1062,9 @@ impl Workbench {
             match_outcome: None,
             match_notices: Vec::new(),
             match_winrate_image: None,
+            human_sl: self.human_sl_view(),
+            human_sl_notices: Vec::new(),
+            human_sl_continuation: None,
             byoyomi_voices: Vec::new(),
         }
     }

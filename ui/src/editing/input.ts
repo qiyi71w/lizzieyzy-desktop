@@ -9,6 +9,7 @@ import { t } from "../i18n";
 import { commitComment } from "./comment";
 import { contextMenuShowing, openContextMenu, type ContextEntry, type ContextItem } from "./contextMenu";
 import { deleteWithPrompt, edit, editing } from "./state";
+import { humanSlGameActive } from "../humansl/state";
 
 /** What the workbench knows about the board panel. */
 export interface BoardHost {
@@ -217,6 +218,12 @@ export function pressBoard(point: Point | null, button: number, detail: number, 
   // processCommentMousePressed: a press on the board closes the comment edit pane.
   commitComment();
   if (button === 1) return false;
+  // Input.java:36-47 during an AI 陪练 game: a right press does nothing (onClickedRight); a left
+  // press on an empty point is the human's move (onClicked), which the core takes or ignores.
+  if (humanSlGameActive()) {
+    if (button === 0 && point && !stoneOn(point)) void edit({ op: "Play", point, color: null });
+    return false;
+  }
   if (state.view.editing.setup_mode) {
     if (point) setupClick(point, button === 2);
     return false;
@@ -347,7 +354,9 @@ export function handleEditKey(e: KeyboardEvent): boolean {
       void edit({ op: "SetAsMain" });
       return true;
     case "KeyP":
-      command("menu.playPassMove");
+      // Input.java:450-455: during an AI 陪练 game P is the coach's 停一手.
+      if (humanSlGameActive()) void run({ type: "HumanSl", op: { type: "Pass" } });
+      else command("menu.playPassMove");
       return true;
     case "Comma": {
       // Alt+, is genmove (engine play).

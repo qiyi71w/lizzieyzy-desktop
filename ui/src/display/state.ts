@@ -4,6 +4,7 @@
 // and shows them again after the set delay (`Board.java:3730-3745`).
 import { registerViewHandler, run, state } from "../app";
 import type { Stone } from "../contract/generated";
+import { humanSlDisplay } from "../humansl/state";
 
 export const boardUi = {
   showBlack: true,
@@ -31,8 +32,12 @@ export function setCandidates(black: boolean, white: boolean): void {
   changed();
 }
 
-/** Whether the candidates of `toPlay`'s side are shown. */
+/** Whether the candidates of `toPlay`'s side are shown. An AI 陪练 game overrides the check boxes
+ *  without changing them (HumanSlGameController.applyTrainingModeVisualState): 实战后复盘 hides
+ *  both colours' candidates, 边下边分析 shows both. */
 export function candidatesShownFor(toPlay: Stone): boolean {
+  const training = humanSlDisplay();
+  if (training) return training === "Show";
   return toPlay === "Black" ? boardUi.showBlack : boardUi.showWhite;
 }
 

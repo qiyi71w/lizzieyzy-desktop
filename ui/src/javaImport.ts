@@ -119,6 +119,9 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   PanelSizes: "Menu.restoreDefaultPanelSizes",
   BottomToolbar: "Menu.bottomToolBar",
   Appearance: "Menu.appearanceTheme",
+  // AI 陪练's last-started settings (HumanSlTraining.title) and the HumanSL model (AutoSetup.humanSlModel).
+  HumanSlTraining: "HumanSlTraining.title",
+  HumanSlModel: "AutoSetup.humanSlModel",
 };
 
 function targetLabel(target: ImportTarget): string {

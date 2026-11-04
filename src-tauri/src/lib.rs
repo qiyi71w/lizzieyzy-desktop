@@ -170,6 +170,7 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
     let checks = wb.take_launch_checks();
     let auto_saves = wb.take_background_saves();
     let batch_reads = wb.take_batch_reads();
+    let deferred = wb.take_human_sl_deferred();
     drop(wb);
     write_logs(shared, logs);
     run_launch_checks(app, checks);
@@ -180,6 +181,15 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
     }
     for (ticket, path, no_capture) in batch_reads {
         read_batch_record(app, ticket, path, no_capture);
+    }
+    if let Some(command) = deferred {
+        let app = app.clone();
+        let shared = app.state::<State>().inner().clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(error) = tauri::async_runtime::block_on(dispatch(app, shared.clone(), command)) {
+                shared.log.warn(&error.message);
+            }
+        });
     }
     // A command can schedule timed work (quick analysis waits for browsing to settle).
     shared.rearm_timer();
@@ -489,6 +499,7 @@ pub async fn dispatch(app: AppHandle, shared: State, command: Command) -> Result
     // A running game decides first what conflicting commands do.
     let gate = shared.workbench.lock().unwrap().game_gate(&command);
     if let Some(result) = gate {
+        publish(&app, &shared);
         return Ok(result);
     }
     let result = run_command(app.clone(), shared.clone(), command).await;
@@ -863,6 +874,11 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         }
         Command::Match { op } => {
             let result = shared.workbench.lock().unwrap().engine_match(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
+        Command::HumanSl { op } => {
+            let result = shared.workbench.lock().unwrap().human_sl(op)?;
             publish(&app, &shared);
             Ok(result)
         }

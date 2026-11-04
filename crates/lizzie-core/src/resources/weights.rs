@@ -109,6 +109,7 @@ pub fn pinned_weights(catalog: &Catalog) -> Vec<RemoteWeight> {
     catalog
         .models
         .values()
+        .filter(|m| m.analysis)
         .map(|m| RemoteWeight {
             name: m.model_name().into(),
             download_url: catalog.model_url(m),

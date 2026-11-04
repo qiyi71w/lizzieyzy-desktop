@@ -55,7 +55,7 @@ fn embedded_catalog_has_per_asset_sources_and_capabilities() {
     let c = catalog();
     c.validate().unwrap();
     assert_eq!(c.schema_version, 3);
-    assert_eq!(c.models.len(), 3);
+    assert_eq!(c.models.len(), 4);
     assert_eq!(c.assets.len(), 19);
     assert_eq!(c.default_model_id, "b11-flagship");
     for asset in c.assets.values() {
@@ -75,6 +75,11 @@ fn embedded_catalog_has_per_asset_sources_and_capabilities() {
     assert!(c
         .model_url(c.model("b10-balanced").unwrap())
         .contains("lightvector/KataGo/releases/download/v1.17.1/"));
+    let human = c.model("humansl-b18c384nbt-v0").unwrap();
+    assert!(!human.analysis && !human.contribution);
+    assert_eq!(human.size_bytes, 99_066_230);
+    assert_eq!(human.sha256, "637746e44f0efe00ad1245a50aa9bbf0716efe364c43965ead97bd6835d84ab5");
+    assert_eq!(c.model_url(human), "https://media.katagotraining.org/uploaded/networks/models_extra/b18c384nbt-humanv0.bin.gz");
     assert_eq!(c.assets_for_platform("windows-x64").count(), 11);
 }
 #[test]
@@ -89,6 +94,7 @@ fn catalog_rejects_untrusted_names_digests_urls_and_source_identity() {
             "/models/b11-flagship/downloadUrl",
             "https://evil.example/network.bin.gz",
         ),
+        ("/models/humansl-b18c384nbt-v0/downloadUrl", "https://evil.example/b18c384nbt-humanv0.bin.gz"),
         ("/assets/linux-cpu/releaseRepository", "attacker/engines"),
         ("/assets/linux-cpu/sourceCommit", "bad"),
         ("/assets/linux-cpu/releaseTag", "latest"),

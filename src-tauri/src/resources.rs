@@ -483,6 +483,14 @@ pub async fn dispatch(app: AppHandle, shared: State, mut op: ResourceCommand) ->
             };
             op = ResourceCommand::ImportWeight { path: Some(path) };
         }
+        ResourceCommand::ImportHumanSlModel { path } => {
+            let path = match path {
+                Some(p) => Some(p),
+                None => choose(&app, "weight", None).await?,
+            };
+            let Some(path) = path else { return Ok(response(ResourceResult::Cancelled)); };
+            op = ResourceCommand::ImportHumanSlModel { path: Some(path) };
+        }
         ResourceCommand::EnableTensorRt | ResourceCommand::SwitchBackToCuda => {
             if !cfg!(windows) {
                 return Ok(response(refused("AutoSetup.tensorRtNotApplicable")));

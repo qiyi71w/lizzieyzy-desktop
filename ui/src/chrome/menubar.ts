@@ -8,6 +8,7 @@ import { isChinese, product, t } from "../i18n";
 import { JAVA_MENUS, type MenuNode, type TopMenu } from "./javaMenus";
 import { chooseEngine } from "../engine/catalog";
 import { highlight } from "../search/highlight";
+import { buildAiCoachButton } from "../humansl/commands";
 
 /** Java defaults for conditional menus (Config.java: show-quick-links false, show-Contribute true;
  *  the secondary engine menu needs double-engine mode; ReadBoard is Windows only). */
@@ -246,11 +247,16 @@ export function buildMenubar(host: HTMLElement): void {
   for (const menu of JAVA_MENUS) {
     // The secondary engine menu follows the layout mode; it is built hidden.
     if (menu.when !== "doubleEngine" && !visible(menu.when)) continue;
-    if (menu.key === "Menu.aiCoach" || menu.key === "Menu.aiCommentary") {
-      // AI 陪练 / AI 解说 are buttons on the menu bar (Menu.java:5730-5732)
+    if (menu.key === "Menu.aiCoach") {
+      // AI 陪练 is a button on the menu bar (Menu.java:5699-5732), its label following the session.
+      host.append(buildAiCoachButton());
+      continue;
+    }
+    if (menu.key === "Menu.aiCommentary") {
+      // AI 解说 is a button on the menu bar (Menu.java:5713-5732)
       const pill = document.createElement("span");
-      pill.className = `pill ${menu.key === "Menu.aiCoach" ? "coach" : "commentary"} unavailable`;
-      pill.textContent = menu.key === "Menu.aiCoach" ? `◎  ${t(menu.key)}` : t(menu.key);
+      pill.className = "pill commentary unavailable";
+      pill.textContent = t(menu.key);
       pill.title = product("unavailable");
       pill.onclick = unavailable;
       host.append(pill);

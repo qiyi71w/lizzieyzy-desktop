@@ -25,6 +25,7 @@ use std::{
 
 /// Catalog model of the 快速曲线轻量模型 (Java `TRANSFORMER_LIGHTWEIGHT_MODEL`).
 pub(super) const QUICK_MODEL: &str = "b10-lightweight";
+pub(super) const HUMAN_SL_MODEL: &str = "humansl-b18c384nbt-v0";
 
 struct Active {
     id: u64,
@@ -54,13 +55,14 @@ pub(super) struct ResourceFlow {
     weight_headers: BTreeMap<String, String>,
     projected_startup: Option<EngineStartup>,
     projected_version: Option<String>,
+    pub(super) human_sl_verified: std::sync::Mutex<BTreeMap<PathBuf, super::humansl_model::VerifiedModel>>,
 }
 impl ResourceFlow {
     pub(super) fn new(storage: &Storage) -> Self {
         let catalog = r::Catalog::embedded().expect("embedded resource catalog");
         let view = ResourcesView {
             packages: catalog.assets.values().cloned().collect(),
-            models: catalog.models.values().cloned().collect(),
+            models: catalog.models.values().filter(|m| m.analysis).cloned().collect(),
             package_urls: catalog
                 .assets
                 .values()
@@ -93,6 +95,7 @@ impl ResourceFlow {
             weight_headers: BTreeMap::new(),
             projected_startup: None,
             projected_version: None,
+            human_sl_verified: Default::default(),
         }
     }
     pub(super) fn store(&self) -> &r::ResourceStore {
@@ -137,6 +140,7 @@ pub struct ResourceCompletion {
     pub runtime_present: bool,
     /// The 快速曲线轻量模型 file a download installed.
     pub quick_model: Option<String>,
+    pub human_sl_model: Option<String>,
 }
 fn refused(key: &str) -> ResourceResult {
     ResourceResult::Refused {
@@ -233,6 +237,7 @@ impl Workbench {
                     ResourceItem::OnlineWeight { name } => name.clone(),
                     ResourceItem::NvidiaRuntime { backend, .. } => backend.clone(),
                     ResourceItem::QuickModel => QUICK_MODEL.into(),
+                    ResourceItem::HumanSlModel => HUMAN_SL_MODEL.into(),
                 },
                 "downloading",
             ),
@@ -245,6 +250,7 @@ impl Workbench {
         let success_key = match &operation {
             ResourceCommand::Inspect { .. } | ResourceCommand::RefreshRemoteWeights => "AutoSetup.refresh",
             ResourceCommand::ImportWeight { .. } => "AutoSetup.importWeightDone",
+            ResourceCommand::ImportHumanSlModel { .. } => "AutoSetup.importHumanSlModelDoneMessage",
             ResourceCommand::ImportPackage { .. } => "AutoSetup.importPackageDone",
             ResourceCommand::RepairTensorRt { .. } => "AutoSetup.tensorRtRepairDone",
             ResourceCommand::RepairAnalysisConfig => "AutoSetup.repairAnalysisConfig",
@@ -258,6 +264,8 @@ impl Workbench {
             _ => "AutoSetup.downloadDone",
         };
         let integrity_key = match &operation {
+            ResourceCommand::Download { item: ResourceItem::HumanSlModel }
+            | ResourceCommand::ImportHumanSlModel { .. } => "AutoSetup.humanSlModelChecksumFailed",
             ResourceCommand::Download {
                 item: ResourceItem::Model { .. } | ResourceItem::OnlineWeight { .. } | ResourceItem::QuickModel,
             }
@@ -404,6 +412,9 @@ impl Workbench {
                     });
                     self.quick_drop_warm();
                 }
+                if let Some(path) = done.human_sl_model {
+                    let _ = self.commit_config(|c| c.human_sl.model_path = Some(path));
+                }
                 if done.runtime_present {
                     self.engines.set_library_dirs(vec![self.resources.store.runtime_dir()]);
                 }
@@ -414,6 +425,13 @@ impl Workbench {
                 let key = match &e {
                     _ if task.view.kind == "refresh" => "AutoSetup.remoteRefreshFailedCached",
                     r::ResourceError::ImportMismatch => "AutoSetup.importPackageMismatch",
+                    r::ResourceError::Invalid(key) if key == "AutoSetup.humanSlModelChecksumFailed" =>
+                        "AutoSetup.humanSlModelChecksumFailed",
+                    r::ResourceError::Invalid(key) if key == "AutoSetup.importHumanSlModelInvalid" =>
+                        "AutoSetup.importHumanSlModelInvalid",
+                    r::ResourceError::Integrity { expected, .. }
+                        if task.integrity_key == "AutoSetup.humanSlModelChecksumFailed" && expected.ends_with(" bytes") =>
+                        "AutoSetup.humanSlModelIncomplete",
                     r::ResourceError::Integrity { .. } => task.integrity_key,
                     _ => "AutoSetup.failed",
                 };
@@ -808,6 +826,7 @@ pub fn run_resource_job(
     }
     let mut out = ResourceCompletion::default();
     let mut quick_model = None;
+    let mut human_sl_model = None;
     let mut download_item =
         |item: &ResourceItem, progress: &mut dyn FnMut(&str, u64, Option<u64>)| -> r::ResourceResult<()> {
             match item {
@@ -834,6 +853,9 @@ pub fn run_resource_job(
                 }
                 ResourceItem::Model { model } => {
                     let m = job.catalog.model(model)?;
+                    if !m.analysis {
+                        return Err(r::ResourceError::Invalid("Not an analysis weight".into()));
+                    }
                     let spec = r::DownloadSpec {
                         url: job.catalog.model_url(m),
                         file_name: m.file_name.clone(),
@@ -874,6 +896,23 @@ pub fn run_resource_job(
                         progress("downloading", p.bytes, p.total)
                     })?;
                     quick_model = Some(d.path.to_string_lossy().into_owned());
+                }
+                ResourceItem::HumanSlModel => {
+                    let m = job.catalog.model(HUMAN_SL_MODEL)?;
+                    let directory = job.store.human_sl_models_dir();
+                    let spec = r::DownloadSpec {
+                        url: job.catalog.model_url(m),
+                        file_name: m.file_name.clone(),
+                        size: Some(m.size_bytes),
+                        sha256: Some(m.sha256.clone()),
+                    };
+                    let result = r::download(fetch, &directory, &spec, &job.cancel, |p| {
+                        progress("downloading", p.bytes, p.total)
+                    });
+                    if result.is_err() && !matches!(result, Err(r::ResourceError::Cancelled)) {
+                        let _ = std::fs::remove_file(directory.join(format!("{}.part", m.file_name)));
+                    }
+                    human_sl_model = Some(result?.path.to_string_lossy().into_owned());
                 }
                 ResourceItem::NvidiaRuntime { backend, .. } => {
                     let cuda = fetch_text(fetch, r::CUDA_MANIFEST_URL)?;
@@ -960,6 +999,11 @@ pub fn run_resource_job(
         ResourceCommand::ImportWeight { path: Some(path) } => {
             job.store.import_weight(&job.catalog, Path::new(path), &job.cancel)?;
         }
+        ResourceCommand::ImportHumanSlModel { path: Some(path) } => {
+            human_sl_model = Some(job.store.import_human_sl_model(
+                job.catalog.model(HUMAN_SL_MODEL)?, Path::new(path), &job.cancel,
+            )?.to_string_lossy().into_owned());
+        }
         ResourceCommand::Verify { target, weight } => {
             verify_target(job, probe, target, weight.as_deref(), &mut out);
         }
@@ -1008,6 +1052,7 @@ pub fn run_resource_job(
         }
     }
     out.quick_model = quick_model;
+    out.human_sl_model = human_sl_model;
     if job.cancel.load(Ordering::Acquire)
         && matches!(
             job.operation,

@@ -56,6 +56,7 @@ import { openWholeGameAnalysis } from "./quick/wholeGame";
 import { bindFunctionSearch, functionSearchReport } from "./search/controller";
 import { appearanceRevision, onAppearanceChange, startAppearance } from "./appearance/state";
 import "./appearance/commands";
+import { humanSlDisplay } from "./humansl/state";
 import {
   aiScoreText,
   loadImages,
@@ -322,9 +323,10 @@ function projectAnalysis(v: WorkbenchView) {
   }
 }
 
-/** 棋盘下方显示黑白名字 with a loaded record's player names (BoardRenderer.isEmptyName). */
+/** 棋盘下方显示黑白名字 whenever the record has a player name (BoardRenderer.isEmptyName), also for
+ *  a new record whose names a game set. */
 function namesUnderBoard(v: WorkbenchView): boolean {
-  return v.settings.display.namesOnBoard && v.document.format !== null && (v.document.info.black !== "" || v.document.info.white !== "");
+  return v.settings.display.namesOnBoard && (v.document.info.black !== "" || v.document.info.white !== "");
 }
 
 /** BoardRenderer.isBigMargin: coordinates, names, the pure network line or a policy line below. */
@@ -742,7 +744,8 @@ function bindPointer() {
         const q = queuedGraph;
         queuedGraph = null;
         const now = state.view;
-        if (!now || now.document.id !== q.document) continue;
+        // LizzieFrame.java:10374-10377: no graph navigation while an AI 陪练 session exists.
+        if (!now || now.document.id !== q.document || now.human_sl) continue;
         const node = graphDestination(state.nodes, now.position.node, q.node, q.withinBranch);
         if (node !== null) await run({ type: "GotoNode", node });
       }
@@ -756,6 +759,12 @@ function bindPointer() {
   graph.addEventListener("contextmenu", (ev) => ev.preventDefault());
   graph.addEventListener("mousedown", (ev) => {
     if (!state.view) return;
+    // An AI 陪练 session ignores presses on the graph (LizzieFrame.java:10374-10377; a right press
+    // is onClickedRight, which returns during the session).
+    if (state.view.human_sl) {
+      ev.preventDefault();
+      return;
+    }
     if (ev.button === 2) {
       // Off the board: openRightClickMenu clears the table selection, else undoForRightClick.
       ev.preventDefault();
@@ -986,6 +995,10 @@ function render() {
 
   const firstChildId = state.nodes.get(pos.node)?.children[0];
   const firstChild = firstChildId === undefined ? undefined : state.nodes.get(firstChildId);
+  // AI 陪练's 实战后复盘 (applyTrainingModeVisualState): no candidates, winrate in the suggestions,
+  // Kata形势, policy or heat map for the game; the committed display settings stay as they are.
+  const training = humanSlDisplay(v);
+  const suppress = training === "Suppress";
   const scene: BoardScene = {
     cols,
     rows,
@@ -1010,15 +1023,15 @@ function render() {
     unlimited: limitMemory.unlimited,
     // 纯网络 in a 分析模式 game draws the candidates on the engine's turn (BoardRenderer.java:399-412).
     candidatesShown: v.whole_game.show_results || candidatesShownFor(pos.to_play) || (v.game?.kind === "Analysis" && v.game.pure_net && pos.to_play !== v.game.human),
-    policy: boardUi.policy,
-    rawNetOn: v.rawNet !== null,
+    policy: boardUi.policy && !suppress,
+    rawNetOn: v.rawNet !== null && !suppress,
     // A result for another position is never shown.
-    rawNet: v.rawNet?.node === pos.node ? v.rawNet : null,
+    rawNet: v.rawNet?.node === pos.node && !suppress ? v.rawNet : null,
     katago: !!v.engine.foreground?.katago,
     engine: !!v.engine.foreground,
     hovered: hoverAllowed(v) ? hoveredCandidate : null,
     preview: hoveredVariation(v)?.preview ?? null,
-    ownership: mainOwnership(v, hoverAllowed(v) ? hoveredCandidate : null),
+    ownership: suppress ? null : mainOwnership(v, hoverAllowed(v) ? hoveredCandidate : null),
     score: v.score,
     mark: v.problems.mark,
     region: v.region,
@@ -1026,7 +1039,7 @@ function render() {
     focus: v.focus,
     tracking: v.settings.tracking,
   };
-  const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}:${v.game?.id ?? ""}:${v.game?.play_mode ?? ""}`;
+  const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}:${v.game?.id ?? ""}:${v.game?.play_mode ?? ""}:${training ?? ""}`;
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
   const scoreSig = v.score ? JSON.stringify(v.score) : "";
   const searchSig = JSON.stringify([v.region, scene.selecting, v.focus, v.settings.tracking]);
@@ -1062,13 +1075,15 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
   const { width: cols, height: rows } = v.document.size;
   // LizzieFrame.isInPlayMode: the sub board, graph, statistics, comment and list show no analysis.
   const playMode = !!v.game?.play_mode;
+  // An AI 陪练 game in 实战后复盘 shows no analysis on the sub board and in the list either.
+  const noAnalysis = playMode || humanSlDisplay(v) === "Suppress";
   // The resting pointer freezes the sub board's variation for this position (no-refresh-on-sub).
   const over = subOver && v.settings.display.noRefreshOnSub;
   if (!over) subFrozen = null;
   else if (!subFrozen || subFrozen.node !== pos.node) subFrozen = { node: pos.node, analysis: v.analysis, revision: ++subFrozenRevision };
   const subScene = subBoardScene(v, scene, subAnalysis(v), subCandidate, subLength ?? subAutoplayLength(), over, v.settings.display.subBoard, 0);
   // SubBoardRenderer.java:221-222: the stones only.
-  const sub: SubBoardScene = playMode ? { ...subScene, analysis: null, heat: null, candidatesShown: false, ownership: null } : subScene;
+  const sub: SubBoardScene = noAnalysis ? { ...subScene, analysis: null, heat: null, candidatesShown: false, ownership: null } : subScene;
   // Panel rectangles follow the panel flags and separators, not just the size; hidden panels are
   // not drawn (their signatures keep what they last showed).
   const at = (r: Rect) => `${size}:${r.x},${r.y},${r.w},${r.h}`;
@@ -1131,7 +1146,7 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
   if (changed("comment", `${docSig}:${comment}`)) $("commentText").textContent = comment;
   renderProblemPanel(v);
   place($("table"), P.table);
-  if (P.shown.table && changed("table", `${at(P.table)}:${docSig}:${analysisRevision}:${historyRevision}:${mainTableSignature(v)}:${playMode}`)) renderMainTable($("table"), playMode ? { ...v, analysis: null } : v);
+  if (P.shown.table && changed("table", `${at(P.table)}:${docSig}:${analysisRevision}:${historyRevision}:${mainTableSignature(v)}:${noAnalysis}`)) renderMainTable($("table"), noAnalysis ? { ...v, analysis: null } : v);
 }
 
 /** 思考模式's raw board (boardRenderer2 with order 2 and SHOW_RAW_BOARD, LizzieFrame.java:697-701;

@@ -224,6 +224,7 @@ impl Workbench {
         }
     }
     pub fn engine_match(&mut self, op: MatchCommand) -> Result<CommandResult, ApiError> {
+        if self.human_sl_active() { return Ok(refused("AnalysisSettings.reuseStatus.human_sl_game")); }
         match op {
             MatchCommand::Start {
                 mut settings,

@@ -226,6 +226,17 @@ impl GameRecord {
                     None => Applied::unchanged(None),
                 })
             }
+            DocumentEdit::PassBranch { at, color } => {
+                known(self, *at)?;
+                let node = self.push_move(*at, NodeKind::Pass { color: *color }, PlayRules::default());
+                Ok(Applied::content(Some(node)))
+            }
+            DocumentEdit::PlayBranch { at, color, point, rules } => {
+                known(self, *at)?;
+                if !self.is_legal(*at, *color, *point, *rules) { return Ok(Applied::unchanged(None)); }
+                let node = self.push_move(*at, NodeKind::Move { color: *color, point: *point }, *rules);
+                Ok(Applied::content(Some(node)))
+            }
             DocumentEdit::AddBranch { at, moves, rules } => {
                 known(self, *at)?;
                 Ok(self.add_branch(*at, moves, *rules))

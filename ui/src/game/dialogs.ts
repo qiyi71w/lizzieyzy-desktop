@@ -2,13 +2,14 @@
 // 修改AI用时 (SetAiTimes.java) and 设置随机开局 (SetAnaGameRandomStart.java). Each holds a draft of the
 // saved settings; 确定 sends one Game command and Rust owns the game and the saved values.
 import { run, state } from "../app";
-import type { AiTimeMode, AiTimeSettings, AutoPlaySettings, GameCommand, GameSettings, KataTimeType } from "../contract/generated";
+import type { AiTimeMode, AiTimeSettings, AutoPlaySettings, GameCommand, GameSettings, HumanSlContinuation, KataTimeType } from "../contract/generated";
 import { formPanel, message } from "../dialogs";
 import { absolute, parseJavaInt, place } from "../display/dialogs";
 import { actions, button } from "../engine/controls";
 import { plainJava } from "../engine/tuningText";
 import { t } from "../i18n";
 import { javaDouble } from "../workbench/paint";
+import { endHumanSlFirst, registerHumanSlContinuation } from "../humansl/state";
 import "./game.css";
 
 const HANDICAPS = [0, 2, 3, 4, 5, 6, 7, 8, 9];
@@ -224,10 +225,13 @@ function okButton(body: HTMLElement, label: string, apply: () => Promise<void>):
   actions(body, ok);
 }
 
-/** startNewGameReserved / startAnalyzeGameDialogReserved: a running game ends
- *  (stopAiPlayingAndPolicy) and running analysis pauses while the dialog is open. The returned
- *  function resumes that analysis when the dialog is cancelled. */
-async function enterNewGame(): Promise<() => Promise<void>> {
+/** startNewGameReserved / startAnalyzeGameDialogReserved: during an AI 陪练 session the dialog is
+ *  the session exit's continuation and opens once the core publishes it (deferUntilHumanSlExit,
+ *  LizzieFrame.java:3710-3712, 13459-13468); a running game ends (stopAiPlayingAndPolicy) and
+ *  running analysis pauses while the dialog is open. The returned function resumes that analysis
+ *  when the dialog is cancelled; null means no dialog opens now. */
+async function enterNewGame(continuation: HumanSlContinuation): Promise<(() => Promise<void>) | null> {
+  if (!(await endHumanSlFirst(continuation))) return null;
   if (state.view?.game) await game({ type: "End" });
   const analysing = !!state.view && !state.view.engine.paused && !state.view.game;
   if (analysing) await run({ type: "ToggleAnalysis" });
@@ -240,7 +244,8 @@ async function enterNewGame(): Promise<() => Promise<void>> {
 export async function openNewGame(): Promise<void> {
   const v = state.view;
   if (!v) return;
-  const leave = await enterNewGame();
+  const leave = await enterNewGame("NewGame");
+  if (!leave) return;
   let started = false;
   const g = v.settings.game;
   const a = g.aiTime;
@@ -340,7 +345,8 @@ const conditionText = (n: number) => (n > 0 ? String(n) : "");
 export async function openNewAnaGame(): Promise<void> {
   const v = state.view;
   if (!v) return;
-  const leave = await enterNewGame();
+  const leave = await enterNewGame("NewAnalysisGame");
+  if (!leave) return;
   let started = false;
   const g = v.settings.game;
   const auto = v.settings.autoplay.settings;
@@ -616,3 +622,8 @@ export async function openRandomStart(): Promise<void> {
   }
   await dialog.closed;
 }
+
+// The dialogs an AI 陪练 exit opens afterwards (deferUntilHumanSlExit(this::startNewGame) /
+// (this::startAnalyzeGameDialog)).
+registerHumanSlContinuation("NewGame", () => void openNewGame());
+registerHumanSlContinuation("NewAnalysisGame", () => void openNewAnaGame());

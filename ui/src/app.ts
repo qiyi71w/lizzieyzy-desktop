@@ -112,6 +112,9 @@ export function run(command: Command): Promise<CommandResult | null> {
           "NewAnaGameDialog.wrongAiMoveSettings": t("NewAnaGameDialog.wrongAiMoveSettings"),
           "NewAnaGameDialog.noEngineHint": t("NewAnaGameDialog.noEngineHint"),
           "AnalysisSettings.reuseStatus.play_mode": t("AnalysisSettings.reuseStatus.play_mode"),
+          // AI 陪练 refusals (a game on, the model missing).
+          "LizzieFrame.engineGameStopFirstHint": t("LizzieFrame.engineGameStopFirstHint"),
+          "HumanSlGame.missingModelDownloadPrompt": t("HumanSlGame.missingModelDownloadPrompt"),
         };
         const text = messages[result.message_key] ?? t(result.message_key);
         void message(t("Message.title"), text, "warning");

@@ -14,6 +14,7 @@ import { resourceView } from "../setup/dialog";
 import { markupToolsShown, setEditing } from "../editing/state";
 import { revealToolbar } from "../workbench/panels";
 import { matchPlaying } from "../match/state";
+import { aiCoachBlockedByGame } from "../humansl/state";
 import { clearHighlight, highlight } from "./highlight";
 
 export type DestinationKind = "action" | "menu" | "toolbar" | "setting" | "window" | "context";
@@ -167,6 +168,9 @@ function entryReason(id: string): Reason | null {
     case "board.try-play":
     case "board.delete-without-prompt":
       return view.engine_match?.phase === "Starting" || matchPlaying(view) ? ENGINE_GAME : null;
+    // AI 陪练 (LizzieFrame.java:13170-13171, aiCoachBlockedByGame).
+    case "game.ai-coach":
+      return aiCoachBlockedByGame(view) ? ENGINE_GAME : null;
     case "engine.pda":
     case "toolbar.wrn":
       if (view.engine_match?.phase === "Starting" || matchPlaying(view)) return ENGINE_GAME;

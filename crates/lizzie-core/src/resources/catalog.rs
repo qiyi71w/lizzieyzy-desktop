@@ -216,13 +216,15 @@ impl Catalog {
             validate_sha256(&model.sha256)?;
             if !model.download_url.is_empty()
                 && model.download_url != format!("{OFFICIAL_MODEL_PREFIX}{}", model.file_name)
+                && !(model.id == "humansl-b18c384nbt-v0"
+                    && model.download_url == "https://media.katagotraining.org/uploaded/networks/models_extra/b18c384nbt-humanv0.bin.gz")
             {
                 return Err(invalid("Unsupported official model download URL"));
             }
             validate_notes(
                 &model.license_summary,
                 &model.license_texts,
-                model.analysis,
+                model.analysis || model.id == "humansl-b18c384nbt-v0",
                 model.contribution,
             )?;
         }

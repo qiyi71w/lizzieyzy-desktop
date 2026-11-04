@@ -13,6 +13,7 @@ import { plainJava } from "../engine/tuningText";
 import { product, t } from "../i18n";
 import { javaDouble } from "../workbench/paint";
 import { engineIdentity as identity, matchActive, matchValues, setEngineMatchChecked } from "./state";
+import { endHumanSlFirst, registerHumanSlContinuation } from "../humansl/state";
 import "./match.css";
 
 function match(op: MatchCommand) {
@@ -210,6 +211,10 @@ let dialogOpen = false;
 
 /** LizzieFrame.startEngineGameDialog (13412-13457) and NewEngineGameDialog. */
 export async function openEngineGameDialog(): Promise<void> {
+  if (!state.view || dialogOpen) return;
+  // deferUntilHumanSlExit (LizzieFrame.java:13412-13415): during an AI 陪练 session the dialog is
+  // the exit's continuation; the core publishes it once the session is gone.
+  if (!(await endHumanSlFirst("EngineGame"))) return;
   const v = state.view;
   if (!v || dialogOpen) return;
   // startEngineGameDialogReserved: refused while a game of the batch is playing.
@@ -460,6 +465,9 @@ export async function openEngineGameDialog(): Promise<void> {
   // A cancelled dialog unchecks 引擎对战 (and with it the toolbar's engine boxes).
   if (!started && !matchActive()) setEngineMatchChecked(false);
 }
+
+// The dialog an AI 陪练 exit opens afterwards (deferUntilHumanSlExit(this::startEngineGameDialog)).
+registerHumanSlContinuation("EngineGame", () => void openEngineGameDialog());
 
 /** The 黑方/白方 认输预置 rows: 最小手数, 连续 … 手,胜率低于 … %. */
 function resignRows(cfg: MatchSettings) {

@@ -563,6 +563,34 @@ importing the matching LizzieYzy Next settings.
   SGF `B+R` / `W+R`; the batch summary lists each engine's own settings after colours are
   exchanged (Java mixed the black and white sides there); a custom batch folder name made only
   of dots or separators is refused, so files stay under `EngineGames`.
+- AI 陪练 (HumanSL; the menu bar's AI 陪练 button, 棋局 > 新建对局 > AI 陪练, function search): a
+  game against KataGo's human-imitation (HumanSL) network on the main board. The setup dialog
+  follows Java: 训练方式 (实战后复盘 hides candidates, the winrate graph, Kata形势, policy and
+  heat map and pauses the foreground analysis during the game; 边下边分析 keeps the foreground
+  analysing with both sides' candidates shown; neither changes the saved display settings),
+  AI 对手 (by rank, 20 kyu to 9 dan, or 职业棋风: 现代职业棋风 `proyear_2023` / 网络 9 段), colour
+  (random, black or white), the AI's time per move (10 s, 30 s, 1 min, unlimited), and under 更多
+  设置 handicap and komi; 从当前局面开始 (only when the current position has moves) continues the
+  current record in a new variation, otherwise a new record is started. The last started
+  settings are remembered. The AI's moves come from a separate `katago analysis` process with
+  `-human-model`, started from the 精析设置 analysis command (a Windows TensorRT engine uses the
+  installed CUDA package instead); the game starts only after that process answered a real
+  HumanSL request, with Java's loading stages shown meanwhile. Moves follow Java's human-like
+  selection (HumanSL policy candidates checked by a short search; no AI pass before move 200,
+  800–4000 ms thinking pace); an AI answer for a position that is no longer current ends the
+  session without touching the record. A companion process that exits is started again for the
+  next move; two failed attempts show 重试 AI. The bar under the board shows the opponent, both
+  clocks and the turn, with 停一手 (`P`) and 结束并复盘. Ending, cancelling or a failed start stops
+  the companion and gives the foreground engine back as it was (after 实战后复盘 analysis resumes
+  on the finished game); a failed restore offers 重试清理. Opening a record, a new board or another
+  game during a session first ends the session, then proceeds. The training report and live
+  correction strings present in Java are not reachable there and are not shown here.
+- HumanSL model (引擎一键设置 > 权重管理, or 下载并开始 in the AI 陪练 dialog): the official
+  `b18c384nbt-humanv0.bin.gz` (99,066,230 bytes) is downloaded from katagotraining.org on demand
+  and accepted only with the catalog's size and SHA-256; a file with the official name but another
+  digest is reported as missing and never used. 导入 copies another `.bin.gz` / `.txt.gz` HumanSL
+  model (larger than 1 MB) into `human-sl-models/` of the resource directory. The model is not an
+  analysis weight and is not offered as one.
 - 快速曲线轻量模型 (引擎一键设置 > 权重管理): the official lightweight b10 model is downloaded on demand
   (size and SHA-256 checked), which turns 自动使用 on. A model file is used only while its SHA-256
   matches the catalog (checked again when the file changes); with 自动使用 and a KataGo of 1.17 or
@@ -631,8 +659,9 @@ importing the matching LizzieYzy Next settings.
   settings, the 人机对弈 dialog values, AI time, random start and 后台思考 (`new-game-handicap` is
   Java's list position), the 引擎对战 dialog and 引擎对局设置 values (`engine-pk-*`,
   `new-engine-game-*`, `engine-game-match-rules`, per-side time modes and resignation thresholds)
-  and the 自动落子 and 引擎对战 toolbar values in `toolbar-parameter` — only values Java itself
-  accepts.
+  and the 自动落子 and 引擎对战 toolbar values in `toolbar-parameter`, and the AI 陪练 settings
+  (`human-sl-training-last-settings`; Java's retired `LIVE_CORRECTION` becomes 边下边分析) and
+  HumanSL model path (`katago-human-sl-model-path`) — only values Java itself accepts.
   Automatic-analysis conditions (`analyze-all-branch`, all ten `auto-ana-diff-*` keys,
   `exit-auto-analyze-by-pause`, `exit-auto-analyze-tip`) and `toolbar-parameter` slots 0–8,
   47 and 48 also migrate with Java's restore rules: an empty start becomes 1, empty time 2
@@ -697,8 +726,7 @@ importing the matching LizzieYzy Next settings.
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
 as not yet available (greyed in menus; a notice when used). Not available yet: the other layout
 modes (classic, minimal, thinking, four sub boards, independent board, custom layouts),
-remote/SSH and cloud engines, the quick-analysis and HumanSL
-models of the weights page, whole-game measured tuning, 启用点击棋子回看 (click review),
+remote/SSH and cloud engines, whole-game measured tuning, 启用点击棋子回看 (click review),
 自由涂鸦, and the analysis-region items of the board context menu.
 
 Resource acquisition and real engine analysis have been verified on Linux (private X11,
@@ -935,7 +963,8 @@ Analysis is supported. Selected-move focus is not supported by these releases. O
 non-ONNX builds include upstream distributed support, but this app does not verify contribution
 eligibility or provide a contribution flow here; DirectML and OpenVINO builds do not support it.
 Models remain the b11 network from katagotraining.org (KataGo Neural Network License) and the
-two b10 networks from the KataGo v1.17.1 release. License references are shown per asset; official
+two b10 networks from the KataGo v1.17.1 release; the HumanSL network `b18c384nbt-humanv0` from
+katagotraining.org's extra models is pinned for AI 陪练 only. License references are shown per asset; official
 packages do not need the `licenses/` folder or `source-package.json` that LizzieYzy Next packages carry.
 
 ## License

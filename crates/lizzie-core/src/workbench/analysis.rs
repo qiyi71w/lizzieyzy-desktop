@@ -452,6 +452,12 @@ impl Workbench {
     /// foreground engine may (the user's pause and a foreground limit stop it too, as Java
     /// mirrors the primary engine's commands), and stops alone at its own limit.
     pub(super) fn sync_engine(&mut self) {
+        if let Some(analyse) = self.human_sl_analyse() {
+            self.engines.want_secondary(None, false);
+            if analyse { self.engines.want(Some(self.analysis_target()), true); }
+            else { self.engines.want(None, false); }
+            return;
+        }
         let here = (self.doc.id, self.cursor);
         // Java resumes after a limit stop once the position changes.
         if self.limit_stop.is_some_and(|l| l != here) {
@@ -1118,6 +1124,7 @@ impl Workbench {
             self.tracking_deadline(),
             self.play_deadline(),
             self.match_deadline(),
+            self.human_sl_deadline(),
         ]
             .into_iter()
             .flatten()
@@ -1134,7 +1141,8 @@ impl Workbench {
         let tracking = self.tracking_tick(now);
         let play = self.play_tick(now);
         let matches = self.match_tick(now);
-        engines | quick | whole | tracking | play | matches
+        let human_sl = self.human_sl_tick(now);
+        engines | quick | whole | tracking | play | matches | human_sl
     }
 
     /// Handles runtime events produced by operations outside engine output.
@@ -1150,6 +1158,7 @@ impl Workbench {
             let Some(ev) = self
                 .match_event(ev)
                 .and_then(|ev| self.play_event(ev))
+                .and_then(|ev| self.human_sl_event(ev))
                 .and_then(|ev| self.quick_event(ev))
                 .and_then(|ev| self.flash_event(ev))
                 .and_then(|ev| self.whole_game_event(ev))

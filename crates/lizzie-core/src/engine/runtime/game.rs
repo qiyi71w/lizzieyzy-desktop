@@ -43,7 +43,7 @@ struct InFlight {
 }
 
 pub(super) struct GameSeat {
-    id: u64,
+    pub(super) id: u64,
     instance: InstanceId,
     wanted: Option<Wanted>,
     genmove: Option<InFlight>,
@@ -71,6 +71,7 @@ impl Engines {
     pub fn reserve_game(&mut self) -> Result<u64, super::LeaseAvailability> {
         use super::LeaseAvailability as A;
         if !self.games.is_empty() { return Err(A::PlayMode); }
+        if self.human_sl { return Err(A::HumanSlGame); }
         let id = self.foreground.ok_or(A::NoForegroundEngine)?;
         self.reserve_game_instance(id)
     }

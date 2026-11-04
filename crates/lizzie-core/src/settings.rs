@@ -670,6 +670,133 @@ pub struct QuickModelSettings {
     pub path: Option<String>,
 }
 
+/// Java HumanSL training preferences; malformed fields fall back independently.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct HumanSlSettings {
+    pub model_path: Option<String>,
+    pub training: HumanSlTrainingSettings,
+    pub advanced_visible: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum TrainingMode {
+    #[default]
+    #[serde(alias = "POST_GAME_REVIEW")]
+    PostGameReview,
+    #[serde(alias = "LIVE_ANALYSIS", alias = "LIVE_CORRECTION")]
+    LiveAnalysis,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum OpponentPreset {
+    #[default]
+    #[serde(alias = "RANK")]
+    Rank,
+    #[serde(alias = "MODERN_PRO")]
+    ModernPro,
+    #[serde(alias = "ONLINE_9D")]
+    Online9d,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum PlayerColor {
+    #[default]
+    #[serde(alias = "RANDOM")]
+    Random,
+    #[serde(alias = "BLACK")]
+    Black,
+    #[serde(alias = "WHITE")]
+    White,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct HumanSlTrainingSettings {
+    pub mode: TrainingMode,
+    pub opponent: OpponentPreset,
+    pub dan_rank: bool,
+    pub rank: u8,
+    pub player_color: PlayerColor,
+    pub move_time_seconds: u32,
+    pub handicap: u8,
+    pub komi: f64,
+}
+
+impl Default for HumanSlTrainingSettings {
+    fn default() -> Self {
+        Self {
+            mode: TrainingMode::PostGameReview,
+            opponent: OpponentPreset::Rank,
+            dan_rank: true,
+            rank: 3,
+            player_color: PlayerColor::Random,
+            move_time_seconds: 10,
+            handicap: 0,
+            komi: 7.5,
+        }
+    }
+}
+
+impl HumanSlTrainingSettings {
+    pub fn normalized(mut self) -> Self {
+        self.rank = self.rank.clamp(1, if self.dan_rank { 9 } else { 20 });
+        if ![10, 30, 60, 86400].contains(&self.move_time_seconds) {
+            self.move_time_seconds = 10;
+        }
+        self.handicap = self.handicap.min(9);
+        if !self.komi.is_finite() {
+            self.komi = 7.5;
+        }
+        self
+    }
+}
+
+impl<'de> Deserialize<'de> for HumanSlTrainingSettings {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let field = |key: &str| match value.get(key) {
+            Some(serde_json::Value::String(s)) => serde_json::Value::String(s.trim().to_owned()),
+            Some(v) => v.clone(),
+            None => serde_json::Value::Null,
+        };
+        let number = |key: &str| {
+            let v = field(key);
+            v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))
+        };
+        let boolean = |key: &str, default| {
+            let v = field(key);
+            v.as_bool().or_else(|| v.as_str().and_then(|s| {
+                if s.eq_ignore_ascii_case("true") { Some(true) }
+                else if s.eq_ignore_ascii_case("false") { Some(false) }
+                else { None }
+            })).unwrap_or(default)
+        };
+        Ok(Self {
+            mode: serde_json::from_value(field("mode")).unwrap_or_default(),
+            opponent: serde_json::from_value(field("opponent")).unwrap_or_default(),
+            dan_rank: boolean("danRank", true),
+            rank: number("rank").filter(|v| v.is_finite()).unwrap_or(3.0).clamp(0.0, 255.0) as u8,
+            player_color: serde_json::from_value(field("playerColor")).unwrap_or_default(),
+            move_time_seconds: number("moveTimeSeconds").map(f64::trunc)
+                .filter(|v| [10.0, 30.0, 60.0, 86400.0].contains(v)).unwrap_or(10.0) as u32,
+            handicap: number("handicap").filter(|v| v.is_finite()).unwrap_or(0.0).clamp(0.0, 9.0) as u8,
+            komi: number("komi").unwrap_or(7.5),
+        }.normalized())
+    }
+}
+
+impl<'de> Deserialize<'de> for HumanSlSettings {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        Ok(Self {
+            model_path: value.get("modelPath").and_then(|v| v.as_str()).map(str::to_owned),
+            training: serde_json::from_value(value.get("training").cloned().unwrap_or_default()).unwrap_or_default(),
+            advanced_visible: value.get("advancedVisible").and_then(|v| v.as_bool()).unwrap_or(false),
+        })
+    }
+}
+
 /// 问题手 side filter (`ui.problem-list-side-filter`; anything but `white` is Black).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum ProblemSide {
@@ -1265,6 +1392,8 @@ pub struct Config {
     pub analysis_engine: AnalysisEngineSettings,
     /// 快速曲线轻量模型.
     pub quick_model: QuickModelSettings,
+    /// HumanSL model and durable training preferences.
+    pub human_sl: HumanSlSettings,
     /// 评论/问题手 panel.
     pub problems: ProblemListSettings,
     /// 局部精析's move range.
