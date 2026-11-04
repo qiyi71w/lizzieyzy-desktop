@@ -1,13 +1,13 @@
 // Board mouse and record-editing keys (Input.java mousePressed / mouseReleased / mouseDragged /
 // mouseMoved and keyPressed, LizzieFrame onClicked / onClickedRight / openRightClickMenu /
 // DraggedReleased). Every document change goes through the Edit command or a catalog entry.
-import { navigate, state, unavailable } from "../app";
+import { navigate, run, state, unavailable } from "../app";
 import { regionMenuEntries, selecting, selectionClicked, selectionDragged, selectionPressed, selectionReleased } from "../analysis/region";
 import { COMMANDS } from "../commands";
 import type { Point, Stone } from "../contract/generated";
 import { t } from "../i18n";
 import { commitComment } from "./comment";
-import { contextMenuShowing, openContextMenu, type ContextEntry } from "./contextMenu";
+import { contextMenuShowing, openContextMenu, type ContextEntry, type ContextItem } from "./contextMenu";
 import { deleteWithPrompt, edit, editing } from "./state";
 
 /** What the workbench knows about the board panel. */
@@ -91,30 +91,47 @@ function startPick(point: Point): void {
 
 // ------------------------------------------------------------------ context menus
 
-/** RightClickMenu (empty intersection), Java order with its visibility outside engine games. */
+/** undoForRightClick: during a game a move pair is taken back (悔棋), else one move. */
+function previousMove(): ContextItem {
+  const game = !!state.view?.game;
+  return {
+    key: "RightClickMenu.previousMove",
+    label: game ? t("RightClickMenu.regretOne") : t("RightClickMenu.previousMove"),
+    icon: "left.png",
+    run: game ? () => void run({ type: "Game", op: { type: "Regret" } }) : () => navigate({ op: "Back", count: 1 }),
+  };
+}
+
+/** RightClickMenu (empty intersection), Java order with its visibility outside engine games.
+ *  During a game the region, tracking, 查找 and 添加 items are hidden (RightClickMenu.java:124-141)
+ *  and 分析模式 hides 加入变化 (106-107). */
 function pointMenu(point: Point): ContextEntry[] {
   const v = state.view!;
   const preview = host.previewMoves();
-  const entries: ContextEntry[] = [
-    ...regionMenuEntries(point),
-    "sep",
-    { key: "RightClickMenu.previousMove", label: t("RightClickMenu.previousMove"), icon: "left.png", run: () => navigate({ op: "Back", count: 1 }) },
-    { key: "RightClickMenu.findMove", label: t("RightClickMenu.findMove"), icon: "search.png", run: () => void edit({ op: "FindMove", point, any_branch: true }) },
-    { key: "RightClickMenu.addblack", label: t("RightClickMenu.addblack"), icon: "smallblack1.png", run: () => void edit({ op: "Insert", point, color: "Black" }) },
-    { key: "RightClickMenu.addwhite", label: t("RightClickMenu.addwhite"), icon: "smallwhite.png", run: () => void edit({ op: "Insert", point, color: "White" }) },
-  ];
+  const entries: ContextEntry[] = v.game
+    ? [previousMove()]
+    : [
+      ...regionMenuEntries(point),
+      "sep",
+      previousMove(),
+      { key: "RightClickMenu.findMove", label: t("RightClickMenu.findMove"), icon: "search.png", run: () => void edit({ op: "FindMove", point, any_branch: true }) },
+      { key: "RightClickMenu.addblack", label: t("RightClickMenu.addblack"), icon: "smallblack1.png", run: () => void edit({ op: "Insert", point, color: "Black" }) },
+      { key: "RightClickMenu.addwhite", label: t("RightClickMenu.addwhite"), icon: "smallwhite.png", run: () => void edit({ op: "Insert", point, color: "White" }) },
+    ];
   if (v.editing.can_redo) entries.push({ key: "RightClickMenu.reedit", label: t("RightClickMenu.reedit"), icon: "right.png", run: () => void edit({ op: "RedoEdit" }) });
   if (v.editing.can_undo) entries.push({ key: "RightClickMenu.cleanupedit", label: t("RightClickMenu.cleanupedit"), icon: "left.png", run: () => void edit({ op: "UndoEdit" }) });
   if (v.editing.can_undo || v.editing.can_redo)
     entries.push({ key: "RightClickMenu.cleanedittemp", label: t("RightClickMenu.cleanedittemp"), icon: "recycle.png", run: () => void edit({ op: "ClearEditCache" }) });
-  if (preview)
+  if (preview && v.game?.kind !== "Analysis")
     entries.push({ key: "RightClickMenu.addSuggestionAsBranch", label: t("RightClickMenu.addSuggestionAsBranch"), run: () => void edit({ op: "AddVariationAsBranch", moves: preview }) });
   return entries;
 }
 
-/** RightClickMenu2 (a stone), Java order outside engine games. 回看 (click review) belongs to
- *  the display tickets and stays disabled. */
+/** RightClickMenu2 (a stone), Java order outside engine games; during a game only 悔棋
+ *  (RightClickMenu2.java:67-75). 回看 (click review) belongs to the display tickets and stays
+ *  disabled. */
 function stoneMenu(point: Point): ContextEntry[] {
+  if (state.view?.game) return [previousMove()];
   return [
     { key: "RightClickMenu2.moveStone", label: t("RightClickMenu2.moveStone"), run: () => startPick(point) },
     { key: "RightClickMenu2.switchone", label: t("RightClickMenu2.switchone"), run: () => void edit({ op: "EditStone", point, change: { kind: "Switch" } }) },
@@ -122,7 +139,7 @@ function stoneMenu(point: Point): ContextEntry[] {
     "sep",
     { key: "RightClickMenu2.review", label: t("RightClickMenu2.review") },
     "sep",
-    { key: "RightClickMenu.previousMove", label: t("RightClickMenu.previousMove"), icon: "left.png", run: () => navigate({ op: "Back", count: 1 }) },
+    previousMove(),
     { key: "RightClickMenu2.findStone", label: t("RightClickMenu2.findStone"), icon: "upSearch.png", run: () => void edit({ op: "FindMove", point, any_branch: true }) },
   ];
 }
@@ -140,8 +157,10 @@ function setupClick(point: Point, right: boolean): void {
 function leftPress(detail: number, point: Point | null): void {
   const v = state.view!;
   const settings = v.settings.edit;
-  // Input.java:116: the second press of a double click finds the move instead of clicking.
-  if (detail === 2 && !v.editing.trying && settings.allowDoubleClick) {
+  const game = v.game;
+  // Input.java:116: the second press of a double click finds the move instead of clicking;
+  // during a game it is an ordinary press.
+  if (detail === 2 && !v.editing.trying && settings.allowDoubleClick && !game) {
     if (point) void edit({ op: "FindMove", point, any_branch: false });
     return;
   }
@@ -157,8 +176,16 @@ function leftPress(detail: number, point: Point | null): void {
     return;
   }
   if (stone) {
-    // onClicked: a press on a stone starts a drag with 启用拖动棋子; Board.place ignores it.
-    if (settings.allowDrag && !v.editing.trying) moving = { from: point, color: stone, picked: false, at: positionKey() };
+    // onClicked: a press on a stone starts a drag with 启用拖动棋子 (never released onto the
+    // board during a game); Board.place ignores it.
+    if (settings.allowDrag && !v.editing.trying && !game) moving = { from: point, color: stone, picked: false, at: positionKey() };
+    return;
+  }
+  if (game) {
+    // onClicked (LizzieFrame.java:9716-9727): the engine's turn ignores the press, a paused game
+    // too; otherwise Board.place, which Rust refuses while the engine is still being set up.
+    if (v.position.to_play !== game.human || game.phase === "Paused") return;
+    void edit({ op: "Play", point, color: null });
     return;
   }
   void edit({ op: "Play", point, color: editing.placement === "alternate" ? null : editing.placement });
@@ -167,8 +194,8 @@ function leftPress(detail: number, point: Point | null): void {
 function rightPress(clientX: number, clientY: number, point: Point | null): void {
   const v = state.view!;
   // onClickedRight (java:9609): with 添加黑子 / 添加白子 a right click plays the other colour,
-  // and a stone opens its menu whatever show-right-menu says.
-  if (point && editing.placement !== "alternate") {
+  // and a stone opens its menu whatever show-right-menu says; not during a game (java:9628).
+  if (point && editing.placement !== "alternate" && !v.game) {
     if (stoneOn(point)) openContextMenu(clientX, clientY, stoneMenu(point));
     else void edit({ op: "Play", point, color: editing.placement === "Black" ? "White" : "Black" });
     return;
@@ -176,7 +203,7 @@ function rightPress(clientX: number, clientY: number, point: Point | null): void
   // openRightClickMenu (java:3079), else undoForRightClick.
   if (host.clearTableSelection()) return;
   if ((!v.settings.edit.showRightMenu && !host.previewMoves()) || !point) {
-    navigate({ op: "Back", count: 1 });
+    previousMove().run!();
     return;
   }
   openContextMenu(clientX, clientY, stoneOn(point) ? stoneMenu(point) : pointMenu(point));

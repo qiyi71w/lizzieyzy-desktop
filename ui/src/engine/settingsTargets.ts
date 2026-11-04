@@ -23,7 +23,7 @@ const targets = new Map<string, SettingsSection>([
     "config.interaction.coordinates",
   ].map((id): [string, SettingsSection] => [id, "play"]),
   ...[
-    "config.advanced.fast-switch", "config.advanced.startup-benchmark", "config.advanced.no-capture",
+    "config.advanced.ponder", "config.advanced.fast-switch", "config.advanced.startup-benchmark", "config.advanced.no-capture",
     "config.proxy.mode", "config.proxy.manual-address", "config.engine.update-interval",
   ].map((id): [string, SettingsSection] => [id, "advanced"]),
 ]);

@@ -485,6 +485,11 @@ fn changed(app: &AppHandle, shared: &Shared, changed: bool) -> CommandResult {
 
 /// The one entry for every command, used by the UI and by acceptance automation.
 pub async fn dispatch(app: AppHandle, shared: State, command: Command) -> Result<CommandResult, ApiError> {
+    // A running game decides first what conflicting commands do.
+    let gate = shared.workbench.lock().unwrap().game_gate(&command);
+    if let Some(result) = gate {
+        return Ok(result);
+    }
     let result = run_command(app.clone(), shared.clone(), command).await;
     // A command may start an engine without changing the view.
     check_launches(&app, &shared);
@@ -847,6 +852,11 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         Command::Tuning { op } => tuning::dispatch(app, shared, op).await,
         Command::Edit { op } => {
             let result = shared.workbench.lock().unwrap().edit(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
+        Command::Game { op } => {
+            let result = shared.workbench.lock().unwrap().game(op)?;
             publish(&app, &shared);
             Ok(result)
         }

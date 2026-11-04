@@ -139,14 +139,20 @@ function noMainlineMove(): boolean {
 }
 
 /** LizzieFrame.functionEntryUnavailableReason for the states this product has. Java's engine
- *  game, human game, Web Board, ReadBoard and read-mode checks belong to entries whose
- *  destinations do not exist here yet; they resolve to `missing` before reaching this. */
+ *  game, Web Board, ReadBoard and read-mode checks belong to entries whose destinations do not
+ *  exist here yet; they resolve to `missing` before reaching this. */
 function entryReason(id: string): Reason | null {
   const view = state.view;
   if (!view) return { key: "FunctionSearch.unavailable.application" };
   if (id.startsWith("legacy.") && !isChinese()) return TOOLBAR;
   const engine = view.engine.foreground;
   switch (id) {
+    // The double menu's game controls and 终止人机对局 (LizzieFrame.java:13178-13187).
+    case "toolbar.game-pause":
+    case "toolbar.game-stop":
+    case "toolbar.game-resign":
+    case "game.stop-human":
+      return view.game ? null : { key: "FunctionSearch.unavailable.game" };
     case "engine.pda":
     case "toolbar.wrn":
       if (!engine) return NO_ENGINE;

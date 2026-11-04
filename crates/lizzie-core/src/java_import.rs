@@ -195,6 +195,10 @@ pub struct Mapped {
     pub problem_playouts_threshold: Option<u64>,
     pub problem_hide_control_pane: Option<bool>,
     pub auto_analysis: Vec<DisplayValue>,
+    /// 人机对弈 settings, including nested `aiTime` and `randomStart` fields.
+    pub game: Vec<DisplayValue>,
+    /// Bottom toolbar 自动落子 sides and conditions (not its session enable flag).
+    pub autoplay: Vec<DisplayValue>,
     /// 超级鹰眼 fields ([`HawkeyeSettings`] camelCase name and value).
     pub hawkeye: Vec<(&'static str, Value)>,
     /// 超级鹰眼's 统计 range as Java keeps it: `move-list-filter-current`, `match-ai-firstmove`,
@@ -990,6 +994,41 @@ const DISPLAY: &[(&str, ImportTarget, &str, DisplayKind)] = &[
     ("anaframe-use-mousemove", ImportTarget::SuggestionsFrame, "frameMouseMove", DisplayKind::Bool),
 ];
 
+/// Human-engine game controls (`Config.java:1668-2143`, `loadNewGameDialogSettings`).
+/// Java stores the human clock choices as combo indices, not minutes/seconds.
+const GAME: &[(&str, &str, ImportTarget, &str, DisplayKind)] = &[
+    ("ui", "check-play-black", ImportTarget::HumanEngineGame, "playBlack", DisplayKind::Bool),
+    ("ui", "check-continue-play", ImportTarget::HumanEngineGame, "continuePlay", DisplayKind::Bool),
+    ("ui", "use-free-handicap", ImportTarget::HumanEngineGame, "freeHandicap", DisplayKind::Bool),
+    ("ui", "new-game-komi", ImportTarget::HumanEngineGame, "komi", DisplayKind::Num),
+    ("ui", "limit-my-time", ImportTarget::HumanEngineGame, "limitMyTime", DisplayKind::Bool),
+    ("ui", "my-save-time", ImportTarget::HumanEngineGame, "mySaveTime", DisplayKind::Int(0, 7)),
+    ("ui", "my-byoyomo-seconds", ImportTarget::HumanEngineGame, "myByoyomiSeconds", DisplayKind::Int(0, 7)),
+    ("ui", "my-byoyomo-times", ImportTarget::HumanEngineGame, "myByoyomiTimes", DisplayKind::Int(0, 5)),
+    ("ui", "kata-time-main-time-mins", ImportTarget::GameAiTime, "aiTime.kataMainMinutes", DisplayKind::Int(0, i32::MAX as i64)),
+    ("ui", "kata-time-byoyomi-secs", ImportTarget::GameAiTime, "aiTime.kataByoyomiSeconds", DisplayKind::Int(0, i32::MAX as i64)),
+    ("ui", "kata-time-byoyomi-times", ImportTarget::GameAiTime, "aiTime.kataByoyomiTimes", DisplayKind::Int(0, i32::MAX as i64)),
+    ("ui", "kata-time-fisher-increment-secs", ImportTarget::GameAiTime, "aiTime.kataFischerIncrement", DisplayKind::Int(0, i32::MAX as i64)),
+    ("ui", "kata-visits-playouts-settings", ImportTarget::HumanEngineGame, "kataLimits", DisplayKind::Bool),
+    ("ui", "kata-visits-txt", ImportTarget::HumanEngineGame, "kataVisits", DisplayKind::Int(i32::MIN as i64, i32::MAX as i64)),
+    ("ui", "kata-playouts-txt", ImportTarget::HumanEngineGame, "kataPlayouts", DisplayKind::Int(i32::MIN as i64, i32::MAX as i64)),
+    ("ui", "use-play-mode", ImportTarget::HumanEngineGame, "usePlayMode", DisplayKind::Bool),
+    ("ui", "new-game-show-black", ImportTarget::HumanEngineGame, "showBlack", DisplayKind::Bool),
+    ("ui", "new-game-show-white", ImportTarget::HumanEngineGame, "showWhite", DisplayKind::Bool),
+    ("ui", "auto-save-played-game", ImportTarget::HumanEngineGame, "autoSave", DisplayKind::Bool),
+    ("ui", "use-pure-net-in-game", ImportTarget::HumanEngineGame, "pureNet", DisplayKind::Bool),
+    ("ui", "anagame-resign-start-move", ImportTarget::HumanEngineGame, "resignStartMove", DisplayKind::Int(0, i32::MAX as i64)),
+    ("ui", "anagame-resign-move", ImportTarget::HumanEngineGame, "resignMove", DisplayKind::Int(0, i32::MAX as i64)),
+    ("ui", "anagame-resign-percent", ImportTarget::HumanEngineGame, "resignPercent", DisplayKind::Num),
+    ("ui", "disable-wrn-in-game", ImportTarget::HumanEngineGame, "disableWrn", DisplayKind::Bool),
+    ("ui", "enable-anagame-randomstart", ImportTarget::GameRandomStart, "randomStart.enabled", DisplayKind::Bool),
+    ("ui", "anagame-random-move", ImportTarget::GameRandomStart, "randomStart.moves", DisplayKind::Int(0, i32::MAX as i64)),
+    ("ui", "anagame-random-winratediff", ImportTarget::GameRandomStart, "randomStart.winrateDiff", DisplayKind::Num),
+    ("ui", "anagame-random-playoutdiff", ImportTarget::GameRandomStart, "randomStart.playoutsDiff", DisplayKind::Num),
+    ("leelaz", "play-ponder", ImportTarget::HumanEngineGame, "playPonder", DisplayKind::Bool),
+    ("leelaz", "max-game-thinking-time-seconds", ImportTarget::GameAiTime, "aiTime.fixedSeconds", DisplayKind::Int(0, i32::MAX as i64)),
+];
+
 /// Keys read together with the engine list (`Utils.getEngineData` / `getEngineDataOld`,
 /// `Lizzie.java:457-488`).
 const ENGINE_UI_KEYS: [&str; 5] = [
@@ -1265,6 +1304,7 @@ impl Reader<'_> {
         self.hawkeye(ui, &mut handled);
         self.network(ui, &mut handled);
         self.display(ui, leelaz, &mut handled);
+        self.game(ui, leelaz, &mut handled);
         self.engines(ui, leelaz, &mut handled);
 
         for (section, value) in root {
@@ -1278,6 +1318,75 @@ impl Reader<'_> {
                 }
                 None => self.not_migrated(section.clone(), value),
             }
+        }
+    }
+
+    fn game_value(&mut self, name: String, target: ImportTarget, field: &'static str, value: Option<Value>, raw: &Value) {
+        if let Some(value) = value {
+            self.imported(name, target, shown(&value));
+            self.mapped.game.push(DisplayValue { target, field, value });
+        } else {
+            // A broken Java combo index or unusable value must not overwrite this profile.
+            self.not_migrated(name, raw);
+            let item = self.items.last_mut().unwrap();
+            item.target = Some(target);
+            item.reason = Some(ImportReason::InvalidValue);
+        }
+    }
+
+    fn game(&mut self, ui: &Map<String, Value>, leelaz: &Map<String, Value>, handled: &mut Handled) {
+        for (section, key, target, field, kind) in GAME {
+            let map = if *section == "ui" { ui } else { leelaz };
+            let Some(raw) = map.get(*key) else { continue };
+            handled.push((section, key));
+            let value = match kind {
+                DisplayKind::Bool => as_bool(raw).map(Value::from),
+                DisplayKind::Int(min, max) => as_i64(raw).filter(|n| (*min..=*max).contains(n)).map(Value::from),
+                DisplayKind::Num => as_f64(raw).map(Value::from),
+                DisplayKind::NonNegative => as_f64(raw).filter(|n| *n >= 0.0).map(Value::from),
+            };
+            self.game_value(format!("{section}.{key}"), *target, field, value, raw);
+        }
+        if let Some(raw) = ui.get("new-game-handicap") {
+            handled.push(("ui", "new-game-handicap"));
+            // NewGameDialog.java:213-245,966: stored index 0..8 selects 0,2..9 stones.
+            let value = as_i64(raw).filter(|n| (0..=8).contains(n))
+                .map(|n| Value::from(if n == 0 { 0 } else { n + 1 }));
+            self.game_value("ui.new-game-handicap".into(), ImportTarget::HumanEngineGame, "handicap", value, raw);
+        }
+        if let Some(raw) = ui.get("kata-time-type") {
+            handled.push(("ui", "kata-time-type"));
+            let value = as_i64(raw).and_then(|n| match n {
+                0 => Some("Byoyomi"), 1 => Some("Fischer"), 2 => Some("Absolute"), _ => None,
+            }).map(Value::from);
+            self.game_value("ui.kata-time-type".into(), ImportTarget::GameAiTime, "aiTime.kataType", value, raw);
+        }
+        if let Some(raw) = ui.get("advance-time-txt") {
+            handled.push(("ui", "advance-time-txt"));
+            // JSONObject.optString accepts any non-null scalar as text.
+            let value = (!raw.is_null()).then(|| Value::from(shown(raw)));
+            self.game_value("ui.advance-time-txt".into(), ImportTarget::GameAiTime, "aiTime.advanced", value, raw);
+        }
+        let mut flags = [false; 3];
+        let mut present = false;
+        for (index, key) in ["genmove-game-notime", "advance-time-settings", "kata-time-settings"].into_iter().enumerate() {
+            let Some(raw) = ui.get(key) else { continue };
+            handled.push(("ui", key));
+            if let Some(value) = as_bool(raw) {
+                flags[index] = value;
+                present = true;
+                self.imported(format!("ui.{key}"), ImportTarget::GameAiTime, value.to_string());
+            } else {
+                self.game_value(format!("ui.{key}"), ImportTarget::GameAiTime, "aiTime.mode", None, raw);
+            }
+        }
+        if present {
+            // DesktopTimeControl.selectedMode: engine-owned > raw advanced > KataGo > fixed.
+            let mode = if flags[0] { "EngineOwned" } else if flags[1] { "Advanced" }
+                else if flags[2] { "KataGo" } else { "Fixed" };
+            self.mapped.game.push(DisplayValue {
+                target: ImportTarget::GameAiTime, field: "aiTime.mode", value: Value::from(mode),
+            });
         }
     }
 
@@ -1876,13 +1985,33 @@ impl Reader<'_> {
                         }
                     }
                     ("ui-persist", "toolbar-parameter") => {
-                        // Only these two interval slots belong to board display. Preserve a
-                        // not-migrated report for the remaining toolbar state.
+                        // Keep a not-migrated report for the engine-match and other toolbar state.
                         self.not_migrated(name.clone(), v);
                         let Some(values) = v.as_array().filter(|a| a.len() == 51) else {
                             self.invalid(name, ImportTarget::Suggestions, v);
                             continue;
                         };
+                        // Config.java:3307-3331 saves 1/-1 checkboxes and -1 for empty fields.
+                        // BottomToolbar.java:2378-2379,2412-2434 starts black/white/time on and
+                        // only sets boxes true: even saved -1 leaves those three checked.
+                        for (index, field) in [
+                            (9, "black"), (10, "white"), (11, "timeEnabled"), (12, "timeSeconds"),
+                            (13, "playoutsEnabled"), (14, "playouts"),
+                            (15, "firstPlayoutsEnabled"), (16, "firstPlayouts"),
+                        ] {
+                            let raw = &values[index];
+                            let value = as_i64(raw).and_then(|n| i32::try_from(n).ok()).map(|n| match index {
+                                9..=11 => Value::from(true),
+                                13 | 15 => Value::from(n > 0),
+                                _ => Value::from(if n > 0 { n } else { -1 }),
+                            });
+                            if let Some(value) = value {
+                                self.imported(format!("{name}[{index}]"), ImportTarget::AutoPlay, shown(&value));
+                                self.mapped.autoplay.push(DisplayValue { target: ImportTarget::AutoPlay, field, value });
+                            } else {
+                                self.invalid(format!("{name}[{index}]"), ImportTarget::AutoPlay, raw);
+                            }
+                        }
                         for (index, field) in [(40, "autoplayMainSeconds"), (41, "autoplaySubMillis")] {
                             let raw = &values[index];
                             let value = as_i64(raw).filter(|n| *n > 0 && *n <= i64::from(i32::MAX))
@@ -2213,6 +2342,12 @@ impl Mapped {
             p.panel_sizes = serde_json::from_value(values).unwrap_or(p.panel_sizes);
         }
         set!(p.bottom_toolbar, self.bottom_toolbar);
+        let mut game = serde_json::to_value(&c.game).expect("settings serialize");
+        for value in &self.game { value.set(&mut game); }
+        c.game = serde_json::from_value(game).expect("typed imported game values");
+        let mut autoplay = serde_json::to_value(p.autoplay).expect("settings serialize");
+        for value in &self.autoplay { value.set(&mut autoplay); }
+        p.autoplay = serde_json::from_value(autoplay).expect("typed imported autoplay values");
         set!(c.recent_files, self.recent_files);
         if let Some(folder) = &self.last_folder {
             p.last_folder = Some(folder.clone());
@@ -2343,6 +2478,11 @@ impl Mapped {
         if self.bottom_toolbar.is_some_and(|v| v != persisted.bottom_toolbar) {
             out.push(ImportTarget::BottomToolbar);
         }
+        if let Ok(current) = serde_json::to_value(persisted.autoplay) {
+            if self.autoplay.iter().any(|v| v.current(&current).is_none_or(|c| c != v.value)) {
+                out.push(ImportTarget::AutoPlay);
+            }
+        }
         if self.custom_layouts.iter().enumerate().any(|(i, layout)| layout.is_some() && layout != &config.custom_layouts[i])
             || self.independent_main_board.is_some_and(|v| Some(v) != persisted.independent_main_board)
             || self.independent_sub_board.is_some_and(|v| Some(v) != persisted.independent_sub_board) {
@@ -2401,6 +2541,13 @@ impl Mapped {
             for v in &self.display {
                 if v.current(&current).is_none_or(|c| c != v.value) && !out.contains(&v.target) {
                     out.push(v.target);
+                }
+            }
+        }
+        if let Ok(current) = serde_json::to_value(&config.game) {
+            for value in &self.game {
+                if value.current(&current).is_none_or(|c| c != value.value) && !out.contains(&value.target) {
+                    out.push(value.target);
                 }
             }
         }

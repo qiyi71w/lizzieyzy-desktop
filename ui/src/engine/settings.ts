@@ -139,8 +139,10 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   (interactionRows.lastElementChild as HTMLElement).dataset.settingTarget = "config.interaction.right-click";
   const interaction = document.createDocumentFragment(); interaction.append(...interactionRows.childNodes, hint(rightClick.title));
   const displayRows = buildDisplaySettings(form, play, { analysis: analysisRows, play: playRows, interaction });
-  // 高级与性能 (3238-3278): Java order 快速切换, 首次启动智能测速, 五子棋无提子规则, 网络代理.
+  // 高级与性能 (3238-3278): Java order 对局时后台计算, 快速切换, 首次启动智能测速, 五子棋无提子规则, 网络代理.
   heading(advanced, t("ConfigDialog2.modern.advanced.title"), t("ConfigDialog2.modern.advanced.subtitle"));
+  // chkPonder (leelaz.play-ponder, ConfigDialog2.java:1898-1901, 6674): the 修改AI用时 setting.
+  const ponder = toggleRow(advanced, "config.advanced.ponder", "settings.game.playPonder", t("ConfigDialog2.modern.advanced.ponder"), t("ConfigDialog2.modern.advanced.ponderSub"), state.view.settings.game.playPonder);
   const fast = toggleRow(advanced, "config.advanced.fast-switch", "settings.analysis.fastEngineChange", t("ConfigDialog2.modern.advanced.fastSwitch"), t("ConfigDialog2.modern.advanced.fastSwitchSub"), settings.fastEngineChange);
   const benchmark = toggleRow(advanced, "config.advanced.startup-benchmark", "settings.startupBenchmark", t("ConfigDialog2.modern.advanced.firstBenchmark"), t("ConfigDialog2.modern.advanced.firstBenchmarkSub"), startupBenchmark);
   // ConfigDialog2 高级与性能 (3271-3276): turning 五子棋无提子规则 on asks first; Cancel unchecks it.
@@ -195,6 +197,11 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
     }
     if (benchmark.checked !== startupBenchmark) {
       const result = await run({ type: "Tuning", op: { type: "SetStartupBenchmark", enabled: benchmark.checked } }); if (!result || result.type === "Refused") return false;
+    }
+    const nowGame = state.view?.settings ?? loading;
+    if (ponder.checked !== nowGame.game.playPonder) {
+      const result = await run({ type: "Game", op: { type: "SetAiTime", time: nowGame.game.aiTime, ponder: ponder.checked, autoplay: nowGame.autoplay.settings } });
+      if (!result || result.type === "Refused") return false;
     }
     // The draft's rows over the currently committed settings; untouched fields keep their values.
     const committed = state.view?.settings ?? loading;

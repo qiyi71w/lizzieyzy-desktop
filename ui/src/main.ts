@@ -46,6 +46,7 @@ import { editing } from "./editing/state";
 import { appMenuKey } from "./appMenuKey";
 import { bindCaptureSurface, copyMainBoardPicture, copySubBoardPicture, saveMainBoardPicture, saveSubBoardPicture, saveWinratePicture } from "./recovery/capture";
 import { startAutoSave } from "./recovery/commands";
+import { clockText, handleGameKey } from "./game/commands";
 import { recoveryReport } from "./recovery/panel";
 import { bindProblemPanel, problemsReport, renderProblemPanel } from "./quick/problems";
 import "./quick/analysisSettings";
@@ -61,6 +62,7 @@ import {
   paintBoard,
   paintCaptured,
   paintStat,
+  paintPlayStat,
   paintStatus,
   paintDualStrip,
   playouts,
@@ -503,7 +505,7 @@ document.addEventListener("keydown", (e) => {
   if (appMenuKey(e) || dialogOpen() || flashWindowOpen() || menuOpen() || contextMenuOpen() || textTarget(e.target)) return;
   // The 存档与读档 controls keep their keys, like the Swing components holding the focus there.
   if (e.target instanceof Element && e.target.closest("#recovery")) return;
-  if (handleLayoutKey(e) || handlePanelKey(e) || handleEngineKey(e) || handleEditKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e)) {
+  if (handleLayoutKey(e) || handlePanelKey(e) || handleEngineKey(e) || handleEditKey(e) || handleGameKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e)) {
     e.preventDefault();
     return;
   }
@@ -1000,11 +1002,13 @@ function render() {
     snapshot: pos.snapshot,
     mainTrunk: pos.main_trunk,
     analysis: v.analysis,
-    overlay: v.board,
+    // isInPlayMode hides the move rank marks (BoardRenderer.moveOverlayOrder).
+    overlay: v.game?.play_mode ? { ...v.board, ranks: [] } : v.board,
     display: v.whole_game.show_results ? { ...v.settings.display, suggestionWinrate: true, suggestionPlayouts: true, suggestionVariations: true } : v.settings.display,
     suggestionLimit: v.settings.engine.analysis.limitMaxSuggestion,
     unlimited: limitMemory.unlimited,
-    candidatesShown: v.whole_game.show_results || candidatesShownFor(pos.to_play),
+    // 纯网络 in a 分析模式 game draws the candidates on the engine's turn (BoardRenderer.java:399-412).
+    candidatesShown: v.whole_game.show_results || candidatesShownFor(pos.to_play) || (v.game?.kind === "Analysis" && v.game.pure_net && pos.to_play !== v.game.human),
     policy: boardUi.policy,
     rawNetOn: v.rawNet !== null,
     // A result for another position is never shown.
@@ -1021,7 +1025,7 @@ function render() {
     focus: v.focus,
     tracking: v.settings.tracking,
   };
-  const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}`;
+  const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}:${v.game?.id ?? ""}:${v.game?.play_mode ?? ""}`;
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
   const scoreSig = v.score ? JSON.stringify(v.score) : "";
   const searchSig = JSON.stringify([v.region, scene.selecting, v.focus, v.settings.tracking]);
@@ -1055,11 +1059,15 @@ function render() {
 function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docSig: string, ui: string, scene: BoardScene) {
   const pos = v.position;
   const { width: cols, height: rows } = v.document.size;
+  // LizzieFrame.isInPlayMode: the sub board, graph, statistics, comment and list show no analysis.
+  const playMode = !!v.game?.play_mode;
   // The resting pointer freezes the sub board's variation for this position (no-refresh-on-sub).
   const over = subOver && v.settings.display.noRefreshOnSub;
   if (!over) subFrozen = null;
   else if (!subFrozen || subFrozen.node !== pos.node) subFrozen = { node: pos.node, analysis: v.analysis, revision: ++subFrozenRevision };
-  const sub = subBoardScene(v, scene, subAnalysis(v), subCandidate, subLength ?? subAutoplayLength(), over, v.settings.display.subBoard, 0);
+  const subScene = subBoardScene(v, scene, subAnalysis(v), subCandidate, subLength ?? subAutoplayLength(), over, v.settings.display.subBoard, 0);
+  // SubBoardRenderer.java:221-222: the stones only.
+  const sub: SubBoardScene = playMode ? { ...subScene, analysis: null, heat: null, candidatesShown: false, ownership: null } : subScene;
   // Panel rectangles follow the panel flags and separators, not just the size; hidden panels are
   // not drawn (their signatures keep what they last showed).
   const at = (r: Rect) => `${size}:${r.x},${r.y},${r.w},${r.h}`;
@@ -1080,13 +1088,19 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
       small: P.smallCaptured,
     });
   const stat = statScene(v, historyByNode, (node) => state.nodes.get(node)?.parent ?? undefined);
-  if (P.shown.stat && changed("stat", `${at(P.stat)}:${JSON.stringify(stat)}`)) statReport = paintStat(prepare($("stat"), P.stat), P.stat, stat);
+  // drawMoveStatistics in play mode: the darkened strip with the human's clock.
+  const playClock = v.game?.clock ? clockText(v.game.clock) : null;
+  if (P.shown.stat && changed("stat", `${at(P.stat)}:${playMode ? `play:${playClock}` : JSON.stringify(stat)}`)) {
+    if (playMode) paintPlayStat(prepare($("stat"), P.stat), P.stat, playClock);
+    else statReport = paintStat(prepare($("stat"), P.stat), P.stat, stat);
+  }
   const graphDisplay = v.settings.display;
   // Turning 显示鼠标悬停信息 off clears the hovered node (clearMouseOverWinrateGraph).
   if (!graphDisplay.mouseOverWinrateGraph) graphHover = null;
   const graphSettings = `${graphDisplay.winrateLine}:${graphDisplay.scoreLeadLine}:${graphDisplay.winrateGraphFill}:${graphDisplay.blunderBar}:${graphDisplay.initialMaxScoreLead}`;
-  if (P.shown.graph && changed("graph", `${at(P.graph)}:${docSig}:${pos.line_end}:${historyRevision}:${graphSettings}:${graphHover}`)) {
-    const painted = paintGraph(prepare($("graph"), P.graph), P.graph, { nodes: state.nodes, current: pos.node, history: historyByNode, display: graphDisplay, hover: graphHover });
+  if (P.shown.graph && changed("graph", `${at(P.graph)}:${docSig}:${pos.line_end}:${historyRevision}:${graphSettings}:${graphHover}:${playMode}`)) {
+    // WinrateGraph suppressGraphContent: nothing plotted in play mode.
+    const painted = paintGraph(prepare($("graph"), P.graph), P.graph, { nodes: state.nodes, current: pos.node, history: playMode ? new Map() : historyByNode, display: graphDisplay, hover: playMode ? null : graphHover });
     graphReport = painted.report;
     graphHits = painted.hits;
   }
@@ -1112,11 +1126,11 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
   }
   place($("comment"), P.comment);
   // 记录选点信息到评论中: Java's pane shows the summary its engine writes into the comment.
-  const comment = v.comment_with_analysis ?? pos.comment;
+  const comment = playMode ? "" : (v.comment_with_analysis ?? pos.comment);
   if (changed("comment", `${docSig}:${comment}`)) $("commentText").textContent = comment;
   renderProblemPanel(v);
   place($("table"), P.table);
-  if (P.shown.table && changed("table", `${at(P.table)}:${docSig}:${analysisRevision}:${historyRevision}:${mainTableSignature(v)}`)) renderMainTable($("table"), v);
+  if (P.shown.table && changed("table", `${at(P.table)}:${docSig}:${analysisRevision}:${historyRevision}:${mainTableSignature(v)}:${playMode}`)) renderMainTable($("table"), playMode ? { ...v, analysis: null } : v);
 }
 
 /** 思考模式's raw board (boardRenderer2 with order 2 and SHOW_RAW_BOARD, LizzieFrame.java:697-701;

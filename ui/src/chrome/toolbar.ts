@@ -15,6 +15,7 @@ import { openPopupMenu } from "./menubar";
 import { FLASH_MENU } from "../quick/flash";
 import { functionSearchRefused, openFunctionSearch } from "../search/controller";
 import { limitPopup } from "../analysis/region";
+import { clockText } from "../game/commands";
 import "../editing/chrome.css";
 
 const updaters: (() => void)[] = [];
@@ -325,12 +326,58 @@ function searchButton(): HTMLElement {
   return b;
 }
 
+/** newGamePopup (Menu.java:9109-9135): Genmove, 分析模式 and 引擎对局. */
+const NEW_GAME_POPUP: MenuNode[] = [
+  { t: "item", key: "Menu.newGenmoveGame", id: "menu.newGenmoveGame" },
+  { t: "item", key: "Menu.newAnalyzeModeGame", id: "menu.newAnalyzeModeGame" },
+  { t: "item", key: "Menu.newEngineGame", id: "menu.newEngineGame" },
+];
+
+function gamePill(text: string, cls: string, key: string, run: () => void): HTMLElement {
+  const b = document.createElement("span");
+  b.className = `tb-pill ${cls}`;
+  b.textContent = text;
+  b.dataset.key = key;
+  b.setAttribute("role", "button");
+  b.onclick = run;
+  return b;
+}
+
+/** The double menu's game controls (toggleDoubleMenuGameStatus, Menu.java:10321-10362): 新对局
+ *  becomes the red 结束对局 while a game runs, 暂停 / 继续 is enabled only then and 认输 is
+ *  shown only then. */
+function gameControls(): HTMLElement[] {
+  const newGame = gamePill(t("Menu.newGameBtn"), "newgame", "game-new", () => openPopupMenu(newGame, NEW_GAME_POPUP));
+  const stop = at("toolbar.game-stop", gamePill(t("Menu.endGameBtn"), "newgame danger", "game-end", () => COMMANDS["toolbar.game-stop"].run()));
+  const pause = at("toolbar.game-pause", gamePill(t("Menu.pauseGameBtn"), "pause", "game-pause", () => { if (state.view?.game) COMMANDS["toolbar.game-pause"].run(); }));
+  const resign = at("toolbar.game-resign", gamePill(t("Menu.resignBtn"), "pause danger", "game-resign", () => COMMANDS["toolbar.game-resign"].run()));
+  updaters.push(() => {
+    const game = state.view?.game;
+    newGame.style.display = game ? "none" : "";
+    stop.style.display = resign.style.display = game ? "" : "none";
+    pause.classList.toggle("disabled", !game);
+    pause.textContent = game?.phase === "Paused" ? t("Menu.continueGameBtn") : t("Menu.pauseGameBtn");
+  });
+  return [newGame, stop, pause, resign];
+}
+
+/** byoyomiTime (Menu.java:7507-7512, bold 15): the human's clock while the win-rate graph is
+ *  hidden; with the graph shown the clock is drawn in the statistics strip (drawContDownForHuman). */
+function clockLabel(): HTMLElement {
+  const label = document.createElement("span");
+  label.className = "tb-label tb-clock";
+  label.dataset.key = "game.clock";
+  updaters.push(() => {
+    const v = state.view;
+    const text = v?.game?.clock && !v.settings.panels.showWinrateGraph ? `  ${clockText(v.game.clock)}` : "";
+    if (label.textContent !== text) label.textContent = text;
+    label.style.display = text ? "" : "none";
+  });
+  return label;
+}
+
 export function buildToolbar(host: HTMLElement): void {
   const search = searchButton();
-  // disabled while no game is running (Menu.java:9101-9104)
-  const pause = document.createElement("span");
-  pause.className = "tb-pill disabled pause";
-  pause.textContent = t("Menu.pauseGameBtn");
   const setup = pill(t("Menu.autoSetupButton"), "wide w80", "engine.setup");
   setup.dataset.key = "engine.setup"; setup.title = t("Menu.autoSetup"); setup.setAttribute("role", "button"); setup.tabIndex = 0;
   setup.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); COMMANDS["engine.setup"].run(); } };
@@ -363,8 +410,7 @@ export function buildToolbar(host: HTMLElement): void {
     at("toolbar.force-avoid-options", limitButton(false, t("Accessibility.avoidMoveOptions"))),
     at("toolbar.force-clear", icon("clear.png", t("Menu.clearSelectToolTipText"), "toolbar.force-clear", "force")),
     sep(),
-    pill(t("Menu.newGameBtn"), "newgame"),
-    pause,
+    ...gameControls(),
     sep(),
     group("komi", label(t("Menu.komi")), komiField(), komiSpinner()),
     sep("dash"),
@@ -381,6 +427,7 @@ export function buildToolbar(host: HTMLElement): void {
     pill(t("Menu.paramsBtn"), "small"),
     pill(t("Menu.gobanBtn"), "small"),
     pill(t("Menu.saveBtn"), "small", "menu.saveAndLoad"),
+    clockLabel(),
   );
 }
 

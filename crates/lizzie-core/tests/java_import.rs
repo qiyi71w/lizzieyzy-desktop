@@ -1664,3 +1664,156 @@ fn imported_custom_layouts_restore_java_snapshot_fields_and_independent_bounds()
     assert!(s.custom_layouts[1].as_ref().unwrap().window.unwrap().maximized);
     assert!(s.panels.show_sub_board && !s.panels.show_comment);
 }
+
+#[test]
+fn human_engine_game_imports_java_dialog_values_and_reports_each_key() {
+    use lizzie_core::settings::{AiTimeMode, KataTimeType};
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    // Config.java:1668-2143,3554-3563; NewGameDialog.java:213-245,305-307.
+    // Handicap is saved as a combo index, whereas the Rust setting is a stone count.
+    let source = json!({"ui": {
+        "check-play-black": false, "check-continue-play": true,
+        "new-game-handicap": 8, "use-free-handicap": true, "new-game-komi": "0.5",
+        "limit-my-time": true, "my-save-time": 7, "my-byoyomo-seconds": 6, "my-byoyomo-times": 5,
+        "advance-time-settings": false, "advance-time-txt": "time_settings 30 5 1",
+        "kata-time-settings": true, "kata-time-type": 1, "kata-time-main-time-mins": 25,
+        "kata-time-byoyomi-secs": 30, "kata-time-byoyomi-times": 5,
+        "kata-time-fisher-increment-secs": 8, "genmove-game-notime": false,
+        "kata-visits-playouts-settings": true, "kata-visits-txt": 3000, "kata-playouts-txt": -2,
+        "use-play-mode": false, "new-game-show-black": true, "new-game-show-white": true,
+        "auto-save-played-game": false, "use-pure-net-in-game": true,
+        "anagame-resign-start-move": 120, "anagame-resign-move": 4, "anagame-resign-percent": 2.5,
+        "disable-wrn-in-game": false, "enable-anagame-randomstart": true,
+        "anagame-random-move": 15, "anagame-random-winratediff": 1.25, "anagame-random-playoutdiff": 12.5,
+        "new-engine-game-komi": 6.5, "pk-advance-time-settings": true
+    }, "leelaz": {"play-ponder": false, "max-game-thinking-time-seconds": 9}});
+    std::fs::write(java.join("config.txt"), source.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let before = wb.config().game.clone();
+    let p = preview(&mut wb, &java);
+    assert_eq!(wb.config().game, before, "preview writes nothing");
+    for section in ["ui", "leelaz"] {
+        for key in source[section].as_object().unwrap().keys() {
+            assert_eq!(item(&p.items, &format!("{section}.{key}")).status,
+                if key.starts_with("new-engine-game-") || key.starts_with("pk-") {
+                    ImportStatus::NotMigrated
+                } else { ImportStatus::Imported }, "{section}.{key}");
+        }
+    }
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    let g = &wb.config().game;
+    assert!(!g.play_black && g.continue_play && g.free_handicap && g.limit_my_time);
+    assert_eq!((g.handicap, g.komi), (9, 0.5));
+    assert_eq!((g.my_save_time, g.my_byoyomi_seconds, g.my_byoyomi_times), (7, 6, 5));
+    assert_eq!((g.save_minutes(), g.byoyomi_seconds(), g.byoyomi_times()), (180, 60, 20));
+    assert_eq!(g.ai_time.mode, AiTimeMode::KataGo);
+    assert_eq!(g.ai_time.kata_type, KataTimeType::Fischer);
+    assert_eq!(g.ai_time.advanced, "time_settings 30 5 1");
+    assert_eq!((g.ai_time.fixed_seconds, g.ai_time.kata_main_minutes, g.ai_time.kata_byoyomi_seconds,
+        g.ai_time.kata_byoyomi_times, g.ai_time.kata_fischer_increment), (9, 25, 30, 5, 8));
+    assert!(g.kata_limits && g.show_black && g.show_white && g.pure_net);
+    assert!(!g.play_ponder && !g.use_play_mode && !g.auto_save && !g.disable_wrn);
+    assert_eq!((g.kata_visits, g.kata_playouts), (3000, -2));
+    assert_eq!((g.resign_start_move, g.resign_move, g.resign_percent), (120, 4, 2.5));
+    assert!(g.random_start.enabled);
+    assert_eq!((g.random_start.moves, g.random_start.winrate_diff, g.random_start.playouts_diff), (15, 1.25, 12.5));
+    assert_eq!(&saved_config(&product).game, g);
+}
+
+#[test]
+fn game_time_mode_uses_java_precedence_and_missing_keys_preserve_settings() {
+    use lizzie_core::settings::AiTimeMode;
+    // DesktopTimeControl.java:28-32: engineOwned > rawAdvanced > kataGoAdvanced > Fixed.
+    for bits in 0..8 {
+        let tmp = tempfile::tempdir().unwrap();
+        let java = tmp.path().join("java");
+        std::fs::create_dir_all(&java).unwrap();
+        let owned = bits & 1 != 0;
+        let advanced = bits & 2 != 0;
+        let kata = bits & 4 != 0;
+        std::fs::write(java.join("config.txt"), json!({"ui": {
+            "genmove-game-notime": owned, "advance-time-settings": advanced, "kata-time-settings": kata
+        }}).to_string()).unwrap();
+        let product = tmp.path().join("product");
+        let mut wb = workbench(&product, Recorder::default());
+        let p = preview(&mut wb, &java);
+        wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+        assert_eq!(wb.config().game.ai_time.mode, if owned { AiTimeMode::EngineOwned }
+            else if advanced { AiTimeMode::Advanced } else if kata { AiTimeMode::KataGo }
+            else { AiTimeMode::Fixed }, "flags {bits}");
+        let before = wb.config().game.clone();
+        let autoplay = wb.persisted().autoplay;
+        std::fs::write(java.join("config.txt"), json!({"ui": {}}).to_string()).unwrap();
+        let p = preview(&mut wb, &java);
+        wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+        assert_eq!(wb.config().game, before);
+        assert_eq!(wb.persisted().autoplay, autoplay);
+    }
+}
+
+#[test]
+fn game_combo_indices_are_translated_or_left_unmapped_when_java_would_fail() {
+    for index in 0..=9 {
+        let tmp = tempfile::tempdir().unwrap();
+        let java = tmp.path().join("java");
+        std::fs::create_dir_all(&java).unwrap();
+        std::fs::write(java.join("config.txt"), json!({"ui": {
+            "new-game-handicap": index, "my-save-time": 8, "my-byoyomo-seconds": -2,
+            "my-byoyomo-times": 6, "kata-time-type": 3
+        }}).to_string()).unwrap();
+        let product = tmp.path().join("product");
+        let mut wb = workbench(&product, Recorder::default());
+        let before = wb.config().game.clone();
+        let p = preview(&mut wb, &java);
+        for key in ["my-save-time", "my-byoyomo-seconds", "my-byoyomo-times", "kata-time-type"] {
+            let row = item(&p.items, &format!("ui.{key}"));
+            assert_eq!(row.status, ImportStatus::NotMigrated);
+            assert_eq!(row.reason, Some(ImportReason::InvalidValue));
+        }
+        assert_eq!(item(&p.items, "ui.new-game-handicap").status,
+            if index == 9 { ImportStatus::NotMigrated } else { ImportStatus::Imported });
+        wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+        let g = &wb.config().game;
+        assert_eq!(g.handicap, if index == 0 || index == 9 { 0 } else { index + 1 });
+        assert_eq!((g.my_save_time, g.my_byoyomi_seconds, g.my_byoyomi_times, g.ai_time.kata_type),
+            (before.my_save_time, before.my_byoyomi_seconds, before.my_byoyomi_times, before.ai_time.kata_type));
+    }
+}
+
+#[test]
+fn autoplay_imports_toolbar_slots_with_java_empty_and_checkbox_restore_semantics() {
+    // Config.java:3307-3331 / BottomToolbar.java:2378-2379,2412-2434. Black, white and
+    // time start checked and loading only sets them true, even for saved -1 / zero.
+    for slots in [[1, 1, 1, 6, 1, 300, 1, 100], [-1; 8], [0; 8]] {
+        let tmp = tempfile::tempdir().unwrap();
+        let java = tmp.path().join("java");
+        std::fs::create_dir_all(&java).unwrap();
+        std::fs::write(java.join("config.txt"), json!({"ui": {}}).to_string()).unwrap();
+        let mut toolbar = vec![json!(-1); 51];
+        for (offset, value) in slots.into_iter().enumerate() { toolbar[9 + offset] = json!(value); }
+        toolbar[40] = json!(3); toolbar[41] = json!(250);
+        toolbar[47] = json!(true); toolbar[48] = json!(true);
+        std::fs::write(java.join("persist"), json!({"ui-persist": {"toolbar-parameter": toolbar}}).to_string()).unwrap();
+        let product = tmp.path().join("product");
+        let mut wb = workbench(&product, Recorder::default());
+        let p = preview(&mut wb, &java);
+        for index in 9..=16 {
+            let row = item(&p.items, &format!("persist:ui-persist.toolbar-parameter[{index}]"));
+            assert_eq!(row.status, ImportStatus::Imported);
+            assert_eq!(row.target, Some(ImportTarget::AutoPlay));
+        }
+        assert_eq!(item(&p.items, "persist:ui-persist.toolbar-parameter").status, ImportStatus::NotMigrated);
+        wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+        let a = wb.persisted().autoplay;
+        assert!(a.black && a.white && a.time_enabled);
+        let field = |n| if n > 0 { n } else { -1 };
+        assert_eq!((a.time_seconds, a.playouts, a.first_playouts), (field(slots[3]), field(slots[5]), field(slots[7])));
+        assert_eq!((a.playouts_enabled, a.first_playouts_enabled), (slots[4] > 0, slots[6] > 0));
+        assert_eq!((wb.config().display.autoplay_main_seconds, wb.config().display.autoplay_sub_millis), (3.0, 250));
+        drop(wb);
+        assert_eq!(workbench(&product, Recorder::default()).persisted().autoplay, a, "persisted on import");
+    }
+}

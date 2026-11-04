@@ -145,7 +145,7 @@ impl Workbench {
         self.editing.after = None;
     }
 
-    fn play_rules(&self) -> PlayRules {
+    pub(super) fn play_rules(&self) -> PlayRules {
         PlayRules {
             allow_suicide: self
                 .engines
@@ -164,8 +164,22 @@ impl Workbench {
 
     // ------------------------------------------------------------------------ commands
 
-    /// Runs one editing command.
+    /// Runs one editing command; during a game only the human's moves and annotations go
+    /// through, and a human move asks the engine for its answer.
     pub fn edit(&mut self, op: EditCommand) -> Result<CommandResult, ApiError> {
+        if let Some(refusal) = self.play_edit_refusal(&op) {
+            return Ok(refusal);
+        }
+        let human = self.game_active() && matches!(op, EditCommand::Play { .. } | EditCommand::Pass);
+        let before = self.cursor;
+        let result = self.run_edit(op)?;
+        if human && self.cursor != before {
+            self.play_after_human();
+        }
+        Ok(result)
+    }
+
+    fn run_edit(&mut self, op: EditCommand) -> Result<CommandResult, ApiError> {
         match op {
             EditCommand::Play { point, color } => {
                 if self.editing.setup_mode {

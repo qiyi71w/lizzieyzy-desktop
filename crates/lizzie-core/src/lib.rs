@@ -22,6 +22,7 @@ pub mod engine;
 pub mod formats;
 pub mod function_search;
 pub mod java_import;
+pub mod play;
 pub mod record;
 pub mod recovery;
 pub mod resources;

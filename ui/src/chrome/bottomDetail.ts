@@ -1,8 +1,8 @@
 // 详细工具栏 (BottomToolbar.java:1556-2374, layoutDetailPanels 686-721): the three 44 px panels under
 // the main bar, at Java's component bounds. 自动分析 edits the saved 自动分析 settings and starts or
-// stops the run, as StartAnaDialog does; 显示黑 / 显示白, 自动播放(大) and 自动变化图 drive the
-// candidate sides and the players. 自动落子 and 引擎对战 keep their Java place but are not available:
-// this product has no engine-play or engine-match capability for them.
+// stops the run, as StartAnaDialog does; 显示黑 / 显示白, 自动落子, 自动播放(大) and 自动变化图 drive the
+// candidate sides, the engine playing the checked sides and the players. 引擎对战 keeps its Java
+// place but is not available: this product has no engine-match capability for it.
 import { run, state, subscribe } from "../app";
 import { COMMANDS, setDisplay } from "../commands";
 import type { AutoAnalysisSettings } from "../contract/generated";
@@ -203,26 +203,37 @@ function autoPlayPanel(host: HTMLElement): void {
   label(p, t("BottomToolbar.detail.showWhite"), [25, 22, 40, 18]);
   showBlack.onchange = () => setCandidateSide(true, showBlack.checked);
   showWhite.onchange = () => setCandidateSide(false, showWhite.checked);
-  // 自动落子 with its sides and conditions: the engine playing the checked sides, not available.
+  // 自动落子 with its sides and conditions (BottomToolbar.java:1802-2006): the engine plays the
+  // checked sides once a condition is met; every change is SetAutoPlay.
   const autoMove = document.createElement("div");
   autoMove.className = "bb-detail-group";
   at(p, autoMove, [60, 0, 265, 44]);
-  check(autoMove, "toolbar.detail.autoMove", [0, 1, 20, 18]);
+  const autoOn = check(autoMove, "toolbar.detail.autoMove", [0, 1, 20, 18]);
   label(autoMove, t("BottomToolbar.detail.autoMove"), [20, 0, 60, 20]);
-  check(autoMove, "toolbar.detail.autoMoveBlack", [70, 1, 20, 18]).checked = true;
+  const autoBlack = check(autoMove, "toolbar.detail.autoMoveBlack", [70, 1, 20, 18]);
   label(autoMove, t("BottomToolbar.detail.black"), [90, 0, 20, 20]);
-  check(autoMove, "toolbar.detail.autoMoveWhite", [105, 1, 20, 18]).checked = true;
+  const autoWhite = check(autoMove, "toolbar.detail.autoMoveWhite", [105, 1, 20, 18]);
   label(autoMove, t("BottomToolbar.detail.white"), [125, 0, 20, 20]);
-  check(autoMove, "toolbar.detail.autoMoveTimeOn", [145, 1, 20, 18]).checked = true;
+  const timeOn = check(autoMove, "toolbar.detail.autoMoveTimeOn", [145, 1, 20, 18]);
   label(autoMove, t("BottomToolbar.detail.byTime"), [165, 0, 70, 20]);
-  digits(autoMove, "toolbar.detail.autoMoveTime", [230, 2, 33, 18]);
-  check(autoMove, "toolbar.detail.autoMovePlayoutsOn", [0, 23, 20, 18]);
+  const time = digits(autoMove, "toolbar.detail.autoMoveTime", [230, 2, 33, 18]);
+  const playoutsOn = check(autoMove, "toolbar.detail.autoMovePlayoutsOn", [0, 23, 20, 18]);
   label(autoMove, t("BottomToolbar.detail.totalPlayouts"), [20, 22, 60, 20]);
-  digits(autoMove, "toolbar.detail.autoMovePlayouts", [75, 23, 50, 18]);
-  check(autoMove, "toolbar.detail.autoMoveFirstPlayoutsOn", [125, 23, 20, 18]);
+  const playouts = digits(autoMove, "toolbar.detail.autoMovePlayouts", [75, 23, 50, 18]);
+  const firstOn = check(autoMove, "toolbar.detail.autoMoveFirstPlayoutsOn", [125, 23, 20, 18]);
   label(autoMove, t("BottomToolbar.detail.firstPlayouts"), [145, 22, 70, 20]);
-  digits(autoMove, "toolbar.detail.autoMoveFirstPlayouts", [212, 23, 50, 18]);
-  unavailablePanel(autoMove);
+  const first = digits(autoMove, "toolbar.detail.autoMoveFirstPlayouts", [212, 23, 50, 18]);
+  const sendAutoPlay = () => void run({ type: "Game", op: { type: "SetAutoPlay", enabled: autoOn.checked, settings: {
+    black: autoBlack.checked,
+    white: autoWhite.checked,
+    timeEnabled: timeOn.checked,
+    timeSeconds: fieldInt(time),
+    playoutsEnabled: playoutsOn.checked,
+    playouts: fieldInt(playouts),
+    firstPlayoutsEnabled: firstOn.checked,
+    firstPlayouts: fieldInt(first),
+  } } });
+  for (const control of [autoOn, autoBlack, autoWhite, timeOn, time, playoutsOn, playouts, firstOn, first]) control.addEventListener("change", sendAutoPlay);
   // chkAutoMain: autoPlayMain, reading txtAutoMain (seconds) at every step.
   const autoMain = check(p, "toolbar.detail.autoMain", [325, 1, 20, 18]);
   label(p, t("BottomToolbar.detail.autoMain"), [345, 0, 100, 18]);
@@ -243,6 +254,19 @@ function autoPlayPanel(host: HTMLElement): void {
   const sync = () => {
     showBlack.checked = boardUi.showBlack;
     showWhite.checked = boardUi.showWhite;
+    const auto = state.view?.settings.autoplay;
+    if (auto) {
+      autoOn.checked = auto.enabled;
+      autoBlack.checked = auto.settings.black;
+      autoWhite.checked = auto.settings.white;
+      timeOn.checked = auto.settings.timeEnabled;
+      playoutsOn.checked = auto.settings.playoutsEnabled;
+      firstOn.checked = auto.settings.firstPlayoutsEnabled;
+      for (const [field, n] of [[time, auto.settings.timeSeconds], [playouts, auto.settings.playouts], [first, auto.settings.firstPlayouts]] as const) {
+        const value = fieldText(n);
+        if (document.activeElement !== field && field.value !== value) field.value = value;
+      }
+    }
     autoMain.checked = toolbarAutoplay.mainRunning();
     autoSub.checked = state.view?.settings.display.autoReplayBranch ?? false;
     for (const [field, kind] of [[mainField, "main"], [subField, "sub"]] as const) {

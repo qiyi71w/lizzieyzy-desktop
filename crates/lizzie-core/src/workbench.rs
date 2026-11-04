@@ -25,6 +25,7 @@ mod hawkeye;
 mod importing;
 mod information;
 mod panels;
+mod play;
 mod quick;
 mod recovery;
 mod resources;
@@ -267,6 +268,8 @@ pub struct Workbench {
     problem_mark: Option<(u64, NodeId, NodeId)>,
     /// 超级鹰眼's 黑 / 白 boxes this session.
     hawkeye_session: hawkeye::HawkeyeSession,
+    /// 人机对弈 and the bottom toolbar's 自动落子.
+    play: play::PlayFlow,
 }
 
 impl Workbench {
@@ -382,6 +385,7 @@ impl Workbench {
             search: search::SearchFlow::default(),
             problem_mark: None,
             hawkeye_session: hawkeye::HawkeyeSession::default(),
+            play: play::PlayFlow::default(),
         }
     }
 
@@ -467,6 +471,14 @@ impl Workbench {
                     ticket,
                     message_key: message_key.to_string(),
                     detail: e.to_string(),
+                });
+            }
+            Ok(_) if self.game_active() => {
+                // A read started before the game began is not adopted into it.
+                self.outcome = Some(OpenOutcome::Failed {
+                    ticket,
+                    message_key: play::OPEN_IN_GAME.to_string(),
+                    detail: String::new(),
                 });
             }
             Ok(read) => {
@@ -637,7 +649,7 @@ impl Workbench {
             return false;
         };
         let save = self.saves.remove(at);
-        if self.batch_save_finished(ticket, &result) {
+        if self.batch_save_finished(ticket, &result) || self.play_save_finished(ticket, &result) {
             return true;
         }
         let automatic = self.auto_analysis_save_finished(ticket, result.is_ok());
@@ -911,6 +923,7 @@ impl Workbench {
         v.rules_prompt = self.rules_prompt.take();
         v.resources = self.take_resources_view(full);
         v.tuning = self.take_tuning_view(full);
+        (v.game_outcome, v.game_notices, v.byoyomi_voices) = self.take_play_outcome();
         v
     }
 
@@ -930,6 +943,7 @@ impl Workbench {
         v.rules_prompt = self.rules_prompt.clone();
         v.resources = Some(self.resources_view());
         v.tuning = Some(self.tuning_view());
+        (v.game_outcome, v.game_notices, v.byoyomi_voices) = self.play_outcome_copy();
         v
     }
 
@@ -985,6 +999,11 @@ impl Workbench {
                 active_frame_font_size: self.active_frame_font_size,
                 region: self.config.region,
                 tracking: self.config.tracking,
+                game: self.config.game.clone(),
+                autoplay: crate::api::AutoPlayView {
+                    enabled: self.play_autoplay_enabled(),
+                    settings: self.persisted.autoplay,
+                },
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
@@ -1017,6 +1036,10 @@ impl Workbench {
             tuning: None,
             editing: self.editing_view(),
             recovery: self.recovery_view(),
+            game: self.play_view(),
+            game_outcome: None,
+            game_notices: Vec::new(),
+            byoyomi_voices: Vec::new(),
         }
     }
 

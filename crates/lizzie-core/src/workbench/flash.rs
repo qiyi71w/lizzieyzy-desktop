@@ -91,6 +91,7 @@ pub(super) fn reuse_status_key(availability: LeaseAvailability) -> String {
         LeaseAvailability::MissingCapability => "missing_capability",
         LeaseAvailability::ExistingLease => "existing_lease",
         LeaseAvailability::EngineStateUnrestored => "engine_state_unrestored",
+        LeaseAvailability::PlayMode => "play_mode",
     };
     format!("AnalysisSettings.reuseStatus.{name}")
 }

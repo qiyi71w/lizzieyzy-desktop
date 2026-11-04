@@ -183,6 +183,13 @@ impl GameRecord {
                 result.clone_into(&mut self.info.result);
                 Ok(Applied::content(None))
             }
+            DocumentEdit::SetHandicap { handicap } => {
+                if self.info.handicap == *handicap {
+                    return Ok(Applied::unchanged(None));
+                }
+                self.info.handicap = *handicap;
+                Ok(Applied::content(None))
+            }
             DocumentEdit::Play {
                 at,
                 color,

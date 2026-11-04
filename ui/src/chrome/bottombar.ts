@@ -73,7 +73,8 @@ const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" 
   center: [
     { name: "firstButton", key: "|<", cls: "nav", run: () => navigate({ op: "First" }) },
     { name: "backward10", key: "<<", cls: "nav", run: () => COMMANDS["review.previous-ten"].run() },
-    { name: "backward1", key: "<", cls: "nav", run: () => COMMANDS["review.previous"].run() },
+    // backward1 (BottomToolbar.java:1423-1434): during a game it takes back a move pair (悔棋).
+    { name: "backward1", key: "<", cls: "nav", run: () => (state.view?.game ? void run({ type: "Game", op: { type: "Regret" } }) : COMMANDS["review.previous"].run()) },
     { name: "txtMoveNumber", key: "", located: "review.goto" },
     { name: "gotomove", key: "BottomToolbar.gotomove", run: () => gotoMove(moveInput) },
     { name: "forward1", key: ">", cls: "nav", run: () => COMMANDS["review.next"].run() },

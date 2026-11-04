@@ -1243,6 +1243,7 @@ impl Workbench {
             LeaseAvailability::MissingCapability => LeaseAvailabilityView::MissingCapability,
             LeaseAvailability::ExistingLease => LeaseAvailabilityView::ExistingLease,
             LeaseAvailability::EngineStateUnrestored => LeaseAvailabilityView::EngineStateUnrestored,
+            LeaseAvailability::PlayMode => LeaseAvailabilityView::PlayMode,
         };
         let unrestored = self
             .engines

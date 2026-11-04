@@ -28,6 +28,9 @@ use super::raw_net::{self, RawNetMode, RawNetView};
 use super::rules::KataRules;
 use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, Point, Stone, ROOT};
 
+mod game;
+pub use game::GenmoveReply;
+
 pub type InstanceId = u64;
 
 /// What a process produced.
@@ -184,6 +187,21 @@ pub enum RuntimeEvent {
     /// The focus points an instance's analysis stream searches changed: a stream with them was
     /// accepted, or the stream that searched them ended.
     FocusConfirmed { instance: InstanceId },
+    /// The answer to a command a play mode sent ([`Engines::game_send`]).
+    GameReply { game: u64, command: u64, ok: bool, text: String },
+    /// The engine's answer to a move request ([`Engines::genmove`]), for the position it was
+    /// asked at.
+    Genmove {
+        game: u64,
+        request: u64,
+        doc: u64,
+        node: NodeId,
+        stamp: u64,
+        reply: GenmoveReply,
+    },
+    /// The play mode's reservation is over: the engine confirmed its restore (`None`), or it is
+    /// gone or did not confirm in time.
+    GameReleased { game: u64, failure: Option<LeaseFailure> },
 }
 
 /// Whether the foreground engine can be borrowed (Java `ExclusiveGtpLeaseAvailability`).
@@ -196,6 +214,8 @@ pub enum LeaseAvailability {
     MissingCapability,
     ExistingLease,
     EngineStateUnrestored,
+    /// A play mode holds the engine (Java `PLAY_MODE`).
+    PlayMode,
 }
 
 /// How borrowing or giving back the foreground engine failed (Java
@@ -330,6 +350,10 @@ enum Purpose {
     Lease,
     /// The start-up probe `kata-analyze … focus pass 0`: its answer decides [`FocusCapability`].
     FocusProbe,
+    /// A play mode's command; its answer goes to the play mode.
+    Game,
+    /// A play mode's move request (`genmove` and its analysing forms).
+    Genmove,
 }
 
 /// What the engine will hold once it has processed every command sent so far: the anchor
@@ -618,6 +642,8 @@ pub struct Engines {
     /// The foreground engine's 强制计算区域 and 选点重点研究.
     region: Option<SearchRegion>,
     focus: Option<SearchFocus>,
+    /// The play mode holding the foreground engine.
+    game: Option<game::GameSeat>,
 }
 
 impl Instance {
@@ -720,6 +746,7 @@ impl Engines {
             pending: Vec::new(),
             region: None,
             focus: None,
+            game: None,
         }
     }
 
@@ -1272,6 +1299,7 @@ impl Engines {
             self.secondary = None;
             self.secondary_wish = None;
         }
+        self.game_instance_ended(id);
         if let Some(lease) = self.lease.take_if(|l| l.instance == id) {
             self.pending.push(RuntimeEvent::LeaseEnded {
                 lease: lease.id,
@@ -1435,6 +1463,7 @@ impl Engines {
             self.due(self.foreground),
             self.due(self.secondary),
             self.lease.as_ref().and_then(|l| l.deadline),
+            self.game_deadline(),
         ]
         .into_iter()
         .flatten()
@@ -1455,6 +1484,7 @@ impl Engines {
         if self.lease.as_ref().and_then(|l| l.deadline).is_some_and(|d| now >= d) {
             self.lease_timeout(&mut events);
         }
+        self.game_timeout(now, &mut events);
         events.append(&mut self.pending);
         events
     }
@@ -1489,7 +1519,10 @@ impl Engines {
         if inst.phase != Phase::Ready || inst.fence.is_some() || inst.unrestored.is_some() || self.leased(id) {
             return;
         }
-        let first_new = inst.next_id;
+        if self.game_pump(id) {
+            return;
+        }
+        let first_new = self.get(id).unwrap().next_id;
         match self.wish_of(id).cloned() {
             None => {
                 self.stop_stream(id);
@@ -2014,6 +2047,9 @@ impl Engines {
                         self.finish_raw(id, events);
                         return;
                     }
+                    Some(purpose @ (Purpose::Game | Purpose::Genmove)) => {
+                        self.game_answer(id, n, matches!(purpose, Purpose::Genmove), ok, text, events);
+                    }
                     _ => {}
                 }
                 let Some(inst) = self.get_mut(id) else { return };
@@ -2117,7 +2153,10 @@ impl Engines {
         let Some(inst) = self.foreground.and_then(|id| self.get(id)) else {
             return LeaseAvailability::NoForegroundEngine;
         };
-        if inst.unrestored.is_some() {
+        // A game is checked first (`foregroundEngineUseAvailability`, Leelaz.java:14903).
+        if self.game.is_some() {
+            LeaseAvailability::PlayMode
+        } else if inst.unrestored.is_some() {
             LeaseAvailability::EngineStateUnrestored
         } else if inst.phase != Phase::Ready {
             LeaseAvailability::EngineNotReady

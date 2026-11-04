@@ -462,6 +462,7 @@ impl Workbench {
     pub fn take_background_saves(&mut self) -> Vec<SaveJob> {
         let mut jobs = std::mem::take(&mut self.auto_analysis.jobs);
         jobs.extend(self.take_batch_saves());
+        jobs.extend(self.take_play_saves());
         jobs
     }
 

@@ -468,6 +468,14 @@ impl Workbench {
             self.engines.want(Some(self.foreground_target()), analyse);
             return;
         }
+        // A game decides whether its engine analyses; the secondary engine stays idle.
+        if let Some(analyse) = self.play_analyse() {
+            let analyse = analyse && !self.benchmark_running() && self.rules_permit_analysis();
+            self.engines.want_secondary(None, false);
+            self.engines.want(Some(self.analysis_target()), analyse);
+            self.check_rules_prompt();
+            return;
+        }
         // A running quick analysis leaves the foreground engine idle until it ends.
         let analyse = !self.paused
             && !self.benchmark_running()
@@ -507,8 +515,10 @@ impl Workbench {
         self.doc.format.is_none() && !rec.has_children_of_root() && rec.node(ROOT).setup.is_empty()
     }
 
-    /// `Board.reopenOnlyBoard` / `clear`: a new empty game of `size` replaces the open one.
+    /// `Board.reopenOnlyBoard` / `clear`: a new empty game of `size` replaces the open one; a
+    /// running game ends first.
     pub(super) fn reopen_empty_board(&mut self, size: BoardSize) {
+        self.play_document_closing();
         let id = self.next_doc;
         self.next_doc += 1;
         self.doc = super::Document {
@@ -757,6 +767,10 @@ impl Workbench {
     /// User pause / resume (`togglePonderMannul`). Resuming also restarts an analysis a limit
     /// stopped. Never written to disk.
     pub fn toggle_analysis(&mut self) -> Result<bool, ApiError> {
+        // Space during a game ends it (`togglePonderMannul` → `stopAiPlayingAndPolicy`).
+        if self.game_active() {
+            return Ok(self.game(crate::api::GameCommand::End)? == crate::api::CommandResult::Done);
+        }
         if self.auto_analysis_toggle_pause() { return Ok(true); }
         if self.quick_toggle_pause() || self.flash_toggle_pause() || self.whole_game_toggle_pause() || self.batch_toggle_pause() {
             self.limit_stop = None;
@@ -855,7 +869,7 @@ impl Workbench {
 
     /// Every komi change of the game: the document records it and the stored analysis of the
     /// game is discarded (`clearBestMovesAfter(start)`).
-    fn apply_komi(&mut self, komi: f64) -> bool {
+    pub(super) fn apply_komi(&mut self, komi: f64) -> bool {
         let recorded = matches!(self.edit_document(DocumentEdit::SetKomi { komi }), Ok(true));
         if !recorded && komi == self.komi {
             return false;
@@ -1087,7 +1101,13 @@ impl Workbench {
     /// When timed work is due next: engine protocol timers and quick analysis (see
     /// [`Self::engine_tick`]).
     pub fn engine_timer(&self) -> Option<std::time::Instant> {
-        [self.engines.next_tick(), self.quick_deadline(), self.whole_game_deadline(), self.tracking_deadline()]
+        [
+            self.engines.next_tick(),
+            self.quick_deadline(),
+            self.whole_game_deadline(),
+            self.tracking_deadline(),
+            self.play_deadline(),
+        ]
             .into_iter()
             .flatten()
             .min()
@@ -1101,7 +1121,8 @@ impl Workbench {
         let quick = self.quick_tick(now);
         let whole = self.whole_game_tick(now);
         let tracking = self.tracking_tick(now);
-        engines | quick | whole | tracking
+        let play = self.play_tick(now);
+        engines | quick | whole | tracking | play
     }
 
     /// Handles runtime events produced by operations outside engine output.
@@ -1115,7 +1136,8 @@ impl Workbench {
         for ev in events {
             changed = true;
             let Some(ev) = self
-                .quick_event(ev)
+                .play_event(ev)
+                .and_then(|ev| self.quick_event(ev))
                 .and_then(|ev| self.flash_event(ev))
                 .and_then(|ev| self.whole_game_event(ev))
                 .and_then(|ev| self.batch_event(ev))
@@ -1189,6 +1211,7 @@ impl Workbench {
                         continue;
                     };
                     let visits = result.visits;
+                    let played = (!secondary && self.play_wants_analysis(node)).then(|| result.clone());
                     let first_visits = result.candidates.first().map_or(0, |c| c.visits);
                     // The foreground engine's line is the current search: 选点重点研究 counts its
                     // candidates, and the tracked position shows its result.
@@ -1224,6 +1247,9 @@ impl Workbench {
                         else { self.check_limits(visits, elapsed); }
                     } else if running && self.secondary_limit_stop.is_none() {
                         self.check_secondary_limits(visits, elapsed);
+                    }
+                    if let Some(result) = played {
+                        self.play_analysis(&result, elapsed);
                     }
                 }
                 _ => {}

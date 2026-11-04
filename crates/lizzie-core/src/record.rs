@@ -441,6 +441,10 @@ pub enum DocumentEdit {
     SetResult {
         result: String,
     },
+    /// The handicap of a new game (`GameInfo.setHandicap`), saved as `HA`.
+    SetHandicap {
+        handicap: u32,
+    },
     /// A stone on `at`'s position (`Board.place`). `alternate`: the colour is the side to play
     /// (交替落子), so a click on the main continuation's point follows it.
     Play {

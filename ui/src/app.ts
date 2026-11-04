@@ -56,6 +56,8 @@ export function apply(view: WorkbenchView): void {
     // Files: JOptionPane "Error" with failedToOpenFile (LizzieFrame.java:17160-17165); pasted
     // records: the Message dialog with KifuLoad.failed + reason (4764-4777, Message.java:25).
     if (outcome.message_key === "KifuLoad.failed") message(t("Message.title"), `${t("KifuLoad.failed")}${outcome.detail}`, "error");
+    // openFile during a game (LizzieFrame.java:5134-5138): Utils.showMsg(openFileFailed.inGame).
+    else if (outcome.message_key === "LizzieFrame.openFileFailed.inGame") message(t("Message.title"), t("LizzieFrame.openFileFailed.inGame"));
     else message("Error", t("LizzieFrame.prompt.failedToOpenFile"), "error");
   }
   // SgfSaveCoordinator.showFailure: Utils.showMsg(saveFileFailed); a success shows nothing.
@@ -104,6 +106,12 @@ export function run(command: Command): Promise<CommandResult | null> {
           "LizzieFrame.setupModeRequiresRootOnly": t("LizzieFrame.setupModeRequiresRootOnly"),
           "LizzieFrame.setupModeEngineNotReady": t("LizzieFrame.setupModeEngineNotReady"),
           "SpinAndMirror.noneSquareError": t("SpinAndMirror.noneSquareError"),
+          // 人机对弈 refusals (the game's gate and the 新对局 dialogs).
+          "LizzieFrame.waitEngineLoadingHint": t("LizzieFrame.waitEngineLoadingHint"),
+          "LizzieFrame.openFileFailed.inGame": t("LizzieFrame.openFileFailed.inGame"),
+          "NewAnaGameDialog.wrongAiMoveSettings": t("NewAnaGameDialog.wrongAiMoveSettings"),
+          "NewAnaGameDialog.noEngineHint": t("NewAnaGameDialog.noEngineHint"),
+          "AnalysisSettings.reuseStatus.play_mode": t("AnalysisSettings.reuseStatus.play_mode"),
         };
         const text = messages[result.message_key] ?? t(result.message_key);
         void message(t("Message.title"), text, "warning");

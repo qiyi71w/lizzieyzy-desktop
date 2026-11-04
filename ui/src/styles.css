@@ -102,6 +102,17 @@ body {
   border-color: rgb(205, 209, 214);
   background: rgb(246, 246, 246);
 }
+/* AppleStyleSupport.markDanger (结束对局, 认输): the bottom bar's danger colours. */
+.tb-pill.danger {
+  border-color: rgb(240, 180, 190);
+  background: rgb(253, 235, 238);
+}
+/* byoyomiTime: Font(sysDefaultFontName, BOLD, 15). */
+.tb-label.tb-clock {
+  font-size: 15px;
+  font-weight: bold;
+  white-space: pre;
+}
 .tb-label {
   font-size: 12px;
   white-space: nowrap;

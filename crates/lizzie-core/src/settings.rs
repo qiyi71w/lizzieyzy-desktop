@@ -289,6 +289,226 @@ fn stored_whole_game_visits<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u3
     Ok(WholeGameSettings::from_stored(value.as_i64().unwrap_or(1000)).deep_visits)
 }
 
+/// How the engine's time is set for a Genmove game (`DesktopTimeControl.Mode`; Java keeps it as
+/// `ui.advance-time-settings`, `ui.kata-time-settings` and `ui.genmove-game-notime`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum AiTimeMode {
+    /// AI每手用时: `kata-time_settings none` + `kata-set-param maxTime`, else `time_settings 0 s 1`.
+    #[default]
+    Fixed,
+    /// 自定义高级时间: the user's GTP time command, sent as written.
+    Advanced,
+    /// KataGo专用时间: `kata-time_settings byoyomi|fischer|absolute`.
+    KataGo,
+    /// 引擎自带时间: no time command.
+    EngineOwned,
+}
+
+/// `ui.kata-time-type`: 0 读秒, 1 加秒, 2 包干.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum KataTimeType {
+    #[default]
+    Byoyomi,
+    Fischer,
+    Absolute,
+}
+
+/// The engine's clock of a Genmove game (NewGameDialog AI time group, 修改AI用时).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AiTimeSettings {
+    pub mode: AiTimeMode,
+    /// `leelaz.max-game-thinking-time-seconds`.
+    pub fixed_seconds: u32,
+    /// `ui.advance-time-txt`.
+    pub advanced: String,
+    pub kata_type: KataTimeType,
+    /// `ui.kata-time-main-time-mins`.
+    pub kata_main_minutes: u32,
+    /// `ui.kata-time-byoyomi-secs`.
+    pub kata_byoyomi_seconds: u32,
+    /// `ui.kata-time-byoyomi-times`.
+    pub kata_byoyomi_times: u32,
+    /// `ui.kata-time-fisher-increment-secs`.
+    pub kata_fischer_increment: u32,
+}
+
+impl Default for AiTimeSettings {
+    fn default() -> Self {
+        Self {
+            mode: AiTimeMode::Fixed,
+            fixed_seconds: 2,
+            advanced: "time_settings 10 2 1".to_string(),
+            kata_type: KataTimeType::Byoyomi,
+            kata_main_minutes: 10,
+            kata_byoyomi_seconds: 5,
+            kata_byoyomi_times: 3,
+            kata_fischer_increment: 5,
+        }
+    }
+}
+
+/// AI随机开局 (SetAnaGameRandomStart): within the first `moves` moves the engine picks among
+/// candidates close to the best one.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct RandomStartSettings {
+    /// `ui.enable-anagame-randomstart`.
+    pub enabled: bool,
+    /// `ui.anagame-random-move`.
+    pub moves: u32,
+    /// `ui.anagame-random-winratediff` (percentage points).
+    pub winrate_diff: f64,
+    /// `ui.anagame-random-playoutdiff` (percent of the best candidate's playouts).
+    pub playouts_diff: f64,
+}
+
+impl Default for RandomStartSettings {
+    fn default() -> Self {
+        Self { enabled: false, moves: 20, winrate_diff: 0.5, playouts_diff: 5.0 }
+    }
+}
+
+/// 人机对弈 (NewGameDialog / NewAnaGameDialog / 修改AI用时): what the dialogs show and save.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct GameSettings {
+    /// `ui.check-play-black`: 我执黑 (else 我执白).
+    pub play_black: bool,
+    /// `ui.check-continue-play`: 接着当前局面下.
+    pub continue_play: bool,
+    /// `ui.new-game-handicap`: 0 or 2–9.
+    pub handicap: u32,
+    /// `ui.use-free-handicap`: KataGo chooses the handicap points (`place_free_handicap`).
+    pub free_handicap: bool,
+    /// `ui.new-game-komi`.
+    pub komi: f64,
+    /// `ui.limit-my-time`: 限制我的用时.
+    pub limit_my_time: bool,
+    /// `ui.my-save-time` index: 无, 5, 10, 20, 30, 60, 120, 180 minutes.
+    pub my_save_time: u8,
+    /// `ui.my-byoyomo-seconds` index: 无, 10, 15, 20, 30, 40, 60, 120 seconds.
+    pub my_byoyomi_seconds: u8,
+    /// `ui.my-byoyomo-times` index: 1, 2, 3, 5, 10, 20.
+    pub my_byoyomi_times: u8,
+    pub ai_time: AiTimeSettings,
+    /// `ui.kata-visits-playouts-settings`: KataGo `maxVisits` / `maxPlayouts` for the game.
+    pub kata_limits: bool,
+    /// `ui.kata-visits-txt` (≤ 0: unlimited).
+    pub kata_visits: i64,
+    /// `ui.kata-playouts-txt` (≤ 0: unlimited).
+    pub kata_playouts: i64,
+    /// `leelaz.play-ponder`: the engine keeps thinking on the human's turn.
+    pub play_ponder: bool,
+    /// `ui.use-play-mode`: 对弈模式 hides the analysis while the game runs.
+    pub use_play_mode: bool,
+    /// `ui.new-game-show-black` / `ui.new-game-show-white`: candidates shown during the game.
+    pub show_black: bool,
+    pub show_white: bool,
+    /// `ui.auto-save-played-game`: the finished game is saved to `MyGames`.
+    pub auto_save: bool,
+    /// `ui.use-pure-net-in-game`: AI只使用纯网络思考 (分析模式).
+    pub pure_net: bool,
+    /// `ui.anagame-resign-start-move`, `ui.anagame-resign-move`, `ui.anagame-resign-percent`.
+    pub resign_start_move: u32,
+    pub resign_move: u32,
+    pub resign_percent: f64,
+    /// `ui.disable-wrn-in-game`: 对局时不使用分析广度拓展 (KataGo `analysisWideRootNoise` 0).
+    pub disable_wrn: bool,
+    pub random_start: RandomStartSettings,
+}
+
+impl Default for GameSettings {
+    fn default() -> Self {
+        Self {
+            play_black: true,
+            continue_play: false,
+            handicap: 0,
+            free_handicap: false,
+            komi: 7.5,
+            limit_my_time: false,
+            my_save_time: 3,
+            my_byoyomi_seconds: 4,
+            my_byoyomi_times: 2,
+            ai_time: AiTimeSettings::default(),
+            kata_limits: false,
+            kata_visits: -1,
+            kata_playouts: -1,
+            play_ponder: true,
+            use_play_mode: true,
+            show_black: false,
+            show_white: false,
+            auto_save: true,
+            pure_net: false,
+            resign_start_move: 150,
+            resign_move: 2,
+            resign_percent: 5.0,
+            disable_wrn: true,
+            random_start: RandomStartSettings::default(),
+        }
+    }
+}
+
+impl GameSettings {
+    /// `Config.getMySaveTime`: minutes, -1 for 无.
+    pub fn save_minutes(&self) -> i32 {
+        [-1, 5, 10, 20, 30, 60, 120, 180].get(usize::from(self.my_save_time)).copied().unwrap_or(-1)
+    }
+
+    /// `Config.getMyByoyomiSeconds`: seconds, -1 for 无.
+    pub fn byoyomi_seconds(&self) -> i32 {
+        [-1, 10, 15, 20, 30, 40, 60, 120].get(usize::from(self.my_byoyomi_seconds)).copied().unwrap_or(-1)
+    }
+
+    /// `Config.getMyByoyomiTimes`.
+    pub fn byoyomi_times(&self) -> i32 {
+        [1, 2, 3, 5, 10, 20].get(usize::from(self.my_byoyomi_times)).copied().unwrap_or(1)
+    }
+}
+
+/// The bottom detailed toolbar's 自动落子 group (Java `persistedUi.toolbar-parameter` 9–16): which
+/// sides the engine plays and when it plays. A value ≤ 0 is an empty field. The 自动落子 box itself
+/// is session state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AutoPlaySettings {
+    pub black: bool,
+    pub white: bool,
+    /// 按时间(秒).
+    pub time_enabled: bool,
+    pub time_seconds: i32,
+    /// 总计算量.
+    pub playouts_enabled: bool,
+    pub playouts: i32,
+    /// 首位计算量.
+    pub first_playouts_enabled: bool,
+    pub first_playouts: i32,
+}
+
+impl Default for AutoPlaySettings {
+    fn default() -> Self {
+        Self {
+            black: true,
+            white: true,
+            time_enabled: true,
+            time_seconds: -1,
+            playouts_enabled: false,
+            playouts: -1,
+            first_playouts_enabled: false,
+            first_playouts: -1,
+        }
+    }
+}
+
+impl AutoPlaySettings {
+    /// Whether any 落子条件 is set (`NewAnaGameDialog.wrongAiMoveSettings` otherwise).
+    pub fn has_condition(&self) -> bool {
+        (self.time_enabled && self.time_seconds > 0)
+            || (self.playouts_enabled && self.playouts > 0)
+            || (self.first_playouts_enabled && self.first_playouts > 0)
+    }
+}
+
 /// 超级鹰眼 分支: which line it reads (`moveList-selected-branch`: 0 主干, 1 当前).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum HawkeyeBranch {
@@ -1060,6 +1280,8 @@ pub struct Config {
     pub region: RegionSettings,
     /// 选点重点研究.
     pub tracking: TrackingSettings,
+    /// 人机对弈.
+    pub game: GameSettings,
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).
@@ -1136,6 +1358,8 @@ pub struct Persisted {
     /// Independent boards use physical outer-window bounds (Java's four-element arrays).
     pub independent_main_board: Option<WindowPlacement>,
     pub independent_sub_board: Option<WindowPlacement>,
+    /// The bottom detailed toolbar's 自动落子 sides and conditions.
+    pub autoplay: AutoPlaySettings,
 }
 
 /// File locations inside the product's per-user data directories.

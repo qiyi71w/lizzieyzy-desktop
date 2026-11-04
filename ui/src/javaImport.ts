@@ -108,6 +108,10 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   SuggestionsFrame: "Menu.SuggestionList",
   ExtraMode: "Menu.layoutMode",
   AutoAnalysis: "StartAnaDialog.title",
+  HumanEngineGame: "Menu.newGame",
+  GameAiTime: "SetAiTimes.title",
+  GameRandomStart: "SetAnaGameRandomStart.title",
+  AutoPlay: "BottomToolbar.detail.autoMove",
   WholeGameVisits: "WholeGameAnalysis.visits.label",
   Hawkeye: "Menu.hawkEye",
   // Menu.java:1163 界面 > 面板, 1427 恢复默认面板尺寸, 4509 底部工具栏.

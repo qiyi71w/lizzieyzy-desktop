@@ -410,6 +410,142 @@ pub enum Command {
     Batch {
         op: BatchCommand,
     },
+    /// 人机对弈 (棋局 menu, 新对局 dialogs, N / Alt+N / Enter / Alt+Enter / P / Alt+, and the
+    /// double-menu game buttons) and the bottom toolbar's 自动落子.
+    Game {
+        op: GameCommand,
+    },
+}
+
+/// 人机对弈's two modes (`isPlayingAgainstLeelaz` / `isAnaPlayingAgainstLeelaz`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum GameKind {
+    /// Genmove模式: the engine chooses its move (`genmove`).
+    Genmove,
+    /// 分析模式: the engine's analysis is played when a 落子条件 is met.
+    Analysis,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum GameCommand {
+    /// The 新对局 dialog's 确定: `settings` (and for 分析模式 the 落子条件 `autoplay`) are saved,
+    /// engine `engine` becomes the foreground engine when it is another one, and the game is
+    /// accepted; it starts once the engine is ready and set up.
+    Start {
+        kind: GameKind,
+        settings: crate::settings::GameSettings,
+        autoplay: Option<crate::settings::AutoPlaySettings>,
+        engine: Option<u32>,
+    },
+    /// 人机续弈 from the current position. `human` plays that colour; `None` (Enter / Alt+Enter)
+    /// lets the engine play the side to move now.
+    Continue {
+        kind: GameKind,
+        human: Option<Stone>,
+    },
+    /// 暂停 / 继续.
+    Pause,
+    /// 认输: the engine wins (`Leelaz.whiteWin` / `Leelaz.blackWin`).
+    Resign,
+    /// 结束对局 / 终止人机对局 (Space).
+    End,
+    /// 悔棋: back to the human's previous turn.
+    Regret,
+    /// 修改AI用时: the engine's time, 后台思考 and the 分析模式 落子条件, applied to a running game.
+    SetAiTime {
+        time: crate::settings::AiTimeSettings,
+        ponder: bool,
+        autoplay: crate::settings::AutoPlaySettings,
+    },
+    /// AI随机开局's 确定.
+    SetRandomStart {
+        settings: crate::settings::RandomStartSettings,
+    },
+    /// Alt+, (`LizzieFrame.genmove`): the engine plays one move for the side to move.
+    EngineMove,
+    /// The bottom toolbar's 自动落子 box (session) and its sides and conditions (remembered).
+    SetAutoPlay {
+        enabled: bool,
+        settings: crate::settings::AutoPlaySettings,
+    },
+}
+
+/// A game's progress. `Starting` is accepted, not started: the engine is still loading or
+/// answering the game's setup, and the board takes no move.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum GamePhase {
+    Starting,
+    Playing,
+    Paused,
+    /// Over: the engine is being given back; other modes wait until it confirms.
+    Ending,
+}
+
+/// The human's clock (限制我的用时): main time, then 读秒 seconds and periods (-1: none).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub struct GameClockView {
+    pub minutes: i32,
+    pub seconds: i32,
+    pub byo_seconds: i32,
+    pub byo_times: i32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct GameView {
+    pub id: u64,
+    pub kind: GameKind,
+    pub phase: GamePhase,
+    pub human: Stone,
+    /// The engine is choosing its move.
+    pub thinking: bool,
+    /// 对弈模式 (`isInPlayMode`): analysis hidden while the game runs.
+    pub play_mode: bool,
+    /// Candidates shown when the game started (显示黑/白棋候选点; both off for 续弈).
+    pub show_black: bool,
+    pub show_white: bool,
+    /// AI只使用纯网络思考.
+    pub pure_net: bool,
+    pub clock: Option<GameClockView>,
+}
+
+/// How a game ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum GameEnd {
+    EngineResigned,
+    HumanResigned,
+    HumanTimeout,
+    /// Ended by the user with a result recorded (终局点目 确认结果).
+    Completed,
+    /// Ended by the user without a result, or by another record replacing the game.
+    Terminated,
+    /// The engine was lost or did not confirm its restore.
+    Retired,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct GameOutcomeView {
+    pub game: u64,
+    pub end: GameEnd,
+    /// `RE` written by the game (B+R, W+R, B+T, W+T).
+    pub result: Option<String>,
+    /// Where the finished game is saved (自动保存棋谱), once the save is under way.
+    pub saved: Option<String>,
+}
+
+/// A Java message of 人机对弈 (`message_key` text, `prefix` before it when set, e.g. the engine
+/// name of `Leelaz.resign`).
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct GameNotice {
+    pub message_key: String,
+    pub prefix: Option<String>,
+}
+
+/// The bottom toolbar's 自动落子.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, TS)]
+pub struct AutoPlayView {
+    pub enabled: bool,
+    pub settings: crate::settings::AutoPlaySettings,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, TS)]
@@ -841,6 +977,10 @@ pub struct SettingsView {
     pub region: crate::settings::RegionSettings,
     /// 选点重点研究.
     pub tracking: crate::settings::TrackingSettings,
+    /// 人机对弈 dialog settings.
+    pub game: crate::settings::GameSettings,
+    /// The bottom toolbar's 自动落子.
+    pub autoplay: AutoPlayView,
 }
 
 /// 快速曲线轻量模型 card (`KataGoAutoSetupDialog`, `QuickAnalysisModelStatus`).
@@ -950,6 +1090,8 @@ pub enum LeaseAvailabilityView {
     MissingCapability,
     ExistingLease,
     EngineStateUnrestored,
+    /// 人机对弈 holds the engine (`AnalysisSettings.reuseStatus.play_mode`).
+    PlayMode,
 }
 
 /// Why the foreground engine was not given back (`LizzieFrame.foregroundUnrestored.reason.*`).
@@ -1055,6 +1197,14 @@ pub struct WorkbenchView {
     pub engine_failure: Option<EngineFailureView>,
     /// A notice about analysis, once.
     pub engine_notice: Option<EngineNotice>,
+    /// The running 人机对弈 (also while it gives the engine back).
+    pub game: Option<GameView>,
+    /// How the last game ended, once.
+    pub game_outcome: Option<GameOutcomeView>,
+    /// 人机对弈 messages, once each, in order.
+    pub game_notices: Vec<GameNotice>,
+    /// 读秒 countdown voices to play (`sound/<n>.wav`), once each.
+    pub byoyomi_voices: Vec<u8>,
     /// The session rules could not be applied to the foreground engine; ask whether to analyse
     /// with the engine's current rules (`KifuRules.failurePrompt`), once.
     pub rules_prompt: Option<RulesPromptView>,
@@ -1244,6 +1394,24 @@ pub enum ImportTarget {
     /// 局部精析: `ui.analysis-start-move`, `analysis-end-move`.
     FlashRange,
     AutoAnalysis,
+    /// 人机对弈: `ui.check-play-black`, `check-continue-play`, `new-game-handicap`,
+    /// `use-free-handicap`, `new-game-komi`, `limit-my-time`, `my-save-time`,
+    /// `my-byoyomo-seconds`, `my-byoyomo-times`, `kata-visits-playouts-settings`,
+    /// `kata-visits-txt`, `kata-playouts-txt`, `use-play-mode`, `new-game-show-black`,
+    /// `new-game-show-white`, `auto-save-played-game`, `use-pure-net-in-game`,
+    /// `anagame-resign-start-move`, `anagame-resign-move`, `anagame-resign-percent`,
+    /// `disable-wrn-in-game`; `leelaz.play-ponder`.
+    HumanEngineGame,
+    /// AI用时: `ui.advance-time-settings`, `advance-time-txt`, `kata-time-settings`,
+    /// `kata-time-type`, `kata-time-main-time-mins`, `kata-time-byoyomi-secs`,
+    /// `kata-time-byoyomi-times`, `kata-time-fisher-increment-secs`, `genmove-game-notime`;
+    /// `leelaz.max-game-thinking-time-seconds`.
+    GameAiTime,
+    /// AI随机开局: `ui.enable-anagame-randomstart`, `anagame-random-move`,
+    /// `anagame-random-winratediff`, `anagame-random-playoutdiff`.
+    GameRandomStart,
+    /// 自动落子: `persist:ui-persist.toolbar-parameter` slots 9–16.
+    AutoPlay,
     /// 整盘精析: `ui.whole-game-analysis-deep-visits`.
     WholeGameVisits,
     /// 强制计算区域: `ui.select-allow-moves`, `select-avoid-moves`, `select-allow-custom-moves`,
