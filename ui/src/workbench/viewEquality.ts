@@ -43,6 +43,7 @@ const CANDIDATE: Fields<CandidateView> = {
   shown: sameShown,
   side_to_move: sameShown,
   ownership: sameOwnership,
+  kept: same,
 };
 const sameCandidates = sameList((a: CandidateView, b: CandidateView) => sameBy(CANDIDATE, a, b));
 

@@ -252,6 +252,7 @@ fn candidate(at: &str, order: u32, visits: u64, winrate: f64, score: Option<f64>
         shown: Default::default(),
         side_to_move: Default::default(),
         ownership: None,
+        kept: false,
     }
 }
 

@@ -1745,6 +1745,10 @@ pub struct CandidateView {
     /// KataGo `movesOwnership` after this move, Black-positive, row-major from the top-left
     /// (按选点显示评估); absent unless requested and reported.
     pub ownership: Option<Vec<f64>>,
+    /// Kept among the candidates beyond 最大候选点数 (`MoveData.lastTimeUnlimited`,
+    /// BoardData.tryToLimitMoves): it was within the limit at the node's previous result and is
+    /// still searched (more visits, or within 3 seconds).
+    pub kept: bool,
 }
 
 /// One move's result against the analysis of the position it was played in (Java

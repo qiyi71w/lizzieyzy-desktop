@@ -1,11 +1,14 @@
 //! 棋力评估 through the public `Workbench::strength` command and view, with saved analysis read
 //! from SGF and a controlled HumanSL 40 policy process.
-use lizzie_core::api::{CommandResult, OpenSource, StrengthCommand, StrengthManualOutcome, StrengthReport};
+use lizzie_core::api::{
+    CommandResult, OpenSource, StrengthCommand, StrengthManualOutcome, StrengthReport, TrackingCommand,
+};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
 use lizzie_core::formats;
+use lizzie_core::record::Point;
 use lizzie_core::record::RecordFormat;
 use lizzie_core::settings::{self, Config, Storage};
 use lizzie_core::workbench::{OpenOrigin, Workbench};
@@ -532,6 +535,64 @@ fn ordinary_estimate_ignores_candidates_beyond_the_suggestion_limit() {
     // not read: the move is no candidate and its loss is the positions' difference, 0.5 + 2.
     assert_eq!((s.ai_rank, s.first_choice), (999, false));
     assert_eq!(s.score_loss, Some(2.5));
+}
+
+#[test]
+fn a_candidate_kept_beyond_the_limit_still_counts_as_one() {
+    let mut f = fixture();
+    open(&mut f.wb, "(;SZ[19]KM[7.5];B[pd])");
+    let id = foreground(&mut f);
+    let mut limits = f.wb.config().engine.analysis.clone();
+    limits.limit_max_suggestion = 1;
+    f.wb.set_analysis_settings(limits).unwrap();
+    serve(&mut f, id);
+    // Q16 leads, then drops to second while its search still grows: BoardData.tryToLimitMoves
+    // keeps it (lastTimeUnlimited), so the estimate takes the move as the second candidate.
+    f.wb.engine_input(id, EngineInput::Stdout("info move Q16 visits 60 winrate 0.55 scoreLead 2 prior 0.2 order 0 pv Q16 info move D4 visits 40 winrate 0.5 scoreLead 1 prior 0.1 order 1 pv D4".into()));
+    f.wb.engine_input(id, EngineInput::Stdout("info move D4 visits 100 winrate 0.56 scoreLead 2 prior 0.2 order 0 pv D4 info move Q16 visits 70 winrate 0.54 scoreLead 1.5 prior 0.1 order 1 pv Q16".into()));
+    assert!(f.wb.view(false).analysis.unwrap().candidates[1].kept);
+    f.wb.navigate(Navigation::Forward(1));
+    serve(&mut f, id);
+    f.wb.engine_input(
+        id,
+        EngineInput::Stdout("info move D4 visits 80 winrate 0.52 scoreLead 0.5 prior 0.2 order 0 pv D4".into()),
+    );
+    let s = &report(&mut f.wb).black.samples[0];
+    assert_eq!((s.ai_rank, s.first_choice), (1, false));
+    assert_eq!(s.score_loss, Some(0.5), "the candidates' difference, 2 - 1.5");
+}
+
+#[test]
+fn a_tracked_candidate_beyond_the_limit_counts_while_its_tracking_lasted() {
+    // 选点重点研究 on Q16 (pd), third of a limit of one: the result that comes while it is tracked
+    // keeps it in the node's candidates (tryToLimitMoves' attended points), and leaving the
+    // position keeps that; clearing the point first drops it (refreshFocusCandidateVisibility).
+    for (clear, expected) in [(false, (1, Some(0.5))), (true, (999, Some(2.5)))] {
+        let mut f = fixture();
+        open(&mut f.wb, "(;SZ[19]KM[7.5];B[pd])");
+        let id = foreground(&mut f);
+        let mut limits = f.wb.config().engine.analysis.clone();
+        limits.limit_max_suggestion = 1;
+        f.wb.set_analysis_settings(limits).unwrap();
+        serve(&mut f, id);
+        let q16 = Point { x: 15, y: 3 };
+        assert!(f.wb.tracking(TrackingCommand::Track { point: q16 }).unwrap());
+        serve(&mut f, id);
+        f.wb.engine_input(id, EngineInput::Stdout("info move D4 visits 100 winrate 0.56 scoreLead 2 prior 0.2 order 0 pv D4 info move C3 visits 60 winrate 0.55 scoreLead 1.8 prior 0.1 order 1 pv C3 info move Q16 visits 40 winrate 0.54 scoreLead 1.5 prior 0.1 order 2 pv Q16".into()));
+        if clear {
+            assert!(f.wb.tracking(TrackingCommand::Clear).unwrap());
+            serve(&mut f, id);
+        }
+        f.wb.navigate(Navigation::Forward(1));
+        serve(&mut f, id);
+        f.wb.engine_input(
+            id,
+            EngineInput::Stdout("info move D4 visits 80 winrate 0.52 scoreLead 0.5 prior 0.2 order 0 pv D4".into()),
+        );
+        assert!(f.wb.view(false).focus.points.is_empty());
+        let s = &report(&mut f.wb).black.samples[0];
+        assert_eq!((s.ai_rank, s.score_loss), expected, "cleared first: {clear}");
+    }
 }
 
 #[test]

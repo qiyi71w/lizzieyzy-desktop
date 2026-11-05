@@ -12,6 +12,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use super::Workbench;
 use crate::api::{
@@ -28,7 +29,7 @@ use crate::engine::runtime::{
     Bootstrap, CheckedLaunch, ConsoleKind, EngineFailure, EngineInput, InstanceId, LaunchCheck, Phase, RulesOutcome,
     RuntimeEvent, Target, UserCommandError,
 };
-use crate::record::{BoardSize, DocumentEdit, GameRecord, NodeId, NodeKind, Position, Stone, ROOT};
+use crate::record::{BoardSize, DocumentEdit, GameRecord, NodeId, NodeKind, Point, Position, Stone, ROOT};
 use crate::sanitize::sanitize;
 use crate::settings::ExtraMode;
 use crate::viewpoint::{ShownValues, Viewpoint};
@@ -63,7 +64,16 @@ pub(super) struct AnalysisStore {
     /// Results the next live result replaces even with fewer visits (`BoardData.isChanged`): a
     /// 强制计算区域 changed the search they were made with.
     stale: HashSet<NodeId>,
+    /// When each kept candidate's search last grew (`MoveData.lastTimeUnlimitedTime`).
+    kept_since: HashMap<NodeId, HashMap<Option<Point>, Instant>>,
+    /// Candidates beyond 最大候选点数 that stayed in the node's `bestMoves` because 选点重点研究
+    /// tracked them when the result came (`tryToLimitMoves`' attended points); the board does
+    /// not draw them for that.
+    attended: HashMap<NodeId, Vec<Point>>,
 }
+
+/// How long a kept candidate whose visits stopped growing stays kept.
+const KEPT_FOR: Duration = Duration::from_secs(3);
 
 impl AnalysisStore {
     pub(super) fn reset(&mut self, doc: u64) {
@@ -72,6 +82,8 @@ impl AnalysisStore {
         self.ownership.clear();
         self.metadata.clear();
         self.stale.clear();
+        self.kept_since.clear();
+        self.attended.clear();
     }
 
     pub(super) fn get(&self, rec: &GameRecord, node: NodeId) -> Option<&NodeAnalysisView> {
@@ -95,6 +107,93 @@ impl AnalysisStore {
         };
     }
 
+    /// An engine's new result for the node (`BoardData.tryToSetBestMoves`): beyond `limit`
+    /// candidates (0 = none) the one just past it stays a candidate while it was one of the node's
+    /// previous candidates and is still searched, and so do `tracked` points (`tryToLimitMoves`);
+    /// the others are not. Results are in candidate order.
+    pub(super) fn update(
+        &mut self,
+        node: NodeId,
+        stamp: u64,
+        mut view: NodeAnalysisView,
+        ownership: Option<Vec<f64>>,
+        limit: usize,
+        tracked: &[Point],
+    ) {
+        let previous = self.nodes.get(&node).filter(|(s, _)| *s == stamp).map(|(_, v)| v);
+        let since = self.kept_since.remove(&node).unwrap_or_default();
+        let mut kept = HashMap::new();
+        let mut attended = Vec::new();
+        if limit > 0 && view.candidates.len() > limit {
+            let now = Instant::now();
+            // The previous candidates as the estimate and the tables saw them (`bestMoves`).
+            let last: Vec<&CandidateView> = previous.map_or_else(Vec::new, |p| {
+                p.candidates.iter().enumerate().filter(|(i, c)| *i < limit || c.kept).map(|(_, c)| c).collect()
+            });
+            for c in &view.candidates[limit..] {
+                if let Some(p) = c.point.filter(|p| tracked.contains(p)) {
+                    attended.push(p);
+                }
+                let mut keep = None;
+                if (c.order as usize) < limit + 1 {
+                    for (s, before) in last.iter().enumerate().take(limit + 1) {
+                        if (s >= limit && !before.kept) || c.point != before.point {
+                            continue;
+                        }
+                        let time = since.get(&before.point).copied();
+                        if c.visits > before.visits || !before.kept {
+                            keep = Some(now);
+                        } else if let Some(t) = time.filter(|t| now.duration_since(*t) < KEPT_FOR) {
+                            keep = Some(t);
+                        }
+                    }
+                }
+                if let Some(t) = keep {
+                    kept.insert(c.point, t);
+                }
+            }
+        }
+        for c in &mut view.candidates {
+            c.kept = kept.contains_key(&c.point);
+        }
+        self.insert(node, stamp, view, ownership);
+        if !kept.is_empty() {
+            self.kept_since.insert(node, kept);
+        }
+        if attended.is_empty() {
+            self.attended.remove(&node);
+        } else {
+            self.attended.insert(node, attended);
+        }
+    }
+
+    /// The points [`Self::update`] kept beyond the limit because they were tracked.
+    pub(super) fn attended(&self, node: NodeId) -> &[Point] {
+        self.attended.get(&node).map_or(&[], Vec::as_slice)
+    }
+
+    /// `refreshFocusCandidateVisibility` after the tracked points changed: the node's result is
+    /// limited again with no previous one, so nothing stays kept and only the points tracked now
+    /// stay beyond `limit`.
+    pub(super) fn refocus(&mut self, node: NodeId, limit: usize, tracked: &[Point]) {
+        let Some((_, view)) = self.nodes.get_mut(&node) else {
+            return;
+        };
+        for c in &mut view.candidates {
+            c.kept = false;
+        }
+        self.kept_since.remove(&node);
+        let attended: Vec<Point> = match limit {
+            0 => Vec::new(),
+            _ => view.candidates.iter().skip(limit).filter_map(|c| c.point.filter(|p| tracked.contains(p))).collect(),
+        };
+        if attended.is_empty() {
+            self.attended.remove(&node);
+        } else {
+            self.attended.insert(node, attended);
+        }
+    }
+
     /// Drops results whose node was removed or edited.
     pub(super) fn retain_valid(&mut self, rec: &GameRecord) {
         self.nodes
@@ -103,6 +202,8 @@ impl AnalysisStore {
         self.ownership.retain(|node, _| nodes.contains_key(node));
         self.metadata.retain(|node, _| nodes.contains_key(node));
         self.stale.retain(|node| nodes.contains_key(node));
+        self.kept_since.retain(|node, _| nodes.contains_key(node));
+        self.attended.retain(|node, _| nodes.contains_key(node));
     }
 
     /// `clearBestMovesAfter(start)`: every stored result gives way to the next live one.
@@ -230,6 +331,7 @@ pub(super) fn node_analysis(
                 shown: ShownValues::default(),
                 side_to_move: ShownValues::default(),
                 ownership: c.ownership.map(|o| black_ownership(o, to_play)),
+                kept: false,
             })
             .collect(),
         black: ShownValues::default(),
@@ -1014,6 +1116,12 @@ impl Workbench {
         Ok(true)
     }
 
+    /// 最大候选点数 as the stored candidates follow it (`tryToLimitMoves`); 0 keeps every one.
+    pub(super) fn suggestion_limit(&self) -> usize {
+        let limit = self.config.engine.analysis.limit_max_suggestion as usize;
+        if self.config.display.no_sugg_circle { 0 } else { limit }
+    }
+
     /// Puts committed analysis settings into effect: the engine update interval and, for a new
     /// variation length, the previews of stored analysis.
     pub(super) fn analysis_settings_changed(&mut self, previous: &AnalysisSettings) {
@@ -1249,6 +1357,9 @@ impl Workbench {
                             result.candidates.iter().filter_map(|c| Some((c.point?, c.visits))),
                         );
                     let automatic = !secondary && self.auto_analysis_active();
+                    let shown = self.suggestion_limit();
+                    // Attended points belong to the main board's candidates only (`isMain`).
+                    let tracked_points = if secondary { Vec::new() } else { self.tracked_points(node).to_vec() };
                     let rec = &self.doc.record;
                     let store = if secondary {
                         &mut self.secondary_store
@@ -1263,7 +1374,7 @@ impl Workbench {
                         let mut result = result;
                         let limit = self.config.engine.analysis.limit_branch_length;
                         fill_pv_captures(&mut result, &rec.position(node), limit, !self.config.edit.no_capture);
-                        store.insert(node, stamp, result, ownership);
+                        store.update(node, stamp, result, ownership, shown, &tracked_points);
                     }
                     let running = node == self.cursor
                         && !self.paused
@@ -1498,6 +1609,7 @@ impl Workbench {
                 shown: vp.candidate(c.winrate, c.score_lead, s.to_play, s.komi),
                 side_to_move: vp.side_to_move(c.winrate, c.score_lead, s.to_play, s.komi),
                 ownership: if moves_ownership { c.ownership.clone() } else { None },
+                kept: c.kept,
             })
             .collect();
         Some(NodeAnalysisView {

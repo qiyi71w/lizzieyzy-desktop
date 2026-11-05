@@ -608,7 +608,8 @@ importing the matching LizzieYzy Next settings.
   the foreground engine analyses, and stops when analysis is paused or a game, engine match or
   AI 陪练 needs the engine. Its HumanSL policies come from network sampling, so its ranks can
   differ slightly between runs. As in Java, the other models read only the candidates within
-  最大候选数, and a move that is no candidate is scored from the two positions' evaluations; when
+  最大候选点数 (plus the one the board keeps after it just dropped out, and the points
+  选点重点研究 tracks), and a move that is no candidate is scored from the two positions' evaluations; when
   only one of them has a score (for example a Leela Zero position next to a KataGo one), this
   client uses the win-rate difference instead of Java's score of 0 for the scoreless position.
 - 死活题 (分析 > 死活题, Shift+E, the top toolbar's 死活 button, function search): frames the

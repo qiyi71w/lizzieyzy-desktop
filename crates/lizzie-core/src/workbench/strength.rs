@@ -192,14 +192,12 @@ impl Workbench {
     fn strength_input(&self) -> MainLineInput {
         let rec = &self.doc.record;
         let nodes = rec.path_to(rec.line_end(ROOT));
-        // BoardData.tryToLimitMoves: candidates past 最大候选数 are bestMovesOutOfRange, which only
-        // the HumanSL 40 snapshot reads. The display keeps a recently shown one a little longer;
-        // that is the board's drawing memory, not the analysis.
-        let limit = self.config.engine.analysis.limit_max_suggestion as usize;
-        let shown = if limit > 0 && !self.config.display.no_sugg_circle {
-            limit
-        } else {
-            usize::MAX
+        // BoardData.tryToLimitMoves: candidates past 最大候选点数 are bestMovesOutOfRange, which only
+        // the HumanSL 40 snapshot reads, except a kept one (lastTimeUnlimited) and the points
+        // 选点重点研究 tracked when the result came.
+        let shown = match self.suggestion_limit() {
+            0 => usize::MAX,
+            limit => limit,
         };
         let positions = nodes
             .iter()
@@ -215,20 +213,27 @@ impl Workbench {
                     ordinary: node.kind.is_action() && node.setup.is_empty(),
                 });
                 let analysis = self.store.get(rec, id).map(|a| {
-                    let mut candidates: Vec<_> = a
+                    let tracked = self.store.attended(id);
+                    let (candidates, extra_candidates) = a
                         .candidates
                         .iter()
-                        .map(|c| CandidateInput {
-                            coordinate: c.point.map_or_else(|| "pass".into(), |p| gtp::vertex(rec.size, p)),
-                            order: c.order,
-                            visits: c.visits,
-                            winrate: c.winrate,
-                            score_lead: c.score_lead,
-                            kata: c.score_lead.is_some(),
-                            prior: c.prior / 100.0,
+                        .enumerate()
+                        .map(|(i, c)| {
+                            let within = i < shown || c.kept || c.point.is_some_and(|p| tracked.contains(&p));
+                            let input = CandidateInput {
+                                coordinate: c.point.map_or_else(|| "pass".into(), |p| gtp::vertex(rec.size, p)),
+                                order: c.order,
+                                visits: c.visits,
+                                winrate: c.winrate,
+                                score_lead: c.score_lead,
+                                kata: c.score_lead.is_some(),
+                                prior: c.prior / 100.0,
+                            };
+                            (within, input)
                         })
-                        .collect();
-                    let extra_candidates = candidates.split_off(shown.min(candidates.len()));
+                        .partition::<Vec<_>, _>(|(within, _)| *within);
+                    let candidates = candidates.into_iter().map(|(_, c)| c).collect();
+                    let extra_candidates = extra_candidates.into_iter().map(|(_, c)| c).collect();
                     AnalysisInput {
                         to_play: a.to_play,
                         winrate: a.winrate,

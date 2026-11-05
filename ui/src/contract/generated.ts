@@ -381,7 +381,13 @@ side_to_move: ShownValues,
  * KataGo `movesOwnership` after this move, Black-positive, row-major from the top-left
  * (按选点显示评估); absent unless requested and reported.
  */
-ownership: Array<number> | null, };
+ownership: Array<number> | null, 
+/**
+ * Kept among the candidates beyond 最大候选点数 (`MoveData.lastTimeUnlimited`,
+ * BoardData.tryToLimitMoves): it was within the limit at the node's previous result and is
+ * still searched (more visits, or within 3 seconds).
+ */
+kept: boolean, };
 
 export type NodeAnalysisView = { node: number, engine: string, to_play: Stone, 
 /**

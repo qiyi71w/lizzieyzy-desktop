@@ -212,72 +212,22 @@ function hoverNear(v: WorkbenchView, near: (p: Point) => boolean) {
   if (next && near(next)) return hover(NEXT_MOVE);
   const limit = v.settings.engine.analysis.limitMaxSuggestion;
   const candidate = v.analysis?.candidates.find((c) => c.point && c.visits > 0 && near(c.point) &&
-    (limit === 0 || c.order < limit || v.settings.display.noSuggCircle || limitMemory.unlimited.has(`${c.point.x},${c.point.y}`)))
+    (limit === 0 || c.order < limit || v.settings.display.noSuggCircle || c.kept))
     ?? (doubleEngine ? v.secondary?.analysis?.candidates.find((c) => c.point && c.visits > 0 && near(c.point) &&
       (limit === 0 || c.order < limit || v.settings.display.noSuggCircle)) : undefined);
   hover(candidate?.point ? `${candidate.point.x},${candidate.point.y}` : null);
 }
 
-/** BoardData.tryToLimitMoves (BoardData.java:586-636) for the shown position: the previous kept
- *  candidates with their lastTimeUnlimited flag and time, and the points kept beyond 最大候选点数
- *  now. Only with a limit and without show-nosugg-circle; a new position starts afresh. */
-const limitMemory = {
-  key: "",
-  previous: [] as { point: string; order: number; visits: number; unlimited: boolean; time: number }[],
-  unlimited: new Set<string>(),
-};
-/** The limit settings `limitMemory` was last worked out with. */
-let limitedWith = "";
-
-function limitMoves(v: WorkbenchView) {
-  const limit = v.settings.engine.analysis.limitMaxSuggestion;
-  const key = `${v.document.id}:${v.position.node}`;
-  if (limitMemory.key !== key) {
-    limitMemory.key = key;
-    limitMemory.previous = [];
-  }
-  const pointKey = (p: Point | null) => (p ? `${p.x},${p.y}` : "pass");
-  const candidates = v.analysis?.candidates ?? [];
-  const kept = candidates.map((c) => ({ point: pointKey(c.point), order: c.order, visits: c.visits, unlimited: false, time: 0 }));
-  limitMemory.unlimited = new Set();
-  if (limit > 0 && !v.settings.display.noSuggCircle && candidates.length > limit) {
-    const now = Date.now();
-    const last = limitMemory.previous;
-    for (let n = limit; n < kept.length; n++) {
-      const move = kept[n];
-      let keep = false;
-      if (move.order < limit + 1) {
-        for (let s = 0; s < limit + 1 && s < last.length; s++) {
-          const before = last[s];
-          if (s >= limit && !before.unlimited) continue;
-          if (move.point !== before.point) continue;
-          move.unlimited = true;
-          if (move.visits > before.visits || !before.unlimited) {
-            move.time = now;
-            keep = true;
-          } else if (now - before.time < 3000) {
-            move.time = before.time;
-            keep = true;
-          }
-        }
-      }
-      if (keep) limitMemory.unlimited.add(move.point);
-      else kept.splice(n--, 1);
-    }
-  }
-  limitMemory.previous = kept;
+/** Points ("x,y") of the candidates the core keeps beyond 最大候选点数 (MoveData.lastTimeUnlimited). */
+function keptPoints(v: WorkbenchView | null): Set<string> {
+  return new Set((v?.analysis?.candidates ?? []).flatMap((c) => (c.kept && c.point ? [`${c.point.x},${c.point.y}`] : [])));
 }
 
 /** Cache line navigation only when the tree/position changes, not on engine frames. */
 function projectAnalysis(v: WorkbenchView) {
   if (projectedView !== v) {
     projectedView = v;
-    const limitSettings = `${v.settings.engine.analysis.limitMaxSuggestion}:${v.settings.display.noSuggCircle}`;
-    if (!sameAnalysis(projectedAnalysis, v.analysis)) {
-      analysisRevision++;
-      limitMoves(v);
-    } else if (limitSettings !== limitedWith) limitMoves(v);
-    limitedWith = limitSettings;
+    if (!sameAnalysis(projectedAnalysis, v.analysis)) analysisRevision++;
     projectedAnalysis = v.analysis;
     const secondary = v.secondary?.analysis ?? null;
     if (!sameAnalysis(projectedSecondary, secondary)) secondaryRevision++;
@@ -393,7 +343,7 @@ function hoveredVariation(v: WorkbenchView, right = false): { target: ReplayTarg
     const ratio = c.allocation_visits / Math.max(1, ...candidates.map((x) => x.allocation_visits));
     const maxSuggestion = v.settings.engine.analysis.limitMaxSuggestion;
     // lastTimeUnlimited is kept for the main board's candidates only.
-    const kept = !right && limitMemory.unlimited.has(`${point.x},${point.y}`);
+    const kept = !right && c.kept;
     if (!needShow && (ratio <= v.settings.display.minPlayoutRatio || (maxSuggestion > 0 && c.order + 1 > maxSuggestion && !kept)))
       return { target, preview: null };
   }
@@ -1022,7 +972,7 @@ function render() {
     overlay: v.game?.play_mode ? { ...v.board, ranks: [] } : v.board,
     display: v.whole_game.show_results ? { ...v.settings.display, suggestionWinrate: true, suggestionPlayouts: true, suggestionVariations: true } : v.settings.display,
     suggestionLimit: v.settings.engine.analysis.limitMaxSuggestion,
-    unlimited: limitMemory.unlimited,
+    unlimited: keptPoints(v),
     // 纯网络 in a 分析模式 game draws the candidates on the engine's turn (BoardRenderer.java:399-412).
     candidatesShown: v.whole_game.show_results || candidatesShownFor(pos.to_play) || (v.game?.kind === "Analysis" && v.game.pure_net && pos.to_play !== v.game.human),
     policy: boardUi.policy && !suppress,
@@ -1471,7 +1421,7 @@ function uiReport() {
       /** The hovered variation is the 下一手 详细 one (actual move + next position's best PV). */
       nextMovePreview: boardReport?.preview?.order === -1,
       /** Candidates kept beyond 最大候选点数 by lastTimeUnlimited ("x,y"). */
-      keptBeyondLimit: [...limitMemory.unlimited],
+      keptBeyondLimit: [...keptPoints(state.view)],
       tree: { numbers: state.view?.settings.display.treeMoveNumbers ?? false, drawn: treeNumbersDrawn },
       autoplay: autoplayReport(),
     },
