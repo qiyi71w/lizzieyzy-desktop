@@ -191,6 +191,18 @@ pub struct Mapped {
     pub human_sl_training: Option<crate::settings::HumanSlTrainingSettings>,
     pub human_sl_advanced_visible: Option<bool>,
     pub human_sl_model_path: Option<String>,
+    /// 死活题 (`TsumeGoFrame`; a value outside the dialog's choices acts as 继承 / 自动检测 / 无).
+    pub tsumego_to_play: Option<crate::tsumego::TsumegoToPlay>,
+    pub tsumego_attacker: Option<crate::tsumego::TsumegoAttacker>,
+    pub tsumego_ko_threat: Option<crate::tsumego::TsumegoKoThreat>,
+    pub tsumego_wall_distance: Option<i32>,
+    pub tsumego_show_button: Option<bool>,
+    /// 抓取死活题 参数设置.
+    pub capture_black_offset: Option<i32>,
+    pub capture_black_percent: Option<i32>,
+    pub capture_white_offset: Option<i32>,
+    pub capture_white_percent: Option<i32>,
+    pub capture_gray_offset: Option<i32>,
     /// 问题手 panel.
     pub problems_showing: Option<bool>,
     pub problem_side: Option<ProblemSide>,
@@ -872,6 +884,43 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         ImportTarget::HumanSlModel,
         Kind::Str(|m, v| m.human_sl_model_path = Some(v)),
     ),
+    // 死活题 (`Config.java:1819, 2105-2114`). An unknown 先手方 or 进攻方 selects no radio button and
+    // builds like 继承 / 自动检测; an unknown 劫材 value adds no ko threats.
+    (
+        "ui",
+        "tsume-go-to-play",
+        ImportTarget::Tsumego,
+        Kind::I32(|m, v| {
+            use crate::tsumego::TsumegoToPlay as P;
+            m.tsumego_to_play = Some(match v { 2 => P::Black, 3 => P::White, _ => P::Keep });
+        }),
+    ),
+    (
+        "ui",
+        "tsume-go-attaker",
+        ImportTarget::Tsumego,
+        Kind::I32(|m, v| {
+            use crate::tsumego::TsumegoAttacker as A;
+            m.tsumego_attacker = Some(match v { 2 => A::Black, 3 => A::White, _ => A::Auto });
+        }),
+    ),
+    (
+        "ui",
+        "tsume-go-ko-threat",
+        ImportTarget::Tsumego,
+        Kind::I32(|m, v| {
+            use crate::tsumego::TsumegoKoThreat as K;
+            m.tsumego_ko_threat = Some(match v { 1 => K::Both, 2 => K::Attacker, 3 => K::Defender, _ => K::None });
+        }),
+    ),
+    ("ui", "tsume-go-wall-distance", ImportTarget::Tsumego, Kind::I32(|m, v| m.tsumego_wall_distance = Some(v))),
+    ("ui", "show-tsume-go-menu", ImportTarget::Tsumego, Kind::Bool(|m, v| m.tsumego_show_button = Some(v))),
+    ("ui", "capture-black-offset", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_black_offset = Some(v))),
+    ("ui", "capture-black-percent", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_black_percent = Some(v))),
+    ("ui", "capture-white-offset", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_white_offset = Some(v))),
+    ("ui", "capture-white-percent", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_white_percent = Some(v))),
+    // Java keeps the gray offset under this name.
+    ("ui", "capture-gray-percent", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_gray_offset = Some(v))),
     // `SidebarPanel`, `ProblemListSideFilter.fromConfigValue`, `ProblemListSort`.
     (
         "ui",
@@ -2486,6 +2535,17 @@ impl Mapped {
         if let Some(path) = &self.human_sl_model_path {
             c.human_sl.model_path = (!path.trim().is_empty()).then(|| path.clone());
         }
+        let ts = &mut c.tsumego;
+        set!(ts.frame.to_play, self.tsumego_to_play);
+        set!(ts.frame.attacker, self.tsumego_attacker);
+        set!(ts.frame.ko_threat, self.tsumego_ko_threat);
+        set!(ts.frame.wall_distance, self.tsumego_wall_distance);
+        set!(ts.show_button, self.tsumego_show_button);
+        set!(ts.capture.black_offset, self.capture_black_offset);
+        set!(ts.capture.black_percent, self.capture_black_percent);
+        set!(ts.capture.white_offset, self.capture_white_offset);
+        set!(ts.capture.white_percent, self.capture_white_percent);
+        set!(ts.capture.gray_offset, self.capture_gray_offset);
         let pl = &mut c.problems;
         set!(pl.showing, self.problems_showing);
         set!(pl.side, self.problem_side);
@@ -2768,6 +2828,24 @@ impl Mapped {
         }
         if self.human_sl_model_path.as_ref().is_some_and(|v| config.human_sl.model_path.as_ref() != Some(v)) {
             out.push(ImportTarget::HumanSlModel);
+        }
+        let ts = &config.tsumego;
+        if self.tsumego_to_play.is_some_and(|v| v != ts.frame.to_play)
+            || self.tsumego_attacker.is_some_and(|v| v != ts.frame.attacker)
+            || self.tsumego_ko_threat.is_some_and(|v| v != ts.frame.ko_threat)
+            || self.tsumego_wall_distance.is_some_and(|v| v != ts.frame.wall_distance)
+            || self.tsumego_show_button.is_some_and(|v| v != ts.show_button)
+        {
+            out.push(ImportTarget::Tsumego);
+        }
+        let cs = &ts.capture;
+        if self.capture_black_offset.is_some_and(|v| v != cs.black_offset)
+            || self.capture_black_percent.is_some_and(|v| v != cs.black_percent)
+            || self.capture_white_offset.is_some_and(|v| v != cs.white_offset)
+            || self.capture_white_percent.is_some_and(|v| v != cs.white_percent)
+            || self.capture_gray_offset.is_some_and(|v| v != cs.gray_offset)
+        {
+            out.push(ImportTarget::CaptureTsumego);
         }
         let pl = &config.problems;
         let problems = [

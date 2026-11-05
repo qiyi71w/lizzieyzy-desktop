@@ -93,6 +93,19 @@ pub enum EditCommand {
     /// 试下 / 恢复 (`LizzieFrame.tryPlay`): starting keeps the record and drops what follows the
     /// current node; ending brings the kept record and browsing position back.
     TryPlay,
+    /// 死活题 确定 (`TsumeGoFrame`): the choices are kept and the current position becomes a
+    /// framed problem, a new game whose root holds the problem, the attacker's wall, both
+    /// territories and the ko threats, with the chosen side to play and the frame's komi (as a
+    /// komi the user set). A position with stones out to every edge stays as it is.
+    FrameTsumego {
+        settings: crate::settings::TsumegoFrameSettings,
+    },
+    /// The result of 抓取死活题 (`CaptureTsumeGo.processStoneData`): a new board, square of the
+    /// captured width when the current one is smaller than the capture, with the captured stones
+    /// in the reported corner, Black to play.
+    LoadCapturedProblem {
+        problem: crate::tsumego::capture::CapturedProblem,
+    },
 }
 
 /// What a confirmation was asked for: the document, its revision and the current node then. A

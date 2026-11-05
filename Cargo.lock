@@ -2298,7 +2298,10 @@ version = "0.1.0"
 dependencies = [
  "dirs",
  "fontdb",
+ "image",
  "lizzie-core",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
  "reqwest 0.12.28",
  "rfd",
  "serde",
@@ -2309,6 +2312,9 @@ dependencies = [
  "tauri-plugin-clipboard-manager",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "windows",
+ "x11rb",
+ "zbus",
  "zip",
 ]
 

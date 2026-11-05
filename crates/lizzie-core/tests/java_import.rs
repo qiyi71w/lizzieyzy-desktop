@@ -1938,3 +1938,45 @@ fn humansl_java_corrupt_or_future_fields_fall_back_independently() {
     assert_eq!((s.rank, s.move_time_seconds, s.handicap, s.komi), (9, 10, 9, 7.5));
     assert!(wb.config().human_sl.advanced_visible);
 }
+
+#[test]
+fn tsumego_choices_capture_thresholds_and_button_import_like_java_reads_them() {
+    use lizzie_core::settings::{CaptureSettings, TsumegoFrameSettings};
+    use lizzie_core::tsumego::{TsumegoAttacker, TsumegoKoThreat, TsumegoToPlay};
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    // An attacker outside the dialog's choices selects no radio button and builds like 自动检测;
+    // the gray offset lives under `capture-gray-percent`.
+    let source = json!({"ui": {
+        "tsume-go-to-play": 3, "tsume-go-attaker": 7, "tsume-go-ko-threat": 4, "tsume-go-wall-distance": 5,
+        "show-tsume-go-menu": false,
+        "capture-black-offset": 100, "capture-black-percent": 30, "capture-white-offset": 90,
+        "capture-white-percent": 12, "capture-gray-percent": 33
+    }}).to_string();
+    std::fs::write(java.join("config.txt"), &source).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    for target in [ImportTarget::Tsumego, ImportTarget::CaptureTsumego] {
+        assert!(p.items.iter().any(|row| row.target == Some(target) && row.status == ImportStatus::Imported));
+    }
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    let t = &wb.config().tsumego;
+    assert_eq!(
+        t.frame,
+        TsumegoFrameSettings {
+            to_play: TsumegoToPlay::White,
+            attacker: TsumegoAttacker::Auto,
+            ko_threat: TsumegoKoThreat::None,
+            wall_distance: 5,
+        }
+    );
+    assert!(!t.show_button);
+    assert_eq!(
+        t.capture,
+        CaptureSettings { black_offset: 100, black_percent: 30, white_offset: 90, white_percent: 12, gray_offset: 33 }
+    );
+    assert_eq!(saved_config(&product).tsumego, *t);
+    assert_eq!(std::fs::read_to_string(java.join("config.txt")).unwrap(), source);
+}

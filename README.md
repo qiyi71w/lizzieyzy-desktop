@@ -591,6 +591,33 @@ importing the matching LizzieYzy Next settings.
   digest is reported as missing and never used. 导入 copies another `.bin.gz` / `.txt.gz` HumanSL
   model (larger than 1 MB) into `human-sl-models/` of the resource directory. The model is not an
   analysis weight and is not offered as one.
+- 死活题 (分析 > 死活题, Shift+E, the top toolbar's 死活 button, function search): frames the
+  current position for engine reading like Java's tsumego frame. The attacker (自动检测 picks the
+  colour with more stones, Black on a tie, as Java's detection effectively does) walls in the
+  stones' bounding box at the chosen 墙面间距 and fills the side of the board nearest the problem;
+  the defender fills the rest. 添加劫材 adds Java's small corner shapes for either side and names
+  a side whose shape has no room. 确定 replaces the open record with a new game holding only that
+  position: moves, variations, names and the root comment go, the side to play is kept or set by
+  先手方, and the komi becomes the frame's (7.5 for the attacker, or twice the attacker's area beyond
+  half the board, negated for White; kept within ±150) and is sent to the engine like a typed
+  komi. A position with stones out to all four edges is left as it is. The dialog's choices are
+  remembered. Framing is refused during a game, an engine match, AI 陪练 or 整盘精析. The frame
+  matches the fixed Java build's output exactly on randomized positions (7–19 lines, every option).
+  Java's habit of going back before an earlier frame never applied after a real frame and is not
+  kept.
+- 抓取死活题 (分析 > 抓取死活题, the 死活题 dialog's 屏幕抓取, Shift+T): reads a problem shown by any
+  other program. 开始抓取 minimizes the main window, takes one picture of the primary screen and
+  shows it full screen (dimmed): click the corner intersection (0,0), then the opposite corner of
+  the first square, then move until the blue grid covers the problem and click. Stones are read
+  with Java's helper rules (near-gray pixels of a square-sized box: enough dark pixels make black;
+  enough light ones make white when the box shows a stone's edge or shading, not a flat white
+  background) and the 参数设置 thresholds. The problem lands in the board corner it came from on a
+  new board (square of the captured width when the board is smaller), Black to play, and 死活题
+  opens. Escape or a zero first square cancels and the instructions return. Java ran a separate
+  Java helper and re-captured the live screen while the pointer moved; here the picture is taken
+  once by the client itself: GDI on Windows, Core Graphics on macOS (needs the Screen Recording
+  permission; a one-time hint says so), `GetImage` on X11 and the desktop portal's screenshot on
+  Wayland (the desktop may ask for permission). Only the primary screen is used, as in Java.
 - 快速曲线轻量模型 (引擎一键设置 > 权重管理): the official lightweight b10 model is downloaded on demand
   (size and SHA-256 checked), which turns 自动使用 on. A model file is used only while its SHA-256
   matches the catalog (checked again when the file changes); with 自动使用 and a KataGo of 1.17 or
@@ -660,8 +687,12 @@ importing the matching LizzieYzy Next settings.
   Java's list position), the 引擎对战 dialog and 引擎对局设置 values (`engine-pk-*`,
   `new-engine-game-*`, `engine-game-match-rules`, per-side time modes and resignation thresholds)
   and the 自动落子 and 引擎对战 toolbar values in `toolbar-parameter`, and the AI 陪练 settings
-  (`human-sl-training-last-settings`; Java's retired `LIVE_CORRECTION` becomes 边下边分析) and
-  HumanSL model path (`katago-human-sl-model-path`) — only values Java itself accepts.
+  (`human-sl-training-last-settings`; Java's retired `LIVE_CORRECTION` becomes 边下边分析),
+  HumanSL model path (`katago-human-sl-model-path`), the 死活题 choices (`tsume-go-to-play`,
+  `tsume-go-attaker`, `tsume-go-ko-threat`, `tsume-go-wall-distance`; an unknown choice acts like
+  Java's 继承 / 自动检测 / 无), the 死活 toolbar button (`show-tsume-go-menu`) and the 抓取死活题
+  thresholds (`capture-*`, the gray offset under Java's `capture-gray-percent`) — only values Java
+  itself accepts.
   Automatic-analysis conditions (`analyze-all-branch`, all ten `auto-ana-diff-*` keys,
   `exit-auto-analyze-by-pause`, `exit-auto-analyze-tip`) and `toolbar-parameter` slots 0–8,
   47 and 48 also migrate with Java's restore rules: an empty start becomes 1, empty time 2
@@ -778,7 +809,7 @@ prompt, and full input-method coverage on Windows and macOS.
 | Path | Contents |
 | --- | --- |
 | `crates/lizzie-core` | Platform-independent core: game record model, SGF/GIB readers and SGF writer, browsing, settings, the LizzieYzy Next settings reader (`java_import`), the engine runtime (GTP framing, launch, analysis requests, rules, the foreground lease, KataGo analysis processes, thread policy and benchmark), automatic quick analysis, engine resources (`resources`: trusted package/model catalog, machine detection, recommendation, downloads, installs, verification), the credential sanitizer and the workbench command/view contract. No Tauri or DOM dependency. |
-| `src-tauri` | Desktop shell: window, file dialogs, drag and drop, engine and helper processes, HTTP downloads, logging, diagnostics export, and the optional acceptance channel. |
+| `src-tauri` | Desktop shell: window, file dialogs, drag and drop, engine and helper processes, HTTP downloads, logging, diagnostics export, the 抓取死活题 screen picture (`screen.rs`) and overlay, and the optional acceptance channel. |
 | `ui` | Web UI: menus, toolbars, canvas painters, dialogs and the Java UI strings. |
 | `fixtures` | Sample records used by tests and manual checks. |
 | `tools` | Maintenance scripts. |

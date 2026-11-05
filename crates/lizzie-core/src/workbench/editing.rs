@@ -409,6 +409,8 @@ impl Workbench {
                 self.convert_to_start();
                 done(true)
             }
+            EditCommand::FrameTsumego { settings } => self.frame_tsumego(settings),
+            EditCommand::LoadCapturedProblem { problem } => self.load_captured_problem(problem),
         }
     }
 
@@ -551,7 +553,7 @@ impl Workbench {
 
     /// `Board.clear` / `reopen`: a new empty board of `size`. The komi is the foreground engine's
     /// own (`Leelaz.orikomi`) when one runs, else the current one.
-    fn new_board(&mut self, size: BoardSize) {
+    pub(super) fn new_board(&mut self, size: BoardSize) {
         if let Some(komi) = self
             .engines
             .foreground()
@@ -573,6 +575,17 @@ impl Workbench {
         if applied.is_ok() {
             self.land(ROOT);
         }
+    }
+
+    /// `Board.flattenWithCondition`: the record becomes a new game holding `stones` as its root
+    /// position (setup mode ends, the session rules are those of a new history) and browsing goes
+    /// there.
+    pub(super) fn adopt_position(&mut self, stones: Vec<Option<Stone>>, to_play: Stone) -> Result<(), ApiError> {
+        self.edit_op(DocumentEdit::ReplaceWithPosition { stones, to_play })?;
+        self.editing.setup_mode = false;
+        self.publish_record_rules(None);
+        self.land(ROOT);
+        Ok(())
     }
 
     fn set_setup_mode(&mut self, enabled: bool, confirmed: Option<EditTarget>) -> Result<CommandResult, ApiError> {

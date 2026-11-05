@@ -512,6 +512,81 @@ impl AutoPlaySettings {
     }
 }
 
+/// 死活题 (Java `ui.tsume-go-*`, `capture-*`, `show-tsume-go-menu`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TsumegoSettings {
+    /// The 死活题 dialog's last confirmed choices.
+    pub frame: TsumegoFrameSettings,
+    /// 抓取死活题's 参数设置.
+    pub capture: CaptureSettings,
+    /// 自定义工具栏 > 死活: the 死活 button on the top toolbar (`show-tsume-go-menu`, on).
+    pub show_button: bool,
+}
+
+impl Default for TsumegoSettings {
+    fn default() -> Self {
+        Self {
+            frame: TsumegoFrameSettings::default(),
+            capture: CaptureSettings::default(),
+            show_button: true,
+        }
+    }
+}
+
+/// The 死活题 dialog (`tsume-go-to-play` 1, `tsume-go-attaker` 1, `tsume-go-ko-threat` 1,
+/// `tsume-go-wall-distance` 1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TsumegoFrameSettings {
+    pub to_play: crate::tsumego::TsumegoToPlay,
+    pub attacker: crate::tsumego::TsumegoAttacker,
+    pub ko_threat: crate::tsumego::TsumegoKoThreat,
+    /// 墙面间距; a confirmed value that is not above 0 keeps the previous one.
+    pub wall_distance: i32,
+}
+
+impl Default for TsumegoFrameSettings {
+    fn default() -> Self {
+        Self {
+            to_play: Default::default(),
+            attacker: Default::default(),
+            ko_threat: Default::default(),
+            wall_distance: 1,
+        }
+    }
+}
+
+/// 抓取死活题 参数设置: how screen pixels count as stones (`capture-black-offset` 120,
+/// `capture-black-percent` 25, `capture-white-offset` 120, `capture-white-percent` 15 and the gray
+/// offset Java keeps under `capture-gray-percent`, 80). Java takes any integers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CaptureSettings {
+    /// 黑最大偏色: each channel of a black pixel is at most this.
+    pub black_offset: i32,
+    /// 黑最低占比: percent of black pixels that makes a black stone.
+    pub black_percent: i32,
+    /// 白最大偏色: each channel of a white pixel is at least 255 minus this.
+    pub white_offset: i32,
+    /// 白最低占比.
+    pub white_percent: i32,
+    /// 最大灰度偏色: channels of a counted pixel differ by less than this.
+    pub gray_offset: i32,
+}
+
+impl Default for CaptureSettings {
+    fn default() -> Self {
+        Self {
+            black_offset: 120,
+            black_percent: 25,
+            white_offset: 120,
+            white_percent: 15,
+            gray_offset: 80,
+        }
+    }
+}
+
 /// 超级鹰眼 分支: which line it reads (`moveList-selected-branch`: 0 主干, 1 当前).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum HawkeyeBranch {
@@ -1416,6 +1491,8 @@ pub struct Config {
     pub game: GameSettings,
     /// 引擎对战.
     pub matches: MatchSettings,
+    /// 死活题.
+    pub tsumego: TsumegoSettings,
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).

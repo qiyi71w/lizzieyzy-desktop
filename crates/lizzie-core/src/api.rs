@@ -424,6 +424,14 @@ pub enum Command {
     /// 引擎对战.
     Match { op: MatchCommand },
     HumanSl { op: HumanSlCommand },
+    /// 抓取死活题 参数设置 确定 (`CaptureTsumeGoSettings.saveSettings`).
+    SetCaptureSettings {
+        settings: crate::settings::CaptureSettings,
+    },
+    /// 自定义工具栏 > 死活 (`show-tsume-go-menu`).
+    SetTsumegoButtonShown {
+        shown: bool,
+    },
 }
 
 /// 人机对弈's two modes (`isPlayingAgainstLeelaz` / `isAnaPlayingAgainstLeelaz`).
@@ -781,6 +789,9 @@ pub enum CommandResult {
         command: String,
         generated_config: Option<String>,
     },
+    /// 死活题 framed the position; each colour in `no_room` is one "没有布置 [x方] 劫材的空间"
+    /// message, in order.
+    TsumegoFramed { no_room: Vec<Stone> },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -992,6 +1003,8 @@ pub struct SettingsView {
     /// The bottom toolbar's 自动落子.
     pub autoplay: AutoPlayView,
     pub matches: MatchSettingsView,
+    /// 死活题 dialog choices, 抓取死活题 参数设置 and the 死活 toolbar button.
+    pub tsumego: crate::settings::TsumegoSettings,
 }
 
 /// 快速曲线轻量模型 card (`KataGoAutoSetupDialog`, `QuickAnalysisModelStatus`).
@@ -1408,6 +1421,12 @@ pub enum ImportTarget {
     QuickModel,
     HumanSlTraining,
     HumanSlModel,
+    /// 死活题: `ui.tsume-go-to-play`, `tsume-go-attaker`, `tsume-go-ko-threat`,
+    /// `tsume-go-wall-distance`, `show-tsume-go-menu`.
+    Tsumego,
+    /// 抓取死活题 参数设置: `ui.capture-black-offset`, `capture-black-percent`,
+    /// `capture-white-offset`, `capture-white-percent`, `capture-gray-percent`.
+    CaptureTsumego,
     /// 问题手: `ui.is-showing-blunder-table`, `problem-list-side-filter`, `problem-list-sort`,
     /// `problem-list-winrate-threshold`, `blunder-playouts-threshold`,
     /// `hide-blunder-table-control-pane`.

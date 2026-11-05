@@ -95,6 +95,10 @@ fn generate() -> String {
         RegionCommand, TrackingCommand, RegionView, FocusView, TrackedPointView,
         lizzie_core::engine::runtime::FocusCapability, lizzie_core::settings::RegionSettings,
         lizzie_core::settings::TrackingSettings,
+        lizzie_core::settings::TsumegoSettings, lizzie_core::settings::TsumegoFrameSettings,
+        lizzie_core::settings::CaptureSettings, lizzie_core::tsumego::TsumegoToPlay,
+        lizzie_core::tsumego::TsumegoAttacker, lizzie_core::tsumego::TsumegoKoThreat,
+        lizzie_core::tsumego::capture::CapturedProblem, lizzie_core::tsumego::capture::CapturePreview,
     ];
     // Engine resources and engine performance keep their own lists.
     decls.extend(resources::decls(&cfg));

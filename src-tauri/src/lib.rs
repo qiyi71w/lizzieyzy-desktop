@@ -10,7 +10,9 @@ mod logging;
 mod matches;
 mod output;
 mod resources;
+mod screen;
 mod startup;
+mod tsumego_capture;
 mod tuning;
 
 use std::path::PathBuf;
@@ -1111,6 +1113,14 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().set_hawkeye_settings(settings)?;
             Ok(changed(&app, &shared, done))
         }
+        Command::SetCaptureSettings { settings } => {
+            let done = shared.workbench.lock().unwrap().set_capture_settings(settings)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetTsumegoButtonShown { shown } => {
+            let done = shared.workbench.lock().unwrap().set_tsumego_button_shown(shown)?;
+            Ok(changed(&app, &shared, done))
+        }
         Command::ExportTable { rows } => export_table(&app, rows).await,
     }
 }
@@ -1678,6 +1688,7 @@ pub fn run() {
             });
             let _ = cell.set(shared.clone());
             app.manage(shared.clone());
+            app.manage(tsumego_capture::Capture::default());
             run_refresher(app.handle().clone(), shared.clone());
             shared.workbench.lock().unwrap().start_engines();
             publish(app.handle(), &shared);
@@ -1757,6 +1768,10 @@ pub fn run() {
                     }
                 }
                 let _ = app.emit_to("main", HAWKEYE_CLOSED_EVENT, ());
+            }
+            // 抓取死活题's overlay closed by the window manager: the capture is cancelled.
+            WindowEvent::CloseRequested { .. } if window.label() == tsumego_capture::WINDOW => {
+                tsumego_capture::overlay_closing(window.app_handle());
             }
             // 批量分析进度表's own close box closes only it (AnalysisTable's JFrame does not exit).
             WindowEvent::CloseRequested { .. } if window.label() == BATCH_WINDOW => {}
@@ -1860,7 +1875,13 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         set_hawkeye_layout,
         independent::open_independent_board,
         independent::close_independent_board_window,
-        open_batch_table
+        open_batch_table,
+        tsumego_capture::start_tsumego_capture,
+        tsumego_capture::tsumego_capture_picture,
+        tsumego_capture::tsumego_capture_preview,
+        tsumego_capture::tsumego_capture_spacing,
+        tsumego_capture::tsumego_capture_finish,
+        tsumego_capture::tsumego_capture_cancel
     ]
 }
 
@@ -1895,6 +1916,12 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         independent::open_independent_board,
         independent::close_independent_board_window,
         open_batch_table,
+        tsumego_capture::start_tsumego_capture,
+        tsumego_capture::tsumego_capture_picture,
+        tsumego_capture::tsumego_capture_preview,
+        tsumego_capture::tsumego_capture_spacing,
+        tsumego_capture::tsumego_capture_finish,
+        tsumego_capture::tsumego_capture_cancel,
         acceptance::acceptance_ui_report
     ]
 }

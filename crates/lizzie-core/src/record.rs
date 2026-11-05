@@ -525,6 +525,13 @@ pub enum DocumentEdit {
     ConvertToStartingPosition {
         node: NodeId,
     },
+    /// The record becomes a new game holding only `stones` (row-major) as its root position with
+    /// `to_play` (`Board.flattenWithCondition`): moves, variations, the root comment, marks and
+    /// properties go, and the game information is new except for the komi.
+    ReplaceWithPosition {
+        stones: Vec<Option<Stone>>,
+        to_play: Stone,
+    },
     Transform(Transform),
     /// Markup tool click on `point` of `node`.
     ToggleMark {

@@ -48,6 +48,7 @@ import { bindCaptureSurface, copyMainBoardPicture, copySubBoardPicture, saveMain
 import { startAutoSave } from "./recovery/commands";
 import { clockText, handleGameKey } from "./game/commands";
 import { handleMatchKey } from "./match/commands";
+import { handleTsumegoKey } from "./tsumego/commands";
 import { recoveryReport } from "./recovery/panel";
 import { bindProblemPanel, problemsReport, renderProblemPanel } from "./quick/problems";
 import "./quick/analysisSettings";
@@ -508,7 +509,7 @@ document.addEventListener("keydown", (e) => {
   if (appMenuKey(e) || dialogOpen() || flashWindowOpen() || menuOpen() || contextMenuOpen() || textTarget(e.target)) return;
   // The 存档与读档 controls keep their keys, like the Swing components holding the focus there.
   if (e.target instanceof Element && e.target.closest("#recovery")) return;
-  if (handleLayoutKey(e) || handlePanelKey(e) || handleEngineKey(e) || handleEditKey(e) || handleMatchKey(e) || handleGameKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e)) {
+  if (handleLayoutKey(e) || handlePanelKey(e) || handleEngineKey(e) || handleEditKey(e) || handleMatchKey(e) || handleTsumegoKey(e) || handleGameKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e)) {
     e.preventDefault();
     return;
   }

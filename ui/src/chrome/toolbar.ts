@@ -428,12 +428,23 @@ export function buildToolbar(host: HTMLElement): void {
     candidateCheck(t("Menu.White"), false),
     sep(),
     pill(t("Menu.rulesBtn"), "small", "engine.rules"),
-    pill(t("Menu.tsumeGoBtn"), "small"),
+    tsumegoButton(),
     pill(t("Menu.paramsBtn"), "small"),
     pill(t("Menu.gobanBtn"), "small"),
     pill(t("Menu.saveBtn"), "small", "menu.saveAndLoad"),
     clockLabel(),
   );
+}
+
+/** Menu.tsumeGoBtn: 死活题, shown while 自定义工具栏 > 死活 is on (show-tsume-go-menu). */
+function tsumegoButton(): HTMLElement {
+  const b = pill(t("Menu.tsumeGoBtn"), "small", "game.tsumego");
+  b.dataset.key = "toolbar.tsumego";
+  updaters.push(() => {
+    const display = state.view?.settings.tsumego.showButton === false ? "none" : "";
+    if (b.style.display !== display) b.style.display = display;
+  });
+  return b;
 }
 
 /** The komi field shows the current game komi (txtKomi: String.valueOf(double), so 6 is "6.0");

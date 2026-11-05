@@ -33,6 +33,7 @@ mod quick;
 mod recovery;
 mod resources;
 mod search;
+mod tsumego;
 mod tuning;
 mod whole_game;
 
@@ -1023,6 +1024,7 @@ impl Workbench {
                     settings: self.persisted.autoplay,
                 },
                 matches: self.match_settings_view(),
+                tsumego: self.config.tsumego,
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
