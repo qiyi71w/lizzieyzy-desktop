@@ -69,8 +69,10 @@ mod platform {
                 return Err("GetDIBits failed".into());
             }
         }
-        for px in rgba.chunks_exact_mut(4) {
+        // 32-bit BI_RGB is BGRX: the high byte is not used, so it is no alpha.
+        for px in rgba.as_chunks_mut::<4>().0 {
             px.swap(0, 2);
+            px[3] = 255;
         }
         Ok(Screenshot { width, height, rgba })
     }
@@ -107,7 +109,7 @@ mod platform {
         let bytes = data.to_vec();
         let mut rgba = Vec::with_capacity(iw * ih * 4);
         for line in bytes.chunks_exact(row).take(ih) {
-            for px in line[..iw * 4].chunks_exact(4) {
+            for px in line[..iw * 4].as_chunks::<4>().0 {
                 rgba.extend_from_slice(&[px[2], px[1], px[0], 255]);
             }
         }
