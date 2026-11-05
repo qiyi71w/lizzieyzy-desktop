@@ -28,6 +28,52 @@ pub use matches::*;
 pub use recovery::*;
 pub use resources::*;
 pub use tuning::*;
+pub use crate::strength::{StrengthModelView, StrengthReport, StrengthSideReport, StrengthSegment, StrengthSummary, StrengthSample, StrengthConfidence, StrengthMoveCategory};
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum StrengthCommand {
+    Report,
+    SelectModel { id: String },
+    ImportModel { path: String },
+    SetBackground { enabled: bool },
+    /// 补算 HumanSL. `resume`: the same request after the model download it needed; it prepares
+    /// the game it was asked for, else is refused with `HumanSL40.gameChanged`.
+    RunHumanSl { resume: bool },
+    CancelHumanSl,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct StrengthView {
+    pub models: Vec<StrengthModelView>,
+    pub active: String,
+    pub background: bool,
+    pub status: StrengthStatusView,
+    pub manual: Option<StrengthManualView>,
+    pub stamp: u64,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct StrengthStatusView {
+    pub key: String,
+    pub completed: u32,
+    pub total: u32,
+    pub revision: u64,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct StrengthManualView {
+    /// Numbers each admitted 补算 HumanSL; a dialog only takes the outcome of the run it started
+    /// (an earlier run's outcome stays visible until the next run is admitted).
+    pub run: u32,
+    pub running: bool,
+    pub outcome: Option<StrengthManualOutcome>,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum StrengthManualOutcome {
+    Ready,
+    Cancelled,
+    Failed { message_key: String, detail: Option<String> },
+}
 
 use crate::browse::Navigation;
 use crate::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup};
@@ -48,6 +94,7 @@ pub enum OpenSource {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
 #[serde(tag = "type")]
 pub enum Command {
+    Strength { op: StrengthCommand },
     /// 主题 drafts apply together only on 保存设置 (ConfigDialog2.java:6191-6286).
     SetAppearanceSettings {
         settings: crate::appearance::AppearanceSettings,
@@ -741,6 +788,8 @@ pub enum EngineScope {
 pub enum CommandResult {
     /// Applied; the new state arrives as a [`WorkbenchView`].
     Done,
+    Strength { report: Box<StrengthReport> },
+    StrengthImportFailed { detail: String },
     WholeGameEstimate { millis: Option<u64> },
     /// Nothing to do (no movement, chooser or prompt cancelled, clipboard without SGF).
     Unchanged,
@@ -1233,6 +1282,7 @@ pub struct WorkbenchView {
     pub match_notices: Vec<MatchNotice>,
     pub match_winrate_image: Option<MatchWinrateImageRequest>,
     pub human_sl: Option<HumanSlView>,
+    pub strength: StrengthView,
     pub human_sl_notices: Vec<HumanSlNotice>,
     pub human_sl_continuation: Option<HumanSlContinuation>,
     /// 读秒 countdown voices to play (`sound/<n>.wav`), once each.
@@ -1421,6 +1471,9 @@ pub enum ImportTarget {
     QuickModel,
     HumanSlTraining,
     HumanSlModel,
+    StrengthBackground,
+    /// The model directories of `strength-models` (棋力评估 导入模型).
+    StrengthModels,
     /// 死活题: `ui.tsume-go-to-play`, `tsume-go-attaker`, `tsume-go-ko-threat`,
     /// `tsume-go-wall-distance`, `show-tsume-go-menu`.
     Tsumego,

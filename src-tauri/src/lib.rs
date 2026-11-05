@@ -884,6 +884,11 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             publish(&app, &shared);
             Ok(result)
         }
+        Command::Strength { op } => {
+            let result = shared.workbench.lock().unwrap().strength(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
         Command::SetEditSettings { settings } => {
             let done = shared.workbench.lock().unwrap().set_edit_settings(settings)?;
             Ok(changed(&app, &shared, done))
@@ -1301,6 +1306,7 @@ fn prepare_exit(app: &AppHandle, shared: &Shared) -> bool {
     }
     if let Err(error) = independent::capture(app, &mut wb) { shared.log.warn(&error.message); }
     persist_ui(app, shared, &mut wb);
+    wb.shutdown_strength();
     true
 }
 
@@ -1826,6 +1832,7 @@ pub fn run() {
                 // Every exit path (window close, 退出, 强制退出) ends the engines and waits for
                 // their processes, so none is left behind.
                 let shared = app.state::<State>().inner().clone();
+                shared.workbench.lock().unwrap().shutdown_strength();
                 shared.workbench.lock().unwrap().end_engines();
                 shared.workbench.lock().unwrap().stop_benchmark();
                 shared.workbench.lock().unwrap().cancel_resource_tasks();
@@ -1854,6 +1861,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         appearance::appearance_catalog,
         appearance::appearance_images,
         appearance::appearance_choose_image,
+        appearance::strength_choose_model,
         workbench_snapshot,
         search_functions,
         subscribe_workbench,
@@ -1894,6 +1902,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         appearance::appearance_catalog,
         appearance::appearance_images,
         appearance::appearance_choose_image,
+        appearance::strength_choose_model,
         workbench_snapshot,
         search_functions,
         subscribe_workbench,

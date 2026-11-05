@@ -26,6 +26,7 @@ mod importing;
 mod information;
 mod humansl;
 mod humansl_model;
+mod strength;
 mod matches;
 mod panels;
 mod play;
@@ -276,6 +277,7 @@ pub struct Workbench {
     play: play::PlayFlow,
     matches: matches::MatchFlow,
     human_sl: humansl::HumanSlFlow,
+    strength: strength::StrengthFlow,
 }
 
 impl Workbench {
@@ -394,6 +396,7 @@ impl Workbench {
             play: play::PlayFlow::default(),
             matches: matches::MatchFlow::default(),
             human_sl: humansl::HumanSlFlow::default(),
+            strength: strength::StrengthFlow::default(),
         }
     }
 
@@ -1065,6 +1068,7 @@ impl Workbench {
             match_notices: Vec::new(),
             match_winrate_image: None,
             human_sl: self.human_sl_view(),
+            strength: self.strength_view(),
             human_sl_notices: Vec::new(),
             human_sl_continuation: None,
             byoyomi_voices: Vec::new(),

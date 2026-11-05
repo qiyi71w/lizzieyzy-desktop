@@ -286,6 +286,7 @@ impl Workbench {
     /// processes outside the workbench lock.
     pub fn end_engines(&mut self) {
         self.batch_shutdown();
+        self.shutdown_strength();
         self.engines.terminate_all();
     }
 
@@ -1125,6 +1126,7 @@ impl Workbench {
             self.play_deadline(),
             self.match_deadline(),
             self.human_sl_deadline(),
+            self.strength_deadline(),
         ]
             .into_iter()
             .flatten()
@@ -1142,7 +1144,8 @@ impl Workbench {
         let play = self.play_tick(now);
         let matches = self.match_tick(now);
         let human_sl = self.human_sl_tick(now);
-        engines | quick | whole | tracking | play | matches | human_sl
+        let strength = self.strength_tick(now);
+        engines | quick | whole | tracking | play | matches | human_sl | strength
     }
 
     /// Handles runtime events produced by operations outside engine output.
@@ -1159,6 +1162,7 @@ impl Workbench {
                 .match_event(ev)
                 .and_then(|ev| self.play_event(ev))
                 .and_then(|ev| self.human_sl_event(ev))
+                .and_then(|ev| self.strength_event(ev))
                 .and_then(|ev| self.quick_event(ev))
                 .and_then(|ev| self.flash_event(ev))
                 .and_then(|ev| self.whole_game_event(ev))

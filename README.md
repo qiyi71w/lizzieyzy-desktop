@@ -591,6 +591,26 @@ importing the matching LizzieYzy Next settings.
   digest is reported as missing and never used. 导入 copies another `.bin.gz` / `.txt.gz` HumanSL
   model (larger than 1 MB) into `human-sl-models/` of the resource directory. The model is not an
   analysis weight and is not offered as one.
+- 棋力评估 (分析 > 棋力评估, the top toolbar's 棋力评估 button, function search): estimates each
+  side's playing strength from the analysis already stored on the main line (it starts no
+  computation; analyse the game first, for example with 闪电分析整局). The dashboard follows
+  Java: 测评 (rank, confidence and per-side metrics), 吻合度 (overall match and the per-move hit
+  map), 发挥水准 (move quality distribution), and 详细数据. The default model is Java's bundled
+  XGBoost 20TUN with its residual calibrator; on the same analysed game it gives exactly the
+  fixed Java build's numbers. 导入 adds another XGBoost rank-value booster (`.json`, with a
+  sibling `metadata.json` / calibrator if present, or a `.zip` bundle) under `strength-models/`
+  in the data directory and selects it; the chosen model lasts for the session, as in Java.
+  HumanSL 40 is Java's experimental model: 补算 HumanSL runs a separate policy-only
+  `katago analysis` process on the official HumanSL network (download offered if missing) for
+  the first 210 moves of a 19×19 game without setup stones, with a progress dialog that 取消
+  stops. Policies are cached per query under `strength-humansl40-policy-cache/`, so the same
+  game is not queried again. 后台 HumanSL (off by default, saved) prepares the same data while
+  the foreground engine analyses, and stops when analysis is paused or a game, engine match or
+  AI 陪练 needs the engine. Its HumanSL policies come from network sampling, so its ranks can
+  differ slightly between runs. As in Java, the other models read only the candidates within
+  最大候选数, and a move that is no candidate is scored from the two positions' evaluations; when
+  only one of them has a score (for example a Leela Zero position next to a KataGo one), this
+  client uses the win-rate difference instead of Java's score of 0 for the scoreless position.
 - 死活题 (分析 > 死活题, Shift+E, the top toolbar's 死活 button, function search): frames the
   current position for engine reading like Java's tsumego frame. The attacker (自动检测 picks the
   colour with more stones, Black on a tie, as Java's detection effectively does) walls in the
@@ -688,7 +708,9 @@ importing the matching LizzieYzy Next settings.
   `new-engine-game-*`, `engine-game-match-rules`, per-side time modes and resignation thresholds)
   and the 自动落子 and 引擎对战 toolbar values in `toolbar-parameter`, and the AI 陪练 settings
   (`human-sl-training-last-settings`; Java's retired `LIVE_CORRECTION` becomes 边下边分析),
-  HumanSL model path (`katago-human-sl-model-path`), the 死活题 choices (`tsume-go-to-play`,
+  HumanSL model path (`katago-human-sl-model-path`), 后台 HumanSL for 棋力评估
+  (`strength-humansl-background-enabled`; the models in Java's `strength-models/` folder are
+  copied into this client's, once, keeping their names), the 死活题 choices (`tsume-go-to-play`,
   `tsume-go-attaker`, `tsume-go-ko-threat`, `tsume-go-wall-distance`; an unknown choice acts like
   Java's 继承 / 自动检测 / 无), the 死活 toolbar button (`show-tsume-go-menu`) and the 抓取死活题
   thresholds (`capture-*`, the gray offset under Java's `capture-gray-percent`) — only values Java
@@ -962,7 +984,8 @@ live under `resources/` in the same data directory (`engines/<package>/` with a 
 files and never overwritten), `quick-analysis-models/` for the lightweight model, `runtime/nvidia/`
 on Windows, `downloads/` for package archives; an
 interrupted download stays next to its target as `<name>.part` and resumes from there); "打开程序目录"
-opens it. LizzieYzy Next keeps its own
+opens it. Strength models imported for 棋力评估 live in `strength-models/` and HumanSL 40 policy
+caches in `strength-humansl40-policy-cache/`, next to `resources/`. LizzieYzy Next keeps its own
 `config.txt` and `persist` elsewhere (for example `~/.lizzieyzy-next/`); this client never writes
 there. The first start is detected by the missing `config.json`; declining the import offer
 writes it.
@@ -1002,4 +1025,6 @@ packages do not need the `licenses/` folder or `source-package.json` that Lizzie
 
 GPL-3.0-only (see `LICENSE.txt`). The images, stone sounds and the winrate font in `ui/public` are copied
 unchanged from LizzieYzy Next (GPL-3.0), and the application icons are generated from its icon;
-see `ui/public/assets/SOURCE.txt` and `ui/public/fonts/SOURCE.txt`.
+see `ui/public/assets/SOURCE.txt` and `ui/public/fonts/SOURCE.txt`. The strength models and the
+HumanSL 40 policy configuration in `crates/lizzie-core/resources/strength/` are copied unchanged
+from LizzieYzy Next's `src/main/resources/models/strength/` (GPL-3.0).

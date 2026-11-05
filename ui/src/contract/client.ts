@@ -74,6 +74,12 @@ export function chooseAppearanceImage(): Promise<string | null> {
   return invoke<string | null>("appearance_choose_image");
 }
 
+/** 棋力评估 导入模型: the system chooser titled `title` with the "XGBoost strength model (*.json,
+ *  *.zip)" filter (JFileChooser.showOpenDialog); null when cancelled. */
+export function chooseStrengthModel(title: string): Promise<string | null> {
+  return invoke<string | null>("strength_choose_model", { title });
+}
+
 /** The window is closing with 自动存档 on: answer with `Recovery { op: ExitAutoSave }`. */
 export function onExitAutoSaveRequest(handler: () => void): Promise<UnlistenFn> {
   return listen("exit-autosave-request", () => handler());

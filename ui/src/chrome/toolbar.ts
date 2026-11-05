@@ -18,6 +18,7 @@ import { limitPopup } from "../analysis/region";
 import { clockText } from "../game/commands";
 import { matchPlaying } from "../match/state";
 import "../editing/chrome.css";
+import "../strength/commands";
 
 const updaters: (() => void)[] = [];
 
@@ -394,7 +395,7 @@ export function buildToolbar(host: HTMLElement): void {
       icon("save.png", t("Menu.btnSave.toolTipText"), "files.save"),
       pill(t("Menu.foxKifuButton"), "w80"),
       pill(t("Menu.tencentKifuButton"), "w80"),
-      pill(t("Menu.playerStrengthEstimateButton"), "w80"),
+      strengthButton(),
     ),
     buttons(setup, flashButton(), search),
     buttons(
@@ -434,6 +435,13 @@ export function buildToolbar(host: HTMLElement): void {
     pill(t("Menu.saveBtn"), "small", "menu.saveAndLoad"),
     clockLabel(),
   );
+}
+
+/** btnPlayerStrengthEstimate (Menu.java:8386-8404): 棋力评估 with the menu item's text as its tip. */
+function strengthButton(): HTMLElement {
+  const b = pill(t("Menu.playerStrengthEstimateButton"), "w80", "menu.playerStrengthEstimate");
+  b.title = t("Menu.playerStrengthEstimate");
+  return b;
 }
 
 /** Menu.tsumeGoBtn: 死活题, shown while 自定义工具栏 > 死活 is on (show-tsume-go-menu). */

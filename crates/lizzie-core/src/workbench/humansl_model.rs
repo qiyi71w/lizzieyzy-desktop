@@ -29,6 +29,17 @@ impl Workbench {
             .find(|path| self.human_sl_model_valid(path, model))
     }
 
+    /// Read-only checksum evidence for consumers that require the official model even when
+    /// training accepts a custom filename. Never hashes or changes T22's admission rules.
+    pub(super) fn human_sl_official_verification(&self, path: &Path) -> Option<bool> {
+        let meta = std::fs::metadata(path).ok()?;
+        let modified = meta.modified().ok();
+        self.resources.human_sl_verified.lock().unwrap().get(path)
+            .filter(|entry| entry.size == meta.len() && entry.modified == modified
+                && entry.sha256.eq_ignore_ascii_case(crate::strength::HUMAN_SHA))
+            .map(|entry| entry.valid)
+    }
+
     fn human_sl_model_valid(&self, path: &Path, model: &Model) -> bool {
         let Ok(meta) = std::fs::metadata(path) else {
             return false;

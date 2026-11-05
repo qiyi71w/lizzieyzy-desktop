@@ -30,6 +30,7 @@ pub mod resources;
 pub mod sanitize;
 pub mod scoring;
 pub mod settings;
+pub mod strength;
 pub mod tsumego;
 pub mod viewpoint;
 pub mod workbench;

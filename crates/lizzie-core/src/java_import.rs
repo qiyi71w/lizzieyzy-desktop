@@ -191,6 +191,7 @@ pub struct Mapped {
     pub human_sl_training: Option<crate::settings::HumanSlTrainingSettings>,
     pub human_sl_advanced_visible: Option<bool>,
     pub human_sl_model_path: Option<String>,
+    pub strength_background: Option<bool>,
     /// 死活题 (`TsumeGoFrame`; a value outside the dialog's choices acts as 继承 / 自动检测 / 无).
     pub tsumego_to_play: Option<crate::tsumego::TsumegoToPlay>,
     pub tsumego_attacker: Option<crate::tsumego::TsumegoAttacker>,
@@ -883,6 +884,12 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "katago-human-sl-model-path",
         ImportTarget::HumanSlModel,
         Kind::Str(|m, v| m.human_sl_model_path = Some(v)),
+    ),
+    (
+        "ui",
+        "strength-humansl-background-enabled",
+        ImportTarget::StrengthBackground,
+        Kind::Bool(|m, v| m.strength_background = Some(v)),
     ),
     // 死活题 (`Config.java:1819, 2105-2114`). An unknown 先手方 or 进攻方 selects no radio button and
     // builds like 继承 / 自动检测; an unknown 劫材 value adds no ko threats.
@@ -2158,12 +2165,18 @@ impl Reader<'_> {
     }
 
     /// Other Java data next to the configuration: reported, never read. The 存档与读档 folder
-    /// (`save`) is read separately ([`slots`]).
+    /// (`save`) is read separately ([`slots`]); the 棋力评估 models are copied by the import.
     fn other_files(&mut self) {
         let dir = self.source.config_dir.clone();
         if dir.join("theme").is_dir() {
             let it = self.item("file:theme".into(), ImportStatus::NotMigrated);
             it.reason = Some(ImportReason::NotYetAvailable);
+        }
+        let models = crate::strength::java_models(&dir.join("strength-models"));
+        if !models.is_empty() {
+            let it = self.item("file:strength-models".into(), ImportStatus::Imported);
+            it.target = Some(ImportTarget::StrengthModels);
+            it.value = Some(models.len().to_string());
         }
         for (name, credential) in [("teacher.properties", true), ("secure-credentials", true)] {
             if dir.join(name).exists() {
@@ -2535,6 +2548,7 @@ impl Mapped {
         if let Some(path) = &self.human_sl_model_path {
             c.human_sl.model_path = (!path.trim().is_empty()).then(|| path.clone());
         }
+        set!(c.strength.humansl_background, self.strength_background);
         let ts = &mut c.tsumego;
         set!(ts.frame.to_play, self.tsumego_to_play);
         set!(ts.frame.attacker, self.tsumego_attacker);
@@ -2828,6 +2842,9 @@ impl Mapped {
         }
         if self.human_sl_model_path.as_ref().is_some_and(|v| config.human_sl.model_path.as_ref() != Some(v)) {
             out.push(ImportTarget::HumanSlModel);
+        }
+        if self.strength_background.is_some_and(|v| v != config.strength.humansl_background) {
+            out.push(ImportTarget::StrengthBackground);
         }
         let ts = &config.tsumego;
         if self.tsumego_to_play.is_some_and(|v| v != ts.frame.to_play)

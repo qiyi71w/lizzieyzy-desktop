@@ -104,6 +104,16 @@ impl Workbench {
                 return Err(ApiError::new(ErrorKind::Io, format!("importing appearance images failed: {e}")));
             }
         };
+        let models = match crate::strength::copy_java_models(
+            &candidate.source.config_dir.join("strength-models"),
+            &self.strength_dir("strength-models"),
+        ) {
+            Ok(models) => models,
+            Err(e) => {
+                self.java_preview = Some((id, candidate));
+                return Err(ApiError::new(ErrorKind::Io, format!("importing the strength models failed: {e}")));
+            }
+        };
         // After "重置界面位置" the persist file stays deleted until the next start
         // (`Config.deletePersist`), except for the folder the user imports now: it is written
         // alone, without the placement that was reset.
@@ -152,6 +162,8 @@ impl Workbench {
             ));
         }
         images.keep();
+        models.keep();
+        self.strength_reload_models();
 
         let previous_analysis = self.config.engine.analysis.clone();
         let captures_changed = self.config.edit.no_capture != config.edit.no_capture;

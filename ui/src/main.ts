@@ -55,6 +55,7 @@ import "./quick/analysisSettings";
 import { flashWindowOpen, startFlash } from "./quick/flash";
 import { openWholeGameAnalysis } from "./quick/wholeGame";
 import { bindFunctionSearch, functionSearchReport } from "./search/controller";
+import { strengthReport } from "./strength/dashboard";
 import { appearanceRevision, onAppearanceChange, startAppearance } from "./appearance/state";
 import "./appearance/commands";
 import { humanSlDisplay } from "./humansl/state";
@@ -1432,6 +1433,8 @@ function uiReport() {
     hawkeye: hawkeyeReport(),
     /** 批量分析 (T17): whether its settings dialog is shown and what the 进度表 window last drew. */
     batch: batchReport(),
+    /** 棋力评估 (T25): the dashboard, 详细数据 and HumanSL 40 progress dialogs as shown. */
+    strength: strengthReport(),
     /** Visible menu, toolbar, bottom-bar and dialog controls with client-area centres, so
      *  automation clicks the real controls. */
     targets: [...document.querySelectorAll<HTMLElement>("[data-key], [data-name], #moveInput, .modal-box button")]

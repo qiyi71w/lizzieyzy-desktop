@@ -33,3 +33,13 @@ pub async fn appearance_choose_image(app:tauri::AppHandle) -> Result<Option<Stri
         dialog.file().blocking_pick_file().and_then(|file|file.into_path().ok()).map(|path|path.to_string_lossy().into_owned())
     }).await.map_err(error)
 }
+
+#[tauri::command]
+pub async fn strength_choose_model(app:tauri::AppHandle,title:String) -> Result<Option<String>,ApiError> {
+    use tauri_plugin_dialog::DialogExt;
+    let dialog=app.dialog().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        dialog.file().set_title(title).add_filter("XGBoost strength model (*.json, *.zip)",&["json","zip"])
+            .blocking_pick_file().and_then(|file|file.into_path().ok()).map(|path|path.to_string_lossy().into_owned())
+    }).await.map_err(error)
+}

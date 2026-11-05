@@ -1448,6 +1448,12 @@ pub const RECENT_LIMIT: usize = 5;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
+pub struct StrengthSettings {
+    pub humansl_background: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
 pub struct Config {
     pub record: RecordSettings,
     pub ui: UiSettings,
@@ -1469,6 +1475,7 @@ pub struct Config {
     pub quick_model: QuickModelSettings,
     /// HumanSL model and durable training preferences.
     pub human_sl: HumanSlSettings,
+    pub strength: StrengthSettings,
     /// 评论/问题手 panel.
     pub problems: ProblemListSettings,
     /// 局部精析's move range.
