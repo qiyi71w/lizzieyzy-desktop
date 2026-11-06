@@ -122,6 +122,8 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   // AI 陪练's last-started settings (HumanSlTraining.title) and the HumanSL model (AutoSetup.humanSlModel).
   HumanSlTraining: "HumanSlTraining.title",
   HumanSlModel: "AutoSetup.humanSlModel",
+  // AI 解说's teacher.properties (TeacherSettingsDialog title).
+  Commentary: "Teacher.settings.title",
 };
 
 function targetLabel(target: ImportTarget): string {
@@ -223,6 +225,14 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
   body.append(text("p", product("importCounts", count(p.items, "Imported"), count(p.items, "Incompatible"), count(p.items, "NotMigrated")), "java-import-counts"));
   const credentials = new Map<number, HTMLInputElement>();
   engineTable(body, p.engines, credentials);
+  // The remembered AI 解说 API key (Java's secure-credentials) comes over only when chosen.
+  let commentaryKey: HTMLInputElement | null = null;
+  if (p.commentary_credential) {
+    const box = checkbox(product("importCopyCommentaryKey", p.commentary_credential.base_url || p.commentary_credential.source), false);
+    box.input.dataset.key = "import-commentary-key";
+    commentaryKey = box.input;
+    body.append(box.label);
+  }
   if (p.engines.some((e) => e.problems.some((x) => x.type === "ProgramNotFound" || x.type === "FileNotFound")) || p.program_dir) {
     const row = document.createElement("div");
     row.className = "java-import-row";
@@ -266,6 +276,7 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
       type: "ApplyJavaImport",
       preview: p.id,
       copy_credentials: copy,
+      copy_commentary_key: commentaryKey?.checked ?? false,
       replace: replace?.checked ?? false,
       recovery: recovery?.checked ? { auto_slot_name: t("LizzieFrame.saveAndLoad.exitRecord") } : null,
     });

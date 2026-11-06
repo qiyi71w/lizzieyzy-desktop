@@ -38,6 +38,7 @@ import { graphDestination, graphTarget, paintGraph, type GraphHits, type GraphRe
 import { bindTables, boardPointerMoved, boardWheel, clearTableSelection, mainTableSignature, renderMainTable, resetTables, tableBranchLength, tablesReport } from "./analysis/table";
 import { frameReport, framesReport, handleTableKey, relayFrame, startFrame } from "./analysis/tableCommands";
 import { handleHawkeyeKey, hawkeyeReport, relayHawkeye, startHawkeye } from "./hawkeye/commands";
+import { commentaryReport, relayCommentary, renderCommentPanel, startCommentary } from "./commentary/commands";
 import { batchReport, handleBatchKey, startBatchTable } from "./batch/commands";
 import { bindCommentEditor, commentEditing } from "./editing/comment";
 import { contextMenuItems, contextMenuOpen } from "./editing/contextMenu";
@@ -1007,6 +1008,7 @@ function render() {
   });
   relayFrame(v);
   relayHawkeye(v);
+  relayCommentary(v);
   if (changed("bottombar", `${$("bottombar").clientWidth}`)) {
     layoutBottomBar($("bottombar"));
     // 详细工具栏 wraps its panels by width: a new height resizes the workbench.
@@ -1094,8 +1096,11 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
   }
   place($("comment"), P.comment);
   // 记录选点信息到评论中: Java's pane shows the summary its engine writes into the comment.
-  const comment = playMode ? "" : (v.comment_with_analysis ?? pos.comment);
-  if (changed("comment", `${docSig}:${comment}`)) $("commentText").textContent = comment;
+  // CommentDisplayRenderer: AI 解说 blocks leave the comment text and show as their own section;
+  // the comment editor still edits the raw comment.
+  const comment = playMode ? "" : (v.comment_with_analysis ?? pos.user_comment);
+  const aiCommentary = playMode ? null : pos.ai_commentary;
+  if (changed("comment", `${docSig}:${comment}:${aiCommentary}`)) renderCommentPanel($("commentText"), comment, aiCommentary);
   renderProblemPanel(v);
   place($("table"), P.table);
   if (P.shown.table && changed("table", `${at(P.table)}:${docSig}:${analysisRevision}:${historyRevision}:${mainTableSignature(v)}:${noAnalysis}`)) renderMainTable($("table"), noAnalysis ? { ...v, analysis: null } : v);
@@ -1385,6 +1390,8 @@ function uiReport() {
     batch: batchReport(),
     /** 棋力评估 (T25): the dashboard, 详细数据 and HumanSL 40 progress dialogs as shown. */
     strength: strengthReport(),
+    /** AI 解说 (T26): whether its window is open and what it shows, settings dialog included. */
+    commentary: commentaryReport(),
     /** Visible menu, toolbar, bottom-bar and dialog controls with client-area centres, so
      *  automation clicks the real controls. */
     targets: [...document.querySelectorAll<HTMLElement>("[data-key], [data-name], #moveInput, .modal-box button")]
@@ -1547,6 +1554,7 @@ async function boot() {
   render();
   await startFrame(schedule);
   await startHawkeye(schedule);
+  await startCommentary();
   await startIndependent(independentInput, schedule);
   await startBatchTable();
   await getCurrentWindow().show();

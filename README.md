@@ -612,6 +612,38 @@ importing the matching LizzieYzy Next settings.
   选点重点研究 tracks), and a move that is no candidate is scored from the two positions' evaluations; when
   only one of them has a score (for example a Leela Zero position next to a KataGo one), this
   client uses the win-rate difference instead of Java's score of 0 for the scoreless position.
+- AI 解说 (分析 > AI 解说, the AI 解说 button after AI 陪练 in the menu strip, shown as 解说 when the
+  strip is narrower than 900 px, function search): explains the analysis already stored on the
+  record in plain language through a language-model service you configure. It starts no engine
+  computation, so analyse the positions first. The window follows Java: 下一手 compares the
+  recorded next move with the first three KataGo candidates (plus the played move when it is a
+  lower candidate), 区间 and 整局 pick at most five key positions of the main line, at least three
+  moves apart, by score loss (then win-rate loss, then visits), and 继续追问 asks about the current
+  explanation with the same evidence. 分析依据 shows exactly what was sent: candidates and losses,
+  stone groups and liberties, the replayed continuation and candidate lines, and up to two grounded
+  matches from the bundled common-pattern teaching catalogue. A reply that names a coordinate
+  outside that evidence is sent back once for correction; a second unsupported reply is reported
+  as unverified and not saved. Verifier notes on an accepted reply are shown, never saved. With
+  将解说加入棋谱评论 checked (the default), the answer goes into the node's comment as a separate
+  `[LizzieYzy AI Commentary BEGIN]` … `[LizzieYzy AI Commentary END]` block that replaces an earlier
+  block and leaves your own comment untouched; save the record to keep it, and the comment panel
+  shows it as its own AI 解说 section. The block goes to the node the request was made for (下一手
+  and 区间: the current node; 整局: the root) even if you navigate meanwhile; if that node is deleted
+  or its position is edited before the reply arrives, the answer is shown but not stored (Java
+  stored it into the stale node). 停止, closing the window or opening another record cancels the
+  request, closes the connection and discards a late reply.
+  设置 > 连接服务 offers Java's two connections. **API Key** works with any OpenAI-compatible
+  service: service address (`/v1` is added to an address without a path), key and model; 获取模型
+  lists `/models`; requests stream from `/chat/completions` and fall back to `/responses` only when
+  the service answers 404 or 405; HTTPS is required except for a service on this computer.
+  **ChatGPT 登录** is OpenAI's Sign in with ChatGPT in the browser and uses your ChatGPT plan
+  (管理用量 opens its usage page); several accounts can be added and switched. 记住密钥 keeps the key
+  in the system credential store (Windows DPAPI, macOS Keychain, Linux Secret Service through
+  `secret-tool`); without one the key lasts for this session only. Keys and sign-in tokens are
+  never written to the settings files or logs. 讲解偏好 (level, style, terminology, pace, variations)
+  only shape the prompt. 导入 Java 配置 migrates Java's AI commentary settings; a remembered Java API
+  key is copied only when you tick it, and ChatGPT sign-ins are not migrated (sign in again).
+  Accounts and costs belong to your provider; nothing is sent until you start a commentary.
 - 死活题 (分析 > 死活题, Shift+E, the top toolbar's 死活 button, function search): frames the
   current position for engine reading like Java's tsumego frame. The attacker (自动检测 picks the
   colour with more stones, Black on a tie, as Java's detection effectively does) walls in the
@@ -986,7 +1018,10 @@ files and never overwritten), `quick-analysis-models/` for the lightweight model
 on Windows, `downloads/` for package archives; an
 interrupted download stays next to its target as `<name>.part` and resumes from there); "打开程序目录"
 opens it. Strength models imported for 棋力评估 live in `strength-models/` and HumanSL 40 policy
-caches in `strength-humansl40-policy-cache/`, next to `resources/`. LizzieYzy Next keeps its own
+caches in `strength-humansl40-policy-cache/`, next to `resources/`. AI 解说 keeps its ChatGPT
+account list (no tokens) in `chatgpt/accounts.json` in the data directory; on Windows the keys it
+remembers are DPAPI-encrypted under `secure-credentials/` in the configuration directory, while
+macOS and Linux use the Keychain and Secret Service. LizzieYzy Next keeps its own
 `config.txt` and `persist` elsewhere (for example `~/.lizzieyzy-next/`); this client never writes
 there. The first start is detected by the missing `config.json`; declining the import offer
 writes it.

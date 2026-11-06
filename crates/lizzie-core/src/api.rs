@@ -95,6 +95,8 @@ pub enum OpenSource {
 #[serde(tag = "type")]
 pub enum Command {
     Strength { op: StrengthCommand },
+    Commentary { op: CommentaryCommand },
+    CommentaryConnection { op: ConnectionCommand },
     /// 主题 drafts apply together only on 保存设置 (ConfigDialog2.java:6191-6286).
     SetAppearanceSettings {
         settings: crate::appearance::AppearanceSettings,
@@ -304,6 +306,9 @@ pub enum Command {
     ApplyJavaImport {
         preview: u64,
         copy_credentials: Vec<u32>,
+        /// Separate, unchecked-by-default consent for Java's commentary API key.
+        #[serde(default)]
+        copy_commentary_key: bool,
         replace: bool,
         recovery: Option<RecoveryImport>,
     },
@@ -789,6 +794,7 @@ pub enum CommandResult {
     /// Applied; the new state arrives as a [`WorkbenchView`].
     Done,
     Strength { report: Box<StrengthReport> },
+    CommentaryModels { models: Vec<String> },
     StrengthImportFailed { detail: String },
     WholeGameEstimate { millis: Option<u64> },
     /// Nothing to do (no movement, chooser or prompt cancelled, clipboard without SGF).
@@ -936,6 +942,9 @@ pub struct PositionView {
     pub white_captures: u32,
     pub marks: Vec<Mark>,
     pub comment: String,
+    /// Display text only; the comment editor continues using `comment` verbatim.
+    pub user_comment: String,
+    pub ai_commentary: Option<String>,
     /// Root to current node.
     pub path: Vec<NodeId>,
     /// End of the current line through first children (Java `history.getEnd()`).
@@ -1283,6 +1292,7 @@ pub struct WorkbenchView {
     pub match_winrate_image: Option<MatchWinrateImageRequest>,
     pub human_sl: Option<HumanSlView>,
     pub strength: StrengthView,
+    pub commentary: CommentaryView,
     pub human_sl_notices: Vec<HumanSlNotice>,
     pub human_sl_continuation: Option<HumanSlContinuation>,
     /// 读秒 countdown voices to play (`sound/<n>.wav`), once each.
@@ -1364,6 +1374,7 @@ pub struct ImportItemView {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, TS)]
 pub enum ImportTarget {
     Appearance,
+    Commentary,
     ReadKomi,
     LoadSgfLast,
     ReplaceFileHint,
@@ -1576,10 +1587,18 @@ pub struct ImportPreviewView {
     pub program_dir: Option<String>,
     pub items: Vec<ImportItemView>,
     pub engines: Vec<ImportEngineView>,
+    pub commentary_credential: Option<ImportCommentaryCredential>,
     /// Settings already chosen in this product that the import would replace.
     pub replaces: Vec<ImportTarget>,
     /// Java 存档与读档 slots; imported only when the user chooses to.
     pub recovery: Vec<ImportSlotView>,
+}
+
+/// Non-secret Java API-key import choice. The credential never enters a core view or config.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct ImportCommentaryCredential {
+    pub source: String,
+    pub base_url: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
@@ -1951,4 +1970,57 @@ pub struct LogsStatus {
     pub directory: String,
     pub app_log_bytes: Option<u64>,
     pub crash_log_bytes: Option<u64>,
+}
+
+pub use crate::commentary::prompt::Mode as CommentaryMode;
+pub use crate::commentary::settings::{CommentarySettings, Preferences as CommentaryPreferences, Provider as CommentaryProvider};
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum CommentaryCommand {
+    Open, Close, Start { mode: CommentaryMode, first: u32, last: u32 }, Ask { question: String }, Stop,
+    SetWriteToSgf { enabled: bool }, SavePreferences { preferences: CommentaryPreferences }, ReloadKnowledge,
+}
+/// Adapter-only operations. Never log this command: API keys are transient input, not state.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum ConnectionCommand {
+    ListApiModels { base_url: String, api_key: String },
+    SaveApiKeyConnection { base_url: String, model: String, api_key: String, remember: bool },
+    ForgetApiKey, OpenApiKeyTab,
+    ChatGptSignIn { #[serde(default)] account: Option<String> },
+    ChatGptCancelSignIn,
+    ChatGptSelectAccount { account: String }, ChatGptSignOut { account: String }, ChatGptRefreshModels,
+    SaveChatGptConnection { account: String, model: String, effort: Option<String> },
+    SelectProvider { provider: CommentaryProvider }, OpenUsage,
+}
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+pub struct CommentaryAccount { pub id: String, pub email: String, pub signed_in: bool, pub authorized: bool, pub model: String, pub effort: Option<String>, pub credentials_unavailable: bool, pub session_only: bool }
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+pub struct CommentaryModel { pub slug: String, pub display_name: String, pub efforts: Vec<String>, pub default_effort: Option<String> }
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+pub struct CommentarySecureStorage { pub available: bool, pub backend: String }
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+pub struct CommentaryChatGptFacts { pub accounts: Vec<CommentaryAccount>, pub active: Option<String>, pub signing_in: bool, pub models: Vec<CommentaryModel>, pub status_key: String }
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+pub struct CommentaryConnectionFacts { pub loaded: bool, pub settings_usable: bool, pub secure_storage: CommentarySecureStorage, pub api_key_present: bool, pub chatgpt: CommentaryChatGptFacts }
+impl Default for CommentaryConnectionFacts { fn default() -> Self { Self { loaded: false, settings_usable: true, secure_storage: CommentarySecureStorage::default(), api_key_present: false, chatgpt: CommentaryChatGptFacts::default() } } }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+/// Java `TeacherDialogView.StatusTone`.
+pub enum CommentaryTone { #[default] Neutral, Running, Success, Warning, Error }
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+pub struct CommentaryText { pub key: String, pub args: Vec<String> }
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+pub struct CommentaryStatus { pub key: String, pub args: Vec<String>, pub tone: CommentaryTone, pub detail_key: String }
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
+pub enum CommentaryOutputState { Empty, Loading, Output }
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct CommentaryView {
+    pub open: bool, pub running: bool, pub mode: CommentaryMode, pub scope: CommentaryText,
+    pub current_move: u32, pub main_line_last_move: u32, pub output: String, pub output_state: CommentaryOutputState,
+    pub evidence: String, pub status: CommentaryStatus, pub model_status: CommentaryText,
+    pub connection_ready: bool, pub settings_loaded: bool, pub settings_usable: bool, pub chatgpt_usage_visible: bool,
+    pub controls_enabled: bool, pub start_enabled: bool, pub settings_enabled: bool, pub stop_enabled: bool,
+    pub write_to_sgf: bool, pub preferences: CommentaryPreferences, pub connection: CommentarySettings,
+    pub facts: CommentaryConnectionFacts, pub restore_question: Option<String>, pub target_changed: bool,
 }

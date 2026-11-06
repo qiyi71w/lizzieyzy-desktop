@@ -1,0 +1,15 @@
+/* The comment panel's rendered comment (LizzieFrame.configureCommentHtmlStyle): everything in the
+   comment colour on the panel background; the SGF comment keeps its lines, the AI section is
+   Markdown under a bold Teacher.title line. */
+#commentText .sgf-comment, #commentText .ai-commentary { white-space: normal; }
+#commentText .ai-commentary-title { margin: 2px 0 6px 0; }
+#commentText .comment-spacer { height: 6px; }
+#commentText .ai-commentary h1, #commentText .ai-commentary h2, #commentText .ai-commentary h3 { margin: 6px 0 4px 0; font-size: 1em; font-weight: bold; }
+#commentText .ai-commentary h1 { font-size: 1.3em; }
+#commentText .ai-commentary h2 { font-size: 1.15em; }
+#commentText .ai-commentary ul, #commentText .ai-commentary ol { margin: 4px 0; padding-left: 22px; }
+#commentText .ai-commentary blockquote { margin: 4px 0; padding-left: 10px; border-left: 2px solid currentColor; }
+#commentText .ai-commentary pre { margin: 4px 0; white-space: pre-wrap; }
+#commentText .ai-commentary code { font-family: Consolas, Menlo, Monaco, "Ubuntu Mono", monospace; }
+#commentText .ai-commentary table { border-collapse: collapse; margin: 4px 0; }
+#commentText .ai-commentary th, #commentText .ai-commentary td { border: 1px solid currentColor; padding: 3px 6px; text-align: left; }

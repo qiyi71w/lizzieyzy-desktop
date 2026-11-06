@@ -132,6 +132,7 @@ pub struct Mapped {
     pub startup_benchmark_dismissed_version: Option<u32>,
     /// `ui.network-proxy-*` as Java `NetworkProxy.settings` would accept them.
     pub network: Option<NetworkSettings>,
+    pub commentary: Option<crate::commentary::settings::CommentarySettings>,
     pub allow_double_click: Option<bool>,
     pub allow_drag: Option<bool>,
     pub show_right_menu: Option<bool>,
@@ -327,9 +328,24 @@ pub struct Candidate {
     pub engines: Vec<ImportEngineView>,
     /// Java 存档与读档 slots ([`crate::java_import::slots`]); imported only when chosen.
     pub slots: Vec<slots::JavaSlot>,
+    /// Non-secret API-key choice; the adapter reads its secret only after explicit consent.
+    pub commentary_credential: Option<crate::api::ImportCommentaryCredential>,
 }
 
 impl Candidate {
+    /// Adds the OS-store credential choice after the adapter's read-only availability lookup.
+    pub fn set_commentary_credential(&mut self, source: &str) {
+        if self.commentary_credential.is_some() { return; }
+        let Some(settings) = &self.mapped.commentary else { return; };
+        self.commentary_credential = Some(crate::api::ImportCommentaryCredential {
+            source: source.into(), base_url: settings.base_url.clone(),
+        });
+        self.items.push(ImportItemView {
+            key: "credential:commentary-api-key".into(), status: ImportStatus::NotMigrated,
+            reason: Some(ImportReason::CredentialNotConfirmed), target: Some(ImportTarget::Commentary),
+            value: None, detail: None, credential: true,
+        });
+    }
     /// The engines as the report shows them once the user chose which credentials to copy.
     pub fn engines_after(&self, copy_credentials: &[u32]) -> Vec<ImportEngineView> {
         self.engines
@@ -429,8 +445,9 @@ pub fn read(source: &JavaSource) -> Result<Candidate, ImportFailure> {
         }
     }
     r.other_files();
+    let legacy_key = r.teacher_settings();
     let slots = slots::read(source, &mut r);
-    Ok(Candidate {
+    let mut candidate = Candidate {
         source: source.clone(),
         config_file,
         persist_file,
@@ -438,7 +455,10 @@ pub fn read(source: &JavaSource) -> Result<Candidate, ImportFailure> {
         items: r.items,
         engines: r.engines,
         slots,
-    })
+        commentary_credential: None,
+    };
+    if legacy_key { candidate.set_commentary_credential("teacher.properties"); }
+    Ok(candidate)
 }
 
 enum JsonError {
@@ -2164,8 +2184,8 @@ impl Reader<'_> {
         }
     }
 
-    /// Other Java data next to the configuration: reported, never read. The 存档与读档 folder
-    /// (`save`) is read separately ([`slots`]); the 棋力评估 models are copied by the import.
+    /// Other Java data next to the configuration. Commentary settings are read separately;
+    /// credentials are discovered by the platform adapter and require independent consent.
     fn other_files(&mut self) {
         let dir = self.source.config_dir.clone();
         if dir.join("theme").is_dir() {
@@ -2178,16 +2198,10 @@ impl Reader<'_> {
             it.target = Some(ImportTarget::StrengthModels);
             it.value = Some(models.len().to_string());
         }
-        for (name, credential) in [("teacher.properties", true), ("secure-credentials", true)] {
-            if dir.join(name).exists() {
-                let it = self.item(format!("file:{name}"), ImportStatus::NotMigrated);
-                it.credential = credential;
-                it.reason = Some(if credential {
-                    ImportReason::Credential
-                } else {
-                    ImportReason::NotYetAvailable
-                });
-            }
+        if dir.join("chatgpt/accounts.json").exists() {
+            let item = self.item("file:chatgpt/accounts.json".into(), ImportStatus::NotMigrated);
+            item.reason = Some(ImportReason::Credential);
+            item.detail = Some("ChatGPT sessions are not migrated; sign in again.".into());
         }
     }
 }
@@ -2501,6 +2515,7 @@ impl Mapped {
         set!(c.engine.auto_load_kata_rules, self.auto_load_kata_rules);
         set!(c.engine.startup_benchmark, self.startup_benchmark);
         set!(c.network, self.network);
+        set!(c.commentary, self.commentary);
         set!(c.edit.allow_double_click, self.allow_double_click);
         set!(c.edit.allow_drag, self.allow_drag);
         set!(c.edit.show_right_menu, self.show_right_menu);
@@ -2773,6 +2788,7 @@ impl Mapped {
             self.startup_benchmark
         );
         cmp!(ImportTarget::NetworkProxy, config.network, self.network);
+        cmp!(ImportTarget::Commentary, config.commentary, self.commentary);
         cmp!(
             ImportTarget::AutoQuickAnalysis,
             config.record.auto_quick_analyze_on_load,
@@ -2956,4 +2972,134 @@ fn custom_layout(value: &Value) -> Option<crate::settings::CustomLayout> {
         independent_main: o.get("independent-main-board-position").and_then(java_window),
         independent_sub: o.get("independent-sub-board-position").and_then(java_window),
     })
+}
+
+impl Reader<'_> {
+    /// TeacherSettings.load at the fixed Java baseline, without its source-file rewrite.
+    fn teacher_settings(&mut self) -> bool {
+        use crate::commentary::settings::{self, CommentarySettings, Preferences, Provider};
+        let file = self.source.config_dir.join("teacher.properties");
+        if !file.is_file() { return false; }
+        let properties = match teacher_properties(&file) {
+            Ok(properties) => properties,
+            Err(()) => {
+                let item = self.item("file:teacher.properties".into(), ImportStatus::Incompatible);
+                item.reason = Some(ImportReason::Unreadable);
+                return false;
+            }
+        };
+        let get = |name: &str, default: &str| properties.get(name).cloned().unwrap_or_else(|| default.into());
+        let provider = match get("provider", "API_KEY").as_str() {
+            "API_KEY" => Provider::ApiKey, "CHATGPT" => Provider::ChatGpt, _ => Provider::Unselected,
+        };
+        let mut base_url = get("baseUrl", "");
+        if base_url.trim().is_empty() {
+            base_url = if properties.contains_key("provider") { String::new() } else { "https://api.openai.com/v1".into() };
+        }
+        let model = get("model", "");
+        let valid = (|| {
+            let base_url = if base_url.is_empty() { base_url } else { settings::validate_base_url(&base_url)? };
+            let model = if model.trim().is_empty() { String::new() } else { settings::validate_model(&model)? };
+            Ok::<_, crate::commentary::CommentaryFailure>((base_url, model))
+        })();
+        let (base_url, model) = match valid {
+            Ok(values) => values,
+            Err(_) => {
+                let item = self.item("file:teacher.properties".into(), ImportStatus::Incompatible);
+                item.reason = Some(ImportReason::InvalidValue);
+                return false;
+            }
+        };
+        let rank_mode = if get("teacher.rankMode", "k") == "d" { "d" } else { "k" };
+        let number = |name: &str, low: i32, high: i32, default: i32| {
+            properties.get(name).and_then(|v| v.parse::<i32>().ok()).map(|v| v.clamp(low, high)).unwrap_or(default)
+        };
+        let legacy_key = properties.get("apiKey").is_some_and(|key| !key.trim().is_empty());
+        self.mapped.commentary = Some(CommentarySettings {
+            provider, base_url, model,
+            // The key itself lives in Java's credential store; remembering it here starts only after
+            // the separately confirmed copy into this client's store succeeds.
+            remember_api_key: false,
+            preferences: Preferences { rank_mode: rank_mode.into(), rank_num: number("teacher.rankNum", 1, if rank_mode == "d" { 9 } else { 18 }, 5),
+                style_index: number("teacher.styleIndex", 0, 4, 0), density_index: number("teacher.densityIndex", 0, 2, 1),
+                pace_index: number("teacher.paceIndex", 0, 2, 1), variation_index: number("teacher.variationIndex", 0, 2, 1) },
+        });
+        let item = self.item("file:teacher.properties".into(), ImportStatus::Imported);
+        item.target = Some(ImportTarget::Commentary);
+        if provider == Provider::ChatGpt {
+            let item = self.item("credential:chatgpt-session".into(), ImportStatus::NotMigrated);
+            item.reason = Some(ImportReason::Credential);
+            item.credential = true;
+            item.detail = Some("ChatGPT sessions are not migrated; sign in again.".into());
+        }
+        legacy_key
+    }
+}
+
+/// Read only after the adapter has obtained explicit API-key import consent. This value must
+/// never be retained in Candidate, a report, configuration, or a workbench projection.
+pub fn read_java_commentary_api_key(directory: &Path) -> Option<String> {
+    teacher_properties(&directory.join("teacher.properties")).ok()?.remove("apiKey")
+        .map(|key| key.trim().to_owned()).filter(|key| !key.is_empty())
+}
+
+/// java.util.Properties.load(InputStream): Latin-1, continuations and Unicode escapes.
+fn teacher_properties(path: &Path) -> Result<std::collections::BTreeMap<String, String>, ()> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path).map_err(|_| ())?.take(1_048_577).read_to_end(&mut bytes).map_err(|_| ())?;
+    if bytes.len() > 1_048_576 { return Err(()); }
+    let text: String = bytes.iter().map(|byte| char::from(*byte)).collect();
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    let mut properties = std::collections::BTreeMap::new();
+    let mut logical = String::new();
+    let mut continued = false;
+    for line in text.split('\n') {
+        let line = line.trim_start_matches([' ', '\t', '\u{c}']);
+        if !continued && (line.is_empty() || line.starts_with(['#', '!'])) { continue; }
+        logical.push_str(line);
+        let slashes = logical.as_bytes().iter().rev().take_while(|byte| **byte == b'\\').count();
+        continued = slashes % 2 == 1;
+        if continued { logical.pop(); continue; }
+        let (key, value) = property_pair(&logical)?;
+        properties.insert(key, value);
+        logical.clear();
+    }
+    if !logical.is_empty() {
+        let (key, value) = property_pair(&logical)?;
+        properties.insert(key, value);
+    }
+    Ok(properties)
+}
+fn property_pair(logical: &str) -> Result<(String, String), ()> {
+    let mut escaped = false;
+    let mut split = logical.len();
+    for (index, character) in logical.char_indices() {
+        if !escaped && matches!(character, '=' | ':' | ' ' | '\t' | '\u{c}') { split = index; break; }
+        escaped = !escaped && character == '\\';
+    }
+    let mut value = logical[split..].trim_start_matches([' ', '\t', '\u{c}']);
+    if value.starts_with(['=', ':']) { value = &value[1..]; }
+    value = value.trim_start_matches([' ', '\t', '\u{c}']);
+    Ok((property_unescape(&logical[..split])?, property_unescape(value)?))
+}
+fn property_unescape(text: &str) -> Result<String, ()> {
+    let mut units = Vec::new();
+    let mut chars = text.chars();
+    while let Some(character) = chars.next() {
+        let character = if character == '\\' {
+            match chars.next() {
+                Some('u') => {
+                    let mut unit = 0u16;
+                    for _ in 0..4 { unit = (unit << 4) | chars.next().and_then(|c| c.to_digit(16)).ok_or(())? as u16; }
+                    units.push(unit); continue;
+                }
+                Some('t') => '\t', Some('r') => '\r', Some('n') => '\n', Some('f') => '\u{c}',
+                Some(character) => character, None => break,
+            }
+        } else { character };
+        let mut encoded = [0; 2];
+        units.extend_from_slice(character.encode_utf16(&mut encoded));
+    }
+    Ok(String::from_utf16_lossy(&units))
 }

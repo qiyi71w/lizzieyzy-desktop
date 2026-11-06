@@ -1,6 +1,6 @@
 // Java menu bar (Menu.java): every top-level menu and item in Java order. Items run catalog
 // commands; entries without one are disabled and marked as not yet available.
-import { run, state, subscribe, unavailable } from "../app";
+import { run, state, subscribe } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
 import type { DisplaySettings } from "../contract/generated";
 import { setRankCustomText } from "../display/commands";
@@ -9,6 +9,7 @@ import { JAVA_MENUS, type MenuNode, type TopMenu } from "./javaMenus";
 import { chooseEngine } from "../engine/catalog";
 import { highlight } from "../search/highlight";
 import { buildAiCoachButton } from "../humansl/commands";
+import { buildCommentaryButton } from "../commentary/commands";
 
 /** Java defaults for conditional menus (Config.java: show-quick-links false, show-Contribute true;
  *  the secondary engine menu needs double-engine mode; ReadBoard is Windows only). */
@@ -253,13 +254,8 @@ export function buildMenubar(host: HTMLElement): void {
       continue;
     }
     if (menu.key === "Menu.aiCommentary") {
-      // AI 解说 is a button on the menu bar (Menu.java:5713-5732)
-      const pill = document.createElement("span");
-      pill.className = "pill commentary unavailable";
-      pill.textContent = t(menu.key);
-      pill.title = product("unavailable");
-      pill.onclick = unavailable;
-      host.append(pill);
+      // AI 解说 is a button on the menu bar after AI 陪练 (Menu.java:5713-5732).
+      host.append(buildCommentaryButton());
       continue;
     }
     const top = document.createElement("span");

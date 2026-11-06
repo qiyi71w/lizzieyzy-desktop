@@ -1,0 +1,1221 @@
+[
+  {
+    "query": {
+      "candidateMoves": [],
+      "boardSnapshot": [],
+      "principalVariation": [],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 0,
+      "playedMove": "",
+      "recentMoves": [],
+      "text": ""
+    },
+    "expected": "",
+    "name": "empty-no-match"
+  },
+  {
+    "query": {
+      "candidateMoves": [],
+      "boardSnapshot": [],
+      "principalVariation": [],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 0,
+      "playedMove": "PASS",
+      "recentMoves": [],
+      "text": ""
+    },
+    "expected": "",
+    "name": "pass-no-match"
+  },
+  {
+    "query": {
+      "candidateMoves": [
+        "Q17",
+        "P14"
+      ],
+      "boardSnapshot": [],
+      "principalVariation": [
+        "Q17",
+        "P17",
+        "P14"
+      ],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 12,
+      "playedMove": "Q17",
+      "recentMoves": [
+        {
+          "col": 15,
+          "gtp": "Q16",
+          "row": 3
+        },
+        {
+          "col": 16,
+          "gtp": "R17",
+          "row": 2
+        },
+        {
+          "col": 16,
+          "gtp": "R16",
+          "row": 3
+        }
+      ],
+      "text": ""
+    },
+    "expected": "匹配类型: joseki\n名称: 星位点三三：取势分支\n置信度: exact\n匹配依据: phase:opening, region:corner, shape:corner, shape:3-3, shape:4-4, sequence-overlap:5, opening-timing\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 识别为星位点三三：取势分支相关局部：看角部手顺、挂角/点三三位置和外势方向。\n正确思路: 先看星位点三三周围厚薄，再决定局部收束还是全局转身。 外侧有己方棋子，或者中腹有攻击目标时优先。 如果 KataGo 首选和定式记忆冲突，优先相信本局全局价值。\n常见变化: 取势分支: 外侧有己方棋子，或者中腹有攻击目标时优先。\n记忆法: 定式先问方向，再问先手，最后才背手顺。\n常见误区: 外势没有攻击目标时会变成空架子。；只背局部手顺，不判断外势方向和先手价值。\n训练建议: 星位点三三：取势分支专项：方向判断；星位点三三：取势分支专项：局部轻重；星位点三三：取势分支专项：先手价值\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: joseki\n名称: 星位点三三：实地分支\n置信度: exact\n匹配依据: phase:opening, region:corner, shape:corner, shape:3-3, shape:4-4, sequence-overlap:4, opening-timing\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 识别为星位点三三：实地分支相关局部：看角部手顺、挂角/点三三位置和外势方向。\n正确思路: 先看星位点三三周围厚薄，再决定局部收束还是全局转身。 局面细、需要稳定现金价值时选择。 如果 KataGo 首选和定式记忆冲突，优先相信本局全局价值。\n常见变化: 实地分支: 局面细、需要稳定现金价值时选择。\n记忆法: 定式先问方向，再问先手，最后才背手顺。\n常见误区: 贪实地容易把厚势送给对方。；只背局部手顺，不判断外势方向和先手价值。\n训练建议: 星位点三三：实地分支专项：方向判断；星位点三三：实地分支专项：局部轻重；星位点三三：实地分支专项：先手价值\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "joseki-corner-sequence"
+  },
+  {
+    "query": {
+      "candidateMoves": [
+        "Q17",
+        "P14"
+      ],
+      "boardSnapshot": [],
+      "principalVariation": [
+        "Q17",
+        "P17",
+        "P14"
+      ],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 180,
+      "playedMove": "Q17",
+      "recentMoves": [
+        {
+          "col": 15,
+          "gtp": "Q16",
+          "row": 3
+        },
+        {
+          "col": 16,
+          "gtp": "R17",
+          "row": 2
+        },
+        {
+          "col": 16,
+          "gtp": "R16",
+          "row": 3
+        }
+      ],
+      "text": ""
+    },
+    "expected": "匹配类型: joseki\n名称: 星位点三三：取势分支\n置信度: exact\n匹配依据: phase:opening, region:corner, shape:corner, shape:3-3, shape:4-4, sequence-overlap:5\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 识别为星位点三三：取势分支相关局部：看角部手顺、挂角/点三三位置和外势方向。\n正确思路: 先看星位点三三周围厚薄，再决定局部收束还是全局转身。 外侧有己方棋子，或者中腹有攻击目标时优先。 如果 KataGo 首选和定式记忆冲突，优先相信本局全局价值。\n常见变化: 取势分支: 外侧有己方棋子，或者中腹有攻击目标时优先。\n记忆法: 定式先问方向，再问先手，最后才背手顺。\n常见误区: 外势没有攻击目标时会变成空架子。；只背局部手顺，不判断外势方向和先手价值。\n训练建议: 星位点三三：取势分支专项：方向判断；星位点三三：取势分支专项：局部轻重；星位点三三：取势分支专项：先手价值\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: joseki\n名称: 星位点三三：实地分支\n置信度: exact\n匹配依据: phase:opening, region:corner, shape:corner, shape:3-3, shape:4-4, sequence-overlap:4\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 识别为星位点三三：实地分支相关局部：看角部手顺、挂角/点三三位置和外势方向。\n正确思路: 先看星位点三三周围厚薄，再决定局部收束还是全局转身。 局面细、需要稳定现金价值时选择。 如果 KataGo 首选和定式记忆冲突，优先相信本局全局价值。\n常见变化: 实地分支: 局面细、需要稳定现金价值时选择。\n记忆法: 定式先问方向，再问先手，最后才背手顺。\n常见误区: 贪实地容易把厚势送给对方。；只背局部手顺，不判断外势方向和先手价值。\n训练建议: 星位点三三：实地分支专项：方向判断；星位点三三：实地分支专项：局部轻重；星位点三三：实地分支专项：先手价值\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "late-move-still-opening"
+  },
+  {
+    "query": {
+      "candidateMoves": ["D3"],
+      "boardSnapshot": [],
+      "principalVariation": [
+        "D3",
+        "E3"
+      ],
+      "lossScore": null,
+      "boardSize": 13,
+      "moveNumber": 180,
+      "playedMove": "D3",
+      "recentMoves": [
+        {
+          "col": 3,
+          "gtp": "D4",
+          "row": 9
+        },
+        {
+          "col": 2,
+          "gtp": "C3",
+          "row": 10
+        },
+        {
+          "col": 2,
+          "gtp": "C4",
+          "row": 9
+        }
+      ],
+      "text": ""
+    },
+    "expected": "匹配类型: life_death\n名称: 石下手筋：对杀分支\n置信度: strong\n匹配依据: region:corner, sequence-overlap:1, answer-played, answer-candidate, answer-pv, eye-shape\n适用边界: 本局棋形和 KataGo 候选点相近，可以作为强相关型讲解，但仍要看全局厚薄。\n识别特征: 看到石下手筋，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: D3: 正确第一手\n记忆法: 石下手筋先找急所，不先补外围。\n常见误区: B4: 只数外气不数公气，结论会错。\n训练建议: 石下手筋：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 角上盘角曲四：次序错误\n置信度: strong\n匹配依据: region:corner, sequence-overlap:1, answer-played, answer-candidate, answer-pv, eye-shape\n适用边界: 本局棋形和 KataGo 候选点相近，可以作为强相关型讲解，但仍要看全局厚薄。\n识别特征: 看到角上盘角曲四，先找眼形中心、断点和双方气数。\n正确思路: 先交换再占急所，避免对方反先。\n常见变化: D3: 正确第一手\n记忆法: 角上盘角曲四先找急所，不先补外围。\n常见误区: B4: 直接点入可能被对方反吃成活。\n训练建议: 角上盘角曲四：次序错误(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "non-19-board"
+  },
+  {
+    "query": {
+      "candidateMoves": ["E2"],
+      "boardSnapshot": [
+        {
+          "color": "B",
+          "point": "D4"
+        },
+        {
+          "color": "W",
+          "point": "D3"
+        },
+        {
+          "color": "B",
+          "point": "F4"
+        },
+        {
+          "color": "W",
+          "point": "B4"
+        },
+        {
+          "color": "B",
+          "point": "Q16"
+        },
+        {
+          "color": "W",
+          "point": "R16"
+        },
+        {
+          "color": "B",
+          "point": "R15"
+        }
+      ],
+      "principalVariation": ["E2"],
+      "lossScore": 3,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "E2",
+      "recentMoves": [],
+      "text": "真眼假眼：急所第一感"
+    },
+    "expected": "匹配类型: life_death\n名称: 真眼假眼：急所第一感\n置信度: exact\n匹配依据: katago-loss, explicit-intent:life_death, specific-text:life_death, text:真眼, text:假眼, text:真眼假眼：急所第一感, sequence-overlap:1, geometry:identity:same-color:4/4\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到真眼假眼，先找眼形中心、断点和双方气数。\n正确思路: 先手方第一手直接占急所。\n常见变化: E2: 正确第一手\n记忆法: 真眼假眼先找急所，不先补外围。\n常见误区: Q15: 走外围补棋会让对方先占中点。\n训练建议: 真眼假眼：急所第一感(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 角部 L 形：对杀分支\n置信度: exact\n匹配依据: region:corner, katago-loss, explicit-intent:life_death, sequence-overlap:1, geometry:identity:same-color:4/4, liberties:14, geometry-strong-local-shape, answer-played\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: E2: 正确第一手\n记忆法: 角部 L 形先找急所，不先补外围。\n常见误区: Q15: 只数外气不数公气，结论会错。\n训练建议: 角部 L 形：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "known-shape-explicit"
+  },
+  {
+    "query": {
+      "candidateMoves": ["E2"],
+      "boardSnapshot": [
+        {
+          "color": "B",
+          "point": "D4"
+        },
+        {
+          "color": "W",
+          "point": "D3"
+        },
+        {
+          "color": "B",
+          "point": "F4"
+        },
+        {
+          "color": "W",
+          "point": "B4"
+        },
+        {
+          "color": "B",
+          "point": "Q16"
+        },
+        {
+          "color": "W",
+          "point": "R16"
+        },
+        {
+          "color": "B",
+          "point": "R15"
+        }
+      ],
+      "principalVariation": ["E2"],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "E2",
+      "recentMoves": [],
+      "text": ""
+    },
+    "expected": "匹配类型: life_death\n名称: 角部 L 形：对杀分支\n置信度: exact\n匹配依据: region:corner, sequence-overlap:1, geometry:identity:same-color:4/4, liberties:14, geometry-strong-local-shape, answer-played, answer-candidate, answer-pv\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: E2: 正确第一手\n记忆法: 角部 L 形先找急所，不先补外围。\n常见误区: Q15: 只数外气不数公气，结论会错。\n训练建议: 角部 L 形：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 二路扳：次序错误\n置信度: exact\n匹配依据: sequence-overlap:1, geometry:identity:same-color:4/4, liberties:14, geometry-strong-local-shape, answer-played, answer-candidate, answer-pv, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到二路扳，先找眼形中心、断点和双方气数。\n正确思路: 先交换再占急所，避免对方反先。\n常见变化: E2: 正确第一手\n记忆法: 二路扳先找急所，不先补外围。\n常见误区: Q15: 直接点入可能被对方反吃成活。\n训练建议: 二路扳：次序错误(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "known-shape-geometry"
+  },
+  {
+    "query": {
+      "candidateMoves": ["E2"],
+      "boardSnapshot": [],
+      "principalVariation": ["E2"],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "E2",
+      "recentMoves": [],
+      "text": "真眼 假眼 急所"
+    },
+    "expected": "匹配类型: life_death\n名称: 真眼假眼：急所第一感\n置信度: exact\n匹配依据: explicit-intent:life_death, specific-text:life_death, text:真眼, text:假眼, text:真眼假眼：急所第一感, text:判断能否做出两个真眼, sequence-overlap:1, answer-played\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到真眼假眼，先找眼形中心、断点和双方气数。\n正确思路: 先手方第一手直接占急所。\n常见变化: E2: 正确第一手\n记忆法: 真眼假眼先找急所，不先补外围。\n常见误区: Q15: 走外围补棋会让对方先占中点。\n训练建议: 真眼假眼：急所第一感(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 角部 L 形：对杀分支\n置信度: strong\n匹配依据: region:corner, explicit-intent:life_death, sequence-overlap:1, answer-played, answer-candidate, answer-pv, eye-shape\n适用边界: 本局棋形和 KataGo 候选点相近，可以作为强相关型讲解，但仍要看全局厚薄。\n识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: E2: 正确第一手\n记忆法: 角部 L 形先找急所，不先补外围。\n常见误区: Q15: 只数外气不数公气，结论会错。\n训练建议: 角部 L 形：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "known-shape-answer-without-snapshot"
+  },
+  {
+    "query": {
+      "candidateMoves": ["E2"],
+      "boardSnapshot": [
+        {
+          "color": "B",
+          "point": "D4"
+        },
+        {
+          "color": "W",
+          "point": "D3"
+        },
+        {
+          "color": "B",
+          "point": "F4"
+        },
+        {
+          "color": "W",
+          "point": "B4"
+        },
+        {
+          "color": "B",
+          "point": "Q16"
+        },
+        {
+          "color": "W",
+          "point": "R16"
+        },
+        {
+          "color": "B",
+          "point": "R15"
+        }
+      ],
+      "principalVariation": ["E2"],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "E2",
+      "recentMoves": [],
+      "text": ""
+    },
+    "expected": "匹配类型: life_death\n名称: 角部 L 形：对杀分支\n置信度: exact\n匹配依据: region:corner, sequence-overlap:1, geometry:identity:same-color:4/4, liberties:14, geometry-strong-local-shape, answer-played, answer-candidate, answer-pv\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: E2: 正确第一手\n记忆法: 角部 L 形先找急所，不先补外围。\n常见误区: Q15: 只数外气不数公气，结论会错。\n训练建议: 角部 L 形：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 二路扳：次序错误\n置信度: exact\n匹配依据: sequence-overlap:1, geometry:identity:same-color:4/4, liberties:14, geometry-strong-local-shape, answer-played, answer-candidate, answer-pv, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到二路扳，先找眼形中心、断点和双方气数。\n正确思路: 先交换再占急所，避免对方反先。\n常见变化: E2: 正确第一手\n记忆法: 二路扳先找急所，不先补外围。\n常见误区: Q15: 直接点入可能被对方反吃成活。\n训练建议: 二路扳：次序错误(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "geometry-transform-0-same"
+  },
+  {
+    "query": {
+      "candidateMoves": ["E2"],
+      "boardSnapshot": [
+        {
+          "color": "W",
+          "point": "D4"
+        },
+        {
+          "color": "B",
+          "point": "D3"
+        },
+        {
+          "color": "W",
+          "point": "F4"
+        },
+        {
+          "color": "B",
+          "point": "B4"
+        },
+        {
+          "color": "W",
+          "point": "Q16"
+        },
+        {
+          "color": "B",
+          "point": "R16"
+        },
+        {
+          "color": "W",
+          "point": "R15"
+        }
+      ],
+      "principalVariation": ["E2"],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "E2",
+      "recentMoves": [],
+      "text": ""
+    },
+    "expected": "匹配类型: life_death\n名称: 角部 L 形：对杀分支\n置信度: exact\n匹配依据: region:corner, sequence-overlap:1, geometry:identity:color-swapped:4/4, liberties:14, geometry-strong-local-shape, answer-played, answer-candidate, answer-pv\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: E2: 正确第一手\n记忆法: 角部 L 形先找急所，不先补外围。\n常见误区: Q15: 只数外气不数公气，结论会错。\n训练建议: 角部 L 形：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 二路扳：次序错误\n置信度: exact\n匹配依据: sequence-overlap:1, geometry:identity:color-swapped:4/4, liberties:14, geometry-strong-local-shape, answer-played, answer-candidate, answer-pv, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到二路扳，先找眼形中心、断点和双方气数。\n正确思路: 先交换再占急所，避免对方反先。\n常见变化: E2: 正确第一手\n记忆法: 二路扳先找急所，不先补外围。\n常见误区: Q15: 直接点入可能被对方反吃成活。\n训练建议: 二路扳：次序错误(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "geometry-transform-0-swapped"
+  },
+  {
+    "query": {
+      "candidateMoves": ["S5"],
+      "boardSnapshot": [
+        {
+          "color": "B",
+          "point": "Q4"
+        },
+        {
+          "color": "W",
+          "point": "R4"
+        },
+        {
+          "color": "B",
+          "point": "Q6"
+        },
+        {
+          "color": "W",
+          "point": "Q2"
+        },
+        {
+          "color": "B",
+          "point": "D16"
+        },
+        {
+          "color": "W",
+          "point": "D17"
+        },
+        {
+          "color": "B",
+          "point": "E17"
+        }
+      ],
+      "principalVariation": ["S5"],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "S5",
+      "recentMoves": [],
+      "text": ""
+    },
+    "expected": "匹配类型: life_death\n名称: 角部 L 形：对杀分支\n置信度: exact\n匹配依据: region:corner, geometry:rot90:same-color:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: E2: 正确第一手\n记忆法: 角部 L 形先找急所，不先补外围。\n常见误区: Q15: 只数外气不数公气，结论会错。\n训练建议: 角部 L 形：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 二路扳：次序错误\n置信度: exact\n匹配依据: geometry:rot90:same-color:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到二路扳，先找眼形中心、断点和双方气数。\n正确思路: 先交换再占急所，避免对方反先。\n常见变化: E2: 正确第一手\n记忆法: 二路扳先找急所，不先补外围。\n常见误区: Q15: 直接点入可能被对方反吃成活。\n训练建议: 二路扳：次序错误(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "geometry-transform-1-same"
+  },
+  {
+    "query": {
+      "candidateMoves": ["S5"],
+      "boardSnapshot": [
+        {
+          "color": "W",
+          "point": "Q4"
+        },
+        {
+          "color": "B",
+          "point": "R4"
+        },
+        {
+          "color": "W",
+          "point": "Q6"
+        },
+        {
+          "color": "B",
+          "point": "Q2"
+        },
+        {
+          "color": "W",
+          "point": "D16"
+        },
+        {
+          "color": "B",
+          "point": "D17"
+        },
+        {
+          "color": "W",
+          "point": "E17"
+        }
+      ],
+      "principalVariation": ["S5"],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "S5",
+      "recentMoves": [],
+      "text": ""
+    },
+    "expected": "匹配类型: life_death\n名称: 角部 L 形：对杀分支\n置信度: exact\n匹配依据: region:corner, geometry:rot90:color-swapped:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: E2: 正确第一手\n记忆法: 角部 L 形先找急所，不先补外围。\n常见误区: Q15: 只数外气不数公气，结论会错。\n训练建议: 角部 L 形：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 二路扳：次序错误\n置信度: exact\n匹配依据: geometry:rot90:color-swapped:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到二路扳，先找眼形中心、断点和双方气数。\n正确思路: 先交换再占急所，避免对方反先。\n常见变化: E2: 正确第一手\n记忆法: 二路扳先找急所，不先补外围。\n常见误区: Q15: 直接点入可能被对方反吃成活。\n训练建议: 二路扳：次序错误(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "geometry-transform-1-swapped"
+  },
+  {
+    "query": {
+      "candidateMoves": ["P18"],
+      "boardSnapshot": [
+        {
+          "color": "B",
+          "point": "Q16"
+        },
+        {
+          "color": "W",
+          "point": "Q17"
+        },
+        {
+          "color": "B",
+          "point": "O16"
+        },
+        {
+          "color": "W",
+          "point": "S16"
+        },
+        {
+          "color": "B",
+          "point": "D4"
+        },
+        {
+          "color": "W",
+          "point": "C4"
+        },
+        {
+          "color": "B",
+          "point": "C5"
+        }
+      ],
+      "principalVariation": ["P18"],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "P18",
+      "recentMoves": [],
+      "text": ""
+    },
+    "expected": "匹配类型: life_death\n名称: 角部 L 形：对杀分支\n置信度: exact\n匹配依据: region:corner, geometry:rot180:same-color:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: E2: 正确第一手\n记忆法: 角部 L 形先找急所，不先补外围。\n常见误区: Q15: 只数外气不数公气，结论会错。\n训练建议: 角部 L 形：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 二路扳：次序错误\n置信度: exact\n匹配依据: geometry:rot180:same-color:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到二路扳，先找眼形中心、断点和双方气数。\n正确思路: 先交换再占急所，避免对方反先。\n常见变化: E2: 正确第一手\n记忆法: 二路扳先找急所，不先补外围。\n常见误区: Q15: 直接点入可能被对方反吃成活。\n训练建议: 二路扳：次序错误(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "geometry-transform-2-same"
+  },
+  {
+    "query": {
+      "candidateMoves": ["P18"],
+      "boardSnapshot": [
+        {
+          "color": "W",
+          "point": "Q16"
+        },
+        {
+          "color": "B",
+          "point": "Q17"
+        },
+        {
+          "color": "W",
+          "point": "O16"
+        },
+        {
+          "color": "B",
+          "point": "S16"
+        },
+        {
+          "color": "W",
+          "point": "D4"
+        },
+        {
+          "color": "B",
+          "point": "C4"
+        },
+        {
+          "color": "W",
+          "point": "C5"
+        }
+      ],
+      "principalVariation": ["P18"],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "P18",
+      "recentMoves": [],
+      "text": ""
+    },
+    "expected": "匹配类型: life_death\n名称: 角部 L 形：对杀分支\n置信度: exact\n匹配依据: region:corner, geometry:rot180:color-swapped:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: E2: 正确第一手\n记忆法: 角部 L 形先找急所，不先补外围。\n常见误区: Q15: 只数外气不数公气，结论会错。\n训练建议: 角部 L 形：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 二路扳：次序错误\n置信度: exact\n匹配依据: geometry:rot180:color-swapped:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到二路扳，先找眼形中心、断点和双方气数。\n正确思路: 先交换再占急所，避免对方反先。\n常见变化: E2: 正确第一手\n记忆法: 二路扳先找急所，不先补外围。\n常见误区: Q15: 直接点入可能被对方反吃成活。\n训练建议: 二路扳：次序错误(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "geometry-transform-2-swapped"
+  },
+  {
+    "query": {
+      "candidateMoves": ["B15"],
+      "boardSnapshot": [
+        {
+          "color": "B",
+          "point": "D16"
+        },
+        {
+          "color": "W",
+          "point": "C16"
+        },
+        {
+          "color": "B",
+          "point": "D14"
+        },
+        {
+          "color": "W",
+          "point": "D18"
+        },
+        {
+          "color": "B",
+          "point": "Q4"
+        },
+        {
+          "color": "W",
+          "point": "Q3"
+        },
+        {
+          "color": "B",
+          "point": "P3"
+        }
+      ],
+      "principalVariation": ["B15"],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "B15",
+      "recentMoves": [],
+      "text": ""
+    },
+    "expected": "匹配类型: life_death\n名称: 角部 L 形：对杀分支\n置信度: exact\n匹配依据: region:corner, geometry:rot270:same-color:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: E2: 正确第一手\n记忆法: 角部 L 形先找急所，不先补外围。\n常见误区: Q15: 只数外气不数公气，结论会错。\n训练建议: 角部 L 形：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 二路扳：次序错误\n置信度: exact\n匹配依据: geometry:rot270:same-color:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到二路扳，先找眼形中心、断点和双方气数。\n正确思路: 先交换再占急所，避免对方反先。\n常见变化: E2: 正确第一手\n记忆法: 二路扳先找急所，不先补外围。\n常见误区: Q15: 直接点入可能被对方反吃成活。\n训练建议: 二路扳：次序错误(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "geometry-transform-3-same"
+  },
+  {
+    "query": {
+      "candidateMoves": ["B15"],
+      "boardSnapshot": [
+        {
+          "color": "W",
+          "point": "D16"
+        },
+        {
+          "color": "B",
+          "point": "C16"
+        },
+        {
+          "color": "W",
+          "point": "D14"
+        },
+        {
+          "color": "B",
+          "point": "D18"
+        },
+        {
+          "color": "W",
+          "point": "Q4"
+        },
+        {
+          "color": "B",
+          "point": "Q3"
+        },
+        {
+          "color": "W",
+          "point": "P3"
+        }
+      ],
+      "principalVariation": ["B15"],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "B15",
+      "recentMoves": [],
+      "text": ""
+    },
+    "expected": "匹配类型: life_death\n名称: 角部 L 形：对杀分支\n置信度: exact\n匹配依据: region:corner, geometry:rot270:color-swapped:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: E2: 正确第一手\n记忆法: 角部 L 形先找急所，不先补外围。\n常见误区: Q15: 只数外气不数公气，结论会错。\n训练建议: 角部 L 形：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 二路扳：次序错误\n置信度: exact\n匹配依据: geometry:rot270:color-swapped:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到二路扳，先找眼形中心、断点和双方气数。\n正确思路: 先交换再占急所，避免对方反先。\n常见变化: E2: 正确第一手\n记忆法: 二路扳先找急所，不先补外围。\n常见误区: Q15: 直接点入可能被对方反吃成活。\n训练建议: 二路扳：次序错误(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "geometry-transform-3-swapped"
+  },
+  {
+    "query": {
+      "candidateMoves": ["P2"],
+      "boardSnapshot": [
+        {
+          "color": "B",
+          "point": "Q4"
+        },
+        {
+          "color": "W",
+          "point": "Q3"
+        },
+        {
+          "color": "B",
+          "point": "O4"
+        },
+        {
+          "color": "W",
+          "point": "S4"
+        },
+        {
+          "color": "B",
+          "point": "D16"
+        },
+        {
+          "color": "W",
+          "point": "C16"
+        },
+        {
+          "color": "B",
+          "point": "C15"
+        }
+      ],
+      "principalVariation": ["P2"],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "P2",
+      "recentMoves": [],
+      "text": ""
+    },
+    "expected": "匹配类型: life_death\n名称: 角部 L 形：对杀分支\n置信度: exact\n匹配依据: region:corner, geometry:flipX:same-color:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: E2: 正确第一手\n记忆法: 角部 L 形先找急所，不先补外围。\n常见误区: Q15: 只数外气不数公气，结论会错。\n训练建议: 角部 L 形：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 二路扳：次序错误\n置信度: exact\n匹配依据: geometry:flipX:same-color:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到二路扳，先找眼形中心、断点和双方气数。\n正确思路: 先交换再占急所，避免对方反先。\n常见变化: E2: 正确第一手\n记忆法: 二路扳先找急所，不先补外围。\n常见误区: Q15: 直接点入可能被对方反吃成活。\n训练建议: 二路扳：次序错误(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "geometry-transform-4-same"
+  },
+  {
+    "query": {
+      "candidateMoves": ["P2"],
+      "boardSnapshot": [
+        {
+          "color": "W",
+          "point": "Q4"
+        },
+        {
+          "color": "B",
+          "point": "Q3"
+        },
+        {
+          "color": "W",
+          "point": "O4"
+        },
+        {
+          "color": "B",
+          "point": "S4"
+        },
+        {
+          "color": "W",
+          "point": "D16"
+        },
+        {
+          "color": "B",
+          "point": "C16"
+        },
+        {
+          "color": "W",
+          "point": "C15"
+        }
+      ],
+      "principalVariation": ["P2"],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "P2",
+      "recentMoves": [],
+      "text": ""
+    },
+    "expected": "匹配类型: life_death\n名称: 角部 L 形：对杀分支\n置信度: exact\n匹配依据: region:corner, geometry:flipX:color-swapped:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: E2: 正确第一手\n记忆法: 角部 L 形先找急所，不先补外围。\n常见误区: Q15: 只数外气不数公气，结论会错。\n训练建议: 角部 L 形：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 二路扳：次序错误\n置信度: exact\n匹配依据: geometry:flipX:color-swapped:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到二路扳，先找眼形中心、断点和双方气数。\n正确思路: 先交换再占急所，避免对方反先。\n常见变化: E2: 正确第一手\n记忆法: 二路扳先找急所，不先补外围。\n常见误区: Q15: 直接点入可能被对方反吃成活。\n训练建议: 二路扳：次序错误(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "geometry-transform-4-swapped"
+  },
+  {
+    "query": {
+      "candidateMoves": ["E18"],
+      "boardSnapshot": [
+        {
+          "color": "B",
+          "point": "D16"
+        },
+        {
+          "color": "W",
+          "point": "D17"
+        },
+        {
+          "color": "B",
+          "point": "F16"
+        },
+        {
+          "color": "W",
+          "point": "B16"
+        },
+        {
+          "color": "B",
+          "point": "Q4"
+        },
+        {
+          "color": "W",
+          "point": "R4"
+        },
+        {
+          "color": "B",
+          "point": "R5"
+        }
+      ],
+      "principalVariation": ["E18"],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "E18",
+      "recentMoves": [],
+      "text": ""
+    },
+    "expected": "匹配类型: life_death\n名称: 角部 L 形：对杀分支\n置信度: exact\n匹配依据: region:corner, geometry:flipY:same-color:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: E2: 正确第一手\n记忆法: 角部 L 形先找急所，不先补外围。\n常见误区: Q15: 只数外气不数公气，结论会错。\n训练建议: 角部 L 形：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 二路扳：次序错误\n置信度: exact\n匹配依据: geometry:flipY:same-color:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到二路扳，先找眼形中心、断点和双方气数。\n正确思路: 先交换再占急所，避免对方反先。\n常见变化: E2: 正确第一手\n记忆法: 二路扳先找急所，不先补外围。\n常见误区: Q15: 直接点入可能被对方反吃成活。\n训练建议: 二路扳：次序错误(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "geometry-transform-5-same"
+  },
+  {
+    "query": {
+      "candidateMoves": ["E18"],
+      "boardSnapshot": [
+        {
+          "color": "W",
+          "point": "D16"
+        },
+        {
+          "color": "B",
+          "point": "D17"
+        },
+        {
+          "color": "W",
+          "point": "F16"
+        },
+        {
+          "color": "B",
+          "point": "B16"
+        },
+        {
+          "color": "W",
+          "point": "Q4"
+        },
+        {
+          "color": "B",
+          "point": "R4"
+        },
+        {
+          "color": "W",
+          "point": "R5"
+        }
+      ],
+      "principalVariation": ["E18"],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "E18",
+      "recentMoves": [],
+      "text": ""
+    },
+    "expected": "匹配类型: life_death\n名称: 角部 L 形：对杀分支\n置信度: exact\n匹配依据: region:corner, geometry:flipY:color-swapped:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: E2: 正确第一手\n记忆法: 角部 L 形先找急所，不先补外围。\n常见误区: Q15: 只数外气不数公气，结论会错。\n训练建议: 角部 L 形：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 二路扳：次序错误\n置信度: exact\n匹配依据: geometry:flipY:color-swapped:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到二路扳，先找眼形中心、断点和双方气数。\n正确思路: 先交换再占急所，避免对方反先。\n常见变化: E2: 正确第一手\n记忆法: 二路扳先找急所，不先补外围。\n常见误区: Q15: 直接点入可能被对方反吃成活。\n训练建议: 二路扳：次序错误(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "geometry-transform-5-swapped"
+  },
+  {
+    "query": {
+      "candidateMoves": ["B5"],
+      "boardSnapshot": [
+        {
+          "color": "B",
+          "point": "D4"
+        },
+        {
+          "color": "W",
+          "point": "C4"
+        },
+        {
+          "color": "B",
+          "point": "D6"
+        },
+        {
+          "color": "W",
+          "point": "D2"
+        },
+        {
+          "color": "B",
+          "point": "Q16"
+        },
+        {
+          "color": "W",
+          "point": "Q17"
+        },
+        {
+          "color": "B",
+          "point": "P17"
+        }
+      ],
+      "principalVariation": ["B5"],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "B5",
+      "recentMoves": [],
+      "text": ""
+    },
+    "expected": "匹配类型: life_death\n名称: 角部 L 形：对杀分支\n置信度: exact\n匹配依据: region:corner, geometry:transpose:same-color:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: E2: 正确第一手\n记忆法: 角部 L 形先找急所，不先补外围。\n常见误区: Q15: 只数外气不数公气，结论会错。\n训练建议: 角部 L 形：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 二路扳：次序错误\n置信度: exact\n匹配依据: geometry:transpose:same-color:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到二路扳，先找眼形中心、断点和双方气数。\n正确思路: 先交换再占急所，避免对方反先。\n常见变化: E2: 正确第一手\n记忆法: 二路扳先找急所，不先补外围。\n常见误区: Q15: 直接点入可能被对方反吃成活。\n训练建议: 二路扳：次序错误(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "geometry-transform-6-same"
+  },
+  {
+    "query": {
+      "candidateMoves": ["B5"],
+      "boardSnapshot": [
+        {
+          "color": "W",
+          "point": "D4"
+        },
+        {
+          "color": "B",
+          "point": "C4"
+        },
+        {
+          "color": "W",
+          "point": "D6"
+        },
+        {
+          "color": "B",
+          "point": "D2"
+        },
+        {
+          "color": "W",
+          "point": "Q16"
+        },
+        {
+          "color": "B",
+          "point": "Q17"
+        },
+        {
+          "color": "W",
+          "point": "P17"
+        }
+      ],
+      "principalVariation": ["B5"],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "B5",
+      "recentMoves": [],
+      "text": ""
+    },
+    "expected": "匹配类型: life_death\n名称: 角部 L 形：对杀分支\n置信度: exact\n匹配依据: region:corner, geometry:transpose:color-swapped:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: E2: 正确第一手\n记忆法: 角部 L 形先找急所，不先补外围。\n常见误区: Q15: 只数外气不数公气，结论会错。\n训练建议: 角部 L 形：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 二路扳：次序错误\n置信度: exact\n匹配依据: geometry:transpose:color-swapped:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到二路扳，先找眼形中心、断点和双方气数。\n正确思路: 先交换再占急所，避免对方反先。\n常见变化: E2: 正确第一手\n记忆法: 二路扳先找急所，不先补外围。\n常见误区: Q15: 直接点入可能被对方反吃成活。\n训练建议: 二路扳：次序错误(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "geometry-transform-6-swapped"
+  },
+  {
+    "query": {
+      "candidateMoves": ["S15"],
+      "boardSnapshot": [
+        {
+          "color": "B",
+          "point": "Q16"
+        },
+        {
+          "color": "W",
+          "point": "R16"
+        },
+        {
+          "color": "B",
+          "point": "Q14"
+        },
+        {
+          "color": "W",
+          "point": "Q18"
+        },
+        {
+          "color": "B",
+          "point": "D4"
+        },
+        {
+          "color": "W",
+          "point": "D3"
+        },
+        {
+          "color": "B",
+          "point": "E3"
+        }
+      ],
+      "principalVariation": ["S15"],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "S15",
+      "recentMoves": [],
+      "text": ""
+    },
+    "expected": "匹配类型: life_death\n名称: 角部 L 形：对杀分支\n置信度: exact\n匹配依据: region:corner, geometry:anti-transpose:same-color:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: E2: 正确第一手\n记忆法: 角部 L 形先找急所，不先补外围。\n常见误区: Q15: 只数外气不数公气，结论会错。\n训练建议: 角部 L 形：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 二路扳：次序错误\n置信度: exact\n匹配依据: geometry:anti-transpose:same-color:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到二路扳，先找眼形中心、断点和双方气数。\n正确思路: 先交换再占急所，避免对方反先。\n常见变化: E2: 正确第一手\n记忆法: 二路扳先找急所，不先补外围。\n常见误区: Q15: 直接点入可能被对方反吃成活。\n训练建议: 二路扳：次序错误(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "geometry-transform-7-same"
+  },
+  {
+    "query": {
+      "candidateMoves": ["S15"],
+      "boardSnapshot": [
+        {
+          "color": "W",
+          "point": "Q16"
+        },
+        {
+          "color": "B",
+          "point": "R16"
+        },
+        {
+          "color": "W",
+          "point": "Q14"
+        },
+        {
+          "color": "B",
+          "point": "Q18"
+        },
+        {
+          "color": "W",
+          "point": "D4"
+        },
+        {
+          "color": "B",
+          "point": "D3"
+        },
+        {
+          "color": "W",
+          "point": "E3"
+        }
+      ],
+      "principalVariation": ["S15"],
+      "lossScore": null,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "S15",
+      "recentMoves": [],
+      "text": ""
+    },
+    "expected": "匹配类型: life_death\n名称: 角部 L 形：对杀分支\n置信度: exact\n匹配依据: region:corner, geometry:anti-transpose:color-swapped:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。\n正确思路: 先数气，再看眼，最后看紧气手筋。\n常见变化: E2: 正确第一手\n记忆法: 角部 L 形先找急所，不先补外围。\n常见误区: Q15: 只数外气不数公气，结论会错。\n训练建议: 角部 L 形：对杀分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 二路扳：次序错误\n置信度: exact\n匹配依据: geometry:anti-transpose:color-swapped:4/4, liberties:14, geometry-strong-local-shape, eye-shape\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到二路扳，先找眼形中心、断点和双方气数。\n正确思路: 先交换再占急所，避免对方反先。\n常见变化: E2: 正确第一手\n记忆法: 二路扳先找急所，不先补外围。\n常见误区: Q15: 直接点入可能被对方反吃成活。\n训练建议: 二路扳：次序错误(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "geometry-transform-7-swapped"
+  },
+  {
+    "query": {
+      "candidateMoves": ["C16"],
+      "boardSnapshot": [
+        {
+          "color": "B",
+          "point": "B4"
+        },
+        {
+          "color": "W",
+          "point": "Q16"
+        },
+        {
+          "color": "B",
+          "point": "R16"
+        },
+        {
+          "color": "W",
+          "point": "R15"
+        },
+        {
+          "color": "B",
+          "point": "C17"
+        },
+        {
+          "color": "W",
+          "point": "E17"
+        },
+        {
+          "color": "B",
+          "point": "K10"
+        },
+        {
+          "color": "W",
+          "point": "J11"
+        }
+      ],
+      "principalVariation": ["C16"],
+      "lossScore": 2,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "C16",
+      "recentMoves": [
+        {
+          "col": 3,
+          "gtp": "D4",
+          "row": 15
+        },
+        {
+          "col": 3,
+          "gtp": "D5",
+          "row": 14
+        }
+      ],
+      "text": "倒扑：基础型"
+    },
+    "expected": "匹配类型: tesuji\n名称: 倒扑：基础型\n置信度: exact\n匹配依据: region:corner, katago-loss, explicit-intent:tesuji, specific-text:tesuji, text:倒扑, text:倒扑：基础型, sequence-overlap:1, answer-played\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 出现倒扑时，先看断点、气紧和对方不能兼顾的地方。\n正确思路: 先看到对方气紧，再找最短的手筋。\n常见变化: C16: 正确第一手\n记忆法: 倒扑的价值在次序，不在第一眼吃多少子。\n常见误区: K11: 直接打吃通常让对方逃出。\n训练建议: 倒扑：基础型(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 倒扑破眼：劫争分支\n置信度: exact\n匹配依据: region:corner, katago-loss, specific-text:life_death, text:倒扑, text:倒扑破眼：劫争分支, sequence-overlap:1, answer-played, answer-candidate\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 看到倒扑破眼，先找眼形中心、断点和双方气数。\n正确思路: 局部不能直接杀净，需要先判断劫材。\n常见变化: C16: 正确第一手\n记忆法: 倒扑破眼先找急所，不先补外围。\n常见误区: K11: 忽略劫材会把可杀棋走成无理。\n训练建议: 倒扑破眼：劫争分支(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "tesuji-contact-loss"
+  },
+  {
+    "query": {
+      "candidateMoves": ["C16"],
+      "boardSnapshot": [
+        {
+          "color": "B",
+          "point": "B4"
+        },
+        {
+          "color": "W",
+          "point": "Q16"
+        },
+        {
+          "color": "B",
+          "point": "R16"
+        },
+        {
+          "color": "W",
+          "point": "R15"
+        },
+        {
+          "color": "B",
+          "point": "C17"
+        },
+        {
+          "color": "W",
+          "point": "E17"
+        },
+        {
+          "color": "B",
+          "point": "K10"
+        },
+        {
+          "color": "W",
+          "point": "J11"
+        }
+      ],
+      "principalVariation": ["C16"],
+      "lossScore": 2,
+      "boardSize": 19,
+      "moveNumber": 65,
+      "playedMove": "C16",
+      "recentMoves": [
+        {
+          "col": 3,
+          "gtp": "D4",
+          "row": 15
+        },
+        {
+          "col": 3,
+          "gtp": "D5",
+          "row": 14
+        }
+      ],
+      "text": "定式 星位 小目"
+    },
+    "expected": "匹配类型: joseki\n名称: 星位点三三：脱先时机\n置信度: exact\n匹配依据: phase:opening, region:corner, explicit-intent:joseki, text:星位, text:定式, text:星位点三三：脱先时机, shape:corner, shape:4-4\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 识别为星位点三三：脱先时机相关局部：看角部手顺、挂角/点三三位置和外势方向。\n正确思路: 先看星位点三三周围厚薄，再决定局部收束还是全局转身。 KataGo 一选明显转向别处，且局部没有被强攻风险时。 如果 KataGo 首选和定式记忆冲突，优先相信本局全局价值。\n常见变化: 脱先时机: KataGo 一选明显转向别处，且局部没有被强攻风险时。\n记忆法: 定式先问方向，再问先手，最后才背手顺。\n常见误区: 局部还薄就脱先，下一手会被对方严厉攻击。；只背局部手顺，不判断外势方向和先手价值。\n训练建议: 星位点三三：脱先时机专项：方向判断；星位点三三：脱先时机专项：局部轻重；星位点三三：脱先时机专项：先手价值\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: joseki\n名称: 迷你中国流：脱先时机\n置信度: exact\n匹配依据: phase:opening, region:corner, explicit-intent:joseki, text:小目, text:星位, shape:corner, shape:4-4, sequence-overlap:3\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 识别为迷你中国流：脱先时机相关局部：看角部手顺、挂角/点三三位置和外势方向。\n正确思路: 先看迷你中国流周围厚薄，再决定局部收束还是全局转身。 KataGo 一选明显转向别处，且局部没有被强攻风险时。 如果 KataGo 首选和定式记忆冲突，优先相信本局全局价值。\n常见变化: 脱先时机: KataGo 一选明显转向别处，且局部没有被强攻风险时。\n记忆法: 定式先问方向，再问先手，最后才背手顺。\n常见误区: 局部还薄就脱先，下一手会被对方严厉攻击。；只背局部手顺，不判断外势方向和先手价值。\n训练建议: 迷你中国流：脱先时机专项：方向判断；迷你中国流：脱先时机专项：局部轻重；迷你中国流：脱先时机专项：先手价值\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "explicit-joseki-tactical-penalty"
+  },
+  {
+    "query": {
+      "candidateMoves": [
+        "C3",
+        "D4",
+        "F3"
+      ],
+      "boardSnapshot": [],
+      "principalVariation": [
+        "C3",
+        "C4",
+        "D3",
+        "D4"
+      ],
+      "lossScore": 4,
+      "boardSize": 19,
+      "moveNumber": 0,
+      "playedMove": "C3",
+      "recentMoves": [
+        {
+          "col": 3,
+          "gtp": "D4",
+          "row": 15
+        },
+        {
+          "col": 2,
+          "gtp": "C3",
+          "row": 16
+        }
+      ],
+      "text": ""
+    },
+    "expected": "匹配类型: life_death\n名称: 石下手筋：次序错误\n置信度: strong\n匹配依据: region:corner, katago-loss, sequence-overlap:1, answer-played, answer-candidate, answer-pv, eye-shape\n适用边界: 本局棋形和 KataGo 候选点相近，可以作为强相关型讲解，但仍要看全局厚薄。\n识别特征: 看到石下手筋，先找眼形中心、断点和双方气数。\n正确思路: 先交换再占急所，避免对方反先。\n常见变化: C3: 正确第一手\n记忆法: 石下手筋先找急所，不先补外围。\n常见误区: E5: 直接点入可能被对方反吃成活。\n训练建议: 石下手筋：次序错误(basic)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: life_death\n名称: 中手五：做活分支\n置信度: strong\n匹配依据: katago-loss, sequence-overlap:1, answer-played, answer-candidate, answer-pv, eye-shape\n适用边界: 本局棋形和 KataGo 候选点相近，可以作为强相关型讲解，但仍要看全局厚薄。\n识别特征: 看到中手五，先找眼形中心、断点和双方气数。\n正确思路: 先保留最大眼位，再避免被点中。\n常见变化: C3: 正确第一手\n记忆法: 中手五先找急所，不先补外围。\n常见误区: E5: 补在边上看似厚，实际放过中手。\n训练建议: 中手五：做活分支(advanced)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "pattern-candidate-pv-loss"
+  },
+  {
+    "query": {
+      "candidateMoves": [
+        "C3",
+        "D4",
+        "F3"
+      ],
+      "boardSnapshot": [],
+      "principalVariation": [
+        "C3",
+        "C4",
+        "D3",
+        "D4"
+      ],
+      "lossScore": 4,
+      "boardSize": 19,
+      "moveNumber": 0,
+      "playedMove": "C3",
+      "recentMoves": [
+        {
+          "col": 3,
+          "gtp": "D4",
+          "row": 15
+        },
+        {
+          "col": 2,
+          "gtp": "C3",
+          "row": 16
+        }
+      ],
+      "text": "double hane 三三_侵入-定式"
+    },
+    "expected": "",
+    "name": "text-tokenization"
+  },
+  {
+    "query": {
+      "candidateMoves": ["L10"],
+      "boardSnapshot": [],
+      "principalVariation": ["L10"],
+      "lossScore": 2,
+      "boardSize": 19,
+      "moveNumber": 240,
+      "playedMove": "K10",
+      "recentMoves": [
+        {
+          "col": 8,
+          "gtp": "J10",
+          "row": 9
+        },
+        {
+          "col": 9,
+          "gtp": "K10",
+          "row": 9
+        }
+      ],
+      "text": "征子 枷 扭十字"
+    },
+    "expected": "匹配类型: tesuji\n名称: 征子：紧气型\n置信度: exact\n匹配依据: region:center, katago-loss, explicit-intent:tesuji, specific-text:tesuji, text:征子, text:征子：紧气型, text:判断征子方向和引征, sequence-overlap:1\n适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。\n识别特征: 出现征子时，先看断点、气紧和对方不能兼顾的地方。\n正确思路: 先紧关键气，再出手筋。\n常见变化: L10: 正确第一手\n记忆法: 征子的价值在次序，不在第一眼吃多少子。\n常见误区: E3: 先吃小子会送给对方外气。\n训练建议: 征子：紧气型(standard)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。\n\n匹配类型: tesuji\n名称: 猴子翻跟斗：坏形型\n置信度: strong\n匹配依据: katago-loss, explicit-intent:tesuji, sequence-overlap:1, answer-candidate, answer-pv, local-tesuji-relation\n适用边界: 本局棋形和 KataGo 候选点相近，可以作为强相关型讲解，但仍要看全局厚薄。\n识别特征: 出现猴子翻跟斗时，先看断点、气紧和对方不能兼顾的地方。\n正确思路: 逼对方走成愚形，再获得先手。\n常见变化: L10: 正确第一手\n记忆法: 猴子翻跟斗的价值在次序，不在第一眼吃多少子。\n常见误区: E3: 只顾吃子会失去压迫方向。\n训练建议: 猴子翻跟斗：坏形型(advanced)\n老师使用边界: exact/strong 可以说\u201c这是某某型\u201d；partial 只能说\u201c像某某型\u201d；weak 不进入主讲。",
+    "name": "center-contact-intent"
+  },
+  {
+    "query": {
+      "candidateMoves": ["K4"],
+      "boardSnapshot": [],
+      "principalVariation": [
+        "K4",
+        "L4"
+      ],
+      "lossScore": 1,
+      "boardSize": 19,
+      "moveNumber": 75,
+      "playedMove": "K3",
+      "recentMoves": [
+        {
+          "col": 9,
+          "gtp": "K3",
+          "row": 16
+        },
+        {
+          "col": 9,
+          "gtp": "K5",
+          "row": 14
+        }
+      ],
+      "text": ""
+    },
+    "expected": "",
+    "name": "side-jump"
+  },
+  {
+    "query": {
+      "candidateMoves": ["K4"],
+      "boardSnapshot": [],
+      "principalVariation": [
+        "K4",
+        "L4"
+      ],
+      "lossScore": 1,
+      "boardSize": 19,
+      "moveNumber": 75,
+      "playedMove": "K3",
+      "recentMoves": [
+        {
+          "col": 9,
+          "gtp": "K3",
+          "row": 16
+        },
+        {
+          "col": 9,
+          "gtp": "K5",
+          "row": 14
+        }
+      ],
+      "text": "仅有宽泛的布局说明"
+    },
+    "expected": "",
+    "name": "ungrounded-broad-text"
+  }
+]

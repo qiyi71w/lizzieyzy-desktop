@@ -49,6 +49,10 @@ body {
 }
 #menubar .commentary {
   background: #fff;
+  cursor: default;
+}
+#menubar .commentary:hover {
+  background: rgb(242, 244, 243);
 }
 
 /* ---- double-menu toolbar (Menu.doubleMenu), wraps like WrapLayout */

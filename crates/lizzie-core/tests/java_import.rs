@@ -1980,3 +1980,106 @@ fn tsumego_choices_capture_thresholds_and_button_import_like_java_reads_them() {
     assert_eq!(saved_config(&product).tsumego, *t);
     assert_eq!(std::fs::read_to_string(java.join("config.txt")).unwrap(), source);
 }
+
+#[test]
+fn teacher_settings_preserve_legacy_defaults_and_java_clamping() {
+    use lizzie_core::api::CommentaryProvider;
+    let temp = tempfile::tempdir().unwrap();
+    let java = temp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), "{}").unwrap();
+    let teacher = "# Java pre-provider settings\r\nbaseUrl=   \r\nmodel=example\\u002dmodel\r\nteacher.rankMode=d\r\nteacher.rankNum=99\r\nteacher.styleIndex=-8\r\nteacher.densityIndex=9\r\nteacher.paceIndex=invalid\r\nteacher.variationIndex=-1\r\n";
+    std::fs::write(java.join("teacher.properties"), teacher).unwrap();
+    let mut wb = workbench(&temp.path().join("product"), Recorder::default());
+    let preview = preview(&mut wb, &java);
+    let item = preview.items.iter().find(|item| item.key == "file:teacher.properties").unwrap();
+    assert_eq!((item.status, item.target, item.credential), (ImportStatus::Imported, Some(ImportTarget::Commentary), false));
+    assert!(preview.commentary_credential.is_none());
+    wb.apply_java_import(preview.id, &[], false, None).unwrap().unwrap();
+    let settings = &wb.config().commentary;
+    assert_eq!(settings.provider, CommentaryProvider::ApiKey);
+    assert_eq!(settings.base_url, "https://api.openai.com/v1");
+    assert_eq!(settings.model, "example-model");
+    assert_eq!((settings.preferences.rank_mode.as_str(), settings.preferences.rank_num), ("d", 9));
+    assert_eq!((settings.preferences.style_index, settings.preferences.density_index, settings.preferences.pace_index, settings.preferences.variation_index), (0, 2, 1, 0));
+    assert_eq!(std::fs::read_to_string(java.join("teacher.properties")).unwrap(), teacher);
+}
+
+#[test]
+fn explicit_provider_does_not_inherit_the_legacy_openai_address() {
+    use lizzie_core::api::CommentaryProvider;
+    let temp = tempfile::tempdir().unwrap();
+    let java = temp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), "{}").unwrap();
+    std::fs::write(java.join("teacher.properties"), "provider=CHATGPT\nbaseUrl=\nmodel=\nteacher.rankMode=invalid\nteacher.rankNum=not-an-int\n").unwrap();
+    let candidate = java_import::read(&JavaSource::new(&java, None)).unwrap();
+    let settings = candidate.mapped.commentary.as_ref().unwrap();
+    assert_eq!(settings.provider, CommentaryProvider::ChatGpt);
+    assert!(settings.base_url.is_empty() && settings.model.is_empty());
+    assert_eq!((settings.preferences.rank_mode.as_str(), settings.preferences.rank_num), ("k", 5));
+    let session = candidate.items.iter().find(|item| item.key == "credential:chatgpt-session").unwrap();
+    assert_eq!((session.status, session.reason), (ImportStatus::NotMigrated, Some(ImportReason::Credential)));
+}
+
+#[test]
+fn legacy_commentary_key_is_a_separate_unconfirmed_choice_and_never_enters_core_state() {
+    const KEY: &str = "private-legacy-commentary-key";
+    let temp = tempfile::tempdir().unwrap();
+    let java = temp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), "{}").unwrap();
+    let teacher = format!("model=example\nrememberApiKey=true\napiKey={KEY}\n");
+    std::fs::write(java.join("teacher.properties"), &teacher).unwrap();
+    let mut wb = workbench(&temp.path().join("product"), Recorder::default());
+    let preview = preview(&mut wb, &java);
+    let choice = preview.commentary_credential.as_ref().unwrap();
+    assert_eq!(choice.source, "teacher.properties");
+    assert_eq!(choice.base_url, "https://api.openai.com/v1");
+    assert!(wb.java_commentary_import(preview.id + 1).is_none());
+    assert!(!serde_json::to_string(&preview).unwrap().contains(KEY));
+    let report = wb.apply_java_import(preview.id, &[], false, None).unwrap().unwrap();
+    let item = report.items.iter().find(|item| item.key == "credential:commentary-api-key").unwrap();
+    assert_eq!((item.status, item.reason), (ImportStatus::NotMigrated, Some(ImportReason::CredentialNotConfirmed)));
+    assert!(!wb.config().commentary.remember_api_key);
+    assert!(wb.java_commentary_import(preview.id).is_none());
+    for text in [serde_json::to_string(&report).unwrap(), serde_json::to_string(wb.config()).unwrap(), serde_json::to_string(&wb.inspect()).unwrap()] {
+        assert!(!text.contains(KEY));
+    }
+    assert_eq!(std::fs::read_to_string(java.join("teacher.properties")).unwrap(), teacher);
+    let command: lizzie_core::api::Command = serde_json::from_value(json!({"type":"ApplyJavaImport", "preview":1, "copy_credentials":[], "replace":false, "recovery":null})).unwrap();
+    assert!(matches!(command, lizzie_core::api::Command::ApplyJavaImport { copy_commentary_key: false, .. }));
+}
+
+#[test]
+fn remembered_commentary_key_selection_does_not_share_engine_credential_consent() {
+    let temp = tempfile::tempdir().unwrap();
+    let java = temp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), "{}").unwrap();
+    std::fs::write(java.join("teacher.properties"), "baseUrl=https://provider.example/v1\nmodel=example\nrememberApiKey=true\n").unwrap();
+    let mut candidate = java_import::read(&JavaSource::new(&java, None)).unwrap();
+    assert!(candidate.commentary_credential.is_none());
+    // The platform adapter supplies only the fact that a readable secure-store key exists.
+    candidate.set_commentary_credential("secure-store");
+    let items = candidate.items_after(&candidate.credential_engines());
+    let credential = items.iter().find(|item| item.key == "credential:commentary-api-key").unwrap();
+    assert_eq!(credential.reason, Some(ImportReason::CredentialNotConfirmed));
+    assert_eq!(candidate.commentary_credential.unwrap().source, "secure-store");
+}
+
+#[test]
+fn imported_commentary_settings_remember_nothing_until_a_key_is_copied() {
+    let temp = tempfile::tempdir().unwrap();
+    let java = temp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), "{}").unwrap();
+    std::fs::write(java.join("teacher.properties"), "provider=API_KEY\nbaseUrl=https://provider.example/v1\nmodel=example\nrememberApiKey=true\n").unwrap();
+    let mut wb = workbench(&temp.path().join("product"), Recorder::default());
+    let preview = preview(&mut wb, &java);
+    wb.apply_java_import(preview.id, &[], false, None).unwrap().unwrap();
+    let settings = &wb.config().commentary;
+    assert_eq!((settings.base_url.as_str(), settings.model.as_str()), ("https://provider.example/v1", "example"));
+    // Only a confirmed, successful copy into this client's credential store turns remembering on.
+    assert!(!settings.remember_api_key);
+}

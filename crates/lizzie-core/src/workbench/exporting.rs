@@ -129,7 +129,7 @@ impl Workbench {
             let parent = rec.parent(self.cursor)?;
             (rec.node(self.cursor).comment.is_empty() && self.engines.analysing(self.doc.id, self.cursor))
                 .then(|| summary(parent).unwrap_or_else(|| rec.node(parent).comment.clone()))
-        })
+        }).map(|s| crate::commentary::codec::remove_blocks(&s))
     }
 
     /// Java mutates move comments on save, but never snapshot comments. Do so through the

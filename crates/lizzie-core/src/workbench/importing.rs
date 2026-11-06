@@ -65,12 +65,27 @@ impl Workbench {
             // As confirming every credential would import them; the report shows the choice made.
             items: candidate.items_after(&candidate.credential_engines()),
             engines: candidate.engines.clone(),
+            commentary_credential: candidate.commentary_credential.clone(),
             replaces: self.java_import_replaces(&candidate),
             // As choosing the slots would import them; the report shows the choice made.
             recovery: slots::after(&candidate.slots, true),
         };
         self.java_preview = Some((id, candidate));
         view
+    }
+
+    /// Non-secret plan for the adapter's independently confirmed API-key copy. A stale preview
+    /// exposes nothing and cannot authorize a credential read.
+    pub fn java_commentary_import(&self, preview: u64) -> Option<(crate::java_import::JavaSource, crate::api::ImportCommentaryCredential)> {
+        let (id, candidate) = self.java_preview.as_ref()?;
+        if *id != preview { return None; }
+        Some((candidate.source.clone(), candidate.commentary_credential.clone()?))
+    }
+
+    /// Called only after a separately confirmed Java credential was written to the native store.
+    /// Imported settings may legitimately have a blank model, so this changes no connection data.
+    pub fn remember_imported_commentary_key(&mut self) -> Result<(), ApiError> {
+        self.commit_config(|config| config.commentary.remember_api_key = true)
     }
 
     /// Imports preview `preview`. `copy_credentials` are the Java engine indexes whose credentials

@@ -18,6 +18,7 @@ mod analysis;
 mod appearance;
 mod auto_analysis;
 mod batch;
+mod commentary;
 mod editing;
 mod exporting;
 mod flash;
@@ -278,6 +279,7 @@ pub struct Workbench {
     matches: matches::MatchFlow,
     human_sl: humansl::HumanSlFlow,
     strength: strength::StrengthFlow,
+    commentary: commentary::CommentaryFlow,
 }
 
 impl Workbench {
@@ -297,6 +299,7 @@ impl Workbench {
         // resume (see `recovery`).
         let recovery = crate::recovery::Store::open(&storage.save_dir);
         let mut config: Config = settings::load_json(&storage.config_file);
+        config.commentary.preferences = config.commentary.preferences.normalized();
         // Config.java:3907-3912: mode policy also applies when opening an older config.
         if config.ui.extra_mode.hides_comment() {
             config.panels.show_comment = false;
@@ -397,6 +400,7 @@ impl Workbench {
             matches: matches::MatchFlow::default(),
             human_sl: humansl::HumanSlFlow::default(),
             strength: strength::StrengthFlow::default(),
+            commentary: commentary::CommentaryFlow::default(),
         }
     }
 
@@ -917,6 +921,7 @@ impl Workbench {
     /// otherwise the tree is included only when the UI has not received it for this document and
     /// revision. One-shot parts (open and save outcomes, sound) are handed over here.
     pub fn view(&mut self, full: bool) -> WorkbenchView {
+        self.refresh_commentary_view();
         self.seq += 1;
         let current = (self.doc.id, self.doc.revision);
         let tree = if full || self.tree_sent_for != Some(current) {
@@ -942,6 +947,7 @@ impl Workbench {
         (v.match_outcome, v.match_notices, v.match_winrate_image) = self.take_match_outcome();
         v.human_sl_notices = self.take_human_sl_notices();
         v.human_sl_continuation = self.take_human_sl_continuation();
+        v.commentary.restore_question = self.take_commentary_restore();
         v
     }
 
@@ -1069,6 +1075,7 @@ impl Workbench {
             match_winrate_image: None,
             human_sl: self.human_sl_view(),
             strength: self.strength_view(),
+            commentary: self.commentary_view(),
             human_sl_notices: Vec::new(),
             human_sl_continuation: None,
             byoyomi_voices: Vec::new(),
@@ -1130,6 +1137,8 @@ impl Workbench {
             white_captures: pos.white_captures,
             marks: node.marks.clone(),
             comment: node.comment.clone(),
+            user_comment: crate::commentary::codec::remove_blocks(&node.comment),
+            ai_commentary: crate::commentary::codec::extract(&node.comment),
             path: rec.path_to(self.cursor),
             line_end: browse::navigate(rec, self.cursor, Navigation::Last),
             main_trunk: rec.is_main_trunk(self.cursor),

@@ -1,0 +1,168 @@
+/* AI 解说 window (TeacherDialogView / TeacherDialogStyle, light workspace colours of
+   AppleStyleSupport) and its settings dialog (TeacherSettingsDialog / TeacherSettingsStyle). Fonts
+   follow TeacherDialogStyle.font: the workspace font, never below 13 pt. */
+:root {
+  --bg: rgb(247, 249, 248);
+  --surface: #fff;
+  --rail: rgb(249, 250, 250);
+  --text: rgb(35, 42, 39);
+  --muted: rgb(105, 112, 108);
+  --border: rgb(213, 218, 215);
+  --accent: rgb(15, 118, 110);
+  --accent-hover: rgb(39, 132, 124);
+  --accent-soft: rgb(229, 243, 240);
+  --danger: rgb(181, 70, 51);
+  --danger-soft: rgb(252, 239, 235);
+  --warning: rgb(184, 118, 23);
+  --font: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Segoe UI", sans-serif;
+}
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; }
+[hidden] { display: none !important; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: default; }
+
+/* ---- buttons (RoundedButtonUI: arc 8, bold, 7/14 padding) */
+.tc-btn { min-height: 34px; padding: 6px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-weight: bold; white-space: nowrap; }
+.tc-btn:hover:not(:disabled) { background: rgb(242, 244, 243); }
+.tc-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tc-btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
+.tc-btn.danger { color: var(--danger); border-color: rgb(232, 190, 180); background: var(--surface); }
+.tc-btn.danger:hover:not(:disabled) { background: var(--danger-soft); }
+.tc-btn:disabled { opacity: 0.45; }
+.tc-btn:focus-visible, .tc-mode:focus-visible, .tc-tab:focus-visible, .ts-nav:focus-visible, .ts-provider:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tc-btn .icon { width: 16px; height: 16px; vertical-align: -3px; margin-right: 6px; }
+
+/* ---- window: BorderLayout(0, 8) in a 12 16 border */
+#tc-root { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; box-sizing: border-box; }
+.tc-header { display: flex; align-items: center; gap: 14px; flex: none; }
+.tc-modes { display: flex; gap: 6px; flex: 1; min-width: 0; }
+/* styleModeButton: glyph + text, at least 110 x 42, equal widths */
+.tc-mode { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-width: 110px; height: 42px; padding: 6px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--text); font-weight: bold; font-size: 14px; position: relative; }
+.tc-mode svg { width: 22px; height: 22px; flex: none; }
+.tc-mode:hover:not(:disabled) { background: rgb(240, 243, 242); }
+.tc-mode.selected { background: var(--accent-soft); color: var(--accent); }
+.tc-mode.selected::before { content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 3px; border-radius: 2px; background: var(--accent); }
+.tc-mode:disabled { opacity: 0.5; }
+
+/* the reader: context bar, tabs, status strip */
+.tc-reader { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--surface); padding: 0 12px; }
+.tc-context { flex: none; display: flex; align-items: center; gap: 12px; padding: 6px 12px 6px 14px; min-height: 36px; border-bottom: 1px solid var(--border); }
+.tc-scope { flex: 1; min-width: 0; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 8px 0 2px; }
+.tc-range { flex: 1; display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.tc-range input { width: 62px; height: 34px; box-sizing: border-box; padding: 2px 4px 2px 6px; text-align: center; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
+.tc-actions { display: flex; gap: 6px; flex: none; }
+.tc-tabs { flex: none; display: flex; gap: 2px; margin-top: 6px; border-bottom: 1px solid var(--border); }
+.tc-tab { padding: 3px 10px; border: 1px solid var(--border); border-bottom: 0; border-radius: 4px 4px 0 0; background: rgb(242, 244, 243); font-size: 13px; position: relative; top: 1px; }
+.tc-tab.selected { background: var(--surface); }
+.tc-pages { flex: 1; min-height: 0; position: relative; }
+.tc-page { position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; }
+/* empty / loading card: centred icon, bold 18 title, 13 muted detail */
+.tc-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 28px; text-align: center; }
+.tc-empty svg { width: 52px; height: 52px; color: rgb(185, 190, 187); }
+.tc-empty-title { margin-top: 12px; font-size: 18px; font-weight: bold; }
+.tc-empty-detail { margin-top: 8px; color: var(--muted); font-size: 13px; min-height: 2.6em; max-width: 100%; }
+/* output (createEditorKit): 16 px body, 1.4 line height, 18 22 margin */
+.tc-output { padding: 18px 22px; font-size: 16px; line-height: 1.4; user-select: text; overflow-wrap: anywhere; }
+.tc-output h1 { font-size: 20px; margin: 15px 0 9px 0; }
+.tc-output h2 { font-size: 18px; margin: 14px 0 8px 0; }
+.tc-output h3 { font-size: 16px; margin: 13px 0 7px 0; }
+.tc-output code { background: rgb(250, 251, 251); padding: 1px 4px; font-family: Consolas, Menlo, monospace; }
+.tc-output pre { background: rgb(250, 251, 251); padding: 9px; border: 1px solid var(--border); white-space: pre-wrap; }
+.tc-output pre code { padding: 0; }
+.tc-output ul { margin: 6px 0; padding-left: 22px; }
+.tc-output ol { margin: 6px 0; padding-left: 25px; }
+.tc-output blockquote { color: var(--muted); border-left: 3px solid var(--border); margin: 9px 0; padding-left: 11px; }
+.tc-output table { border-collapse: collapse; margin: 6px 0; }
+.tc-output th, .tc-output td { border: 1px solid var(--border); padding: 3px 6px; text-align: left; }
+.tc-evidence { margin: 0; padding: 12px 14px; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; font-family: inherit; }
+/* status strip: indeterminate 3 px bar, then dot + status, model label + 管理用量 */
+.tc-status-area { flex: none; }
+.tc-progress { height: 3px; overflow: hidden; background: var(--accent-soft); position: relative; }
+.tc-progress::after { content: ""; position: absolute; top: 0; bottom: 0; width: 30%; background: var(--accent); animation: tc-indeterminate 1.4s linear infinite; }
+@keyframes tc-indeterminate { from { left: -30%; } to { left: 100%; } }
+.tc-status-row { display: flex; align-items: center; gap: 14px; padding: 8px 13px; border-top: 1px solid var(--border); }
+.tc-status-left { flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: 8px; }
+.tc-dot { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; flex: none; background: var(--muted); }
+.tc-dot.success, .tc-dot.running { background: var(--accent); }
+.tc-dot.warning { background: var(--warning); }
+.tc-dot.error { background: var(--danger); }
+.tc-status { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.tc-account { display: flex; align-items: center; gap: 8px; flex: none; max-width: 45%; }
+.tc-model { color: var(--muted); font-size: 13px; width: 220px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* composer */
+.tc-composer { flex: none; display: flex; flex-direction: column; gap: 6px; }
+.tc-prompt { display: flex; align-items: center; gap: 12px; }
+.tc-prompt label { font-weight: bold; white-space: nowrap; }
+.tc-input { flex: 1; min-width: 0; height: 34px; box-sizing: border-box; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.tc-input::placeholder { color: var(--muted); }
+.tc-input:focus, .tc-range input:focus, .ts-field:focus { outline: none; border-color: var(--accent); }
+.tc-input:disabled { background: rgb(242, 244, 243); }
+.tc-footer { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tc-check { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); margin-right: 6px; }
+.tc-check input { margin: 0; accent-color: var(--accent); }
+
+/* ---- settings dialog: a modal 880 x 650 content area (capped to the window) */
+.ts-overlay { position: fixed; inset: 0; z-index: 10; background: rgba(20, 28, 25, 0.28); display: flex; align-items: center; justify-content: center; }
+.ts-box { width: min(880px, calc(100vw - 16px)); height: min(650px, calc(100vh - 16px)); display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25); outline: none; }
+/* JOptionPane information message over the settings dialog (ChatGPT welcome). */
+.ts-notice-layer { z-index: 20; }
+.ts-notice { width: min(420px, calc(100vw - 32px)); box-sizing: border-box; padding: 18px 20px 16px; display: flex; flex-direction: column; gap: 12px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25); }
+.ts-notice-title { font-weight: bold; }
+.ts-notice-text { line-height: 1.5; }
+.ts-notice .tc-btn { align-self: flex-end; }
+.ts-head { flex: none; padding: 13px 24px 9px; background: var(--rail); border-bottom: 1px solid var(--border); }
+.ts-title { font-size: 30px; font-weight: bold; line-height: 1.25; }
+.ts-subtitle, .ts-note { color: var(--muted); font-size: 13px; white-space: pre-line; }
+.ts-main { flex: 1; min-height: 0; display: flex; }
+.ts-rail { width: 210px; flex: none; box-sizing: border-box; padding: 26px 10px 12px; background: var(--rail); border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; }
+.ts-nav { display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 14px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 16px; text-align: left; position: relative; }
+.ts-nav svg { width: 22px; height: 22px; flex: none; }
+.ts-nav.selected { background: var(--accent-soft); color: var(--accent); font-weight: bold; }
+.ts-nav.selected::before { content: ""; position: absolute; left: -6px; top: 6px; bottom: 6px; width: 3px; border-radius: 2px; background: var(--accent); }
+.ts-pages { flex: 1; min-width: 0; overflow-y: auto; overflow-x: hidden; }
+.ts-page { padding: 20px 36px 16px; display: flex; flex-direction: column; gap: 8px; min-height: calc(100% - 36px); }
+.ts-heading { font-size: 28px; font-weight: bold; line-height: 1.25; }
+.ts-providers { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 8px 0 10px; }
+.ts-provider { height: 42px; border: 0; background: var(--surface); font-weight: bold; font-size: 15px; border-bottom: 3px solid transparent; }
+.ts-provider.selected { background: var(--rail); color: var(--accent); border-bottom-color: var(--accent); }
+.ts-provider:disabled { opacity: 0.5; }
+.ts-body { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.ts-welcome { display: flex; gap: 36px; padding: 14px 20px 6px 20px; align-items: flex-start; }
+.ts-welcome svg { width: 86px; height: 70px; flex: none; color: rgb(95, 104, 100); }
+.ts-welcome-title { font-size: 21px; font-weight: bold; margin-bottom: 10px; }
+.ts-welcome-hint { color: var(--muted); font-size: 15px; }
+.ts-privacy { margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 14px 0 6px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+.ts-privacy svg { width: 22px; height: 22px; flex: none; }
+.ts-form { display: grid; grid-template-columns: auto 1fr; column-gap: 14px; row-gap: 10px; align-items: center; }
+.ts-form > label { font-size: 15px; white-space: nowrap; }
+.ts-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ts-field { flex: 1; min-width: 0; height: 38px; box-sizing: border-box; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: rgb(250, 251, 251); font-size: 15px; }
+.ts-field:disabled { opacity: 0.6; }
+select.ts-field { padding: 4px 8px; }
+.ts-combo { position: relative; flex: 1; min-width: 0; display: flex; }
+.ts-combo .ts-field { padding-right: 30px; }
+.ts-combo-toggle { position: absolute; right: 1px; top: 1px; bottom: 1px; width: 28px; border: 0; background: transparent; color: var(--muted); }
+.ts-combo-list { position: absolute; left: 0; right: 0; top: 100%; z-index: 5; max-height: 220px; overflow-y: auto; margin: 2px 0 0; padding: 2px 0; list-style: none; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
+.ts-combo-list li { padding: 5px 10px; cursor: default; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ts-combo-list li:hover, .ts-combo-list li.active { background: var(--accent-soft); }
+.ts-check { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; white-space: nowrap; }
+.ts-check input { margin: 0; accent-color: var(--accent); }
+.ts-label { font-weight: bold; font-size: 15px; margin-top: 4px; }
+.ts-chat-grid { display: grid; grid-template-columns: auto 1fr; column-gap: 12px; row-gap: 8px; align-items: center; }
+.ts-chat-grid > label { font-weight: bold; font-size: 15px; white-space: nowrap; }
+.ts-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ts-connect { min-width: 270px; min-height: 44px; }
+.ts-section { color: var(--muted); font-weight: bold; font-size: 14px; margin: 12px 0 4px; }
+.ts-section:first-of-type { margin-top: 4px; }
+.ts-pref { display: flex; align-items: center; gap: 22px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.ts-pref-text { flex: 1; min-width: 0; }
+.ts-pref-title { font-weight: bold; font-size: 16px; }
+.ts-pref select { width: 220px; flex: none; }
+.ts-link { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; padding: 4px 0; border: 0; background: none; color: var(--accent); font-weight: bold; font-size: 14px; }
+.ts-link svg { width: 22px; height: 22px; }
+.ts-link:disabled { opacity: 0.5; }
+.ts-foot { flex: none; display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 20px; background: var(--rail); border-top: 1px solid var(--border); }
+.ts-status { flex: 1; min-width: 0; color: var(--muted); font-size: 13px; white-space: pre-line; overflow-wrap: anywhere; }
+.ts-foot .tc-btn { min-height: 42px; min-width: 96px; }
+.ts-foot .tc-btn.primary { min-width: 126px; }

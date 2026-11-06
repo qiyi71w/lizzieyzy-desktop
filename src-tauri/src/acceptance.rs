@@ -38,7 +38,7 @@ pub fn acceptance_ui_report(report: Value) {
 fn handle(app: &AppHandle, line: &str) -> Value {
     let req: Request = match serde_json::from_str(line) {
         Ok(r) => r,
-        Err(e) => return json!({ "error": { "kind": "InvalidArgument", "message": e.to_string() } }),
+        Err(_) => return json!({ "error": { "kind": "InvalidArgument", "message": "Invalid command or query." } }),
     };
     let shared = app.state::<State>().inner().clone();
     if let Some(command) = req.command {

@@ -1476,6 +1476,7 @@ pub struct Config {
     /// HumanSL model and durable training preferences.
     pub human_sl: HumanSlSettings,
     pub strength: StrengthSettings,
+    pub commentary: crate::commentary::settings::CommentarySettings,
     /// 评论/问题手 panel.
     pub problems: ProblemListSettings,
     /// 局部精析's move range.

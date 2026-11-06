@@ -83,6 +83,7 @@ impl Workbench {
     /// Another record was adopted or a new board started: setup mode ends and the undo cache is
     /// emptied (`setHistory`, `clearBoardState` → `cleanedittemp`).
     pub(super) fn reset_editing(&mut self) {
+        self.commentary_document_changed();
         self.editing = Editing::default();
     }
 
