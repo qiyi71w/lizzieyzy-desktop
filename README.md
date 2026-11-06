@@ -585,6 +585,15 @@ importing the matching LizzieYzy Next settings.
   on the finished game); a failed restore offers 重试清理. Opening a record, a new board or another
   game during a session first ends the session, then proceeds. The training report and live
   correction strings present in Java are not reachable there and are not shown here.
+- Switching between 人机对弈, 引擎对战 and AI 陪练: two of them never run together. During a game
+  a match or AI 陪练 is refused and a new game ends the running game first; during a match a
+  game or AI 陪练 is refused; a new game or match asked during AI 陪练 ends the session first
+  (see above). A mode also waits until the
+  engines of an ended one have confirmed they are given back, and none starts while 自动快析,
+  闪电分析, 整盘精析, 自动分析 or a batch has borrowed the foreground engine (Java's "engine
+  already in use" message). A move, an AI 陪练 answer or an AI 解说 reply that arrives after its
+  mode or its record has ended is dropped and never reaches the record that follows. Back in
+  review, analysis stays paused after a game and resumes after 实战后复盘.
 - HumanSL model (引擎一键设置 > 权重管理, or 下载并开始 in the AI 陪练 dialog): the official
   `b18c384nbt-humanv0.bin.gz` (99,066,230 bytes) is downloaded from katagotraining.org on demand
   and accepted only with the catalog's size and SHA-256; a file with the official name but another
