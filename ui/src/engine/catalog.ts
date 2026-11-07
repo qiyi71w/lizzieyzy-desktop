@@ -134,7 +134,9 @@ export async function openMoreEngines(): Promise<void> {
       if (saved?.length === engines.length) engines = saved.map((entry) => ({ ...entry }));
       return true;
     };
-    // One save at a time: a staged password belongs to the save that staged it.
+    // One save at a time, with the form inert until it ends (Java saves on the event thread):
+    // a staged password belongs to the save that staged it, and no newer draft is typed while
+    // the save's own reload is pending.
     let saving = false;
     const save = async (): Promise<boolean> => {
       if (saving) return false;
@@ -149,6 +151,7 @@ export async function openMoreEngines(): Promise<void> {
         }
         // A typed password is staged first, as an engine this save starts looks it up when
         // connecting; a refused or failed save puts the previous one back.
+        body.inert = true;
         const settle = draft?.ssh ? await remote.stagePassword() : null;
         const saved = (!draft?.ssh || settle !== null) && await persist();
         await settle?.(saved);
@@ -156,6 +159,7 @@ export async function openMoreEngines(): Promise<void> {
         return saved;
       } finally {
         saving = false;
+        body.inert = false;
       }
     };
     const dirty = async (): Promise<boolean> => {
