@@ -20,6 +20,7 @@ use russh::client;
 use russh::keys::{HashAlg, PrivateKeyWithHashAlg, PublicKey, PublicKeyOrCertificate};
 use russh::{ChannelMsg, Disconnect, Sig};
 use serde::{Deserialize, Serialize};
+use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use ts_rs::TS;
 
@@ -233,15 +234,23 @@ impl KnownHosts {
         }
     }
 
-    /// Trusts the key `host:port` offered when it was last refused. `false` when none was.
-    pub fn trust_offered(&self, host: &str, port: u16) -> io::Result<bool> {
+    /// Trusts the key `host:port` offered when it was last refused, if it is the one with the
+    /// fingerprint `shown` the user was shown. `true` as well when that key is trusted already
+    /// (another refusal of it was confirmed); `false` when another key was offered since: that
+    /// one has its own refusal to confirm.
+    pub fn trust_offered(&self, host: &str, port: u16, shown: &str) -> io::Result<bool> {
+        let has_shown = |text: &String| PublicKey::from_openssh(text).is_ok_and(|key| fingerprint(&key) == shown);
         let name = host_key(host, port);
-        let Some(key) = self.offered.lock().unwrap().remove(&name) else {
-            return Ok(false);
-        };
         let _file = self.file.lock().unwrap();
         let mut hosts = self.load();
-        hosts.insert(name, key);
+        if hosts.get(&name).is_some_and(has_shown) {
+            return Ok(true);
+        }
+        let mut offered = self.offered.lock().unwrap();
+        if !offered.get(&name).is_some_and(has_shown) {
+            return Ok(false);
+        }
+        hosts.insert(name.clone(), offered.remove(&name).unwrap());
         self.store(&hosts)?;
         Ok(true)
     }
@@ -482,29 +491,41 @@ async fn run(
         }
     };
     let (mut reader, writer) = channel.split();
-    let mut failure: Option<String> = None;
-    for line in queued {
-        if let Err(e) = writer.data(format!("{line}\n").as_bytes()).await {
-            failure.get_or_insert(e.to_string());
+    // Input goes out on its own: a command that stops reading fills the channel window, and
+    // waiting for room must hold up neither its output nor the end of the quit grace period.
+    let (input, mut lines) = unbounded_channel::<String>();
+    let mut stdin = writer.make_writer();
+    let sending = async move {
+        while let Some(line) = lines.recv().await {
+            stdin.write_all(line.as_bytes()).await?;
         }
+        // `quit` was the last line: end the command's input.
+        stdin.shutdown().await
+    };
+    tokio::pin!(sending);
+    let mut input = Some(input);
+    for line in queued {
+        let _ = input.as_ref().unwrap().send(format!("{line}\n"));
     }
+    let mut failure: Option<String> = None;
+    let mut sent = false;
     let (mut out, mut err) = (Lines::default(), Lines::default());
     let mut ended: Option<RemoteFailure> = None;
     let mut quitting: Option<Pin<Box<tokio::time::Sleep>>> = None;
-    let mut input_open = true;
     loop {
         tokio::select! {
-            message = rx.recv(), if input_open => match message {
-                Some(Write::Line(line)) => {
-                    if let Err(e) = writer.data(format!("{line}\n").as_bytes()).await {
-                        failure.get_or_insert(e.to_string());
-                    }
-                }
+            message = rx.recv(), if input.is_some() => match message {
+                // Unsent when the input already failed; that failure is reported.
+                Some(Write::Line(line)) => { let _ = input.as_ref().unwrap().send(format!("{line}\n")); }
                 Some(Write::Quit) | None => {
-                    input_open = false;
-                    let _ = writer.data(&b"quit\n"[..]).await;
-                    let _ = writer.eof().await;
+                    let _ = input.take().unwrap().send("quit\n".into());
                     quitting = Some(Box::pin(tokio::time::sleep(QUIT_GRACE)));
+                }
+            },
+            result = &mut sending, if !sent => {
+                sent = true;
+                if let Err(e) = result {
+                    failure.get_or_insert(e.to_string());
                 }
             },
             message = reader.wait() => match message {
@@ -520,8 +541,8 @@ async fn run(
                 Some(_) => {}
             },
             _ = async { quitting.as_mut().unwrap().await }, if quitting.is_some() => {
-                // The command did not end after `quit`: stop it (where the server honours
-                // signals) and close the channel, which ends its input and output.
+                // The command did not end after `quit` (or never took it): stop it (where the
+                // server honours signals) and close the channel, which ends its input and output.
                 let _ = writer.signal(Sig::KILL).await;
                 let _ = writer.close().await;
                 break;
@@ -560,5 +581,30 @@ mod tests {
             assert_eq!(s.port_number(), expected, "{port:?}");
         }
         assert_eq!(s.account(), "u@h:22");
+    }
+
+    #[test]
+    fn only_the_key_the_user_was_shown_can_be_trusted() {
+        let key = |s: &str| PublicKey::from_openssh(s).unwrap();
+        let a = key("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC86sYXFL25W92Pzq2/xqryr7bk/CTjx5Rxp/fBxiY9t");
+        let b = key("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ9gRqlnqviY7yC5fr94J5rkV4YBWbqfPn4+LEd6xZx+");
+        let c = key("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKbyUPvA2pdfmYUBTAVa7GMg4mfIL0gFQ3D0T5PUJSbB");
+        let dir = tempfile::tempdir().unwrap();
+        let hosts = KnownHosts::new(dir.path().join("hosts.json"));
+        hosts.check("h", 22, &a).unwrap();
+        // Two refusals in a row: B is shown first, then another connection is offered C.
+        let Err(RemoteFailure::HostKeyChanged { offered: shown_b, .. }) = hosts.check("h", 22, &b) else {
+            panic!()
+        };
+        let Err(RemoteFailure::HostKeyChanged { offered: shown_c, .. }) = hosts.check("h", 22, &c) else {
+            panic!()
+        };
+        assert!(
+            !hosts.trust_offered("h", 22, &shown_b).unwrap(),
+            "B's confirmation does not trust C"
+        );
+        assert!(hosts.check("h", 22, &a).is_ok(), "A is still the trusted key");
+        assert!(hosts.trust_offered("h", 22, &shown_c).unwrap());
+        assert!(hosts.check("h", 22, &c).is_ok() && hosts.check("h", 22, &a).is_err());
     }
 }

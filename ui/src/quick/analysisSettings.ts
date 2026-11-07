@@ -7,7 +7,7 @@ import type { AnalysisEngineSettings, LeaseAvailabilityView } from "../contract/
 import { ask, formPanel, message } from "../dialogs";
 import { absolute, parseJavaInt, place } from "../display/dialogs";
 import { editAnalysisRules } from "../engine/rules";
-import { editRemoteEngine, storeTypedPassword } from "../engine/remote";
+import { editRemoteEngine, stagePassword } from "../engine/remote";
 import { format, product, t } from "../i18n";
 import "./quick.css";
 
@@ -298,11 +298,15 @@ export async function openAnalysisEngineSettings(options: AnalysisSettingsOption
         reuseCurrentEngine: reuse.input.checked,
       };
       // A refusal (AnalysisSettings.commandRequired) is shown by run and keeps the dialog open.
-      // A typed password is kept first: an analysis this save starts looks it up when connecting.
-      if (!(await storeTypedPassword(ssh, sshPassword))) return;
-      sshPassword = null;
+      // A typed password is staged first, as an analysis this save starts looks it up when
+      // connecting; a refused or failed save puts the previous one back.
+      const settle = await stagePassword(ssh, sshPassword);
+      if (!settle) return;
       const result = await run({ type: "SaveAnalysisEngineSettings", settings, shown_command: shown, edited });
-      if (!result || result.type === "Refused") return;
+      const keep = result !== null && result.type !== "Refused";
+      await settle(keep);
+      if (!keep) return;
+      sshPassword = null;
       kept = settings;
       await dialog.close();
       await then();

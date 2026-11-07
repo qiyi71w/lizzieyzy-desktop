@@ -430,8 +430,9 @@ impl Workbench {
     /// [`Self::tuned_analysis_command`] for requests of `visits` (批量精析's
     /// `max(2, batch-analysis-playouts)`).
     pub(super) fn tuned_command_for(&self, base: &str, visits: u32) -> String {
-        // Apple Silicon runs this application's KataGo with its own thread profile.
-        let apple = (cfg!(target_os = "macos") && cfg!(target_arch = "aarch64") && self.analysis_ssh().is_none())
+        // Apple Silicon runs this application's KataGo with its own thread profile; like Java's
+        // `optimizeAnalysisEngineCommand`, also for 远程引擎's command naming that program.
+        let apple = (cfg!(target_os = "macos") && cfg!(target_arch = "aarch64"))
             .then(|| prepare_launch(base, self.engines.roots()))
             .flatten()
             .filter(|spec| PathBuf::from(&spec.program).starts_with(self.resources.store().root()))

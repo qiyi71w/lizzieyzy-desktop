@@ -162,16 +162,17 @@ export class RemoteFields {
     this.password.placeholder = passwordHint(r.state);
   }
 
-  /** Keeps a typed password for the account before the settings that use it are saved, so an
-   *  engine started by that save finds it. */
-  async storePassword(): Promise<boolean> {
-    const password = this.typedPassword();
-    if (password === null) return true;
-    const r = await run({ type: "SshCredential", op: { type: "SetPassword", ssh: this.read(), password } });
-    if (r?.type !== "SshPassword") return false;
-    this.password.value = "";
-    this.password.placeholder = passwordHint(r.state);
-    return true;
+  /** Stages the typed password for the saving of the settings that use it (`stagePassword`);
+   *  a kept one empties the field and shows where it is kept. */
+  async stagePassword(): Promise<Settle | null> {
+    const settle = await stagePassword(this.read(), this.typedPassword());
+    if (!settle) return null;
+    return async (keep) => {
+      await settle(keep);
+      if (!keep) return;
+      this.password.value = "";
+      await this.refreshPassword();
+    };
   }
 }
 
@@ -210,9 +211,15 @@ export async function editRemoteEngine(initial: SshSettings, password: string | 
   return result;
 }
 
-/** Stores the password typed in 远程引擎设置 for `ssh`, before the settings using it are saved. */
-export async function storeTypedPassword(ssh: SshSettings, password: string | null): Promise<boolean> {
-  if (password === null || ssh.useKey) return true;
-  const r = await run({ type: "SshCredential", op: { type: "SetPassword", ssh, password } });
-  return r?.type === "SshPassword";
+/** Ends a staged password: `keep` once the settings were saved, else the previous comes back. */
+export type Settle = (keep: boolean) => Promise<void>;
+
+/** Keeps a typed password for `ssh` while the settings that use it are saved, so an engine that
+ *  save starts finds it; with nothing to stage it settles as a no-op. Null when it could not be
+ *  kept. */
+export async function stagePassword(ssh: SshSettings, password: string | null): Promise<Settle | null> {
+  if (password === null || ssh.useKey) return async () => {};
+  const r = await run({ type: "SshCredential", op: { type: "StagePassword", ssh, password } });
+  if (r?.type !== "SshPassword") return null;
+  return async (keep) => { await run({ type: "SshCredential", op: { type: "SettlePassword", ssh, keep } }); };
 }

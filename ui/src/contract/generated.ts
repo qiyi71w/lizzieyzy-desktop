@@ -2415,7 +2415,7 @@ useKey: boolean, keyPath: string, };
 
 export type RemoteFailure = { "type": "Connect", detail: string, } | { "type": "Authentication" } | { "type": "PasswordMissing", account: string, } | { "type": "HostKeyChanged", host: string, port: number, trusted: string, offered: string, } | { "type": "Ended", status: number | null, signal: string | null, } | { "type": "Lost", detail: string, };
 
-export type SshCredentialCommand = { "type": "PasswordState", ssh: SshSettings, } | { "type": "SetPassword", ssh: SshSettings, password: string, } | { "type": "TrustHostKey", host: string, port: number, } | { "type": "ChooseKeyFile", title: string, };
+export type SshCredentialCommand = { "type": "PasswordState", ssh: SshSettings, } | { "type": "StagePassword", ssh: SshSettings, password: string, } | { "type": "SettlePassword", ssh: SshSettings, keep: boolean, } | { "type": "TrustHostKey", host: string, port: number, offered: string, } | { "type": "ChooseKeyFile", title: string, };
 
 export type SshPasswordState = "None" | "Stored" | "Session";
 

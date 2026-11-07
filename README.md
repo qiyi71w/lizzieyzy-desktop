@@ -381,21 +381,24 @@ importing the matching LizzieYzy Next settings.
   设置 runs the analysis command on an SSH host instead (see remote engines below); the
   lightweight quick-analysis model is a file of this computer and is not used then.
 - Remote (SSH) engines: 更多引擎's 远程引擎 row (IP, 端口, 用户名, 密码 or 密钥 with 浏览, and the 远程
-  column) and 精析设置's 远程引擎 run the command on the host exactly as written, over SSH (a
-  port that is not a number means 22). Paths, models and threads belong to the host, so thread
-  benchmarks, GTP configuration detection, 自动生成 and resource management are not offered for
-  such engines. The host key is trusted on first use and kept in `ssh-known-hosts.json` beside
-  `config.json`; a different key is refused before anything is sent, and the failure dialog shows
-  both SHA-256 fingerprints with 信任新密钥并重试. Passwords never go into `config.json`: they are
-  kept by the system credential store (Windows DPAPI, macOS Keychain, Linux Secret Service), or
-  only until quitting when that store is unavailable; the password field shows which and is left
-  empty to keep it. Remote engines refresh at 综合设置 > 高级 > SSH 分析刷新间隔. Failures say what
-  happened: a refused login (Java's 认证失败), a connection or key-exchange failure or timeout
-  (3 s each), a missing password, the remote command ending on the host (its exit code or
-  signal), or a connection lost without the command's end, when whether it still runs on the
-  host is unknown (keepalive every 10 s, lost after three unanswered). A configured engine whose
-  login or connection failed opens 更多引擎 afterwards, like Java. Closing or switching the
-  engine sends `quit` and closes its input; a command still running 3 s later is sent `KILL`
+  column) and 精析设置's 远程引擎 run the command on the host over SSH (a port that is not a number
+  means 22). An engine command runs exactly as written; the analysis command gets the same
+  `analysisPVLen` and thread overrides as a local one, like Java. Paths, models and files belong
+  to the host, so thread benchmarks, GTP configuration detection, 自动生成 and resource
+  management are not offered for such engines. The host key is trusted on first use and kept in
+  `ssh-known-hosts.json` beside `config.json`; a different key is refused before anything is
+  sent, and the failure dialog shows both SHA-256 fingerprints with 信任新密钥并重试, which trusts
+  only the key shown there. Passwords never go into `config.json`: they are kept by the system
+  credential store (Windows DPAPI, macOS Keychain, Linux Secret Service), or only until quitting
+  when that store is unavailable; the password field shows which and is left empty to keep it. A
+  typed password replaces the saved one only when its settings are saved. Remote engines refresh
+  at 综合设置 > 高级 > SSH 分析刷新间隔. Failures say what happened: a refused login (Java's
+  认证失败), a connection or key-exchange failure or timeout (3 s each), a missing password, the
+  remote command ending on the host (its exit code or signal), or a connection lost without the
+  command's end, when whether it still runs on the host is unknown (keepalive every 10 s, lost
+  after three unanswered). A configured engine whose login or connection failed opens 更多引擎
+  afterwards, like Java. Closing or switching the engine sends `quit` and closes its input; a
+  command still running 3 s later (also one that has stopped reading its input) is sent `KILL`
   where the server honours signals, and the channel is closed. A remote engine's death is
   reported, not restarted automatically.
 - 闪电分析 (分析 menu and the toolbar's lightning button): 整盘速览 (`Ctrl+B`) asks every main-trunk

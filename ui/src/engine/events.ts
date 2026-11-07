@@ -46,11 +46,11 @@ async function failureDialog(failure: EngineFailureView): Promise<void> {
   const restart = () => run(state.view?.engine.secondary?.index === index ? { type: "SwitchSecondaryEngine", index } : { type: "SwitchEngine", index });
   if (remote?.type === "HostKeyChanged") {
     // The analysis engine connects again at its next analysis; a configured engine restarts.
+    // Only the key shown here is trusted: a key offered since has its own refusal.
     const trust = button(index >= 0 ? product("sshTrustAndRetry") : product("sshTrust"), async () => {
-      const r = await run({ type: "SshCredential", op: { type: "TrustHostKey", host: remote.host, port: remote.port } });
-      if (r?.type !== "Done") return;
+      const r = await run({ type: "SshCredential", op: { type: "TrustHostKey", host: remote.host, port: remote.port, offered: remote.offered } });
       await dialog.close();
-      if (index >= 0) await restart();
+      if (r?.type === "Done" && index >= 0) await restart();
     });
     trust.dataset.key = "engine.failure.trustHostKey";
     actions(body, trust);

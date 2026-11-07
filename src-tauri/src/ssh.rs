@@ -17,10 +17,28 @@ use crate::secrets::Store;
 
 const KIND: &str = "ssh-password";
 
+/// The credential-storage name of an SSH account. The storage compares names without case,
+/// while SSH user names keep it: `%` and every character with a lower-case form are written as
+/// `%XXXX` code points, so `Alice@h:22` and `alice@h:22` stay apart. A name already in lower
+/// case is unchanged.
+fn store_account(account: &str) -> String {
+    let mut out = String::with_capacity(account.len());
+    for c in account.chars() {
+        if c == '%' || c.to_lowercase().ne(std::iter::once(c)) {
+            out.push_str(&format!("%{:04X}", u32::from(c)));
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 pub struct Adapter {
     store: Store,
     /// Passwords of this run, by account, where the system storage could not keep them.
     session: Mutex<HashMap<String, String>>,
+    /// Accounts with a staged password and the password they had before.
+    staged: Mutex<HashMap<String, Option<String>>>,
     known_hosts: Arc<KnownHosts>,
 }
 
@@ -29,6 +47,7 @@ impl Adapter {
         Arc::new(Adapter {
             store: Store::new(application, config_dir),
             session: Mutex::new(HashMap::new()),
+            staged: Mutex::new(HashMap::new()),
             known_hosts: Arc::new(KnownHosts::new(config_dir.join("ssh-known-hosts.json"))),
         })
     }
@@ -46,7 +65,11 @@ impl Adapter {
         if let Some(password) = self.session.lock().unwrap().get(account) {
             return Some(password.clone());
         }
-        self.store.read(KIND, account).ok().flatten().filter(|p| !p.is_empty())
+        self.store
+            .read(KIND, &store_account(account))
+            .ok()
+            .flatten()
+            .filter(|p| !p.is_empty())
     }
 
     fn state(&self, account: &str) -> SshPasswordState {
@@ -54,7 +77,7 @@ impl Adapter {
             SshPasswordState::Session
         } else if self
             .store
-            .read(KIND, account)
+            .read(KIND, &store_account(account))
             .ok()
             .flatten()
             .is_some_and(|p| !p.is_empty())
@@ -71,16 +94,37 @@ impl Adapter {
         let mut session = self.session.lock().unwrap();
         session.remove(account);
         if password.is_empty() {
-            let _ = self.store.delete(KIND, account);
+            let _ = self.store.delete(KIND, &store_account(account));
             return SshPasswordState::None;
         }
-        match self.store.write(KIND, account, password) {
+        match self.store.write(KIND, &store_account(account), password) {
             Ok(()) => SshPasswordState::Stored,
             Err(_) => {
                 session.insert(account.to_string(), password.to_string());
                 SshPasswordState::Session
             }
         }
+    }
+
+    /// [`SshCredentialCommand::StagePassword`]: the first stage of an account remembers what to
+    /// put back.
+    fn stage(&self, account: &str, password: &str) -> SshPasswordState {
+        let previous = self.password(account);
+        self.staged
+            .lock()
+            .unwrap()
+            .entry(account.to_string())
+            .or_insert(previous);
+        self.set_password(account, password)
+    }
+
+    /// [`SshCredentialCommand::SettlePassword`].
+    fn settle(&self, account: &str, keep: bool) -> SshPasswordState {
+        let staged = self.staged.lock().unwrap().remove(account);
+        if let (Some(previous), false) = (staged, keep) {
+            self.set_password(account, previous.as_deref().unwrap_or(""));
+        }
+        self.state(account)
     }
 
     /// Remembers the SSH passwords of a Java import before it is applied, so the imported engines
@@ -134,15 +178,38 @@ pub fn dispatch(adapter: &Adapter, op: SshCredentialCommand) -> Result<CommandRe
         SshCredentialCommand::PasswordState { ssh } => Ok(CommandResult::SshPassword {
             state: adapter.state(&ssh.account()),
         }),
-        SshCredentialCommand::SetPassword { ssh, password } => Ok(CommandResult::SshPassword {
-            state: adapter.set_password(&ssh.account(), &password),
+        SshCredentialCommand::StagePassword { ssh, password } => Ok(CommandResult::SshPassword {
+            state: adapter.stage(&ssh.account(), &password),
         }),
-        SshCredentialCommand::TrustHostKey { host, port } => match adapter.known_hosts.trust_offered(&host, port) {
-            Ok(true) => Ok(CommandResult::Done),
-            Ok(false) => Ok(CommandResult::Unchanged),
-            Err(e) => Err(ApiError::new(ErrorKind::Unavailable, e.to_string())),
-        },
+        SshCredentialCommand::SettlePassword { ssh, keep } => Ok(CommandResult::SshPassword {
+            state: adapter.settle(&ssh.account(), keep),
+        }),
+        SshCredentialCommand::TrustHostKey { host, port, offered } => {
+            match adapter.known_hosts.trust_offered(&host, port, &offered) {
+                Ok(true) => Ok(CommandResult::Done),
+                Ok(false) => Ok(CommandResult::Unchanged),
+                Err(e) => Err(ApiError::new(ErrorKind::Unavailable, e.to_string())),
+            }
+        }
         // The shell owns the native chooser (`lib.rs`).
         SshCredentialCommand::ChooseKeyFile { .. } => Ok(CommandResult::Unchanged),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::store_account;
+
+    #[test]
+    fn accounts_differing_only_in_case_keep_their_own_storage_names() {
+        // The storage lower-cases names; distinct accounts must stay distinct after that.
+        let stored = |account: &str| store_account(account).to_lowercase();
+        assert_ne!(stored("Alice@h:22"), stored("alice@h:22"));
+        assert_ne!(stored("a%0041@h:22"), stored("aA@h:22"));
+        assert_eq!(
+            store_account("alice@host:22"),
+            "alice@host:22",
+            "lower-case names are unchanged"
+        );
     }
 }

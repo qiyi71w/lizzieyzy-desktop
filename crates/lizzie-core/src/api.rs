@@ -2025,11 +2025,16 @@ pub enum ConnectionCommand {
 pub enum SshCredentialCommand {
     /// Where the password of `ssh`'s account is kept.
     PasswordState { ssh: crate::engine::ssh::SshSettings },
-    /// Remembers `password` for `ssh`'s account: in the system credential storage, else for this
-    /// run only. An empty password forgets it.
-    SetPassword { ssh: crate::engine::ssh::SshSettings, password: String },
-    /// Trusts the key `host:port` offered when its connection was refused for a changed key.
-    TrustHostKey { host: String, port: u16 },
+    /// Remembers `password` for `ssh`'s account while the settings that use it are saved (in
+    /// the system credential storage, else for this run only), so an engine the save starts
+    /// finds it. The previous password is kept until [`SshCredentialCommand::SettlePassword`].
+    StagePassword { ssh: crate::engine::ssh::SshSettings, password: String },
+    /// Ends a [`SshCredentialCommand::StagePassword`]: `keep` once the settings were saved,
+    /// otherwise the account gets its previous password back.
+    SettlePassword { ssh: crate::engine::ssh::SshSettings, keep: bool },
+    /// Trusts the key `host:port` offered when its connection was refused for a changed key,
+    /// if it is still the key with the fingerprint `offered` the user was shown.
+    TrustHostKey { host: String, port: u16, offered: String },
     /// 浏览: the key file chooser (`MoreEngines.chooseKeygen`), titled `title`.
     ChooseKeyFile { title: String },
 }

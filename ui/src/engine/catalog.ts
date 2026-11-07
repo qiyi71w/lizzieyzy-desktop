@@ -137,14 +137,16 @@ export async function openMoreEngines(): Promise<void> {
     const save = async (): Promise<boolean> => {
       const previous = engines.map((entry) => ({ ...entry }));
       const draft = read();
-      // A typed password is kept first: an engine this save starts looks it up when connecting.
-      if (draft?.ssh && !(await remote.storePassword())) return false;
       if (draft) {
         if (![name, width, height, komi].every((el) => el.reportValidity())) return false;
         engines[selected] = draft;
         if (draft.isDefault) engines.forEach((entry, index) => { entry.isDefault = index === selected; });
       }
-      const saved = await persist();
+      // A typed password is staged first, as an engine this save starts looks it up when
+      // connecting; a refused or failed save puts the previous one back.
+      const settle = draft?.ssh ? await remote.stagePassword() : null;
+      const saved = (!draft?.ssh || settle !== null) && await persist();
+      await settle?.(saved);
       if (!saved) engines = previous;
       return saved;
     };
