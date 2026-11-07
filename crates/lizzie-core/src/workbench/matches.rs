@@ -80,6 +80,9 @@ struct Run {
     komi_pending: Option<f64>,
     komi_in_flight: Option<f64>,
     komi_awaiting: Vec<(u64, u64)>,
+    /// Participants that ended unexpectedly (profile id, whether it held the foreground seat):
+    /// restarted once the match is retired (EngineManager.java:5403-5506, 8845-9093).
+    failed: Vec<(String, bool)>,
 }
 #[derive(Default)]
 pub(super) struct MatchFlow {
@@ -411,6 +414,7 @@ impl Workbench {
                     komi_pending: None,
                     komi_in_flight: None,
                     komi_awaiting: Vec::new(),
+                    failed: Vec::new(),
                 });
                 self.persisted.matches.batch_name.clear();
                 self.match_prepare_board();
@@ -1025,6 +1029,17 @@ impl Workbench {
                 self.match_retirement();
                 None
             }
+            RuntimeEvent::Failed(f) => {
+                if let Some(r) = self
+                    .matches
+                    .run
+                    .as_mut()
+                    .filter(|r| r.sides.iter().any(|p| p.instance == f.instance))
+                {
+                    r.failed.push((f.profile_id.clone(), f.foreground));
+                }
+                Some(RuntimeEvent::Failed(f))
+            }
             event => Some(event),
         }
     }
@@ -1230,8 +1245,7 @@ impl Workbench {
         self.cursor = node;
         self.engines.want(None, false);
         if let Some((seat, request)) = request {
-            self.engines
-                .game_move_committed(seat, request, self.doc.record.node(node).stamp);
+            self.engine_move_committed(seat, request, self.doc.record.node(node).stamp);
         }
         if self.config.ui.play_sound {
             self.sounds.push(super::step_sound(&self.doc.record, node));
@@ -1366,7 +1380,7 @@ impl Workbench {
         let Some(r) = self.matches.run.as_mut() else { return };
         if r.phase == MatchPhase::BetweenGames {
             if end == MatchEnd::UserStopped {
-                self.matches.run = None;
+                self.match_closed();
             }
             return;
         }
@@ -1472,7 +1486,7 @@ impl Workbench {
     fn match_retirement(&mut self) {
         let Some(r) = self.matches.run.as_mut() else { return };
         if r.phase == MatchPhase::BetweenGames && (r.stop_batch || r.ordinal >= r.limit) {
-            self.matches.run = None;
+            self.match_closed();
             return;
         }
         if r.phase != MatchPhase::Ending || !r.sides.iter().all(|p| p.released) || r.image_pending {
@@ -1482,10 +1496,18 @@ impl Workbench {
         outcome.batch_finished = r.stop_batch || r.ordinal >= r.limit;
         self.matches.outcome = Some(outcome);
         if r.stop_batch || r.ordinal >= r.limit {
-            self.matches.run = None;
+            self.match_closed();
         } else {
             r.phase = MatchPhase::BetweenGames;
             r.next_game = Some(Instant::now() + Duration::from_millis(1));
+        }
+    }
+    /// The match is over and retired: participants that ended during it start again, synced to
+    /// the position then current when one held the foreground seat.
+    fn match_closed(&mut self) {
+        let Some(run) = self.matches.run.take() else { return };
+        for (profile, foreground) in run.failed {
+            self.restart_participant(&profile, foreground);
         }
     }
     pub(super) fn match_deadline(&self) -> Option<Instant> {

@@ -108,6 +108,9 @@ pub struct AnalysisSettings {
     pub fast_engine_change: bool,
     /// `show-ponder-limited-tips` [true]: explain once when a limit stops the analysis.
     pub show_ponder_limited_tips: bool,
+    /// `ui.auto-check-engine-alive` [true]: a foreground engine that ends unexpectedly is
+    /// started again and brought back to the current position (`EngineManager.checkEngineAlive`).
+    pub auto_check_engine_alive: bool,
 }
 
 impl Default for AnalysisSettings {
@@ -123,6 +126,7 @@ impl Default for AnalysisSettings {
             limit_branch_length: 15,
             fast_engine_change: true,
             show_ponder_limited_tips: true,
+            auto_check_engine_alive: true,
         }
     }
 }

@@ -71,6 +71,7 @@ fn java_dir(root: &Path) -> PathBuf {
             "limit-playout": "true",
             "limit-playouts": 5000,
             "show-ponder-limited-tips": false,
+            "auto-check-engine-alive": false,
             "kata-rules": "japanese",
             "auto-load-kata-rules": true,
             "recent-file-paths": recent,
@@ -323,7 +324,7 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
         (a.limit_max_suggestion, a.limit_branch_length, a.interval_centisec),
         (10, 8, 20)
     );
-    assert!(!a.fast_engine_change && !a.show_ponder_limited_tips);
+    assert!(!a.fast_engine_change && !a.show_ponder_limited_tips && !a.auto_check_engine_alive);
     assert_eq!(
         c.display,
         DisplaySettings {

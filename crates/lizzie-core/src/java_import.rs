@@ -127,6 +127,7 @@ pub struct Mapped {
     pub limit_branch_length: Option<u32>,
     pub fast_engine_change: Option<bool>,
     pub show_ponder_limited_tips: Option<bool>,
+    pub auto_check_engine_alive: Option<bool>,
     pub kata_rules: Option<String>,
     pub auto_load_kata_rules: Option<bool>,
     pub startup_benchmark: Option<bool>,
@@ -761,6 +762,12 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "show-ponder-limited-tips",
         ImportTarget::PonderLimitTips,
         Kind::Bool(|m, v| m.show_ponder_limited_tips = Some(v)),
+    ),
+    (
+        "ui",
+        "auto-check-engine-alive",
+        ImportTarget::AutoCheckEngineAlive,
+        Kind::Bool(|m, v| m.auto_check_engine_alive = Some(v)),
     ),
     (
         "ui",
@@ -2642,6 +2649,10 @@ impl Mapped {
             c.engine.analysis.show_ponder_limited_tips,
             self.show_ponder_limited_tips
         );
+        set!(
+            c.engine.analysis.auto_check_engine_alive,
+            self.auto_check_engine_alive
+        );
         set!(c.engine.kata_rules, self.kata_rules);
         set!(
             c.engine.startup_benchmark_dismissed_signature,
@@ -2918,6 +2929,11 @@ impl Mapped {
             ImportTarget::PonderLimitTips,
             a.show_ponder_limited_tips,
             self.show_ponder_limited_tips
+        );
+        cmp!(
+            ImportTarget::AutoCheckEngineAlive,
+            a.auto_check_engine_alive,
+            self.auto_check_engine_alive
         );
         cmp!(ImportTarget::KataRules, config.engine.kata_rules, self.kata_rules);
         cmp!(

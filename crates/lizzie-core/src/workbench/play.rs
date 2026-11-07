@@ -842,7 +842,7 @@ impl Workbench {
                 if let Some(point) = point {
                     if let Some(n) = self.commit_engine_move(point, color) {
                         self.follow_engine_move(n);
-                        self.engines.game_move_committed(res, request, self.doc.record.node(n).stamp);
+                        self.engine_move_committed(res, request, self.doc.record.node(n).stamp);
                     }
                 }
             }
@@ -888,7 +888,7 @@ impl Workbench {
                 // The engine board keeps its move while the position follows it; then the move
                 // is the node's.
                 self.follow_engine_move(n);
-                self.engines.game_move_committed(game, request, self.doc.record.node(n).stamp);
+                self.engine_move_committed(game, request, self.doc.record.node(n).stamp);
             }
             None => {
                 self.log(true, "the engine's move is not legal here".into());

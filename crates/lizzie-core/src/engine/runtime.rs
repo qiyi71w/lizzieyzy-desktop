@@ -132,6 +132,13 @@ pub struct EngineFailure {
     pub output: Vec<String>,
     /// A remote engine's connection failure or end.
     pub remote: Option<super::ssh::RemoteFailure>,
+    /// It held the foreground seat when it ended.
+    pub foreground: bool,
+    /// When it ended, its state belonged to a holder other than the seat's wish: lent to a
+    /// background task (the lease, its restore included), being given back by a play mode or
+    /// HumanSL, or left unrestored by such a return (Java's exclusive GTP session, foreground
+    /// restore and `engineStateUnrestored`).
+    pub held: bool,
 }
 
 /// Something the application flow must act on.
@@ -737,6 +744,9 @@ impl Instance {
             message,
             output: self.output_tail.iter().cloned().collect(),
             remote: None,
+            // Filled in by `Engines::fail`, which knows the seats.
+            foreground: false,
+            held: false,
         }
     }
 }
@@ -1126,6 +1136,8 @@ impl Engines {
             message,
             output: Vec::new(),
             remote: None,
+            foreground: false,
+            held: false,
         };
         // A remote engine's command runs on its host as written: no local paths, thread policy
         // or launch overlays apply (Java `EngineThreadPolicy.isRemoteManaged`).
@@ -1336,9 +1348,14 @@ impl Engines {
         self.pump();
     }
 
-    /// Ends instance `id` that failed: a foreground engine's failure is remembered.
-    fn fail(&mut self, id: InstanceId, failure: EngineFailure) -> RuntimeEvent {
-        if self.foreground == Some(id) {
+    /// Ends instance `id` that failed: a foreground engine's failure is remembered. The failure
+    /// says which seat the instance held and whether a holder owned its state at that moment.
+    fn fail(&mut self, id: InstanceId, mut failure: EngineFailure) -> RuntimeEvent {
+        failure.foreground = self.foreground == Some(id);
+        failure.held = self.get(id).is_some_and(|i| i.unrestored.is_some())
+            || self.leased(id)
+            || self.game_restoring(id);
+        if failure.foreground {
             self.failed_foreground = self.get(id).map(|i| i.profile.clone());
         }
         self.terminate(id);

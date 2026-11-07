@@ -124,6 +124,8 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   HumanSlModel: "AutoSetup.humanSlModel",
   // AI 解说's teacher.properties (TeacherSettingsDialog title).
   Commentary: "Teacher.settings.title",
+  // 综合设置 > 高级 > 日志与分析刷新 (ConfigDialog2.java:3290-3295).
+  AutoCheckEngineAlive: "ConfigDialog2.modern.engineHealth.checkAlive",
 };
 
 function targetLabel(target: ImportTarget): string {

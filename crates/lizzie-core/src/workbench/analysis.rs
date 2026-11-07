@@ -1294,6 +1294,7 @@ impl Workbench {
             };
             match ev {
                 RuntimeEvent::Ready { instance } => {
+                    self.restart_ready(instance);
                     if let Some((name, version, _)) = self.engines.identity(instance) {
                         self.log(false, format!("engine ready: {name} {version}"));
                     }
@@ -1317,7 +1318,9 @@ impl Workbench {
                             self.engines.set_secondary(Some(previous), true);
                         }
                     }
-                    self.engine_failed(f);
+                    if self.restart_on_failure(&f) {
+                        self.engine_failed(f);
+                    }
                 }
                 RuntimeEvent::Analysis {
                     instance,
@@ -1340,6 +1343,7 @@ impl Workbench {
                     }
                     // 批量分析's record has its own store and run.
                     if !secondary && Some(doc) == self.batch_doc_id() {
+                        self.restart_proven(instance);
                         self.batch_foreground_result(doc, node, stamp, komi, to_play, engine_name, line, elapsed);
                         continue;
                     }
@@ -1356,6 +1360,7 @@ impl Workbench {
                     let Some((result, ownership)) = node_analysis(node, to_play, komi, engine_name, line) else {
                         continue;
                     };
+                    self.restart_proven(instance);
                     let visits = result.visits;
                     let played = (!secondary && self.play_wants_analysis(node)).then(|| result.clone());
                     let matched = (!secondary && self.match_wants_analysis(node)).then(|| result.clone());
@@ -1407,6 +1412,9 @@ impl Workbench {
             }
         }
         self.auto_analysis_poll();
+        // A foreground engine that ended starts again once the other consequences of its end
+        // (a game retired, a lease ended) are applied.
+        self.restart_due();
         if changed {
             // Readiness, rules answers and failures can change what the engine should do.
             self.sync_engine();
@@ -1555,6 +1563,7 @@ impl Workbench {
             full_trace: self.engines.tracing(),
             lease,
             unrestored,
+            down: fg.is_none() && self.engines.foreground_failure().is_some(),
         }
     }
 

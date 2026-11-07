@@ -173,8 +173,9 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   const manualRow = document.createElement("div"); manualRow.className = "engine-field"; manualRow.dataset.settingTarget = "config.proxy.manual-address";
   const manualTitle = document.createElement("span"); manualTitle.textContent = t("ConfigDialog2.modern.proxy.manual"); manualRow.append(manualTitle, address); advanced.append(manualRow);
   const toggleManual = () => { host.disabled = port.disabled = mode.value !== "Manual"; }; mode.onchange = toggleManual; toggleManual();
-  // 日志与分析刷新 (3279-3310): the two refresh intervals are settings of this product.
+  // 日志与分析刷新 (3279-3310): 自动检测引擎是否存活 and the two refresh intervals are settings of this product.
   heading(advanced, t("ConfigDialog2.modern.engineHealth.title"), t("ConfigDialog2.modern.engineHealth.subtitle"));
+  const checkAlive = toggleRow(advanced, "config.engine.check-alive", "settings.analysis.autoCheckEngineAlive", t("ConfigDialog2.modern.engineHealth.checkAlive"), t("ConfigDialog2.modern.engineHealth.checkAliveSub"), settings.autoCheckEngineAlive);
   numberRow(advanced, "config.engine.update-interval", "intervalCentisec", t("ConfigDialog2.modern.engineHealth.interval"), t("ConfigDialog2.modern.engineHealth.intervalSub"), t("LizzieConfig.title.centisecond"));
   numberRow(advanced, "config.engine.ssh-update-interval", "intervalCentisecSsh", t("ConfigDialog2.modern.engineHealth.intervalSsh"), t("ConfigDialog2.modern.engineHealth.intervalSshSub"), t("LizzieConfig.title.centisecond"));
   body.append(...Object.values(pages));
@@ -192,6 +193,7 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
       (!host.value.trim() ? host : port).focus(); return false;
     }
     settings.limitTime = time.checked; settings.limitPlayout = visits.checked; settings.fastEngineChange = fast.checked;
+    settings.autoCheckEngineAlive = checkAlive.checked;
     const proxy = { proxyMode, proxyHost: host.value.trim(), proxyPort: validPort ? Number(port.value) : 7897 };
     if (JSON.stringify(proxy) !== JSON.stringify(network)) {
       const result = await resourceCommand({ type: "SetNetworkProxy", settings: proxy }); if (!result || result.type === "Refused") return false;

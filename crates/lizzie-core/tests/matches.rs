@@ -461,6 +461,54 @@ fn participant_exit_retires_and_restore_refusal_stops_batch() {
     assert_eq!(m.phase(), None);
 }
 
+/// EngineManager.java:5403-5506, 8845-9093: the participant that ended is started again once the
+/// match is retired, in the foreground seat it held and synced to the position then current.
+#[test]
+fn a_participant_that_ended_starts_again_after_the_match_is_retired() {
+    let mut m = Match::new();
+    m.start(batch());
+    m.serve(&|_, _| None);
+    let id = m.mover();
+    let index = m.wb.view(false).engine.foreground.unwrap().index;
+    let before = m.world.ids().len();
+    m.wb.engine_input(id, EngineInput::Exited(Some(1)));
+    let restart = m.serve(&|_, _| None);
+    let outcome = m.wb.view(false).match_outcome.unwrap();
+    assert_eq!((outcome.end, outcome.batch_finished), (MatchEnd::Retired, true));
+    assert_eq!(m.phase(), None);
+    let ids = m.world.ids();
+    assert_eq!(ids.len(), before + 1, "only the ended participant starts again");
+    let new = *ids.last().unwrap();
+    let v = m.wb.view(false);
+    let fg = v.engine.foreground.expect("back in its seat");
+    assert_eq!(fg.index, index);
+    assert!(fg.ready);
+    let moves = m.wb.document().record.node(m.wb.cursor()).move_number;
+    let plays = restart.iter().filter(|(i, c)| *i == new && c.starts_with("play ")).count();
+    assert_eq!(plays as u32, moves, "synced to the position after the match");
+}
+
+/// A replacement that cannot start is marked not loaded without the ordinary start-up
+/// diagnostic, and is not tried again.
+#[test]
+fn a_participant_replacement_that_fails_to_start_is_quiet_and_not_retried() {
+    let mut m = Match::new();
+    m.start(batch());
+    m.serve(&|_, _| None);
+    let id = m.mover();
+    let newest = *m.world.ids().iter().max().unwrap();
+    m.wb.engine_input(id, EngineInput::Exited(Some(1)));
+    assert!(m.wb.view(false).engine_failure.is_some(), "the participant's own end is reported");
+    m.serve(&move |i, c| (i > newest && c == "name").then(|| "?cannot start".into()));
+    let v = m.wb.view(false);
+    assert!(v.engine_failure.is_none(), "no start-up diagnostic for the replacement");
+    assert!(v.engine.foreground.is_none() && v.engine.down);
+    let count = m.world.ids().len();
+    m.wb.engine_tick(Instant::now() + Duration::from_secs(60));
+    m.serve(&|_, _| None);
+    assert_eq!(m.world.ids().len(), count, "not tried again");
+}
+
 #[test]
 fn live_limit_and_intervention_resign_follow_java_batch_rules() {
     let mut m = Match::new();

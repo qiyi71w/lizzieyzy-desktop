@@ -877,7 +877,9 @@ async function installBackground(size: string, w: number, h: number, glass: Rect
 
 /** LizzieFrame.drawPonderingState: only ambient status depends on active pondering. An engine left
  *  unrestored after a borrow shows its cause and the way back instead (loadingStatusLines,
- *  java:7871-7890); a retrying quick analysis replaces the shortcut hint (drawCommandString). */
+ *  java:7871-7890); a foreground engine still starting shows 引擎正在加载中 and one that failed
+ *  引擎未成功加载 (loadingTextResourceKey, 7894-7915); a retrying quick analysis replaces the
+ *  shortcut hint (drawCommandString). */
 function statusLines(): string[] {
   const v = state.view;
   const hint = notice && notice.until > performance.now()
@@ -892,6 +894,9 @@ function statusLines(): string[] {
       hint,
     ];
   }
+  if (v?.engine.down) return [t("LizzieFrame.display.down"), hint];
+  const fg = v?.engine.foreground;
+  if (fg && v?.engine.engines[fg.index]?.state === "Loading") return [t("LizzieFrame.display.loading"), hint];
   return [
     v?.engine.foreground?.name ?? t("LizzieFrame.noEngineText"),
     `${t("LizzieFrame.display.pondering")} ${v?.engine.analysing ? t("LizzieFrame.display.on") : t("LizzieFrame.display.off")}${t("LizzieFrame.display.space")}`,

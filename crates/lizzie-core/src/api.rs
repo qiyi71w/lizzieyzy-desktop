@@ -1408,6 +1408,8 @@ pub enum ImportTarget {
     LimitBranchLength,
     FastEngineChange,
     PonderLimitTips,
+    /// `ui.auto-check-engine-alive`.
+    AutoCheckEngineAlive,
     KataRules,
     AutoLoadKataRules,
     /// `ui.enable-startup-benchmark`.
@@ -1749,6 +1751,9 @@ pub struct EngineView {
     /// The foreground engine was not given back after it was borrowed: it does not analyse until
     /// it is restarted (`LizzieFrame.display.foregroundUnrestored`).
     pub unrestored: Option<UnrestoredReason>,
+    /// The foreground engine failed and nothing took its seat since (`LizzieFrame.display.down`,
+    /// Java `isDownWithError`).
+    pub down: bool,
 }
 
 /// One candidate (`MoveData`). Percentages 0–100 from the side to move.

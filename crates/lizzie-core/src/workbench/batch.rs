@@ -1159,6 +1159,8 @@ impl Workbench {
             message,
             output,
             remote,
+            foreground: false,
+            held: false,
         });
         self.batch.run = None;
         self.batch_end(None, false);

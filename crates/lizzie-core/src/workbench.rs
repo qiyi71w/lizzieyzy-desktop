@@ -34,6 +34,7 @@ mod play;
 mod quick;
 mod recovery;
 mod resources;
+mod restart;
 mod search;
 mod tsumego;
 mod tuning;
@@ -277,6 +278,8 @@ pub struct Workbench {
     /// 人机对弈 and the bottom toolbar's 自动落子.
     play: play::PlayFlow,
     matches: matches::MatchFlow,
+    /// Engines that ended unexpectedly and start again (自动检测引擎是否存活).
+    restart: restart::RestartFlow,
     human_sl: humansl::HumanSlFlow,
     strength: strength::StrengthFlow,
     commentary: commentary::CommentaryFlow,
@@ -398,6 +401,7 @@ impl Workbench {
             hawkeye_session: hawkeye::HawkeyeSession::default(),
             play: play::PlayFlow::default(),
             matches: matches::MatchFlow::default(),
+            restart: restart::RestartFlow::default(),
             human_sl: humansl::HumanSlFlow::default(),
             strength: strength::StrengthFlow::default(),
             commentary: commentary::CommentaryFlow::default(),

@@ -118,6 +118,14 @@ impl Engines {
         self.games.iter().any(|g| g.id == game && g.releasing.is_some())
     }
 
+    /// Whether instance `id` is being given back: a play mode's restore in flight, or HumanSL's
+    /// foreground recovery (Java `foregroundRestoreSession`).
+    pub(super) fn game_restoring(&self, id: InstanceId) -> bool {
+        self.games
+            .iter()
+            .any(|g| g.instance == id && (g.releasing.is_some() || Some(g.id) == self.human_sl_restore))
+    }
+
     /// Whether `game`'s engine is thinking about a move (asked or answering).
     pub fn game_thinking(&self, game: u64) -> bool {
         self.games.iter().any(|g| g.id == game && (g.wanted.is_some() || g.genmove.is_some()))

@@ -154,7 +154,23 @@ importing the matching LizzieYzy Next settings.
   the previous engine keeps running for a quick switch back. Analysis menu items close or
   restart engines. As in Java, an engine's board size applies to a new empty game, and its komi
   becomes the game komi unless the komi was set by hand (an engine that fails to start changes
-  nothing).
+  nothing). While an engine starts the status area shows 引擎正在加载中; after a failure it shows
+  引擎未成功加载.
+- 自动检测引擎是否存活 (综合设置 > 高级 > 日志与分析刷新, on by default, Java's
+  `ui.auto-check-engine-alive`): when the foreground engine's process ends unexpectedly after it
+  was ready, or a remote engine's command ends on the host or its connection is lost, the same
+  engine starts again in the foreground. It is brought to the current position with the game's
+  komi, rules and board size (the profile's komi and board size are not applied again), and it
+  analyses again unless analysis is paused; a position the user moved to meanwhile is the one
+  synced. Java's non-modal 引擎异常关闭 window still reports the end, and the workbench stays
+  usable. There is no restart when the setting is off, when the engine failed while starting,
+  when it was closed, switched or ended by the user or at exit, when it was not the foreground
+  engine, while it was lent to a background analysis (or being given back), or while it was left
+  unrestored. An engine restarted this way is restarted again only after it produced an analysis
+  line or a legal move, so an engine that keeps crashing is not restarted in a loop; a launch
+  failure is reported like any start. The ending is noticed at once from the process or
+  connection, not by polling. Unlike Java, a local engine is restarted too (Java's check missed a
+  local process that had ended).
 - Analysis: candidates on the board (win rate, visits, score lead), the variation shown when
   hovering a candidate (captures are worked out by the core), the sub board cycling through
   candidates on click, the candidate tables, the win-rate graph, 统计 and Kata形势 (below), and
@@ -416,8 +432,8 @@ importing the matching LizzieYzy Next settings.
   after three unanswered). A configured engine whose login or connection failed opens 更多引擎
   afterwards, like Java. Closing or switching the engine sends `quit` and closes its input; a
   command still running 3 s later (also one that has stopped reading its input) is sent `KILL`
-  where the server honours signals, and the channel is closed. A remote engine's death is
-  reported, not restarted automatically.
+  where the server honours signals, and the channel is closed. A remote engine that ends on its
+  own or loses its connection is started again over a new connection (自动检测引擎是否存活, above).
 - 闪电分析 (分析 menu and the toolbar's lightning button): 整盘速览 (`Ctrl+B`) asks every main-trunk
   move, 局部精析 asks from its start move up to, not including, its end move (an empty field means
   from the first / to the last move; the range is remembered), and 全部分支精析 asks every move of
@@ -598,7 +614,9 @@ importing the matching LizzieYzy Next settings.
   the winrate graph. The next game of a batch starts only after both engines confirmed they are
   given back (parameters and rules the match changed are restored; a refusal or missing
   confirmation marks the engine unrestored and stops the batch); an engine exit retires the
-  game and ends the batch. While a match runs, opening records, browsing, engine switching,
+  game and ends the batch, after which that engine starts again (in the foreground seat when it
+  held it, synced to the position then shown); a failure to start it is only logged and it is
+  not tried again. While a match runs, opening records, browsing, engine switching,
   editing and the other analysis modes are refused. Differences from Java: results are always
   SGF `B+R` / `W+R`; the batch summary lists each engine's own settings after colours are
   exchanged (Java mixed the black and white sides there); a custom batch folder name made only
@@ -782,7 +800,7 @@ importing the matching LizzieYzy Next settings.
   size, no-capture), recent records, last
   folder, the engine list with its default and start-up choice, each engine's thread policy and
   benchmark results and its GTP configuration profile, analysis limits and interval, fast engine
-  change, limit notice, KataGo rules, the start-up benchmark choice, the network proxy and the
+  change, limit notice, 自动检测引擎是否存活, KataGo rules, the start-up benchmark choice, the network proxy and the
   board display settings (coordinates, move numbers including the older `show-move-number` keys,
   move-rank marks and judgement, candidate rows and options, next-move hints, sub-board mode,
   pure-network ownership style), the analysis-information settings above (graph, Kata形势,

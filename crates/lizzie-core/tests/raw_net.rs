@@ -237,6 +237,10 @@ fn restart_and_process_death_clear_mode_and_old_instance_payloads() {
     settle(&mut wb, &world, id, true);
     wb.toggle_raw_net();
     let n = raw_request(&settle(&mut wb, &world, id, true));
+    // Without 自动检测引擎是否存活 the seat stays empty, so nothing is left to toggle.
+    let mut s = wb.config().engine.analysis.clone();
+    s.auto_check_engine_alive = false;
+    wb.set_analysis_settings(s).unwrap();
     wb.engine_input(id, EngineInput::Exited(Some(1)));
     assert!(wb.view(false).raw_net.is_none());
     answer(&mut wb, id, n, KATA_RAW);

@@ -387,6 +387,8 @@ impl Workbench {
             message,
             output,
             remote,
+            foreground: false,
+            held: false,
         });
         self.flash.outcome = Some(FlashOutcome::EngineFailed { run });
     }

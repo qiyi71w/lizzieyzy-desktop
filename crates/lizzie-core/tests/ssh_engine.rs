@@ -202,8 +202,10 @@ fn a_refused_login_during_start_up_is_reported_as_such_for_its_profile() {
     assert!(world.terminated(id));
 }
 
+/// Both ends are reported apart, and either way the remote engine is connected and started again
+/// (`auto-check-engine-alive`: `isLoaded && canCheckAlive && javaSSHClosed`).
 #[test]
-fn the_remote_process_ending_and_the_connection_closing_are_reported_apart() {
+fn the_remote_process_ending_and_the_connection_closing_are_reported_apart_and_restarted() {
     for (end, expected) in [
         (
             RemoteFailure::Ended {
@@ -237,7 +239,11 @@ fn the_remote_process_ending_and_the_connection_closing_are_reported_apart() {
         let f = v.engine_failure.expect("failure shown");
         assert!(!f.during_startup);
         assert_eq!((f.remote, f.message.as_str()), (Some(end), expected));
-        assert!(v.engine.foreground.is_none());
+        let again = world.last();
+        assert_ne!(again, id, "a new connection");
+        assert_eq!(world.spec(again).remote.unwrap().host, "gpu.example");
+        serve(&mut wb, &world, again);
+        assert!(wb.view(false).engine.foreground.unwrap().ready);
     }
 }
 
