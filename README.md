@@ -168,9 +168,10 @@ importing the matching LizzieYzy Next settings.
   engine, while it was lent to a background analysis (or being given back), or while it was left
   unrestored. An engine restarted this way is restarted again only after it produced an analysis
   line or a legal move, so an engine that keeps crashing is not restarted in a loop; a launch
-  failure is reported like any start. The ending is noticed at once from the process or
-  connection, not by polling. Unlike Java, a local engine is restarted too (Java's check missed a
-  local process that had ended).
+  failure is reported like any start, and an engine that refuses the position it is brought to
+  is left unrestored (引擎状态未恢复 in the status area, no dialog, no further attempt). The
+  ending is noticed at once from the process or connection, not by polling. Unlike Java, a local
+  engine is restarted too (Java's check missed a local process that had ended).
 - Analysis: candidates on the board (win rate, visits, score lead), the variation shown when
   hovering a candidate (captures are worked out by the core), the sub board cycling through
   candidates on click, the candidate tables, the win-rate graph, 统计 and Kata形势 (below), and

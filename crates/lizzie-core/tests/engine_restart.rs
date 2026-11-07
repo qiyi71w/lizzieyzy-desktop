@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use lizzie_core::api::{BatchMode, EngineScope, OpenSource};
+use lizzie_core::api::{BatchMode, EngineScope, OpenSource, UnrestoredReason};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
@@ -73,6 +73,11 @@ fn out(wb: &mut Workbench, id: InstanceId, line: &str) {
 
 /// Answers every command of `id` (analysis requests get their header only). Returns them.
 fn serve(wb: &mut Workbench, world: &World, id: InstanceId) -> Vec<String> {
+    serve_refusing(wb, world, id, "")
+}
+
+/// As [`serve`], refusing the command `refused` (`?illegal move`).
+fn serve_refusing(wb: &mut Workbench, world: &World, id: InstanceId, refused: &str) -> Vec<String> {
     let mut done = Vec::new();
     loop {
         let pending = world.take(id);
@@ -92,6 +97,12 @@ fn serve(wb: &mut Workbench, world: &World, id: InstanceId) -> Vec<String> {
                 "kata-get-rules" => RULES,
                 _ => "",
             };
+            if cmd == refused {
+                out(wb, id, &format!("?{n} illegal move"));
+                out(wb, id, "");
+                done.push(cmd.to_string());
+                continue;
+            }
             out(wb, id, &format!("={n} {reply}"));
             if !cmd.starts_with("kata-analyze") {
                 out(wb, id, "");
@@ -201,6 +212,29 @@ fn the_position_reached_while_restarting_is_the_one_synced() {
     assert!(!sent.iter().any(|c| c == "play B Q4"), "the abandoned position is not restored: {sent:?}");
     assert!(sent.iter().any(|c| c.starts_with("kata-analyze W")));
     assert_eq!(wb.view(false).position.node, 1);
+}
+
+/// Ticket decision and Java's restore round (Leelaz.java:18146-18205): a restarted engine that
+/// refuses the position it is brought to is left unrestored, without a dialog, and is not tried
+/// again.
+#[test]
+fn a_restarted_engine_that_refuses_the_position_is_left_unrestored() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, old) = analysing(dir.path(), &world);
+    wb.engine_input(old, EngineInput::Exited(Some(1)));
+    assert!(wb.view(false).engine_failure.is_some(), "the end itself is reported");
+    let new = world.last();
+    serve_refusing(&mut wb, &world, new, "play B Q4");
+    let v = wb.view(false);
+    assert!(v.engine_failure.is_none(), "no dialog for the refused restore");
+    assert_eq!(v.engine.unrestored, Some(UnrestoredReason::Restore), "引擎状态未恢复");
+    assert!(v.analysis.is_none_or(|a| a.visits == 50), "nothing analysed for the refused position");
+    // It follows no wish any more, and its end is not restarted either.
+    wb.navigate(Navigation::Back(1));
+    assert!(serve(&mut wb, &world, new).is_empty());
+    wb.engine_input(new, EngineInput::Exited(Some(1)));
+    assert_eq!(world.launched().len(), 2, "not tried again");
 }
 
 #[test]

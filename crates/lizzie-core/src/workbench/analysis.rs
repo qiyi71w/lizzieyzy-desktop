@@ -1416,6 +1416,7 @@ impl Workbench {
         // A foreground engine that ended starts again once the other consequences of its end
         // (a game retired, a lease ended) are applied.
         self.restart_due();
+        let changed = self.restart_settle() || changed;
         if changed {
             // Readiness, rules answers and failures can change what the engine should do.
             self.sync_engine();

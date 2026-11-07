@@ -7,7 +7,9 @@
 //! the restarted engine follows the seat's wish like any newly seated one, so it is brought to
 //! the position, komi, session rules and board size current when it is synced (a position the
 //! user moved to meanwhile included), and it analyses only while the user has not paused. Komi
-//! and board size stay those of the game; the profile's apply only to a new engine choice.
+//! and board size stay those of the game; the profile's apply only to a new engine choice. A
+//! restarted engine that refuses the position it is brought to is left unrestored (引擎状态未恢复)
+//! without a dialog and is not tried again, as Java's failed restore round leaves it not loaded.
 //!
 //! Java only restarts an engine it may check (`canCheckAlive`): a restart clears that until the
 //! new process produced an accepted analysis line or a legal game move, so an engine that keeps
@@ -36,6 +38,8 @@ pub(super) struct RestartFlow {
     /// Replacements of match participants until they are ready: a failure to start is logged, not
     /// shown (Java's deferred participant recovery marks the engine not loaded, silently).
     quiet: HashSet<InstanceId>,
+    /// The restarted engine in the foreground seat until it is synced to its wished position.
+    restoring: Option<InstanceId>,
 }
 
 impl Workbench {
@@ -91,6 +95,7 @@ impl Workbench {
         };
         self.log(false, format!("engine restart [{}] {}", profile.name, sanitize(&profile.command)));
         self.restart.unproven.insert(instance);
+        self.restart.restoring = Some(instance);
         let keep = self.config.engine.analysis.fast_engine_change;
         self.engines.set_foreground(Some(instance), keep);
         self.sync_engine();
@@ -115,6 +120,7 @@ impl Workbench {
                 if seat {
                     let keep = self.config.engine.analysis.fast_engine_change;
                     self.engines.set_foreground(Some(instance), keep);
+                    self.restart.restoring = Some(instance);
                     self.sync_engine();
                 }
             }
@@ -130,6 +136,24 @@ impl Workbench {
     /// The instance started up: a participant's replacement reports its failures again.
     pub(super) fn restart_ready(&mut self, instance: InstanceId) {
         self.restart.quiet.remove(&instance);
+    }
+
+    /// Settles the restore of a restarted engine: done once it is synced to its wished position;
+    /// a refusal of that position leaves it unrestored (no dialog, no further attempt). Returns
+    /// whether it was left unrestored.
+    pub(super) fn restart_settle(&mut self) -> bool {
+        let Some(instance) = self.restart.restoring else { return false };
+        if self.engines.foreground() != Some(instance) || self.engines.complete(instance) {
+            self.restart.restoring = None;
+            return false;
+        }
+        if !self.engines.sync_refused(instance) {
+            return false;
+        }
+        self.restart.restoring = None;
+        self.engines.restore_failed(instance);
+        self.log(true, "engine restart: the position was refused; the engine is left unrestored".into());
+        true
     }
 
     /// The instance produced an accepted analysis line or a legal game move: an automatic restart

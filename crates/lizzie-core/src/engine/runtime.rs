@@ -2275,6 +2275,20 @@ impl Engines {
         self.get(id)?.unrestored
     }
 
+    /// Whether instance `id` refused the position last wished for it.
+    pub fn sync_refused(&self, id: InstanceId) -> bool {
+        self.get(id).is_some_and(|i| i.rejected.is_some())
+    }
+
+    /// Instance `id` refused the position it was being restored to after an automatic restart
+    /// (Java's failed restore round): it is left unrestored and follows no wish until restarted.
+    pub fn restore_failed(&mut self, id: InstanceId) {
+        self.stop_stream(id);
+        if let Some(inst) = self.get_mut(id) {
+            inst.unrestored = Some(LeaseFailure::RestoreFailed);
+        }
+    }
+
     /// Takes the foreground engine over (`acquireForegroundAnalysisLease`): `stop`, then its rules
     /// are captured; it does not follow its wish until given back. Searches may start after
     /// [`RuntimeEvent::LeaseReady`].
