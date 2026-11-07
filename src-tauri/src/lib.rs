@@ -1852,6 +1852,8 @@ pub fn run() {
                     read_record(app.handle(), &shared, ticket, path);
                 }
             }
+            // 启动Lizzie时预加载引擎 after start-up (Lizzie.java:1075-1077).
+            shared.workbench.lock().unwrap().preload_analysis_engine();
 
             #[cfg(feature = "acceptance")]
             acceptance::start(app.handle().clone(), shared.clone());

@@ -554,8 +554,10 @@ impl Workbench {
     /// Tells the runtime what the foreground and the secondary engine should do now. Both hold
     /// the browsing position; the secondary engine analyses only in 双引擎模式 and only while the
     /// foreground engine may (the user's pause and a foreground limit stop it too, as Java
-    /// mirrors the primary engine's commands), and stops alone at its own limit.
+    /// mirrors the primary engine's commands), and stops alone at its own limit. A waiting
+    /// analysis engine warm-up decides again on the changed state.
     pub(super) fn sync_engine(&mut self) {
+        self.warmup_review();
         if let Some(analyse) = self.human_sl_analyse() {
             self.engines.want_secondary(None, false);
             if analyse { self.engines.want(Some(self.analysis_target()), true); }
@@ -884,8 +886,17 @@ impl Workbench {
     }
 
     /// User pause / resume (`togglePonderMannul`). Resuming also restarts an analysis a limit
-    /// stopped. Never written to disk.
+    /// stopped. Never written to disk. A pause stops a waiting analysis engine warm-up
+    /// (`cancelLoadedGameQuickAnalysisForUserPause`).
     pub fn toggle_analysis(&mut self) -> Result<bool, ApiError> {
+        let toggled = self.toggle_pause_state();
+        if self.paused {
+            self.warmup_stop();
+        }
+        toggled
+    }
+
+    fn toggle_pause_state(&mut self) -> Result<bool, ApiError> {
         // Space during a game ends it (`togglePonderMannul` → `stopAiPlayingAndPolicy`).
         if self.game_active() {
             return Ok(self.game(crate::api::GameCommand::End)? == crate::api::CommandResult::Done);
@@ -1285,9 +1296,6 @@ impl Workbench {
                     if let Some((name, version, _)) = self.engines.identity(instance) {
                         self.log(false, format!("engine ready: {name} {version}"));
                     }
-                    if Some(instance) == self.engines.foreground() {
-                        self.quick_preload();
-                    }
                     if let Some((_, komi)) = self.start_komi.take_if(|(i, _)| *i == instance) {
                         if self.game_is_empty() {
                             self.apply_komi(komi);
@@ -1296,6 +1304,7 @@ impl Workbench {
                 }
                 RuntimeEvent::Rules { .. } => {}
                 RuntimeEvent::RawNet { .. } => {}
+                RuntimeEvent::Pondering { .. } => self.foreground_pondered(),
                 RuntimeEvent::Failed(f) => {
                     // A secondary engine that fails while starting gives its seat back to the
                     // one it replaced, when that one still runs.

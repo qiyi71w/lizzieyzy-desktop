@@ -86,6 +86,11 @@ impl Workbench {
         self.auto_analysis.run.as_ref().is_some_and(|r| r.batch && !r.starting)
     }
 
+    /// A manual 自动分析 waits to start (Java `manualAutoAnalysisStarting`).
+    pub(super) fn auto_analysis_starting(&self) -> bool {
+        self.auto_analysis.run.as_ref().is_some_and(|r| r.starting && !r.batch)
+    }
+
     // -------------------------------------------------------------------- the analysed record
 
     fn auto_record(&self) -> Arc<GameRecord> {
@@ -154,6 +159,7 @@ impl Workbench {
         if let Some(key) = self.save_auto_analysis_settings(settings.clone())? { return Ok(Err(key)); }
         self.auto_analysis.run = Some(Run::new(false, self.doc.id, engine, self.rules_revision, self.komi, settings, self.cursor));
         self.paused = false;
+        self.warmup_stop();
         self.auto_notice("AutoAnalyze.preparingStatus", None, true);
         self.quick_hand_over();
         self.auto_analysis_poll();

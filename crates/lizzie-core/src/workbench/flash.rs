@@ -160,8 +160,9 @@ impl Workbench {
         if !borrow && self.analysis_command_base(false).trim().is_empty() {
             return Ok(Err(ANALYSIS_COMMAND_MISSING.to_string()));
         }
-        // `cancelPendingManualAutoAnalysisForExclusiveTask`.
+        // `cancelPendingManualAutoAnalysisForExclusiveTask`, `prepareForManualFlashAnalysis`.
         self.auto_analysis_cancel_pending();
+        self.warmup_stop();
         self.flash.recent = Some(target);
         self.flash_replace();
         // `MANUAL_FLASH`: an automatic quick analysis hands its engine over.

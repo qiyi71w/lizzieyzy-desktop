@@ -58,7 +58,8 @@ impl Workbench {
     // ------------------------------------------------------------------------ write path
 
     /// Applies `edit` to the open document: the one content write path. The revision moves on
-    /// when saved content changed; stored analysis of removed or edited nodes is dropped.
+    /// when saved content changed; stored analysis of removed or edited nodes is dropped. A placed
+    /// stone counts as the foreground engine's search (`Board.place` → `onMainEnginePonder`).
     pub(super) fn apply_edit(&mut self, edit: DocumentEdit) -> Result<Applied, EditError> {
         let record = Arc::make_mut(&mut self.doc.record);
         record.set_branch_numbering(self.config.display.branch_numbers_from_one);
@@ -68,6 +69,9 @@ impl Workbench {
         }
         if applied.changed {
             self.retain_valid_analysis();
+        }
+        if matches!(edit, DocumentEdit::Play { .. }) {
+            self.foreground_pondered();
         }
         Ok(applied)
     }

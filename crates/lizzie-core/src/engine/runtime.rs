@@ -161,6 +161,9 @@ pub enum RuntimeEvent {
     RawNet { instance: InstanceId },
     /// The process failed to start or ended unexpectedly; the instance is gone.
     Failed(EngineFailure),
+    /// The foreground engine was asked to search a position (Java `Leelaz.ponder` of the
+    /// primary engine, which calls `onMainEnginePonder`).
+    Pondering { instance: InstanceId },
     /// The borrowed foreground engine stopped and its rules were captured: searches may start.
     LeaseReady { lease: u64 },
     /// A finite search of the borrowed engine reached its visits, for the position it was made
@@ -633,6 +636,9 @@ pub struct Engines {
     checks: Vec<LaunchCheck>,
     next_instance: InstanceId,
     foreground: Option<InstanceId>,
+    /// The foreground engine that failed, while nothing took its seat since (Java's primary
+    /// engine `isDownWithError && !isStarted()`).
+    failed_foreground: Option<EngineProfile>,
     wish: Option<(Target, bool)>,
     /// 双引擎模式's secondary engine (Java `Lizzie.leelaz2`): never the foreground engine. It
     /// holds the position of its own wish; results name their instance, so they are never taken
@@ -748,6 +754,7 @@ impl Engines {
             checks: Vec::new(),
             next_instance: 1,
             foreground: None,
+            failed_foreground: None,
             wish: None,
             secondary: None,
             secondary_wish: None,
@@ -781,6 +788,11 @@ impl Engines {
 
     pub fn foreground(&self) -> Option<InstanceId> {
         self.foreground
+    }
+
+    /// The profile of the foreground engine that failed, while no engine took its seat since.
+    pub fn foreground_failure(&self) -> Option<&EngineProfile> {
+        self.failed_foreground.as_ref()
     }
 
     pub fn secondary(&self) -> Option<InstanceId> {
@@ -1254,8 +1266,7 @@ impl Engines {
             Err(e) => {
                 let failure = inst.failure(e.to_string());
                 self.trace(&name, "--", &format!("launch failed: {e}"));
-                self.terminate(id);
-                vec![RuntimeEvent::Failed(failure)]
+                vec![self.fail(id, failure)]
             }
             Ok(mut io) => {
                 inst.launch_threads = launch_threads(&inst.profile.command, &checked.spec);
@@ -1283,6 +1294,9 @@ impl Engines {
             self.secondary_wish = None;
         }
         self.foreground = id;
+        if id.is_some() {
+            self.failed_foreground = None;
+        }
         self.seat(previous, id, keep_previous);
     }
 
@@ -1314,6 +1328,15 @@ impl Engines {
             i.rejected = None;
         }
         self.pump();
+    }
+
+    /// Ends instance `id` that failed: a foreground engine's failure is remembered.
+    fn fail(&mut self, id: InstanceId, failure: EngineFailure) -> RuntimeEvent {
+        if self.foreground == Some(id) {
+            self.failed_foreground = self.get(id).map(|i| i.profile.clone());
+        }
+        self.terminate(id);
+        RuntimeEvent::Failed(failure)
     }
 
     /// Ends one instance (an engine or an analysis process). Its later output is ignored; a seat
@@ -1680,6 +1703,10 @@ impl Engines {
                                 while i.requests.len() > REQUEST_MEMORY {
                                     i.requests.pop_front();
                                 }
+                                // Java's Leela 0.11 cycle returns before `onMainEnginePonder`.
+                                if self.foreground == Some(id) && d != Dialect::Leela011 {
+                                    self.pending.push(RuntimeEvent::Pondering { instance: id });
+                                }
                             }
                         }
                         (true, Some(Dialect::Leela011)) => {
@@ -1875,16 +1902,14 @@ impl Engines {
                 };
                 let failure = inst.failure(message.clone());
                 self.trace(&name, "--", &format!("exited: {message}"));
-                self.terminate(id);
-                events.push(RuntimeEvent::Failed(failure));
+                events.push(self.fail(id, failure));
             }
             EngineInput::Remote(remote) => {
                 let message = remote.to_string();
                 let mut failure = inst.failure(message.clone());
                 failure.remote = Some(remote);
                 self.trace(&name, "--", &message);
-                self.terminate(id);
-                events.push(RuntimeEvent::Failed(failure));
+                events.push(self.fail(id, failure));
             }
             EngineInput::Stdout(line) => {
                 let mut frames = Vec::new();
@@ -2027,8 +2052,7 @@ impl Engines {
                     Some(Purpose::Name) => {
                         if !ok {
                             let failure = inst.failure(format!("name: {text}"));
-                            self.terminate(id);
-                            events.push(RuntimeEvent::Failed(failure));
+                            events.push(self.fail(id, failure));
                             return;
                         }
                         (inst.kind, inst.no_analyze) = classify(&text);

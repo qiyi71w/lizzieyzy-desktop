@@ -410,6 +410,8 @@ impl Workbench {
                         c.quick_model.path = Some(path);
                         c.quick_model.enabled = true;
                     });
+                    // `refreshAutomaticQuickAnalysisModelSelection`.
+                    self.warmup_stop();
                     self.quick_drop_warm();
                 }
                 if let Some(path) = done.human_sl_model {

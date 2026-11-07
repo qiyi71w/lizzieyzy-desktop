@@ -34,6 +34,8 @@ use crate::record::{GameRecord, NodeId, RecordFormat, Stone, ROOT};
 use crate::resources as r;
 use crate::settings::{AnalysisEngineSettings, PvVisitsMode};
 
+mod preload;
+
 /// Java `RETRY_MILLIS`, `MAX_RETRY_MILLIS`, `WATCHDOG_MILLIS`, `NAVIGATION_MILLIS`.
 const RETRY: Duration = Duration::from_millis(1800);
 const MAX_RETRY: Duration = Duration::from_millis(30_000);
@@ -65,6 +67,8 @@ pub(super) struct QuickFlow {
     start_at: Option<Instant>,
     /// A preloaded analysis process and its command (`analysis-engine-preload`).
     warm: Option<(InstanceId, String)>,
+    /// 启动Lizzie时预加载引擎 waiting for its conditions.
+    warmup: Option<preload::Warmup>,
     /// Lightweight model files checked against the catalog digest, by path
     /// (`isValidQuickAnalysisModelFile`); a changed size or time is checked again.
     verified: Mutex<HashMap<PathBuf, Verified>>,
@@ -208,13 +212,8 @@ impl Workbench {
         if foreground.is_some_and(|f| self.engines.phase(f) == Some(Phase::Starting)) {
             return Readiness::Wait;
         }
-        // The record's declared rules reach the engine first (`kifuEngineSyncPending`).
-        if let (Some(f), Some(rules)) = (foreground, self.target_rules()) {
-            if self.engines.phase(f) == Some(Phase::Ready)
-                && self.engines.rules_outcome(f, rules) == RulesOutcome::Pending
-            {
-                return Readiness::Wait;
-            }
+        if self.kifu_sync_pending() {
+            return Readiness::Wait;
         }
         if !borrow {
             return Readiness::Ready;
@@ -223,6 +222,15 @@ impl Workbench {
             LeaseAvailability::Available => Readiness::Ready,
             LeaseAvailability::EngineNotReady | LeaseAvailability::ExistingLease => Readiness::Wait,
             _ => Readiness::Stop,
+        }
+    }
+
+    /// The record's declared rules have not reached the foreground engine yet
+    /// (`kifuEngineSyncPending`).
+    fn kifu_sync_pending(&self) -> bool {
+        match (self.engines.foreground(), self.target_rules()) {
+            (Some(f), Some(rules)) => self.engines.rules_outcome(f, rules) == RulesOutcome::Pending,
+            _ => false,
         }
     }
 
@@ -607,8 +615,10 @@ impl Workbench {
     }
 
     /// The engine was switched, restarted or closed: the quick analysis ends (`ENGINE_SWITCH`),
-    /// as do flash and whole-game analyses borrowing it.
+    /// as do flash and whole-game analyses borrowing it, and a waiting warm-up
+    /// (`runAfterAutomaticQuickAnalysisReleased`).
     pub(super) fn quick_engine_changed(&mut self) {
+        self.warmup_stop();
         self.quick_cancel();
         self.flash_engine_changed();
         self.whole_game_engine_changed();
@@ -691,6 +701,9 @@ impl Workbench {
         t.foreground_resumed = false;
         t.rules = rules;
         if borrow {
+            // `shouldReplaceAutomaticQuickAnalysisEngine`: borrowing the foreground ends the idle
+            // analysis process.
+            self.quick_drop_warm();
             match self.engines.begin_lease() {
                 Ok(lease) => {
                     self.quick.task.as_mut().unwrap().attempt = Some(Attempt::Lease {
@@ -1024,8 +1037,9 @@ impl Workbench {
             } if current_process == Some(instance)
                 || self.quick.warm.as_ref().is_some_and(|(id, _)| *id == instance) =>
             {
-                if self.quick.warm.as_ref().is_some_and(|(id, _)| *id == instance) {
-                    self.quick.warm = None;
+                if self.quick.warm.take_if(|(id, _)| *id == instance).is_some() {
+                    // An idle (preloaded) process that ends is only logged (`isPreLoad`).
+                    self.log(true, format!("idle analysis engine exited: {message}"));
                 }
                 if current_process == Some(instance) {
                     let tail = output
@@ -1099,20 +1113,20 @@ impl Workbench {
         }
     }
 
-    /// The foreground engine became ready: a preloaded analysis process starts
-    /// (`preloadConfiguredAnalysisEngineAfterStartup`), unless an analysis already has one.
-    pub(super) fn quick_preload(&mut self) {
-        if !self.config.analysis_engine.preload
+    /// `AutomaticQuickAnalysisEngineAdapter.preload` (a `PRELOADED_QUICK_ANALYSIS` engine): the
+    /// idle analysis process starts with the configured command, unless one is idle already or
+    /// an analysis holds one; with 复用当前前台引擎 none starts. A failure is only logged.
+    fn quick_preload(&mut self) {
+        if self.config.analysis_engine.reuse_current_engine
             || self.quick.warm.is_some()
             || self.quick.task.is_some()
-            || self.quick_borrows()
             || self.flash_active()
             || self.whole_game_active()
             || self.batch_flash_engaged()
         {
             return;
         }
-        let command = self.quick_command();
+        let command = self.tuned_analysis_command(&self.analysis_command_base(false));
         match self.start_analysis_worker(&command) {
             Ok(id) => self.quick.warm = Some((id, command)),
             Err(message) => self.log(true, format!("analysis engine preload failed: {message}")),
@@ -1231,6 +1245,8 @@ impl Workbench {
             return Ok(false);
         }
         self.commit_config(|c| c.quick_model.enabled = enabled)?;
+        // `refreshAutomaticQuickAnalysisModelSelection`.
+        self.warmup_stop();
         self.quick_drop_warm();
         Ok(true)
     }

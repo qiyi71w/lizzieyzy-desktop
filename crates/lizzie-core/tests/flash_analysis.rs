@@ -871,15 +871,17 @@ fn a_rejected_query_fails_the_run_instead_of_completing_it() {
         })
     );
     assert_eq!(v.position.move_number, 0, "no completion step to the first move");
+    assert!(!world.terminated(worker), "the failed run keeps its process");
     wb.navigate(Navigation::Forward(1));
     assert_eq!(
         wb.view(false).analysis.unwrap().engine,
         "闪电分析",
         "the earlier answer stays"
     );
-    // `finishFailedRequestDispatch` resumes the foreground engine; the process stays.
+    // `finishFailedRequestDispatch` resumes the foreground engine; its search ends the idle
+    // local process (`onMainEnginePonder` → `RELEASE_IDLE_SECONDARY`).
     assert!(foreground_analyses(&serve(&mut wb, &world, fg, 0, true)));
-    assert!(!world.terminated(worker));
+    assert!(world.terminated(worker));
 }
 
 #[test]
@@ -894,7 +896,6 @@ fn a_preload_while_a_run_holds_the_analysis_process_starts_no_second_one() {
     open(&mut wb, RECORD);
     start(&mut wb, FlashTarget::WholeGame);
     let worker = *world.workers().last().unwrap();
-    // The foreground engine becomes ready during the run.
-    with_engine(&mut wb, &world);
+    wb.preload_analysis_engine();
     assert_eq!(world.workers(), [worker]);
 }
