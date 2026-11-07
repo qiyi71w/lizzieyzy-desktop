@@ -4,8 +4,8 @@
 // the session and saves the settings once a game started; the model download is a resource job.
 import { registerViewHandler, run, state } from "../app";
 import type { HumanSlNotice, HumanSlStartupStage, HumanSlTrainingSettings, ResourceOutcome } from "../contract/generated";
-import { openModalLayer } from "../dialogs";
-import { format, t } from "../i18n";
+import { ask, openModalLayer } from "../dialogs";
+import { format, product, t } from "../i18n";
 import { openAutoSetup, resourceCommand, resourceView } from "../setup/dialog";
 import { javaFormat, resourceText } from "../setup/setupText";
 import { humanSlSession, humanSlUi, humanSlUiChanged } from "./state";
@@ -440,8 +440,9 @@ export function openHumanSlDialog(): void {
     await startGame();
   }
 
-  /** startConfiguredGame: the core prepares the companion and reports the stages. */
-  async function startGame(): Promise<void> {
+  /** startConfiguredGame: the core prepares the companion and reports the stages. A running batch
+   *  analysis is stopped first once the user agrees (`stopBatch`). */
+  async function startGame(stopBatch = false): Promise<void> {
     statusText = "";
     statusError = false;
     repair = false;
@@ -451,9 +452,25 @@ export function openHumanSlDialog(): void {
     render();
     const result = await run({
       type: "HumanSl",
-      op: { type: "Start", settings: settings(), from_current: fromCurrent.checked && canStartFromCurrent(), advanced_visible: more },
+      op: {
+        type: "Start",
+        settings: settings(),
+        from_current: fromCurrent.checked && canStartFromCurrent(),
+        advanced_visible: more,
+        stop_batch: stopBatch,
+      },
     });
     if (current !== dialog) return;
+    if (result?.type === "NeedsBatchStop") {
+      const body = document.createElement("div");
+      body.textContent = product("humanSlStopBatch");
+      const stop = await ask(t("Menu.aiCoach"), body, product("humanSlStopBatchOk"), product("cancel"), true);
+      if (current !== dialog) return;
+      if (stop) return startGame(true);
+      setPhase("idle");
+      render();
+      return;
+    }
     if (!result || result.type === "Refused") {
       setPhase("idle");
       render();

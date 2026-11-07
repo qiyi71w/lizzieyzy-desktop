@@ -101,7 +101,8 @@ impl Workbench {
                 settings,
                 from_current,
                 advanced_visible,
-            } => self.human_sl_start(settings.normalized(), from_current, advanced_visible),
+                stop_batch,
+            } => self.human_sl_start(settings.normalized(), from_current, advanced_visible, stop_batch),
             HumanSlCommand::CancelPreparation => {
                 if self
                     .human_sl
@@ -144,6 +145,7 @@ impl Workbench {
         settings: HumanSlTrainingSettings,
         from_current: bool,
         advanced: bool,
+        stop_batch: bool,
     ) -> Result<CommandResult, ApiError> {
         if self.game_active() || self.match_active() {
             return Ok(refused("LizzieFrame.engineGameStopFirstHint"));
@@ -159,13 +161,11 @@ impl Workbench {
         {
             return Ok(refused("AnalysisSettings.reuseStatus.engine_state_unrestored"));
         }
-        if self.quick_holds_foreground()
-            || self.flash_holds_foreground()
-            || self.whole_game_holds_foreground()
-            || self.batch_holds_foreground()
-            || self.auto_analysis_active()
-        {
-            return Ok(refused("AnalysisSettings.reuseStatus.existing_lease"));
+        // A batch outlives a new board (Java saves the coach record under the batch file's name or
+        // keeps the batch's automatic analysis running), so it is stopped first once the user agrees.
+        let batch = self.batch_holds_foreground() || self.auto_analysis_batch();
+        if batch && !stop_batch {
+            return Ok(CommandResult::NeedsBatchStop);
         }
         let Some(model) = self.human_sl_model_path() else {
             return Ok(refused("HumanSlGame.missingModelDownloadPrompt"));
@@ -181,6 +181,32 @@ impl Workbench {
                 return Ok(CommandResult::Done);
             }
         };
+        if batch {
+            // 批量分析 analysing or loading its next record, then 批量精析 on the borrowed engine.
+            self.auto_analysis_end_now();
+            if self.batch_holds_foreground() {
+                self.cancel_batch_flash();
+            }
+        }
+        // Java admits AI 陪练 beside an analysis borrowing the foreground engine
+        // (`startHumanSlGameDialogReserved` checks only games). A new record ends quick, flash,
+        // whole-game and automatic analysis when it replaces the board; a start from the current
+        // position keeps the record, so such an analysis ends here instead of outliving the
+        // session's foreground handling.
+        if from_current {
+            if self.quick_holds_foreground() {
+                self.quick_cancel();
+            }
+            if self.flash_holds_foreground() {
+                self.cancel_flash_analysis();
+            }
+            if self.whole_game_holds_foreground() {
+                self.stop_whole_game_analysis();
+            }
+            if self.auto_analysis_active() {
+                self.auto_analysis_end_now();
+            }
+        }
         self.human_sl.next += 1;
         let id = self.human_sl.next;
         let old_paused = self.paused;

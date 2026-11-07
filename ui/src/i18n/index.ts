@@ -305,9 +305,9 @@ const IMPORT_TEXT: Record<string, Table> = {
 /** Messages that exist only in this product (capability not migrated yet) and the JDK option-pane
  *  button labels Java takes from the platform. Other languages fall back to English. */
 const PRODUCT: Record<string, Table> = {
-  ZhCn: { ...IMPORT_TEXT.ZhCn, unavailable: "此功能尚未在 LizzieYzy Tauri 中提供", diagnosticsLogs: "app.log：{0}，crash.log：{1}", none: "无", ok: "确定", cancel: "取消", close: "关闭", yes: "是", no: "否", consoleBoardCommand: "棋谱管理当前局面，不能通过 GTP 控制台改变棋盘。请使用棋盘操作。" },
-  ZhTw: { ...IMPORT_TEXT.ZhTw, unavailable: "此功能尚未在 LizzieYzy Tauri 中提供", diagnosticsLogs: "app.log：{0}，crash.log：{1}", none: "無", ok: "確定", cancel: "取消", close: "關閉", yes: "是", no: "否", consoleBoardCommand: "棋譜管理目前局面，不能透過 GTP 控制台改變棋盤。請使用棋盤操作。" },
-  EnUs: { ...IMPORT_TEXT.EnUs, unavailable: "Not available in LizzieYzy Tauri yet", diagnosticsLogs: "app.log: {0}, crash.log: {1}", none: "none", ok: "OK", cancel: "Cancel", close: "Close", yes: "Yes", no: "No", consoleBoardCommand: "The game record owns the position. Use board controls instead of a board-changing GTP console command." },
+  ZhCn: { ...IMPORT_TEXT.ZhCn, unavailable: "此功能尚未在 LizzieYzy Tauri 中提供", diagnosticsLogs: "app.log：{0}，crash.log：{1}", none: "无", ok: "确定", cancel: "取消", close: "关闭", yes: "是", no: "否", consoleBoardCommand: "棋谱管理当前局面，不能通过 GTP 控制台改变棋盘。请使用棋盘操作。", humanSlStopBatch: "批量分析正在进行。开始 AI 陪练前需要先停止批量分析，已完成的结果会保留。", humanSlStopBatchOk: "停止并开始" },
+  ZhTw: { ...IMPORT_TEXT.ZhTw, unavailable: "此功能尚未在 LizzieYzy Tauri 中提供", diagnosticsLogs: "app.log：{0}，crash.log：{1}", none: "無", ok: "確定", cancel: "取消", close: "關閉", yes: "是", no: "否", consoleBoardCommand: "棋譜管理目前局面，不能透過 GTP 控制台改變棋盤。請使用棋盤操作。", humanSlStopBatch: "批量分析正在進行。開始 AI 陪練前需要先停止批量分析，已完成的結果會保留。", humanSlStopBatchOk: "停止並開始" },
+  EnUs: { ...IMPORT_TEXT.EnUs, unavailable: "Not available in LizzieYzy Tauri yet", diagnosticsLogs: "app.log: {0}, crash.log: {1}", none: "none", ok: "OK", cancel: "Cancel", close: "Close", yes: "Yes", no: "No", consoleBoardCommand: "The game record owns the position. Use board controls instead of a board-changing GTP console command.", humanSlStopBatch: "A batch analysis is running. Starting AI Coach stops it first; finished results are kept.", humanSlStopBatchOk: "Stop batch and start" },
 };
 
 let lang: Exclude<Language, "System"> = "ZhCn";

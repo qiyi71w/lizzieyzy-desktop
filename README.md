@@ -588,12 +588,16 @@ importing the matching LizzieYzy Next settings.
 - Switching between 人机对弈, 引擎对战 and AI 陪练: two of them never run together. During a game
   a match or AI 陪练 is refused and a new game ends the running game first; during a match a
   game or AI 陪练 is refused; a new game or match asked during AI 陪练 ends the session first
-  (see above). A mode also waits until the
-  engines of an ended one have confirmed they are given back, and none starts while 自动快析,
-  闪电分析, 整盘精析, 自动分析 or a batch has borrowed the foreground engine (Java's "engine
-  already in use" message). A move, an AI 陪练 answer or an AI 解说 reply that arrives after its
-  mode or its record has ended is dropped and never reaches the record that follows. Back in
-  review, analysis stays paused after a game and resumes after 实战后复盘.
+  (see above). A mode also waits until the engines of an ended one have confirmed they are
+  given back. A game or a match does not start while 自动快析, 闪电分析, 整盘精析, 自动分析 or a
+  batch uses the foreground engine (the "engine already in use" message). AI 陪练 starts beside
+  them as in Java: as a new game, its new record ends quick, flash, whole-game (failed as the
+  game changed) and automatic analysis once its opponent is ready; from the current position, the
+  start ends them first (stopped like their own stop, results kept). During a batch it asks to
+  stop the batch first (停止并开始 stops it as 停止批量分析 does, keeping finished results), because
+  in Java a batch outlives the coach's new board. A move, an AI 陪练 answer or an AI 解说 reply that
+  arrives after its mode or its record has ended is dropped and never reaches the record that
+  follows. Back in review, analysis stays paused after a game and resumes after 实战后复盘.
 - HumanSL model (引擎一键设置 > 权重管理, or 下载并开始 in the AI 陪练 dialog): the official
   `b18c384nbt-humanv0.bin.gz` (99,066,230 bytes) is downloaded from katagotraining.org on demand
   and accepted only with the catalog's size and SHA-256; a file with the official name but another

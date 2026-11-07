@@ -69,21 +69,28 @@ struct Bench {
     /// Unanswered GTP requests: (engine, gtp id, command).
     held: Vec<(InstanceId, String, String)>,
     streams: HashSet<InstanceId>,
+    /// The HumanSL model AI 陪练 and 棋力评估 use.
+    human: std::path::PathBuf,
+    /// The time the last [`Bench::tick`] reported; it only moves forward.
+    clock: Instant,
     _dir: tempfile::TempDir,
 }
 
 impl Bench {
     /// Two GTP engines (the first starts as the foreground engine), an analysis engine command
-    /// and a HumanSL model for AI 陪练.
+    /// naming a stand-in file (棋力评估 identifies its engine by the file) and a HumanSL model.
     fn new() -> Bench {
         let dir = tempfile::tempdir().unwrap();
         let storage = Storage::in_dirs(&dir.path().join("config"), &dir.path().join("data"));
         let mut config = Config::default();
-        config.analysis_engine.command = "/fake/katago analysis -config /fake/analysis.cfg -model /fake/main.bin.gz".into();
+        let analysis = dir.path().join("katago");
+        std::fs::write(&analysis, b"stand-in engine").unwrap();
+        config.analysis_engine.command =
+            format!("{} analysis -config /fake/analysis.cfg -model /fake/main.bin.gz", analysis.display());
         config.analysis_engine.command_customized = true;
-        let model = dir.path().join("custom-human.bin.gz");
-        std::fs::File::create(&model).unwrap().set_len(1024 * 1024 + 1).unwrap();
-        config.human_sl.model_path = Some(model.to_string_lossy().into_owned());
+        let human = dir.path().join("custom-human.bin.gz");
+        std::fs::File::create(&human).unwrap().set_len(1024 * 1024 + 1).unwrap();
+        config.human_sl.model_path = Some(human.to_string_lossy().into_owned());
         settings::save_json(&storage.config_file, &config).unwrap();
         let world = World::default();
         let mut wb = Workbench::new(storage, None, Box::new(world.clone()), vec![]);
@@ -98,7 +105,7 @@ impl Bench {
         )
         .unwrap();
         wb.start_engines();
-        let mut b = Bench { wb, world, held: Vec::new(), streams: HashSet::new(), _dir: dir };
+        let mut b = Bench { wb, world, held: Vec::new(), streams: HashSet::new(), human, clock: Instant::now(), _dir: dir };
         b.serve(&|_, _| None);
         b
     }
@@ -235,6 +242,33 @@ impl Bench {
         let rec = &self.wb.document().record;
         rec.path_to(self.wb.cursor()).iter().filter(|&&n| matches!(rec.node(n).kind, NodeKind::Move { .. })).count()
     }
+    /// Opens `text` as the review record, as a dropped file would be.
+    fn open_sgf(&mut self, text: &str) {
+        let format = lizzie_core::record::RecordFormat::Sgf;
+        let read = lizzie_core::formats::parse(format, text, false);
+        let ticket = self.wb.begin_open(lizzie_core::workbench::OpenOrigin::Clipboard);
+        assert!(self.wb.complete_open(ticket, read.map(|r| (format, r))));
+        self.serve(&|_, _| None);
+    }
+    /// Advances the engine clock by `millis`.
+    fn tick(&mut self, millis: u64) {
+        self.clock += Duration::from_millis(millis);
+        self.wb.engine_tick(self.clock);
+    }
+    /// Ticks until an analysis process other than `previous` has been launched (棋力评估 prepares
+    /// on its own thread first).
+    fn next_worker(&mut self, previous: Option<InstanceId>) -> InstanceId {
+        for _ in 0..400 {
+            self.tick(1100);
+            self.serve(&|_, _| None);
+            let latest = self.world.0.lock().unwrap().iter().rev().find(|p| p.analysis).map(|p| p.id);
+            if let Some(id) = latest.filter(|&id| Some(id) != previous) {
+                return id;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        panic!("no analysis process was launched: {:?}", self.wb.view(false).strength.status);
+    }
 }
 
 fn human_game(black: bool) -> Command {
@@ -264,11 +298,15 @@ fn engine_match() -> Command {
     }
 }
 fn ai_coach(color: PlayerColor) -> Command {
+    ai_coach_with(color, false, false)
+}
+fn ai_coach_with(color: PlayerColor, from_current: bool, stop_batch: bool) -> Command {
     Command::HumanSl {
         op: HumanSlCommand::Start {
             settings: HumanSlTrainingSettings { player_color: color, ..HumanSlTrainingSettings::default() },
-            from_current: false,
+            from_current,
             advanced_visible: false,
+            stop_batch,
         },
     }
 }
@@ -479,14 +517,7 @@ fn tsumego_waits_for_the_game_and_its_komi_reaches_the_restored_engine() {
 #[test]
 fn a_commentary_reply_for_the_review_record_stays_out_of_ai_coach() {
     let mut b = Bench::new();
-    let read = lizzie_core::formats::parse(
-        lizzie_core::record::RecordFormat::Sgf,
-        include_str!("fixtures/commentary/analyzed.sgf"),
-        false,
-    );
-    let ticket = b.wb.begin_open(lizzie_core::workbench::OpenOrigin::Clipboard);
-    assert!(b.wb.complete_open(ticket, read.map(|r| (lizzie_core::record::RecordFormat::Sgf, r))));
-    b.serve(&|_, _| None);
+    b.open_sgf(include_str!("fixtures/commentary/analyzed.sgf"));
     b.wb.set_commentary_connection(CommentaryProvider::ApiKey, "https://example.com".into(), "test-model".into(), false)
         .unwrap();
     b.wb.set_commentary_facts(CommentaryConnectionFacts { loaded: true, api_key_present: true, ..Default::default() });
@@ -510,33 +541,35 @@ fn a_commentary_reply_for_the_review_record_stays_out_of_ai_coach() {
     assert!(b.wb.view(false).commentary.output.is_empty());
 }
 
-/// Review → 闪电分析 borrowing the foreground engine (a temporary analysis lease, not a mode
-/// reservation) → every play/training mode is refused while it holds or returns the engine
-/// (Java `beginEngineModeReservation` fails on an exclusive session) → cancel → after the confirmed
-/// hand-back a human game takes the engine as a mode, and nothing of the flash run is in it.
-#[test]
-fn a_borrowed_flash_run_refuses_every_mode_until_its_engine_is_back() {
-    let mut b = Bench::new();
+/// Uses the analysis engine settings' 复用当前前台引擎, so analyses borrow the foreground engine.
+fn reuse_foreground(b: &mut Bench) {
     let reuse = lizzie_core::settings::AnalysisEngineSettings {
         command: "/fake/katago analysis -config /fake/analysis.cfg".into(),
         reuse_current_engine: true,
         ..Default::default()
     };
     b.wb.save_analysis_engine_settings(reuse, "", true).unwrap().unwrap();
-    for point in [D4, Point { x: 15, y: 3 }, Point { x: 15, y: 15 }] {
-        b.run(play(point));
-    }
-    b.serve(&|_, _| None);
+}
+const REVIEW: &str = "(;SZ[19];B[pd];W[dd];B[pp];W[dp])";
+
+/// Review → 闪电分析 borrowing the foreground engine (a temporary analysis lease, not a mode
+/// reservation) → a game and a match are refused while it holds or returns the engine (Java
+/// `beginEngineModeReservation` fails on an exclusive session) → cancel → after the confirmed
+/// hand-back a human game takes the engine as a mode, and nothing of the flash run is in it.
+#[test]
+fn a_borrowed_flash_run_refuses_games_and_matches_until_its_engine_is_back() {
+    let mut b = Bench::new();
+    reuse_foreground(&mut b);
+    b.open_sgf(REVIEW);
     let review = (b.wb.document().id, b.wb.document().revision);
     assert_eq!(b.wb.start_flash_analysis(FlashTarget::WholeGame).unwrap(), Ok(true));
     let taken = b.serve(&|_, _| None);
     assert!(taken.iter().any(|(_, c)| c.contains("maxmoves")), "the flash run borrowed the engine: {taken:?}");
     assert_eq!(b.engine().lease, LeaseAvailabilityView::ExistingLease);
 
-    for mode in [human_game(true), engine_match(), ai_coach(PlayerColor::Black)] {
+    for mode in [human_game(true), engine_match()] {
         assert!(matches!(b.run(mode.clone()), CommandResult::Refused { .. }), "{mode:?} beside a borrowed engine");
     }
-    assert!(!b.world.0.lock().unwrap().iter().any(|p| p.analysis), "no AI 陪练 worker");
     assert!(b.wb.cancel_flash_analysis());
     b.serve(&|_, c| (c == "name").then(|| "HOLD".into()));
     assert!(matches!(b.run(human_game(true)), CommandResult::Refused { .. }), "not before the hand-back");
@@ -549,6 +582,184 @@ fn a_borrowed_flash_run_refuses_every_mode_until_its_engine_is_back() {
     assert_eq!(b.game_phase(), Some(GamePhase::Playing));
     assert_eq!(b.engine().lease, LeaseAvailabilityView::PlayMode);
     assert!(b.wb.view(false).flash.is_none());
+}
+
+/// Review with an analysis using the foreground engine (`setup`) → AI 陪练 as a new game, which
+/// Java admits beside it (`startHumanSlGameDialogReserved` checks only games) → its new record
+/// ends the analysis (`ended`), whose engine is given back and confirmed; a late line of the old
+/// search reaches nothing; the session plays; 结束并复盘 leaves the engine available and analysing.
+fn ai_coach_as_a_new_game_ends(setup: fn(&mut Bench), ended: fn(&WorkbenchView) -> bool) {
+    let mut b = Bench::new();
+    setup(&mut b);
+    b.serve(&|_, _| None);
+    assert!(!ended(&b.wb.view(false)), "the analysis runs before AI 陪练");
+    let review = b.wb.document().id;
+    assert_eq!(b.run(ai_coach(PlayerColor::Black)), CommandResult::Done);
+    b.serve(&|_, _| None);
+    assert_eq!(b.wb.document().id, review, "preparation keeps the review record");
+    let worker = b.world.worker();
+    b.worker_answer(worker, "D4");
+    b.serve(&|_, c| (c == "name").then(|| "HOLD".into()));
+    let v = b.wb.view(false);
+    assert_eq!(v.human_sl.as_ref().map(|s| s.phase), Some(HumanSlPhase::Playing));
+    assert_ne!(v.document.id, review, "a new record");
+    while b.holds("name") {
+        b.answer_held("name", "KataGo");
+    }
+    b.serve(&|_, _| None);
+    assert!(ended(&b.wb.view(false)), "the new record ended the analysis");
+    assert_eq!(b.engine().unrestored, None, "its engine was given back");
+    let fg = b.world.gtp()[0];
+    let coach = (b.wb.document().id, b.wb.document().revision);
+    b.out(fg, "info move K10 visits 50 winrate 0.5 scoreLead 0.5 prior 0.2 order 0 pv K10 rootInfo visits 55 winrate 0.4 scoreLead -0.5");
+    b.tick(3000);
+    b.serve(&|_, _| None);
+    assert_eq!((b.wb.document().id, b.wb.document().revision), coach, "the old search reaches nothing");
+    assert!(b.wb.view(false).analysis.is_none());
+    assert_eq!(b.run(play(D4)), CommandResult::Done);
+    b.worker_answer(worker, "Q16");
+    b.serve(&|_, _| None);
+    assert_eq!(b.stones(), 2, "the human move and AI 陪练's answer");
+    assert_eq!(b.run(Command::HumanSl { op: HumanSlCommand::Finish }), CommandResult::Done);
+    b.serve(&|_, _| None);
+    let v = b.wb.view(false);
+    assert!(v.human_sl.is_none());
+    assert_eq!((v.engine.lease, v.engine.unrestored), (LeaseAvailabilityView::Available, None));
+    assert!(v.engine.analysing, "实战后复盘 analyses the finished game");
+}
+
+#[test]
+fn ai_coach_as_a_new_game_ends_a_borrowed_flash_run() {
+    ai_coach_as_a_new_game_ends(
+        |b| {
+            reuse_foreground(b);
+            b.open_sgf(REVIEW);
+            assert_eq!(b.wb.start_flash_analysis(FlashTarget::WholeGame).unwrap(), Ok(true));
+        },
+        |v| v.flash.is_none(),
+    );
+}
+
+#[test]
+fn ai_coach_as_a_new_game_fails_a_borrowed_whole_game_run_as_changed() {
+    ai_coach_as_a_new_game_ends(
+        |b| {
+            reuse_foreground(b);
+            b.open_sgf(REVIEW);
+            assert_eq!(b.wb.start_whole_game_analysis(1000).unwrap(), Ok(true));
+        },
+        |v| v.whole_game.state == WholeGameState::Failed,
+    );
+}
+
+#[test]
+fn ai_coach_as_a_new_game_ends_borrowed_quick_analysis() {
+    ai_coach_as_a_new_game_ends(
+        |b| {
+            reuse_foreground(b);
+            b.wb.set_auto_quick_analyze(true).unwrap();
+            b.open_sgf(REVIEW);
+            assert!(b.wb.view(false).quick.borrowed);
+        },
+        |v| !v.quick.running,
+    );
+}
+
+#[test]
+fn ai_coach_as_a_new_game_ends_automatic_analysis() {
+    ai_coach_as_a_new_game_ends(
+        |b| {
+            b.open_sgf(REVIEW);
+            let s = lizzie_core::settings::AutoAnalysisSettings {
+                visits_enabled: true,
+                visits: 10,
+                time_enabled: false,
+                auto_save: false,
+                ..Default::default()
+            };
+            assert_eq!(b.wb.start_auto_analysis(s).unwrap(), Ok(true));
+        },
+        |v| !v.auto_analysis.active,
+    );
+}
+
+/// Review with 闪电分析 borrowing the foreground engine → AI 陪练 from the current position. The
+/// record stays, so the start itself ends the flash run (as 取消 does) instead of leaving it to
+/// outlive the session's foreground handling; its engine is confirmed back and the session plays
+/// on the same record.
+#[test]
+fn ai_coach_from_the_current_position_ends_a_borrowed_run_first() {
+    let mut b = Bench::new();
+    reuse_foreground(&mut b);
+    b.open_sgf(REVIEW);
+    assert_eq!(b.wb.start_flash_analysis(FlashTarget::WholeGame).unwrap(), Ok(true));
+    b.serve(&|_, _| None);
+    let review = b.wb.document().id;
+    assert_eq!(b.run(ai_coach_with(PlayerColor::Black, true, false)), CommandResult::Done);
+    let v = b.wb.view(false);
+    assert!(v.flash.is_none(), "the start ended the flash run");
+    assert!(v.flash_outcome.is_none(), "as a cancel, not a failure: {:?}", v.flash_outcome);
+    b.serve(&|_, c| (c == "name").then(|| "HOLD".into()));
+    b.answer_held("name", "KataGo");
+    b.serve(&|_, _| None);
+    assert_eq!(b.engine().unrestored, None, "its engine was given back");
+    let worker = b.world.worker();
+    b.worker_answer(worker, "D4");
+    b.serve(&|_, _| None);
+    let v = b.wb.view(false);
+    assert_eq!(v.human_sl.as_ref().map(|s| s.phase), Some(HumanSlPhase::Playing));
+    assert_eq!(v.document.id, review, "the same record");
+    assert!(v.flash.is_none() && v.flash_outcome.is_none());
+    assert_eq!(b.run(Command::HumanSl { op: HumanSlCommand::Finish }), CommandResult::Done);
+    b.serve(&|_, _| None);
+    assert_eq!((b.engine().lease, b.engine().unrestored), (LeaseAvailabilityView::Available, None));
+}
+
+/// 批量分析 running → AI 陪练. A batch outlives a new board (Java saves the coach record under the
+/// batch file's name or keeps the batch's automatic analysis running), so the client asks first:
+/// the plain start changes nothing; the confirmed one stops the batch, then starts the session.
+#[test]
+fn ai_coach_during_a_batch_asks_then_stops_the_batch_first() {
+    let mut b = Bench::new();
+    let files: Vec<String> = ["a.sgf", "b.sgf"]
+        .iter()
+        .map(|name| {
+            let path = b._dir.path().join(name);
+            std::fs::write(&path, REVIEW).unwrap();
+            path.to_string_lossy().into_owned()
+        })
+        .collect();
+    assert_eq!(b.wb.open_batch(BatchMode::Ordinary, files, OpenSource::Chooser), Ok(true));
+    let deliver = |b: &mut Bench| {
+        for (ticket, path, no_capture) in b.wb.take_batch_reads() {
+            assert!(b.wb.complete_batch_read(ticket, lizzie_core::formats::read_file(&path, no_capture)));
+        }
+    };
+    deliver(&mut b);
+    let s = lizzie_core::settings::AutoAnalysisSettings {
+        visits_enabled: true,
+        visits: 10,
+        time_enabled: false,
+        auto_save: false,
+        ..Default::default()
+    };
+    assert_eq!(b.wb.start_batch_ordinary(s).unwrap(), Ok(true));
+    deliver(&mut b);
+    b.serve(&|_, _| None);
+    assert!(b.wb.view(false).auto_analysis.active);
+
+    assert_eq!(b.run(ai_coach(PlayerColor::Black)), CommandResult::NeedsBatchStop);
+    let v = b.wb.view(false);
+    assert!(v.auto_analysis.active && v.batch.running.is_some(), "asking changes nothing");
+    assert!(v.human_sl.is_none());
+    assert!(!b.world.0.lock().unwrap().iter().any(|p| p.analysis), "no AI 陪练 worker");
+
+    assert_eq!(b.run(ai_coach_with(PlayerColor::Black, false, true)), CommandResult::Done);
+    b.serve(&|_, _| None);
+    let v = b.wb.view(false);
+    assert!(!v.auto_analysis.active && v.batch.running.is_none(), "the batch was stopped");
+    assert_eq!(v.human_sl.as_ref().map(|s| s.phase), Some(HumanSlPhase::Preparing));
+    assert!(b.wb.take_batch_reads().is_empty(), "no further record is read");
 }
 
 /// Review → Alt+, (one engine move, a mode reservation) still unanswered → AI 陪练 → the move
@@ -580,4 +791,55 @@ fn a_late_single_engine_move_stays_out_of_ai_coach() {
     let engine = b.engine();
     assert_eq!(engine.lease, LeaseAvailabilityView::Available, "the Alt+, reservation was released");
     assert_eq!(engine.unrestored, None);
+}
+
+/// Review of an analysed record with 棋力评估's background HumanSL 40 preparation running → human
+/// game → its late policy answers → 结束对局 → the analysed record again. The game stops the
+/// preparation (Java passes mode occupancy to `HumanSlStrengthPreparation` as a pause); the stopped
+/// worker's answers change neither the game nor the assessment; back in review, once analysis
+/// runs again, the preparation starts afresh for the record shown.
+#[test]
+fn strength_preparation_stops_for_a_game_and_follows_review_afterwards() {
+    const GAME: &str = include_str!("fixtures/strength/seed12-kata-61.sgf");
+    let mut b = Bench::new();
+    let digest = lizzie_core::resources::sha256_file(&b.human).unwrap();
+    b.wb.set_strength_human_digest(&digest);
+    b.wb.strength(StrengthCommand::SetBackground { enabled: true }).unwrap();
+    b.open_sgf(GAME);
+    assert!(b.engine().analysing);
+    let worker = b.next_worker(None);
+    let pending = b.worker_queries(worker);
+    assert!(!pending.is_empty(), "the background preparation asked its worker");
+    assert_eq!(b.wb.view(false).strength.manual, None);
+
+    assert_eq!(b.run(human_game(true)), CommandResult::Done);
+    b.serve(&|_, _| None);
+    b.tick(2000);
+    assert_eq!(b.game_phase(), Some(GamePhase::Playing));
+    assert!(b.world.dead(worker), "the game stops the preparation");
+    let status = b.wb.view(false).strength.status;
+    assert_ne!(status.key, "HumanSL40.preparing", "nothing is prepared during the game");
+    let game = (b.wb.document().id, b.wb.document().revision);
+    for q in &pending {
+        let answer = json!({"id": q["id"], "humanPolicy": vec![1.0 / 362.0; 362]});
+        b.out(worker, &answer.to_string());
+    }
+    b.tick(4000);
+    assert_eq!((b.wb.document().id, b.wb.document().revision), game, "the game record is untouched");
+    assert_eq!(b.wb.view(false).strength.status.revision, status.revision, "the assessment is untouched");
+    assert!(!b.world.0.lock().unwrap().iter().any(|p| p.analysis && !p.dead), "nothing restarts during the game");
+
+    assert_eq!(b.run(Command::Game { op: GameCommand::End }), CommandResult::Done);
+    b.serve(&|_, _| None);
+    assert_eq!(b.game_phase(), None);
+    b.open_sgf(GAME);
+    if b.engine().paused {
+        assert_eq!(b.run(Command::ToggleAnalysis), CommandResult::Done);
+        b.serve(&|_, _| None);
+    }
+    let again = b.next_worker(Some(worker));
+    assert!(!b.world.dead(again));
+    let status = b.wb.view(false).strength.status;
+    assert_eq!(status.key, "HumanSL40.preparing", "{status:?}");
+    assert_eq!(status.total, 61, "it prepares the record shown, all of its moves");
 }

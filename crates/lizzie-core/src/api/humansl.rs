@@ -9,6 +9,9 @@ pub enum HumanSlCommand {
         settings: HumanSlTrainingSettings,
         from_current: bool,
         advanced_visible: bool,
+        /// The user confirmed stopping a running batch analysis ([`crate::api::CommandResult::NeedsBatchStop`]).
+        #[serde(default)]
+        stop_batch: bool,
     },
     CancelPreparation,
     Pass,

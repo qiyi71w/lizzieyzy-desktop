@@ -121,7 +121,8 @@ fn start(f: &mut Fixture, s: HumanSlTrainingSettings, current: bool) -> Instance
         f.wb.human_sl(HumanSlCommand::Start {
             settings: s,
             from_current: current,
-            advanced_visible: true
+            advanced_visible: true,
+            stop_batch: false
         })
         .unwrap(),
         CommandResult::Done
@@ -207,7 +208,8 @@ fn missing_model_refuses_without_starting_a_process() {
         f.wb.human_sl(HumanSlCommand::Start {
             settings: settings(PlayerColor::Black),
             from_current: false,
-            advanced_visible: false
+            advanced_visible: false,
+            stop_batch: false
         })
         .unwrap(),
         CommandResult::Refused { .. }
@@ -489,7 +491,7 @@ fn active_t20_game_refuses_humansl_start() {
     })
     .unwrap();
     assert!(
-        matches!(f.wb.human_sl(HumanSlCommand::Start {settings:settings(PlayerColor::Black),from_current:false,advanced_visible:false}).unwrap(),CommandResult::Refused {message_key} if message_key=="LizzieFrame.engineGameStopFirstHint")
+        matches!(f.wb.human_sl(HumanSlCommand::Start {settings:settings(PlayerColor::Black),from_current:false,advanced_visible:false,stop_batch:false}).unwrap(),CommandResult::Refused {message_key} if message_key=="LizzieFrame.engineGameStopFirstHint")
     );
     assert!(f.wb.inspect().human_sl.is_none());
 }
@@ -895,6 +897,7 @@ fn installed_tensorrt_without_cuda_companion_reports_the_specific_start_failure(
         settings: settings(PlayerColor::Black),
         from_current: false,
         advanced_visible: false,
+        stop_batch: false,
     })
     .unwrap();
     assert_eq!(

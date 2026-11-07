@@ -805,6 +805,9 @@ pub enum CommandResult {
     NeedsConfirmation,
     /// An edit would discard moves or the record; ask, then resend it with `confirmed: target`.
     NeedsEditConfirmation { target: EditTarget },
+    /// AI 陪练 cannot start beside a running batch analysis; ask, then resend `HumanSl` `Start`
+    /// with `stop_batch: true`, which stops the batch first.
+    NeedsBatchStop,
     /// A file was written (diagnostics package, picture).
     Exported { path: String },
     /// A picture could not be written (`LizzieFrame.saveImageErrorHint1`); nothing was replaced.
