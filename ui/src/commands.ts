@@ -14,6 +14,7 @@ import { consoleVisible, toggleConsole } from "./engine/console";
 import { openRules } from "./engine/rules";
 import { openAnalysisSettings } from "./engine/settings";
 import { openAutoSetup } from "./setup/dialog";
+import { openRemoteCompute } from "./cloud/center";
 import "./engine/events";
 
 export interface CommandEntry {
@@ -51,6 +52,8 @@ export const COMMANDS: Record<string, CommandEntry> = {
   "weights.download": { run: () => openAutoSetup("weights") },
   "engine.acceleration": { run: () => openAutoSetup("acceleration") },
   "engine.rules": { run: openRules },
+  // 设置 > 远程算力 (Menu.java:5334-5342).
+  "engine.remote": { run: openRemoteCompute },
   // 综合设置 opens at its first page, 棋盘与显示 (Menu.java:5395-5399, ConfigDialog2.java:4168-4171).
   "settings.general": { run: () => void openAnalysisSettings("display") },
   "menu.gtpPanel": { run: toggleConsole, checked: consoleVisible },

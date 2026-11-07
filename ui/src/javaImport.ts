@@ -243,6 +243,21 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
     analysisSsh = box.input;
     body.append(box.label);
   }
+  // The Zhizi account's remembered sign-in token and password: each only when chosen on its own.
+  let cloudToken: HTMLInputElement | null = null;
+  let cloudPassword: HTMLInputElement | null = null;
+  if (p.cloud_credentials?.token) {
+    const box = checkbox(product("importCopyCloudToken", p.cloud_credentials.identifier, t("RemoteCompute.zhizi")), false);
+    box.input.dataset.key = "import-cloud-token";
+    cloudToken = box.input;
+    body.append(box.label);
+  }
+  if (p.cloud_credentials?.password) {
+    const box = checkbox(product("importCopyCloudPassword", p.cloud_credentials.identifier, t("RemoteCompute.zhizi")), false);
+    box.input.dataset.key = "import-cloud-password";
+    cloudPassword = box.input;
+    body.append(box.label);
+  }
   if (p.engines.some((e) => e.problems.some((x) => x.type === "ProgramNotFound" || x.type === "FileNotFound")) || p.program_dir) {
     const row = document.createElement("div");
     row.className = "java-import-row";
@@ -288,6 +303,8 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
       copy_credentials: copy,
       copy_commentary_key: commentaryKey?.checked ?? false,
       copy_analysis_ssh_password: analysisSsh?.checked ?? false,
+      copy_cloud_token: cloudToken?.checked ?? false,
+      copy_cloud_password: cloudPassword?.checked ?? false,
       replace: replace?.checked ?? false,
       recovery: recovery?.checked ? { auto_slot_name: t("LizzieFrame.saveAndLoad.exitRecord") } : null,
     });

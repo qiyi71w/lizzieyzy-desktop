@@ -14,6 +14,7 @@
 
 pub mod analysis_command;
 pub mod benchmark;
+pub mod cloud;
 pub mod gtp;
 pub mod gtp_config;
 pub mod kata_analysis;

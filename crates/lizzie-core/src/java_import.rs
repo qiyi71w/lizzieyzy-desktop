@@ -20,6 +20,8 @@
 pub mod slots;
 mod appearance;
 mod matches;
+mod cloud;
+pub use cloud::{CloudImportCredentials, read_java_cloud_secret};
 
 use std::path::{Path, PathBuf};
 
@@ -137,6 +139,8 @@ pub struct Mapped {
     /// `ui.network-proxy-*` as Java `NetworkProxy.settings` would accept them.
     pub network: Option<NetworkSettings>,
     pub commentary: Option<crate::commentary::settings::CommentarySettings>,
+    /// Cloud settings; custom URL credentials follow engine consent, account secrets are separate.
+    pub cloud: Option<crate::cloud::CloudSettings>,
     pub allow_double_click: Option<bool>,
     pub allow_drag: Option<bool>,
     pub show_right_menu: Option<bool>,
@@ -377,6 +381,8 @@ pub struct Candidate {
     pub slots: Vec<slots::JavaSlot>,
     /// Non-secret API-key choice; the adapter reads its secret only after explicit consent.
     pub commentary_credential: Option<crate::api::ImportCommentaryCredential>,
+    /// Independent cloud account token/password availability, never the secret values.
+    pub cloud_credentials: Option<CloudImportCredentials>,
 }
 
 impl Candidate {
@@ -428,6 +434,17 @@ impl Candidate {
                     i.status = ImportStatus::NotMigrated;
                     i.reason = engine.reason;
                     i.detail = Some(engine.name.clone());
+                }
+                if i.key == "leelaz.remote-compute.custom-remote-code" && i.credential
+                    && self.mapped.cloud_after(copy_credentials).is_some_and(|settings| settings.custom_url.is_empty()) {
+                    i.status = ImportStatus::NotMigrated;
+                    i.reason = Some(ImportReason::CredentialNotConfirmed);
+                }
+                if i.key == "leelaz.remote-compute.zhizi-args" && i.credential
+                    && self.mapped.cloud_after(copy_credentials).zip(self.mapped.cloud.as_ref())
+                        .is_some_and(|(after, before)| after.args != before.args) {
+                    i.status = ImportStatus::NotMigrated;
+                    i.reason = Some(ImportReason::CredentialNotConfirmed);
                 }
                 i
             })
@@ -524,6 +541,9 @@ pub fn read(source: &JavaSource) -> Result<Candidate, ImportFailure> {
     r.other_files();
     let legacy_key = r.teacher_settings();
     let slots = slots::read(source, &mut r);
+    let cloud_credentials = cloud::credentials(&config).or_else(|| r.mapped.cloud.as_ref().map(|settings| CloudImportCredentials {
+        identifier: settings.identifier.clone(), token: false, password: false,
+    }));
     let mut candidate = Candidate {
         source: source.clone(),
         config_file,
@@ -533,8 +553,13 @@ pub fn read(source: &JavaSource) -> Result<Candidate, ImportFailure> {
         engines: r.engines,
         slots,
         commentary_credential: None,
+        cloud_credentials,
     };
     if legacy_key { candidate.set_commentary_credential("teacher.properties"); }
+    if let Some(choices) = candidate.cloud_credentials.clone() {
+        if choices.token { candidate.set_cloud_credential_available(false); }
+        if choices.password { candidate.set_cloud_credential_available(true); }
+    }
     Ok(candidate)
 }
 
@@ -1541,6 +1566,7 @@ impl Reader<'_> {
         self.display(ui, leelaz, &mut handled);
         self.game(ui, leelaz, &mut handled);
         self.matches(ui, &mut handled);
+        self.cloud(leelaz, &mut handled);
         self.engines(ui, leelaz, &mut handled);
 
         for (section, value) in root {
@@ -2080,8 +2106,11 @@ impl Reader<'_> {
         let roots = self.source.roots();
         let mut mapped: Vec<MappedEngine> = Vec::new();
         for (index, entry) in entries.iter().enumerate() {
-            let (view, profile) = engine(index, entry, default == Some(index), &roots);
+            let (view, profile) = engine(index, entry, default == Some(index), &roots, self.mapped.cloud.as_ref());
             if let Some((mut profile, ssh_password)) = profile {
+                if profile.cloud.is_some() && self.mapped.cloud.is_none() {
+                    self.mapped.cloud = Some(crate::cloud::CloudSettings::default());
+                }
                 if profile.id.is_empty() || mapped.iter().any(|m| m.profile.id == profile.id) {
                     let existing: Vec<EngineProfile> = mapped.iter().map(|m| m.profile.clone()).collect();
                     profile.id = new_profile_id(&existing);
@@ -2399,6 +2428,7 @@ fn engine(
     e: &Map<String, Value>,
     is_default: bool,
     roots: &[PathBuf],
+    cloud_settings: Option<&crate::cloud::CloudSettings>,
 ) -> (ImportEngineView, Option<(EngineProfile, Option<JavaSecret>)>) {
     let text = |k: &str| e.get(k).map(shown).unwrap_or_default();
     let name = text("name");
@@ -2429,12 +2459,14 @@ fn engine(
         unmigrated_fields,
         incompatible_fields,
     };
+    // Java recognizes cloud markers before process/SSH path preparation.
+    let cloud_launch = cloud::launch(&original, cloud_settings);
     // 远程引擎: the command runs on the SSH host as written; only its key file is on this
     // machine. Its password (password login) needs the same confirmation as other credentials.
     let remote = e
         .get("useJavaSSH")
         .and_then(as_bool)
-        .unwrap_or(false)
+        .is_some_and(|value| value && cloud_launch.is_none())
         .then(|| ssh_settings(e));
     let ssh_password = remote
         .as_ref()
@@ -2486,23 +2518,29 @@ fn engine(
         _ => None,
     };
 
-    let command = match &remote {
-        Some(ssh) => {
-            if original.trim().is_empty() {
-                problems.push(EngineProblem::EmptyCommand);
+    let command = if let Some(launch) = &cloud_launch {
+        cloud::marker(launch).to_owned()
+    } else {
+        match &remote {
+            Some(ssh) => {
+                if original.trim().is_empty() {
+                    problems.push(EngineProblem::EmptyCommand);
+                }
+                if ssh.use_key && !Path::new(ssh.key_path.trim()).is_file() {
+                    problems.push(EngineProblem::FileNotFound {
+                        option: "keyGenPath".into(),
+                        path: sanitize(&ssh.key_path),
+                    });
+                }
+                original.clone()
             }
-            if ssh.use_key && !Path::new(ssh.key_path.trim()).is_file() {
-                problems.push(EngineProblem::FileNotFound {
-                    option: "keyGenPath".into(),
-                    path: sanitize(&ssh.key_path),
-                });
-            }
-            original.clone()
+            None => resolve_command(&original, roots, &mut problems),
         }
-        None => resolve_command(&original, roots, &mut problems),
     };
     view.command = sanitize(&command);
     view.credential = sanitize(&original) != original || sanitize(&initial) != initial || ssh_password.is_some();
+    view.credential |= cloud_launch.as_ref().is_some_and(|launch|
+        cloud::url_has_credentials(&launch.url) || sanitize(&launch.args) != launch.args);
     view.problems = problems;
     let profile = EngineProfile {
         id: text("id"),
@@ -2517,6 +2555,7 @@ fn engine(
         thread_policy,
         gtp_configuration,
         ssh: remote,
+        cloud: cloud_launch,
         ..EngineProfile::default()
     };
     (view, Some((profile, ssh_password)))
@@ -2666,6 +2705,7 @@ impl Mapped {
         set!(c.engine.startup_benchmark, self.startup_benchmark);
         set!(c.network, self.network);
         set!(c.commentary, self.commentary);
+        set!(c.cloud, self.cloud_after(copy_credentials));
         set!(c.edit.allow_double_click, self.allow_double_click);
         set!(c.edit.allow_drag, self.allow_drag);
         set!(c.edit.show_right_menu, self.show_right_menu);
@@ -2948,6 +2988,7 @@ impl Mapped {
         );
         cmp!(ImportTarget::NetworkProxy, config.network, self.network);
         cmp!(ImportTarget::Commentary, config.commentary, self.commentary);
+        cmp!(ImportTarget::Cloud, config.cloud, self.cloud);
         cmp!(
             ImportTarget::AutoQuickAnalysis,
             config.record.auto_quick_analyze_on_load,

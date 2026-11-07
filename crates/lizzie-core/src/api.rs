@@ -94,6 +94,13 @@ pub enum OpenSource {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
 #[serde(tag = "type")]
 pub enum Command {
+    CloudAccount { op: crate::cloud::CloudCommand, owner: u64 },
+    CloudActivate { settings: crate::cloud::CloudSettings, confirmed: bool },
+    CloudLocal,
+    CloudCancel,
+    CloudCancelRequest { owner: u64 },
+    CloudImportQr,
+    OpenCloudLink { custom: bool },
     Strength { op: StrengthCommand },
     Commentary { op: CommentaryCommand },
     CommentaryConnection { op: ConnectionCommand },
@@ -315,6 +322,11 @@ pub enum Command {
         /// Separate, unchecked-by-default consent for the password of 精析设置's 远程引擎.
         #[serde(default)]
         copy_analysis_ssh_password: bool,
+        /// Independent consent; neither account secret follows engine selection.
+        #[serde(default)]
+        copy_cloud_token: bool,
+        #[serde(default)]
+        copy_cloud_password: bool,
         replace: bool,
         recovery: Option<RecoveryImport>,
     },
@@ -799,6 +811,13 @@ pub enum EngineScope {
 pub enum CommandResult {
     /// Applied; the new state arrives as a [`WorkbenchView`].
     Done,
+    Cloud { reply: Box<crate::cloud::CloudReply> },
+    CloudError { failure: crate::cloud::CloudFailure },
+    CloudUrl { url: String },
+    /// `CloudActivate` / `CloudLocal` committed: the foreground seat was given to the engine
+    /// profile `profile`. Every view with `seq > after` was built after the commit and shows the
+    /// switch's outcome; earlier views, an old failure included, do not.
+    CloudSwitch { profile: String, after: u64 },
     Strength { report: Box<StrengthReport> },
     CommentaryModels { models: Vec<String> },
     /// Where the password of an SSH account is kept ([`SshCredentialCommand`]).
@@ -1021,6 +1040,7 @@ pub struct PendingOpen {
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 pub struct SettingsView {
+    pub cloud: crate::cloud::CloudSettings,
     pub language: Language,
     /// Language the UI is displaying in this session (resolved at start).
     pub active_language: Language,
@@ -1388,6 +1408,7 @@ pub struct ImportItemView {
 pub enum ImportTarget {
     Appearance,
     Commentary,
+    Cloud,
     ReadKomi,
     LoadSgfLast,
     ReplaceFileHint,
@@ -1603,6 +1624,7 @@ pub struct ImportPreviewView {
     pub items: Vec<ImportItemView>,
     pub engines: Vec<ImportEngineView>,
     pub commentary_credential: Option<ImportCommentaryCredential>,
+    pub cloud_credentials: Option<crate::java_import::CloudImportCredentials>,
     /// The SSH account (`user@host:port`) whose Java password 精析设置's 远程引擎 would copy
     /// when confirmed.
     pub analysis_ssh_credential: Option<String>,

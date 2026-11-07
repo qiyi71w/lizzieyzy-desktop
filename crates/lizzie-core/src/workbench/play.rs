@@ -190,6 +190,9 @@ impl Workbench {
                 op: HawkeyeCommand::GotoRow { .. } | HawkeyeCommand::GotoMove { .. } | HawkeyeCommand::GotoMoveNumber { .. },
             } => Some(CommandResult::Unchanged),
             Command::SwitchEngine { .. }
+            | Command::CloudActivate { .. }
+            | Command::CloudLocal
+            | Command::CloudCancel
             | Command::RestartEngine
             | Command::ShutdownEngines { .. }
             | Command::SaveEngineSettings { .. }

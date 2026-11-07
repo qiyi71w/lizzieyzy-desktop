@@ -18,6 +18,7 @@ pub mod api;
 pub mod appearance;
 pub mod browse;
 pub mod commentary;
+pub mod cloud;
 pub mod display;
 pub mod engine;
 pub mod formats;

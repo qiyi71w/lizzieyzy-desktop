@@ -100,6 +100,7 @@ pub struct LaunchSpec {
     /// Java NVIDIA runtime directories, prepended to PATH on Windows only.
     pub library_dirs: Vec<PathBuf>,
     pub remote: Option<super::ssh::RemoteLaunch>,
+    pub cloud: Option<super::cloud::CloudLaunch>,
 }
 
 impl LaunchSpec {

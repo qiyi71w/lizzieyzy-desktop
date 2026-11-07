@@ -1483,6 +1483,7 @@ pub struct Config {
     pub human_sl: HumanSlSettings,
     pub strength: StrengthSettings,
     pub commentary: crate::commentary::settings::CommentarySettings,
+    pub cloud: crate::cloud::CloudSettings,
     /// 评论/问题手 panel.
     pub problems: ProblemListSettings,
     /// 局部精析's move range.

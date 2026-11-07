@@ -331,6 +331,7 @@ impl Target {
             library_dirs: self.launch.library_dirs.clone(),
             args: vec!["benchmark".into()],
             remote: None,
+            cloud: None,
         };
         let mut inherited = std::collections::BTreeMap::new();
         let mut index = 1;

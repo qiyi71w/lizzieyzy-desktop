@@ -44,12 +44,16 @@ pub enum EngineInput {
     /// A remote engine could not start, its command ended or its connection was lost; the
     /// instance is gone.
     Remote(super::ssh::RemoteFailure),
+    /// This cloud transport has retired itself; rebuild a session and replay the current board.
+    CloudRecovery { message: String },
 }
 
 /// Writing side of a running engine process.
 pub trait EngineIo: Send {
     /// Writes one line; must not block on a slow reader.
     fn send(&mut self, line: &str) -> std::io::Result<()>;
+    /// Only a result admitted by its consumer proves progress (not merely received output).
+    fn analysis_progress_accepted(&mut self, _total: u64) {}
     /// Ends the process: `quit`, then a forced kill if it has not exited in time. Returns at
     /// once.
     fn terminate(self: Box<Self>);
@@ -139,6 +143,7 @@ pub struct EngineFailure {
     /// HumanSL, or left unrestored by such a return (Java's exclusive GTP session, foreground
     /// restore and `engineStateUnrestored`).
     pub held: bool,
+    pub cloud_recovery: bool,
 }
 
 /// Something the application flow must act on.
@@ -747,6 +752,7 @@ impl Instance {
             // Filled in by `Engines::fail`, which knows the seats.
             foreground: false,
             held: false,
+            cloud_recovery: false,
         }
     }
 }
@@ -1138,10 +1144,13 @@ impl Engines {
             remote: None,
             foreground: false,
             held: false,
+            cloud_recovery: false,
         };
         // A remote engine's command runs on its host as written: no local paths, thread policy
         // or launch overlays apply (Java `EngineThreadPolicy.isRemoteManaged`).
-        let (spec, check) = if let Some(ssh) = &profile.ssh {
+        let (spec, check) = if let Some(cloud) = &profile.cloud {
+            (LaunchSpec { cloud: Some(cloud.clone()), ..LaunchSpec::default() }, None)
+        } else if let Some(ssh) = &profile.ssh {
             if profile.command.trim().is_empty() {
                 return Err(Box::new(fail("empty command".into())));
             }
@@ -1934,6 +1943,11 @@ impl Engines {
                 self.trace(&name, "--", &message);
                 events.push(self.fail(id, failure));
             }
+            EngineInput::CloudRecovery { message } => {
+                let mut failure = inst.failure(message);
+                failure.cloud_recovery = true;
+                events.push(self.fail(id, failure));
+            }
             EngineInput::Stdout(line) => {
                 let mut frames = Vec::new();
                 inst.framer.feed(&line, &mut frames);
@@ -2275,6 +2289,12 @@ impl Engines {
         self.get(id)?.unrestored
     }
 
+    pub fn analysis_progress_accepted(&mut self, id: InstanceId, total: u64) {
+        if let Some(io) = self.get_mut(id).and_then(|i| i.io.as_mut()) {
+            io.analysis_progress_accepted(total);
+        }
+    }
+
     /// Whether instance `id` holds the position wished for its seat now: ready, no sync in
     /// flight, its board known and nothing left to send for the wish.
     pub fn holds_wish(&self, id: InstanceId) -> bool {
@@ -2540,10 +2560,15 @@ impl Engines {
                 let total = info
                     .root_visits
                     .unwrap_or_else(|| info.candidates.iter().map(|c| c.visits).sum());
-                if !info.candidates.is_empty() {
+                let accepted = !s.failed && !info.candidates.is_empty();
+                if accepted {
                     s.best = Some(info);
                 }
-                if total >= s.target_visits && step == LeaseStep::Search {
+                let complete = total >= s.target_visits && step == LeaseStep::Search;
+                if accepted {
+                    self.analysis_progress_accepted(id, total);
+                }
+                if complete {
                     self.lease_stop_search();
                 }
                 true
@@ -2822,6 +2847,11 @@ impl Engines {
                     output,
                     remote: Some(remote),
                 });
+            }
+            EngineInput::CloudRecovery { message } => {
+                let output = w.tail.iter().cloned().collect();
+                self.terminate(id);
+                events.push(RuntimeEvent::WorkerExited { instance: id, message, output, remote: None });
             }
         }
     }

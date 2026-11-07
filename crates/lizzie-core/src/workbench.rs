@@ -19,6 +19,7 @@ mod appearance;
 mod auto_analysis;
 mod batch;
 mod commentary;
+mod cloud;
 mod editing;
 mod exporting;
 mod flash;
@@ -283,6 +284,9 @@ pub struct Workbench {
     human_sl: humansl::HumanSlFlow,
     strength: strength::StrengthFlow,
     commentary: commentary::CommentaryFlow,
+    cloud_activation: Option<String>,
+    /// Session credential availability; never persisted with cloud settings.
+    cloud_authenticated: bool,
 }
 
 impl Workbench {
@@ -405,6 +409,8 @@ impl Workbench {
             human_sl: humansl::HumanSlFlow::default(),
             strength: strength::StrengthFlow::default(),
             commentary: commentary::CommentaryFlow::default(),
+            cloud_activation: None,
+            cloud_authenticated: false,
         }
     }
 
@@ -921,6 +927,11 @@ impl Workbench {
         self.save_persisted()
     }
 
+    /// `seq` of the last built view: a view with a greater `seq` is built after this call.
+    pub fn view_seq(&self) -> u64 {
+        self.seq
+    }
+
     // ---------------------------------------------------------------- projection
 
     /// Builds the next view for the UI. `full` always includes the tree (initial load, reload);
@@ -999,6 +1010,7 @@ impl Workbench {
             save_outcome: None,
             sounds: Vec::new(),
             settings: SettingsView {
+                cloud: self.config.cloud.clone(),
                 language: self.config.ui.language,
                 active_language: self.active_language,
                 restart_required: self.config.ui.language.resolve(self.system_locale.as_deref()) != self.active_language
