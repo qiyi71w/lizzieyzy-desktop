@@ -795,6 +795,12 @@ impl Engines {
         self.failed_foreground.as_ref()
     }
 
+    /// The engine chosen as the foreground engine could not even be launched: like one that
+    /// failed in its seat, it is the failed primary until an engine takes the seat.
+    pub fn foreground_launch_failed(&mut self, profile: &EngineProfile) {
+        self.failed_foreground = Some(profile.clone());
+    }
+
     pub fn secondary(&self) -> Option<InstanceId> {
         self.secondary
     }

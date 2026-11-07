@@ -719,6 +719,7 @@ impl Workbench {
                     i
                 }
                 Err(f) => {
+                    self.engines.foreground_launch_failed(&profile);
                     self.engine_failed(*f);
                     return Ok(true);
                 }

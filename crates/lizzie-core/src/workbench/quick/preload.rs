@@ -5,8 +5,9 @@
 //!
 //! A warm-up decides at once and, while it waits, again whenever the state changes (Java checks
 //! every 1200 ms). It ends when it starts the process or gives up, and wherever Java stops its
-//! timer: the foreground engine is switched or searches, the engine sync of a record it waited
-//! for ends, the user pauses, 闪电分析 or 自动分析 starts, or the lightweight model changes.
+//! timer: the foreground engine is switched or searches, the engine sync of a record opened or
+//! waited for ends, the user pauses or unticks the option, 闪电分析 or 自动分析 starts, or the
+//! lightweight model changes.
 
 use super::super::Workbench;
 use crate::engine::runtime::Phase;
@@ -17,8 +18,10 @@ use crate::resources as r;
 const PRIMARY_ASSETS: [&str; 3] = ["windows-nvidia", "windows-tensorrt", "windows-opencl"];
 
 /// A warm-up waiting for its conditions (Java's warm-up timer).
-#[derive(Default)]
+#[derive(Clone, Copy)]
 pub(in crate::workbench) struct Warmup {
+    /// The document open when the warm-up was asked for.
+    doc: u64,
     /// The document whose engine sync the warm-up waited for: the end of that sync ends it.
     sync_doc: Option<u64>,
 }
@@ -40,16 +43,16 @@ impl Workbench {
         if !self.config.analysis_engine.preload {
             return;
         }
-        self.quick.warmup = Some(Warmup::default());
+        self.quick.warmup = Some(Warmup { doc: self.doc.id, sync_doc: None });
         self.warmup_review();
     }
 
     /// A waiting warm-up decides again (`tryWarmQuickAnalysisEngineAfterPrimary`).
     pub(in crate::workbench) fn warmup_review(&mut self) {
-        let Some(sync_doc) = self.quick.warmup.as_ref().map(|w| w.sync_doc) else {
+        let Some(w) = self.quick.warmup else {
             return;
         };
-        match self.warmup_action(sync_doc) {
+        match self.warmup_action(w) {
             Action::Start => {
                 self.quick.warmup = None;
                 self.quick_preload();
@@ -72,7 +75,7 @@ impl Workbench {
 
     /// `currentQuickAnalysisWarmupAction` / `decideQuickAnalysisWarmup`. Java reads the setting
     /// only when the warm-up is scheduled; here unchecking it while the warm-up waits stops it.
-    fn warmup_action(&self, sync_doc: Option<u64>) -> Action {
+    fn warmup_action(&self, w: Warmup) -> Action {
         let a = &self.config.analysis_engine;
         if !a.preload || !self.warmup_context_eligible() {
             return Action::Stop;
@@ -86,11 +89,19 @@ impl Workbench {
         if depends && failed.is_some() {
             return Action::Stop;
         }
+        // Java reads a record before the warm-up decides, and its engine sync then runs whenever
+        // there is a primary engine (`loadFile`, `pendingKifuEngineSyncRoot`); the end of that
+        // sync stops the warm-up (`onSynchronized`, a failed sync).
+        if self.pending.is_some() {
+            return Action::Wait;
+        }
+        if w.doc != self.doc.id && self.doc.format.is_some() && primary.is_some() {
+            return Action::Stop;
+        }
         if self.kifu_sync_pending() {
             return Action::WaitForSync;
         }
-        // The sync this warm-up waited for ended (`onSynchronized`, a failed sync).
-        if sync_doc == Some(self.doc.id) {
+        if w.sync_doc == Some(self.doc.id) {
             return Action::Stop;
         }
         if depends && foreground.is_none_or(|f| self.engines.phase(f) != Some(Phase::Ready)) {

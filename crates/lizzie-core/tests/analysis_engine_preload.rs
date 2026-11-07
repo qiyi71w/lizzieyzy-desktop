@@ -10,10 +10,10 @@ use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
 use lizzie_core::engine::ssh::SshSettings;
-use lizzie_core::formats::sgf;
+use lizzie_core::formats::{sgf, ReadError};
 use lizzie_core::record::{Point, RecordFormat};
 use lizzie_core::resources::ManagedProfile;
-use lizzie_core::settings::{AnalysisEngineSettings, Storage};
+use lizzie_core::settings::{AnalysisEngineSettings, AutoAnalysisSettings, Storage};
 use lizzie_core::workbench::{OpenOrigin, Workbench};
 
 struct Proc {
@@ -23,10 +23,17 @@ struct Proc {
     terminated: bool,
 }
 
+/// The processes started, and the programs that cannot start or GTP commands that are refused.
 #[derive(Clone, Default)]
-struct World(Arc<Mutex<Vec<Proc>>>);
+struct World(Arc<Mutex<Vec<Proc>>>, Arc<Mutex<Vec<String>>>);
 
 impl World {
+    fn refuse(&self, what: &str) {
+        self.1.lock().unwrap().push(what.into());
+    }
+    fn refused(&self, what: &str) -> bool {
+        self.1.lock().unwrap().iter().any(|r| r == what)
+    }
     fn take(&self, id: InstanceId) -> Vec<String> {
         let mut w = self.0.lock().unwrap();
         w.iter_mut()
@@ -70,6 +77,9 @@ struct FakeLauncher(World);
 
 impl Launcher for FakeLauncher {
     fn launch(&self, id: InstanceId, spec: &LaunchSpec) -> std::io::Result<Box<dyn EngineIo>> {
+        if self.0.refused(&spec.program) {
+            return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "no such program"));
+        }
         self.0 .0.lock().unwrap().push(Proc {
             id,
             spec: spec.clone(),
@@ -147,7 +157,14 @@ fn serve(wb: &mut Workbench, world: &World, id: InstanceId, commands: &str) -> V
         for line in pending {
             out(wb, id, "");
             let (n, cmd) = line.split_once(' ').unwrap();
-            let reply = match cmd.split(' ').next().unwrap() {
+            let word = cmd.split(' ').next().unwrap();
+            if world.refused(word) {
+                out(wb, id, &format!("?{n} refused"));
+                out(wb, id, "");
+                done.push(cmd.to_string());
+                continue;
+            }
+            let reply = match word {
                 "name" => name,
                 "version" => "1.18.2",
                 "list_commands" => commands,
@@ -402,4 +419,111 @@ fn an_idle_process_on_the_ssh_host_outlives_the_foreground_search() {
     assert!(!world.terminated(worker), "not a local dedicated process");
     wb.end_engines();
     assert!(world.terminated(worker), "closing the application ends it");
+}
+
+#[test]
+fn a_managed_foreground_that_cannot_even_launch_stops_the_preload() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, true, false);
+    world.refuse(ENGINE);
+    let profiles = vec![profile("Managed", Some("windows-nvidia"))];
+    wb.save_engine_settings(profiles, EngineStartup::Default).unwrap();
+    wb.start_engines();
+    wb.preload_analysis_engine();
+    assert!(world.others(ENGINE).is_empty(), "Java's primary `isDownWithError` stops it");
+}
+
+#[test]
+fn unticking_the_setting_ends_a_waiting_preload_even_if_ticked_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, true, false);
+    let fg = start(&mut wb, &world, vec![profile("Managed", Some("windows-opencl"))]);
+    wb.preload_analysis_engine();
+    configure(&mut wb, false, false);
+    configure(&mut wb, true, false);
+    serve(&mut wb, &world, fg, PLAIN);
+    assert!(world.others(ENGINE).is_empty(), "saving never asks for a preload");
+    wb.preload_analysis_engine();
+    assert_eq!(world.others(ENGINE).len(), 1, "a new request still works");
+}
+
+/// Java loads a start-up record before the warm-up decides and then waits for its engine sync,
+/// whose end stops the warm-up; without an engine there is no sync to wait for.
+#[test]
+fn a_record_still_being_read_is_waited_for_and_with_an_engine_its_sync_stops_the_preload() {
+    let record = || Ok((RecordFormat::Sgf, sgf::read("(;SZ[19];B[pd];W[dd])").unwrap()));
+    let origin = || OpenOrigin::File { path: "/x.sgf".into(), source: OpenSource::CommandLine };
+    // With a foreground engine.
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, true, false);
+    let fg = start(&mut wb, &world, vec![profile("Local", None)]);
+    serve(&mut wb, &world, fg, PLAIN);
+    let t = wb.begin_open(origin());
+    wb.preload_analysis_engine();
+    assert!(world.others(ENGINE).is_empty(), "waits while the record is read");
+    assert!(wb.complete_open(t, record()));
+    serve(&mut wb, &world, fg, PLAIN);
+    assert!(world.others(ENGINE).is_empty(), "the engine sync of the record ends the warm-up");
+
+    // Without an engine the adopted record starts it; a failed read decides at once too.
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, true, false);
+    let t = wb.begin_open(origin());
+    wb.preload_analysis_engine();
+    assert!(world.others(ENGINE).is_empty());
+    assert!(wb.complete_open(t, record()));
+    assert_eq!(world.others(ENGINE).len(), 1);
+
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, true, false);
+    let fg = start(&mut wb, &world, vec![profile("Local", None)]);
+    serve(&mut wb, &world, fg, PLAIN);
+    let t = wb.begin_open(origin());
+    wb.preload_analysis_engine();
+    assert!(wb.complete_open(t, Err(ReadError::Invalid("x".into()))));
+    assert_eq!(world.others(ENGINE).len(), 1, "no record, no sync");
+}
+
+#[test]
+fn a_failed_rules_sync_also_ends_a_preload_waiting_for_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, true, false);
+    let fg = start(&mut wb, &world, vec![profile("Local", None)]);
+    serve(&mut wb, &world, fg, KATA);
+    open(&mut wb, "(;SZ[19]RU[Japanese];B[pd];W[dd])");
+    wb.preload_analysis_engine();
+    assert!(world.others(ENGINE).is_empty(), "waits for the declared rules");
+    world.refuse("kata-set-rules");
+    serve(&mut wb, &world, fg, KATA);
+    assert!(world.others(ENGINE).is_empty(), "a failed sync stops the warm-up as well");
+}
+
+#[test]
+fn automatic_analysis_running_gives_up_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, true, false);
+    let fg = start(&mut wb, &world, vec![profile("Local", None)]);
+    serve(&mut wb, &world, fg, KATA);
+    open(&mut wb, "(;SZ[19];B[pd];W[dd])");
+    serve(&mut wb, &world, fg, KATA);
+    let settings = AutoAnalysisSettings { time_enabled: true, time_seconds: 2, auto_save: false, ..Default::default() };
+    wb.start_auto_analysis(settings).unwrap().unwrap();
+    wb.preload_analysis_engine();
+    serve(&mut wb, &world, fg, KATA);
+    wb.stop_auto_analysis();
+    assert!(world.others(ENGINE).is_empty());
 }

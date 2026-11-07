@@ -588,6 +588,8 @@ impl Workbench {
                 self.quick_after_load();
             }
         }
+        // A preload waiting for this read decides now (also after a failed read).
+        self.warmup_review();
         true
     }
 

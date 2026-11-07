@@ -1233,9 +1233,14 @@ impl Workbench {
             || previous.reuse_current_engine != settings.reuse_current_engine
             || previous.use_ssh != settings.use_ssh
             || (settings.use_ssh && previous.ssh != settings.ssh);
+        let preload = settings.preload;
         self.commit_config(|c| c.analysis_engine = settings)?;
         if restart {
             self.quick_drop_warm();
+        }
+        // Unticked 启动Lizzie时预加载引擎 ends a waiting preload; saving never asks for one.
+        if !preload {
+            self.warmup_stop();
         }
         Ok(Ok(true))
     }
