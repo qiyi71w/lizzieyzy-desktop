@@ -19,13 +19,13 @@ const KIND: &str = "ssh-password";
 
 /// The credential-storage name of an SSH account. The storage compares names without case,
 /// while SSH user names keep it: `%` and every character with a lower-case form are written as
-/// `%XXXX` code points, so `Alice@h:22` and `alice@h:22` stay apart. A name already in lower
-/// case is unchanged.
+/// six-digit `%XXXXXX` code points (one width for every character), so `Alice@h:22` and
+/// `alice@h:22` stay apart. A name already in lower case is unchanged.
 fn store_account(account: &str) -> String {
     let mut out = String::with_capacity(account.len());
     for c in account.chars() {
         if c == '%' || c.to_lowercase().ne(std::iter::once(c)) {
-            out.push_str(&format!("%{:04X}", u32::from(c)));
+            out.push_str(&format!("%{:06X}", u32::from(c)));
         } else {
             out.push(c);
         }
@@ -206,6 +206,8 @@ mod tests {
         let stored = |account: &str| store_account(account).to_lowercase();
         assert_ne!(stored("Alice@h:22"), stored("alice@h:22"));
         assert_ne!(stored("a%0041@h:22"), stored("aA@h:22"));
+        // 'Ẑ' (U+1E90) then '0', and U+1E900: escapes of different lengths must not meet.
+        assert_ne!(stored("\u{1E90}0@h:22"), stored("\u{1E900}@h:22"));
         assert_eq!(
             store_account("alice@host:22"),
             "alice@host:22",
