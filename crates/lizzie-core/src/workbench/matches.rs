@@ -1029,16 +1029,21 @@ impl Workbench {
                 self.match_retirement();
                 None
             }
+            // A participant that ends retires the match and starts again after it; like Java
+            // (`Leelaz.finishTerminatedReaderIncarnation`, participant recovery HANDLED) its end
+            // is logged, not shown as an engine failure.
             RuntimeEvent::Failed(f) => {
-                if let Some(r) = self
+                let Some(r) = self
                     .matches
                     .run
                     .as_mut()
                     .filter(|r| r.sides.iter().any(|p| p.instance == f.instance))
-                {
-                    r.failed.push((f.profile_id.clone(), f.foreground));
-                }
-                Some(RuntimeEvent::Failed(f))
+                else {
+                    return Some(RuntimeEvent::Failed(f));
+                };
+                r.failed.push((f.profile_id.clone(), f.foreground));
+                self.log_engine_failure(&f);
+                None
             }
             event => Some(event),
         }

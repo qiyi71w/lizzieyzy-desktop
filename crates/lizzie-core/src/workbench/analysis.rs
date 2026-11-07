@@ -1343,8 +1343,9 @@ impl Workbench {
                     }
                     // 批量分析's record has its own store and run.
                     if !secondary && Some(doc) == self.batch_doc_id() {
-                        self.restart_proven(instance);
-                        self.batch_foreground_result(doc, node, stamp, komi, to_play, engine_name, line, elapsed);
+                        if self.batch_foreground_result(doc, node, stamp, komi, to_play, engine_name, line, elapsed) {
+                            self.restart_proven(instance);
+                        }
                         continue;
                     }
                     if doc != self.doc.id
@@ -1466,21 +1467,7 @@ impl Workbench {
     /// A failed engine: logged, and reported with the launch command, message and output passed
     /// through the credential sanitizer like Java's failure dialog and copy (`redactSensitiveText`).
     pub(super) fn engine_failed(&mut self, f: EngineFailure) {
-        let command = sanitize(&f.command);
-        let message = sanitize(&f.message);
-        let output: Vec<String> = f.output.iter().map(|l| sanitize(l)).collect();
-        let tail = output
-            .iter()
-            .rev()
-            .take(5)
-            .rev()
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(" / ");
-        self.log(
-            true,
-            format!("engine failed [{}] {command}: {message} | {tail}", f.engine_name),
-        );
+        self.log_engine_failure(&f);
         let remote = f.remote.map(|r| match r {
             RemoteFailure::Connect { detail } => RemoteFailure::Connect { detail: sanitize(&detail) },
             RemoteFailure::Lost { detail } => RemoteFailure::Lost { detail: sanitize(&detail) },
@@ -1488,14 +1475,23 @@ impl Workbench {
         });
         self.engine_failure = Some(EngineFailureView {
             engine_name: f.engine_name,
-            command,
+            command: sanitize(&f.command),
             during_startup: f.during_startup,
-            message,
-            output,
+            message: sanitize(&f.message),
+            output: f.output.iter().map(|l| sanitize(l)).collect(),
             repair: None,
             remote,
             profile_id: f.profile_id,
         });
+    }
+
+    /// The failure's log line: command, message and the last output lines, sanitized.
+    pub(super) fn log_engine_failure(&mut self, f: &EngineFailure) {
+        let tail = f.output.iter().rev().take(5).rev().map(|l| sanitize(l)).collect::<Vec<_>>().join(" / ");
+        self.log(
+            true,
+            format!("engine failed [{}] {}: {} | {tail}", f.engine_name, sanitize(&f.command), sanitize(&f.message)),
+        );
     }
 
     // -------------------------------------------------------------------- projection

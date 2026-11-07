@@ -488,8 +488,9 @@ fn a_participant_that_ended_starts_again_after_the_match_is_retired() {
     assert_eq!(plays as u32, moves, "synced to the position after the match");
 }
 
-/// A replacement that cannot start is marked not loaded without the ordinary start-up
-/// diagnostic, and is not tried again.
+/// Leelaz.java:10419-10434: a participant's end handled by the match is not shown as an engine
+/// failure; a replacement that cannot start is marked not loaded without the ordinary start-up
+/// diagnostic either, and is not tried again.
 #[test]
 fn a_participant_replacement_that_fails_to_start_is_quiet_and_not_retried() {
     let mut m = Match::new();
@@ -498,7 +499,7 @@ fn a_participant_replacement_that_fails_to_start_is_quiet_and_not_retried() {
     let id = m.mover();
     let newest = *m.world.ids().iter().max().unwrap();
     m.wb.engine_input(id, EngineInput::Exited(Some(1)));
-    assert!(m.wb.view(false).engine_failure.is_some(), "the participant's own end is reported");
+    assert!(m.wb.view(false).engine_failure.is_none(), "the participant's end is not shown");
     m.serve(&move |i, c| (i > newest && c == "name").then(|| "?cannot start".into()));
     let v = m.wb.view(false);
     assert!(v.engine_failure.is_none(), "no start-up diagnostic for the replacement");

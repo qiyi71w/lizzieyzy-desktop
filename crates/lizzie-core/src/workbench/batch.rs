@@ -763,7 +763,7 @@ impl Workbench {
 
     /// The foreground engine's line for 批量分析's record `doc`: stored in that record's store
     /// (automatic analysis keeps the accepted packet, `protectedCache` off) and checked against
-    /// the run's conditions.
+    /// the run's conditions. Returns whether the line was accepted.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn batch_foreground_result(
         &mut self,
@@ -775,7 +775,7 @@ impl Workbench {
         engine_name: String,
         line: InfoLine,
         elapsed: Duration,
-    ) {
+    ) -> bool {
         let limit = self.config.engine.analysis.limit_branch_length;
         let capture = !self.config.edit.no_capture;
         let shown = self.suggestion_limit();
@@ -786,13 +786,13 @@ impl Workbench {
             .and_then(|r| r.doc.as_mut())
             .filter(|d| d.id == doc)
         else {
-            return;
+            return false;
         };
         if komi != d.komi || !d.record.contains(node) || d.record.node(node).stamp != stamp {
-            return;
+            return false;
         }
         let Some((mut result, ownership)) = node_analysis(node, to_play, komi, engine_name, line) else {
-            return;
+            return false;
         };
         let visits = result.visits;
         let first = result.candidates.first().map_or(0, |c| c.visits);
@@ -802,6 +802,7 @@ impl Workbench {
         if node == d.cursor && !self.paused {
             self.auto_analysis_result(node, visits, first, elapsed);
         }
+        true
     }
 
     /// 批量分析's record is done (`autoAnaSaveAndLoad`): `summary` goes into its root comment, the

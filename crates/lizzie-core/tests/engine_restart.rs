@@ -8,14 +8,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use lizzie_core::api::EngineScope;
+use lizzie_core::api::{BatchMode, EngineScope, OpenSource};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
-use lizzie_core::formats::sgf;
+use lizzie_core::formats::{self, sgf};
 use lizzie_core::record::RecordFormat;
-use lizzie_core::settings::{AnalysisEngineSettings, Storage};
+use lizzie_core::settings::{AnalysisEngineSettings, AutoAnalysisSettings, Storage};
 use lizzie_core::workbench::{OpenOrigin, Workbench};
 
 /// Launched processes: instance, program, lines not yet answered.
@@ -348,4 +348,40 @@ fn an_engine_lent_to_quick_analysis_when_it_dies_is_not_restarted() {
     wb.engine_input(id, EngineInput::Exited(Some(1)));
     assert_eq!(world.launched().len(), 1, "the lease owned its state (exclusive GTP session)");
     assert!(wb.view(false).engine.down);
+}
+
+/// A restarted engine analysing 批量分析's record is proven only by a line that record accepts
+/// (Leelaz.java:7478, 7608): a line without candidates leaves it unproven.
+#[test]
+fn only_a_batch_line_that_is_accepted_proves_a_restarted_engine() {
+    for accepted in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let world = World::default();
+        let (mut wb, old) = analysing(dir.path(), &world);
+        wb.engine_input(old, EngineInput::Exited(Some(1)));
+        let new = world.last();
+        serve(&mut wb, &world, new);
+        let path = dir.path().join("a.sgf");
+        std::fs::write(&path, "(;SZ[19];B[pd];W[dd];B[pp];W[dp])").unwrap();
+        wb.open_batch(BatchMode::Ordinary, vec![path.to_string_lossy().into_owned()], OpenSource::Chooser).unwrap();
+        let deliver = |wb: &mut Workbench| {
+            for (ticket, path, no_capture) in wb.take_batch_reads() {
+                assert!(wb.complete_batch_read(ticket, formats::read_file(&path, no_capture)));
+            }
+        };
+        deliver(&mut wb);
+        let settings = AutoAnalysisSettings { visits_enabled: true, visits: 1000, time_enabled: false, auto_save: false, ..Default::default() };
+        wb.start_batch_ordinary(settings).unwrap().unwrap();
+        deliver(&mut wb);
+        serve(&mut wb, &world, new);
+        assert!(wb.view(false).batch.running.is_some());
+        if accepted {
+            info(&mut wb, new, 5);
+        } else {
+            out(&mut wb, new, "info rootInfo visits 5 winrate 0.5 scoreLead 0.5");
+        }
+        let before = world.launched().len();
+        wb.engine_input(new, EngineInput::Exited(Some(1)));
+        assert_eq!(world.launched().len(), before + usize::from(accepted), "accepted line: {accepted}");
+    }
 }

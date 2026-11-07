@@ -614,13 +614,14 @@ importing the matching LizzieYzy Next settings.
   the winrate graph. The next game of a batch starts only after both engines confirmed they are
   given back (parameters and rules the match changed are restored; a refusal or missing
   confirmation marks the engine unrestored and stops the batch); an engine exit retires the
-  game and ends the batch, after which that engine starts again (in the foreground seat when it
-  held it, synced to the position then shown); a failure to start it is only logged and it is
-  not tried again. While a match runs, opening records, browsing, engine switching,
-  editing and the other analysis modes are refused. Differences from Java: results are always
-  SGF `B+R` / `W+R`; the batch summary lists each engine's own settings after colours are
-  exchanged (Java mixed the black and white sides there); a custom batch folder name made only
-  of dots or separators is refused, so files stay under `EngineGames`.
+  game and ends the batch (the exit is logged, without the 引擎异常关闭 window), after which that
+  engine starts again (in the foreground seat when it held it, synced to the position then
+  shown); a failure to start it is only logged and it is not tried again. While a match runs,
+  opening records, browsing, engine switching, editing and the other analysis modes are refused.
+  Differences from Java: results are always SGF `B+R` / `W+R`; the batch summary lists each
+  engine's own settings after colours are exchanged (Java mixed the black and white sides there);
+  a custom batch folder name made only of dots or separators is refused, so files stay under
+  `EngineGames`.
 - AI 陪练 (HumanSL; the menu bar's AI 陪练 button, 棋局 > 新建对局 > AI 陪练, function search): a
   game against KataGo's human-imitation (HumanSL) network on the main board. The setup dialog
   follows Java: 训练方式 (实战后复盘 hides candidates, the winrate graph, Kata形势, policy and
