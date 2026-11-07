@@ -1,23 +1,26 @@
-//! Application flow for engines and analysis: which engine is in the foreground, the user's
-//! analysis pause, analysis limits, the stored analysis of the open document, and the engine
-//! settings. The engine runtime owns processes and protocol; this module decides what the
-//! foreground engine should do and where its results belong.
+//! Application flow for engines and analysis: which engine is in the foreground, 双引擎模式's
+//! secondary engine, the user's analysis pause, analysis limits, the stored analysis of the open
+//! document, and the engine settings. The engine runtime owns processes and protocol; this
+//! module decides what the foreground and the secondary engine should do and where their
+//! results belong.
 //!
 //! Results are stored on the node they were requested for, even when the user has moved on
 //! (a valid result for another node is history, not noise); only the current node's results are
 //! shown as current analysis. Results for a document that is no longer open, or for a komi that
-//! no longer applies, are dropped.
+//! no longer applies, are dropped. Each engine's results go to its own store: the secondary
+//! engine is never taken for the foreground engine.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use super::Workbench;
 use crate::api::{
     ApiError, CandidateView, ConsoleLineKind, ConsoleLineView, EngineEntryView, EngineFailureView, EngineNotice,
     EngineScope, EngineSettingsView, EngineState, EngineView, ErrorKind, ForegroundEngineView, HistoryPoint,
-    NodeAnalysisView, RulesPromptView,
+    NodeAnalysisView, RulesPromptView, SecondaryEngineView, SecondaryView,
 };
 use crate::browse::Navigation;
+use crate::display::{self, BoardOverlayView};
 use crate::engine::gtp::InfoLine;
 use crate::engine::profile::{new_profile_id, AnalysisSettings, EngineProfile, EngineStartup};
 use crate::engine::rules::KataRules;
@@ -27,6 +30,12 @@ use crate::engine::runtime::{
 };
 use crate::record::{BoardSize, DocumentEdit, GameRecord, NodeId, Position, Stone, ROOT};
 use crate::sanitize::sanitize;
+use crate::settings::ExtraMode;
+use crate::viewpoint::{ShownValues, Viewpoint};
+
+/// What a rules decision is about: the session rules revision, the foreground engine and the
+/// 双引擎模式 secondary engine taking part (`SessionRulesSynchronizer` checks both endpoints).
+pub(super) type RulesKey = (u64, InstanceId, Option<InstanceId>);
 
 /// The rules the open session asks for (`BoardHistoryList.SessionRulesTarget`).
 #[derive(Clone, Debug, Default)]
@@ -40,17 +49,130 @@ pub(super) enum SessionRules {
     Invalid { raw: String },
 }
 
-/// Analysis stored for the open document (`BoardData` of every node).
+/// Analysis stored for the open document (`BoardData` of every node). Each result keeps the
+/// stamp of the node it was made for: after an edit only results whose node is still in the
+/// record with the same stamp (the same position) count.
 #[derive(Default)]
 pub(super) struct AnalysisStore {
     doc: u64,
-    nodes: HashMap<NodeId, NodeAnalysisView>,
+    nodes: HashMap<NodeId, (u64, NodeAnalysisView)>,
+    /// The Kata形势 ownership (`BoardData.estimateArray`), Black-positive: read from a saved
+    /// payload, or reported live while ownership was requested.
+    ownership: HashMap<NodeId, Vec<f64>>,
+    metadata: HashMap<NodeId, crate::formats::saved_analysis::Metadata>,
+    /// Results the next live result replaces even with fewer visits (`BoardData.isChanged`): a
+    /// 强制计算区域 changed the search they were made with.
+    stale: HashSet<NodeId>,
 }
 
 impl AnalysisStore {
     pub(super) fn reset(&mut self, doc: u64) {
         self.doc = doc;
         self.nodes.clear();
+        self.ownership.clear();
+        self.metadata.clear();
+        self.stale.clear();
+    }
+
+    pub(super) fn get(&self, rec: &GameRecord, node: NodeId) -> Option<&NodeAnalysisView> {
+        let (stamp, view) = self.nodes.get(&node)?;
+        (rec.contains(node) && rec.node(node).stamp == *stamp).then_some(view)
+    }
+
+    pub(super) fn ownership(&self, rec: &GameRecord, node: NodeId) -> Option<&Vec<f64>> {
+        self.get(rec, node)?;
+        self.ownership.get(&node)
+    }
+
+    /// Replaces the node's result and its ownership (none when the result has none).
+    pub(super) fn insert(&mut self, node: NodeId, stamp: u64, view: NodeAnalysisView, ownership: Option<Vec<f64>>) {
+        self.nodes.insert(node, (stamp, view));
+        self.metadata.remove(&node);
+        self.stale.remove(&node);
+        match ownership {
+            Some(o) => self.ownership.insert(node, o),
+            None => self.ownership.remove(&node),
+        };
+    }
+
+    /// Drops results whose node was removed or edited.
+    pub(super) fn retain_valid(&mut self, rec: &GameRecord) {
+        self.nodes
+            .retain(|&node, (stamp, _)| rec.contains(node) && rec.node(node).stamp == *stamp);
+        let nodes = &self.nodes;
+        self.ownership.retain(|node, _| nodes.contains_key(node));
+        self.metadata.retain(|node, _| nodes.contains_key(node));
+        self.stale.retain(|node| nodes.contains_key(node));
+    }
+
+    /// `clearBestMovesAfter(start)`: every stored result gives way to the next live one.
+    pub(super) fn invalidate_all(&mut self) {
+        self.stale = self.nodes.keys().copied().collect();
+    }
+
+    /// `clearbestmoves`: the node's stored result gives way to the next live one.
+    pub(super) fn invalidate(&mut self, node: NodeId) {
+        if self.nodes.contains_key(&node) {
+            self.stale.insert(node);
+        }
+    }
+
+    pub(super) fn is_stale(&self, node: NodeId) -> bool {
+        self.stale.contains(&node)
+    }
+
+    pub(super) fn doc(&self) -> u64 {
+        self.doc
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+
+    /// Some result carries a KataGo score (`Board.isContainsKataData`).
+    pub(super) fn has_scores(&self) -> bool {
+        self.nodes.values().any(|(_, v)| v.score_lead.is_some())
+    }
+
+    pub(super) fn pda(&self, node: NodeId) -> f64 {
+        self.metadata.get(&node).map_or(0.0, |m| m.pda)
+    }
+
+    pub(super) fn payload(&self, rec: &GameRecord, node: NodeId) -> Option<String> {
+        let a = self.get(rec, node)?;
+        Some(crate::formats::saved_analysis::write(a, rec.size,
+            self.metadata.get(&node).copied().unwrap_or_default(), self.ownership(rec, node)))
+    }
+
+    /// The analysis saved under `tags` in every node of `rec`.
+    pub(super) fn load(
+        &mut self,
+        rec: &GameRecord,
+        tags: [&str; 2],
+        settings: &AnalysisSettings,
+        no_sugg_circle: bool,
+    ) {
+        let max = if settings.limit_max_suggestion > 0 && !no_sugg_circle {
+            settings.limit_max_suggestion as usize
+        } else { 361 };
+        let mut pending = vec![ROOT];
+        while let Some(id) = pending.pop() {
+            let node = rec.node(id);
+            pending.extend(node.children.iter().copied());
+            if let Some(p) = crate::formats::saved_analysis::load(
+                &node.properties,
+                tags,
+                id,
+                rec.size,
+                node.to_play,
+                rec.info.komi,
+                max,
+                settings.limit_branch_length,
+            ) {
+                self.insert(id, node.stamp, p.view, p.ownership);
+                self.metadata.insert(id, p.metadata);
+            }
+        }
     }
 }
 
@@ -60,11 +182,26 @@ pub struct LogLine {
     pub text: String,
 }
 
-fn node_analysis(node: NodeId, to_play: Stone, komi: f64, engine: String, line: InfoLine) -> Option<NodeAnalysisView> {
+/// KataGo ownership of the side to move, Black-positive and rounded to thousandths (the
+/// painters use it as an alpha of at most 255 levels).
+fn black_ownership(values: Vec<f64>, to_play: Stone) -> Vec<f64> {
+    let sign = if to_play == Stone::Black { 1.0 } else { -1.0 };
+    values.into_iter().map(|v| (v * sign * 1000.0).round() / 1000.0 + 0.0).collect()
+}
+
+/// A reported line as a stored result and its Black-positive ownership.
+pub(super) fn node_analysis(
+    node: NodeId,
+    to_play: Stone,
+    komi: f64,
+    engine: String,
+    line: InfoLine,
+) -> Option<(NodeAnalysisView, Option<Vec<f64>>)> {
     let best = line.candidates.first()?;
     let (winrate, score_lead, score_stdev) = (best.winrate, best.score_lead, best.score_stdev);
     let visits = line.candidates.iter().map(|c| c.visits).sum();
-    Some(NodeAnalysisView {
+    let ownership = line.ownership.map(|o| black_ownership(o, to_play));
+    let view = NodeAnalysisView {
         node,
         engine,
         to_play,
@@ -88,37 +225,31 @@ fn node_analysis(node: NodeId, to_play: Stone, komi: f64, engine: String, line: 
                 lcb: c.lcb,
                 order: c.order,
                 pv: c.pv,
+                pv_visits: c.pv_visits,
                 pv_captures: Vec::new(),
+                shown: ShownValues::default(),
+                side_to_move: ShownValues::default(),
+                ownership: c.ownership.map(|o| black_ownership(o, to_play)),
             })
             .collect(),
-    })
+        black: ShownValues::default(),
+    };
+    Some((view, ownership))
 }
 
 /// Plays every candidate's variation out from `base` (`Branch`, at most `limit` moves; 0 = the
-/// whole variation): what each move captures.
-fn fill_pv_captures(result: &mut NodeAnalysisView, base: &Position, limit: u32) {
-    let limit = if limit == 0 { usize::MAX } else { limit as usize };
+/// whole variation): what each move captures; nothing under `no-capture`. Whether the board
+/// removes them (变化图中去掉死子, `removeDeadChainInVariation`) is the drawing's choice, so a kept
+/// (frozen) preview follows that setting at once (`withSimulation`).
+pub(super) fn fill_pv_captures(result: &mut NodeAnalysisView, base: &Position, limit: u32, capture: bool) {
     for c in &mut result.candidates {
-        let mut pos = base.clone();
-        let mut color = result.to_play;
-        c.pv_captures =
-            c.pv.iter()
-                .take(limit)
-                .map(|mv| {
-                    let mut captured = Vec::new();
-                    if let Some(p) = *mv {
-                        pos.place(color, p, &mut captured);
-                    }
-                    color = color.opposite();
-                    captured
-                })
-                .collect();
+        c.pv_captures = display::pv_captures(base, result.to_play, &c.pv, limit, capture);
     }
 }
 
 /// `BoardData.adoptOrdinaryAnalysis` with the cache on: a result replaces the stored one only
 /// with more visits (root visits when both report them).
-fn more_visits(new: &NodeAnalysisView, old: &NodeAnalysisView) -> bool {
+pub(super) fn more_visits(new: &NodeAnalysisView, old: &NodeAnalysisView) -> bool {
     match (new.root_visits, old.root_visits) {
         (Some(n), Some(o)) => n > o,
         _ => new.visits > old.visits,
@@ -150,9 +281,11 @@ impl Workbench {
         }
     }
 
-    /// Exit: every engine is ended (quit, then killed after the grace period). The platform
-    /// adapter waits for the processes outside the workbench lock.
+    /// Exit: every engine is ended (quit, then killed after the grace period) and the batch with
+    /// them, so a read still in flight starts nothing. The platform adapter waits for the
+    /// processes outside the workbench lock.
     pub fn end_engines(&mut self) {
+        self.batch_shutdown();
         self.engines.terminate_all();
     }
 
@@ -168,60 +301,105 @@ impl Workbench {
         self.logs.push(LogLine { warn, text });
     }
 
-    // -------------------------------------------------------------------- the foreground wish
+    // -------------------------------------------------------------------- the engines' wishes
 
-    fn analysis_target(&self) -> Target {
+    /// The session rules the engines are given: the record's valid declaration, unless overridden.
+    pub(super) fn target_rules(&self) -> Option<&KataRules> {
+        match &self.session_rules {
+            SessionRules::Valid { rules, .. } if !self.rules_overridden() => Some(rules),
+            _ => None,
+        }
+    }
+
+    pub(super) fn analysis_target(&self) -> Target {
         Target {
             doc: self.doc.id,
             node: self.cursor,
             record: self.doc.record.clone(),
             komi: self.komi,
-            rules: match &self.session_rules {
-                SessionRules::Valid { rules, .. } if !self.rules_overridden() => Some(rules.clone()),
-                _ => None,
-            },
+            rules: self.target_rules().cloned(),
             rules_rev: self.rules_revision,
         }
     }
 
-    /// The user chose to analyse this session with the foreground engine's current rules.
-    fn rules_overridden(&self) -> bool {
+    /// The position the foreground engine is given: 批量分析's record while it runs there, else
+    /// the browsing position.
+    pub(super) fn foreground_target(&self) -> Target {
+        if self.auto_analysis_holds_foreground() {
+            if let Some(target) = self.batch_target() {
+                return target;
+            }
+        }
+        self.analysis_target()
+    }
+
+    /// 双引擎模式 is shown: the secondary engine analyses with the foreground engine.
+    pub(super) fn double_engine(&self) -> bool {
+        self.config.ui.extra_mode == ExtraMode::DoubleEngine
+    }
+
+    /// The secondary engine whose rules take part: 双引擎模式 with a secondary engine that has
+    /// started up (one still loading does not hold back the foreground engine).
+    fn rules_secondary(&self) -> Option<InstanceId> {
         self.engines
-            .foreground()
-            .is_some_and(|fg| self.rules_override == Some((self.rules_revision, fg)))
+            .secondary()
+            .filter(|&s| self.double_engine() && self.engines.phase(s) == Some(Phase::Ready))
+    }
+
+    fn rules_key(&self) -> Option<RulesKey> {
+        Some((self.rules_revision, self.engines.foreground()?, self.rules_secondary()))
+    }
+
+    /// The user chose to analyse this session with the engines' current rules.
+    fn rules_overridden(&self) -> bool {
+        self.rules_key().is_some_and(|key| self.rules_override == Some(key))
     }
 
     /// `SessionRulesSynchronizer.permitsOrdinaryAnalysis`: no declared rules, an explicit
-    /// continue, or the engine confirmed exactly the declared rules.
+    /// continue, or the foreground engine and a taking-part secondary engine both confirmed
+    /// exactly the declared rules.
     fn rules_permit_analysis(&self) -> bool {
-        let Some(fg) = self.engines.foreground() else {
+        let Some((_, fg, secondary)) = self.rules_key() else {
             return true;
         };
         match &self.session_rules {
             SessionRules::Unspecified => true,
             _ if self.rules_overridden() => true,
-            SessionRules::Valid { rules, .. } => self.engines.rules_outcome(fg, rules) == RulesOutcome::Confirmed,
+            SessionRules::Valid { rules, .. } => [Some(fg), secondary]
+                .into_iter()
+                .flatten()
+                .all(|id| self.engines.rules_outcome(id, rules) == RulesOutcome::Confirmed),
             SessionRules::Invalid { .. } => false,
         }
     }
 
-    /// Asks once per (rules target, engine) when the declared rules cannot be applied
-    /// (`offerContinueAfterRulesFailure` / `requestLifecycleRulesOverride`).
+    /// Asks once per (rules target, engines) when the declared rules cannot be applied
+    /// (`offerContinueAfterRulesFailure` / `requestLifecycleRulesOverride`); a secondary engine
+    /// that cannot apply them asks too (`rulesFailure = mirrorRules`).
     fn check_rules_prompt(&mut self) {
-        let Some(fg) = self.engines.foreground() else { return };
+        let Some(key @ (_, fg, secondary)) = self.rules_key() else {
+            return;
+        };
         if self.engines.phase(fg) != Some(Phase::Ready) || self.rules_permit_analysis() {
             return;
         }
-        let key = (self.rules_revision, fg);
         if self.rules_prompted == Some(key) {
             return;
         }
-        let (target, failure) = match &self.session_rules {
-            SessionRules::Invalid { raw } => (raw.clone(), "INVALID_DECLARATION"),
-            SessionRules::Valid { raw, rules } => match self.engines.rules_outcome(fg, rules) {
-                RulesOutcome::Failed(f) => (raw.clone().unwrap_or_else(|| rules.field_summary()), f),
-                _ => return,
-            },
+        let (target, failure, engine) = match &self.session_rules {
+            SessionRules::Invalid { raw } => (raw.clone(), "INVALID_DECLARATION", fg),
+            SessionRules::Valid { raw, rules } => {
+                let failed = [Some(fg), secondary].into_iter().flatten().find_map(|id| {
+                    match self.engines.rules_outcome(id, rules) {
+                        RulesOutcome::Failed(f) => Some((id, f)),
+                        _ => None,
+                    }
+                });
+                match failed {
+                    Some((id, f)) => (raw.clone().unwrap_or_else(|| rules.field_summary()), f, id),
+                    None => return,
+                }
+            }
             SessionRules::Unspecified => return,
         };
         self.rules_prompted = Some(key);
@@ -230,17 +408,17 @@ impl Workbench {
         self.rules_prompt = Some(RulesPromptView {
             prompt: self.next_prompt,
             target,
-            observed: self.engines.confirmed_rules(fg).map(KataRules::field_summary),
+            observed: self.engines.confirmed_rules(engine).map(KataRules::field_summary),
             failure: failure.to_string(),
         });
     }
 
-    /// YES: analyse with the engine's current rules for this target and engine. NO: pause.
+    /// YES: analyse with the engines' current rules for this target and engines. NO: pause.
     pub fn answer_rules_prompt(&mut self, prompt: u64, accept: bool) -> bool {
         let Some((_, key)) = self.pending_prompt.take_if(|(id, _)| *id == prompt) else {
             return false;
         };
-        if self.engines.foreground().map(|fg| (self.rules_revision, fg)) != Some(key) {
+        if self.rules_key() != Some(key) {
             return false; // another document, rules or engine since the question
         }
         if accept {
@@ -269,16 +447,44 @@ impl Workbench {
         self.pending_prompt = None;
     }
 
-    /// Tells the runtime what the foreground engine should do now.
+    /// Tells the runtime what the foreground and the secondary engine should do now. Both hold
+    /// the browsing position; the secondary engine analyses only in 双引擎模式 and only while the
+    /// foreground engine may (the user's pause and a foreground limit stop it too, as Java
+    /// mirrors the primary engine's commands), and stops alone at its own limit.
     pub(super) fn sync_engine(&mut self) {
         let here = (self.doc.id, self.cursor);
+        // Java resumes after a limit stop once the position changes.
         if self.limit_stop.is_some_and(|l| l != here) {
-            // Java resumes after a limit stop once the position changes.
             self.limit_stop = None;
         }
-        let analyse =
-            !self.paused && !self.benchmark_running() && self.limit_stop.is_none() && self.rules_permit_analysis();
+        if self.secondary_limit_stop.is_some_and(|l| l != here) {
+            self.secondary_limit_stop = None;
+        }
+        // 批量分析 analyses its own record with the foreground engine (the user's pause stops it,
+        // as Java's ponder toggle does); the secondary engine stays idle meanwhile.
+        if self.auto_analysis_holds_foreground() {
+            let analyse = !self.paused && !self.benchmark_running() && !self.quick_holds_foreground();
+            self.engines.want_secondary(None, false);
+            self.engines.want(Some(self.foreground_target()), analyse);
+            return;
+        }
+        // A running quick analysis leaves the foreground engine idle until it ends.
+        let analyse = !self.paused
+            && !self.benchmark_running()
+            && self.limit_stop.is_none()
+            && !self.quick_holds_foreground()
+            && !self.flash_holds_foreground()
+            && !self.whole_game_holds_foreground()
+            && !self.batch_holds_foreground()
+            && self.rules_permit_analysis();
         let target = self.analysis_target();
+        self.sync_search(analyse);
+        if self.double_engine() {
+            self.engines
+                .want_secondary(Some(target.clone()), analyse && self.secondary_limit_stop.is_none());
+        } else {
+            self.engines.want_secondary(None, false);
+        }
         self.engines.want(Some(target), analyse);
         self.check_rules_prompt();
     }
@@ -298,11 +504,11 @@ impl Workbench {
     /// record (`shouldApplyInitialEngineKomiToCurrentGame`, `boardEmpty`).
     fn game_is_empty(&self) -> bool {
         let rec = &self.doc.record;
-        self.doc.format.is_none() && rec.node_count() == 1 && rec.node(ROOT).setup.is_empty()
+        self.doc.format.is_none() && !rec.has_children_of_root() && rec.node(ROOT).setup.is_empty()
     }
 
-    /// `Board.reopenOnlyBoard`: an empty game of another size replaces the empty one.
-    fn reopen_empty_board(&mut self, size: BoardSize) {
+    /// `Board.reopenOnlyBoard` / `clear`: a new empty game of `size` replaces the open one.
+    pub(super) fn reopen_empty_board(&mut self, size: BoardSize) {
         let id = self.next_doc;
         self.next_doc += 1;
         self.doc = super::Document {
@@ -312,20 +518,34 @@ impl Workbench {
             path: None,
             revision: 0,
             saved_revision: None,
+            origin_name: None,
         };
         self.cursor = ROOT;
-        self.store.reset(id);
+        self.sounds.clear();
+        self.quick_cancel();
+        self.flash_document_closing();
+        self.auto_analysis_document_replaced();
+        self.whole_game_document_closing();
+        self.reset_analysis();
+        self.reset_editing();
         self.publish_record_rules(None);
     }
 
     // -------------------------------------------------------------------- engine operations
 
     /// Engine menu `[n] name`: the engine becomes the foreground engine; a running instance (kept
-    /// or preloaded) is reused. The previous one keeps running with fast engine change.
+    /// or preloaded) is reused. The previous one keeps running with fast engine change. Every
+    /// foreground start goes through here, so none starts during setup mode
+    /// (`EngineManager.setupModeActive`).
     pub fn switch_engine(&mut self, index: u32) -> Result<bool, ApiError> {
         let Some(profile) = self.config.engine.engines.get(index as usize).cloned() else {
             return Err(ApiError::new(ErrorKind::InvalidArgument, format!("no engine {index}")));
         };
+        if self.setup_mode() {
+            // Changed: the notice is part of the next view.
+            self.engine_notice = Some(EngineNotice::SetupModeActive);
+            return Ok(true);
+        }
         let current = self
             .engines
             .foreground()
@@ -333,6 +553,11 @@ impl Workbench {
             .map(|p| p.id.clone());
         if current.as_deref() == Some(profile.id.as_str()) {
             return Ok(false);
+        }
+        if self.double_engine() && self.secondary_profile().as_deref() == Some(profile.id.as_str()) {
+            // `rejectSameEngineSelection`: the notice is part of the next view.
+            self.engine_notice = Some(EngineNotice::SameEngine);
+            return Ok(true);
         }
         // An engine's board size applies to a new empty game (`reopenOnlyBoard`).
         let size = BoardSize {
@@ -346,6 +571,8 @@ impl Workbench {
         // once for a running engine, for a new one when it is ready and the game still empty.
         let target_komi = if self.komi_changed { self.komi } else { profile.komi };
         self.start_komi = None;
+        self.auto_analysis_abandon();
+        self.quick_engine_changed();
         let instance = match self.engines.instance_of(&profile.id) {
             Some(i) => {
                 self.apply_komi(target_komi);
@@ -375,6 +602,7 @@ impl Workbench {
             let _ = self.commit_config(|c| c.engine.last_engine = Some(id));
         }
         self.sync_engine();
+        self.drain_engine_events();
         Ok(true)
     }
 
@@ -386,6 +614,8 @@ impl Workbench {
         let Some(id) = self.engines.profile_of(fg).map(|p| p.id.clone()) else {
             return Ok(false);
         };
+        self.quick_engine_changed();
+        self.auto_analysis_abandon();
         self.engines.terminate(fg);
         let Some(index) = self.config.engine.index_of(&id) else {
             return Ok(true);
@@ -407,15 +637,133 @@ impl Workbench {
                 EngineScope::All => true,
             })
             .collect();
+        if fg.is_some_and(|f| targets.contains(&f)) {
+            self.auto_analysis_abandon();
+            self.quick_engine_changed();
+        }
         for id in &targets {
             self.engines.terminate(*id);
         }
+        self.drain_engine_events();
         !targets.is_empty()
+    }
+
+    /// The profile id of the secondary engine.
+    fn secondary_profile(&self) -> Option<String> {
+        self.engines
+            .secondary()
+            .and_then(|s| self.engines.profile_of(s))
+            .map(|p| p.id.clone())
+    }
+
+
+    /// Secondary engine menu `[n] name` (`switchEngine(index, false)`): only in 双引擎模式, never
+    /// the foreground engine (`rejectSameEngineSelection`). A running instance (kept or
+    /// preloaded) is reused; a new one starts with the game komi (`targetKomi = frame.komi`).
+    /// The previous secondary engine keeps running with fast engine change, and is chosen again
+    /// if the new one fails while starting (`rollbackSecondaryEngineSelection`).
+    pub fn switch_secondary_engine(&mut self, index: u32) -> Result<bool, ApiError> {
+        let Some(profile) = self.config.engine.engines.get(index as usize) else {
+            return Err(ApiError::new(ErrorKind::InvalidArgument, format!("no engine {index}")));
+        };
+        if !self.double_engine() || self.secondary_profile().as_deref() == Some(profile.id.as_str()) {
+            return Ok(false);
+        }
+        // `submitEngineSwitchIfAvailable` refuses every engine switch during setup mode, the
+        // secondary one included (a restart of the chosen one is not refused).
+        if self.setup_mode() {
+            self.engine_notice = Some(EngineNotice::SetupModeActive);
+            return Ok(true);
+        }
+        let foreground = self
+            .engines
+            .foreground()
+            .and_then(|f| self.engines.profile_of(f))
+            .map(|p| p.id.clone());
+        if foreground.as_deref() == Some(profile.id.as_str()) {
+            self.engine_notice = Some(EngineNotice::SameEngine);
+            return Ok(true);
+        }
+        self.seat_secondary(index);
+        self.sync_engine();
+        Ok(true)
+    }
+
+    /// Makes engine `index` (a listed engine other than the foreground one) the secondary
+    /// engine: a running instance is reused, a new one started; a failed start leaves the seat
+    /// as it was.
+    fn seat_secondary(&mut self, index: u32) {
+        let profile = self.config.engine.engines[index as usize].clone();
+        let instance = match self.engines.instance_of(&profile.id) {
+            Some(i) => i,
+            None => match self.engines.start(&profile, self.bootstrap(&profile)) {
+                Ok(i) => {
+                    self.log(
+                        false,
+                        format!(
+                            "secondary engine start [{}] {}",
+                            profile.name,
+                            sanitize(&profile.command)
+                        ),
+                    );
+                    i
+                }
+                Err(f) => {
+                    self.engine_failed(*f);
+                    return;
+                }
+            },
+        };
+        let keep = self.config.engine.analysis.fast_engine_change;
+        self.secondary_fallback = match self.engines.secondary() {
+            Some(p) if keep && self.engines.phase(instance) != Some(Phase::Ready) => Some((instance, p)),
+            _ => None,
+        };
+        self.secondary_limit_stop = None;
+        self.secondary_limit_tip_shown = false;
+        self.engines.set_secondary(Some(instance), keep);
+    }
+
+    /// Secondary engine menu > "重启当前引擎" (`restartEngine2`): a new process of the same
+    /// engine, synced to the current position.
+    pub fn restart_secondary_engine(&mut self) -> Result<bool, ApiError> {
+        let Some(secondary) = self.engines.secondary() else {
+            return Ok(false);
+        };
+        let Some(id) = self.secondary_profile() else {
+            return Ok(false);
+        };
+        self.engines.terminate(secondary);
+        self.secondary_fallback = None;
+        if let Some(index) = self.config.engine.index_of(&id) {
+            self.seat_secondary(index as u32);
+        }
+        self.sync_engine();
+        Ok(true)
+    }
+
+    /// Secondary engine menu > "关闭当前引擎" (`killThisEngines2`): the process ends and no
+    /// secondary engine is chosen; its stored results stay.
+    pub fn shutdown_secondary_engine(&mut self) -> bool {
+        let Some(secondary) = self.engines.secondary() else {
+            return false;
+        };
+        self.engines.terminate(secondary);
+        self.secondary_fallback = None;
+        self.sync_engine();
+        true
     }
 
     /// User pause / resume (`togglePonderMannul`). Resuming also restarts an analysis a limit
     /// stopped. Never written to disk.
     pub fn toggle_analysis(&mut self) -> Result<bool, ApiError> {
+        if self.auto_analysis_toggle_pause() { return Ok(true); }
+        if self.quick_toggle_pause() || self.flash_toggle_pause() || self.whole_game_toggle_pause() || self.batch_toggle_pause() {
+            self.limit_stop = None;
+            self.secondary_limit_stop = None;
+            self.sync_engine();
+            return Ok(true);
+        }
         if self.engines.foreground().is_none() {
             // Java retries the unavailable primary engine.
             if let Some(i) = self
@@ -434,14 +782,65 @@ impl Workbench {
             self.stop_benchmark();
         }
         self.limit_stop = None;
+        self.secondary_limit_stop = None;
         self.sync_engine();
         Ok(true)
+    }
+
+    /// Java enables pondering when H is turned on; switching H off resumes the same analysis
+    /// path as an ordinary resume, including limits and session-rules handling.
+    pub fn toggle_raw_net(&mut self) -> bool {
+        if !self.engines.toggle_raw_net(self.double_engine()) {
+            return false;
+        }
+        self.paused = false;
+        self.limit_stop = None;
+        self.secondary_limit_stop = None;
+        self.sync_engine();
+        true
+    }
+
+    pub fn stop_raw_net(&mut self) -> bool {
+        if !self.engines.stop_raw_net() { return false; }
+        self.paused = false;
+        self.limit_stop = None;
+        self.secondary_limit_stop = None;
+        self.sync_engine();
+        true
+    }
+
+    pub(super) fn raw_net_view(&self) -> Option<crate::engine::raw_net::RawNetView> {
+        self.engines.raw_net_view(&self.analysis_target())
+    }
+
+    /// Drops every stored result of both engines for a new document or analysis context.
+    pub(super) fn reset_analysis(&mut self) {
+        self.store.reset(self.doc.id);
+        self.secondary_store.reset(self.doc.id);
+    }
+
+    /// Java's `clearBestMovesAfter(start)` for a changed analysis context (komi, manual rules):
+    /// the secondary engine's results only go in 双引擎模式; otherwise they are kept and saved.
+    fn clear_best_moves(&mut self) {
+        self.store.reset(self.doc.id);
+        if self.double_engine() {
+            self.secondary_store.reset(self.doc.id);
+        }
+    }
+
+    /// Drops both engines' results whose node was removed or edited.
+    pub(super) fn retain_valid_analysis(&mut self) {
+        self.store.retain_valid(&self.doc.record);
+        self.secondary_store.retain_valid(&self.doc.record);
     }
 
     /// The game komi chosen by the user (toolbar field, console `komi`): recorded in the game,
     /// sent to the engine, and engine profiles no longer change it (`GameInfo.changeKomi`) — not
     /// even a starting engine's, which Java would still apply once it is ready.
     pub fn set_komi(&mut self, komi: f64) -> Result<bool, ApiError> {
+        if self.whole_game_active() {
+            return Err(ApiError::new(ErrorKind::InvalidArgument, "WholeGameAnalysis.conflict.analysis"));
+        }
         if !komi.is_finite() {
             return Err(ApiError::new(ErrorKind::InvalidArgument, "komi"));
         }
@@ -454,7 +853,7 @@ impl Workbench {
         Ok(true)
     }
 
-    /// Every komi change of the game: the document records it and every stored analysis of the
+    /// Every komi change of the game: the document records it and the stored analysis of the
     /// game is discarded (`clearBestMovesAfter(start)`).
     fn apply_komi(&mut self, komi: f64) -> bool {
         let recorded = matches!(self.edit_document(DocumentEdit::SetKomi { komi }), Ok(true));
@@ -462,7 +861,7 @@ impl Workbench {
             return false;
         }
         self.komi = komi;
-        self.store.reset(self.doc.id);
+        self.clear_best_moves();
         self.limit_stop = None;
         true
     }
@@ -489,7 +888,7 @@ impl Workbench {
             c.engine.auto_load_kata_rules = auto_load;
         })?;
         // A manual rules choice discards every stored analysis (`clearBestMovesAfter(start)`).
-        self.store.reset(self.doc.id);
+        self.clear_best_moves();
         self.session_rules = SessionRules::Valid {
             raw: None,
             rules: parsed,
@@ -517,7 +916,7 @@ impl Workbench {
             }
             _ => {}
         }
-        match self.engines.send_user(command) {
+        match self.engines.send_user(command, self.double_engine()) {
             Ok(()) => Ok(None),
             Err(UserCommandError::Empty) => Ok(Some("")),
             Err(UserCommandError::NoEngine) => Ok(Some("LizzieFrame.setParamNoEngineHint")),
@@ -590,17 +989,23 @@ impl Workbench {
         let settings = &self.config.engine.analysis;
         self.engines.set_interval(settings.interval_centisec);
         if settings.limit_branch_length != previous.limit_branch_length {
-            let length = settings.limit_branch_length;
-            let record = self.doc.record.clone();
-            for (node, result) in self.store.nodes.iter_mut() {
-                fill_pv_captures(result, &record.position(*node), length);
-            }
+            self.refresh_pv_captures();
+        }
+    }
+
+    /// Plays the variations of stored analysis out again under the current length and rules.
+    pub(super) fn refresh_pv_captures(&mut self) {
+        let length = self.config.engine.analysis.limit_branch_length;
+        let capture = !self.config.edit.no_capture;
+        let record = self.doc.record.clone();
+        for (node, (_, result)) in self.store.nodes.iter_mut().chain(self.secondary_store.nodes.iter_mut()) {
+            fill_pv_captures(result, &record.position(*node), length, capture);
         }
     }
 
     /// Engine settings saved (MoreEngines close). New entries get ids, one default at most.
     /// Engines whose launch-relevant fields changed restart; removed ones end. The foreground
-    /// engine comes back as the foreground engine.
+    /// and the secondary engine come back in their seats (`updateEnginesWhileMarkedUpdating`).
     pub fn save_engine_settings(
         &mut self,
         mut engines: Vec<EngineProfile>,
@@ -631,7 +1036,8 @@ impl Workbench {
             .foreground()
             .and_then(|f| self.engines.profile_of(f))
             .map(|p| p.id.clone());
-        let mut restart_fg = None;
+        let secondary_profile = self.secondary_profile();
+        let (mut restart_fg, mut restart_secondary) = (None, None);
         for (instance, id, _) in self.engines.running() {
             let launch = |p: &EngineProfile| (p.command.clone(), p.initial_command.clone(), p.width, p.height);
             let before = old.iter().find(|p| p.id == id).map(launch);
@@ -642,10 +1048,17 @@ impl Workbench {
                 if fg_profile.as_deref() == Some(id.as_str()) {
                     restart_fg = after;
                 }
+                if secondary_profile.as_deref() == Some(id.as_str()) {
+                    restart_secondary = after;
+                }
             }
         }
         if let Some(i) = restart_fg {
             self.switch_engine(i as u32)?;
+        }
+        if let Some(i) = restart_secondary {
+            self.seat_secondary(i as u32);
+            self.sync_engine();
         }
         Ok(true)
     }
@@ -671,24 +1084,51 @@ impl Workbench {
         self.engine_events(events)
     }
 
-    /// When the engine runtime has timed protocol work next (see [`Self::engine_tick`]).
+    /// When timed work is due next: engine protocol timers and quick analysis (see
+    /// [`Self::engine_tick`]).
     pub fn engine_timer(&self) -> Option<std::time::Instant> {
-        self.engines.next_tick()
+        [self.engines.next_tick(), self.quick_deadline(), self.whole_game_deadline(), self.tracking_deadline()]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
-    /// Advances engine protocol timers; the platform calls it at [`Self::engine_timer`].
-    pub fn engine_tick(&mut self, now: std::time::Instant) {
-        self.engines.tick(now);
+    /// Advances engine protocol timers and quick analysis; the platform calls it at
+    /// [`Self::engine_timer`]. Returns whether the view changed.
+    pub fn engine_tick(&mut self, now: std::time::Instant) -> bool {
+        let events = self.engines.tick(now);
+        let engines = self.engine_events(events);
+        let quick = self.quick_tick(now);
+        let whole = self.whole_game_tick(now);
+        let tracking = self.tracking_tick(now);
+        engines | quick | whole | tracking
     }
 
-    fn engine_events(&mut self, events: Vec<RuntimeEvent>) -> bool {
+    /// Handles runtime events produced by operations outside engine output.
+    pub(super) fn drain_engine_events(&mut self) -> bool {
+        let events = self.engines.take_events();
+        !events.is_empty() && self.engine_events(events)
+    }
+
+    pub(super) fn engine_events(&mut self, events: Vec<RuntimeEvent>) -> bool {
         let mut changed = false;
         for ev in events {
             changed = true;
+            let Some(ev) = self
+                .quick_event(ev)
+                .and_then(|ev| self.flash_event(ev))
+                .and_then(|ev| self.whole_game_event(ev))
+                .and_then(|ev| self.batch_event(ev))
+            else {
+                continue;
+            };
             match ev {
                 RuntimeEvent::Ready { instance } => {
                     if let Some((name, version, _)) = self.engines.identity(instance) {
                         self.log(false, format!("engine ready: {name} {version}"));
+                    }
+                    if Some(instance) == self.engines.foreground() {
+                        self.quick_preload();
                     }
                     if let Some((_, komi)) = self.start_komi.take_if(|(i, _)| *i == instance) {
                         if self.game_is_empty() {
@@ -697,11 +1137,25 @@ impl Workbench {
                     }
                 }
                 RuntimeEvent::Rules { .. } => {}
-                RuntimeEvent::Failed(f) => self.engine_failed(f),
+                RuntimeEvent::RawNet { .. } => {}
+                RuntimeEvent::Failed(f) => {
+                    // A secondary engine that fails while starting gives its seat back to the
+                    // one it replaced, when that one still runs.
+                    if let Some((_, previous)) = self.secondary_fallback.take_if(|(new, _)| *new == f.instance) {
+                        if f.during_startup
+                            && self.engines.phase(previous).is_some()
+                            && self.engines.secondary().is_none()
+                        {
+                            self.engines.set_secondary(Some(previous), true);
+                        }
+                    }
+                    self.engine_failed(f);
+                }
                 RuntimeEvent::Analysis {
                     instance,
                     doc,
                     node,
+                    stamp,
                     komi,
                     rules_rev,
                     to_play,
@@ -709,9 +1163,16 @@ impl Workbench {
                     line,
                     elapsed,
                 } => {
-                    // Only the foreground engine's results count: a switched-away, preloaded or
-                    // background engine's late lines have no effect.
-                    if Some(instance) != self.engines.foreground() {
+                    // Only the foreground and the secondary engine's results count, each in its
+                    // own store: a switched-away, preloaded or background engine's late lines
+                    // have no effect.
+                    let secondary = Some(instance) == self.engines.secondary();
+                    if !secondary && Some(instance) != self.engines.foreground() {
+                        continue;
+                    }
+                    // 批量分析's record has its own store and run.
+                    if !secondary && Some(doc) == self.batch_doc_id() {
+                        self.batch_foreground_result(doc, node, stamp, komi, to_play, engine_name, line, elapsed);
                         continue;
                     }
                     if doc != self.doc.id
@@ -721,23 +1182,54 @@ impl Workbench {
                     {
                         continue; // another document, a komi or rules that no longer apply
                     }
-                    let Some(result) = node_analysis(node, to_play, komi, engine_name, line) else {
+                    if !self.doc.record.contains(node) || self.doc.record.node(node).stamp != stamp {
+                        continue; // the node was removed or edited since the request
+                    }
+                    let Some((result, ownership)) = node_analysis(node, to_play, komi, engine_name, line) else {
                         continue;
                     };
                     let visits = result.visits;
-                    let replace = self.store.nodes.get(&node).is_none_or(|old| more_visits(&result, old));
+                    let first_visits = result.candidates.first().map_or(0, |c| c.visits);
+                    // The foreground engine's line is the current search: 选点重点研究 counts its
+                    // candidates, and the tracked position shows its result.
+                    let tracked = !secondary
+                        && self.tracking_line(
+                            instance,
+                            (doc, node, stamp),
+                            result.candidates.iter().filter_map(|c| Some((c.point?, c.visits))),
+                        );
+                    let automatic = !secondary && self.auto_analysis_active();
+                    let rec = &self.doc.record;
+                    let store = if secondary {
+                        &mut self.secondary_store
+                    } else {
+                        &mut self.store
+                    };
+                    let replace = automatic
+                        || tracked
+                        || store.is_stale(node)
+                        || store.get(rec, node).is_none_or(|old| more_visits(&result, old));
                     if replace {
                         let mut result = result;
                         let limit = self.config.engine.analysis.limit_branch_length;
-                        fill_pv_captures(&mut result, &self.doc.record.position(node), limit);
-                        self.store.nodes.insert(node, result);
+                        fill_pv_captures(&mut result, &rec.position(node), limit, !self.config.edit.no_capture);
+                        store.insert(node, stamp, result, ownership);
                     }
-                    if node == self.cursor && !self.paused && self.limit_stop.is_none() {
-                        self.check_limits(visits, elapsed);
+                    let running = node == self.cursor
+                        && !self.paused
+                        && self.limit_stop.is_none()
+                        && !self.engines.raw_net_active();
+                    if running && !secondary {
+                        if automatic { self.auto_analysis_result(node, visits, first_visits, elapsed); }
+                        else { self.check_limits(visits, elapsed); }
+                    } else if running && self.secondary_limit_stop.is_none() {
+                        self.check_secondary_limits(visits, elapsed);
                     }
                 }
+                _ => {}
             }
         }
+        self.auto_analysis_poll();
         if changed {
             // Readiness, rules answers and failures can change what the engine should do.
             self.sync_engine();
@@ -745,10 +1237,9 @@ impl Workbench {
         changed
     }
 
-    /// `Leelaz` analysis limits: past the time or visit limit the analysis of this node stops
-    /// (it resumes when the position changes) and the notice is shown once per engine start. A
-    /// time limit of 0 means 9999 minutes (`Config.java:2153-2155`).
-    fn check_limits(&mut self, visits: u64, elapsed: std::time::Duration) {
+    /// `Leelaz` analysis limits: past the time or visit limit (`limit-playout`, `limit-time`).
+    /// A time limit of 0 means 9999 minutes (`Config.java:2153-2155`).
+    fn limit_reached(&self, visits: u64, elapsed: std::time::Duration) -> bool {
         let a = &self.config.engine.analysis;
         let limit_seconds = match a.max_analyze_time_seconds {
             0 => 9999 * 60,
@@ -756,12 +1247,32 @@ impl Workbench {
         };
         let by_visits = a.limit_playout && visits > a.limit_playouts;
         let by_time = a.limit_time && elapsed.as_secs_f64() > limit_seconds as f64;
-        if !(by_visits || by_time) {
+        by_visits || by_time
+    }
+
+    /// The foreground engine's limit stops the analysis of this node, the secondary engine's
+    /// too (it resumes when the position changes); the notice is shown once per engine start.
+    fn check_limits(&mut self, visits: u64, elapsed: std::time::Duration) {
+        if !self.limit_reached(visits, elapsed) {
             return;
         }
         self.limit_stop = Some((self.doc.id, self.cursor));
-        if a.show_ponder_limited_tips && !self.limit_tip_shown {
+        if self.config.engine.analysis.show_ponder_limited_tips && !self.limit_tip_shown {
             self.limit_tip_shown = true;
+            self.engine_notice = Some(EngineNotice::StoppedByLimit);
+        }
+        self.sync_engine();
+    }
+
+    /// The secondary engine's own limit stops only its analysis of this node (Java `leelaz2`
+    /// stops itself; the stop is not mirrored back), with the notice once per choice.
+    fn check_secondary_limits(&mut self, visits: u64, elapsed: std::time::Duration) {
+        if !self.limit_reached(visits, elapsed) {
+            return;
+        }
+        self.secondary_limit_stop = Some((self.doc.id, self.cursor));
+        if self.config.engine.analysis.show_ponder_limited_tips && !self.secondary_limit_tip_shown {
+            self.secondary_limit_tip_shown = true;
             self.engine_notice = Some(EngineNotice::StoppedByLimit);
         }
         self.sync_engine();
@@ -769,7 +1280,7 @@ impl Workbench {
 
     /// A failed engine: logged, and reported with the launch command, message and output passed
     /// through the credential sanitizer like Java's failure dialog and copy (`redactSensitiveText`).
-    fn engine_failed(&mut self, f: EngineFailure) {
+    pub(super) fn engine_failed(&mut self, f: EngineFailure) {
         let command = sanitize(&f.command);
         let message = sanitize(&f.message);
         let output: Vec<String> = f.output.iter().map(|l| sanitize(l)).collect();
@@ -833,9 +1344,24 @@ impl Workbench {
             })
         });
         let rules = fg.and_then(|f| self.engines.confirmed_rules(f));
+        let secondary = self.engines.secondary().and_then(|s| {
+            let profile = self.engines.profile_of(s)?;
+            let here = (self.doc.id, self.cursor);
+            Some(SecondaryEngineView {
+                index: self.config.engine.index_of(&profile.id)? as u32,
+                name: self.engines.display_name(s)?,
+                katago: self.engines.is_katago(s),
+                can_analyse: self.engines.can_analyse(s),
+                ready: self.engines.complete(s),
+                analysing: self.engines.analysing_by(s, here.0, here.1),
+                stopped_by_limit: self.secondary_limit_stop == Some(here),
+            })
+        });
+        let (lease, unrestored) = self.lease_view();
         EngineView {
             engines,
             foreground,
+            secondary,
             paused: self.paused,
             analysing: self.engines.analysing(self.doc.id, self.cursor),
             stopped_by_limit: self.limit_stop == Some((self.doc.id, self.cursor)),
@@ -843,6 +1369,8 @@ impl Workbench {
             rules: rules.map(KataRules::to_gtp_argument),
             console_seq: self.engines.console_seq(),
             full_trace: self.engines.tracing(),
+            lease,
+            unrestored,
         }
     }
 
@@ -858,29 +1386,120 @@ impl Workbench {
         }
     }
 
+    /// The display settings' conversion of the engine's numbers.
+    fn viewpoint(&self) -> Viewpoint {
+        Viewpoint::from(&self.config.display)
+    }
+
     pub(super) fn current_analysis(&self) -> Option<NodeAnalysisView> {
-        self.store.nodes.get(&self.cursor).cloned()
+        self.shown_analysis(&self.store)
+    }
+
+    /// `store`'s result for the current node as the displays show it.
+    fn shown_analysis(&self, store: &AnalysisStore) -> Option<NodeAnalysisView> {
+        let s = store.get(&self.doc.record, self.cursor)?;
+        // Stored results keep the engine's numbers; what is shown follows the settings now. The
+        // komi is the one the result was analysed with (results of another komi are dropped).
+        let vp = self.viewpoint();
+        // A candidate's own ownership is drawn only while Kata形势 and 按选点显示评估 are on;
+        // otherwise it is not copied at all.
+        let moves_ownership = self.estimate.state.shown && self.config.display.use_moves_ownership;
+        let candidates = s
+            .candidates
+            .iter()
+            .map(|c| CandidateView {
+                point: c.point,
+                visits: c.visits,
+                allocation_visits: c.allocation_visits,
+                winrate: c.winrate,
+                score_lead: c.score_lead,
+                score_stdev: c.score_stdev,
+                prior: c.prior,
+                lcb: c.lcb,
+                order: c.order,
+                pv: c.pv.clone(),
+                pv_visits: c.pv_visits.clone(),
+                pv_captures: c.pv_captures.clone(),
+                shown: vp.candidate(c.winrate, c.score_lead, s.to_play, s.komi),
+                side_to_move: vp.side_to_move(c.winrate, c.score_lead, s.to_play, s.komi),
+                ownership: if moves_ownership { c.ownership.clone() } else { None },
+            })
+            .collect();
+        Some(NodeAnalysisView {
+            node: s.node,
+            engine: s.engine.clone(),
+            to_play: s.to_play,
+            visits: s.visits,
+            root_visits: s.root_visits,
+            winrate: s.winrate,
+            score_lead: s.score_lead,
+            score_stdev: s.score_stdev,
+            komi: s.komi,
+            candidates,
+            black: vp.black(s.winrate, s.score_lead, s.to_play, s.komi),
+        })
+    }
+
+    /// 双引擎模式's right board (`boardRenderer2`): the secondary engine's results of the current
+    /// node, the marks drawn from them, its pure network and its Kata形势 (`estimateArray2`, the
+    /// previous position's until this one has its own).
+    pub(super) fn secondary_view(&self) -> Option<SecondaryView> {
+        if !self.double_engine() {
+            return None;
+        }
+        let rec = &self.doc.record;
+        let store = &self.secondary_store;
+        let ownership = self.estimate.state.shown.then(|| {
+            store
+                .ownership(rec, self.cursor)
+                .or_else(|| rec.parent(self.cursor).and_then(|p| store.ownership(rec, p)))
+                .cloned()
+        });
+        Some(SecondaryView {
+            analysis: self.shown_analysis(store),
+            board: self.overlay(store),
+            raw_net: self
+                .engines
+                .secondary()
+                .and_then(|s| self.engines.raw_net_view_of(s, &self.analysis_target())),
+            ownership: ownership.flatten(),
+            history: self.history_of(store),
+        })
+    }
+
+    /// The current line (root to the line end) and, off the trunk, the rest of the main trunk.
+    pub(super) fn graph_nodes(&self) -> Vec<NodeId> {
+        let rec = &self.doc.record;
+        let mut nodes = rec.path_to(rec.line_end(self.cursor));
+        if !rec.is_main_trunk(self.cursor) {
+            let mut line = nodes.clone();
+            line.sort_unstable();
+            let trunk = rec.path_to(rec.line_end(ROOT));
+            nodes.extend(trunk.into_iter().filter(|n| line.binary_search(n).is_err()));
+        }
+        nodes
     }
 
     /// Stored results on the current line (root to the line end) and the main trunk.
     pub(super) fn history(&self) -> Vec<HistoryPoint> {
-        if self.store.nodes.is_empty() {
+        self.history_of(&self.store)
+    }
+
+    fn history_of(&self, store: &AnalysisStore) -> Vec<HistoryPoint> {
+        if store.is_empty() {
             return Vec::new();
         }
+        self.points_of(store, self.graph_nodes())
+    }
+
+    /// `store`'s results of `nodes`, in that order, as the graphs draw them.
+    pub(super) fn points_of(&self, store: &AnalysisStore, nodes: Vec<NodeId>) -> Vec<HistoryPoint> {
         let rec = &self.doc.record;
-        let mut nodes = rec.path_to(rec.line_end(self.cursor));
-        if !rec.is_main_trunk(self.cursor) {
-            let trunk: Vec<NodeId> = rec
-                .path_to(rec.line_end(ROOT))
-                .into_iter()
-                .filter(|n| !nodes.contains(n))
-                .collect();
-            nodes.extend(trunk);
-        }
+        let vp = self.viewpoint();
         nodes
             .into_iter()
             .filter_map(|n| {
-                let a = self.store.nodes.get(&n)?;
+                let a = store.get(rec, n)?;
                 Some(HistoryPoint {
                     node: n,
                     move_number: rec.node(n).move_number,
@@ -888,8 +1507,45 @@ impl Workbench {
                     visits: a.visits,
                     winrate: a.winrate,
                     score_lead: a.score_lead,
+                    black: vp.black(a.winrate, a.score_lead, a.to_play, a.komi),
+                    as_candidate: vp.as_candidate(a.winrate, a.score_lead, a.to_play, a.komi),
+                    score_stdev: a.score_stdev,
                 })
             })
             .collect()
+    }
+
+    /// Move numbers, 落子评价 and 下一手 详细 of the current position.
+    pub(super) fn board_overlay(&self) -> BoardOverlayView {
+        self.overlay(&self.store)
+    }
+
+    /// The board marks of the current position, the analysis-based ones from `store`.
+    fn overlay(&self, store: &AnalysisStore) -> BoardOverlayView {
+        let rec = &self.doc.record;
+        let s = &self.config.display;
+        let path = rec.path_to(self.cursor);
+        let numbering = display::numbering(rec, &path);
+        let analysis = |n: NodeId| store.get(rec, n);
+        let rank_override = self.whole_game_results_for_current()
+            && std::ptr::eq(store, &self.store)
+            && rec.node(self.cursor).parent.is_some_and(|n| store.get(rec, n).is_some_and(|a| a.visits > 0));
+        let ranks = if rank_override {
+            let mut effective = s.clone();
+            effective.move_numbers = 0;
+            if effective.move_rank < 0 { effective.move_rank = 1; }
+            display::rank_marks(rec, &path, &numbering, &effective, analysis)
+        } else {
+            display::rank_marks(rec, &path, &numbering, s, analysis)
+        };
+        BoardOverlayView {
+            move_numbers: display::number_labels(rec, &path, &numbering, s),
+            ranks,
+            rank_corner: display::shows_ranks(s) && (s.move_rank == 0 || s.move_rank > 1),
+            ranks_after_numbers: rank_override,
+            next_move: display::next_move_info(rec, self.cursor, s, self.config.edit.no_capture,
+                self.config.engine.analysis.limit_branch_length, analysis),
+            info_order_sample: display::info_order_sample(s, rec.node(self.cursor).to_play, self.komi),
+        }
     }
 }

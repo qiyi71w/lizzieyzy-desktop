@@ -33,7 +33,7 @@ fn read(text: &str) -> GameRecord {
 
 #[test]
 fn root_setup_stones_are_static_and_do_not_count_as_moves() {
-    let (_, rec) = formats::read_file(&fixture("review-19x19-zh.sgf")).unwrap();
+    let (_, rec) = formats::read_file(&fixture("review-19x19-zh.sgf"), false).unwrap();
     let root = rec.node(ROOT);
     assert_eq!(root.kind, NodeKind::Snapshot);
     assert_eq!(root.move_number, 0);
@@ -57,7 +57,7 @@ fn root_setup_stones_are_static_and_do_not_count_as_moves() {
 
 #[test]
 fn comments_keep_escaped_characters_and_line_breaks() {
-    let (_, rec) = formats::read_file(&fixture("review-19x19-zh.sgf")).unwrap();
+    let (_, rec) = formats::read_file(&fixture("review-19x19-zh.sgf"), false).unwrap();
     assert_eq!(
         rec.node(ROOT).comment,
         "根注释：四角摆子开局。\n第二行含转义 ] 与反斜杠 \\"
@@ -66,7 +66,7 @@ fn comments_keep_escaped_characters_and_line_breaks() {
 
 #[test]
 fn branches_and_genuine_pass_follow_the_tree() {
-    let (_, rec) = formats::read_file(&fixture("review-19x19-zh.sgf")).unwrap();
+    let (_, rec) = formats::read_file(&fixture("review-19x19-zh.sgf"), false).unwrap();
     let line = main_line(&rec);
     let end = *line.last().unwrap();
     assert_eq!(rec.node(end).comment, "主线终点");
@@ -117,7 +117,7 @@ fn branches_and_genuine_pass_follow_the_tree() {
 
 #[test]
 fn marks_are_read_per_node() {
-    let (_, rec) = formats::read_file(&fixture("review-19x19-zh.sgf")).unwrap();
+    let (_, rec) = formats::read_file(&fixture("review-19x19-zh.sgf"), false).unwrap();
     let marked = rec.nodes().find(|(_, n)| n.comment == "标记示例").unwrap().1;
     assert!(marked
         .marks
@@ -138,7 +138,7 @@ fn marks_are_read_per_node() {
 
 #[test]
 fn game_info_and_komi_come_from_the_root() {
-    let (format, rec) = formats::read_file(&fixture("review-19x19-zh.sgf")).unwrap();
+    let (format, rec) = formats::read_file(&fixture("review-19x19-zh.sgf"), false).unwrap();
     assert_eq!(format, RecordFormat::Sgf);
     assert_eq!(rec.info.black, "黑方测试");
     assert_eq!(rec.info.white, "白方测试");
@@ -150,7 +150,7 @@ fn game_info_and_komi_come_from_the_root() {
 
 #[test]
 fn nine_by_nine_record_uses_its_own_size() {
-    let (_, rec) = formats::read_file(&fixture("review-9x9.sgf")).unwrap();
+    let (_, rec) = formats::read_file(&fixture("review-9x9.sgf"), false).unwrap();
     assert_eq!(rec.size, BoardSize { width: 9, height: 9 });
     assert_eq!(rec.position(ROOT).stones.len(), 81);
     assert_eq!(rec.info.result, "W+R");
@@ -309,7 +309,7 @@ fn malformed_text_fails_to_read() {
     assert!(sgf::read("no game here").is_err());
     assert!(sgf::read("(;C[unterminated").is_err());
     assert!(sgf::read("").is_err());
-    assert!(formats::parse(RecordFormat::Sgf, "").is_err());
+    assert!(formats::parse(RecordFormat::Sgf, "", false).is_err());
 }
 
 #[test]
@@ -329,7 +329,7 @@ fn gbk_bytes_are_decoded() {
 
 #[test]
 fn gib_handicap_is_setup_and_first_move_is_move_one() {
-    let (format, rec) = formats::read_file(&fixture("handicap-2.gib")).unwrap();
+    let (format, rec) = formats::read_file(&fixture("handicap-2.gib"), false).unwrap();
     assert_eq!(format, RecordFormat::Gib);
     assert_eq!(rec.size, BoardSize::STANDARD);
     assert_eq!(rec.info.black, "黑方 (3D)");
@@ -356,8 +356,8 @@ fn gib_handicap_is_setup_and_first_move_is_move_one() {
 fn gib_dispatch_is_by_extension_and_rejects_non_gib_text() {
     assert_eq!(formats::format_for_path("/x/game.GIB"), RecordFormat::Gib);
     assert_eq!(formats::format_for_path("/x/game.txt"), RecordFormat::Sgf);
-    assert!(formats::parse(RecordFormat::Gib, "hello").is_err());
-    assert!(formats::parse(RecordFormat::Gib, "STO 0 1 1 x 3").is_err());
+    assert!(formats::parse(RecordFormat::Gib, "hello", false).is_err());
+    assert!(formats::parse(RecordFormat::Gib, "STO 0 1 1 x 3", false).is_err());
 }
 
 #[test]

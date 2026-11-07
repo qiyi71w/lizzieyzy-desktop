@@ -10,8 +10,19 @@ mod tuning;
 use lizzie_core::api::*;
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup};
-use lizzie_core::record::{BoardSize, GameInfo, Mark, MarkKind, Point, RecordFormat, Stone};
-use lizzie_core::settings::{Language, WindowPlacement};
+use lizzie_core::engine::raw_net::{RawNetMode, RawNetView};
+use lizzie_core::function_search::{FunctionMatch, FunctionTarget, MatchLevel, SettingsSection};
+use lizzie_core::record::{
+    BoardSize, GameInfo, Mark, MarkKind, MarkTool, Point, RecordFormat, Stone, StoneChange, Transform,
+};
+use lizzie_core::display::{BoardOverlayView, MoveNumberLabel, MoveRank, NextMoveInfo, NextMoveVerdict, RankMark};
+use lizzie_core::settings::{
+    AnalysisEngineSettings, CoordinateStyle, DisplaySettings, EditSettings, EstimateStyle, ExtraMode, FlashRange,
+    FramePlacement, KataEstimateState, Language, MoveRankMode, ProblemListSettings, ProblemSide, ProblemSort,
+    PvVisitsMode, RecoverySettings, SubBoardMode, WindowPlacement,
+    AutoAnalysisSettings, HawkeyeBranch, HawkeyePeriod, HawkeyePlacement, HawkeyeSettings,
+};
+use lizzie_core::viewpoint::{AsCandidate, ShownValues};
 use ts_rs::Config;
 
 #[macro_export]
@@ -33,6 +44,36 @@ fn generate() -> String {
         HistoryPoint, EngineFailureView, EngineNotice, ConsoleLineKind, ConsoleLineView, RulesPromptView,
         WorkbenchView, LogsStatus, JavaImportView, ImportStatus, ImportReason, ImportTarget, ImportItemView,
         EngineProblem, ImportEngineView, ImportPreviewView, ImportReportView, ImportFailure,
+        EditCommand, EditTarget, EditingView, EditSettings, MarkTool, StoneChange, Transform,
+        ExportKind, CommentLabels, SlotRef, RecoveryCommand, SlotView, RecoveryView, RecoverySettings,
+        ImportSlotView, RecoveryImport, DisplaySettings, ShownValues, AsCandidate,
+        MoveRankMode, SubBoardMode, BoardOverlayView, MoveNumberLabel, MoveRank, RankMark, NextMoveVerdict,
+        NextMoveInfo,
+        RawNetMode, RawNetView,
+        EstimateStyle, CoordinateStyle, PvVisitsMode,
+        KataEstimateMode, KataEstimateState, KataEstimateView, ScoreCommand, ScorePoint, ScoreView,
+        MoveEvaluation, MoveChange, StatisticsView, FramePlacement,
+        ExtraMode, SecondaryEngineView, SecondaryView,
+        AnalysisEngineSettings, QuickModelView, QuickModelStatus, QuickAnalysisView, ProblemListSettings,
+        ProblemSide, ProblemSort, ProblemListView, ProblemMoveView, LeaseAvailabilityView, UnrestoredReason,
+        FlashTarget, FlashRange, FlashAnalysisView, FlashOutcome,
+        AutoAnalysisSettings, AutoAnalysisView, AutoAnalysisNotice,
+        WholeGameState, WholeGameAnalysisView, lizzie_core::settings::WholeGameSettings,
+        HawkeyeCommand, HawkeyeSide, HawkeyeBand, HawkeyeSpread, HawkeyeStage, HawkeyeMistake, HawkeyeRunning,
+        HawkeyePane, HawkeyeView, HawkeyeSettings, HawkeyeBranch, HawkeyePeriod, HawkeyePlacement,
+        BatchMode, BatchMove, BatchCommand, BatchItemView, BatchRunView, BatchFailure, BatchNotice, BatchView,
+        FunctionMatch, FunctionTarget, MatchLevel, SettingsSection,
+        lizzie_core::settings::PanelSettings, lizzie_core::settings::PanelSizes,
+        lizzie_core::settings::BottomToolbar, lizzie_core::settings::WorkbenchPanel,
+        lizzie_core::appearance::AppearanceSettings, lizzie_core::appearance::BoardStyle,
+        lizzie_core::appearance::ThemeSettings,
+        lizzie_core::appearance::ThemeNodeColor,
+        lizzie_core::appearance::ThemeEntry, lizzie_core::appearance::AppearanceCatalog,
+        lizzie_core::appearance::ThemeImages,
+        lizzie_core::settings::CustomLayout, lizzie_core::settings::IndependentBoard,
+        RegionCommand, TrackingCommand, RegionView, FocusView, TrackedPointView,
+        lizzie_core::engine::runtime::FocusCapability, lizzie_core::settings::RegionSettings,
+        lizzie_core::settings::TrackingSettings,
     ];
     // Engine resources and engine performance keep their own lists.
     decls.extend(resources::decls(&cfg));

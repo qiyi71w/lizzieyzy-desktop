@@ -1,0 +1,68 @@
+/* Top toolbar edit bar: the selected black/white icons are drawn at menuIconSize / 2 * 3 inside
+   the same button (Menu.java:3612-3643). */
+.tb-icon.stone {
+  overflow: hidden;
+}
+.tb-icon.stone.on img {
+  width: calc(var(--menu-icon-size, 16px) * 1.5);
+  height: calc(var(--menu-icon-size, 16px) * 1.5);
+  flex: none;
+}
+/* Markup buttons follow btnMarkup in the same button group (Menu.java:8694-8703). */
+.tb-markup {
+  display: inline-flex;
+  align-items: center;
+  column-gap: 2px;
+}
+
+/* GameInfoDialog: EmptyBorder 12, GridLayout(4, 2, 4, 4), button bar with 12 px top border and
+   an 80 px 确定 on the right. */
+.game-info {
+  padding: 12px;
+}
+.game-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  align-items: center;
+}
+.game-info-grid input {
+  min-width: 120px;
+}
+.game-info-grid input:read-only {
+  background: rgb(238, 238, 238);
+}
+.game-info-buttons {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 12px;
+}
+.game-info-buttons button {
+  width: 80px;
+}
+
+/* SetBoardSize: one row of radios and the 其他 width x height fields, 确定 centred below. */
+.board-size-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.board-size-row label {
+  display: inline-flex;
+  align-items: center;
+}
+.board-size-field {
+  width: 36px;
+}
+.board-size-field.invalid {
+  background: red;
+}
+.board-size-buttons {
+  display: flex;
+  justify-content: center;
+  padding-top: 8px;
+}
+.board-size-buttons button {
+  width: 95px;
+}

@@ -10,16 +10,26 @@
 //! - A dummy PASS (`DD[true]`) is a placeholder, never a real action.
 //! - The main line is the chain of first children from the root.
 //!
-//! Content changes go through [`DocumentEdit`] and [`GameRecord::apply`] only; browsing never
-//! changes a record. Editing slices add their operations to [`DocumentEdit`].
+//! Content changes go through [`DocumentEdit`] and [`GameRecord::apply`] only (operations in
+//! [`edit`]); browsing never changes a record.
+//!
+//! Node identity: a [`NodeId`] indexes the node arena and stays valid for the record's lifetime.
+//! Removed nodes stay in the arena, detached and no longer live. Every node also carries a
+//! [`Node::stamp`], unique within the record and replaced whenever what the node's position means
+//! changes in place (its setup or side to play), so engine positions and stored analysis can tell
+//! a changed node from the one they were made for.
 
-use serde::Serialize;
+mod edit;
+
+pub use edit::{Applied, EditError, MarkTool, PlayRules, StoneChange, Transform};
+
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 /// Index of a node inside one record. Stable for the lifetime of that record.
 pub type NodeId = u32;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, TS)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 pub enum Stone {
     Black,
     White,
@@ -35,7 +45,7 @@ impl Stone {
 }
 
 /// Board intersection; `x` is the column from the left, `y` the row from the top.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, TS)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, TS)]
 pub struct Point {
     pub x: u16,
     pub y: u16,
@@ -147,6 +157,18 @@ pub struct Node {
     pub comment: String,
     pub marks: Vec<Mark>,
     pub properties: Vec<Property>,
+    /// Position identity: unique in the record, replaced when the node's setup or side to play
+    /// changes in place.
+    pub stamp: u64,
+    /// Still part of the record (not removed).
+    pub live: bool,
+    /// The move was placed without removing any stone (Java `no-capture`, 五子棋无提子规则, in
+    /// force when it was placed or read): its position keeps every stone.
+    pub no_capture: bool,
+    /// 分支内从1开始显示 was on when the node was created (read or played): as a later sibling
+    /// it starts its own move numbers at 1 (`BoardHistoryNode.addOrGoto`,
+    /// `Menu.moveNumberInBranchTips`). Display only; not saved.
+    pub branch_numbers_from_one: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, TS)]
@@ -180,6 +202,10 @@ pub struct GameRecord {
     /// record komi to such games even when automatic komi loading is off.
     pub has_setup_or_handicap: bool,
     nodes: Vec<Node>,
+    /// Next [`Node::stamp`].
+    next_stamp: u64,
+    /// [`Node::branch_numbers_from_one`] of the nodes created from now on.
+    branch_numbers_from_one: bool,
 }
 
 pub const ROOT: NodeId = 0;
@@ -206,7 +232,13 @@ impl GameRecord {
                 comment: String::new(),
                 marks: Vec::new(),
                 properties: Vec::new(),
+                stamp: 0,
+                live: true,
+                no_capture: false,
+                branch_numbers_from_one: true,
             }],
+            next_stamp: 1,
+            branch_numbers_from_one: true,
         }
     }
 
@@ -214,25 +246,69 @@ impl GameRecord {
         &self.nodes[id as usize]
     }
 
+    /// Size of the node arena, removed nodes included.
     pub fn node_count(&self) -> usize {
         self.nodes.len()
     }
 
+    /// Whether `id` is a node of this record that has not been removed.
     pub fn contains(&self, id: NodeId) -> bool {
-        (id as usize) < self.nodes.len()
+        self.nodes.get(id as usize).is_some_and(|n| n.live)
     }
 
+    /// The nodes still in the record, by id.
     pub fn nodes(&self) -> impl Iterator<Item = (NodeId, &Node)> {
-        self.nodes.iter().enumerate().map(|(i, n)| (i as NodeId, n))
+        self.nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| n.live)
+            .map(|(i, n)| (i as NodeId, n))
+    }
+
+    /// Whether the record holds anything after its root (Java "has previous or next").
+    pub fn has_children_of_root(&self) -> bool {
+        !self.node(ROOT).children.is_empty()
+    }
+
+    /// `Board.hasRealMoveOrPassHistory`: any real move or pass anywhere in the tree.
+    pub fn has_actions(&self) -> bool {
+        self.nodes().any(|(_, n)| n.kind.is_action())
     }
 
     pub(crate) fn node_mut(&mut self, id: NodeId) -> &mut Node {
         &mut self.nodes[id as usize]
     }
 
+    fn new_stamp(&mut self) -> u64 {
+        let stamp = self.next_stamp;
+        self.next_stamp += 1;
+        stamp
+    }
+
+    /// Gives `id` a new [`Node::stamp`]: what its position means has changed in place.
+    pub(crate) fn restamp(&mut self, id: NodeId) {
+        let stamp = self.new_stamp();
+        self.nodes[id as usize].stamp = stamp;
+    }
+
+    /// The 分支内从1开始显示 setting nodes created from now on are numbered with.
+    pub(crate) fn set_branch_numbering(&mut self, from_one: bool) {
+        self.branch_numbers_from_one = from_one;
+    }
+
+    /// A record just read takes the setting in force while it was read, like Java's reader,
+    /// which numbers each branch as it creates it.
+    pub(crate) fn number_branches_as_read(&mut self, from_one: bool) {
+        self.branch_numbers_from_one = from_one;
+        for n in &mut self.nodes {
+            n.branch_numbers_from_one = from_one;
+        }
+    }
+
     /// Appends a child after the existing children of `parent`.
     pub(crate) fn push_child(&mut self, parent: NodeId, kind: NodeKind) -> NodeId {
         let id = self.nodes.len() as NodeId;
+        let stamp = self.new_stamp();
         let parent_node = &self.nodes[parent as usize];
         let move_number = parent_node.move_number + u32::from(kind.is_action());
         let to_play = match kind.action_color() {
@@ -250,9 +326,38 @@ impl GameRecord {
             comment: String::new(),
             marks: Vec::new(),
             properties: Vec::new(),
+            stamp,
+            live: true,
+            no_capture: false,
+            branch_numbers_from_one: self.branch_numbers_from_one,
         });
         self.nodes[parent as usize].children.push(id);
         id
+    }
+
+    /// Makes `self` (an earlier state of the same document) safe to resume after `newer`: node
+    /// ids and stamps handed out by `newer` are never handed out again, so nothing made for a
+    /// node of `newer` can be mistaken for a node of `self`.
+    pub(crate) fn resume_after(&mut self, newer: &GameRecord) {
+        while self.nodes.len() < newer.nodes.len() {
+            self.nodes.push(Node {
+                parent: None,
+                children: Vec::new(),
+                kind: NodeKind::Snapshot,
+                setup: Setup::default(),
+                explicit_to_play: None,
+                to_play: Stone::Black,
+                move_number: 0,
+                comment: String::new(),
+                marks: Vec::new(),
+                properties: Vec::new(),
+                stamp: u64::MAX,
+                live: false,
+                no_capture: false,
+                branch_numbers_from_one: false,
+            });
+        }
+        self.next_stamp = self.next_stamp.max(newer.next_stamp);
     }
 
     pub fn parent(&self, id: NodeId) -> Option<NodeId> {
@@ -308,50 +413,119 @@ impl GameRecord {
     pub fn position(&self, id: NodeId) -> Position {
         let mut pos = Position::new(self.size);
         for n in self.path_to(id) {
-            let node = self.node(n);
-            pos.apply_setup(&node.setup);
-            if let NodeKind::Move { color, point } = node.kind {
-                pos.play(color, point);
-            }
+            pos.enter(self.node(n));
         }
         pos
     }
 }
 
-/// A content change to a record: the one write path of the document module.
+/// A content change to a record: the one write path of the document module. The operations are
+/// in [`edit`]; [`GameRecord::apply`] returns [`edit::Applied`].
 #[derive(Clone, Debug, PartialEq)]
 pub enum DocumentEdit {
     /// Replaces the comment of a node (Java `BoardData.comment`).
-    SetComment { node: NodeId, comment: String },
+    SetComment {
+        node: NodeId,
+        comment: String,
+    },
     /// The game komi (`GameInfo.setKomi`), saved as `KM`.
-    SetKomi { komi: f64 },
-}
-
-impl GameRecord {
-    /// Applies `edit`. Returns whether the content changed; an edit naming a node that is not in
-    /// this record is refused without changing anything.
-    pub fn apply(&mut self, edit: &DocumentEdit) -> Result<bool, String> {
-        match edit {
-            DocumentEdit::SetComment { node, comment } => {
-                if !self.contains(*node) {
-                    return Err(format!("no node {node} in this document"));
-                }
-                let target = &mut self.node_mut(*node).comment;
-                if target == comment {
-                    return Ok(false);
-                }
-                comment.clone_into(target);
-                Ok(true)
-            }
-            DocumentEdit::SetKomi { komi } => {
-                if self.info.komi == *komi {
-                    return Ok(false);
-                }
-                self.info.komi = *komi;
-                Ok(true)
-            }
-        }
-    }
+    SetKomi {
+        komi: f64,
+    },
+    /// Player names (`GameInfoDialog`: `PB`, `PW`).
+    SetPlayers {
+        black: String,
+        white: String,
+    },
+    /// The game result (`GameInfo.setResult`, 终局点目 > 确认结果), saved as `RE`.
+    SetResult {
+        result: String,
+    },
+    /// A stone on `at`'s position (`Board.place`). `alternate`: the colour is the side to play
+    /// (交替落子), so a click on the main continuation's point follows it.
+    Play {
+        at: NodeId,
+        color: Stone,
+        point: Point,
+        alternate: bool,
+        rules: PlayRules,
+    },
+    /// A real pass (`Board.pass`).
+    Pass {
+        at: NodeId,
+        color: Stone,
+    },
+    /// An engine variation added as a new branch of `at` without moving there
+    /// (`BoardRenderer.addSuggestionAsBranch`): a node without continuation first gets an end
+    /// placeholder so the variation stays a side branch; the first move always starts a new
+    /// variation, the others follow equal existing moves. Colours alternate from `at`'s side to
+    /// play; an illegal move ends the variation.
+    AddBranch {
+        at: NodeId,
+        moves: Vec<Point>,
+        rules: PlayRules,
+    },
+    /// A move between `at` and its continuation, which is played again after it
+    /// (`LizzieFrame.insertMove`).
+    Insert {
+        at: NodeId,
+        color: Stone,
+        point: Point,
+        rules: PlayRules,
+    },
+    /// Changes the stone at `point` of `at`'s position where it was placed, and plays the rest
+    /// again (`Board.editMove`, `LizzieFrame.DraggedReleased`).
+    EditStone {
+        at: NodeId,
+        point: Point,
+        change: StoneChange,
+        rules: PlayRules,
+    },
+    /// Removes `node` and everything after it (`deleteMove`); not the root.
+    Remove {
+        node: NodeId,
+    },
+    /// The branch holding `node` swaps with its previous (`up`) or next variation.
+    MoveBranch {
+        node: NodeId,
+        up: bool,
+    },
+    /// The line through `node` becomes the main line (`LizzieFrame.setAsMain`).
+    SetAsMain {
+        node: NodeId,
+    },
+    /// Side to play at `node` (`Board.changeNextTurn`).
+    SetToPlay {
+        node: NodeId,
+        color: Stone,
+    },
+    /// Starting-position setup on a root without moves: `Some` places or replaces a stone,
+    /// `None` erases it.
+    SetupStone {
+        point: Point,
+        stone: Option<Stone>,
+    },
+    /// `setupClearAll`.
+    SetupClearAll,
+    /// 黑先 / 白先 of the starting position.
+    SetupSideToPlay {
+        color: Stone,
+    },
+    /// The position at `node` becomes the root position; all moves are discarded.
+    ConvertToStartingPosition {
+        node: NodeId,
+    },
+    Transform(Transform),
+    /// Markup tool click on `point` of `node`.
+    ToggleMark {
+        node: NodeId,
+        point: Point,
+        tool: MarkTool,
+    },
+    /// 清除标记: the marks of `node`.
+    ClearMarks {
+        node: NodeId,
+    },
 }
 
 /// Stones on the board after replaying a path, with capture counts.
@@ -381,6 +555,24 @@ impl Position {
     fn set(&mut self, p: Point, s: Option<Stone>) {
         let i = self.size.index(p);
         self.stones[i] = s;
+    }
+
+    /// Puts `color` at `p` without removing anything (`no-capture`).
+    pub fn put(&mut self, color: Stone, p: Point) {
+        self.set(p, Some(color));
+    }
+
+    /// The step into `node` from its parent's position: its setup, then its move (placed without
+    /// removing anything when it was placed under `no-capture`).
+    pub(crate) fn enter(&mut self, node: &Node) {
+        self.apply_setup(&node.setup);
+        if let NodeKind::Move { color, point } = node.kind {
+            if node.no_capture {
+                self.set(point, Some(color));
+            } else {
+                self.play(color, point);
+            }
+        }
     }
 
     pub fn apply_setup(&mut self, setup: &Setup) {
@@ -432,29 +624,25 @@ impl Position {
         Some(chain)
     }
 
-    /// Whether playing `color` at the empty point `p` would leave its own chain without a
-    /// liberty after removing captured opponent chains.
-    pub fn is_suicide(&self, color: Stone, p: Point) -> bool {
-        let mut probe = self.clone();
-        probe.set(p, Some(color));
-        let neighbours: Vec<Point> = Self::neighbours(self.size, p).collect();
-        for n in neighbours {
-            if probe.at(n) == Some(color.opposite()) && probe.dead_chain(n).is_some() {
-                return false;
-            }
-        }
-        probe.dead_chain(p).is_some()
-    }
-
-    /// Places a stone and removes the opponent chains it captures (Java
-    /// `BoardHistoryList.place`, `Board.removeDeadChain` on the four neighbours).
-    pub fn play(&mut self, color: Stone, p: Point) {
+    /// Places a stone and removes the opponent chains it captures, then its own chain if that has
+    /// no liberty left (Java `BoardHistoryList.place`, `Board.removeDeadChain` on the four
+    /// neighbours and on the point). Returns the number of own stones removed (a suicide).
+    pub fn play(&mut self, color: Stone, p: Point) -> usize {
         let mut captured = Vec::new();
         self.place(color, p, &mut captured);
         let count = captured.len() as u32;
         match color {
             Stone::Black => self.black_captures += count,
             Stone::White => self.white_captures += count,
+        }
+        match self.dead_chain(p) {
+            Some(own) => {
+                for &q in &own {
+                    self.set(q, None);
+                }
+                own.len()
+            }
+            None => 0,
         }
     }
 

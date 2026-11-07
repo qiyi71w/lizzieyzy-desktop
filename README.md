@@ -8,9 +8,9 @@ and data directory. It only reads the Java configuration, and only when the user
 
 ## Current state
 
-Implemented: opening, browsing and saving records, analysis with one local GTP engine (KataGo,
-Leela Zero, Sayuri, Sai or Leela 0.11, recognised by their GTP name like Java), and importing
-the matching LizzieYzy Next settings.
+Implemented: opening, browsing, editing and saving records, analysis with one local GTP engine
+(KataGo, Leela Zero, Sayuri, Sai or Leela 0.11, recognised by their GTP name like Java), and
+importing the matching LizzieYzy Next settings.
 
 - Open SGF and GIB files with the File menu, the toolbar button, `O`, a dropped file, a command
   line argument, or File > recent records. Paste an SGF record with `Ctrl+V` (it asks before
@@ -42,18 +42,111 @@ the matching LizzieYzy Next settings.
   Next reads the files with the same meaning. A file is written to an owner-only temporary file
   next to it and then renamed, so a failed save ("保存失败") leaves the old file untouched; a
   replaced file keeps its permissions. Normal window close and application Quit both wait for
-  saves still being written and record the window placement. On macOS, unhandled Command
-  shortcuts remain available to the native application menu, including `⌘Q` to quit.
+  saves still being written and record the window placement. On macOS, `⌘Q` (Quit), `⌘H` and
+  `⌥⌘H` (Hide) always belong to the native application menu, in every window, as in Java;
+  other Command shortcuts act as Java's Ctrl, and unhandled ones remain available to the menu.
   On Linux, the saved size is the WebView content area, excluding GTK window decorations,
   so reopening does not enlarge the content area by the title bar or shadow dimensions.
   File > 强制退出 skips both the pending-save wait and window-placement capture; use normal
   close or Quit when a save must finish. Both exit paths shut down the owned engines.
-- Settings available now: reading komi from SGF records, stone sounds on/off, and the UI language
-  (zh-CN, zh-TW, en, ja, ko, th; applied after a restart, like Java). A setting that cannot be
-  saved is reported and left unchanged.
+- File > 更多保存 has the Java exports, each through the save chooser like 另存为 (same folder,
+  default name, `.sgf` completion and replace prompt):
+  - 保存纯净棋谱 (`Ctrl+Shift+S`): the whole tree without analysis (`LZ`, `LZ2`) and without move
+    comments; the root comment and root analysis stay. The record then belongs to that file but
+    stays unsaved, as in Java.
+  - 保存纯净棋谱(带评论): the same with every comment; an analysed move (analysis of this session
+    or saved in the file, whichever has more visits) gets Java's win-rate summary in its comment,
+    in the interface language: the side that moved, or Black with 总是显示黑胜率/目数, and the lead
+    as 目数显示 shows it (领先 / 盘面). Unlike Java, the lead's change under 总是显示黑胜率/目数 is
+    always Black's own change; Java's sign depended on the position shown when exporting.
+  - 保存纯净分支 (`Ctrl+Alt+S`): one line from the root through the current move, then the first
+    continuation, without comments.
+  - 保存主棋盘截图 (`Alt+S`), 保存小棋盘截图 (`Shift+S`) and 保存胜率图 (`Shift+Alt+S`): the
+    picture chooser (PNG, JPG, GIF, BMP) opens in the last picture folder; the chosen name's
+    extension decides the format and `.png` is added otherwise. Errors show Java's message.
+  Exports never replace the open record's revision or saved state otherwise; a failure leaves
+  the old file untouched.
+- File > 复制主棋盘到剪贴板 (`Shift+C`), 复制小棋盘到剪贴板 (`Alt+C`) and 复制棋谱到剪贴板
+  (`Ctrl+C`) put the picture or the SGF text on the system clipboard.
+- File > 存档与读档 or the toolbar's 存档 button opens Java's save-and-load panel: slots with the
+  board picture, name and time; 新建存档, 保存 (asks first), 改名, 删除, 读取 (or a click on the
+  picture), 全部删除, and the check boxes 鼠标悬停放大缩略棋盘, 自动存档 and 启动时自动恢复. A loaded
+  slot opens as a new unsaved record without a file of its own (saving asks for a name) and the
+  title shows the slot. With 自动存档 on (the default) the automatic slot is written every
+  60 seconds and when the window closes; File > 强制退出 writes none. If the application ended
+  without its exit save, the next start keeps the newest periodic save as the automatic slot.
+  With 启动时自动恢复 on, a start without a record to open resumes the automatic slot at the end
+  of its main line. Slots live in this program's data folder (`save/`), never in Java's.
+- Editing, at the Java entries (Edit and Game menus, the top edit and markup buttons, the bottom
+  bar, board clicks, the two board context menus and the Java keys):
+  - A board click plays the side to play (交替落子) or, with 添加黑子 / 添加白子, that colour
+    (right click the other one). Clicking the point of the next main-line move follows it, an
+    equal existing variation is followed, otherwise a new last variation is added. Occupied
+    points, single-stone suicide, multi-stone suicide unless the foreground engine's rules allow
+    it, and an immediate ko recapture are ignored without changing anything. `P` passes; `,` plays
+    the best candidate (or the previewed variation); a middle click plays the previewed variation;
+    自动补完征子 continues a ladder.
+  - 插入黑子 / 插入白子 (Edit menu toggle or the empty-point context menu) put a move after the
+    current one; 反色, 删除 and 移动 on a stone (stone context menu, or dragging with 启用拖动棋子)
+    change it where it was played. What followed is played again and keeps its comments, markup,
+    setup stones and other properties; stored analysis of the changed positions is dropped.
+  - `Delete`/`Backspace` 删除一手 and `Shift+Delete` 删除分支 ask first (Java's "删除" dialog)
+    when moves follow; the bottom bar 删除 does not ask. An answer applies only to the record,
+    content version and move it was asked for. 撤销删除 / 恢复删除 (shown only when
+    possible) and the context menu 撤销编辑 / 恢复编辑 / 清除编辑缓存 undo and redo the last
+    delete, insert or stone edit. `Shift+Left`/`Shift+Right` move the current branch, `L` and
+    设为主分支 make it the main line, 添加为分支 adds a previewed variation beside the line.
+  - Comments: click the comment pane to edit; the text is saved to the node it was opened on when
+    another place is pressed or the position changes. While typing, keys never play or navigate.
+  - Markup (标记工具, shown when switched on): letters and numbers count on (A, B, … / 1, 2, …),
+    triangle, square, cross, the eraser and 清除标记.
+  - 起始局面设置 (Game menu): setup mode is available on a record without moves (otherwise it
+    asks to turn the current position into the starting position) while no foreground engine
+    runs, and no engine starts while it is on. Clicks place black or white setup stones or erase
+    them (right click the other colour); 黑先 / 白先 set the side to play (`PL`). Setup stones take
+    no move number. 将当前盘面设为起始局面 converts the current position.
+  - 编辑棋局信息 (`I`: names, komi), 设置棋盘大小 (`Ctrl+I`; 其他 sizes are remembered), 新建 and
+    the bottom bar 清空棋盘 (Java's "新的棋盘?" prompt with 不再提示, Cancel by default),
+    清空棋盘 `Ctrl+Home` without asking, 交换黑白 and the rotations / mirrors
+    (`Ctrl+Shift+Alt+Right`, `Ctrl+Alt+arrows`; rotation needs a square board), 交换落子顺序
+    (changes the side to play when the engine analyses either side, else passes) and 试下 (`V`,
+    bottom bar button hidden by default as in Java): the record is kept aside and comes back,
+    with the position, when 试下 ends.
+  - Every edit of saved content raises the document revision, so edits made while a save runs
+    stay unsaved, and analysis is kept for every position an edit did not change.
+  - 五子棋无提子规则 (综合设置 > 高级选项, asks "五子棋?" when switched on, off by default):
+    moves capture nothing and a point without liberties is a normal move; records opened while
+    it is on are read the same way. Positions already placed keep their stones when it is
+    switched; it is not a Gomoku rule set (no five-in-a-row detection).
+- Settings available now: reading komi from SGF records, stone sounds on/off, the UI language
+  (zh-CN, zh-TW, en, ja, ko, th; applied after a restart, like Java), and the editing toggles
+  (启用双击找子, 启用拖动棋子, 显示清空棋盘提示对话框, 标记工具, 五子棋无提子规则). A setting that
+  cannot be saved is reported and left unchanged.
 - Help > 诊断与日志 shows this client's logs, opens the log folder and exports a diagnostics zip;
   Help > 清除所有个人数据 clears the recent-record list; View > 重置界面位置 resets the saved
   window placement and last folder and turns the overwrite prompt back on.
+- 搜索功能 (the top toolbar button, or `Ctrl+K`, `⌘K` on macOS, with no other modifier) opens a
+  search bar centred over the window; it is refused while a text field has the focus (the key
+  stays with the field and its input method) and while a dialog, menu or context menu is open.
+  The bar stays in place and the results unfold below it: typing searches the Java function
+  catalog in every interface language, pinyin and aliases included; 浏览功能, `Up` or `Down` with
+  an empty query lists the whole catalog, which the category box narrows. A typed query lists
+  its best 50 results and counts all of them. Each result shows its title and Java path; the
+  selected one adds what it does, its shortcut, a prerequisite note and, when it cannot be used
+  now, why. A click selects, a double click or 打开 or `Enter` (acted on when released, never
+  while the input method is composing or on the key that commits its text) opens it, and `Esc`
+  or 取消 closes the bar and gives the focus back to the control that had it, unless another
+  control was chosen meanwhile. Opening a result does what the Java search does: a setting opens
+  综合设置 at its section and focuses its row (2.4 s gold outline) without changing it; a menu or
+  toolbar entry opens its menu path or shows its toolbar and focuses that control with the gold
+  outline, without running it (a markup button also shows the 标记工具 buttons for this
+  session, as Java does, without changing the saved 标记工具 choice); a board context entry
+  explains where to right-click and returns to the board; only an action entry runs. Entries
+  this client does not provide yet, or that the current state refuses (no engine, no KataGo, no
+  edit to restore, a whole-game analysis running, …), are greyed with their reason and cannot be
+  opened. While the bar or any other dialog is open, the workbench shortcuts and the floating
+  boards' mouse input are inactive. Below a 900 px wide window the toolbar button shows its
+  icon only.
 - Engines: the engine list (更多引擎 / `Alt+X`) adds, edits, orders and removes engine profiles
   with Java's fields (name, command with Java quoting, initial commands, board size, komi,
   default engine, preload). The engine at start-up is the default one, the last one, none, or
@@ -64,8 +157,8 @@ the matching LizzieYzy Next settings.
   nothing).
 - Analysis: candidates on the board (win rate, visits, score lead), the variation shown when
   hovering a candidate (captures are worked out by the core), the sub board cycling through
-  candidates on click, the candidate table, the black-perspective win-rate line with its 50%
-  fill and the score line (click to navigate), and the status and title lines. Candidates use
+  candidates on click, the candidate tables, the win-rate graph, 统计 and Kata形势 (below), and
+  the status and title lines. Candidates use
   Java's wood-backed allocation colours and row layout, including the separate visits font.
   Next-move dashed hints sit behind the labels; hovering a variation hides those hints until
   the pointer leaves. The bottom-bar analysis button uses pause/play
@@ -75,6 +168,377 @@ the matching LizzieYzy Next settings.
   the position, komi and rules they were requested for, so browsing quickly, switching records,
   changing komi or rules never shows another context's analysis; changing komi or rules discards
   the stored analysis like Java.
+- 显示 > 选点信息 > 总是显示黑胜率/目数 and 显示 > KataGo相关设置 > 目数显示 (计算贴目后目数差 /
+  盘面目数差) are Java's two shared settings, both off by default, saved and taken over by the
+  LizzieYzy Next import. The board candidates and the candidate table show the side to move, or
+  Black with 总是显示黑胜率/目数 (the table's change column keeps Java's side-to-move difference); the graph,
+  the statistics panel and the title always show Black. 盘面目数差 turns every shown lead into the
+  board difference (plus the komi for Black, minus it for White) and switches the statistics
+  label to 盘面. The 带评论 export follows the same settings.
+- Analysis information (Java menus, keys and defaults; the settings are saved and taken over by
+  the LizzieYzy Next import):
+  - Win-rate graph (显示 > 胜率图设置): Black's win-rate line, the score line or both, 面积填充
+    (two-sided around 50 % when one curve shows), 恶手损失条, 鼠标悬停信息 and 初始最大目数差.
+    Gaps without analysis break the line, a branch shows the main line dashed from the fork,
+    and the current move and hovered move carry their values. Click or drag navigates (a click
+    on a branch may jump to the main line through the fork), the wheel steps through moves, and
+    a right click clears a selected table row or steps back.
+  - 统计 shows the score label, the bar of both sides' win rates and 最后一手 with the move's
+    candidate rank and the change for the side that played it (against the position before, or
+    two moves back when that one has no analysis). AI总评分 shows each side's mean match share
+    over its analysed moves (a move counts as matching AI among the first 匹配AI候选数
+    candidates with at least the given share of the most visits). Values the analysis has not
+    produced are left out rather than shown as zero.
+  - 选点列表 keeps the engine's order with the actual move marked or inserted (实战), Java's
+    colours and resizable, remembered columns; a click shows a row's variation (the wheel over
+    the list or the board lengthens it), a second click or a right click clears it.
+    独立选点列表 (`U`) opens it in its own window with 7 or 9 columns (sortable by header),
+    列表 / 柱状图 / 当前手 / 鼠标悬停, 总计算量 / 最高计算量 / 集中度, 总在最前 (`Q`) and a
+    remembered position for each layout. It shows the side to move's values, as in Java.
+  - Kata形势 (显示 > Kata形势显示, the bottom-bar button, `.` with 使用快捷键): KataGo is asked for
+    the ownership while it is shown, drawn on the main board, the sub board, both or hidden, in
+    the five square styles; 按选点显示评估 shows a hovered candidate's own ownership, 记忆评估显示状态
+    remembers the boards for the next start.
+  - 终局点目 (棋局 menu, `Ctrl+Q`, bottom bar when added): analysis pauses, clicks mark dead
+    groups and 不计入 points, the 点目结果 window counts by area or territory (切换规则), 重新计算
+    starts over, 确定 writes the result (`RE`, as `B+3.5` / `W+0.5`) into the game info, and
+    leaving resumes analysis. Unlike Java, which put its localized wording (黑胜3.5目) into
+    `RE`, the result is written in SGF form so other programs can read it.
+  - 记录选点信息到评论中 (显示 > 主界面设置, on by default): while an engine runs, the comment pane
+    shows the move's comment with its analysis summary, and saving writes those summaries into
+    the move comments. Saving also writes the analysis itself (`LZ`, `LZOP`) and opening a record
+    reads it back, so a reopened file shows its analysis without an engine.
+- Board display (显示 menu, keys, bottom bar and the top 选点 黑 / 白 boxes, Java defaults; the
+  settings are saved and taken over by the LizzieYzy Next import):
+  - 坐标 (`C`): a smaller board margin when off; 坐标格式 (综合设置 > 对局与操作): normal, with I,
+    野狐 (with I, rows from the top) or numbers from the top / bottom. 显示名字 puts the player
+    names under the board.
+  - 手数: 不显示 / last 1, 5, 10 / 全部 / 自定义, 总是从1开始显示, 分支内从1开始 or continuing
+    the total, 分支内总是显示所有手数 (`Ctrl+M`), 分支面板上的手数; `M` and the bottom bar cycle
+    全部 → 最近1手 → 不显示. Numbers are worked out by the core: a branch starts at 1 only if it
+    was played (or the record was opened) while 分支内从1开始 was on, an SGF `MN` renumbers, captured
+    stones lose their number, setup stones take none.
+  - 落子评价 (`Alt+M`, toolbar button with its popup): marks of the last move, the last n or all
+    moves, judged by score, win rate, both or automatically, from the analysis of the positions
+    before and after each move; a move without that analysis gets no mark. They show while move
+    numbers are off.
+  - 推荐点: win rate / visits / score rows and their order (自定义信息顺序, with Java's preview),
+    score as difference, order badges, red maxima, white text for White, no refresh under the
+    mouse, the variation on hover (`Shift+F`), delayed candidates, replay interval (`R` replays
+    the hovered variation step by step); `F` hides the candidates, holding `Z` hides them until
+    released.
+  - 综合设置 > 引擎与分析: blue ring on the best candidate, colour concentration, White's text
+    and badges in white, circles for candidates beyond the limit (otherwise those are left out,
+    except one that just dropped out, for 3 s), the low-visit ratio, PV visits on the hovered
+    variation (last move or every move, above a threshold; KataGo is asked for `pvVisits`) and
+    removing captured stones in variations.
+  - 设置自动播放 (`Ctrl+A`, bottom bar 自动播放): main board (one move every n seconds, or the
+    best move), sub board (its variation one move every n ms) and branch replay on hover (with
+    the whole variation first for n seconds).
+  - 下一手 (`J`: 详细 → 简易 → 不显示): 详细 shows the record's next move with its result and a
+    good / questionable / bad colour once both positions are analysed (minimum visits setting);
+    hovering it shows that move followed by the next position's best variation.
+  - 策略网络 (`T`) shows the candidates' priors (no hover variation meanwhile); 纯网络 (`H`) asks
+    the engine for its raw network
+    (`kata-raw-nn`, or `heatmap` for Leela Zero) instead of analysing: the policy of every empty
+    point and the raw win rate line; with KataGo a second `H` adds the ownership (纯网络形势: five
+    styles), a third returns to the analysis. A raw result is only shown for the position it was
+    asked for.
+  - 小棋盘设置: the sub board shows its own candidate's variation (click / right click / wheel,
+    paused while the pointer rests on it with 小棋盘不刷新), the first-instinct (prior) or
+    after-calculation (visits) heat map, or the stones only. The variation tree shows each
+    node's move number (分支面板上的手数) as the board numbers it.
+  - Two changes from Java: a pass inside a branch keeps the branch's count, and setup stones
+    right after the root no longer start the count at 2; 纯网络形势 > 小方块 has its own effect
+    (Java read the KataGo-estimate setting there); 设置自动播放's 落子最佳选点 shows its own setting
+    (Java filled it from the other check box).
+- Workbench panels (界面 > 面板, Java shortcuts): 小棋盘 (`Alt+Z`), 胜率图 (`Alt+W`), 评论/问题手面板
+  (`Alt+T`; disabled in 四方图 and 双引擎模式), 分支面板 (`Shift+G`), 选点列表面板 (`Alt+G`), 信息面板 and 状态面板
+  show or hide their panels and are remembered; 放大小棋盘 (`Ctrl+F`) and 放大胜率图 (`Ctrl+W`) use
+  Java's enlarged layouts (the large win-rate graph hides the list and, with the variation tree
+  shown, the sub board until it is left again), 总在最前 (`Ctrl+Z`) keeps the main window on top.
+  On macOS `Command` also works for `Ctrl+W` / `Ctrl+F`; `Ctrl+Z` takes the Control key only, as in
+  Java. The panels sit where Java's fixed in-frame layout puts them for
+  each combination. Dragging the board's left or right edge moves the board, dragging the
+  comment's top edge changes its height (at least 68 px) and dragging the line between the
+  variation tree and the list shares that column (the list keeps at least 36 px); a drag is
+  saved when the button is released and `Esc` cancels it. `[` / `]` (界面 > 主棋盘位置) move the
+  board one eighth of the free width; 面板 > 恢复默认面板尺寸 restores the default sizes. Holding
+  `X` shows Java's key list over the workbench until the key is released; moving over the board,
+  the variation tree or the list returns the keyboard to the workbench unless a comment is being
+  edited. 工具栏 > 顶部工具栏 is 分开 (the second toolbar row), 合并 or 不显示 (no toolbar row, as in
+  the fixed Java build); 底部工具栏 is 显示, 不显示 or (Chinese interface) 使用详细工具栏, which adds
+  Java's 自动分析 and 自动播放 panels under the bar (its 自动落子 and 引擎对战 controls are shown but
+  not available). `Shift+X` and 设置 > 综合设置 open 综合设置 at 棋盘与显示, whose 启动时加载 rows
+  (窗口总在最前, 显示状态面板, 显示小棋盘, 窗口标题显示胜率) apply with 保存设置; Java's 显示快速启动
+  row is not shown because this client has no quick-launch links. Panel sizes and the bottom
+  toolbar are window placement (`persist.json`), cleared by 重置界面位置.
+- Appearance (Java defaults; saved and taken over by the LizzieYzy Next import):
+  - 设置 > 主题 opens 综合设置 > 主题外观: the theme (默认 plus the bundled sabaki, yasnaya,
+    Megapack, Custom and Fast, and the user's own), a preview of the edited background, board and
+    stones, line widths, the stone shadow, the three fonts (计算量及其他字体, UI 字体, 胜率目数字体;
+    Lizzie默认, 系统默认 or a system font), pure-colour background / board / stones and the image
+    files of a named theme (the default theme's images are fixed, as in Java), the background
+    blur (as in Java it blurs the panels only when the glass effect is off: `glass-effect-level`
+    0 in an imported Java configuration, without Apple style; the default level 1 draws the
+    frosted glass, level 2 the liquid glass, both with the theme's imported glass colours and
+    blur radii), the graph, comment and best-move colours, the comment font size, the
+    last-move marker (圆圈, 三角, 实心, 无), the comment-node colour, the 错误节点 thresholds and
+    colours (添加 / 删除 / 重置) and 同时考虑胜率与目数. The edits apply with 保存设置 and are
+    dropped by 取消. As in Java, 重置 saves the whole dialog with the default 错误节点 rules and
+    reopens it, and 添加 (a new theme) and 删除 take effect at once and reopen the dialog,
+    dropping unsaved edits. Bundled themes are read-only: deleting one hides it, and edits are
+    kept as the user's copy.
+  - 显示 > 外观主题: 棋盘风格 日式 / 中式经典 (corner markers instead of star points, Chinese
+    numerals counted from the nearer edge as coordinates), Apple 风格界面 (also turns the Morandi
+    colours on; dark translucent menu, tool and bottom bars, darkened wallpaper), 经典配色 (off:
+    Morandi colours for the bars, menus and move marks; the bottom bar turns dark), and a custom
+    board image (scaled to cover the main board under a light shade; the sub board keeps the
+    theme's board) with its 清除 entry. The bar colours change at once; the light toolbar icons of
+    Apple style follow from the next start.
+  - 设置 > 界面字体大小 (12, 16, 20 or 自定义 12-20) sets, from the next start, the menu font
+    size, the toolbar icon size (16, 20 or 24), the font and row height of the main 选点 list,
+    and the list rows and fonts of 超级鹰眼 and the 选点列表 window; outside Chinese a size above
+    12 first warns that some text may not fit.
+  - The fonts follow the UI language: Japanese, Korean, Thai and Traditional Chinese text fall
+    back to that language's fonts. 超级鹰眼's charts and lists use the theme's fonts.
+  - The variation tree colours nodes by the 错误节点 rules and rings commented nodes in the
+    comment-node colour; the win-rate graph uses the theme's line, miss-line, score-line and
+    blunder-bar colours and widths. A change from the earlier versions of this client: the
+    graph's unanalysed stretches and blunder bars now use the theme colours Java shows (dark blue
+    and pink by default) instead of light grey and graded bar colours, and the comment panel
+    background is Java's (0,0,0,200) instead of a slightly darker black.
+- Fixed Java layout modes: 默认 (`Alt+1`), 经典 (`Alt+2`), 精简 (`Alt+3`), 思考 (`Alt+4`),
+  四方图 (`Alt+5`), 双引擎 (`Alt+6`) and 浮动双棋盘 (`Alt+7`). Their panel choices are remembered;
+  selecting 默认 restores the standard panels, while enabling the graph, comment or candidate
+  list in 精简 leaves that mode without restoring the other hidden panels. 经典 hides the status
+  display without discarding its normal-mode preference. Unmaximized windows take Java's mode
+  proportions; maximized windows keep their size.
+  思考 shows the plain position (stones, move numbers and marks, no candidates or variation) in
+  a square on the left; 四方图 shows four sub boards there with the 1st-4th candidates'
+  variations, the fourth switching to the heat maps or 仅棋盘棋子 when that sub-board mode is set.
+  Each of the four takes its own clicks (next / previous candidate) and wheel (variation
+  length). The floating boards paint with the current theme and pass presses, hover and the
+  wheel to the workbench; a board popup opened from the floating main board appears in the
+  main window.
+  浮动主棋盘 (`Alt+Q`) and 浮动小棋盘 (`Alt+A`) are independent board windows with remembered
+  bounds. Closing the floating main board in 浮动双棋盘 restores 默认; closing the floating sub
+  board brings back the in-frame sub board. 自定义布局 1 / 2 (`Alt+8` / `Alt+9`) save and apply
+  Java's panel flags, board position, main-window bounds/maximization and floating-window
+  choices/bounds, independently of themes, toolbars and analysis settings. As in Java, applying
+  a saved layout chooses 浮动棋盘 when its main board is floating, otherwise 普通布局; it does
+  not restore a former 思考 / 四方图 / 双引擎 mode; a board position dragged by hand moves to the
+  saved position. Their 设置 dialog and 面板 > 可视化面板设置 preview each change at once; 确定
+  saves the panels, board position and (for a slot) the snapshot together, and a save that fails
+  keeps the dialog open with its choices. Java configuration import recognizes these modes, the
+  classic flag and both saved layouts.
+- 双引擎模式 (显示 > 布局模式, `Alt+6`; 默认模式 `Alt+1`): a second engine analyses the same
+  position next to the foreground engine. The window takes Java's width for the mode (the board
+  height doubled, or 1.65 times it for 默认模式) unless it is maximized, and shows two equal
+  boards: the foreground engine's results on the left, the secondary engine's on the right, with
+  主引擎 / 副引擎 status strips. The secondary engine is chosen in its own menu (`[n]: name`, or
+  未加载引擎) with restart and shut-down entries; the same engine cannot be both (第一引擎不能与
+  第二引擎相同). Each result belongs to the engine and the node it was requested for, so results
+  arriving after fast navigation are not shown on another move. Pausing (Space) and the
+  foreground engine's analysis limits stop both engines; the secondary engine's own limits
+  stop only it. With fast engine change the previous secondary engine keeps running and is
+  chosen again when the new one fails while starting; no secondary engine is chosen during
+  setup mode. The game komi, record rules, GTP console commands and 纯网络 apply to both.
+  Hovering a point shows each engine's own variation, clicking either board plays there.
+  独立选点列表 (`U`) opens a 主引擎 and a 副引擎 window side by side, each with its own engine's
+  candidates, actual move and score columns (also from saved results without an engine);
+  closing either closes both. Saving writes the secondary analysis as `LZ2` / `LZOP2` (and its
+  summary in comments with 记录选点信息到评论中); opening a record that has it in 默认模式 asks
+  whether to switch. Leaving the mode stops the secondary analysis but keeps the engine for the
+  next time; the mode is remembered across restarts, the secondary engine is chosen again each
+  session, as in Java. Changes from Java: the secondary strip shows the secondary engine's own
+  开启 / 暂停 and only shows visits and win rate when that engine has a result (Java showed the
+  foreground's state and 0 / 50 %), it is no longer cut short when the window is wider than the
+  two boards, and the comment summary compares with the secondary engine's own previous result.
+- 自动棋谱快析 (综合设置 > 棋谱加载 > 打开棋谱后自动快速分析, on by default): after a record is opened,
+  every main-trunk move without analysis is analysed in the background. Which engine does it
+  follows Java: a KataGo `analysis` process started for the task, or the foreground engine
+  itself when 精析设置 > 复用当前前台引擎 is on or the foreground engine is this client's Windows
+  NVIDIA (CUDA/TensorRT) KataGo. A record that declares rules waits until the engine confirms
+  them. The foreground engine stays idle while an attempt runs and resumes when the task ends. A
+  borrowed engine is taken over with `stop` and its rules are read (without them it is given back
+  unsearched); it searches each move to 16 visits (longer games get an overview of every 8th move
+  first) with the record's rules or 精析设置's specific rules, and is given back with its own rules
+  and the browsing position; only an answered hand-back counts as given back, otherwise it stays
+  "引擎状态未恢复" until 重启当前引擎. A failed attempt lets the foreground engine analyse until
+  the next attempt, which comes 3.6 s later and twice as late after each further failure, up to
+  30 s (the status line says so). Results are stored on the node they were requested for under
+  闪电分析, never mark the record as changed and are saved with it like any analysis; results for
+  a record that is no longer open, or asked under rules settings changed since, are dropped.
+  Pausing analysis (Space) also cancels the record's quick analysis for good (resuming does not
+  bring it back; a newly opened record starts afresh); opening another record while the engine is
+  borrowed waits until it is given back.
+- 精析设置 (分析 menu): the analysis engine command, 单步计算量, current or specific rules, 总是覆盖,
+  preload, auto quit and 复用当前前台引擎 with its availability. A command that was never edited
+  follows the current engine (`gtp` becomes `analysis` and the config becomes the `analysis.cfg`
+  beside it, created from KataGo's example when missing); 选择引擎 makes it the same way from a
+  saved engine, and 自动生成 asks for the KataGo program, model and config files. Remote (SSH)
+  analysis engines are not available yet.
+- 闪电分析 (分析 menu and the toolbar's lightning button): 整盘速览 (`Ctrl+B`) asks every main-trunk
+  move, 局部精析 asks from its start move up to, not including, its end move (an empty field means
+  from the first / to the last move; the range is remembered), and 全部分支精析 asks every move of
+  every branch. Moves that already have more than 精析设置's 单步计算量 are skipped unless 总是覆盖 is
+  on. Like Java the run uses 精析设置's analysis engine (a running quick analysis ends and hands
+  its process over) or, with 复用当前前台引擎, borrows the foreground engine the same way quick
+  analysis does; without an analysis command it offers 精析设置 first and then starts. A
+  progress window (进度 n/m) blocks the workbench: 隐藏界面 hides it while the run continues,
+  取消分析 ends the run and keeps the answers so far (an analysis process ends and the foreground
+  engine it stopped stays paused until resumed; a borrowed engine is given back), and GTP控制台
+  stays usable. Completion shows 分析完毕! for a second, steps from the root to the first
+  move and lets the foreground engine analyse again unless it was paused. A rejected request ends
+  the run with Java's failure message; a failed analysis process shows the engine failure and then
+  精析设置 with 确定并重新计算; a borrowed engine that cannot be given back stays "引擎状态未恢复".
+  Results are stored like quick analysis results; opening another record ends the run silently.
+  Each run searches the positions as they were when it was started: a position edited, deleted
+  or added while it runs gets no result from it, answers land only on the node they were asked
+  for, and browsing stays where the user went (only completion at the root steps to move 1, as
+  in Java). A cancelled run's late answers never count for the next run.
+- 强制计算区域 (toolbar region buttons, Alt+drag, the board's right-click menu): 设置强制计算区域
+  / 设置强制不计算区域 lights its button and the next drag on the board selects the intersections
+  inside the rectangle (Alt+drag always selects a calculation region; Alt+click clears an existing
+  region, like 清除强制区域). The foreground KataGo request then carries `allow`/`avoid` for both
+  colours; the depth comes from each button's popup (限制整个搜索过程 999, 仅限制第一手 1, or
+  自定义限制手数, saved as `select-*-moves`). The board shades the region. A toolbar or Alt
+  selection stays for later positions until cleared; a right-click 只分析此点 / 增加分析此点 /
+  去除分析此点 (depth 1) or 不分析此点 lasts for that request only unless 持续分析/不分析 is
+  checked; 清除分析/不分析 clears it. Regions are session state: they never change the record.
+  Stored results of the position give way to the next restricted live result.
+- 选点重点研究 (right-click 评估此点 / 取消评估 / 清除所有评估选点 on an empty point): on a local
+  KataGo whose `kata-analyze` accepts `focus`, each tracked point gets extra search until its
+  candidate reaches 选点重点研究累计计算量目标 (综合设置 > 引擎与分析, default 500) or makes no
+  progress for 8 seconds, counted from the current search (a stored result with more visits does
+  not count, and while points are tracked the position shows the current search's result).
+  Adding or removing points re-sends only the analysis request, so KataGo keeps its search tree
+  and the ordinary analysis time limit keeps counting; the engine is not restarted. The board
+  draws a dashed outline in the move-rank colour of the point's candidate against the best one
+  (综合设置 > 主题 > 关注点质量外框, with its opacity) and a blue progress ring while it is searched.
+  Tracked points belong to one position, engine and setting: browsing, editing, komi/rules
+  changes or another engine end them, and pausing ends the extra search. Support is decided by
+  each engine instance's own probe (`kata-analyze … focus pass 0`, then `stop`) when it starts,
+  restarts or becomes the foreground engine, paused or not; the probe's output is never shown as
+  analysis and never resumes a paused engine. An engine that rejects `focus` (for example the
+  official v1.18.1 release build) keeps ordinary analysis, and the menu item is disabled as
+  选点评估需要升级引擎; a failed probe says so and is repeated by restarting the engine. This
+  client does not ship a KataGo build with `focus`.
+- 自动分析 (`A`, 分析 > 自动分析, or the bottom bar 自动分析 popup) opens Java's single-record
+  settings: start/end move, per-position time, total visits or first-candidate visits (any limit
+  advances), Black/White, all branches, stronger analysis on large fluctuations, pause-exit and
+  automatic SGF saving. An empty start means the current position; a positive start begins at
+  the position before that move. Defaults are start 1, 2 seconds, both sides, main line,
+  pause-exit and auto-save on. It uses the normal foreground GTP engine, not another analysis
+  process, and hands a running quick analysis back first. The board follows its progress;
+  reverse-child depth-first traversal visits side branches before the main continuation.
+  Stop (分析 > 终止自动分析 or the settings dialog) keeps the current position and results.
+  Natural completion optionally strengthens the before/after positions of sufficiently large
+  win-rate or score changes; forced stop asks before that phase. Space exits without saving when
+  手动暂停分析则退出自动分析 is on (the exit notice can be disabled); otherwise it pauses the
+  run until analysis resumes. Record or engine replacement ends the run without transferring it;
+  positions deleted after the run planned them are skipped.
+  Automatic saves after at least one completed position use the existing serial save lane:
+  `<name>_已分析_<yyyyMMddHHmmss>.sgf` beside the source, or `AnalyzedGames/<timestamp>.sgf` in
+  this client's application data directory for a new record. They are copies, not a rename of
+  the source. The root gets Java's AI-match/top-ten-difference summaries for sides with at least
+  ten evaluable moves; like Java, the open record shows them too without becoming unsaved.
+- 批量分析 (`Ctrl+O` on the board, 分析 menu or the 自动分析 popup; also several record files
+  dropped on the window) and 批量精析 choose several SGF/GIB files; as in Java, the first record
+  is read before Java's settings dialog opens (an unreadable first record ends 批量分析 without
+  the dialog; stopping automatic analysis during that read cancels the batch). As in Java,
+  choosing or dropping records for either batch, and 进度表's 开始/结束, check 自动保存棋谱 for
+  single-record analysis before the dialog shows, even if it is then cancelled; 开始/结束 starts
+  批量分析 of the remaining rows the same way, reading their first record again. 批量分析 uses
+  the 自动分析 fields (its start move defaults to the first move and
+  its records are always saved); 批量精析 asks for the move range, 每手总计算量
+  (`batch-analysis-playouts`, default 100; a search uses at least 2) and 分析所有分支, and its 设置
+  button edits that value in 精析设置. Each record is read
+  and analysed in turn, then saved beside its source as `<name>_已分析_<yyyyMMddHHmmss>.sgf`
+  (always SGF; the source is not changed). Unlike Java, the records are analysed as background
+  documents with their own komi and declared rules: the open record stays on the board and can
+  be browsed, edited and saved meanwhile, and nothing the batch does marks it saved or moves it.
+  批量分析 runs automatic analysis with the foreground engine (which follows the batch record
+  while it runs); 终止自动分析 or 进度表's 开始/结束 asks about strengthening as single-record
+  analysis does, saves the current record and ends the batch (while the next record is still
+  loading, it ends the batch there). 批量精析 uses the 精析设置 analysis process (or the borrowed
+  foreground engine, as chosen when the batch started) for the whole batch and shows its
+  progress window; 取消分析 ends the engine without saving the current record, which stays first
+  in 进度表 with the results it has, so 开始/结束(闪电模式) continues from it and asks only for
+  the positions still below the requested visits (all of them with 总是覆盖已有分析结果).
+  批量分析进度表 lists the current record and the ones still to
+  analyse (finished ones leave the list), with the current record's progress, 增加棋谱, 清空
+  (which stops a running batch first), and per-row 优先 / 上移 / 下移 / 删除; it opens by itself
+  when 批量分析 of several records starts, and closing it leaves the batch running. A record
+  that cannot be read ends 批量分析 naming that file, as in Java; 批量精析 reports it and goes on
+  with the next record (Java analyses the previous record again and saves it under the
+  unreadable file's name). Unreadable records and any save that fails are listed when the batch
+  ends, and records already saved stay; a new batch starts only after the previous one's copies
+  are written. The queue is not kept across restarts (Java keeps it only in memory). While a
+  batch runs, including while its next record loads, single-record automatic, flash and
+  whole-game analyses are refused with Java's conflict message.
+- 整盘精析 (分析 menu, `Ctrl+Shift+B`, or 自动分析 popup): a modeless dialog selects 500, 1,000,
+  3,000, 10,000 or a custom 500–1,000,000 visits per position. It first fills the missing
+  32-visit overview of the starting position and every main-trunk move, then searches missing
+  deep results; real passes count, dummy passes and side branches do not. Deeper cached results
+  are reused even with 总是覆盖 enabled. The
+  progress bar gives the overview 20% and deep analysis 80%; a stored engine benchmark supplies
+  the pre-start estimate, otherwise the dialog shows the ordinary visits hint. 暂停分析 closes
+  the process or returns the borrowed foreground engine; 继续分析 re-plans only missing results.
+  停止分析 keeps all completed results. Closing the dialog hides an active session; reopening
+  shows it again. Completion closes it and shows a five-second result notice; with a borrowed
+  engine this happens once the engine is confirmed back (until then progress stays at 99%), and a
+  failed return reports the engine error instead. Browsing remains
+  available throughout. The analysis process uses KataGo's whole-game throughput thread profile;
+  an explicitly accepted matching whole-game measured profile takes precedence after off-thread
+  artifact/hardware verification (stale or ambiguous profiles use the normal thread profile).
+  复用当前前台引擎 uses the same sequential foreground lease as quick analysis; switching the
+  foreground engine during such a run, or while it is still returning the engine after its last
+  answer, stops it with its results kept; the new engine analyses at once. The foreground
+  engine stopped by a dedicated run resumes on completion, cancellation or failure unless the
+  user paused it. Main-line edits, rules/komi changes or replacing the record stop the task
+  safely; game-info and komi editors refuse changes during the session. Analysed nodes show
+  suggestions, variation previews, win rate/playouts and move evaluation without changing saved
+  display preferences; this override ends on another document. Results are labelled 整盘精析,
+  never make the record unsaved, and remain available for an explicit SGF save. Remote analysis
+  engines are not supported yet. The chosen depth is saved on start in `wholeGame.deepVisits`;
+  invalid stored values fall back to 1,000, matching Java.
+- 快速曲线轻量模型 (引擎一键设置 > 权重管理): the official lightweight b10 model is downloaded on demand
+  (size and SHA-256 checked), which turns 自动使用 on. A model file is used only while its SHA-256
+  matches the catalog (checked again when the file changes); with 自动使用 and a KataGo of 1.17 or
+  later in the foreground, quick analysis runs it in an analysis process of that KataGo.
+- 问题手 (the 评论/问题手 panel): moves from move 2 on the main trunk whose player lost at least 10
+  win-rate points against the analysis of the position before, best moves excepted, for black or
+  white, sorted by loss or move number, with Java's empty states and the 评估中 / 已评估 / 评估完成
+  badge. Clicking a row goes to the position before the move and marks it. The page, side,
+  order and the 显示评论/问题手面板顶部控制条 choice are remembered.
+- 超级鹰眼 (`Y`, 视图 > 面板 and 分析 menus, the top toolbar's eye button, the bottom-bar button when
+  enabled): a separate window on the analysis already stored with the record (nothing is
+  analysed for it). Its 统计信息 page shows each side's 吻合度, 吻合率, 第一选点率, average score and
+  win-rate loss and the loss distribution; 简易列表 lists Black's and White's moves; 详细列表
+  lists the checked sides' moves (12 columns with KataGo, 9 without), sortable by every column
+  (the change columns cycle largest change, largest gain, largest loss). A move counts only when
+  the position before it is analysed, its losses only when both positions are, and a
+  first-candidate move loses nothing. 列表筛选 sets the win-rate / score / visits thresholds of
+  the lists and 置顶当前手; 统计阈值 sets the loss bands; 分支 chooses the main trunk or the current
+  line; the 统计 range is 当前, 全局, 布局, 中盘, 收官 or a custom move range. Below, nine charts
+  (胜率吻合, 吻合度走势, loss distributions and statistics, 分段吻合度, 翻车现场) can be clicked, dragged
+  or scrolled to browse. Clicking a row goes to the position before the move and marks it; under
+  主干 only main-trunk moves can be chosen; during 自动分析 row clicks are ignored as in Java, chart
+  clicks are not. A click on one record that arrives after another record opened is ignored. Right-click a list for 导出为xls (a UTF-16
+  tab-separated file named `.xls`, as Java writes it). `Q` keeps the window on top. 双引擎模式
+  opens a second window on the secondary engine's analysis. The open state, page, chart, filters,
+  range, the primary window's bounds, sort and column widths are remembered; the window reopens
+  at start when it was open. Java's `badmoves-always-ontop`, `show-badmoves-frame`,
+  `movelist-*`, `move-list-*`, `moveList-selected-branch`, `show-*-matchai`, `opening-end-move`,
+  `middle-end-move`, `game-statistics-custom-*`, `*-diff-range*`, `loss-panel-select-winrate` and
+  `match-ai-firstmove/lastmove` are imported (an unmatched range selects 其他 with the imported
+  custom moves, 10–200 by default, as Java does); window coordinates are not. Difference from Java:
+  总在最前 is remembered (Java saved it under `badmoves-always-on-top` but read
+  `badmoves-always-ontop`, so it never survived a restart; the former key is reported as unused).
+  Not yet available: the 显示独立超级鹰眼 settings checkbox (with the settings dialog) and the
+  engine-game hint.
 - Rules: an SGF record's `RU` is applied to KataGo (`kata-set-rules`) before analysis. When the
   engine cannot confirm it, a dialog asks whether to continue with the engine's current rules
   (no pauses analysis). `Shift+D` opens the KataGo rules editor.
@@ -93,11 +557,25 @@ the matching LizzieYzy Next settings.
   `LizzieYzyNext` folders are suggested when they exist). A preview lists every Java setting as
   imported, not usable here (invalid values; Java window positions) or left out (features not in
   this client yet, accounts and credentials), with the engine list. Imported: record settings
-  (load komi, go to last move, replace prompt), language, stone sounds, recent records, last
+  (load komi, go to last move, replace prompt), language, stone sounds, the editing settings
+  (double click, drag, right-click menu or back, new-board prompt, markup tools, 其他 board
+  size, no-capture), recent records, last
   folder, the engine list with its default and start-up choice, each engine's thread policy and
   benchmark results and its GTP configuration profile, analysis limits and interval, fast engine
-  change, limit notice, KataGo rules, the start-up benchmark choice and the network proxy (only
-  values Java itself accepts). Java's marker for its own bundled KataGo package is reported as not
+  change, limit notice, KataGo rules, the start-up benchmark choice, the network proxy and the
+  board display settings (coordinates, move numbers including the older `show-move-number` keys,
+  move-rank marks and judgement, candidate rows and options, next-move hints, sub-board mode,
+  pure-network ownership style), the analysis-information settings above (graph, Kata形势,
+  scoring rules, AI match, 独立选点列表 options, 记录选点信息到评论中; Java's window and column
+  positions are reported as not usable), 自动棋谱快析, 精析设置 (except remote engines), 局部精析's range, the
+  lightweight model choice, 整盘精析 depth (`ui.whole-game-analysis-deep-visits`) and the 问题手
+  settings — only values Java itself accepts.
+  Automatic-analysis conditions (`analyze-all-branch`, all ten `auto-ana-diff-*` keys,
+  `exit-auto-analyze-by-pause`, `exit-auto-analyze-tip`) and `toolbar-parameter` slots 0–8,
+  47 and 48 also migrate with Java's restore rules: an empty start becomes 1, empty time 2
+  seconds, other empty limits stay empty, 按时间 is on as Java always shows it, and the visit
+  limits, auto-save and sides follow their saved choices.
+  Java's marker for its own bundled KataGo package is reported as not
   applicable. Engines keep using the Java engine and
   model files: relative paths are resolved as Java launches them (a bare program name is looked
   up on `PATH`; relative files, including a Java engine's `-jar` file, in the Java folder or an
@@ -154,9 +632,11 @@ the matching LizzieYzy Next settings.
   starts without blocking the window. Apple Silicon deep tuning is experimental and asks first.
 
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
-as not yet available (greyed in menus; a notice when used). Not available yet: comparison and
-dual-engine analysis, remote/SSH and cloud engines, the quick-analysis and HumanSL models of the
-weights page, and whole-game measured tuning.
+as not yet available (greyed in menus; a notice when used). Not available yet: the other layout
+modes (classic, minimal, thinking, four sub boards, independent board, custom layouts),
+remote/SSH and cloud engines, the quick-analysis and HumanSL
+models of the weights page, whole-game measured tuning, 启用点击棋子回看 (click review),
+自由涂鸦, and the analysis-region items of the board context menu.
 
 Resource acquisition and real engine analysis have been verified on Linux (private X11,
 WebKitGTK), including downloads of the official KataGo v1.18.1 Eigen AVX2 AppImage and model
@@ -206,7 +686,7 @@ prompt, and full input-method coverage on Windows and macOS.
 
 | Path | Contents |
 | --- | --- |
-| `crates/lizzie-core` | Platform-independent core: game record model, SGF/GIB readers and SGF writer, browsing, settings, the LizzieYzy Next settings reader (`java_import`), the engine runtime (GTP framing, launch, analysis requests, rules, thread policy and benchmark), engine resources (`resources`: trusted package/model catalog, machine detection, recommendation, downloads, installs, verification), the credential sanitizer and the workbench command/view contract. No Tauri or DOM dependency. |
+| `crates/lizzie-core` | Platform-independent core: game record model, SGF/GIB readers and SGF writer, browsing, settings, the LizzieYzy Next settings reader (`java_import`), the engine runtime (GTP framing, launch, analysis requests, rules, the foreground lease, KataGo analysis processes, thread policy and benchmark), automatic quick analysis, engine resources (`resources`: trusted package/model catalog, machine detection, recommendation, downloads, installs, verification), the credential sanitizer and the workbench command/view contract. No Tauri or DOM dependency. |
 | `src-tauri` | Desktop shell: window, file dialogs, drag and drop, engine and helper processes, HTTP downloads, logging, diagnostics export, and the optional acceptance channel. |
 | `ui` | Web UI: menus, toolbars, canvas painters, dialogs and the Java UI strings. |
 | `fixtures` | Sample records used by tests and manual checks. |
@@ -230,7 +710,17 @@ document `revision`. A save captures the text, document and revision when it sta
 written by one background writer in order; its receipt (`save_outcome`) confirms only that
 revision of that document. `DocumentView` reports `revision`, `saved_revision` (the revision that
 is the content of the document's file) and `unsaved`, so edits made while a save runs, or a
-record opened meanwhile, stay unsaved.
+record opened meanwhile, stay unsaved. Every node carries a stamp that changes whenever its
+position changes (or it is removed); stored analysis and the engine's synced position are keyed
+by node and stamp, so an edit drops exactly the analysis of the positions it changed.
+
+Edits that ask first (delete with following moves, new board, setup mode, starting-position
+conversion) answer `NeedsEditConfirmation` with an `EditTarget` (document, revision, current
+node); the confirmed command carries that target back and does nothing once any of them has
+changed. Menus, toolbars, keys, context menus and automation all send the same `Edit` command.
+Record readers take the no-capture setting when a read starts (`formats::read_file` /
+`formats::parse`) and place each move as Java does while reading; each node keeps the rule it
+was placed with, so switching the setting never changes existing positions.
 
 ## Development
 
@@ -255,6 +745,42 @@ cargo clippy --workspace --all-targets
   `l10n/DisplayStrings_*.properties` bundles. Regenerate it with
   `python3 tools/extract_java_strings.py <java-checkout>`; the script requires the checkout to be
   at the reference commit and lists keys that are shown literally.
+
+### Commands, settings rows and function search
+
+Function search reads the Java catalog from the core (`searchFunctions(query, language)` in
+`ui/src/contract/client.ts`, resource keys in the core's order) and decides each result's
+destination in `ui/src/search/targets.ts`. A feature makes its entries reachable by registering
+them where its control lives:
+
+- Actions and windows: an entry in the `COMMANDS` catalog (`ui/src/commands.ts`, extended by each
+  feature module) under the Java action id. Search runs it only for ACTION entries and for the
+  Java openers listed in `targets.ts` (weights download, acceleration, komi, rules, …).
+- Menu items: the item's `id` in `ui/src/chrome/javaMenus.ts` plus its `COMMANDS` entry. Search
+  opens the menu path and focuses the item (`locateMenuItem`); it does not run it.
+- Toolbar controls: `data-function="<Java action id>"` on the control (`at()` in
+  `chrome/toolbar.ts`, `located` in `chrome/bottombar.ts`). A control marked `unavailable` or
+  disabled does not count.
+- Settings rows: the section page (`SETTINGS_PAGES` in `ui/src/engine/settings.ts`) builds the
+  row with `data-setting-target="<Java setting id>"`, and its module registers the ids with
+  `registerSettingTargets(section, ids)` (`ui/src/engine/settingsTargets.ts`) when it loads, so
+  they are searchable before 综合设置 is ever opened.
+
+Two mappings live in `targets.ts` itself:
+
+- `OPENERS`: the Java ids that `FunctionSearchController.activate` opens with its own owner
+  method (weights download, acceleration, komi, rules, AI coach, private and public kifu
+  history). Each still needs its product `COMMANDS` entry; without one it is unavailable.
+- `CONTEXT_ITEMS`: the board context-menu keys (`RightClickMenu.*`, `RightClickMenu2.*`) that act
+  in `ui/src/editing/input.ts`. The context menu has no registration of its own yet, so a change
+  that makes another context item act (or stops one) must update this list in the same change.
+
+An entry without its destination is shown as not yet available. The acceptance probe's
+`functionSearch.entries` lists every catalog entry with its destination `kind` (`action`,
+`menu`, `toolbar`, `setting`, `window`, `context`), whether the destination is `missing`, the
+current `reason` and `registered` (the id has a `COMMANDS` entry), so a smoke check can require
+registered commands to reach a real destination; `functionSearch.open` describes the open search
+bar (query, rows, selection, focus) and `lastActivation` the last opened result.
 
 ### Acceptance channel
 
@@ -311,7 +837,8 @@ a missing WebView2 Runtime) is also written to `crash.log` and, on Windows, show
 box. Downloaded and imported engine resources
 live under `resources/` in the same data directory (`engines/<package>/` with a receipt,
 `weights/`, `configs/gtp.cfg` and `configs/analysis.cfg` (created once from the package's example
-files and never overwritten), `runtime/nvidia/` on Windows, `downloads/` for package archives; an
+files and never overwritten), `quick-analysis-models/` for the lightweight model, `runtime/nvidia/`
+on Windows, `downloads/` for package archives; an
 interrupted download stays next to its target as `<name>.part` and resumes from there); "打开程序目录"
 opens it. LizzieYzy Next keeps its own
 `config.txt` and `persist` elsewhere (for example `~/.lizzieyzy-next/`); this client never writes

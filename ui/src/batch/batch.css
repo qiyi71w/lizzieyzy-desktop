@@ -1,0 +1,13 @@
+/* 批量分析进度表 (AnalysisTable.java): a 617x317 null layout; the table's columns keep Java's
+   preferred widths 40/300/40/40/40/40 spread over the scroll pane, JTable's 16px rows. */
+html, body { margin: 0; height: 100%; overflow: hidden; background: #eee; font-size: 12px; user-select: none; }
+#bt-buttons button { position: absolute; top: 2px; height: 25px; padding: 0; font: inherit; white-space: nowrap; }
+#bt-scroll { position: absolute; left: 10px; top: 30px; width: 584px; height: 242px; box-sizing: border-box; overflow-x: hidden; overflow-y: auto; background: #eee; border: 1px solid rgb(128, 128, 128); }
+#bt-scroll table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+#bt-scroll th { position: sticky; top: 0; z-index: 1; height: 17px; padding: 0; font-weight: normal; font-size: 12px;
+  background: rgb(238, 238, 238); border: solid rgb(128, 128, 128); border-width: 0 1px 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#bt-scroll td { height: 15px; padding: 0 2px; font-size: 12px; line-height: 15px; color: #000; background: #fff;
+  border: solid rgb(128, 128, 128); border-width: 0 1px 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+#bt-scroll td.bt-action { padding: 0; }
+#bt-scroll td.bt-action button { display: block; width: 100%; height: 15px; padding: 0; font: inherit; font-size: 11px; line-height: 13px; }
+.bt-progress { margin-left: 8px; }

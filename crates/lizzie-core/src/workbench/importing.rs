@@ -6,11 +6,18 @@
 //! looking at. Applying it writes `config.json` and `persist.json` as one change (a failure leaves
 //! both as they were and the settings in memory unchanged), then restarts the engines with the
 //! imported engine list and start-up choice. The Java files are never written.
+//!
+//! Java 存档与读档 slots the user chose are added after this product's own slots in the same
+//! change: they are written first and taken back if the settings cannot be written. This
+//! product's automatic slot and the open record are never touched.
 
 use super::Workbench;
-use crate::api::{ApiError, EngineScope, ErrorKind, ImportPreviewView, ImportReportView, ImportStatus, JavaImportView};
-use crate::java_import::{Candidate, CONFIG_FILE};
-use crate::settings;
+use crate::api::{
+    ApiError, EngineScope, ErrorKind, ImportPreviewView, ImportReportView, ImportStatus, JavaImportView, RecoveryImport,
+};
+use crate::java_import::{slots, Candidate, CONFIG_FILE};
+use crate::recovery::SlotWrite;
+use crate::settings::{self, PvVisitsMode};
 
 /// Refusal: the preview was replaced or already applied.
 pub const IMPORT_STALE: &str = "product.importStale";
@@ -59,19 +66,23 @@ impl Workbench {
             items: candidate.items_after(&candidate.credential_engines()),
             engines: candidate.engines.clone(),
             replaces: self.java_import_replaces(&candidate),
+            // As choosing the slots would import them; the report shows the choice made.
+            recovery: slots::after(&candidate.slots, true),
         };
         self.java_preview = Some((id, candidate));
         view
     }
 
     /// Imports preview `preview`. `copy_credentials` are the Java engine indexes whose credentials
-    /// the user agreed to copy; `replace` confirms replacing settings chosen in this product.
+    /// the user agreed to copy; `replace` confirms replacing settings chosen in this product;
+    /// `recovery` is the choice to import the Java slots.
     /// `Ok(Err(key))` is a refusal with nothing changed; `Err` a failed write with nothing changed.
     pub fn apply_java_import(
         &mut self,
         preview: u64,
         copy_credentials: &[u32],
         replace: bool,
+        recovery: Option<&RecoveryImport>,
     ) -> Result<Result<ImportReportView, &'static str>, ApiError> {
         let Some((id, candidate)) = self.java_preview.take() else {
             return Ok(Err(IMPORT_STALE));
@@ -85,7 +96,14 @@ impl Workbench {
             self.java_preview = Some((id, candidate));
             return Ok(Err(IMPORT_NEEDS_REPLACE));
         }
-        let (config, persisted) = candidate.mapped.apply(&self.config, &self.persisted, copy_credentials);
+        let (mut config, persisted) = candidate.mapped.apply(&self.config, &self.persisted, copy_credentials);
+        let images = match crate::appearance::capture_external_images(&self.storage, &mut config.appearance, &mut config.appearance_defaults) {
+            Ok(images) => images,
+            Err(e) => {
+                self.java_preview = Some((id, candidate));
+                return Err(ApiError::new(ErrorKind::Io, format!("importing appearance images failed: {e}")));
+            }
+        };
         // After "重置界面位置" the persist file stays deleted until the next start
         // (`Config.deletePersist`), except for the folder the user imports now: it is written
         // alone, without the placement that was reset.
@@ -97,44 +115,86 @@ impl Workbench {
         } else {
             (persisted != self.persisted).then(|| persisted.clone())
         };
+        let chosen: Vec<&slots::JavaSlot> = match recovery {
+            Some(_) => candidate.slots.iter().filter(|s| s.importable()).collect(),
+            None => Vec::new(),
+        };
+        let auto_name = recovery.map_or("", |r| r.auto_slot_name.as_str());
+        let metas: Vec<_> = chosen.iter().map(|s| s.meta(auto_name)).collect();
+        let writes: Vec<SlotWrite> = chosen
+            .iter()
+            .zip(&metas)
+            .map(|(s, meta)| SlotWrite {
+                meta: meta.clone(),
+                sgf: s.record.as_deref().unwrap_or_default(),
+                png: s.png.as_deref(),
+            })
+            .collect();
+        let added = match self.recovery.append_all(&writes) {
+            Ok(n) => n,
+            Err(e) => {
+                self.java_preview = Some((id, candidate));
+                return Err(ApiError::new(
+                    ErrorKind::Io,
+                    format!("importing the saved games failed: {e}"),
+                ));
+            }
+        };
         if let Err(e) = settings::save_both(&self.storage, &config, persist_write.as_ref()) {
             // Nothing changed; the same preview can be tried again.
+            if added > 0 {
+                self.recovery.remove_last(added);
+            }
             self.java_preview = Some((id, candidate));
             return Err(ApiError::new(
                 ErrorKind::Io,
                 format!("saving imported settings failed: {e}"),
             ));
         }
+        images.keep();
 
         let previous_analysis = self.config.engine.analysis.clone();
+        let captures_changed = self.config.edit.no_capture != config.edit.no_capture;
         self.config = config;
+        self.reload_appearance_theme();
         self.persisted = persisted;
         self.new_profile = false;
         self.analysis_settings_changed(&previous_analysis);
-        // The imported engine list and start-up choice take over, as after a start.
+        self.engines.set_pv_visits(self.config.display.pv_visits != PvVisitsMode::Off);
+        if captures_changed && previous_analysis.limit_branch_length == self.config.engine.analysis.limit_branch_length {
+            self.refresh_pv_captures();
+        }
+        // The imported engine list, start-up choice and Kata形势 take over, as after a start.
+        self.estimate = super::information::EstimateSession::starting(self.config.display.kata_estimate);
+        self.apply_estimate();
         self.shutdown_engines(EngineScope::All);
         self.start_engines();
 
         let engines = candidate.engines_after(copy_credentials);
         let items = candidate.items_after(copy_credentials);
+        let recovery = slots::after(&candidate.slots, recovery.is_some());
         let count = |s: ImportStatus| items.iter().filter(|i| i.status == s).count();
         self.log(
             false,
             format!(
-                "java import from {}: {} imported, {} incompatible, {} not migrated; engines {} of {}",
+                "java import from {}: {} imported, {} incompatible, {} not migrated; engines {} of {}; saved games {} of {}",
                 candidate.source.config_dir.display(),
                 count(ImportStatus::Imported),
                 count(ImportStatus::Incompatible),
                 count(ImportStatus::NotMigrated),
                 engines.iter().filter(|e| e.status == ImportStatus::Imported).count(),
                 engines.len(),
+                added,
+                candidate.slots.len(),
             ),
         );
         Ok(Ok(ImportReportView {
             config_file: candidate.config_file.to_string_lossy().into_owned(),
             items,
             engines,
-            restart_required: self.config.ui.language.resolve(self.system_locale.as_deref()) != self.active_language,
+            restart_required: self.config.ui.language.resolve(self.system_locale.as_deref()) != self.active_language
+                || self.config.appearance.frame_font_size != self.active_frame_font_size,
+            recovery,
         }))
     }
 

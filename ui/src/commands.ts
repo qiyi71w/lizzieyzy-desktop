@@ -4,7 +4,7 @@
 // disabled and marked as not yet available. Later slices register their own entries.
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { navigate, pasteRecord, run, saveRecord, saveRecordAs, state } from "./app";
-import type { Language } from "./contract/generated";
+import type { DisplaySettings, Language } from "./contract/generated";
 import { confirm, message } from "./dialogs";
 import { openDiagnostics } from "./diagnostics";
 import { openJavaImport } from "./javaImport";
@@ -21,6 +21,10 @@ export interface CommandEntry {
   checked?: () => boolean;
   /** A Java-faithful disabled state (not "unimplemented"). */
   enabled?: () => boolean;
+  /** Java items hidden by a menu-open listener (setVisible(false)) while this is false. */
+  visible?: () => boolean;
+  /** A button inside the menu item, beside its label (自定义布局's 设置, Menu.java:1985-2050). */
+  button?: { label: () => string; run: () => void };
 }
 
 /** Settings > 语言 (Menu.java:7025-7034): saved now, applied after a restart. */
@@ -34,6 +38,12 @@ function language(lang: Language): CommandEntry {
   };
 }
 
+/** One change to `settings.display`, the rest as it is (SetDisplaySettings). */
+export function setDisplay(change: Partial<DisplaySettings>): void {
+  const settings = state.view?.settings.display;
+  if (settings) void run({ type: "SetDisplaySettings", settings: { ...settings, ...change } });
+}
+
 export const COMMANDS: Record<string, CommandEntry> = {
   "analysis.toggle": { run: () => run({ type: "ToggleAnalysis" }) },
   "engine.configuration": { run: openMoreEngines },
@@ -41,10 +51,14 @@ export const COMMANDS: Record<string, CommandEntry> = {
   "weights.download": { run: () => openAutoSetup("weights") },
   "engine.acceleration": { run: () => openAutoSetup("acceleration") },
   "engine.rules": { run: openRules },
-  "settings.general": { run: openAnalysisSettings },
+  // 综合设置 opens at its first page, 棋盘与显示 (Menu.java:5395-5399, ConfigDialog2.java:4168-4171).
+  "settings.general": { run: () => void openAnalysisSettings("display") },
   "menu.gtpPanel": { run: toggleConsole, checked: consoleVisible },
   "menu.restartCurrentEngine": { run: () => run({ type: "RestartEngine" }), enabled: () => !!state.view?.engine.foreground },
   "menu.shutdownCurrentEngine": { run: () => run({ type: "ShutdownEngines", scope: "Current" }), enabled: () => !!state.view?.engine.foreground },
+  // 双引擎模式's engine menu (Menu.java:5857-5876): restartEngine2 / killThisEngines2.
+  "menu.restartCurrentEngine2": { run: () => run({ type: "RestartSecondaryEngine" }), enabled: () => !!state.view?.engine.secondary },
+  "menu.shutdownCurrentEngine2": { run: () => run({ type: "ShutdownSecondaryEngine" }), enabled: () => !!state.view?.engine.secondary },
   "menu.shutdownOtherEngine": { run: () => run({ type: "ShutdownEngines", scope: "Others" }) },
   "menu.shutdownAllEngine": { run: () => run({ type: "ShutdownEngines", scope: "All" }) },
   "files.open": { run: () => run({ type: "ChooseAndOpenRecord" }) },
@@ -62,6 +76,20 @@ export const COMMANDS: Record<string, CommandEntry> = {
   "menu.playSound": {
     run: () => run({ type: "SetPlaySound", enabled: !state.view?.settings.play_sound }),
     checked: () => state.view?.settings.play_sound ?? true,
+  },
+  // 显示 > 推荐点 > 总是显示黑胜率 (Menu.java:1487-1500) and 显示 > KataGo设置 > 目差显示 (2130-2158):
+  // "目差" turns show-katago-score-lead-with-komi off, "盘面" on. The core converts every number.
+  "settings.black-winrate": {
+    run: () => setDisplay({ winrateAlwaysBlack: !state.view?.settings.display.winrateAlwaysBlack }),
+    checked: () => state.view?.settings.display.winrateAlwaysBlack ?? false,
+  },
+  "Menu.leadWithKomi": {
+    run: () => setDisplay({ scoreLeadWithKomi: false }),
+    checked: () => !(state.view?.settings.display.scoreLeadWithKomi ?? false),
+  },
+  "Menu.leadJustScore": {
+    run: () => setDisplay({ scoreLeadWithKomi: true }),
+    checked: () => state.view?.settings.display.scoreLeadWithKomi ?? false,
   },
   // System.exit(0): no window state is written.
   "menu.forceExit": { run: () => getCurrentWindow().destroy() },

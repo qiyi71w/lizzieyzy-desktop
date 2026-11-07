@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "independent-boards",
+  "description": "Floating main and sub boards relay board input and adjust their undecorated frame bounds",
+  "windows": ["independent-main", "independent-sub"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-size",
+    "core:window:allow-set-position",
+    "core:window:allow-set-always-on-top"
+  ]
+}

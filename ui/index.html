@@ -14,13 +14,28 @@
       <canvas id="stat"></canvas>
       <canvas id="graph"></canvas>
       <div id="comment">
-        <div class="tabs"><span id="commentsTab" class="tab on"></span><span id="problemsTab" class="tab unavailable"></span></div>
-        <div id="commentText"></div>
+        <div id="commentTabs" class="tabs" tabindex="0">
+          <span id="commentsTab" class="tab on" data-key="problems.tab.comments"></span><span id="problemsTab" class="tab" data-key="problems.tab.problems"></span>
+          <span id="problemSides" hidden><span id="blackSide" class="side on" data-key="problems.side.black"></span><span id="whiteSide" class="side" data-key="problems.side.white"></span></span>
+          <span id="problemProgress" hidden></span>
+        </div>
+        <div id="commentPage"><div id="commentText"></div></div>
+        <div id="problemPage" hidden>
+          <div class="problem-toolbar"><span id="problemCount"></span><select id="problemSort" data-key="problems.sort"></select></div>
+          <div id="problemList" tabindex="0"></div>
+          <div id="problemEmpty" hidden></div>
+        </div>
       </div>
       <canvas id="status"></canvas>
       <canvas id="tree"></canvas>
       <div id="table"></div>
       <canvas id="sub"></canvas>
+      <canvas id="quad0" class="quad" style="display: none"></canvas>
+      <canvas id="quad1" class="quad" style="display: none"></canvas>
+      <canvas id="quad2" class="quad" style="display: none"></canvas>
+      <canvas id="quad3" class="quad" style="display: none"></canvas>
+      <canvas id="board2" style="display: none"></canvas>
+      <canvas id="dualStatus" style="display: none; pointer-events: none"></canvas>
     </div>
     <div id="bottombar"></div>
     <div id="dialog" hidden></div>

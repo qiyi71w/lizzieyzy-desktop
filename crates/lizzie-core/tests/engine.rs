@@ -107,7 +107,10 @@ fn profile(name: &str, program: &str) -> EngineProfile {
 }
 
 fn workbench(dir: &std::path::Path, world: &World) -> Workbench {
-    Workbench::new(storage(dir), None, Box::new(FakeLauncher(world.clone())), Vec::new())
+    let mut wb = Workbench::new(storage(dir), None, Box::new(FakeLauncher(world.clone())), Vec::new());
+    // About the foreground engine; automatic quick analysis has its own tests.
+    wb.set_auto_quick_analyze(false).unwrap();
+    wb
 }
 
 /// One stdout line from instance `id`.
@@ -206,6 +209,9 @@ fn start_up_identifies_then_syncs_and_analyses_the_current_position() {
             "komi 7.5",
             "boardsize 19",
             "kata-get-rules",
+            // 选点重点研究's capability probe, stopped before the engine counts as started.
+            "kata-analyze 10 rootInfo true focus pass 0",
+            "stop",
             "boardsize 19",
             "clear_board",
             "komi 7.5",
@@ -218,6 +224,25 @@ fn start_up_identifies_then_syncs_and_analyses_the_current_position() {
     assert_eq!(fg.gtp_name, "KataGo");
     assert!(v.engine.analysing);
     assert_eq!(v.engine.rules_key.as_deref(), Some("LizzieFrame.currentRules.chinese"));
+}
+
+#[test]
+fn showing_pv_visits_asks_katago_for_them_again() {
+    // Leelaz.java:20069: ` pvVisits true` while 显示 PV 访问次数 is on.
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    world.take(id);
+    let mut s = wb.config().display.clone();
+    s.pv_visits = lizzie_core::settings::PvVisitsMode::AllMoves;
+    wb.set_display_settings(s.clone()).unwrap();
+    let sent = answer_all(&mut wb, &world, id, KATA);
+    assert_eq!(sent, ["kata-analyze B 10 rootInfo true pvVisits true"]);
+    out(&mut wb, id, "info move Q16 visits 30 winrate 0.6 scoreLead 1.5 prior 0.2 order 0 pv Q16 D4 pvVisits 30 12 rootInfo visits 30");
+    assert_eq!(wb.view(false).analysis.unwrap().candidates[0].pv_visits, [30, 12]);
+    s.pv_visits = lizzie_core::settings::PvVisitsMode::Off;
+    wb.set_display_settings(s).unwrap();
+    assert_eq!(answer_all(&mut wb, &world, id, KATA), ["kata-analyze B 10 rootInfo true"]);
 }
 
 #[test]
@@ -825,6 +850,72 @@ fn a_refused_sync_drops_the_analysis_requested_with_it() {
 }
 
 #[test]
+fn an_edited_position_drops_only_its_own_analysis_and_the_engine_follows_the_edit() {
+    use lizzie_core::api::EditCommand;
+    use lizzie_core::record::{Point, StoneChange};
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, a) = started(dir.path(), &world);
+    open(&mut wb, "(;SZ[19];B[pd];W[dd];B[pp])");
+    answer_all(&mut wb, &world, a, KATA);
+    out(&mut wb, a, &info("Q16", 50));
+    wb.navigate(Navigation::Forward(1));
+    answer_all(&mut wb, &world, a, KATA);
+    out(&mut wb, a, &info("D4", 40));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 40);
+
+    // 反色 of the stone just played: this node now holds another position.
+    wb.edit(EditCommand::EditStone {
+        point: Point { x: 15, y: 3 },
+        change: StoneChange::Switch,
+    })
+    .unwrap();
+    let v = wb.view(false);
+    assert!(v.analysis.is_none(), "analysis of the old position is gone");
+    assert!(
+        v.history.iter().any(|h| h.node == 0 && h.visits == 50),
+        "the unchanged root keeps its result: {:?}",
+        v.history
+    );
+    // A line the engine computed for the old position before reading the edit is not adopted.
+    out(&mut wb, a, &info("D4", 400));
+    assert!(wb.view(false).analysis.is_none());
+    let sent = answer_all(&mut wb, &world, a, KATA);
+    assert!(sent.contains(&"play W Q16".to_string()), "{sent:?}");
+    out(&mut wb, a, &info("D4", 30));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 30);
+}
+
+#[test]
+fn no_foreground_engine_starts_during_setup_mode() {
+    use lizzie_core::api::EditCommand;
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    wb.save_engine_settings(vec![profile("KataGo", "/opt/katago")], EngineStartup::Default)
+        .unwrap();
+    wb.edit(EditCommand::SetSetupMode {
+        enabled: true,
+        confirmed: None,
+    })
+    .unwrap();
+    // Start-up (also after an import), the engine menu and the analysis toggle all start the
+    // foreground engine through one operation.
+    wb.start_engines();
+    wb.toggle_analysis().unwrap();
+    wb.switch_engine(0).unwrap();
+    assert!(world.launched().is_empty());
+    assert_eq!(wb.view(false).engine_notice, Some(EngineNotice::SetupModeActive));
+    wb.edit(EditCommand::SetSetupMode {
+        enabled: false,
+        confirmed: None,
+    })
+    .unwrap();
+    wb.switch_engine(0).unwrap();
+    assert_eq!(world.launched().len(), 1);
+}
+
+#[test]
 fn variations_carry_the_captures_of_each_move() {
     use lizzie_core::record::Point;
     let dir = tempfile::tempdir().unwrap();
@@ -838,12 +929,22 @@ fn variations_carry_the_captures_of_each_move() {
     out(
         &mut wb,
         a,
-        "info move A18 visits 30 winrate 0.6 prior 0.2 order 0 pv A18 pass A19 Z99 C3 rootInfo visits 30",
+        "info move A18 visits 30 winrate 0.6 prior 0.2 order 0 pv A18 pass A19 Z99 C3 pvVisits 30 20 10 ownership 0 0 rootInfo visits 30",
     );
     let v = wb.view(false);
     let c = &v.analysis.unwrap().candidates[0];
     assert_eq!(c.pv, [Some(Point { x: 0, y: 1 }), None, Some(Point { x: 0, y: 0 })]);
     assert_eq!(c.pv_captures, [vec![Point { x: 0, y: 0 }], vec![], vec![]]);
+    assert_eq!(c.pv_visits, [30, 20, 10]);
+    // 变化图中去掉死子 only decides whether the board removes them: the captures stay facts.
+    let mut settings = wb.config().display.clone();
+    settings.remove_dead_in_variation = false;
+    wb.set_display_settings(settings).unwrap();
+    out(&mut wb, a, "info move A18 visits 40 winrate 0.6 prior 0.2 order 0 pv A18 pass A19 rootInfo visits 40");
+    let view = wb.view(false);
+    let streamed = &view.analysis.unwrap().candidates[0];
+    assert!(streamed.pv_visits.is_empty(), "counts absent from the stream stay absent");
+    assert_eq!(streamed.pv_captures[0], [Point { x: 0, y: 0 }]);
 }
 
 #[test]
@@ -1203,4 +1304,153 @@ fn benchmark_analysis_pause_restores_only_when_user_has_not_paused() {
         assert_eq!(view.engine.paused, user_pauses);
         assert_eq!(view.engine.analysing, !user_pauses);
     }
+}
+
+#[test]
+fn the_commented_export_summarises_only_analysed_moves_against_their_parent() {
+    use lizzie_core::api::{CommentLabels, ExportKind};
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    open(&mut wb, "(;SZ[19]C[root note];B[pd]C[first];W[dd])");
+    answer_all(&mut wb, &world, id, KATA);
+    // Root and B[pd] analysed (60 % and +1.5 for the side to move); W[dd] never.
+    out(&mut wb, id, &info("Q16", 50));
+    wb.navigate(Navigation::Forward(1));
+    let batch = world.take(id);
+    out(&mut wb, id, "");
+    answer(&mut wb, id, number(&batch[0]), "");
+    out(&mut wb, id, &format!("={}", number(&batch[1])));
+    out(&mut wb, id, &info("D4", 1500));
+    let labels = CommentLabels {
+        black: "黑棋".into(),
+        white: "白棋".into(),
+        winrate: "胜率:".into(),
+        lead: "领先:".into(),
+        lead_with_komi: "盘面:".into(),
+        stdev: "不确定度:".into(),
+        playouts: "计算量".into(),
+        komi: "贴目:".into(),
+        pda: "PDA:".into(),
+    };
+    let text = wb.export_text(ExportKind::RawWithComments, &labels);
+    // Black just moved: Black's 40 % is 20 points below Black's 60 % before the move, and its
+    // lead fell from +1.5 to -1.5 (`formatComment`).
+    assert!(
+        text.contains("C[first\n\n黑棋 胜率: 40.0% (-20.0%)\n领先: -1.5 (-3.0)"),
+        "{text}"
+    );
+    assert!(text.contains("1.5k 计算量"), "{text}");
+    assert!(
+        text.contains("C[root note]"),
+        "the root comment is written as it is: {text}"
+    );
+    assert!(text.ends_with(";W[dd])"), "an unanalysed move gets no summary: {text}");
+    assert!(!text.contains("LZ["), "{text}");
+}
+
+/// 总是显示黑胜率 × 目差显示 on the displays, for a position with White to move (fixed Java
+/// `BoardRenderer` win rate flip, `Utils.convertScoreToString`, the black-perspective graph,
+/// statistics panel and title). Stored results are converted again when the setting changes.
+#[test]
+fn the_displays_follow_the_viewpoint_settings() {
+    use lizzie_core::settings::DisplaySettings;
+    use lizzie_core::viewpoint::{AsCandidate, ShownValues};
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    open(&mut wb, "(;SZ[19]KM[7.5];B[pd])");
+    wb.navigate(Navigation::Forward(1));
+    answer_all(&mut wb, &world, id, KATA);
+    // White to move: 60 % and +1.5 for White.
+    out(&mut wb, id, &info("D4", 50));
+    // (always black, with komi) → (board candidate, Black's lead, the move's table row as shown)
+    let cases = [
+        ((false, false), (60.0, 1.5), -1.5, (40.0, -1.5)),
+        ((true, false), (40.0, -1.5), -1.5, (40.0, -1.5)),
+        ((false, true), (60.0, 1.5 - 7.5), -1.5 + 7.5, (40.0, -1.5 + 7.5)),
+        ((true, true), (40.0, -1.5 + 7.5), -1.5 + 7.5, (40.0, -1.5 + 7.5)),
+    ];
+    for ((always_black, with_komi), (winrate, lead), black_lead, (row_winrate, row_lead)) in cases {
+        let settings = DisplaySettings {
+            winrate_always_black: always_black,
+            score_lead_with_komi: with_komi,
+            ..DisplaySettings::default()
+        };
+        wb.set_display_settings(settings).unwrap();
+        let v = wb.view(false);
+        let at = format!("always black {always_black}, with komi {with_komi}");
+        let a = v.analysis.unwrap();
+        assert_eq!(
+            a.candidates[0].shown,
+            ShownValues {
+                winrate,
+                score_lead: Some(lead)
+            },
+            "{at}"
+        );
+        let black = ShownValues {
+            winrate: 40.0,
+            score_lead: Some(black_lead),
+        };
+        assert_eq!(a.black, black, "{at}");
+        let point = v.history.iter().find(|p| p.node == a.node).unwrap();
+        assert_eq!(point.black, black, "{at}");
+        // The move's table row keeps Black's raw numbers for the change column.
+        assert_eq!(
+            point.as_candidate,
+            AsCandidate {
+                winrate: 40.0,
+                score_lead: Some(-1.5),
+                shown: ShownValues {
+                    winrate: row_winrate,
+                    score_lead: Some(row_lead)
+                },
+                // The independent list ignores 总是显示黑胜率: Black moved, so Black's numbers.
+                side_to_move: ShownValues {
+                    winrate: 40.0,
+                    score_lead: Some(if with_komi { -1.5 + 7.5 } else { -1.5 })
+                },
+            },
+            "{at}"
+        );
+    }
+}
+
+#[test]
+fn stronger_live_analysis_replaces_loaded_results_and_is_saved_for_every_node() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    open(&mut wb, "(;SZ[9]KM[7.5]LZOP[old 48.0 200 0.5 1 0 rootVisits=200\nmove E5 visits 200 winrate 5200 scoreMean 0.5 pv E5]\
+        ;B[ee]LZ[old 47.0 200 0.8 1 0 rootVisits=200\nmove C3 visits 200 winrate 5300 scoreMean 0.8 pv C3]LZ2[secondary])");
+    wb.set_append_winrate_to_comment(false).unwrap();
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("D4", 100));
+    assert_eq!(wb.view(false).analysis.unwrap().engine, "old", "weaker live data leaves the imported result");
+    out(&mut wb, id, &info("D4", 300));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 300);
+    wb.navigate(Navigation::Forward(1));
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("C3", 400));
+    let text = wb.begin_save("live.sgf", "interop:test").text;
+    assert!(!text.contains("old "), "stale primary tags must not accompany live data: {text}");
+    assert_eq!(text.matches("LZOP[").count(), 1, "{text}");
+    assert_eq!(text.matches("LZ[").count(), 1, "{text}");
+    assert!(
+        text.contains("rootVisits=300") && text.contains("rootVisits=400"),
+        "{text}"
+    );
+    // Secondary tags are written from the secondary engine's parsed results only, like Java's
+    // `hasSecondaryAnalysisPayload`: an unreadable `LZ2` carries none.
+    assert!(!text.contains("LZ2["), "{text}");
+    let mut reopened = workbench(dir.path(), &world);
+    open(&mut reopened, &text);
+    let root = reopened.view(false).analysis.unwrap();
+    assert_eq!((root.visits, root.root_visits, root.winrate, root.score_lead), (300, Some(300), 60.0, Some(1.5)));
+    assert_eq!(root.candidates[0].visits, 300);
+    reopened.navigate(Navigation::Forward(1));
+    let next = reopened.view(false).analysis.unwrap();
+    assert_eq!((next.visits, next.root_visits, next.winrate, next.score_lead), (400, Some(400), 60.0, Some(1.5)));
+    assert_eq!(next.candidates[0].visits, 400);
 }

@@ -1,0 +1,202 @@
+/* FunctionSearchDialog (Java cb53acc FunctionSearchDialog.java): paper #FFFDF8, ink #232724,
+   teal #0A655E (pressed #084D47, rollover #12766D), muted #53615B, line #CDBF9F, selected
+   #E8F1EC, disabled button #E7E4DB. */
+.fs-overlay {
+  position: fixed;
+  inset: 0;
+}
+.fs-surface {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  padding: 1px;
+  background: #fffdf8;
+  border: 1px solid #cdbf9f;
+  border-radius: 6px;
+  color: #232724;
+  font-size: 12px;
+}
+.fs-top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  column-gap: 10px;
+  padding: 10px 10px 10px 14px;
+}
+.fs-icon,
+.tb-pill.search svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: #0a655e;
+  stroke-width: 1.5;
+  stroke-linecap: square;
+}
+.fs-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 2px;
+  border: 0;
+  outline: 0;
+  background: #fffdf8;
+  color: #232724;
+  caret-color: #0a655e;
+  font: inherit;
+  font-size: 14px;
+  user-select: text;
+}
+.fs-input::placeholder {
+  color: #53615b;
+  opacity: 1;
+}
+.fs-input::selection {
+  background: #e8f1ec;
+}
+/* Rounded fill inset 3 px inside a 1 px line inset 1 px; EmptyBorder(8, 12, 8, 12) text insets. */
+.fs-button {
+  flex: none;
+  margin: 1px;
+  padding: 6px 10px;
+  border: 1px solid #cdbf9f;
+  border-radius: 5px;
+  background: #fffdf8;
+  color: #232724;
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+}
+.fs-button:hover:not(:disabled) {
+  background: #e8f1ec;
+}
+.fs-button:focus-visible {
+  outline: none;
+  border: 2px solid #0a655e;
+  padding: 5px 9px;
+}
+.fs-button.primary {
+  background: #0a655e;
+  color: #fff;
+}
+.fs-button.primary:hover:not(:disabled) {
+  background: #12766d;
+}
+.fs-button.primary:active:not(:disabled) {
+  background: #084d47;
+}
+.fs-button:disabled {
+  background: #e7e4db;
+  color: #53615b;
+}
+.fs-lower {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.fs-browse {
+  width: calc(100% - 2px);
+}
+.fs-expansion {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  row-gap: 4px;
+  padding: 0 10px 8px;
+}
+.fs-expansion[hidden],
+.fs-browse[hidden] {
+  display: none;
+}
+.fs-category-line {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  column-gap: 8px;
+}
+.fs-categories {
+  font: inherit;
+  color: #232724;
+  background: #fffdf8;
+  border: 1px solid #cdbf9f;
+}
+.fs-count,
+.fs-keyboard,
+.fs-path,
+.fs-detail,
+.fs-empty {
+  color: #53615b;
+}
+.fs-results {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  outline: none;
+  background: #fffdf8;
+}
+.fs-row {
+  display: flex;
+  flex-direction: column;
+  row-gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid #fffdf8;
+}
+.fs-row.selected {
+  background: #e8f1ec;
+  border-color: #cdbf9f;
+}
+.fs-results:focus .fs-row.selected {
+  border-color: #0a655e;
+}
+.fs-heading,
+.fs-detail,
+.fs-empty {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.fs-title {
+  font-weight: bold;
+}
+.fs-row.unavailable .fs-title {
+  color: #53615b;
+}
+.fs-empty {
+  padding: 12px;
+}
+.fs-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  column-gap: 8px;
+}
+.fs-keyboard {
+  flex: 1;
+}
+
+/* Search features button: the icon alone below a 900 px wide window. */
+.tb-pill.search.collapsed {
+  width: 28px;
+}
+.tb-pill.search.collapsed .label {
+  display: none;
+}
+
+/* A control located by function search: the 2 px gold line for 2.4 s (search/highlight.ts). */
+.located {
+  outline: 2px solid #b99c5d;
+  outline-offset: 0;
+}
+/* The board takes the focus back (search/targets.ts focusBoard) without a focus ring. */
+#board:focus {
+  outline: none;
+}
+/* A located menu item is the selected item of its open menu. */
+.dropdown .mi.located-item:focus {
+  background: rgb(226, 230, 236);
+}
+.dropdown .mi.located-item:focus:not(.located) {
+  outline: none;
+}

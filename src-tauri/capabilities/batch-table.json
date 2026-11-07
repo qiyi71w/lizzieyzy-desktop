@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "batch-table",
+  "description": "批量分析进度表 (AnalysisTable): renders the queue the main window relays and reports its button and row input",
+  "windows": ["batch-table"],
+  "permissions": ["core:default"]
+}

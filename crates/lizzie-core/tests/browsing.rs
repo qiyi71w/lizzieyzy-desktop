@@ -7,7 +7,7 @@ use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::formats::{sgf, ReadError};
 use lizzie_core::record::{BoardSize, GameRecord, NodeId, Point, Stone, ROOT};
-use lizzie_core::settings::{Language, Storage, WindowPlacement};
+use lizzie_core::settings::{FramePlacement, Language, Storage, WindowPlacement};
 use lizzie_core::workbench::{OpenOrigin, PasteDecision, Workbench, FAILED_TO_OPEN_FILE, KIFU_LOAD_FAILED};
 
 /// Browsing runs without engines; nothing is ever launched here.
@@ -254,12 +254,12 @@ fn paste_decision_ignores_non_sgf_and_asks_before_replacing() {
     assert_eq!(wb.paste_decision("(;B[bb])", false), PasteDecision::Confirm);
     assert_eq!(wb.paste_decision("(;B[bb])", true), PasteDecision::Proceed);
     let t = wb.begin_open(OpenOrigin::Clipboard);
-    wb.complete_open(t, Workbench::read_clipboard_record("(;B[bb]"));
+    wb.complete_open(t, Workbench::read_clipboard_record("(;B[bb]", false));
     let v = wb.view(false);
     assert!(v.document.path.is_none());
     assert_eq!(v.position.stones.iter().flatten().count(), 0);
     let t = wb.begin_open(OpenOrigin::Clipboard);
-    wb.complete_open(t, Workbench::read_clipboard_record("(;C[x"));
+    wb.complete_open(t, Workbench::read_clipboard_record("(;C[x", false));
     assert!(
         matches!(wb.view(false).open_outcome, Some(OpenOutcome::Failed { ref message_key, .. }) if message_key == KIFU_LOAD_FAILED)
     );
@@ -293,7 +293,7 @@ fn reset_ui_position_deletes_window_state_until_next_start() {
         height: 600,
         maximized: false,
     };
-    wb.persist_on_exit(Some(placement)).unwrap();
+    wb.persist_ui(Some(placement), None, None).unwrap();
     assert_eq!(
         Workbench::new(st.clone(), None, Box::new(NoEngines), Vec::new())
             .persisted()
@@ -303,7 +303,7 @@ fn reset_ui_position_deletes_window_state_until_next_start() {
     let mut wb = Workbench::new(st.clone(), None, Box::new(NoEngines), Vec::new());
     wb.reset_ui_position().unwrap();
     assert!(!st.persist_file.exists());
-    wb.persist_on_exit(Some(placement)).unwrap();
+    wb.persist_ui(Some(placement), None, None).unwrap();
     assert!(!st.persist_file.exists(), "exit after a reset does not write it back");
     assert_eq!(
         Workbench::new(st, None, Box::new(NoEngines), Vec::new())
@@ -311,6 +311,44 @@ fn reset_ui_position_deletes_window_state_until_next_start() {
             .window,
         None
     );
+}
+
+#[test]
+fn exit_persists_the_suggestions_frame_per_layout_and_the_list_columns() {
+    let dir = tempfile::tempdir().unwrap();
+    let st = storage(dir.path());
+    let frame = |columns: Vec<u32>| FramePlacement {
+        x: -9,
+        y: 480,
+        width: 650,
+        height: 320,
+        columns,
+    };
+    let mut wb = Workbench::new(st.clone(), None, Box::new(NoEngines), Vec::new());
+    wb.persist_ui(
+        None,
+        Some(frame(vec![35, 20, 40, 70, 35, 50, 35])),
+        Some(vec![10, 30, 30, 45, 30]),
+    )
+    .unwrap();
+    let mut wb = Workbench::new(st.clone(), None, Box::new(NoEngines), Vec::new());
+    assert_eq!(wb.persisted().main_list_columns, Some(vec![10, 30, 30, 45, 30]));
+    // The 9-column layout is written beside the 7-column one; a hidden score column clears the
+    // list widths like Java's empty `main-window-list`.
+    wb.persist_ui(None, Some(frame(vec![35, 20, 40, 70, 35, 50, 35, 70, 35])), None)
+        .unwrap();
+    let persisted = Workbench::new(st, None, Box::new(NoEngines), Vec::new())
+        .persisted()
+        .clone();
+    assert_eq!(
+        persisted.suggestions_frame_7,
+        Some(frame(vec![35, 20, 40, 70, 35, 50, 35]))
+    );
+    assert_eq!(
+        persisted.suggestions_frame_9,
+        Some(frame(vec![35, 20, 40, 70, 35, 50, 35, 70, 35]))
+    );
+    assert_eq!(persisted.main_list_columns, None);
 }
 
 #[test]

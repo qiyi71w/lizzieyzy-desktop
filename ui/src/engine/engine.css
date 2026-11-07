@@ -32,6 +32,12 @@
 .engine-settings { display: grid; grid-template-columns: 150px minmax(360px, 1fr); padding: 12px; gap: 20px; }
 .engine-settings nav { display: flex; flex-direction: column; gap: 6px; }
 .engine-settings-form { display: grid; gap: 10px; }
+/* 综合设置 (ConfigDialog2): the section scrolls, 保存设置 / 取消 stay in the footer. */
+.engine-dialog:has(> .engine-settings) { overflow: hidden; display: flex; flex-direction: column; }
+.engine-settings { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr) auto; }
+.engine-settings nav { grid-row: 1; }
+.engine-settings > .engine-settings-form { grid-row: 1; grid-column: 2; min-height: 0; overflow: auto; align-content: start; }
+.engine-settings > .engine-actions { grid-row: 2; }
 .engine-settings-form > label:not(.engine-field) { display: block; }
 .engine-failure { padding: 12px; width: min(730px, 85vw); }
 .engine-failure pre, .engine-failure-details { max-height: 45vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }

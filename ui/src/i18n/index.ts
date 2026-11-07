@@ -46,6 +46,9 @@ const IMPORT_TEXT: Record<string, Table> = {
     importListImported: "迁入的设置",
     importListIncompatible: "不兼容的设置",
     importListNotMigrated: "未迁入的设置",
+    importListRecovery: "存档与读档中的棋谱",
+    javaImportRecovery: "迁入存档与读档中的棋谱",
+    importMoveNumber: "第 {0} 手",
     statusImported: "迁入",
     statusIncompatible: "不兼容",
     statusNotMigrated: "未迁入",
@@ -56,6 +59,8 @@ const IMPORT_TEXT: Record<string, Table> = {
     reasonRemoteEngine: "远程（SSH）引擎尚未提供",
     reasonCredentialNotConfirmed: "命令含凭据，未确认复制",
     reasonUnreadable: "文件无法读取",
+    reasonNotChosen: "未选择迁入",
+    reasonObsolete: "LizzieYzy Next 已不再使用此项",
     problemProgramNotFound: "找不到程序：{0}",
     problemFileNotFound: "找不到文件：{0} {1}",
     problemEmptyCommand: "命令为空",
@@ -83,6 +88,22 @@ const IMPORT_TEXT: Record<string, Table> = {
     targetAutoLoadKataRules: "自动加载 KataGo 规则",
     targetStartupBenchmark: "启动时智能测速",
     targetNetworkProxy: "网络代理",
+    targetAllowDoubleClick: "启用双击找子",
+    targetAllowDrag: "启用拖动棋子",
+    targetRightClickMenu: "鼠标右键功能",
+    targetNewBoardHint: "显示清空棋盘提示对话框",
+    targetMarkupTools: "标记工具",
+    targetOtherBoardSize: "设置棋盘大小：其他",
+    targetNoCapture: "五子棋无提子规则",
+    targetAutoSaveOnExit: "存档与读档：自动存档",
+    targetResumePreviousGame: "存档与读档：启动时自动恢复",
+    targetZoomThumbnails: "存档与读档：鼠标悬停放大缩略棋盘",
+    targetLastImageFolder: "上次保存图片的文件夹",
+    targetWinrateAlwaysBlack: "总是显示黑胜率",
+    targetScoreLeadWithKomi: "目差显示：盘面",
+    targetMatchAi: "AI 吻合判定（候选数、计算量比例）",
+    targetAnalysisRegion: "强制计算区域的限制手数",
+    targetTracking: "选点重点研究",
   },
   ZhTw: {
     javaImport: "從 LizzieYzy Next 匯入設定…",
@@ -121,6 +142,9 @@ const IMPORT_TEXT: Record<string, Table> = {
     importListImported: "遷入的設定",
     importListIncompatible: "不相容的設定",
     importListNotMigrated: "未遷入的設定",
+    importListRecovery: "存檔與讀檔中的棋譜",
+    javaImportRecovery: "遷入存檔與讀檔中的棋譜",
+    importMoveNumber: "第 {0} 手",
     statusImported: "遷入",
     statusIncompatible: "不相容",
     statusNotMigrated: "未遷入",
@@ -131,6 +155,8 @@ const IMPORT_TEXT: Record<string, Table> = {
     reasonRemoteEngine: "遠端（SSH）引擎尚未提供",
     reasonCredentialNotConfirmed: "命令含憑據，未確認複製",
     reasonUnreadable: "檔案無法讀取",
+    reasonNotChosen: "未選擇遷入",
+    reasonObsolete: "LizzieYzy Next 已不再使用此項",
     problemProgramNotFound: "找不到程式：{0}",
     problemFileNotFound: "找不到檔案：{0} {1}",
     problemEmptyCommand: "命令為空",
@@ -158,6 +184,22 @@ const IMPORT_TEXT: Record<string, Table> = {
     targetAutoLoadKataRules: "自動載入 KataGo 規則",
     targetStartupBenchmark: "啟動時智慧測速",
     targetNetworkProxy: "網路代理",
+    targetAllowDoubleClick: "啟用雙擊找子",
+    targetAllowDrag: "啟用拖動棋子",
+    targetRightClickMenu: "滑鼠右鍵功能",
+    targetNewBoardHint: "顯示清空棋盤提示對話框",
+    targetMarkupTools: "標記工具",
+    targetOtherBoardSize: "設定棋盤大小：其他",
+    targetNoCapture: "對五子棋使用 no-capture 規則",
+    targetAutoSaveOnExit: "存檔與讀檔：自動存檔",
+    targetResumePreviousGame: "存檔與讀檔：啟動時自動恢復",
+    targetZoomThumbnails: "存檔與讀檔：滑鼠懸停放大縮略棋盤",
+    targetLastImageFolder: "上次儲存圖片的資料夾",
+    targetWinrateAlwaysBlack: "總是顯示黑勝率",
+    targetScoreLeadWithKomi: "目差顯示：盤面",
+    targetMatchAi: "AI 吻合判定（候選數、計算量比例）",
+    targetAnalysisRegion: "強制計算區域的限制手數",
+    targetTracking: "選點重點研究",
   },
   EnUs: {
     javaImport: "Import settings from LizzieYzy Next…",
@@ -196,6 +238,9 @@ const IMPORT_TEXT: Record<string, Table> = {
     importListImported: "Imported settings",
     importListIncompatible: "Settings that cannot be used",
     importListNotMigrated: "Settings left out",
+    importListRecovery: "Saved games of Save and load",
+    javaImportRecovery: "Import the saved games of Save and load",
+    importMoveNumber: "move {0}",
     statusImported: "imported",
     statusIncompatible: "not usable",
     statusNotMigrated: "left out",
@@ -206,6 +251,8 @@ const IMPORT_TEXT: Record<string, Table> = {
     reasonRemoteEngine: "remote (SSH) engines are not available yet",
     reasonCredentialNotConfirmed: "the command holds credentials; copying was not confirmed",
     reasonUnreadable: "the file cannot be read",
+    reasonNotChosen: "not chosen",
+    reasonObsolete: "no longer used by LizzieYzy Next",
     problemProgramNotFound: "program not found: {0}",
     problemFileNotFound: "file not found: {0} {1}",
     problemEmptyCommand: "empty command",
@@ -233,6 +280,22 @@ const IMPORT_TEXT: Record<string, Table> = {
     targetAutoLoadKataRules: "Load KataGo rules automatically",
     targetStartupBenchmark: "Benchmark at start-up",
     targetNetworkProxy: "Network proxy",
+    targetAllowDoubleClick: "Enable double click finding move",
+    targetAllowDrag: "Enable drag stone",
+    targetRightClickMenu: "Right click function",
+    targetNewBoardHint: "Show confirm dialog in creating new board",
+    targetMarkupTools: "Markup tools",
+    targetOtherBoardSize: "Set board size: other",
+    targetNoCapture: "Use no-capture rules for Gomoku",
+    targetAutoSaveOnExit: "Save and load: auto save",
+    targetResumePreviousGame: "Save and load: resume on start",
+    targetZoomThumbnails: "Save and load: enlarge thumbnails on hover",
+    targetLastImageFolder: "Last picture folder",
+    targetWinrateAlwaysBlack: "Always show black winrate",
+    targetScoreLeadWithKomi: "Score lead: board difference",
+    targetMatchAi: "AI match (candidates, playout share)",
+    targetAnalysisRegion: "Calculation region move limits",
+    targetTracking: "Point evaluation",
   },
 };
 
@@ -264,9 +327,14 @@ export function t(key: string): string {
   return JAVA[lang]?.[key] ?? JAVA.ZhCn?.[key] ?? key;
 }
 
-/** MessageFormat-style `{0}` substitution. */
+/** MessageFormat-style `{0}` substitution; `{0,number,integer}` rounds and groups the digits like
+ *  Java's integer NumberFormat (every UI locale groups with ","). */
 export function format(text: string, ...args: (string | number)[]): string {
-  return text.replace(/\{(\d+)\}/g, (_, k) => `${args[Number(k)] ?? ""}`);
+  return text.replace(/\{(\d+)(,number,integer)?\}/g, (_, k, integer) => {
+    const arg = args[Number(k)];
+    if (integer && typeof arg === "number") return Math.round(arg).toLocaleString("en-US");
+    return `${arg ?? ""}`;
+  });
 }
 
 /** Product-only messages of a feature module, kept next to that feature; same language rules as

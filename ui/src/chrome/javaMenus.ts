@@ -1,8 +1,9 @@
 // Java main-window menu bar, in Menu.java add() order: fixed Java
 // wimi321/lizzieyzy-next cb53acc55eda42c6c671b5f668cd3b597456bf07, src/main/java/featurecat/lizzie/gui/Menu.java.
 // `key` is the DisplayStrings resource key (literal text where Java uses literal text), `id` the
-// Java action id (AutoAnalyzeMenu.ACTION_PROPERTY / FunctionCatalog). Which entries are available is
-// decided by the command catalog (commands.ts), not here.
+// Java action id (AutoAnalyzeMenu.ACTION_PROPERTY / FunctionCatalog), or a product id for an item
+// Java gave none whose key another item shares (工具栏's 显示 / 不显示). Which entries are available
+// is decided by the command catalog (commands.ts), not here.
 
 export type MenuNode =
   | { t: "sep" }
@@ -262,15 +263,18 @@ export const JAVA_MENUS: TopMenu[] = [
       "items": [
        {
         "t": "check",
-        "key": "Menu.topToolBarSeparated"
+        "key": "Menu.topToolBarSeparated",
+        "id": "menu.topToolBar.separated"
        },
        {
         "t": "check",
-        "key": "Menu.topToolBarCombined"
+        "key": "Menu.topToolBarCombined",
+        "id": "menu.topToolBar.combined"
        },
        {
         "t": "check",
-        "key": "Menu.inVisible"
+        "key": "Menu.inVisible",
+        "id": "menu.topToolBar.invisible"
        },
        {
         "t": "sep"
@@ -356,11 +360,13 @@ export const JAVA_MENUS: TopMenu[] = [
       "items": [
        {
         "t": "check",
-        "key": "Menu.visible"
+        "key": "Menu.visible",
+        "id": "menu.bottomToolBar.visible"
        },
        {
         "t": "check",
-        "key": "Menu.inVisible"
+        "key": "Menu.inVisible",
+        "id": "menu.bottomToolBar.invisible"
        },
        {
         "t": "submenu",
@@ -575,7 +581,14 @@ export const JAVA_MENUS: TopMenu[] = [
      },
      {
       "t": "check",
-      "key": "Menu.rankMenu.lblCustomMove"
+      "key": "Menu.rankMenu.lblCustomMove",
+      "when": "javaLooks"
+     },
+     {
+      "t": "check",
+      "key": "Menu.rankMenu.setCustomMoves",
+      "when": "windows",
+      "suffix": "{display.moveRankCustom}"
      },
      {
       "t": "check",
@@ -583,6 +596,10 @@ export const JAVA_MENUS: TopMenu[] = [
      },
      {
       "t": "sep"
+     },
+     {
+      "t": "check",
+      "key": "Menu.showMoveRankInOrigin"
      },
      {
       "t": "submenu",
@@ -712,7 +729,7 @@ export const JAVA_MENUS: TopMenu[] = [
       "t": "item",
       "key": "Menu.minPlayoutsForNextMove",
       "id": "menu.minPlayoutsForNextMove",
-      "suffix": "30)"
+      "suffix": "{display.nextMoveMinPlayouts})"
      }
     ]
    },
@@ -930,28 +947,36 @@ export const JAVA_MENUS: TopMenu[] = [
       "items": [
        {
         "t": "check",
-        "key": "Menu.kataEstimateClose"
+        "key": "Menu.kataEstimateClose",
+        "id": "kataEstimate.Close"
        },
        {
         "t": "check",
-        "key": "Menu.kataEstimateCloseView"
+        "key": "Menu.kataEstimateCloseView",
+        "id": "kataEstimate.Hide"
        },
        {
         "t": "check",
-        "key": "Menu.kataEstimateOnMainBoard"
+        "key": "Menu.kataEstimateOnMainBoard",
+        "id": "kataEstimate.Main"
        },
        {
         "t": "check",
-        "key": "Menu.kataEstimateOnSubBoard"
+        "key": "Menu.kataEstimateOnSubBoard",
+        "id": "kataEstimate.Sub"
        },
        {
         "t": "check",
-        "key": "Menu.kataEstimateOnBothBoard"
+        "key": "Menu.kataEstimateOnBothBoard",
+        "id": "kataEstimate.Both"
        },
        {
         "t": "check",
         "key": "Menu.kataEstimateSaveState",
         "id": "menu.kataEstimateSaveState"
+       },
+       {
+        "t": "sep"
        },
        {
         "t": "check",
@@ -960,19 +985,23 @@ export const JAVA_MENUS: TopMenu[] = [
        },
        {
         "t": "check",
-        "key": "Menu.kataEstimateByTransparent"
+        "key": "Menu.kataEstimateByTransparent",
+        "id": "kataEstimate.Transparent"
        },
        {
         "t": "check",
-        "key": "Menu.kataEstimateByTransparentNotOnLive"
+        "key": "Menu.kataEstimateByTransparentNotOnLive",
+        "id": "kataEstimate.TransparentNotOnLive"
        },
        {
         "t": "check",
-        "key": "Menu.kataEstimateByBigSquare"
+        "key": "Menu.kataEstimateByBigSquare",
+        "id": "kataEstimate.BigBelow"
        },
        {
         "t": "check",
-        "key": "Menu.kataEstimateBySize"
+        "key": "Menu.kataEstimateBySize",
+        "id": "kataEstimate.BySize"
        },
        {
         "t": "submenu",
@@ -981,25 +1010,33 @@ export const JAVA_MENUS: TopMenu[] = [
         "items": [
          {
           "t": "check",
-          "key": "Menu.kataEstimateByTransparentSmall"
+          "key": "Menu.kataEstimateByTransparentSmall",
+          "id": "pureEstimate.Small"
          },
          {
           "t": "check",
-          "key": "Menu.kataEstimateByTransparent"
+          "key": "Menu.kataEstimateByTransparent",
+          "id": "pureEstimate.Transparent"
          },
          {
           "t": "check",
-          "key": "Menu.kataEstimateByTransparentNotOnLive"
+          "key": "Menu.kataEstimateByTransparentNotOnLive",
+          "id": "pureEstimate.TransparentNotOnLive"
          },
          {
           "t": "check",
-          "key": "Menu.kataEstimateByBigSquare"
+          "key": "Menu.kataEstimateByBigSquare",
+          "id": "pureEstimate.BigBelow"
          },
          {
           "t": "check",
-          "key": "Menu.kataEstimateBySize"
+          "key": "Menu.kataEstimateBySize",
+          "id": "pureEstimate.BySize"
          }
         ]
+       },
+       {
+        "t": "sep"
        },
        {
         "t": "check",

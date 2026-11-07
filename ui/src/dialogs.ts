@@ -6,8 +6,43 @@ import { product } from "./i18n";
 const host = () => document.getElementById("dialog")!;
 let open = 0;
 
-export function dialogOpen(): boolean {
-  return open > 0;
+/** A modal dialog or layer is open. `except` leaves out one layer (openModalLayer), so a modal
+ *  asking about the others does not count itself. */
+export function dialogOpen(except?: HTMLElement): boolean {
+  return open - (except && except.parentElement === host() ? 1 : 0) > 0;
+}
+
+/** A custom modal layer (the function search) under the same modal state as these dialogs: it
+ *  joins the dialog host, only the newest layer or dialog takes input and everything else is
+ *  inert. A dialog opened over it gets the input until it closes. Returns the layer's close. */
+export function openModalLayer(layer: HTMLElement): () => void {
+  host().append(layer);
+  host().hidden = false;
+  open++;
+  setModal();
+  let closed = false;
+  return () => {
+    if (closed) return;
+    closed = true;
+    layer.remove();
+    open--;
+    host().hidden = open === 0;
+    setModal();
+  };
+}
+
+/** A non-modal window that disables the main window while it is shown (WaitForAnalysis
+ *  disableOwnerFrame): the workbench is inert, while windows marked `data-free-window` (the GTP
+ *  console, that window itself) stay usable. Modal dialogs still block everything. */
+let ownerDisabled = false;
+
+export function setOwnerDisabled(disabled: boolean): void {
+  ownerDisabled = disabled;
+  setModal();
+}
+
+export function ownerIsDisabled(): boolean {
+  return ownerDisabled;
 }
 
 interface Button {
@@ -76,7 +111,8 @@ function show(title: string, body: HTMLElement | string, buttons: Button[], kind
 /** Only the newest dialog takes input; everything else in the window is inert. */
 function setModal() {
   for (const el of document.body.children) {
-    if (el !== host()) (el as HTMLElement).inert = open > 0;
+    const free = (el as HTMLElement).hasAttribute("data-free-window");
+    if (el !== host()) (el as HTMLElement).inert = open > 0 || (ownerDisabled && !free);
   }
   const overlays = [...host().children] as HTMLElement[];
   overlays.forEach((o, k) => (o.inert = k !== overlays.length - 1));
@@ -141,7 +177,9 @@ export function formPanel(title: string, body: HTMLElement, beforeClose: () => P
     e.stopPropagation();
     if (e.key === "Escape") { e.preventDefault(); void close(); }
     if (e.key === "Tab") {
-      const items = [...box.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex='0']")];
+      // Only rendered controls: 综合设置 keeps its other sections in the dialog, hidden.
+      const items = [...box.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex='0']")]
+        .filter((el) => el.getClientRects().length > 0);
       const at = items.indexOf(document.activeElement as HTMLElement);
       e.preventDefault();
       items[(at + (e.shiftKey ? -1 : 1) + items.length) % items.length]?.focus();

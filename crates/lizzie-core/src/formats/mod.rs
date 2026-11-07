@@ -2,17 +2,22 @@
 //! the atomic file write.
 //!
 //! Reading only produces a candidate record; adopting it is the browsing flow's decision. Only
-//! SGF is ever written (Java writes no other record format).
+//! SGF is ever written (Java writes no other record format); pictures of the workbench panels are
+//! written by [`picture`].
 
 pub mod gib;
+pub mod picture;
+pub mod saved_analysis;
 pub mod sgf;
 pub mod sgf_write;
+pub mod table;
+pub mod winrate_comment;
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::record::{GameRecord, NodeKind, RecordFormat, Stone};
+use crate::record::{GameRecord, NodeId, NodeKind, PlayRules, Point, Position, RecordFormat, Stone};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReadError {
@@ -41,6 +46,33 @@ pub fn format_for_path(path: &str) -> RecordFormat {
     }
 }
 
+/// One move of a file as Java places it while reading (`BoardHistoryList.place`): a taken point,
+/// a suicide and an immediate ko recapture are skipped. With `no_capture` (`ui.no-capture`)
+/// nothing is removed, so a point without liberties is a normal move. On success the move is
+/// the new child of `parent`, `pos` its position and `prev` the position before it.
+fn read_move(
+    rec: &mut GameRecord,
+    parent: NodeId,
+    color: Stone,
+    point: Point,
+    pos: &mut Position,
+    prev: &mut Option<Position>,
+    no_capture: bool,
+) -> Option<NodeId> {
+    let rules = PlayRules {
+        allow_suicide: false,
+        no_capture,
+    };
+    let next = pos.try_play(color, point, rules)?;
+    if prev.as_ref().is_some_and(|before| before.stones == next.stones) {
+        return None;
+    }
+    *prev = Some(std::mem::replace(pos, next));
+    let id = rec.push_child(parent, NodeKind::Move { color, point });
+    rec.node_mut(id).no_capture = no_capture;
+    Some(id)
+}
+
 /// Decodes record bytes like Java `EncodingDetector` + reader: a detected Windows-1252 is read
 /// as GB18030, undetectable text as UTF-8 (`SGFParser.java:75-81`, `EncodingDetector.java`).
 /// The detector is chardetng rather than juniversalchardet; both are Mozilla detectors.
@@ -60,22 +92,23 @@ pub fn decode(bytes: &[u8]) -> String {
     enc.decode_without_bom_handling(bytes).0.into_owned()
 }
 
-/// Parses decoded text of the given format into a candidate record.
-pub fn parse(format: RecordFormat, text: &str) -> Result<GameRecord, ReadError> {
+/// Parses decoded text of the given format into a candidate record; `no_capture` reads it the
+/// way Java does while `ui.no-capture` is on.
+pub fn parse(format: RecordFormat, text: &str, no_capture: bool) -> Result<GameRecord, ReadError> {
     if text.is_empty() {
         return Err(ReadError::Invalid("empty file".into()));
     }
     match format {
-        RecordFormat::Sgf => sgf::read(text).map_err(|e| ReadError::Invalid(e.0)),
-        RecordFormat::Gib => gib::read(text).map_err(ReadError::Invalid),
+        RecordFormat::Sgf => sgf::read_with(text, no_capture).map_err(|e| ReadError::Invalid(e.0)),
+        RecordFormat::Gib => gib::read(text, no_capture).map_err(ReadError::Invalid),
     }
 }
 
-/// Reads a record file from disk into a candidate record.
-pub fn read_file(path: &std::path::Path) -> Result<(RecordFormat, GameRecord), ReadError> {
+/// Reads a record file from disk into a candidate record (see [`parse`]).
+pub fn read_file(path: &std::path::Path, no_capture: bool) -> Result<(RecordFormat, GameRecord), ReadError> {
     let bytes = std::fs::read(path).map_err(|e| ReadError::Io(e.to_string()))?;
     let format = format_for_path(&path.to_string_lossy());
-    let record = parse(format, &decode(&bytes))?;
+    let record = parse(format, &decode(&bytes), no_capture)?;
     Ok((format, record))
 }
 
@@ -101,20 +134,25 @@ static STAGE_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// replaced file keeps its permissions; a new file stays owner-only, as Java leaves it. On any
 /// failure the staged file is removed and an existing target is unchanged.
 pub fn write_record_file(target: &Path, text: &str) -> std::io::Result<()> {
+    write_file_atomic(target, text.as_bytes())
+}
+
+/// [`write_record_file`] for any bytes (pictures, slot thumbnails).
+pub fn write_file_atomic(target: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let dir = match target.parent() {
         Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
         _ => PathBuf::from("."),
     };
     let (staged, file) = create_staged(&dir)?;
-    let result = replace_with_staged(file, &staged, target, text);
+    let result = replace_with_staged(file, &staged, target, bytes);
     if result.is_err() {
         let _ = std::fs::remove_file(&staged);
     }
     result
 }
 
-fn replace_with_staged(mut file: std::fs::File, staged: &Path, target: &Path, text: &str) -> std::io::Result<()> {
-    file.write_all(text.as_bytes())?;
+fn replace_with_staged(mut file: std::fs::File, staged: &Path, target: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    file.write_all(bytes)?;
     file.sync_all()?;
     // Closed before the rename (Windows cannot replace with an open file).
     drop(file);
@@ -195,6 +233,15 @@ pub(crate) fn resolve_turns(rec: &mut GameRecord) {
             }
         };
         rec.node_mut(id).to_play = to_play;
+        // `BoardHistoryNode.alignParentTurnStateWithFirstActionChild`: an action node without `PL`
+        // takes the colour of its first child's action as its side to play (two moves of one
+        // colour in a row, as inserting and stone edits make).
+        if let (Some(p), Some(color)) = (parent, rec.node(id).kind.action_color()) {
+            let pn = rec.node(p);
+            if pn.kind.is_action() && pn.explicit_to_play.is_none() && pn.children.first() == Some(&id) {
+                rec.node_mut(p).to_play = color;
+            }
+        }
     }
 }
 

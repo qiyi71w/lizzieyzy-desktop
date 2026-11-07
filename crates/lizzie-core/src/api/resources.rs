@@ -33,6 +33,9 @@ pub enum ResourceItem {
         /// Explicit runtime-install confirmation.
         confirmed: bool,
     },
+    /// 快速曲线轻量模型 (`downloadQuickAnalysisModel`): the catalog's lightweight model, kept in
+    /// `quick-analysis-models/` apart from the weights list.
+    QuickModel,
 }
 /// Engine and supporting files chosen by the user; absent paths invoke native choosers.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]

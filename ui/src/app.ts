@@ -2,7 +2,7 @@
 // at a time in the order the user issued them (like Swing's event queue), so a quick Down/Up pair
 // can never be applied in the opposite order.
 import { dispatch, isApiError } from "./contract/client";
-import type { Command, CommandResult, Navigation, StoneSound, TreeNodeView, WorkbenchView } from "./contract/generated";
+import type { Command, CommandResult, CommentLabels, ExportKind, Navigation, StoneSound, TreeNodeView, WorkbenchView } from "./contract/generated";
 import { ask, confirm, message } from "./dialogs";
 import { product, t } from "./i18n";
 import { tuningText } from "./engine/tuningText";
@@ -17,8 +17,9 @@ export const state = {
   line: new Set<number>(),
   /** Node count of the main line (first children from the root). */
   mainLineNodes: 1,
-  /** Last stone sound requested (reported to acceptance automation). */
+  /** Last stone sound requested and how many were requested (reported to acceptance automation). */
   lastSound: null as StoneSound | null,
+  soundRequests: 0,
 };
 
 const listeners: (() => void)[] = [];
@@ -76,6 +77,7 @@ let soundsPlaying = 0;
  *  playing stays silent. Playback failures are ignored (sound is optional). */
 function playSound(sound: StoneSound) {
   state.lastSound = sound;
+  state.soundRequests++;
   if (soundsPlaying >= 2) return;
   soundsPlaying++;
   const audio = new Audio(SOUND_FILES[sound]);
@@ -98,6 +100,10 @@ export function run(command: Command): Promise<CommandResult | null> {
           "product.consoleBoardCommand": product("consoleBoardCommand"),
           "product.importStale": product("importStale"),
           "product.importNeedsReplace": product("importNeedsReplace"),
+          "LizzieFrame.setupEditRequiresRootOnly": t("LizzieFrame.setupEditRequiresRootOnly"),
+          "LizzieFrame.setupModeRequiresRootOnly": t("LizzieFrame.setupModeRequiresRootOnly"),
+          "LizzieFrame.setupModeEngineNotReady": t("LizzieFrame.setupModeEngineNotReady"),
+          "SpinAndMirror.noneSquareError": t("SpinAndMirror.noneSquareError"),
         };
         const text = messages[result.message_key] ?? t(result.message_key);
         void message(t("Message.title"), text, "warning");
@@ -107,7 +113,7 @@ export function run(command: Command): Promise<CommandResult | null> {
       // Tuning refusals carry a Java message key (`EngineThreadPolicy.*`), not display text.
       const text = isApiError(e) ? (command.type === "Tuning" ? tuningText(e.message) : e.message) : String(e);
       // Only the command kind: arguments may hold credentials (ikatago scan, proxy settings).
-      const op = "op" in command ? `.${command.op.type}` : "";
+      const op = "op" in command ? `.${"type" in command.op ? command.op.type : command.op.op}` : "";
       console.error("command failed", `${command.type}${op}`, e);
       await message("Error", text, "error");
       return null;
@@ -130,11 +136,16 @@ export async function pasteRecord(): Promise<void> {
   }
 }
 
-/** The chooser's default name (SgfSaveCoordinator.chooseAndSave): GameInfo.getSaveFileName, i.e.
- *  "<black>_Vs_<white>" or GameInfo.untitled, then "_yyyyMMddHHmmss". */
-function suggestedSaveName(): string {
+/** GameInfo.getSaveFileName: "<black>_Vs_<white>", or GameInfo.untitled when both are empty. */
+export function saveFileName(): string {
   const info = state.view?.document.info;
-  const name = !info || (info.black === "" && info.white === "") ? t("GameInfo.untitled") : `${info.black}_Vs_${info.white}`;
+  return !info || (info.black === "" && info.white === "") ? t("GameInfo.untitled") : `${info.black}_Vs_${info.white}`;
+}
+
+/** The chooser's default name (SgfSaveCoordinator.chooseAndSave): the save file name, then
+ *  "_yyyyMMddHHmmss". */
+function suggestedSaveName(): string {
+  const name = saveFileName();
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
   const stamp = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
@@ -177,14 +188,45 @@ export async function saveRecordAs(): Promise<void> {
   await followSave(await run({ type: "ChooseAndSaveRecord", suggested_name: suggestedSaveName() }));
 }
 
+/** Words of the win-rate summaries SGFParser.formatComment writes into exported comments. */
+function commentLabels(): CommentLabels {
+  return {
+    black: t("SGFParse.black"),
+    white: t("SGFParse.white"),
+    winrate: t("SGFParse.winrate"),
+    lead: t("SGFParse.leadJustScore"),
+    lead_with_komi: t("SGFParse.leadWithKomi"),
+    stdev: t("SGFParse.stdev"),
+    playouts: t("SGFParse.playouts"),
+    komi: t("SGFParse.komi"),
+    pda: t("SGFParse.pda"),
+  };
+}
+
+/** 更多保存 > 保存纯净棋谱 (Ctrl+Shift+S) / 保存纯净棋谱(带评论) / 保存纯净分支 (Ctrl+Alt+S): the save
+ *  chooser like "另存为"; the end arrives as the view's save outcome. */
+export async function exportRecord(kind: ExportKind): Promise<void> {
+  const r = await run({ type: "ExportRecord", kind, suggested_name: suggestedSaveName(), labels: commentLabels() });
+  if (r?.type === "NeedsExportOverwriteConfirmation" && await confirm(t("LizzieFrame.warning"), t("LizzieFrame.prompt.sgfExists"))) {
+    await run({ type: "ExportRecordTo", kind: r.kind, path: r.path, labels: commentLabels() });
+  }
+}
+
+/** "复制棋谱到剪贴板(Ctrl+C)" (LizzieFrame.copySgf). */
+export function copyRecord(): void {
+  void run({ type: "CopyRecord" });
+}
+
 /** A Java entry whose capability has not been migrated yet. */
 export function unavailable(): void {
   message(APP_TITLE, product("unavailable"));
 }
 
-/** Java LizzieFrame.updateTitle without an engine: DEFAULT_TITLE + " " + players + result + file. */
+/** Java LizzieFrame.updateTitle without an engine: DEFAULT_TITLE + " " + players + result + file.
+ *  While 试下 is on the title is LizzieFrame.tryTitle only (tryPlay sets it; updateTitle returns). */
 export function windowTitle(version: string): string {
   const v = state.view;
+  if (v?.editing.trying) return t("LizzieFrame.tryTitle");
   let title = `${APP_TITLE} ${version} `;
   if (!v) return title;
   if (v.document.format !== null) {
@@ -192,6 +234,8 @@ export function windowTitle(version: string): string {
     title += `- [${t("Menu.Black")}]${info.black} vs[${t("Menu.White")}]${info.white}`;
     if (info.result) title += `(${t("LizzieFrame.result")}${info.result})`;
   }
-  if (v.document.file_name) title += ` - ${v.document.file_name}`;
+  // A record loaded from a 存档与读档 slot has no file of its own; Java shows the slot's file name.
+  const fileName = v.document.file_name ?? v.document.origin_name;
+  if (fileName) title += ` - ${fileName}`;
   return title;
 }

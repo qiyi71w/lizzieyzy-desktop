@@ -4,19 +4,29 @@
 //! them (see `tests/contract.rs`); the UI, its shortcuts and the acceptance channel all send the
 //! same [`Command`] values and read the same [`WorkbenchView`].
 
+mod batch;
+mod editing;
+mod export;
+mod hawkeye;
+mod recovery;
 mod resources;
 mod tuning;
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+pub use batch::*;
+pub use editing::*;
+pub use export::*;
+pub use hawkeye::*;
+pub use recovery::*;
 pub use resources::*;
 pub use tuning::*;
 
 use crate::browse::Navigation;
 use crate::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup};
 use crate::record::{BoardSize, GameInfo, Mark, NodeId, Point, RecordFormat, Stone};
-use crate::settings::Language;
+use crate::settings::{EditSettings, Language};
 
 /// Where an open request came from. Java only records the recent list and last folder for the
 /// chooser (`loadFile(file, fromTemp=false)`); recent entries, drops and the command line open
@@ -32,6 +42,14 @@ pub enum OpenSource {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
 #[serde(tag = "type")]
 pub enum Command {
+    /// 主题 drafts apply together only on 保存设置 (ConfigDialog2.java:6191-6286).
+    SetAppearanceSettings {
+        settings: crate::appearance::AppearanceSettings,
+        theme: Box<crate::appearance::ThemeSettings>,
+    },
+    SetFrameFontSize { size: i32 },
+    AddTheme { name: String },
+    DeleteTheme { name: String },
     /// "打开棋谱(O)", toolbar open buttons, `O`: the system chooser, then open the choice.
     ChooseAndOpenRecord,
     /// Open a known path (recent entry, drop, command line, automation).
@@ -65,6 +83,43 @@ pub enum Command {
     SetReplaceFileHint {
         enabled: bool,
     },
+    /// 文件 > 更多保存 > 保存纯净棋谱 / 保存纯净棋谱(带评论) / 保存纯净分支 (Ctrl+Shift+S, Ctrl+Alt+S):
+    /// the save chooser (last folder, `*.sgf`, `suggested_name`), then write that export.
+    /// `labels` word the win-rate summaries of [`ExportKind::RawWithComments`].
+    ExportRecord {
+        kind: ExportKind,
+        suggested_name: String,
+        labels: CommentLabels,
+    },
+    /// Write export `kind` to a known path (after `NeedsExportOverwriteConfirmation`,
+    /// automation), exactly as named.
+    ExportRecordTo {
+        kind: ExportKind,
+        path: String,
+        labels: CommentLabels,
+    },
+    /// 复制棋谱到剪贴板 (Ctrl+C): the record as "保存" writes it, as clipboard text.
+    CopyRecord,
+    /// 保存主棋盘截图 (Alt+S) / 保存小棋盘截图 (Shift+S) / 保存胜率图 (Shift+Alt+S): the picture
+    /// chooser (PNG, JPG, GIF, BMP; last picture folder), then write `png` (base64 PNG of the
+    /// panel as shown) in the format of the chosen name. Answers `Exported`,
+    /// `NeedsImageOverwriteConfirmation` or `ExportFailed`.
+    ExportImage {
+        png: String,
+    },
+    /// Write a picture to a known path (after `NeedsImageOverwriteConfirmation`, automation).
+    ExportImageTo {
+        path: String,
+        png: String,
+    },
+    /// 复制主棋盘到剪贴板 (Shift+C) / 复制小棋盘到剪贴板 (Alt+C): `png` as a clipboard picture.
+    CopyImage {
+        png: String,
+    },
+    /// 存档与读档.
+    Recovery {
+        op: RecoveryCommand,
+    },
     Navigate {
         nav: Navigation,
     },
@@ -78,6 +133,10 @@ pub enum Command {
     },
     /// File > "自动加载棋谱中的贴目".
     SetReadKomi {
+        enabled: bool,
+    },
+    /// 记录选点信息到评论中 (Java `ui.append-winrate-to-comment`).
+    SetAppendWinrateToComment {
         enabled: bool,
     },
     /// Settings language menu; takes effect after restart.
@@ -109,6 +168,33 @@ pub enum Command {
     ShutdownEngines {
         scope: EngineScope,
     },
+    /// Fixed Java layout entry; leaving DoubleEngine stops secondary analysis, not its process.
+    SetExtraMode {
+        mode: crate::settings::ExtraMode,
+    },
+    SetClassicMode,
+    ToggleIndependentBoard { board: crate::settings::IndependentBoard },
+    CloseIndependentBoard { board: crate::settings::IndependentBoard },
+    /// SetCustomMode / 可视化面板设置 确定: mode, panel flags and board position, plus the
+    /// 自定义布局 `save_slot` snapshot with the main `window` bounds, as one change.
+    CommitLayout {
+        mode: crate::settings::ExtraMode,
+        panels: crate::settings::PanelSettings,
+        board_position_proportion: u8,
+        save_slot: Option<u8>,
+        window: Option<crate::settings::WindowPlacement>,
+    },
+    ApplyCustomLayout { slot: u8 },
+    /// Secondary engine menu `[n] name` (`EngineManager.switchEngine(index, false)`), in 双引擎模式
+    /// only: engine `index` becomes the secondary engine. The foreground engine is refused
+    /// (`EngineManager.sameEngineHint`).
+    SwitchSecondaryEngine {
+        index: u32,
+    },
+    /// Secondary engine menu > "重启当前引擎" (`EngineManager.restartEngine2`).
+    RestartSecondaryEngine,
+    /// Secondary engine menu > "关闭当前引擎" (`EngineManager.killThisEngines2`).
+    ShutdownSecondaryEngine,
     /// Engine settings (MoreEngines) saved: the whole engine list and the start-up choice.
     /// Entries with an empty id are new. Running engines whose command changed restart.
     SaveEngineSettings {
@@ -160,11 +246,13 @@ pub enum Command {
     },
     /// Java import: commit preview `preview`. `copy_credentials` lists the Java engine indexes whose
     /// credentials the user agreed to copy (other engines with credentials are left out);
-    /// `replace` confirms replacing the settings listed in the preview's `replaces`.
+    /// `replace` confirms replacing the settings listed in the preview's `replaces`; `recovery`
+    /// is present when the user chose to import the Java 存档与读档 slots.
     ApplyJavaImport {
         preview: u64,
         copy_credentials: Vec<u32>,
         replace: bool,
+        recovery: Option<RecoveryImport>,
     },
     /// The first-use import offer was declined; it is not shown again.
     DismissJavaImportOffer,
@@ -177,6 +265,315 @@ pub enum Command {
     Tuning {
         op: TuningCommand,
     },
+    /// Document editing (Edit / Game menus, board input, edit toolbars, dialogs).
+    Edit {
+        op: EditCommand,
+    },
+    /// Edit menu check items and editing prompts (启用双击找子, 启用拖动棋子, 显示新建棋盘确认对话框,
+    /// 标记工具, right-click menu, other board size).
+    SetEditSettings {
+        settings: EditSettings,
+    },
+    /// 显示 > 总是显示黑胜率 and 目差显示 (盘面 / 目差).
+    SetDisplaySettings {
+        settings: crate::settings::DisplaySettings,
+    },
+    /// 界面 > 面板 and its Java keyboard shortcuts.
+    TogglePanel { panel: crate::settings::WorkbenchPanel },
+    /// 综合设置 > 显示; drafts become committed together on 保存设置.
+    SetPanelSettings { settings: crate::settings::PanelSettings },
+    /// A finished in-frame separator drag; motion drafts never enter the core.
+    SetPanelSizes { sizes: crate::settings::PanelSizes },
+    NudgeBoardPosition { delta: i32 },
+    RestoreDefaultPanelSizes,
+    SetBottomToolbar { mode: crate::settings::BottomToolbar },
+    /// 纯网络 (H): Off → Policy → Ownership → Off for KataGo, Off ↔ Policy otherwise.
+    ToggleRawNet,
+    /// Turn pure network off, resuming ordinary analysis (policy T).
+    StopRawNet,
+    /// 显示 > KataGo相关设置 > Kata形势显示: 关闭 / 隐藏 / 显示在大棋盘上 / 显示在小棋盘上 /
+    /// 显示在大小棋盘上.
+    SetKataEstimate {
+        mode: KataEstimateMode,
+    },
+    /// `.` (with 使用快捷键) and the bottom bar Kata形势 (`LizzieFrame.toggleShowKataEstimate`);
+    /// only with a KataGo foreground engine.
+    ToggleKataEstimate,
+    /// 终局点目 (Ctrl+Q, 棋局 menu, bottom bar) and its dialog.
+    Score {
+        op: ScoreCommand,
+    },
+    /// 设置 > 加载棋谱后快速刷新胜率曲线 (`ui.auto-quick-analyze-on-load`). Turning it off cancels a
+    /// running automatic quick analysis.
+    SetAutoQuickAnalyze {
+        enabled: bool,
+    },
+    /// 设置 > 打开后跳到最后一手 (`ui.load-sgf-last`).
+    SetLoadSgfLast {
+        enabled: bool,
+    },
+    /// 精析设置 > 确定 (`AnalysisSettings.saveConfig`). `shown_command` is the command the dialog
+    /// showed when it opened; `edited` is set once 自动生成 / 选择引擎 changed the command. A command
+    /// becomes customized when it differs from what was shown, or was edited, unless the current
+    /// engine is reused. Answers `Refused { AnalysisSettings.commandRequired }` for an empty
+    /// command without reuse; `command_customized` in `settings` is ignored.
+    SaveAnalysisEngineSettings {
+        settings: crate::settings::AnalysisEngineSettings,
+        shown_command: String,
+        edited: bool,
+    },
+    /// 精析设置 > 选择引擎, and opening the dialog while the command is not customized: the
+    /// analysis command made from engine `index` (`None`: the foreground engine, else the default
+    /// one) by turning `gtp` into `analysis` and its config into the `analysis.cfg` beside it,
+    /// which is created from KataGo's example when missing (`AnalysisEngineCommandHelper`).
+    /// Answers `AnalysisCommand` or `Refused` with the helper's message key.
+    GenerateAnalysisCommand {
+        index: Option<u32>,
+    },
+    /// 快速曲线轻量模型 > 自动使用.
+    SetQuickModelEnabled {
+        enabled: bool,
+    },
+    /// The 评论/问题手 panel: page, side filter, sort, control bar.
+    SetProblemList {
+        settings: crate::settings::ProblemListSettings,
+    },
+    /// A 问题手 row (click, Enter, Space; `jumpToProblemMove`): browse to the position before the
+    /// move at `node` and mark the move that was played there.
+    JumpToProblemMove {
+        node: NodeId,
+    },
+    /// 闪电分析 (`LizzieFrame.flashAnalyzeGame`): 整盘速览, 局部精析 (saving the move range, as
+    /// `AnalysisPartGame` does) or 全部分支精析. An automatic quick analysis hands its engine over
+    /// first (`MANUAL_FLASH`). Answers `Refused` with `LizzieFrame.analysisCommandMissing` when no
+    /// analysis command is set and the current engine is not reused, or with
+    /// `AnalysisSettings.reuseStatus.<availability>` when the foreground engine cannot be borrowed.
+    StartFlashAnalysis {
+        target: FlashTarget,
+    },
+    /// The progress dialog's 取消分析 (`destroyAnalysisEngine`): completed results stay.
+    CancelFlashAnalysis,
+    /// 精析设置 > 确定并重新计算: the running flash analysis stops and the last one starts again.
+    RedoFlashAnalysis,
+    /// 强制计算区域 (toolbar 设置计算区域 / 设置不计算区域 / 清除区域, Alt+drag and Alt+click, and the
+    /// board's right-click 只分析此点 … 清除分析与不分析). The region belongs to the session, not the
+    /// record: it never changes the game.
+    Region {
+        op: RegionCommand,
+    },
+    /// 强制计算区域's depth choices (`selectAllowPopup` / `selectAvoidPopup`); an analysis running
+    /// with a region is asked again with the new depth.
+    SetRegionSettings {
+        settings: crate::settings::RegionSettings,
+    },
+    /// 选点重点研究 (right-click 评估此点 / 取消评估 / 清除所有评估选点) on the current position. A
+    /// point that cannot be tracked now (engine without `focus`, occupied, outside a kept region,
+    /// already tracked) answers `Unchanged`.
+    Tracking {
+        op: TrackingCommand,
+    },
+    /// Settings > 选点重点研究累计计算量目标 and 选点评估关注外框; a changed target ends the tracking of
+    /// the current position (`invalidateTrackingAnalysis`).
+    SetTrackingSettings {
+        settings: crate::settings::TrackingSettings,
+    },
+    StartAutoAnalysis { settings: crate::settings::AutoAnalysisSettings },
+    StopAutoAnalysis,
+    AnswerAutoAnalysisDiff { accept: bool },
+    SaveAutoAnalysisSettings { settings: crate::settings::AutoAnalysisSettings },
+    DismissAutoAnalysisTip { never_again: bool },
+    /// 整盘精析 (Ctrl+Shift+B): two-stage main-trunk analysis.
+    StartWholeGameAnalysis { visits: u32 },
+    PauseWholeGameAnalysis,
+    ResumeWholeGameAnalysis,
+    StopWholeGameAnalysis,
+    /// Pre-start estimate using the current engine's stored benchmark.
+    EstimateWholeGameAnalysis { visits: u32 },
+    /// 超级鹰眼: open/close, the side boxes and navigation from its lists and charts.
+    Hawkeye {
+        op: HawkeyeCommand,
+    },
+    /// 超级鹰眼's remembered choices: pages, 分支, 统计 range, list thresholds, chart thresholds,
+    /// 总在最前 (`ui.*` keys of `MoveListFrame`, `SetThreshold`). Values outside the dialog's
+    /// ranges are an `InvalidArgument` error with nothing changed; the open state is `Toggle`'s.
+    SetHawkeyeSettings {
+        settings: crate::settings::HawkeyeSettings,
+    },
+    /// A 超级鹰眼 list's 导出为xls (`Utils.exportTable`): the save chooser (`(*.xls)`), `.xls`
+    /// appended to the chosen name (a name containing `.xlsx` writes nothing), then the cells as
+    /// tab-separated UTF-16LE text with a byte-order mark, header row first. Answers `Exported`,
+    /// `ExportFailed` or `Unchanged`.
+    ExportTable {
+        rows: Vec<Vec<String>>,
+    },
+    /// 批量分析 / 批量精析 and their 进度表.
+    Batch {
+        op: BatchCommand,
+    },
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, TS)]
+pub struct AutoAnalysisView {
+    pub active: bool,
+    pub starting: bool,
+    pub diff: bool,
+    pub confirmation: bool,
+    pub diff_moves: u32,
+    pub diff_nodes: u32,
+    pub pause_tip: bool,
+    pub notice: Option<AutoAnalysisNotice>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct AutoAnalysisNotice {
+    pub id: u32,
+    pub message_key: String,
+    pub directory: Option<String>,
+    pub timed: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, TS)]
+pub enum WholeGameState {
+    #[default]
+    Idle,
+    Preparing,
+    Baseline,
+    Deep,
+    Pausing,
+    Paused,
+    Complete,
+    Cancelled,
+    Failed,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct WholeGameAnalysisView {
+    pub run: u64,
+    pub state: WholeGameState,
+    pub completed: u32,
+    pub total: u32,
+    pub baseline_completed: u32,
+    pub deep_completed: u32,
+    pub target_visits: u32,
+    pub visits: u32,
+    pub percent: u32,
+    pub remaining_ms: Option<u64>,
+    pub mode_key: Option<String>,
+    pub detail_key: String,
+    /// Force result display for this document/node without changing saved display settings.
+    pub show_results: bool,
+    pub save_failed: bool,
+}
+
+/// What a flash analysis analyses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(tag = "kind")]
+pub enum FlashTarget {
+    /// 整盘速览（闪电）: every main-trunk move.
+    WholeGame,
+    /// 局部精析: main-trunk moves from `start_move` up to, not including, `end_move` (counted in
+    /// moves and passes; -1 leaves that end open).
+    MoveRange { start_move: i32, end_move: i32 },
+    /// 全部分支精析: every move of every branch.
+    AllBranches,
+}
+
+/// 强制计算区域 operations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum RegionCommand {
+    /// A rectangle chosen by dragging (`selectForceAllowAvoid`): its intersections from `from` to
+    /// `to` join the region of that kind (a region of the other kind is replaced); the region is
+    /// kept across positions.
+    Select { allow: bool, from: Point, to: Point },
+    /// The toolbar region button was pressed (`isKeepingForce`): the region is kept across
+    /// positions from now on.
+    Keep,
+    /// 只分析此点: only this empty point is analysed, its first request one move deep.
+    AllowPoint { point: Point },
+    /// 增加分析此点.
+    AddAllowPoint { point: Point },
+    /// 去除分析此点.
+    RemoveAllowPoint { point: Point },
+    /// 不分析此点.
+    AvoidPoint { point: Point },
+    /// 持续分析/不分析 (`isKeepForcing`): every region is kept across positions while on.
+    ToggleKeepForcing,
+    /// 清除分析与不分析: the region is removed and analysis resumes.
+    ClearForcing,
+    /// Toolbar 清除区域 / Alt+click: the region is removed and no longer kept.
+    Clear,
+}
+
+/// 选点重点研究 operations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum TrackingCommand {
+    Track { point: Point },
+    Untrack { point: Point },
+    Clear,
+}
+
+/// 强制计算区域 of this session.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct RegionView {
+    /// The region analyses only these points (`allow`), or never these (`avoid`).
+    pub allow: bool,
+    /// Empty when there is no region.
+    pub points: Vec<Point>,
+    /// 持续分析/不分析 is on.
+    pub keep_forcing: bool,
+}
+
+/// 选点重点研究 on the current position and the foreground engine's `focus` capability.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct FocusView {
+    /// What the foreground engine's own start-up probe found (`Unknown` without one).
+    pub capability: crate::engine::runtime::FocusCapability,
+    /// A point can be tracked now (`canStartTrackingAnalysis`).
+    pub available: bool,
+    pub target_visits: u32,
+    /// Tracked points, in the order they were chosen.
+    pub points: Vec<TrackedPointView>,
+    /// The engine still searches focus points the user no longer tracks (the change is sent,
+    /// not yet accepted).
+    pub cancellation_pending: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct TrackedPointView {
+    pub point: Point,
+    /// Still searched extra (below the target, progressing).
+    pub active: bool,
+    /// The highest visits seen for this candidate.
+    pub visits: u64,
+    /// 落子评价 of the candidate against the best one, when both are in the analysis.
+    pub rank: Option<crate::display::MoveRank>,
+}
+
+/// Kata形势显示 menu choices.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
+pub enum KataEstimateMode {
+    Close,
+    Hide,
+    Main,
+    Sub,
+    Both,
+}
+
+/// 终局点目 operations.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum ScoreCommand {
+    /// Enter (pausing analysis) or leave (resuming it) scoring at the current position.
+    Toggle,
+    /// Left click in scoring: an empty point toggles 不计入; a stone toggles its connected
+    /// stones as dead.
+    Point { point: Point },
+    /// 重新计算: start again from the position's stones.
+    Recalculate,
+    /// 确认结果: write the result into the game information (RE).
+    Confirm,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
@@ -191,14 +588,19 @@ pub enum EngineScope {
 pub enum CommandResult {
     /// Applied; the new state arrives as a [`WorkbenchView`].
     Done,
+    WholeGameEstimate { millis: Option<u64> },
     /// Nothing to do (no movement, chooser or prompt cancelled, clipboard without SGF).
     Unchanged,
     /// Reading started; its end arrives as [`OpenOutcome`] in a later view.
     OpenStarted { ticket: u64 },
     /// The current record would be replaced; ask, then resend with `confirmed: true`.
     NeedsConfirmation,
-    /// Diagnostics package written.
+    /// An edit would discard moves or the record; ask, then resend it with `confirmed: target`.
+    NeedsEditConfirmation { target: EditTarget },
+    /// A file was written (diagnostics package, picture).
     Exported { path: String },
+    /// A picture could not be written (`LizzieFrame.saveImageErrorHint1`); nothing was replaced.
+    ExportFailed { path: String, detail: String },
     /// Not done, with the Java resource key of the explanation.
     Refused { message_key: String },
     /// The record content was captured and is being written; the result arrives as
@@ -211,6 +613,11 @@ pub enum CommandResult {
     /// then send `SaveRecordTo` with this path. The system chooser itself confirms replacing the
     /// file the user picked.
     NeedsOverwriteConfirmation { path: String },
+    /// Like `NeedsOverwriteConfirmation`, for an export: ask, then send `ExportRecordTo`.
+    NeedsExportOverwriteConfirmation { kind: ExportKind, path: String },
+    /// The picture name gained the chosen format's extension and that file exists
+    /// (`LizzieFrame.fileExists`); ask, then send `ExportImageTo` with this path.
+    NeedsImageOverwriteConfirmation { path: String },
     /// A folder was chosen ([`Command::ChooseJavaFolder`]).
     FolderChosen { path: String },
     /// What an import would do; nothing has changed yet.
@@ -223,6 +630,12 @@ pub enum CommandResult {
     Resource { result: ResourceResult },
     /// Answer to a [`Command::Tuning`].
     Tuning { result: TuningResult },
+    /// A generated analysis engine command ([`Command::GenerateAnalysisCommand`]);
+    /// `generated_config` is the `analysis.cfg` created for it, if one was.
+    AnalysisCommand {
+        command: String,
+        generated_config: Option<String>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -254,6 +667,9 @@ pub struct DocumentView {
     pub format: Option<RecordFormat>,
     pub path: Option<String>,
     pub file_name: Option<String>,
+    /// The file name shown when the record has no file of its own: a 存档与读档 slot it was
+    /// loaded from (Java shows `game2.sgf` in the title; saving goes through the chooser).
+    pub origin_name: Option<String>,
     pub size: BoardSize,
     pub info: GameInfo,
     /// Content version; every content change increases it.
@@ -282,6 +698,8 @@ pub struct TreeNodeView {
     pub kind: TreeNodeKind,
     pub pass: bool,
     pub move_number: u32,
+    /// Display numbering, including branch restarts, SGF MN and passes; 0 for no number.
+    pub number: u32,
     pub has_comment: bool,
 }
 
@@ -331,6 +749,9 @@ pub enum OpenOutcome {
     Adopted {
         ticket: u64,
         document: u64,
+        /// The record holds secondary-engine analysis (`LZ2`/`LZOP2`) and 双引擎模式 is off: ask
+        /// whether to switch to it (`SGFParse.doubleEngineHint`), then send `SetExtraMode`.
+        double_engine_hint: bool,
     },
     /// Reading failed; the previous document is unchanged. `message_key` is the Java resource
     /// key of the user message.
@@ -351,6 +772,8 @@ pub enum SaveOutcome {
         document: u64,
         revision: u64,
         path: String,
+        /// The write was an export; it does not make the record saved.
+        export: Option<ExportKind>,
     },
     /// Nothing was replaced; an existing file at `path` is unchanged. `message_key` is the Java
     /// resource key of the user message.
@@ -374,14 +797,168 @@ pub struct SettingsView {
     pub language: Language,
     /// Language the UI is displaying in this session (resolved at start).
     pub active_language: Language,
-    /// Whether the saved language differs from the one in use until restart.
+    /// Whether the saved language or frame font size differs from this session until restart.
     pub restart_required: bool,
     pub read_komi: bool,
+    /// 打开后跳到最后一手 (`ui.load-sgf-last`).
+    pub load_sgf_last: bool,
+    /// 打开棋谱后自动快速分析 (`ui.auto-quick-analyze-on-load`).
+    pub auto_quick_analyze_on_load: bool,
+    pub append_winrate_to_comment: bool,
     /// Settings > "播放落子音效" (Java `ui.play-sound`, default on).
     pub play_sound: bool,
     /// Ask before "保存" overwrites the record's own file (Java `ui.show-replace-file-hint`).
     pub replace_file_hint: bool,
+    /// 布局模式 (Java `ui.extra-mode`).
+    pub extra_mode: crate::settings::ExtraMode,
+    pub panels: crate::settings::PanelSettings,
+    pub panel_sizes: crate::settings::PanelSizes,
+    pub bottom_toolbar: crate::settings::BottomToolbar,
+    pub comment_panel_auto_hidden: bool,
+    pub custom_layouts: [Option<crate::settings::CustomLayout>; 2],
+    pub independent_main_board: Option<crate::settings::WindowPlacement>,
+    pub independent_sub_board: Option<crate::settings::WindowPlacement>,
     pub engine: EngineSettingsView,
+    pub edit: EditSettings,
+    pub display: crate::settings::DisplaySettings,
+    /// 精析设置 as saved.
+    pub analysis_engine: crate::settings::AnalysisEngineSettings,
+    /// 快速曲线轻量模型 on the weights page.
+    pub quick_model: QuickModelView,
+    /// 评论/问题手 panel state.
+    pub problems: crate::settings::ProblemListSettings,
+    /// 局部精析's move range (`analysis-start-move`, `analysis-end-move`).
+    pub flash_range: crate::settings::FlashRange,
+    pub auto_analysis: crate::settings::AutoAnalysisSettings,
+    pub whole_game: crate::settings::WholeGameSettings,
+    /// 超级鹰眼's remembered choices.
+    pub hawkeye: crate::settings::HawkeyeSettings,
+    pub appearance: crate::appearance::AppearanceSettings,
+    pub theme: crate::appearance::ThemeSettings,
+    /// Frame size in use until the next start (LizzieFrame.java:20766-20768).
+    pub active_frame_font_size: i32,
+    /// 强制计算区域's depth choices.
+    pub region: crate::settings::RegionSettings,
+    /// 选点重点研究.
+    pub tracking: crate::settings::TrackingSettings,
+}
+
+/// 快速曲线轻量模型 card (`KataGoAutoSetupDialog`, `QuickAnalysisModelStatus`).
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct QuickModelView {
+    pub status: QuickModelStatus,
+    /// The installed model file.
+    pub path: Option<String>,
+    /// 自动使用 is on.
+    pub enabled: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum QuickModelStatus {
+    /// 未下载: download offered.
+    Missing,
+    /// Installed, but the engine that would run it is not KataGo 1.17 or later.
+    RequiresKataGo117,
+    /// 已安装.
+    Installed,
+    /// 自动使用.
+    Enabled,
+}
+
+/// Automatic quick analysis (自动棋谱快析) of the open record.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct QuickAnalysisView {
+    /// A task is active (waiting, starting, running or giving its engine back).
+    pub running: bool,
+    /// An attempt failed and the task retries in the background
+    /// (`LizzieFrame.quickAnalysis.retrying`).
+    pub retrying: bool,
+    /// The task borrows the foreground engine instead of running an analysis process.
+    pub borrowed: bool,
+}
+
+/// A manual flash analysis in progress (`WaitForAnalysis`).
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct FlashAnalysisView {
+    /// Identity of this run; the UI's 隐藏界面 applies to one run.
+    pub run: u64,
+    /// The engine is still starting or being borrowed (进度: 引擎加载中...).
+    pub loading: bool,
+    /// Positions answered so far, of `total`.
+    pub done: u32,
+    pub total: u32,
+    /// The foreground engine is borrowed instead of an analysis process.
+    pub borrowed: bool,
+}
+
+/// How a flash analysis ended, once.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum FlashOutcome {
+    /// Every position was answered (分析完毕).
+    Completed { run: u64 },
+    /// Stopped with the Java resource key of the explanation
+    /// (`AnalysisEngine.requestDispatchFailed`, `AnalysisEngine.foregroundRestoreFailed`).
+    Failed { run: u64, message_key: String },
+    /// The analysis process failed (reported as `engine_failure`); 精析设置 opens with
+    /// 确定并重新计算 (`AnalysisSettings(true, true)`).
+    EngineFailed { run: u64 },
+}
+
+/// 问题手 list and its progress badge (`ProblemListSnapshot`).
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct ProblemListView {
+    /// Moves of each side over the win-rate threshold, in the chosen order.
+    pub black: Vec<ProblemMoveView>,
+    pub white: Vec<ProblemMoveView>,
+    /// Main-trunk moves from move 2 whose position before and after are analysed.
+    pub analyzed: u32,
+    /// Main-trunk moves from move 2.
+    pub total: u32,
+    /// Background analysis is running (`评估中`).
+    pub running: bool,
+    /// The move a jump marked on the board (`clickbadmove`), while browsing the position before it.
+    pub mark: Option<Point>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct ProblemMoveView {
+    /// The move's node.
+    pub node: NodeId,
+    pub move_number: u32,
+    pub mover: Stone,
+    pub point: Point,
+    /// Win rate lost by the mover, percentage points.
+    pub winrate_loss: f64,
+    /// Points lost, when both positions have KataGo scores.
+    pub score_loss: Option<f64>,
+    /// Visits of the position after the move.
+    pub playouts: u64,
+    /// 1–5 by the 落子评价 win-rate thresholds; 5 is shown in the loss colour.
+    pub tier: u8,
+    /// The browsing position is this move, or the position before it with the move marked.
+    pub current: bool,
+}
+
+/// Whether the foreground engine can be borrowed (`AnalysisSettings.reuseStatus.*`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum LeaseAvailabilityView {
+    Available,
+    NoForegroundEngine,
+    EngineNotReady,
+    NotKatago,
+    MissingCapability,
+    ExistingLease,
+    EngineStateUnrestored,
+}
+
+/// Why the foreground engine was not given back (`LizzieFrame.foregroundUnrestored.reason.*`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum UnrestoredReason {
+    /// 停止失败.
+    Stop,
+    /// 恢复失败.
+    Restore,
 }
 
 /// Committed engine settings, for the engine settings dialog and the settings pages.
@@ -428,11 +1005,52 @@ pub struct WorkbenchView {
     /// Current session komi (toolbar komi field).
     pub komi: f64,
     pub engine: EngineView,
+    /// Automatic quick analysis of the open record.
+    pub quick: QuickAnalysisView,
+    /// Manual flash analysis in progress.
+    pub flash: Option<FlashAnalysisView>,
+    pub auto_analysis: AutoAnalysisView,
+    /// 批量分析 / 批量精析 and their 进度表.
+    pub batch: BatchView,
+    /// How a flash analysis ended, once.
+    pub flash_outcome: Option<FlashOutcome>,
+    /// 强制计算区域 of this session.
+    pub region: RegionView,
+    /// 选点重点研究 of the current position.
+    pub focus: FocusView,
+    /// Session projection, retained after completion/cancel/failure.
+    pub whole_game: WholeGameAnalysisView,
+    /// 问题手 list and its progress badge.
+    pub problems: ProblemListView,
     /// Stored analysis of the current node (whether or not the engine is analysing it now).
     pub analysis: Option<NodeAnalysisView>,
+    /// Move numbers, 落子评价 and 下一手 详细 of the current position, as the display settings
+    /// choose them.
+    pub board: crate::display::BoardOverlayView,
+    /// Foreground engine's pure-network result, never from another position or instance.
+    #[serde(rename = "rawNet")]
+    pub raw_net: Option<crate::engine::raw_net::RawNetView>,
     /// Stored results along the current line, its continuation and the main trunk, root first
     /// (the win-rate graph's data).
     pub history: Vec<HistoryPoint>,
+    /// Coloured analysed tree nodes, including branches outside the graph's current line.
+    pub theme_nodes: Vec<crate::appearance::ThemeNodeColor>,
+    /// Each move's result against the analysis of the position it was played in, and the AI
+    /// match score (统计 panel, captured panel, 超级鹰眼).
+    pub statistics: StatisticsView,
+    /// 超级鹰眼 while its window is open (computed only then).
+    pub hawkeye: Option<HawkeyeView>,
+    /// Kata形势显示 and the ownership it draws.
+    pub kata_estimate: KataEstimateView,
+    /// 终局点目, while scoring.
+    pub score: Option<ScoreView>,
+    /// 双引擎模式's right board: the secondary engine's results for the current node. Present
+    /// only in 双引擎模式.
+    pub secondary: Option<SecondaryView>,
+    /// 记录选点信息到评论中: the current comment as Java shows it while an engine analyses,
+    /// with the analysis summary appended (Java writes it into the node, `appendComment`);
+    /// absent when the comment pane shows `position.comment` unchanged.
+    pub comment_with_analysis: Option<String>,
     /// An engine that failed to start or stopped unexpectedly, once.
     pub engine_failure: Option<EngineFailureView>,
     /// A notice about analysis, once.
@@ -447,6 +1065,9 @@ pub struct WorkbenchView {
     /// Engine performance (thread policy, benchmark); present when changed since the previous
     /// view, and in full snapshots.
     pub tuning: Option<TuningView>,
+    pub editing: EditingView,
+    /// 存档与读档.
+    pub recovery: RecoveryView,
 }
 
 /// Java import availability.
@@ -485,6 +1106,10 @@ pub enum ImportReason {
     CredentialNotConfirmed,
     /// The file could not be read as Java writes it.
     Unreadable,
+    /// The user did not choose to import it.
+    NotChosen,
+    /// Java keeps the key but no longer uses it.
+    Obsolete,
 }
 
 /// One Java setting in the import preview / report. Credential values are never included.
@@ -506,9 +1131,11 @@ pub struct ImportItemView {
 /// This product's settings that can be imported from Java.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, TS)]
 pub enum ImportTarget {
+    Appearance,
     ReadKomi,
     LoadSgfLast,
     ReplaceFileHint,
+    AppendWinrateToComment,
     Language,
     PlaySound,
     RecentFiles,
@@ -531,6 +1158,108 @@ pub enum ImportTarget {
     StartupBenchmark,
     /// `ui.network-proxy-mode` / `-host` / `-port`.
     NetworkProxy,
+    /// `ui.allow-double-click`.
+    AllowDoubleClick,
+    /// `ui.allow-drag`.
+    AllowDrag,
+    /// `ui.show-right-menu`.
+    RightClickMenu,
+    /// `ui.show-new-board-hint`.
+    NewBoardHint,
+    /// `ui.show-markup-tools`.
+    MarkupTools,
+    /// `ui.other-size-width` / `ui.other-size-height`.
+    OtherBoardSize,
+    /// `ui.no-capture`.
+    NoCapture,
+    /// `ui.auto-save-exit`.
+    AutoSaveOnExit,
+    /// `ui.resume-previous-game`.
+    ResumePreviousGame,
+    /// `ui.load-save-zoom`.
+    ZoomThumbnails,
+    /// `persist:filesystem.last-image-folder`.
+    LastImageFolder,
+    /// `ui.win-rate-always-black`.
+    WinrateAlwaysBlack,
+    /// `ui.show-katago-score-lead-with-komi`.
+    ScoreLeadWithKomi,
+    /// `ui.show-coordinates`.
+    Coordinates,
+    /// `ui.show-name-in-board`.
+    NamesOnBoard,
+    /// 手数: `ui.allow-move-number` (or the older `show-move-number` / `only-last-move-number`),
+    /// `movenumber-from-one`, `new-move-number-in-branch`, `show-moveall-inbranch`,
+    /// `show-var-move`.
+    MoveNumbers,
+    /// 落子评价: `ui.move-rank-mark-last-move`, `txt-move-rank-mark-last-move`,
+    /// `move-rank-evaluation-mode` (or the older `use-win-loss-in-move-rank` /
+    /// `use-score-loss-in-move-rank`), `win-loss-threshold-1..5`, `score-loss-threshold-1..5`.
+    MoveRank,
+    /// 选点信息: `ui.show-winrate-in-suggestion`, `-playouts-`, `-scoremean-`,
+    /// `show-score-as-diff`, `suggestion-info-*`, `delay-show-candidates`,
+    /// `delay-candidates-seconds`, `show-suggestion-order`, `show-suggestion-maxred`,
+    /// `white-suggestion-white`, `show-suggestion-variations`, `norefresh-onmouse-move`,
+    /// `replay-branch-interval-seconds`, `min-playout-ratio-for-stats`.
+    Suggestions,
+    /// 下一手: `ui.show-next-moves`, `show-next-move-blunder`, `min-playouts-for-next-move`.
+    NextMoves,
+    /// 小棋盘设置: `ui.show-heat`, `show-heat-aftercalc`, `subboard-raw`, `no-refresh-on-sub`.
+    SubBoard,
+    /// 纯网络 ownership painter: Java's five `ui.show-pure-estimate-*` choice flags.
+    PureNetwork,
+    /// 胜率图设置: `ui.show-win-rate-line`, `show-score-lead-line`, `show-winrate-graph-fill`,
+    /// `show-blunder-bar`, `show-mouse-over-winrate-graph`, `initial-max-score-lead`.
+    WinrateGraph,
+    /// Kata形势显示: `ui.show-katago-estimate*`, `save-kata-estimate-status`,
+    /// `use-moves-ownership`, `shortcut-kata-estimate`.
+    KataEstimate,
+    /// 终局点目 rules: `ui.use-territory-in-score`.
+    Scoring,
+    /// AI match: `ui.match-ai-moves`, `match-ai-percents-playouts`.
+    MatchAi,
+    /// 独立选点列表: `ui.show-suggestions-frame`, `suggestions-always-ontop`,
+    /// `show-bestmoves-list`, `show-bestmoves-graph`, `anaframe-show-next`,
+    /// `anaframe-use-mousemove`.
+    SuggestionsFrame,
+    /// Fixed Java layout selection (`ui.extra-mode`: 0, 1, 2, 3, 7, 8).
+    ExtraMode,
+    /// Workbench panel/toolbar flags, floating board bounds and custom layout snapshots.
+    WorkbenchPanels,
+    PanelSizes,
+    BottomToolbar,
+    /// 加载棋谱后快速刷新胜率曲线: `ui.auto-quick-analyze-on-load`.
+    AutoQuickAnalysis,
+    /// 精析设置: `ui.analysis-engine-command`, `-command-customized`, `analysis-max-visits`,
+    /// `analysis-use-current-rules`, `analysis-specific-rules`, `analysis-always-override`,
+    /// `analysis-engine-preload`, `analysis-auto-quit`, `analysis-reuse-current-engine`.
+    AnalysisEngine,
+    /// 快速曲线轻量模型: `ui.quick-analysis-lightweight-model-enabled`,
+    /// `katago-quick-analysis-model-path`.
+    QuickModel,
+    /// 问题手: `ui.is-showing-blunder-table`, `problem-list-side-filter`, `problem-list-sort`,
+    /// `problem-list-winrate-threshold`, `blunder-playouts-threshold`,
+    /// `hide-blunder-table-control-pane`.
+    ProblemList,
+    /// 局部精析: `ui.analysis-start-move`, `analysis-end-move`.
+    FlashRange,
+    AutoAnalysis,
+    /// 整盘精析: `ui.whole-game-analysis-deep-visits`.
+    WholeGameVisits,
+    /// 强制计算区域: `ui.select-allow-moves`, `select-avoid-moves`, `select-allow-custom-moves`,
+    /// `select-avoid-custom-moves`.
+    AnalysisRegion,
+    /// 选点重点研究: `ui.tracking-analysis-max-visits` (older `tracking-engine-max-visits`),
+    /// `show-tracking-point-outline`, `tracking-point-outline-opacity`.
+    Tracking,
+    /// 超级鹰眼: `ui.show-badmoves-frame`, `badmoves-always-ontop`, `movelist-selected-indextop`,
+    /// `movelist-selected-index`, `moveList-selected-branch`, `show-movelist-matchai`,
+    /// `show-winrate-matchai`, `move-list-winrate-threshold`, `move-list-score-threshold`,
+    /// `move-list-visits-threshold`, `movelist-top-curnode`, `move-list-filter-current`,
+    /// `match-ai-firstmove`, `match-ai-lastmove`, `opening-end-move`, `middle-end-move`,
+    /// `game-statistics-custom-start`, `game-statistics-custom-end`, `winrate-diff-range1/2`,
+    /// `score-diff-range1/2`, `loss-panel-select-winrate`.
+    Hawkeye,
 }
 
 /// A problem found with an imported engine without starting it.
@@ -586,6 +1315,8 @@ pub struct ImportPreviewView {
     pub engines: Vec<ImportEngineView>,
     /// Settings already chosen in this product that the import would replace.
     pub replaces: Vec<ImportTarget>,
+    /// Java 存档与读档 slots; imported only when the user chooses to.
+    pub recovery: Vec<ImportSlotView>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
@@ -595,6 +1326,7 @@ pub struct ImportReportView {
     pub engines: Vec<ImportEngineView>,
     /// The imported language applies after a restart.
     pub restart_required: bool,
+    pub recovery: Vec<ImportSlotView>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
@@ -654,10 +1386,52 @@ pub struct ForegroundEngineView {
     pub commands: Vec<String>,
 }
 
+/// The secondary engine (副引擎, Java `Lizzie.leelaz2`) of 双引擎模式: it analyses the same
+/// position as the foreground engine but is never the foreground engine. The seat is kept while
+/// 双引擎模式 is off (its analysis stops); it is not remembered across restarts.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct SecondaryEngineView {
+    /// Position in the engine list.
+    pub index: u32,
+    /// The configured name, else the GTP name.
+    pub name: String,
+    pub katago: bool,
+    /// Speaks `kata-analyze` / `lz-analyze`.
+    pub can_analyse: bool,
+    /// Identified and synced to the current position.
+    pub ready: bool,
+    /// It is analysing the current node (its own 思考 开/关).
+    pub analysing: bool,
+    /// An analysis limit stopped its analysis of the current node.
+    pub stopped_by_limit: bool,
+}
+
+/// 双引擎模式's right board (Java `boardRenderer2`): the secondary engine's stored results for the
+/// current node and the board marks drawn from them. The position itself is `position`.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct SecondaryView {
+    /// Stored secondary analysis of the current node (`BoardData.bestMoves2` and summary).
+    pub analysis: Option<NodeAnalysisView>,
+    /// Move numbers, 落子评价 and 下一手 详细 drawn from the secondary analysis.
+    pub board: crate::display::BoardOverlayView,
+    /// The secondary engine's pure-network result for the current position.
+    #[serde(rename = "rawNet")]
+    pub raw_net: Option<crate::engine::raw_net::RawNetView>,
+    /// Kata形势 of the secondary engine (`estimateArray2`): Black-positive ownership of the current
+    /// node, else of its parent; absent while Kata形势 is off or nothing was reported.
+    pub ownership: Option<Vec<f64>>,
+    /// The secondary engine's stored results on the current line and the main trunk, like
+    /// `history` (`winrate2`, `scoreMean2` of each node): the 副引擎 独立选点列表's actual-move row
+    /// and its score columns (`isContainsKataData2`).
+    pub history: Vec<HistoryPoint>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 pub struct EngineView {
     pub engines: Vec<EngineEntryView>,
     pub foreground: Option<ForegroundEngineView>,
+    /// The 双引擎模式 secondary engine, while one is chosen.
+    pub secondary: Option<SecondaryEngineView>,
     /// The user paused analysis (Space); not remembered across restarts.
     pub paused: bool,
     /// The foreground engine is analysing the current node (Java `isPondering`).
@@ -672,6 +1446,11 @@ pub struct EngineView {
     pub console_seq: u64,
     /// Full trace of engine GTP traffic is being written.
     pub full_trace: bool,
+    /// 复用当前前台引擎 target status (`AnalysisSettings.reuseStatus`).
+    pub lease: LeaseAvailabilityView,
+    /// The foreground engine was not given back after it was borrowed: it does not analyse until
+    /// it is restarted (`LizzieFrame.display.foregroundUnrestored`).
+    pub unrestored: Option<UnrestoredReason>,
 }
 
 /// One candidate (`MoveData`). Percentages 0–100 from the side to move.
@@ -690,9 +1469,129 @@ pub struct CandidateView {
     pub order: u32,
     /// Principal variation; `None` entries are passes.
     pub pv: Vec<Option<Point>>,
+    /// KataGo `pvVisits`, one count per reported variation move; empty when absent.
+    pub pv_visits: Vec<u64>,
     /// For each `pv` move, the stones it captures when played out from the node's position
-    /// (`Branch` with `remove-dead-in-variation`); empty for passes.
+    /// (`Branch`; none under no-capture); the board removes them with `remove-dead-in-variation`.
     pub pv_captures: Vec<Vec<Point>>,
+    /// Win rate and score lead as the board and the candidate table show them (总是显示黑胜率,
+    /// 目差显示); set by the view projection.
+    pub shown: crate::viewpoint::ShownValues,
+    /// The side to move's numbers with 盘面 applied, ignoring 总是显示黑胜率 (独立选点列表).
+    pub side_to_move: crate::viewpoint::ShownValues,
+    /// KataGo `movesOwnership` after this move, Black-positive, row-major from the top-left
+    /// (按选点显示评估); absent unless requested and reported.
+    pub ownership: Option<Vec<f64>>,
+}
+
+/// One move's result against the analysis of the position it was played in (Java
+/// `Board.updateMovelist` / `NodeInfo`). Present for a move whose previous position has analysis
+/// (`analyzedMatchValue`). The changes are the raw differences (the lists show them); statistics
+/// count a `best` move as losing nothing (`NodeInfo.getWinrateDiff`, 一选免罚).
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct MoveEvaluation {
+    /// The node the move leads to.
+    pub node: NodeId,
+    pub move_number: u32,
+    /// The side that played the move.
+    pub mover: Stone,
+    pub point: Point,
+    /// 1-based rank of the move among the previous position's candidates, if it is one.
+    pub matched: Option<u32>,
+    /// 1 for the first candidate, else its visits over the most visits; 0 when not a candidate.
+    pub share: f64,
+    /// Among the first `match_ai_moves` candidates with at least `match_ai_percents_playouts`.
+    pub match_ai: bool,
+    pub best: bool,
+    /// The position after the move is analysed too (`NodeInfo.analyzed`); the fields below that
+    /// need it are `None` otherwise.
+    pub analyzed: bool,
+    /// Win-rate change for the mover, percentage points (negative is a loss); both positions
+    /// analysed.
+    pub winrate_change: Option<f64>,
+    /// Score-lead change for the mover (KataGo), points.
+    pub score_change: Option<f64>,
+    /// The mover's win rate after the move (实战胜率).
+    pub winrate: Option<f64>,
+    /// The mover's score lead after the move (实战目数).
+    pub score: Option<f64>,
+    /// The previous position's best candidate for the mover (一选胜率 / 一选目数).
+    pub best_winrate: f64,
+    pub best_score: Option<f64>,
+    /// Visits of the position before the move (此手计算量) and after it (下一手计算量, 0 when not
+    /// analysed).
+    pub visits_before: u64,
+    pub visits_after: u64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, TS)]
+pub struct StatisticsView {
+    /// Moves of the current line (to its end) and of the main trunk, in path order.
+    pub moves: Vec<MoveEvaluation>,
+    /// AI总评分 of Black and White, percent: the mean match share of their evaluated moves up to
+    /// the current position and the move played from it.
+    pub ai_score_black: Option<f64>,
+    pub ai_score_white: Option<f64>,
+    /// 统计 上一手 change for the move leading to the current node, the current node analysed:
+    /// against its parent's analysis, else (Java `drawMoveStatistics`) its grandparent's, two
+    /// moves back.
+    pub last_move: Option<MoveChange>,
+}
+
+/// A change for the side that played the move (negative is a loss).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, TS)]
+pub struct MoveChange {
+    /// Percentage points.
+    pub winrate: f64,
+    /// Points (KataGo).
+    pub score: Option<f64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct KataEstimateView {
+    /// Session state; [`crate::settings::DisplaySettings::kata_estimate`] is what the next
+    /// start begins with.
+    pub state: crate::settings::KataEstimateState,
+    /// 隐藏: requested but drawn on neither board; `.` toggles the boards.
+    pub hidden: bool,
+    /// Black-positive ownership of the current node, else (none yet) of its parent, row-major
+    /// from the top-left; absent while Kata形势 is off or nothing was reported.
+    pub ownership: Option<Vec<f64>>,
+}
+
+/// One intersection while scoring (`GroupStatus`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub struct ScorePoint {
+    /// Whose area the point counts for; `None` for neutral (dame).
+    pub owner: Option<Stone>,
+    /// A stone marked dead.
+    pub dead: bool,
+    /// An empty point marked 不计入.
+    pub excluded: bool,
+}
+
+/// 终局点目 result (`Board.showGroupResult`, `ScoreResult.setScore`).
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct ScoreView {
+    pub node: NodeId,
+    /// Row-major from the top-left.
+    pub points: Vec<ScorePoint>,
+    /// 数目 (territory) instead of 数子 (area).
+    pub territory: bool,
+    /// Living stones (less the handicap White's handicap bonus takes back under area scoring).
+    pub black_alive: u32,
+    pub white_alive: u32,
+    /// Counted points that are not the side's own living stones.
+    pub black_points: u32,
+    pub white_points: u32,
+    /// Prisoners each side took, dead stones included.
+    pub black_captures: u32,
+    pub white_captures: u32,
+    pub komi: f64,
+    pub black_total: f64,
+    pub white_total: f64,
+    /// SGF result written by 确认结果 (`B+3.5`, `W+0.5`; Black wins ties like Java).
+    pub result: String,
 }
 
 /// Analysis stored for a node (`BoardData.bestMoves` and summary).
@@ -712,6 +1611,9 @@ pub struct NodeAnalysisView {
     pub komi: f64,
     /// In `order`.
     pub candidates: Vec<CandidateView>,
+    /// Black's numbers as the statistics panel and the title show them (the lead with the komi
+    /// under 盘面); set by the view projection.
+    pub black: crate::viewpoint::ShownValues,
 }
 
 /// One analysed node for the win-rate graph.
@@ -724,6 +1626,13 @@ pub struct HistoryPoint {
     /// Side to move, 0–100.
     pub winrate: f64,
     pub score_lead: Option<f64>,
+    /// Black's numbers as the win-rate graph shows them (the lead with the komi under 盘面).
+    pub black: crate::viewpoint::ShownValues,
+    /// This position's result as a candidate of the previous position (the candidate table's
+    /// actual-move row).
+    pub as_candidate: crate::viewpoint::AsCandidate,
+    /// The best candidate's score uncertainty (KataGo), for the actual-move row's 目数标准差.
+    pub score_stdev: Option<f64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
@@ -746,6 +1655,11 @@ pub enum EngineNotice {
     /// The time or visit limit stopped the analysis (`leelaz.stopByLimit`); shown once per
     /// engine start while `show-ponder-limited-tips` is on.
     StoppedByLimit,
+    /// No foreground engine starts while 起始局面设置模式 is on (`EngineManager.setupModeActive`).
+    SetupModeActive,
+    /// In 双引擎模式 the foreground and the secondary engine must differ
+    /// (`EngineManager.sameEngineHint`); the switch was not made.
+    SameEngine,
 }
 
 /// GtpConsolePane line.

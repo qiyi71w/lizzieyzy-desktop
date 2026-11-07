@@ -68,16 +68,18 @@ body {
   border-radius: 5px;
   background: #fff;
 }
+/* Config.menuIconSize: 16 / 20 / 24 for frame font 12 / 13-16 / larger (Config.java:1873); the
+   black/white toggle draws its icon at menuIconSize + 8 (Menu.java:3674-3680) */
 .tb-icon img {
-  width: 16px;
-  height: 16px;
+  width: var(--menu-icon-size, 16px);
+  height: var(--menu-icon-size, 16px);
 }
 .tb-icon.bw {
   overflow: hidden;
 }
 .tb-icon.bw img {
-  width: 24px;
-  height: 24px;
+  width: calc(var(--menu-icon-size, 16px) + 8px);
+  height: calc(var(--menu-icon-size, 16px) + 8px);
   flex: none;
 }
 .tb-pill {
@@ -254,11 +256,6 @@ body {
   justify-content: center;
   column-gap: 4px;
 }
-.tb-pill.search img {
-  width: 16px;
-  height: 16px;
-  flex: none;
-}
 .tb-pill.newgame {
   width: 52px;
 }
@@ -363,11 +360,13 @@ body {
   position: absolute;
 }
 
-/* comment / problem-move panel: SidebarPanel.paintComponent fills comment-background (0,0,0,200)
-   as a square and outlines it with rowSeparatorColor (255,255,255,28) */
+/* comment / problem-move panel: SidebarPanel.paintComponent fills comment-background-color
+   (0,0,0,200) as a square and outlines it with rowSeparatorColor (255,255,255,28); the text takes
+   comment-font-color and, when above 0, comment-font-size (LizzieFrame.java:11292-11304). The
+   appearance module sets the variables from the committed theme. */
 #comment {
-  background: rgba(0, 0, 0, 0.8);
-  color: #fff;
+  background: var(--comment-background, rgba(0, 0, 0, 0.784));
+  color: var(--comment-color, #fff);
   border: 1px solid rgba(255, 255, 255, 0.11);
   box-sizing: border-box;
   display: flex;
@@ -375,16 +374,22 @@ body {
   overflow: hidden;
 }
 /* SidebarHeaderPanel classic layout: a 48 px header (SidebarHeaderPanel.java:28-37); label
-   position measured on the Linux capture */
+   position measured on the Linux capture. A narrow panel wraps the side filter onto a second
+   32 px row (CLASSIC_ROW_HEIGHT). */
 #comment .tabs {
   flex: none;
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
-  height: 48px;
+  min-height: 48px;
   padding: 21px 9px 0 19px;
-  gap: 22px;
+  gap: 17px 22px;
   font-size: 12px;
   color: rgb(200, 200, 200);
+  outline: none;
+}
+#comment .tab {
+  cursor: default;
 }
 #comment .tab.on {
   color: #fff;
@@ -392,10 +397,16 @@ body {
   border-bottom: 2px solid rgb(90, 140, 220);
   padding-bottom: 3px;
 }
+#commentPage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 #commentText {
   flex: 1;
   padding: 8px 9px;
-  font-size: 14px;
+  font-size: var(--comment-font-size, 14px);
   line-height: 1.3;
   white-space: pre-wrap;
   overflow-y: auto;
@@ -437,15 +448,11 @@ body {
   white-space: nowrap;
   overflow: hidden;
 }
-#table tr.actual {
-  background-color: rgb(197, 235, 197);
+#table th {
+  user-select: none;
 }
-#table tr.selected {
-  color: #0000ff;
-  background-color: rgba(0, 0, 0, 0.275);
-}
-#table tbody tr:hover:not(.selected) {
-  background-color: rgba(0, 0, 0, 0.12);
+#table td {
+  cursor: default;
 }
 #table::-webkit-scrollbar {
   width: 8px;
@@ -507,11 +514,75 @@ body {
   font: inherit;
   text-align: center;
 }
+/* 详细工具栏 panels (BottomToolbar.java:1556-1572): 44 px high, a 1 px black line border, their
+   components at Java's absolute bounds */
+.bb-detail,
+.bb-detail-group {
+  position: absolute;
+  box-sizing: border-box;
+  font-size: 12px;
+}
+.bb-detail {
+  border: 1px solid #000;
+}
+.bb-detail > *,
+.bb-detail-group > * {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.bb-detail label {
+  display: flex;
+  align-items: center;
+}
+.bb-detail input[type="checkbox"] {
+  margin: 0 2px;
+}
+.bb-detail input[type="text"],
+.bb-detail select {
+  padding: 0 2px;
+  font: inherit;
+  border: 1px solid rgb(122, 138, 153);
+}
+.bb-detail button {
+  padding: 0;
+  font: inherit;
+}
+.bb-detail.unavailable,
+.bb-detail-group.unavailable {
+  color: rgb(140, 140, 140);
+}
+
+/* ---- in-frame separators (InFrameLeftoverDragHandles): transparent hot zones over the seams */
+.panel-handle {
+  z-index: 3;
+  background: transparent;
+  touch-action: none;
+}
+.panel-handle.edge {
+  cursor: e-resize;
+}
+.panel-handle.seam {
+  cursor: n-resize;
+}
+/* holding X: the key list over the workbench (LizzieFrame.drawControls) */
+#controls {
+  z-index: 4;
+  pointer-events: none;
+}
 
 /* ---- menu dropdowns (Swing JPopupMenu on the fixed build: white, grey border, 25 px rows,
    12 px text indented past the check column, full-width separators) */
+/* Menu font: Font(Config.sysDefaultFontName, PLAIN, frame-font-size) (Menu.java:245) at the size
+   this session started with (界面字体大小 applies after a restart, LizzieFrame.java:20764-20767). */
 #menubar .m {
   position: relative;
+  font-size: var(--frame-font-size, 12px);
+}
+.dropdown .mi {
+  font-size: var(--frame-font-size, 12px);
 }
 #menubar .m.open {
   background: rgb(226, 230, 236);
@@ -572,10 +643,6 @@ body {
   margin: 3px 4px;
   background: rgb(160, 165, 170);
 }
-#comment .tab.unavailable {
-  cursor: default;
-}
-
 /* ---- modal dialogs (JOptionPane roles) */
 #dialog {
   position: fixed;
@@ -652,4 +719,105 @@ body {
 }
 .diagnostics code {
   font-size: 11px;
+}
+
+/* ---- toolbar popups (JPopupMenu below a toolbar button, e.g. rankMarkPopup) */
+.popup-anchor {
+  position: fixed;
+  z-index: 20;
+  width: 0;
+  font-size: 12px;
+  height: 0;
+}
+.popup-anchor > .dropdown {
+  top: 0;
+}
+/* rankCustomMove's text field inside the menu item */
+.mi .mi-field {
+  width: 40px;
+  height: 20px;
+  margin-left: 4px;
+  font: inherit;
+  border: 1px solid rgb(160, 165, 170);
+  padding: 0 2px;
+}
+/* 自定义布局's 设置 button inside the menu item (JFontButton with zero margins) */
+.mi .mi-button {
+  height: 20px;
+  margin-left: 8px;
+  padding: 0 6px;
+  font: inherit;
+}
+/* SetCustomMode: GridLayout(12, 2, 45, 4) of labels and controls, 12 px dialog padding */
+.custom-mode-grid {
+  display: grid;
+  grid-template-columns: auto auto;
+  column-gap: 45px;
+  row-gap: 4px;
+  align-items: center;
+  padding: 12px 12px 0;
+  font-size: 12px;
+}
+.custom-mode-grid input[type="range"] {
+  width: 100px;
+}
+
+/* ---- board display dialogs: Swing null layouts at their setBounds */
+.modal-body.display-abs {
+  position: relative;
+  box-sizing: content-box;
+  padding: 0;
+  margin: 6px 0 0;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.display-abs > * {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  font: inherit;
+}
+.display-abs input[type="text"] {
+  padding: 0 2px;
+  border: 1px solid rgb(160, 165, 170);
+}
+.display-abs input.invalid {
+  background: red;
+}
+.display-label {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.display-choice {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.display-preview {
+  display: block;
+}
+.display-input input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+  font: inherit;
+}
+/* SetDelayShowCandidates: FlowLayout row (EmptyBorder 5) above the 应用 / 取消 row */
+.display-delay-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px;
+}
+.display-delay-row label {
+  display: inline-flex;
+  align-items: center;
+}
+.display-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  padding-top: 5px;
 }

@@ -58,6 +58,22 @@ pub fn split_command(line: &str) -> Vec<String> {
     out
 }
 
+/// The inverse of [`split_command`]: tokens with spaces or quotes are quoted. `None` when a
+/// token holds both kinds of quote, which the Java syntax cannot express.
+pub fn join_command(tokens: &[String]) -> Option<String> {
+    let mut out = Vec::with_capacity(tokens.len());
+    for t in tokens {
+        let needs_quotes = t.is_empty() || t.contains([' ', '"', '\'']);
+        out.push(match (needs_quotes, t.contains('"'), t.contains('\'')) {
+            (false, _, _) => t.clone(),
+            (true, false, _) => format!("\"{t}\""),
+            (true, true, false) => format!("'{t}'"),
+            (true, true, true) => return None,
+        });
+    }
+    Some(out.join(" "))
+}
+
 /// Options whose value is a file path (`CommandLaunchHelper.FILE_PATH_OPTIONS`).
 pub(crate) const FILE_PATH_OPTIONS: [&str; 12] = [
     "-model",
@@ -339,13 +355,21 @@ pub struct CandidateLine {
     pub order: u32,
     pub is_symmetry: bool,
     pub pv: Vec<Option<Point>>,
+    pub pv_visits: Vec<u64>,
+    /// KataGo `movesOwnership` (side-to-move-positive, row-major from the top-left).
+    pub ownership: Option<Vec<f64>>,
 }
 
-/// Candidates of one analysis line, sorted by `order`, and the `rootInfo visits` if present.
+/// Candidates of one analysis line, sorted by `order`, and the `rootInfo` values if present.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InfoLine {
     pub candidates: Vec<CandidateLine>,
     pub root_visits: Option<u64>,
+    /// `rootInfo winrate` (0–100) and `scoreLead`, the position's own evaluation.
+    pub root_winrate: Option<f64>,
+    pub root_score_lead: Option<f64>,
+    /// KataGo `ownership` (side-to-move-positive, row-major from the top-left).
+    pub ownership: Option<Vec<f64>>,
 }
 
 const STREAM_TAGS: [&str; 5] = [
@@ -356,25 +380,46 @@ const STREAM_TAGS: [&str; 5] = [
     "movesOwnership",
 ];
 
+/// The `points` numbers after the stream tag `tag`, or nothing when the line has fewer.
+fn ownership_after(toks: &[&str], tag: &str, points: usize) -> Option<Vec<f64>> {
+    let start = toks.iter().position(|t| *t == tag)? + 1;
+    let values: Vec<f64> = toks.get(start..start + points)?.iter().map(|t| t.parse().ok()).collect::<Option<_>>()?;
+    Some(values)
+}
+
 pub fn parse_info(line: &str, dialect: Dialect, size: BoardSize) -> InfoLine {
+    let points = size.width as usize * size.height as usize;
+    // The root ownership follows the last candidate (or `rootInfo`); a candidate's own is
+    // `movesOwnership`, a different tag.
+    let ownership = (dialect == Dialect::Kata)
+        .then(|| ownership_after(&line.split_whitespace().collect::<Vec<_>>(), "ownership", points))
+        .flatten();
     let (infos, root) = match line.split_once(" rootInfo ") {
         Some((a, b)) => (a, Some(b)),
         None => (line, None),
     };
-    let root_visits = root.and_then(|r| {
-        let t: Vec<&str> = r.split_whitespace().collect();
-        t.iter()
-            .position(|x| *x == "visits")
-            .and_then(|i| t.get(i + 1)?.parse().ok())
-    });
+    let root_tokens: Vec<&str> = root.map(|r| r.split_whitespace().collect()).unwrap_or_default();
+    let root_value = |key: &str| {
+        let at = root_tokens.iter().position(|x| *x == key)?;
+        root_tokens.get(at + 1)?.parse::<f64>().ok()
+    };
+    let root_visits = root_value("visits").map(|v| v as u64);
     let scale = match dialect {
         Dialect::Kata => 100.0,
         Dialect::Leela | Dialect::Sai | Dialect::Sayuri => 0.01,
         Dialect::Leela011 => 1.0,
     };
+    let root_winrate = root_value("winrate").map(|w| w * scale);
+    let root_score_lead = root_value("scoreLead");
     let mut candidates = Vec::new();
     for chunk in infos.split("info ").filter(|c| !c.trim().is_empty()) {
         let toks: Vec<&str> = chunk.split_whitespace().collect();
+        // Streams follow the PV and may follow other streams. Keep their boundaries separate
+        // from the scalar parser, which deliberately stops at `pv`.
+        let pv_visits = toks.iter().position(|t| *t == "pvVisits").map(|start| {
+            toks[start + 1..].iter().take_while(|t| !STREAM_TAGS.contains(t))
+                .map_while(|t| t.parse::<u64>().ok()).collect()
+        }).unwrap_or_default();
         let mut point = Err(InvalidVertex);
         let mut c = CandidateLine {
             point: None,
@@ -388,6 +433,8 @@ pub fn parse_info(line: &str, dialect: Dialect, size: BoardSize) -> InfoLine {
             order: 0,
             is_symmetry: false,
             pv: Vec::new(),
+            pv_visits: Vec::new(),
+            ownership: None,
         };
         let mut edge = None;
         let mut i = 0;
@@ -423,13 +470,20 @@ pub fn parse_info(line: &str, dialect: Dialect, size: BoardSize) -> InfoLine {
         }
         let Ok(p) = point else { continue };
         c.point = p;
+        c.pv_visits = pv_visits;
         c.allocation_visits = edge.unwrap_or(c.visits);
+        if dialect == Dialect::Kata {
+            c.ownership = ownership_after(&toks, "movesOwnership", points);
+        }
         candidates.push(c);
     }
     candidates.sort_by_key(|c| c.order);
     InfoLine {
         candidates,
         root_visits,
+        root_winrate,
+        root_score_lead,
+        ownership,
     }
 }
 
@@ -462,6 +516,8 @@ pub fn parse_leela011_summary(line: &str, size: BoardSize) -> Option<CandidateLi
         order: 0,
         is_symmetry: false,
         pv,
+        pv_visits: Vec::new(),
+        ownership: None,
     })
 }
 

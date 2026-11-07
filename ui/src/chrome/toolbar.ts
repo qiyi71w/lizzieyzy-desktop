@@ -4,13 +4,153 @@
 // capability is not available yet.
 import { run, state, unavailable } from "../app";
 import { COMMANDS } from "../commands";
+import { rankMarkLit, setCandidateSide } from "../display/commands";
+import { boardUi, onBoardUiChange } from "../display/state";
+import { choosePlacement, placementLit } from "../editing/commands";
+import { editing, markupToolsShown, onEditingChange } from "../editing/state";
 import { product, t } from "../i18n";
 import { javaDouble } from "../workbench/paint";
+import type { MenuNode } from "./javaMenus";
+import { openPopupMenu } from "./menubar";
+import { FLASH_MENU } from "../quick/flash";
+import { functionSearchRefused, openFunctionSearch } from "../search/controller";
+import { limitPopup } from "../analysis/region";
+import "../editing/chrome.css";
+
+const updaters: (() => void)[] = [];
+
+/** A button whose icon shows a selected state (JButton.setIcon with the "2" image). */
+function liveIcon(off: string, on: string, tip: string, selected: () => boolean, action: () => void, cls = ""): HTMLElement {
+  const b = document.createElement("span");
+  b.className = `tb-icon ${cls}`;
+  b.title = tip;
+  const image = document.createElement("img");
+  image.alt = "";
+  b.append(image);
+  b.onclick = action;
+  updaters.push(() => {
+    const lit = selected();
+    const src = `/assets/${lit ? on : off}`;
+    if (image.getAttribute("src") !== src) image.src = src;
+    b.classList.toggle("on", lit);
+  });
+  return b;
+}
+
+/** A catalog toggle shown as a two-image button. */
+function commandIcon(off: string, on: string, tip: string, command: string, cls = ""): HTMLElement {
+  const entry = COMMANDS[command];
+  const b = liveIcon(off, on, tip, () => entry.checked?.() ?? false, entry.run, cls);
+  b.dataset.key = command;
+  return b;
+}
+
+/** Marks the control function search locates for a Java top-toolbar action id
+ *  (Menu.topFunctionTarget / AutoAnalyzeMenu.ACTION_PROPERTY). */
+function at(id: string, control: HTMLElement): HTMLElement {
+  control.dataset.function = id;
+  return control;
+}
+
+/** btnMarkup and, while show-markup-tools is on, the markup buttons after it in Java's rightArea
+ *  order (Menu.java:8694-8703; the circle button is created but never added). */
+function markupTools(): HTMLElement[] {
+  const tools = document.createElement("span");
+  tools.className = "tb-markup";
+  tools.append(
+    at("toolbar.markup-letter", commandIcon("label.png", "label2.png", t("Accessibility.markupLetter"), "toolbar.markup-letter")),
+    at("toolbar.markup-number", commandIcon("labelnum1.png", "labelnum2.png", t("Accessibility.markupNumber"), "toolbar.markup-number")),
+    at("toolbar.markup-cross", commandIcon("x.png", "x2.png", t("Accessibility.markupCross"), "toolbar.markup-cross")),
+    at("toolbar.markup-square", commandIcon("square.png", "square2.png", t("Accessibility.markupSquare"), "toolbar.markup-square")),
+    at("toolbar.markup-triangle", commandIcon("sanjiao.png", "sanjiao2.png", t("Accessibility.markupTriangle"), "toolbar.markup-triangle")),
+    at("toolbar.markup-eraser", commandIcon("eraser.png", "eraser2.png", t("Accessibility.markupEraser"), "toolbar.markup-eraser")),
+    at("toolbar.markup-clear", icon("clear.png", t("Menu.btnMarkupClear.toolTipText"), "toolbar.markup-clear")),
+  );
+  updaters.push(() => {
+    const display = markupToolsShown() ? "" : "none";
+    if (tools.style.display !== display) tools.style.display = display;
+  });
+  return [at("toolbar.markup-tools", commandIcon("mark1.png", "mark2.png", t("Menu.btnMarkup.toolTipText"), "toolbar.markup-tools")), tools];
+}
+
+/** Edit bar (Menu.java:7552-7643): 添加黑子 / 添加白子 toggle back to alternate play when chosen
+ *  again; 交替落子 toggles only its own icon. Each clears insert mode. */
+function editBar(): HTMLElement[] {
+  return [
+    liveIcon("smallblack1.png", "smallblack2.png", t("Menu.playBlackToolTipText"), () => editing.placement === "Black",
+      () => choosePlacement(editing.placement === "Black" ? "alternate" : "Black", false), "stone"),
+    liveIcon("smallwhite.png", "smallwhite4.png", t("Menu.playWhiteToolTipText"), () => editing.placement === "White",
+      () => choosePlacement(editing.placement === "White" ? "alternate" : "White", false), "stone"),
+    // iconbh = hb.png at menuIconSize + 8 in a 22 px button (Menu.java:3674-3680, 7602-7626)
+    liveIcon("hb.png", "hb2.png", t("Menu.playAlternatelyToolTipText"), alternateLit,
+      () => choosePlacement("alternate", !alternateLit()), "bw"),
+    icon("playpass.png", t("Menu.playPassToolTipText"), "menu.playPassMove", "w22"),
+  ];
+}
+
+function alternateLit(): boolean {
+  return editing.placement === "alternate" && placementLit.alternate;
+}
+
+function refreshButtons(): void {
+  updaters.forEach((u) => u());
+}
+onEditingChange(refreshButtons);
+onBoardUiChange(refreshButtons);
+
+/** rankMarkPopup (addRankMarkMenu with a popup, Menu.java:9354-9360): the count is typed into its
+ *  item on every platform. */
+const RANK_POPUP: MenuNode[] = [
+  { t: "check", key: "Menu.rankMenu.rankNoneMove" },
+  { t: "check", key: "Menu.rankMenu.rankLastMove" },
+  { t: "check", key: "Menu.rankMenu.lblCustomMove" },
+  { t: "check", key: "Menu.rankMenu.rankAllMove" },
+  { t: "sep" },
+  {
+    t: "submenu",
+    key: "Menu.rankMenu.evaluationMode",
+    items: [
+      { t: "radio", key: "Menu.rankMenu.evaluationMode.auto" },
+      { t: "radio", key: "Menu.rankMenu.evaluationMode.score" },
+      { t: "radio", key: "Menu.rankMenu.evaluationMode.winrate" },
+      { t: "sep" },
+      { t: "radio", key: "Menu.rankMenu.evaluationMode.combined" },
+    ],
+  },
+];
+
+/** btnRankMark: RankMarkOn / RankMarkOff by Menu.setBtnRankMark; opens rankMarkPopup below it. */
+function rankMarkButton(): HTMLElement {
+  const b = liveIcon("RankMarkOff.png", "RankMarkOn.png", t("Menu.btnRankMark.toolTipText"), rankMarkLit, () => openPopupMenu(b, RANK_POPUP));
+  b.dataset.key = "toolbar.rank-mark";
+  return b;
+}
+
+/** btnFlashAnalyze: opens FlashAnalyzeMenu below it (Menu.java:8406-8415). */
+function flashButton(): HTMLElement {
+  const b = icon("flash.png", t("Menu.btnAnalyze.btnFlashAnalyze"));
+  b.classList.remove("unavailable");
+  b.title = t("Menu.btnAnalyze.btnFlashAnalyze");
+  b.dataset.key = "toolbar.flash";
+  b.onclick = () => openPopupMenu(b, FLASH_MENU);
+  return b;
+}
+
+/** selectAllowMore / selectAvoidMore: the region's limit popup below the button. */
+function limitButton(allow: boolean, tip: string): HTMLElement {
+  const b = icon("horizonDown.png", tip, undefined, "more");
+  b.classList.remove("unavailable");
+  b.title = tip;
+  b.dataset.key = allow ? "toolbar.force-allow-options" : "toolbar.force-avoid-options";
+  b.onclick = () => openPopupMenu(b, limitPopup(allow));
+  return b;
+}
 
 function marked(el: HTMLElement, command: string | undefined, tip: string): HTMLElement {
   const entry = command ? COMMANDS[command] : undefined;
   if (entry) {
     el.title = tip;
+    el.dataset.key = command;
     el.onclick = entry.run;
   } else {
     el.title = tip ? `${tip} — ${product("unavailable")}` : product("unavailable");
@@ -88,10 +228,18 @@ function check(checked: boolean): HTMLElement {
   return c;
 }
 
-function checkLabel(text: string, checked: boolean): HTMLElement {
+/** 选点 黑 / 白 (chkShowBlack / chkShowWhite, Menu.java:9714-9753): one colour's candidates. */
+function candidateCheck(text: string, black: boolean): HTMLElement {
+  const c = document.createElement("input");
+  c.type = "checkbox";
+  c.className = "tb-check";
+  c.tabIndex = -1;
+  c.dataset.key = black ? "toolbar.candidates-black" : "toolbar.candidates-white";
+  c.onchange = () => setCandidateSide(black, c.checked);
+  updaters.push(() => (c.checked = black ? boardUi.showBlack : boardUi.showWhite));
   const l = document.createElement("label");
   l.className = "tb-checklabel";
-  l.append(check(checked), document.createTextNode(text));
+  l.append(c, document.createTextNode(text));
   return l;
 }
 
@@ -138,12 +286,47 @@ function komiField(): HTMLInputElement {
   return control;
 }
 
+/** The search features button (Menu.java:8660-8685): FunctionSearchDialog.SearchIcon and the title,
+ *  which collapses to the icon alone below a 900 px wide window. Not focusable, so the control
+ *  that had the focus gets it back when the search is cancelled. */
+function searchButton(): HTMLElement {
+  const title = t("FunctionSearch.title");
+  const b = document.createElement("span");
+  b.className = "tb-pill plain search";
+  b.dataset.key = "function.search";
+  b.title = title;
+  b.setAttribute("role", "button");
+  b.setAttribute("aria-label", title);
+  const glass = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  glass.setAttribute("viewBox", "0 0 16 16");
+  glass.setAttribute("aria-hidden", "true");
+  glass.innerHTML = '<circle cx="5.5" cy="5.5" r="4.5"/><line x1="9" y1="9" x2="14" y2="14"/>';
+  const text = document.createElement("span");
+  text.className = "label";
+  b.append(glass, text);
+  const fit = () => {
+    const narrow = window.innerWidth < 900;
+    text.textContent = narrow ? "" : title;
+    b.classList.toggle("collapsed", narrow);
+  };
+  fit();
+  window.addEventListener("resize", fit);
+  // Decided on the press: a text control keeps the focus (preventDefault) and the press has not
+  // yet closed an open menu, so both still refuse the search as the shortcut does.
+  let admitted = false;
+  b.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    admitted = !functionSearchRefused();
+  });
+  b.onclick = () => {
+    if (admitted) void openFunctionSearch();
+    admitted = false;
+  };
+  return b;
+}
+
 export function buildToolbar(host: HTMLElement): void {
-  const search = pill(t("FunctionSearch.title"), "plain search");
-  const glass = document.createElement("img");
-  glass.src = "/assets/search.png";
-  glass.alt = "";
-  search.prepend(glass);
+  const search = searchButton();
   // disabled while no game is running (Menu.java:9101-9104)
   const pause = document.createElement("span");
   pause.className = "tb-pill disabled pause";
@@ -154,35 +337,31 @@ export function buildToolbar(host: HTMLElement): void {
   host.append(
     sep("lead"),
     buttons(
-      icon("newFile.png", t("Menu.btnNewFile.toolTipText")),
+      icon("newFile.png", t("Menu.btnNewFile.toolTipText"), "files.new"),
       icon("open.png", t("Menu.btnOpen.toolTipText"), "files.open"),
       icon("save.png", t("Menu.btnSave.toolTipText"), "files.save"),
       pill(t("Menu.foxKifuButton"), "w80"),
       pill(t("Menu.tencentKifuButton"), "w80"),
       pill(t("Menu.playerStrengthEstimateButton"), "w80"),
     ),
-    buttons(setup, icon("flash.png", t("Menu.btnAnalyze.btnFlashAnalyze")), search),
+    buttons(setup, flashButton(), search),
     buttons(
-      icon("hawkeye2.png", t("Menu.btnHawkeye.toolTipText")),
-      icon("RankMarkOn.png", t("Menu.btnRankMark.toolTipText")),
-      icon("pass.png", t("Menu.btnChangeTurn.toolTipText")),
-      icon("setmain.png", t("Menu.btnSetMain.toolTipText")),
+      icon("hawkeye2.png", t("Menu.btnHawkeye.toolTipText"), "analysis.bad-moves"),
+      rankMarkButton(),
+      at("toolbar.change-turn", icon("pass.png", t("Menu.btnChangeTurn.toolTipText"), "toolbar.change-turn")),
+      icon("setmain.png", t("Menu.btnSetMain.toolTipText"), "menu.setAsMain"),
       icon("backmain.png", t("Menu.btnBackMain.toolTipText"), "menu.backToMainBranch"),
       icon("control.png", t("Menu.btnContrlPanel.toolTipText")),
-      icon("mark1.png", t("Menu.btnMarkup.toolTipText")),
+      ...markupTools(),
     ),
     sep(),
-    icon("smallblack1.png", t("Menu.playBlackToolTipText")),
-    icon("smallwhite.png", t("Menu.playWhiteToolTipText")),
-    // iconbh = hb.png at menuIconSize + 8 in a 22 px button (Menu.java:3674-3680, 7602-7626)
-    icon("hb.png", t("Menu.playAlternatelyToolTipText"), undefined, "bw"),
-    icon("playpass.png", t("Menu.playPassToolTipText"), undefined, "w22"),
+    ...editBar(),
     sep(),
-    icon("blueallow.png", t("Menu.selectAllowToolTipText"), undefined, "force"),
-    icon("horizonDown.png", t("Accessibility.allowMoveOptions"), undefined, "more"),
-    icon("redavoid.png", t("Menu.selectAvoidToolTipText"), undefined, "force"),
-    icon("horizonDown.png", t("Accessibility.avoidMoveOptions"), undefined, "more"),
-    icon("clear.png", t("Menu.clearSelectToolTipText"), undefined, "force"),
+    at("toolbar.force-allow", commandIcon("blueallow.png", "blueallow2.png", t("Menu.selectAllowToolTipText"), "toolbar.force-allow", "force")),
+    at("toolbar.force-allow-options", limitButton(true, t("Accessibility.allowMoveOptions"))),
+    at("toolbar.force-avoid", commandIcon("redavoid.png", "redavoid2.png", t("Menu.selectAvoidToolTipText"), "toolbar.force-avoid", "force")),
+    at("toolbar.force-avoid-options", limitButton(false, t("Accessibility.avoidMoveOptions"))),
+    at("toolbar.force-clear", icon("clear.png", t("Menu.clearSelectToolTipText"), "toolbar.force-clear", "force")),
     sep(),
     pill(t("Menu.newGameBtn"), "newgame"),
     pause,
@@ -191,24 +370,26 @@ export function buildToolbar(host: HTMLElement): void {
     sep("dash"),
     // KataGo parameter fields stay empty and unchecked without an engine
     group("pda", check(false), label(withColon(t("Menu.separateLblPda"))), field()),
-    group("wrn", check(false), label(withColon(t("Menu.separateLblWrn"))), field()),
+    group("wrn", at("toolbar.wrn", check(false)), label(withColon(t("Menu.separateLblWrn"))), field()),
     sep(),
     label(t("Menu.lblShowCandidate")),
-    checkLabel(t("Menu.Black"), true),
-    checkLabel(t("Menu.White"), true),
+    at("toolbar.candidate-sides", candidateCheck(t("Menu.Black"), true)),
+    candidateCheck(t("Menu.White"), false),
     sep(),
     pill(t("Menu.rulesBtn"), "small", "engine.rules"),
     pill(t("Menu.tsumeGoBtn"), "small"),
     pill(t("Menu.paramsBtn"), "small"),
     pill(t("Menu.gobanBtn"), "small"),
-    pill(t("Menu.saveBtn"), "small"),
+    pill(t("Menu.saveBtn"), "small", "menu.saveAndLoad"),
   );
 }
 
-/** The komi field shows the current game komi (txtKomi: String.valueOf(double), so 6 is "6.0"). */
+/** The komi field shows the current game komi (txtKomi: String.valueOf(double), so 6 is "6.0");
+ *  the edit and markup buttons show the current selection. */
 export function renderToolbar(): void {
   const komi = document.getElementById("komiField") as HTMLInputElement | null;
   const k = state.view?.komi;
   const value = k === undefined ? "" : javaDouble(k);
   if (komi && document.activeElement !== komi && komi.value !== value) komi.value = value;
+  refreshButtons();
 }

@@ -1,0 +1,10 @@
+.auto-analysis-dialog { padding: 12px; font: 12px Arial, "Microsoft YaHei", sans-serif; }
+.auto-analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; min-width: 320px; grid-auto-rows: 21px; align-items: center; }
+.auto-analysis-grid > label { white-space: nowrap; }
+.auto-analysis-grid input[type="text"] { width: 100%; min-width: 0; height: 23px; box-sizing: border-box; }
+.auto-analysis-grid input[type="checkbox"] { justify-self: start; margin: 0 3px; }
+.auto-analysis-inline { display: flex; align-items: center; gap: 4px; }
+.auto-analysis-inline > input[type="text"] { width: 90px; }
+.auto-analysis-dialog .engine-actions { justify-content: flex-end; margin-top: 12px; gap: 4px; }
+.auto-analysis-notice { position: fixed; z-index: 220; left: 50%; top: 35%; transform: translate(-50%, -50%); padding: 16px 24px; min-width: 220px; white-space: pre-wrap; text-align: center; }
+.auto-analysis-notice button { display: block; margin: 12px auto 0; }

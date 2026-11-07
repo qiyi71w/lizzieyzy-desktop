@@ -364,10 +364,12 @@ struct Builder {
     pending: Pending,
     root_props: Vec<Property>,
     komi_raw: Option<String>,
+    /// Read with `ui.no-capture` on.
+    no_capture: bool,
 }
 
 impl Builder {
-    fn new(size: BoardSize) -> Builder {
+    fn new(size: BoardSize, no_capture: bool) -> Builder {
         Builder {
             rec: GameRecord::empty(size, 0.0),
             current: ROOT,
@@ -381,6 +383,7 @@ impl Builder {
             pending: Pending::default(),
             root_props: Vec::new(),
             komi_raw: None,
+            no_capture,
         }
     }
 
@@ -471,27 +474,28 @@ impl Builder {
     }
 
     fn action(&mut self, color: Stone, value: &str) {
-        let kind = match action_value(value, self.rec.size) {
-            ActionValue::Pass => NodeKind::Pass { color },
+        let id = match action_value(value, self.rec.size) {
             ActionValue::Invalid => return,
+            ActionValue::Pass => {
+                self.prev = Some(self.pos.clone());
+                self.rec.push_child(self.current, NodeKind::Pass { color })
+            }
             ActionValue::Point(p) => {
-                if self.pos.at(p).is_some() || self.pos.is_suicide(color, p) {
-                    return;
+                let read = super::read_move(
+                    &mut self.rec,
+                    self.current,
+                    color,
+                    p,
+                    &mut self.pos,
+                    &mut self.prev,
+                    self.no_capture,
+                );
+                match read {
+                    Some(id) => id,
+                    None => return,
                 }
-                let mut next = self.pos.clone();
-                next.play(color, p);
-                if self.prev.as_ref().is_some_and(|prev| prev.stones == next.stones) {
-                    return;
-                }
-                NodeKind::Move { color, point: p }
             }
         };
-        let id = self.rec.push_child(self.current, kind);
-        let before = self.pos.clone();
-        if let NodeKind::Move { color, point } = kind {
-            self.pos.play(color, point);
-        }
-        self.prev = Some(before);
         self.current = id;
         self.has_action = true;
         self.target = Some(id);
@@ -661,10 +665,16 @@ impl Builder {
     }
 }
 
-/// Reads one SGF game tree into a candidate record.
+/// Reads one SGF game tree into a candidate record with normal captures.
 pub fn read(text: &str) -> Result<GameRecord, SgfError> {
+    read_with(text, false)
+}
+
+/// Reads one SGF game tree; `no_capture` places every move without removing stones
+/// (`ui.no-capture`).
+pub fn read_with(text: &str, no_capture: bool) -> Result<GameRecord, SgfError> {
     let text = text.trim_start_matches('\u{feff}');
     let events = tokenize(text)?;
     let size = board_size(&events);
-    Builder::new(size).run(events)
+    Builder::new(size, no_capture).run(events)
 }

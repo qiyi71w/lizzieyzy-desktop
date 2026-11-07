@@ -204,14 +204,21 @@ export async function openMoreEngines(): Promise<void> {
   }
 }
 
-export async function chooseEngine(manual = false): Promise<void> {
+/** ChooseMoreEngine (and loadEngine at a manual start): picks a catalog entry for the foreground
+ *  engine, or with `secondary` for the 双引擎模式 secondary slot (ChooseMoreEngine.createDialog(2)). */
+export async function chooseEngine(manual = false, secondary = false): Promise<void> {
   const engines = state.view?.engine.engines ?? [];
   const body = document.createElement("div"); body.className = "engine-chooser";
   const select = document.createElement("select"); select.size = Math.min(16, Math.max(3, engines.length));
   engines.forEach((engine, index) => { const option = new Option(`[${index + 1}] ${engine.name}    ${engine.command}`, String(index)); select.add(option); });
   body.append(select);
   const dialog = formPanel(manual ? t("loadEngine.title") : t("ChooseMoreEngine.title"), body);
-  const load = async () => { if (select.selectedIndex < 0) return; await run({ type: "SwitchEngine", index: Number(select.value) }); await dialog.close(); };
+  const load = async () => {
+    if (select.selectedIndex < 0) return;
+    const index = Number(select.value);
+    await run(secondary ? { type: "SwitchSecondaryEngine", index } : { type: "SwitchEngine", index });
+    await dialog.close();
+  };
   select.ondblclick = load;
   actions(body, button(manual ? t("loadEngine.ok") : t("ChooseMoreEngine.ok"), load), button(t("loadEngine.noEngine"), () => dialog.close()));
   await dialog.closed;
