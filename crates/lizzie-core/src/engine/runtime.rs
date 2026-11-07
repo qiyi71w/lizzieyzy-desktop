@@ -29,6 +29,7 @@ use super::rules::KataRules;
 use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, Point, Stone, ROOT};
 
 mod game;
+mod fox;
 pub use game::GenmoveReply;
 
 pub type InstanceId = u64;
@@ -396,6 +397,7 @@ struct Instance {
     id: InstanceId,
     profile: EngineProfile,
     launch_threads: u32,
+    fox_pda_compatibility: &'static str,
     io: Option<Box<dyn EngineIo>>,
     /// Lines written before the process exists (its launch waits for a [`LaunchCheck`]).
     queued: Option<Vec<String>>,
@@ -770,6 +772,14 @@ impl Engines {
         self.foreground
     }
 
+    pub fn fox_pda_unavailable(&self, id: InstanceId) -> &'static str {
+        let Some(inst) = self.get(id) else { return "Fox.pdaUnknown"; };
+        let name = inst.gtp_name.to_ascii_lowercase();
+        if name.contains("dym") || name.contains("katagopda") { "Fox.pdaDynamic" }
+        else if name.contains("custom") { "Fox.pdaUnknown" }
+        else { inst.fox_pda_compatibility }
+    }
+
     pub fn secondary(&self) -> Option<InstanceId> {
         self.secondary
     }
@@ -1117,6 +1127,7 @@ impl Engines {
                 whole_game: None,
             })
         });
+        let fox_pda_compatibility = if check.is_none() { fox::inspect(&spec) } else { "Fox.pdaUnknown" };
         let (io, queued) = match check {
             Some(check) => {
                 self.checks.push(check);
@@ -1131,6 +1142,7 @@ impl Engines {
             id,
             profile: profile.clone(),
             launch_threads: launch_threads(&profile.command, &spec),
+            fox_pda_compatibility,
             io,
             queued,
             phase: Phase::Starting,
@@ -1211,6 +1223,7 @@ impl Engines {
         let Some(name) = self.get(id).filter(|i| i.queued.is_some()).map(Instance::display_name) else {
             return Vec::new();
         };
+        let fox_pda_compatibility = fox::inspect(&checked.spec);
         let launched = self.launcher.launch(id, &checked.spec);
         let Some(inst) = self.get_mut(id) else {
             return Vec::new();
@@ -1224,6 +1237,7 @@ impl Engines {
             }
             Ok(mut io) => {
                 inst.launch_threads = launch_threads(&inst.profile.command, &checked.spec);
+                inst.fox_pda_compatibility = fox_pda_compatibility;
                 for line in inst.queued.take().unwrap_or_default() {
                     if io.send(&line).is_err() {
                         break;

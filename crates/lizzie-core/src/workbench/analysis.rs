@@ -387,6 +387,7 @@ impl Workbench {
     /// them, so a read still in flight starts nothing. The platform adapter waits for the
     /// processes outside the workbench lock.
     pub fn end_engines(&mut self) {
+        self.fox_stop();
         self.batch_shutdown();
         self.shutdown_strength();
         self.engines.terminate_all();
@@ -555,6 +556,11 @@ impl Workbench {
     /// foreground engine may (the user's pause and a foreground limit stop it too, as Java
     /// mirrors the primary engine's commands), and stops alone at its own limit.
     pub(super) fn sync_engine(&mut self) {
+        if self.fox_holds_engine() || self.fox_owns_board() {
+            self.engines.want_secondary(None, false);
+            self.engines.want(None, false);
+            return;
+        }
         if let Some(analyse) = self.human_sl_analyse() {
             self.engines.want_secondary(None, false);
             if analyse { self.engines.want(Some(self.analysis_target()), true); }
@@ -666,6 +672,7 @@ impl Workbench {
     /// foreground start goes through here, so none starts during setup mode
     /// (`EngineManager.setupModeActive`).
     pub fn switch_engine(&mut self, index: u32) -> Result<bool, ApiError> {
+        if self.fox_owns_board() || self.fox_holds_engine() { return Err(ApiError::new(ErrorKind::Unavailable, "Fox.conflict")); }
         let Some(profile) = self.config.engine.engines.get(index as usize).cloned() else {
             return Err(ApiError::new(ErrorKind::InvalidArgument, format!("no engine {index}")));
         };
@@ -736,6 +743,7 @@ impl Workbench {
 
     /// "重启当前引擎".
     pub fn restart_engine(&mut self) -> Result<bool, ApiError> {
+        if self.fox_owns_board() || self.fox_holds_engine() { return Err(ApiError::new(ErrorKind::Unavailable, "Fox.conflict")); }
         let Some(fg) = self.engines.foreground() else {
             return Ok(false);
         };
@@ -753,6 +761,7 @@ impl Workbench {
 
     /// "关闭当前引擎" / "关闭当前以外引擎" / "关闭所有引擎".
     pub fn shutdown_engines(&mut self, scope: EngineScope) -> bool {
+        if self.fox_owns_board() || self.fox_holds_engine() { return false; }
         let fg = self.engines.foreground();
         let targets: Vec<InstanceId> = self
             .engines
@@ -885,6 +894,7 @@ impl Workbench {
     /// User pause / resume (`togglePonderMannul`). Resuming also restarts an analysis a limit
     /// stopped. Never written to disk.
     pub fn toggle_analysis(&mut self) -> Result<bool, ApiError> {
+        if self.fox_owns_board() || self.fox_holds_engine() { return Err(ApiError::new(ErrorKind::Unavailable, "Fox.conflict")); }
         // Space during a game ends it (`togglePonderMannul` → `stopAiPlayingAndPolicy`).
         if self.game_active() {
             return Ok(self.game(crate::api::GameCommand::End)? == crate::api::CommandResult::Done);
@@ -970,6 +980,7 @@ impl Workbench {
     /// sent to the engine, and engine profiles no longer change it (`GameInfo.changeKomi`) — not
     /// even a starting engine's, which Java would still apply once it is ready.
     pub fn set_komi(&mut self, komi: f64) -> Result<bool, ApiError> {
+        if self.fox_owns_board() || self.fox_holds_engine() { return Err(ApiError::new(ErrorKind::Unavailable, "Fox.conflict")); }
         if self.whole_game_active() {
             return Err(ApiError::new(ErrorKind::InvalidArgument, "WholeGameAnalysis.conflict.analysis"));
         }
@@ -1002,6 +1013,7 @@ impl Workbench {
     /// 引擎规则 (`LizzieFrame.setRules`): needs a ready KataGo; the chosen rules become the
     /// session rules (`publishManualRules`) and are remembered for auto-loading.
     pub fn set_kata_rules(&mut self, rules: &str, auto_load: bool) -> Result<Option<&'static str>, ApiError> {
+        if self.fox_owns_board() || self.fox_holds_engine() { return Ok(Some("Fox.conflict")); }
         let Some(fg) = self
             .engines
             .foreground()
@@ -1035,6 +1047,13 @@ impl Workbench {
     /// GtpConsolePane send. Like Java, `komi <v>` sets the game komi and `undo` steps back in
     /// the record; other board-changing commands are refused.
     pub fn send_gtp(&mut self, command: &str) -> Result<Option<&'static str>, ApiError> {
+        if self.fox_owns_board() || self.fox_holds_engine() {
+            let words: Vec<_> = command.split_whitespace().collect();
+            if let ["kata-set-param", "playoutDoublingAdvantage", value] = words.as_slice() {
+                if let Ok(value) = value.parse() { self.fox_set_pda(value)?; return Ok(None); }
+            }
+            return Ok(Some("Fox.conflict"));
+        }
         let mut words = command.split_whitespace();
         match (words.next(), words.next()) {
             (Some("komi"), Some(v)) => {
@@ -1228,6 +1247,7 @@ impl Workbench {
     pub fn engine_timer(&self) -> Option<std::time::Instant> {
         [
             self.engines.next_tick(),
+            self.fox_deadline(),
             self.quick_deadline(),
             self.whole_game_deadline(),
             self.tracking_deadline(),
@@ -1253,7 +1273,8 @@ impl Workbench {
         let matches = self.match_tick(now);
         let human_sl = self.human_sl_tick(now);
         let strength = self.strength_tick(now);
-        engines | quick | whole | tracking | play | matches | human_sl | strength
+        let fox = self.fox_tick(now);
+        engines | quick | whole | tracking | play | matches | human_sl | strength | fox
     }
 
     /// Handles runtime events produced by operations outside engine output.
@@ -1267,7 +1288,8 @@ impl Workbench {
         for ev in events {
             changed = true;
             let Some(ev) = self
-                .match_event(ev)
+                .fox_event(ev)
+                .and_then(|ev| self.match_event(ev))
                 .and_then(|ev| self.play_event(ev))
                 .and_then(|ev| self.human_sl_event(ev))
                 .and_then(|ev| self.strength_event(ev))
@@ -1557,6 +1579,7 @@ impl Workbench {
     }
 
     pub(super) fn current_analysis(&self) -> Option<NodeAnalysisView> {
+        if self.fox_owns_board() { return self.fox_display_analysis(); }
         if self.match_active() && self.config.matches.show_previous_bestmoves {
             let node = self.doc.record.parent(self.cursor)?;
             let mut result = self.shown_analysis_at(&self.store, node)?;
@@ -1584,6 +1607,10 @@ impl Workbench {
 
     fn shown_analysis_at(&self, store: &AnalysisStore, node: NodeId) -> Option<NodeAnalysisView> {
         let s = store.get(&self.doc.record, node)?;
+        Some(self.shown_analysis_value(s))
+    }
+
+    pub(super) fn shown_analysis_value(&self, s: &NodeAnalysisView) -> NodeAnalysisView {
         // Stored results keep the engine's numbers; what is shown follows the settings now. The
         // komi is the one the result was analysed with (results of another komi are dropped).
         let vp = self.viewpoint();
@@ -1612,7 +1639,7 @@ impl Workbench {
                 kept: c.kept,
             })
             .collect();
-        Some(NodeAnalysisView {
+        NodeAnalysisView {
             node: s.node,
             engine: s.engine.clone(),
             to_play: s.to_play,
@@ -1624,7 +1651,7 @@ impl Workbench {
             komi: s.komi,
             candidates,
             black: vp.black(s.winrate, s.score_lead, s.to_play, s.komi),
-        })
+        }
     }
 
     /// 双引擎模式's right board (`boardRenderer2`): the secondary engine's results of the current

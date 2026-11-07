@@ -93,9 +93,10 @@ def main() -> None:
     keys = used_keys()
     keys.update(key for key in base if key.startswith("FunctionSearch."))
     # Match summaries and notices select Java keys dynamically by side/outcome; AI 解说 statuses,
-    # failures and ChatGPT messages arrive from the core and the adapter as Teacher.* keys.
+    # failures and ChatGPT messages arrive from the core and the adapter as Teacher.* keys; Fox
+    # direct-connection statuses and failures arrive from the core as Fox.* keys.
     keys.update(key for key in base if key.startswith(("EngineGameInfo.", "EnginePkConfig.",
-        "NewEngineGameDialog.", "Mannul.", "Teacher.")))
+        "NewEngineGameDialog.", "Mannul.", "Teacher.", "Fox.")))
     keys.add("GtpConsolePane.isEngineGame")
     bundles = {locale: load_properties(l10n / file) for locale, file in LOCALES.items()}
     for bundle in bundles.values():

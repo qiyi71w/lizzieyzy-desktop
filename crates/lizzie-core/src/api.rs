@@ -8,6 +8,7 @@ mod batch;
 mod editing;
 mod export;
 mod hawkeye;
+mod fox;
 mod humansl;
 mod humansl_settings;
 mod matches;
@@ -22,6 +23,7 @@ pub use batch::*;
 pub use editing::*;
 pub use export::*;
 pub use hawkeye::*;
+pub use fox::*;
 pub use humansl::*;
 pub use humansl_settings::*;
 pub use matches::*;
@@ -94,6 +96,7 @@ pub enum OpenSource {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
 #[serde(tag = "type")]
 pub enum Command {
+    Fox { op: FoxCommand },
     Strength { op: StrengthCommand },
     Commentary { op: CommentaryCommand },
     CommentaryConnection { op: ConnectionCommand },
@@ -1285,6 +1288,7 @@ pub struct WorkbenchView {
     pub engine_notice: Option<EngineNotice>,
     /// The running 人机对弈 (also while it gives the engine back).
     pub game: Option<GameView>,
+    pub fox: FoxView,
     /// How the last game ended, once.
     pub game_outcome: Option<GameOutcomeView>,
     /// 人机对弈 messages, once each, in order.
@@ -1400,6 +1404,8 @@ pub enum ImportTarget {
     PonderLimitTips,
     KataRules,
     AutoLoadKataRules,
+    /// `ui.txt-kata-engine-pda` / `ui.chk-kata-engine-pda`.
+    KataPda,
     /// `ui.enable-startup-benchmark`.
     StartupBenchmark,
     /// `ui.network-proxy-mode` / `-host` / `-port`.

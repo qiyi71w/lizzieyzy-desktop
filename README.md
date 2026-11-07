@@ -821,6 +821,33 @@ importing the matching LizzieYzy Next settings.
   reports can be reviewed, applied and restored; they and Apple Silicon tuning apply only while
   the content of the engine, model and config still matches, which is checked before the engine
   starts without blocking the window. Apple Silicon deep tuning is experimental and asks first.
+- Fox AI direct play: 同步 > 野狐 AI 直连 opens a modeless session window. It listens on
+  `127.0.0.1` (port 7000 by default) for the Fox AI 1.05 protocol. Use an authorized Fox AI
+  account and a compatible official client; the application does not obtain account permission.
+  Start confirms that moves will be sent automatically. When a record is open, choose to save,
+  replace it, or cancel; saving ends that start attempt. The current record remains until a
+  complete external game state is available.
+  The dialog reads the foreground KataGo's rules and limits before starting. Set the per-move
+  time and visit limits there; 0 means unlimited, but the external turn clock still bounds each
+  search and submission. The foreground engine must support cancellable search, parameter
+  readback and the required time controls. It is reserved while the live session uses it.
+  Sent moves remain pending until the peer confirms them; only confirmed moves and passes enter
+  the record. A missing confirmation stops automatic play rather than resending the move.
+  You can browse the confirmed history and use 返回实战 to return to the live position; browsing
+  does not change the engine's live position or save live candidates into historical nodes.
+  While the session owns the engine, toolbar 激进度 edits use stop/set/readback. A successful
+  readback saves the confirmed PDA preference; rejected or failed edits restore the last confirmed
+  toolbar value. Java settings import includes this preference. 广度 is unavailable. Closing the
+  dialog leaves the session running. A normal game end restores and releases the engine while
+  retaining the listener for another game. Use 停止 to also close the listener. Restoration confirms
+  the original rules, limits, no-clock state and displayed position before returning the engine;
+  failure leaves it unavailable until restarted. Reconnection resumes automatically only when the confirmed
+  history and engine identity establish a safe continuation; scoring and resignation remain
+  actions in the official client.
+  The real Linux application and KataGo have been exercised with a controlled local peer,
+  including confirmation, reconnect, browsing, PDA and stop/restoration. Authorized official
+  account/client interoperability has not yet been verified; controlled-peer checks do not
+  establish it. This TCP integration is separate from screen-reading helpers.
 
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
 as not yet available (greyed in menus; a notice when used). Not available yet: the other layout

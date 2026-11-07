@@ -22,6 +22,7 @@ mod commentary;
 mod editing;
 mod exporting;
 mod flash;
+mod fox;
 mod hawkeye;
 mod importing;
 mod information;
@@ -276,6 +277,7 @@ pub struct Workbench {
     hawkeye_session: hawkeye::HawkeyeSession,
     /// 人机对弈 and the bottom toolbar's 自动落子.
     play: play::PlayFlow,
+    fox: fox::FoxFlow,
     matches: matches::MatchFlow,
     human_sl: humansl::HumanSlFlow,
     strength: strength::StrengthFlow,
@@ -397,6 +399,7 @@ impl Workbench {
             problem_mark: None,
             hawkeye_session: hawkeye::HawkeyeSession::default(),
             play: play::PlayFlow::default(),
+            fox: fox::FoxFlow::default(),
             matches: matches::MatchFlow::default(),
             human_sl: humansl::HumanSlFlow::default(),
             strength: strength::StrengthFlow::default(),
@@ -488,7 +491,7 @@ impl Workbench {
                     detail: e.to_string(),
                 });
             }
-            Ok(_) if self.game_active() || self.match_active() => {
+            Ok(_) if self.game_active() || self.match_active() || self.fox_owns_board() => {
                 // A read started before the game began is not adopted into it.
                 self.outcome = Some(OpenOutcome::Failed {
                     ticket,
@@ -745,13 +748,13 @@ impl Workbench {
     }
 
     pub fn navigate(&mut self, nav: Navigation) -> bool {
-        if self.match_active() { return false; }
+        if self.match_active() || !self.fox_can_browse() { return false; }
         let target = browse::navigate(&self.doc.record, self.cursor, nav);
         self.move_to(target)
     }
 
     pub fn goto_node(&mut self, node: NodeId) -> Result<bool, ApiError> {
-        if self.match_active() { return Ok(false); }
+        if self.match_active() || !self.fox_can_browse() { return Ok(false); }
         if !browse::is_browsable(&self.doc.record, node) {
             return Err(ApiError::new(
                 ErrorKind::InvalidArgument,
@@ -763,7 +766,7 @@ impl Workbench {
 
     /// A number of 0 is ignored like Java's empty/invalid move field.
     pub fn goto_move_number(&mut self, number: u32) -> bool {
-        if self.match_active() { return false; }
+        if self.match_active() || !self.fox_can_browse() { return false; }
         if number == 0 {
             return false;
         }
@@ -1038,6 +1041,7 @@ impl Workbench {
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
             engine: self.engine_view(),
+            fox: self.fox_view(),
             quick: self.quick_view(),
             flash: self.flash_view(),
             auto_analysis: self.auto_analysis_view(),

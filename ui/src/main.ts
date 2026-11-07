@@ -877,12 +877,14 @@ async function installBackground(size: string, w: number, h: number, glass: Rect
 
 /** LizzieFrame.drawPonderingState: only ambient status depends on active pondering. An engine left
  *  unrestored after a borrow shows its cause and the way back instead (loadingStatusLines,
- *  java:7871-7890); a retrying quick analysis replaces the shortcut hint (drawCommandString). */
+ *  java:7871-7890); a retrying quick analysis replaces the shortcut hint (drawCommandString). While
+ *  野狐 AI 直连 history is browsed, its two lines say so and how to get back (java:8253-8256). */
 function statusLines(): string[] {
   const v = state.view;
   const hint = notice && notice.until > performance.now()
     ? notice.text
     : v?.quick.retrying ? t("LizzieFrame.quickAnalysis.retrying") : t("LizzieFrame.prompt.showControlsHint");
+  if (v?.fox.browsing) return [t(v.fox.browsing_status_key), t("Fox.returnLive"), hint];
   const unrestored = v?.engine.unrestored;
   if (unrestored) {
     const reason = unrestored === "Stop" ? t("LizzieFrame.foregroundUnrestored.reason.stop") : t("LizzieFrame.foregroundUnrestored.reason.restore");

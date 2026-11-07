@@ -67,6 +67,7 @@ fn generate() -> String {
         HawkeyeCommand, HawkeyeSide, HawkeyeBand, HawkeyeSpread, HawkeyeStage, HawkeyeMistake, HawkeyeRunning,
         HawkeyePane, HawkeyeView, HawkeyeSettings, HawkeyeBranch, HawkeyePeriod, HawkeyePlacement,
         BatchMode, BatchMove, BatchCommand, BatchItemView, BatchRunView, BatchFailure, BatchNotice, BatchView,
+        FoxCommand, FoxReplaceChoice, FoxView, FoxClockView, FoxSubmissionView, FoxStartOutcome,
         lizzie_core::api::GameCommand, lizzie_core::api::GameKind, lizzie_core::api::GamePhase,
         lizzie_core::api::GameClockView, lizzie_core::api::GameView, lizzie_core::api::GameEnd,
         lizzie_core::api::GameOutcomeView, lizzie_core::api::GameNotice, lizzie_core::api::AutoPlayView,

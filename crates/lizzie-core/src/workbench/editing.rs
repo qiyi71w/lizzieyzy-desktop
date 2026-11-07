@@ -75,6 +75,7 @@ impl Workbench {
     /// The content-write entry for callers outside editing (komi, tests): returns whether the
     /// record changed.
     pub fn edit_document(&mut self, edit: DocumentEdit) -> Result<bool, ApiError> {
+        if self.fox_owns_board() || self.fox_holds_engine() { return Err(ApiError::new(ErrorKind::Unavailable, "Fox.conflict")); }
         self.apply_edit(edit)
             .map(|a| a.changed)
             .map_err(|e| ApiError::new(ErrorKind::InvalidArgument, e.to_string()))
@@ -168,6 +169,7 @@ impl Workbench {
     /// Runs one editing command; during a game only the human's moves and annotations go
     /// through, and a human move asks the engine for its answer.
     pub fn edit(&mut self, op: EditCommand) -> Result<CommandResult, ApiError> {
+        if self.fox_owns_board() || self.fox_holds_engine() { return Ok(CommandResult::Refused { message_key: "Fox.conflict".into() }); }
         if self.human_sl_active() {
             return Ok(match op {
                 EditCommand::Play { point, .. } => self.human_sl_human_move(Some(point)),

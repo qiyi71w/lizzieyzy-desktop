@@ -21,6 +21,7 @@ pub mod commentary;
 pub mod display;
 pub mod engine;
 pub mod formats;
+pub mod fox;
 pub mod function_search;
 pub mod humansl;
 pub mod java_import;

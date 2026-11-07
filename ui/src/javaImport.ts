@@ -104,6 +104,7 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   AppendWinrateToComment: "Menu.appendWinrateToComment",
   WinrateGraph: "Menu.winrateGraphSettings",
   KataEstimate: "Menu.kataEstimate",
+  KataPda: "Menu.chkPDA.toolTopText",
   Scoring: "BottomToolbar.finalScore",
   SuggestionsFrame: "Menu.SuggestionList",
   ExtraMode: "Menu.layoutMode",

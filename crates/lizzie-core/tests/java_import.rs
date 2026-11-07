@@ -73,6 +73,8 @@ fn java_dir(root: &Path) -> PathBuf {
             "show-ponder-limited-tips": false,
             "kata-rules": "japanese",
             "auto-load-kata-rules": true,
+            "txt-kata-engine-pda": "0.5",
+            "chk-kata-engine-pda": true,
             "recent-file-paths": recent,
             "autoload-default": false,
             "autoload-last": true,
@@ -331,6 +333,7 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
         (c.engine.kata_rules.as_str(), c.engine.auto_load_kata_rules),
         ("japanese", true)
     );
+    assert_eq!((c.engine.kata_pda, c.engine.kata_pda_enabled), (Some(0.5), true));
     let names: Vec<&str> = c.engine.engines.iter().map(|e| e.name.as_str()).collect();
     assert_eq!(names, ["Local", "Broken"]);
     let local = &c.engine.engines[0];
