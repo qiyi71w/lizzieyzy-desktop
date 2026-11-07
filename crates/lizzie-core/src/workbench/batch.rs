@@ -161,6 +161,11 @@ impl Workbench {
             || self.batch.releasing.is_some()
     }
 
+    /// 批量分析 or 批量精析 runs (not its setup, nor a borrowed engine still being given back).
+    pub(super) fn batch_running(&self) -> bool {
+        self.batch.run.is_some() || self.auto_analysis_batch()
+    }
+
     /// 批量精析 runs or gives its borrowed engine back.
     pub(super) fn batch_flash_engaged(&self) -> bool {
         self.batch

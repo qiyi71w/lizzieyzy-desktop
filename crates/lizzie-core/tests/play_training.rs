@@ -715,12 +715,15 @@ fn ai_coach_from_the_current_position_ends_a_borrowed_run_first() {
     assert_eq!((b.engine().lease, b.engine().unrestored), (LeaseAvailabilityView::Available, None));
 }
 
-/// 批量分析 running → AI 陪练. A batch outlives a new board (Java saves the coach record under the
-/// batch file's name or keeps the batch's automatic analysis running), so the client asks first:
-/// the plain start changes nothing; the confirmed one stops the batch, then starts the session.
-#[test]
-fn ai_coach_during_a_batch_asks_then_stops_the_batch_first() {
+/// 批量分析 / 批量精析 running → AI 陪练. A batch outlives a new board (Java saves the coach record
+/// under the batch file's name or keeps the batch's automatic analysis running), so the client
+/// asks first: the plain start changes nothing; the confirmed one stops the batch, then starts the
+/// session, and the batch reads no further record.
+fn ai_coach_during_a_batch_asks_then_stops_it(mode: BatchMode, borrow: bool) {
     let mut b = Bench::new();
+    if borrow {
+        reuse_foreground(&mut b);
+    }
     let files: Vec<String> = ["a.sgf", "b.sgf"]
         .iter()
         .map(|name| {
@@ -729,37 +732,60 @@ fn ai_coach_during_a_batch_asks_then_stops_the_batch_first() {
             path.to_string_lossy().into_owned()
         })
         .collect();
-    assert_eq!(b.wb.open_batch(BatchMode::Ordinary, files, OpenSource::Chooser), Ok(true));
+    assert_eq!(b.wb.open_batch(mode, files, OpenSource::Chooser), Ok(true));
     let deliver = |b: &mut Bench| {
         for (ticket, path, no_capture) in b.wb.take_batch_reads() {
             assert!(b.wb.complete_batch_read(ticket, lizzie_core::formats::read_file(&path, no_capture)));
         }
     };
     deliver(&mut b);
-    let s = lizzie_core::settings::AutoAnalysisSettings {
-        visits_enabled: true,
-        visits: 10,
-        time_enabled: false,
-        auto_save: false,
-        ..Default::default()
-    };
-    assert_eq!(b.wb.start_batch_ordinary(s).unwrap(), Ok(true));
+    if mode == BatchMode::Ordinary {
+        let s = lizzie_core::settings::AutoAnalysisSettings {
+            visits_enabled: true,
+            visits: 10,
+            time_enabled: false,
+            auto_save: false,
+            ..Default::default()
+        };
+        assert_eq!(b.wb.start_batch_ordinary(s).unwrap(), Ok(true));
+    } else {
+        assert_eq!(b.wb.start_batch_flash(-1, -1, 2, false).unwrap(), Ok(true));
+    }
     deliver(&mut b);
     b.serve(&|_, _| None);
-    assert!(b.wb.view(false).auto_analysis.active);
+    let workers = |b: &Bench| b.world.0.lock().unwrap().iter().filter(|p| p.analysis && !p.dead).count();
+    let batch_workers = workers(&b);
+    assert!(b.wb.view(false).batch.running.is_some());
 
     assert_eq!(b.run(ai_coach(PlayerColor::Black)), CommandResult::NeedsBatchStop);
     let v = b.wb.view(false);
-    assert!(v.auto_analysis.active && v.batch.running.is_some(), "asking changes nothing");
+    assert!(v.batch.running.is_some(), "asking changes nothing");
     assert!(v.human_sl.is_none());
-    assert!(!b.world.0.lock().unwrap().iter().any(|p| p.analysis), "no AI 陪练 worker");
+    assert_eq!(workers(&b), batch_workers, "no AI 陪练 worker");
 
     assert_eq!(b.run(ai_coach_with(PlayerColor::Black, false, true)), CommandResult::Done);
     b.serve(&|_, _| None);
     let v = b.wb.view(false);
     assert!(!v.auto_analysis.active && v.batch.running.is_none(), "the batch was stopped");
     assert_eq!(v.human_sl.as_ref().map(|s| s.phase), Some(HumanSlPhase::Preparing));
+    assert_eq!(workers(&b), 1, "only AI 陪练's worker runs");
     assert!(b.wb.take_batch_reads().is_empty(), "no further record is read");
+    assert_eq!(b.engine().unrestored, None, "a borrowed engine was given back");
+}
+
+#[test]
+fn ai_coach_during_a_batch_analysis_asks_then_stops_it() {
+    ai_coach_during_a_batch_asks_then_stops_it(BatchMode::Ordinary, false);
+}
+
+#[test]
+fn ai_coach_during_a_flash_batch_asks_then_stops_it() {
+    ai_coach_during_a_batch_asks_then_stops_it(BatchMode::Flash, false);
+}
+
+#[test]
+fn ai_coach_during_a_borrowed_flash_batch_asks_then_stops_it() {
+    ai_coach_during_a_batch_asks_then_stops_it(BatchMode::Flash, true);
 }
 
 /// Review → Alt+, (one engine move, a mode reservation) still unanswered → AI 陪练 → the move

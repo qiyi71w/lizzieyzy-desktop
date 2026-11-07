@@ -163,7 +163,7 @@ impl Workbench {
         }
         // A batch outlives a new board (Java saves the coach record under the batch file's name or
         // keeps the batch's automatic analysis running), so it is stopped first once the user agrees.
-        let batch = self.batch_holds_foreground() || self.auto_analysis_batch();
+        let batch = self.batch_running();
         if batch && !stop_batch {
             return Ok(CommandResult::NeedsBatchStop);
         }
@@ -181,12 +181,9 @@ impl Workbench {
                 return Ok(CommandResult::Done);
             }
         };
-        if batch {
-            // 批量分析 analysing or loading its next record, then 批量精析 on the borrowed engine.
+        // 批量精析 on either engine; otherwise 批量分析 analysing or loading its next record.
+        if batch && !self.cancel_batch_flash() {
             self.auto_analysis_end_now();
-            if self.batch_holds_foreground() {
-                self.cancel_batch_flash();
-            }
         }
         // Java admits AI 陪练 beside an analysis borrowing the foreground engine
         // (`startHumanSlGameDialogReserved` checks only games). A new record ends quick, flash,
