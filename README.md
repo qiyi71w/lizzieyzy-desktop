@@ -386,11 +386,11 @@ importing the matching LizzieYzy Next settings.
     that engine is ready. With 复用当前前台引擎 no process starts. Nothing is preloaded while
     analysis is paused or 自动分析, 整盘精析, a game or an engine match runs, or when the engine it
     depends on failed (also failed to launch). A record still being read (at start-up, the record
-    given on the command line or the resumed game) is waited for; once a record is opened while
-    there is an engine, its engine sync ends the preload, as in Java, and a preload waiting for
-    an opened record's rules to reach the engine gives up once they have (or were refused). With
-    no engine the opened record does not matter. Switching or restarting the engine, pausing,
-    starting 闪电分析 or 自动分析 and changing the lightweight model also abandon a waiting
+    given on the command line or the resumed game) is waited for; as in Java, opening an SGF
+    record runs its engine sync (at once when there is no engine), whose end ends the preload,
+    and a preload waiting for an opened record's rules to reach the engine gives up once they
+    have (or were refused). A GIB record has no engine sync. Switching or restarting the engine,
+    pausing, starting 闪电分析 or 自动分析 and changing the lightweight model also abandon a waiting
     preload; saving 精析设置 never starts one. Unlike Java, unticking the option while a preload
     waits cancels it. A failed preload is only logged, with no dialog and no retry.
   - As in Java, an idle local analysis process (preloaded, or kept after 闪电分析) ends as soon

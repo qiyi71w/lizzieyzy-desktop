@@ -11,6 +11,7 @@
 
 use super::super::Workbench;
 use crate::engine::runtime::Phase;
+use crate::record::RecordFormat;
 use crate::resources as r;
 
 /// Managed engines the analysis process waits for (`isBundledNvidiaCommand`,
@@ -89,13 +90,13 @@ impl Workbench {
         if depends && failed.is_some() {
             return Action::Stop;
         }
-        // Java reads a record before the warm-up decides, and its engine sync then runs whenever
-        // there is a primary engine (`loadFile`, `pendingKifuEngineSyncRoot`); the end of that
-        // sync stops the warm-up (`onSynchronized`, a failed sync).
+        // Java reads a record before the warm-up decides; an SGF record then gets an engine sync
+        // (complete at once without an engine), whose end stops the warm-up (`loadFile`,
+        // `scheduleEngineSyncAndResumeAfterKifuLoad`, `onSynchronized`); a GIB record gets none.
         if self.pending.is_some() {
             return Action::Wait;
         }
-        if w.doc != self.doc.id && self.doc.format.is_some() && primary.is_some() {
+        if w.doc != self.doc.id && self.doc.format == Some(RecordFormat::Sgf) {
             return Action::Stop;
         }
         if self.kifu_sync_pending() {

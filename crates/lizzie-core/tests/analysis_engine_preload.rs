@@ -451,11 +451,12 @@ fn unticking_the_setting_ends_a_waiting_preload_even_if_ticked_again() {
     assert_eq!(world.others(ENGINE).len(), 1, "a new request still works");
 }
 
-/// Java loads a start-up record before the warm-up decides and then waits for its engine sync,
-/// whose end stops the warm-up; without an engine there is no sync to wait for.
+/// Java loads a start-up record before the warm-up decides; an SGF record then always gets an
+/// engine sync (completing at once without an engine), whose end stops the warm-up. A GIB record
+/// gets none (`loadFile`, `scheduleEngineSyncAndResumeAfterKifuLoad`, `onSynchronized`).
 #[test]
-fn a_record_still_being_read_is_waited_for_and_with_an_engine_its_sync_stops_the_preload() {
-    let record = || Ok((RecordFormat::Sgf, sgf::read("(;SZ[19];B[pd];W[dd])").unwrap()));
+fn a_record_still_being_read_is_waited_for_and_an_sgf_record_ends_the_preload() {
+    let record = |format| Ok((format, sgf::read("(;SZ[19];B[pd];W[dd])").unwrap()));
     let origin = || OpenOrigin::File { path: "/x.sgf".into(), source: OpenSource::CommandLine };
     // With a foreground engine.
     let dir = tempfile::tempdir().unwrap();
@@ -467,11 +468,11 @@ fn a_record_still_being_read_is_waited_for_and_with_an_engine_its_sync_stops_the
     let t = wb.begin_open(origin());
     wb.preload_analysis_engine();
     assert!(world.others(ENGINE).is_empty(), "waits while the record is read");
-    assert!(wb.complete_open(t, record()));
+    assert!(wb.complete_open(t, record(RecordFormat::Sgf)));
     serve(&mut wb, &world, fg, PLAIN);
     assert!(world.others(ENGINE).is_empty(), "the engine sync of the record ends the warm-up");
 
-    // Without an engine the adopted record starts it; a failed read decides at once too.
+    // Without an engine too; a GIB record and a failed read decide at once.
     let dir = tempfile::tempdir().unwrap();
     let world = World::default();
     let mut wb = workbench(dir.path(), &world);
@@ -479,8 +480,17 @@ fn a_record_still_being_read_is_waited_for_and_with_an_engine_its_sync_stops_the
     let t = wb.begin_open(origin());
     wb.preload_analysis_engine();
     assert!(world.others(ENGINE).is_empty());
-    assert!(wb.complete_open(t, record()));
-    assert_eq!(world.others(ENGINE).len(), 1);
+    assert!(wb.complete_open(t, record(RecordFormat::Sgf)));
+    assert!(world.others(ENGINE).is_empty(), "a sync without an engine completes and ends it");
+
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, true, false);
+    let t = wb.begin_open(origin());
+    wb.preload_analysis_engine();
+    assert!(wb.complete_open(t, record(RecordFormat::Gib)));
+    assert_eq!(world.others(ENGINE).len(), 1, "a GIB record has no engine sync");
 
     let dir = tempfile::tempdir().unwrap();
     let world = World::default();
