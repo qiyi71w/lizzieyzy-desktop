@@ -38,7 +38,8 @@ pub(super) struct RestartFlow {
     /// Replacements of match participants until they are ready: a failure to start is logged, not
     /// shown (Java's deferred participant recovery marks the engine not loaded, silently).
     quiet: HashSet<InstanceId>,
-    /// The restarted engine in the foreground seat until it is synced to its wished position.
+    /// The restarted engine in the foreground seat until it holds the position wished for it
+    /// (the newest one when the user moved meanwhile).
     restoring: Option<InstanceId>,
 }
 
@@ -138,12 +139,13 @@ impl Workbench {
         self.restart.quiet.remove(&instance);
     }
 
-    /// Settles the restore of a restarted engine: done once it is synced to its wished position;
-    /// a refusal of that position leaves it unrestored (no dialog, no further attempt). Returns
-    /// whether it was left unrestored.
+    /// Settles the restore of a restarted engine: done once it holds the position wished for it
+    /// now (catching up with a position the user moved to meanwhile); a refusal of that position
+    /// leaves it unrestored (no dialog, no further attempt). Returns whether it was left
+    /// unrestored.
     pub(super) fn restart_settle(&mut self) -> bool {
         let Some(instance) = self.restart.restoring else { return false };
-        if self.engines.foreground() != Some(instance) || self.engines.complete(instance) {
+        if self.engines.foreground() != Some(instance) || self.engines.holds_wish(instance) {
             self.restart.restoring = None;
             return false;
         }

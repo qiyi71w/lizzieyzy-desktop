@@ -2275,9 +2275,20 @@ impl Engines {
         self.get(id)?.unrestored
     }
 
-    /// Whether instance `id` refused the position last wished for it.
+    /// Whether instance `id` holds the position wished for its seat now: ready, no sync in
+    /// flight, its board known and nothing left to send for the wish.
+    pub fn holds_wish(&self, id: InstanceId) -> bool {
+        let Some(inst) = self.get(id) else { return false };
+        if inst.phase != Phase::Ready || inst.fence.is_some() || inst.board.is_none() {
+            return false;
+        }
+        self.wish_of(id).is_none_or(|(target, _)| sync_commands(inst, target).0.is_empty())
+    }
+
+    /// Whether instance `id` refused the position wished for its seat now.
     pub fn sync_refused(&self, id: InstanceId) -> bool {
-        self.get(id).is_some_and(|i| i.rejected.is_some())
+        let Some(inst) = self.get(id) else { return false };
+        inst.rejected.is_some() && self.wish_of(id).is_some_and(|(target, _)| inst.rejected == Some(target.key()))
     }
 
     /// Instance `id` refused the position it was being restored to after an automatic restart

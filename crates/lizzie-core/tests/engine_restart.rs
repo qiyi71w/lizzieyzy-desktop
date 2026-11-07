@@ -73,11 +73,18 @@ fn out(wb: &mut Workbench, id: InstanceId, line: &str) {
 
 /// Answers every command of `id` (analysis requests get their header only). Returns them.
 fn serve(wb: &mut Workbench, world: &World, id: InstanceId) -> Vec<String> {
-    serve_refusing(wb, world, id, "")
+    serve_with(wb, world, id, "", &mut |_, _| {})
 }
 
-/// As [`serve`], refusing the command `refused` (`?illegal move`).
-fn serve_refusing(wb: &mut Workbench, world: &World, id: InstanceId, refused: &str) -> Vec<String> {
+/// As [`serve`], refusing the command `refused` (`?illegal move`) and calling `before` with
+/// each command before it is answered.
+fn serve_with(
+    wb: &mut Workbench,
+    world: &World,
+    id: InstanceId,
+    refused: &str,
+    before: &mut dyn FnMut(&mut Workbench, &str),
+) -> Vec<String> {
     let mut done = Vec::new();
     loop {
         let pending = world.take(id);
@@ -90,6 +97,7 @@ fn serve_refusing(wb: &mut Workbench, world: &World, id: InstanceId, refused: &s
             }
             out(wb, id, "");
             let (n, cmd) = line.split_once(' ').unwrap();
+            before(wb, cmd);
             let reply = match cmd.split(' ').next().unwrap() {
                 "name" => "KataGo",
                 "version" => "1.16.4",
@@ -225,7 +233,7 @@ fn a_restarted_engine_that_refuses_the_position_is_left_unrestored() {
     wb.engine_input(old, EngineInput::Exited(Some(1)));
     assert!(wb.view(false).engine_failure.is_some(), "the end itself is reported");
     let new = world.last();
-    serve_refusing(&mut wb, &world, new, "play B Q4");
+    serve_with(&mut wb, &world, new, "play B Q4", &mut |_, _| {});
     let v = wb.view(false);
     assert!(v.engine_failure.is_none(), "no dialog for the refused restore");
     assert_eq!(v.engine.unrestored, Some(UnrestoredReason::Restore), "引擎状态未恢复");
@@ -235,6 +243,36 @@ fn a_restarted_engine_that_refuses_the_position_is_left_unrestored() {
     assert!(serve(&mut wb, &world, new).is_empty());
     wb.engine_input(new, EngineInput::Exited(Some(1)));
     assert_eq!(world.launched().len(), 2, "not tried again");
+}
+
+/// The position the user moved to while the restarted engine was being restored is the one it
+/// must hold: a refusal of that catch-up leaves it unrestored; holding it ends the restore.
+#[test]
+fn the_position_reached_during_the_restore_settles_it() {
+    for refused in ["undo", ""] {
+        let dir = tempfile::tempdir().unwrap();
+        let world = World::default();
+        let (mut wb, old) = analysing(dir.path(), &world);
+        wb.engine_input(old, EngineInput::Exited(Some(1)));
+        wb.view(false);
+        let new = world.last();
+        let mut moved = false;
+        let sent = serve_with(&mut wb, &world, new, refused, &mut |wb, cmd| {
+            if cmd == "play B Q4" && !moved {
+                moved = true;
+                wb.navigate(Navigation::Back(1));
+            }
+        });
+        assert!(moved && sent.iter().any(|c| c == "undo"), "caught up after the first restore: {sent:?}");
+        let v = wb.view(false);
+        assert!(v.engine_failure.is_none());
+        if refused.is_empty() {
+            assert_eq!(v.engine.unrestored, None);
+            assert!(v.engine.analysing && v.position.node == 2);
+        } else {
+            assert_eq!(v.engine.unrestored, Some(UnrestoredReason::Restore), "the newest position was refused");
+        }
+    }
 }
 
 #[test]
