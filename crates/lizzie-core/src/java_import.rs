@@ -19,6 +19,7 @@
 
 pub mod slots;
 mod appearance;
+mod matches;
 
 use std::path::{Path, PathBuf};
 
@@ -131,6 +132,7 @@ pub struct Mapped {
     pub startup_benchmark_dismissed_version: Option<u32>,
     /// `ui.network-proxy-*` as Java `NetworkProxy.settings` would accept them.
     pub network: Option<NetworkSettings>,
+    pub commentary: Option<crate::commentary::settings::CommentarySettings>,
     pub allow_double_click: Option<bool>,
     pub allow_drag: Option<bool>,
     pub show_right_menu: Option<bool>,
@@ -187,6 +189,22 @@ pub struct Mapped {
     /// 快速曲线轻量模型.
     pub quick_model_enabled: Option<bool>,
     pub quick_model_path: Option<String>,
+    pub human_sl_training: Option<crate::settings::HumanSlTrainingSettings>,
+    pub human_sl_advanced_visible: Option<bool>,
+    pub human_sl_model_path: Option<String>,
+    pub strength_background: Option<bool>,
+    /// 死活题 (`TsumeGoFrame`; a value outside the dialog's choices acts as 继承 / 自动检测 / 无).
+    pub tsumego_to_play: Option<crate::tsumego::TsumegoToPlay>,
+    pub tsumego_attacker: Option<crate::tsumego::TsumegoAttacker>,
+    pub tsumego_ko_threat: Option<crate::tsumego::TsumegoKoThreat>,
+    pub tsumego_wall_distance: Option<i32>,
+    pub tsumego_show_button: Option<bool>,
+    /// 抓取死活题 参数设置.
+    pub capture_black_offset: Option<i32>,
+    pub capture_black_percent: Option<i32>,
+    pub capture_white_offset: Option<i32>,
+    pub capture_white_percent: Option<i32>,
+    pub capture_gray_offset: Option<i32>,
     /// 问题手 panel.
     pub problems_showing: Option<bool>,
     pub problem_side: Option<ProblemSide>,
@@ -195,6 +213,12 @@ pub struct Mapped {
     pub problem_playouts_threshold: Option<u64>,
     pub problem_hide_control_pane: Option<bool>,
     pub auto_analysis: Vec<DisplayValue>,
+    /// 人机对弈 settings, including nested `aiTime` and `randomStart` fields.
+    pub game: Vec<DisplayValue>,
+    /// Bottom toolbar 自动落子 sides and conditions (not its session enable flag).
+    pub autoplay: Vec<DisplayValue>,
+    pub matches: Vec<DisplayValue>,
+    pub match_toolbar: Vec<DisplayValue>,
     /// 超级鹰眼 fields ([`HawkeyeSettings`] camelCase name and value).
     pub hawkeye: Vec<(&'static str, Value)>,
     /// 超级鹰眼's 统计 range as Java keeps it: `move-list-filter-current`, `match-ai-firstmove`,
@@ -304,9 +328,24 @@ pub struct Candidate {
     pub engines: Vec<ImportEngineView>,
     /// Java 存档与读档 slots ([`crate::java_import::slots`]); imported only when chosen.
     pub slots: Vec<slots::JavaSlot>,
+    /// Non-secret API-key choice; the adapter reads its secret only after explicit consent.
+    pub commentary_credential: Option<crate::api::ImportCommentaryCredential>,
 }
 
 impl Candidate {
+    /// Adds the OS-store credential choice after the adapter's read-only availability lookup.
+    pub fn set_commentary_credential(&mut self, source: &str) {
+        if self.commentary_credential.is_some() { return; }
+        let Some(settings) = &self.mapped.commentary else { return; };
+        self.commentary_credential = Some(crate::api::ImportCommentaryCredential {
+            source: source.into(), base_url: settings.base_url.clone(),
+        });
+        self.items.push(ImportItemView {
+            key: "credential:commentary-api-key".into(), status: ImportStatus::NotMigrated,
+            reason: Some(ImportReason::CredentialNotConfirmed), target: Some(ImportTarget::Commentary),
+            value: None, detail: None, credential: true,
+        });
+    }
     /// The engines as the report shows them once the user chose which credentials to copy.
     pub fn engines_after(&self, copy_credentials: &[u32]) -> Vec<ImportEngineView> {
         self.engines
@@ -406,8 +445,9 @@ pub fn read(source: &JavaSource) -> Result<Candidate, ImportFailure> {
         }
     }
     r.other_files();
+    let legacy_key = r.teacher_settings();
     let slots = slots::read(source, &mut r);
-    Ok(Candidate {
+    let mut candidate = Candidate {
         source: source.clone(),
         config_file,
         persist_file,
@@ -415,7 +455,10 @@ pub fn read(source: &JavaSource) -> Result<Candidate, ImportFailure> {
         items: r.items,
         engines: r.engines,
         slots,
-    })
+        commentary_credential: None,
+    };
+    if legacy_key { candidate.set_commentary_credential("teacher.properties"); }
+    Ok(candidate)
 }
 
 enum JsonError {
@@ -856,6 +899,55 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         ImportTarget::QuickModel,
         Kind::Str(|m, v| m.quick_model_path = Some(v)),
     ),
+    (
+        "ui",
+        "katago-human-sl-model-path",
+        ImportTarget::HumanSlModel,
+        Kind::Str(|m, v| m.human_sl_model_path = Some(v)),
+    ),
+    (
+        "ui",
+        "strength-humansl-background-enabled",
+        ImportTarget::StrengthBackground,
+        Kind::Bool(|m, v| m.strength_background = Some(v)),
+    ),
+    // 死活题 (`Config.java:1819, 2105-2114`). An unknown 先手方 or 进攻方 selects no radio button and
+    // builds like 继承 / 自动检测; an unknown 劫材 value adds no ko threats.
+    (
+        "ui",
+        "tsume-go-to-play",
+        ImportTarget::Tsumego,
+        Kind::I32(|m, v| {
+            use crate::tsumego::TsumegoToPlay as P;
+            m.tsumego_to_play = Some(match v { 2 => P::Black, 3 => P::White, _ => P::Keep });
+        }),
+    ),
+    (
+        "ui",
+        "tsume-go-attaker",
+        ImportTarget::Tsumego,
+        Kind::I32(|m, v| {
+            use crate::tsumego::TsumegoAttacker as A;
+            m.tsumego_attacker = Some(match v { 2 => A::Black, 3 => A::White, _ => A::Auto });
+        }),
+    ),
+    (
+        "ui",
+        "tsume-go-ko-threat",
+        ImportTarget::Tsumego,
+        Kind::I32(|m, v| {
+            use crate::tsumego::TsumegoKoThreat as K;
+            m.tsumego_ko_threat = Some(match v { 1 => K::Both, 2 => K::Attacker, 3 => K::Defender, _ => K::None });
+        }),
+    ),
+    ("ui", "tsume-go-wall-distance", ImportTarget::Tsumego, Kind::I32(|m, v| m.tsumego_wall_distance = Some(v))),
+    ("ui", "show-tsume-go-menu", ImportTarget::Tsumego, Kind::Bool(|m, v| m.tsumego_show_button = Some(v))),
+    ("ui", "capture-black-offset", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_black_offset = Some(v))),
+    ("ui", "capture-black-percent", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_black_percent = Some(v))),
+    ("ui", "capture-white-offset", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_white_offset = Some(v))),
+    ("ui", "capture-white-percent", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_white_percent = Some(v))),
+    // Java keeps the gray offset under this name.
+    ("ui", "capture-gray-percent", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_gray_offset = Some(v))),
     // `SidebarPanel`, `ProblemListSideFilter.fromConfigValue`, `ProblemListSort`.
     (
         "ui",
@@ -988,6 +1080,41 @@ const DISPLAY: &[(&str, ImportTarget, &str, DisplayKind)] = &[
     ("show-bestmoves-graph", ImportTarget::SuggestionsFrame, "bestMovesGraph", DisplayKind::Bool),
     ("anaframe-show-next", ImportTarget::SuggestionsFrame, "frameShowNext", DisplayKind::Bool),
     ("anaframe-use-mousemove", ImportTarget::SuggestionsFrame, "frameMouseMove", DisplayKind::Bool),
+];
+
+/// Human-engine game controls (`Config.java:1668-2143`, `loadNewGameDialogSettings`).
+/// Java stores the human clock choices as combo indices, not minutes/seconds.
+const GAME: &[(&str, &str, ImportTarget, &str, DisplayKind)] = &[
+    ("ui", "check-play-black", ImportTarget::HumanEngineGame, "playBlack", DisplayKind::Bool),
+    ("ui", "check-continue-play", ImportTarget::HumanEngineGame, "continuePlay", DisplayKind::Bool),
+    ("ui", "use-free-handicap", ImportTarget::HumanEngineGame, "freeHandicap", DisplayKind::Bool),
+    ("ui", "new-game-komi", ImportTarget::HumanEngineGame, "komi", DisplayKind::Num),
+    ("ui", "limit-my-time", ImportTarget::HumanEngineGame, "limitMyTime", DisplayKind::Bool),
+    ("ui", "my-save-time", ImportTarget::HumanEngineGame, "mySaveTime", DisplayKind::Int(0, 7)),
+    ("ui", "my-byoyomo-seconds", ImportTarget::HumanEngineGame, "myByoyomiSeconds", DisplayKind::Int(0, 7)),
+    ("ui", "my-byoyomo-times", ImportTarget::HumanEngineGame, "myByoyomiTimes", DisplayKind::Int(0, 5)),
+    ("ui", "kata-time-main-time-mins", ImportTarget::GameAiTime, "aiTime.kataMainMinutes", DisplayKind::Int(0, i32::MAX as i64)),
+    ("ui", "kata-time-byoyomi-secs", ImportTarget::GameAiTime, "aiTime.kataByoyomiSeconds", DisplayKind::Int(0, i32::MAX as i64)),
+    ("ui", "kata-time-byoyomi-times", ImportTarget::GameAiTime, "aiTime.kataByoyomiTimes", DisplayKind::Int(0, i32::MAX as i64)),
+    ("ui", "kata-time-fisher-increment-secs", ImportTarget::GameAiTime, "aiTime.kataFischerIncrement", DisplayKind::Int(0, i32::MAX as i64)),
+    ("ui", "kata-visits-playouts-settings", ImportTarget::HumanEngineGame, "kataLimits", DisplayKind::Bool),
+    ("ui", "kata-visits-txt", ImportTarget::HumanEngineGame, "kataVisits", DisplayKind::Int(i32::MIN as i64, i32::MAX as i64)),
+    ("ui", "kata-playouts-txt", ImportTarget::HumanEngineGame, "kataPlayouts", DisplayKind::Int(i32::MIN as i64, i32::MAX as i64)),
+    ("ui", "use-play-mode", ImportTarget::HumanEngineGame, "usePlayMode", DisplayKind::Bool),
+    ("ui", "new-game-show-black", ImportTarget::HumanEngineGame, "showBlack", DisplayKind::Bool),
+    ("ui", "new-game-show-white", ImportTarget::HumanEngineGame, "showWhite", DisplayKind::Bool),
+    ("ui", "auto-save-played-game", ImportTarget::HumanEngineGame, "autoSave", DisplayKind::Bool),
+    ("ui", "use-pure-net-in-game", ImportTarget::HumanEngineGame, "pureNet", DisplayKind::Bool),
+    ("ui", "anagame-resign-start-move", ImportTarget::HumanEngineGame, "resignStartMove", DisplayKind::Int(0, i32::MAX as i64)),
+    ("ui", "anagame-resign-move", ImportTarget::HumanEngineGame, "resignMove", DisplayKind::Int(0, i32::MAX as i64)),
+    ("ui", "anagame-resign-percent", ImportTarget::HumanEngineGame, "resignPercent", DisplayKind::Num),
+    ("ui", "disable-wrn-in-game", ImportTarget::HumanEngineGame, "disableWrn", DisplayKind::Bool),
+    ("ui", "enable-anagame-randomstart", ImportTarget::GameRandomStart, "randomStart.enabled", DisplayKind::Bool),
+    ("ui", "anagame-random-move", ImportTarget::GameRandomStart, "randomStart.moves", DisplayKind::Int(0, i32::MAX as i64)),
+    ("ui", "anagame-random-winratediff", ImportTarget::GameRandomStart, "randomStart.winrateDiff", DisplayKind::Num),
+    ("ui", "anagame-random-playoutdiff", ImportTarget::GameRandomStart, "randomStart.playoutsDiff", DisplayKind::Num),
+    ("leelaz", "play-ponder", ImportTarget::HumanEngineGame, "playPonder", DisplayKind::Bool),
+    ("leelaz", "max-game-thinking-time-seconds", ImportTarget::GameAiTime, "aiTime.fixedSeconds", DisplayKind::Int(0, i32::MAX as i64)),
 ];
 
 /// Keys read together with the engine list (`Utils.getEngineData` / `getEngineDataOld`,
@@ -1207,6 +1334,40 @@ impl Reader<'_> {
             };
             self.mapped.quick_model_path = Some(resolved);
         }
+        if let Some(path) = self.mapped.human_sl_model_path.take() {
+            let relative = Path::new(path.trim());
+            let roots = self.source.roots();
+            let resolved = if path.trim().is_empty() || relative.is_absolute() {
+                path
+            } else {
+                roots.iter().map(|root| root.join(relative)).find(|p| p.is_file())
+                    .unwrap_or_else(|| roots[0].join(relative)).to_string_lossy().into_owned()
+            };
+            self.mapped.human_sl_model_path = Some(resolved);
+        }
+        if let Some(raw) = ui.get("human-sl-training-last-settings") {
+            handled.push(("ui", "human-sl-training-last-settings"));
+            if raw.is_object() {
+                let mut training = serde_json::Map::new();
+                for (java, product) in [
+                    ("mode", "mode"), ("opponent-preset", "opponent"),
+                    ("dan-rank", "danRank"), ("rank", "rank"),
+                    ("player-color", "playerColor"), ("move-time-seconds", "moveTimeSeconds"),
+                    ("handicap", "handicap"), ("komi", "komi"),
+                ] {
+                    if let Some(value) = raw.get(java) { training.insert(product.into(), value.clone()); }
+                }
+                let training: crate::settings::HumanSlTrainingSettings =
+                    serde_json::from_value(Value::Object(training)).unwrap_or_default();
+                let advanced = raw.get("advanced-visible").and_then(as_bool).unwrap_or(false);
+                self.mapped.human_sl_training = Some(training.clone());
+                self.mapped.human_sl_advanced_visible = Some(advanced);
+                self.imported("ui.human-sl-training-last-settings".into(), ImportTarget::HumanSlTraining,
+                    shown(&serde_json::json!({"training": training, "advancedVisible": advanced})));
+            } else {
+                self.invalid("ui.human-sl-training-last-settings".into(), ImportTarget::HumanSlTraining, raw);
+            }
+        }
 
         if let Some(v) = ui.get("use-language") {
             handled.push(("ui", "use-language"));
@@ -1265,6 +1426,8 @@ impl Reader<'_> {
         self.hawkeye(ui, &mut handled);
         self.network(ui, &mut handled);
         self.display(ui, leelaz, &mut handled);
+        self.game(ui, leelaz, &mut handled);
+        self.matches(ui, &mut handled);
         self.engines(ui, leelaz, &mut handled);
 
         for (section, value) in root {
@@ -1278,6 +1441,75 @@ impl Reader<'_> {
                 }
                 None => self.not_migrated(section.clone(), value),
             }
+        }
+    }
+
+    fn game_value(&mut self, name: String, target: ImportTarget, field: &'static str, value: Option<Value>, raw: &Value) {
+        if let Some(value) = value {
+            self.imported(name, target, shown(&value));
+            self.mapped.game.push(DisplayValue { target, field, value });
+        } else {
+            // A broken Java combo index or unusable value must not overwrite this profile.
+            self.not_migrated(name, raw);
+            let item = self.items.last_mut().unwrap();
+            item.target = Some(target);
+            item.reason = Some(ImportReason::InvalidValue);
+        }
+    }
+
+    fn game(&mut self, ui: &Map<String, Value>, leelaz: &Map<String, Value>, handled: &mut Handled) {
+        for (section, key, target, field, kind) in GAME {
+            let map = if *section == "ui" { ui } else { leelaz };
+            let Some(raw) = map.get(*key) else { continue };
+            handled.push((section, key));
+            let value = match kind {
+                DisplayKind::Bool => as_bool(raw).map(Value::from),
+                DisplayKind::Int(min, max) => as_i64(raw).filter(|n| (*min..=*max).contains(n)).map(Value::from),
+                DisplayKind::Num => as_f64(raw).map(Value::from),
+                DisplayKind::NonNegative => as_f64(raw).filter(|n| *n >= 0.0).map(Value::from),
+            };
+            self.game_value(format!("{section}.{key}"), *target, field, value, raw);
+        }
+        if let Some(raw) = ui.get("new-game-handicap") {
+            handled.push(("ui", "new-game-handicap"));
+            // NewGameDialog.java:213-245,966: stored index 0..8 selects 0,2..9 stones.
+            let value = as_i64(raw).filter(|n| (0..=8).contains(n))
+                .map(|n| Value::from(if n == 0 { 0 } else { n + 1 }));
+            self.game_value("ui.new-game-handicap".into(), ImportTarget::HumanEngineGame, "handicap", value, raw);
+        }
+        if let Some(raw) = ui.get("kata-time-type") {
+            handled.push(("ui", "kata-time-type"));
+            let value = as_i64(raw).and_then(|n| match n {
+                0 => Some("Byoyomi"), 1 => Some("Fischer"), 2 => Some("Absolute"), _ => None,
+            }).map(Value::from);
+            self.game_value("ui.kata-time-type".into(), ImportTarget::GameAiTime, "aiTime.kataType", value, raw);
+        }
+        if let Some(raw) = ui.get("advance-time-txt") {
+            handled.push(("ui", "advance-time-txt"));
+            // JSONObject.optString accepts any non-null scalar as text.
+            let value = (!raw.is_null()).then(|| Value::from(shown(raw)));
+            self.game_value("ui.advance-time-txt".into(), ImportTarget::GameAiTime, "aiTime.advanced", value, raw);
+        }
+        let mut flags = [false; 3];
+        let mut present = false;
+        for (index, key) in ["genmove-game-notime", "advance-time-settings", "kata-time-settings"].into_iter().enumerate() {
+            let Some(raw) = ui.get(key) else { continue };
+            handled.push(("ui", key));
+            if let Some(value) = as_bool(raw) {
+                flags[index] = value;
+                present = true;
+                self.imported(format!("ui.{key}"), ImportTarget::GameAiTime, value.to_string());
+            } else {
+                self.game_value(format!("ui.{key}"), ImportTarget::GameAiTime, "aiTime.mode", None, raw);
+            }
+        }
+        if present {
+            // DesktopTimeControl.selectedMode: engine-owned > raw advanced > KataGo > fixed.
+            let mode = if flags[0] { "EngineOwned" } else if flags[1] { "Advanced" }
+                else if flags[2] { "KataGo" } else { "Fixed" };
+            self.mapped.game.push(DisplayValue {
+                target: ImportTarget::GameAiTime, field: "aiTime.mode", value: Value::from(mode),
+            });
         }
     }
 
@@ -1876,13 +2108,34 @@ impl Reader<'_> {
                         }
                     }
                     ("ui-persist", "toolbar-parameter") => {
-                        // Only these two interval slots belong to board display. Preserve a
-                        // not-migrated report for the remaining toolbar state.
+                        // Keep a not-migrated report for the engine-match and other toolbar state.
                         self.not_migrated(name.clone(), v);
                         let Some(values) = v.as_array().filter(|a| a.len() == 51) else {
                             self.invalid(name, ImportTarget::Suggestions, v);
                             continue;
                         };
+                        // Config.java:3307-3331 saves 1/-1 checkboxes and -1 for empty fields.
+                        // BottomToolbar.java:2378-2379,2412-2434 starts black/white/time on and
+                        // only sets boxes true: even saved -1 leaves those three checked.
+                        for (index, field) in [
+                            (9, "black"), (10, "white"), (11, "timeEnabled"), (12, "timeSeconds"),
+                            (13, "playoutsEnabled"), (14, "playouts"),
+                            (15, "firstPlayoutsEnabled"), (16, "firstPlayouts"),
+                        ] {
+                            let raw = &values[index];
+                            let value = as_i64(raw).and_then(|n| i32::try_from(n).ok()).map(|n| match index {
+                                9..=11 => Value::from(true),
+                                13 | 15 => Value::from(n > 0),
+                                _ => Value::from(if n > 0 { n } else { -1 }),
+                            });
+                            if let Some(value) = value {
+                                self.imported(format!("{name}[{index}]"), ImportTarget::AutoPlay, shown(&value));
+                                self.mapped.autoplay.push(DisplayValue { target: ImportTarget::AutoPlay, field, value });
+                            } else {
+                                self.invalid(format!("{name}[{index}]"), ImportTarget::AutoPlay, raw);
+                            }
+                        }
+                        self.match_toolbar(values, &name);
                         for (index, field) in [(40, "autoplayMainSeconds"), (41, "autoplaySubMillis")] {
                             let raw = &values[index];
                             let value = as_i64(raw).filter(|n| *n > 0 && *n <= i64::from(i32::MAX))
@@ -1931,24 +2184,24 @@ impl Reader<'_> {
         }
     }
 
-    /// Other Java data next to the configuration: reported, never read. The 存档与读档 folder
-    /// (`save`) is read separately ([`slots`]).
+    /// Other Java data next to the configuration. Commentary settings are read separately;
+    /// credentials are discovered by the platform adapter and require independent consent.
     fn other_files(&mut self) {
         let dir = self.source.config_dir.clone();
         if dir.join("theme").is_dir() {
             let it = self.item("file:theme".into(), ImportStatus::NotMigrated);
             it.reason = Some(ImportReason::NotYetAvailable);
         }
-        for (name, credential) in [("teacher.properties", true), ("secure-credentials", true)] {
-            if dir.join(name).exists() {
-                let it = self.item(format!("file:{name}"), ImportStatus::NotMigrated);
-                it.credential = credential;
-                it.reason = Some(if credential {
-                    ImportReason::Credential
-                } else {
-                    ImportReason::NotYetAvailable
-                });
-            }
+        let models = crate::strength::java_models(&dir.join("strength-models"));
+        if !models.is_empty() {
+            let it = self.item("file:strength-models".into(), ImportStatus::Imported);
+            it.target = Some(ImportTarget::StrengthModels);
+            it.value = Some(models.len().to_string());
+        }
+        if dir.join("chatgpt/accounts.json").exists() {
+            let item = self.item("file:chatgpt/accounts.json".into(), ImportStatus::NotMigrated);
+            item.reason = Some(ImportReason::Credential);
+            item.detail = Some("ChatGPT sessions are not migrated; sign in again.".into());
         }
     }
 }
@@ -2213,6 +2466,18 @@ impl Mapped {
             p.panel_sizes = serde_json::from_value(values).unwrap_or(p.panel_sizes);
         }
         set!(p.bottom_toolbar, self.bottom_toolbar);
+        let mut game = serde_json::to_value(&c.game).expect("settings serialize");
+        for value in &self.game { value.set(&mut game); }
+        c.game = serde_json::from_value(game).expect("typed imported game values");
+        let mut autoplay = serde_json::to_value(p.autoplay).expect("settings serialize");
+        for value in &self.autoplay { value.set(&mut autoplay); }
+        p.autoplay = serde_json::from_value(autoplay).expect("typed imported autoplay values");
+        let mut matches = serde_json::to_value(&c.matches).expect("settings serialize");
+        for value in &self.matches { value.set(&mut matches); }
+        c.matches = serde_json::from_value(matches).expect("typed imported match values");
+        let mut toolbar = serde_json::to_value(&p.matches).expect("settings serialize");
+        for value in &self.match_toolbar { value.set(&mut toolbar); }
+        p.matches = serde_json::from_value(toolbar).expect("typed imported match toolbar values");
         set!(c.recent_files, self.recent_files);
         if let Some(folder) = &self.last_folder {
             p.last_folder = Some(folder.clone());
@@ -2250,6 +2515,7 @@ impl Mapped {
         set!(c.engine.auto_load_kata_rules, self.auto_load_kata_rules);
         set!(c.engine.startup_benchmark, self.startup_benchmark);
         set!(c.network, self.network);
+        set!(c.commentary, self.commentary);
         set!(c.edit.allow_double_click, self.allow_double_click);
         set!(c.edit.allow_drag, self.allow_drag);
         set!(c.edit.show_right_menu, self.show_right_menu);
@@ -2290,6 +2556,25 @@ impl Mapped {
         if let Some(path) = &self.quick_model_path {
             c.quick_model.path = (!path.trim().is_empty()).then(|| path.clone());
         }
+        if let Some(training) = &self.human_sl_training {
+            c.human_sl.training = training.clone().normalized();
+        }
+        set!(c.human_sl.advanced_visible, self.human_sl_advanced_visible);
+        if let Some(path) = &self.human_sl_model_path {
+            c.human_sl.model_path = (!path.trim().is_empty()).then(|| path.clone());
+        }
+        set!(c.strength.humansl_background, self.strength_background);
+        let ts = &mut c.tsumego;
+        set!(ts.frame.to_play, self.tsumego_to_play);
+        set!(ts.frame.attacker, self.tsumego_attacker);
+        set!(ts.frame.ko_threat, self.tsumego_ko_threat);
+        set!(ts.frame.wall_distance, self.tsumego_wall_distance);
+        set!(ts.show_button, self.tsumego_show_button);
+        set!(ts.capture.black_offset, self.capture_black_offset);
+        set!(ts.capture.black_percent, self.capture_black_percent);
+        set!(ts.capture.white_offset, self.capture_white_offset);
+        set!(ts.capture.white_percent, self.capture_white_percent);
+        set!(ts.capture.gray_offset, self.capture_gray_offset);
         let pl = &mut c.problems;
         set!(pl.showing, self.problems_showing);
         set!(pl.side, self.problem_side);
@@ -2343,10 +2628,21 @@ impl Mapped {
         if self.bottom_toolbar.is_some_and(|v| v != persisted.bottom_toolbar) {
             out.push(ImportTarget::BottomToolbar);
         }
+        if let Ok(current) = serde_json::to_value(persisted.autoplay) {
+            if self.autoplay.iter().any(|v| v.current(&current).is_none_or(|c| c != v.value)) {
+                out.push(ImportTarget::AutoPlay);
+            }
+        }
         if self.custom_layouts.iter().enumerate().any(|(i, layout)| layout.is_some() && layout != &config.custom_layouts[i])
             || self.independent_main_board.is_some_and(|v| Some(v) != persisted.independent_main_board)
             || self.independent_sub_board.is_some_and(|v| Some(v) != persisted.independent_sub_board) {
             out.push(ImportTarget::WorkbenchPanels);
+        }
+        let matches = serde_json::to_value(&config.matches).expect("settings serialize");
+        let toolbar = serde_json::to_value(&persisted.matches).expect("settings serialize");
+        if self.matches.iter().any(|v|v.current(&matches).is_none_or(|c|c!=v.value))
+            || self.match_toolbar.iter().any(|v|v.current(&toolbar).is_none_or(|c|c!=v.value)) {
+            out.push(ImportTarget::EngineMatch);
         }
         if !has_settings {
             return out;
@@ -2401,6 +2697,13 @@ impl Mapped {
             for v in &self.display {
                 if v.current(&current).is_none_or(|c| c != v.value) && !out.contains(&v.target) {
                     out.push(v.target);
+                }
+            }
+        }
+        if let Ok(current) = serde_json::to_value(&config.game) {
+            for value in &self.game {
+                if value.current(&current).is_none_or(|c| c != value.value) && !out.contains(&value.target) {
+                    out.push(value.target);
                 }
             }
         }
@@ -2485,6 +2788,7 @@ impl Mapped {
             self.startup_benchmark
         );
         cmp!(ImportTarget::NetworkProxy, config.network, self.network);
+        cmp!(ImportTarget::Commentary, config.commentary, self.commentary);
         cmp!(
             ImportTarget::AutoQuickAnalysis,
             config.record.auto_quick_analyze_on_load,
@@ -2546,6 +2850,35 @@ impl Mapped {
                 .is_some_and(|v| qm.path.as_ref() != Some(v))
         {
             out.push(ImportTarget::QuickModel);
+        }
+        if self.human_sl_training.as_ref().is_some_and(|v| v != &config.human_sl.training)
+            || self.human_sl_advanced_visible.is_some_and(|v| v != config.human_sl.advanced_visible)
+        {
+            out.push(ImportTarget::HumanSlTraining);
+        }
+        if self.human_sl_model_path.as_ref().is_some_and(|v| config.human_sl.model_path.as_ref() != Some(v)) {
+            out.push(ImportTarget::HumanSlModel);
+        }
+        if self.strength_background.is_some_and(|v| v != config.strength.humansl_background) {
+            out.push(ImportTarget::StrengthBackground);
+        }
+        let ts = &config.tsumego;
+        if self.tsumego_to_play.is_some_and(|v| v != ts.frame.to_play)
+            || self.tsumego_attacker.is_some_and(|v| v != ts.frame.attacker)
+            || self.tsumego_ko_threat.is_some_and(|v| v != ts.frame.ko_threat)
+            || self.tsumego_wall_distance.is_some_and(|v| v != ts.frame.wall_distance)
+            || self.tsumego_show_button.is_some_and(|v| v != ts.show_button)
+        {
+            out.push(ImportTarget::Tsumego);
+        }
+        let cs = &ts.capture;
+        if self.capture_black_offset.is_some_and(|v| v != cs.black_offset)
+            || self.capture_black_percent.is_some_and(|v| v != cs.black_percent)
+            || self.capture_white_offset.is_some_and(|v| v != cs.white_offset)
+            || self.capture_white_percent.is_some_and(|v| v != cs.white_percent)
+            || self.capture_gray_offset.is_some_and(|v| v != cs.gray_offset)
+        {
+            out.push(ImportTarget::CaptureTsumego);
         }
         let pl = &config.problems;
         let problems = [
@@ -2639,4 +2972,134 @@ fn custom_layout(value: &Value) -> Option<crate::settings::CustomLayout> {
         independent_main: o.get("independent-main-board-position").and_then(java_window),
         independent_sub: o.get("independent-sub-board-position").and_then(java_window),
     })
+}
+
+impl Reader<'_> {
+    /// TeacherSettings.load at the fixed Java baseline, without its source-file rewrite.
+    fn teacher_settings(&mut self) -> bool {
+        use crate::commentary::settings::{self, CommentarySettings, Preferences, Provider};
+        let file = self.source.config_dir.join("teacher.properties");
+        if !file.is_file() { return false; }
+        let properties = match teacher_properties(&file) {
+            Ok(properties) => properties,
+            Err(()) => {
+                let item = self.item("file:teacher.properties".into(), ImportStatus::Incompatible);
+                item.reason = Some(ImportReason::Unreadable);
+                return false;
+            }
+        };
+        let get = |name: &str, default: &str| properties.get(name).cloned().unwrap_or_else(|| default.into());
+        let provider = match get("provider", "API_KEY").as_str() {
+            "API_KEY" => Provider::ApiKey, "CHATGPT" => Provider::ChatGpt, _ => Provider::Unselected,
+        };
+        let mut base_url = get("baseUrl", "");
+        if base_url.trim().is_empty() {
+            base_url = if properties.contains_key("provider") { String::new() } else { "https://api.openai.com/v1".into() };
+        }
+        let model = get("model", "");
+        let valid = (|| {
+            let base_url = if base_url.is_empty() { base_url } else { settings::validate_base_url(&base_url)? };
+            let model = if model.trim().is_empty() { String::new() } else { settings::validate_model(&model)? };
+            Ok::<_, crate::commentary::CommentaryFailure>((base_url, model))
+        })();
+        let (base_url, model) = match valid {
+            Ok(values) => values,
+            Err(_) => {
+                let item = self.item("file:teacher.properties".into(), ImportStatus::Incompatible);
+                item.reason = Some(ImportReason::InvalidValue);
+                return false;
+            }
+        };
+        let rank_mode = if get("teacher.rankMode", "k") == "d" { "d" } else { "k" };
+        let number = |name: &str, low: i32, high: i32, default: i32| {
+            properties.get(name).and_then(|v| v.parse::<i32>().ok()).map(|v| v.clamp(low, high)).unwrap_or(default)
+        };
+        let legacy_key = properties.get("apiKey").is_some_and(|key| !key.trim().is_empty());
+        self.mapped.commentary = Some(CommentarySettings {
+            provider, base_url, model,
+            // The key itself lives in Java's credential store; remembering it here starts only after
+            // the separately confirmed copy into this client's store succeeds.
+            remember_api_key: false,
+            preferences: Preferences { rank_mode: rank_mode.into(), rank_num: number("teacher.rankNum", 1, if rank_mode == "d" { 9 } else { 18 }, 5),
+                style_index: number("teacher.styleIndex", 0, 4, 0), density_index: number("teacher.densityIndex", 0, 2, 1),
+                pace_index: number("teacher.paceIndex", 0, 2, 1), variation_index: number("teacher.variationIndex", 0, 2, 1) },
+        });
+        let item = self.item("file:teacher.properties".into(), ImportStatus::Imported);
+        item.target = Some(ImportTarget::Commentary);
+        if provider == Provider::ChatGpt {
+            let item = self.item("credential:chatgpt-session".into(), ImportStatus::NotMigrated);
+            item.reason = Some(ImportReason::Credential);
+            item.credential = true;
+            item.detail = Some("ChatGPT sessions are not migrated; sign in again.".into());
+        }
+        legacy_key
+    }
+}
+
+/// Read only after the adapter has obtained explicit API-key import consent. This value must
+/// never be retained in Candidate, a report, configuration, or a workbench projection.
+pub fn read_java_commentary_api_key(directory: &Path) -> Option<String> {
+    teacher_properties(&directory.join("teacher.properties")).ok()?.remove("apiKey")
+        .map(|key| key.trim().to_owned()).filter(|key| !key.is_empty())
+}
+
+/// java.util.Properties.load(InputStream): Latin-1, continuations and Unicode escapes.
+fn teacher_properties(path: &Path) -> Result<std::collections::BTreeMap<String, String>, ()> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path).map_err(|_| ())?.take(1_048_577).read_to_end(&mut bytes).map_err(|_| ())?;
+    if bytes.len() > 1_048_576 { return Err(()); }
+    let text: String = bytes.iter().map(|byte| char::from(*byte)).collect();
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    let mut properties = std::collections::BTreeMap::new();
+    let mut logical = String::new();
+    let mut continued = false;
+    for line in text.split('\n') {
+        let line = line.trim_start_matches([' ', '\t', '\u{c}']);
+        if !continued && (line.is_empty() || line.starts_with(['#', '!'])) { continue; }
+        logical.push_str(line);
+        let slashes = logical.as_bytes().iter().rev().take_while(|byte| **byte == b'\\').count();
+        continued = slashes % 2 == 1;
+        if continued { logical.pop(); continue; }
+        let (key, value) = property_pair(&logical)?;
+        properties.insert(key, value);
+        logical.clear();
+    }
+    if !logical.is_empty() {
+        let (key, value) = property_pair(&logical)?;
+        properties.insert(key, value);
+    }
+    Ok(properties)
+}
+fn property_pair(logical: &str) -> Result<(String, String), ()> {
+    let mut escaped = false;
+    let mut split = logical.len();
+    for (index, character) in logical.char_indices() {
+        if !escaped && matches!(character, '=' | ':' | ' ' | '\t' | '\u{c}') { split = index; break; }
+        escaped = !escaped && character == '\\';
+    }
+    let mut value = logical[split..].trim_start_matches([' ', '\t', '\u{c}']);
+    if value.starts_with(['=', ':']) { value = &value[1..]; }
+    value = value.trim_start_matches([' ', '\t', '\u{c}']);
+    Ok((property_unescape(&logical[..split])?, property_unescape(value)?))
+}
+fn property_unescape(text: &str) -> Result<String, ()> {
+    let mut units = Vec::new();
+    let mut chars = text.chars();
+    while let Some(character) = chars.next() {
+        let character = if character == '\\' {
+            match chars.next() {
+                Some('u') => {
+                    let mut unit = 0u16;
+                    for _ in 0..4 { unit = (unit << 4) | chars.next().and_then(|c| c.to_digit(16)).ok_or(())? as u16; }
+                    units.push(unit); continue;
+                }
+                Some('t') => '\t', Some('r') => '\r', Some('n') => '\n', Some('f') => '\u{c}',
+                Some(character) => character, None => break,
+            }
+        } else { character };
+        let mut encoded = [0; 2];
+        units.extend_from_slice(character.encode_utf16(&mut encoded));
+    }
+    Ok(String::from_utf16_lossy(&units))
 }

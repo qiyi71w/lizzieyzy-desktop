@@ -335,7 +335,8 @@ export const JAVA_MENUS: TopMenu[] = [
          },
          {
           "t": "check",
-          "key": "Menu.showTsumeGoMenu"
+          "key": "Menu.showTsumeGoMenu",
+          "id": "menu.showTsumeGoMenu"
          },
          {
           "t": "check",

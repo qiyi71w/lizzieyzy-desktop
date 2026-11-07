@@ -15,6 +15,7 @@ import { product, t } from "../i18n";
 import type { Handles, LayoutRequest, Rect } from "./layout";
 import { GRAPH_FONT, prepare } from "./paint";
 import { listShown, presentation, statusShown } from "./presentation";
+import { humanSlDisplay } from "../humansl/state";
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 
@@ -50,7 +51,9 @@ export function layoutRequest(v: WorkbenchView): LayoutRequest {
     showListPane: listShown(shown.mode, p),
     showStatus: statusShown(shown.mode, p),
     showCaptured: p.showCaptured,
-    showWinrateGraph: p.showWinrateGraph,
+    // An AI 陪练 game in 实战后复盘 hides the win-rate graph for the game only
+    // (HumanSlGameController.applyTrainingModeVisualState: showWinrateGraph = false).
+    showWinrateGraph: p.showWinrateGraph && humanSlDisplay(v) !== "Suppress",
     largeSubBoard: p.largeSubBoard,
     largeWinrateGraph: p.largeWinrateGraph,
     boardPositionProportion: sizes.boardPositionProportion,

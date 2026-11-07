@@ -49,6 +49,10 @@ body {
 }
 #menubar .commentary {
   background: #fff;
+  cursor: default;
+}
+#menubar .commentary:hover {
+  background: rgb(242, 244, 243);
 }
 
 /* ---- double-menu toolbar (Menu.doubleMenu), wraps like WrapLayout */
@@ -101,6 +105,17 @@ body {
   color: rgb(170, 170, 170);
   border-color: rgb(205, 209, 214);
   background: rgb(246, 246, 246);
+}
+/* AppleStyleSupport.markDanger (结束对局, 认输): the bottom bar's danger colours. */
+.tb-pill.danger {
+  border-color: rgb(240, 180, 190);
+  background: rgb(253, 235, 238);
+}
+/* byoyomiTime: Font(sysDefaultFontName, BOLD, 15). */
+.tb-label.tb-clock {
+  font-size: 15px;
+  font-weight: bold;
+  white-space: pre;
 }
 .tb-label {
   font-size: 12px;
@@ -549,10 +564,6 @@ body {
 .bb-detail button {
   padding: 0;
   font: inherit;
-}
-.bb-detail.unavailable,
-.bb-detail-group.unavailable {
-  color: rgb(140, 140, 140);
 }
 
 /* ---- in-frame separators (InFrameLeftoverDragHandles): transparent hot zones over the seams */

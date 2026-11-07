@@ -197,6 +197,7 @@ pub(crate) fn load(
                 shown: ShownValues::default(),
                 ownership: None,
                 side_to_move: ShownValues::default(),
+                kept: false,
             };
             let mut i = 0;
             let mut edge = None;

@@ -9,6 +9,9 @@
 //!   位置" deletes it and stops it being written again before the next start, like Java
 //!   `Config.deletePersist`.
 
+mod matches;
+pub use matches::*;
+
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -289,6 +292,301 @@ fn stored_whole_game_visits<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u3
     Ok(WholeGameSettings::from_stored(value.as_i64().unwrap_or(1000)).deep_visits)
 }
 
+/// How the engine's time is set for a Genmove game (`DesktopTimeControl.Mode`; Java keeps it as
+/// `ui.advance-time-settings`, `ui.kata-time-settings` and `ui.genmove-game-notime`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum AiTimeMode {
+    /// AI每手用时: `kata-time_settings none` + `kata-set-param maxTime`, else `time_settings 0 s 1`.
+    #[default]
+    Fixed,
+    /// 自定义高级时间: the user's GTP time command, sent as written.
+    Advanced,
+    /// KataGo专用时间: `kata-time_settings byoyomi|fischer|absolute`.
+    KataGo,
+    /// 引擎自带时间: no time command.
+    EngineOwned,
+}
+
+/// `ui.kata-time-type`: 0 读秒, 1 加秒, 2 包干.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum KataTimeType {
+    #[default]
+    Byoyomi,
+    Fischer,
+    Absolute,
+}
+
+/// The engine's clock of a Genmove game (NewGameDialog AI time group, 修改AI用时).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AiTimeSettings {
+    pub mode: AiTimeMode,
+    /// `leelaz.max-game-thinking-time-seconds`.
+    pub fixed_seconds: u32,
+    /// `ui.advance-time-txt`.
+    pub advanced: String,
+    pub kata_type: KataTimeType,
+    /// `ui.kata-time-main-time-mins`.
+    pub kata_main_minutes: u32,
+    /// `ui.kata-time-byoyomi-secs`.
+    pub kata_byoyomi_seconds: u32,
+    /// `ui.kata-time-byoyomi-times`.
+    pub kata_byoyomi_times: u32,
+    /// `ui.kata-time-fisher-increment-secs`.
+    pub kata_fischer_increment: u32,
+}
+
+impl Default for AiTimeSettings {
+    fn default() -> Self {
+        Self {
+            mode: AiTimeMode::Fixed,
+            fixed_seconds: 2,
+            advanced: "time_settings 10 2 1".to_string(),
+            kata_type: KataTimeType::Byoyomi,
+            kata_main_minutes: 10,
+            kata_byoyomi_seconds: 5,
+            kata_byoyomi_times: 3,
+            kata_fischer_increment: 5,
+        }
+    }
+}
+
+/// AI随机开局 (SetAnaGameRandomStart): within the first `moves` moves the engine picks among
+/// candidates close to the best one.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct RandomStartSettings {
+    /// `ui.enable-anagame-randomstart`.
+    pub enabled: bool,
+    /// `ui.anagame-random-move`.
+    pub moves: u32,
+    /// `ui.anagame-random-winratediff` (percentage points).
+    pub winrate_diff: f64,
+    /// `ui.anagame-random-playoutdiff` (percent of the best candidate's playouts).
+    pub playouts_diff: f64,
+}
+
+impl Default for RandomStartSettings {
+    fn default() -> Self {
+        Self { enabled: false, moves: 20, winrate_diff: 0.5, playouts_diff: 5.0 }
+    }
+}
+
+/// 人机对弈 (NewGameDialog / NewAnaGameDialog / 修改AI用时): what the dialogs show and save.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct GameSettings {
+    /// `ui.check-play-black`: 我执黑 (else 我执白).
+    pub play_black: bool,
+    /// `ui.check-continue-play`: 接着当前局面下.
+    pub continue_play: bool,
+    /// `ui.new-game-handicap`: 0 or 2–9.
+    pub handicap: u32,
+    /// `ui.use-free-handicap`: KataGo chooses the handicap points (`place_free_handicap`).
+    pub free_handicap: bool,
+    /// `ui.new-game-komi`.
+    pub komi: f64,
+    /// `ui.limit-my-time`: 限制我的用时.
+    pub limit_my_time: bool,
+    /// `ui.my-save-time` index: 无, 5, 10, 20, 30, 60, 120, 180 minutes.
+    pub my_save_time: u8,
+    /// `ui.my-byoyomo-seconds` index: 无, 10, 15, 20, 30, 40, 60, 120 seconds.
+    pub my_byoyomi_seconds: u8,
+    /// `ui.my-byoyomo-times` index: 1, 2, 3, 5, 10, 20.
+    pub my_byoyomi_times: u8,
+    pub ai_time: AiTimeSettings,
+    /// `ui.kata-visits-playouts-settings`: KataGo `maxVisits` / `maxPlayouts` for the game.
+    pub kata_limits: bool,
+    /// `ui.kata-visits-txt` (≤ 0: unlimited).
+    pub kata_visits: i64,
+    /// `ui.kata-playouts-txt` (≤ 0: unlimited).
+    pub kata_playouts: i64,
+    /// `leelaz.play-ponder`: the engine keeps thinking on the human's turn.
+    pub play_ponder: bool,
+    /// `ui.use-play-mode`: 对弈模式 hides the analysis while the game runs.
+    pub use_play_mode: bool,
+    /// `ui.new-game-show-black` / `ui.new-game-show-white`: candidates shown during the game.
+    pub show_black: bool,
+    pub show_white: bool,
+    /// `ui.auto-save-played-game`: the finished game is saved to `MyGames`.
+    pub auto_save: bool,
+    /// `ui.use-pure-net-in-game`: AI只使用纯网络思考 (分析模式).
+    pub pure_net: bool,
+    /// `ui.anagame-resign-start-move`, `ui.anagame-resign-move`, `ui.anagame-resign-percent`.
+    pub resign_start_move: u32,
+    pub resign_move: u32,
+    pub resign_percent: f64,
+    /// `ui.disable-wrn-in-game`: 对局时不使用分析广度拓展 (KataGo `analysisWideRootNoise` 0).
+    pub disable_wrn: bool,
+    pub random_start: RandomStartSettings,
+}
+
+impl Default for GameSettings {
+    fn default() -> Self {
+        Self {
+            play_black: true,
+            continue_play: false,
+            handicap: 0,
+            free_handicap: false,
+            komi: 7.5,
+            limit_my_time: false,
+            my_save_time: 3,
+            my_byoyomi_seconds: 4,
+            my_byoyomi_times: 2,
+            ai_time: AiTimeSettings::default(),
+            kata_limits: false,
+            kata_visits: -1,
+            kata_playouts: -1,
+            play_ponder: true,
+            use_play_mode: true,
+            show_black: false,
+            show_white: false,
+            auto_save: true,
+            pure_net: false,
+            resign_start_move: 150,
+            resign_move: 2,
+            resign_percent: 5.0,
+            disable_wrn: true,
+            random_start: RandomStartSettings::default(),
+        }
+    }
+}
+
+impl GameSettings {
+    /// `Config.getMySaveTime`: minutes, -1 for 无.
+    pub fn save_minutes(&self) -> i32 {
+        [-1, 5, 10, 20, 30, 60, 120, 180].get(usize::from(self.my_save_time)).copied().unwrap_or(-1)
+    }
+
+    /// `Config.getMyByoyomiSeconds`: seconds, -1 for 无.
+    pub fn byoyomi_seconds(&self) -> i32 {
+        [-1, 10, 15, 20, 30, 40, 60, 120].get(usize::from(self.my_byoyomi_seconds)).copied().unwrap_or(-1)
+    }
+
+    /// `Config.getMyByoyomiTimes`.
+    pub fn byoyomi_times(&self) -> i32 {
+        [1, 2, 3, 5, 10, 20].get(usize::from(self.my_byoyomi_times)).copied().unwrap_or(1)
+    }
+}
+
+/// The bottom detailed toolbar's 自动落子 group (Java `persistedUi.toolbar-parameter` 9–16): which
+/// sides the engine plays and when it plays. A value ≤ 0 is an empty field. The 自动落子 box itself
+/// is session state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AutoPlaySettings {
+    pub black: bool,
+    pub white: bool,
+    /// 按时间(秒).
+    pub time_enabled: bool,
+    pub time_seconds: i32,
+    /// 总计算量.
+    pub playouts_enabled: bool,
+    pub playouts: i32,
+    /// 首位计算量.
+    pub first_playouts_enabled: bool,
+    pub first_playouts: i32,
+}
+
+impl Default for AutoPlaySettings {
+    fn default() -> Self {
+        Self {
+            black: true,
+            white: true,
+            time_enabled: true,
+            time_seconds: -1,
+            playouts_enabled: false,
+            playouts: -1,
+            first_playouts_enabled: false,
+            first_playouts: -1,
+        }
+    }
+}
+
+impl AutoPlaySettings {
+    /// Whether any 落子条件 is set (`NewAnaGameDialog.wrongAiMoveSettings` otherwise).
+    pub fn has_condition(&self) -> bool {
+        (self.time_enabled && self.time_seconds > 0)
+            || (self.playouts_enabled && self.playouts > 0)
+            || (self.first_playouts_enabled && self.first_playouts > 0)
+    }
+}
+
+/// 死活题 (Java `ui.tsume-go-*`, `capture-*`, `show-tsume-go-menu`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TsumegoSettings {
+    /// The 死活题 dialog's last confirmed choices.
+    pub frame: TsumegoFrameSettings,
+    /// 抓取死活题's 参数设置.
+    pub capture: CaptureSettings,
+    /// 自定义工具栏 > 死活: the 死活 button on the top toolbar (`show-tsume-go-menu`, on).
+    pub show_button: bool,
+}
+
+impl Default for TsumegoSettings {
+    fn default() -> Self {
+        Self {
+            frame: TsumegoFrameSettings::default(),
+            capture: CaptureSettings::default(),
+            show_button: true,
+        }
+    }
+}
+
+/// The 死活题 dialog (`tsume-go-to-play` 1, `tsume-go-attaker` 1, `tsume-go-ko-threat` 1,
+/// `tsume-go-wall-distance` 1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TsumegoFrameSettings {
+    pub to_play: crate::tsumego::TsumegoToPlay,
+    pub attacker: crate::tsumego::TsumegoAttacker,
+    pub ko_threat: crate::tsumego::TsumegoKoThreat,
+    /// 墙面间距; a confirmed value that is not above 0 keeps the previous one.
+    pub wall_distance: i32,
+}
+
+impl Default for TsumegoFrameSettings {
+    fn default() -> Self {
+        Self {
+            to_play: Default::default(),
+            attacker: Default::default(),
+            ko_threat: Default::default(),
+            wall_distance: 1,
+        }
+    }
+}
+
+/// 抓取死活题 参数设置: how screen pixels count as stones (`capture-black-offset` 120,
+/// `capture-black-percent` 25, `capture-white-offset` 120, `capture-white-percent` 15 and the gray
+/// offset Java keeps under `capture-gray-percent`, 80). Java takes any integers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CaptureSettings {
+    /// 黑最大偏色: each channel of a black pixel is at most this.
+    pub black_offset: i32,
+    /// 黑最低占比: percent of black pixels that makes a black stone.
+    pub black_percent: i32,
+    /// 白最大偏色: each channel of a white pixel is at least 255 minus this.
+    pub white_offset: i32,
+    /// 白最低占比.
+    pub white_percent: i32,
+    /// 最大灰度偏色: channels of a counted pixel differ by less than this.
+    pub gray_offset: i32,
+}
+
+impl Default for CaptureSettings {
+    fn default() -> Self {
+        Self {
+            black_offset: 120,
+            black_percent: 25,
+            white_offset: 120,
+            white_percent: 15,
+            gray_offset: 80,
+        }
+    }
+}
+
 /// 超级鹰眼 分支: which line it reads (`moveList-selected-branch`: 0 主干, 1 当前).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum HawkeyeBranch {
@@ -445,6 +743,133 @@ pub struct QuickModelSettings {
     pub enabled: bool,
     /// A model file kept elsewhere (imported from Java); the resource folder's copy otherwise.
     pub path: Option<String>,
+}
+
+/// Java HumanSL training preferences; malformed fields fall back independently.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct HumanSlSettings {
+    pub model_path: Option<String>,
+    pub training: HumanSlTrainingSettings,
+    pub advanced_visible: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum TrainingMode {
+    #[default]
+    #[serde(alias = "POST_GAME_REVIEW")]
+    PostGameReview,
+    #[serde(alias = "LIVE_ANALYSIS", alias = "LIVE_CORRECTION")]
+    LiveAnalysis,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum OpponentPreset {
+    #[default]
+    #[serde(alias = "RANK")]
+    Rank,
+    #[serde(alias = "MODERN_PRO")]
+    ModernPro,
+    #[serde(alias = "ONLINE_9D")]
+    Online9d,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum PlayerColor {
+    #[default]
+    #[serde(alias = "RANDOM")]
+    Random,
+    #[serde(alias = "BLACK")]
+    Black,
+    #[serde(alias = "WHITE")]
+    White,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct HumanSlTrainingSettings {
+    pub mode: TrainingMode,
+    pub opponent: OpponentPreset,
+    pub dan_rank: bool,
+    pub rank: u8,
+    pub player_color: PlayerColor,
+    pub move_time_seconds: u32,
+    pub handicap: u8,
+    pub komi: f64,
+}
+
+impl Default for HumanSlTrainingSettings {
+    fn default() -> Self {
+        Self {
+            mode: TrainingMode::PostGameReview,
+            opponent: OpponentPreset::Rank,
+            dan_rank: true,
+            rank: 3,
+            player_color: PlayerColor::Random,
+            move_time_seconds: 10,
+            handicap: 0,
+            komi: 7.5,
+        }
+    }
+}
+
+impl HumanSlTrainingSettings {
+    pub fn normalized(mut self) -> Self {
+        self.rank = self.rank.clamp(1, if self.dan_rank { 9 } else { 20 });
+        if ![10, 30, 60, 86400].contains(&self.move_time_seconds) {
+            self.move_time_seconds = 10;
+        }
+        self.handicap = self.handicap.min(9);
+        if !self.komi.is_finite() {
+            self.komi = 7.5;
+        }
+        self
+    }
+}
+
+impl<'de> Deserialize<'de> for HumanSlTrainingSettings {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let field = |key: &str| match value.get(key) {
+            Some(serde_json::Value::String(s)) => serde_json::Value::String(s.trim().to_owned()),
+            Some(v) => v.clone(),
+            None => serde_json::Value::Null,
+        };
+        let number = |key: &str| {
+            let v = field(key);
+            v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))
+        };
+        let boolean = |key: &str, default| {
+            let v = field(key);
+            v.as_bool().or_else(|| v.as_str().and_then(|s| {
+                if s.eq_ignore_ascii_case("true") { Some(true) }
+                else if s.eq_ignore_ascii_case("false") { Some(false) }
+                else { None }
+            })).unwrap_or(default)
+        };
+        Ok(Self {
+            mode: serde_json::from_value(field("mode")).unwrap_or_default(),
+            opponent: serde_json::from_value(field("opponent")).unwrap_or_default(),
+            dan_rank: boolean("danRank", true),
+            rank: number("rank").filter(|v| v.is_finite()).unwrap_or(3.0).clamp(0.0, 255.0) as u8,
+            player_color: serde_json::from_value(field("playerColor")).unwrap_or_default(),
+            move_time_seconds: number("moveTimeSeconds").map(f64::trunc)
+                .filter(|v| [10.0, 30.0, 60.0, 86400.0].contains(v)).unwrap_or(10.0) as u32,
+            handicap: number("handicap").filter(|v| v.is_finite()).unwrap_or(0.0).clamp(0.0, 9.0) as u8,
+            komi: number("komi").unwrap_or(7.5),
+        }.normalized())
+    }
+}
+
+impl<'de> Deserialize<'de> for HumanSlSettings {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        Ok(Self {
+            model_path: value.get("modelPath").and_then(|v| v.as_str()).map(str::to_owned),
+            training: serde_json::from_value(value.get("training").cloned().unwrap_or_default()).unwrap_or_default(),
+            advanced_visible: value.get("advancedVisible").and_then(|v| v.as_bool()).unwrap_or(false),
+        })
+    }
 }
 
 /// 问题手 side filter (`ui.problem-list-side-filter`; anything but `white` is Black).
@@ -1023,6 +1448,12 @@ pub const RECENT_LIMIT: usize = 5;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
+pub struct StrengthSettings {
+    pub humansl_background: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
 pub struct Config {
     pub record: RecordSettings,
     pub ui: UiSettings,
@@ -1042,6 +1473,10 @@ pub struct Config {
     pub analysis_engine: AnalysisEngineSettings,
     /// 快速曲线轻量模型.
     pub quick_model: QuickModelSettings,
+    /// HumanSL model and durable training preferences.
+    pub human_sl: HumanSlSettings,
+    pub strength: StrengthSettings,
+    pub commentary: crate::commentary::settings::CommentarySettings,
     /// 评论/问题手 panel.
     pub problems: ProblemListSettings,
     /// 局部精析's move range.
@@ -1060,6 +1495,12 @@ pub struct Config {
     pub region: RegionSettings,
     /// 选点重点研究.
     pub tracking: TrackingSettings,
+    /// 人机对弈.
+    pub game: GameSettings,
+    /// 引擎对战.
+    pub matches: MatchSettings,
+    /// 死活题.
+    pub tsumego: TsumegoSettings,
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).
@@ -1136,6 +1577,11 @@ pub struct Persisted {
     /// Independent boards use physical outer-window bounds (Java's four-element arrays).
     pub independent_main_board: Option<WindowPlacement>,
     pub independent_sub_board: Option<WindowPlacement>,
+    /// The bottom detailed toolbar's 自动落子 sides and conditions.
+    pub autoplay: AutoPlaySettings,
+    /// Java toolbar-parameter's engine-match values (not the folder/start-number session fields).
+    #[serde(serialize_with = "matches::serialize_toolbar", deserialize_with = "matches::deserialize_toolbar")]
+    pub matches: crate::api::MatchSessionSettings,
 }
 
 /// File locations inside the product's per-user data directories.

@@ -1,0 +1,16 @@
+/* 抓取死活题 overlay: the picture fills the window; default cursor, nothing selectable. */
+html, body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}

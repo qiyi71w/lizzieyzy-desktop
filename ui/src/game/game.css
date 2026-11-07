@@ -1,0 +1,13 @@
+/* NewGameDialog / NewAnaGameDialog: GridBag rows of 31 px, label column beside its control. */
+.game-dialog { padding: 12px; font: 12px Arial, "Microsoft YaHei", sans-serif; }
+.game-grid { display: grid; grid-template-columns: max-content auto; column-gap: 5px; row-gap: 5px; grid-auto-rows: minmax(26px, auto); align-items: center; }
+.game-grid > span, .game-check { white-space: nowrap; }
+.game-check { display: inline-flex; align-items: center; gap: 3px; }
+.game-inline { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+.game-inline [hidden] { display: none; }
+.game-grid input[type="text"], .game-grid select { height: 23px; box-sizing: border-box; }
+.game-dialog .engine-actions { justify-content: flex-end; margin-top: 12px; }
+.game-help { display: inline-flex; align-items: center; justify-content: center; padding: 0; width: 20px; height: 20px; }
+.game-help img { width: 16px; height: 16px; }
+/* SetAiTimes' KataGo panel: FlowLayout(LEFT, 0, 0) at its bounds. */
+.display-abs > .game-inline { gap: 2px; }

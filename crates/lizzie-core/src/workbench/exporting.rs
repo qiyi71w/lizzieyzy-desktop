@@ -129,7 +129,7 @@ impl Workbench {
             let parent = rec.parent(self.cursor)?;
             (rec.node(self.cursor).comment.is_empty() && self.engines.analysing(self.doc.id, self.cursor))
                 .then(|| summary(parent).unwrap_or_else(|| rec.node(parent).comment.clone()))
-        })
+        }).map(|s| crate::commentary::codec::remove_blocks(&s))
     }
 
     /// Java mutates move comments on save, but never snapshot comments. Do so through the
@@ -148,6 +148,9 @@ impl Workbench {
         store: &AnalysisStore,
         secondary: Option<&AnalysisStore>,
     ) -> Vec<DocumentEdit> {
+        if self.match_active() || rec.node(ROOT).properties.iter().any(|p|p.id=="DZ" && p.values.iter().any(|v|matches!(v.as_str(),"Y"|"KB"|"KW"))) {
+            return Vec::new();
+        }
         if !self.config.record.append_winrate_to_comment {
             return Vec::new();
         }
@@ -218,8 +221,9 @@ impl Workbench {
         application: &str,
     ) -> String {
         let labels = comment_labels(self.active_language);
+        let engine_match = self.match_active() || rec.node(ROOT).properties.iter().any(|p|p.id=="DZ" && p.values.iter().any(|v|matches!(v.as_str(),"Y"|"KB"|"KW")));
         let comment = |id| {
-            (self.config.record.append_winrate_to_comment && id != ROOT && rec.node(id).kind != NodeKind::Snapshot)
+            (!engine_match && self.config.record.append_winrate_to_comment && id != ROOT && rec.node(id).kind != NodeKind::Snapshot)
                 .then(|| self.formatted_comment(rec, store, comment_secondary, id, &labels))
                 .flatten()
         };

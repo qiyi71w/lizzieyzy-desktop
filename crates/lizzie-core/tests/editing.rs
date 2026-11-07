@@ -855,3 +855,13 @@ fn no_capture_places_stones_without_removing_any_and_keeps_earlier_positions() {
     let v = wb.view(false);
     assert_eq!((v.position.move_number, v.position.stones[0]), (3, Some(Stone::White)));
 }
+
+#[test]
+fn forced_pass_creates_a_fresh_variation_without_following_the_existing_pass() {
+    let mut record = GameRecord::empty(lizzie_core::record::BoardSize::STANDARD, 7.5);
+    let first = record.apply(&lizzie_core::record::DocumentEdit::Pass { at: ROOT, color: Stone::Black }).unwrap().node.unwrap();
+    let second = record.apply(&lizzie_core::record::DocumentEdit::PassBranch { at: ROOT, color: Stone::Black }).unwrap().node.unwrap();
+    assert_ne!(first, second);
+    assert_eq!(record.node(ROOT).children, vec![first, second]);
+    assert_eq!(record.node(second).to_play, Stone::White);
+}

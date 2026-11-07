@@ -26,11 +26,30 @@ sys-locale = "0.3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "system-proxy"] }
 dirs = "7"
+base64 = "0.22"
+sha2 = "0.10"
+ring = "0.17"
+fs2 = "0.4"
+subtle = "2"
+tokio = { version = "1", features = ["time", "macros", "sync"] }
+bytes = "1"
 # Pure Rust system font discovery, run on a blocking worker without workbench locks.
 fontdb = "0.23"
 
+# 抓取死活题's screen picture (see src/screen.rs); all already part of the dependency tree.
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = "0.13"
+zbus = "5"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGImage", "CGDataProvider", "CGWindow"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes", "CFData"] }
+security-framework = "3"
+
 [target.'cfg(windows)'.dependencies]
 rfd = { version = "0.16", default-features = false }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security_Cryptography", "Win32_System_Memory"] }
 
 [features]
 # Isolated acceptance builds only: a loopback control channel that dispatches the same commands

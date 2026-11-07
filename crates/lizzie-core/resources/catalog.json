@@ -58,6 +58,24 @@
       "analysis": true,
       "contribution": false,
       "supportTier": "stable"
+    },
+    "humansl-b18c384nbt-v0": {
+      "fileName": "b18c384nbt-humanv0.bin.gz",
+      "downloadUrl": "https://media.katagotraining.org/uploaded/networks/models_extra/b18c384nbt-humanv0.bin.gz",
+      "publishedAt": "",
+      "displayFamily": "HumanSL 18B",
+      "tier": "humansl",
+      "architecture": "residual",
+      "minimumKataGoVersion": "",
+      "sizeBytes": 99066230,
+      "sha256": "637746e44f0efe00ad1245a50aa9bbf0716efe364c43965ead97bd6835d84ab5",
+      "bundled": false,
+      "licenseSummary": "KataGo Neural Network License (MIT-style)",
+      "licenseTexts": ["https://katagotraining.org/network_license/"],
+      "runtimeRequirement": "none",
+      "analysis": false,
+      "contribution": false,
+      "supportTier": "stable"
     }
   },
   "assets": {

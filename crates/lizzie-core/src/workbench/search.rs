@@ -141,6 +141,15 @@ impl Workbench {
         (self.doc.id, self.cursor, self.doc.record.node(self.cursor).stamp)
     }
 
+    /// The points 选点重点研究 tracks at `node` (`DisplaySnapshot.selectedPoints` while it is
+    /// current); none elsewhere.
+    pub(super) fn tracked_points(&self, node: NodeId) -> &[Point] {
+        match self.search.context {
+            Some(c) if c.position == (self.doc.id, node, self.doc.record.node(node).stamp) => &self.search.selected,
+            _ => &[],
+        }
+    }
+
     fn on_board(&self, p: Point) -> bool {
         let size = self.doc.record.size;
         p.x < size.width && p.y < size.height
@@ -414,6 +423,8 @@ impl Workbench {
 
     /// 评估此点 / 取消评估 / 清除所有评估选点. Returns whether anything changed.
     pub fn tracking(&mut self, op: TrackingCommand) -> Result<bool, ApiError> {
+        let shown = |wb: &Self| wb.search.context.is_some_and(|c| c.position == wb.position_key());
+        let was_shown = shown(self);
         match op {
             TrackingCommand::Track { point } => {
                 if !self.on_board(point) {
@@ -458,6 +469,12 @@ impl Workbench {
                 }
                 self.search.end_tracking();
             }
+        }
+        // onTrackingDisplayChanged: the shown position's candidates are limited again
+        // (`refreshFocusCandidateVisibility`).
+        if was_shown || shown(self) {
+            let (limit, tracked) = (self.suggestion_limit(), self.tracked_points(self.cursor).to_vec());
+            self.store.refocus(self.cursor, limit, &tracked);
         }
         self.sync_engine();
         Ok(true)

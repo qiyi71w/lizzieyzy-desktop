@@ -13,6 +13,8 @@ import { isChinese, product, t } from "../i18n";
 import { resourceView } from "../setup/dialog";
 import { markupToolsShown, setEditing } from "../editing/state";
 import { revealToolbar } from "../workbench/panels";
+import { matchPlaying } from "../match/state";
+import { aiCoachBlockedByGame } from "../humansl/state";
 import { clearHighlight, highlight } from "./highlight";
 
 export type DestinationKind = "action" | "menu" | "toolbar" | "setting" | "window" | "context";
@@ -39,6 +41,7 @@ const TOOLBAR: Reason = { key: "FunctionSearch.unavailable.toolbar" };
 const NO_ENGINE: Reason = { key: "LizzieFrame.setParamNoEngineHint" };
 const NOT_KATAGO: Reason = { key: "SetKataRules.notKataGoHint" };
 const ANALYSIS_CONFLICT: Reason = { key: "WholeGameAnalysis.conflict.analysis" };
+const ENGINE_GAME: Reason = { key: "AnalysisSettings.reuseStatus.engine_game" };
 
 export function reasonText(reason: Reason): string {
   return reason.product ? product(reason.key) : t(reason.key);
@@ -138,17 +141,39 @@ function noMainlineMove(): boolean {
   return true;
 }
 
-/** LizzieFrame.functionEntryUnavailableReason for the states this product has. Java's engine
- *  game, human game, Web Board, ReadBoard and read-mode checks belong to entries whose
- *  destinations do not exist here yet; they resolve to `missing` before reaching this. */
+/** LizzieFrame.functionEntryUnavailableReason for the states this product has. Java's Web Board,
+ *  ReadBoard and read-mode checks belong to entries whose destinations do not exist here yet; they
+ *  resolve to `missing` before reaching this. */
 function entryReason(id: string): Reason | null {
   const view = state.view;
   if (!view) return { key: "FunctionSearch.unavailable.application" };
   if (id.startsWith("legacy.") && !isChinese()) return TOOLBAR;
   const engine = view.engine.foreground;
   switch (id) {
+    // The double menu's game controls and 终止人机对局 (LizzieFrame.java:13178-13187).
+    case "toolbar.game-pause":
+    case "toolbar.game-stop":
+      return view.game || view.engine_match ? null : { key: "FunctionSearch.unavailable.game" };
+    case "toolbar.game-resign":
+    case "game.stop-human":
+      return view.game ? null : { key: "FunctionSearch.unavailable.game" };
+    // 引擎对战 (LizzieFrame.java:13202-13205, 13272-13275): menu items stay enabled like Java's.
+    case "legacy.engine-game-pause":
+    case "legacy.engine-game-intervene":
+      return matchPlaying(view) ? null : { key: "FunctionSearch.unavailable.game" };
+    case "menu.pauseEngineGame":
+    case "menu.changeEngineGameNumbers":
+    case "menu.breakEngineGame":
+      return matchPlaying(view) ? null : CONTEXT;
+    case "board.try-play":
+    case "board.delete-without-prompt":
+      return view.engine_match?.phase === "Starting" || matchPlaying(view) ? ENGINE_GAME : null;
+    // AI 陪练 (LizzieFrame.java:13170-13171, aiCoachBlockedByGame).
+    case "game.ai-coach":
+      return aiCoachBlockedByGame(view) ? ENGINE_GAME : null;
     case "engine.pda":
     case "toolbar.wrn":
+      if (view.engine_match?.phase === "Starting" || matchPlaying(view)) return ENGINE_GAME;
       if (!engine) return NO_ENGINE;
       return engine.katago ? null : NOT_KATAGO;
     case "toolbar.force-allow":

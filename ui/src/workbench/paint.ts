@@ -2160,6 +2160,30 @@ export function paintStat(g: CanvasRenderingContext2D, r: Rect, s: StatScene): S
   return report;
 }
 
+/** drawMoveStatistics in play mode (LizzieFrame.java:8705-8736): the darkened strip and, while the
+ *  human's clock runs, its text centred in it (drawString fitted to the strip, at most frame
+ *  font + 4). */
+export function paintPlayStat(g: CanvasRenderingContext2D, r: Rect, clock: string | null): void {
+  const { w, h } = r;
+  if (w < 10 || h < 5) return;
+  g.fillStyle = "rgba(0,0,0,0.51)";
+  g.fillRect(0, 0, w, h);
+  g.strokeStyle = "rgba(0,0,0,0.51)";
+  g.lineWidth = 1;
+  g.beginPath();
+  g.moveTo(1, 1.5);
+  g.lineTo(w - 1, 1.5);
+  g.stroke();
+  if (!clock) return;
+  g.font = `12px ${UI_FONT}`;
+  g.font = `${Math.min(h, (12 * w) / g.measureText(clock).width, 16)}px ${UI_FONT}`;
+  const fm = javaMetrics(g);
+  g.fillStyle = "#fff";
+  g.textAlign = "left";
+  g.textBaseline = "alphabetic";
+  g.fillText(clock, i((w - Math.round(g.measureText(clock).width)) / 2), i(h / 2) + i((fm.ascent - fm.descent) / 2));
+}
+
 /** Pondering status lines at ponderingY (LizzieFrame.drawPonderingState). */
 export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[]) {
   const lh = Math.max(14, i(r.h / 3));

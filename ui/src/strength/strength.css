@@ -1,0 +1,268 @@
+/* 棋力评估 dialogs (LizzieFrame.java 17271-17668 and the nested PlayerStrength* classes). The
+   Java content areas: Lizzie.setFrameSize(w, h) sets the window to (w + 10) x (h + 10) at scale 1
+   (Lizzie.java:898-907), which is the whole content area of the undecorated Java dialogs measured
+   in the reference screenshots. So the dashboard's content is 1130 x 770 (window minimum
+   1040 x 700), 详细数据 910 x 470 (550 with HumanSL 40, minimum 760 x 420) and the HumanSL 40
+   progress dialog (plain setSize) 500 x 165. This product's title bar sits above that content;
+   everything stays within the window. Fonts are Config.sysDefaultFontName at Config.frameFontSize
+   offsets. */
+.modal-box.ps-window {
+  --ps-ff: var(--frame-font-size, 12px);
+  box-sizing: border-box;
+  max-width: none;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+  overflow: hidden;
+  font-size: var(--ps-ff);
+}
+.ps-window:focus { outline: none; }
+.ps-window [hidden] { display: none !important; }
+.ps-window-title { display: flex; justify-content: space-between; align-items: center; }
+.ps-window-close { border: 0; background: none; font: inherit; padding: 0 4px; cursor: pointer; }
+.ps-window-body { position: relative; flex: none; }
+
+.ps-dashboard .ps-window-body {
+  width: min(1130px, calc(100vw - 22px));
+  height: min(770px, calc(100vh - 60px));
+  min-width: min(1040px, calc(100vw - 22px));
+  min-height: min(700px, calc(100vh - 60px));
+}
+.ps-detail-dialog .ps-window-body {
+  width: min(910px, calc(100vw - 22px));
+  height: min(470px, calc(100vh - 60px));
+  min-width: min(760px, calc(100vw - 22px));
+  min-height: min(420px, calc(100vh - 60px));
+}
+.ps-detail-dialog.humansl .ps-window-body { height: min(550px, calc(100vh - 60px)); }
+
+/* painted components fill their boxes */
+.ps-canvas { display: block; width: 100%; height: 100%; }
+.ps-root-bg { position: absolute; inset: 0; }
+.ps-fill { position: relative; min-width: 0; min-height: 0; }
+.ps-fill > .ps-canvas { position: absolute; inset: 0; }
+
+/* PlayerStrengthDashboardRoot: BorderLayout(0, 18) in a 24 30 26 30 border */
+.ps-root {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px 30px 26px;
+  color: rgb(47, 35, 22);
+}
+.ps-root > :not(.ps-root-bg) { position: relative; }
+.ps-header { display: flex; justify-content: space-between; align-items: flex-start; flex: none; }
+.ps-title-block { display: flex; flex-direction: column; align-items: flex-start; }
+/* FlowLayout(LEFT, 12, 0): the 62 x 50 mark and the BOLD frameFontSize + 22 title */
+.ps-title-row { display: flex; align-items: center; gap: 12px; padding-left: 12px; }
+.ps-header-mark { width: 62px; height: 50px; flex: none; }
+.ps-title { font-weight: bold; font-size: calc(var(--ps-ff) + 22px); white-space: nowrap; }
+.ps-subtitle { margin-top: 6px; color: rgb(130, 119, 104); font-size: calc(var(--ps-ff) + 1px); white-space: nowrap; }
+.ps-tabs { display: flex; gap: 12px; margin-top: 22px; }
+/* PlayerStrengthTabButton: 10 54 padding, arc-20 face, gold underline when selected */
+.ps-tab {
+  position: relative;
+  padding: 10px 54px;
+  /* The Swing font height, not the CJK fallback's taller line box: Java's tabs are 36 px. */
+  line-height: calc(var(--ps-ff) + 4px);
+  border: 0;
+  border-radius: 10px;
+  background: rgba(248, 245, 238, 0.667);
+  box-shadow: inset 0 0 0 1px rgba(204, 194, 177, 0.588);
+  color: rgb(47, 35, 22);
+  font-family: inherit;
+  font-weight: bold;
+  font-size: calc(var(--ps-ff) + 2px);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ps-tab.selected { background: rgb(249, 239, 220); box-shadow: inset 0 0 0 1px rgb(197, 158, 91); }
+.ps-tab.selected::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 1px;
+  width: max(22px, 25%);
+  height: 4px;
+  border-radius: 2px;
+  background: rgb(183, 129, 45);
+  transform: translateX(-50%);
+}
+.ps-tab:focus { outline: none; }
+.ps-tab:focus::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border: 2px solid rgb(120, 82, 26);
+  border-radius: 8px;
+}
+/* FlowLayout(RIGHT, 0, 6): combo, 10, 导入, 10, 详细数据 */
+.ps-actions { display: flex; gap: 10px; padding-top: 6px; }
+.ps-combo { position: relative; width: 260px; height: 42px; flex: none;
+  --ps-combo-row: calc(var(--ps-ff) + 20px); }
+.ps-combo-button, .ps-detail-button {
+  display: block;
+  height: 42px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  flex: none;
+}
+.ps-combo-button { width: 100%; }
+.ps-combo-button:focus, .ps-detail-button:focus { outline: none; }
+/* BasicComboPopup: a 1 px gold line around PlayerStrengthModelComboRenderer rows */
+.ps-combo-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  overflow-y: auto;
+  border: 1px solid rgba(197, 158, 91, 0.745);
+  background: rgb(255, 252, 245);
+}
+.ps-combo-row {
+  height: var(--ps-combo-row);
+  box-sizing: border-box;
+  padding: 8px 14px;
+  line-height: calc(var(--ps-ff) + 4px);
+  font-weight: bold;
+  font-size: calc(var(--ps-ff) + 1px);
+  color: rgb(47, 35, 22);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+.ps-combo-row.selected { background: rgb(249, 239, 220); }
+
+/* CardLayout of the three dashboards */
+.ps-cards { flex: 1; min-height: 0; }
+.ps-dash { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 16px; }
+.ps-dash > .ps-two, .ps-dash > .ps-hit-map-box { flex: 1; }
+.ps-two { display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+.ps-gap-20 { column-gap: 20px; }
+.ps-gap-18 { column-gap: 18px; }
+.ps-gap-14 { column-gap: 14px; }
+.ps-dash .ps-match-top { flex: none; height: 188px; }
+.ps-note-strip { flex: none; height: 64px; }
+
+/* FlowLayout(LEFT, 12, 0): 后台 HumanSL, 补算 HumanSL, the status (frameFontSize - 1) */
+.ps-strip { display: flex; align-items: center; gap: 12px; padding-left: 12px; flex: none; white-space: nowrap; }
+.ps-check { display: inline-flex; align-items: center; gap: 4px; }
+.ps-check input { margin: 0; }
+.ps-strip-status { font-size: calc(var(--ps-ff) - 1px); }
+.ps-native-button {
+  padding: 3px 14px;
+  border: 1px solid rgb(122, 138, 153);
+  border-radius: 2px;
+  background: linear-gradient(rgb(251, 252, 253), rgb(221, 226, 232));
+  color: #000;
+  font: inherit;
+  cursor: pointer;
+}
+.ps-native-button:focus-visible { outline: 1px dotted rgb(99, 130, 191); outline-offset: -4px; }
+
+/* 详细数据: PlayerStrengthDetailRoot with BorderLayout(0, 16), border 18 (16 for the chart) */
+.ps-detail-root {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+}
+.ps-detail-root.match { padding: 16px; }
+.ps-detail-root > :not(.ps-root-bg) { position: relative; }
+.ps-detail-root > .ps-fill, .ps-detail-cards { flex: 1; }
+.ps-detail-note-box { position: relative; flex: none; height: 62px; }
+.ps-detail-note-box > .ps-canvas { position: absolute; inset: 0; }
+/* PlayerStrengthDetailCard: soft gradient, accent band (alpha 54) and 42 x 4 accent bar */
+.ps-detail-card {
+  --accent: 255, 116, 122;
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  padding: 18px 20px;
+  border: 1px solid rgb(86, 101, 125);
+  border-radius: 12px;
+  background: linear-gradient(rgb(39, 49, 65), rgb(30, 39, 53));
+}
+.ps-detail-card.white { --accent: 118, 180, 255; }
+.ps-detail-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 42px;
+  border-radius: 12px;
+  background: rgba(var(--accent), 0.212);
+}
+.ps-detail-card::after {
+  content: "";
+  position: absolute;
+  top: 11px;
+  left: 17px;
+  width: 42px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgb(var(--accent));
+}
+.ps-detail-card > * { position: relative; }
+.ps-detail-card-title { font-weight: bold; font-size: calc(var(--ps-ff) + 8px); color: rgb(248, 250, 252); }
+.ps-detail-card.white .ps-detail-card-title { color: rgb(255, 244, 218); }
+/* GridLayout(0, 2, 10, 9): equal cells filling the card */
+.ps-detail-metrics {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: 1fr;
+  column-gap: 10px;
+  row-gap: 9px;
+  align-items: center;
+}
+.ps-metric-label { color: rgb(203, 213, 225); font-size: var(--ps-ff); white-space: nowrap; overflow: hidden; }
+.ps-metric-value { color: rgb(248, 250, 252); font-weight: bold; font-size: calc(var(--ps-ff) + 1px); white-space: nowrap; overflow: hidden; }
+
+/* HumanSlStrengthDialog: BorderLayout(12, 12) in an 18 20 border; status, bar, 取消 at the right */
+.ps-progress-dialog .ps-window-body {
+  box-sizing: border-box;
+  width: min(500px, calc(100vw - 22px));
+  height: min(165px, calc(100vh - 60px));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px;
+}
+.ps-progress-status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ps-progress-bar {
+  position: relative;
+  flex: 1;
+  min-height: 12px;
+  overflow: hidden;
+  border: 1px solid rgb(122, 138, 153);
+  background: rgb(238, 238, 238);
+}
+.ps-progress-fill { height: 100%; width: 0; background: rgb(163, 184, 204); }
+.ps-progress-bar.indeterminate .ps-progress-fill {
+  position: absolute;
+  width: 20%;
+  animation: ps-indeterminate 1.4s linear infinite;
+}
+@keyframes ps-indeterminate {
+  0% { left: 0; }
+  50% { left: 80%; }
+  100% { left: 0; }
+}
+.ps-progress-actions { display: flex; justify-content: flex-end; }

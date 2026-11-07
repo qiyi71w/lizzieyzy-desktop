@@ -12,6 +12,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use super::Workbench;
 use crate::api::{
@@ -28,7 +29,7 @@ use crate::engine::runtime::{
     Bootstrap, CheckedLaunch, ConsoleKind, EngineFailure, EngineInput, InstanceId, LaunchCheck, Phase, RulesOutcome,
     RuntimeEvent, Target, UserCommandError,
 };
-use crate::record::{BoardSize, DocumentEdit, GameRecord, NodeId, Position, Stone, ROOT};
+use crate::record::{BoardSize, DocumentEdit, GameRecord, NodeId, NodeKind, Point, Position, Stone, ROOT};
 use crate::sanitize::sanitize;
 use crate::settings::ExtraMode;
 use crate::viewpoint::{ShownValues, Viewpoint};
@@ -63,7 +64,16 @@ pub(super) struct AnalysisStore {
     /// Results the next live result replaces even with fewer visits (`BoardData.isChanged`): a
     /// 强制计算区域 changed the search they were made with.
     stale: HashSet<NodeId>,
+    /// When each kept candidate's search last grew (`MoveData.lastTimeUnlimitedTime`).
+    kept_since: HashMap<NodeId, HashMap<Option<Point>, Instant>>,
+    /// Candidates beyond 最大候选点数 that stayed in the node's `bestMoves` because 选点重点研究
+    /// tracked them when the result came (`tryToLimitMoves`' attended points); the board does
+    /// not draw them for that.
+    attended: HashMap<NodeId, Vec<Point>>,
 }
+
+/// How long a kept candidate whose visits stopped growing stays kept.
+const KEPT_FOR: Duration = Duration::from_secs(3);
 
 impl AnalysisStore {
     pub(super) fn reset(&mut self, doc: u64) {
@@ -72,6 +82,8 @@ impl AnalysisStore {
         self.ownership.clear();
         self.metadata.clear();
         self.stale.clear();
+        self.kept_since.clear();
+        self.attended.clear();
     }
 
     pub(super) fn get(&self, rec: &GameRecord, node: NodeId) -> Option<&NodeAnalysisView> {
@@ -95,6 +107,93 @@ impl AnalysisStore {
         };
     }
 
+    /// An engine's new result for the node (`BoardData.tryToSetBestMoves`): beyond `limit`
+    /// candidates (0 = none) the one just past it stays a candidate while it was one of the node's
+    /// previous candidates and is still searched, and so do `tracked` points (`tryToLimitMoves`);
+    /// the others are not. Results are in candidate order.
+    pub(super) fn update(
+        &mut self,
+        node: NodeId,
+        stamp: u64,
+        mut view: NodeAnalysisView,
+        ownership: Option<Vec<f64>>,
+        limit: usize,
+        tracked: &[Point],
+    ) {
+        let previous = self.nodes.get(&node).filter(|(s, _)| *s == stamp).map(|(_, v)| v);
+        let since = self.kept_since.remove(&node).unwrap_or_default();
+        let mut kept = HashMap::new();
+        let mut attended = Vec::new();
+        if limit > 0 && view.candidates.len() > limit {
+            let now = Instant::now();
+            // The previous candidates as the estimate and the tables saw them (`bestMoves`).
+            let last: Vec<&CandidateView> = previous.map_or_else(Vec::new, |p| {
+                p.candidates.iter().enumerate().filter(|(i, c)| *i < limit || c.kept).map(|(_, c)| c).collect()
+            });
+            for c in &view.candidates[limit..] {
+                if let Some(p) = c.point.filter(|p| tracked.contains(p)) {
+                    attended.push(p);
+                }
+                let mut keep = None;
+                if (c.order as usize) < limit + 1 {
+                    for (s, before) in last.iter().enumerate().take(limit + 1) {
+                        if (s >= limit && !before.kept) || c.point != before.point {
+                            continue;
+                        }
+                        let time = since.get(&before.point).copied();
+                        if c.visits > before.visits || !before.kept {
+                            keep = Some(now);
+                        } else if let Some(t) = time.filter(|t| now.duration_since(*t) < KEPT_FOR) {
+                            keep = Some(t);
+                        }
+                    }
+                }
+                if let Some(t) = keep {
+                    kept.insert(c.point, t);
+                }
+            }
+        }
+        for c in &mut view.candidates {
+            c.kept = kept.contains_key(&c.point);
+        }
+        self.insert(node, stamp, view, ownership);
+        if !kept.is_empty() {
+            self.kept_since.insert(node, kept);
+        }
+        if attended.is_empty() {
+            self.attended.remove(&node);
+        } else {
+            self.attended.insert(node, attended);
+        }
+    }
+
+    /// The points [`Self::update`] kept beyond the limit because they were tracked.
+    pub(super) fn attended(&self, node: NodeId) -> &[Point] {
+        self.attended.get(&node).map_or(&[], Vec::as_slice)
+    }
+
+    /// `refreshFocusCandidateVisibility` after the tracked points changed: the node's result is
+    /// limited again with no previous one, so nothing stays kept and only the points tracked now
+    /// stay beyond `limit`.
+    pub(super) fn refocus(&mut self, node: NodeId, limit: usize, tracked: &[Point]) {
+        let Some((_, view)) = self.nodes.get_mut(&node) else {
+            return;
+        };
+        for c in &mut view.candidates {
+            c.kept = false;
+        }
+        self.kept_since.remove(&node);
+        let attended: Vec<Point> = match limit {
+            0 => Vec::new(),
+            _ => view.candidates.iter().skip(limit).filter_map(|c| c.point.filter(|p| tracked.contains(p))).collect(),
+        };
+        if attended.is_empty() {
+            self.attended.remove(&node);
+        } else {
+            self.attended.insert(node, attended);
+        }
+    }
+
     /// Drops results whose node was removed or edited.
     pub(super) fn retain_valid(&mut self, rec: &GameRecord) {
         self.nodes
@@ -103,6 +202,8 @@ impl AnalysisStore {
         self.ownership.retain(|node, _| nodes.contains_key(node));
         self.metadata.retain(|node, _| nodes.contains_key(node));
         self.stale.retain(|node| nodes.contains_key(node));
+        self.kept_since.retain(|node, _| nodes.contains_key(node));
+        self.attended.retain(|node, _| nodes.contains_key(node));
     }
 
     /// `clearBestMovesAfter(start)`: every stored result gives way to the next live one.
@@ -230,6 +331,7 @@ pub(super) fn node_analysis(
                 shown: ShownValues::default(),
                 side_to_move: ShownValues::default(),
                 ownership: c.ownership.map(|o| black_ownership(o, to_play)),
+                kept: false,
             })
             .collect(),
         black: ShownValues::default(),
@@ -286,6 +388,7 @@ impl Workbench {
     /// processes outside the workbench lock.
     pub fn end_engines(&mut self) {
         self.batch_shutdown();
+        self.shutdown_strength();
         self.engines.terminate_all();
     }
 
@@ -317,7 +420,7 @@ impl Workbench {
             node: self.cursor,
             record: self.doc.record.clone(),
             komi: self.komi,
-            rules: self.target_rules().cloned(),
+            rules: if self.match_active() { self.match_rules() } else { self.target_rules().cloned() },
             rules_rev: self.rules_revision,
         }
     }
@@ -452,6 +555,12 @@ impl Workbench {
     /// foreground engine may (the user's pause and a foreground limit stop it too, as Java
     /// mirrors the primary engine's commands), and stops alone at its own limit.
     pub(super) fn sync_engine(&mut self) {
+        if let Some(analyse) = self.human_sl_analyse() {
+            self.engines.want_secondary(None, false);
+            if analyse { self.engines.want(Some(self.analysis_target()), true); }
+            else { self.engines.want(None, false); }
+            return;
+        }
         let here = (self.doc.id, self.cursor);
         // Java resumes after a limit stop once the position changes.
         if self.limit_stop.is_some_and(|l| l != here) {
@@ -466,6 +575,23 @@ impl Workbench {
             let analyse = !self.paused && !self.benchmark_running() && !self.quick_holds_foreground();
             self.engines.want_secondary(None, false);
             self.engines.want(Some(self.foreground_target()), analyse);
+            return;
+        }
+        if let Some(analyse) = self.match_analyse() {
+            self.engines.want_secondary(None, false);
+            if !self.match_foreground_current() {
+                self.engines.want(None, false);
+                return;
+            }
+            self.engines.want(Some(self.analysis_target()), analyse);
+            return;
+        }
+        // A game decides whether its engine analyses; the secondary engine stays idle.
+        if let Some(analyse) = self.play_analyse() {
+            let analyse = analyse && !self.benchmark_running() && self.rules_permit_analysis();
+            self.engines.want_secondary(None, false);
+            self.engines.want(Some(self.analysis_target()), analyse);
+            self.check_rules_prompt();
             return;
         }
         // A running quick analysis leaves the foreground engine idle until it ends.
@@ -507,8 +633,10 @@ impl Workbench {
         self.doc.format.is_none() && !rec.has_children_of_root() && rec.node(ROOT).setup.is_empty()
     }
 
-    /// `Board.reopenOnlyBoard` / `clear`: a new empty game of `size` replaces the open one.
+    /// `Board.reopenOnlyBoard` / `clear`: a new empty game of `size` replaces the open one; a
+    /// running game ends first.
     pub(super) fn reopen_empty_board(&mut self, size: BoardSize) {
+        self.play_document_closing();
         let id = self.next_doc;
         self.next_doc += 1;
         self.doc = super::Document {
@@ -757,6 +885,10 @@ impl Workbench {
     /// User pause / resume (`togglePonderMannul`). Resuming also restarts an analysis a limit
     /// stopped. Never written to disk.
     pub fn toggle_analysis(&mut self) -> Result<bool, ApiError> {
+        // Space during a game ends it (`togglePonderMannul` → `stopAiPlayingAndPolicy`).
+        if self.game_active() {
+            return Ok(self.game(crate::api::GameCommand::End)? == crate::api::CommandResult::Done);
+        }
         if self.auto_analysis_toggle_pause() { return Ok(true); }
         if self.quick_toggle_pause() || self.flash_toggle_pause() || self.whole_game_toggle_pause() || self.batch_toggle_pause() {
             self.limit_stop = None;
@@ -844,6 +976,7 @@ impl Workbench {
         if !komi.is_finite() {
             return Err(ApiError::new(ErrorKind::InvalidArgument, "komi"));
         }
+        if self.match_active() { return Ok(self.match_revise_komi(komi)); }
         self.komi_changed = true;
         self.start_komi = None;
         if !self.apply_komi(komi) {
@@ -855,7 +988,7 @@ impl Workbench {
 
     /// Every komi change of the game: the document records it and the stored analysis of the
     /// game is discarded (`clearBestMovesAfter(start)`).
-    fn apply_komi(&mut self, komi: f64) -> bool {
+    pub(super) fn apply_komi(&mut self, komi: f64) -> bool {
         let recorded = matches!(self.edit_document(DocumentEdit::SetKomi { komi }), Ok(true));
         if !recorded && komi == self.komi {
             return false;
@@ -983,6 +1116,12 @@ impl Workbench {
         Ok(true)
     }
 
+    /// 最大候选点数 as the stored candidates follow it (`tryToLimitMoves`); 0 keeps every one.
+    pub(super) fn suggestion_limit(&self) -> usize {
+        let limit = self.config.engine.analysis.limit_max_suggestion as usize;
+        if self.config.display.no_sugg_circle { 0 } else { limit }
+    }
+
     /// Puts committed analysis settings into effect: the engine update interval and, for a new
     /// variation length, the previews of stored analysis.
     pub(super) fn analysis_settings_changed(&mut self, previous: &AnalysisSettings) {
@@ -1087,7 +1226,16 @@ impl Workbench {
     /// When timed work is due next: engine protocol timers and quick analysis (see
     /// [`Self::engine_tick`]).
     pub fn engine_timer(&self) -> Option<std::time::Instant> {
-        [self.engines.next_tick(), self.quick_deadline(), self.whole_game_deadline(), self.tracking_deadline()]
+        [
+            self.engines.next_tick(),
+            self.quick_deadline(),
+            self.whole_game_deadline(),
+            self.tracking_deadline(),
+            self.play_deadline(),
+            self.match_deadline(),
+            self.human_sl_deadline(),
+            self.strength_deadline(),
+        ]
             .into_iter()
             .flatten()
             .min()
@@ -1101,7 +1249,11 @@ impl Workbench {
         let quick = self.quick_tick(now);
         let whole = self.whole_game_tick(now);
         let tracking = self.tracking_tick(now);
-        engines | quick | whole | tracking
+        let play = self.play_tick(now);
+        let matches = self.match_tick(now);
+        let human_sl = self.human_sl_tick(now);
+        let strength = self.strength_tick(now);
+        engines | quick | whole | tracking | play | matches | human_sl | strength
     }
 
     /// Handles runtime events produced by operations outside engine output.
@@ -1115,7 +1267,11 @@ impl Workbench {
         for ev in events {
             changed = true;
             let Some(ev) = self
-                .quick_event(ev)
+                .match_event(ev)
+                .and_then(|ev| self.play_event(ev))
+                .and_then(|ev| self.human_sl_event(ev))
+                .and_then(|ev| self.strength_event(ev))
+                .and_then(|ev| self.quick_event(ev))
                 .and_then(|ev| self.flash_event(ev))
                 .and_then(|ev| self.whole_game_event(ev))
                 .and_then(|ev| self.batch_event(ev))
@@ -1189,6 +1345,8 @@ impl Workbench {
                         continue;
                     };
                     let visits = result.visits;
+                    let played = (!secondary && self.play_wants_analysis(node)).then(|| result.clone());
+                    let matched = (!secondary && self.match_wants_analysis(node)).then(|| result.clone());
                     let first_visits = result.candidates.first().map_or(0, |c| c.visits);
                     // The foreground engine's line is the current search: 选点重点研究 counts its
                     // candidates, and the tracked position shows its result.
@@ -1199,6 +1357,9 @@ impl Workbench {
                             result.candidates.iter().filter_map(|c| Some((c.point?, c.visits))),
                         );
                     let automatic = !secondary && self.auto_analysis_active();
+                    let shown = self.suggestion_limit();
+                    // Attended points belong to the main board's candidates only (`isMain`).
+                    let tracked_points = if secondary { Vec::new() } else { self.tracked_points(node).to_vec() };
                     let rec = &self.doc.record;
                     let store = if secondary {
                         &mut self.secondary_store
@@ -1213,7 +1374,7 @@ impl Workbench {
                         let mut result = result;
                         let limit = self.config.engine.analysis.limit_branch_length;
                         fill_pv_captures(&mut result, &rec.position(node), limit, !self.config.edit.no_capture);
-                        store.insert(node, stamp, result, ownership);
+                        store.update(node, stamp, result, ownership, shown, &tracked_points);
                     }
                     let running = node == self.cursor
                         && !self.paused
@@ -1225,6 +1386,10 @@ impl Workbench {
                     } else if running && self.secondary_limit_stop.is_none() {
                         self.check_secondary_limits(visits, elapsed);
                     }
+                    if let Some(result) = played {
+                        self.play_analysis(&result, elapsed);
+                    }
+                    if let Some(result) = matched { self.match_analysis(&result, elapsed); }
                 }
                 _ => {}
             }
@@ -1392,12 +1557,33 @@ impl Workbench {
     }
 
     pub(super) fn current_analysis(&self) -> Option<NodeAnalysisView> {
+        if self.match_active() && self.config.matches.show_previous_bestmoves {
+            let node = self.doc.record.parent(self.cursor)?;
+            let mut result = self.shown_analysis_at(&self.store, node)?;
+            if self.config.matches.previous_bestmove_only {
+                let played = match self.doc.record.node(self.cursor).kind {
+                    NodeKind::Move { point, .. } => Some(point),
+                    _ => None,
+                };
+                if let Some(index) = played.and_then(|point| result.candidates.iter().position(|candidate| candidate.point == Some(point))) {
+                    result.candidates.swap(0, index);
+                    result.candidates.truncate(1);
+                } else {
+                    result.candidates.clear();
+                }
+            }
+            return Some(result);
+        }
         self.shown_analysis(&self.store)
     }
 
     /// `store`'s result for the current node as the displays show it.
     fn shown_analysis(&self, store: &AnalysisStore) -> Option<NodeAnalysisView> {
-        let s = store.get(&self.doc.record, self.cursor)?;
+        self.shown_analysis_at(store, self.cursor)
+    }
+
+    fn shown_analysis_at(&self, store: &AnalysisStore, node: NodeId) -> Option<NodeAnalysisView> {
+        let s = store.get(&self.doc.record, node)?;
         // Stored results keep the engine's numbers; what is shown follows the settings now. The
         // komi is the one the result was analysed with (results of another komi are dropped).
         let vp = self.viewpoint();
@@ -1423,6 +1609,7 @@ impl Workbench {
                 shown: vp.candidate(c.winrate, c.score_lead, s.to_play, s.komi),
                 side_to_move: vp.side_to_move(c.winrate, c.score_lead, s.to_play, s.komi),
                 ownership: if moves_ownership { c.ownership.clone() } else { None },
+                kept: c.kept,
             })
             .collect();
         Some(NodeAnalysisView {

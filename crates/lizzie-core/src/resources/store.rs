@@ -114,6 +114,18 @@ pub struct ResourceInventory {
 pub struct ResourceStore {
     root: PathBuf,
 }
+/// Java `uniqueWeightTarget`: preserve .bin.gz/.txt.gz and append _1, _2, ... .
+fn unique_human_sl_target(directory: &Path, name: &str) -> PathBuf {
+    let (stem, extension) = name.split_at(name.len() - 7);
+    let mut target = directory.join(name);
+    let mut index = 0_u64;
+    while target.exists() {
+        index += 1;
+        target = directory.join(format!("{stem}_{index}{extension}"));
+    }
+    target
+}
+
 impl ResourceStore {
     /// Pass `Storage::resources_dir`; nothing outside this root is scanned.
     pub fn new(resources_dir: impl Into<PathBuf>) -> Self {
@@ -129,6 +141,9 @@ impl ResourceStore {
     }
     pub fn weights_dir(&self) -> PathBuf {
         self.root.join("weights")
+    }
+    pub fn human_sl_models_dir(&self) -> PathBuf {
+        self.root.join("human-sl-models")
     }
     pub fn runtime_dir(&self) -> PathBuf {
         self.root.join("runtime/nvidia")
@@ -370,6 +385,40 @@ impl ResourceStore {
                 }
             };
             weight_entry(&target, Some(receipt))
+        })();
+        let _ = fs::remove_file(staged);
+        result
+    }
+    /// Validate the original identity before choosing a collision-free HumanSL target.
+    pub fn import_human_sl_model(
+        &self,
+        model: &super::Model,
+        source: &Path,
+        cancel: &AtomicBool,
+    ) -> ResourceResult<PathBuf> {
+        check_cancel(cancel)?;
+        let name = source.file_name().and_then(|n| n.to_str())
+            .ok_or_else(|| invalid("AutoSetup.importHumanSlModelInvalid"))?;
+        let meta = fs::metadata(source)?;
+        if !meta.is_file() || !supported_weight(name) {
+            return Err(invalid("AutoSetup.importHumanSlModelInvalid"));
+        }
+        let official = name.eq_ignore_ascii_case(&model.file_name);
+        let directory = self.human_sl_models_dir();
+        fs::create_dir_all(&directory)?;
+        let target = unique_human_sl_target(&directory, name);
+        let staged = sibling_path(&target, "importing");
+        let result = (|| {
+            copy_file(source, &staged, cancel)?;
+            if official {
+                verify_file(&staged, Some(model.size_bytes), Some(&model.sha256))
+                    .map_err(|_| invalid("AutoSetup.humanSlModelChecksumFailed"))?;
+            } else if fs::metadata(&staged)?.len() <= 1024 * 1024 {
+                return Err(invalid("AutoSetup.importHumanSlModelInvalid"));
+            }
+            check_cancel(cancel)?;
+            fs::hard_link(&staged, &target)?;
+            Ok(target)
         })();
         let _ = fs::remove_file(staged);
         result

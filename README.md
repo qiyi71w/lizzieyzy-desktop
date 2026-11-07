@@ -268,8 +268,8 @@ importing the matching LizzieYzy Next settings.
   the variation tree or the list returns the keyboard to the workbench unless a comment is being
   edited. 工具栏 > 顶部工具栏 is 分开 (the second toolbar row), 合并 or 不显示 (no toolbar row, as in
   the fixed Java build); 底部工具栏 is 显示, 不显示 or (Chinese interface) 使用详细工具栏, which adds
-  Java's 自动分析 and 自动播放 panels under the bar (its 自动落子 and 引擎对战 controls are shown but
-  not available). `Shift+X` and 设置 > 综合设置 open 综合设置 at 棋盘与显示, whose 启动时加载 rows
+  Java's 自动分析, 自动播放, 自动落子 and 引擎对战 panels under the bar. `Shift+X` and 设置 > 综合设置
+  open 综合设置 at 棋盘与显示, whose 启动时加载 rows
   (窗口总在最前, 显示状态面板, 显示小棋盘, 窗口标题显示胜率) apply with 保存设置; Java's 显示快速启动
   row is not shown because this client has no quick-launch links. Panel sizes and the bottom
   toolbar are window placement (`persist.json`), cleared by 重置界面位置.
@@ -504,6 +504,186 @@ importing the matching LizzieYzy Next settings.
   never make the record unsaved, and remain available for an explicit SGF save. Remote analysis
   engines are not supported yet. The chosen depth is saved on start in `wholeGame.deepVisits`;
   invalid stored values fall back to 1,000, matching Java.
+- 人机对弈 (棋局 menu, `N` / `Alt+N`, the toolbar's 新对局 button): Java's 新对局(Genmove模式) and
+  分析模式 dialogs choose the engine, colour, 接着当前局面下, handicap (KataGo may choose the points
+  with 自由让子), komi, 限制我的用时 (保留时间, 读秒 and 次数, with Java's countdown voices), the
+  engine's time (每手用时, a raw GTP time command, KataGo's 读秒/加秒/包干 or the engine's own
+  time), KataGo visit limits, 后台思考, 对弈模式 (analysis hidden during the game), the candidates
+  shown for each side and 自动保存棋谱; 分析模式 adds 纯网络, Java's resignation thresholds, 不使用
+  分析广度拓展 and the 落子条件 (time, total or first-candidate visits) shared with the bottom bar's
+  自动落子. A game has started only once the engine answered its setup (moves are refused with
+  Java's "wait for the engine" message until then). The engine's move becomes the record's next
+  move only if it answers the game, record and position it was asked for; a late answer after
+  悔棋, a new board, the end of the game or an engine exit changes nothing. 停一手 (`P`), 暂停 /
+  继续, 悔棋 (back to the human's previous turn), 认输 (no confirmation), 结束对局 (`Space`) and
+  the engine's own resignation or the human's timeout end the game as Java does: the result
+  (B+R, W+R, B+T, W+T) is recorded, the played line becomes the main line, the game is saved to
+  `MyGames/<time>(<black>_Vs_<white>).sgf` in this client's application data directory, and
+  analysis stays paused; a finished game is counted with 棋局 > 终局点目. While a game runs or
+  gives its engine back, opening records, browsing, engine switching, komi/rules changes and the
+  other analysis modes are refused; the engine is given back only after it answered the game's
+  setup and confirmed the restore of the parameters the game changed (`maxTime`, visit limits,
+  `analysisWideRootNoise`). A refused or unconfirmed restore leaves the engine marked unrestored;
+  an engine that never answers the move it is thinking about can be restarted or closed to end
+  the wait. Opening a 新对局 dialog ends a running game and pauses analysis (cancelling resumes
+  it); an 分析模式 game turns 自动落子 on for the engine's side and off again at its end, and
+  终局点目 stops the game's analysis. Enter / `Alt+Enter` and the 续弈 menu items continue from
+  the current position; 修改AI用时, AI随机开局 and `Alt+,` (one engine move) are available.
+  Differences from Java: results are always SGF (`B+R`, not the localized Japanese, Korean or
+  Thai text Java writes there), the dialogs' switches are saved only with 确定 (Java saved some
+  even when cancelled), a new board during a game ends the game first, and AI随机开局 weights
+  close candidates by their share of the most searched candidate's visits (Java compares with
+  that count only when its unrelated `check-random-visits` option is on).
+- 引擎对战 (棋局 > 新对局 > 引擎对局, `Alt+E`, the detailed toolbar's 引擎对战 panel): two different
+  engines of the engine list play each other in Java's Genmove模式 (the engines' own `genmove`
+  with per-side 每手用时, the engine's own time or a raw GTP time command) or 分析模式 (the mover's
+  analysis plays when its time, total or first-candidate visits are reached, with per-side
+  resignation thresholds and 随机落子). The dialog, 引擎对局设置 (from the dialog or the panel's 设置),
+  the panel, 人工干预 (立即落子, 允许人工落子, 黑认输, 白认输), 终止 / 暂停继续引擎对局 and
+  修改多盘引擎对局数 follow Java, including 本局规则 (verified on KataGo with `kata-get-rules`; an
+  engine that cannot confirm them asks for consent), komi, handicap (19×19), 多盘对局 with
+  交换黑白, 当前局面续弈, 加载开局SGF (in order or at random), 最大手数 and 后台计算. Both engines run
+  as their own processes (other running engines are closed); the engine to move is the
+  foreground engine, so its analysis is what the board, the lists and the graph show. A match
+  is accepted before it starts: it starts only once both engines are ready and answered their
+  setup. A move counts only if it answers the game, record and position it was asked for; a
+  late answer after 结束, a new game or an engine exit changes nothing. 暂停 lets a Genmove move
+  already being chosen land (as Java) and asks for no further move until 继续. A game ends by
+  resignation, two passes, a full board or 最大手数 (the board area × 2 when off or 0);
+  two-pass and move-limit games are saved but not scored.
+  Games are saved as Java names them under `EngineGames/` (a batch under
+  `EngineGames/<batch name>/`, default `<first>_VS_<second>_<time>`) in this client's application
+  data directory, with Java's move comments, together with the batch's `结果<time>.txt` summary
+  (score, wins as black/white, time, visits, Elo and confidence intervals) and, with 自动保存胜率图,
+  the winrate graph. The next game of a batch starts only after both engines confirmed they are
+  given back (parameters and rules the match changed are restored; a refusal or missing
+  confirmation marks the engine unrestored and stops the batch); an engine exit retires the
+  game and ends the batch. While a match runs, opening records, browsing, engine switching,
+  editing and the other analysis modes are refused. Differences from Java: results are always
+  SGF `B+R` / `W+R`; the batch summary lists each engine's own settings after colours are
+  exchanged (Java mixed the black and white sides there); a custom batch folder name made only
+  of dots or separators is refused, so files stay under `EngineGames`.
+- AI 陪练 (HumanSL; the menu bar's AI 陪练 button, 棋局 > 新建对局 > AI 陪练, function search): a
+  game against KataGo's human-imitation (HumanSL) network on the main board. The setup dialog
+  follows Java: 训练方式 (实战后复盘 hides candidates, the winrate graph, Kata形势, policy and
+  heat map and pauses the foreground analysis during the game; 边下边分析 keeps the foreground
+  analysing with both sides' candidates shown; neither changes the saved display settings),
+  AI 对手 (by rank, 20 kyu to 9 dan, or 职业棋风: 现代职业棋风 `proyear_2023` / 网络 9 段), colour
+  (random, black or white), the AI's time per move (10 s, 30 s, 1 min, unlimited), and under 更多
+  设置 handicap and komi; 从当前局面开始 (only when the current position has moves) continues the
+  current record in a new variation, otherwise a new record is started. The last started
+  settings are remembered. The AI's moves come from a separate `katago analysis` process with
+  `-human-model`, started from the 精析设置 analysis command (a Windows TensorRT engine uses the
+  installed CUDA package instead); the game starts only after that process answered a real
+  HumanSL request, with Java's loading stages shown meanwhile. Moves follow Java's human-like
+  selection (HumanSL policy candidates checked by a short search; no AI pass before move 200,
+  800–4000 ms thinking pace); an AI answer for a position that is no longer current ends the
+  session without touching the record. A companion process that exits is started again for the
+  next move; two failed attempts show 重试 AI. The bar under the board shows the opponent, both
+  clocks and the turn, with 停一手 (`P`) and 结束并复盘. Ending, cancelling or a failed start stops
+  the companion and gives the foreground engine back as it was (after 实战后复盘 analysis resumes
+  on the finished game); a failed restore offers 重试清理. Opening a record, a new board or another
+  game during a session first ends the session, then proceeds. The training report and live
+  correction strings present in Java are not reachable there and are not shown here.
+- Switching between 人机对弈, 引擎对战 and AI 陪练: two of them never run together. During a game
+  a match or AI 陪练 is refused and a new game ends the running game first; during a match a
+  game or AI 陪练 is refused; a new game or match asked during AI 陪练 ends the session first
+  (see above). A mode also waits until the engines of an ended one have confirmed they are
+  given back. A game or a match does not start while 自动快析, 闪电分析, 整盘精析, 自动分析 or a
+  batch uses the foreground engine (the "engine already in use" message). AI 陪练 starts beside
+  them as in Java: as a new game, its new record ends quick, flash, whole-game (failed as the
+  game changed) and automatic analysis once its opponent is ready; from the current position, the
+  start ends them first (stopped like their own stop, results kept). During a batch it asks to
+  stop the batch first (停止并开始 stops it as 停止批量分析 does, keeping finished results), because
+  in Java a batch outlives the coach's new board. A move, an AI 陪练 answer or an AI 解说 reply that
+  arrives after its mode or its record has ended is dropped and never reaches the record that
+  follows. Back in review, analysis stays paused after a game and resumes after 实战后复盘.
+- HumanSL model (引擎一键设置 > 权重管理, or 下载并开始 in the AI 陪练 dialog): the official
+  `b18c384nbt-humanv0.bin.gz` (99,066,230 bytes) is downloaded from katagotraining.org on demand
+  and accepted only with the catalog's size and SHA-256; a file with the official name but another
+  digest is reported as missing and never used. 导入 copies another `.bin.gz` / `.txt.gz` HumanSL
+  model (larger than 1 MB) into `human-sl-models/` of the resource directory. The model is not an
+  analysis weight and is not offered as one.
+- 棋力评估 (分析 > 棋力评估, the top toolbar's 棋力评估 button, function search): estimates each
+  side's playing strength from the analysis already stored on the main line (it starts no
+  computation; analyse the game first, for example with 闪电分析整局). The dashboard follows
+  Java: 测评 (rank, confidence and per-side metrics), 吻合度 (overall match and the per-move hit
+  map), 发挥水准 (move quality distribution), and 详细数据. The default model is Java's bundled
+  XGBoost 20TUN with its residual calibrator; on the same analysed game it gives exactly the
+  fixed Java build's numbers. 导入 adds another XGBoost rank-value booster (`.json`, with a
+  sibling `metadata.json` / calibrator if present, or a `.zip` bundle) under `strength-models/`
+  in the data directory and selects it; the chosen model lasts for the session, as in Java.
+  HumanSL 40 is Java's experimental model: 补算 HumanSL runs a separate policy-only
+  `katago analysis` process on the official HumanSL network (download offered if missing) for
+  the first 210 moves of a 19×19 game without setup stones, with a progress dialog that 取消
+  stops. Policies are cached per query under `strength-humansl40-policy-cache/`, so the same
+  game is not queried again. 后台 HumanSL (off by default, saved) prepares the same data while
+  the foreground engine analyses, and stops when analysis is paused or a game, engine match or
+  AI 陪练 needs the engine. Its HumanSL policies come from network sampling, so its ranks can
+  differ slightly between runs. As in Java, the other models read only the candidates within
+  最大候选点数 (plus the one the board keeps after it just dropped out, and the points
+  选点重点研究 tracks), and a move that is no candidate is scored from the two positions' evaluations; when
+  only one of them has a score (for example a Leela Zero position next to a KataGo one), this
+  client uses the win-rate difference instead of Java's score of 0 for the scoreless position.
+- AI 解说 (分析 > AI 解说, the AI 解说 button after AI 陪练 in the menu strip, shown as 解说 when the
+  strip is narrower than 900 px, function search): explains the analysis already stored on the
+  record in plain language through a language-model service you configure. It starts no engine
+  computation, so analyse the positions first. The window follows Java: 下一手 compares the
+  recorded next move with the first three KataGo candidates (plus the played move when it is a
+  lower candidate), 区间 and 整局 pick at most five key positions of the main line, at least three
+  moves apart, by score loss (then win-rate loss, then visits), and 继续追问 asks about the current
+  explanation with the same evidence. 分析依据 shows exactly what was sent: candidates and losses,
+  stone groups and liberties, the replayed continuation and candidate lines, and up to two grounded
+  matches from the bundled common-pattern teaching catalogue. A reply that names a coordinate
+  outside that evidence is sent back once for correction; a second unsupported reply is reported
+  as unverified and not saved. Verifier notes on an accepted reply are shown, never saved. With
+  将解说加入棋谱评论 checked (the default), the answer goes into the node's comment as a separate
+  `[LizzieYzy AI Commentary BEGIN]` … `[LizzieYzy AI Commentary END]` block that replaces an earlier
+  block and leaves your own comment untouched; save the record to keep it, and the comment panel
+  shows it as its own AI 解说 section. The block goes to the node the request was made for (下一手
+  and 区间: the current node; 整局: the root) even if you navigate meanwhile; if that node is deleted
+  or its position is edited before the reply arrives, the answer is shown but not stored (Java
+  stored it into the stale node). 停止, closing the window or opening another record cancels the
+  request, closes the connection and discards a late reply.
+  设置 > 连接服务 offers Java's two connections. **API Key** works with any OpenAI-compatible
+  service: service address (`/v1` is added to an address without a path), key and model; 获取模型
+  lists `/models`; requests stream from `/chat/completions` and fall back to `/responses` only when
+  the service answers 404 or 405; HTTPS is required except for a service on this computer.
+  **ChatGPT 登录** is OpenAI's Sign in with ChatGPT in the browser and uses your ChatGPT plan
+  (管理用量 opens its usage page); several accounts can be added and switched. 记住密钥 keeps the key
+  in the system credential store (Windows DPAPI, macOS Keychain, Linux Secret Service through
+  `secret-tool`); without one the key lasts for this session only. Keys and sign-in tokens are
+  never written to the settings files or logs. 讲解偏好 (level, style, terminology, pace, variations)
+  only shape the prompt. 导入 Java 配置 migrates Java's AI commentary settings; a remembered Java API
+  key is copied only when you tick it, and ChatGPT sign-ins are not migrated (sign in again).
+  Accounts and costs belong to your provider; nothing is sent until you start a commentary.
+- 死活题 (分析 > 死活题, Shift+E, the top toolbar's 死活 button, function search): frames the
+  current position for engine reading like Java's tsumego frame. The attacker (自动检测 picks the
+  colour with more stones, Black on a tie, as Java's detection effectively does) walls in the
+  stones' bounding box at the chosen 墙面间距 and fills the side of the board nearest the problem;
+  the defender fills the rest. 添加劫材 adds Java's small corner shapes for either side and names
+  a side whose shape has no room. 确定 replaces the open record with a new game holding only that
+  position: moves, variations, names and the root comment go, the side to play is kept or set by
+  先手方, and the komi becomes the frame's (7.5 for the attacker, or twice the attacker's area beyond
+  half the board, negated for White; kept within ±150) and is sent to the engine like a typed
+  komi. A position with stones out to all four edges is left as it is. The dialog's choices are
+  remembered. Framing is refused during a game, an engine match, AI 陪练 or 整盘精析. The frame
+  matches the fixed Java build's output exactly on randomized positions (7–19 lines, every option).
+  Java's habit of going back before an earlier frame never applied after a real frame and is not
+  kept.
+- 抓取死活题 (分析 > 抓取死活题, the 死活题 dialog's 屏幕抓取, Shift+T): reads a problem shown by any
+  other program. 开始抓取 minimizes the main window, takes one picture of the primary screen and
+  shows it full screen (dimmed): click the corner intersection (0,0), then the opposite corner of
+  the first square, then move until the blue grid covers the problem and click. Stones are read
+  with Java's helper rules (near-gray pixels of a square-sized box: enough dark pixels make black;
+  enough light ones make white when the box shows a stone's edge or shading, not a flat white
+  background) and the 参数设置 thresholds. The problem lands in the board corner it came from on a
+  new board (square of the captured width when the board is smaller), Black to play, and 死活题
+  opens. Escape or a zero first square cancels and the instructions return. Java ran a separate
+  Java helper and re-captured the live screen while the pointer moved; here the picture is taken
+  once by the client itself: GDI on Windows, Core Graphics on macOS (needs the Screen Recording
+  permission; a one-time hint says so), `GetImage` on X11 and the desktop portal's screenshot on
+  Wayland (the desktop may ask for permission). Only the primary screen is used, as in Java.
 - 快速曲线轻量模型 (引擎一键设置 > 权重管理): the official lightweight b10 model is downloaded on demand
   (size and SHA-256 checked), which turns 自动使用 on. A model file is used only while its SHA-256
   matches the catalog (checked again when the file changes); with 自动使用 and a KataGo of 1.17 or
@@ -569,7 +749,18 @@ importing the matching LizzieYzy Next settings.
   scoring rules, AI match, 独立选点列表 options, 记录选点信息到评论中; Java's window and column
   positions are reported as not usable), 自动棋谱快析, 精析设置 (except remote engines), 局部精析's range, the
   lightweight model choice, 整盘精析 depth (`ui.whole-game-analysis-deep-visits`) and the 问题手
-  settings — only values Java itself accepts.
+  settings, the 人机对弈 dialog values, AI time, random start and 后台思考 (`new-game-handicap` is
+  Java's list position), the 引擎对战 dialog and 引擎对局设置 values (`engine-pk-*`,
+  `new-engine-game-*`, `engine-game-match-rules`, per-side time modes and resignation thresholds)
+  and the 自动落子 and 引擎对战 toolbar values in `toolbar-parameter`, and the AI 陪练 settings
+  (`human-sl-training-last-settings`; Java's retired `LIVE_CORRECTION` becomes 边下边分析),
+  HumanSL model path (`katago-human-sl-model-path`), 后台 HumanSL for 棋力评估
+  (`strength-humansl-background-enabled`; the models in Java's `strength-models/` folder are
+  copied into this client's, once, keeping their names), the 死活题 choices (`tsume-go-to-play`,
+  `tsume-go-attaker`, `tsume-go-ko-threat`, `tsume-go-wall-distance`; an unknown choice acts like
+  Java's 继承 / 自动检测 / 无), the 死活 toolbar button (`show-tsume-go-menu`) and the 抓取死活题
+  thresholds (`capture-*`, the gray offset under Java's `capture-gray-percent`) — only values Java
+  itself accepts.
   Automatic-analysis conditions (`analyze-all-branch`, all ten `auto-ana-diff-*` keys,
   `exit-auto-analyze-by-pause`, `exit-auto-analyze-tip`) and `toolbar-parameter` slots 0–8,
   47 and 48 also migrate with Java's restore rules: an empty start becomes 1, empty time 2
@@ -634,8 +825,7 @@ importing the matching LizzieYzy Next settings.
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
 as not yet available (greyed in menus; a notice when used). Not available yet: the other layout
 modes (classic, minimal, thinking, four sub boards, independent board, custom layouts),
-remote/SSH and cloud engines, the quick-analysis and HumanSL
-models of the weights page, whole-game measured tuning, 启用点击棋子回看 (click review),
+remote/SSH and cloud engines, whole-game measured tuning, 启用点击棋子回看 (click review),
 自由涂鸦, and the analysis-region items of the board context menu.
 
 Resource acquisition and real engine analysis have been verified on Linux (private X11,
@@ -687,7 +877,7 @@ prompt, and full input-method coverage on Windows and macOS.
 | Path | Contents |
 | --- | --- |
 | `crates/lizzie-core` | Platform-independent core: game record model, SGF/GIB readers and SGF writer, browsing, settings, the LizzieYzy Next settings reader (`java_import`), the engine runtime (GTP framing, launch, analysis requests, rules, the foreground lease, KataGo analysis processes, thread policy and benchmark), automatic quick analysis, engine resources (`resources`: trusted package/model catalog, machine detection, recommendation, downloads, installs, verification), the credential sanitizer and the workbench command/view contract. No Tauri or DOM dependency. |
-| `src-tauri` | Desktop shell: window, file dialogs, drag and drop, engine and helper processes, HTTP downloads, logging, diagnostics export, and the optional acceptance channel. |
+| `src-tauri` | Desktop shell: window, file dialogs, drag and drop, engine and helper processes, HTTP downloads, logging, diagnostics export, the 抓取死活题 screen picture (`screen.rs`) and overlay, and the optional acceptance channel. |
 | `ui` | Web UI: menus, toolbars, canvas painters, dialogs and the Java UI strings. |
 | `fixtures` | Sample records used by tests and manual checks. |
 | `tools` | Maintenance scripts. |
@@ -840,7 +1030,11 @@ live under `resources/` in the same data directory (`engines/<package>/` with a 
 files and never overwritten), `quick-analysis-models/` for the lightweight model, `runtime/nvidia/`
 on Windows, `downloads/` for package archives; an
 interrupted download stays next to its target as `<name>.part` and resumes from there); "打开程序目录"
-opens it. LizzieYzy Next keeps its own
+opens it. Strength models imported for 棋力评估 live in `strength-models/` and HumanSL 40 policy
+caches in `strength-humansl40-policy-cache/`, next to `resources/`. AI 解说 keeps its ChatGPT
+account list (no tokens) in `chatgpt/accounts.json` in the data directory; on Windows the keys it
+remembers are DPAPI-encrypted under `secure-credentials/` in the configuration directory, while
+macOS and Linux use the Keychain and Secret Service. LizzieYzy Next keeps its own
 `config.txt` and `persist` elsewhere (for example `~/.lizzieyzy-next/`); this client never writes
 there. The first start is detected by the missing `config.json`; declining the import offer
 writes it.
@@ -872,11 +1066,14 @@ Analysis is supported. Selected-move focus is not supported by these releases. O
 non-ONNX builds include upstream distributed support, but this app does not verify contribution
 eligibility or provide a contribution flow here; DirectML and OpenVINO builds do not support it.
 Models remain the b11 network from katagotraining.org (KataGo Neural Network License) and the
-two b10 networks from the KataGo v1.17.1 release. License references are shown per asset; official
+two b10 networks from the KataGo v1.17.1 release; the HumanSL network `b18c384nbt-humanv0` from
+katagotraining.org's extra models is pinned for AI 陪练 only. License references are shown per asset; official
 packages do not need the `licenses/` folder or `source-package.json` that LizzieYzy Next packages carry.
 
 ## License
 
 GPL-3.0-only (see `LICENSE.txt`). The images, stone sounds and the winrate font in `ui/public` are copied
 unchanged from LizzieYzy Next (GPL-3.0), and the application icons are generated from its icon;
-see `ui/public/assets/SOURCE.txt` and `ui/public/fonts/SOURCE.txt`.
+see `ui/public/assets/SOURCE.txt` and `ui/public/fonts/SOURCE.txt`. The strength models and the
+HumanSL 40 policy configuration in `crates/lizzie-core/resources/strength/` are copied unchanged
+from LizzieYzy Next's `src/main/resources/models/strength/` (GPL-3.0).

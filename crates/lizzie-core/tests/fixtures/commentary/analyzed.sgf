@@ -1,0 +1,4 @@
+(;GM[1]FF[4]CA[UTF-8]SZ[19]KM[7.5]C[User comment, never part of prompt]
+LZ[KataGo 62.4 1000 3.1 10.0 0.0 rootVisits=9000
+move Q16 visits 400 winrate 6240 prior 2000 scoreMean 3.1 order 0 pv Q16 D4 Q4 D16 C3 C4 C5 C6 C7 C8 C9 C10 C11 info move D16 visits 300 winrate 6100 prior 2000 scoreMean 3.0 order 1 pv D16 Q16 info move C3 visits 200 winrate 6000 prior 2000 scoreMean 2.8 order 2 pv C3 D4 info move D4 visits 100 winrate 5590 prior 2000 scoreMean 2.6 order 3 pv D4 Q16]
+;B[dp];W[cq];B[qq];W[dd];B[pq];W[pp])

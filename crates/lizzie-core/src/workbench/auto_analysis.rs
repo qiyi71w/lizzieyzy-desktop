@@ -347,6 +347,23 @@ impl Workbench {
         }
     }
 
+    /// Ends 自动(批量)分析 at once for a mode taking over the record or the engine: no
+    /// strengthening question; a batch saves its current record as 进度表's 清空 does.
+    pub(super) fn auto_analysis_end_now(&mut self) {
+        if self.batch_stop_loading() {
+            return;
+        }
+        if self.auto_analysis_batch() {
+            return self.stop_batch_auto_analysis_now();
+        }
+        if self.auto_analysis.run.as_ref().is_some_and(|r| r.starting) {
+            self.auto_analysis_abandon();
+            self.sync_engine();
+        } else {
+            self.auto_analysis_finish(false);
+        }
+    }
+
     fn auto_begin_diff(&mut self) {
         let Some(node) = self.auto_next_pending() else { return self.auto_analysis_finish(true) };
         let r = self.auto_analysis.run.as_mut().unwrap();
@@ -462,6 +479,8 @@ impl Workbench {
     pub fn take_background_saves(&mut self) -> Vec<SaveJob> {
         let mut jobs = std::mem::take(&mut self.auto_analysis.jobs);
         jobs.extend(self.take_batch_saves());
+        jobs.extend(self.take_play_saves());
+        jobs.extend(self.take_match_saves());
         jobs
     }
 

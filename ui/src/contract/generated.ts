@@ -97,9 +97,13 @@ showPonderLimitedTips: boolean, };
 
 export type EngineScope = "Current" | "Others" | "All";
 
-export type Command = { "type": "SetAppearanceSettings", settings: AppearanceSettings, theme: ThemeSettings, } | { "type": "SetFrameFontSize", size: number, } | { "type": "AddTheme", name: string, } | { "type": "DeleteTheme", name: string, } | { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SetExtraMode", mode: ExtraMode, } | { "type": "SetClassicMode" } | { "type": "ToggleIndependentBoard", board: IndependentBoard, } | { "type": "CloseIndependentBoard", board: IndependentBoard, } | { "type": "CommitLayout", mode: ExtraMode, panels: PanelSettings, board_position_proportion: number, save_slot: number | null, window: WindowPlacement | null, } | { "type": "ApplyCustomLayout", slot: number, } | { "type": "SwitchSecondaryEngine", index: number, } | { "type": "RestartSecondaryEngine" } | { "type": "ShutdownSecondaryEngine" } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "SetDisplaySettings", settings: DisplaySettings, } | { "type": "TogglePanel", panel: WorkbenchPanel, } | { "type": "SetPanelSettings", settings: PanelSettings, } | { "type": "SetPanelSizes", sizes: PanelSizes, } | { "type": "NudgeBoardPosition", delta: number, } | { "type": "RestoreDefaultPanelSizes" } | { "type": "SetBottomToolbar", mode: BottomToolbar, } | { "type": "ToggleRawNet" } | { "type": "StopRawNet" } | { "type": "SetKataEstimate", mode: KataEstimateMode, } | { "type": "ToggleKataEstimate" } | { "type": "Score", op: ScoreCommand, } | { "type": "SetAutoQuickAnalyze", enabled: boolean, } | { "type": "SetLoadSgfLast", enabled: boolean, } | { "type": "SaveAnalysisEngineSettings", settings: AnalysisEngineSettings, shown_command: string, edited: boolean, } | { "type": "GenerateAnalysisCommand", index: number | null, } | { "type": "SetQuickModelEnabled", enabled: boolean, } | { "type": "SetProblemList", settings: ProblemListSettings, } | { "type": "JumpToProblemMove", node: number, } | { "type": "StartFlashAnalysis", target: FlashTarget, } | { "type": "CancelFlashAnalysis" } | { "type": "RedoFlashAnalysis" } | { "type": "Region", op: RegionCommand, } | { "type": "SetRegionSettings", settings: RegionSettings, } | { "type": "Tracking", op: TrackingCommand, } | { "type": "SetTrackingSettings", settings: TrackingSettings, } | { "type": "StartAutoAnalysis", settings: AutoAnalysisSettings, } | { "type": "StopAutoAnalysis" } | { "type": "AnswerAutoAnalysisDiff", accept: boolean, } | { "type": "SaveAutoAnalysisSettings", settings: AutoAnalysisSettings, } | { "type": "DismissAutoAnalysisTip", never_again: boolean, } | { "type": "StartWholeGameAnalysis", visits: number, } | { "type": "PauseWholeGameAnalysis" } | { "type": "ResumeWholeGameAnalysis" } | { "type": "StopWholeGameAnalysis" } | { "type": "EstimateWholeGameAnalysis", visits: number, } | { "type": "Hawkeye", op: HawkeyeCommand, } | { "type": "SetHawkeyeSettings", settings: HawkeyeSettings, } | { "type": "ExportTable", rows: Array<Array<string>>, } | { "type": "Batch", op: BatchCommand, };
+export type Command = { "type": "Strength", op: StrengthCommand, } | { "type": "Commentary", op: CommentaryCommand, } | { "type": "CommentaryConnection", op: ConnectionCommand, } | { "type": "SetAppearanceSettings", settings: AppearanceSettings, theme: ThemeSettings, } | { "type": "SetFrameFontSize", size: number, } | { "type": "AddTheme", name: string, } | { "type": "DeleteTheme", name: string, } | { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SetExtraMode", mode: ExtraMode, } | { "type": "SetClassicMode" } | { "type": "ToggleIndependentBoard", board: IndependentBoard, } | { "type": "CloseIndependentBoard", board: IndependentBoard, } | { "type": "CommitLayout", mode: ExtraMode, panels: PanelSettings, board_position_proportion: number, save_slot: number | null, window: WindowPlacement | null, } | { "type": "ApplyCustomLayout", slot: number, } | { "type": "SwitchSecondaryEngine", index: number, } | { "type": "RestartSecondaryEngine" } | { "type": "ShutdownSecondaryEngine" } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, 
+/**
+ * Separate, unchecked-by-default consent for Java's commentary API key.
+ */
+copy_commentary_key: boolean, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "SetDisplaySettings", settings: DisplaySettings, } | { "type": "TogglePanel", panel: WorkbenchPanel, } | { "type": "SetPanelSettings", settings: PanelSettings, } | { "type": "SetPanelSizes", sizes: PanelSizes, } | { "type": "NudgeBoardPosition", delta: number, } | { "type": "RestoreDefaultPanelSizes" } | { "type": "SetBottomToolbar", mode: BottomToolbar, } | { "type": "ToggleRawNet" } | { "type": "StopRawNet" } | { "type": "SetKataEstimate", mode: KataEstimateMode, } | { "type": "ToggleKataEstimate" } | { "type": "Score", op: ScoreCommand, } | { "type": "SetAutoQuickAnalyze", enabled: boolean, } | { "type": "SetLoadSgfLast", enabled: boolean, } | { "type": "SaveAnalysisEngineSettings", settings: AnalysisEngineSettings, shown_command: string, edited: boolean, } | { "type": "GenerateAnalysisCommand", index: number | null, } | { "type": "SetQuickModelEnabled", enabled: boolean, } | { "type": "SetProblemList", settings: ProblemListSettings, } | { "type": "JumpToProblemMove", node: number, } | { "type": "StartFlashAnalysis", target: FlashTarget, } | { "type": "CancelFlashAnalysis" } | { "type": "RedoFlashAnalysis" } | { "type": "Region", op: RegionCommand, } | { "type": "SetRegionSettings", settings: RegionSettings, } | { "type": "Tracking", op: TrackingCommand, } | { "type": "SetTrackingSettings", settings: TrackingSettings, } | { "type": "StartAutoAnalysis", settings: AutoAnalysisSettings, } | { "type": "StopAutoAnalysis" } | { "type": "AnswerAutoAnalysisDiff", accept: boolean, } | { "type": "SaveAutoAnalysisSettings", settings: AutoAnalysisSettings, } | { "type": "DismissAutoAnalysisTip", never_again: boolean, } | { "type": "StartWholeGameAnalysis", visits: number, } | { "type": "PauseWholeGameAnalysis" } | { "type": "ResumeWholeGameAnalysis" } | { "type": "StopWholeGameAnalysis" } | { "type": "EstimateWholeGameAnalysis", visits: number, } | { "type": "Hawkeye", op: HawkeyeCommand, } | { "type": "SetHawkeyeSettings", settings: HawkeyeSettings, } | { "type": "ExportTable", rows: Array<Array<string>>, } | { "type": "Batch", op: BatchCommand, } | { "type": "Game", op: GameCommand, } | { "type": "Match", op: MatchCommand, } | { "type": "HumanSl", op: HumanSlCommand, } | { "type": "SetCaptureSettings", settings: CaptureSettings, } | { "type": "SetTsumegoButtonShown", shown: boolean, };
 
-export type CommandResult = { "type": "Done" } | { "type": "WholeGameEstimate", millis: number | null, } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "NeedsEditConfirmation", target: EditTarget, } | { "type": "Exported", path: string, } | { "type": "ExportFailed", path: string, detail: string, } | { "type": "Refused", message_key: string, } | { "type": "SaveStarted", ticket: number, } | { "type": "NeedsReplaceConfirmation", document: number, file_name: string, } | { "type": "NeedsOverwriteConfirmation", path: string, } | { "type": "NeedsExportOverwriteConfirmation", kind: ExportKind, path: string, } | { "type": "NeedsImageOverwriteConfirmation", path: string, } | { "type": "FolderChosen", path: string, } | { "type": "JavaImportPreview", preview: ImportPreviewView, } | { "type": "JavaImportFailed", failure: ImportFailure, } | { "type": "JavaImported", report: ImportReportView, } | { "type": "Resource", result: ResourceResult, } | { "type": "Tuning", result: TuningResult, } | { "type": "AnalysisCommand", command: string, generated_config: string | null, };
+export type CommandResult = { "type": "Done" } | { "type": "Strength", report: StrengthReport, } | { "type": "CommentaryModels", models: Array<string>, } | { "type": "StrengthImportFailed", detail: string, } | { "type": "WholeGameEstimate", millis: number | null, } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "NeedsEditConfirmation", target: EditTarget, } | { "type": "NeedsBatchStop" } | { "type": "Exported", path: string, } | { "type": "ExportFailed", path: string, detail: string, } | { "type": "Refused", message_key: string, } | { "type": "SaveStarted", ticket: number, } | { "type": "NeedsReplaceConfirmation", document: number, file_name: string, } | { "type": "NeedsOverwriteConfirmation", path: string, } | { "type": "NeedsExportOverwriteConfirmation", kind: ExportKind, path: string, } | { "type": "NeedsImageOverwriteConfirmation", path: string, } | { "type": "FolderChosen", path: string, } | { "type": "JavaImportPreview", preview: ImportPreviewView, } | { "type": "JavaImportFailed", failure: ImportFailure, } | { "type": "JavaImported", report: ImportReportView, } | { "type": "Resource", result: ResourceResult, } | { "type": "Tuning", result: TuningResult, } | { "type": "AnalysisCommand", command: string, generated_config: string | null, } | { "type": "TsumegoFramed", no_room: Array<Stone>, };
 
 export type ErrorKind = "InvalidArgument" | "Io" | "Unavailable";
 
@@ -154,6 +158,10 @@ export type PositionView = { document: number, node: number,
  * Row-major, `size.width * size.height`.
  */
 stones: Array<Stone | null>, last_action: LastAction | null, snapshot: boolean, move_number: number, to_play: Stone, black_captures: number, white_captures: number, marks: Array<Mark>, comment: string, 
+/**
+ * Display text only; the comment editor continues using `comment` verbatim.
+ */
+user_comment: string, ai_commentary: string | null, 
 /**
  * Root to current node.
  */
@@ -233,7 +241,7 @@ analysis_engine: AnalysisEngineSettings,
 /**
  * 快速曲线轻量模型 on the weights page.
  */
-quick_model: QuickModelView, 
+quick_model: QuickModelView, human_sl: HumanSlSettingsView, 
 /**
  * 评论/问题手 panel state.
  */
@@ -257,7 +265,19 @@ region: RegionSettings,
 /**
  * 选点重点研究.
  */
-tracking: TrackingSettings, };
+tracking: TrackingSettings, 
+/**
+ * 人机对弈 dialog settings.
+ */
+game: GameSettings, 
+/**
+ * The bottom toolbar's 自动落子.
+ */
+autoplay: AutoPlayView, matches: MatchSettingsView, 
+/**
+ * 死活题 dialog choices, 抓取死活题 参数设置 and the 死活 toolbar button.
+ */
+tsumego: TsumegoSettings, };
 
 export type StoneSound = "Stone" | "DeadStone" | "DeadStoneMore";
 
@@ -369,7 +389,13 @@ side_to_move: ShownValues,
  * KataGo `movesOwnership` after this move, Black-positive, row-major from the top-left
  * (按选点显示评估); absent unless requested and reported.
  */
-ownership: Array<number> | null, };
+ownership: Array<number> | null, 
+/**
+ * Kept among the candidates beyond 最大候选点数 (`MoveData.lastTimeUnlimited`,
+ * BoardData.tryToLimitMoves): it was within the limit at the node's previous result and is
+ * still searched (more visits, or within 3 seconds).
+ */
+kept: boolean, };
 
 export type NodeAnalysisView = { node: number, engine: string, to_play: Stone, 
 /**
@@ -572,6 +598,22 @@ engine_failure: EngineFailureView | null,
  */
 engine_notice: EngineNotice | null, 
 /**
+ * The running 人机对弈 (also while it gives the engine back).
+ */
+game: GameView | null, 
+/**
+ * How the last game ended, once.
+ */
+game_outcome: GameOutcomeView | null, 
+/**
+ * 人机对弈 messages, once each, in order.
+ */
+game_notices: Array<GameNotice>, engine_match: MatchView | null, match_outcome: MatchOutcomeView | null, match_notices: Array<MatchNotice>, match_winrate_image: MatchWinrateImageRequest | null, human_sl: HumanSlView | null, strength: StrengthView, commentary: CommentaryView, human_sl_notices: Array<HumanSlNotice>, human_sl_continuation: HumanSlContinuation | null, 
+/**
+ * 读秒 countdown voices to play (`sound/<n>.wav`), once each.
+ */
+byoyomi_voices: Array<number>, 
+/**
  * The session rules could not be applied to the foreground engine; ask whether to analyse
  * with the engine's current rules (`KifuRules.failurePrompt`), once.
  */
@@ -607,7 +649,7 @@ export type ImportStatus = "Imported" | "Incompatible" | "NotMigrated";
 
 export type ImportReason = "NotYetAvailable" | "Credential" | "InvalidValue" | "WindowCoordinates" | "RemoteEngine" | "CredentialNotConfirmed" | "Unreadable" | "NotChosen" | "Obsolete";
 
-export type ImportTarget = "Appearance" | "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode" | "WorkbenchPanels" | "PanelSizes" | "BottomToolbar" | "AutoQuickAnalysis" | "AnalysisEngine" | "QuickModel" | "ProblemList" | "FlashRange" | "AutoAnalysis" | "WholeGameVisits" | "AnalysisRegion" | "Tracking" | "Hawkeye";
+export type ImportTarget = "Appearance" | "Commentary" | "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode" | "WorkbenchPanels" | "PanelSizes" | "BottomToolbar" | "AutoQuickAnalysis" | "AnalysisEngine" | "QuickModel" | "HumanSlTraining" | "HumanSlModel" | "StrengthBackground" | "StrengthModels" | "Tsumego" | "CaptureTsumego" | "ProblemList" | "FlashRange" | "AutoAnalysis" | "HumanEngineGame" | "GameAiTime" | "GameRandomStart" | "AutoPlay" | "EngineMatch" | "WholeGameVisits" | "AnalysisRegion" | "Tracking" | "Hawkeye";
 
 export type ImportItemView = { 
 /**
@@ -654,7 +696,7 @@ export type ImportPreviewView = {
 /**
  * Answer with [`Command::ApplyJavaImport`].
  */
-id: number, config_file: string, persist_file: string | null, program_dir: string | null, items: Array<ImportItemView>, engines: Array<ImportEngineView>, 
+id: number, config_file: string, persist_file: string | null, program_dir: string | null, items: Array<ImportItemView>, engines: Array<ImportEngineView>, commentary_credential: ImportCommentaryCredential | null, 
 /**
  * Settings already chosen in this product that the import would replace.
  */
@@ -672,7 +714,9 @@ restart_required: boolean, recovery: Array<ImportSlotView>, };
 
 export type ImportFailure = { "type": "NoConfig", path: string, } | { "type": "Unreadable", path: string, detail: string, } | { "type": "Invalid", path: string, detail: string, };
 
-export type EditCommand = { "op": "Play", point: Point, color: Stone | null, } | { "op": "Pass" } | { "op": "Insert", point: Point, color: Stone, } | { "op": "EditStone", point: Point, change: StoneChange, } | { "op": "DeleteMove", confirmed: EditTarget | null, } | { "op": "DeleteMoveNoHint" } | { "op": "DeleteBranch", confirmed: EditTarget | null, } | { "op": "MoveBranch", up: boolean, } | { "op": "SetAsMain" } | { "op": "UndoEdit" } | { "op": "RedoEdit" } | { "op": "ClearEditCache" } | { "op": "ChangeTurn" } | { "op": "PlayBestMove" } | { "op": "PlayVariation", moves: Array<Point>, } | { "op": "AddVariationAsBranch", moves: Array<Point>, } | { "op": "ContinueLadder" } | { "op": "FindMove", point: Point, any_branch: boolean, } | { "op": "SetComment", node: number, comment: string, } | { "op": "ToggleMark", point: Point, tool: MarkTool, } | { "op": "ClearMarks" } | { "op": "SetGameInfo", black: string, white: string, komi: number, } | { "op": "NewBoard", confirmed: EditTarget | null, } | { "op": "ClearBoard" } | { "op": "SetBoardSize", width: number, height: number, } | { "op": "Transform", transform: Transform, } | { "op": "SetSetupMode", enabled: boolean, confirmed: EditTarget | null, } | { "op": "SetupStone", point: Point, stone: Stone | null, } | { "op": "SetupClearAll" } | { "op": "SetupSideToPlay", color: Stone, } | { "op": "ConvertToStartingPosition", confirmed: EditTarget | null, } | { "op": "TryPlay" };
+export type ImportCommentaryCredential = { source: string, base_url: string, };
+
+export type EditCommand = { "op": "Play", point: Point, color: Stone | null, } | { "op": "Pass" } | { "op": "Insert", point: Point, color: Stone, } | { "op": "EditStone", point: Point, change: StoneChange, } | { "op": "DeleteMove", confirmed: EditTarget | null, } | { "op": "DeleteMoveNoHint" } | { "op": "DeleteBranch", confirmed: EditTarget | null, } | { "op": "MoveBranch", up: boolean, } | { "op": "SetAsMain" } | { "op": "UndoEdit" } | { "op": "RedoEdit" } | { "op": "ClearEditCache" } | { "op": "ChangeTurn" } | { "op": "PlayBestMove" } | { "op": "PlayVariation", moves: Array<Point>, } | { "op": "AddVariationAsBranch", moves: Array<Point>, } | { "op": "ContinueLadder" } | { "op": "FindMove", point: Point, any_branch: boolean, } | { "op": "SetComment", node: number, comment: string, } | { "op": "ToggleMark", point: Point, tool: MarkTool, } | { "op": "ClearMarks" } | { "op": "SetGameInfo", black: string, white: string, komi: number, } | { "op": "NewBoard", confirmed: EditTarget | null, } | { "op": "ClearBoard" } | { "op": "SetBoardSize", width: number, height: number, } | { "op": "Transform", transform: Transform, } | { "op": "SetSetupMode", enabled: boolean, confirmed: EditTarget | null, } | { "op": "SetupStone", point: Point, stone: Stone | null, } | { "op": "SetupClearAll" } | { "op": "SetupSideToPlay", color: Stone, } | { "op": "ConvertToStartingPosition", confirmed: EditTarget | null, } | { "op": "TryPlay" } | { "op": "FrameTsumego", settings: TsumegoFrameSettings, } | { "op": "LoadCapturedProblem", problem: CapturedProblem, };
 
 export type EditTarget = { document: number, revision: number, node: number, };
 
@@ -1423,6 +1467,22 @@ playoutsThreshold: number,
  */
 hideControlPane: boolean, };
 
+export type HumanSlSettingsView = { model: HumanSlModelView, training: HumanSlTrainingSettings, advanced_visible: boolean, };
+
+export type HumanSlModelView = { status: HumanSlModelStatus, path: string | null, };
+
+export type HumanSlModelStatus = "Missing" | "Installed";
+
+export type HumanSlSettings = { modelPath: string | null, training: HumanSlTrainingSettings, advancedVisible: boolean, };
+
+export type HumanSlTrainingSettings = { mode: TrainingMode, opponent: OpponentPreset, danRank: boolean, rank: number, playerColor: PlayerColor, moveTimeSeconds: number, handicap: number, komi: number, };
+
+export type TrainingMode = "PostGameReview" | "LiveAnalysis";
+
+export type OpponentPreset = "Rank" | "ModernPro" | "Online9d";
+
+export type PlayerColor = "Random" | "Black" | "White";
+
 export type ProblemSide = "Black" | "White";
 
 export type ProblemSort = "LossDesc" | "MoveAsc" | "MoveDesc";
@@ -1475,7 +1535,7 @@ tier: number,
  */
 current: boolean, };
 
-export type LeaseAvailabilityView = "Available" | "NoForegroundEngine" | "EngineNotReady" | "NotKatago" | "MissingCapability" | "ExistingLease" | "EngineStateUnrestored";
+export type LeaseAvailabilityView = "Available" | "NoForegroundEngine" | "EngineNotReady" | "NotKatago" | "MissingCapability" | "ExistingLease" | "EngineStateUnrestored" | "PlayMode" | "HumanSlGame";
 
 export type UnrestoredReason = "Stop" | "Restore";
 
@@ -1816,6 +1876,305 @@ loading: BatchMode | null, running: BatchRunView | null,
  */
 open_table: number, notice: BatchNotice | null, };
 
+export type GameCommand = { "type": "Start", kind: GameKind, settings: GameSettings, autoplay: AutoPlaySettings | null, engine: number | null, } | { "type": "Continue", kind: GameKind, human: Stone | null, } | { "type": "Pause" } | { "type": "Resign" } | { "type": "End" } | { "type": "Regret" } | { "type": "SetAiTime", time: AiTimeSettings, ponder: boolean, autoplay: AutoPlaySettings, } | { "type": "SetRandomStart", settings: RandomStartSettings, } | { "type": "EngineMove" } | { "type": "SetAutoPlay", enabled: boolean, settings: AutoPlaySettings, };
+
+export type GameKind = "Genmove" | "Analysis";
+
+export type GamePhase = "Starting" | "Playing" | "Paused" | "Ending";
+
+export type GameClockView = { minutes: number, seconds: number, byo_seconds: number, byo_times: number, };
+
+export type GameView = { id: number, kind: GameKind, phase: GamePhase, human: Stone, 
+/**
+ * The engine is choosing its move.
+ */
+thinking: boolean, 
+/**
+ * 对弈模式 (`isInPlayMode`): analysis hidden while the game runs.
+ */
+play_mode: boolean, 
+/**
+ * Candidates shown when the game started (显示黑/白棋候选点; both off for 续弈).
+ */
+show_black: boolean, show_white: boolean, 
+/**
+ * AI只使用纯网络思考.
+ */
+pure_net: boolean, clock: GameClockView | null, };
+
+export type GameEnd = "EngineResigned" | "HumanResigned" | "HumanTimeout" | "Completed" | "Terminated" | "Retired";
+
+export type GameOutcomeView = { game: number, end: GameEnd, 
+/**
+ * `RE` written by the game (B+R, W+R, B+T, W+T).
+ */
+result: string | null, 
+/**
+ * Where the finished game is saved (自动保存棋谱), once the save is under way.
+ */
+saved: string | null, };
+
+export type GameNotice = { message_key: string, prefix: string | null, };
+
+export type AutoPlayView = { enabled: boolean, settings: AutoPlaySettings, };
+
+export type GameSettings = { 
+/**
+ * `ui.check-play-black`: 我执黑 (else 我执白).
+ */
+playBlack: boolean, 
+/**
+ * `ui.check-continue-play`: 接着当前局面下.
+ */
+continuePlay: boolean, 
+/**
+ * `ui.new-game-handicap`: 0 or 2–9.
+ */
+handicap: number, 
+/**
+ * `ui.use-free-handicap`: KataGo chooses the handicap points (`place_free_handicap`).
+ */
+freeHandicap: boolean, 
+/**
+ * `ui.new-game-komi`.
+ */
+komi: number, 
+/**
+ * `ui.limit-my-time`: 限制我的用时.
+ */
+limitMyTime: boolean, 
+/**
+ * `ui.my-save-time` index: 无, 5, 10, 20, 30, 60, 120, 180 minutes.
+ */
+mySaveTime: number, 
+/**
+ * `ui.my-byoyomo-seconds` index: 无, 10, 15, 20, 30, 40, 60, 120 seconds.
+ */
+myByoyomiSeconds: number, 
+/**
+ * `ui.my-byoyomo-times` index: 1, 2, 3, 5, 10, 20.
+ */
+myByoyomiTimes: number, aiTime: AiTimeSettings, 
+/**
+ * `ui.kata-visits-playouts-settings`: KataGo `maxVisits` / `maxPlayouts` for the game.
+ */
+kataLimits: boolean, 
+/**
+ * `ui.kata-visits-txt` (≤ 0: unlimited).
+ */
+kataVisits: number, 
+/**
+ * `ui.kata-playouts-txt` (≤ 0: unlimited).
+ */
+kataPlayouts: number, 
+/**
+ * `leelaz.play-ponder`: the engine keeps thinking on the human's turn.
+ */
+playPonder: boolean, 
+/**
+ * `ui.use-play-mode`: 对弈模式 hides the analysis while the game runs.
+ */
+usePlayMode: boolean, 
+/**
+ * `ui.new-game-show-black` / `ui.new-game-show-white`: candidates shown during the game.
+ */
+showBlack: boolean, showWhite: boolean, 
+/**
+ * `ui.auto-save-played-game`: the finished game is saved to `MyGames`.
+ */
+autoSave: boolean, 
+/**
+ * `ui.use-pure-net-in-game`: AI只使用纯网络思考 (分析模式).
+ */
+pureNet: boolean, 
+/**
+ * `ui.anagame-resign-start-move`, `ui.anagame-resign-move`, `ui.anagame-resign-percent`.
+ */
+resignStartMove: number, resignMove: number, resignPercent: number, 
+/**
+ * `ui.disable-wrn-in-game`: 对局时不使用分析广度拓展 (KataGo `analysisWideRootNoise` 0).
+ */
+disableWrn: boolean, randomStart: RandomStartSettings, };
+
+export type AiTimeSettings = { mode: AiTimeMode, 
+/**
+ * `leelaz.max-game-thinking-time-seconds`.
+ */
+fixedSeconds: number, 
+/**
+ * `ui.advance-time-txt`.
+ */
+advanced: string, kataType: KataTimeType, 
+/**
+ * `ui.kata-time-main-time-mins`.
+ */
+kataMainMinutes: number, 
+/**
+ * `ui.kata-time-byoyomi-secs`.
+ */
+kataByoyomiSeconds: number, 
+/**
+ * `ui.kata-time-byoyomi-times`.
+ */
+kataByoyomiTimes: number, 
+/**
+ * `ui.kata-time-fisher-increment-secs`.
+ */
+kataFischerIncrement: number, };
+
+export type AiTimeMode = "Fixed" | "Advanced" | "KataGo" | "EngineOwned";
+
+export type KataTimeType = "Byoyomi" | "Fischer" | "Absolute";
+
+export type RandomStartSettings = { 
+/**
+ * `ui.enable-anagame-randomstart`.
+ */
+enabled: boolean, 
+/**
+ * `ui.anagame-random-move`.
+ */
+moves: number, 
+/**
+ * `ui.anagame-random-winratediff` (percentage points).
+ */
+winrateDiff: number, 
+/**
+ * `ui.anagame-random-playoutdiff` (percent of the best candidate's playouts).
+ */
+playoutsDiff: number, };
+
+export type AutoPlaySettings = { black: boolean, white: boolean, 
+/**
+ * 按时间(秒).
+ */
+timeEnabled: boolean, timeSeconds: number, 
+/**
+ * 总计算量.
+ */
+playoutsEnabled: boolean, playouts: number, 
+/**
+ * 首位计算量.
+ */
+firstPlayoutsEnabled: boolean, firstPlayouts: number, };
+
+export type MatchSessionSettings = { kind: GameKind, timeEnabled: boolean, firstSeconds: number, secondSeconds: number, visitsEnabled: boolean, firstVisits: number, secondVisits: number, firstMoveVisitsEnabled: boolean, firstMoveVisits: number, secondMoveVisits: number, batchEnabled: boolean, batchLimit: number, continuePosition: boolean, exchangeColors: boolean, maxMovesEnabled: boolean, maxMoves: number, autoSave: boolean, saveWinrate: boolean, batchName: string, startNumberEnabled: boolean, startNumber: number, randomMovesEnabled: boolean, randomMoves: number, randomWinrateDiff: number, };
+
+export type MatchCommand = { "type": "Start", settings: MatchSettings, session: MatchSessionSettings, first_engine: number, second_engine: number, disable_wrn: boolean, } | { "type": "StartToolbar" } | { "type": "Stop" } | { "type": "Pause" } | { "type": "SetValues", settings: MatchSettings, session: MatchSessionSettings, disable_wrn: boolean, } | { "type": "ReviseBatchLimit", limit: number, } | { "type": "Intervention", op: MatchIntervention, } | { "type": "ReplaceOpenings", files: Array<MatchOpeningFile>, } | { "type": "WinrateImageDone", game: number, error: string | null, } | { "type": "ConfirmRules", game: number, allow: boolean, };
+
+export type MatchIntervention = { "type": "PlayNow" } | { "type": "ToggleManual" } | { "type": "Resign", side: Stone, };
+
+export type MatchOpeningFile = { path: string, bytes: Array<number>, };
+
+export type MatchPhase = "Starting" | "Playing" | "Paused" | "Ending" | "BetweenGames";
+
+export type MatchScoreView = { first_black_wins: number, first_white_wins: number, second_black_wins: number, second_white_wins: number, double_passes: number, max_moves: number, total_seconds: number, first_visits: number, second_visits: number, };
+
+export type MatchView = { id: number, game: number, phase: MatchPhase, kind: GameKind, batch: boolean, ordinal: number, batch_limit: number, completed_games: number, first_engine: number, second_engine: number, first_name: string, second_name: string, first_is_black: boolean, score: MatchScoreView, thinking_side: Stone | null, thinking_engine: number | null, manual_moves: boolean, can_play_now: boolean, can_toggle_manual: boolean, can_resign: boolean, rules: string, rules_consent_required: boolean, rules_unverified: Array<MatchRulesUnverified>, rules_target_choice: string | null, opening_index: number | null, elapsed_seconds: number, };
+
+export type MatchRulesUnverified = { name: string, commands: string, side: Stone | null, reason_key: string, };
+
+export type MatchEnd = "Resigned" | "DoublePass" | "MaxMoves" | "UserStopped" | "Retired";
+
+export type MatchOutcomeView = { game: number, ordinal: number, games_dir: string, batch: boolean, end: MatchEnd, winner: Stone | null, result: string, batch_finished: boolean, score: MatchScoreView, saved_paths: Array<string>, unrestored: Array<UnrestoredReason>, };
+
+export type MatchNotice = { message_key: string, arguments: Array<string>, };
+
+export type MatchWinrateImageRequest = { game: number, path: string, };
+
+export type MatchSettingsView = { settings: MatchSettings, session: MatchSessionSettings, disable_wrn: boolean, first_engine: number, second_engine: number, openings: Array<string>, rules_prefill: string, rules_choice: string | null, rules_corrupt: boolean, };
+
+export type MatchTimeMode = "EngineOwned" | "Fixed" | "RawAdvanced";
+
+export type MatchIdentity = { commands: string, name: string, };
+
+export type MatchResignPolicy = { minMove: number, consecutiveMoves: number, winrate: number, };
+
+export type MatchSettings = { first: MatchIdentity, second: MatchIdentity, komi: number, handicap: number, rules: string, ponder: boolean, sgfStart: boolean, sgfRandom: boolean, firstTimeMode: MatchTimeMode, secondTimeMode: MatchTimeMode, advancedTime: boolean, firstTimeCommand: string, secondTimeCommand: string, firstResign: MatchResignPolicy, secondResign: MatchResignPolicy, checkRandomVisits: boolean, randomVisitsPercent: number, showPreviousBestmoves: boolean, previousBestmoveOnly: boolean, };
+
+export type HumanSlCommand = { "type": "Start", settings: HumanSlTrainingSettings, from_current: boolean, advanced_visible: boolean, 
+/**
+ * The user confirmed stopping a running batch analysis ([`crate::api::CommandResult::NeedsBatchStop`]).
+ */
+stop_batch: boolean, } | { "type": "CancelPreparation" } | { "type": "Pass" } | { "type": "RetryAi" } | { "type": "Finish" } | { "type": "Abort" } | { "type": "AbortThen", continuation: HumanSlContinuation, };
+
+export type HumanSlPhase = "Preparing" | "Playing" | "Stopping" | "CleanupPending";
+
+export type HumanSlStartupStage = "Starting" | "LoadingModels" | "OptimizingGpu" | "CacheReady" | "Ready";
+
+export type HumanSlSide = "Human" | "Ai";
+
+export type HumanSlAnalysisDisplay = "Suppress" | "Show";
+
+export type HumanSlView = { id: number, phase: HumanSlPhase, stage: HumanSlStartupStage | null, preparing_secs: number, mode: TrainingMode, opponent: OpponentPreset, rank: number, dan_rank: boolean, human_is_black: boolean, human_ms: number, ai_ms: number, clock: HumanSlSide | null, human_turn: boolean, ai_thinking: boolean, ai_failed: boolean, analysis_display: HumanSlAnalysisDisplay, };
+
+export type HumanSlNotice = { "type": "AiPassed" } | { "type": "AiMoveFailed" } | { "type": "StartFailed", reason: string, detail: string | null, } | { "type": "ExitRecoveryFailed" } | { "type": "Ended" };
+
+export type HumanSlContinuation = "NewGame" | "NewAnalysisGame" | "EngineGame";
+
+export type StrengthCommand = { "type": "Report" } | { "type": "SelectModel", id: string, } | { "type": "ImportModel", path: string, } | { "type": "SetBackground", enabled: boolean, } | { "type": "RunHumanSl", resume: boolean, } | { "type": "CancelHumanSl" };
+
+export type StrengthView = { models: Array<StrengthModelView>, active: string, background: boolean, status: StrengthStatusView, manual: StrengthManualView | null, stamp: number, };
+
+export type StrengthStatusView = { key: string, completed: number, total: number, revision: number, };
+
+export type StrengthManualView = { 
+/**
+ * Numbers each admitted 补算 HumanSL; a dialog only takes the outcome of the run it started
+ * (an earlier run's outcome stays visible until the next run is admitted).
+ */
+run: number, running: boolean, outcome: StrengthManualOutcome | null, };
+
+export type StrengthManualOutcome = { "type": "Ready" } | { "type": "Cancelled" } | { "type": "Failed", message_key: string, detail: string | null, };
+
+export type StrengthModelView = { id: string, name: string, human_sl: boolean, };
+
+export type StrengthReport = { model: StrengthModelView, black: StrengthSideReport, white: StrengthSideReport, overall: StrengthSideReport, enough_data: boolean, };
+
+export type StrengthSideReport = { summary: StrengthSummary, samples: Array<StrengthSample>, segments: Array<StrengthSegment>, minimum_segment_samples: number, };
+
+export type StrengthSegment = { first_move: number, last_move: number, summary: StrengthSummary, };
+
+export type StrengthSummary = { sample_count: number, score_sample_count: number, rank_value: number | null, prediction_sigma: number | null, quality_score: number | null, average_winrate_loss: number, average_score_loss: number, median_score_loss: number, weighted_score_loss: number, average_score_equivalent_loss: number, match_rate: number, first_choice_rate: number, good_move_rate: number, move_rank_good_move_rate: number, move_rank_counts: Array<number>, bad_move_rate: number, mistake_rate: number, blunder_rate: number, average_difficulty: number | null, strength_band: string, confidence: StrengthConfidence, human_sl_coverage: number | null, };
+
+export type StrengthSample = { color: Stone, move_number: number, coordinate: string, winrate_loss: number, score_loss: number | null, first_choice: boolean, ai_rank: number, category: StrengthMoveCategory, move_rank: MoveRank, score_equivalent_loss: number, complexity: number, adjusted_weight: number, };
+
+export type StrengthConfidence = "Low" | "Medium" | "High";
+
+export type StrengthMoveCategory = "Excellent" | "Great" | "Good" | "Inaccuracy" | "Mistake" | "Blunder";
+
+export type CommentaryCommand = { "type": "Open" } | { "type": "Close" } | { "type": "Start", mode: Mode, first: number, last: number, } | { "type": "Ask", question: string, } | { "type": "Stop" } | { "type": "SetWriteToSgf", enabled: boolean, } | { "type": "SavePreferences", preferences: Preferences, } | { "type": "ReloadKnowledge" };
+
+export type ConnectionCommand = { "type": "ListApiModels", base_url: string, api_key: string, } | { "type": "SaveApiKeyConnection", base_url: string, model: string, api_key: string, remember: boolean, } | { "type": "ForgetApiKey" } | { "type": "OpenApiKeyTab" } | { "type": "ChatGptSignIn", account: string | null, } | { "type": "ChatGptCancelSignIn" } | { "type": "ChatGptSelectAccount", account: string, } | { "type": "ChatGptSignOut", account: string, } | { "type": "ChatGptRefreshModels" } | { "type": "SaveChatGptConnection", account: string, model: string, effort: string | null, } | { "type": "SelectProvider", provider: Provider, } | { "type": "OpenUsage" };
+
+export type CommentaryView = { open: boolean, running: boolean, mode: Mode, scope: CommentaryText, current_move: number, main_line_last_move: number, output: string, output_state: CommentaryOutputState, evidence: string, status: CommentaryStatus, model_status: CommentaryText, connection_ready: boolean, settings_loaded: boolean, settings_usable: boolean, chatgpt_usage_visible: boolean, controls_enabled: boolean, start_enabled: boolean, settings_enabled: boolean, stop_enabled: boolean, write_to_sgf: boolean, preferences: Preferences, connection: CommentarySettings, facts: CommentaryConnectionFacts, restore_question: string | null, target_changed: boolean, };
+
+export type Mode = "Next" | "Range" | "Whole";
+
+export type Provider = "unselected" | "chatGpt" | "apiKey";
+
+export type Preferences = { rankMode: string, rankNum: number, styleIndex: number, densityIndex: number, paceIndex: number, variationIndex: number, };
+
+export type CommentarySettings = { provider: Provider, baseUrl: string, model: string, rememberApiKey: boolean, rankMode: string, rankNum: number, styleIndex: number, densityIndex: number, paceIndex: number, variationIndex: number, };
+
+export type CommentaryConnectionFacts = { loaded: boolean, settings_usable: boolean, secure_storage: CommentarySecureStorage, api_key_present: boolean, chatgpt: CommentaryChatGptFacts, };
+
+export type CommentaryAccount = { id: string, email: string, signed_in: boolean, authorized: boolean, model: string, effort: string | null, credentials_unavailable: boolean, session_only: boolean, };
+
+export type CommentaryModel = { slug: string, display_name: string, efforts: Array<string>, default_effort: string | null, };
+
+export type CommentarySecureStorage = { available: boolean, backend: string, };
+
+export type CommentaryChatGptFacts = { accounts: Array<CommentaryAccount>, active: string | null, signing_in: boolean, models: Array<CommentaryModel>, status_key: string, };
+
+export type CommentaryText = { key: string, args: Array<string>, };
+
+export type CommentaryStatus = { key: string, args: Array<string>, tone: CommentaryTone, detail_key: string, };
+
+export type CommentaryTone = "Neutral" | "Running" | "Success" | "Warning" | "Error";
+
+export type CommentaryOutputState = "Empty" | "Loading" | "Output";
+
 export type FunctionMatch = { id: string, level: MatchLevel, title: string, description: string, category: string, target: FunctionTarget, path: Array<string>, shortcut: string, section: SettingsSection | null, };
 
 export type FunctionTarget = "Window" | "Setting" | "Action" | "Navigation" | "Context";
@@ -1943,6 +2302,75 @@ showOutline: boolean,
  */
 outlineOpacity: number, };
 
+export type TsumegoSettings = { 
+/**
+ * The 死活题 dialog's last confirmed choices.
+ */
+frame: TsumegoFrameSettings, 
+/**
+ * 抓取死活题's 参数设置.
+ */
+capture: CaptureSettings, 
+/**
+ * 自定义工具栏 > 死活: the 死活 button on the top toolbar (`show-tsume-go-menu`, on).
+ */
+showButton: boolean, };
+
+export type TsumegoFrameSettings = { toPlay: TsumegoToPlay, attacker: TsumegoAttacker, koThreat: TsumegoKoThreat, 
+/**
+ * 墙面间距; a confirmed value that is not above 0 keeps the previous one.
+ */
+wallDistance: number, };
+
+export type CaptureSettings = { 
+/**
+ * 黑最大偏色: each channel of a black pixel is at most this.
+ */
+blackOffset: number, 
+/**
+ * 黑最低占比: percent of black pixels that makes a black stone.
+ */
+blackPercent: number, 
+/**
+ * 白最大偏色: each channel of a white pixel is at least 255 minus this.
+ */
+whiteOffset: number, 
+/**
+ * 白最低占比.
+ */
+whitePercent: number, 
+/**
+ * 最大灰度偏色: channels of a counted pixel differ by less than this.
+ */
+grayOffset: number, };
+
+export type TsumegoToPlay = "Keep" | "Black" | "White";
+
+export type TsumegoAttacker = "Auto" | "Black" | "White";
+
+export type TsumegoKoThreat = "Both" | "Attacker" | "Defender" | "None";
+
+export type CapturedProblem = { 
+/**
+ * The board corner the problem is placed in: 1 upper left, 2 upper right, 3 lower left,
+ * 4 lower right.
+ */
+direction: number, width: number, height: number, stones: Array<number>, };
+
+export type CapturePreview = { x_min: number, y_min: number, width: number, height: number, 
+/**
+ * The fitted spacing of the squares.
+ */
+cell_width: number, cell_height: number, 
+/**
+ * Squares across and down (`cols`, `rows`); the board has one more line each way.
+ */
+columns: number, rows: number, 
+/**
+ * Row-major over `(columns + 1) * (rows + 1)` intersections: 0 empty, 1 black, 2 white.
+ */
+stones: Array<number>, };
+
 export type ManagedProfile = { command: string, assetId: string, weightPath: string, configPath: string, };
 
 export type SupportTier = "stable" | "optional" | "experimental";
@@ -2053,7 +2481,7 @@ backend: string,
 /**
  * Explicit runtime-install confirmation.
  */
-confirmed: boolean, } | { "type": "QuickModel" };
+confirmed: boolean, } | { "type": "QuickModel" } | { "type": "HumanSlModel" };
 
 export type LocalEngineChoice = { 
 /**
@@ -2271,7 +2699,7 @@ confirmed: boolean, } | { "type": "ImportWeight",
 /**
  * None opens the gzip chooser.
  */
-path: string | null, } | { "type": "ChooseLocalEngine", 
+path: string | null, } | { "type": "ImportHumanSlModel", path: string | null, } | { "type": "ChooseLocalEngine", 
 /**
  * Paths or chooser requests.
  */

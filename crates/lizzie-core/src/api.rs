@@ -8,6 +8,9 @@ mod batch;
 mod editing;
 mod export;
 mod hawkeye;
+mod humansl;
+mod humansl_settings;
+mod matches;
 mod recovery;
 mod resources;
 mod tuning;
@@ -19,9 +22,58 @@ pub use batch::*;
 pub use editing::*;
 pub use export::*;
 pub use hawkeye::*;
+pub use humansl::*;
+pub use humansl_settings::*;
+pub use matches::*;
 pub use recovery::*;
 pub use resources::*;
 pub use tuning::*;
+pub use crate::strength::{StrengthModelView, StrengthReport, StrengthSideReport, StrengthSegment, StrengthSummary, StrengthSample, StrengthConfidence, StrengthMoveCategory};
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum StrengthCommand {
+    Report,
+    SelectModel { id: String },
+    ImportModel { path: String },
+    SetBackground { enabled: bool },
+    /// 补算 HumanSL. `resume`: the same request after the model download it needed; it prepares
+    /// the game it was asked for, else is refused with `HumanSL40.gameChanged`.
+    RunHumanSl { resume: bool },
+    CancelHumanSl,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct StrengthView {
+    pub models: Vec<StrengthModelView>,
+    pub active: String,
+    pub background: bool,
+    pub status: StrengthStatusView,
+    pub manual: Option<StrengthManualView>,
+    pub stamp: u64,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct StrengthStatusView {
+    pub key: String,
+    pub completed: u32,
+    pub total: u32,
+    pub revision: u64,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct StrengthManualView {
+    /// Numbers each admitted 补算 HumanSL; a dialog only takes the outcome of the run it started
+    /// (an earlier run's outcome stays visible until the next run is admitted).
+    pub run: u32,
+    pub running: bool,
+    pub outcome: Option<StrengthManualOutcome>,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum StrengthManualOutcome {
+    Ready,
+    Cancelled,
+    Failed { message_key: String, detail: Option<String> },
+}
 
 use crate::browse::Navigation;
 use crate::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup};
@@ -42,6 +94,9 @@ pub enum OpenSource {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
 #[serde(tag = "type")]
 pub enum Command {
+    Strength { op: StrengthCommand },
+    Commentary { op: CommentaryCommand },
+    CommentaryConnection { op: ConnectionCommand },
     /// 主题 drafts apply together only on 保存设置 (ConfigDialog2.java:6191-6286).
     SetAppearanceSettings {
         settings: crate::appearance::AppearanceSettings,
@@ -251,6 +306,9 @@ pub enum Command {
     ApplyJavaImport {
         preview: u64,
         copy_credentials: Vec<u32>,
+        /// Separate, unchecked-by-default consent for Java's commentary API key.
+        #[serde(default)]
+        copy_commentary_key: bool,
         replace: bool,
         recovery: Option<RecoveryImport>,
     },
@@ -410,6 +468,153 @@ pub enum Command {
     Batch {
         op: BatchCommand,
     },
+    /// 人机对弈 (棋局 menu, 新对局 dialogs, N / Alt+N / Enter / Alt+Enter / P / Alt+, and the
+    /// double-menu game buttons) and the bottom toolbar's 自动落子.
+    Game {
+        op: GameCommand,
+    },
+    /// 引擎对战.
+    Match { op: MatchCommand },
+    HumanSl { op: HumanSlCommand },
+    /// 抓取死活题 参数设置 确定 (`CaptureTsumeGoSettings.saveSettings`).
+    SetCaptureSettings {
+        settings: crate::settings::CaptureSettings,
+    },
+    /// 自定义工具栏 > 死活 (`show-tsume-go-menu`).
+    SetTsumegoButtonShown {
+        shown: bool,
+    },
+}
+
+/// 人机对弈's two modes (`isPlayingAgainstLeelaz` / `isAnaPlayingAgainstLeelaz`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum GameKind {
+    /// Genmove模式: the engine chooses its move (`genmove`).
+    Genmove,
+    /// 分析模式: the engine's analysis is played when a 落子条件 is met.
+    Analysis,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum GameCommand {
+    /// The 新对局 dialog's 确定: `settings` (and for 分析模式 the 落子条件 `autoplay`) are saved,
+    /// engine `engine` becomes the foreground engine when it is another one, and the game is
+    /// accepted; it starts once the engine is ready and set up.
+    Start {
+        kind: GameKind,
+        settings: crate::settings::GameSettings,
+        autoplay: Option<crate::settings::AutoPlaySettings>,
+        engine: Option<u32>,
+    },
+    /// 人机续弈 from the current position. `human` plays that colour; `None` (Enter / Alt+Enter)
+    /// lets the engine play the side to move now.
+    Continue {
+        kind: GameKind,
+        human: Option<Stone>,
+    },
+    /// 暂停 / 继续.
+    Pause,
+    /// 认输: the engine wins (`Leelaz.whiteWin` / `Leelaz.blackWin`).
+    Resign,
+    /// 结束对局 / 终止人机对局 (Space).
+    End,
+    /// 悔棋: back to the human's previous turn.
+    Regret,
+    /// 修改AI用时: the engine's time, 后台思考 and the 分析模式 落子条件, applied to a running game.
+    SetAiTime {
+        time: crate::settings::AiTimeSettings,
+        ponder: bool,
+        autoplay: crate::settings::AutoPlaySettings,
+    },
+    /// AI随机开局's 确定.
+    SetRandomStart {
+        settings: crate::settings::RandomStartSettings,
+    },
+    /// Alt+, (`LizzieFrame.genmove`): the engine plays one move for the side to move.
+    EngineMove,
+    /// The bottom toolbar's 自动落子 box (session) and its sides and conditions (remembered).
+    SetAutoPlay {
+        enabled: bool,
+        settings: crate::settings::AutoPlaySettings,
+    },
+}
+
+/// A game's progress. `Starting` is accepted, not started: the engine is still loading or
+/// answering the game's setup, and the board takes no move.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum GamePhase {
+    Starting,
+    Playing,
+    Paused,
+    /// Over: the engine is being given back; other modes wait until it confirms.
+    Ending,
+}
+
+/// The human's clock (限制我的用时): main time, then 读秒 seconds and periods (-1: none).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub struct GameClockView {
+    pub minutes: i32,
+    pub seconds: i32,
+    pub byo_seconds: i32,
+    pub byo_times: i32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct GameView {
+    pub id: u64,
+    pub kind: GameKind,
+    pub phase: GamePhase,
+    pub human: Stone,
+    /// The engine is choosing its move.
+    pub thinking: bool,
+    /// 对弈模式 (`isInPlayMode`): analysis hidden while the game runs.
+    pub play_mode: bool,
+    /// Candidates shown when the game started (显示黑/白棋候选点; both off for 续弈).
+    pub show_black: bool,
+    pub show_white: bool,
+    /// AI只使用纯网络思考.
+    pub pure_net: bool,
+    pub clock: Option<GameClockView>,
+}
+
+/// How a game ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum GameEnd {
+    EngineResigned,
+    HumanResigned,
+    HumanTimeout,
+    /// Ended by the user with a result recorded (终局点目 确认结果).
+    Completed,
+    /// Ended by the user without a result, or by another record replacing the game.
+    Terminated,
+    /// The engine was lost or did not confirm its restore.
+    Retired,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct GameOutcomeView {
+    pub game: u64,
+    pub end: GameEnd,
+    /// `RE` written by the game (B+R, W+R, B+T, W+T).
+    pub result: Option<String>,
+    /// Where the finished game is saved (自动保存棋谱), once the save is under way.
+    pub saved: Option<String>,
+}
+
+/// A Java message of 人机对弈 (`message_key` text, `prefix` before it when set, e.g. the engine
+/// name of `Leelaz.resign`).
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct GameNotice {
+    pub message_key: String,
+    pub prefix: Option<String>,
+}
+
+/// The bottom toolbar's 自动落子.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, TS)]
+pub struct AutoPlayView {
+    pub enabled: bool,
+    pub settings: crate::settings::AutoPlaySettings,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, TS)]
@@ -588,6 +793,9 @@ pub enum EngineScope {
 pub enum CommandResult {
     /// Applied; the new state arrives as a [`WorkbenchView`].
     Done,
+    Strength { report: Box<StrengthReport> },
+    CommentaryModels { models: Vec<String> },
+    StrengthImportFailed { detail: String },
     WholeGameEstimate { millis: Option<u64> },
     /// Nothing to do (no movement, chooser or prompt cancelled, clipboard without SGF).
     Unchanged,
@@ -597,6 +805,9 @@ pub enum CommandResult {
     NeedsConfirmation,
     /// An edit would discard moves or the record; ask, then resend it with `confirmed: target`.
     NeedsEditConfirmation { target: EditTarget },
+    /// AI 陪练 cannot start beside a running batch analysis; ask, then resend `HumanSl` `Start`
+    /// with `stop_batch: true`, which stops the batch first.
+    NeedsBatchStop,
     /// A file was written (diagnostics package, picture).
     Exported { path: String },
     /// A picture could not be written (`LizzieFrame.saveImageErrorHint1`); nothing was replaced.
@@ -636,6 +847,9 @@ pub enum CommandResult {
         command: String,
         generated_config: Option<String>,
     },
+    /// 死活题 framed the position; each colour in `no_room` is one "没有布置 [x方] 劫材的空间"
+    /// message, in order.
+    TsumegoFramed { no_room: Vec<Stone> },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -731,6 +945,9 @@ pub struct PositionView {
     pub white_captures: u32,
     pub marks: Vec<Mark>,
     pub comment: String,
+    /// Display text only; the comment editor continues using `comment` verbatim.
+    pub user_comment: String,
+    pub ai_commentary: Option<String>,
     /// Root to current node.
     pub path: Vec<NodeId>,
     /// End of the current line through first children (Java `history.getEnd()`).
@@ -825,6 +1042,7 @@ pub struct SettingsView {
     pub analysis_engine: crate::settings::AnalysisEngineSettings,
     /// 快速曲线轻量模型 on the weights page.
     pub quick_model: QuickModelView,
+    pub human_sl: HumanSlSettingsView,
     /// 评论/问题手 panel state.
     pub problems: crate::settings::ProblemListSettings,
     /// 局部精析's move range (`analysis-start-move`, `analysis-end-move`).
@@ -841,6 +1059,13 @@ pub struct SettingsView {
     pub region: crate::settings::RegionSettings,
     /// 选点重点研究.
     pub tracking: crate::settings::TrackingSettings,
+    /// 人机对弈 dialog settings.
+    pub game: crate::settings::GameSettings,
+    /// The bottom toolbar's 自动落子.
+    pub autoplay: AutoPlayView,
+    pub matches: MatchSettingsView,
+    /// 死活题 dialog choices, 抓取死活题 参数设置 and the 死活 toolbar button.
+    pub tsumego: crate::settings::TsumegoSettings,
 }
 
 /// 快速曲线轻量模型 card (`KataGoAutoSetupDialog`, `QuickAnalysisModelStatus`).
@@ -950,6 +1175,9 @@ pub enum LeaseAvailabilityView {
     MissingCapability,
     ExistingLease,
     EngineStateUnrestored,
+    /// 人机对弈 holds the engine (`AnalysisSettings.reuseStatus.play_mode`).
+    PlayMode,
+    HumanSlGame,
 }
 
 /// Why the foreground engine was not given back (`LizzieFrame.foregroundUnrestored.reason.*`).
@@ -1055,6 +1283,23 @@ pub struct WorkbenchView {
     pub engine_failure: Option<EngineFailureView>,
     /// A notice about analysis, once.
     pub engine_notice: Option<EngineNotice>,
+    /// The running 人机对弈 (also while it gives the engine back).
+    pub game: Option<GameView>,
+    /// How the last game ended, once.
+    pub game_outcome: Option<GameOutcomeView>,
+    /// 人机对弈 messages, once each, in order.
+    pub game_notices: Vec<GameNotice>,
+    pub engine_match: Option<MatchView>,
+    pub match_outcome: Option<MatchOutcomeView>,
+    pub match_notices: Vec<MatchNotice>,
+    pub match_winrate_image: Option<MatchWinrateImageRequest>,
+    pub human_sl: Option<HumanSlView>,
+    pub strength: StrengthView,
+    pub commentary: CommentaryView,
+    pub human_sl_notices: Vec<HumanSlNotice>,
+    pub human_sl_continuation: Option<HumanSlContinuation>,
+    /// 读秒 countdown voices to play (`sound/<n>.wav`), once each.
+    pub byoyomi_voices: Vec<u8>,
     /// The session rules could not be applied to the foreground engine; ask whether to analyse
     /// with the engine's current rules (`KifuRules.failurePrompt`), once.
     pub rules_prompt: Option<RulesPromptView>,
@@ -1132,6 +1377,7 @@ pub struct ImportItemView {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, TS)]
 pub enum ImportTarget {
     Appearance,
+    Commentary,
     ReadKomi,
     LoadSgfLast,
     ReplaceFileHint,
@@ -1237,6 +1483,17 @@ pub enum ImportTarget {
     /// 快速曲线轻量模型: `ui.quick-analysis-lightweight-model-enabled`,
     /// `katago-quick-analysis-model-path`.
     QuickModel,
+    HumanSlTraining,
+    HumanSlModel,
+    StrengthBackground,
+    /// The model directories of `strength-models` (棋力评估 导入模型).
+    StrengthModels,
+    /// 死活题: `ui.tsume-go-to-play`, `tsume-go-attaker`, `tsume-go-ko-threat`,
+    /// `tsume-go-wall-distance`, `show-tsume-go-menu`.
+    Tsumego,
+    /// 抓取死活题 参数设置: `ui.capture-black-offset`, `capture-black-percent`,
+    /// `capture-white-offset`, `capture-white-percent`, `capture-gray-percent`.
+    CaptureTsumego,
     /// 问题手: `ui.is-showing-blunder-table`, `problem-list-side-filter`, `problem-list-sort`,
     /// `problem-list-winrate-threshold`, `blunder-playouts-threshold`,
     /// `hide-blunder-table-control-pane`.
@@ -1244,6 +1501,26 @@ pub enum ImportTarget {
     /// 局部精析: `ui.analysis-start-move`, `analysis-end-move`.
     FlashRange,
     AutoAnalysis,
+    /// 人机对弈: `ui.check-play-black`, `check-continue-play`, `new-game-handicap`,
+    /// `use-free-handicap`, `new-game-komi`, `limit-my-time`, `my-save-time`,
+    /// `my-byoyomo-seconds`, `my-byoyomo-times`, `kata-visits-playouts-settings`,
+    /// `kata-visits-txt`, `kata-playouts-txt`, `use-play-mode`, `new-game-show-black`,
+    /// `new-game-show-white`, `auto-save-played-game`, `use-pure-net-in-game`,
+    /// `anagame-resign-start-move`, `anagame-resign-move`, `anagame-resign-percent`,
+    /// `disable-wrn-in-game`; `leelaz.play-ponder`.
+    HumanEngineGame,
+    /// AI用时: `ui.advance-time-settings`, `advance-time-txt`, `kata-time-settings`,
+    /// `kata-time-type`, `kata-time-main-time-mins`, `kata-time-byoyomi-secs`,
+    /// `kata-time-byoyomi-times`, `kata-time-fisher-increment-secs`, `genmove-game-notime`;
+    /// `leelaz.max-game-thinking-time-seconds`.
+    GameAiTime,
+    /// AI随机开局: `ui.enable-anagame-randomstart`, `anagame-random-move`,
+    /// `anagame-random-winratediff`, `anagame-random-playoutdiff`.
+    GameRandomStart,
+    /// 自动落子: `persist:ui-persist.toolbar-parameter` slots 9–16.
+    AutoPlay,
+    /// 引擎对战 dialog and toolbar values.
+    EngineMatch,
     /// 整盘精析: `ui.whole-game-analysis-deep-visits`.
     WholeGameVisits,
     /// 强制计算区域: `ui.select-allow-moves`, `select-avoid-moves`, `select-allow-custom-moves`,
@@ -1313,10 +1590,18 @@ pub struct ImportPreviewView {
     pub program_dir: Option<String>,
     pub items: Vec<ImportItemView>,
     pub engines: Vec<ImportEngineView>,
+    pub commentary_credential: Option<ImportCommentaryCredential>,
     /// Settings already chosen in this product that the import would replace.
     pub replaces: Vec<ImportTarget>,
     /// Java 存档与读档 slots; imported only when the user chooses to.
     pub recovery: Vec<ImportSlotView>,
+}
+
+/// Non-secret Java API-key import choice. The credential never enters a core view or config.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct ImportCommentaryCredential {
+    pub source: String,
+    pub base_url: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
@@ -1482,6 +1767,10 @@ pub struct CandidateView {
     /// KataGo `movesOwnership` after this move, Black-positive, row-major from the top-left
     /// (按选点显示评估); absent unless requested and reported.
     pub ownership: Option<Vec<f64>>,
+    /// Kept among the candidates beyond 最大候选点数 (`MoveData.lastTimeUnlimited`,
+    /// BoardData.tryToLimitMoves): it was within the limit at the node's previous result and is
+    /// still searched (more visits, or within 3 seconds).
+    pub kept: bool,
 }
 
 /// One move's result against the analysis of the position it was played in (Java
@@ -1684,4 +1973,57 @@ pub struct LogsStatus {
     pub directory: String,
     pub app_log_bytes: Option<u64>,
     pub crash_log_bytes: Option<u64>,
+}
+
+pub use crate::commentary::prompt::Mode as CommentaryMode;
+pub use crate::commentary::settings::{CommentarySettings, Preferences as CommentaryPreferences, Provider as CommentaryProvider};
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum CommentaryCommand {
+    Open, Close, Start { mode: CommentaryMode, first: u32, last: u32 }, Ask { question: String }, Stop,
+    SetWriteToSgf { enabled: bool }, SavePreferences { preferences: CommentaryPreferences }, ReloadKnowledge,
+}
+/// Adapter-only operations. Never log this command: API keys are transient input, not state.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum ConnectionCommand {
+    ListApiModels { base_url: String, api_key: String },
+    SaveApiKeyConnection { base_url: String, model: String, api_key: String, remember: bool },
+    ForgetApiKey, OpenApiKeyTab,
+    ChatGptSignIn { #[serde(default)] account: Option<String> },
+    ChatGptCancelSignIn,
+    ChatGptSelectAccount { account: String }, ChatGptSignOut { account: String }, ChatGptRefreshModels,
+    SaveChatGptConnection { account: String, model: String, effort: Option<String> },
+    SelectProvider { provider: CommentaryProvider }, OpenUsage,
+}
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+pub struct CommentaryAccount { pub id: String, pub email: String, pub signed_in: bool, pub authorized: bool, pub model: String, pub effort: Option<String>, pub credentials_unavailable: bool, pub session_only: bool }
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+pub struct CommentaryModel { pub slug: String, pub display_name: String, pub efforts: Vec<String>, pub default_effort: Option<String> }
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+pub struct CommentarySecureStorage { pub available: bool, pub backend: String }
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+pub struct CommentaryChatGptFacts { pub accounts: Vec<CommentaryAccount>, pub active: Option<String>, pub signing_in: bool, pub models: Vec<CommentaryModel>, pub status_key: String }
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+pub struct CommentaryConnectionFacts { pub loaded: bool, pub settings_usable: bool, pub secure_storage: CommentarySecureStorage, pub api_key_present: bool, pub chatgpt: CommentaryChatGptFacts }
+impl Default for CommentaryConnectionFacts { fn default() -> Self { Self { loaded: false, settings_usable: true, secure_storage: CommentarySecureStorage::default(), api_key_present: false, chatgpt: CommentaryChatGptFacts::default() } } }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+/// Java `TeacherDialogView.StatusTone`.
+pub enum CommentaryTone { #[default] Neutral, Running, Success, Warning, Error }
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+pub struct CommentaryText { pub key: String, pub args: Vec<String> }
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+pub struct CommentaryStatus { pub key: String, pub args: Vec<String>, pub tone: CommentaryTone, pub detail_key: String }
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
+pub enum CommentaryOutputState { Empty, Loading, Output }
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct CommentaryView {
+    pub open: bool, pub running: bool, pub mode: CommentaryMode, pub scope: CommentaryText,
+    pub current_move: u32, pub main_line_last_move: u32, pub output: String, pub output_state: CommentaryOutputState,
+    pub evidence: String, pub status: CommentaryStatus, pub model_status: CommentaryText,
+    pub connection_ready: bool, pub settings_loaded: bool, pub settings_usable: bool, pub chatgpt_usage_visible: bool,
+    pub controls_enabled: bool, pub start_enabled: bool, pub settings_enabled: bool, pub stop_enabled: bool,
+    pub write_to_sgf: bool, pub preferences: CommentaryPreferences, pub connection: CommentarySettings,
+    pub facts: CommentaryConnectionFacts, pub restore_question: Option<String>, pub target_changed: bool,
 }

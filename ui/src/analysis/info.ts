@@ -7,6 +7,7 @@ import { APP_TITLE, state, windowTitle } from "../app";
 import type { CandidateView, HistoryPoint, WorkbenchView } from "../contract/generated";
 import { t } from "../i18n";
 import { playouts, type OwnershipLayer, type StatScene } from "../workbench/paint";
+import { matchPlaying, matchUi, sideName } from "../match/state";
 import { sameOwnership } from "../workbench/viewEquality";
 
 /** The ownership the main board draws: 纯网络's while it is on (shouldShowHeatmapFor suppresses
@@ -156,22 +157,32 @@ export function startTitleUpdates(repaint: () => void): void {
   }, 1000);
 }
 
-/** LizzieFrame.updateTitle (LizzieFrame.java:10942-11048) outside engine games: the app name, the
- *  [Black win rate, Black lead, visits] of the current position (else of the previous one), the
- *  engine with its speed (or " - 搜索/秒" while paused), the players, result and file. 试下 keeps
+/** LizzieFrame.updateTitle (LizzieFrame.java:10942-11052): the app name, the [Black win rate, Black
+ *  lead, visits] of the current position (else of the previous one), the engine with its speed (or
+ *  " - 搜索/秒" while paused), the players, result and file. A Genmove 引擎对战 game shows the
+ *  thinking engine; the batch title (enginePkTitile) replaces the players and file. 试下 keeps
  *  LizzieFrame.tryTitle. */
 export function workbenchTitle(v: WorkbenchView, version: string, history: Map<number, HistoryPoint>, parent: number | undefined): string {
   const base = windowTitle(version);
   if (v.editing.trying) return base;
   const stem = `${APP_TITLE} ${version}`;
+  const match = v.engine_match;
+  const pk = matchUi.pkTitle;
+  if (match && match.kind === "Genmove" && matchPlaying(v)) {
+    const thinking = match.thinking_side ? sideName(match, match.thinking_side === "Black") : "";
+    return `${pk !== null ? `${pk} ` : ""}${stem}-${thinking} ${t("LizzieFrame.thinking")}`;
+  }
   const rest = base.slice(stem.length + 1);
   const a = v.analysis;
   const previous = parent === undefined ? undefined : history.get(parent);
-  // 窗口标题显示胜率 (show-title-wr, LizzieFrame.java:10966) off drops the bracketed values.
-  const values = !v.settings.panels.showWinrateInTitle ? null : a && a.visits > 0 ? { black: a.black, visits: a.visits } : previous && previous.visits > 0 ? previous : null;
+  // 窗口标题显示胜率 (show-title-wr, LizzieFrame.java:10966-11020) off drops the bracketed values; a
+  // game in play mode drops them too, and a game without values shows "[ ---   ---   --- ] ".
+  const shown = v.settings.panels.showWinrateInTitle && !v.game?.play_mode;
+  const values = !shown ? null : a && a.visits > 0 ? { black: a.black, visits: a.visits } : previous && previous.visits > 0 ? previous : null;
   const lead = values?.black.score_lead ?? null;
-  const prefix = values ? `[${values.black.winrate.toFixed(1)}${lead === null ? "" : ` ${lead.toFixed(1)}`} ${playouts(values.visits)}] ` : "";
+  const prefix = values ? `[${values.black.winrate.toFixed(1)}${lead === null ? "" : ` ${lead.toFixed(1)}`} ${playouts(values.visits)}] ` : shown && v.game ? "[ ---   ---   --- ] " : "";
   const foreground = v.engine.foreground;
+  if (pk !== null && foreground) return `${pk} ${stem} - ${prefix}${foreground.name}${speedText} `;
   if (!foreground) return `${stem}${prefix ? ` - ${prefix}` : ""} ${rest}`;
   const speed = v.engine.analysing ? `${speedText} ` : ` - ${t("LizzieFrame.speedUnit")} `;
   return `${stem} - ${prefix}${foreground.name}${speed}${rest}`;

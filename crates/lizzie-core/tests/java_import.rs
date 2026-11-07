@@ -1664,3 +1664,422 @@ fn imported_custom_layouts_restore_java_snapshot_fields_and_independent_bounds()
     assert!(s.custom_layouts[1].as_ref().unwrap().window.unwrap().maximized);
     assert!(s.panels.show_sub_board && !s.panels.show_comment);
 }
+
+#[test]
+fn human_engine_game_imports_java_dialog_values_and_reports_each_key() {
+    use lizzie_core::settings::{AiTimeMode, KataTimeType};
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    // Config.java:1668-2143,3554-3563; NewGameDialog.java:213-245,305-307.
+    // Handicap is saved as a combo index, whereas the Rust setting is a stone count.
+    let source = json!({"ui": {
+        "check-play-black": false, "check-continue-play": true,
+        "new-game-handicap": 8, "use-free-handicap": true, "new-game-komi": "0.5",
+        "limit-my-time": true, "my-save-time": 7, "my-byoyomo-seconds": 6, "my-byoyomo-times": 5,
+        "advance-time-settings": false, "advance-time-txt": "time_settings 30 5 1",
+        "kata-time-settings": true, "kata-time-type": 1, "kata-time-main-time-mins": 25,
+        "kata-time-byoyomi-secs": 30, "kata-time-byoyomi-times": 5,
+        "kata-time-fisher-increment-secs": 8, "genmove-game-notime": false,
+        "kata-visits-playouts-settings": true, "kata-visits-txt": 3000, "kata-playouts-txt": -2,
+        "use-play-mode": false, "new-game-show-black": true, "new-game-show-white": true,
+        "auto-save-played-game": false, "use-pure-net-in-game": true,
+        "anagame-resign-start-move": 120, "anagame-resign-move": 4, "anagame-resign-percent": 2.5,
+        "disable-wrn-in-game": false, "enable-anagame-randomstart": true,
+        "anagame-random-move": 15, "anagame-random-winratediff": 1.25, "anagame-random-playoutdiff": 12.5,
+        "new-engine-game-komi": 6.5, "pk-advance-time-settings": true
+    }, "leelaz": {"play-ponder": false, "max-game-thinking-time-seconds": 9}});
+    std::fs::write(java.join("config.txt"), source.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let before = wb.config().game.clone();
+    let p = preview(&mut wb, &java);
+    assert_eq!(wb.config().game, before, "preview writes nothing");
+    for section in ["ui", "leelaz"] {
+        for key in source[section].as_object().unwrap().keys() {
+            let row = item(&p.items, &format!("{section}.{key}"));
+            assert_eq!(row.status, ImportStatus::Imported, "{section}.{key}");
+            if key.starts_with("new-engine-game-") || key.starts_with("pk-") {
+                assert_eq!(row.target, Some(ImportTarget::EngineMatch));
+            }
+        }
+    }
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    let g = &wb.config().game;
+    assert!(!g.play_black && g.continue_play && g.free_handicap && g.limit_my_time);
+    assert_eq!((g.handicap, g.komi), (9, 0.5));
+    assert_eq!((g.my_save_time, g.my_byoyomi_seconds, g.my_byoyomi_times), (7, 6, 5));
+    assert_eq!((g.save_minutes(), g.byoyomi_seconds(), g.byoyomi_times()), (180, 60, 20));
+    assert_eq!(g.ai_time.mode, AiTimeMode::KataGo);
+    assert_eq!(g.ai_time.kata_type, KataTimeType::Fischer);
+    assert_eq!(g.ai_time.advanced, "time_settings 30 5 1");
+    assert_eq!((g.ai_time.fixed_seconds, g.ai_time.kata_main_minutes, g.ai_time.kata_byoyomi_seconds,
+        g.ai_time.kata_byoyomi_times, g.ai_time.kata_fischer_increment), (9, 25, 30, 5, 8));
+    assert!(g.kata_limits && g.show_black && g.show_white && g.pure_net);
+    assert!(!g.play_ponder && !g.use_play_mode && !g.auto_save && !g.disable_wrn);
+    assert_eq!((g.kata_visits, g.kata_playouts), (3000, -2));
+    assert_eq!((g.resign_start_move, g.resign_move, g.resign_percent), (120, 4, 2.5));
+    assert!(g.random_start.enabled);
+    assert_eq!((g.random_start.moves, g.random_start.winrate_diff, g.random_start.playouts_diff), (15, 1.25, 12.5));
+    assert_eq!(&saved_config(&product).game, g);
+}
+
+#[test]
+fn game_time_mode_uses_java_precedence_and_missing_keys_preserve_settings() {
+    use lizzie_core::settings::AiTimeMode;
+    // DesktopTimeControl.java:28-32: engineOwned > rawAdvanced > kataGoAdvanced > Fixed.
+    for bits in 0..8 {
+        let tmp = tempfile::tempdir().unwrap();
+        let java = tmp.path().join("java");
+        std::fs::create_dir_all(&java).unwrap();
+        let owned = bits & 1 != 0;
+        let advanced = bits & 2 != 0;
+        let kata = bits & 4 != 0;
+        std::fs::write(java.join("config.txt"), json!({"ui": {
+            "genmove-game-notime": owned, "advance-time-settings": advanced, "kata-time-settings": kata
+        }}).to_string()).unwrap();
+        let product = tmp.path().join("product");
+        let mut wb = workbench(&product, Recorder::default());
+        let p = preview(&mut wb, &java);
+        wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+        assert_eq!(wb.config().game.ai_time.mode, if owned { AiTimeMode::EngineOwned }
+            else if advanced { AiTimeMode::Advanced } else if kata { AiTimeMode::KataGo }
+            else { AiTimeMode::Fixed }, "flags {bits}");
+        let before = wb.config().game.clone();
+        let autoplay = wb.persisted().autoplay;
+        std::fs::write(java.join("config.txt"), json!({"ui": {}}).to_string()).unwrap();
+        let p = preview(&mut wb, &java);
+        wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+        assert_eq!(wb.config().game, before);
+        assert_eq!(wb.persisted().autoplay, autoplay);
+    }
+}
+
+#[test]
+fn game_combo_indices_are_translated_or_left_unmapped_when_java_would_fail() {
+    for index in 0..=9 {
+        let tmp = tempfile::tempdir().unwrap();
+        let java = tmp.path().join("java");
+        std::fs::create_dir_all(&java).unwrap();
+        std::fs::write(java.join("config.txt"), json!({"ui": {
+            "new-game-handicap": index, "my-save-time": 8, "my-byoyomo-seconds": -2,
+            "my-byoyomo-times": 6, "kata-time-type": 3
+        }}).to_string()).unwrap();
+        let product = tmp.path().join("product");
+        let mut wb = workbench(&product, Recorder::default());
+        let before = wb.config().game.clone();
+        let p = preview(&mut wb, &java);
+        for key in ["my-save-time", "my-byoyomo-seconds", "my-byoyomo-times", "kata-time-type"] {
+            let row = item(&p.items, &format!("ui.{key}"));
+            assert_eq!(row.status, ImportStatus::NotMigrated);
+            assert_eq!(row.reason, Some(ImportReason::InvalidValue));
+        }
+        assert_eq!(item(&p.items, "ui.new-game-handicap").status,
+            if index == 9 { ImportStatus::NotMigrated } else { ImportStatus::Imported });
+        wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+        let g = &wb.config().game;
+        assert_eq!(g.handicap, if index == 0 || index == 9 { 0 } else { index + 1 });
+        assert_eq!((g.my_save_time, g.my_byoyomi_seconds, g.my_byoyomi_times, g.ai_time.kata_type),
+            (before.my_save_time, before.my_byoyomi_seconds, before.my_byoyomi_times, before.ai_time.kata_type));
+    }
+}
+
+#[test]
+fn autoplay_imports_toolbar_slots_with_java_empty_and_checkbox_restore_semantics() {
+    // Config.java:3307-3331 / BottomToolbar.java:2378-2379,2412-2434. Black, white and
+    // time start checked and loading only sets them true, even for saved -1 / zero.
+    for slots in [[1, 1, 1, 6, 1, 300, 1, 100], [-1; 8], [0; 8]] {
+        let tmp = tempfile::tempdir().unwrap();
+        let java = tmp.path().join("java");
+        std::fs::create_dir_all(&java).unwrap();
+        std::fs::write(java.join("config.txt"), json!({"ui": {}}).to_string()).unwrap();
+        let mut toolbar = vec![json!(-1); 51];
+        for (offset, value) in slots.into_iter().enumerate() { toolbar[9 + offset] = json!(value); }
+        toolbar[40] = json!(3); toolbar[41] = json!(250);
+        toolbar[47] = json!(true); toolbar[48] = json!(true);
+        std::fs::write(java.join("persist"), json!({"ui-persist": {"toolbar-parameter": toolbar}}).to_string()).unwrap();
+        let product = tmp.path().join("product");
+        let mut wb = workbench(&product, Recorder::default());
+        let p = preview(&mut wb, &java);
+        for index in 9..=16 {
+            let row = item(&p.items, &format!("persist:ui-persist.toolbar-parameter[{index}]"));
+            assert_eq!(row.status, ImportStatus::Imported);
+            assert_eq!(row.target, Some(ImportTarget::AutoPlay));
+        }
+        assert_eq!(item(&p.items, "persist:ui-persist.toolbar-parameter").status, ImportStatus::NotMigrated);
+        wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+        let a = wb.persisted().autoplay;
+        assert!(a.black && a.white && a.time_enabled);
+        let field = |n| if n > 0 { n } else { -1 };
+        assert_eq!((a.time_seconds, a.playouts, a.first_playouts), (field(slots[3]), field(slots[5]), field(slots[7])));
+        assert_eq!((a.playouts_enabled, a.first_playouts_enabled), (slots[4] > 0, slots[6] > 0));
+        assert_eq!((wb.config().display.autoplay_main_seconds, wb.config().display.autoplay_sub_millis), (3.0, 250));
+        drop(wb);
+        assert_eq!(workbench(&product, Recorder::default()).persisted().autoplay, a, "persisted on import");
+    }
+}
+
+#[test]
+fn engine_match_imports_dialog_and_toolbar_values_with_one_shared_wrn_owner() {
+    // Config.java:1718–1723,1747–1748,1793–1795,1874–1877,1957–1958,1980,2070;
+    // DesktopTimeControl.java:102–123; BottomToolbar.java:2437–2520.
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let values = json!({"ui": {
+        "engine-pk-black-commands": "first gtp", "engine-pk-black-name": "First",
+        "engine-pk-white-commands": "second gtp", "engine-pk-white-name": "Second",
+        "new-engine-game-komi": 6.5, "new-engine-game-handicap": 4,
+        "engine-game-match-rules": "japanese", "engine-pk-ponder": true,
+        "engine-sgf-start": true, "engine-sgf-random": false, "disable-wrn-in-game": false,
+        "pk-black-time-mode": "ENGINE_OWNED", "pk-white-time-mode": "RAW_ADVANCED",
+        "pk-advance-time-settings": false, "advance-black-time-txt": "time_settings 10 5 1",
+        "advance-white-time-txt": "time_settings 20 10 1", "first-engine-min-move": 30,
+        "second-engine-min-move": 40, "first-engine-resign-move-counts": 3,
+        "second-engine-resign-move-counts": 4, "first-engine-resign-winrate": 2.5,
+        "second-engine-resign-winrate": 3.5, "check-random-visits": true,
+        "percents-random-visits": 25.0, "show-previous-bestmoves-in-enginegame": true,
+        "show-previous-bestmoves-only-first-move": false
+    }});
+    std::fs::write(java.join("config.txt"), values.to_string()).unwrap();
+    let mut toolbar = vec![json!(-1); 51];
+    for (index,value) in [(17,50),(18,60),(19,3),(20,500),(21,600),(22,7),(23,1),(24,1),(25,1),(26,1),(27,-1),(36,300),(38,4),(45,12)] {
+        toolbar[index] = json!(value);
+    }
+    for (index,value) in [(30,false),(31,true),(35,false),(37,true),(44,true),(49,true)] { toolbar[index] = json!(value); }
+    toolbar[46] = json!(0.75);
+    std::fs::write(java.join("persist"),json!({"ui-persist":{"toolbar-parameter":toolbar}}).to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product,Recorder::default());
+    let preview = preview(&mut wb,&java);
+    for key in values["ui"].as_object().unwrap().keys() {
+        let row = item(&preview.items,&format!("ui.{key}"));
+        assert_eq!(row.status,ImportStatus::Imported,"{key}");
+        assert_eq!(row.target,Some(if key=="disable-wrn-in-game" { ImportTarget::HumanEngineGame } else { ImportTarget::EngineMatch }));
+    }
+    wb.apply_java_import(preview.id,&[],true,None).unwrap().unwrap();
+    let s = &wb.config().matches;
+    assert_eq!((&*s.first.commands,&*s.first.name,&*s.second.commands,&*s.second.name),("first gtp","First","second gtp","Second"));
+    assert_eq!((s.komi,s.handicap,s.rules.as_str()),(6.5,4,"japanese"));
+    assert!(s.ponder && s.sgf_start && !s.sgf_random && !s.advanced_time);
+    assert_eq!((s.first_time_mode,s.second_time_mode),(lizzie_core::settings::MatchTimeMode::EngineOwned,lizzie_core::settings::MatchTimeMode::RawAdvanced));
+    assert_eq!((s.first_time_command.as_str(),s.second_time_command.as_str()),("time_settings 10 5 1","time_settings 20 10 1"));
+    assert_eq!((s.first_resign.min_move,s.first_resign.consecutive_moves,s.first_resign.winrate),(30,3,2.5));
+    assert_eq!((s.second_resign.min_move,s.second_resign.consecutive_moves,s.second_resign.winrate),(40,4,3.5));
+    assert!(s.check_random_visits && s.show_previous_bestmoves && !s.previous_bestmove_only);
+    assert_eq!(s.random_visits_percent,25.0);
+    assert!(!wb.config().game.disable_wrn);
+    let v = wb.persisted().matches.clone();
+    assert_eq!((v.first_move_visits,v.second_move_visits,v.first_visits,v.second_visits),(50,60,500,600));
+    assert_eq!((v.first_seconds,v.second_seconds,v.batch_limit),(3.0,4.0,7));
+    assert!(v.batch_enabled && v.continue_position && v.first_move_visits_enabled && v.visits_enabled && v.time_enabled);
+    assert_eq!(v.kind,lizzie_core::api::GameKind::Genmove);
+    assert!(!v.auto_save && !v.exchange_colors && v.max_moves_enabled && v.random_moves_enabled && v.save_winrate);
+    assert_eq!((v.max_moves,v.random_moves,v.random_winrate_diff),(300,12,0.75));
+    drop(wb);
+    assert_eq!(workbench(&product,Recorder::default()).persisted().matches,v);
+}
+
+#[test]
+fn humansl_training_and_model_import_preserve_java_files_and_migrate_live_correction() {
+    use lizzie_core::settings::{OpponentPreset, PlayerColor, TrainingMode};
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    let model = java.join("human-sl-models/custom.bin.gz");
+    std::fs::create_dir_all(model.parent().unwrap()).unwrap();
+    std::fs::File::create(&model).unwrap().set_len(1024 * 1024 + 1).unwrap();
+    let source = json!({"ui": {
+        "katago-human-sl-model-path": "human-sl-models/custom.bin.gz",
+        "human-sl-training-last-settings": {
+            "mode": "LIVE_CORRECTION", "opponent-preset": "ONLINE_9D", "dan-rank": false,
+            "rank": 18, "player-color": "WHITE", "move-time-seconds": 86400,
+            "handicap": 2, "komi": 0.5, "advanced-visible": true
+        }
+    }}).to_string();
+    std::fs::write(java.join("config.txt"), &source).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    for target in [ImportTarget::HumanSlTraining, ImportTarget::HumanSlModel] {
+        assert!(p.items.iter().any(|row| row.target == Some(target) && row.status == ImportStatus::Imported));
+    }
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    let h = &wb.config().human_sl;
+    assert_eq!(h.model_path.as_deref().map(Path::new), Some(model.as_path()));
+    let s = &h.training;
+    assert_eq!((s.mode, s.opponent, s.player_color), (TrainingMode::LiveAnalysis, OpponentPreset::Online9d, PlayerColor::White));
+    assert_eq!((s.rank, s.move_time_seconds, s.handicap, s.komi), (18, 86400, 2, 0.5));
+    assert!(!s.dan_rank && h.advanced_visible);
+    assert_eq!(wb.view(false).settings.human_sl.model.status, lizzie_core::api::HumanSlModelStatus::Installed);
+    assert_eq!(saved_config(&product).human_sl, wb.config().human_sl);
+    assert_eq!(std::fs::read_to_string(java.join("config.txt")).unwrap(), source);
+    assert_eq!(std::fs::metadata(&model).unwrap().len(), 1024 * 1024 + 1);
+}
+
+#[test]
+fn humansl_java_corrupt_or_future_fields_fall_back_independently() {
+    use lizzie_core::settings::{OpponentPreset, PlayerColor, TrainingMode};
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), json!({"ui": {
+        "human-sl-training-last-settings": {
+            "mode": "FUTURE_MODE", "opponent-preset": "UNKNOWN_STYLE", "dan-rank": true,
+            "rank": 99, "player-color": "PURPLE", "move-time-seconds": 17,
+            "handicap": 99, "komi": "not-a-number", "advanced-visible": true
+        }
+    }}).to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    let s = &wb.config().human_sl.training;
+    assert_eq!((s.mode, s.opponent, s.player_color), (TrainingMode::PostGameReview, OpponentPreset::Rank, PlayerColor::Random));
+    assert_eq!((s.rank, s.move_time_seconds, s.handicap, s.komi), (9, 10, 9, 7.5));
+    assert!(wb.config().human_sl.advanced_visible);
+}
+
+#[test]
+fn tsumego_choices_capture_thresholds_and_button_import_like_java_reads_them() {
+    use lizzie_core::settings::{CaptureSettings, TsumegoFrameSettings};
+    use lizzie_core::tsumego::{TsumegoAttacker, TsumegoKoThreat, TsumegoToPlay};
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    // An attacker outside the dialog's choices selects no radio button and builds like 自动检测;
+    // the gray offset lives under `capture-gray-percent`.
+    let source = json!({"ui": {
+        "tsume-go-to-play": 3, "tsume-go-attaker": 7, "tsume-go-ko-threat": 4, "tsume-go-wall-distance": 5,
+        "show-tsume-go-menu": false,
+        "capture-black-offset": 100, "capture-black-percent": 30, "capture-white-offset": 90,
+        "capture-white-percent": 12, "capture-gray-percent": 33
+    }}).to_string();
+    std::fs::write(java.join("config.txt"), &source).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    for target in [ImportTarget::Tsumego, ImportTarget::CaptureTsumego] {
+        assert!(p.items.iter().any(|row| row.target == Some(target) && row.status == ImportStatus::Imported));
+    }
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    let t = &wb.config().tsumego;
+    assert_eq!(
+        t.frame,
+        TsumegoFrameSettings {
+            to_play: TsumegoToPlay::White,
+            attacker: TsumegoAttacker::Auto,
+            ko_threat: TsumegoKoThreat::None,
+            wall_distance: 5,
+        }
+    );
+    assert!(!t.show_button);
+    assert_eq!(
+        t.capture,
+        CaptureSettings { black_offset: 100, black_percent: 30, white_offset: 90, white_percent: 12, gray_offset: 33 }
+    );
+    assert_eq!(saved_config(&product).tsumego, *t);
+    assert_eq!(std::fs::read_to_string(java.join("config.txt")).unwrap(), source);
+}
+
+#[test]
+fn teacher_settings_preserve_legacy_defaults_and_java_clamping() {
+    use lizzie_core::api::CommentaryProvider;
+    let temp = tempfile::tempdir().unwrap();
+    let java = temp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), "{}").unwrap();
+    let teacher = "# Java pre-provider settings\r\nbaseUrl=   \r\nmodel=example\\u002dmodel\r\nteacher.rankMode=d\r\nteacher.rankNum=99\r\nteacher.styleIndex=-8\r\nteacher.densityIndex=9\r\nteacher.paceIndex=invalid\r\nteacher.variationIndex=-1\r\n";
+    std::fs::write(java.join("teacher.properties"), teacher).unwrap();
+    let mut wb = workbench(&temp.path().join("product"), Recorder::default());
+    let preview = preview(&mut wb, &java);
+    let item = preview.items.iter().find(|item| item.key == "file:teacher.properties").unwrap();
+    assert_eq!((item.status, item.target, item.credential), (ImportStatus::Imported, Some(ImportTarget::Commentary), false));
+    assert!(preview.commentary_credential.is_none());
+    wb.apply_java_import(preview.id, &[], false, None).unwrap().unwrap();
+    let settings = &wb.config().commentary;
+    assert_eq!(settings.provider, CommentaryProvider::ApiKey);
+    assert_eq!(settings.base_url, "https://api.openai.com/v1");
+    assert_eq!(settings.model, "example-model");
+    assert_eq!((settings.preferences.rank_mode.as_str(), settings.preferences.rank_num), ("d", 9));
+    assert_eq!((settings.preferences.style_index, settings.preferences.density_index, settings.preferences.pace_index, settings.preferences.variation_index), (0, 2, 1, 0));
+    assert_eq!(std::fs::read_to_string(java.join("teacher.properties")).unwrap(), teacher);
+}
+
+#[test]
+fn explicit_provider_does_not_inherit_the_legacy_openai_address() {
+    use lizzie_core::api::CommentaryProvider;
+    let temp = tempfile::tempdir().unwrap();
+    let java = temp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), "{}").unwrap();
+    std::fs::write(java.join("teacher.properties"), "provider=CHATGPT\nbaseUrl=\nmodel=\nteacher.rankMode=invalid\nteacher.rankNum=not-an-int\n").unwrap();
+    let candidate = java_import::read(&JavaSource::new(&java, None)).unwrap();
+    let settings = candidate.mapped.commentary.as_ref().unwrap();
+    assert_eq!(settings.provider, CommentaryProvider::ChatGpt);
+    assert!(settings.base_url.is_empty() && settings.model.is_empty());
+    assert_eq!((settings.preferences.rank_mode.as_str(), settings.preferences.rank_num), ("k", 5));
+    let session = candidate.items.iter().find(|item| item.key == "credential:chatgpt-session").unwrap();
+    assert_eq!((session.status, session.reason), (ImportStatus::NotMigrated, Some(ImportReason::Credential)));
+}
+
+#[test]
+fn legacy_commentary_key_is_a_separate_unconfirmed_choice_and_never_enters_core_state() {
+    const KEY: &str = "private-legacy-commentary-key";
+    let temp = tempfile::tempdir().unwrap();
+    let java = temp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), "{}").unwrap();
+    let teacher = format!("model=example\nrememberApiKey=true\napiKey={KEY}\n");
+    std::fs::write(java.join("teacher.properties"), &teacher).unwrap();
+    let mut wb = workbench(&temp.path().join("product"), Recorder::default());
+    let preview = preview(&mut wb, &java);
+    let choice = preview.commentary_credential.as_ref().unwrap();
+    assert_eq!(choice.source, "teacher.properties");
+    assert_eq!(choice.base_url, "https://api.openai.com/v1");
+    assert!(wb.java_commentary_import(preview.id + 1).is_none());
+    assert!(!serde_json::to_string(&preview).unwrap().contains(KEY));
+    let report = wb.apply_java_import(preview.id, &[], false, None).unwrap().unwrap();
+    let item = report.items.iter().find(|item| item.key == "credential:commentary-api-key").unwrap();
+    assert_eq!((item.status, item.reason), (ImportStatus::NotMigrated, Some(ImportReason::CredentialNotConfirmed)));
+    assert!(!wb.config().commentary.remember_api_key);
+    assert!(wb.java_commentary_import(preview.id).is_none());
+    for text in [serde_json::to_string(&report).unwrap(), serde_json::to_string(wb.config()).unwrap(), serde_json::to_string(&wb.inspect()).unwrap()] {
+        assert!(!text.contains(KEY));
+    }
+    assert_eq!(std::fs::read_to_string(java.join("teacher.properties")).unwrap(), teacher);
+    let command: lizzie_core::api::Command = serde_json::from_value(json!({"type":"ApplyJavaImport", "preview":1, "copy_credentials":[], "replace":false, "recovery":null})).unwrap();
+    assert!(matches!(command, lizzie_core::api::Command::ApplyJavaImport { copy_commentary_key: false, .. }));
+}
+
+#[test]
+fn remembered_commentary_key_selection_does_not_share_engine_credential_consent() {
+    let temp = tempfile::tempdir().unwrap();
+    let java = temp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), "{}").unwrap();
+    std::fs::write(java.join("teacher.properties"), "baseUrl=https://provider.example/v1\nmodel=example\nrememberApiKey=true\n").unwrap();
+    let mut candidate = java_import::read(&JavaSource::new(&java, None)).unwrap();
+    assert!(candidate.commentary_credential.is_none());
+    // The platform adapter supplies only the fact that a readable secure-store key exists.
+    candidate.set_commentary_credential("secure-store");
+    let items = candidate.items_after(&candidate.credential_engines());
+    let credential = items.iter().find(|item| item.key == "credential:commentary-api-key").unwrap();
+    assert_eq!(credential.reason, Some(ImportReason::CredentialNotConfirmed));
+    assert_eq!(candidate.commentary_credential.unwrap().source, "secure-store");
+}
+
+#[test]
+fn imported_commentary_settings_remember_nothing_until_a_key_is_copied() {
+    let temp = tempfile::tempdir().unwrap();
+    let java = temp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), "{}").unwrap();
+    std::fs::write(java.join("teacher.properties"), "provider=API_KEY\nbaseUrl=https://provider.example/v1\nmodel=example\nrememberApiKey=true\n").unwrap();
+    let mut wb = workbench(&temp.path().join("product"), Recorder::default());
+    let preview = preview(&mut wb, &java);
+    wb.apply_java_import(preview.id, &[], false, None).unwrap().unwrap();
+    let settings = &wb.config().commentary;
+    assert_eq!((settings.base_url.as_str(), settings.model.as_str()), ("https://provider.example/v1", "example"));
+    // Only a confirmed, successful copy into this client's credential store turns remembering on.
+    assert!(!settings.remember_api_key);
+}

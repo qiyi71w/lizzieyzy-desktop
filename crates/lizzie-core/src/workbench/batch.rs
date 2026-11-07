@@ -161,6 +161,11 @@ impl Workbench {
             || self.batch.releasing.is_some()
     }
 
+    /// 批量分析 or 批量精析 runs (not its setup, nor a borrowed engine still being given back).
+    pub(super) fn batch_running(&self) -> bool {
+        self.batch.run.is_some() || self.auto_analysis_batch()
+    }
+
     /// 批量精析 runs or gives its borrowed engine back.
     pub(super) fn batch_flash_engaged(&self) -> bool {
         self.batch
@@ -772,6 +777,7 @@ impl Workbench {
     ) {
         let limit = self.config.engine.analysis.limit_branch_length;
         let capture = !self.config.edit.no_capture;
+        let shown = self.suggestion_limit();
         let Some(d) = self
             .batch
             .run
@@ -790,7 +796,8 @@ impl Workbench {
         let visits = result.visits;
         let first = result.candidates.first().map_or(0, |c| c.visits);
         fill_pv_captures(&mut result, &d.record.position(node), limit, capture);
-        d.store.insert(node, stamp, result, ownership);
+        // Not the shown document: nothing of it is tracked.
+        d.store.update(node, stamp, result, ownership, shown, &[]);
         if node == d.cursor && !self.paused {
             self.auto_analysis_result(node, visits, first, elapsed);
         }

@@ -17,7 +17,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::{
-    DocumentEdit, GameRecord, Mark, MarkKind, NodeId, NodeKind, Point, Position, Property, Setup, Stone, ROOT,
+    DocumentEdit, GameInfo, GameRecord, Mark, MarkKind, NodeId, NodeKind, Point, Position, Property, Setup, Stone,
+    ROOT,
 };
 
 /// What the rules allow when a stone is placed.
@@ -161,6 +162,15 @@ impl GameRecord {
                 comment.clone_into(target);
                 Ok(Applied::content(None))
             }
+            DocumentEdit::SetProperty { node, property } => {
+                known(self, *node)?;
+                let properties = &mut self.node_mut(*node).properties;
+                if let Some(existing) = properties.iter_mut().find(|p|p.id==property.id) {
+                    if existing == property { return Ok(Applied::unchanged(None)); }
+                    existing.clone_from(property);
+                } else { properties.push(property.clone()); }
+                Ok(Applied::content(None))
+            }
             DocumentEdit::SetKomi { komi } => {
                 if self.info.komi == *komi {
                     return Ok(Applied::unchanged(None));
@@ -181,6 +191,13 @@ impl GameRecord {
                     return Ok(Applied::unchanged(None));
                 }
                 result.clone_into(&mut self.info.result);
+                Ok(Applied::content(None))
+            }
+            DocumentEdit::SetHandicap { handicap } => {
+                if self.info.handicap == *handicap {
+                    return Ok(Applied::unchanged(None));
+                }
+                self.info.handicap = *handicap;
                 Ok(Applied::content(None))
             }
             DocumentEdit::Play {
@@ -209,6 +226,17 @@ impl GameRecord {
                     Some((node, false)) => Applied::unchanged(Some(node)),
                     None => Applied::unchanged(None),
                 })
+            }
+            DocumentEdit::PassBranch { at, color } => {
+                known(self, *at)?;
+                let node = self.push_move(*at, NodeKind::Pass { color: *color }, PlayRules::default());
+                Ok(Applied::content(Some(node)))
+            }
+            DocumentEdit::PlayBranch { at, color, point, rules } => {
+                known(self, *at)?;
+                if !self.is_legal(*at, *color, *point, *rules) { return Ok(Applied::unchanged(None)); }
+                let node = self.push_move(*at, NodeKind::Move { color: *color, point: *point }, *rules);
+                Ok(Applied::content(Some(node)))
             }
             DocumentEdit::AddBranch { at, moves, rules } => {
                 known(self, *at)?;
@@ -282,6 +310,7 @@ impl GameRecord {
                 known(self, *node)?;
                 Ok(self.convert_to_start(*node))
             }
+            DocumentEdit::ReplaceWithPosition { stones, to_play } => Ok(self.replace_with_position(stones, *to_play)),
             DocumentEdit::Transform(t) => self.transform(*t),
             DocumentEdit::ToggleMark { node, point, tool } => {
                 known(self, *node)?;
@@ -809,6 +838,44 @@ impl GameRecord {
         root.to_play = to_play;
         root.explicit_to_play = Some(to_play);
         root.properties = without_analysis(std::mem::take(&mut root.properties));
+        self.has_setup_or_handicap = !self.node(ROOT).setup.is_empty();
+        self.restamp(ROOT);
+        Applied::content(Some(ROOT))
+    }
+
+    /// `Board.flattenWithCondition`: a new history holding one snapshot of `stones` (a fresh
+    /// `BoardData` and `GameInfo`); the komi is set by the caller.
+    fn replace_with_position(&mut self, stones: &[Option<Stone>], to_play: Stone) -> Applied {
+        let (mut black, mut white) = (Vec::new(), Vec::new());
+        for y in 0..self.size.height {
+            for x in 0..self.size.width {
+                let p = Point { x, y };
+                match stones.get(self.size.index(p)).copied().flatten() {
+                    Some(Stone::Black) => black.push(p),
+                    Some(Stone::White) => white.push(p),
+                    None => {}
+                }
+            }
+        }
+        for c in std::mem::take(&mut self.node_mut(ROOT).children) {
+            self.mark_removed(c);
+        }
+        self.info = GameInfo {
+            komi: self.info.komi,
+            ..GameInfo::default()
+        };
+        self.komi_declared = false;
+        let root = self.node_mut(ROOT);
+        root.setup = Setup {
+            add_black: black,
+            add_white: white,
+            clear: Vec::new(),
+        };
+        root.to_play = to_play;
+        root.explicit_to_play = Some(to_play);
+        root.comment.clear();
+        root.marks.clear();
+        root.properties.clear();
         self.has_setup_or_handicap = !self.node(ROOT).setup.is_empty();
         self.restamp(ROOT);
         Applied::content(Some(ROOT))

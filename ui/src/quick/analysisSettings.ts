@@ -38,6 +38,8 @@ function availabilityText(lease: LeaseAvailabilityView): string {
     case "MissingCapability": return t("AnalysisSettings.reuseStatus.missing_capability");
     case "ExistingLease": return t("AnalysisSettings.reuseStatus.existing_lease");
     case "EngineStateUnrestored": return t("AnalysisSettings.reuseStatus.engine_state_unrestored");
+    case "PlayMode": return t("AnalysisSettings.reuseStatus.play_mode");
+    case "HumanSlGame": return t("AnalysisSettings.reuseStatus.human_sl_game");
   }
 }
 

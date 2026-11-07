@@ -36,6 +36,8 @@ pub enum ResourceItem {
     /// 快速曲线轻量模型 (`downloadQuickAnalysisModel`): the catalog's lightweight model, kept in
     /// `quick-analysis-models/` apart from the weights list.
     QuickModel,
+    /// HumanSL training model, stored separately from analysis weights.
+    HumanSlModel,
 }
 /// Engine and supporting files chosen by the user; absent paths invoke native choosers.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
@@ -96,6 +98,8 @@ pub enum ResourceCommand {
         /// None opens the gzip chooser.
         path: Option<String>,
     },
+    /// Import a HumanSL .bin.gz/.txt.gz model; None opens the gzip chooser.
+    ImportHumanSlModel { path: Option<String> },
     /// Choose executable/supporting files and explicitly check its version.
     ChooseLocalEngine {
         /// Paths or chooser requests.

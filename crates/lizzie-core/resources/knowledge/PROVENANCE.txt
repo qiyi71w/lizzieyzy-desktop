@@ -1,0 +1,22 @@
+Commentary knowledge resources
+
+Copied without transformation from LizzieYzy Java commit
+cb53acc55eda42c6c671b5f668cd3b597456bf07:
+  src/main/resources/knowledge/training-catalog.json
+  src/main/resources/knowledge/pattern-cards.json
+
+These are original GoAgent common-pattern teaching reconstructions, not
+imported book diagrams, SGF comments, website explanations or dictionaries.
+The source registry at the same commit records:
+  goagent_original_training_catalog: "MIT project content";
+  goagent-curated-original: "Project license for GoAgent repository".
+The training-catalog.json sourcePolicy records the original reconstruction
+policy and prohibits copying third-party material without a rights review.
+PatternSearchEngine.java identifies pattern-cards.json as GoAgent's original
+pattern-card data. This port preserves the shipped sourcePolicy and contents.
+
+The registry's non-importable or reference-only sources are not copied here.
+No joseki SGF data is used by the commentary MatchEngine entry point, including
+Pachi (GPL-2.0-only), Josekle (MIT), Kogo (permission required; not bundled), or
+the project-authorized AI joseki book SGF. Their manifest is not a catalogue
+source for this module. No resource loader on this path reads user/work files.

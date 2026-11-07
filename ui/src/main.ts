@@ -38,6 +38,7 @@ import { graphDestination, graphTarget, paintGraph, type GraphHits, type GraphRe
 import { bindTables, boardPointerMoved, boardWheel, clearTableSelection, mainTableSignature, renderMainTable, resetTables, tableBranchLength, tablesReport } from "./analysis/table";
 import { frameReport, framesReport, handleTableKey, relayFrame, startFrame } from "./analysis/tableCommands";
 import { handleHawkeyeKey, hawkeyeReport, relayHawkeye, startHawkeye } from "./hawkeye/commands";
+import { commentaryReport, relayCommentary, renderCommentPanel, startCommentary } from "./commentary/commands";
 import { batchReport, handleBatchKey, startBatchTable } from "./batch/commands";
 import { bindCommentEditor, commentEditing } from "./editing/comment";
 import { contextMenuItems, contextMenuOpen } from "./editing/contextMenu";
@@ -46,14 +47,19 @@ import { editing } from "./editing/state";
 import { appMenuKey } from "./appMenuKey";
 import { bindCaptureSurface, copyMainBoardPicture, copySubBoardPicture, saveMainBoardPicture, saveSubBoardPicture, saveWinratePicture } from "./recovery/capture";
 import { startAutoSave } from "./recovery/commands";
+import { clockText, handleGameKey } from "./game/commands";
+import { handleMatchKey } from "./match/commands";
+import { handleTsumegoKey } from "./tsumego/commands";
 import { recoveryReport } from "./recovery/panel";
 import { bindProblemPanel, problemsReport, renderProblemPanel } from "./quick/problems";
 import "./quick/analysisSettings";
 import { flashWindowOpen, startFlash } from "./quick/flash";
 import { openWholeGameAnalysis } from "./quick/wholeGame";
 import { bindFunctionSearch, functionSearchReport } from "./search/controller";
+import { strengthReport } from "./strength/dashboard";
 import { appearanceRevision, onAppearanceChange, startAppearance } from "./appearance/state";
 import "./appearance/commands";
+import { humanSlDisplay } from "./humansl/state";
 import {
   aiScoreText,
   loadImages,
@@ -61,6 +67,7 @@ import {
   paintBoard,
   paintCaptured,
   paintStat,
+  paintPlayStat,
   paintStatus,
   paintDualStrip,
   playouts,
@@ -206,72 +213,22 @@ function hoverNear(v: WorkbenchView, near: (p: Point) => boolean) {
   if (next && near(next)) return hover(NEXT_MOVE);
   const limit = v.settings.engine.analysis.limitMaxSuggestion;
   const candidate = v.analysis?.candidates.find((c) => c.point && c.visits > 0 && near(c.point) &&
-    (limit === 0 || c.order < limit || v.settings.display.noSuggCircle || limitMemory.unlimited.has(`${c.point.x},${c.point.y}`)))
+    (limit === 0 || c.order < limit || v.settings.display.noSuggCircle || c.kept))
     ?? (doubleEngine ? v.secondary?.analysis?.candidates.find((c) => c.point && c.visits > 0 && near(c.point) &&
       (limit === 0 || c.order < limit || v.settings.display.noSuggCircle)) : undefined);
   hover(candidate?.point ? `${candidate.point.x},${candidate.point.y}` : null);
 }
 
-/** BoardData.tryToLimitMoves (BoardData.java:586-636) for the shown position: the previous kept
- *  candidates with their lastTimeUnlimited flag and time, and the points kept beyond 最大候选点数
- *  now. Only with a limit and without show-nosugg-circle; a new position starts afresh. */
-const limitMemory = {
-  key: "",
-  previous: [] as { point: string; order: number; visits: number; unlimited: boolean; time: number }[],
-  unlimited: new Set<string>(),
-};
-/** The limit settings `limitMemory` was last worked out with. */
-let limitedWith = "";
-
-function limitMoves(v: WorkbenchView) {
-  const limit = v.settings.engine.analysis.limitMaxSuggestion;
-  const key = `${v.document.id}:${v.position.node}`;
-  if (limitMemory.key !== key) {
-    limitMemory.key = key;
-    limitMemory.previous = [];
-  }
-  const pointKey = (p: Point | null) => (p ? `${p.x},${p.y}` : "pass");
-  const candidates = v.analysis?.candidates ?? [];
-  const kept = candidates.map((c) => ({ point: pointKey(c.point), order: c.order, visits: c.visits, unlimited: false, time: 0 }));
-  limitMemory.unlimited = new Set();
-  if (limit > 0 && !v.settings.display.noSuggCircle && candidates.length > limit) {
-    const now = Date.now();
-    const last = limitMemory.previous;
-    for (let n = limit; n < kept.length; n++) {
-      const move = kept[n];
-      let keep = false;
-      if (move.order < limit + 1) {
-        for (let s = 0; s < limit + 1 && s < last.length; s++) {
-          const before = last[s];
-          if (s >= limit && !before.unlimited) continue;
-          if (move.point !== before.point) continue;
-          move.unlimited = true;
-          if (move.visits > before.visits || !before.unlimited) {
-            move.time = now;
-            keep = true;
-          } else if (now - before.time < 3000) {
-            move.time = before.time;
-            keep = true;
-          }
-        }
-      }
-      if (keep) limitMemory.unlimited.add(move.point);
-      else kept.splice(n--, 1);
-    }
-  }
-  limitMemory.previous = kept;
+/** Points ("x,y") of the candidates the core keeps beyond 最大候选点数 (MoveData.lastTimeUnlimited). */
+function keptPoints(v: WorkbenchView | null): Set<string> {
+  return new Set((v?.analysis?.candidates ?? []).flatMap((c) => (c.kept && c.point ? [`${c.point.x},${c.point.y}`] : [])));
 }
 
 /** Cache line navigation only when the tree/position changes, not on engine frames. */
 function projectAnalysis(v: WorkbenchView) {
   if (projectedView !== v) {
     projectedView = v;
-    const limitSettings = `${v.settings.engine.analysis.limitMaxSuggestion}:${v.settings.display.noSuggCircle}`;
-    if (!sameAnalysis(projectedAnalysis, v.analysis)) {
-      analysisRevision++;
-      limitMoves(v);
-    } else if (limitSettings !== limitedWith) limitMoves(v);
-    limitedWith = limitSettings;
+    if (!sameAnalysis(projectedAnalysis, v.analysis)) analysisRevision++;
     projectedAnalysis = v.analysis;
     const secondary = v.secondary?.analysis ?? null;
     if (!sameAnalysis(projectedSecondary, secondary)) secondaryRevision++;
@@ -319,9 +276,10 @@ function projectAnalysis(v: WorkbenchView) {
   }
 }
 
-/** 棋盘下方显示黑白名字 with a loaded record's player names (BoardRenderer.isEmptyName). */
+/** 棋盘下方显示黑白名字 whenever the record has a player name (BoardRenderer.isEmptyName), also for
+ *  a new record whose names a game set. */
 function namesUnderBoard(v: WorkbenchView): boolean {
-  return v.settings.display.namesOnBoard && v.document.format !== null && (v.document.info.black !== "" || v.document.info.white !== "");
+  return v.settings.display.namesOnBoard && (v.document.info.black !== "" || v.document.info.white !== "");
 }
 
 /** BoardRenderer.isBigMargin: coordinates, names, the pure network line or a policy line below. */
@@ -386,7 +344,7 @@ function hoveredVariation(v: WorkbenchView, right = false): { target: ReplayTarg
     const ratio = c.allocation_visits / Math.max(1, ...candidates.map((x) => x.allocation_visits));
     const maxSuggestion = v.settings.engine.analysis.limitMaxSuggestion;
     // lastTimeUnlimited is kept for the main board's candidates only.
-    const kept = !right && limitMemory.unlimited.has(`${point.x},${point.y}`);
+    const kept = !right && c.kept;
     if (!needShow && (ratio <= v.settings.display.minPlayoutRatio || (maxSuggestion > 0 && c.order + 1 > maxSuggestion && !kept)))
       return { target, preview: null };
   }
@@ -503,7 +461,7 @@ document.addEventListener("keydown", (e) => {
   if (appMenuKey(e) || dialogOpen() || flashWindowOpen() || menuOpen() || contextMenuOpen() || textTarget(e.target)) return;
   // The 存档与读档 controls keep their keys, like the Swing components holding the focus there.
   if (e.target instanceof Element && e.target.closest("#recovery")) return;
-  if (handleLayoutKey(e) || handlePanelKey(e) || handleEngineKey(e) || handleEditKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e)) {
+  if (handleLayoutKey(e) || handlePanelKey(e) || handleEngineKey(e) || handleEditKey(e) || handleMatchKey(e) || handleTsumegoKey(e) || handleGameKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e)) {
     e.preventDefault();
     return;
   }
@@ -739,7 +697,8 @@ function bindPointer() {
         const q = queuedGraph;
         queuedGraph = null;
         const now = state.view;
-        if (!now || now.document.id !== q.document) continue;
+        // LizzieFrame.java:10374-10377: no graph navigation while an AI 陪练 session exists.
+        if (!now || now.document.id !== q.document || now.human_sl) continue;
         const node = graphDestination(state.nodes, now.position.node, q.node, q.withinBranch);
         if (node !== null) await run({ type: "GotoNode", node });
       }
@@ -753,6 +712,12 @@ function bindPointer() {
   graph.addEventListener("contextmenu", (ev) => ev.preventDefault());
   graph.addEventListener("mousedown", (ev) => {
     if (!state.view) return;
+    // An AI 陪练 session ignores presses on the graph (LizzieFrame.java:10374-10377; a right press
+    // is onClickedRight, which returns during the session).
+    if (state.view.human_sl) {
+      ev.preventDefault();
+      return;
+    }
     if (ev.button === 2) {
       // Off the board: openRightClickMenu clears the table selection, else undoForRightClick.
       ev.preventDefault();
@@ -983,6 +948,10 @@ function render() {
 
   const firstChildId = state.nodes.get(pos.node)?.children[0];
   const firstChild = firstChildId === undefined ? undefined : state.nodes.get(firstChildId);
+  // AI 陪练's 实战后复盘 (applyTrainingModeVisualState): no candidates, winrate in the suggestions,
+  // Kata形势, policy or heat map for the game; the committed display settings stay as they are.
+  const training = humanSlDisplay(v);
+  const suppress = training === "Suppress";
   const scene: BoardScene = {
     cols,
     rows,
@@ -1000,20 +969,22 @@ function render() {
     snapshot: pos.snapshot,
     mainTrunk: pos.main_trunk,
     analysis: v.analysis,
-    overlay: v.board,
+    // isInPlayMode hides the move rank marks (BoardRenderer.moveOverlayOrder).
+    overlay: v.game?.play_mode ? { ...v.board, ranks: [] } : v.board,
     display: v.whole_game.show_results ? { ...v.settings.display, suggestionWinrate: true, suggestionPlayouts: true, suggestionVariations: true } : v.settings.display,
     suggestionLimit: v.settings.engine.analysis.limitMaxSuggestion,
-    unlimited: limitMemory.unlimited,
-    candidatesShown: v.whole_game.show_results || candidatesShownFor(pos.to_play),
-    policy: boardUi.policy,
-    rawNetOn: v.rawNet !== null,
+    unlimited: keptPoints(v),
+    // 纯网络 in a 分析模式 game draws the candidates on the engine's turn (BoardRenderer.java:399-412).
+    candidatesShown: v.whole_game.show_results || candidatesShownFor(pos.to_play) || (v.game?.kind === "Analysis" && v.game.pure_net && pos.to_play !== v.game.human),
+    policy: boardUi.policy && !suppress,
+    rawNetOn: v.rawNet !== null && !suppress,
     // A result for another position is never shown.
-    rawNet: v.rawNet?.node === pos.node ? v.rawNet : null,
+    rawNet: v.rawNet?.node === pos.node && !suppress ? v.rawNet : null,
     katago: !!v.engine.foreground?.katago,
     engine: !!v.engine.foreground,
     hovered: hoverAllowed(v) ? hoveredCandidate : null,
     preview: hoveredVariation(v)?.preview ?? null,
-    ownership: mainOwnership(v, hoverAllowed(v) ? hoveredCandidate : null),
+    ownership: suppress ? null : mainOwnership(v, hoverAllowed(v) ? hoveredCandidate : null),
     score: v.score,
     mark: v.problems.mark,
     region: v.region,
@@ -1021,7 +992,7 @@ function render() {
     focus: v.focus,
     tracking: v.settings.tracking,
   };
-  const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}`;
+  const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}:${v.game?.id ?? ""}:${v.game?.play_mode ?? ""}:${training ?? ""}`;
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
   const scoreSig = v.score ? JSON.stringify(v.score) : "";
   const searchSig = JSON.stringify([v.region, scene.selecting, v.focus, v.settings.tracking]);
@@ -1037,6 +1008,7 @@ function render() {
   });
   relayFrame(v);
   relayHawkeye(v);
+  relayCommentary(v);
   if (changed("bottombar", `${$("bottombar").clientWidth}`)) {
     layoutBottomBar($("bottombar"));
     // 详细工具栏 wraps its panels by width: a new height resizes the workbench.
@@ -1055,11 +1027,17 @@ function render() {
 function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docSig: string, ui: string, scene: BoardScene) {
   const pos = v.position;
   const { width: cols, height: rows } = v.document.size;
+  // LizzieFrame.isInPlayMode: the sub board, graph, statistics, comment and list show no analysis.
+  const playMode = !!v.game?.play_mode;
+  // An AI 陪练 game in 实战后复盘 shows no analysis on the sub board and in the list either.
+  const noAnalysis = playMode || humanSlDisplay(v) === "Suppress";
   // The resting pointer freezes the sub board's variation for this position (no-refresh-on-sub).
   const over = subOver && v.settings.display.noRefreshOnSub;
   if (!over) subFrozen = null;
   else if (!subFrozen || subFrozen.node !== pos.node) subFrozen = { node: pos.node, analysis: v.analysis, revision: ++subFrozenRevision };
-  const sub = subBoardScene(v, scene, subAnalysis(v), subCandidate, subLength ?? subAutoplayLength(), over, v.settings.display.subBoard, 0);
+  const subScene = subBoardScene(v, scene, subAnalysis(v), subCandidate, subLength ?? subAutoplayLength(), over, v.settings.display.subBoard, 0);
+  // SubBoardRenderer.java:221-222: the stones only.
+  const sub: SubBoardScene = noAnalysis ? { ...subScene, analysis: null, heat: null, candidatesShown: false, ownership: null } : subScene;
   // Panel rectangles follow the panel flags and separators, not just the size; hidden panels are
   // not drawn (their signatures keep what they last showed).
   const at = (r: Rect) => `${size}:${r.x},${r.y},${r.w},${r.h}`;
@@ -1080,13 +1058,19 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
       small: P.smallCaptured,
     });
   const stat = statScene(v, historyByNode, (node) => state.nodes.get(node)?.parent ?? undefined);
-  if (P.shown.stat && changed("stat", `${at(P.stat)}:${JSON.stringify(stat)}`)) statReport = paintStat(prepare($("stat"), P.stat), P.stat, stat);
+  // drawMoveStatistics in play mode: the darkened strip with the human's clock.
+  const playClock = v.game?.clock ? clockText(v.game.clock) : null;
+  if (P.shown.stat && changed("stat", `${at(P.stat)}:${playMode ? `play:${playClock}` : JSON.stringify(stat)}`)) {
+    if (playMode) paintPlayStat(prepare($("stat"), P.stat), P.stat, playClock);
+    else statReport = paintStat(prepare($("stat"), P.stat), P.stat, stat);
+  }
   const graphDisplay = v.settings.display;
   // Turning 显示鼠标悬停信息 off clears the hovered node (clearMouseOverWinrateGraph).
   if (!graphDisplay.mouseOverWinrateGraph) graphHover = null;
   const graphSettings = `${graphDisplay.winrateLine}:${graphDisplay.scoreLeadLine}:${graphDisplay.winrateGraphFill}:${graphDisplay.blunderBar}:${graphDisplay.initialMaxScoreLead}`;
-  if (P.shown.graph && changed("graph", `${at(P.graph)}:${docSig}:${pos.line_end}:${historyRevision}:${graphSettings}:${graphHover}`)) {
-    const painted = paintGraph(prepare($("graph"), P.graph), P.graph, { nodes: state.nodes, current: pos.node, history: historyByNode, display: graphDisplay, hover: graphHover });
+  if (P.shown.graph && changed("graph", `${at(P.graph)}:${docSig}:${pos.line_end}:${historyRevision}:${graphSettings}:${graphHover}:${playMode}`)) {
+    // WinrateGraph suppressGraphContent: nothing plotted in play mode.
+    const painted = paintGraph(prepare($("graph"), P.graph), P.graph, { nodes: state.nodes, current: pos.node, history: playMode ? new Map() : historyByNode, display: graphDisplay, hover: playMode ? null : graphHover });
     graphReport = painted.report;
     graphHits = painted.hits;
   }
@@ -1112,11 +1096,14 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
   }
   place($("comment"), P.comment);
   // 记录选点信息到评论中: Java's pane shows the summary its engine writes into the comment.
-  const comment = v.comment_with_analysis ?? pos.comment;
-  if (changed("comment", `${docSig}:${comment}`)) $("commentText").textContent = comment;
+  // CommentDisplayRenderer: AI 解说 blocks leave the comment text and show as their own section;
+  // the comment editor still edits the raw comment.
+  const comment = playMode ? "" : (v.comment_with_analysis ?? pos.user_comment);
+  const aiCommentary = playMode ? null : pos.ai_commentary;
+  if (changed("comment", `${docSig}:${comment}:${aiCommentary}`)) renderCommentPanel($("commentText"), comment, aiCommentary);
   renderProblemPanel(v);
   place($("table"), P.table);
-  if (P.shown.table && changed("table", `${at(P.table)}:${docSig}:${analysisRevision}:${historyRevision}:${mainTableSignature(v)}`)) renderMainTable($("table"), v);
+  if (P.shown.table && changed("table", `${at(P.table)}:${docSig}:${analysisRevision}:${historyRevision}:${mainTableSignature(v)}:${noAnalysis}`)) renderMainTable($("table"), noAnalysis ? { ...v, analysis: null } : v);
 }
 
 /** 思考模式's raw board (boardRenderer2 with order 2 and SHOW_RAW_BOARD, LizzieFrame.java:697-701;
@@ -1320,7 +1307,7 @@ function uiReport() {
     title: document.title,
     focus: active ? { tag: active.tagName.toLowerCase(), id: active.id, className: active.className, key: active.dataset.key ?? null } : null,
     menuOpen: menuOpen(),
-    dialogs: [...document.querySelectorAll(".modal-box")].map((box) => ({
+    dialogs: [...document.querySelectorAll(".modal-box:not([hidden])")].map((box) => ({
       title: box.querySelector(".modal-title")?.textContent ?? "",
       body: box.querySelector(".modal-body")?.textContent ?? "",
     })),
@@ -1401,6 +1388,10 @@ function uiReport() {
     hawkeye: hawkeyeReport(),
     /** 批量分析 (T17): whether its settings dialog is shown and what the 进度表 window last drew. */
     batch: batchReport(),
+    /** 棋力评估 (T25): the dashboard, 详细数据 and HumanSL 40 progress dialogs as shown. */
+    strength: strengthReport(),
+    /** AI 解说 (T26): whether its window is open and what it shows, settings dialog included. */
+    commentary: commentaryReport(),
     /** Visible menu, toolbar, bottom-bar and dialog controls with client-area centres, so
      *  automation clicks the real controls. */
     targets: [...document.querySelectorAll<HTMLElement>("[data-key], [data-name], #moveInput, .modal-box button")]
@@ -1437,7 +1428,7 @@ function uiReport() {
       /** The hovered variation is the 下一手 详细 one (actual move + next position's best PV). */
       nextMovePreview: boardReport?.preview?.order === -1,
       /** Candidates kept beyond 最大候选点数 by lastTimeUnlimited ("x,y"). */
-      keptBeyondLimit: [...limitMemory.unlimited],
+      keptBeyondLimit: [...keptPoints(state.view)],
       tree: { numbers: state.view?.settings.display.treeMoveNumbers ?? false, drawn: treeNumbersDrawn },
       autoplay: autoplayReport(),
     },
@@ -1563,6 +1554,7 @@ async function boot() {
   render();
   await startFrame(schedule);
   await startHawkeye(schedule);
+  await startCommentary();
   await startIndependent(independentInput, schedule);
   await startBatchTable();
   await getCurrentWindow().show();

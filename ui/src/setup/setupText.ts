@@ -73,9 +73,6 @@ export function node<K extends keyof HTMLElementTagNameMap>(tag: K, text = "", c
 export function action(key: string, text: string, fn: () => void | Promise<unknown>, enabled = true): HTMLButtonElement {
   const el = node("button", text); el.dataset.key = key; el.disabled = !enabled; el.onclick = () => { void fn(); }; return el;
 }
-export function future(key: string, text: string): HTMLButtonElement {
-  const el = action(key, text, () => {}, false); el.className = "unavailable"; el.title = product("unavailable"); return el;
-}
 export function section(title: string, subtitle = ""): HTMLElement {
   const el = node("section", "", "setup-section"); el.append(node("h3", title)); if (subtitle) el.append(node("p", subtitle, "setup-hint")); return el;
 }
@@ -100,6 +97,8 @@ export function resourceText(key: string): string {
     "AutoSetup.downloadCancelled": t("AutoSetup.downloadCancelled"), "AutoSetup.downloadDone": t("AutoSetup.downloadDone"), "AutoSetup.failed": t("AutoSetup.failed"),
     "AutoSetup.weightChecksumFailed": t("AutoSetup.weightChecksumFailed"), "AutoSetup.experimentalBackendChecksumFailed": t("AutoSetup.experimentalBackendChecksumFailed"), "AutoSetup.packageChecksumFailed": product("setupPackageChecksumFailed"),
     "AutoSetup.remoteRefreshFailedCached": t("AutoSetup.remoteRefreshFailedCached"), "AutoSetup.importWeightDone": t("AutoSetup.importWeightDone"), "AutoSetup.importWeightInvalid": t("AutoSetup.importWeightInvalid"),
+    "AutoSetup.importHumanSlModelDoneMessage": t("AutoSetup.importHumanSlModelDoneMessage"), "AutoSetup.importHumanSlModelInvalid": t("AutoSetup.importHumanSlModelInvalid"), "AutoSetup.humanSlModelDownloadDoneMessage": t("AutoSetup.humanSlModelDownloadDoneMessage"),
+    "AutoSetup.humanSlModelChecksumFailed": t("AutoSetup.humanSlModelChecksumFailed"), "AutoSetup.humanSlModelIncomplete": t("AutoSetup.humanSlModelIncomplete"),
     "AutoSetup.setupDone": t("AutoSetup.setupDone"), "AutoSetup.taskAlreadyRunning": t("AutoSetup.taskAlreadyRunning"), "AutoSetup.tensorRtRepairDone": t("AutoSetup.tensorRtRepairDone"),
     "AutoSetup.tensorRtNotApplicable": t("AutoSetup.tensorRtNotApplicable"), "AutoSetup.experimentalBackendWindowsOnly": t("AutoSetup.experimentalBackendWindowsOnly"), "AutoSetup.transformerRequires117": t("AutoSetup.transformerRequires117"),
     "AutoSetup.validationNotAvailable": t("AutoSetup.validationNotAvailable"), "AutoSetup.validationChecking": t("AutoSetup.validationChecking"), "AutoSetup.validationPassed": t("AutoSetup.validationPassed"), "AutoSetup.validationRunning": t("AutoSetup.validationRunning"),

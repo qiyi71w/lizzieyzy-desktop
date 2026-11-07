@@ -428,6 +428,8 @@ pub enum DocumentEdit {
         node: NodeId,
         comment: String,
     },
+    /// A retained SGF metadata property; interpreted game fields use their dedicated operations.
+    SetProperty { node: NodeId, property: Property },
     /// The game komi (`GameInfo.setKomi`), saved as `KM`.
     SetKomi {
         komi: f64,
@@ -440,6 +442,10 @@ pub enum DocumentEdit {
     /// The game result (`GameInfo.setResult`, 终局点目 > 确认结果), saved as `RE`.
     SetResult {
         result: String,
+    },
+    /// The handicap of a new game (`GameInfo.setHandicap`), saved as `HA`.
+    SetHandicap {
+        handicap: u32,
     },
     /// A stone on `at`'s position (`Board.place`). `alternate`: the colour is the side to play
     /// (交替落子), so a click on the main continuation's point follows it.
@@ -455,6 +461,10 @@ pub enum DocumentEdit {
         at: NodeId,
         color: Stone,
     },
+    /// A training pass that must start a fresh variation, even if an equal pass exists.
+    PassBranch { at: NodeId, color: Stone },
+    /// A legal stone that always starts a fresh variation; returns the new node.
+    PlayBranch { at: NodeId, color: Stone, point: Point, rules: PlayRules },
     /// An engine variation added as a new branch of `at` without moving there
     /// (`BoardRenderer.addSuggestionAsBranch`): a node without continuation first gets an end
     /// placeholder so the variation stays a side branch; the first move always starts a new
@@ -514,6 +524,13 @@ pub enum DocumentEdit {
     /// The position at `node` becomes the root position; all moves are discarded.
     ConvertToStartingPosition {
         node: NodeId,
+    },
+    /// The record becomes a new game holding only `stones` (row-major) as its root position with
+    /// `to_play` (`Board.flattenWithCondition`): moves, variations, the root comment, marks and
+    /// properties go, and the game information is new except for the komi.
+    ReplaceWithPosition {
+        stones: Vec<Option<Stone>>,
+        to_play: Stone,
     },
     Transform(Transform),
     /// Markup tool click on `point` of `node`.

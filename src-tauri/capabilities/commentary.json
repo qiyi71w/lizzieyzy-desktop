@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "commentary",
+  "description": "AI commentary window events and close control",
+  "windows": ["commentary"],
+  "permissions": ["core:default", "core:window:allow-close", "core:window:allow-set-focus"]
+}

@@ -4,12 +4,16 @@
 #[cfg(feature = "acceptance")]
 mod acceptance;
 mod appearance;
+mod commentary;
 mod diagnostics;
 mod independent;
 mod logging;
+mod matches;
 mod output;
 mod resources;
+mod screen;
 mod startup;
+mod tsumego_capture;
 mod tuning;
 
 use std::path::PathBuf;
@@ -169,9 +173,12 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
     let checks = wb.take_launch_checks();
     let auto_saves = wb.take_background_saves();
     let batch_reads = wb.take_batch_reads();
+    let deferred = wb.take_human_sl_deferred();
+    let commentary_jobs = wb.take_commentary_jobs();
     drop(wb);
     write_logs(shared, logs);
     run_launch_checks(app, checks);
+    commentary::spawn_jobs(app, shared, commentary_jobs);
     for job in auto_saves {
         if let Err(mpsc::SendError(job)) = shared.saves.lock().unwrap().send(job) {
             finish_save(app, shared, job.ticket, Err("save worker stopped".into()));
@@ -179,6 +186,15 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
     }
     for (ticket, path, no_capture) in batch_reads {
         read_batch_record(app, ticket, path, no_capture);
+    }
+    if let Some(command) = deferred {
+        let app = app.clone();
+        let shared = app.state::<State>().inner().clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(error) = tauri::async_runtime::block_on(dispatch(app, shared.clone(), command)) {
+                shared.log.warn(&error.message);
+            }
+        });
     }
     // A command can schedule timed work (quick analysis waits for browsing to settle).
     shared.rearm_timer();
@@ -485,6 +501,12 @@ fn changed(app: &AppHandle, shared: &Shared, changed: bool) -> CommandResult {
 
 /// The one entry for every command, used by the UI and by acceptance automation.
 pub async fn dispatch(app: AppHandle, shared: State, command: Command) -> Result<CommandResult, ApiError> {
+    // A running game decides first what conflicting commands do.
+    let gate = shared.workbench.lock().unwrap().game_gate(&command);
+    if let Some(result) = gate {
+        publish(&app, &shared);
+        return Ok(result);
+    }
     let result = run_command(app.clone(), shared.clone(), command).await;
     // A command may start an engine without changing the view.
     check_launches(&app, &shared);
@@ -798,9 +820,12 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
                 program_dir.as_deref().map(std::path::Path::new),
             );
             // Reading stays off the workbench lock and the UI thread.
-            let read = tauri::async_runtime::spawn_blocking(move || java_import::read(&source))
-                .await
-                .map_err(|e| ApiError::new(ErrorKind::Unavailable, e.to_string()))?;
+            let read_app = app.clone();
+            let read = tauri::async_runtime::spawn_blocking(move || {
+                let mut candidate = java_import::read(&source)?;
+                commentary::discover_java_credential(&read_app, &mut candidate);
+                Ok::<_, lizzie_core::api::ImportFailure>(candidate)
+            }).await.map_err(|_| ApiError::new(ErrorKind::Unavailable, "Java import worker stopped."))?;
             match read {
                 Ok(candidate) => {
                     let preview = shared.workbench.lock().unwrap().preview_java_import(candidate);
@@ -815,9 +840,14 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         Command::ApplyJavaImport {
             preview,
             copy_credentials,
+            copy_commentary_key,
             replace,
             recovery,
         } => {
+            let (commentary_plan, previous_commentary) = {
+                let wb = shared.workbench.lock().unwrap();
+                (wb.java_commentary_import(preview), wb.config().commentary.clone())
+            };
             let result = shared.workbench.lock().unwrap().apply_java_import(
                 preview,
                 &copy_credentials,
@@ -831,13 +861,24 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
                     return Err(e);
                 }
             };
+            let result = match result {
+                Ok(mut report) => {
+                    let commentary_changed = shared.workbench.lock().unwrap().config().commentary != previous_commentary;
+                    let import_app = app.clone(); let import_shared = shared.clone();
+                    report = tauri::async_runtime::spawn_blocking(move || {
+                        if commentary_changed || commentary_plan.is_some() { commentary::imported_settings(&import_app); }
+                        if copy_commentary_key {
+                            if let Some(plan) = commentary_plan { commentary::copy_java_credential(&import_app, &import_shared, &plan, &mut report); }
+                        }
+                        commentary::push_facts(&import_app, &import_shared);
+                        report
+                    }).await.map_err(|_| ApiError::new(ErrorKind::Unavailable, "Java credential import worker stopped."))?;
+                    CommandResult::JavaImported { report }
+                }
+                Err(key) => CommandResult::Refused { message_key: key.to_string() },
+            };
             publish(&app, &shared);
-            Ok(match result {
-                Ok(report) => CommandResult::JavaImported { report },
-                Err(key) => CommandResult::Refused {
-                    message_key: key.to_string(),
-                },
-            })
+            Ok(result)
         }
         Command::DismissJavaImportOffer => {
             let done = shared.workbench.lock().unwrap().dismiss_java_import_offer()?;
@@ -849,6 +890,42 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let result = shared.workbench.lock().unwrap().edit(op)?;
             publish(&app, &shared);
             Ok(result)
+        }
+        Command::Game { op } => {
+            let result = shared.workbench.lock().unwrap().game(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
+        Command::Match { op } => {
+            let result = shared.workbench.lock().unwrap().engine_match(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
+        Command::HumanSl { op } => {
+            let result = shared.workbench.lock().unwrap().human_sl(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
+        Command::Strength { op } => {
+            let result = shared.workbench.lock().unwrap().strength(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
+        Command::Commentary { op } => {
+            let opened = matches!(&op, lizzie_core::api::CommentaryCommand::Open);
+            let closed = matches!(&op, lizzie_core::api::CommentaryCommand::Close);
+            let result = shared.workbench.lock().unwrap().commentary(op)?;
+            publish(&app, &shared);
+            if closed { commentary::closed(&app, &shared); }
+            if opened {
+                tauri::async_runtime::spawn_blocking(move || commentary::opened(&app, &shared))
+                    .await.map_err(|_| ApiError::new(ErrorKind::Unavailable, "Teacher.error.generic"))?;
+            }
+            Ok(result)
+        }
+        Command::CommentaryConnection { op } => {
+            tauri::async_runtime::spawn_blocking(move || commentary::dispatch(&app, &shared, op))
+                .await.map_err(|_| ApiError::new(ErrorKind::Unavailable, "Teacher.error.generic"))?
         }
         Command::SetEditSettings { settings } => {
             let done = shared.workbench.lock().unwrap().set_edit_settings(settings)?;
@@ -1079,6 +1156,14 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().set_hawkeye_settings(settings)?;
             Ok(changed(&app, &shared, done))
         }
+        Command::SetCaptureSettings { settings } => {
+            let done = shared.workbench.lock().unwrap().set_capture_settings(settings)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetTsumegoButtonShown { shown } => {
+            let done = shared.workbench.lock().unwrap().set_tsumego_button_shown(shown)?;
+            Ok(changed(&app, &shared, done))
+        }
         Command::ExportTable { rows } => export_table(&app, rows).await,
     }
 }
@@ -1259,6 +1344,7 @@ fn prepare_exit(app: &AppHandle, shared: &Shared) -> bool {
     }
     if let Err(error) = independent::capture(app, &mut wb) { shared.log.warn(&error.message); }
     persist_ui(app, shared, &mut wb);
+    wb.shutdown_strength();
     true
 }
 
@@ -1491,6 +1577,54 @@ async fn open_hawkeye(
     Ok(layout)
 }
 
+/// TeacherDialog: singleton, owner-centred, no placement persistence or always-on-top state.
+#[tauri::command]
+async fn open_commentary(app: AppHandle, title: String) -> Result<(), ApiError> {
+    if let Some(window) = app.get_webview_window("commentary") {
+        let _ = window.set_title(&title);
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    let main = app.get_webview_window("main");
+    let monitor = main.as_ref().and_then(|window| window.current_monitor().ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten());
+    let (mut width, mut height) = (900.0_f64, 680.0_f64);
+    let mut position = None;
+    if let Some(main) = &main {
+        if let (Ok(scale), Ok(pos), Ok(size)) = (main.scale_factor(), main.outer_position(), main.outer_size()) {
+            let (pos, size) = (pos.to_logical::<f64>(scale), size.to_logical::<f64>(scale));
+            position = Some((pos.x, pos.y, size.width, size.height));
+        }
+    }
+    let mut bounds = None;
+    if let Some(monitor) = monitor {
+        let work = monitor.work_area();
+        let scale = monitor.scale_factor();
+        let origin = work.position.to_logical::<f64>(scale);
+        let size = work.size.to_logical::<f64>(scale);
+        width = width.min((size.width - 24.0).max(1.0));
+        height = height.min((size.height - 24.0).max(1.0));
+        bounds = Some((origin.x, origin.y, size.width, size.height));
+    }
+    let mut builder = WebviewWindowBuilder::new(&app, "commentary", WebviewUrl::App("commentary.html".into()))
+        .title(title).inner_size(width, height).min_inner_size(760.0_f64.min(width), 540.0_f64.min(height))
+        .resizable(true).always_on_top(false).decorations(true).disable_drag_drop_handler();
+    if let Some(main) = &main {
+        builder = builder.parent(main).map_err(|_| ApiError::new(ErrorKind::Unavailable, "Teacher.error.generic"))?;
+    }
+    if let Some((x, y, w, h)) = position.or(bounds) {
+        let (mut x, mut y) = (x + (w - width) / 2.0, y + (h - height) / 2.0);
+        if let Some((bx, by, bw, bh)) = bounds {
+            x = x.clamp(bx, (bx + bw - width).max(bx));
+            y = y.clamp(by, (by + bh - height).max(by));
+        }
+        builder = builder.position(x, y);
+    }
+    builder.build().map_err(|_| ApiError::new(ErrorKind::Unavailable, "Teacher.error.generic"))?;
+    Ok(())
+}
+
 /// Opens 批量分析进度表 (`openAnalysisTable`), or brings the open one forward: a fixed 617 x 317
 /// window centred on the main window (`setLocationRelativeTo(Lizzie.frame)`, not resizable).
 /// Async: building a window inside a synchronous command deadlocks on Windows.
@@ -1603,6 +1737,7 @@ pub fn run() {
             let config_dir = app.path().app_config_dir()?;
             let data_dir = app.path().app_data_dir()?;
             let storage = Storage::in_dirs(&config_dir, &data_dir);
+            app.manage(commentary::Adapter::new(app.config().identifier.clone(), &config_dir, &data_dir));
             let log = logging::Log::start(&storage.logs_dir);
             log.info(&format!(
                 "start {} {} on {}/{}",
@@ -1646,6 +1781,7 @@ pub fn run() {
             });
             let _ = cell.set(shared.clone());
             app.manage(shared.clone());
+            app.manage(tsumego_capture::Capture::default());
             run_refresher(app.handle().clone(), shared.clone());
             shared.workbench.lock().unwrap().start_engines();
             publish(app.handle(), &shared);
@@ -1682,6 +1818,10 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
+            WindowEvent::Destroyed if window.label() == "commentary" => {
+                let app = window.app_handle();
+                commentary::closed(app, &app.state::<State>());
+            }
             WindowEvent::CloseRequested { .. } if independent::board(window.label()).is_some() => {
                 let app = window.app_handle();
                 let shared = app.state::<State>();
@@ -1726,8 +1866,15 @@ pub fn run() {
                 }
                 let _ = app.emit_to("main", HAWKEYE_CLOSED_EVENT, ());
             }
+            // 抓取死活题's overlay closed by the window manager: the capture is cancelled.
+            WindowEvent::CloseRequested { .. } if window.label() == tsumego_capture::WINDOW => {
+                tsumego_capture::overlay_closing(window.app_handle());
+            }
             // 批量分析进度表's own close box closes only it (AnalysisTable's JFrame does not exit).
             WindowEvent::CloseRequested { .. } if window.label() == BATCH_WINDOW => {}
+            // AI 解说 is a modeless dialog (TeacherDialog DISPOSE_ON_CLOSE): it closes alone; its
+            // request is cancelled on Destroyed above.
+            WindowEvent::CloseRequested { .. } if window.label() == "commentary" => {}
             WindowEvent::CloseRequested { api, .. } => {
                 let app = window.app_handle();
                 let shared = app.state::<State>();
@@ -1779,9 +1926,11 @@ pub fn run() {
                 // Every exit path (window close, 退出, 强制退出) ends the engines and waits for
                 // their processes, so none is left behind.
                 let shared = app.state::<State>().inner().clone();
+                shared.workbench.lock().unwrap().shutdown_strength();
                 shared.workbench.lock().unwrap().end_engines();
                 shared.workbench.lock().unwrap().stop_benchmark();
                 shared.workbench.lock().unwrap().cancel_resource_tasks();
+                commentary::shutdown(app);
                 resources::shutdown();
                 tuning::shutdown();
                 shared.processes.wait(Duration::from_secs(4));
@@ -1802,9 +1951,12 @@ pub fn run() {
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         dispatch_command,
+        matches::open_match_openings,
+        matches::write_match_winrate,
         appearance::appearance_catalog,
         appearance::appearance_images,
         appearance::appearance_choose_image,
+        appearance::strength_choose_model,
         workbench_snapshot,
         search_functions,
         subscribe_workbench,
@@ -1821,12 +1973,20 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         set_suggestions_columns,
         main_list_columns,
         open_hawkeye,
+        open_commentary,
+        commentary::commentary_api_key_draft,
         close_hawkeye,
         close_hawkeye_sub,
         set_hawkeye_layout,
         independent::open_independent_board,
         independent::close_independent_board_window,
-        open_batch_table
+        open_batch_table,
+        tsumego_capture::start_tsumego_capture,
+        tsumego_capture::tsumego_capture_picture,
+        tsumego_capture::tsumego_capture_preview,
+        tsumego_capture::tsumego_capture_spacing,
+        tsumego_capture::tsumego_capture_finish,
+        tsumego_capture::tsumego_capture_cancel
     ]
 }
 
@@ -1834,9 +1994,12 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         dispatch_command,
+        matches::open_match_openings,
+        matches::write_match_winrate,
         appearance::appearance_catalog,
         appearance::appearance_images,
         appearance::appearance_choose_image,
+        appearance::strength_choose_model,
         workbench_snapshot,
         search_functions,
         subscribe_workbench,
@@ -1853,12 +2016,20 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         set_suggestions_columns,
         main_list_columns,
         open_hawkeye,
+        open_commentary,
+        commentary::commentary_api_key_draft,
         close_hawkeye,
         close_hawkeye_sub,
         set_hawkeye_layout,
         independent::open_independent_board,
         independent::close_independent_board_window,
         open_batch_table,
+        tsumego_capture::start_tsumego_capture,
+        tsumego_capture::tsumego_capture_picture,
+        tsumego_capture::tsumego_capture_preview,
+        tsumego_capture::tsumego_capture_spacing,
+        tsumego_capture::tsumego_capture_finish,
+        tsumego_capture::tsumego_capture_cancel,
         acceptance::acceptance_ui_report
     ]
 }

@@ -28,6 +28,9 @@ use super::raw_net::{self, RawNetMode, RawNetView};
 use super::rules::KataRules;
 use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, Point, Stone, ROOT};
 
+mod game;
+pub use game::GenmoveReply;
+
 pub type InstanceId = u64;
 
 /// What a process produced.
@@ -184,6 +187,21 @@ pub enum RuntimeEvent {
     /// The focus points an instance's analysis stream searches changed: a stream with them was
     /// accepted, or the stream that searched them ended.
     FocusConfirmed { instance: InstanceId },
+    /// The answer to a command a play mode sent ([`Engines::game_send`]).
+    GameReply { game: u64, command: u64, ok: bool, text: String },
+    /// The engine's answer to a move request ([`Engines::genmove`]), for the position it was
+    /// asked at.
+    Genmove {
+        game: u64,
+        request: u64,
+        doc: u64,
+        node: NodeId,
+        stamp: u64,
+        reply: GenmoveReply,
+    },
+    /// The play mode's reservation is over: the engine confirmed its restore (`None`), or it is
+    /// gone or did not confirm in time.
+    GameReleased { game: u64, failure: Option<LeaseFailure> },
 }
 
 /// Whether the foreground engine can be borrowed (Java `ExclusiveGtpLeaseAvailability`).
@@ -196,6 +214,9 @@ pub enum LeaseAvailability {
     MissingCapability,
     ExistingLease,
     EngineStateUnrestored,
+    /// A play mode holds the engine (Java `PLAY_MODE`).
+    PlayMode,
+    HumanSlGame,
 }
 
 /// How borrowing or giving back the foreground engine failed (Java
@@ -284,6 +305,7 @@ struct Worker {
     io: Option<Box<dyn EngineIo>>,
     tail: VecDeque<String>,
     queued: Option<Vec<String>>,
+    report_diagnostics: bool,
 }
 
 /// A console entry (GtpConsolePane): sent commands, engine output and errors.
@@ -330,6 +352,10 @@ enum Purpose {
     Lease,
     /// The start-up probe `kata-analyze … focus pass 0`: its answer decides [`FocusCapability`].
     FocusProbe,
+    /// A play mode's command; its answer goes to the play mode.
+    Game,
+    /// A play mode's move request (`genmove` and its analysing forms).
+    Genmove,
 }
 
 /// What the engine will hold once it has processed every command sent so far: the anchor
@@ -618,6 +644,10 @@ pub struct Engines {
     /// The foreground engine's 强制计算区域 and 选点重点研究.
     region: Option<SearchRegion>,
     focus: Option<SearchFocus>,
+    /// The play mode holding the foreground engine.
+    games: Vec<game::GameSeat>,
+    human_sl: bool,
+    human_sl_restore: Option<u64>,
 }
 
 impl Instance {
@@ -720,6 +750,9 @@ impl Engines {
             pending: Vec::new(),
             region: None,
             focus: None,
+            games: Vec::new(),
+            human_sl: false,
+            human_sl_restore: None,
         }
     }
 
@@ -1272,6 +1305,7 @@ impl Engines {
             self.secondary = None;
             self.secondary_wish = None;
         }
+        self.game_instance_ended(id);
         if let Some(lease) = self.lease.take_if(|l| l.instance == id) {
             self.pending.push(RuntimeEvent::LeaseEnded {
                 lease: lease.id,
@@ -1435,6 +1469,7 @@ impl Engines {
             self.due(self.foreground),
             self.due(self.secondary),
             self.lease.as_ref().and_then(|l| l.deadline),
+            self.game_deadline(),
         ]
         .into_iter()
         .flatten()
@@ -1455,6 +1490,7 @@ impl Engines {
         if self.lease.as_ref().and_then(|l| l.deadline).is_some_and(|d| now >= d) {
             self.lease_timeout(&mut events);
         }
+        self.game_timeout(now, &mut events);
         events.append(&mut self.pending);
         events
     }
@@ -1489,7 +1525,10 @@ impl Engines {
         if inst.phase != Phase::Ready || inst.fence.is_some() || inst.unrestored.is_some() || self.leased(id) {
             return;
         }
-        let first_new = inst.next_id;
+        if self.game_pump(id) {
+            return;
+        }
+        let first_new = self.get(id).unwrap().next_id;
         match self.wish_of(id).cloned() {
             None => {
                 self.stop_stream(id);
@@ -2014,6 +2053,9 @@ impl Engines {
                         self.finish_raw(id, events);
                         return;
                     }
+                    Some(purpose @ (Purpose::Game | Purpose::Genmove)) => {
+                        self.game_answer(id, n, matches!(purpose, Purpose::Genmove), ok, text, events);
+                    }
                     _ => {}
                 }
                 let Some(inst) = self.get_mut(id) else { return };
@@ -2114,6 +2156,11 @@ impl Engines {
 
     /// Whether the foreground engine can be borrowed now (`previewForegroundAnalysisLeaseAvailability`).
     pub fn lease_availability(&self) -> LeaseAvailability {
+        // Java's mode order is play, HumanSL, then ordinary foreground availability.
+        if self.games.iter().any(|g| Some(g.id) != self.human_sl_restore) {
+            return LeaseAvailability::PlayMode;
+        }
+        if self.human_sl { return LeaseAvailability::HumanSlGame; }
         let Some(inst) = self.foreground.and_then(|id| self.get(id)) else {
             return LeaseAvailability::NoForegroundEngine;
         };
@@ -2519,6 +2566,26 @@ impl Engines {
     }
 
     // -------------------------------------------------------------------- analysis processes
+    /// HumanSL uses a separate analysis process, but owns foreground-mode admission.
+    pub fn set_human_sl(&mut self, active: bool) {
+        self.human_sl = active;
+        if !active { self.human_sl_restore = None; }
+    }
+
+    /// Confirm foreground recovery with the same fenced handback used by play modes. No
+    /// engine parameters were changed by the companion; only board synchronization remains.
+    pub fn restore_human_sl(&mut self, target: &Target) -> Result<Option<u64>, LeaseAvailability> {
+        let Some(id) = self.foreground else { return Ok(None) };
+        if let Some(inst) = self.get_mut(id) { inst.unrestored = None; inst.board = None; }
+        let seat = self.reserve_game_instance(id)?;
+        self.human_sl_restore = Some(seat);
+        let (commands, board) = sync_commands(self.get(id).unwrap(), target);
+        let inst = self.get_mut(id).unwrap();
+        inst.board = Some(board);
+        inst.syncing = Some(target.key());
+        self.release_game(seat, &commands);
+        Ok(Some(seat))
+    }
 
     /// Starts a KataGo analysis process for `command` (`AnalysisEngine.startEngine`); relative
     /// paths resolve like an engine's. Its stdout lines arrive as [`RuntimeEvent::WorkerLine`].
@@ -2535,8 +2602,14 @@ impl Engines {
             io: Some(io),
             tail: VecDeque::new(),
             queued: None,
+            report_diagnostics: false,
         });
         Ok(id)
+    }
+
+    /// Forward stderr startup stages only for a consumer that explicitly requests them.
+    pub fn report_worker_diagnostics(&mut self, id: InstanceId) {
+        if let Some(worker) = self.workers.iter_mut().find(|w| w.id == id) { worker.report_diagnostics = true; }
     }
 
     /// A whole-game process can defer its launch for an accepted measured-scene fingerprint
@@ -2550,7 +2623,7 @@ impl Engines {
         self.checks.push(LaunchCheck { instance: id, command: configured.into(), policy: policy.clone(),
             roots: self.roots.clone(), spec, apple: None, measured: Some(hardware.clone()),
             whole_game: saved.map(|p| p.command.clone()) });
-        self.workers.push(Worker { id, name: "整盘精析".into(), io: None, tail: VecDeque::new(), queued: Some(Vec::new()) });
+        self.workers.push(Worker { id, name: "整盘精析".into(), io: None, tail: VecDeque::new(), queued: Some(Vec::new()), report_diagnostics: false });
         Ok(id)
     }
 
@@ -2584,7 +2657,9 @@ impl Engines {
             }
             EngineInput::Stderr(line) => {
                 push_tail(&mut w.tail, &line);
+                let report = w.report_diagnostics;
                 self.trace(&name, "!!", &line);
+                if report { events.push(RuntimeEvent::WorkerLine { instance: id, line }); }
             }
             EngineInput::Exited(code) => {
                 let message = match code {
