@@ -28,6 +28,7 @@ use crate::engine::analysis_command::{self, recommended_threads};
 use crate::engine::gtp::{join_command, prepare_launch, InfoLine};
 use crate::engine::kata_analysis::{self, QueryOptions, Response};
 use crate::engine::runtime::{InstanceId, LeaseAvailability, LeaseFailure, Phase, RulesOutcome, RuntimeEvent};
+use crate::engine::ssh::SshSettings;
 use crate::formats::ReadError;
 use crate::record::{GameRecord, NodeId, RecordFormat, Stone, ROOT};
 use crate::resources as r;
@@ -305,15 +306,31 @@ impl Workbench {
     }
 
     /// The local KataGo and the model a lightweight quick analysis runs, when it is wanted and
-    /// possible (`resolveQuickAnalysisEngineCommand`).
+    /// possible (`resolveQuickAnalysisEngineCommand`). A remote foreground engine has no local
+    /// KataGo.
     fn quick_light_parts(&self) -> Option<(String, PathBuf)> {
         if !self.config.quick_model.enabled || self.foreground_katago_version_ok() != Some(true) {
             return None;
         }
         let model = self.quick_model_path()?;
         let profile = self.engines.profile_of(self.engines.foreground()?)?;
+        if profile.is_remote() {
+            return None;
+        }
         let exe = prepare_launch(&profile.command, self.engines.roots())?.program;
         Some((exe, model))
+    }
+
+    /// 精析设置's 远程引擎 when it is on (`analysis-engine-ssh-info.useJavaSSH`).
+    pub(super) fn analysis_ssh(&self) -> Option<&SshSettings> {
+        let a = &self.config.analysis_engine;
+        a.use_ssh.then_some(&a.ssh)
+    }
+
+    /// Starts the analysis engine process for `command`, on the SSH host when 远程引擎 is on.
+    fn start_analysis_worker(&mut self, command: &str) -> Result<InstanceId, String> {
+        let ssh = self.analysis_ssh().cloned();
+        self.engines.start_worker_on(command, "AnalysisEngine", ssh.as_ref())
     }
 
     /// Borrow the foreground engine instead of starting an analysis process
@@ -352,6 +369,9 @@ impl Workbench {
                 .or_else(|| engines.default_index().and_then(|i| engines.engines.get(i)))
                 .ok_or("AnalysisEngineCommandHelper.noDefaultEngine")?,
         };
+        if profile.is_remote() {
+            return Err("AnalysisEngineCommandHelper.remoteUnsupported");
+        }
         let generated = analysis_command::from_engine_command(&profile.command, self.engines.roots())?;
         let created = match generated.config {
             Some(path) if !path.exists() => {
@@ -371,9 +391,11 @@ impl Workbench {
 
     /// The analysis engine command before tuning: the lightweight model (when `light` and it is
     /// wanted), the customized command, or one made from the current engine (else the saved one).
+    /// The lightweight model is a file of this machine: with 精析设置's 远程引擎 the configured
+    /// remote command runs instead (Java sent the local paths to the SSH host).
     pub(super) fn analysis_command_base(&self, light: bool) -> String {
         let a = &self.config.analysis_engine;
-        let light = light
+        let light = (light && self.analysis_ssh().is_none())
             .then(|| self.quick_light_parts())
             .flatten()
             .and_then(|(exe, model)| {
@@ -409,7 +431,7 @@ impl Workbench {
     /// `max(2, batch-analysis-playouts)`).
     pub(super) fn tuned_command_for(&self, base: &str, visits: u32) -> String {
         // Apple Silicon runs this application's KataGo with its own thread profile.
-        let apple = (cfg!(target_os = "macos") && cfg!(target_arch = "aarch64"))
+        let apple = (cfg!(target_os = "macos") && cfg!(target_arch = "aarch64") && self.analysis_ssh().is_none())
             .then(|| prepare_launch(base, self.engines.roots()))
             .flatten()
             .filter(|spec| PathBuf::from(&spec.program).starts_with(self.resources.store().root()))
@@ -547,16 +569,22 @@ impl Workbench {
         if let Some((instance, _)) = self.quick.warm.take() { self.engines.terminate(instance); }
     }
 
-    /// An analysis process running `command`: the idle one when it matches (`isAnalysisEngineReusable`),
-    /// else a new one (an idle one with another command ends).
+    /// An analysis process running `command`: the idle one when it matches (`isAnalysisEngineReusable`)
+    /// and runs where 远程引擎 says, else a new one (an idle one with another command ends).
     pub(super) fn take_analysis_process(&mut self, command: &str) -> Result<InstanceId, String> {
         match self.quick.warm.take() {
-            Some((id, warm)) if warm == command && self.engines.worker_alive(id) => Ok(id),
+            Some((id, warm))
+                if warm == command
+                    && self.engines.worker_alive(id)
+                    && self.engines.worker_remote(id) == self.analysis_ssh() =>
+            {
+                Ok(id)
+            }
             Some((id, _)) => {
                 self.engines.terminate(id);
-                self.engines.start_worker(command, "AnalysisEngine")
+                self.start_analysis_worker(command)
             }
-            None => self.engines.start_worker(command, "AnalysisEngine"),
+            None => self.start_analysis_worker(command),
         }
     }
 
@@ -991,6 +1019,7 @@ impl Workbench {
                 instance,
                 message,
                 output,
+                ..
             } if current_process == Some(instance)
                 || self.quick.warm.as_ref().is_some_and(|(id, _)| *id == instance) =>
             {
@@ -1083,7 +1112,7 @@ impl Workbench {
             return;
         }
         let command = self.quick_command();
-        match self.engines.start_worker(&command, "AnalysisEngine") {
+        match self.start_analysis_worker(&command) {
             Ok(id) => self.quick.warm = Some((id, command)),
             Err(message) => self.log(true, format!("analysis engine preload failed: {message}")),
         }
@@ -1185,8 +1214,10 @@ impl Workbench {
         if *previous == settings {
             return Ok(Ok(false));
         }
-        let restart =
-            previous.command != settings.command || previous.reuse_current_engine != settings.reuse_current_engine;
+        let restart = previous.command != settings.command
+            || previous.reuse_current_engine != settings.reuse_current_engine
+            || previous.use_ssh != settings.use_ssh
+            || (settings.use_ssh && previous.ssh != settings.ssh);
         self.commit_config(|c| c.analysis_engine = settings)?;
         if restart {
             self.quick_drop_warm();

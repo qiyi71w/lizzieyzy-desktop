@@ -107,6 +107,8 @@ fn generate() -> String {
         lizzie_core::settings::CaptureSettings, lizzie_core::tsumego::TsumegoToPlay,
         lizzie_core::tsumego::TsumegoAttacker, lizzie_core::tsumego::TsumegoKoThreat,
         lizzie_core::tsumego::capture::CapturedProblem, lizzie_core::tsumego::capture::CapturePreview,
+        lizzie_core::engine::ssh::SshSettings, lizzie_core::engine::ssh::RemoteFailure,
+        SshCredentialCommand, SshPasswordState,
     ];
     // Engine resources and engine performance keep their own lists.
     decls.extend(resources::decls(&cfg));

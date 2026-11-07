@@ -14,6 +14,14 @@
 .engine-size { display: flex; gap: 20px; }
 .engine-size .engine-field { display: flex; gap: 6px; }
 .engine-size input { width: 65px; }
+/* 远程引擎 rows (MoreEngines.java:479-493: IP and 用户名 150, 端口 58, 密码 150, 浏览 100). */
+.engine-remote { margin: 0; }
+.engine-remote input[type="text"], .engine-remote input[type="password"] { width: 150px; }
+.engine-remote input[data-key="engine.remote.port"] { width: 58px; }
+.engine-remote button { min-width: 24px; }
+/* 远程引擎设置: GridLayout(5, 2, 4, 4) inside a 12px border. */
+.engine-remote-grid { display: grid; grid-template-columns: auto 160px; gap: 4px; padding: 12px 12px 0; align-items: center; }
+.engine-remote-about { max-width: 520px; white-space: pre-wrap; padding: 12px; margin: 0; }
 .engine-table-wrap { overflow: auto; height: min(330px, 33vh); border: 1px solid #888; background: white; }
 .engine-table { width: 100%; border-collapse: collapse; table-layout: fixed; color: #111; font-size: 13px; }
 .engine-table th, .engine-table td { padding: 3px 4px; border: 1px solid #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

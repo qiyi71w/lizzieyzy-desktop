@@ -303,7 +303,7 @@ impl Workbench {
             .foreground()
             .filter(|id| self.engines.phase(*id) == Some(Phase::Ready))
             .and_then(|id| {
-                let p = self.engines.profile_of(id)?;
+                let p = self.engines.profile_of(id).filter(|p| !p.is_remote())?;
                 let exe = split_command(&p.command).into_iter().next()?;
                 Some((exe, self.engines.identity(id).map(|(_, v, _)| v).unwrap_or_default()))
             });
@@ -507,7 +507,7 @@ impl Workbench {
                 if self.engines.phase(id) != Some(Phase::Ready) || !self.engines.is_katago(id) {
                     return None;
                 }
-                let profile = self.engines.profile_of(id)?;
+                let profile = self.engines.profile_of(id).filter(|p| !p.is_remote())?;
                 if split_command(&profile.command)
                     .first()
                     .is_none_or(|program| program != executable)
@@ -662,13 +662,14 @@ impl Workbench {
         v.network = self.config.network.clone();
         v.startup_needs_repair = self.config.engine.startup != EngineStartup::Empty
             && !self.config.engine.engines.iter().any(|p| !p.command.trim().is_empty());
+        // A remote engine's files are on its SSH host (`inspectSavedEngine` skips `useJavaSSH`).
         let foreground = self.engines.foreground().and_then(|i| self.engines.profile_of(i));
         let p = foreground.or_else(|| {
             self.config
                 .engine
                 .default_index()
                 .and_then(|i| self.config.engine.engines.get(i))
-        });
+        }).filter(|p| !p.is_remote());
         if let Some(p) = p {
             // Java `inspectSavedEngine`: aliases count; the first config and the last model win.
             let parts = crate::engine::tuning::split_option_values(&split_command(&p.command));
@@ -719,7 +720,7 @@ impl Workbench {
         let version = self
             .engines
             .foreground()
-            .and_then(|id| self.engines.profile_of(id))
+            .and_then(|id| self.engines.profile_of(id).filter(|p| !p.is_remote()))
             .and_then(|profile| split_command(&profile.command).into_iter().next())
             .and_then(|executable| self.resource_verified_version(&executable));
         if self.resources.projected_version != version {

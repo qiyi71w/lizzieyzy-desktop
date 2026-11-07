@@ -97,6 +97,9 @@ pub enum Command {
     Strength { op: StrengthCommand },
     Commentary { op: CommentaryCommand },
     CommentaryConnection { op: ConnectionCommand },
+    /// SSH passwords and trusted host keys of remote engines: kept by the platform adapter, never
+    /// in the settings.
+    SshCredential { op: SshCredentialCommand },
     /// 主题 drafts apply together only on 保存设置 (ConfigDialog2.java:6191-6286).
     SetAppearanceSettings {
         settings: crate::appearance::AppearanceSettings,
@@ -309,6 +312,9 @@ pub enum Command {
         /// Separate, unchecked-by-default consent for Java's commentary API key.
         #[serde(default)]
         copy_commentary_key: bool,
+        /// Separate, unchecked-by-default consent for the password of 精析设置's 远程引擎.
+        #[serde(default)]
+        copy_analysis_ssh_password: bool,
         replace: bool,
         recovery: Option<RecoveryImport>,
     },
@@ -795,6 +801,8 @@ pub enum CommandResult {
     Done,
     Strength { report: Box<StrengthReport> },
     CommentaryModels { models: Vec<String> },
+    /// Where the password of an SSH account is kept ([`SshCredentialCommand`]).
+    SshPassword { state: SshPasswordState },
     StrengthImportFailed { detail: String },
     WholeGameEstimate { millis: Option<u64> },
     /// Nothing to do (no movement, chooser or prompt cancelled, clipboard without SGF).
@@ -831,6 +839,8 @@ pub enum CommandResult {
     NeedsImageOverwriteConfirmation { path: String },
     /// A folder was chosen ([`Command::ChooseJavaFolder`]).
     FolderChosen { path: String },
+    /// A file was chosen ([`SshCredentialCommand::ChooseKeyFile`]).
+    FileChosen { path: String },
     /// What an import would do; nothing has changed yet.
     JavaImportPreview { preview: ImportPreviewView },
     /// The Java configuration could not be read; nothing has changed.
@@ -1345,10 +1355,10 @@ pub enum ImportReason {
     InvalidValue,
     /// Java window coordinates use Java's own scaling and layout, not this window's.
     WindowCoordinates,
-    /// A remote (SSH) engine; remote engines are not available yet.
-    RemoteEngine,
-    /// The engine command holds credentials and copying them was not confirmed.
+    /// The credentials (in the command, or an SSH password) were not confirmed for copying.
     CredentialNotConfirmed,
+    /// The system credential storage is unavailable: the password is kept for this run only.
+    SessionOnly,
     /// The file could not be read as Java writes it.
     Unreadable,
     /// The user did not choose to import it.
@@ -1591,6 +1601,9 @@ pub struct ImportPreviewView {
     pub items: Vec<ImportItemView>,
     pub engines: Vec<ImportEngineView>,
     pub commentary_credential: Option<ImportCommentaryCredential>,
+    /// The SSH account (`user@host:port`) whose Java password 精析设置's 远程引擎 would copy
+    /// when confirmed.
+    pub analysis_ssh_credential: Option<String>,
     /// Settings already chosen in this product that the import would replace.
     pub replaces: Vec<ImportTarget>,
     /// Java 存档与读档 slots; imported only when the user chooses to.
@@ -1937,6 +1950,13 @@ pub struct EngineFailureView {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub repair: Option<ResourceRepairView>,
+    /// A remote engine's connection failure or end (`SSHController` messages).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub remote: Option<crate::engine::ssh::RemoteFailure>,
+    /// The configured engine that failed (empty for the analysis engine), so the dialog can
+    /// start it again (Java opens 更多引擎 after a remote login failure).
+    pub profile_id: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -1996,6 +2016,32 @@ pub enum ConnectionCommand {
     ChatGptSelectAccount { account: String }, ChatGptSignOut { account: String }, ChatGptRefreshModels,
     SaveChatGptConnection { account: String, model: String, effort: Option<String> },
     SelectProvider { provider: CommentaryProvider }, OpenUsage,
+}
+
+/// Adapter-only operations on SSH credentials. Never log this command: passwords are transient
+/// input, not state.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum SshCredentialCommand {
+    /// Where the password of `ssh`'s account is kept.
+    PasswordState { ssh: crate::engine::ssh::SshSettings },
+    /// Remembers `password` for `ssh`'s account: in the system credential storage, else for this
+    /// run only. An empty password forgets it.
+    SetPassword { ssh: crate::engine::ssh::SshSettings, password: String },
+    /// Trusts the key `host:port` offered when its connection was refused for a changed key.
+    TrustHostKey { host: String, port: u16 },
+    /// 浏览: the key file chooser (`MoreEngines.chooseKeygen`), titled `title`.
+    ChooseKeyFile { title: String },
+}
+
+/// Where an SSH account's password is kept.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum SshPasswordState {
+    None,
+    /// In the system credential storage.
+    Stored,
+    /// For this run only (the system credential storage is unavailable).
+    Session,
 }
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
 pub struct CommentaryAccount { pub id: String, pub email: String, pub signed_in: bool, pub authorized: bool, pub model: String, pub effort: Option<String>, pub credentials_unavailable: bool, pub session_only: bool }

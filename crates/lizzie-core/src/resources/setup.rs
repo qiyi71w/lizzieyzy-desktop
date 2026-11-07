@@ -7,11 +7,14 @@ use crate::engine::{
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+/// The resource store owns the profile's command (`BundledKataGoProfile.isManaged`): never for
+/// a remote engine, whose command runs on its SSH host.
 pub fn is_managed(profile: &EngineProfile) -> bool {
-    profile
-        .managed
-        .as_ref()
-        .is_some_and(|marker| !marker.command.is_empty() && marker.command == profile.command)
+    !profile.is_remote()
+        && profile
+            .managed
+            .as_ref()
+            .is_some_and(|marker| !marker.command.is_empty() && marker.command == profile.command)
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "kebab-case")]

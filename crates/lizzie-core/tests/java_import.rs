@@ -238,7 +238,7 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
     assert!(p.recovery.is_empty());
 
     // Engines: Java-relative paths resolved against the Java folder; problems found without
-    // starting anything; the remote engine left out; the one with a token needs confirmation.
+    // starting anything; the remote engine and the one with a token need confirmation.
     let local = &p.engines[0];
     let tokens = split_command(&local.command);
     assert_eq!(tokens[0], java.join("engines/fake-katago").to_string_lossy());
@@ -267,18 +267,23 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
     assert!(p.engines[1]
         .problems
         .contains(&EngineProblem::InvalidValue { field: "height".into() }));
+    // The remote engine's command runs on its SSH host as written; its password needs consent.
+    let remote = &p.engines[2];
     assert_eq!(
-        (p.engines[2].status, p.engines[2].reason),
-        (ImportStatus::NotMigrated, Some(ImportReason::RemoteEngine))
+        (remote.status, remote.reason, remote.command.as_str()),
+        (ImportStatus::Imported, None, "katago gtp")
     );
+    assert!(remote.credential && remote.problems.is_empty());
     assert!(p.engines[3].credential);
 
     let report = wb.apply_java_import(p.id, &[], false, None).unwrap().unwrap();
     assert!(report.restart_required, "English applies after a restart");
-    assert_eq!(
-        (report.engines[3].status, report.engines[3].reason),
-        (ImportStatus::NotMigrated, Some(ImportReason::CredentialNotConfirmed))
-    );
+    for left_out in [2, 3] {
+        assert_eq!(
+            (report.engines[left_out].status, report.engines[left_out].reason),
+            (ImportStatus::NotMigrated, Some(ImportReason::CredentialNotConfirmed))
+        );
+    }
     let shown = serde_json::to_string(&report).unwrap();
     assert!(SECRETS.iter().all(|s| !shown.contains(s)));
 
@@ -625,7 +630,7 @@ fn a_different_last_engine_choice_needs_confirmation() {
     let product = tmp.path().join("product");
     let mut wb = workbench(&product, Recorder::default());
     let p = preview(&mut wb, &java);
-    wb.apply_java_import(p.id, &[3], false, None).unwrap().unwrap();
+    wb.apply_java_import(p.id, &[2, 3], false, None).unwrap().unwrap();
     // The same Java settings, except the engine used last.
     let config = std::fs::read_to_string(java.join("config.txt")).unwrap();
     std::fs::write(
@@ -651,25 +656,84 @@ fn startup_choices_of_left_out_engines_are_reported_as_left_out() {
         "ui": { "autoload-last": true, "last-engine": 1, "default-engine": 0 },
         "leelaz": { "engine-settings-list": [
             { "name": "Proxy", "command": "katago gtp --token TOKEN-SECRET", "isDefault": true },
-            { "name": "Remote", "command": "katago gtp", "useJavaSSH": true },
+            { "name": "Remote", "command": "katago gtp", "useJavaSSH": true, "ip": "h", "userName": "u", "password": "SSH-SECRET" },
         ] },
     });
     std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
     let product = tmp.path().join("product");
     let mut wb = workbench(&product, Recorder::default());
     let p = preview(&mut wb, &java);
-    let last = item(&p.items, "ui.last-engine");
-    assert_eq!(
-        (last.status, last.reason),
-        (ImportStatus::NotMigrated, Some(ImportReason::RemoteEngine))
-    );
+    assert_eq!(item(&p.items, "ui.last-engine").status, ImportStatus::Imported);
     let report = wb.apply_java_import(p.id, &[], false, None).unwrap().unwrap();
-    let default = item(&report.items, "ui.default-engine");
-    assert_eq!(
-        (default.status, default.reason),
-        (ImportStatus::NotMigrated, Some(ImportReason::CredentialNotConfirmed))
-    );
+    for key in ["ui.default-engine", "ui.last-engine"] {
+        let choice = item(&report.items, key);
+        assert_eq!(
+            (choice.status, choice.reason),
+            (ImportStatus::NotMigrated, Some(ImportReason::CredentialNotConfirmed)),
+            "{key}"
+        );
+    }
     assert!(wb.config().engine.engines.is_empty() && wb.config().engine.last_engine.is_none());
+}
+
+/// `Utils.doEncrypt("p@ss w0rd/围棋")` as the fixed Java writes it (run against its
+/// `Base64AesEncrypt`, trailing CRLF included).
+const JAVA_ENCRYPTED: &str = "S2rB+6fIpljxobY0+9mBZ0zHZ66UlgIBYUIOewQf49Q=\r\n";
+
+#[test]
+fn remote_engines_and_their_passwords_come_over_only_when_confirmed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let config = json!({
+        "ui": { "analysis-engine-command": "katago analysis -model /remote/m.bin.gz -config /remote/a.cfg" },
+        "leelaz": {
+            "analyze-update-interval-centisecssh": 25,
+            "analysis-engine-ssh-info": {
+                "useJavaSSH": true, "ip": "10.0.0.9", "port": "2222", "userName": "go",
+                "password": JAVA_ENCRYPTED, "useKeyGen": false, "keyGenPath": "",
+            },
+            "engine-settings-list": [
+                { "name": "Password", "command": "/remote/katago gtp -model /remote/m.bin.gz", "useJavaSSH": true,
+                  "ip": "10.0.0.1", "port": "x", "userName": "go", "password": JAVA_ENCRYPTED },
+                { "name": "Key", "command": "katago gtp", "useJavaSSH": true, "ip": "10.0.0.2", "port": "22",
+                  "userName": "go", "useKeyGen": true, "keyGenPath": "/nonexistent/id_ed25519", "password": JAVA_ENCRYPTED },
+            ],
+        },
+    });
+    std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    assert!(!serde_json::to_string(&p).unwrap().contains("p@ss"));
+    // Remote paths are the host's: not resolved or checked here. A key login needs no password,
+    // but its key file must exist on this machine.
+    assert!(p.engines[0].credential && p.engines[0].problems.is_empty());
+    assert_eq!(p.engines[0].command, "/remote/katago gtp -model /remote/m.bin.gz");
+    assert!(!p.engines[1].credential);
+    assert!(matches!(&p.engines[1].problems[..], [EngineProblem::FileNotFound { path, .. }] if path == "/nonexistent/id_ed25519"));
+    assert_eq!(p.analysis_ssh_credential.as_deref(), Some("go@10.0.0.9:2222"));
+
+    // Only the confirmed passwords are handed to the credential store, decrypted like Java.
+    assert!(wb.java_ssh_passwords(p.id, &[], false).is_empty());
+    assert_eq!(
+        wb.java_ssh_passwords(p.id, &[0, 1], true),
+        [
+            ("go@10.0.0.1:22".to_string(), "p@ss w0rd/围棋".to_string()),
+            ("go@10.0.0.9:2222".to_string(), "p@ss w0rd/围棋".to_string()),
+        ]
+    );
+    let report = wb.apply_java_import(p.id, &[0], false, None).unwrap().unwrap();
+    assert_eq!(report.engines[0].status, ImportStatus::Imported);
+    let c = wb.config();
+    let ssh = c.engine.engines[0].ssh.as_ref().expect("remote engine");
+    assert_eq!((ssh.host.as_str(), ssh.port.as_str(), ssh.user.as_str(), ssh.use_key), ("10.0.0.1", "x", "go", false));
+    assert_eq!(c.engine.engines[0].command, "/remote/katago gtp -model /remote/m.bin.gz");
+    assert!(c.analysis_engine.use_ssh && c.analysis_engine.ssh.account() == "go@10.0.0.9:2222");
+    assert_eq!(c.analysis_engine.command, "katago analysis -model /remote/m.bin.gz -config /remote/a.cfg");
+    assert_eq!(c.engine.analysis.interval_centisec_ssh, 25);
+    let saved = std::fs::read_to_string(storage(&product).config_file).unwrap();
+    assert!(!saved.contains("p@ss") && !saved.contains(JAVA_ENCRYPTED.trim()));
 }
 
 #[test]

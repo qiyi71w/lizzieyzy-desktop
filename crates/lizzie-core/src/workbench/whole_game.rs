@@ -213,8 +213,13 @@ impl Workbench {
                 .is_some_and(|scene| scene["command"].as_str() == Some(base.as_str())));
             let first = matches.next();
             let saved = if matches.next().is_none() { first } else { None };
-            self.engines.start_whole_game_worker(&command, &base, saved).ok()
-                .map(|instance| Engine::Process { instance, queries: HashMap::new() })
+            // 远程引擎: measured scenes describe this machine, not the SSH host
+            // (`MeasuredKataGoTuning` refuses remote analysis).
+            let started = match self.analysis_ssh().cloned() {
+                Some(ssh) => self.engines.start_worker_on(&command, "整盘精析", Some(&ssh)),
+                None => self.engines.start_whole_game_worker(&command, &base, saved),
+            };
+            started.ok().map(|instance| Engine::Process { instance, queries: HashMap::new() })
         };
         s.engine = engine;
         let failed = s.engine.is_none();

@@ -254,7 +254,7 @@ impl Engines {
     fn genmove_command(&self, id: InstanceId, color: Stone) -> String {
         let inst = self.get(id).unwrap();
         let c = color_letter(color);
-        let interval = self.interval_centisec;
+        let interval = self.interval_of(inst);
         match inst.kind {
             EngineKind::KataGo if inst.has("kata-genmove_analyze") => {
                 let o = self.options_for(inst);

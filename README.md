@@ -377,8 +377,27 @@ importing the matching LizzieYzy Next settings.
   preload, auto quit and 复用当前前台引擎 with its availability. A command that was never edited
   follows the current engine (`gtp` becomes `analysis` and the config becomes the `analysis.cfg`
   beside it, created from KataGo's example when missing); 选择引擎 makes it the same way from a
-  saved engine, and 自动生成 asks for the KataGo program, model and config files. Remote (SSH)
-  analysis engines are not available yet.
+  saved engine, and 自动生成 asks for the KataGo program, model and config files. 远程引擎 with
+  设置 runs the analysis command on an SSH host instead (see remote engines below); the
+  lightweight quick-analysis model is a file of this computer and is not used then.
+- Remote (SSH) engines: 更多引擎's 远程引擎 row (IP, 端口, 用户名, 密码 or 密钥 with 浏览, and the 远程
+  column) and 精析设置's 远程引擎 run the command on the host exactly as written, over SSH (a
+  port that is not a number means 22). Paths, models and threads belong to the host, so thread
+  benchmarks, GTP configuration detection, 自动生成 and resource management are not offered for
+  such engines. The host key is trusted on first use and kept in `ssh-known-hosts.json` beside
+  `config.json`; a different key is refused before anything is sent, and the failure dialog shows
+  both SHA-256 fingerprints with 信任新密钥并重试. Passwords never go into `config.json`: they are
+  kept by the system credential store (Windows DPAPI, macOS Keychain, Linux Secret Service), or
+  only until quitting when that store is unavailable; the password field shows which and is left
+  empty to keep it. Remote engines refresh at 综合设置 > 高级 > SSH 分析刷新间隔. Failures say what
+  happened: a refused login (Java's 认证失败), a connection or key-exchange failure or timeout
+  (3 s each), a missing password, the remote command ending on the host (its exit code or
+  signal), or a connection lost without the command's end, when whether it still runs on the
+  host is unknown (keepalive every 10 s, lost after three unanswered). A configured engine whose
+  login or connection failed opens 更多引擎 afterwards, like Java. Closing or switching the
+  engine sends `quit` and closes its input; a command still running 3 s later is sent `KILL`
+  where the server honours signals, and the channel is closed. A remote engine's death is
+  reported, not restarted automatically.
 - 闪电分析 (分析 menu and the toolbar's lightning button): 整盘速览 (`Ctrl+B`) asks every main-trunk
   move, 局部精析 asks from its start move up to, not including, its end move (an empty field means
   from the first / to the last move; the range is remembered), and 全部分支精析 asks every move of
@@ -501,8 +520,9 @@ importing the matching LizzieYzy Next settings.
   safely; game-info and komi editors refuse changes during the session. Analysed nodes show
   suggestions, variation previews, win rate/playouts and move evaluation without changing saved
   display preferences; this override ends on another document. Results are labelled 整盘精析,
-  never make the record unsaved, and remain available for an explicit SGF save. Remote analysis
-  engines are not supported yet. The chosen depth is saved on start in `wholeGame.deepVisits`;
+  never make the record unsaved, and remain available for an explicit SGF save. With 精析设置's
+  远程引擎 the run uses the remote analysis engine (measured tuning describes this computer and
+  is not applied). The chosen depth is saved on start in `wholeGame.deepVisits`;
   invalid stored values fall back to 1,000, matching Java.
 - 人机对弈 (棋局 menu, `N` / `Alt+N`, the toolbar's 新对局 button): Java's 新对局(Genmove模式) and
   分析模式 dialogs choose the engine, colour, 接着当前局面下, handicap (KataGo may choose the points
@@ -747,7 +767,8 @@ importing the matching LizzieYzy Next settings.
   move-rank marks and judgement, candidate rows and options, next-move hints, sub-board mode,
   pure-network ownership style), the analysis-information settings above (graph, Kata形势,
   scoring rules, AI match, 独立选点列表 options, 记录选点信息到评论中; Java's window and column
-  positions are reported as not usable), 自动棋谱快析, 精析设置 (except remote engines), 局部精析's range, the
+  positions are reported as not usable), 自动棋谱快析, 精析设置 (with its 远程引擎 and
+  `analyze-update-interval-centisecssh`), 局部精析's range, the
   lightweight model choice, 整盘精析 depth (`ui.whole-game-analysis-deep-visits`) and the 问题手
   settings, the 人机对弈 dialog values, AI time, random start and 后台思考 (`new-game-handicap` is
   Java's list position), the 引擎对战 dialog and 引擎对局设置 values (`engine-pk-*`,
@@ -771,10 +792,13 @@ importing the matching LizzieYzy Next settings.
   model files: relative paths are resolved as Java launches them (a bare program name is looked
   up on `PATH`; relative files, including a Java engine's `-jar` file, in the Java folder or an
   optional Java program folder), and missing programs or `-model`/`-config` files are listed
-  without starting anything. Remote (SSH) engines are left out, and so is a default or last
-  engine choice that points to a left-out engine; an engine whose command holds a credential is
-  imported only after ticking "复制凭据", and credential values never appear in the preview,
-  report or logs. Once this client has its own settings, every setting the import would change is
+  without starting anything. Remote (SSH) engines keep their command as written (their files
+  are on the host) and need a key file that exists when they log in with a key; a default or
+  last engine choice that points to a left-out engine is left out too. An engine whose command
+  holds a credential, or a remote engine with a saved password, is imported only after ticking
+  "复制凭据"; 精析设置's remote password has its own box. Java's encrypted passwords go to the
+  credential store as above, and credential values never appear in the preview, report or logs.
+  Once this client has its own settings, every setting the import would change is
   listed and replaced only after confirming. Importing writes this client's `config.json` and
   `persist.json` together (a failed write leaves both unchanged; an existing settings file that
   cannot be read is not replaced), restarts the engines with the imported choice, and shows the
@@ -825,7 +849,7 @@ importing the matching LizzieYzy Next settings.
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
 as not yet available (greyed in menus; a notice when used). Not available yet: the other layout
 modes (classic, minimal, thinking, four sub boards, independent board, custom layouts),
-remote/SSH and cloud engines, whole-game measured tuning, 启用点击棋子回看 (click review),
+cloud engines, whole-game measured tuning, 启用点击棋子回看 (click review),
 自由涂鸦, and the analysis-region items of the board context menu.
 
 Resource acquisition and real engine analysis have been verified on Linux (private X11,

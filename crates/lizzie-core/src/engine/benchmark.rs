@@ -330,6 +330,7 @@ impl Target {
             working_dir: self.launch.working_dir.clone(),
             library_dirs: self.launch.library_dirs.clone(),
             args: vec!["benchmark".into()],
+            remote: None,
         };
         let mut inherited = std::collections::BTreeMap::new();
         let mut index = 1;
@@ -449,10 +450,8 @@ pub fn apple_benchmark_args(args: &[String], candidate: &AppleCandidate, smoke: 
         candidate.batch.to_string(),
     ]);
     let mut spec = LaunchSpec {
-        program: String::new(),
         args,
-        working_dir: None,
-        library_dirs: Vec::new(),
+        ..LaunchSpec::default()
     };
     tuning::add_overrides(&mut spec, candidate.overrides());
     spec.args

@@ -1,6 +1,5 @@
 //! Native ownership of commentary credentials, connections, request threads and sign-in.
 mod http;
-mod secrets;
 mod chatgpt {
     pub mod identity;
     pub mod sessions;
@@ -33,7 +32,7 @@ struct SessionKey {
 }
 pub struct Adapter {
     key: Mutex<SessionKey>,
-    store: secrets::Store,
+    store: crate::secrets::Store,
     sessions: Mutex<sessions::Sessions>,
     sign_in: Mutex<Option<Arc<AtomicBool>>>,
     jobs: Mutex<Vec<Weak<AtomicBool>>>,
@@ -41,7 +40,7 @@ pub struct Adapter {
 }
 impl Adapter {
     pub fn new(application: String, config_dir: &Path, data_dir: &Path) -> Self {
-        let store = secrets::Store::new(application, config_dir);
+        let store = crate::secrets::Store::new(application, config_dir);
         Self {
             key: Mutex::new(SessionKey::default()),
             sessions: Mutex::new(sessions::Sessions::new(data_dir.join("chatgpt"), store.clone())),

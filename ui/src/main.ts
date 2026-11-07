@@ -1309,7 +1309,9 @@ function uiReport() {
     menuOpen: menuOpen(),
     dialogs: [...document.querySelectorAll(".modal-box:not([hidden])")].map((box) => ({
       title: box.querySelector(".modal-title")?.textContent ?? "",
-      body: box.querySelector(".modal-body")?.textContent ?? "",
+      // Form dialogs put their content straight into the box, after the title.
+      body: box.querySelector(".modal-body")?.textContent
+        ?? [...box.children].filter((el) => !el.classList.contains("modal-title")).map((el) => el.textContent ?? "").join(""),
     })),
     status: statusLines(),
     candidateCount: boardReport?.candidates.length ?? 0,

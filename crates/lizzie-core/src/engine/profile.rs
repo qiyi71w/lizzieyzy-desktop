@@ -36,6 +36,18 @@ pub struct EngineProfile {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub gtp_configuration: Option<crate::engine::tuning::GtpConfiguration>,
+    /// 远程引擎 (`useJavaSSH`): the command runs on this SSH host.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub ssh: Option<crate::engine::ssh::SshSettings>,
+}
+
+impl EngineProfile {
+    /// Runs on an SSH host: its command, model and threads belong to that host
+    /// (`EngineThreadPolicy.isRemoteManaged`).
+    pub fn is_remote(&self) -> bool {
+        self.ssh.is_some()
+    }
 }
 
 impl Default for EngineProfile {
@@ -53,6 +65,7 @@ impl Default for EngineProfile {
             managed: None,
             thread_policy: None,
             gtp_configuration: None,
+            ssh: None,
         }
     }
 }
@@ -78,6 +91,9 @@ pub enum EngineStartup {
 pub struct AnalysisSettings {
     /// `analyze-update-interval-centisec` [10].
     pub interval_centisec: u32,
+    /// `analyze-update-interval-centisecssh` [10]: the interval of engines that run over SSH
+    /// (`Leelaz.getInterval`).
+    pub interval_centisec_ssh: u32,
     /// `limit-time` [true] with `max-analyze-time-seconds` [600].
     pub limit_time: bool,
     pub max_analyze_time_seconds: u32,
@@ -98,6 +114,7 @@ impl Default for AnalysisSettings {
     fn default() -> Self {
         AnalysisSettings {
             interval_centisec: 10,
+            interval_centisec_ssh: 10,
             limit_time: true,
             max_analyze_time_seconds: 600,
             limit_playout: false,

@@ -233,6 +233,14 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
     commentaryKey = box.input;
     body.append(box.label);
   }
+  // The 精析设置 remote engine's password, likewise only when chosen.
+  let analysisSsh: HTMLInputElement | null = null;
+  if (p.analysis_ssh_credential) {
+    const box = checkbox(product("importCopyAnalysisSshPassword", p.analysis_ssh_credential), false);
+    box.input.dataset.key = "import-analysis-ssh-password";
+    analysisSsh = box.input;
+    body.append(box.label);
+  }
   if (p.engines.some((e) => e.problems.some((x) => x.type === "ProgramNotFound" || x.type === "FileNotFound")) || p.program_dir) {
     const row = document.createElement("div");
     row.className = "java-import-row";
@@ -277,6 +285,7 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
       preview: p.id,
       copy_credentials: copy,
       copy_commentary_key: commentaryKey?.checked ?? false,
+      copy_analysis_ssh_password: analysisSsh?.checked ?? false,
       replace: replace?.checked ?? false,
       recovery: recovery?.checked ? { auto_slot_name: t("LizzieFrame.saveAndLoad.exitRecord") } : null,
     });

@@ -26,6 +26,7 @@ use crate::api::{ApiError, FlashAnalysisView, FlashOutcome, FlashTarget};
 use crate::browse::Navigation;
 use crate::engine::kata_analysis::{self, Response};
 use crate::engine::runtime::{EngineFailure, InstanceId, LeaseAvailability, LeaseFailure, RuntimeEvent};
+use crate::engine::ssh::RemoteFailure;
 use crate::record::{GameRecord, NodeId, ROOT};
 use crate::settings::FlashRange;
 
@@ -245,7 +246,7 @@ impl Workbench {
             let instance = match self.take_analysis_process(&command) {
                 Ok(instance) => instance,
                 Err(message) => {
-                    self.flash_engine_failed(id, &command, true, message, Vec::new());
+                    self.flash_engine_failed(id, &command, true, message, Vec::new(), None);
                     self.sync_engine();
                     return Ok(());
                 }
@@ -253,7 +254,7 @@ impl Workbench {
             let (queries, sent) = self.send_analysis_queries(instance, &nodes, &format!("flash{id}"));
             if !sent {
                 self.engines.terminate(instance);
-                self.flash_engine_failed(id, &command, true, "input closed".into(), Vec::new());
+                self.flash_engine_failed(id, &command, true, "input closed".into(), Vec::new(), None);
                 self.sync_engine();
                 return Ok(());
             }
@@ -374,6 +375,7 @@ impl Workbench {
         during_startup: bool,
         message: String,
         output: Vec<String>,
+        remote: Option<RemoteFailure>,
     ) {
         self.engine_failed(EngineFailure {
             instance: 0,
@@ -383,6 +385,7 @@ impl Workbench {
             during_startup,
             message,
             output,
+            remote,
         });
         self.flash.outcome = Some(FlashOutcome::EngineFailed { run });
     }
@@ -581,6 +584,7 @@ impl Workbench {
                 instance,
                 message,
                 output,
+                remote,
             } if process == Some(instance) => {
                 let run = self.flash.run.take().unwrap();
                 // `finishAbortedAnalysis` does not resume the foreground engine.
@@ -588,7 +592,7 @@ impl Workbench {
                     self.paused = true;
                 }
                 if let Engine::Process { command, .. } = &run.engine {
-                    self.flash_engine_failed(run.id, command, false, message, output);
+                    self.flash_engine_failed(run.id, command, false, message, output, remote);
                 }
                 self.sync_engine();
             }

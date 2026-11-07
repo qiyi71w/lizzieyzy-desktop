@@ -319,7 +319,7 @@ impl Workbench {
         if runtime.is_dir() {
             engines.set_library_dirs(vec![runtime]);
         }
-        engines.set_interval(config.engine.analysis.interval_centisec);
+        engines.set_interval(config.engine.analysis.interval_centisec, config.engine.analysis.interval_centisec_ssh);
         engines.set_pv_visits(config.display.pv_visits != PvVisitsMode::Off);
         let estimate = information::EstimateSession::starting(config.display.kata_estimate);
         engines.set_ownership(estimate.state.shown, config.display.use_moves_ownership);

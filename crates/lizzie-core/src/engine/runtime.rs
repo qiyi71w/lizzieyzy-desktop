@@ -26,6 +26,7 @@ use super::gtp::{self, Dialect, Frame, Framer, InfoLine, LaunchSpec};
 use super::profile::EngineProfile;
 use super::raw_net::{self, RawNetMode, RawNetView};
 use super::rules::KataRules;
+use super::ssh::{RemoteFailure, SshSettings};
 use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, Point, Stone, ROOT};
 
 mod game;
@@ -40,6 +41,9 @@ pub enum EngineInput {
     Stderr(String),
     /// The process ended (exit code if known).
     Exited(Option<i32>),
+    /// A remote engine could not start, its command ended or its connection was lost; the
+    /// instance is gone.
+    Remote(super::ssh::RemoteFailure),
 }
 
 /// Writing side of a running engine process.
@@ -126,6 +130,8 @@ pub struct EngineFailure {
     pub message: String,
     /// Last lines the engine printed (stderr and non-analysis stdout).
     pub output: Vec<String>,
+    /// A remote engine's connection failure or end.
+    pub remote: Option<super::ssh::RemoteFailure>,
 }
 
 /// Something the application flow must act on.
@@ -183,6 +189,8 @@ pub enum RuntimeEvent {
         instance: InstanceId,
         message: String,
         output: Vec<String>,
+        /// A remote process's connection failure or end.
+        remote: Option<RemoteFailure>,
     },
     /// The focus points an instance's analysis stream searches changed: a stream with them was
     /// accepted, or the stream that searched them ended.
@@ -306,6 +314,8 @@ struct Worker {
     tail: VecDeque<String>,
     queued: Option<Vec<String>>,
     report_diagnostics: bool,
+    /// The SSH host it runs on (精析设置's 远程引擎).
+    remote: Option<SshSettings>,
 }
 
 /// A console entry (GtpConsolePane): sent commands, engine output and errors.
@@ -630,6 +640,7 @@ pub struct Engines {
     secondary: Option<InstanceId>,
     secondary_wish: Option<(Target, bool)>,
     interval_centisec: u32,
+    interval_centisec_ssh: u32,
     /// What KataGo analysis also reports: `show-pv-visits` (each variation move's visits) and
     /// Kata形势 (`ownership`, with 按选点显示评估 `movesOwnership`).
     options: StreamOptions,
@@ -719,6 +730,7 @@ impl Instance {
             during_startup: self.phase == Phase::Starting,
             message,
             output: self.output_tail.iter().cloned().collect(),
+            remote: None,
         }
     }
 }
@@ -740,6 +752,7 @@ impl Engines {
             secondary: None,
             secondary_wish: None,
             interval_centisec: 10,
+            interval_centisec_ssh: 10,
             options: StreamOptions::default(),
             console: VecDeque::new(),
             console_seq: 0,
@@ -951,9 +964,20 @@ impl Engines {
         }
     }
 
-    /// `analyze-update-interval-centisec`; 0 means the default 10.
-    pub fn set_interval(&mut self, centisec: u32) {
+    /// The analysis update intervals of local engines and of engines that run over SSH (a
+    /// remote engine or an `ssh` / `plink` command); 0 means 10 (`ConfigDialog2`).
+    pub fn set_interval(&mut self, centisec: u32, ssh: u32) {
         self.interval_centisec = if centisec == 0 { 10 } else { centisec };
+        self.interval_centisec_ssh = if ssh == 0 { 10 } else { ssh };
+    }
+
+    /// `Leelaz.getInterval`: `isSSH || useJavaSSH` use the SSH interval.
+    fn interval_of(&self, inst: &Instance) -> u32 {
+        if inst.profile.is_remote() || super::ssh::is_external_ssh(&inst.profile.command) {
+            self.interval_centisec_ssh
+        } else {
+            self.interval_centisec
+        }
     }
 
     /// `show-pv-visits` (`Leelaz` adds ` pvVisits true` to `kata-analyze`); a KataGo stream asked
@@ -1083,40 +1107,51 @@ impl Engines {
             during_startup: true,
             message,
             output: Vec::new(),
+            remote: None,
         };
-        let mut spec =
-            gtp::prepare_launch(&profile.command, &self.roots).ok_or_else(|| fail("empty command".into()))?;
-        // `EngineThreadPolicy.invalidRecommendation`: a Benchmark source without a recommendation.
-        if profile
-            .thread_policy
-            .as_ref()
-            .is_some_and(|p| p.source == super::tuning::ThreadSource::BENCHMARK && p.threads == 0)
-            && super::tuning::is_local_katago(&profile.command)
-            && !super::tuning::has_search_threads(&profile.command)
-        {
-            return Err(Box::new(fail("EngineThreadPolicy.invalidRecommendation".into())));
-        }
-        spec.library_dirs = self.library_dirs.clone();
-        super::tuning::apply_launch_policy(&profile.command, profile.thread_policy.as_ref(), &mut spec);
-        // Overlays that need artifact fingerprints wait for an off-workbench check; commands
-        // queue until the process exists.
-        let check = profile.thread_policy.as_ref().and_then(|policy| {
-            let apple = self.apple_hardware.clone().filter(|_| policy.tuning_profiles.is_some());
-            let measured = self
-                .measured_hardware
-                .clone()
-                .filter(|_| policy.measured_scenes.as_ref().is_some_and(|s| s.get("live").is_some()));
-            (apple.is_some() || measured.is_some()).then(|| LaunchCheck {
-                instance: id,
-                command: profile.command.clone(),
-                policy: policy.clone(),
-                roots: self.roots.clone(),
-                spec: spec.clone(),
-                apple,
-                measured,
-                whole_game: None,
-            })
-        });
+        // A remote engine's command runs on its host as written: no local paths, thread policy
+        // or launch overlays apply (Java `EngineThreadPolicy.isRemoteManaged`).
+        let (spec, check) = if let Some(ssh) = &profile.ssh {
+            if profile.command.trim().is_empty() {
+                return Err(Box::new(fail("empty command".into())));
+            }
+            (gtp::LaunchSpec::remote(&profile.command, ssh), None)
+        } else {
+            let mut spec =
+                gtp::prepare_launch(&profile.command, &self.roots).ok_or_else(|| fail("empty command".into()))?;
+            // `EngineThreadPolicy.invalidRecommendation`: a Benchmark source without a recommendation.
+            if profile
+                .thread_policy
+                .as_ref()
+                .is_some_and(|p| p.source == super::tuning::ThreadSource::BENCHMARK && p.threads == 0)
+                && super::tuning::is_local_katago(&profile.command)
+                && !super::tuning::has_search_threads(&profile.command)
+            {
+                return Err(Box::new(fail("EngineThreadPolicy.invalidRecommendation".into())));
+            }
+            spec.library_dirs = self.library_dirs.clone();
+            super::tuning::apply_launch_policy(&profile.command, profile.thread_policy.as_ref(), &mut spec);
+            // Overlays that need artifact fingerprints wait for an off-workbench check; commands
+            // queue until the process exists.
+            let check = profile.thread_policy.as_ref().and_then(|policy| {
+                let apple = self.apple_hardware.clone().filter(|_| policy.tuning_profiles.is_some());
+                let measured = self
+                    .measured_hardware
+                    .clone()
+                    .filter(|_| policy.measured_scenes.as_ref().is_some_and(|s| s.get("live").is_some()));
+                (apple.is_some() || measured.is_some()).then(|| LaunchCheck {
+                    instance: id,
+                    command: profile.command.clone(),
+                    policy: policy.clone(),
+                    roots: self.roots.clone(),
+                    spec: spec.clone(),
+                    apple,
+                    measured,
+                    whole_game: None,
+                })
+            });
+            (spec, check)
+        };
         let (io, queued) = match check {
             Some(check) => {
                 self.checks.push(check);
@@ -1196,7 +1231,7 @@ impl Engines {
                     for line in self.workers[index].queued.take().unwrap_or_default() {
                         if let Err(e) = io.send(&line) {
                             io.terminate(); self.terminate(id);
-                            return vec![RuntimeEvent::WorkerExited { instance: id, message: e.to_string(), output: vec![] }];
+                            return vec![RuntimeEvent::WorkerExited { instance: id, message: e.to_string(), output: vec![], remote: None }];
                         }
                     }
                     self.workers[index].io = Some(io);
@@ -1520,8 +1555,8 @@ impl Engines {
     /// Sends the next batch of a seated instance (the foreground or the secondary engine) for
     /// its wish when nothing is in flight.
     fn pump_seat(&mut self, id: InstanceId) {
-        let interval = self.interval_centisec;
         let Some(inst) = self.get(id) else { return };
+        let interval = self.interval_of(inst);
         if inst.phase != Phase::Ready || inst.fence.is_some() || inst.unrestored.is_some() || self.leased(id) {
             return;
         }
@@ -1843,6 +1878,14 @@ impl Engines {
                 self.terminate(id);
                 events.push(RuntimeEvent::Failed(failure));
             }
+            EngineInput::Remote(remote) => {
+                let message = remote.to_string();
+                let mut failure = inst.failure(message.clone());
+                failure.remote = Some(remote);
+                self.trace(&name, "--", &message);
+                self.terminate(id);
+                events.push(RuntimeEvent::Failed(failure));
+            }
             EngineInput::Stdout(line) => {
                 let mut frames = Vec::new();
                 inst.framer.feed(&line, &mut frames);
@@ -2137,7 +2180,8 @@ impl Engines {
         // a zero-probability focus, stopped at once. Its lines are attributed to no request.
         let probe = katago && self.get(id).is_some_and(|i| !i.no_analyze && i.has("kata-analyze"));
         if probe {
-            let args = format!("{} rootInfo true focus pass 0", self.interval_centisec);
+            let interval = self.get(id).map_or(self.interval_centisec, |i| self.interval_of(i));
+            let args = format!("{interval} rootInfo true focus pass 0");
             if let Some(n) = self.send(id, &format!("kata-analyze {args}"), Purpose::FocusProbe) {
                 self.get_mut(id).unwrap().focus_probe = Some((n, args));
             }
@@ -2590,8 +2634,21 @@ impl Engines {
     /// Starts a KataGo analysis process for `command` (`AnalysisEngine.startEngine`); relative
     /// paths resolve like an engine's. Its stdout lines arrive as [`RuntimeEvent::WorkerLine`].
     pub fn start_worker(&mut self, command: &str, name: &str) -> Result<InstanceId, String> {
-        let mut spec = gtp::prepare_launch(command, &self.roots).ok_or_else(|| "empty command".to_string())?;
-        spec.library_dirs = self.library_dirs.clone();
+        self.start_worker_on(command, name, None)
+    }
+
+    /// [`Self::start_worker`] on the SSH host `ssh` when given (精析设置's 远程引擎,
+    /// `AnalysisEngineSSHController`): the command runs there as written.
+    pub fn start_worker_on(&mut self, command: &str, name: &str, ssh: Option<&SshSettings>) -> Result<InstanceId, String> {
+        let spec = match ssh {
+            Some(_) if command.trim().is_empty() => return Err("empty command".to_string()),
+            Some(ssh) => gtp::LaunchSpec::remote(command, ssh),
+            None => {
+                let mut spec = gtp::prepare_launch(command, &self.roots).ok_or_else(|| "empty command".to_string())?;
+                spec.library_dirs = self.library_dirs.clone();
+                spec
+            }
+        };
         let id = self.next_instance;
         self.next_instance += 1;
         self.trace(name, "--", &format!("start {command}"));
@@ -2603,8 +2660,14 @@ impl Engines {
             tail: VecDeque::new(),
             queued: None,
             report_diagnostics: false,
+            remote: ssh.cloned(),
         });
         Ok(id)
+    }
+
+    /// The SSH host analysis process `id` runs on, if any.
+    pub fn worker_remote(&self, id: InstanceId) -> Option<&SshSettings> {
+        self.workers.iter().find(|w| w.id == id).and_then(|w| w.remote.as_ref())
     }
 
     /// Forward stderr startup stages only for a consumer that explicitly requests them.
@@ -2623,7 +2686,7 @@ impl Engines {
         self.checks.push(LaunchCheck { instance: id, command: configured.into(), policy: policy.clone(),
             roots: self.roots.clone(), spec, apple: None, measured: Some(hardware.clone()),
             whole_game: saved.map(|p| p.command.clone()) });
-        self.workers.push(Worker { id, name: "整盘精析".into(), io: None, tail: VecDeque::new(), queued: Some(Vec::new()), report_diagnostics: false });
+        self.workers.push(Worker { id, name: "整盘精析".into(), io: None, tail: VecDeque::new(), queued: Some(Vec::new()), report_diagnostics: false, remote: None });
         Ok(id)
     }
 
@@ -2673,6 +2736,19 @@ impl Engines {
                     instance: id,
                     message,
                     output,
+                    remote: None,
+                });
+            }
+            EngineInput::Remote(remote) => {
+                let message = remote.to_string();
+                let output = w.tail.iter().cloned().collect();
+                self.trace(&name, "--", &message);
+                self.terminate(id);
+                events.push(RuntimeEvent::WorkerExited {
+                    instance: id,
+                    message,
+                    output,
+                    remote: Some(remote),
                 });
             }
         }

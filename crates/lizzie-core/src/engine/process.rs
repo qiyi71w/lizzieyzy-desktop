@@ -1,7 +1,8 @@
 //! OS process adapter for engines: spawns the command, writes from its own thread (a slow engine
 //! never blocks the caller) and reports stdout, stderr and the exit through a sink with the
 //! instance id. Ending a process sends `quit`, waits up to three seconds and then kills it
-//! (Java `Leelaz.normalQuit`: quit, destroy, destroyForcibly).
+//! (Java `Leelaz.normalQuit`: quit, destroy, destroyForcibly). A launch with a remote command
+//! goes to the SSH connector instead.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
@@ -12,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use super::gtp::LaunchSpec;
 use super::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
+use super::ssh::SshConnector;
 
 pub type Sink = Arc<dyn Fn(InstanceId, EngineInput) + Send + Sync>;
 
@@ -20,6 +22,7 @@ const QUIT_GRACE: Duration = Duration::from_secs(3);
 pub struct ProcessLauncher {
     sink: Sink,
     endings: Arc<Mutex<Vec<JoinHandle<()>>>>,
+    ssh: Option<SshConnector>,
 }
 
 /// Waits for the processes a [`ProcessLauncher`] is ending (application exit), without access to
@@ -34,7 +37,14 @@ impl ProcessLauncher {
         ProcessLauncher {
             sink,
             endings: Arc::new(Mutex::new(Vec::new())),
+            ssh: None,
         }
+    }
+
+    /// Remote engine commands run through `ssh`; without it they fail to start.
+    pub fn with_ssh(mut self, ssh: SshConnector) -> ProcessLauncher {
+        self.ssh = Some(ssh);
+        self
     }
 
     pub fn waiter(&self) -> ProcessWaiter {
@@ -91,6 +101,12 @@ fn read_lines(stream: impl Read, mut each: impl FnMut(String)) {
 
 impl Launcher for ProcessLauncher {
     fn launch(&self, instance: InstanceId, spec: &LaunchSpec) -> std::io::Result<Box<dyn EngineIo>> {
+        if let Some(remote) = &spec.remote {
+            return match &self.ssh {
+                Some(ssh) => ssh.launch(instance, remote, self.sink.clone(), self.endings.clone()),
+                None => Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "remote engines are not available")),
+            };
+        }
         let mut cmd = Command::new(&spec.program);
         cmd.args(&spec.args)
             .stdin(Stdio::piped())

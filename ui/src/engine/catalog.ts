@@ -9,6 +9,7 @@ import { configureGtp } from "./gtpConfig";
 import { scanEngine } from "./scan";
 import { tuningText } from "./tuningText";
 import { actions, button, checkbox, field, input } from "./controls";
+import { aboutRemoteButton, RemoteFields } from "./remote";
 
 let opened = false;
 export async function openMoreEngines(): Promise<void> {
@@ -44,6 +45,20 @@ export async function openMoreEngines(): Promise<void> {
     field(size, t("MoreEngines.lblHeight"), height);
     field(size, t("MoreEngines.lblKomi"), komi);
     form.append(size);
+    // 远程引擎 (MoreEngines.java:479-493): the command runs on the SSH host as written.
+    const remoteEngine = checkbox(t("MoreEngines.chkRemoteEngine"), false);
+    remoteEngine.input.dataset.key = "engine.remoteEngine";
+    const remote = new RemoteFields({
+      host: "IP", port: t("MoreEngines.lblPort"), user: t("MoreEngines.rdoUserName"),
+      password: t("MoreEngines.lblPassword"), key: t("MoreEngines.rdoKeygen"), browse: t("MoreEngines.scanKeygen"),
+    }, "radio", "engine.remote");
+    const remoteRow = document.createElement("div"); remoteRow.className = "engine-actions engine-remote";
+    const span = (text: string) => { const el = document.createElement("span"); el.textContent = text; return el; };
+    remoteRow.append(remoteEngine.label, aboutRemoteButton(), span("IP"), remote.host, span(remote.labels.port), remote.port, span(remote.labels.user), remote.user);
+    const authRow = document.createElement("div"); authRow.className = "engine-actions engine-remote";
+    authRow.append(remote.passwordLabel, remote.password, remote.keyLabel, remote.browse);
+    form.append(remoteRow, authRow);
+    remoteEngine.input.onchange = () => { remote.setEnabled(remoteEngine.input.checked); updatePolicy(); };
     const policyRow = document.createElement("div"); policyRow.className = "engine-actions";
     const cfg = input("CFG", "radio"), benchmark = input("BENCHMARK", "radio");
     cfg.name = benchmark.name = "engine-thread-source";
@@ -87,7 +102,7 @@ export async function openMoreEngines(): Promise<void> {
       const recommendation = policy?.["katago-benchmark-threads"] ?? 0;
       const draftLocal = !!entry && /^(?:"[^"\n]*katago[^"\n]*"|'[^'\n]*katago[^'\n]*'|\S*katago\S*)(?:\s|$)/i.test(command.value.trim()) && !command.value.includes("://");
       const local = draftLocal;
-      const remote = /(?:^|\s)ssh\s|:\/\//i.test(command.value);
+      const remote = remoteEngine.input.checked || /(?:^|\s)ssh\s|:\/\//i.test(command.value);
       policyRow.hidden = !entry || (!draftLocal && !remote && !!command.value.trim() && !/katago/i.test(command.value));
       cfgLabel.hidden = benchmarkLabel.hidden = remote; benchmarkButton.hidden = remote;
       cfg.checked = !local || policy?.source !== "BENCHMARK"; benchmark.checked = local && policy?.source === "BENCHMARK";
@@ -109,6 +124,7 @@ export async function openMoreEngines(): Promise<void> {
       ...engines[selected], name: name.value, command: command.value, initialCommand: initial.value,
       preload: preload.input.checked, isDefault: defaultEngine.input.checked,
       width: Number(width.value), height: Number(height.value), komi: Number(komi.value),
+      ssh: remoteEngine.input.checked ? remote.read() : undefined,
     });
     const persist = async (): Promise<boolean> => {
       const result = await run({ type: "SaveEngineSettings", engines, startup });
@@ -121,6 +137,8 @@ export async function openMoreEngines(): Promise<void> {
     const save = async (): Promise<boolean> => {
       const previous = engines.map((entry) => ({ ...entry }));
       const draft = read();
+      // A typed password is kept first: an engine this save starts looks it up when connecting.
+      if (draft?.ssh && !(await remote.storePassword())) return false;
       if (draft) {
         if (![name, width, height, komi].every((el) => el.reportValidity())) return false;
         engines[selected] = draft;
@@ -132,26 +150,27 @@ export async function openMoreEngines(): Promise<void> {
     };
     const dirty = async (): Promise<boolean> => {
       const draft = read();
-      if (!draft || JSON.stringify(draft) === JSON.stringify(engines[selected])) return true;
+      if (!draft || (JSON.stringify(draft) === JSON.stringify(engines[selected]) && remote.typedPassword() === null)) return true;
       if (await chooseSave(t("MoreEngines.title"), t("MoreEngines.saveHint3"), t("MoreEngines.saveHint"), t("MoreEngines.saveHint2"))) return save();
       return true;
     };
     const load = () => {
       const entry = engines[selected];
-      for (const control of [name, command, initial, width, height, komi, preload.input, defaultEngine.input]) control.disabled = !entry;
+      for (const control of [name, command, initial, width, height, komi, preload.input, defaultEngine.input, remoteEngine.input]) control.disabled = !entry;
       name.value = entry?.name ?? ""; command.value = entry?.command ?? ""; initial.value = entry?.initialCommand ?? "";
       width.value = String(entry?.width ?? 19); height.value = String(entry?.height ?? 19); komi.value = String(entry?.komi ?? 7.5);
       preload.input.checked = entry?.preload ?? false; defaultEngine.input.checked = entry?.isDefault ?? false;
+      remoteEngine.input.checked = !!entry?.ssh; remote.set(entry?.ssh); remote.setEnabled(!!entry?.ssh);
       updatePolicy();
       table.replaceChildren();
       const header = table.createTHead().insertRow();
-      for (const text of [t("MoreEngines.column0"), t("MoreEngines.column1"), t("MoreEngines.column2"), t("MoreEngines.column3"), t("MoreEngines.column4"), t("MoreEngines.column5"), t("MoreEngines.column6"), t("MoreEngines.column7")]) {
+      for (const text of [t("MoreEngines.column0"), t("MoreEngines.column1"), t("MoreEngines.column2"), t("MoreEngines.column3"), t("MoreEngines.column4"), t("MoreEngines.column5"), t("MoreEngines.column6"), t("MoreEngines.column7"), t("MoreEngines.column8")]) {
         const th = document.createElement("th"); th.textContent = text; header.append(th);
       }
       const rows = table.createTBody();
       engines.forEach((engine, index) => {
         const row = rows.insertRow(); row.tabIndex = 0; row.classList.toggle("selected", index === selected);
-        for (const value of [index + 1, engine.name, engine.command, engine.preload ? "✓" : "", engine.width, engine.height, engine.komi, engine.isDefault ? "✓" : ""]) row.insertCell().textContent = String(value);
+        for (const value of [index + 1, engine.name, engine.command, engine.preload ? "✓" : "", engine.width, engine.height, engine.komi, engine.isDefault ? "✓" : "", engine.ssh ? "✓" : ""]) row.insertCell().textContent = String(value);
         row.onclick = async () => { if (index !== selected && await dirty()) { selected = index; load(); } };
         row.onkeydown = (event) => { if (event.key === "Enter") row.click(); };
       });

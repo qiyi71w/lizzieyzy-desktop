@@ -173,9 +173,10 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   const manualRow = document.createElement("div"); manualRow.className = "engine-field"; manualRow.dataset.settingTarget = "config.proxy.manual-address";
   const manualTitle = document.createElement("span"); manualTitle.textContent = t("ConfigDialog2.modern.proxy.manual"); manualRow.append(manualTitle, address); advanced.append(manualRow);
   const toggleManual = () => { host.disabled = port.disabled = mode.value !== "Manual"; }; mode.onchange = toggleManual; toggleManual();
-  // 日志与分析刷新 (3279-3310): only 本地分析刷新间隔 is a setting of this product.
+  // 日志与分析刷新 (3279-3310): the two refresh intervals are settings of this product.
   heading(advanced, t("ConfigDialog2.modern.engineHealth.title"), t("ConfigDialog2.modern.engineHealth.subtitle"));
   numberRow(advanced, "config.engine.update-interval", "intervalCentisec", t("ConfigDialog2.modern.engineHealth.interval"), t("ConfigDialog2.modern.engineHealth.intervalSub"), t("LizzieConfig.title.centisecond"));
+  numberRow(advanced, "config.engine.ssh-update-interval", "intervalCentisecSsh", t("ConfigDialog2.modern.engineHealth.intervalSsh"), t("ConfigDialog2.modern.engineHealth.intervalSshSub"), t("LizzieConfig.title.centisecond"));
   body.append(...Object.values(pages));
   showPage(section in pages ? section : "engine");
   const dialog = formPanel(t("Menu.comprehensiveSettings"), body);

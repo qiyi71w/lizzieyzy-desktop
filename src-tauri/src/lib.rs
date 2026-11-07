@@ -12,6 +12,8 @@ mod matches;
 mod output;
 mod resources;
 mod screen;
+mod secrets;
+mod ssh;
 mod startup;
 mod tsumego_capture;
 mod tuning;
@@ -24,7 +26,7 @@ use std::time::{Duration, Instant};
 
 use lizzie_core::api::{
     ApiError, BatchCommand, BatchMode, Command, CommandResult, ConsoleLineView, ErrorKind, LogsStatus, OpenSource,
-    WorkbenchView,
+    SshCredentialCommand, WorkbenchView,
 };
 use lizzie_core::engine::process::{ProcessLauncher, ProcessWaiter};
 use lizzie_core::formats;
@@ -841,12 +843,25 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             preview,
             copy_credentials,
             copy_commentary_key,
+            copy_analysis_ssh_password,
             replace,
             recovery,
         } => {
-            let (commentary_plan, previous_commentary) = {
+            let (commentary_plan, previous_commentary, ssh_passwords) = {
                 let wb = shared.workbench.lock().unwrap();
-                (wb.java_commentary_import(preview), wb.config().commentary.clone())
+                (
+                    wb.java_commentary_import(preview),
+                    wb.config().commentary.clone(),
+                    wb.java_ssh_passwords(preview, &copy_credentials, copy_analysis_ssh_password),
+                )
+            };
+            // Confirmed SSH passwords are in place before the imported engines start.
+            let ssh_adapter = app.state::<Arc<ssh::Adapter>>().inner().clone();
+            let staged = {
+                let adapter = ssh_adapter.clone();
+                tauri::async_runtime::spawn_blocking(move || adapter.stage_import(ssh_passwords))
+                    .await
+                    .map_err(|_| ApiError::new(ErrorKind::Unavailable, "Java credential import worker stopped."))?
             };
             let result = shared.workbench.lock().unwrap().apply_java_import(
                 preview,
@@ -854,31 +869,37 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
                 replace,
                 recovery.as_ref(),
             );
-            let result = match result {
-                Ok(r) => r,
-                Err(e) => {
-                    shared.log.warn(&format!("java import failed: {}", e.message));
-                    return Err(e);
-                }
-            };
-            let result = match result {
-                Ok(mut report) => {
-                    let commentary_changed = shared.workbench.lock().unwrap().config().commentary != previous_commentary;
-                    let import_app = app.clone(); let import_shared = shared.clone();
-                    report = tauri::async_runtime::spawn_blocking(move || {
-                        if commentary_changed || commentary_plan.is_some() { commentary::imported_settings(&import_app); }
-                        if copy_commentary_key {
-                            if let Some(plan) = commentary_plan { commentary::copy_java_credential(&import_app, &import_shared, &plan, &mut report); }
+            let mut report = match result {
+                Ok(Ok(report)) => report,
+                failed => {
+                    let adapter = ssh_adapter.clone();
+                    let _ = tauri::async_runtime::spawn_blocking(move || adapter.unstage_import(staged)).await;
+                    return match failed {
+                        Err(e) => {
+                            shared.log.warn(&format!("java import failed: {}", e.message));
+                            Err(e)
                         }
-                        commentary::push_facts(&import_app, &import_shared);
-                        report
-                    }).await.map_err(|_| ApiError::new(ErrorKind::Unavailable, "Java credential import worker stopped."))?;
-                    CommandResult::JavaImported { report }
+                        Ok(Err(key)) => {
+                            publish(&app, &shared);
+                            Ok(CommandResult::Refused { message_key: key.to_string() })
+                        }
+                        Ok(Ok(_)) => unreachable!(),
+                    };
                 }
-                Err(key) => CommandResult::Refused { message_key: key.to_string() },
             };
+            staged.report(&mut report);
+            let commentary_changed = shared.workbench.lock().unwrap().config().commentary != previous_commentary;
+            let import_app = app.clone(); let import_shared = shared.clone();
+            report = tauri::async_runtime::spawn_blocking(move || {
+                if commentary_changed || commentary_plan.is_some() { commentary::imported_settings(&import_app); }
+                if copy_commentary_key {
+                    if let Some(plan) = commentary_plan { commentary::copy_java_credential(&import_app, &import_shared, &plan, &mut report); }
+                }
+                commentary::push_facts(&import_app, &import_shared);
+                report
+            }).await.map_err(|_| ApiError::new(ErrorKind::Unavailable, "Java credential import worker stopped."))?;
             publish(&app, &shared);
-            Ok(result)
+            Ok(CommandResult::JavaImported { report })
         }
         Command::DismissJavaImportOffer => {
             let done = shared.workbench.lock().unwrap().dismiss_java_import_offer()?;
@@ -926,6 +947,22 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         Command::CommentaryConnection { op } => {
             tauri::async_runtime::spawn_blocking(move || commentary::dispatch(&app, &shared, op))
                 .await.map_err(|_| ApiError::new(ErrorKind::Unavailable, "Teacher.error.generic"))?
+        }
+        Command::SshCredential { op: SshCredentialCommand::ChooseKeyFile { title } } => {
+            let dialog = app.dialog().clone();
+            let picked = tauri::async_runtime::spawn_blocking(move || dialog.file().set_title(title).blocking_pick_file())
+                .await
+                .map_err(|e| ApiError::new(ErrorKind::Unavailable, e.to_string()))?;
+            Ok(match picked.and_then(|p| p.into_path().ok()) {
+                Some(path) => CommandResult::FileChosen { path: path.to_string_lossy().into_owned() },
+                None => CommandResult::Unchanged,
+            })
+        }
+        Command::SshCredential { op } => {
+            let adapter = app.state::<Arc<ssh::Adapter>>().inner().clone();
+            tauri::async_runtime::spawn_blocking(move || ssh::dispatch(&adapter, op))
+                .await
+                .map_err(|_| ApiError::new(ErrorKind::Unavailable, "SSH credential worker stopped."))?
         }
         Command::SetEditSettings { settings } => {
             let done = shared.workbench.lock().unwrap().set_edit_settings(settings)?;
@@ -1738,6 +1775,8 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             let storage = Storage::in_dirs(&config_dir, &data_dir);
             app.manage(commentary::Adapter::new(app.config().identifier.clone(), &config_dir, &data_dir));
+            let ssh_adapter = ssh::Adapter::new(app.config().identifier.clone(), &config_dir);
+            app.manage(ssh_adapter.clone());
             let log = logging::Log::start(&storage.logs_dir);
             log.info(&format!(
                 "start {} {} on {}/{}",
@@ -1761,7 +1800,8 @@ pub fn run() {
                 if view || console {
                     shared.request_refresh(view, console);
                 }
-            }));
+            }))
+            .with_ssh(ssh_adapter.connector());
             let processes = launcher.waiter();
             let mut workbench = Workbench::new(storage, locale.as_deref(), Box::new(launcher), engine_roots());
             workbench.set_java_import_locations(java_locations());

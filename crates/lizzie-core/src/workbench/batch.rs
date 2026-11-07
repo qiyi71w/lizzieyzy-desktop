@@ -46,6 +46,7 @@ use crate::engine::gtp::InfoLine;
 use crate::engine::kata_analysis::{self, Response};
 use crate::engine::rules::KataRules;
 use crate::engine::runtime::{EngineFailure, InstanceId, LeaseFailure, RuntimeEvent, Target};
+use crate::engine::ssh::RemoteFailure;
 use crate::formats::{saved_analysis, ReadError};
 use crate::record::{DocumentEdit, GameRecord, NodeId, RecordFormat, Stone, ROOT};
 use crate::settings::AutoAnalysisSettings;
@@ -920,14 +921,14 @@ impl Workbench {
             };
             let instance = match instance {
                 Ok(instance) => instance,
-                Err(message) => return self.batch_flash_engine_failed(&command, true, message, Vec::new()),
+                Err(message) => return self.batch_flash_engine_failed(&command, true, message, Vec::new(), None),
             };
             self.batch.next_attempt += 1;
             let prefix = format!("batch{}", self.batch.next_attempt);
             let (queries, sent) = self.send_record_queries(instance, &rec, komi, 0, visits, &nodes, &prefix, rules);
             if !sent {
                 self.engines.terminate(instance);
-                return self.batch_flash_engine_failed(&command, true, "input closed".into(), Vec::new());
+                return self.batch_flash_engine_failed(&command, true, "input closed".into(), Vec::new(), None);
             }
             self.batch.run.as_mut().unwrap().engine = Some(FlashEngine::Process {
                 instance,
@@ -1142,7 +1143,7 @@ impl Workbench {
 
     /// The analysis process failed (`showErrMsg`): reported like an engine failure; the batch
     /// stops at the current record, which stays the first row.
-    fn batch_flash_engine_failed(&mut self, command: &str, during_startup: bool, message: String, output: Vec<String>) {
+    fn batch_flash_engine_failed(&mut self, command: &str, during_startup: bool, message: String, output: Vec<String>, remote: Option<RemoteFailure>) {
         if let Some(run) = self.batch.run.as_mut() {
             if run.holds {
                 self.paused = true;
@@ -1157,6 +1158,7 @@ impl Workbench {
             during_startup,
             message,
             output,
+            remote,
         });
         self.batch.run = None;
         self.batch_end(None, false);
@@ -1273,12 +1275,13 @@ impl Workbench {
                 instance,
                 message,
                 output,
+                remote,
             } if process == Some(instance) => {
                 let command = match self.batch.run.as_ref().and_then(|r| r.engine.as_ref()) {
                     Some(FlashEngine::Process { command, .. }) => command.clone(),
                     _ => String::new(),
                 };
-                self.batch_flash_engine_failed(&command, false, message, output);
+                self.batch_flash_engine_failed(&command, false, message, output, remote);
             }
             RuntimeEvent::WorkerLaunchFailed { instance, message } if process == Some(instance) => {
                 let command = match self.batch.run.as_ref().and_then(|r| r.engine.as_ref()) {
@@ -1286,7 +1289,7 @@ impl Workbench {
                     _ => String::new(),
                 };
                 self.engines.terminate(instance);
-                self.batch_flash_engine_failed(&command, true, message, Vec::new());
+                self.batch_flash_engine_failed(&command, true, message, Vec::new(), None);
             }
             other => return Some(other),
         }

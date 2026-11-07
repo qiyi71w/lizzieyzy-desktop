@@ -91,7 +91,7 @@ pub const DEFAULT_ANALYSIS_COMMAND: &str =
     "katago analysis -model model.bin.gz -config analysis.cfg -quit-without-waiting";
 
 /// 精析设置 (Java `AnalysisSettings`, `ui.analysis-*`): the KataGo analysis engine used by automatic
-/// quick analysis and flash analysis. The SSH fields of the dialog belong to remote engines.
+/// quick analysis and flash analysis.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AnalysisEngineSettings {
@@ -117,6 +117,10 @@ pub struct AnalysisEngineSettings {
     /// 批量精析's 每手总计算量 (`batch-analysis-playouts`, default 100): a batch request searches
     /// at least 2 visits (`AnalysisEngine.targetAnalysisVisits`).
     pub batch_visits: u32,
+    /// 远程引擎 (`analysis-engine-ssh-info.useJavaSSH`): the analysis command runs on the SSH
+    /// host `ssh`. Turning it off keeps the connection settings, like Java.
+    pub use_ssh: bool,
+    pub ssh: crate::engine::ssh::SshSettings,
 }
 
 impl Default for AnalysisEngineSettings {
@@ -132,6 +136,8 @@ impl Default for AnalysisEngineSettings {
             auto_quit: true,
             reuse_current_engine: false,
             batch_visits: 100,
+            use_ssh: false,
+            ssh: Default::default(),
         }
     }
 }

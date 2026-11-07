@@ -176,6 +176,9 @@ impl Workbench {
             .iter()
             .find(|p| p.id == engine_id)
             .ok_or_else(|| error("EngineThreadPolicy.targetDeleted"))?;
+        if profile.is_remote() {
+            return Err(error("EngineThreadPolicy.remoteManaged"));
+        }
         if experimental
             && profile
                 .managed
@@ -326,6 +329,9 @@ impl Workbench {
             .iter()
             .position(|p| p.id == engine_id)
             .ok_or_else(|| error("EngineThreadPolicy.targetDeleted"))?;
+        if self.config.engine.engines[index].is_remote() {
+            return Err(error("EngineThreadPolicy.remoteManaged"));
+        }
         if !tuning::is_local_katago(&self.config.engine.engines[index].command) {
             return Err(error("EngineThreadPolicy.unknownBenchmarkTarget"));
         }
@@ -361,6 +367,9 @@ impl Workbench {
             .iter()
             .find(|p| p.id == engine_id)
             .ok_or_else(|| error("EngineThreadPolicy.targetDeleted"))?;
+        if p.is_remote() {
+            return Err(error("EngineThreadPolicy.remoteManaged"));
+        }
         let mut target = Target::capture(&p.command, self.engines.roots()).map_err(|e| error(&e))?;
         target.launch.library_dirs = self.engines.library_dirs().to_vec();
         Ok(target)
@@ -376,6 +385,10 @@ impl Workbench {
             .iter()
             .find(|p| p.id == engine_id)
             .ok_or_else(|| error("EngineThreadPolicy.targetDeleted"))?;
+        // `MoreEngines` gtpConfig: 旧版 SSH 连接暂不支持自动检测.
+        if p.is_remote() {
+            return Err(error("GtpEngineConfig.remoteUnsupported"));
+        }
         let mut spec = crate::engine::gtp::prepare_launch(&p.command, self.engines.roots())
             .ok_or_else(|| error("EngineThreadPolicy.unknownBenchmarkTarget"))?;
         spec.library_dirs = self.engines.library_dirs().to_vec();
@@ -463,10 +476,13 @@ impl Workbench {
         Vec<std::path::PathBuf>,
         serde_json::Value,
     )> {
-        let profile = self.engines.profile_of(self.engines.foreground()?)?;
+        let profile = self.engines.profile_of(self.engines.foreground()?)?.clone();
+        if profile.is_remote() {
+            return None;
+        }
         profile.thread_policy.as_ref()?.tuning_profiles.as_ref()?;
         Some((
-            profile.clone(),
+            profile,
             self.engines.roots().to_vec(),
             self.engines.apple_hardware()?.clone(),
         ))
@@ -482,7 +498,7 @@ impl Workbench {
             return None;
         }
         let profile = self.engines.profile_of(fg)?.clone();
-        if !tuning::is_local_katago(&profile.command) {
+        if profile.is_remote() || !tuning::is_local_katago(&profile.command) {
             return None;
         }
         let target = self.tuning_target(&profile.id).ok()?;
@@ -531,7 +547,7 @@ impl Workbench {
             .engines
             .iter()
             .map(|p| {
-                let launch = crate::engine::gtp::prepare_launch(&p.command, self.engines.roots());
+                let launch = (!p.is_remote()).then(|| crate::engine::gtp::prepare_launch(&p.command, self.engines.roots())).flatten();
                 let environment = launch.as_ref().and_then(|l| tuning::environment(&p.command, l).ok());
                 let policy = p.thread_policy.clone().unwrap_or_default();
                 let environment_status = if policy.threads == 0 {
@@ -554,7 +570,7 @@ impl Workbench {
                 TuningProfileView {
                     engine_id: p.id.clone(),
                     name: p.name.clone(),
-                    eligible: tuning::is_local_katago(&p.command),
+                    eligible: !p.is_remote() && tuning::is_local_katago(&p.command),
                     engine: launch.as_ref().map(|l| l.program.clone()).unwrap_or_default(),
                     config: path("config"),
                     b11: self

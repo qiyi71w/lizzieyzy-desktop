@@ -66,6 +66,7 @@ impl Workbench {
             items: candidate.items_after(&candidate.credential_engines()),
             engines: candidate.engines.clone(),
             commentary_credential: candidate.commentary_credential.clone(),
+            analysis_ssh_credential: candidate.analysis_ssh_credential(),
             replaces: self.java_import_replaces(&candidate),
             // As choosing the slots would import them; the report shows the choice made.
             recovery: slots::after(&candidate.slots, true),
@@ -80,6 +81,16 @@ impl Workbench {
         let (id, candidate) = self.java_preview.as_ref()?;
         if *id != preview { return None; }
         Some((candidate.source.clone(), candidate.commentary_credential.clone()?))
+    }
+
+    /// The SSH passwords preview `preview` would bring over, by account, for the adapter to
+    /// remember once the import is applied: those of the engines in `copy_credentials` and, when
+    /// `analysis`, 精析设置's 远程引擎. A stale preview gives nothing.
+    pub fn java_ssh_passwords(&self, preview: u64, copy_credentials: &[u32], analysis: bool) -> Vec<(String, String)> {
+        match &self.java_preview {
+            Some((id, candidate)) if *id == preview => candidate.ssh_passwords(copy_credentials, analysis),
+            _ => Vec::new(),
+        }
     }
 
     /// Called only after a separately confirmed Java credential was written to the native store.

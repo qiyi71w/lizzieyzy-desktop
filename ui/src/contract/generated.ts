@@ -61,7 +61,11 @@ threadPolicy?: ThreadPolicy,
  * Settings chosen through the engine's GTP configuration protocol (Java
  * `gtpConfigurationProtocol` / `gtpConfigurationProfile`).
  */
-gtpConfiguration?: GtpConfiguration, };
+gtpConfiguration?: GtpConfiguration, 
+/**
+ * 远程引擎 (`useJavaSSH`): the command runs on this SSH host.
+ */
+ssh?: SshSettings, };
 
 export type EngineStartup = "Default" | "Last" | "Empty" | "Manual";
 
@@ -70,6 +74,11 @@ export type AnalysisSettings = {
  * `analyze-update-interval-centisec` [10].
  */
 intervalCentisec: number, 
+/**
+ * `analyze-update-interval-centisecssh` [10]: the interval of engines that run over SSH
+ * (`Leelaz.getInterval`).
+ */
+intervalCentisecSsh: number, 
 /**
  * `limit-time` [true] with `max-analyze-time-seconds` [600].
  */
@@ -97,13 +106,17 @@ showPonderLimitedTips: boolean, };
 
 export type EngineScope = "Current" | "Others" | "All";
 
-export type Command = { "type": "Strength", op: StrengthCommand, } | { "type": "Commentary", op: CommentaryCommand, } | { "type": "CommentaryConnection", op: ConnectionCommand, } | { "type": "SetAppearanceSettings", settings: AppearanceSettings, theme: ThemeSettings, } | { "type": "SetFrameFontSize", size: number, } | { "type": "AddTheme", name: string, } | { "type": "DeleteTheme", name: string, } | { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SetExtraMode", mode: ExtraMode, } | { "type": "SetClassicMode" } | { "type": "ToggleIndependentBoard", board: IndependentBoard, } | { "type": "CloseIndependentBoard", board: IndependentBoard, } | { "type": "CommitLayout", mode: ExtraMode, panels: PanelSettings, board_position_proportion: number, save_slot: number | null, window: WindowPlacement | null, } | { "type": "ApplyCustomLayout", slot: number, } | { "type": "SwitchSecondaryEngine", index: number, } | { "type": "RestartSecondaryEngine" } | { "type": "ShutdownSecondaryEngine" } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, 
+export type Command = { "type": "Strength", op: StrengthCommand, } | { "type": "Commentary", op: CommentaryCommand, } | { "type": "CommentaryConnection", op: ConnectionCommand, } | { "type": "SshCredential", op: SshCredentialCommand, } | { "type": "SetAppearanceSettings", settings: AppearanceSettings, theme: ThemeSettings, } | { "type": "SetFrameFontSize", size: number, } | { "type": "AddTheme", name: string, } | { "type": "DeleteTheme", name: string, } | { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SetExtraMode", mode: ExtraMode, } | { "type": "SetClassicMode" } | { "type": "ToggleIndependentBoard", board: IndependentBoard, } | { "type": "CloseIndependentBoard", board: IndependentBoard, } | { "type": "CommitLayout", mode: ExtraMode, panels: PanelSettings, board_position_proportion: number, save_slot: number | null, window: WindowPlacement | null, } | { "type": "ApplyCustomLayout", slot: number, } | { "type": "SwitchSecondaryEngine", index: number, } | { "type": "RestartSecondaryEngine" } | { "type": "ShutdownSecondaryEngine" } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, 
 /**
  * Separate, unchecked-by-default consent for Java's commentary API key.
  */
-copy_commentary_key: boolean, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "SetDisplaySettings", settings: DisplaySettings, } | { "type": "TogglePanel", panel: WorkbenchPanel, } | { "type": "SetPanelSettings", settings: PanelSettings, } | { "type": "SetPanelSizes", sizes: PanelSizes, } | { "type": "NudgeBoardPosition", delta: number, } | { "type": "RestoreDefaultPanelSizes" } | { "type": "SetBottomToolbar", mode: BottomToolbar, } | { "type": "ToggleRawNet" } | { "type": "StopRawNet" } | { "type": "SetKataEstimate", mode: KataEstimateMode, } | { "type": "ToggleKataEstimate" } | { "type": "Score", op: ScoreCommand, } | { "type": "SetAutoQuickAnalyze", enabled: boolean, } | { "type": "SetLoadSgfLast", enabled: boolean, } | { "type": "SaveAnalysisEngineSettings", settings: AnalysisEngineSettings, shown_command: string, edited: boolean, } | { "type": "GenerateAnalysisCommand", index: number | null, } | { "type": "SetQuickModelEnabled", enabled: boolean, } | { "type": "SetProblemList", settings: ProblemListSettings, } | { "type": "JumpToProblemMove", node: number, } | { "type": "StartFlashAnalysis", target: FlashTarget, } | { "type": "CancelFlashAnalysis" } | { "type": "RedoFlashAnalysis" } | { "type": "Region", op: RegionCommand, } | { "type": "SetRegionSettings", settings: RegionSettings, } | { "type": "Tracking", op: TrackingCommand, } | { "type": "SetTrackingSettings", settings: TrackingSettings, } | { "type": "StartAutoAnalysis", settings: AutoAnalysisSettings, } | { "type": "StopAutoAnalysis" } | { "type": "AnswerAutoAnalysisDiff", accept: boolean, } | { "type": "SaveAutoAnalysisSettings", settings: AutoAnalysisSettings, } | { "type": "DismissAutoAnalysisTip", never_again: boolean, } | { "type": "StartWholeGameAnalysis", visits: number, } | { "type": "PauseWholeGameAnalysis" } | { "type": "ResumeWholeGameAnalysis" } | { "type": "StopWholeGameAnalysis" } | { "type": "EstimateWholeGameAnalysis", visits: number, } | { "type": "Hawkeye", op: HawkeyeCommand, } | { "type": "SetHawkeyeSettings", settings: HawkeyeSettings, } | { "type": "ExportTable", rows: Array<Array<string>>, } | { "type": "Batch", op: BatchCommand, } | { "type": "Game", op: GameCommand, } | { "type": "Match", op: MatchCommand, } | { "type": "HumanSl", op: HumanSlCommand, } | { "type": "SetCaptureSettings", settings: CaptureSettings, } | { "type": "SetTsumegoButtonShown", shown: boolean, };
+copy_commentary_key: boolean, 
+/**
+ * Separate, unchecked-by-default consent for the password of 精析设置's 远程引擎.
+ */
+copy_analysis_ssh_password: boolean, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "SetDisplaySettings", settings: DisplaySettings, } | { "type": "TogglePanel", panel: WorkbenchPanel, } | { "type": "SetPanelSettings", settings: PanelSettings, } | { "type": "SetPanelSizes", sizes: PanelSizes, } | { "type": "NudgeBoardPosition", delta: number, } | { "type": "RestoreDefaultPanelSizes" } | { "type": "SetBottomToolbar", mode: BottomToolbar, } | { "type": "ToggleRawNet" } | { "type": "StopRawNet" } | { "type": "SetKataEstimate", mode: KataEstimateMode, } | { "type": "ToggleKataEstimate" } | { "type": "Score", op: ScoreCommand, } | { "type": "SetAutoQuickAnalyze", enabled: boolean, } | { "type": "SetLoadSgfLast", enabled: boolean, } | { "type": "SaveAnalysisEngineSettings", settings: AnalysisEngineSettings, shown_command: string, edited: boolean, } | { "type": "GenerateAnalysisCommand", index: number | null, } | { "type": "SetQuickModelEnabled", enabled: boolean, } | { "type": "SetProblemList", settings: ProblemListSettings, } | { "type": "JumpToProblemMove", node: number, } | { "type": "StartFlashAnalysis", target: FlashTarget, } | { "type": "CancelFlashAnalysis" } | { "type": "RedoFlashAnalysis" } | { "type": "Region", op: RegionCommand, } | { "type": "SetRegionSettings", settings: RegionSettings, } | { "type": "Tracking", op: TrackingCommand, } | { "type": "SetTrackingSettings", settings: TrackingSettings, } | { "type": "StartAutoAnalysis", settings: AutoAnalysisSettings, } | { "type": "StopAutoAnalysis" } | { "type": "AnswerAutoAnalysisDiff", accept: boolean, } | { "type": "SaveAutoAnalysisSettings", settings: AutoAnalysisSettings, } | { "type": "DismissAutoAnalysisTip", never_again: boolean, } | { "type": "StartWholeGameAnalysis", visits: number, } | { "type": "PauseWholeGameAnalysis" } | { "type": "ResumeWholeGameAnalysis" } | { "type": "StopWholeGameAnalysis" } | { "type": "EstimateWholeGameAnalysis", visits: number, } | { "type": "Hawkeye", op: HawkeyeCommand, } | { "type": "SetHawkeyeSettings", settings: HawkeyeSettings, } | { "type": "ExportTable", rows: Array<Array<string>>, } | { "type": "Batch", op: BatchCommand, } | { "type": "Game", op: GameCommand, } | { "type": "Match", op: MatchCommand, } | { "type": "HumanSl", op: HumanSlCommand, } | { "type": "SetCaptureSettings", settings: CaptureSettings, } | { "type": "SetTsumegoButtonShown", shown: boolean, };
 
-export type CommandResult = { "type": "Done" } | { "type": "Strength", report: StrengthReport, } | { "type": "CommentaryModels", models: Array<string>, } | { "type": "StrengthImportFailed", detail: string, } | { "type": "WholeGameEstimate", millis: number | null, } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "NeedsEditConfirmation", target: EditTarget, } | { "type": "NeedsBatchStop" } | { "type": "Exported", path: string, } | { "type": "ExportFailed", path: string, detail: string, } | { "type": "Refused", message_key: string, } | { "type": "SaveStarted", ticket: number, } | { "type": "NeedsReplaceConfirmation", document: number, file_name: string, } | { "type": "NeedsOverwriteConfirmation", path: string, } | { "type": "NeedsExportOverwriteConfirmation", kind: ExportKind, path: string, } | { "type": "NeedsImageOverwriteConfirmation", path: string, } | { "type": "FolderChosen", path: string, } | { "type": "JavaImportPreview", preview: ImportPreviewView, } | { "type": "JavaImportFailed", failure: ImportFailure, } | { "type": "JavaImported", report: ImportReportView, } | { "type": "Resource", result: ResourceResult, } | { "type": "Tuning", result: TuningResult, } | { "type": "AnalysisCommand", command: string, generated_config: string | null, } | { "type": "TsumegoFramed", no_room: Array<Stone>, };
+export type CommandResult = { "type": "Done" } | { "type": "Strength", report: StrengthReport, } | { "type": "CommentaryModels", models: Array<string>, } | { "type": "SshPassword", state: SshPasswordState, } | { "type": "StrengthImportFailed", detail: string, } | { "type": "WholeGameEstimate", millis: number | null, } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "NeedsEditConfirmation", target: EditTarget, } | { "type": "NeedsBatchStop" } | { "type": "Exported", path: string, } | { "type": "ExportFailed", path: string, detail: string, } | { "type": "Refused", message_key: string, } | { "type": "SaveStarted", ticket: number, } | { "type": "NeedsReplaceConfirmation", document: number, file_name: string, } | { "type": "NeedsOverwriteConfirmation", path: string, } | { "type": "NeedsExportOverwriteConfirmation", kind: ExportKind, path: string, } | { "type": "NeedsImageOverwriteConfirmation", path: string, } | { "type": "FolderChosen", path: string, } | { "type": "FileChosen", path: string, } | { "type": "JavaImportPreview", preview: ImportPreviewView, } | { "type": "JavaImportFailed", failure: ImportFailure, } | { "type": "JavaImported", report: ImportReportView, } | { "type": "Resource", result: ResourceResult, } | { "type": "Tuning", result: TuningResult, } | { "type": "AnalysisCommand", command: string, generated_config: string | null, } | { "type": "TsumegoFramed", no_room: Array<Stone>, };
 
 export type ErrorKind = "InvalidArgument" | "Io" | "Unavailable";
 
@@ -451,7 +464,16 @@ output: Array<string>,
 /**
  * Missing store-owned NVIDIA runtime components, if this managed profile can be repaired.
  */
-repair?: ResourceRepairView, };
+repair?: ResourceRepairView, 
+/**
+ * A remote engine's connection failure or end (`SSHController` messages).
+ */
+remote?: RemoteFailure, 
+/**
+ * The configured engine that failed (empty for the analysis engine), so the dialog can
+ * start it again (Java opens 更多引擎 after a remote login failure).
+ */
+profile_id: string, };
 
 export type EngineNotice = "StoppedByLimit" | "SetupModeActive" | "SameEngine";
 
@@ -647,7 +669,7 @@ candidates: Array<string>, };
 
 export type ImportStatus = "Imported" | "Incompatible" | "NotMigrated";
 
-export type ImportReason = "NotYetAvailable" | "Credential" | "InvalidValue" | "WindowCoordinates" | "RemoteEngine" | "CredentialNotConfirmed" | "Unreadable" | "NotChosen" | "Obsolete";
+export type ImportReason = "NotYetAvailable" | "Credential" | "InvalidValue" | "WindowCoordinates" | "CredentialNotConfirmed" | "SessionOnly" | "Unreadable" | "NotChosen" | "Obsolete";
 
 export type ImportTarget = "Appearance" | "Commentary" | "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode" | "WorkbenchPanels" | "PanelSizes" | "BottomToolbar" | "AutoQuickAnalysis" | "AnalysisEngine" | "QuickModel" | "HumanSlTraining" | "HumanSlModel" | "StrengthBackground" | "StrengthModels" | "Tsumego" | "CaptureTsumego" | "ProblemList" | "FlashRange" | "AutoAnalysis" | "HumanEngineGame" | "GameAiTime" | "GameRandomStart" | "AutoPlay" | "EngineMatch" | "WholeGameVisits" | "AnalysisRegion" | "Tracking" | "Hawkeye";
 
@@ -697,6 +719,11 @@ export type ImportPreviewView = {
  * Answer with [`Command::ApplyJavaImport`].
  */
 id: number, config_file: string, persist_file: string | null, program_dir: string | null, items: Array<ImportItemView>, engines: Array<ImportEngineView>, commentary_credential: ImportCommentaryCredential | null, 
+/**
+ * The SSH account (`user@host:port`) whose Java password 精析设置's 远程引擎 would copy
+ * when confirmed.
+ */
+analysis_ssh_credential: string | null, 
 /**
  * Settings already chosen in this product that the import would replace.
  */
@@ -1420,7 +1447,12 @@ reuseCurrentEngine: boolean,
  * 批量精析's 每手总计算量 (`batch-analysis-playouts`, default 100): a batch request searches
  * at least 2 visits (`AnalysisEngine.targetAnalysisVisits`).
  */
-batchVisits: number, };
+batchVisits: number, 
+/**
+ * 远程引擎 (`analysis-engine-ssh-info.useJavaSSH`): the analysis command runs on the SSH
+ * host `ssh`. Turning it off keeps the connection settings, like Java.
+ */
+useSsh: boolean, ssh: SshSettings, };
 
 export type QuickModelView = { status: QuickModelStatus, 
 /**
@@ -2370,6 +2402,22 @@ columns: number, rows: number,
  * Row-major over `(columns + 1) * (rows + 1)` intersections: 0 empty, 1 black, 2 white.
  */
 stones: Array<number>, };
+
+export type SshSettings = { host: string, 
+/**
+ * As entered; a value that is not a port number means 22 (`RemoteConnect.setPort`).
+ */
+port: string, user: string, 
+/**
+ * 密钥 (key file) rather than 密码.
+ */
+useKey: boolean, keyPath: string, };
+
+export type RemoteFailure = { "type": "Connect", detail: string, } | { "type": "Authentication" } | { "type": "PasswordMissing", account: string, } | { "type": "HostKeyChanged", host: string, port: number, trusted: string, offered: string, } | { "type": "Ended", status: number | null, signal: string | null, } | { "type": "Lost", detail: string, };
+
+export type SshCredentialCommand = { "type": "PasswordState", ssh: SshSettings, } | { "type": "SetPassword", ssh: SshSettings, password: string, } | { "type": "TrustHostKey", host: string, port: number, } | { "type": "ChooseKeyFile", title: string, };
+
+export type SshPasswordState = "None" | "Stored" | "Session";
 
 export type ManagedProfile = { command: string, assetId: string, weightPath: string, configPath: string, };
 

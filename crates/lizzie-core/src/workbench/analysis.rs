@@ -25,6 +25,7 @@ use crate::display::{self, BoardOverlayView};
 use crate::engine::gtp::InfoLine;
 use crate::engine::profile::{new_profile_id, AnalysisSettings, EngineProfile, EngineStartup};
 use crate::engine::rules::KataRules;
+use crate::engine::ssh::RemoteFailure;
 use crate::engine::runtime::{
     Bootstrap, CheckedLaunch, ConsoleKind, EngineFailure, EngineInput, InstanceId, LaunchCheck, Phase, RulesOutcome,
     RuntimeEvent, Target, UserCommandError,
@@ -1126,7 +1127,7 @@ impl Workbench {
     /// variation length, the previews of stored analysis.
     pub(super) fn analysis_settings_changed(&mut self, previous: &AnalysisSettings) {
         let settings = &self.config.engine.analysis;
-        self.engines.set_interval(settings.interval_centisec);
+        self.engines.set_interval(settings.interval_centisec, settings.interval_centisec_ssh);
         if settings.limit_branch_length != previous.limit_branch_length {
             self.refresh_pv_captures();
         }
@@ -1178,7 +1179,8 @@ impl Workbench {
         let secondary_profile = self.secondary_profile();
         let (mut restart_fg, mut restart_secondary) = (None, None);
         for (instance, id, _) in self.engines.running() {
-            let launch = |p: &EngineProfile| (p.command.clone(), p.initial_command.clone(), p.width, p.height);
+            // `EngineManager.isSameEngine` also compares the SSH connection.
+            let launch = |p: &EngineProfile| (p.command.clone(), p.initial_command.clone(), p.width, p.height, p.ssh.clone());
             let before = old.iter().find(|p| p.id == id).map(launch);
             let after = engines.iter().position(|p| p.id == id);
             let changed = after.is_none() || before != after.map(|a| launch(&engines[a]));
@@ -1461,6 +1463,11 @@ impl Workbench {
             true,
             format!("engine failed [{}] {command}: {message} | {tail}", f.engine_name),
         );
+        let remote = f.remote.map(|r| match r {
+            RemoteFailure::Connect { detail } => RemoteFailure::Connect { detail: sanitize(&detail) },
+            RemoteFailure::Lost { detail } => RemoteFailure::Lost { detail: sanitize(&detail) },
+            other => other,
+        });
         self.engine_failure = Some(EngineFailureView {
             engine_name: f.engine_name,
             command,
@@ -1468,6 +1475,8 @@ impl Workbench {
             message,
             output,
             repair: None,
+            remote,
+            profile_id: f.profile_id,
         });
     }
 

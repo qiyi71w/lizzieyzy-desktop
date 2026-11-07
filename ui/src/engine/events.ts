@@ -1,20 +1,24 @@
-import { registerViewHandler, run } from "../app";
+import { registerViewHandler, run, state } from "../app";
 import type { EngineFailureView, RulesPromptView } from "../contract/generated";
 import { chooseSave, formPanel, message, panel } from "../dialogs";
 import { format, product, t } from "../i18n";
-import { chooseEngine } from "./catalog";
+import { chooseEngine, openMoreEngines } from "./catalog";
 import { actions, button, checkbox } from "./controls";
+import { remoteFailureText } from "./remote";
 import { openAutoSetup } from "../setup/dialog";
 
 /** EngineFailedMessage: the failure text, the launch command and 详细信息; the details window
- *  holds the engine output with 复制错误 / 导出诊断包 (EngineFailedMessage.java:261-468). */
+ *  holds the engine output with 复制错误 / 导出诊断包 (EngineFailedMessage.java:261-468). A remote
+ *  engine's failure takes SSHController's wording; a configured engine whose login or connection
+ *  failed opens 更多引擎 afterwards (SSHController.java:38-54). */
 async function failureDialog(failure: EngineFailureView): Promise<void> {
   const body = document.createElement("div"); body.className = "engine-failure";
-  const summary = document.createElement("pre"); summary.textContent = `${failure.engine_name}: ${failure.message}`;
+  const text = failure.remote ? remoteFailureText(failure.remote) : failure.message;
+  const summary = document.createElement("pre"); summary.textContent = `${failure.engine_name}: ${text}`;
   const label = document.createElement("div"); label.textContent = t("EngineFailedMessage.engineCmd");
   const command = document.createElement("pre"); command.textContent = failure.command;
   body.append(summary, label, command);
-  const error = `${failure.engine_name}: ${failure.message}\n${t("EngineFailedMessage.engineCmd")} ${failure.command}\n${failure.output.join("\n")}`;
+  const error = `${failure.engine_name}: ${text}\n${t("EngineFailedMessage.engineCmd")} ${failure.command}\n${failure.output.join("\n")}`;
   const dialog = formPanel(t("Leelaz.engineFailed"), body);
   const details = () => {
     const box = document.createElement("div"); box.className = "engine-failure";
@@ -37,8 +41,23 @@ async function failureDialog(failure: EngineFailureView): Promise<void> {
     repair.title = t("EngineFailedMessage.openTensorRtRepairAccessibleDescription");
     actions(body, repair);
   }
+  const remote = failure.remote;
+  const index = state.view?.settings.engine.engines.findIndex((e) => e.id === failure.profile_id) ?? -1;
+  const restart = () => run(state.view?.engine.secondary?.index === index ? { type: "SwitchSecondaryEngine", index } : { type: "SwitchEngine", index });
+  if (remote?.type === "HostKeyChanged") {
+    // The analysis engine connects again at its next analysis; a configured engine restarts.
+    const trust = button(index >= 0 ? product("sshTrustAndRetry") : product("sshTrust"), async () => {
+      const r = await run({ type: "SshCredential", op: { type: "TrustHostKey", host: remote.host, port: remote.port } });
+      if (r?.type !== "Done") return;
+      await dialog.close();
+      if (index >= 0) await restart();
+    });
+    trust.dataset.key = "engine.failure.trustHostKey";
+    actions(body, trust);
+  }
   actions(body, button(t("EngineFailedMessage.details"), details), button(product("close"), () => dialog.close()));
   await dialog.closed;
+  if (index >= 0 && (remote?.type === "Authentication" || remote?.type === "Connect" || remote?.type === "PasswordMissing")) await openMoreEngines();
 }
 
 let notice: HTMLElement | null = null;

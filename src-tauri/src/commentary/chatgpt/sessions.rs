@@ -22,7 +22,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::identity;
-use crate::commentary::{http::Http, secrets::Store};
+use crate::commentary::http::Http;
+use crate::secrets::Store;
 
 pub const AUTH: &str = "https://auth.openai.com";
 pub const RESOURCE: &str = "https://api.openai.com/v1";
