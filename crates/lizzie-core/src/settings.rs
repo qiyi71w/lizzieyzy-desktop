@@ -1509,6 +1509,8 @@ pub struct Config {
     pub tsumego: TsumegoSettings,
     /// 野狐棋谱 window.
     pub fox_kifu: FoxKifuSettings,
+    /// 腾讯棋谱 window.
+    pub tencent_kifu: TencentKifuSettings,
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).
@@ -1541,16 +1543,17 @@ pub struct FoxKifuSettings {
     /// The last searched account text and whether it was searched as a UID.
     pub last_name: String,
     pub last_query_by_uid: bool,
-    pub after_get: FoxAfterGet,
-    /// 近期搜索, newest first, at most [`FOX_RECENT_LIMIT`].
+    pub after_get: KifuAfterGet,
+    /// 近期搜索, newest first, at most [`KIFU_RECENT_LIMIT`].
     pub recent: Vec<FoxRecentSearch>,
 }
 
-pub const FOX_RECENT_LIMIT: usize = 8;
+/// The 近期搜索 buttons each kifu window keeps (`saveRecentSearches`).
+pub const KIFU_RECENT_LIMIT: usize = 8;
 
-/// 打开棋谱后此窗口 (`fox-after-get`: 0, 1, 2).
+/// 打开棋谱后此窗口 (`fox-after-get`, `tencent-after-get`: 0, 1, 2).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
-pub enum FoxAfterGet {
+pub enum KifuAfterGet {
     #[default]
     Minimize,
     Close,
@@ -1563,6 +1566,27 @@ pub enum FoxAfterGet {
 pub struct FoxRecentSearch {
     pub uid: String,
     pub nickname: String,
+}
+
+/// 腾讯棋谱 (`ui.last-tencent-name`, `tencent-after-get`, `tencent-recent-searches`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TencentKifuSettings {
+    /// The last searched nickname or UID.
+    pub last_name: String,
+    /// 打开棋谱后此窗口; until chosen here, 野狐棋谱's choice applies
+    /// (`optInt("tencent-after-get", foxAfterGet)`).
+    pub after_get: Option<KifuAfterGet>,
+    /// 近期搜索, newest first, at most [`KIFU_RECENT_LIMIT`].
+    pub recent: Vec<TencentRecentSearch>,
+}
+
+/// A 腾讯棋谱 近期搜索 button: searches `query` (its UID when the query is empty).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default)]
+pub struct TencentRecentSearch {
+    pub uid: String,
+    pub query: String,
 }
 
 impl Config {

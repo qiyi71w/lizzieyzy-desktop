@@ -113,8 +113,12 @@ pub struct Mapped {
     /// `fox-recent-searches`.
     pub fox_last_name: Option<String>,
     pub fox_query_by_uid: Option<bool>,
-    pub fox_after_get: Option<crate::settings::FoxAfterGet>,
+    pub fox_after_get: Option<crate::settings::KifuAfterGet>,
     pub fox_recent: Option<Vec<crate::settings::FoxRecentSearch>>,
+    /// 腾讯棋谱: `ui.last-tencent-name`, `tencent-after-get`, `tencent-recent-searches`.
+    pub tencent_last_name: Option<String>,
+    pub tencent_after_get: Option<crate::settings::KifuAfterGet>,
+    pub tencent_recent: Option<Vec<crate::settings::TencentRecentSearch>>,
     /// Engines in Java order (an SSH engine keeps its command as written: it runs on its host).
     pub engines: Option<Vec<MappedEngine>>,
     pub startup: Option<EngineStartup>,
@@ -1534,6 +1538,7 @@ impl Reader<'_> {
             }
         }
         self.fox_kifu(ui, &mut handled);
+        self.tencent_kifu(ui, &mut handled);
 
         self.appearance(ui, &mut handled);
         self.hawkeye(ui, &mut handled);
@@ -2024,7 +2029,7 @@ impl Reader<'_> {
 
     /// 野狐棋谱 (`Config.java:2056-2058`, `FoxKifuDownload.loadRecentSearches`).
     fn fox_kifu(&mut self, ui: &Map<String, Value>, handled: &mut Handled) {
-        use crate::settings::{FoxAfterGet, FoxRecentSearch, FOX_RECENT_LIMIT};
+        use crate::settings::{FoxRecentSearch, KifuAfterGet, KIFU_RECENT_LIMIT};
         let target = ImportTarget::FoxKifu;
         if let Some(v) = ui.get("last-fox-name") {
             handled.push(("ui", "last-fox-name"));
@@ -2050,9 +2055,9 @@ impl Reader<'_> {
             handled.push(("ui", "fox-after-get"));
             // The combo's three entries (最小化, 关闭, 无动作); another index fails in Java.
             let action = match as_i64(v) {
-                Some(0) => Some(FoxAfterGet::Minimize),
-                Some(1) => Some(FoxAfterGet::Close),
-                Some(2) => Some(FoxAfterGet::Keep),
+                Some(0) => Some(KifuAfterGet::Minimize),
+                Some(1) => Some(KifuAfterGet::Close),
+                Some(2) => Some(KifuAfterGet::Keep),
                 _ => None,
             };
             match action {
@@ -2077,7 +2082,7 @@ impl Reader<'_> {
                             nickname: text(o, "nickname"),
                         })
                         .filter(|r| !r.uid.is_empty() || !r.nickname.is_empty())
-                        .take(FOX_RECENT_LIMIT)
+                        .take(KIFU_RECENT_LIMIT)
                         .collect();
                     let listed = recent
                         .iter()
@@ -2092,6 +2097,76 @@ impl Reader<'_> {
                     self.mapped.fox_recent = Some(recent);
                 }
                 None => self.invalid("ui.fox-recent-searches".into(), target, v),
+            }
+        }
+    }
+
+    /// 腾讯棋谱 (`TencentKifuDownload`: its constructor, `buildUi`, `loadRecentSearches`).
+    fn tencent_kifu(&mut self, ui: &Map<String, Value>, handled: &mut Handled) {
+        use crate::settings::{KifuAfterGet, TencentRecentSearch, KIFU_RECENT_LIMIT};
+        let target = ImportTarget::TencentKifu;
+        if let Some(v) = ui.get("last-tencent-name") {
+            handled.push(("ui", "last-tencent-name"));
+            match v {
+                Value::String(s) => {
+                    self.imported("ui.last-tencent-name".into(), target, s.clone());
+                    self.mapped.tencent_last_name = Some(s.clone());
+                }
+                _ => self.invalid("ui.last-tencent-name".into(), target, v),
+            }
+        }
+        if let Some(v) = ui.get("tencent-after-get") {
+            handled.push(("ui", "tencent-after-get"));
+            // The combo takes the index clamped to its three entries; a non-number falls back
+            // to 野狐棋谱's choice.
+            match as_i64(v) {
+                Some(i) => {
+                    let action = match i.clamp(0, 2) {
+                        0 => KifuAfterGet::Minimize,
+                        1 => KifuAfterGet::Close,
+                        _ => KifuAfterGet::Keep,
+                    };
+                    self.imported("ui.tencent-after-get".into(), target, shown(v));
+                    self.mapped.tencent_after_get = Some(action);
+                }
+                None => self.invalid("ui.tencent-after-get".into(), target, v),
+            }
+        }
+        if let Some(v) = ui.get("tencent-recent-searches") {
+            handled.push(("ui", "tencent-recent-searches"));
+            match v.as_array() {
+                Some(list) => {
+                    let text = |o: &Map<String, Value>, k: &str| o.get(k).map(shown).unwrap_or_default().trim().to_string();
+                    let recent: Vec<TencentRecentSearch> = list
+                        .iter()
+                        .filter_map(Value::as_object)
+                        .map(|o| {
+                            let uid = text(o, "uid");
+                            // A UID-only entry searches its UID.
+                            let query = match text(o, "query") {
+                                q if q.is_empty() => uid.clone(),
+                                q => q,
+                            };
+                            TencentRecentSearch { uid, query }
+                        })
+                        .filter(|r| !r.query.is_empty())
+                        .take(KIFU_RECENT_LIMIT)
+                        .collect();
+                    let listed = recent
+                        .iter()
+                        .map(|r| {
+                            if r.uid.is_empty() || r.uid == r.query {
+                                r.query.clone()
+                            } else {
+                                format!("{} ({})", r.query, r.uid)
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    self.imported("ui.tencent-recent-searches".into(), target, listed);
+                    self.mapped.tencent_recent = Some(recent);
+                }
+                None => self.invalid("ui.tencent-recent-searches".into(), target, v),
             }
         }
     }
@@ -2702,6 +2777,11 @@ impl Mapped {
         set!(c.fox_kifu.last_query_by_uid, self.fox_query_by_uid);
         set!(c.fox_kifu.after_get, self.fox_after_get);
         set!(c.fox_kifu.recent, self.fox_recent);
+        set!(c.tencent_kifu.last_name, self.tencent_last_name);
+        if let Some(action) = self.tencent_after_get {
+            c.tencent_kifu.after_get = Some(action);
+        }
+        set!(c.tencent_kifu.recent, self.tencent_recent);
         if let Some(folder) = &self.last_folder {
             p.last_folder = Some(folder.clone());
         }
@@ -2978,6 +3058,13 @@ impl Mapped {
             || self.fox_recent.as_ref().is_some_and(|v| *v != fox.recent)
         {
             out.push(ImportTarget::FoxKifu);
+        }
+        let tencent = &config.tencent_kifu;
+        if self.tencent_last_name.as_ref().is_some_and(|v| *v != tencent.last_name)
+            || self.tencent_after_get.is_some_and(|v| Some(v) != tencent.after_get)
+            || self.tencent_recent.as_ref().is_some_and(|v| *v != tencent.recent)
+        {
+            out.push(ImportTarget::TencentKifu);
         }
         if self.interval_centisec.is_some_and(|v| v != a.interval_centisec)
             || self.interval_centisec_ssh.is_some_and(|v| v != a.interval_centisec_ssh)

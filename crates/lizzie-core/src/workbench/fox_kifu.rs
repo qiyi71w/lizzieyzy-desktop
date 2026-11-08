@@ -2,13 +2,13 @@
 //! search; a reply of an older session is dropped (`receiveResult`: only the current request may
 //! touch the dialog). A downloaded record opens through the ordinary open path.
 
-use super::{OpenOrigin, Workbench};
+use super::{KifuSource, OpenOrigin, Workbench};
 use crate::api::{
-    ApiError, CommandResult, FoxKifuBusy, FoxKifuCommand, FoxKifuNotice, FoxKifuPage, FoxKifuRow, FoxKifuView,
+    ApiError, CommandResult, FoxKifuBusy, FoxKifuCommand, KifuNotice, KifuPage, FoxKifuRow, FoxKifuView,
 };
 use crate::fox_kifu::{Game, Reply, Request};
 use crate::record::RecordFormat;
-use crate::settings::{FoxRecentSearch, FOX_RECENT_LIMIT};
+use crate::settings::{FoxRecentSearch, KIFU_RECENT_LIMIT};
 
 /// Games a page shows (`numbersPerTab`).
 const PER_PAGE: usize = 25;
@@ -64,7 +64,7 @@ pub(super) struct FoxKifuFlow {
     busy: Option<FoxKifuBusy>,
     /// The open request of the downloaded record.
     open_ticket: Option<u64>,
-    notice: Option<FoxKifuNotice>,
+    notice: Option<KifuNotice>,
     next_notice: u64,
     opened: u64,
     jobs: Vec<FoxKifuJob>,
@@ -142,7 +142,7 @@ impl Workbench {
                 }
                 f.loading = true;
                 f.busy = Some(FoxKifuBusy::Downloading);
-                let ticket = self.begin_open(OpenOrigin::Downloaded);
+                let ticket = self.begin_open(OpenOrigin::Downloaded(KifuSource::Fox));
                 self.fox_kifu.open_ticket = Some(ticket);
                 let request = Request::Record {
                     chessid: chessid.into(),
@@ -235,32 +235,32 @@ impl Workbench {
     }
 
     /// The page buttons (`FoxKifuDownload` |< < > >|).
-    fn fox_kifu_page(&mut self, to: FoxKifuPage) -> CommandResult {
+    fn fox_kifu_page(&mut self, to: KifuPage) -> CommandResult {
         let f = &mut self.fox_kifu;
         if !f.listed {
             return CommandResult::Unchanged;
         }
         match to {
-            FoxKifuPage::First => {
+            KifuPage::First => {
                 f.page = 1;
                 f.second_empty = false;
             }
-            FoxKifuPage::Previous => {
+            KifuPage::Previous => {
                 if f.page == 1 {
                     return CommandResult::Unchanged;
                 }
                 f.page -= 1;
                 f.second_empty = false;
             }
-            FoxKifuPage::Next | FoxKifuPage::Last => {
+            KifuPage::Next | KifuPage::Last => {
                 if f.page == f.pages {
                     return self.fox_kifu_more();
                 }
-                f.page = if to == FoxKifuPage::Next { f.page + 1 } else { f.pages };
+                f.page = if to == KifuPage::Next { f.page + 1 } else { f.pages };
             }
         }
         f.show_page();
-        if matches!(to, FoxKifuPage::Next | FoxKifuPage::Last) {
+        if matches!(to, KifuPage::Next | KifuPage::Last) {
             let more = self.fox_kifu_more();
             if matches!(more, CommandResult::Refused { .. }) {
                 return more;
@@ -420,7 +420,7 @@ impl Workbench {
                 nickname: nickname.to_string(),
             },
         );
-        recent.truncate(FOX_RECENT_LIMIT);
+        recent.truncate(KIFU_RECENT_LIMIT);
         let _ = self.save_config();
     }
 
@@ -481,7 +481,7 @@ impl FoxKifuFlow {
 
     fn notify(&mut self, key: &str, detail: String) {
         self.next_notice += 1;
-        self.notice = Some(FoxKifuNotice {
+        self.notice = Some(KifuNotice {
             id: self.next_notice,
             message_key: key.into(),
             detail,

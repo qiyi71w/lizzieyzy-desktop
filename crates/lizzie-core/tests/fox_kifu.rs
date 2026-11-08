@@ -3,15 +3,16 @@
 
 use std::collections::VecDeque;
 
-use lizzie_core::api::{CommandResult, FoxKifuBusy, FoxKifuCommand, FoxKifuPage, FoxKifuView, OpenOutcome, OpenSource};
+use lizzie_core::api::{CommandResult, FoxKifuBusy, FoxKifuCommand, FoxKifuView, KifuPage, OpenOutcome, OpenSource};
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::formats;
-use lizzie_core::fox_kifu::{fetch, Http};
+use lizzie_core::fox_kifu::fetch;
+use lizzie_core::kifu_web::Http;
 use lizzie_core::java_import::{self, JavaSource};
 use lizzie_core::record::RecordFormat;
 use lizzie_core::record::ROOT;
-use lizzie_core::settings::{FoxAfterGet, FoxRecentSearch, Storage};
+use lizzie_core::settings::{FoxRecentSearch, KifuAfterGet, Storage};
 use lizzie_core::workbench::{FoxKifuJob, OpenOrigin, Workbench, KIFU_LOAD_FAILED};
 use serde_json::json;
 
@@ -245,10 +246,10 @@ fn the_last_pages_fetch_more_and_a_failed_page_can_be_asked_again() {
     let v = view(&mut wb);
     assert_eq!((v.page, v.pages, v.complete), (1, 4, false));
     // Page 2 is not near the end: nothing is fetched.
-    op(&mut wb, FoxKifuCommand::Page { to: FoxKifuPage::Next });
+    op(&mut wb, FoxKifuCommand::Page { to: KifuPage::Next });
     assert!(wb.take_fox_kifu_jobs().is_empty());
     // Page 3 of 4 asks for the games after the last one.
-    op(&mut wb, FoxKifuCommand::Page { to: FoxKifuPage::Next });
+    op(&mut wb, FoxKifuCommand::Page { to: KifuPage::Next });
     let mut failing = Script::default().reply("lastcode=c99", Err("reset".into()));
     serve(&mut wb, &mut failing);
     assert_eq!(
@@ -256,7 +257,7 @@ fn the_last_pages_fetch_more_and_a_failed_page_can_be_asked_again() {
         "FoxKifuDownload.getKifuFailed"
     );
     // The failed page is requested again, and its games extend the list.
-    op(&mut wb, FoxKifuCommand::Page { to: FoxKifuPage::Next });
+    op(&mut wb, FoxKifuCommand::Page { to: KifuPage::Next });
     let v = view(&mut wb);
     assert_eq!((v.page, v.pages), (4, 4));
     let mut http = Script::default().reply("lastcode=c99", list(100..130));
@@ -265,15 +266,15 @@ fn the_last_pages_fetch_more_and_a_failed_page_can_be_asked_again() {
     // Asked from the last page: the list moves on to the next page.
     assert_eq!((v.page, v.pages, v.complete), (5, 6, true));
     assert_eq!(v.rows[0].index, 101);
-    op(&mut wb, FoxKifuCommand::Page { to: FoxKifuPage::Last });
+    op(&mut wb, FoxKifuCommand::Page { to: KifuPage::Last });
     let mut http = Script::default().reply("lastcode=c129", Ok(json!({"result": 0, "chesslist": []}).to_string()));
     serve(&mut wb, &mut http);
     // No more games: the second try at the end says so.
     assert_eq!(
-        op(&mut wb, FoxKifuCommand::Page { to: FoxKifuPage::Next }),
+        op(&mut wb, FoxKifuCommand::Page { to: KifuPage::Next }),
         refused("FoxKifuDownload.noMoreKifu")
     );
-    op(&mut wb, FoxKifuCommand::Page { to: FoxKifuPage::First });
+    op(&mut wb, FoxKifuCommand::Page { to: KifuPage::First });
     assert_eq!(view(&mut wb).rows[0].index, 1);
 }
 
@@ -448,10 +449,10 @@ fn window_choices_persist_and_personal_data_clears_recent_searches() {
     op(
         &mut wb,
         FoxKifuCommand::SetAfterGet {
-            action: FoxAfterGet::Keep,
+            action: KifuAfterGet::Keep,
         },
     );
-    assert_eq!(workbench(dir.path()).config().fox_kifu.after_get, FoxAfterGet::Keep);
+    assert_eq!(workbench(dir.path()).config().fox_kifu.after_get, KifuAfterGet::Keep);
     assert_eq!(view(&mut wb).recent.len(), 1);
     assert!(wb.clear_personal_data().unwrap());
     assert!(view(&mut wb).recent.is_empty());
@@ -494,7 +495,7 @@ fn java_fox_settings_are_imported() {
     let (c, _) = candidate.mapped.apply(wb.config(), wb.persisted(), &[]);
     assert_eq!(c.fox_kifu.last_name, "6757425");
     assert!(c.fox_kifu.last_query_by_uid);
-    assert_eq!(c.fox_kifu.after_get, FoxAfterGet::Close);
+    assert_eq!(c.fox_kifu.after_get, KifuAfterGet::Close);
     assert_eq!(
         c.fox_kifu.recent,
         vec![

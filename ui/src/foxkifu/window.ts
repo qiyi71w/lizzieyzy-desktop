@@ -5,14 +5,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { dispatch, isApiError } from "../contract/client";
-import type { Command, FoxAfterGet, FoxKifuCommand, FoxKifuPage, FoxKifuRow, FoxKifuView } from "../contract/generated";
+import type { Command, KifuAfterGet, FoxKifuCommand, KifuPage, FoxKifuRow, FoxKifuView } from "../contract/generated";
 import { confirm, dialogOpen, message } from "../dialogs";
 import { format, isChinese, setLanguage, t } from "../i18n";
 import { FOX_KIFU_DATA_EVENT, FOX_KIFU_INPUT_EVENT, type FoxKifuInput, type FoxKifuPayload, type FoxKifuReport } from "./model";
 import "../styles.css";
 import "./foxkifu.css";
 
-const AFTER_GET: FoxAfterGet[] = ["Minimize", "Close", "Keep"];
+const AFTER_GET: KifuAfterGet[] = ["Minimize", "Close", "Keep"];
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text = ""): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -142,7 +142,7 @@ export function bootFoxKifu(): void {
   scroll.append(table);
 
   const south = el("div", "fk-south");
-  const pageButtons: [string, FoxKifuPage][] = [
+  const pageButtons: [string, KifuPage][] = [
     ["|<", "First"],
     ["<", "Previous"],
     [">", "Next"],

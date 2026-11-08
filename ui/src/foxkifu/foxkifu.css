@@ -1,6 +1,7 @@
 /* 野狐棋谱 (FoxKifuDownload): BorderLayout north rows (8/8/4/8 border, 6 px gaps), the table
    (centred cells, red text for the searched account's wins and grey otherwise), the south page
-   buttons and the glass-pane progress card. Measured from the fixed Java cb53acc capture. */
+   buttons and the glass-pane progress card. Measured from the fixed Java cb53acc capture.
+   腾讯棋谱 (TencentKifuDownload) is the same Java frame and uses these rules too. */
 .fk-root {
   position: relative;
   flex: 1;

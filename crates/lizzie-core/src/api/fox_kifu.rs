@@ -3,7 +3,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::settings::{FoxAfterGet, FoxRecentSearch};
+use super::{KifuNotice, KifuPage};
+use crate::settings::{FoxRecentSearch, KifuAfterGet};
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
 #[serde(tag = "type")]
@@ -21,21 +22,13 @@ pub enum FoxKifuCommand {
         nickname_hint: String,
     },
     /// |< < > >| over the list (25 games a page); the last pages fetch more games.
-    Page { to: FoxKifuPage },
+    Page { to: KifuPage },
     /// 打开 or a double click on a listed game; ignored while a record downloads.
     OpenGame { chessid: String },
     /// 打开棋谱后此窗口.
-    SetAfterGet { action: FoxAfterGet },
+    SetAfterGet { action: KifuAfterGet },
     /// 清空历史, after its confirmation.
     ClearRecent,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
-pub enum FoxKifuPage {
-    First,
-    Previous,
-    Next,
-    Last,
 }
 
 /// What the window shows; the core owns the search and its list.
@@ -46,7 +39,7 @@ pub struct FoxKifuView {
     pub search: u64,
     pub last_name: String,
     pub last_query_by_uid: bool,
-    pub after_get: FoxAfterGet,
+    pub after_get: KifuAfterGet,
     /// 近期搜索, newest first.
     pub recent: Vec<FoxRecentSearch>,
     /// 当前野狐账号; both empty: 等待搜索.
@@ -66,7 +59,7 @@ pub struct FoxKifuView {
     /// The table is disabled while a record downloads and opens.
     pub loading: bool,
     /// The latest message box, by increasing id.
-    pub notice: Option<FoxKifuNotice>,
+    pub notice: Option<KifuNotice>,
     /// Counts records opened from this window: after each, 打开棋谱后此窗口 applies and the main
     /// window comes forward.
     pub opened: u64,
@@ -100,12 +93,4 @@ pub enum FoxKifuBusy {
     Downloading,
     /// KifuLoad.parsing: the record is being opened.
     Opening,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
-pub struct FoxKifuNotice {
-    pub id: u64,
-    /// The Java message key; `FoxKifuDownload.getKifuFailed` is followed by `detail`.
-    pub message_key: String,
-    pub detail: String,
 }

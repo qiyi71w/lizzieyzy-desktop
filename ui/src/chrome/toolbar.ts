@@ -389,6 +389,13 @@ function foxKifuButton(): HTMLElement {
   return b;
 }
 
+/** btnTencentKifu (Menu.java:8369-8384): primary style, 腾讯棋谱 as its tip. */
+function tencentKifuButton(): HTMLElement {
+  const b = pill(t("Menu.tencentKifuButton"), "w80", "menu.tencentKifu");
+  b.title = t("Menu.tencentKifu");
+  return b;
+}
+
 export function buildToolbar(host: HTMLElement): void {
   const search = searchButton();
   const setup = pill(t("Menu.autoSetupButton"), "wide w80", "engine.setup");
@@ -401,7 +408,7 @@ export function buildToolbar(host: HTMLElement): void {
       icon("open.png", t("Menu.btnOpen.toolTipText"), "files.open"),
       icon("save.png", t("Menu.btnSave.toolTipText"), "files.save"),
       foxKifuButton(),
-      pill(t("Menu.tencentKifuButton"), "w80"),
+      tencentKifuButton(),
       strengthButton(),
     ),
     buttons(setup, flashButton(), search),

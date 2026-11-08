@@ -8,6 +8,7 @@ mod commentary;
 mod diagnostics;
 mod fox_kifu;
 mod independent;
+mod kifu_web;
 mod logging;
 mod matches;
 mod output;
@@ -16,6 +17,7 @@ mod screen;
 mod secrets;
 mod ssh;
 mod startup;
+mod tencent_kifu;
 mod tsumego_capture;
 mod tuning;
 
@@ -179,11 +181,13 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
     let deferred = wb.take_human_sl_deferred();
     let commentary_jobs = wb.take_commentary_jobs();
     let fox_kifu_jobs = wb.take_fox_kifu_jobs();
+    let tencent_kifu_jobs = wb.take_tencent_kifu_jobs();
     drop(wb);
     write_logs(shared, logs);
     run_launch_checks(app, checks);
     commentary::spawn_jobs(app, shared, commentary_jobs);
     fox_kifu::spawn_jobs(app, fox_kifu_jobs);
+    tencent_kifu::spawn_jobs(app, tencent_kifu_jobs);
     for job in auto_saves {
         if let Err(mpsc::SendError(job)) = shared.saves.lock().unwrap().send(job) {
             finish_save(app, shared, job.ticket, Err("save worker stopped".into()));
@@ -949,6 +953,11 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         }
         Command::FoxKifu { op } => {
             let result = shared.workbench.lock().unwrap().fox_kifu(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
+        Command::TencentKifu { op } => {
+            let result = shared.workbench.lock().unwrap().tencent_kifu(op)?;
             publish(&app, &shared);
             Ok(result)
         }
@@ -1831,6 +1840,7 @@ pub fn run() {
             app.manage(shared.clone());
             app.manage(tsumego_capture::Capture::default());
             app.manage(fox_kifu::Adapter::default());
+            app.manage(tencent_kifu::Adapter::default());
             run_refresher(app.handle().clone(), shared.clone());
             shared.workbench.lock().unwrap().start_engines();
             publish(app.handle(), &shared);
@@ -1925,9 +1935,11 @@ pub fn run() {
             WindowEvent::CloseRequested { .. } if window.label() == BATCH_WINDOW => {}
             // AI 解说 is a modeless dialog (TeacherDialog DISPOSE_ON_CLOSE): it closes alone; its
             // request is cancelled on Destroyed above.
-            // 野狐棋谱's close box hides it (a JFrame's HIDE_ON_CLOSE): its search stays for the
-            // next 野狐棋谱.
-            WindowEvent::CloseRequested { api, .. } if window.label() == fox_kifu::WINDOW => {
+            // 野狐棋谱's and 腾讯棋谱's close boxes hide them (a JFrame's HIDE_ON_CLOSE): their
+            // searches stay for the next opening.
+            WindowEvent::CloseRequested { api, .. }
+                if window.label() == fox_kifu::WINDOW || window.label() == tencent_kifu::WINDOW =>
+            {
                 api.prevent_close();
                 let _ = window.hide();
             }
@@ -1940,7 +1952,7 @@ pub fn run() {
                 } else {
                     // Java exits with the main window; the tool windows must not keep the
                     // application running.
-                    for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW, HAWKEYE_WINDOW, HAWKEYE_SUB_WINDOW, BATCH_WINDOW, fox_kifu::WINDOW, independent::MAIN, independent::SUB] {
+                    for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW, HAWKEYE_WINDOW, HAWKEYE_SUB_WINDOW, BATCH_WINDOW, fox_kifu::WINDOW, tencent_kifu::WINDOW, independent::MAIN, independent::SUB] {
                         if let Some(frame) = app.get_webview_window(label) {
                             let _ = frame.destroy();
                         }
@@ -2033,6 +2045,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         open_commentary,
         fox_kifu::open_fox_kifu,
         fox_kifu::fox_kifu_opened,
+        tencent_kifu::open_tencent_kifu,
+        tencent_kifu::tencent_kifu_opened,
         commentary::commentary_api_key_draft,
         close_hawkeye,
         close_hawkeye_sub,
@@ -2078,6 +2092,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         open_commentary,
         fox_kifu::open_fox_kifu,
         fox_kifu::fox_kifu_opened,
+        tencent_kifu::open_tencent_kifu,
+        tencent_kifu::tencent_kifu_opened,
         commentary::commentary_api_key_draft,
         close_hawkeye,
         close_hawkeye_sub,
