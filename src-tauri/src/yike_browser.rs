@@ -473,15 +473,27 @@ fn page_builder(app: &AppHandle, url: Url) -> WebviewBuilder<Wry> {
         .on_page_load(|webview, payload| page_loaded(&webview, payload.url(), payload.event()))
 }
 
-/// Only 弈客 documents load in the page (and the inert `about:` / 弈客 `blob:` frames its
-/// documents create); anything else is refused.
+/// Only 弈客 documents load in the page, plus the inert `about:` / 弈客 `blob:` frames its
+/// documents create and the frames of the 腾讯验证码 the 弈客 login shows (`TJCaptcha.js` from
+/// `turing.captcha.qcloud.com`). WebKitGTK and WKWebView ask this for frames as well as the
+/// page, so a refused captcha frame would leave the login's 人机验证 blank. None of these
+/// documents reaches the bridge: its capability and [`report`] admit 弈客 addresses only.
 fn allowed_navigation(url: &Url) -> bool {
     match url.scheme() {
-        "https" => is_yike(url),
+        "https" => is_yike(url) || is_captcha(url),
         "about" => true,
         "blob" => Url::parse(url.path()).is_ok_and(|inner| is_yike(&inner)),
         _ => false,
     }
+}
+
+/// The 腾讯验证码 (Tencent Captcha) hosts, default port.
+fn is_captcha(url: &Url) -> bool {
+    const HOSTS: [&str; 3] = ["captcha.qcloud.com", "captcha.gtimg.com", "captcha.qq.com"];
+    url.port().is_none()
+        && url
+            .host_str()
+            .is_some_and(|h| HOSTS.iter().any(|d| h == *d || h.strip_suffix(d).is_some_and(|p| p.ends_with('.'))))
 }
 
 /// BF `onBeforePopup` (372-388): a 弈客 popup loads in the page itself; any other address goes
@@ -583,4 +595,25 @@ fn not_yike() -> ApiError {
 
 fn failed(error: tauri::Error) -> ApiError {
     ApiError::new(ErrorKind::Unavailable, format!("the 弈客 web window failed: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn allowed(url: &str) -> bool {
+        allowed_navigation(&Url::parse(url).unwrap())
+    }
+
+    #[test]
+    fn the_page_loads_yike_and_the_login_captcha_only() {
+        assert!(allowed("https://home.yikeweiqi.com/#/unite/1"));
+        assert!(allowed("https://turing.captcha.qcloud.com/cap_union_new_show?aid=1"));
+        assert!(allowed("https://captcha.gtimg.com/x.html"));
+        assert!(!allowed("https://evilcaptcha.qcloud.com.example/"));
+        assert!(!allowed("https://notcaptcha.qcloud.com/"));
+        assert!(!allowed("http://turing.captcha.qcloud.com/"));
+        assert!(!allowed("https://turing.captcha.qcloud.com:8443/"));
+        assert!(!allowed("https://example.com/"));
+    }
 }
