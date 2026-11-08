@@ -1183,6 +1183,10 @@ pub struct DisplaySettings {
     pub move_rank_custom: u32,
     /// 判定依据 (`move-rank-evaluation-mode`).
     pub move_rank_mode: MoveRankMode,
+    /// 落子评价 > 原棋盘不显示评价标记(棋盘同步时) (`disable-move-rank-in-origin`, off): the
+    /// 棋盘同步工具 float board draws no rank marks (`FloatBoardRenderer.java:152-157`); the main
+    /// board is unaffected.
+    pub disable_move_rank_in_origin: bool,
     /// Win rate loss of rank levels 1–5 (`win-loss-threshold-1..5`), percentage points.
     pub win_loss_thresholds: [f64; 5],
     /// Score loss of rank levels 1–5 (`score-loss-threshold-1..5`), points.
@@ -1303,6 +1307,7 @@ impl Default for DisplaySettings {
             move_rank: 1,
             move_rank_custom: 3,
             move_rank_mode: MoveRankMode::Auto,
+            disable_move_rank_in_origin: false,
             win_loss_thresholds: [-1.0, -3.0, -6.0, -12.0, -24.0],
             score_loss_thresholds: [-0.5, -1.5, -3.0, -6.0, -12.0],
             suggestion_winrate: true,

@@ -29,6 +29,11 @@ export interface FloatPayload {
   editButton: boolean;
   /** btnStopGo shows tostop while the engine analyses. */
   pondering: boolean;
+  /** FloatBoard.boardType, the client the helper reads (0 野狐: the captured-point cross sits 1px
+   *  right and down). */
+  boardType: number;
+  /** 起始局面设置模式: the goban and the stones only (FloatBoardRenderer.java:133-139). */
+  setup: boolean;
 }
 
 export type FloatButton = "stopGo" | "hideShow" | "edit" | "left" | "right" | "up" | "down";

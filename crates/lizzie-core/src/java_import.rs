@@ -1130,6 +1130,7 @@ const DISPLAY: &[(&str, ImportTarget, &str, DisplayKind)] = &[
     ("show-var-move", ImportTarget::MoveNumbers, "treeMoveNumbers", DisplayKind::Bool),
     ("move-rank-mark-last-move", ImportTarget::MoveRank, "moveRank", DisplayKind::Int(-1, i32::MAX as i64)),
     ("txt-move-rank-mark-last-move", ImportTarget::MoveRank, "moveRankCustom", DisplayKind::Int(1, i32::MAX as i64)),
+    ("disable-move-rank-in-origin", ImportTarget::MoveRank, "disableMoveRankInOrigin", DisplayKind::Bool),
     ("win-loss-threshold-1", ImportTarget::MoveRank, "winLossThresholds.0", DisplayKind::Num),
     ("win-loss-threshold-2", ImportTarget::MoveRank, "winLossThresholds.1", DisplayKind::Num),
     ("win-loss-threshold-3", ImportTarget::MoveRank, "winLossThresholds.2", DisplayKind::Num),

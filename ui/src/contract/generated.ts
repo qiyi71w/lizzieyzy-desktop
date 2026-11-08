@@ -945,6 +945,12 @@ moveRankCustom: number,
  */
 moveRankMode: MoveRankMode, 
 /**
+ * 落子评价 > 原棋盘不显示评价标记(棋盘同步时) (`disable-move-rank-in-origin`, off): the
+ * 棋盘同步工具 float board draws no rank marks (`FloatBoardRenderer.java:152-157`); the main
+ * board is unaffected.
+ */
+disableMoveRankInOrigin: boolean, 
+/**
  * Win rate loss of rank levels 1–5 (`win-loss-threshold-1..5`), percentage points.
  */
 winLossThresholds: [number, number, number, number, number], 

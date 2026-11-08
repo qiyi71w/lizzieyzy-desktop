@@ -14,6 +14,8 @@ import { navigate, registerViewHandler, run, state } from "../app";
 import { toggleKataEstimate } from "../analysis/infoCommands";
 import type { FloatBoardView, FloatSceneView, Point, WorkbenchView } from "../contract/generated";
 import { dialogOpen } from "../dialogs";
+import { bindFloatReplayHost } from "../display/autoplay";
+import type { ReplayTarget } from "../display/replay";
 import { candidatesShownFor, boardUi, onBoardUiChange, togglePolicy, toggleRawNet } from "../display/state";
 import { edit } from "../editing/state";
 import { language } from "../i18n";
@@ -50,8 +52,9 @@ const win = {
 let ops: Promise<unknown> = Promise.resolve();
 
 /** FloatBoard.mouseOverCoordinate, the selected candidate's point (isMouseOver), the displayed
- *  branch length (null: SHOW_NORMAL_BOARD, the whole variation), a middle-click cancel and the
- *  variation kept while 鼠标悬停显示变化图时,变化图不刷新 is on. */
+ *  branch length (null: SHOW_NORMAL_BOARD, the whole variation), a middle-click cancel, the
+ *  variation kept while 鼠标悬停显示变化图时,变化图不刷新 is on and a count of the variations
+ *  selected, which tells the auto-replay a newly selected one (replayTarget). */
 const cursor = {
   over: null as string | null,
   hover: null as string | null,
@@ -59,6 +62,7 @@ const cursor = {
   cancelled: false,
   frozen: null as Variation | null,
   node: "",
+  selections: 0,
 };
 
 /** The one key format of an intersection, compared between hover, candidates and the pointer. */
@@ -84,9 +88,10 @@ function placement(f: FloatBoardView): Placement {
 
 /** The selected candidate and its variation (FloatBoardRenderer.drawBranch), as the main board
  *  previews one: shortened to limit-branch-length or the wheel's length, and not shown for a
- *  candidate without enough playouts or beyond 最大候选点数 unless it is the next move. The
- *  candidates are those of the node the overlay draws (getCurOrMainEnd). */
-function hovered(v: WorkbenchView, f: FloatBoardView): { order: number | null; preview: PreviewVariation | null } {
+ *  candidate without enough playouts or beyond 最大候选点数 unless it is the next move or the
+ *  variation auto-replays. The candidates are those of the node the overlay draws
+ *  (getCurOrMainEnd). `target` is the shown variation as the auto-replay steps it. */
+function hovered(v: WorkbenchView, f: FloatBoardView): { order: number | null; preview: PreviewVariation | null; target: ReplayTarget | null } {
   const at = f.scene;
   const node = `${v.document.id}:${at ? at.node : v.position.node}`;
   if (node !== cursor.node) {
@@ -96,17 +101,25 @@ function hovered(v: WorkbenchView, f: FloatBoardView): { order: number | null; p
     cursor.cancelled = false;
   }
   const candidates = (at ? at.analysis : v.analysis)?.candidates ?? [];
+  const d = v.settings.display;
   // FloatBoard.isMouseOver plus FloatBoardRenderer's preview conditions: the side to move's
-  // candidates and 鼠标悬停显示变化图 on, no pure network, policy or scoring.
-  const allowed = candidatesShownFor(at ? at.to_play : v.position.to_play) && v.settings.display.suggestionVariations && v.rawNet === null && !boardUi.policy && !v.score;
+  // candidates and 鼠标悬停显示变化图 on, no pure network, policy, scoring or setup mode.
+  const allowed = candidatesShownFor(at ? at.to_play : v.position.to_play) && d.suggestionVariations && v.rawNet === null && !boardUi.policy && !v.score && !v.editing.setup_mode;
   const c = allowed && cursor.hover !== null ? candidates.find((c) => c.point && pointKey(c.point) === cursor.hover) : undefined;
   if (!c?.point) {
     cursor.frozen = null;
-    return { order: null, preview: null };
+    return { order: null, preview: null, target: null };
   }
-  if (cursor.cancelled) return { order: c.order, preview: null };
+  if (cursor.cancelled) return { order: c.order, preview: null, target: null };
   const key = `${node}:${pointKey(c.point)}`;
-  const frozen = !v.settings.display.noRefreshOnMouse || cursor.frozen?.key !== key ? { key, pv: c.pv, pv_captures: c.pv_captures, pv_visits: c.pv_visits } : cursor.frozen;
+  // A newly selected variation (prepareSelection's !notChangedMouseOverMove): while auto-replay
+  // runs it starts at one move unless the whole variation shows first (FloatBoard.java:404-407,
+  // FloatBoardRenderer.java:748-758).
+  if (cursor.frozen?.key !== key) {
+    cursor.selections++;
+    if (d.autoReplayBranch && !d.entireVariationFirst && (cursor.length === null || cursor.length < 2)) cursor.length = 1;
+  }
+  const frozen = !d.noRefreshOnMouse || cursor.frozen?.key !== key ? { key, pv: c.pv, pv_captures: c.pv_captures, pv_visits: c.pv_visits } : cursor.frozen;
   cursor.frozen = frozen;
   const limit = v.settings.engine.analysis.limitBranchLength;
   const steps = limit > 0 ? Math.min(limit, frozen.pv.length) : frozen.pv.length;
@@ -114,9 +127,13 @@ function hovered(v: WorkbenchView, f: FloatBoardView): { order: number | null; p
   const needShow = !!next && next.x === c.point.x && next.y === c.point.y;
   const ratio = c.allocation_visits / Math.max(1, ...candidates.map((x) => x.allocation_visits));
   const maxSuggestion = v.settings.engine.analysis.limitMaxSuggestion;
-  if (!needShow && (ratio <= v.settings.display.minPlayoutRatio || (maxSuggestion > 0 && c.order + 1 > maxSuggestion && !c.kept)))
-    return { order: c.order, preview: null };
-  return { order: c.order, preview: { order: c.order, pv: frozen.pv, pv_captures: frozen.pv_captures, pv_visits: frozen.pv_visits, length: cursor.length ?? steps } };
+  if (!d.autoReplayBranch && !needShow && (ratio <= d.minPlayoutRatio || (maxSuggestion > 0 && c.order + 1 > maxSuggestion && !c.kept)))
+    return { order: c.order, preview: null, target: null };
+  return {
+    order: c.order,
+    preview: { order: c.order, pv: frozen.pv, pv_captures: frozen.pv_captures, pv_visits: frozen.pv_visits, length: cursor.length ?? steps },
+    target: { key: `${key}:${cursor.selections}`, steps },
+  };
 }
 
 /** FloatBoard.doBranch: the target window gets the focus back (Menu.readBoardGetFocus, decided by
@@ -138,7 +155,9 @@ function send(v: WorkbenchView, f: FloatBoardView): void {
   if (!source || !win.placed || !win.ready) return;
   const { order, preview } = hovered(v, f);
   const base = source(v, order, preview, f.scene);
-  // FloatBoardRenderer draws no markup, next-move hints, names, scoring, region or focus marks.
+  const setup = v.editing.setup_mode;
+  // FloatBoardRenderer draws no markup, next-move hints, names, scoring, region or focus marks;
+  // in the setup mode nothing beyond the stones.
   const payload: FloatPayload = {
     language: language(),
     appearance: v.settings.appearance,
@@ -157,11 +176,14 @@ function send(v: WorkbenchView, f: FloatBoardView): void {
       region: null,
       selecting: null,
       focus: null,
+      ...(setup ? { ownership: null, rawNetOn: false, policy: false } : {}),
     },
     edit: f.edit_mode,
     hidden: f.suggestions_hidden,
     editButton: f.edit_button,
     pondering: v.engine.analysing,
+    boardType: f.board_type,
+    setup,
   };
   const text = JSON.stringify(payload);
   if (text === win.lastSent) return;
@@ -347,6 +369,20 @@ function key(v: WorkbenchView, f: FloatBoardView, code: string): void {
 /** Starts following the views and the window's input; `scene` builds the main board's scene. */
 export async function startFloatBoard(scene: SceneSource): Promise<void> {
   source = scene;
+  // The float board's own replay target and length (FloatBoardRenderer.replayTarget,
+  // getDisplayedBranchLength, setReplayLength), stepped by the main window's timer while shown.
+  bindFloatReplayHost({
+    target: () => {
+      const v = state.view;
+      const f = v?.readboard.float_board;
+      return v && f && win.placed ? hovered(v, f).target : null;
+    },
+    length: () => cursor.length,
+    setLength: (length) => {
+      cursor.length = length;
+      sync();
+    },
+  });
   registerViewHandler(() => sync());
   onBoardUiChange(sync);
   await listen<FloatInput>(FLOAT_INPUT_EVENT, (e) => {

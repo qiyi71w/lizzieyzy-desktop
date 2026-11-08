@@ -1007,8 +1007,8 @@ impl Workbench {
 
     fn readboard_answer_update(&mut self, accept: bool) -> CommandResult {
         let Some(offer) = self.readboard.update.take() else { return CommandResult::Unchanged };
-        // Java tells only the offering helper (`updateInstallNoLongerActive`); it has ended, and its
-        // offer with it, so nothing is shown.
+        // Java tells only the offering helper (`updateInstallNoLongerActive`) and shows nothing; an
+        // offer lives only while its helper is current, and no restart or install is queued then.
         if self.readboard.helper.as_ref().is_none_or(|h| h.id != offer.helper) {
             return CommandResult::Done;
         }

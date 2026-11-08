@@ -129,7 +129,8 @@ export function bootFloatWindow(): void {
 
   /** paintMianPanel (FloatBoard.java:546-565): nothing on a window of 40 pixels or less; the
    *  renderer only while the suggestions show or in the edit mode. Outside the edit mode the board
-   *  and the stones are the client's own, except the stones under a shown variation (renderImages). */
+   *  and the stones are the client's own, except the stones under a shown variation (renderImages);
+   *  the setup mode draws the goban and the stones and nothing more (FloatBoardRenderer.java:133-139). */
   const render = () => {
     if (!data) return;
     setLanguage(data.language);
@@ -151,7 +152,9 @@ export function bootFloatWindow(): void {
     g.clearRect(0, 0, canvas.width, canvas.height);
     geo = width > 40 && height > 40 ? floatGeom(width, height, pad, scene.cols, scene.rows) : null;
     if (!geo || (data.hidden && !data.edit)) return;
-    paintBoard(g, geo, { x: 0, y: 0 }, { ...scene, unlimited: new Set(scene.unlimited) }, { board: data.edit, stones: data.edit || scene.preview !== null });
+    const float = { boardType: data.boardType, setup: data.setup };
+    const layers = data.setup ? { board: true, stones: true, float } : { board: data.edit, stones: data.edit || scene.preview !== null, float };
+    paintBoard(g, geo, { x: 0, y: 0 }, { ...scene, unlimited: new Set(scene.unlimited) }, layers);
   };
 
   /** convertScreenToCoordinates (FloatBoardRenderer.java:2372-2392) at a window point, the

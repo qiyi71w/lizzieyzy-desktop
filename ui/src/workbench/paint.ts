@@ -890,6 +890,37 @@ function drawPreviewStones(g: CanvasRenderingContext2D, preview: Preview, px: (p
   }
 }
 
+/** drawFloatCapturedPoint (VariationPreviewGenerator.java:192-215, 287-313): on 棋盘同步工具's float
+ *  board a stone the variation captures is covered by the board texture (radius stoneRadius + 1,
+ *  the theme board tiled from the board's origin) and, unless it is the hovered point, crossed by
+ *  1px black lines that stop at the board's edge; 野狐 (boardType 0) moves them 1px right and down.
+ *  No stone follows there (Stone.needDrawBlack / needDrawWhite). */
+function drawFloatCapturedPoints(g: CanvasRenderingContext2D, preview: Preview, px: (p: number) => number, py: (p: number) => number, r: number, cols: number, rows: number, hover: number, boardType: number) {
+  const radius = r + 1;
+  const offset = boardType === 0 ? 1 : 0;
+  for (const p of preview.captured.keys()) {
+    if (preview.stones[p]) continue;
+    const cx = px(p), cy = py(p);
+    g.save();
+    g.beginPath();
+    g.arc(cx + 0.5, cy + 0.5, radius + 0.5, 0, Math.PI * 2);
+    g.clip();
+    drawTexture(g, surface.image, cx - radius - 1, cy - radius - 1, 2 * radius + 3, 2 * radius + 3, surface.x, surface.y);
+    g.restore();
+    if (p === hover) continue;
+    const x = p % cols, y = i(p / cols);
+    // drawLine covers both end pixels.
+    g.strokeStyle = "#000";
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(cx - (x === 0 ? 0 : radius), cy + offset + 0.5);
+    g.lineTo(cx + (x === cols - 1 ? 0 : radius) + 1, cy + offset + 0.5);
+    g.moveTo(cx + offset + 0.5, cy - (y === 0 ? 0 : radius));
+    g.lineTo(cx + offset + 0.5, cy + (y === rows - 1 ? 0 : radius) + 1);
+    g.stroke();
+  }
+}
+
 // ------------------------------------------------------------------ ownership (纯网络 H, Kata形势)
 
 /** Black-positive ownership with the style it is painted in: 纯网络's (`rawNet`), the position's
@@ -1354,12 +1385,28 @@ function rawNetLine(s: BoardScene): string {
   return t("BoardRenderer.noPureNetWinrate");
 }
 
+/** What 棋盘同步工具's float board (FloatBoardRenderer) draws apart from the main board. */
+export interface FloatLayers {
+  /** FloatBoard.boardType (0 野狐, 1 弈城, 2 新浪, others): places the captured-point cross. */
+  boardType: number;
+  /** Lizzie.board.isSetupMode(): only the goban and the stones (FloatBoardRenderer.java:133-139). */
+  setup: boolean;
+}
+
+/** `board` / `stones`: the goban (wood, grid, star points, coordinates) and the resting stones;
+ *  `float`: 棋盘同步工具's float board, which leaves both out outside its edit mode
+ *  (FloatBoardRenderer.draw, renderImages). */
+export interface BoardLayers {
+  board: boolean;
+  stones: boolean;
+  float?: FloatLayers;
+}
+
 /** Main board: BoardRenderer.draw (BoardRenderer.java:277-430): goban and coordinates, the line
  *  under the board, stones, ownership, 落子评价 / move numbers / last-move mark, markup, 下一手,
- *  candidates (statistics, 策略网络 or 纯网络) and the next-move rings. `layers` leaves out the
- *  goban (wood, grid, star points, coordinates) or the resting stones, as 棋盘同步工具's float
- *  board does outside its edit mode (FloatBoardRenderer.draw, renderImages). */
-export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: { x: number; y: number }, s: BoardScene, layers = { board: true, stones: true }): BoardReport {
+ *  candidates (statistics, 策略网络 or 纯网络) and the next-move rings, less what `layers` leaves
+ *  out. */
+export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: { x: number; y: number }, s: BoardScene, layers: BoardLayers = { board: true, stones: true }): BoardReport {
   const ox = geo.x - origin.x;
   const oy = geo.y - origin.y;
   const sq = geo.square;
@@ -1469,6 +1516,7 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
       if (stone) drawStone(g, px(p), py(p), r, stone === "Black");
     }
   }
+  if (layers.float?.setup) return report;
   if (layer && !below) drawOwnership(g, layer.ownership, s.stones, cols, layer.style, X, Y, sq, true);
   // renderImages draws the selection images after Kata形势 (BoardRenderer.java:1884-1887).
   drawRegion(g, s, X, Y, sq, report);
@@ -1477,8 +1525,11 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
   const nextHover = s.preview?.order === -1 && s.overlay.next_move ? s.overlay.next_move.point : null;
   const hoverPoint = nextHover ?? (s.preview ? s.analysis?.candidates.find((c) => c.order === s.preview!.order)?.point ?? null : null);
   const hoverIndex = hoverPoint ? hoverPoint.y * cols + hoverPoint.x : -1;
-  if (preview) drawPreviewStones(g, preview, px, py, r);
-  const hideHoverInfo = drawMoveOverlay(g, s, geo, ox, oy, X, Y, preview, hoverIndex, report);
+  if (preview) {
+    if (layers.float) drawFloatCapturedPoints(g, preview, px, py, r, cols, s.rows, hoverIndex, layers.float.boardType);
+    else drawPreviewStones(g, preview, px, py, r);
+  }
+  const hideHoverInfo = layers.float ? drawFloatMoveOverlay(g, s, geo, X, Y, preview, hoverIndex, report) : drawMoveOverlay(g, s, geo, ox, oy, X, Y, preview, hoverIndex, report);
   if (preview) report.preview = { order: s.preview!.order, length: s.preview!.length, numbers: preview.numbers.size };
   // While scoring no markup, next moves or candidates are drawn (BoardRenderer.java:363-364).
   if (s.score) return report;
@@ -1536,6 +1587,53 @@ function indicatorTriangle(g: CanvasRenderingContext2D, x: number, y: number, r:
   else g.stroke();
 }
 
+/** drawMoveRankMark's marks (BoardRenderer.java:539-658, FloatBoardRenderer.java:926-1042): the
+ *  rank discs of the moves a shown variation leaves visible, then the last move's outline in the
+ *  opposite colour: with stone-indicator-type 0 the triangle stroked `triangleWidth` wide, else the
+ *  ring of round(squareWidth * 0.22) stroked a fifth of it and the red corner. */
+function drawRankMarks(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardGeom, X: (x: number) => number, Y: (y: number) => number, preview: Preview | null, triangleWidth: number, report: BoardReport): void {
+  const r = geo.stoneRadius, cols = s.cols;
+  const last = s.lastAction;
+  const ring = Math.round(geo.square * 0.22);
+  const hiddenByBranch = (p: number) => !!preview && (!preview.stones[p] || preview.numbers.has(p));
+  for (const m of s.overlay.ranks) {
+    if (hiddenByBranch(m.point.y * cols + m.point.x)) continue;
+    g.fillStyle = rankColor(m.rank, look.morandi);
+    // drawMoveRankMarkCircle (BoardRenderer.java:644-657): the last move's mark is the triangle
+    // with stone-indicator-type 0.
+    if (m.last && look.indicator === 0) indicatorTriangle(g, X(m.point.x), Y(m.point.y), r, true);
+    else fillCircle(g, X(m.point.x), Y(m.point.y), m.last ? ring : Math.round(geo.square * RANK_RADIUS[m.rank]));
+    report.ranks.push({ x: m.point.x, y: m.point.y, rank: m.rank, last: m.last });
+  }
+  if (last?.point && !s.snapshot && !hiddenByBranch(last.point.y * cols + last.point.x)) {
+    g.strokeStyle = last.color === "White" ? "#000" : "#fff";
+    if (look.indicator === 0) {
+      g.lineWidth = triangleWidth;
+      indicatorTriangle(g, X(last.point.x), Y(last.point.y), r, false);
+    } else {
+      strokeCircle(g, X(last.point.x), Y(last.point.y), ring, ring / 5);
+      if (s.overlay.rank_corner) {
+        g.fillStyle = "#f00";
+        smallTriangle(g, X(last.point.x), Y(last.point.y), r);
+        report.rankCorner = true;
+      }
+    }
+    report.lastMoveMarker = last.point;
+  }
+}
+
+/** The float board's move overlay (FloatBoardRenderer.java:152-157): 落子评价 only while move
+ *  numbers are off, 原棋盘不显示评价标记 (disable-move-rank-in-origin) is off and 落子评价 is not
+ *  无, its last-move triangle outlined 1px (drawPolygonCircle under the default stroke, 977-990);
+ *  then, or else, only the shown variation's numbers (drawMoveNumbers, 1057-1062). The float board
+ *  has no move numbers, last-move indicator or pass disc of its own (VariationPreviewGenerator
+ *  .java:318). Returns hideMouseOverInfo. */
+function drawFloatMoveOverlay(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardGeom, X: (x: number) => number, Y: (y: number) => number, preview: Preview | null, hoverIndex: number, report: BoardReport): boolean {
+  const d = s.display, cols = s.cols;
+  if (d.moveNumbers === 0 && !d.disableMoveRankInOrigin && d.moveRank >= 0) drawRankMarks(g, s, geo, X, Y, preview, 1, report);
+  return preview ? drawPreviewNumbers(g, preview, (p) => X(p % cols), (p) => Y(i(p / cols)), geo, hoverIndex, cols, d, report) : false;
+}
+
 /** moveOverlayOrder (BoardRenderer.java:210-231, 337-361): 落子评价 while move numbers are off,
  *  else drawMoveNumbers; a shown variation brings its own numbers. Returns hideMouseOverInfo. */
 function drawMoveOverlay(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardGeom, ox: number, oy: number, X: (x: number) => number, Y: (y: number) => number, preview: Preview | null, hoverIndex: number, report: BoardReport): boolean {
@@ -1545,7 +1643,6 @@ function drawMoveOverlay(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardG
     if (preview.pass) drawPassDisc(g, ox, oy, geo, preview.toPlay === "Black");
   } else if (last && !last.point && !s.snapshot) drawPassDisc(g, ox, oy, geo, s.toPlay === "Black");
   const ring = Math.round(sq * 0.22);
-  const hiddenByBranch = (p: number) => !!preview && (!preview.stones[p] || preview.numbers.has(p));
   const drawNumbers = () => {
     for (const label of s.overlay.move_numbers) {
       const x = X(label.point.x), y = Y(label.point.y);
@@ -1556,33 +1653,10 @@ function drawMoveOverlay(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardG
     }
   };
   if (s.overlay.ranks_after_numbers && !preview) drawNumbers();
-  // drawMoveRankMark (BoardRenderer.java:529-658).
+  // drawMoveRankMark (BoardRenderer.java:529-658); the type-0 triangle outline is stroked a fifth
+  // of the ring (590-595).
   if (s.overlay.ranks_after_numbers || (d.moveNumbers === 0 && d.moveRank >= 0)) {
-    for (const m of s.overlay.ranks) {
-      if (hiddenByBranch(m.point.y * cols + m.point.x)) continue;
-      g.fillStyle = rankColor(m.rank, look.morandi);
-      // drawMoveRankMarkCircle (BoardRenderer.java:644-657): the last move's mark is the triangle
-      // with stone-indicator-type 0.
-      if (m.last && look.indicator === 0) indicatorTriangle(g, X(m.point.x), Y(m.point.y), r, true);
-      else fillCircle(g, X(m.point.x), Y(m.point.y), m.last ? ring : Math.round(sq * RANK_RADIUS[m.rank]));
-      report.ranks.push({ x: m.point.x, y: m.point.y, rank: m.rank, last: m.last });
-    }
-    // BoardRenderer.java:590-602: the triangle outline with type 0, else the ring and the corner.
-    if (last?.point && !s.snapshot && !hiddenByBranch(last.point.y * cols + last.point.x)) {
-      g.strokeStyle = last.color === "White" ? "#000" : "#fff";
-      if (look.indicator === 0) {
-        g.lineWidth = ring / 5;
-        indicatorTriangle(g, X(last.point.x), Y(last.point.y), r, false);
-      } else {
-        strokeCircle(g, X(last.point.x), Y(last.point.y), ring, ring / 5);
-        if (s.overlay.rank_corner) {
-          g.fillStyle = "#f00";
-          smallTriangle(g, X(last.point.x), Y(last.point.y), r);
-          report.rankCorner = true;
-        }
-      }
-      report.lastMoveMarker = last.point;
-    }
+    drawRankMarks(g, s, geo, X, Y, preview, ring / 5, report);
     if (!preview) return false;
   }
   if (preview) return drawPreviewNumbers(g, preview, (p) => X(p % cols), (p) => Y(i(p / cols)), geo, hoverIndex, cols, d, report);

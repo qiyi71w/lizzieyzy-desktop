@@ -57,7 +57,6 @@ function noticeText(n: ReadBoardNotice): string {
     "ReadBoard.updateInstallSucceeded": t("ReadBoard.updateInstallSucceeded"),
     "ReadBoard.updateInstallRestartFailed": t("ReadBoard.updateInstallRestartFailed"),
     "ReadBoard.updateInstallFailed": t("ReadBoard.updateInstallFailed"),
-    "ReadBoard.updateInstallNoLongerActive": t("ReadBoard.updateInstallNoLongerActive"),
     // The helper failed to start, or is older than 220430 (ReadBoard.java:616-617, 866-867).
     "ReadBoard.loadFailed": t("ReadBoard.loadFailed"),
     "ReadBoard.versionCheckFaied": t("ReadBoard.versionCheckFaied"),
