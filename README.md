@@ -178,10 +178,12 @@ importing the matching LizzieYzy Next settings.
   the running helper first. Boards the helper reads become the record's moves (a jump or a
   changed position becomes a snapshot of the synced board); with two-way sync a move played here
   is clicked on the target window, and the next move waits until the helper confirms it. The
-  float board follows the helper's target rectangle. Output of a helper that was replaced or has
-  ended is ignored, and exit stops only the helpers this program started. 棋盘同步工具选项 keeps
-  Java's 总是保持棋盘一致 and 滚轮控制变化图时自动获取焦点; 同步时不播放落子声 mutes stone sounds
-  while syncing.
+  float board follows the helper's target rectangle and draws like Java's: candidates, the
+  hovered variation (captured points as board-coloured discs with a crosshair, step-by-step with
+  自动重放变化图, the wheel setting the depth), and the 落子评价 and last-move marks only while move
+  numbers are off. Output of a helper that was replaced or has ended is ignored, and exit stops
+  only the helpers this program started. 棋盘同步工具选项 keeps Java's 总是保持棋盘一致 and
+  滚轮控制变化图时自动获取焦点; 同步时不播放落子声 mutes stone sounds while syncing.
 - GMA (the helper's engine auto-play; KataGo with `kata-genmove_analyze` only, otherwise 该模式仅
   支持 KataGo): each move reads the engine's pondering, time and visit parameters, sets the
   helper's limits, asks the move for the synced position, plays it and has the helper click it.
@@ -256,7 +258,7 @@ importing the matching LizzieYzy Next settings.
   - 落子评价 (`Alt+M`, toolbar button with its popup): marks of the last move, the last n or all
     moves, judged by score, win rate, both or automatically, from the analysis of the positions
     before and after each move; a move without that analysis gets no mark. They show while move
-    numbers are off.
+    numbers are off. 原棋盘不显示评价标记(棋盘同步时) hides them on the 棋盘同步工具 float board only.
   - 推荐点: win rate / visits / score rows and their order (自定义信息顺序, with Java's preview),
     score as difference, order badges, red maxima, white text for White, no refresh under the
     mouse, the variation on hover (`Shift+F`), delayed candidates, replay interval (`R` replays
