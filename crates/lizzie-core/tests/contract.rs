@@ -2,6 +2,8 @@
 //! `ui/src/contract/generated.ts` no longer matches them; regenerate with
 //! `UPDATE_CONTRACT=1 cargo test -p lizzie-core --test contract`.
 
+#[path = "contract/readboard.rs"]
+mod readboard;
 #[path = "contract/resources.rs"]
 mod resources;
 #[path = "contract/tuning.rs"]
@@ -110,7 +112,8 @@ fn generate() -> String {
         lizzie_core::engine::ssh::SshSettings, lizzie_core::engine::ssh::RemoteFailure,
         SshCredentialCommand, SshPasswordState,
     ];
-    // Engine resources and engine performance keep their own lists.
+    // 棋盘同步工具, engine resources and engine performance keep their own lists.
+    decls.extend(readboard::decls(&cfg));
     decls.extend(resources::decls(&cfg));
     decls.extend(tuning::decls(&cfg));
     let mut out = String::from(

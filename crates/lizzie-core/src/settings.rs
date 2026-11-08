@@ -1458,6 +1458,27 @@ pub struct StrengthSettings {
     pub humansl_background: bool,
 }
 
+/// 棋盘同步工具 (ReadBoard) options (Java `ui.*` keys; defaults from `Config.java`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ReadBoardSettings {
+    /// `Menu.alwaysKeepBoardStatSync` (`always-sync-boardstat`, default on): every sync shows
+    /// the newest move instead of the node the user browsed to meanwhile.
+    pub always_sync_board_stat: bool,
+    /// `Menu.readBoardGetFocus` (`read-board-get-focus`, default on): the helper is sent `loss`
+    /// after the floating board took the focus.
+    pub get_focus: bool,
+    /// `Menu.notPlaySoundInSync` (`not-play-sound-insync`, default on): no stone sounds while
+    /// the board is synced.
+    pub no_sound_in_sync: bool,
+}
+
+impl Default for ReadBoardSettings {
+    fn default() -> Self {
+        ReadBoardSettings { always_sync_board_stat: true, get_focus: true, no_sound_in_sync: true }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Config {
@@ -1507,6 +1528,8 @@ pub struct Config {
     pub matches: MatchSettings,
     /// 死活题.
     pub tsumego: TsumegoSettings,
+    /// 棋盘同步工具.
+    pub read_board: ReadBoardSettings,
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).

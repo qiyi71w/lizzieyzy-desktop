@@ -11,6 +11,7 @@ mod hawkeye;
 mod humansl;
 mod humansl_settings;
 mod matches;
+mod readboard;
 mod recovery;
 mod resources;
 mod tuning;
@@ -25,6 +26,7 @@ pub use hawkeye::*;
 pub use humansl::*;
 pub use humansl_settings::*;
 pub use matches::*;
+pub use readboard::*;
 pub use recovery::*;
 pub use resources::*;
 pub use tuning::*;
@@ -96,6 +98,8 @@ pub enum OpenSource {
 pub enum Command {
     Strength { op: StrengthCommand },
     Commentary { op: CommentaryCommand },
+    /// 棋盘同步工具 (Windows).
+    ReadBoard { op: ReadBoardCommand },
     CommentaryConnection { op: ConnectionCommand },
     /// SSH passwords and trusted host keys of remote engines: kept by the platform adapter, never
     /// in the settings.
@@ -1188,6 +1192,8 @@ pub enum LeaseAvailabilityView {
     /// 人机对弈 holds the engine (`AnalysisSettings.reuseStatus.play_mode`).
     PlayMode,
     HumanSlGame,
+    /// ReadBoard GMA holds the engine (`AnalysisSettings.reuseStatus.readboard_gma`).
+    ReadBoardGma,
 }
 
 /// Why the foreground engine was not given back (`LizzieFrame.foregroundUnrestored.reason.*`).
@@ -1323,6 +1329,8 @@ pub struct WorkbenchView {
     pub editing: EditingView,
     /// 存档与读档.
     pub recovery: RecoveryView,
+    /// 棋盘同步工具.
+    pub readboard: ReadBoardView,
 }
 
 /// Java import availability.
@@ -1394,6 +1402,12 @@ pub enum ImportTarget {
     AppendWinrateToComment,
     Language,
     PlaySound,
+    /// `ui.not-play-sound-insync`.
+    NoSoundInSync,
+    /// `ui.always-sync-boardstat`.
+    ReadBoardStatSync,
+    /// `ui.read-board-get-focus`.
+    ReadBoardGetFocus,
     RecentFiles,
     LastFolder,
     Engines,

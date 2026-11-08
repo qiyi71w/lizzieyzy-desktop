@@ -1,6 +1,7 @@
 //! "诊断与日志" support: log status and the diagnostics package (Java `DiagnosticsDialog`,
 //! `DiagnosticBundleExporter`), limited to the data this product produces so far: the
-//! application, crash and engine trace logs, versions/runtime, and a redacted settings snapshot.
+//! application, crash and engine trace logs, versions/runtime, a redacted settings snapshot, and
+//! the 棋盘同步 helper's logs, logging state and sync snapshots (`SyncDiagnosticsExporter`).
 
 use std::io::Write;
 use std::path::Path;
@@ -23,12 +24,20 @@ impl Package {
     pub fn collect(wb: &Workbench, version: &str) -> Package {
         let mut entries = Vec::new();
         let logs = &wb.storage().logs_dir;
+        // Exported again through the sanitizer (`ExportSanitizer`): crash text and logs written by
+        // earlier versions or by the helper are not trusted to be clean.
+        let sanitized = |path: std::path::PathBuf| {
+            std::fs::read(path).ok().map(|bytes| lizzie_core::sanitize::sanitize(&String::from_utf8_lossy(&bytes)))
+        };
         for name in ["app.log", "app.log.1", "crash.log", "engine-trace.log"] {
-            // Exported again through the sanitizer (`ExportSanitizer`): crash text and logs
-            // written by earlier versions are not trusted to be clean.
-            if let Ok(bytes) = std::fs::read(logs.join(name)) {
-                let text = lizzie_core::sanitize::sanitize(&String::from_utf8_lossy(&bytes));
+            if let Some(text) = sanitized(logs.join(name)) {
                 entries.push((format!("logs/lizzie/{name}"), text.into_bytes()));
+            }
+        }
+        // The helper writes its own logs under `<logs>/readboard` (`--log-dir`).
+        for name in ["app.log", "crash.log"] {
+            if let Some(text) = sanitized(logs.join("readboard").join(name)) {
+                entries.push((format!("logs/readboard/{name}"), text.into_bytes()));
             }
         }
         let config = wb.config();
@@ -46,11 +55,19 @@ impl Package {
             "snapshots/config.json".into(),
             serde_json::to_vec_pretty(&redacted).unwrap_or_default(),
         ));
-        let versions = serde_json::json!({ "app": version });
+        let readboard = wb.readboard_diagnostics(version);
+        let versions = serde_json::json!({ "app": version, "readboard": readboard.helper_version });
         entries.push((
             "snapshots/versions.json".into(),
             serde_json::to_vec_pretty(&versions).unwrap_or_default(),
         ));
+        entries.push((
+            "snapshots/readboard-observed.json".into(),
+            lizzie_core::sanitize::sanitize(&readboard.observed).into_bytes(),
+        ));
+        for (name, text) in readboard.snapshots {
+            entries.push((format!("snapshots/{name}"), lizzie_core::sanitize::sanitize(&text).into_bytes()));
+        }
         let runtime = format!("os={}\narch={}\n", std::env::consts::OS, std::env::consts::ARCH);
         entries.push(("snapshots/runtime.txt".into(), runtime.into_bytes()));
         let resources = wb.resource_snapshot();

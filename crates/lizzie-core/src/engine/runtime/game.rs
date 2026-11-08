@@ -5,7 +5,7 @@
 //! ends only when the engine confirmed it is restored (`name` after the restore commands) or when
 //! the engine is gone.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::{
     color_letter, sync_commands, Engines, EngineKind, InstanceId, LeaseFailure, Purpose, Request, RuntimeEvent,
@@ -14,6 +14,10 @@ use super::{
 use crate::engine::gtp;
 use crate::engine::rules::KataRules;
 use crate::record::{Point, Stone};
+
+/// Java `readBoardGmaRestoreResponseTimeoutMillis` (= `FOREGROUND_RELEASE_STOP_TIMEOUT_MILLIS`):
+/// how long GMA's restore may wait for the engine.
+const GMA_RESTORE: Duration = Duration::from_millis(8000);
 
 /// What an engine answered to its move request.
 #[derive(Clone, Debug, PartialEq)]
@@ -45,6 +49,8 @@ struct InFlight {
 pub(super) struct GameSeat {
     pub(super) id: u64,
     instance: InstanceId,
+    /// One ReadBoard GMA hand (Java `ReadBoardGmaReservation`) rather than a play mode.
+    readboard_gma: bool,
     wanted: Option<Wanted>,
     genmove: Option<InFlight>,
     /// The placeholder action an answered move left on the engine board, until the record has it.
@@ -57,6 +63,15 @@ pub(super) struct GameSeat {
     release_answered: bool,
     verify_rules: Option<(u64, KataRules)>,
     deadline: Option<Instant>,
+    /// How long the restore may take once the engine answers (Java's foreground restore watchdog;
+    /// GMA uses its 8 s restore response limit).
+    restore_window: Duration,
+}
+
+impl GameSeat {
+    pub(super) fn readboard_gma(&self) -> bool {
+        self.readboard_gma
+    }
 }
 
 /// A placeholder board action for the engine's own move: matches no node, so a move the record
@@ -67,17 +82,34 @@ fn placeholder(gtp: u64) -> u64 {
 
 impl Engines {
     /// Reserves the foreground engine for a play mode (`beginEngineModeReservation`). Refused
-    /// without a foreground engine, while it is lent or unrestored, or while another game holds it.
+    /// without a foreground engine, while it is lent or unrestored, while another game holds it,
+    /// or while ReadBoard GMA holds it.
     pub fn reserve_game(&mut self) -> Result<u64, super::LeaseAvailability> {
         use super::LeaseAvailability as A;
         if !self.games.is_empty() { return Err(A::PlayMode); }
         if self.human_sl { return Err(A::HumanSlGame); }
+        if self.readboard_gma { return Err(A::ReadBoardGma); }
         let id = self.foreground.ok_or(A::NoForegroundEngine)?;
         self.reserve_game_instance(id)
     }
 
     /// Reserves a particular process; different participants hold independent reservations.
     pub fn reserve_game_instance(&mut self, id: InstanceId) -> Result<u64, super::LeaseAvailability> {
+        self.reserve_seat(id, false)
+    }
+
+    /// Reserves the foreground engine for one ReadBoard GMA hand or for giving GMA's runtime
+    /// parameters back (`beginReadBoardGmaSession`): refused without a foreground engine, while it
+    /// is unrestored or lent, or while any mode holds it. The GMA hold itself does not refuse it.
+    pub fn reserve_readboard_gma(&mut self) -> Result<u64, super::LeaseAvailability> {
+        use super::LeaseAvailability as A;
+        if !self.games.is_empty() { return Err(A::PlayMode); }
+        if self.human_sl { return Err(A::HumanSlGame); }
+        let id = self.foreground.ok_or(A::NoForegroundEngine)?;
+        self.reserve_seat(id, true)
+    }
+
+    fn reserve_seat(&mut self, id: InstanceId, readboard_gma: bool) -> Result<u64, super::LeaseAvailability> {
         use super::LeaseAvailability as A;
         let inst = self.get(id).ok_or(A::NoForegroundEngine)?;
         if inst.unrestored.is_some() { return Err(A::EngineStateUnrestored); }
@@ -86,11 +118,25 @@ impl Engines {
         let game = self.next_lease;
         self.next_lease += 1;
         self.games.push(GameSeat {
-            id: game, instance: id, wanted: None, genmove: None, placed: None,
+            id: game, instance: id, readboard_gma, wanted: None, genmove: None, placed: None,
             releasing: None, restoring: Vec::new(), restore_failed: false, release_answered: false,
             verify_rules: None, deadline: None,
+            restore_window: if readboard_gma { GMA_RESTORE } else { LEASE_RESTORE },
         });
         Ok(game)
+    }
+
+    /// ReadBoard GMA is armed or busy: other modes and leases are refused with
+    /// [`LeaseAvailability::ReadBoardGma`](super::LeaseAvailability::ReadBoardGma).
+    pub fn set_readboard_gma(&mut self, busy: bool) {
+        self.readboard_gma = busy;
+    }
+
+    /// Whether instance `id` is reserved by a ReadBoard GMA hand or is giving GMA's state back
+    /// (Java refuses an automatic restart while `readBoardGmaReservation` or its restore barrier
+    /// exists).
+    pub(super) fn readboard_gma_holds(&self, id: InstanceId) -> bool {
+        self.games.iter().any(|g| g.instance == id && g.readboard_gma)
     }
 
     /// The instance `game` holds, while it holds one.
@@ -221,7 +267,7 @@ impl Engines {
         seat.restoring = restoring;
         seat.verify_rules = verify_rules;
         if seat.genmove.is_none() {
-            seat.deadline = Some(Instant::now() + LEASE_RESTORE);
+            seat.deadline = Some(Instant::now() + seat.restore_window);
         }
     }
 
@@ -234,6 +280,16 @@ impl Engines {
             instance.unrestored = Some(LeaseFailure::RestoreFailed);
         }
         self.pending.push(RuntimeEvent::GameReleased { game, failure: Some(LeaseFailure::RestoreFailed) });
+    }
+
+    /// Ends a reservation whose engine needs nothing given back: a ReadBoard GMA hand whose move
+    /// the record took, or whose restore the holder confirmed (the engine holds the wished
+    /// position, its parameters answered). Nothing is sent, so the engine keeps pondering
+    /// natively (`retainReadBoardGmaNativePonderAfterTerminal`).
+    pub fn end_game(&mut self, game: u64) {
+        let Some(at) = self.games.iter().position(|seat| seat.id == game && seat.placed.is_none()) else { return };
+        let seat = self.games.remove(at);
+        self.pump_seat(seat.instance);
     }
 
     pub(super) fn game_deadline(&self) -> Option<Instant> {
@@ -337,7 +393,7 @@ impl Engines {
         if genmove {
             let Some(f) = seat.genmove.take_if(|f| f.gtp == n) else { return };
             if seat.releasing.is_some() {
-                seat.deadline = Some(Instant::now() + LEASE_RESTORE);
+                seat.deadline = Some(Instant::now() + seat.restore_window);
             }
             let inst = self.get_mut(id).unwrap();
             inst.requests.retain(|(r, _)| *r != n);

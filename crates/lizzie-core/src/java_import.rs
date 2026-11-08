@@ -105,6 +105,10 @@ pub struct Mapped {
     pub append_winrate_to_comment: Option<bool>,
     pub language: Option<Language>,
     pub play_sound: Option<bool>,
+    /// `ui.not-play-sound-insync`, `ui.always-sync-boardstat`, `ui.read-board-get-focus`.
+    pub no_sound_in_sync: Option<bool>,
+    pub read_board_stat_sync: Option<bool>,
+    pub read_board_get_focus: Option<bool>,
     /// 布局模式 (`ui.extra-mode`).
     pub extra_mode: Option<ExtraMode>,
     pub recent_files: Option<Vec<String>>,
@@ -738,6 +742,24 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "play-sound",
         ImportTarget::PlaySound,
         Kind::Bool(|m, v| m.play_sound = Some(v)),
+    ),
+    (
+        "ui",
+        "not-play-sound-insync",
+        ImportTarget::NoSoundInSync,
+        Kind::Bool(|m, v| m.no_sound_in_sync = Some(v)),
+    ),
+    (
+        "ui",
+        "always-sync-boardstat",
+        ImportTarget::ReadBoardStatSync,
+        Kind::Bool(|m, v| m.read_board_stat_sync = Some(v)),
+    ),
+    (
+        "ui",
+        "read-board-get-focus",
+        ImportTarget::ReadBoardGetFocus,
+        Kind::Bool(|m, v| m.read_board_get_focus = Some(v)),
     ),
     (
         "ui",
@@ -2594,6 +2616,9 @@ impl Mapped {
         set!(c.record.append_winrate_to_comment, self.append_winrate_to_comment);
         set!(c.ui.language, self.language);
         set!(c.ui.play_sound, self.play_sound);
+        set!(c.read_board.no_sound_in_sync, self.no_sound_in_sync);
+        set!(c.read_board.always_sync_board_stat, self.read_board_stat_sync);
+        set!(c.read_board.get_focus, self.read_board_get_focus);
         set!(c.ui.extra_mode, self.extra_mode);
         if let Ok(mut values) = serde_json::to_value(&c.panels) {
             for value in &self.panels { value.set(&mut values); }
@@ -2895,6 +2920,9 @@ impl Mapped {
         );
         cmp!(ImportTarget::Language, config.ui.language, self.language);
         cmp!(ImportTarget::PlaySound, config.ui.play_sound, self.play_sound);
+        cmp!(ImportTarget::NoSoundInSync, config.read_board.no_sound_in_sync, self.no_sound_in_sync);
+        cmp!(ImportTarget::ReadBoardStatSync, config.read_board.always_sync_board_stat, self.read_board_stat_sync);
+        cmp!(ImportTarget::ReadBoardGetFocus, config.read_board.get_focus, self.read_board_get_focus);
         cmp!(ImportTarget::ExtraMode, config.ui.extra_mode, self.extra_mode);
         cmp!(ImportTarget::RecentFiles, config.recent_files, self.recent_files);
         if self.interval_centisec.is_some_and(|v| v != a.interval_centisec)

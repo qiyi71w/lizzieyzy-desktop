@@ -6,10 +6,12 @@ mod acceptance;
 mod appearance;
 mod commentary;
 mod diagnostics;
+mod floatboard;
 mod independent;
 mod logging;
 mod matches;
 mod output;
+mod readboard;
 mod resources;
 mod screen;
 mod secrets;
@@ -70,6 +72,8 @@ pub struct Shared {
     refresh: Mutex<(bool, bool, bool)>,
     refresh_cv: Condvar,
     processes: ProcessWaiter,
+    /// 棋盘同步工具 helpers being stopped.
+    helpers: readboard::HelperWaiter,
     /// The one serial writer of record files (Java `SgfSaveQueue`: a single worker thread).
     saves: Mutex<Sender<SaveJob>>,
     /// An exit was requested during a save; close the main window after all writes finish.
@@ -924,6 +928,18 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         }
         Command::HumanSl { op } => {
             let result = shared.workbench.lock().unwrap().human_sl(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
+        Command::ReadBoard { op } => {
+            let (result, install) = {
+                let mut wb = shared.workbench.lock().unwrap();
+                let result = wb.readboard(op)?;
+                (result, wb.take_readboard_install())
+            };
+            if let Some(install) = install {
+                readboard::install_update(app.clone(), shared.clone(), install);
+            }
             publish(&app, &shared);
             Ok(result)
         }
@@ -1805,6 +1821,29 @@ pub fn run() {
             let processes = launcher.waiter();
             let mut workbench = Workbench::new(storage, locale.as_deref(), Box::new(launcher), engine_roots());
             workbench.set_java_import_locations(java_locations());
+            // 棋盘同步工具 is a Windows helper (acceptance builds also host it elsewhere, for
+            // scripted helpers); its output reaches the workbench like engine output, and so
+            // does a stopped helper's exit (a successor waits for it).
+            let helper_cell = cell.clone();
+            let exit_cell = cell.clone();
+            let helper_host = readboard::ProcessHelperHost::new(
+                Arc::new(move |helper, input| {
+                    let Some(shared) = helper_cell.get() else { return };
+                    if shared.workbench.lock().unwrap().readboard_input(helper, input) {
+                        shared.request_refresh(true, false);
+                    }
+                }),
+                Arc::new(move |helper| {
+                    let Some(shared) = exit_cell.get() else { return };
+                    if shared.workbench.lock().unwrap().readboard_exited(helper) {
+                        shared.request_refresh(true, false);
+                    }
+                }),
+            );
+            let helpers = helper_host.waiter();
+            if cfg!(any(windows, feature = "acceptance")) {
+                workbench.set_readboard_host(Box::new(helper_host), readboard::base_dirs(app.handle()));
+            }
             let placement = workbench.persisted().window;
             let tables = TableLayout::new(workbench.persisted());
             let shared: State = Arc::new(Shared {
@@ -1813,6 +1852,7 @@ pub fn run() {
                 refresh: Mutex::new((false, false, false)),
                 refresh_cv: Condvar::new(),
                 processes,
+                helpers,
                 saves: Mutex::new(spawn_save_lane(app.handle().clone())),
                 close_after_saves: AtomicBool::new(false),
                 exit_save: Mutex::new(output::ExitSave::Idle),
@@ -1917,6 +1957,9 @@ pub fn run() {
             // AI 解说 is a modeless dialog (TeacherDialog DISPOSE_ON_CLOSE): it closes alone; its
             // request is cancelled on Destroyed above.
             WindowEvent::CloseRequested { .. } if window.label() == "commentary" => {}
+            // 棋盘同步工具's float board has no close of its own: the helper shows and hides it,
+            // and Alt+F4 there must not take the main window's exit path.
+            WindowEvent::CloseRequested { api, .. } if window.label() == floatboard::LABEL => api.prevent_close(),
             WindowEvent::CloseRequested { api, .. } => {
                 let app = window.app_handle();
                 let shared = app.state::<State>();
@@ -1925,7 +1968,7 @@ pub fn run() {
                 } else {
                     // Java exits with the main window; the tool windows must not keep the
                     // application running.
-                    for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW, HAWKEYE_WINDOW, HAWKEYE_SUB_WINDOW, BATCH_WINDOW, independent::MAIN, independent::SUB] {
+                    for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW, HAWKEYE_WINDOW, HAWKEYE_SUB_WINDOW, BATCH_WINDOW, independent::MAIN, independent::SUB, floatboard::LABEL] {
                         if let Some(frame) = app.get_webview_window(label) {
                             let _ = frame.destroy();
                         }
@@ -1969,6 +2012,9 @@ pub fn run() {
                 // their processes, so none is left behind.
                 let shared = app.state::<State>().inner().clone();
                 shared.workbench.lock().unwrap().shutdown_strength();
+                // Only this run's own helper is asked to quit and stopped; the target window is
+                // left as it is.
+                shared.workbench.lock().unwrap().readboard_shutdown();
                 shared.workbench.lock().unwrap().end_engines();
                 shared.workbench.lock().unwrap().stop_benchmark();
                 shared.workbench.lock().unwrap().cancel_resource_tasks();
@@ -1976,6 +2022,7 @@ pub fn run() {
                 resources::shutdown();
                 tuning::shutdown();
                 shared.processes.wait(Duration::from_secs(4));
+                shared.helpers.wait(Duration::from_secs(2));
                 let logs = shared.workbench.lock().unwrap().take_logs();
                 write_logs(&shared, logs);
                 shared.log.info("engines ended");
@@ -2022,6 +2069,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         set_hawkeye_layout,
         independent::open_independent_board,
         independent::close_independent_board_window,
+        floatboard::show_float_board,
+        floatboard::hide_float_board,
         open_batch_table,
         tsumego_capture::start_tsumego_capture,
         tsumego_capture::tsumego_capture_picture,
@@ -2065,6 +2114,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         set_hawkeye_layout,
         independent::open_independent_board,
         independent::close_independent_board_window,
+        floatboard::show_float_board,
+        floatboard::hide_float_board,
         open_batch_table,
         tsumego_capture::start_tsumego_capture,
         tsumego_capture::tsumego_capture_picture,

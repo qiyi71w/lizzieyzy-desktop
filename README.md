@@ -155,7 +155,8 @@ importing the matching LizzieYzy Next settings.
   restart engines. As in Java, an engine's board size applies to a new empty game, and its komi
   becomes the game komi unless the komi was set by hand (an engine that fails to start changes
   nothing). While an engine starts the status area shows 引擎正在加载中; after a failure it shows
-  引擎未成功加载.
+  引擎未成功加载. As in Java, an engine that ended and was not started again is still the current
+  engine: 重启当前引擎 starts it again.
 - 自动检测引擎是否存活 (综合设置 > 高级 > 日志与分析刷新, on by default, Java's
   `ui.auto-check-engine-alive`): when the foreground engine's process ends unexpectedly after it
   was ready, or a remote engine's command ends on the host or its connection is lost, the same
@@ -172,6 +173,23 @@ importing the matching LizzieYzy Next settings.
   is left unrestored (引擎状态未恢复 in the status area, no dialog, no further attempt). The
   ending is noticed at once from the process or connection, not by polling. Unlike Java, a local
   engine is restarted too (Java's check missed a local process that had ended).
+- 棋盘同步工具 (同步 menu and `Alt+O`, Windows only): starts the bundled ReadBoard helper
+  (`readboard/readboard.exe` next to the program) with Java's arguments; opening it again closes
+  the running helper first. Boards the helper reads become the record's moves (a jump or a
+  changed position becomes a snapshot of the synced board); with two-way sync a move played here
+  is clicked on the target window, and the next move waits until the helper confirms it. The
+  float board follows the helper's target rectangle. Output of a helper that was replaced or has
+  ended is ignored, and exit stops only the helpers this program started. 棋盘同步工具选项 keeps
+  Java's 总是保持棋盘一致 and 滚轮控制变化图时自动获取焦点; 同步时不播放落子声 mutes stone sounds
+  while syncing.
+- GMA (the helper's engine auto-play; KataGo with `kata-genmove_analyze` only, otherwise 该模式仅
+  支持 KataGo): each move reads the engine's pondering, time and visit parameters, sets the
+  helper's limits, asks the move for the synced position, plays it and has the helper click it.
+  While GMA holds the engine, 人机对弈, engine matches and HumanSL games are refused; while a move
+  is in flight, switching, restarting or closing the engine is refused too, and an engine that
+  ends meanwhile is not restarted automatically. Clearing GMA (stopping the sync or the helper ending)
+  gives the original parameters back once the engine holds the record's position again; if the
+  engine refuses them it stays unrestored (引擎状态未恢复) until it is switched or restarted.
 - Analysis: candidates on the board (win rate, visits, score lead), the variation shown when
   hovering a candidate (captures are worked out by the core), the sub board cycling through
   candidates on click, the candidate tables, the win-rate graph, 统计 and Kata形势 (below), and
@@ -798,7 +816,8 @@ importing the matching LizzieYzy Next settings.
   `LizzieYzyNext` folders are suggested when they exist). A preview lists every Java setting as
   imported, not usable here (invalid values; Java window positions) or left out (features not in
   this client yet, accounts and credentials), with the engine list. Imported: record settings
-  (load komi, go to last move, replace prompt), language, stone sounds, the editing settings
+  (load komi, go to last move, replace prompt), language, stone sounds, 棋盘同步工具选项 and
+  同步时不播放落子声, the editing settings
   (double click, drag, right-click menu or back, new-board prompt, markup tools, 其他 board
   size, no-capture), recent records, last
   folder, the engine list with its default and start-up choice, each engine's thread policy and
@@ -1069,6 +1088,12 @@ Asset names are `<binary>_<version>_<os>-<arch><form>`, for example
 container (`tools/packaging/linux-builder.Dockerfile`), because a binary built on a newer
 system needs that system's glibc and does not start on Ubuntu 24.04; the script packages the
 committed `HEAD` only.
+
+Both Windows packages carry the board synchronization helper
+([qiyi71w/readboard](https://github.com/qiyi71w/readboard) v3.2.0,
+`readboard-webview2-v3.2.0.zip`) as a `readboard/` directory next to the program. The script
+downloads the release asset once into `target/readboard/`, checks it against the size and
+SHA-256 pinned in `tools/package.mjs` and records it in the manifest (`bundled.readboard`).
 
 `--identity acceptance` builds the same program as *LizzieYzy Tauri Acceptance*: identifier
 `io.github.qiyi71w.lizzieyzy-tauri.acceptance`, binary `lizzieyzy-tauri-acceptance`, its own

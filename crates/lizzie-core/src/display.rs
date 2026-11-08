@@ -14,8 +14,9 @@
 //!   (or after an `MN` renumbering) the following moves show their total move number again; here
 //!   a pass counts like a move, so the branch keeps counting.
 //! - Java gives `moveMNNumber` 1 to any node directly under the root, a setup node included, so
-//!   a record whose first node after the root holds setup stones numbered its first move 2; here
-//!   only a move or pass starts the count, since setup stones take no move number.
+//!   a record whose first node after the root holds setup stones numbered its first move 2, and
+//!   after a 棋盘同步 snapshot root of move N the moves showed N+1, 2, 3, …; here only a move or
+//!   pass starts the count, and it continues from the root's move number.
 //!
 //! A setup node that removes a stone also removes its number (Java kept it on the empty point).
 
@@ -44,11 +45,14 @@ fn sgf_mn(rec: &GameRecord, id: NodeId) -> Option<u32> {
         .and_then(|v| v.trim().parse().ok())
 }
 
-/// The numbers of the position at the end of `path` (root first).
+/// The numbers of the position at the end of `path` (root first). The root's carried numbers
+/// ([`crate::record::RootCarry`], a 棋盘同步 rebuild) start the list, and the first move after
+/// the root continues from the root's move number (Java numbers it `moveNumber`).
 pub fn numbering(rec: &GameRecord, path: &[NodeId]) -> Numbering {
     let size = rec.size;
-    let mut pos = Position::new(size);
-    let mut list = vec![0u32; size.area()];
+    let mut pos = rec.start_position();
+    let carried = &rec.root_carry().move_numbers;
+    let mut list = if carried.is_empty() { vec![0u32; size.area()] } else { carried.clone() };
     let mut counts = Vec::with_capacity(path.len());
     let mut count: Option<u32> = None;
     for (k, &id) in path.iter().enumerate() {
@@ -56,7 +60,7 @@ pub fn numbering(rec: &GameRecord, path: &[NodeId]) -> Numbering {
         pos.enter(node);
         if k > 0 {
             count = match node.kind {
-                NodeKind::Move { .. } | NodeKind::Pass { .. } if k == 1 => Some(1),
+                NodeKind::Move { .. } | NodeKind::Pass { .. } if k == 1 => Some(rec.node(path[0]).move_number + 1),
                 NodeKind::Move { .. } | NodeKind::Pass { .. } => count.map(|c| c + 1),
                 NodeKind::Snapshot | NodeKind::DummyPass => count,
             };
@@ -119,7 +123,7 @@ pub fn tree_numbers(rec: &GameRecord) -> Vec<u32> {
         let node = rec.node(id);
         let mut count = match node.kind {
             NodeKind::Move { .. } | NodeKind::Pass { .. } => {
-                if node.parent == Some(crate::record::ROOT) { Some(1) }
+                if node.parent == Some(crate::record::ROOT) { Some(node.move_number) }
                 else { parent_count.map(|n: u32| n.saturating_add(1)) }
             }
             NodeKind::Snapshot | NodeKind::DummyPass => parent_count,

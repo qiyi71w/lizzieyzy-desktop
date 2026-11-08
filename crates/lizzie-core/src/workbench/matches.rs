@@ -1252,7 +1252,7 @@ impl Workbench {
         if let Some((seat, request)) = request {
             self.engine_move_committed(seat, request, self.doc.record.node(node).stamp);
         }
-        if self.config.ui.play_sound {
+        if self.sounds_on() {
             self.sounds.push(super::step_sound(&self.doc.record, node));
         }
         if self.match_board_full() {

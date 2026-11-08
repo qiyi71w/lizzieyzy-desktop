@@ -553,18 +553,20 @@ function javaMetrics(g: CanvasRenderingContext2D) {
 
 function grid(g: CanvasRenderingContext2D, geo: BoardGeom, ox: number, oy: number, border: number, normal: number) {
   const sq = geo.square;
+  const sqY = geo.squareY ?? sq;
+  const mY = geo.marginY ?? geo.margin;
   g.strokeStyle = "#000";
   for (let k = 0; k < geo.cols; k++) {
     g.lineWidth = k === 0 || k === geo.cols - 1 ? border : normal;
     const a = geo.margin + sq * k;
     g.beginPath();
-    g.moveTo(ox + a + 0.5, oy + geo.margin);
-    g.lineTo(ox + a + 0.5, oy + geo.margin + sq * (geo.rows - 1));
+    g.moveTo(ox + a + 0.5, oy + mY);
+    g.lineTo(ox + a + 0.5, oy + mY + sqY * (geo.rows - 1));
     g.stroke();
   }
   for (let k = 0; k < geo.rows; k++) {
     g.lineWidth = k === 0 || k === geo.rows - 1 ? border : normal;
-    const a = geo.margin + sq * k;
+    const a = mY + sqY * k;
     g.beginPath();
     g.moveTo(ox + geo.margin, oy + a + 0.5);
     g.lineTo(ox + geo.margin + sq * (geo.cols - 1), oy + a + 0.5);
@@ -1354,16 +1356,21 @@ function rawNetLine(s: BoardScene): string {
 
 /** Main board: BoardRenderer.draw (BoardRenderer.java:277-430): goban and coordinates, the line
  *  under the board, stones, ownership, 落子评价 / move numbers / last-move mark, markup, 下一手,
- *  candidates (statistics, 策略网络 or 纯网络) and the next-move rings. */
-export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: { x: number; y: number }, s: BoardScene): BoardReport {
+ *  candidates (statistics, 策略网络 or 纯网络) and the next-move rings. `layers` leaves out the
+ *  goban (wood, grid, star points, coordinates) or the resting stones, as 棋盘同步工具's float
+ *  board does outside its edit mode (FloatBoardRenderer.draw, renderImages). */
+export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: { x: number; y: number }, s: BoardScene, layers = { board: true, stones: true }): BoardReport {
   const ox = geo.x - origin.x;
   const oy = geo.y - origin.y;
   const sq = geo.square;
   const r = geo.stoneRadius;
   const cols = s.cols;
   const d = s.display;
+  const sizeY = geo.sizeY ?? geo.size;
+  const marginY = geo.marginY ?? geo.margin;
+  const squareY = geo.squareY ?? sq;
   const X = (x: number) => ox + geo.margin + sq * x;
-  const Y = (y: number) => oy + geo.margin + sq * y;
+  const Y = (y: number) => oy + marginY + squareY * y;
   const px = (p: number) => X(p % cols);
   const py = (p: number) => Y(i(p / cols));
   const report: BoardReport = {
@@ -1394,51 +1401,54 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
   };
   // drawWoodenBoard (BoardRenderer.java:3620-3651): a custom board image gets a (0,0,0,50) wash.
   Object.assign(surface, { x: ox, y: oy, size: geo.size, image: look.board, custom: look.customBoard });
-  boardFill(g, ox, oy, geo.size, geo.size);
-  if (look.customBoard && !look.pureBoard) {
-    g.fillStyle = "rgba(0,0,0,0.196)";
-    g.fillRect(ox, oy, geo.size, geo.size);
-  }
-  const avail = geo.size - 2 * geo.margin;
-  grid(g, geo, ox, oy, Math.max(geo.size > 560 ? 2 : 1, avail / 481), Math.max(1, avail / 750));
-  // drawStarPoints (BoardRenderer.java:1119-1143): 中式经典 corner markers, else the star points
-  // of radius (int)(0.015*size)/2.
-  if (look.chinese) drawChineseClassicMarkers(g, geo.cols, geo.rows, sq, (x) => X(x) + 0.5, (y) => Y(y) + 0.5);
-  else {
-    const star = i(i(0.015 * geo.size) / 2);
-    g.fillStyle = "#000";
-    for (const [a, b] of hoshi(geo.cols, geo.rows)) {
-      circle(g, X(a) + 0.5, Y(b) + 0.5, star + 1);
-      g.fill();
-    }
-  }
   // The pure network's line replaces the names (BoardRenderer.java:303-311).
   const rawLine = s.rawNetOn || (s.policy && s.engine && !s.katago);
-  // Coordinates (BoardRenderer.java:1038-1100) in the 坐标格式, or 中式经典's line numbers from the
-  // nearer edge (BoardStylePainter.chineseClassicCoordinateLabel); the bottom row gives way to the
-  // names and the line.
-  if (d.coordinates) {
-    g.fillStyle = "#000";
-    const at = i((geo.margin * 4) / 10);
-    const bottom = !s.names && !rawLine;
-    const labels = look.chinese
-      ? { cols: Array.from({ length: geo.cols }, (_, k) => chineseClassicLabel(k, geo.cols)), rows: Array.from({ length: geo.rows }, (_, k) => chineseClassicLabel(k, geo.rows)) }
-      : coordinateLabels(d.coordinateStyle, geo.cols, geo.rows);
-    labels.cols.forEach((label, k) => {
-      jString(g, label, X(k), oy + at, UI_FONT, i((r * 4) / 5), r);
-      if (bottom) jString(g, label, X(k), oy + geo.size - at, UI_FONT, i((r * 4) / 5), r);
-    });
-    labels.rows.forEach((label, k) => {
-      jString(g, label, ox + at, Y(k), UI_FONT, i((r * 4) / 5), r);
-      jString(g, label, ox + geo.size - at, Y(k), UI_FONT, i((r * 4) / 5), r);
-    });
-    report.coordinateLabels = labels;
+  if (layers.board) {
+    boardFill(g, ox, oy, geo.size, sizeY);
+    if (look.customBoard && !look.pureBoard) {
+      g.fillStyle = "rgba(0,0,0,0.196)";
+      g.fillRect(ox, oy, geo.size, sizeY);
+    }
+    const avail = geo.size - 2 * geo.margin;
+    grid(g, geo, ox, oy, Math.max(geo.size > 560 ? 2 : 1, avail / 481), Math.max(1, avail / 750));
+    // drawStarPoints (BoardRenderer.java:1119-1143): 中式经典 corner markers, else the star points
+    // of radius (int)(0.015*size)/2.
+    if (look.chinese) drawChineseClassicMarkers(g, geo.cols, geo.rows, sq, (x) => X(x) + 0.5, (y) => Y(y) + 0.5);
+    else {
+      const star = i(i(0.015 * geo.size) / 2);
+      g.fillStyle = "#000";
+      for (const [a, b] of hoshi(geo.cols, geo.rows)) {
+        circle(g, X(a) + 0.5, Y(b) + 0.5, star + 1);
+        g.fill();
+      }
+    }
+    // Coordinates (BoardRenderer.java:1038-1100) in the 坐标格式, or 中式经典's line numbers from the
+    // nearer edge (BoardStylePainter.chineseClassicCoordinateLabel); the bottom row gives way to the
+    // names and the line.
+    if (d.coordinates) {
+      g.fillStyle = "#000";
+      const at = i((geo.margin * 4) / 10);
+      const atY = i((marginY * 4) / 10);
+      const bottom = !s.names && !rawLine;
+      const labels = look.chinese
+        ? { cols: Array.from({ length: geo.cols }, (_, k) => chineseClassicLabel(k, geo.cols)), rows: Array.from({ length: geo.rows }, (_, k) => chineseClassicLabel(k, geo.rows)) }
+        : coordinateLabels(d.coordinateStyle, geo.cols, geo.rows);
+      labels.cols.forEach((label, k) => {
+        jString(g, label, X(k), oy + atY, UI_FONT, i((r * 4) / 5), r);
+        if (bottom) jString(g, label, X(k), oy + sizeY - atY, UI_FONT, i((r * 4) / 5), r);
+      });
+      labels.rows.forEach((label, k) => {
+        jString(g, label, ox + at, Y(k), UI_FONT, i((r * 4) / 5), r);
+        jString(g, label, ox + geo.size - at, Y(k), UI_FONT, i((r * 4) / 5), r);
+      });
+      report.coordinateLabels = labels;
+    }
   }
   if (rawLine) {
     const text = rawNetLine(s);
     g.fillStyle = "#000";
     // Font(Lizzie.config.fontName, PLAIN, 16) (BoardRenderer.java:786).
-    jString(g, text, ox + i(geo.size / 2), oy - i((geo.margin * 13) / 40) + geo.size, PLAYOUTS_FONT, i(geo.margin / 2), geo.size, 0, true);
+    jString(g, text, ox + i(geo.size / 2), oy - i((marginY * 13) / 40) + sizeY, PLAYOUTS_FONT, i(marginY / 2), geo.size, 0, true);
     report.bottomLine = "rawNet";
     report.rawNetInfo = text;
   } else if (s.names) {
@@ -1453,9 +1463,11 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
   if (layer && below) drawOwnership(g, layer.ownership, s.stones, cols, layer.style, X, Y, sq, true);
   const preview = s.preview ? playVariation(s.stones, s.toPlay, cols, s.preview, s.preview.length, d.removeDeadInVariation) : null;
   const stones = preview?.stones ?? s.stones;
-  for (let p = 0; p < stones.length; p++) {
-    const stone = stones[p];
-    if (stone) drawStone(g, px(p), py(p), r, stone === "Black");
+  if (layers.stones) {
+    for (let p = 0; p < stones.length; p++) {
+      const stone = stones[p];
+      if (stone) drawStone(g, px(p), py(p), r, stone === "Black");
+    }
   }
   if (layer && !below) drawOwnership(g, layer.ownership, s.stones, cols, layer.style, X, Y, sq, true);
   // renderImages draws the selection images after Kata形势 (BoardRenderer.java:1884-1887).

@@ -191,8 +191,10 @@ function entryReason(id: string): Reason | null {
     case "engine.parameters":
     case "menu.showHeatmap":
       return engine ? null : NO_ENGINE;
+    // LizzieFrame.java:13216-13218: Windows first, then the helper next to the program.
     case "sync.board":
-      return navigator.userAgent.includes("Windows") ? null : { key: "FunctionSearch.unavailable.windows" };
+      if (!navigator.userAgent.includes("Windows")) return { key: "FunctionSearch.unavailable.windows" };
+      return view.readboard.available ? null : { key: "FunctionSearch.unavailable.readBoard" };
     case "game.komi":
     case "lightning-analysis-settings":
     case "whole-game-lightning-overview":

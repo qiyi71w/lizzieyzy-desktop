@@ -126,6 +126,10 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   Commentary: "Teacher.settings.title",
   // 综合设置 > 高级 > 日志与分析刷新 (ConfigDialog2.java:3290-3295).
   AutoCheckEngineAlive: "ConfigDialog2.modern.engineHealth.checkAlive",
+  // 设置 > 同步时不播放落子声 and 同步 > 棋盘同步工具选项 (Menu.java:5547-5556, 4352-4392).
+  NoSoundInSync: "Menu.notPlaySoundInSync",
+  ReadBoardStatSync: "Menu.alwaysKeepBoardStatSync",
+  ReadBoardGetFocus: "Menu.readBoardGetFocus",
 };
 
 function targetLabel(target: ImportTarget): string {

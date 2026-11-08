@@ -11,7 +11,8 @@ export default defineConfig({
     emptyOutDir: true,
     target: "es2022",
     // The workbench, the 独立选点列表 window, the 超级鹰眼 window, 批量分析进度表, the
-    // 浮动主棋盘 / 浮动小棋盘 windows, 抓取死活题's full-screen overlay and the AI 解说 window.
+    // 浮动主棋盘 / 浮动小棋盘 windows, 抓取死活题's full-screen overlay, the AI 解说 window and
+    // 棋盘同步工具's float board.
     rollupOptions: {
       input: {
         main: resolve(__dirname, "ui/index.html"),
@@ -21,6 +22,7 @@ export default defineConfig({
         board: resolve(__dirname, "ui/board.html"),
         capture: resolve(__dirname, "ui/capture.html"),
         commentary: resolve(__dirname, "ui/commentary.html"),
+        floatboard: resolve(__dirname, "ui/floatboard.html"),
       },
     },
   },

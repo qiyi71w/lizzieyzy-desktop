@@ -139,6 +139,11 @@ impl Workbench {
         self.restart.quiet.remove(&instance);
     }
 
+    /// A restarted engine is still catching up with its position (Java `foregroundRestoreInProgress`).
+    pub(super) fn restart_restoring(&self) -> bool {
+        self.restart.restoring.is_some()
+    }
+
     /// Settles the restore of a restarted engine: done once it holds the position wished for it
     /// now (catching up with a position the user moved to meanwhile); a refusal of that position
     /// leaves it unrestored (no dialog, no further attempt). Returns whether it was left
