@@ -242,6 +242,22 @@ impl GameRecord {
                 known(self, *at)?;
                 Ok(self.add_branch(*at, moves, *rules))
             }
+            DocumentEdit::EndPlaceholder { at, present } => {
+                known(self, *at)?;
+                let children = self.node(*at).children.clone();
+                let changed = match (*present, &children[..]) {
+                    (true, []) => {
+                        self.push_child(*at, NodeKind::DummyPass);
+                        true
+                    }
+                    (false, &[only]) if self.is_end_dummy(only) => {
+                        self.detach(only);
+                        true
+                    }
+                    _ => false,
+                };
+                Ok(Applied { changed, content: false, node: None })
+            }
             DocumentEdit::Insert {
                 at,
                 color,

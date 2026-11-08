@@ -135,6 +135,8 @@ pub struct Mapped {
     pub startup_benchmark_dismissed_version: Option<u32>,
     /// `ui.network-proxy-*` as Java `NetworkProxy.settings` would accept them.
     pub network: Option<NetworkSettings>,
+    /// `web-board.http-port` / `ws-port` / `max-connections` (`WebBoardManager.start`).
+    pub web_board: Option<crate::settings::WebBoardSettings>,
     pub commentary: Option<crate::commentary::settings::CommentarySettings>,
     pub allow_double_click: Option<bool>,
     pub allow_drag: Option<bool>,
@@ -1531,6 +1533,7 @@ impl Reader<'_> {
         self.appearance(ui, &mut handled);
         self.hawkeye(ui, &mut handled);
         self.network(ui, &mut handled);
+        self.web_board(root, &mut handled);
         self.display(ui, leelaz, &mut handled);
         self.game(ui, leelaz, &mut handled);
         self.matches(ui, &mut handled);
@@ -2013,6 +2016,39 @@ impl Reader<'_> {
             }
         }
         self.mapped.network = Some(settings);
+    }
+
+    /// `web-board.http-port` / `ws-port` / `max-connections` (`WebBoardManager.start`, `optInt`
+    /// with 9998 / 9999 / 20 for a missing or unreadable value). A port outside 1–65535 or a
+    /// negative limit, which Java could not start with, is reported and its default used.
+    fn web_board(&mut self, root: &Map<String, Value>, handled: &mut Handled) {
+        const SECTION: &str = "web-board";
+        let Some(section) = root.get(SECTION).and_then(Value::as_object) else { return };
+        let mut settings = crate::settings::WebBoardSettings::default();
+        let number = |v: &Value| match v {
+            Value::Number(_) | Value::String(_) => shown(v).trim().parse::<i64>().ok(),
+            _ => None,
+        };
+        let mut any = false;
+        for key in ["http-port", "ws-port", "max-connections"] {
+            let Some(v) = section.get(key) else { continue };
+            handled.push((SECTION, key));
+            let n = number(v);
+            let accepted = match key {
+                "http-port" => n.and_then(|n| u16::try_from(n).ok()).filter(|&p| p > 0).map(|p| settings.http_port = p),
+                "ws-port" => n.and_then(|n| u16::try_from(n).ok()).filter(|&p| p > 0).map(|p| settings.ws_port = p),
+                _ => n.and_then(|n| u32::try_from(n).ok()).map(|m| settings.max_connections = m),
+            };
+            if accepted.is_some() {
+                self.imported(format!("{SECTION}.{key}"), ImportTarget::WebBoard, shown(v));
+            } else {
+                self.invalid(format!("{SECTION}.{key}"), ImportTarget::WebBoard, v);
+            }
+            any = true;
+        }
+        if any {
+            self.mapped.web_board = Some(settings);
+        }
     }
 
     /// The engine list and the start-up choice.
@@ -2654,6 +2690,7 @@ impl Mapped {
         set!(c.engine.auto_load_kata_rules, self.auto_load_kata_rules);
         set!(c.engine.startup_benchmark, self.startup_benchmark);
         set!(c.network, self.network);
+        set!(c.web_board, self.web_board);
         set!(c.commentary, self.commentary);
         set!(c.edit.allow_double_click, self.allow_double_click);
         set!(c.edit.allow_drag, self.allow_drag);
@@ -2931,6 +2968,7 @@ impl Mapped {
             self.startup_benchmark
         );
         cmp!(ImportTarget::NetworkProxy, config.network, self.network);
+        cmp!(ImportTarget::WebBoard, config.web_board, self.web_board);
         cmp!(ImportTarget::Commentary, config.commentary, self.commentary);
         cmp!(
             ImportTarget::AutoQuickAnalysis,

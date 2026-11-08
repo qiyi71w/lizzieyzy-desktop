@@ -4,9 +4,9 @@
 // this module sends HumanSl commands and shows its view.
 import { registerViewHandler, state, subscribe } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
-import { message } from "../dialogs";
+import { message, timedMessage } from "../dialogs";
 import { t } from "../i18n";
-import { mountTrainingBar, refreshTrainingBar, timedMessage } from "./bar";
+import { mountTrainingBar, refreshTrainingBar } from "./bar";
 import { dialogNotice, humanSlDialogOpen, openHumanSlDialog, startFailedText } from "./dialog";
 import { aiCoachBlockedByGame, humanSlGameActive, humanSlUi, onHumanSlUiChange } from "./state";
 

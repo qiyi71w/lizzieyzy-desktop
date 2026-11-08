@@ -1441,6 +1441,30 @@ fn whole_game_visits_imports_with_java_from_stored_validation() {
 }
 
 #[test]
+fn web_board_ports_and_viewer_limit_import_like_java_starts_with_them() {
+    // WebBoardManager.start: top-level `web-board`, optInt with 9998 / 9999 / 20.
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let source = json!({"ui": {}, "web-board": {"http-port": "8080", "ws-port": 70000, "max-connections": 3}});
+    std::fs::write(java.join("config.txt"), source.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    for (key, status) in [
+        ("web-board.http-port", ImportStatus::Imported),
+        ("web-board.ws-port", ImportStatus::Incompatible),
+        ("web-board.max-connections", ImportStatus::Imported),
+    ] {
+        let row = item(&p.items, key);
+        assert_eq!((row.status, row.target), (status, Some(ImportTarget::WebBoard)), "{key}");
+    }
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    let w = saved_config(&product).web_board;
+    assert_eq!((w.http_port, w.ws_port, w.max_connections), (8080, 9999, 3));
+}
+
+#[test]
 fn hawkeye_settings_import_like_java_reads_them() {
     // Config.java:1801-1827, 1891-1893, 1947-1956, 2021-2024; MoveListFrame.setFilterStatus.
     let tmp = tempfile::tempdir().unwrap();

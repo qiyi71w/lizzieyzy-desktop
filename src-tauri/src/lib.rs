@@ -17,6 +17,7 @@ mod ssh;
 mod startup;
 mod tsumego_capture;
 mod tuning;
+mod web_board;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -26,7 +27,7 @@ use std::time::{Duration, Instant};
 
 use lizzie_core::api::{
     ApiError, BatchCommand, BatchMode, Command, CommandResult, ConsoleLineView, ErrorKind, LogsStatus, OpenSource,
-    SshCredentialCommand, WorkbenchView,
+    SshCredentialCommand, WebBoardCommand, WorkbenchView,
 };
 use lizzie_core::engine::process::{ProcessLauncher, ProcessWaiter};
 use lizzie_core::formats;
@@ -78,6 +79,8 @@ pub struct Shared {
     exit_save: Mutex<output::ExitSave>,
     views: Mutex<ViewSubscription>,
     tables: Mutex<TableLayout>,
+    /// Web 旁观's page and board stream while they run.
+    web_board: web_board::WebBoard,
 }
 
 /// Column widths and the 独立选点列表's bounds as the UI last laid them out; written on exit
@@ -178,6 +181,7 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
     let deferred = wb.take_human_sl_deferred();
     let commentary_jobs = wb.take_commentary_jobs();
     drop(wb);
+    shared.web_board.changed();
     write_logs(shared, logs);
     run_launch_checks(app, checks);
     commentary::spawn_jobs(app, shared, commentary_jobs);
@@ -929,6 +933,13 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         }
         Command::Strength { op } => {
             let result = shared.workbench.lock().unwrap().strength(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
+        Command::WebBoard { op: WebBoardCommand::Start } => Ok(web_board::start(&app, &shared)),
+        Command::WebBoard { op: WebBoardCommand::Stop } => Ok(web_board::stop(&app, &shared)),
+        Command::WebBoard { op } => {
+            let result = shared.workbench.lock().unwrap().web_board(op)?;
             publish(&app, &shared);
             Ok(result)
         }
@@ -1818,6 +1829,7 @@ pub fn run() {
                 exit_save: Mutex::new(output::ExitSave::Idle),
                 views: Mutex::new(ViewSubscription::default()),
                 tables: Mutex::new(tables),
+                web_board: web_board::WebBoard::default(),
             });
             let _ = cell.set(shared.clone());
             app.manage(shared.clone());
@@ -1970,6 +1982,7 @@ pub fn run() {
                 let shared = app.state::<State>().inner().clone();
                 shared.workbench.lock().unwrap().shutdown_strength();
                 shared.workbench.lock().unwrap().end_engines();
+                web_board::stop(app, &shared);
                 shared.workbench.lock().unwrap().stop_benchmark();
                 shared.workbench.lock().unwrap().cancel_resource_tasks();
                 commentary::shutdown(app);

@@ -80,6 +80,7 @@ impl Engines {
     pub fn reserve_game_instance(&mut self, id: InstanceId) -> Result<u64, super::LeaseAvailability> {
         use super::LeaseAvailability as A;
         let inst = self.get(id).ok_or(A::NoForegroundEngine)?;
+        if self.application_exclusive { return Err(A::ApplicationExclusive); }
         if inst.unrestored.is_some() { return Err(A::EngineStateUnrestored); }
         if self.lease.is_some() { return Err(A::ExistingLease); }
         if self.games.iter().any(|g| g.instance == id) { return Err(A::PlayMode); }

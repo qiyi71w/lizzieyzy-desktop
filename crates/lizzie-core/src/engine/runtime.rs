@@ -227,6 +227,9 @@ pub enum LeaseAvailability {
     EngineStateUnrestored,
     /// A play mode holds the engine (Java `PLAY_MODE`).
     PlayMode,
+    /// An application mode follows the foreground engine itself (Java
+    /// `APPLICATION_EXCLUSIVE_MODE`: Web 试下).
+    ApplicationExclusive,
     HumanSlGame,
 }
 
@@ -665,6 +668,8 @@ pub struct Engines {
     games: Vec<game::GameSeat>,
     human_sl: bool,
     human_sl_restore: Option<u64>,
+    /// Web 试下 drives the foreground engine (`isWebTrialEngineBusy`).
+    application_exclusive: bool,
 }
 
 impl Instance {
@@ -773,6 +778,7 @@ impl Engines {
             games: Vec::new(),
             human_sl: false,
             human_sl_restore: None,
+            application_exclusive: false,
         }
     }
 
@@ -2238,6 +2244,9 @@ impl Engines {
         let Some(inst) = self.foreground.and_then(|id| self.get(id)) else {
             return LeaseAvailability::NoForegroundEngine;
         };
+        if self.application_exclusive {
+            return LeaseAvailability::ApplicationExclusive;
+        }
         if inst.unrestored.is_some() {
             LeaseAvailability::EngineStateUnrestored
         } else if inst.phase != Phase::Ready {
@@ -2644,6 +2653,12 @@ impl Engines {
     pub fn set_human_sl(&mut self, active: bool) {
         self.human_sl = active;
         if !active { self.human_sl_restore = None; }
+    }
+
+    /// Web 试下 holds the foreground engine: borrowing it and play-mode reservations are refused
+    /// as application-exclusive until it ends (`isWebTrialEngineBusy`).
+    pub fn set_application_exclusive(&mut self, active: bool) {
+        self.application_exclusive = active;
     }
 
     /// Confirm foreground recovery with the same fenced handback used by play modes. No

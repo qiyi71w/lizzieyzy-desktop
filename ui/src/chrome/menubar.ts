@@ -195,6 +195,7 @@ function dropdown(items: MenuNode[]): HTMLElement {
         ? { run: () => run({ type: "OpenRecord", path: recent, source: "Recent" }) }
         : (COMMANDS[node.id ?? ""] ?? COMMANDS[node.key]);
       if (entry?.visible && !entry.visible()) continue;
+      if (entry?.label) text.textContent = entry.label();
       if (node.t === "check" || node.t === "radio") {
         mark.textContent = entry?.checked?.() ? "✓" : "";
         row.classList.add("checkable");
@@ -389,19 +390,37 @@ export function locateMenuItem(id: string): boolean {
     if (!row) return false;
     if (depth < path.nodes.length - 1) list = expand(row, list, node.t === "sep" ? [] : (node.items ?? []));
   }
-  if (!row) return false;
+  if (!row || !list) return false;
   const located = row;
+  const parent = list;
   const leaf = path.nodes[path.nodes.length - 1];
-  located.tabIndex = -1;
-  located.classList.add("located-item");
-  located.addEventListener("keydown", (e) => {
+  selectLocated(located, () => (leaf.t === "submenu" ? void expand(located, parent, leaf.items ?? []) : located.click()));
+  return true;
+}
+
+/** A toolbar popup's item located like a menu item (BottomToolbar.locateFunction's JMenuItem
+ *  branch, BottomToolbar.java:645-649): the popup opens above `anchor` with the item selected. */
+export function locatePopupItem(anchor: HTMLElement, items: MenuNode[], id: string): boolean {
+  openPopupMenu(anchor, items, true);
+  const row = [...(openMenu?.querySelectorAll<HTMLElement>(".mi") ?? [])].find((r) => {
+    const node = rowNodes.get(r);
+    return node !== undefined && node.t !== "sep" && node.id === id;
+  });
+  if (!row) return false;
+  selectLocated(row, () => row.click());
+  return true;
+}
+
+/** Focus and the gold line on a located row; Enter then acts on it like the selected Swing item. */
+function selectLocated(row: HTMLElement, activate: () => void): void {
+  row.tabIndex = -1;
+  row.classList.add("located-item");
+  row.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
     e.preventDefault();
-    if (leaf.t === "submenu" && list) expand(located, list, leaf.items ?? []);
-    else located.click();
+    activate();
   });
-  located.scrollIntoView({ block: "nearest", inline: "nearest" });
-  located.focus({ preventScroll: true });
-  highlight(located);
-  return true;
+  row.scrollIntoView({ block: "nearest", inline: "nearest" });
+  row.focus({ preventScroll: true });
+  highlight(row);
 }

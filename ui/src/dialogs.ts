@@ -1,7 +1,7 @@
 // In-window modal dialogs in the role of Java JOptionPane message / confirm dialogs. While one is
 // open the rest of the window is inert and Tab cycles inside the dialog, so neither the mouse nor
 // the keyboard reaches the workbench, like a Swing modal dialog.
-import { product } from "./i18n";
+import { product, t } from "./i18n";
 
 const host = () => document.getElementById("dialog")!;
 let open = 0;
@@ -10,6 +10,30 @@ let open = 0;
  *  asking about the others does not count itself. */
 export function dialogOpen(except?: HTMLElement): boolean {
   return open - (except && except.parentElement === host() ? 1 : 0) > 0;
+}
+
+let notices = 0;
+
+/** Utils.showMsgNoModalForTime: the Message window, not modal, closed after `seconds`; each
+ *  further one is offset so they stay readable. */
+export function timedMessage(text: string, seconds: number): void {
+  const box = document.createElement("div");
+  box.className = "modal-box timed-notice";
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-label", t("Message.title"));
+  box.dataset.freeWindow = "";
+  box.dataset.name = "timed.notice";
+  box.style.translate = `${(notices % 5) * 16}px ${(notices % 5) * 16}px`;
+  notices++;
+  const title = document.createElement("div");
+  title.className = "modal-title";
+  title.textContent = t("Message.title");
+  const body = document.createElement("div");
+  body.className = "modal-body";
+  body.textContent = text;
+  box.append(title, body);
+  document.body.append(box);
+  window.setTimeout(() => box.remove(), seconds * 1000);
 }
 
 /** A custom modal layer (the function search) under the same modal state as these dialogs: it

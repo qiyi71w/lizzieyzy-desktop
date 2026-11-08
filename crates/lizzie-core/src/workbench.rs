@@ -37,6 +37,7 @@ mod resources;
 mod search;
 mod tsumego;
 mod tuning;
+mod web_board;
 mod whole_game;
 
 use std::path::{Path, PathBuf};
@@ -280,6 +281,8 @@ pub struct Workbench {
     human_sl: humansl::HumanSlFlow,
     strength: strength::StrengthFlow,
     commentary: commentary::CommentaryFlow,
+    /// Web 旁观's running session and a viewer's 试下.
+    web_board: web_board::WebBoardFlow,
 }
 
 impl Workbench {
@@ -401,6 +404,7 @@ impl Workbench {
             human_sl: humansl::HumanSlFlow::default(),
             strength: strength::StrengthFlow::default(),
             commentary: commentary::CommentaryFlow::default(),
+            web_board: web_board::WebBoardFlow::default(),
         }
     }
 
@@ -1078,6 +1082,7 @@ impl Workbench {
             human_sl: self.human_sl_view(),
             strength: self.strength_view(),
             commentary: self.commentary_view(),
+            web_board: self.web_board_view(),
             human_sl_notices: Vec::new(),
             human_sl_continuation: None,
             byoyomi_voices: Vec::new(),

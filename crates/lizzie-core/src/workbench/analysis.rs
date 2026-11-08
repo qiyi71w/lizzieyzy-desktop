@@ -1249,6 +1249,7 @@ impl Workbench {
             self.match_deadline(),
             self.human_sl_deadline(),
             self.strength_deadline(),
+            self.web_trial_deadline(),
         ]
             .into_iter()
             .flatten()
@@ -1267,7 +1268,8 @@ impl Workbench {
         let matches = self.match_tick(now);
         let human_sl = self.human_sl_tick(now);
         let strength = self.strength_tick(now);
-        engines | quick | whole | tracking | play | matches | human_sl | strength
+        let web_trial = self.web_trial_tick(now);
+        engines | quick | whole | tracking | play | matches | human_sl | strength | web_trial
     }
 
     /// Handles runtime events produced by operations outside engine output.

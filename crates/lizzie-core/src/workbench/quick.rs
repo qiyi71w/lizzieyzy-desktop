@@ -1298,6 +1298,7 @@ impl Workbench {
             LeaseAvailability::ExistingLease => LeaseAvailabilityView::ExistingLease,
             LeaseAvailability::EngineStateUnrestored => LeaseAvailabilityView::EngineStateUnrestored,
             LeaseAvailability::PlayMode => LeaseAvailabilityView::PlayMode,
+            LeaseAvailability::ApplicationExclusive => LeaseAvailabilityView::ApplicationExclusive,
             LeaseAvailability::HumanSlGame => LeaseAvailabilityView::HumanSlGame,
         };
         let unrestored = self

@@ -3,7 +3,7 @@
 // can never be applied in the opposite order.
 import { dispatch, isApiError } from "./contract/client";
 import type { Command, CommandResult, CommentLabels, ExportKind, Navigation, StoneSound, TreeNodeView, WorkbenchView } from "./contract/generated";
-import { ask, confirm, message } from "./dialogs";
+import { ask, confirm, message, timedMessage } from "./dialogs";
 import { product, t } from "./i18n";
 import { tuningText } from "./engine/tuningText";
 
@@ -115,9 +115,12 @@ export function run(command: Command): Promise<CommandResult | null> {
           // AI 陪练 refusals (a game on, the model missing).
           "LizzieFrame.engineGameStopFirstHint": t("LizzieFrame.engineGameStopFirstHint"),
           "HumanSlGame.missingModelDownloadPrompt": t("HumanSlGame.missingModelDownloadPrompt"),
+          // Engine-taking modes while a viewer's Web 试下 holds the engine.
+          "AnalysisSettings.reuseStatus.application_exclusive_mode": t("AnalysisSettings.reuseStatus.application_exclusive_mode"),
         };
-        const text = messages[result.message_key] ?? t(result.message_key);
-        void message(t("Message.title"), text, "warning");
+        // A desktop move during Web 试下: LizzieFrame.showTrialBlockedHint, a 3 s message.
+        if (result.message_key === "LizzieFrame.webTrialDesktopBlocked") timedMessage(t("LizzieFrame.webTrialDesktopBlocked"), 3);
+        else void message(t("Message.title"), messages[result.message_key] ?? t(result.message_key), "warning");
       }
       return result;
     } catch (e) {

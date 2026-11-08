@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::analysis::{fill_pv_captures, node_analysis};
+use super::flash::reuse_status_key;
 use super::quick::{Query, RulesSignature};
 use super::Workbench;
 use crate::api::{ApiError, WholeGameAnalysisView, WholeGameState as State};
@@ -168,7 +169,7 @@ impl Workbench {
         self.discard_analysis_process();
         if borrow && !self.quick_releasing() {
             let availability = self.engines.lease_availability();
-            if availability != LeaseAvailability::Available { return Ok(Err(reuse_key(availability))); }
+            if availability != LeaseAvailability::Available { return Ok(Err(reuse_status_key(availability))); }
         }
         let save_failed = self.commit_config(|c| c.whole_game = WholeGameSettings { deep_visits: visits }).is_err();
         self.whole_game.next += 1;
@@ -439,13 +440,4 @@ impl Workbench {
             mode_key: Some(if s.borrowed { "WholeGameAnalysis.mode.localShared" } else { "WholeGameAnalysis.mode.local" }.into()), detail_key: s.detail.clone(),
             show_results: self.whole_game_results_for_current(), save_failed: s.save_failed }
     }
-}
-fn reuse_key(a: LeaseAvailability) -> String {
-    format!("AnalysisSettings.reuseStatus.{}", match a {
-        LeaseAvailability::Available => "available", LeaseAvailability::NoForegroundEngine => "no_foreground_engine",
-        LeaseAvailability::EngineNotReady => "engine_not_ready", LeaseAvailability::NotKatago => "not_katago",
-        LeaseAvailability::MissingCapability => "missing_capability", LeaseAvailability::ExistingLease => "existing_lease",
-        LeaseAvailability::EngineStateUnrestored => "engine_state_unrestored", LeaseAvailability::PlayMode => "play_mode",
-        LeaseAvailability::HumanSlGame => "human_sl_game",
-    })
 }

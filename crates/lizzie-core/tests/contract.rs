@@ -88,6 +88,7 @@ fn generate() -> String {
         StrengthModelView, StrengthReport, StrengthSideReport, StrengthSegment, StrengthSummary,
         StrengthSample, StrengthConfidence, StrengthMoveCategory,
         CommentaryCommand, ConnectionCommand, CommentaryView, CommentaryMode, CommentaryProvider,
+        WebBoardCommand, WebBoardView,
         CommentaryPreferences, CommentarySettings, CommentaryConnectionFacts, CommentaryAccount,
         CommentaryModel, CommentarySecureStorage, CommentaryChatGptFacts, CommentaryText,
         CommentaryStatus, CommentaryTone, CommentaryOutputState,

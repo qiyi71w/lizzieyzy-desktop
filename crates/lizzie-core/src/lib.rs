@@ -13,6 +13,7 @@
 //! - [`engine`]: engine settings, GTP protocol, running engine instances and processes.
 //! - [`resources`]: engine resources: trusted catalog, machine detection, recommendation,
 //!   acquisition and verification.
+//! - [`web_board`]: Web 旁观's viewer messages and board stream.
 
 pub mod api;
 pub mod appearance;
@@ -34,4 +35,5 @@ pub mod settings;
 pub mod strength;
 pub mod tsumego;
 pub mod viewpoint;
+pub mod web_board;
 pub mod workbench;
