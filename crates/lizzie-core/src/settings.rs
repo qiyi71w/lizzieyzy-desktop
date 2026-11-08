@@ -1507,6 +1507,8 @@ pub struct Config {
     pub matches: MatchSettings,
     /// 死活题.
     pub tsumego: TsumegoSettings,
+    /// 野狐棋谱 window.
+    pub fox_kifu: FoxKifuSettings,
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).
@@ -1529,6 +1531,38 @@ pub struct NetworkSettings {
     pub proxy_host: String,
     /// `network-proxy-port` (manual mode; 1–65535 when manual).
     pub proxy_port: u16,
+}
+
+/// 野狐棋谱 (`ui.last-fox-name`, `last-fox-query-by-uid`, `fox-after-get`,
+/// `fox-recent-searches`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct FoxKifuSettings {
+    /// The last searched account text and whether it was searched as a UID.
+    pub last_name: String,
+    pub last_query_by_uid: bool,
+    pub after_get: FoxAfterGet,
+    /// 近期搜索, newest first, at most [`FOX_RECENT_LIMIT`].
+    pub recent: Vec<FoxRecentSearch>,
+}
+
+pub const FOX_RECENT_LIMIT: usize = 8;
+
+/// 打开棋谱后此窗口 (`fox-after-get`: 0, 1, 2).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum FoxAfterGet {
+    #[default]
+    Minimize,
+    Close,
+    Keep,
+}
+
+/// A 近期搜索 button: a saved UID pins the account; a record without one searches its nickname.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default)]
+pub struct FoxRecentSearch {
+    pub uid: String,
+    pub nickname: String,
 }
 
 impl Config {

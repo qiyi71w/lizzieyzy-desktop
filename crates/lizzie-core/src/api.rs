@@ -7,6 +7,7 @@
 mod batch;
 mod editing;
 mod export;
+mod fox_kifu;
 mod hawkeye;
 mod humansl;
 mod humansl_settings;
@@ -21,6 +22,7 @@ use ts_rs::TS;
 pub use batch::*;
 pub use editing::*;
 pub use export::*;
+pub use fox_kifu::*;
 pub use hawkeye::*;
 pub use humansl::*;
 pub use humansl_settings::*;
@@ -97,6 +99,8 @@ pub enum Command {
     Strength { op: StrengthCommand },
     Commentary { op: CommentaryCommand },
     CommentaryConnection { op: ConnectionCommand },
+    /// 野狐棋谱 window.
+    FoxKifu { op: FoxKifuCommand },
     /// SSH passwords and trusted host keys of remote engines: kept by the platform adapter, never
     /// in the settings.
     SshCredential { op: SshCredentialCommand },
@@ -1306,6 +1310,8 @@ pub struct WorkbenchView {
     pub human_sl: Option<HumanSlView>,
     pub strength: StrengthView,
     pub commentary: CommentaryView,
+    /// 野狐棋谱 window.
+    pub fox_kifu: FoxKifuView,
     pub human_sl_notices: Vec<HumanSlNotice>,
     pub human_sl_continuation: Option<HumanSlContinuation>,
     /// 读秒 countdown voices to play (`sound/<n>.wav`), once each.
@@ -1547,6 +1553,9 @@ pub enum ImportTarget {
     /// `game-statistics-custom-start`, `game-statistics-custom-end`, `winrate-diff-range1/2`,
     /// `score-diff-range1/2`, `loss-panel-select-winrate`.
     Hawkeye,
+    /// 野狐棋谱: `ui.last-fox-name`, `last-fox-query-by-uid`, `fox-after-get`,
+    /// `fox-recent-searches`.
+    FoxKifu,
 }
 
 /// A problem found with an imported engine without starting it.

@@ -40,6 +40,7 @@ import { frameReport, framesReport, handleTableKey, relayFrame, startFrame } fro
 import { handleHawkeyeKey, hawkeyeReport, relayHawkeye, startHawkeye } from "./hawkeye/commands";
 import { commentaryReport, relayCommentary, renderCommentPanel, startCommentary } from "./commentary/commands";
 import { batchReport, handleBatchKey, startBatchTable } from "./batch/commands";
+import { foxKifuReport, startFoxKifu } from "./foxkifu/commands";
 import { bindCommentEditor, commentEditing } from "./editing/comment";
 import { contextMenuItems, contextMenuOpen } from "./editing/contextMenu";
 import { bindBoardInput, handleEditKey, pressBoard, releaseBoard } from "./editing/input";
@@ -1394,6 +1395,8 @@ function uiReport() {
     strength: strengthReport(),
     /** AI 解说 (T26): whether its window is open and what it shows, settings dialog included. */
     commentary: commentaryReport(),
+    /** 野狐棋谱 (T30): what its window last showed. */
+    foxKifu: foxKifuReport(),
     /** Visible menu, toolbar, bottom-bar and dialog controls with client-area centres, so
      *  automation clicks the real controls. */
     targets: [...document.querySelectorAll<HTMLElement>("[data-key], [data-name], #moveInput, .modal-box button")]
@@ -1559,6 +1562,7 @@ async function boot() {
   await startCommentary();
   await startIndependent(independentInput, schedule);
   await startBatchTable();
+  await startFoxKifu();
   await getCurrentWindow().show();
   await getCurrentWindow().setFocus();
   schedule();

@@ -109,6 +109,12 @@ pub struct Mapped {
     pub extra_mode: Option<ExtraMode>,
     pub recent_files: Option<Vec<String>>,
     pub last_folder: Option<String>,
+    /// 野狐棋谱: `ui.last-fox-name`, `last-fox-query-by-uid`, `fox-after-get`,
+    /// `fox-recent-searches`.
+    pub fox_last_name: Option<String>,
+    pub fox_query_by_uid: Option<bool>,
+    pub fox_after_get: Option<crate::settings::FoxAfterGet>,
+    pub fox_recent: Option<Vec<crate::settings::FoxRecentSearch>>,
     /// Engines in Java order (an SSH engine keeps its command as written: it runs on its host).
     pub engines: Option<Vec<MappedEngine>>,
     pub startup: Option<EngineStartup>,
@@ -1527,6 +1533,7 @@ impl Reader<'_> {
                 None => self.invalid("ui.recent-file-paths".into(), ImportTarget::RecentFiles, v),
             }
         }
+        self.fox_kifu(ui, &mut handled);
 
         self.appearance(ui, &mut handled);
         self.hawkeye(ui, &mut handled);
@@ -2013,6 +2020,80 @@ impl Reader<'_> {
             }
         }
         self.mapped.network = Some(settings);
+    }
+
+    /// 野狐棋谱 (`Config.java:2056-2058`, `FoxKifuDownload.loadRecentSearches`).
+    fn fox_kifu(&mut self, ui: &Map<String, Value>, handled: &mut Handled) {
+        use crate::settings::{FoxAfterGet, FoxRecentSearch, FOX_RECENT_LIMIT};
+        let target = ImportTarget::FoxKifu;
+        if let Some(v) = ui.get("last-fox-name") {
+            handled.push(("ui", "last-fox-name"));
+            match v {
+                Value::String(s) => {
+                    self.imported("ui.last-fox-name".into(), target, s.clone());
+                    self.mapped.fox_last_name = Some(s.clone());
+                }
+                _ => self.invalid("ui.last-fox-name".into(), target, v),
+            }
+        }
+        if let Some(v) = ui.get("last-fox-query-by-uid") {
+            handled.push(("ui", "last-fox-query-by-uid"));
+            match as_bool(v) {
+                Some(b) => {
+                    self.imported("ui.last-fox-query-by-uid".into(), target, b.to_string());
+                    self.mapped.fox_query_by_uid = Some(b);
+                }
+                None => self.invalid("ui.last-fox-query-by-uid".into(), target, v),
+            }
+        }
+        if let Some(v) = ui.get("fox-after-get") {
+            handled.push(("ui", "fox-after-get"));
+            // The combo's three entries (最小化, 关闭, 无动作); another index fails in Java.
+            let action = match as_i64(v) {
+                Some(0) => Some(FoxAfterGet::Minimize),
+                Some(1) => Some(FoxAfterGet::Close),
+                Some(2) => Some(FoxAfterGet::Keep),
+                _ => None,
+            };
+            match action {
+                Some(a) => {
+                    self.imported("ui.fox-after-get".into(), target, shown(v));
+                    self.mapped.fox_after_get = Some(a);
+                }
+                None => self.invalid("ui.fox-after-get".into(), target, v),
+            }
+        }
+        if let Some(v) = ui.get("fox-recent-searches") {
+            handled.push(("ui", "fox-recent-searches"));
+            match v.as_array() {
+                Some(list) => {
+                    // Fields stay apart: a UID-only entry stays a UID search.
+                    let text = |o: &Map<String, Value>, k: &str| o.get(k).map(shown).unwrap_or_default().trim().to_string();
+                    let recent: Vec<FoxRecentSearch> = list
+                        .iter()
+                        .filter_map(Value::as_object)
+                        .map(|o| FoxRecentSearch {
+                            uid: text(o, "uid"),
+                            nickname: text(o, "nickname"),
+                        })
+                        .filter(|r| !r.uid.is_empty() || !r.nickname.is_empty())
+                        .take(FOX_RECENT_LIMIT)
+                        .collect();
+                    let listed = recent
+                        .iter()
+                        .map(|r| match (r.nickname.is_empty(), r.uid.is_empty()) {
+                            (false, false) => format!("{} ({})", r.nickname, r.uid),
+                            (true, _) => r.uid.clone(),
+                            (_, true) => r.nickname.clone(),
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    self.imported("ui.fox-recent-searches".into(), target, listed);
+                    self.mapped.fox_recent = Some(recent);
+                }
+                None => self.invalid("ui.fox-recent-searches".into(), target, v),
+            }
+        }
     }
 
     /// The engine list and the start-up choice.
@@ -2617,6 +2698,10 @@ impl Mapped {
         for value in &self.match_toolbar { value.set(&mut toolbar); }
         p.matches = serde_json::from_value(toolbar).expect("typed imported match toolbar values");
         set!(c.recent_files, self.recent_files);
+        set!(c.fox_kifu.last_name, self.fox_last_name);
+        set!(c.fox_kifu.last_query_by_uid, self.fox_query_by_uid);
+        set!(c.fox_kifu.after_get, self.fox_after_get);
+        set!(c.fox_kifu.recent, self.fox_recent);
         if let Some(folder) = &self.last_folder {
             p.last_folder = Some(folder.clone());
         }
@@ -2886,6 +2971,14 @@ impl Mapped {
         cmp!(ImportTarget::PlaySound, config.ui.play_sound, self.play_sound);
         cmp!(ImportTarget::ExtraMode, config.ui.extra_mode, self.extra_mode);
         cmp!(ImportTarget::RecentFiles, config.recent_files, self.recent_files);
+        let fox = &config.fox_kifu;
+        if self.fox_last_name.as_ref().is_some_and(|v| *v != fox.last_name)
+            || self.fox_query_by_uid.is_some_and(|v| v != fox.last_query_by_uid)
+            || self.fox_after_get.is_some_and(|v| v != fox.after_get)
+            || self.fox_recent.as_ref().is_some_and(|v| *v != fox.recent)
+        {
+            out.push(ImportTarget::FoxKifu);
+        }
         if self.interval_centisec.is_some_and(|v| v != a.interval_centisec)
             || self.interval_centisec_ssh.is_some_and(|v| v != a.interval_centisec_ssh)
         {

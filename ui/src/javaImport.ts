@@ -124,6 +124,8 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   HumanSlModel: "AutoSetup.humanSlModel",
   // AI 解说's teacher.properties (TeacherSettingsDialog title).
   Commentary: "Teacher.settings.title",
+  // 同步 > 野狐棋谱's account, 近期搜索 and 打开棋谱后此窗口.
+  FoxKifu: "Menu.foxKifu",
 };
 
 function targetLabel(target: ImportTarget): string {

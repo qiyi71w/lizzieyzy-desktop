@@ -91,6 +91,8 @@ fn generate() -> String {
         CommentaryPreferences, CommentarySettings, CommentaryConnectionFacts, CommentaryAccount,
         CommentaryModel, CommentarySecureStorage, CommentaryChatGptFacts, CommentaryText,
         CommentaryStatus, CommentaryTone, CommentaryOutputState,
+        FoxKifuCommand, FoxKifuPage, FoxKifuView, FoxKifuRow, FoxKifuBusy, FoxKifuNotice,
+        lizzie_core::settings::FoxAfterGet, lizzie_core::settings::FoxRecentSearch,
         FunctionMatch, FunctionTarget, MatchLevel, SettingsSection,
         lizzie_core::settings::PanelSettings, lizzie_core::settings::PanelSizes,
         lizzie_core::settings::BottomToolbar, lizzie_core::settings::WorkbenchPanel,

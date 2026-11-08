@@ -22,6 +22,7 @@ mod commentary;
 mod editing;
 mod exporting;
 mod flash;
+mod fox_kifu;
 mod hawkeye;
 mod importing;
 mod information;
@@ -46,6 +47,7 @@ use analysis::AnalysisStore;
 pub use analysis::LogLine;
 pub use editing::{NOT_SQUARE, SETUP_ENGINE_RUNNING, SETUP_MODE_ROOT_ONLY, SETUP_ROOT_ONLY};
 pub use flash::ANALYSIS_COMMAND_MISSING;
+pub use fox_kifu::FoxKifuJob;
 pub use importing::{IMPORT_NEEDS_REPLACE, IMPORT_STALE};
 pub use recovery::RecoveryStep;
 pub use resources::{prepare_resource_setup, run_resource_job, ResourceCompletion, ResourceJob};
@@ -143,6 +145,8 @@ pub enum OpenOrigin {
         source: OpenSource,
     },
     Clipboard,
+    /// A record downloaded by 野狐棋谱 (`loadDownloadedSgfString`): no file of its own.
+    Downloaded,
     /// A 存档与读档 slot (`loadFile(file, fromTemp = true)`): the record gets no file of its own and
     /// the recent list and last folder stay; `name` is the slot file shown in the title.
     Recovery {
@@ -280,6 +284,7 @@ pub struct Workbench {
     human_sl: humansl::HumanSlFlow,
     strength: strength::StrengthFlow,
     commentary: commentary::CommentaryFlow,
+    fox_kifu: fox_kifu::FoxKifuFlow,
 }
 
 impl Workbench {
@@ -401,6 +406,7 @@ impl Workbench {
             human_sl: humansl::HumanSlFlow::default(),
             strength: strength::StrengthFlow::default(),
             commentary: commentary::CommentaryFlow::default(),
+            fox_kifu: fox_kifu::FoxKifuFlow::default(),
         }
     }
 
@@ -461,13 +467,26 @@ impl Workbench {
     pub fn begin_open(&mut self, origin: OpenOrigin) -> u64 {
         let ticket = self.next_ticket;
         self.next_ticket += 1;
-        self.pending = Some(Pending { ticket, origin });
+        // A read still waiting is replaced; a 野狐棋谱 download that started it ends unopened.
+        if let Some(replaced) = self.pending.replace(Pending { ticket, origin }) {
+            self.fox_kifu_open_ended(replaced.ticket, false);
+        }
         ticket
     }
 
     /// Whether `ticket` is still the request the user is waiting for.
     pub fn is_current_open(&self, ticket: u64) -> bool {
         self.pending.as_ref().is_some_and(|p| p.ticket == ticket)
+    }
+
+    /// Ends an open request whose source produced no record (a failed 野狐棋谱 download, reported
+    /// by its own window): nothing is published and the current document stays.
+    fn abandon_open(&mut self, ticket: u64) {
+        if self.pending.take_if(|p| p.ticket == ticket).is_some() {
+            self.fox_kifu_open_ended(ticket, false);
+            // A preload waiting for this read decides now.
+            self.warmup_review();
+        }
     }
 
     /// Hands back a finished read. Returns `false` (and changes nothing) for a superseded ticket.
@@ -480,7 +499,7 @@ impl Workbench {
             Err(e) => {
                 let message_key = match pending.origin {
                     OpenOrigin::File { .. } | OpenOrigin::Recovery { .. } => FAILED_TO_OPEN_FILE,
-                    OpenOrigin::Clipboard => KIFU_LOAD_FAILED,
+                    OpenOrigin::Clipboard | OpenOrigin::Downloaded => KIFU_LOAD_FAILED,
                 };
                 self.outcome = Some(OpenOutcome::Failed {
                     ticket,
@@ -526,7 +545,7 @@ impl Workbench {
                 };
                 let (path, origin_name) = match &pending.origin {
                     OpenOrigin::File { path, .. } => (Some(path.clone()), None),
-                    OpenOrigin::Clipboard => (None, None),
+                    OpenOrigin::Clipboard | OpenOrigin::Downloaded => (None, None),
                     OpenOrigin::Recovery { name, .. } => (None, Some(name.clone())),
                 };
                 if let OpenOrigin::File {
@@ -588,6 +607,8 @@ impl Workbench {
                 self.quick_after_load();
             }
         }
+        let adopted = matches!(self.outcome, Some(OpenOutcome::Adopted { ticket: t, .. }) if t == ticket);
+        self.fox_kifu_open_ended(ticket, adopted);
         // A preload waiting for this read decides now (also after a failed read).
         self.warmup_review();
         true
@@ -856,13 +877,16 @@ impl Workbench {
     }
 
     /// Help > "清除所有个人数据": the personal data this product stores so far is the recent
-    /// record list. (Java removed a mistyped `recent-files` key and left the list in place; the
-    /// list is actually cleared here.)
+    /// record list and 野狐棋谱's 近期搜索 (`fox-recent-searches`). (Java removed a mistyped
+    /// `recent-files` key and left the record list in place; the list is actually cleared here.)
     pub fn clear_personal_data(&mut self) -> Result<bool, ApiError> {
-        if self.config.recent_files.is_empty() {
+        if self.config.recent_files.is_empty() && self.config.fox_kifu.recent.is_empty() {
             return Ok(false);
         }
-        self.commit_config(|c| c.recent_files.clear())?;
+        self.commit_config(|c| {
+            c.recent_files.clear();
+            c.fox_kifu.recent.clear();
+        })?;
         Ok(true)
     }
 
@@ -988,7 +1012,7 @@ impl Workbench {
                 ticket: p.ticket,
                 path: match &p.origin {
                     OpenOrigin::File { path, .. } | OpenOrigin::Recovery { path, .. } => Some(path.clone()),
-                    OpenOrigin::Clipboard => None,
+                    OpenOrigin::Clipboard | OpenOrigin::Downloaded => None,
                 },
             }),
             open_outcome: None,
@@ -1078,6 +1102,7 @@ impl Workbench {
             human_sl: self.human_sl_view(),
             strength: self.strength_view(),
             commentary: self.commentary_view(),
+            fox_kifu: self.fox_kifu_view(),
             human_sl_notices: Vec::new(),
             human_sl_continuation: None,
             byoyomi_voices: Vec::new(),

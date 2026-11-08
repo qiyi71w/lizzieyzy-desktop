@@ -1,0 +1,199 @@
+/* 野狐棋谱 (FoxKifuDownload): BorderLayout north rows (8/8/4/8 border, 6 px gaps), the table
+   (centred cells, red text for the searched account's wins and grey otherwise), the south page
+   buttons and the glass-pane progress card. Measured from the fixed Java cb53acc capture. */
+.fk-root {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  font-size: 12px;
+}
+.fk-north {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 8px 4px;
+}
+.fk-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.fk-row label {
+  margin-left: 6px;
+}
+.fk-row label:first-child {
+  margin-left: 6px;
+}
+.fk-btn {
+  height: 20px;
+  padding: 0 7px;
+  font: inherit;
+  border: 1px solid rgb(178, 182, 188);
+  border-radius: 10px;
+  background: #fff;
+  color: #111;
+}
+.fk-btn:hover:not(:disabled) {
+  background: rgb(232, 238, 246);
+}
+.fk-mode,
+.fk-after {
+  height: 24px;
+  min-width: 74px;
+  padding: 0 10px;
+  font: inherit;
+  border: 1px solid rgb(205, 209, 214);
+  border-radius: 6px;
+  background: #fff;
+}
+.fk-account {
+  width: 122px;
+  height: 22px;
+  padding: 0 5px;
+  font: inherit;
+  border: 1px solid rgb(205, 209, 214);
+  border-radius: 6px;
+}
+.fk-current {
+  height: 18px;
+  line-height: 18px;
+}
+.fk-recent {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+}
+.fk-recent-list {
+  flex: 1;
+  display: flex;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.fk-recent-empty {
+  color: gray;
+}
+.fk-recent-btn {
+  padding: 0 8px;
+}
+.fk-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: scroll;
+  overflow-x: auto;
+  border: 1px solid rgb(122, 138, 153);
+  background: #fff;
+}
+.fk-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.fk-table th {
+  position: sticky;
+  top: 0;
+  height: 19px;
+  font-weight: normal;
+  text-align: center;
+  background: rgb(238, 238, 238);
+  border: 1px solid rgb(122, 138, 153);
+  border-top: none;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.fk-table td {
+  height: 20px;
+  text-align: center;
+  color: gray;
+  border: 1px solid rgb(122, 138, 153);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.fk-table tr.won td {
+  color: rgb(255, 0, 0);
+}
+.fk-table tr.selected td {
+  background: rgb(184, 207, 229);
+}
+.fk-table td.fk-open-cell {
+  padding: 0;
+}
+.fk-open {
+  width: 100%;
+  height: 19px;
+  border-radius: 0;
+  border-color: rgb(178, 182, 188);
+}
+.fk-table.disabled {
+  pointer-events: none;
+}
+.fk-south {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 0;
+}
+.fk-page {
+  min-width: 30px;
+}
+.fk-page-label {
+  min-width: 60px;
+}
+.fk-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: wait;
+}
+.fk-overlay[hidden] {
+  display: none;
+}
+.fk-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 22px;
+  background: rgb(250, 250, 250);
+  border: 1px solid rgb(96, 112, 128);
+}
+.fk-bar {
+  position: relative;
+  width: 360px;
+  height: 22px;
+  overflow: hidden;
+  border: 1px solid rgb(122, 138, 153);
+  background: rgb(238, 238, 238);
+}
+.fk-bar-run {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 60px;
+  background: rgb(160, 180, 205);
+  animation: fk-run 1.4s linear infinite;
+}
+.fk-bar-text {
+  position: absolute;
+  inset: 0;
+  text-align: center;
+  line-height: 20px;
+  color: rgb(70, 100, 170);
+}
+@keyframes fk-run {
+  from {
+    left: -60px;
+  }
+  to {
+    left: 360px;
+  }
+}
