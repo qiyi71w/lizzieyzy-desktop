@@ -1828,12 +1828,16 @@ pub fn run() {
             let exit_cell = cell.clone();
             let helper_host = readboard::ProcessHelperHost::new(
                 Arc::new(move |helper, input| {
+                    #[cfg(feature = "acceptance")]
+                    acceptance::wire_input(helper, &input);
                     let Some(shared) = helper_cell.get() else { return };
                     if shared.workbench.lock().unwrap().readboard_input(helper, input) {
                         shared.request_refresh(true, false);
                     }
                 }),
                 Arc::new(move |helper| {
+                    #[cfg(feature = "acceptance")]
+                    acceptance::wire_exit(helper);
                     let Some(shared) = exit_cell.get() else { return };
                     if shared.workbench.lock().unwrap().readboard_exited(helper) {
                         shared.request_refresh(true, false);
@@ -1841,6 +1845,8 @@ pub fn run() {
                 }),
             );
             let helpers = helper_host.waiter();
+            #[cfg(feature = "acceptance")]
+            let helper_host = acceptance::WireHost(helper_host);
             if cfg!(any(windows, feature = "acceptance")) {
                 workbench.set_readboard_host(Box::new(helper_host), readboard::base_dirs(app.handle()));
             }
