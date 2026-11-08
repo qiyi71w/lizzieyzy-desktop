@@ -109,6 +109,10 @@ fn generate() -> String {
         lizzie_core::tsumego::capture::CapturedProblem, lizzie_core::tsumego::capture::CapturePreview,
         lizzie_core::engine::ssh::SshSettings, lizzie_core::engine::ssh::RemoteFailure,
         SshCredentialCommand, SshPasswordState,
+        ContributionCommand, ContributionFile, ContributionLink, ContributionPhase, ContributionTip,
+        ContributionGameView, ContributionView, ContributionNotice, SavedEngineKind, SavedEngineReason,
+        SavedEngineCandidate, ContributionQualification,
+        lizzie_core::settings::ContributionSettings, lizzie_core::settings::ContributionWatchSettings,
     ];
     // Engine resources and engine performance keep their own lists.
     decls.extend(resources::decls(&cfg));

@@ -2441,6 +2441,163 @@ export type SshCredentialCommand = { "type": "PasswordState", ssh: SshSettings, 
 
 export type SshPasswordState = "None" | "Stored" | "Session";
 
+export type ContributionCommand = { "type": "SaveSettings", settings: ContributionSettings, } | { "type": "SetPassword", user: string, password: string, } | { "type": "PasswordState", user: string, } | { "type": "Start" } | { "type": "PauseResume" } | { "type": "SlowQuit" } | { "type": "ForceQuit" } | { "type": "CloseView" } | { "type": "WatchGame", index: number, } | { "type": "SaveAllGames" } | { "type": "SetWatchSettings", settings: ContributionWatchSettings, } | { "type": "ToggleResultHidden" } | { "type": "SetShowMenu", enabled: boolean, } | { "type": "SavedEngines" } | { "type": "Qualify", engine_path: string, } | { "type": "ChooseFile", kind: ContributionFile, title: string, } | { "type": "OpenLink", link: ContributionLink, };
+
+export type ContributionFile = "Engine" | "Config";
+
+export type ContributionLink = "SignUp" | "OfficialWebsite";
+
+export type ContributionPhase = "Starting" | "Running" | "Exited";
+
+export type ContributionTip = { key: string, 
+/**
+ * `Signal to stop` was seen: only pause/resume tips replace it (`setEternalTip`).
+ */
+eternal: boolean, };
+
+export type ContributionGameView = { game_id: string, 
+/**
+ * 评分对局 (the players differ) versus 自对弈训练.
+ */
+rating: boolean, black: string, white: string, width: number, height: number, komi: number, 
+/**
+ * `Utils.getRuleString` in the session language, lines separated by `\r\n`.
+ */
+rules_text: string, complete: boolean, 
+/**
+ * Empty until the game is complete and its result was read.
+ */
+result: string, };
+
+export type ContributionView = { 
+/**
+ * Session identity; a new start gets a new one.
+ */
+id: number, phase: ContributionPhase, paused: boolean, 
+/**
+ * Java `isContributing`: starting or running and not paused. Gates the board, new games,
+ * other engine modes and engine switching.
+ */
+active: boolean, 
+/**
+ * 顺序结束 was sent.
+ */
+slow_quitting: boolean, tip: ContributionTip, 
+/**
+ * The watched game, 1-based; 0 before the first game.
+ */
+watching: number, total: number, finished: number, game: ContributionGameView | null, result_hidden: boolean, 
+/**
+ * The `engine` name of this session's console lines (`engine-console` events).
+ */
+console_engine: string, };
+
+export type ContributionNotice = { "type": "Message", key: string, } | { "type": "OutOfDate", version: string, } | { "type": "OpenSettings", key: string, } | { "type": "Saved", folder: string, } | { "type": "Failed", failure: EngineFailureView, };
+
+export type SavedEngineKind = "Local" | "Remote" | "Indirect" | "Unknown";
+
+export type SavedEngineReason = "EmptyCommand" | "UnparseableCommand" | "MissingFile" | "RemoteTransport" | "IndirectLauncher";
+
+export type SavedEngineCandidate = { 
+/**
+ * Position in the engine list, from 1.
+ */
+index: number, name: string, kind: SavedEngineKind, 
+/**
+ * The normalized absolute executable when it can be filled in.
+ */
+executable: string | null, 
+/**
+ * The engine path field text for `executable` (quoted when needed).
+ */
+field_text: string | null, reason: SavedEngineReason | null, };
+
+export type ContributionQualification = { "type": "Managed", asset_id: string, version: string, backend: string, status: CapabilityStatus, } | { "type": "Unknown" };
+
+export type ContributionSettings = { 
+/**
+ * KataGo引擎路径 (`contribute-engine-path`).
+ */
+enginePath: string, 
+/**
+ * 配置文件路径(可选) (`contribute-config-path`).
+ */
+configPath: string, 
+/**
+ * 用户名 (`contribute-user-name`).
+ */
+userName: string, 
+/**
+ * 同时对局数 (`contribute-batch-games`, text "6").
+ */
+batchGames: string, 
+/**
+ * 启用领地 (`contribute-show-estimate`): `includeOwnership`, and Kata形势 shown while it runs.
+ */
+showEstimate: boolean, 
+/**
+ * 不进行评分对局 (`contribute-disable-rating-matches`): `maxRatingMatches=0`.
+ */
+disableRatingMatches: boolean, 
+/**
+ * 自定义命令行 (`contribute-use-command`) and its text (`contribute-command`).
+ */
+useCommand: boolean, command: string, 
+/**
+ * 完全遵循自定义命令行,无视后续设置 (`contribute-use-pure-command`).
+ */
+usePureCommand: boolean, 
+/**
+ * 自动保存完成的棋谱 (`contribute-auto-save`).
+ */
+autoSave: boolean, 
+/**
+ * 远程SSH (`contribute-engine-ssh-info.useJavaSSH`), used only with the custom command.
+ */
+remote: boolean, ssh: SshSettings, 
+/**
+ * Settings > 显示跑谱贡献菜单 (`show-Contribute`).
+ */
+showMenu: boolean, 
+/**
+ * The contribution window's own choices.
+ */
+watch: ContributionWatchSettings, };
+
+export type ContributionWatchSettings = { 
+/**
+ * 总是跳转最新一手 (`contribute-watch-always-last-move`).
+ */
+alwaysLastMove: boolean, 
+/**
+ * 自动播放 (`contribute-watch-auto-play`).
+ */
+autoPlay: boolean, 
+/**
+ * 每手时间(秒) (`contribute-watch-auto-play-interval`, 2.0; only positive values apply).
+ */
+autoPlayInterval: number, 
+/**
+ * 自动播放下一局 (`contribute-watch-auto-play-next-game`).
+ */
+autoPlayNextGame: boolean, 
+/**
+ * 跳过非19x19 (`contribute-watch-skip-none-19`).
+ */
+skipNon19: boolean, 
+/**
+ * 隐藏控制台 (`contribute-hide-console`).
+ */
+hideConsole: boolean, 
+/**
+ * 隐藏规则 (`contribute-hide-rules`).
+ */
+hideRules: boolean, 
+/**
+ * 总在最前 (`contribute-always-top`).
+ */
+alwaysTop: boolean, };
+
 export type ManagedProfile = { command: string, assetId: string, weightPath: string, configPath: string, };
 
 export type SupportTier = "stable" | "optional" | "experimental";
