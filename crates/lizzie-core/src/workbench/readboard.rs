@@ -434,6 +434,13 @@ impl Workbench {
         self.readboard.gma.busy()
     }
 
+    /// The analysis may not make a 自动落子 move (`notifyAutoPlay`, `Leelaz.java:8488-8491`): GMA
+    /// is armed, asking or giving the engine back (`isReadBoardGmaEngineBusy`), or the helper's
+    /// switch to normal 自动落子 waits for GMA to let go (`isNormalAutoPlayTransitionPending`).
+    pub(super) fn readboard_holds_autoplay(&self) -> bool {
+        self.readboard.gma.busy() || self.readboard.normal_intent
+    }
+
     /// The helper syncs a board (`LizzieFrame.syncBoard`), also while its session is running.
     pub(super) fn readboard_syncing(&self) -> bool {
         match &self.readboard.helper {

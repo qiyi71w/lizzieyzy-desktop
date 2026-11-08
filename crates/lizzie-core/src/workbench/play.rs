@@ -900,12 +900,13 @@ impl Workbench {
 
     /// Who may move from the analysis of the current position now (`notifyAutoPlay`: the
     /// 自动落子 box and the box of the side to move): `Some(true)` a 分析模式 game's engine,
-    /// `Some(false)` the bottom bar outside a game. Nobody during 终局点目.
+    /// `Some(false)` the bottom bar outside a game. Nobody during 终局点目 or while 棋盘同步工具's
+    /// GMA holds 自动落子.
     fn analysis_mover(&self) -> Option<bool> {
         let to_play = self.to_play();
         let a = &self.persisted.autoplay;
         let side = if to_play == Stone::Black { a.black } else { a.white };
-        if !self.play.autoplay || !side || self.scoring.is_some() {
+        if !self.play.autoplay || !side || self.scoring.is_some() || self.readboard_holds_autoplay() {
             return None;
         }
         match &self.play.session {

@@ -470,6 +470,22 @@ fn a_refused_parameter_leaves_the_engine_unrestored_until_it_is_restarted() {
     assert_ne!(r.lease(), LeaseAvailabilityView::EngineStateUnrestored);
 }
 
+/// `notifyAutoPlay` (Leelaz.java:8488-8491): with GMA armed, the analysis asked before it may
+/// still report enough visits, but only GMA's own request moves; nothing is clicked on the target.
+#[test]
+fn analysis_reported_after_gma_is_armed_makes_no_move() {
+    let mut r = Rig::new();
+    let h = r.open();
+    r.lines(h, &["ready", "start 19 19", "sync", "bothSync"]);
+    r.serve(&|_| None);
+    assert!(r.analyzing, "the analysis of the empty board is reporting");
+    r.line(h, "play>black>3 200 0 gma");
+    out(&mut r.wb, r.engine, "info move R4 visits 866 winrate 0.5 scoreLead 0.1 prior 0.2 order 0 pv R4");
+    r.serve(&|_| None);
+    assert_eq!(r.main_line(), []);
+    assert_eq!(places(&r, h), Vec::<String>::new());
+}
+
 #[test]
 fn an_engine_that_dies_during_a_gma_hand_is_not_restarted_automatically_but_the_user_can() {
     let (mut r, h) = gma_rig();
