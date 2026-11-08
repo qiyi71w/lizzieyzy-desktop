@@ -152,7 +152,7 @@ export function bootFloatWindow(): void {
     g.clearRect(0, 0, canvas.width, canvas.height);
     geo = width > 40 && height > 40 ? floatGeom(width, height, pad, scene.cols, scene.rows) : null;
     if (!geo || (data.hidden && !data.edit)) return;
-    const float = { boardType: data.boardType, setup: data.setup };
+    const float = { boardType: data.boardType, setup: data.setup, edit: data.edit };
     const layers = data.setup ? { board: true, stones: true, float } : { board: data.edit, stones: data.edit || scene.preview !== null, float };
     paintBoard(g, geo, { x: 0, y: 0 }, { ...scene, unlimited: new Set(scene.unlimited) }, layers);
   };

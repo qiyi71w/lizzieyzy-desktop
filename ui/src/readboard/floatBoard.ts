@@ -86,12 +86,13 @@ function placement(f: FloatBoardView): Placement {
   return { x: f.x + win.extraX, y: f.y + win.extraY, width: f.width, height: f.height };
 }
 
-/** The selected candidate and its variation (FloatBoardRenderer.drawBranch), as the main board
- *  previews one: shortened to limit-branch-length or the wheel's length, and not shown for a
- *  candidate without enough playouts or beyond 最大候选点数 unless it is the next move or the
- *  variation auto-replays. The candidates are those of the node the overlay draws
- *  (getCurOrMainEnd). `target` is the shown variation as the auto-replay steps it. */
-function hovered(v: WorkbenchView, f: FloatBoardView): { order: number | null; preview: PreviewVariation | null; target: ReplayTarget | null } {
+/** The selected candidate and its variation (FloatBoardRenderer.prepareSelection / drawBranch),
+ *  shortened to limit-branch-length or the wheel's length. The candidates are those of the node
+ *  the overlay draws (getCurOrMainEnd). `selection` is the selected variation the wheel and the
+ *  arrow keys step (hasSelectedVariation) even while it is not shown: one move without
+ *  auto-replay, or a middle-click cancel. `target` is the shown variation as the auto-replay
+ *  steps it. */
+function hovered(v: WorkbenchView, f: FloatBoardView): { order: number | null; preview: PreviewVariation | null; selection: PreviewVariation | null; target: ReplayTarget | null } {
   const at = f.scene;
   const node = `${v.document.id}:${at ? at.node : v.position.node}`;
   if (node !== cursor.node) {
@@ -108,50 +109,50 @@ function hovered(v: WorkbenchView, f: FloatBoardView): { order: number | null; p
   const c = allowed && cursor.hover !== null ? candidates.find((c) => c.point && pointKey(c.point) === cursor.hover) : undefined;
   if (!c?.point) {
     cursor.frozen = null;
-    return { order: null, preview: null, target: null };
+    return { order: null, preview: null, selection: null, target: null };
   }
-  if (cursor.cancelled) return { order: c.order, preview: null, target: null };
   const key = `${node}:${pointKey(c.point)}`;
-  // A newly selected variation (prepareSelection's !notChangedMouseOverMove): while auto-replay
-  // runs it starts at one move unless the whole variation shows first (FloatBoard.java:404-407,
-  // FloatBoardRenderer.java:748-758).
+  // A newly selected variation (!notChangedMouseOverMove, FloatBoardRenderer.java:748-758) starts
+  // at one move when its candidate has too few playouts or lies beyond 最大候选点数, or while
+  // auto-replay runs, unless auto-replay shows the whole variation first.
   if (cursor.frozen?.key !== key) {
     cursor.selections++;
-    if (d.autoReplayBranch && !d.entireVariationFirst && (cursor.length === null || cursor.length < 2)) cursor.length = 1;
+    const ratio = c.allocation_visits / Math.max(1, ...candidates.map((x) => x.allocation_visits));
+    const maxSuggestion = v.settings.engine.analysis.limitMaxSuggestion;
+    const minor = ratio <= d.minPlayoutRatio || (maxSuggestion > 0 && c.order + 1 > maxSuggestion && !c.kept);
+    if (!(d.autoReplayBranch && d.entireVariationFirst) && (cursor.length === null || cursor.length < 2) && (minor || d.autoReplayBranch)) cursor.length = 1;
   }
   const frozen = !d.noRefreshOnMouse || cursor.frozen?.key !== key ? { key, pv: c.pv, pv_captures: c.pv_captures, pv_visits: c.pv_visits } : cursor.frozen;
   cursor.frozen = frozen;
   const limit = v.settings.engine.analysis.limitBranchLength;
   const steps = limit > 0 ? Math.min(limit, frozen.pv.length) : frozen.pv.length;
-  const next = (at ? at.next_moves : v.position.next_moves)[0];
-  const needShow = !!next && next.x === c.point.x && next.y === c.point.y;
-  const ratio = c.allocation_visits / Math.max(1, ...candidates.map((x) => x.allocation_visits));
-  const maxSuggestion = v.settings.engine.analysis.limitMaxSuggestion;
-  if (!d.autoReplayBranch && !needShow && (ratio <= d.minPlayoutRatio || (maxSuggestion > 0 && c.order + 1 > maxSuggestion && !c.kept)))
-    return { order: c.order, preview: null, target: null };
-  return {
-    order: c.order,
-    preview: { order: c.order, pv: frozen.pv, pv_captures: frozen.pv_captures, pv_visits: frozen.pv_visits, length: cursor.length ?? steps },
-    target: { key: `${key}:${cursor.selections}`, steps },
-  };
+  const selection = { order: c.order, pv: frozen.pv, pv_captures: frozen.pv_captures, pv_visits: frozen.pv_visits, length: cursor.length ?? steps };
+  // drawBranch (FloatBoardRenderer.java:790-799): one move without auto-replay, or a cancelled
+  // preview, shows no variation.
+  if (cursor.cancelled || (cursor.length === 1 && !d.autoReplayBranch)) return { order: c.order, preview: null, selection, target: null };
+  return { order: c.order, preview: selection, selection, target: { key: `${key}:${cursor.selections}`, steps } };
 }
 
 /** FloatBoard.doBranch: the target window gets the focus back (Menu.readBoardGetFocus, decided by
  *  the core), then forward from the whole variation shows two moves and one more per notch within
  *  it; back from the whole variation shows all but its last move, then one less down to one. A
- *  notch that sets a length restarts the auto-replay wait (setDisplayedBranchLength → stopReplay,
+ *  notch that sets a length restarts the auto-replay wait and ends a middle-click cancel
+ *  (setDisplayedBranchLength → stopReplay, previewCancelled = false,
  *  FloatBoardRenderer.java:2515-2524); one at either end sets none (FloatBoard.java:501-510). */
-function doBranch(preview: PreviewVariation, down: boolean): void {
+function doBranch(selection: PreviewVariation, down: boolean): void {
   void run({ type: "ReadBoard", op: { type: "ReturnFocus" } });
   const limit = state.view?.settings.engine.analysis.limitBranchLength ?? 0;
-  const steps = limit > 0 ? Math.min(limit, preview.pv.length) : preview.pv.length;
+  const steps = limit > 0 ? Math.min(limit, selection.pv.length) : selection.pv.length;
   const length = cursor.length;
   if (down) {
     if (length === null || length === 1) cursor.length = 2;
     else if (steps > length) cursor.length = length + 1;
   } else if (length === null) cursor.length = steps - 1;
   else if (length > 1) cursor.length = length - 1;
-  if (cursor.length !== length) cursor.selections++;
+  if (cursor.length !== length) {
+    cursor.selections++;
+    cursor.cancelled = false;
+  }
 }
 
 function send(v: WorkbenchView, f: FloatBoardView): void {
@@ -281,8 +282,8 @@ function input(e: FloatInput): void {
       if (e.button === 0 && e.point && f.clicks_play) void edit({ op: "Play", point: e.point, color: null });
       return;
     case "wheel": {
-      const { preview } = hovered(v, f);
-      if (preview) doBranch(preview, e.down);
+      const { selection } = hovered(v, f);
+      if (selection) doBranch(selection, e.down);
       else if (f.edit_mode) navigate(e.down ? { op: "Forward", count: 1 } : { op: "Back", count: 1 });
       return;
     }
@@ -348,8 +349,8 @@ function key(v: WorkbenchView, f: FloatBoardView, code: string): void {
       return;
     case "ArrowUp":
     case "ArrowDown": {
-      const { preview } = hovered(v, f);
-      if (preview) doBranch(preview, code === "ArrowDown");
+      const { selection } = hovered(v, f);
+      if (selection) doBranch(selection, code === "ArrowDown");
       return;
     }
     case "KeyG":

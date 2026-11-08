@@ -1391,6 +1391,9 @@ export interface FloatLayers {
   boardType: number;
   /** Lizzie.board.isSetupMode(): only the goban and the stones (FloatBoardRenderer.java:133-139). */
   setup: boolean;
+  /** FloatBoard.editMode: outside it a variation shows only its own new stones over the target's
+   *  board (VariationPreviewGenerator.drawStones, VariationPreviewGenerator.java:192-200). */
+  edit: boolean;
 }
 
 /** `board` / `stones`: the goban (wood, grid, star points, coordinates) and the resting stones;
@@ -1511,9 +1514,10 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
   const preview = s.preview ? playVariation(s.stones, s.toPlay, cols, s.preview, s.preview.length, d.removeDeadInVariation) : null;
   const stones = preview?.stones ?? s.stones;
   if (layers.stones) {
+    const onlyNew = layers.float && !layers.float.edit && !layers.float.setup ? preview?.numbers ?? null : null;
     for (let p = 0; p < stones.length; p++) {
       const stone = stones[p];
-      if (stone) drawStone(g, px(p), py(p), r, stone === "Black");
+      if (stone && (!onlyNew || onlyNew.has(p))) drawStone(g, px(p), py(p), r, stone === "Black");
     }
   }
   if (layers.float?.setup) return report;
