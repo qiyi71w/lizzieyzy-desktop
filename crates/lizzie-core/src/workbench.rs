@@ -1040,6 +1040,7 @@ impl Workbench {
                 },
                 matches: self.match_settings_view(),
                 tsumego: self.config.tsumego,
+                contribution: self.config.contribution.clone(),
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
@@ -1083,6 +1084,8 @@ impl Workbench {
             strength: self.strength_view(),
             commentary: self.commentary_view(),
             human_sl_notices: Vec::new(),
+            contribution: None,
+            contribution_notices: Vec::new(),
             human_sl_continuation: None,
             byoyomi_voices: Vec::new(),
         }

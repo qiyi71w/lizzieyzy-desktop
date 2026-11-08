@@ -964,6 +964,8 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
                 .await
                 .map_err(|_| ApiError::new(ErrorKind::Unavailable, "SSH credential worker stopped."))?
         }
+        // T36 core task replaces this placeholder with the contribution adapter (`contribution.rs`).
+        Command::Contribution { .. } => Ok(CommandResult::Unchanged),
         Command::SetEditSettings { settings } => {
             let done = shared.workbench.lock().unwrap().set_edit_settings(settings)?;
             Ok(changed(&app, &shared, done))

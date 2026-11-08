@@ -142,6 +142,99 @@ impl Default for AnalysisEngineSettings {
     }
 }
 
+/// 跑谱贡献 settings (Java `Config.contribute*`, `ui.contribute-*`, `ui.show-Contribute`,
+/// `leelaz.contribute-engine-ssh-info`). The training password is not here: it is kept by the
+/// platform credential storage.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ContributionSettings {
+    /// KataGo引擎路径 (`contribute-engine-path`).
+    pub engine_path: String,
+    /// 配置文件路径(可选) (`contribute-config-path`).
+    pub config_path: String,
+    /// 用户名 (`contribute-user-name`).
+    pub user_name: String,
+    /// 同时对局数 (`contribute-batch-games`, text "6").
+    pub batch_games: String,
+    /// 启用领地 (`contribute-show-estimate`): `includeOwnership`, and Kata形势 shown while it runs.
+    pub show_estimate: bool,
+    /// 不进行评分对局 (`contribute-disable-rating-matches`): `maxRatingMatches=0`.
+    pub disable_rating_matches: bool,
+    /// 自定义命令行 (`contribute-use-command`) and its text (`contribute-command`).
+    pub use_command: bool,
+    pub command: String,
+    /// 完全遵循自定义命令行,无视后续设置 (`contribute-use-pure-command`).
+    pub use_pure_command: bool,
+    /// 自动保存完成的棋谱 (`contribute-auto-save`).
+    pub auto_save: bool,
+    /// 远程SSH (`contribute-engine-ssh-info.useJavaSSH`), used only with the custom command.
+    pub remote: bool,
+    pub ssh: crate::engine::ssh::SshSettings,
+    /// Settings > 显示跑谱贡献菜单 (`show-Contribute`).
+    pub show_menu: bool,
+    /// The contribution window's own choices.
+    pub watch: ContributionWatchSettings,
+}
+
+impl Default for ContributionSettings {
+    fn default() -> Self {
+        ContributionSettings {
+            engine_path: String::new(),
+            config_path: String::new(),
+            user_name: String::new(),
+            batch_games: "6".into(),
+            show_estimate: false,
+            disable_rating_matches: false,
+            use_command: false,
+            command: String::new(),
+            use_pure_command: false,
+            auto_save: false,
+            remote: false,
+            ssh: Default::default(),
+            show_menu: true,
+            watch: ContributionWatchSettings::default(),
+        }
+    }
+}
+
+/// The contribution window's check boxes and fields (`ui.contribute-watch-*`,
+/// `contribute-hide-console`, `contribute-hide-rules`, `contribute-always-top`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ContributionWatchSettings {
+    /// 总是跳转最新一手 (`contribute-watch-always-last-move`).
+    pub always_last_move: bool,
+    /// 自动播放 (`contribute-watch-auto-play`).
+    pub auto_play: bool,
+    /// 每手时间(秒) (`contribute-watch-auto-play-interval`, 2.0; only positive values apply).
+    pub auto_play_interval: f64,
+    /// 自动播放下一局 (`contribute-watch-auto-play-next-game`).
+    pub auto_play_next_game: bool,
+    /// 跳过非19x19 (`contribute-watch-skip-none-19`).
+    pub skip_non19: bool,
+    /// 隐藏控制台 (`contribute-hide-console`).
+    pub hide_console: bool,
+    /// 隐藏规则 (`contribute-hide-rules`).
+    pub hide_rules: bool,
+    /// 总在最前 (`contribute-always-top`).
+    pub always_top: bool,
+}
+
+impl Default for ContributionWatchSettings {
+    fn default() -> Self {
+        ContributionWatchSettings {
+            always_last_move: false,
+            auto_play: true,
+            auto_play_interval: 2.0,
+            auto_play_next_game: true,
+            skip_non19: false,
+            hide_console: false,
+            hide_rules: false,
+            always_top: true,
+        }
+    }
+}
+
 /// 局部精析's move range (`ui.analysis-start-move`, `ui.analysis-end-move`; -1 leaves an end
 /// open): moves from `start_move` up to, not including, `end_move`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -1507,6 +1600,8 @@ pub struct Config {
     pub matches: MatchSettings,
     /// 死活题.
     pub tsumego: TsumegoSettings,
+    /// 跑谱贡献.
+    pub contribution: ContributionSettings,
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).

@@ -5,6 +5,7 @@
 //! same [`Command`] values and read the same [`WorkbenchView`].
 
 mod batch;
+mod contribution;
 mod editing;
 mod export;
 mod hawkeye;
@@ -18,6 +19,7 @@ mod tuning;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+pub use contribution::*;
 pub use batch::*;
 pub use editing::*;
 pub use export::*;
@@ -100,6 +102,8 @@ pub enum Command {
     /// SSH passwords and trusted host keys of remote engines: kept by the platform adapter, never
     /// in the settings.
     SshCredential { op: SshCredentialCommand },
+    /// 跑谱贡献 (KataGo distributed training).
+    Contribution { op: ContributionCommand },
     /// 主题 drafts apply together only on 保存设置 (ConfigDialog2.java:6191-6286).
     SetAppearanceSettings {
         settings: crate::appearance::AppearanceSettings,
@@ -803,6 +807,12 @@ pub enum CommandResult {
     CommentaryModels { models: Vec<String> },
     /// Where the password of an SSH account is kept ([`SshCredentialCommand`]).
     SshPassword { state: SshPasswordState },
+    /// Where the training password of a 跑谱贡献 user is kept.
+    ContributionPassword { state: SshPasswordState },
+    /// 已配置引擎… candidates ([`ContributionCommand::SavedEngines`]).
+    ContributionSavedEngines { candidates: Vec<SavedEngineCandidate> },
+    /// [`ContributionCommand::Qualify`].
+    ContributionQualification { qualification: ContributionQualification },
     StrengthImportFailed { detail: String },
     WholeGameEstimate { millis: Option<u64> },
     /// Nothing to do (no movement, chooser or prompt cancelled, clipboard without SGF).
@@ -1076,6 +1086,8 @@ pub struct SettingsView {
     pub matches: MatchSettingsView,
     /// 死活题 dialog choices, 抓取死活题 参数设置 and the 死活 toolbar button.
     pub tsumego: crate::settings::TsumegoSettings,
+    /// 跑谱贡献 settings and the contribution window's choices.
+    pub contribution: crate::settings::ContributionSettings,
 }
 
 /// 快速曲线轻量模型 card (`KataGoAutoSetupDialog`, `QuickAnalysisModelStatus`).
@@ -1307,6 +1319,10 @@ pub struct WorkbenchView {
     pub strength: StrengthView,
     pub commentary: CommentaryView,
     pub human_sl_notices: Vec<HumanSlNotice>,
+    /// 跑谱贡献 session, until its window is closed after it ended.
+    pub contribution: Option<ContributionView>,
+    /// 跑谱贡献 messages, once each, in order.
+    pub contribution_notices: Vec<ContributionNotice>,
     pub human_sl_continuation: Option<HumanSlContinuation>,
     /// 读秒 countdown voices to play (`sound/<n>.wav`), once each.
     pub byoyomi_voices: Vec<u8>,
