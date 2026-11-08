@@ -13,6 +13,7 @@ import { openAutoSetup } from "../setup/dialog";
 import { toggleKataEstimate } from "../analysis/infoCommands";
 import { toggleScore } from "../analysis/scoreDialog";
 import { AUTO_ANALYSIS_MENU } from "../quick/autoAnalysis";
+import { LIVE_MENU } from "../online/commands";
 import { openPopupMenu } from "./menubar";
 import { buildBottomDetail, layoutBottomDetail } from "./bottomDetail";
 
@@ -159,10 +160,13 @@ export function buildBottomBar(host: HTMLElement): void {
       b.append(analyseIcon, analyseLabel);
       showAnalysis(false);
     } else b.textContent = t(item.key);
-    if (item.name === "batchOpen") {
-      b.dataset.key = "autoAnalysis.popup";
+    // batchOpen's autoAnalyzePopup (above the button) and liveButton's `yike` popup
+    // (BottomToolbar.java:1452-1457): JPopupMenus shown over the bar.
+    const popup = item.name === "batchOpen" ? AUTO_ANALYSIS_MENU : item.name === "liveButton" ? LIVE_MENU : null;
+    if (popup) {
+      b.dataset.key = item.name === "batchOpen" ? "autoAnalysis.popup" : "liveButton.popup";
       b.setAttribute("role", "button"); b.tabIndex = 0;
-      b.onclick = () => openPopupMenu(b, AUTO_ANALYSIS_MENU, true);
+      b.onclick = () => openPopupMenu(b, popup, true);
       b.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); b.click(); } };
       elements.set(item, b); host.append(b); continue;
     }

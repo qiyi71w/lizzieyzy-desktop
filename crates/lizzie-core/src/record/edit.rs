@@ -325,7 +325,59 @@ impl GameRecord {
                 marks.clear();
                 Ok(Applied::content(None))
             }
+            DocumentEdit::SyncMainline { line, retractable, rules } => Ok(self.sync_mainline(line, retractable, *rules)),
+            DocumentEdit::AddSourceBranch { at, line, rules } => {
+                known(self, *at)?;
+                Ok(self.add_source_branch(*at, line, *rules))
+            }
         }
+    }
+
+    /// See [`DocumentEdit::SyncMainline`].
+    fn sync_mainline(&mut self, line: &[super::SourceAction], retractable: &[NodeId], rules: PlayRules) -> Applied {
+        let mut at = ROOT;
+        let mut changed = false;
+        for action in line {
+            let same = self.node(at).children.iter().copied().find(|&c| self.node(c).kind == action.kind);
+            let next = match same {
+                Some(child) => child,
+                None => {
+                    let legal = match action.kind {
+                        NodeKind::Move { color, point } => self.is_legal(at, color, point, rules),
+                        NodeKind::Pass { .. } => true,
+                        NodeKind::Snapshot | NodeKind::DummyPass => false,
+                    };
+                    if !legal {
+                        break;
+                    }
+                    let id = self.add_action(at, action.kind, rules);
+                    action.comment.clone_into(&mut self.node_mut(id).comment);
+                    changed = true;
+                    id
+                }
+            };
+            if self.main_child(at) != Some(next) {
+                self.reorder(at, next, 0);
+                changed = true;
+            }
+            at = next;
+        }
+        if let Some(rest) = self.main_child(at) {
+            let mut stack = vec![rest];
+            let mut all = true;
+            while let Some(n) = stack.pop() {
+                if !retractable.contains(&n) {
+                    all = false;
+                    break;
+                }
+                stack.extend(self.node(n).children.iter().copied());
+            }
+            if all {
+                self.detach(rest);
+                changed = true;
+            }
+        }
+        Applied { changed, content: changed, node: Some(at) }
     }
 
     // ------------------------------------------------------------------------ placing
@@ -444,6 +496,37 @@ impl GameRecord {
                 Some((next, _)) => cur = next,
                 None => break,
             }
+        }
+        Applied::content(None)
+    }
+
+    fn add_source_branch(&mut self, at: NodeId, line: &[super::SourceAction], rules: PlayRules) -> Applied {
+        let Some((first, rest)) = line.split_first() else {
+            return Applied::unchanged(None);
+        };
+        let legal = |rec: &Self, at: NodeId, kind: NodeKind| match kind {
+            NodeKind::Move { color, point } => rec.is_legal(at, color, point, rules),
+            NodeKind::Pass { .. } => true,
+            NodeKind::Snapshot | NodeKind::DummyPass => false,
+        };
+        if !legal(self, at, first.kind) {
+            return Applied::unchanged(None);
+        }
+        if self.node(at).children.is_empty() {
+            self.push_child(at, NodeKind::DummyPass);
+        }
+        let mut cur = self.push_move(at, first.kind, rules);
+        first.comment.clone_into(&mut self.node_mut(cur).comment);
+        for action in rest {
+            if let Some(same) = self.node(cur).children.iter().copied().find(|&c| self.node(c).kind == action.kind) {
+                cur = same;
+                continue;
+            }
+            if !legal(self, cur, action.kind) {
+                break;
+            }
+            cur = self.add_action(cur, action.kind, rules);
+            action.comment.clone_into(&mut self.node_mut(cur).comment);
         }
         Applied::content(None)
     }

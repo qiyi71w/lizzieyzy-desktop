@@ -4,6 +4,8 @@
 
 #[path = "contract/resources.rs"]
 mod resources;
+#[path = "contract/online.rs"]
+mod online;
 #[path = "contract/tuning.rs"]
 mod tuning;
 
@@ -111,6 +113,7 @@ fn generate() -> String {
     // Engine resources and engine performance keep their own lists.
     decls.extend(resources::decls(&cfg));
     decls.extend(tuning::decls(&cfg));
+    decls.extend(online::decls(&cfg));
     let mut out = String::from(
         "// Generated from crates/lizzie-core (api, record, browse, settings). Do not edit.\n\
          // Regenerate: UPDATE_CONTRACT=1 cargo test -p lizzie-core --test contract\n\n",

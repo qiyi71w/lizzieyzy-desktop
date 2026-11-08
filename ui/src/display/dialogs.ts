@@ -42,7 +42,7 @@ export async function inputDialog(text: string, initial: string): Promise<string
 }
 
 /** DigitOnlyFilter (MovenumberDialog / SetReplayTime): inserted text keeps its digits only. */
-function digitsOnly(field: HTMLInputElement): void {
+export function digitsOnly(field: HTMLInputElement): void {
   field.addEventListener("beforeinput", (e) => {
     if (!e.inputType.startsWith("insert")) return;
     const inserted = e.data ?? e.dataTransfer?.getData("text/plain") ?? "";
@@ -54,7 +54,7 @@ function digitsOnly(field: HTMLInputElement): void {
 }
 
 /** txtFieldValue: blank or ten or more characters read as 0. */
-function fieldValue(field: HTMLInputElement): number {
+export function fieldValue(field: HTMLInputElement): number {
   const s = field.value.trim();
   if (s === "" || s.length >= String(2 ** 31 - 1).length) return 0;
   return Number.parseInt(s, 10);

@@ -9,12 +9,14 @@ mod diagnostics;
 mod independent;
 mod logging;
 mod matches;
+mod online;
 mod output;
 mod resources;
 mod screen;
 mod startup;
 mod tsumego_capture;
 mod tuning;
+mod yike_browser;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -175,10 +177,12 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
     let batch_reads = wb.take_batch_reads();
     let deferred = wb.take_human_sl_deferred();
     let commentary_jobs = wb.take_commentary_jobs();
+    let online_jobs = wb.take_online_jobs();
     drop(wb);
     write_logs(shared, logs);
     run_launch_checks(app, checks);
     commentary::spawn_jobs(app, shared, commentary_jobs);
+    online::run_jobs(app, shared, online_jobs);
     for job in auto_saves {
         if let Err(mpsc::SendError(job)) = shared.saves.lock().unwrap().send(job) {
             finish_save(app, shared, job.ticket, Err("save worker stopped".into()));
@@ -908,6 +912,11 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         }
         Command::Strength { op } => {
             let result = shared.workbench.lock().unwrap().strength(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
+        Command::Online { op } => {
+            let result = shared.workbench.lock().unwrap().online(op)?;
             publish(&app, &shared);
             Ok(result)
         }
@@ -1686,6 +1695,12 @@ fn main_list_columns(state: tauri::State<'_, State>) -> Option<Vec<u32>> {
     state.tables.lock().unwrap().main_list.clone()
 }
 
+/// The clipboard's text, empty without one (打开在线链接 prefill, OnlineDialog.java:402-419).
+#[tauri::command]
+fn read_clipboard_text(app: AppHandle) -> String {
+    app.clipboard().read_text().unwrap_or_default()
+}
+
 /// Cocoa's predefined Quit calls terminate: without Tauri's cancellable ExitRequested.
 /// Keep the default native menu, replacing only Quit with the shared exit request.
 #[cfg(target_os = "macos")]
@@ -1731,6 +1746,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(yike_browser::plugin())
         .setup(|app| {
             #[cfg(target_os = "macos")]
             install_macos_quit(app.handle())?;
@@ -1875,6 +1891,12 @@ pub fn run() {
             // AI 解说 is a modeless dialog (TeacherDialog DISPOSE_ON_CLOSE): it closes alone; its
             // request is cancelled on Destroyed above.
             WindowEvent::CloseRequested { .. } if window.label() == "commentary" => {}
+            // 弈客直播中心 and the 弈客 web window hide (HIDE_ON_CLOSE; BrowserFrame windowClosing
+            // keeps its bounds first).
+            WindowEvent::CloseRequested { api, .. } if yike_browser::hides_on_close(window.label()) => {
+                api.prevent_close();
+                yike_browser::hide(window);
+            }
             WindowEvent::CloseRequested { api, .. } => {
                 let app = window.app_handle();
                 let shared = app.state::<State>();
@@ -1888,6 +1910,7 @@ pub fn run() {
                             let _ = frame.destroy();
                         }
                     }
+                    yike_browser::destroy(app);
                 }
             }
             WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
@@ -1933,6 +1956,7 @@ pub fn run() {
                 commentary::shutdown(app);
                 resources::shutdown();
                 tuning::shutdown();
+                online::shutdown();
                 shared.processes.wait(Duration::from_secs(4));
                 let logs = shared.workbench.lock().unwrap().take_logs();
                 write_logs(&shared, logs);
@@ -1972,6 +1996,12 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         set_main_list_columns,
         set_suggestions_columns,
         main_list_columns,
+        read_clipboard_text,
+        yike_browser::open_yike_live,
+        yike_browser::open_yike_browser,
+        yike_browser::yike_browser_back,
+        yike_browser::yike_browser_navigate,
+        yike_browser::yike_browser_set_title,
         open_hawkeye,
         open_commentary,
         commentary::commentary_api_key_draft,
@@ -2015,6 +2045,12 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         set_main_list_columns,
         set_suggestions_columns,
         main_list_columns,
+        read_clipboard_text,
+        yike_browser::open_yike_live,
+        yike_browser::open_yike_browser,
+        yike_browser::yike_browser_back,
+        yike_browser::yike_browser_navigate,
+        yike_browser::yike_browser_set_title,
         open_hawkeye,
         open_commentary,
         commentary::commentary_api_key_draft,

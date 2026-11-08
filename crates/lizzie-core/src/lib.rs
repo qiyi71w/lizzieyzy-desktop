@@ -13,6 +13,7 @@
 //! - [`engine`]: engine settings, GTP protocol, running engine instances and processes.
 //! - [`resources`]: engine resources: trusted catalog, machine detection, recommendation,
 //!   acquisition and verification.
+//! - [`online`]: 在线棋谱 / 弈客直播 sources (link classification, 弈客 REST, live protocols).
 
 pub mod api;
 pub mod appearance;
@@ -24,6 +25,7 @@ pub mod formats;
 pub mod function_search;
 pub mod humansl;
 pub mod java_import;
+pub mod online;
 pub mod play;
 pub mod record;
 pub mod recovery;

@@ -17,6 +17,9 @@ fancy-regex = "0.16"
 unicode-normalization = "0.1"
 unicode-general-category = "1"
 sha2 = "0.10"
+# 弈客 request signing (`YikeApiClient.buildHeaders`: SHA-1 CheckSum, MD5 accesstoken).
+sha1 = "0.10"
+md-5 = "0.10"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = "1"
 # Image export formats of Java's chooser (PNG, JPG, GIF, BMP) and Java BMP thumbnails.

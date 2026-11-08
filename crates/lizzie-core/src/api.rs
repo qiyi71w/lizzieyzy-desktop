@@ -11,6 +11,7 @@ mod hawkeye;
 mod humansl;
 mod humansl_settings;
 mod matches;
+mod online;
 mod recovery;
 mod resources;
 mod tuning;
@@ -25,6 +26,7 @@ pub use hawkeye::*;
 pub use humansl::*;
 pub use humansl_settings::*;
 pub use matches::*;
+pub use online::*;
 pub use recovery::*;
 pub use resources::*;
 pub use tuning::*;
@@ -94,6 +96,8 @@ pub enum OpenSource {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
 #[serde(tag = "type")]
 pub enum Command {
+    /// 在线棋谱 / 弈客直播 (打开在线链接, 弈客直播中心, the 弈客 web window, 同步 options).
+    Online { op: OnlineCommand },
     Strength { op: StrengthCommand },
     Commentary { op: CommentaryCommand },
     CommentaryConnection { op: ConnectionCommand },
@@ -1295,6 +1299,8 @@ pub struct WorkbenchView {
     pub match_winrate_image: Option<MatchWinrateImageRequest>,
     pub human_sl: Option<HumanSlView>,
     pub strength: StrengthView,
+    /// 在线棋谱 / 弈客直播.
+    pub online: OnlineView,
     pub commentary: CommentaryView,
     pub human_sl_notices: Vec<HumanSlNotice>,
     pub human_sl_continuation: Option<HumanSlContinuation>,
@@ -1406,6 +1412,10 @@ pub enum ImportTarget {
     NetworkProxy,
     /// `ui.allow-double-click`.
     AllowDoubleClick,
+    /// `ui.always-gotolast-onlive`.
+    LiveAlwaysGotoLast,
+    /// `ui.open-html-onlive`.
+    LiveOpenHtml,
     /// `ui.allow-drag`.
     AllowDrag,
     /// `ui.show-right-menu`.

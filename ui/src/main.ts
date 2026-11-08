@@ -40,6 +40,8 @@ import { frameReport, framesReport, handleTableKey, relayFrame, startFrame } fro
 import { handleHawkeyeKey, hawkeyeReport, relayHawkeye, startHawkeye } from "./hawkeye/commands";
 import { commentaryReport, relayCommentary, renderCommentPanel, startCommentary } from "./commentary/commands";
 import { batchReport, handleBatchKey, startBatchTable } from "./batch/commands";
+import { handleOnlineKey, onlineReport, startOnline } from "./online/commands";
+import { onlineDialogReport } from "./online/dialog";
 import { bindCommentEditor, commentEditing } from "./editing/comment";
 import { contextMenuItems, contextMenuOpen } from "./editing/contextMenu";
 import { bindBoardInput, handleEditKey, pressBoard, releaseBoard } from "./editing/input";
@@ -461,7 +463,7 @@ document.addEventListener("keydown", (e) => {
   if (appMenuKey(e) || dialogOpen() || flashWindowOpen() || menuOpen() || contextMenuOpen() || textTarget(e.target)) return;
   // The 存档与读档 controls keep their keys, like the Swing components holding the focus there.
   if (e.target instanceof Element && e.target.closest("#recovery")) return;
-  if (handleLayoutKey(e) || handlePanelKey(e) || handleEngineKey(e) || handleEditKey(e) || handleMatchKey(e) || handleTsumegoKey(e) || handleGameKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e)) {
+  if (handleLayoutKey(e) || handlePanelKey(e) || handleEngineKey(e) || handleEditKey(e) || handleMatchKey(e) || handleTsumegoKey(e) || handleGameKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e) || handleOnlineKey(e)) {
     e.preventDefault();
     return;
   }
@@ -1392,6 +1394,8 @@ function uiReport() {
     strength: strengthReport(),
     /** AI 解说 (T26): whether its window is open and what it shows, settings dialog included. */
     commentary: commentaryReport(),
+    /** 弈客直播 / 打开在线链接 (T32): the link dialog, 弈客直播中心 as drawn and the web window's title. */
+    online: { dialog: onlineDialogReport(), ...onlineReport() },
     /** Visible menu, toolbar, bottom-bar and dialog controls with client-area centres, so
      *  automation clicks the real controls. */
     targets: [...document.querySelectorAll<HTMLElement>("[data-key], [data-name], #moveInput, .modal-box button")]
@@ -1557,6 +1561,7 @@ async function boot() {
   await startCommentary();
   await startIndependent(independentInput, schedule);
   await startBatchTable();
+  await startOnline();
   await getCurrentWindow().show();
   await getCurrentWindow().setFocus();
   schedule();
