@@ -138,12 +138,11 @@ function hovered(v: WorkbenchView, f: FloatBoardView): { order: number | null; p
 
 /** FloatBoard.doBranch: the target window gets the focus back (Menu.readBoardGetFocus, decided by
  *  the core), then forward from the whole variation shows two moves and one more per notch within
- *  it; back from the whole variation shows all but its last move, then one less down to one. The
- *  change restarts the auto-replay wait (setDisplayedBranchLength → stopReplay,
- *  FloatBoardRenderer.java:2515-2524). */
+ *  it; back from the whole variation shows all but its last move, then one less down to one. A
+ *  notch that sets a length restarts the auto-replay wait (setDisplayedBranchLength → stopReplay,
+ *  FloatBoardRenderer.java:2515-2524); one at either end sets none (FloatBoard.java:501-510). */
 function doBranch(preview: PreviewVariation, down: boolean): void {
   void run({ type: "ReadBoard", op: { type: "ReturnFocus" } });
-  cursor.selections++;
   const limit = state.view?.settings.engine.analysis.limitBranchLength ?? 0;
   const steps = limit > 0 ? Math.min(limit, preview.pv.length) : preview.pv.length;
   const length = cursor.length;
@@ -152,6 +151,7 @@ function doBranch(preview: PreviewVariation, down: boolean): void {
     else if (steps > length) cursor.length = length + 1;
   } else if (length === null) cursor.length = steps - 1;
   else if (length > 1) cursor.length = length - 1;
+  if (cursor.length !== length) cursor.selections++;
 }
 
 function send(v: WorkbenchView, f: FloatBoardView): void {
