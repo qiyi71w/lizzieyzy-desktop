@@ -181,9 +181,11 @@ importing the matching LizzieYzy Next settings.
   float board follows the helper's target rectangle and draws like Java's: candidates, the
   hovered variation (captured points as board-coloured discs with a crosshair, step-by-step with
   自动重放变化图, the wheel setting the depth), and the 落子评价 and last-move marks only while move
-  numbers are off. Output of a helper that was replaced or has ended is ignored, and exit stops
-  only the helpers this program started. 棋盘同步工具选项 keeps Java's 总是保持棋盘一致 and
-  滚轮控制变化图时自动获取焦点; 同步时不播放落子声 mutes stone sounds while syncing.
+  numbers are off. Unlike Java's float board, which shades 落子评价 marks continuously, they use
+  the main board's six levels and colours, so a move looks the same on both. Output of a helper
+  that was replaced or has ended is ignored, and exit stops only the helpers this program started.
+  棋盘同步工具选项 keeps Java's 总是保持棋盘一致 and 滚轮控制变化图时自动获取焦点; 同步时不播放落子声
+  mutes stone sounds while syncing.
 - GMA (the helper's engine auto-play; KataGo with `kata-genmove_analyze` only, otherwise 该模式仅
   支持 KataGo): each move reads the engine's pondering, time and visit parameters, sets the
   helper's limits, asks the move for the synced position, plays it and has the helper click it.
