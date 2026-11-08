@@ -35,8 +35,8 @@ export function bindAutoplayHost(h: AutoplayHost): void {
 
 // ------------------------------------------------------------------ 变化图
 
-/** The auto-replayed variation: its key, displayed length (null: whole) and next step time. */
-const branch = { key: null as string | null, length: null as number | null, steps: 0, nextAt: 0 };
+/** The main board's auto-replayed variation: its key, displayed length (null: whole) and moves. */
+const branch = { key: null as string | null, length: null as number | null, steps: 0 };
 let branchTimer: number | undefined;
 
 /** 棋盘同步工具's float board (FloatBoardRenderer.replayTarget / getDisplayedBranchLength /
@@ -44,7 +44,8 @@ let branchTimer: number | undefined;
  *  which its wheel also changes, stepped by the same timer (LizzieFrame.java:11568-11571,
  *  11596-11607). */
 interface FloatReplayHost {
-  /** The shown variation while the window is visible; a new key restarts the wait. */
+  /** The shown variation while the window is visible; a new key restarts the wait (the wheel
+   *  changes it too: setDisplayedBranchLength → stopReplay). */
   target(): ReplayTarget | null;
   length(): number | null;
   /** Sets the length and repaints the window. */
@@ -52,8 +53,10 @@ interface FloatReplayHost {
 }
 
 let floatHost: FloatReplayHost | null = null;
-/** The float board's variation key and next step time, kept apart from the main board's. */
-const floatBranch = { key: null as string | null, nextAt: 0 };
+
+/** The one wait both boards step on (`mainTarget`, `floatingTarget`, `nextStepAt`,
+ *  LizzieFrame.java:11566-11583): either target changing restarts it. */
+const clock = { main: null as string | null, float: null as string | null, nextAt: 0 };
 
 export function bindFloatReplayHost(h: FloatReplayHost): void {
   floatHost = h;
@@ -79,59 +82,47 @@ export function autoReplayLength(key: string, steps: number): number | null {
   if (branch.key !== key) {
     branch.key = key;
     branch.length = d.entireVariationFirst ? null : 1;
-    branch.nextAt = performance.now() + firstStepDelay(d);
   }
   branch.steps = steps;
   return branch.length;
 }
 
-/** The 20 ms Swing timer (LizzieFrame.java:11553-11612): the main board's and the float board's
- *  variations. */
+/** The 20 ms Swing timer (LizzieFrame.java:11553-11612): one wait for the main board's and the
+ *  float board's variations; when it is over both step and the next wait is the interval. */
 function branchTick(): void {
   const d = state.view?.settings.display;
   if (!d?.autoReplayBranch) {
     window.clearInterval(branchTimer);
     branchTimer = undefined;
     branch.key = null;
-    floatBranch.key = null;
+    clock.main = null;
+    clock.float = null;
     return;
   }
-  stepMain(d);
-  stepFloat(d);
-}
-
-function stepMain(d: DisplaySettings): void {
-  // The target lookup itself restarts a changed variation (autoReplayLength).
-  const target = host?.target() ?? null;
-  if (!target) {
-    branch.key = null;
-    return;
-  }
+  // The main target lookup itself restarts a changed variation's length (autoReplayLength).
+  const main = host?.target() ?? null;
+  const float = floatHost?.target() ?? null;
+  if (!main) branch.key = null;
   const now = performance.now();
-  if (now < branch.nextAt) return;
-  const length = nextLength(branch.length, branch.steps);
-  branch.nextAt = now + d.replayIntervalSeconds * 1000;
-  if (length === branch.length) return;
-  branch.length = length;
-  host?.repaint();
-}
-
-function stepFloat(d: DisplaySettings): void {
-  const target = floatHost?.target() ?? null;
-  if (!floatHost || !target) {
-    floatBranch.key = null;
-    return;
+  if ((main?.key ?? null) !== clock.main || (float?.key ?? null) !== clock.float) {
+    clock.main = main?.key ?? null;
+    clock.float = float?.key ?? null;
+    clock.nextAt = now + firstStepDelay(d);
   }
-  const now = performance.now();
-  if (target.key !== floatBranch.key) {
-    floatBranch.key = target.key;
-    floatBranch.nextAt = now + firstStepDelay(d);
+  if (now < clock.nextAt) return;
+  if (main) {
+    const length = nextLength(branch.length, branch.steps);
+    if (length !== branch.length) {
+      branch.length = length;
+      host?.repaint();
+    }
   }
-  if (now < floatBranch.nextAt) return;
-  floatBranch.nextAt = now + d.replayIntervalSeconds * 1000;
-  const length = floatHost.length();
-  const next = nextLength(length, target.steps);
-  if (next !== length) floatHost.setLength(next);
+  if (float && floatHost) {
+    const length = floatHost.length();
+    const next = nextLength(length, float.steps);
+    if (next !== length) floatHost.setLength(next);
+  }
+  clock.nextAt = now + d.replayIntervalSeconds * 1000;
 }
 
 /** Starts the timer when auto-replay is already on at start-up (Lizzie.java:488). */
