@@ -68,6 +68,10 @@ pub(super) async fn show_float_board(app: AppHandle, x: i32, y: i32, width: i32,
 /// placement in progress.
 #[tauri::command]
 pub(super) async fn hide_float_board(app: AppHandle) -> Result<(), ApiError> {
+    #[cfg(feature = "acceptance")]
+    if crate::acceptance::float_hide_fails() {
+        return Err(ApiError::new(ErrorKind::Unavailable, "placing the float board failed: injected hide fault"));
+    }
     if let Some(window) = app.get_webview_window(LABEL) {
         window.hide().map_err(unavailable)?;
     }

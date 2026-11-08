@@ -6,6 +6,8 @@
 //! - `{"query": "view"}` → `{"view": <WorkbenchView>}` (full view).
 //! - `{"query": "ui"}` → `{"ui": <object>}`: the page's own report of focus, title, dialogs and
 //!   visible text, collected through the `acceptance-probe` event.
+//! - `{"fault": "float_hide", "enabled": <bool>}` → `{"fault": "float_hide", "enabled": <bool>}`:
+//!   while enabled, hiding the 棋盘同步工具 float board fails as a native hide error would.
 //!
 //! When `LIZZIEYZY_TAURI_READBOARD_WIRE` names a file, every 棋盘同步工具 line in and out (and each
 //! launch, stop, end and exit) is appended to it as `<ms since epoch>\t<helper>\t<kind>\t<text>`.
@@ -13,6 +15,7 @@
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::TcpListener;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -71,10 +74,19 @@ impl<H: HelperHost> HelperHost for WireHost<H> {
 
 static UI_REPLY: Mutex<Option<mpsc::Sender<Value>>> = Mutex::new(None);
 
+static FAIL_FLOAT_HIDE: AtomicBool = AtomicBool::new(false);
+
+/// Whether the `float_hide` fault is enabled.
+pub fn float_hide_fails() -> bool {
+    FAIL_FLOAT_HIDE.load(Ordering::Relaxed)
+}
+
 #[derive(Deserialize)]
 struct Request {
     command: Option<Command>,
     query: Option<String>,
+    fault: Option<String>,
+    enabled: Option<bool>,
 }
 
 #[tauri::command]
@@ -96,6 +108,10 @@ fn handle(app: &AppHandle, line: &str) -> Value {
             Ok(r) => json!({ "result": r }),
             Err(e) => json!({ "error": e }),
         };
+    }
+    if let (Some("float_hide"), Some(enabled)) = (req.fault.as_deref(), req.enabled) {
+        FAIL_FLOAT_HIDE.store(enabled, Ordering::Relaxed);
+        return json!({ "fault": "float_hide", "enabled": enabled });
     }
     match req.query.as_deref() {
         Some("view") => json!({ "view": shared.workbench.lock().unwrap().inspect() }),
