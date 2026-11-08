@@ -179,10 +179,13 @@ pub fn page_job(app: &AppHandle, shared: &Shared, job: OnlineJob) {
                 let _ = page.eval(STOP_POLLER);
             }
         }
-        // BF 327-331: `browser_.loadURL(url)` after an automatic room switch.
+        // BF 327-331: `browser_.loadURL(url)` after an automatic room switch. A 弈客 room switch
+        // only changes the address's fragment, which a navigation would take as a same-document
+        // jump; the page reloads at that address so its hooks see the room's first request.
         OnlineJob::ReloadPage { url } => {
             if let (Some(page), Some(url)) = (page, page_url(&url)) {
-                let _ = if page.url().is_ok_and(|current| current == url) { page.reload() } else { page.navigate(url) };
+                let target = serde_json::to_string(url.as_str()).expect("a string serializes");
+                let _ = page.eval(format!("if(location.href!=={target}){{location.replace({target});}}location.reload();"));
             }
         }
         OnlineJob::Get { .. } | OnlineJob::Send { .. } | OnlineJob::Connect { .. } | OnlineJob::Close { .. } => {}
@@ -206,7 +209,8 @@ const STOP_POLLER: &str = "window.__lizzieYikeUnite&&window.__lizzieYikeUnite.st
 /// it every `max(500, interval)` ms, plus 80 ms after any 弈客 WebSocket message. Java injected
 /// the hooks when following started and on each load; here they are in place from document
 /// start and stay silent until `start` names the room, so the page's first request is never
-/// missed. A request seen before `start` is adopted and replayed at once.
+/// missed. The page's latest request for another room is kept (also across `stop`): `start`
+/// adopts it when it is for the new room and replays it at once.
 const PAGE_SCRIPT: &str = r#"(function(){
 if(location.protocol!=='https:'||!/(^|\.)yikeweiqi\.com$/i.test(location.hostname))return;
 if(window.__lizzieYikeUnite)return;
@@ -251,7 +255,7 @@ poller=setInterval(poll,PERIOD);
 };
 var captured=function(entry,status,text){
 if(matchRoom(entry.url)){deliverResp(ROOM,status,text);if(!saved){saved=entry;startPolling();}}
-else if(ROOM===''&&matchHttp(entry.url)){early=entry;}
+else if(matchHttp(entry.url)){early=entry;}
 };
 if(origFetch){window.fetch=function(input,init){
 var url=typeof input==='string'?input:(input&&input.url?input.url:String(input||''));
@@ -296,7 +300,7 @@ startPolling();poll();
 stop:function(){
 if(poller){clearInterval(poller);poller=null;}
 if(debounce){clearTimeout(debounce);debounce=null;}
-saved=null;early=null;ROOM='';
+saved=null;ROOM='';
 }};
 })();"#;
 
