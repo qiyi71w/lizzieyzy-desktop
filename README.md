@@ -839,22 +839,24 @@ importing the matching LizzieYzy Next settings.
   - 打开网页 / 弈客网页版 open a 弈客-only web window with Java's toolbar (后退, address, 加载,
     停止同步). 加载 (or Enter) of a 弈客 room address follows it, and from then on a 弈客 room
     address the page moves to is followed automatically; any other address shows URL 无法识别.
-    The window title shows the follow's status. Only `https://yikeweiqi.com` and
-    its subdomains load in the window; other links go to the system browser. The page can call
-    exactly one bridge command, which reports its address and 对局室 replies. The client checks
-    these reports again before using them. Following a 对局室 (`#/unite/…`) reads the page's own
-    signed-in requests, so it needs a 弈客 login in that window.
+    The window title shows the follow's status. Only `https://yikeweiqi.com` and its
+    subdomains load in the window, plus the frames of the 腾讯验证码 the 弈客 login shows; other
+    links go to the system browser. The page can call exactly one bridge command, which reports
+    its address and 对局室 replies. The client checks these reports again before using them.
+    Following a 对局室 (`#/unite/…`) reads the page's own signed-in requests, so it needs a 弈客
+    login in that window.
   - Reads use Settings > 网络代理 like Java; the 弈客 Socket.IO room connects directly, as in
     Java. An unusable manual proxy shows Java's 网络代理设置 warning and stops the polling or the
     broadcast connection.
   - Commentator variations are added as side branches with their own colours, passes and
     comments. A game that arrives while a borrowed engine is being given back waits for it; 中断
     meanwhile drops it.
-  Verified on Linux (private X11, WebKitGTK) against the live 弈客 service: the 直播中心 list,
-  following a live room while browsing, adding a variation and analysing, stopping, 打开在线链接,
-  and the web window's 加载 auto-follow. Not run live: 对局室 following (needs a 弈客 login; the
-  core's handling of page replies is tested, the page script is not) and the huanle broadcasts
-  (session tests with constructed frames).
+  Verified on Linux (X11, WebKitGTK) against the live 弈客 service: the 直播中心 list, following
+  a live room while browsing, adding a variation and analysing, stopping, 打开在线链接, the web
+  window's 加载 auto-follow, logging in, and following a 对局室 (new moves, a variation of your own
+  kept, moving to another room in the page, 停止同步). Not run live: the 弈客 Socket.IO rooms
+  (the server refused connections during the run) and the huanle broadcasts (session tests with
+  constructed frames).
 
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
 as not yet available (greyed in menus; a notice when used). Not available yet: the other layout
