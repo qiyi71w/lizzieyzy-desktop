@@ -496,12 +496,6 @@ fn a_finished_game_reads_its_result_from_the_working_directory() {
         "2022-03-14 09:00:41+0800: Finished game 1 (training), uploaded sgf \
          kata_contribute/kata1/sgfs/ABC123.sgf and training data x (1 rows)",
     );
-    // The result file is read off the workbench; the game is complete once its result is in.
-    assert_eq!(fixture.contribution().finished, 0);
-    for (ticket, path) in fixture.wb.take_contribution_reads() {
-        assert_eq!(path, sgf);
-        assert!(fixture.wb.complete_contribution_read(ticket, std::fs::read_to_string(&path).ok()));
-    }
     let session = fixture.contribution();
     assert_eq!(session.finished, 1);
     let game = session.game.unwrap();
@@ -826,13 +820,6 @@ fn save_all_games_writes_the_folder_and_refuses_with_none() {
         "Finished game 1 (training), uploaded sgf kata_contribute/kata1/sgfs/ABC123.sgf \
          and training data x",
     );
-    // The result file is read off the workbench, like a batch record.
-    let reads = fixture.wb.take_contribution_reads();
-    assert_eq!(reads.len(), 1);
-    for (ticket, path) in reads {
-        assert_eq!(path, sgf);
-        assert!(fixture.wb.complete_contribution_read(ticket, std::fs::read_to_string(&path).ok()));
-    }
     assert_eq!(
         fixture
             .wb
@@ -1004,7 +991,6 @@ fn a_game_allowing_suicide_keeps_its_suicide_move() {
     std::fs::create_dir_all(sgf.parent().unwrap()).unwrap();
     std::fs::write(&sgf, "(;RE[W+R]SZ[9])").unwrap();
     fixture.stdout(id, "Finished game 1 (training), uploaded sgf kata_contribute/kata1/sgfs/s9.sgf and training data x");
-    deliver_reads(&mut fixture);
     let played = line_moves(&mut fixture.wb);
     assert_eq!(played.last(), Some(&(Stone::Black, Some(Point { x: 1, y: 8 }))), "{played:?}");
     let stones = fixture.view().position.stones;
@@ -1086,82 +1072,58 @@ fn finish(fixture: &mut Fixture, id: InstanceId, game_id: &str) {
     );
 }
 
-fn deliver_reads(fixture: &mut Fixture) {
-    for (ticket, path) in fixture.wb.take_contribution_reads() {
-        fixture.wb.complete_contribution_read(ticket, std::fs::read_to_string(&path).ok());
-    }
-}
-
-/// A game that finishes, or whose result comes back, after the user opened another board (the
-/// contribution paused) completes but leaves that board alone.
+/// A game that finishes after the user opened another board (the contribution paused) completes
+/// but leaves that board alone.
 #[test]
-fn a_late_result_does_not_touch_a_board_opened_meanwhile() {
-    for finished_first in [true, false] {
-        let mut fixture = Fixture::new();
-        fixture.configure(Fixture::settings("/opt/katago"));
-        let id = fixture.start();
-        fixture.stdout(id, &snapshot("A", json!([]), json!(["B", "Q16"]), 0.5, 0.5, None));
-        if finished_first {
-            finish(&mut fixture, id, "A");
-        }
-        fixture.wb.contribution(ContributionCommand::PauseResume).unwrap();
-        fixture.wb.edit(EditCommand::ClearBoard).unwrap();
-        if !finished_first {
-            finish(&mut fixture, id, "A");
-        }
-        let board = serde_json::to_value(&fixture.view().document).unwrap();
-        deliver_reads(&mut fixture);
-        assert_eq!(serde_json::to_value(&fixture.view().document).unwrap(), board, "{finished_first}");
-        let game = fixture.contribution().game.unwrap();
-        assert!(game.complete);
-        assert_eq!(game.result, "B+R");
-    }
-}
-
-/// 自动保存 of a game opened while its result is still being read waits for the result: the
-/// file is named and written with it, also when another game is watched by then.
-#[test]
-fn an_automatic_save_waits_for_the_result() {
-    for leave in [false, true] {
-        let mut fixture = Fixture::new();
-        fixture.configure(ContributionSettings {
-            auto_save: true,
-            ..Fixture::settings("/opt/katago")
-        });
-        let id = fixture.start();
-        fixture.stdout(id, &snapshot("A", json!([]), json!(["B", "Q16"]), 0.5, 0.5, None));
-        fixture.stdout(id, &snapshot("B", json!([]), json!(["B", "D4"]), 0.5, 0.5, None));
-        finish(&mut fixture, id, "B");
-        fixture.wb.contribution(ContributionCommand::WatchGame { index: 1 }).unwrap();
-        if leave {
-            fixture.wb.contribution(ContributionCommand::WatchGame { index: 0 }).unwrap();
-        }
-        assert!(fixture.wb.take_background_saves().is_empty(), "nothing saved before the result");
-        deliver_reads(&mut fixture);
-        let jobs = fixture.wb.take_background_saves();
-        assert_eq!(jobs.len(), 1, "{leave}");
-        assert!(jobs[0].path.to_string_lossy().ends_with("(B+R).sgf"), "{:?}", jobs[0].path);
-        assert!(jobs[0].text.contains("RE[B+R]") && jobs[0].text.contains("B[dp]"), "{}", jobs[0].text);
-        let watched = if leave { 1 } else { 2 };
-        assert_eq!(fixture.contribution().watching, watched);
-    }
-}
-
-/// 保存所有棋谱 while a finished game's result is still being read waits for it.
-#[test]
-fn save_all_waits_for_a_result_being_read() {
+fn a_game_finishing_on_another_board_leaves_it_alone() {
     let mut fixture = Fixture::new();
     fixture.configure(Fixture::settings("/opt/katago"));
     let id = fixture.start();
     fixture.stdout(id, &snapshot("A", json!([]), json!(["B", "Q16"]), 0.5, 0.5, None));
+    fixture.wb.contribution(ContributionCommand::PauseResume).unwrap();
+    fixture.wb.edit(EditCommand::ClearBoard).unwrap();
+    let board = serde_json::to_value(&fixture.view().document).unwrap();
     finish(&mut fixture, id, "A");
-    assert_eq!(fixture.wb.contribution(ContributionCommand::SaveAllGames).unwrap(), CommandResult::Done);
-    assert!(fixture.wb.take_background_saves().is_empty());
-    deliver_reads(&mut fixture);
+    assert_eq!(serde_json::to_value(&fixture.view().document).unwrap(), board);
+    let game = fixture.contribution().game.unwrap();
+    assert!(game.complete);
+    assert_eq!(game.result, "B+R");
+}
+
+/// 自动保存 of a finished game opened later writes it with its result.
+#[test]
+fn an_automatic_save_carries_the_result() {
+    let mut fixture = Fixture::new();
+    fixture.configure(ContributionSettings {
+        auto_save: true,
+        ..Fixture::settings("/opt/katago")
+    });
+    let id = fixture.start();
+    fixture.stdout(id, &snapshot("A", json!([]), json!(["B", "Q16"]), 0.5, 0.5, None));
+    fixture.stdout(id, &snapshot("B", json!([]), json!(["B", "D4"]), 0.5, 0.5, None));
+    finish(&mut fixture, id, "B");
+    fixture.wb.contribution(ContributionCommand::WatchGame { index: 1 }).unwrap();
     let jobs = fixture.wb.take_background_saves();
     assert_eq!(jobs.len(), 1);
     assert!(jobs[0].path.to_string_lossy().ends_with("(B+R).sgf"), "{:?}", jobs[0].path);
-    assert!(jobs[0].text.contains("RE[B+R]") && jobs[0].text.contains("B[pd]"), "{}", jobs[0].text);
+    assert!(jobs[0].text.contains("RE[B+R]") && jobs[0].text.contains("B[dp]"), "{}", jobs[0].text);
+}
+
+/// 保存所有棋谱 while the user has another record open (paused) saves the watched game, never
+/// that record under its name.
+#[test]
+fn save_all_saves_the_game_not_the_record_opened_meanwhile() {
+    let mut fixture = Fixture::new();
+    fixture.configure(Fixture::settings("/opt/katago"));
+    let id = fixture.start();
+    fixture.stdout(id, &snapshot("A", json!([["B", "Q16"]]), json!(["W", "D4"]), 0.5, 0.5, None));
+    fixture.wb.contribution(ContributionCommand::PauseResume).unwrap();
+    fixture.wb.edit(EditCommand::ClearBoard).unwrap();
+    assert_eq!(fixture.wb.contribution(ContributionCommand::SaveAllGames).unwrap(), CommandResult::Done);
+    let jobs = fixture.wb.take_background_saves();
+    assert_eq!(jobs.len(), 1);
+    assert!(jobs[0].path.to_string_lossy().contains("_A_"), "{:?}", jobs[0].path);
+    assert!(jobs[0].text.contains("B[pd]"), "{}", jobs[0].text);
 }
 
 /// 保存所有棋谱 whose write fails says so instead of naming the folder.

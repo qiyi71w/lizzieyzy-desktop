@@ -176,7 +176,6 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
     let checks = wb.take_launch_checks();
     let auto_saves = wb.take_background_saves();
     let batch_reads = wb.take_batch_reads();
-    let contribution_reads = wb.take_contribution_reads();
     let deferred = wb.take_human_sl_deferred();
     let commentary_jobs = wb.take_commentary_jobs();
     drop(wb);
@@ -190,9 +189,6 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
     }
     for (ticket, path, no_capture) in batch_reads {
         read_batch_record(app, ticket, path, no_capture);
-    }
-    for (ticket, path) in contribution_reads {
-        read_contribution_result(app, ticket, path);
     }
     if let Some(command) = deferred {
         let app = app.clone();
@@ -353,20 +349,6 @@ fn read_batch_record(app: &AppHandle, ticket: u64, path: PathBuf, no_capture: bo
             ));
         }
         if shared.workbench.lock().unwrap().complete_batch_read(ticket, result) {
-            publish(&app, &shared);
-        }
-    });
-}
-
-/// Reads a finished contribution game's result file on its own thread.
-fn read_contribution_result(app: &AppHandle, ticket: u64, path: PathBuf) {
-    let app = app.clone();
-    std::thread::spawn(move || {
-        let shared = app.state::<State>().inner().clone();
-        let text = std::fs::read(&path)
-            .ok()
-            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
-        if shared.workbench.lock().unwrap().complete_contribution_read(ticket, text) {
             publish(&app, &shared);
         }
     });

@@ -109,22 +109,6 @@ pub(super) struct ContributionFlow {
     saved_folder: Option<String>,
     /// A write of the running saves failed.
     save_failed: bool,
-    /// Finished games' result files for the adapter to read off the lock.
-    reads: Vec<(u64, PathBuf)>,
-    /// Result reads still running.
-    waiting: Vec<PendingRead>,
-    next_read: u64,
-    /// 保存所有棋谱 of this session waits for the results being read.
-    save_all_waiting: Option<u64>,
-}
-
-/// A finished game whose result file is being read: until it is back the game is not complete.
-struct PendingRead {
-    ticket: u64,
-    session: u64,
-    game: usize,
-    /// 自动保存 asked for the game meanwhile; it is saved once its result is in.
-    save: bool,
 }
 
 impl Default for ContributionFlow {
@@ -137,10 +121,6 @@ impl Default for ContributionFlow {
             saves: Vec::new(),
             saved_folder: None,
             save_failed: false,
-            reads: Vec::new(),
-            waiting: Vec::new(),
-            next_read: 1,
-            save_all_waiting: None,
         }
     }
 }
@@ -175,15 +155,26 @@ fn safe_name(value: &str) -> String {
         .collect()
 }
 
-/// Where `SGFParser.getResult` reads a finished game: the uploaded `sgf`, relative to the process's
-/// working directory.
-fn result_path(cwd: &Path, sgf: &str) -> PathBuf {
+/// The root of a KataGo record (where `RE` is) lies at its start: no more is read.
+const RESULT_READ_LIMIT: u64 = 64 * 1024;
+
+/// `SGFParser.getResult` on the uploaded `sgf`, relative to the process's working directory: the
+/// first 20 characters after `RE[`, up to `]`; empty when unreadable. Read when the game finishes,
+/// like Java, so nothing can see the game complete without its result; the read is bounded.
+fn read_result(cwd: &Path, sgf: &str) -> String {
+    use std::io::Read;
     let path = Path::new(sgf);
-    if path.is_absolute() {
+    let path = if path.is_absolute() {
         path.to_path_buf()
     } else {
         cwd.join(sgf.replace('\\', "/"))
+    };
+    let mut bytes = Vec::new();
+    let read = std::fs::File::open(&path).and_then(|file| file.take(RESULT_READ_LIMIT).read_to_end(&mut bytes));
+    if read.is_err() {
+        return String::new();
     }
+    snapshot::parse_result(&String::from_utf8_lossy(&bytes))
 }
 
 impl ContributionFlow {
@@ -864,65 +855,25 @@ impl Workbench {
         }
         let file = sgf.rsplit(['/', '\\']).next().unwrap_or(sgf);
         let game_id = file.rsplit_once('.').map_or(file, |(stem, _)| stem);
-        let (index, read) = {
-            let Some(session) = self.contribution.session.as_ref() else {
-                return;
-            };
-            let Some(index) = session.games.iter().position(|game| game.id == game_id) else {
-                return;
-            };
-            let read = session.remote.is_none().then(|| {
-                let read = PendingRead {
-                    ticket: self.contribution.next_read,
-                    session: session.id,
-                    game: index,
-                    save: false,
-                };
-                (read, result_path(&session.cwd, sgf))
-            });
-            (index, read)
-        };
-        match read {
-            // `SGFParser.getResult` reads the file before the game counts as complete, so nothing
-            // saves it without its result; here the read runs off the workbench.
-            Some((read, path)) => {
-                self.contribution.next_read += 1;
-                self.contribution.reads.push((read.ticket, path));
-                self.contribution.waiting.push(read);
-            }
-            // A remote game's file is on the host: no result (Java `useJavaSSH`).
-            None => self.contribution_game_complete(index, String::new(), false),
-        }
-    }
-
-    /// Game `index` is complete with `result`. On the contribution's own board a watched game gets
-    /// its held last move and result; `save` is an automatic save that waited for the result. A
-    /// record the user opened meanwhile is left alone: the game shows (and saves) when next opened.
-    fn contribution_game_complete(&mut self, index: usize, result: String, save: bool) {
         let document = self.doc.id;
         let Some(session) = self.contribution.session.as_mut() else {
             return;
         };
-        let Some(game) = session.games.get_mut(index) else {
+        let Some(index) = session.games.iter().position(|game| game.id == game_id) else {
             return;
         };
+        // A remote game's file is on the host: no result (Java `useJavaSSH`).
+        let result = if session.remote.is_none() {
+            read_result(&session.cwd, sgf)
+        } else {
+            String::new()
+        };
+        let game = &mut session.games[index];
         game.complete = true;
         game.result = result.clone();
-        if session.board != document {
-            return;
-        }
-        let Some(watching) = session.watching else {
-            return;
-        };
-        if watching != index {
-            if save {
-                // The game was opened and left before its result came: saved like 保存所有棋谱
-                // saves it, back on the watched game afterwards.
-                let move_number = self.doc.record.node(self.cursor).move_number;
-                self.contribution_save_game(index);
-                self.contribution_set_game(watching, false);
-                self.contribution_goto_move_number(move_number);
-            }
+        // Only the contribution's own board gets the held last move and result: a record the user
+        // opened meanwhile (paused) is left alone, and the game shows when next opened.
+        if session.watching != Some(index) || session.board != document {
             return;
         }
         self.contribution_play_held_last();
@@ -932,35 +883,6 @@ impl Workbench {
         if !result.is_empty() && self.doc.record.info.result != result {
             let _ = self.edit_document(DocumentEdit::SetResult { result });
         }
-        if save {
-            self.contribution_save_game(index);
-        }
-    }
-
-    /// Finished games' result files to read off the lock.
-    pub fn take_contribution_reads(&mut self) -> Vec<(u64, PathBuf)> {
-        std::mem::take(&mut self.contribution.reads)
-    }
-
-    /// Hands back a result file's text (`None` when unreadable: the result stays empty).
-    /// `SGFParser.getResult`: the first 20 characters after `RE[`, up to `]`. Returns `false` for a
-    /// read no session wants any more.
-    pub fn complete_contribution_read(&mut self, ticket: u64, text: Option<String>) -> bool {
-        let Some(at) = self.contribution.waiting.iter().position(|read| read.ticket == ticket) else {
-            return false;
-        };
-        let read = self.contribution.waiting.remove(at);
-        if self.contribution.session.as_ref().is_none_or(|session| session.id != read.session) {
-            return false;
-        }
-        let result = text.as_deref().map(snapshot::parse_result).unwrap_or_default();
-        self.contribution_game_complete(read.game, result, read.save);
-        let reading = self.contribution.waiting.iter().any(|other| other.session == read.session);
-        if !reading && self.contribution.save_all_waiting == Some(read.session) {
-            self.contribution.save_all_waiting = None;
-            self.contribution_save_all();
-        }
-        true
     }
 
     fn contribution_exited(&mut self, output: &[String], remote: Option<&RemoteFailure>) {
@@ -1150,20 +1072,20 @@ impl Workbench {
         else {
             return;
         };
-        let previous = self
+        let Some((previous, board)) = self
             .contribution
             .session
             .as_ref()
-            .and_then(|session| session.watching);
-        let remain = self.contribution_remain(&game);
+            .map(|session| (session.watching, session.board))
+        else {
+            return;
+        };
+        // Only the contribution's own board is continued; a record the user opened meanwhile
+        // (paused) is taken over by a rebuild, like Java's takeover of another position.
+        let remain = (board == self.doc.id).then(|| self.contribution_remain(&game)).flatten();
         let same = previous == Some(index) && remain.is_some();
-        let document = self.doc.id;
         if let Some(session) = self.contribution.session.as_mut() {
             session.watching = Some(index);
-            if same {
-                // The open record is this game's: it goes on being written here.
-                session.board = document;
-            }
         }
         if same {
             let remain = remain.unwrap_or_default();
@@ -1177,19 +1099,10 @@ impl Workbench {
         }
         self.contribution_rebuild(&game);
         let document = self.doc.id;
-        let auto_save = !save_game && self.config.contribution.auto_save && !game.saved;
-        let Some(session) = self.contribution.session.as_mut() else {
-            return;
-        };
-        session.board = document;
-        let session = session.id;
-        for read in &mut self.contribution.waiting {
-            if read.session == session && read.game == index {
-                // A save waits for the result (the game is not complete until then).
-                read.save |= auto_save;
-            }
+        if let Some(session) = self.contribution.session.as_mut() {
+            session.board = document;
         }
-        if auto_save && game.complete {
+        if !save_game && self.config.contribution.auto_save && game.complete && !game.saved {
             self.contribution_save_game(index);
         }
     }
@@ -1516,11 +1429,6 @@ impl Workbench {
         if session.games.is_empty() {
             return refused("Contribute.tips.noGameToSave");
         }
-        // Java reads a finished game's result before anything can save it.
-        if self.contribution.waiting.iter().any(|read| read.session == session.id) {
-            self.contribution.save_all_waiting = Some(session.id);
-            return CommandResult::Done;
-        }
         let total = session.games.len();
         let move_number = self.doc.record.node(self.cursor).move_number;
         for index in 0..total {
@@ -1548,13 +1456,15 @@ impl Workbench {
     /// `ContributeGames/<hour>/` (Java `mkdirs`); a complete game counts as saved unless the write
     /// fails.
     fn contribution_save_game(&mut self, index: usize) {
-        if self
-            .contribution
-            .session
-            .as_ref()
-            .and_then(|session| session.watching)
-            != Some(index)
-        {
+        // The game is written into the contribution's own board first (rebuilt unless it is the
+        // watched game there), so another record is never saved under its name.
+        let on_board = self.contribution.session.as_ref().is_some_and(|session| {
+            session.watching == Some(index) && session.board == self.doc.id
+        });
+        if !on_board {
+            if let Some(session) = self.contribution.session.as_mut() {
+                session.watching = None;
+            }
             self.contribution_set_game(index, true);
         }
         let Some((session_id, game_id, complete)) = self.contribution.session.as_mut().and_then(|session| {

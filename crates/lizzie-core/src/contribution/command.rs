@@ -95,18 +95,38 @@ struct Value {
     concealed: Option<String>,
 }
 
+const KEY: &str = "password=";
+
+/// Where a `password=` key starting at `at` (in `quote`) ends, its quote marks skipped as the
+/// command line joins runs (`pass"word"=`): the value's start and the quoting there.
+fn key_end(command: &str, at: usize, mut quote: Quote) -> Option<(usize, Quote)> {
+    let mut key = KEY.chars().peekable();
+    for (offset, c) in command[at..].char_indices() {
+        let after = quote.after(c);
+        if after != quote {
+            quote = after;
+            continue;
+        }
+        if key.next() != Some(c) {
+            return None;
+        }
+        if key.peek().is_none() {
+            return Some((at + offset + c.len_utf8(), quote));
+        }
+    }
+    None
+}
+
 /// Each `password=` value of `command`. A value runs, across quoted and joined runs, up to a `,`
 /// (KataGo splits override values there) or whitespace outside quotes; its concealed form keeps
 /// the quotes the rest of the line relies on.
 fn password_values(command: &str) -> Vec<Value> {
-    const KEY: &str = "password=";
     let mut values = Vec::new();
     let mut quote = Quote::None;
     let mut at = 0;
     while at < command.len() {
-        if command[at..].starts_with(KEY) {
-            let start = at + KEY.len();
-            let opened = quote;
+        if let Some((start, opened)) = key_end(command, at, quote) {
+            quote = opened;
             let mut end = command.len();
             let mut text = false;
             for (offset, c) in command[start..].char_indices() {
@@ -275,6 +295,7 @@ mod tests {
             ("k -override-config \"username=b,password=HEAD\"TAIL", "k -override-config \"username=b,password=******\""),
             ("k -override-config \"username=c,password=TOP\"' SECRET' -x", "k -override-config \"username=c,password=******\" -x"),
             ("k -override-config \"username=d,password=a,b\"", "k -override-config \"username=d,password=******,b\""),
+            ("k -override-config username=e,pass\"word\"=TOP'SECRET'", "k -override-config username=e,pass\"word\"=******"),
         ];
         for (typed, saved) in cases {
             assert_eq!(conceal_passwords(typed), saved);
