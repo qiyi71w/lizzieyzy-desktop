@@ -16,12 +16,16 @@ use crate::secrets::Store;
 use crate::{publish, State};
 
 const KIND: &str = "contribution-password";
+/// The values behind the saved custom command's `password=` markers, one per line.
+const COMMAND_KIND: &str = "contribution-command-passwords";
+const COMMAND_ACCOUNT: &str = "command";
 
-/// The training password: system credential storage, or this run only where it is unavailable
-/// (the same `Session` semantics as the SSH passwords).
+/// The training password and the custom command's passwords: system credential storage, or this
+/// run only where it is unavailable (the same `Session` semantics as the SSH passwords).
 pub struct Adapter {
     store: Store,
     session: Mutex<HashMap<String, String>>,
+    command_session: Mutex<Option<String>>,
 }
 
 impl Adapter {
@@ -29,6 +33,7 @@ impl Adapter {
         Arc::new(Adapter {
             store: Store::new(application, config_dir),
             session: Mutex::new(HashMap::new()),
+            command_session: Mutex::new(None),
         })
     }
 
@@ -74,6 +79,40 @@ impl Adapter {
             }
         }
     }
+
+    fn command_passwords(&self) -> Vec<String> {
+        let session = self.command_session.lock().unwrap().clone();
+        let text = session
+            .or_else(|| self.store.read(COMMAND_KIND, COMMAND_ACCOUNT).ok().flatten())
+            .unwrap_or_default();
+        if text.is_empty() {
+            Vec::new()
+        } else {
+            text.split('\n').map(str::to_string).collect()
+        }
+    }
+
+    /// Keeps the custom command's passwords (`values` from `conceal_passwords`: `None` keeps the
+    /// stored value at that position) so that only their markers are saved.
+    fn keep_command_passwords(&self, values: Vec<Option<String>>) {
+        let stored = self.command_passwords();
+        let kept: Vec<String> = values
+            .into_iter()
+            .enumerate()
+            .map(|(index, value)| value.or_else(|| stored.get(index).cloned()).unwrap_or_default())
+            .collect();
+        if kept == stored {
+            return;
+        }
+        let text = kept.join("\n");
+        let mut session = self.command_session.lock().unwrap();
+        *session = None;
+        if text.is_empty() {
+            let _ = self.store.delete(COMMAND_KIND, COMMAND_ACCOUNT);
+        } else if self.store.write(COMMAND_KIND, COMMAND_ACCOUNT, &text).is_err() {
+            *session = Some(text);
+        }
+    }
 }
 
 fn open_link(app: &AppHandle, link: ContributionLink) -> Result<CommandResult, ApiError> {
@@ -103,11 +142,29 @@ pub fn dispatch(
             state: adapter.state(&user),
         }),
         ContributionCommand::OpenLink { link } => open_link(app, link),
+        ContributionCommand::SaveSettings { mut settings } => {
+            // The credential storage can be slow; it is written without holding the workbench.
+            let (command, values) = lizzie_core::contribution::command::conceal_passwords(&settings.command);
+            adapter.keep_command_passwords(values);
+            settings.command = command;
+            let result = shared
+                .workbench
+                .lock()
+                .unwrap()
+                .contribution(ContributionCommand::SaveSettings { settings })?;
+            publish(app, shared);
+            Ok(result)
+        }
         ContributionCommand::Start => {
             // The credential storage can be slow; it is read without holding the workbench.
             let user = shared.workbench.lock().unwrap().config().contribution.user_name.clone();
             let password = adapter.password(&user);
-            let result = shared.workbench.lock().unwrap().contribution_start(password)?;
+            let command_passwords = adapter.command_passwords();
+            let result = shared
+                .workbench
+                .lock()
+                .unwrap()
+                .contribution_start(password, &command_passwords)?;
             publish(app, shared);
             Ok(result)
         }

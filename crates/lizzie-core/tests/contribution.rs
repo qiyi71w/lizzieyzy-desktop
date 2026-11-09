@@ -157,7 +157,7 @@ impl Fixture {
 
     fn start(&mut self) -> InstanceId {
         assert_eq!(
-            self.wb.contribution_start(Some("s3cret".into())).unwrap(),
+            self.wb.contribution_start(Some("s3cret".into()), &[]).unwrap(),
             CommandResult::Done
         );
         self.world.last().0
@@ -261,7 +261,7 @@ fn a_start_without_a_user_name_opens_the_settings_and_changes_nothing() {
     fixture.configure(settings);
     let before = fixture.view().document;
     assert_eq!(
-        fixture.wb.contribution_start(Some("x".into())).unwrap(),
+        fixture.wb.contribution_start(Some("x".into()), &[]).unwrap(),
         CommandResult::Done
     );
     let view = fixture.view();
@@ -280,7 +280,7 @@ fn a_start_without_an_engine_opens_the_settings_and_changes_nothing() {
     fixture.configure(Fixture::settings(""));
     let before = fixture.view().document;
     assert_eq!(
-        fixture.wb.contribution_start(None).unwrap(),
+        fixture.wb.contribution_start(None, &[]).unwrap(),
         CommandResult::Done
     );
     let view = fixture.view();
@@ -300,7 +300,7 @@ fn a_second_start_is_refused_while_the_first_runs() {
     let (id, _) = fixture.start_pair();
     let document = fixture.view().document.id;
     assert_eq!(
-        fixture.wb.contribution_start(None).unwrap(),
+        fixture.wb.contribution_start(None, &[]).unwrap(),
         CommandResult::Refused {
             message_key: "Contribute.tips.alreadyTraining".into()
         }
@@ -313,7 +313,7 @@ fn a_second_start_is_refused_while_the_first_runs() {
 impl Fixture {
     fn start_pair(&mut self) -> (InstanceId, Proc) {
         assert_eq!(
-            self.wb.contribution_start(Some("s3cret".into())).unwrap(),
+            self.wb.contribution_start(Some("s3cret".into()), &[]).unwrap(),
             CommandResult::Done
         );
         self.world.last()
@@ -496,6 +496,12 @@ fn a_finished_game_reads_its_result_from_the_working_directory() {
         "2022-03-14 09:00:41+0800: Finished game 1 (training), uploaded sgf \
          kata_contribute/kata1/sgfs/ABC123.sgf and training data x (1 rows)",
     );
+    // The result file is read off the workbench and handed back.
+    assert_eq!(fixture.contribution().game.unwrap().result, "");
+    for (ticket, path) in fixture.wb.take_contribution_reads() {
+        assert_eq!(path, sgf);
+        assert!(fixture.wb.complete_contribution_read(ticket, std::fs::read_to_string(&path).ok()));
+    }
     let session = fixture.contribution();
     assert_eq!(session.finished, 1);
     let game = session.game.unwrap();
@@ -820,6 +826,13 @@ fn save_all_games_writes_the_folder_and_refuses_with_none() {
         "Finished game 1 (training), uploaded sgf kata_contribute/kata1/sgfs/ABC123.sgf \
          and training data x",
     );
+    // The result file is read off the workbench, like a batch record.
+    let reads = fixture.wb.take_contribution_reads();
+    assert_eq!(reads.len(), 1);
+    for (ticket, path) in reads {
+        assert_eq!(path, sgf);
+        assert!(fixture.wb.complete_contribution_read(ticket, std::fs::read_to_string(&path).ok()));
+    }
     assert_eq!(
         fixture
             .wb
@@ -827,6 +840,19 @@ fn save_all_games_writes_the_folder_and_refuses_with_none() {
             .unwrap(),
         CommandResult::Done
     );
+    // The records go to the serial writer outside the workbench, like every other save; the
+    // application waits for them before it exits.
+    let jobs = fixture.wb.take_background_saves();
+    assert_eq!(jobs.len(), 1);
+    assert!(fixture.wb.has_pending_saves());
+    assert!(!jobs[0].path.exists(), "nothing is written under the workbench");
+    for job in &jobs {
+        assert!(job.create_parent);
+        std::fs::create_dir_all(job.path.parent().unwrap()).unwrap();
+        std::fs::write(&job.path, &job.text).unwrap();
+        assert!(fixture.wb.complete_save(job.ticket, Ok(())));
+    }
+    assert!(!fixture.wb.has_pending_saves());
     let view = fixture.view();
     let folder = view
         .contribution_notices
@@ -837,6 +863,7 @@ fn save_all_games_writes_the_folder_and_refuses_with_none() {
         })
         .expect("a saved notice");
     let folder = Path::new(&folder);
+    assert_eq!(jobs[0].path.parent(), Some(folder));
     let saved: Vec<_> = std::fs::read_dir(folder)
         .unwrap()
         .filter_map(Result::ok)
@@ -891,4 +918,157 @@ fn a_new_game_of_another_size_joins_the_list_without_taking_the_board() {
             (Stone::White, Some(Point { x: 3, y: 15 })),
         ]
     );
+}
+
+/// An installed package of catalog asset `asset_id` under a folder with a space in its name.
+fn install_package(fixture: &Fixture, asset_id: &str) -> std::path::PathBuf {
+    let directory = fixture.dir.path().join("data/resources/engines/two words");
+    std::fs::create_dir_all(&directory).unwrap();
+    let executable = directory.join("katago.exe");
+    std::fs::write(&executable, b"exe").unwrap();
+    let receipt = json!({
+        "assetId": asset_id, "version": "1.18.1", "archiveSha256": "0".repeat(64),
+        "executableSha256": "0".repeat(64), "executable": "katago.exe", "executableSize": 3,
+        "source": "download", "installedAt": 0, "experimentalBackend": null
+    });
+    std::fs::write(directory.join("resource.json"), receipt.to_string()).unwrap();
+    executable
+}
+
+/// Qualification follows the engine the command actually runs: the path field as the chooser
+/// and 已配置引擎 write it (quoted, so a path with a space stays one program), and nothing at all
+/// for a custom command.
+#[test]
+fn an_unsupported_package_is_refused_however_its_path_is_written_and_a_custom_command_is_not() {
+    let mut fixture = Fixture::new();
+    let executable = install_package(&fixture, "windows-directml");
+    let path = format!("\"{}\"", executable.to_string_lossy());
+    let qualification = fixture.wb.contribution(ContributionCommand::Qualify { engine_path: path.clone() }).unwrap();
+    assert!(
+        matches!(&qualification, CommandResult::ContributionQualification {
+            qualification: lizzie_core::api::ContributionQualification::Managed { asset_id, .. }
+        } if asset_id == "windows-directml"),
+        "{qualification:?}"
+    );
+    fixture.configure(Fixture::settings(&path));
+    assert_eq!(
+        fixture.wb.contribution_start(Some("s3cret".into()), &[]).unwrap(),
+        CommandResult::Refused { message_key: "contribution.resourceUnsupported".into() }
+    );
+    assert_eq!(fixture.world.launched(), 0);
+    fixture.configure(ContributionSettings {
+        use_command: true,
+        command: "my-katago contribute".into(),
+        ..Fixture::settings(&path)
+    });
+    assert_eq!(fixture.wb.contribution_start(Some("s3cret".into()), &[]).unwrap(), CommandResult::Done);
+    assert_eq!(fixture.world.last().1.program, "my-katago");
+}
+
+/// Starting shuts every engine down (`EngineManager.isEmpty = true`), the idle preloaded
+/// analysis process included.
+#[test]
+fn starting_ends_an_idle_preloaded_analysis_process() {
+    let mut fixture = Fixture::new();
+    let settings = lizzie_core::settings::AnalysisEngineSettings {
+        command: "/opt/katago analysis -config /a.cfg".into(),
+        preload: true,
+        ..Default::default()
+    };
+    fixture.wb.save_analysis_engine_settings(settings, "", true).unwrap().unwrap();
+    fixture.wb.preload_analysis_engine();
+    let (warm, proc) = fixture.world.last();
+    assert_eq!(proc.args[0], "analysis");
+    fixture.configure(Fixture::settings("/opt/katago"));
+    fixture.start();
+    assert!(fixture.world.terminated(warm), "the preloaded process ends");
+}
+
+/// A watched game is replayed under its own rules: a multi-stone suicide the server's rules
+/// allow is kept, whatever engine was in use before.
+#[test]
+fn a_game_allowing_suicide_keeps_its_suicide_move() {
+    let mut fixture = Fixture::new();
+    fixture.configure(Fixture::settings("/opt/katago"));
+    let id = fixture.start();
+    let line = |history: Value, mv: Value| {
+        let mut json: Value = serde_json::from_str(&sized(snapshot("s9", history, mv, 0.5, 0.5, None), 9)).unwrap();
+        json["rules"]["suicide"] = json!(true);
+        json.to_string()
+    };
+    let moves = [["B", "A1"], ["W", "A2"], ["B", "pass"], ["W", "B2"], ["B", "pass"], ["W", "C1"], ["B", "B1"]];
+    for n in 0..moves.len() {
+        fixture.stdout(id, &line(json!(moves[..n]), json!(moves[n])));
+    }
+    let sgf = fixture.dir.path().join("data/contribution/kata_contribute/kata1/sgfs/s9.sgf");
+    std::fs::create_dir_all(sgf.parent().unwrap()).unwrap();
+    std::fs::write(&sgf, "(;RE[W+R]SZ[9])").unwrap();
+    fixture.stdout(id, "Finished game 1 (training), uploaded sgf kata_contribute/kata1/sgfs/s9.sgf and training data x");
+    let played = line_moves(&mut fixture.wb);
+    assert_eq!(played.last(), Some(&(Stone::Black, Some(Point { x: 1, y: 8 }))), "{played:?}");
+    let stones = fixture.view().position.stones;
+    assert_eq!(stones[8 * 9], None, "A1 was taken off");
+    assert_eq!(stones[8 * 9 + 1], None, "B1 was taken off");
+}
+
+/// After the process ended cleanly the kept window still plays the games (Java's watch thread
+/// only stops with 强制结束).
+#[test]
+fn the_kept_window_still_plays_after_a_clean_exit() {
+    let mut fixture = Fixture::new();
+    fixture.configure(Fixture::settings("/opt/katago"));
+    let id = fixture.start();
+    let moves = [["B", "Q16"], ["W", "D4"], ["B", "Q4"], ["W", "D16"]];
+    for n in 0..moves.len() {
+        fixture.stdout(id, &snapshot("g1", json!(moves[..n]), json!(moves[n]), 0.5, 0.5, None));
+    }
+    fixture.wb.contribution(ContributionCommand::SlowQuit).unwrap();
+    fixture.stderr(id, "Exited cleanly after signal. All cleaned up, quitting");
+    fixture.exited(id);
+    assert_eq!(fixture.contribution().phase, ContributionPhase::Exited);
+    let before = fixture.view().position.node;
+    let due = fixture.wb.engine_timer().expect("the watch clock keeps running");
+    fixture.wb.engine_tick(due + std::time::Duration::from_secs(3));
+    assert_ne!(fixture.view().position.node, before, "auto play moved on");
+}
+
+/// The failure window masks the whole password, also one KataGo's override list cannot carry.
+#[test]
+fn the_failure_window_masks_a_password_with_a_comma() {
+    let mut fixture = Fixture::new();
+    fixture.configure(Fixture::settings("/opt/katago"));
+    fixture.wb.contribution_start(Some("FIRSTSECRET,TAILSECRET".into()), &[]).unwrap();
+    let id = fixture.world.last().0;
+    fixture.stdout(id, "Compile with -DBUILD_DISTRIBUTED=1");
+    let view = fixture.view();
+    let shown = serde_json::to_string(&view).unwrap();
+    assert!(failure(&view).is_some());
+    assert!(!shown.contains("FIRSTSECRET") && !shown.contains("TAILSECRET"), "{}", failure(&view).unwrap().command);
+}
+
+/// A password typed into a custom command is kept like the training password: the saved setting,
+/// the configuration file and the projection carry a marker; the run gets the real value.
+#[test]
+fn a_password_in_a_custom_command_is_never_saved() {
+    let mut fixture = Fixture::new();
+    fixture.configure(ContributionSettings {
+        use_command: true,
+        use_pure_command: true,
+        command: "katago contribute -override-config \"username=bob,password=UNIQUE_SECRET\"".into(),
+        ..Fixture::settings("/opt/katago")
+    });
+    let saved = fixture.wb.config().contribution.command.clone();
+    assert_eq!(saved, "katago contribute -override-config \"username=bob,password=******\"");
+    assert!(!serde_json::to_string(&fixture.view()).unwrap().contains("UNIQUE_SECRET"));
+    for entry in std::fs::read_dir(fixture.dir.path().join("config")).unwrap() {
+        let text = std::fs::read(entry.unwrap().path()).unwrap_or_default();
+        assert!(!String::from_utf8_lossy(&text).contains("UNIQUE_SECRET"));
+    }
+    assert_eq!(
+        fixture.wb.contribution_start(None, &["UNIQUE_SECRET".into()]).unwrap(),
+        CommandResult::Done
+    );
+    let launched = &fixture.world.last().1;
+    assert_eq!(launched.args.last().unwrap(), "username=bob,password=UNIQUE_SECRET");
+    assert!(!serde_json::to_string(&fixture.view()).unwrap().contains("UNIQUE_SECRET"));
 }

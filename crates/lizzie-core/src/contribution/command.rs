@@ -54,6 +54,72 @@ pub fn build(settings: &ContributionSettings, password: Option<&str>) -> String 
     command
 }
 
+/// Written in place of each `password=` value of a saved custom command: the value itself lives in
+/// the system credential storage, never in `config.json` or the settings projection.
+pub const SAVED_PASSWORD: &str = "******";
+
+/// The `(start, end)` byte range of each `password=` value in `command`: up to the next `,`, or
+/// the closing quote inside a quoted run (KataGo trims and splits override values at commas), or
+/// whitespace outside quotes.
+fn password_values(command: &str) -> Vec<(usize, usize)> {
+    const KEY: &str = "password=";
+    let mut values = Vec::new();
+    let mut quoted = false;
+    let mut at = 0;
+    while at < command.len() {
+        if command[at..].starts_with(KEY) {
+            let start = at + KEY.len();
+            let end = command[start..]
+                .char_indices()
+                .find(|&(_, c)| c == ',' || c == '"' || (!quoted && c.is_whitespace()))
+                .map_or(command.len(), |(offset, _)| start + offset);
+            values.push((start, end));
+            at = end;
+            continue;
+        }
+        let c = command[at..].chars().next().unwrap_or(' ');
+        if c == '"' {
+            quoted = !quoted;
+        }
+        at += c.len_utf8();
+    }
+    values
+}
+
+/// `command` as it is saved: each `password=` value replaced by [`SAVED_PASSWORD`]; returned are
+/// the values in order, `None` where the command already carried the marker (keep the stored one).
+pub fn conceal_passwords(command: &str) -> (String, Vec<Option<String>>) {
+    let mut saved = String::with_capacity(command.len());
+    let mut values = Vec::new();
+    let mut last = 0;
+    for (start, end) in password_values(command) {
+        let value = &command[start..end];
+        values.push((value != SAVED_PASSWORD).then(|| value.to_string()));
+        saved.push_str(&command[last..start]);
+        saved.push_str(SAVED_PASSWORD);
+        last = end;
+    }
+    saved.push_str(&command[last..]);
+    (saved, values)
+}
+
+/// The saved `command` with its markers replaced, in order, by the stored `passwords` (a marker
+/// without one stays as it is).
+pub fn reveal_passwords(command: &str, passwords: &[String]) -> String {
+    let mut revealed = String::with_capacity(command.len());
+    let mut last = 0;
+    for ((start, end), password) in password_values(command).into_iter().zip(passwords) {
+        if &command[start..end] != SAVED_PASSWORD {
+            continue;
+        }
+        revealed.push_str(&command[last..start]);
+        revealed.push_str(password);
+        last = end;
+    }
+    revealed.push_str(&command[last..]);
+    revealed
+}
+
 /// `ContributeEngine.certificateRecoveryCommand`: append KataGo's bundled CA file, resolved
 /// beside the engine executable. Remote and pure commands are left as they are.
 pub fn certificate_recovery(command: &str, executable: &str, remote: bool, pure: bool) -> String {
@@ -140,5 +206,20 @@ mod tests {
             certificate_recovery("/opt/katago contribute", "/opt/katago", true, false),
             "/opt/katago contribute"
         );
+    }
+
+    #[test]
+    fn a_custom_command_password_is_saved_as_a_marker_and_revealed_for_the_run() {
+        let command = "katago contribute -override-config \"username=a, password=x y,z\",\"password=p2\" password=p3 -x";
+        let (saved, values) = conceal_passwords(command);
+        assert_eq!(
+            saved,
+            "katago contribute -override-config \"username=a, password=******,z\",\"password=******\" password=****** -x"
+        );
+        assert_eq!(values, vec![Some("x y".into()), Some("p2".into()), Some("p3".into())]);
+        let stored: Vec<String> = values.into_iter().flatten().collect();
+        assert_eq!(reveal_passwords(&saved, &stored), command);
+        // Saving the shown command again keeps the stored values.
+        assert_eq!(conceal_passwords(&saved), (saved.clone(), vec![None, None, None]));
     }
 }

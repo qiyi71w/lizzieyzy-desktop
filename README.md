@@ -1122,7 +1122,9 @@ there. The first start is detected by the missing `config.json`; declining the i
 writes it. 跑谱贡献 runs KataGo in `contribution/` of the data directory (its downloaded models
 and finished-game SGFs stay there) and 保存所有棋谱 writes to `ContributeGames/<yyyy-MM-dd-HH>/`
 next to it. The training password is kept in the system credential storage like the keys above
-(for the current run only where none is available) and never in `config.json`.
+(for the current run only where none is available) and never in `config.json`; a `password=` value
+typed into the custom command is kept there too and saved as `password=******`, which the next start
+fills back in.
 
 ### Engine resource sources
 

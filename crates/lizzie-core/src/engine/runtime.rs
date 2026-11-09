@@ -2717,14 +2717,16 @@ impl Engines {
     /// [`Self::start_worker`] on the SSH host `ssh` when given (精析设置's 远程引擎,
     /// `AnalysisEngineSSHController`): the command runs there as written.
     pub fn start_worker_on(&mut self, command: &str, name: &str, ssh: Option<&SshSettings>) -> Result<InstanceId, String> {
-        self.start_worker_in_dir(command, name, ssh, None)
+        self.start_worker_in_dir(command, command, name, ssh, None)
     }
 
     /// [`Self::start_worker_on`] in the explicit working directory `working_dir` (a local
-    /// analysis process); a remote command runs there as written.
+    /// analysis process); a remote command runs there as written. The trace records `shown`,
+    /// the command as the caller lets it be seen (a secret already replaced).
     pub fn start_worker_in_dir(
         &mut self,
         command: &str,
+        shown: &str,
         name: &str,
         ssh: Option<&SshSettings>,
         working_dir: Option<&std::path::Path>,
@@ -2743,7 +2745,7 @@ impl Engines {
         };
         let id = self.next_instance;
         self.next_instance += 1;
-        self.trace(name, "--", &format!("start {command}"));
+        self.trace(name, "--", &format!("start {shown}"));
         let io = self.launcher.launch(id, &spec).map_err(|e| e.to_string())?;
         self.workers.push(Worker {
             id,

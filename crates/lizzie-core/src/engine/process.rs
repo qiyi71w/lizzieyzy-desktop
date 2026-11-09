@@ -150,15 +150,22 @@ impl Launcher for ProcessLauncher {
                 }
             })?;
         let sink = self.sink.clone();
+        // The exit is reported after the error output too, so its last lines (the reason a process
+        // stopped) precede it; a descendant still holding the stream only delays it by the grace.
+        let (drained, stderr_done) = mpsc::channel::<()>();
         std::thread::Builder::new()
             .name(format!("engine-{instance}-err"))
-            .spawn(move || read_lines(stderr, |l| sink(instance, EngineInput::Stderr(l))))?;
+            .spawn(move || {
+                read_lines(stderr, |l| sink(instance, EngineInput::Stderr(l)));
+                drop(drained);
+            })?;
         let sink = self.sink.clone();
         let waiter = child.clone();
         std::thread::Builder::new()
             .name(format!("engine-{instance}-out"))
             .spawn(move || {
                 read_lines(stdout, |l| sink(instance, EngineInput::Stdout(l)));
+                let _ = stderr_done.recv_timeout(QUIT_GRACE);
                 // Output closed: report the exit once the process is gone.
                 let deadline = Instant::now() + QUIT_GRACE;
                 loop {
@@ -226,5 +233,36 @@ impl EngineIo for ProcessIo {
 impl Drop for ProcessIo {
     fn drop(&mut self) {
         self.end();
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    /// The reason a process stopped is often its last error line; it must reach the consumer
+    /// before the exit, even when it is written after standard output closed.
+    #[test]
+    fn the_exit_follows_the_last_error_line() {
+        let (tx, rx) = mpsc::channel::<String>();
+        let tx = Mutex::new(tx);
+        let launcher = ProcessLauncher::new(Arc::new(move |_, input| {
+            let text = match input {
+                EngineInput::Stderr(line) => format!("err {line}"),
+                EngineInput::Exited(_) => "exited".to_string(),
+                _ => return,
+            };
+            let _ = tx.lock().unwrap().send(text);
+        }));
+        let spec = LaunchSpec {
+            program: "sh".into(),
+            args: vec!["-c".into(), "exec 1>&-; (sleep 0.3; echo reason >&2) & exit 0".into()],
+            ..LaunchSpec::default()
+        };
+        let io = launcher.launch(1, &spec).unwrap();
+        let first = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let second = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!((first.as_str(), second.as_str()), ("err reason", "exited"));
+        drop(io);
     }
 }

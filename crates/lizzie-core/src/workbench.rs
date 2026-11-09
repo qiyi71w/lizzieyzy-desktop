@@ -674,7 +674,11 @@ impl Workbench {
             return false;
         };
         let save = self.saves.remove(at);
-        if self.batch_save_finished(ticket, &result) || self.play_save_finished(ticket, &result) || self.match_save_finished(ticket, &result) {
+        if self.batch_save_finished(ticket, &result)
+            || self.play_save_finished(ticket, &result)
+            || self.match_save_finished(ticket, &result)
+            || self.contribution_save_finished(ticket, &result)
+        {
             return true;
         }
         let automatic = self.auto_analysis_save_finished(ticket, result.is_ok());

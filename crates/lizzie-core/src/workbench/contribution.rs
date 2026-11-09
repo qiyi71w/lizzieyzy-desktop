@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use super::Workbench;
+use super::{PendingSave, SaveJob, Workbench};
 use crate::api::{
     ApiError, CandidateView, Command, CommandResult, ContributionCommand, ContributionGameView,
     ContributionNotice, ContributionPhase, ContributionTip, ContributionView, EditCommand,
@@ -56,6 +56,9 @@ struct Session {
     unparsed: Vec<snapshot::Unparsed>,
     console_engine: String,
     engine_command: String,
+    /// `engine_command` with the password field written as `<redacted>`, built the same way: what
+    /// every surface shows, whatever characters the password has.
+    shown_command: String,
     pure_command: bool,
     remote: Option<SshSettings>,
     cwd: PathBuf,
@@ -95,6 +98,17 @@ pub(super) struct ContributionFlow {
     session: Option<Session>,
     notices: Vec<ContributionNotice>,
     next_id: u64,
+    /// Record writes for the application's serial writer.
+    jobs: Vec<SaveJob>,
+    /// Writes still running: their ticket, and the session and complete game each one marks saved.
+    saves: Vec<(u64, Option<(u64, usize)>)>,
+    /// 保存全部棋谱's folder, announced once its writes are done.
+    saved_folder: Option<String>,
+    /// Finished games' result files for the adapter to read off the lock.
+    reads: Vec<(u64, PathBuf)>,
+    /// Reads still running: their ticket, and the session and game whose result each one is.
+    waiting: Vec<(u64, u64, usize)>,
+    next_read: u64,
 }
 
 impl Default for ContributionFlow {
@@ -103,6 +117,12 @@ impl Default for ContributionFlow {
             session: None,
             notices: Vec::new(),
             next_id: 1,
+            jobs: Vec::new(),
+            saves: Vec::new(),
+            saved_folder: None,
+            reads: Vec::new(),
+            waiting: Vec::new(),
+            next_read: 1,
         }
     }
 }
@@ -137,19 +157,15 @@ fn safe_name(value: &str) -> String {
         .collect()
 }
 
-/// `SGFParser.getResult`: the first 20 characters after `RE[`, up to `]`; empty when unreadable.
-fn read_result(cwd: &Path, sgf: &str) -> String {
+/// Where `SGFParser.getResult` reads a finished game: the uploaded `sgf`, relative to the process's
+/// working directory.
+fn result_path(cwd: &Path, sgf: &str) -> PathBuf {
     let path = Path::new(sgf);
-    let path = if path.is_absolute() {
+    if path.is_absolute() {
         path.to_path_buf()
     } else {
         cwd.join(sgf.replace('\\', "/"))
-    };
-    let Ok(bytes) = std::fs::read(&path) else {
-        return String::new();
-    };
-    let text = String::from_utf8_lossy(&bytes);
-    snapshot::parse_result(&text)
+    }
 }
 
 impl ContributionFlow {
@@ -233,7 +249,10 @@ impl Workbench {
 
     pub fn contribution(&mut self, op: ContributionCommand) -> Result<CommandResult, ApiError> {
         match op {
-            ContributionCommand::SaveSettings { settings } => {
+            ContributionCommand::SaveSettings { mut settings } => {
+                // A password typed into the custom command is kept by the platform adapter
+                // (`conceal_passwords` before this); only the marker is ever saved.
+                settings.command = contribute_command::conceal_passwords(&settings.command).0;
                 if settings == self.config.contribution {
                     return Ok(CommandResult::Unchanged);
                 }
@@ -245,8 +264,8 @@ impl Workbench {
             | ContributionCommand::PasswordState { .. }
             | ContributionCommand::ChooseFile { .. }
             | ContributionCommand::OpenLink { .. } => Ok(CommandResult::Unchanged),
-            // The shell reads the stored password and calls `contribution_start`.
-            ContributionCommand::Start => self.contribution_start(None),
+            // The shell reads the stored passwords and calls `contribution_start`.
+            ContributionCommand::Start => self.contribution_start(None, &[]),
             ContributionCommand::PauseResume => Ok(self.contribution_pause_resume()),
             ContributionCommand::SlowQuit => Ok(self.contribution_slow_quit()),
             ContributionCommand::ForceQuit => Ok(self.contribution_force_quit()),
@@ -298,8 +317,13 @@ impl Workbench {
     }
 
     /// `LizzieFrame.startContributeEngine[Reserved]`: every refusal happens before anything is
-    /// changed.
-    pub fn contribution_start(&mut self, password: Option<String>) -> Result<CommandResult, ApiError> {
+    /// changed. `password` is the training password and `command_passwords` the values behind the
+    /// saved custom command's markers, both read by the platform adapter.
+    pub fn contribution_start(
+        &mut self,
+        password: Option<String>,
+        command_passwords: &[String],
+    ) -> Result<CommandResult, ApiError> {
         if self.benchmark_running() {
             return Ok(refused("Contribute.tips.blockedByKataGoTuning"));
         }
@@ -329,7 +353,7 @@ impl Workbench {
         {
             return Ok(refused("Contribute.tips.alreadyTraining"));
         }
-        let settings = self.config.contribution.clone();
+        let mut settings = self.config.contribution.clone();
         if settings.user_name.is_empty() {
             self.contribution.notices.push(ContributionNotice::OpenSettings {
                 key: "Contribute.tips.noUserName".into(),
@@ -344,18 +368,24 @@ impl Workbench {
             });
             return Ok(CommandResult::Done);
         }
-        if let crate::api::ContributionQualification::Managed {
-            status: crate::resources::CapabilityStatus::Unsupported,
-            ..
-        } = saved::qualification(&settings.engine_path, &self.storage.resources_dir)
-        {
-            return Ok(refused(RESOURCE_UNSUPPORTED));
+        // A custom command runs `command`, not the path field (§1.5: unknown, allowed).
+        if !settings.use_command {
+            if let crate::api::ContributionQualification::Managed {
+                status: crate::resources::CapabilityStatus::Unsupported,
+                ..
+            } = saved::qualification(&settings.engine_path, &self.storage.resources_dir)
+            {
+                return Ok(refused(RESOURCE_UNSUPPORTED));
+            }
         }
         // A previous ended session's window is replaced.
         if let Some(mut previous) = self.contribution.session.take() {
             self.contribution_restore_estimate(&mut previous);
         }
         self.shutdown_engines(EngineScope::All);
+        // EngineManager.isEmpty: the idle preloaded analysis process goes too.
+        self.warmup_stop();
+        self.quick_drop_warm();
         let size = self.doc.record.size;
         self.reopen_empty_board(size);
         let timestamp = chrono::Local::now().format("%Y-%m-%d-%H").to_string();
@@ -366,6 +396,8 @@ impl Workbench {
             .unwrap_or(Path::new("."))
             .join("contribution");
         let _ = std::fs::create_dir_all(&cwd);
+        let shown_command = sanitize(&contribute_command::build(&settings, password.as_ref().map(|_| "<redacted>")));
+        settings.command = contribute_command::reveal_passwords(&settings.command, command_passwords);
         let command = contribute_command::build(&settings, password.as_deref());
         let remote = (settings.use_command && settings.remote).then(|| settings.ssh.clone());
         let id = self.contribution.next_id;
@@ -386,6 +418,7 @@ impl Workbench {
             unparsed: Vec::new(),
             console_engine: CONSOLE_ENGINE.into(),
             engine_command: command,
+            shown_command,
             pure_command: settings.use_command && settings.use_pure_command,
             remote,
             cwd,
@@ -453,11 +486,13 @@ impl Workbench {
         session.version_seen = false;
         session.tip_key = "ContributeView.lblTip".into();
         let command = session.engine_command.clone();
+        let shown = session.shown_command.clone();
         let ssh = session.remote.clone();
         let cwd = session.cwd.clone();
         session.launch = Launch { worker: None };
         match self.engines.start_worker_in_dir(
             &command,
+            &shown,
             CONSOLE_ENGINE,
             ssh.as_ref(),
             Some(cwd.as_path()),
@@ -810,7 +845,7 @@ impl Workbench {
         }
         let file = sgf.rsplit(['/', '\\']).next().unwrap_or(sgf);
         let game_id = file.rsplit_once('.').map_or(file, |(stem, _)| stem);
-        let (current, result) = {
+        let read = {
             let Some(session) = self.contribution.session.as_mut() else {
                 return;
             };
@@ -819,23 +854,51 @@ impl Workbench {
             };
             session.games[index].complete = true;
             let current = session.watching == Some(index);
-            let result = if session.remote.is_none() {
-                read_result(&session.cwd, sgf)
-            } else {
-                String::new()
-            };
-            session.games[index].result = result.clone();
-            (current, result)
-        };
-        if current {
-            // Java writes the result into the board only when it rebuilds a finished game: one that
-            // finishes while watched keeps an empty `RE` and saves without its result. The result
-            // belongs to the record, so it is written here too.
-            if !result.is_empty() && self.doc.record.info.result != result {
-                let _ = self.edit_document(DocumentEdit::SetResult { result });
+            let read = session
+                .remote
+                .is_none()
+                .then(|| (session.id, index, result_path(&session.cwd, sgf)));
+            if current {
+                self.contribution_play_held_last();
             }
-            self.contribution_play_held_last();
+            read
+        };
+        if let Some((session, index, path)) = read {
+            let ticket = self.contribution.next_read;
+            self.contribution.next_read += 1;
+            self.contribution.reads.push((ticket, path));
+            self.contribution.waiting.push((ticket, session, index));
         }
+    }
+
+    /// Finished games' result files to read off the lock.
+    pub fn take_contribution_reads(&mut self) -> Vec<(u64, PathBuf)> {
+        std::mem::take(&mut self.contribution.reads)
+    }
+
+    /// Hands back a result file's text (`None` when unreadable: the result stays empty).
+    /// `SGFParser.getResult`: the first 20 characters after `RE[`, up to `]`. Returns `false` for
+    /// a read no session wants any more.
+    pub fn complete_contribution_read(&mut self, ticket: u64, text: Option<String>) -> bool {
+        let Some(at) = self.contribution.waiting.iter().position(|(t, _, _)| *t == ticket) else {
+            return false;
+        };
+        let (_, id, index) = self.contribution.waiting.remove(at);
+        let result = text.as_deref().map(snapshot::parse_result).unwrap_or_default();
+        let Some(session) = self.contribution.session.as_mut().filter(|session| session.id == id) else {
+            return false;
+        };
+        let Some(game) = session.games.get_mut(index) else {
+            return false;
+        };
+        game.result = result.clone();
+        // Java writes the result into the board only when it rebuilds a finished game: one that
+        // finishes while watched keeps an empty `RE` and saves without its result. The result
+        // belongs to the record, so it is written here too.
+        if session.watching == Some(index) && !result.is_empty() && self.doc.record.info.result != result {
+            let _ = self.edit_document(DocumentEdit::SetResult { result });
+        }
+        true
     }
 
     fn contribution_exited(&mut self, output: &[String], remote: Option<&RemoteFailure>) {
@@ -887,6 +950,12 @@ impl Workbench {
                         false,
                         session.pure_command,
                     );
+                    session.shown_command = contribute_command::certificate_recovery(
+                        &session.shown_command,
+                        &executable,
+                        false,
+                        session.pure_command,
+                    );
                 }
             }
             self.contribution_start_launch();
@@ -924,7 +993,7 @@ impl Workbench {
         };
         let failure = (!normal).then(|| EngineFailureView {
             engine_name: CONSOLE_ENGINE.into(),
-            command: sanitize(&session.engine_command),
+            command: session.shown_command.clone(),
             during_startup: session.games.is_empty(),
             message: sanitize(&message),
             output: session.output.clone(),
@@ -1124,11 +1193,14 @@ impl Workbench {
             if hold_last && index + 1 == moves.len() {
                 break;
             }
-            self.contribution_place(at, mv);
+            self.contribution_place(at, game, mv);
         }
     }
 
-    fn contribution_place(&mut self, at: NodeId, mv: &snapshot::Move) {
+    /// One move of `game`, under the game's own rules: its JSON `rules.suicide` decides whether a
+    /// multi-stone suicide stands (Java read the last engine's `canSuicidal`, which no longer
+    /// runs once the contribution started).
+    fn contribution_place(&mut self, at: NodeId, game: &snapshot::Game, mv: &snapshot::Move) {
         let color = if mv.black {
             Stone::Black
         } else {
@@ -1140,7 +1212,10 @@ impl Workbench {
                 color,
                 point,
                 alternate: false,
-                rules: self.play_rules(),
+                rules: crate::record::PlayRules {
+                    allow_suicide: game.rules.get("suicide").and_then(serde_json::Value::as_bool) == Some(true),
+                    no_capture: self.config.edit.no_capture,
+                },
             },
             None => DocumentEdit::Pass { at, color },
         };
@@ -1375,13 +1450,18 @@ impl Workbench {
             self.contribution_set_game(watching, false);
         }
         self.contribution_goto_move_number(move_number);
-        let folder = self.contribution_folder();
-        self.contribution.notices.push(ContributionNotice::Saved {
-            folder: folder.to_string_lossy().into_owned(),
-        });
+        let folder = self.contribution_folder().to_string_lossy().into_owned();
+        if self.contribution.saves.is_empty() {
+            self.contribution.notices.push(ContributionNotice::Saved { folder });
+        } else {
+            self.contribution.saved_folder = Some(folder);
+        }
         CommandResult::Done
     }
 
+    /// Queues game `index` (written into the document first) for the serial writer, in
+    /// `ContributeGames/<hour>/` (Java `mkdirs`); a complete game counts as saved unless the write
+    /// fails.
     fn contribution_save_game(&mut self, index: usize) {
         if self
             .contribution
@@ -1392,13 +1472,15 @@ impl Workbench {
         {
             self.contribution_set_game(index, true);
         }
-        let Some((game_id, complete)) = self
-            .contribution
-            .session
-            .as_ref()
-            .and_then(|session| session.games.get(index))
-            .map(|game| (game.id.clone(), game.complete))
-        else {
+        let Some((session_id, game_id, complete)) = self.contribution.session.as_mut().and_then(|session| {
+            let id = session.id;
+            session.games.get_mut(index).map(|game| {
+                if game.complete {
+                    game.saved = true;
+                }
+                (id, game.id.clone(), game.complete)
+            })
+        }) else {
             return;
         };
         let record = &self.doc.record;
@@ -1410,25 +1492,64 @@ impl Workbench {
             short_name(&record.info.white),
             record.info.result
         );
-        let folder = self.contribution_folder();
-        let path = folder.join(safe_name(&name));
+        let path = self.contribution_folder().join(safe_name(&name));
         let text = crate::formats::sgf_write::write(record, "LizzieYzy Tauri");
-        let written = std::fs::create_dir_all(&folder)
-            .and_then(|()| crate::formats::write_record_file(&path, &text));
-        if written.is_ok() && complete {
-            if let Some(session) = self.contribution.session.as_mut() {
-                if let Some(game) = session.games.get_mut(index) {
-                    game.saved = true;
+        let ticket = self.next_save;
+        self.next_save += 1;
+        self.saves.push(PendingSave {
+            ticket,
+            document: self.doc.id,
+            revision: 0,
+            path: path.to_string_lossy().into_owned(),
+            export: None,
+        });
+        self.contribution
+            .saves
+            .push((ticket, complete.then_some((session_id, index))));
+        self.contribution.jobs.push(SaveJob {
+            ticket,
+            path,
+            create_parent: true,
+            text,
+        });
+    }
+
+    pub(super) fn take_contribution_saves(&mut self) -> Vec<SaveJob> {
+        std::mem::take(&mut self.contribution.jobs)
+    }
+
+    /// A contribution record's write finished: a failed complete game may be saved again, and
+    /// 保存全部棋谱 is announced once its last write is done. Returns `false` for another save.
+    pub(super) fn contribution_save_finished(&mut self, ticket: u64, result: &Result<(), String>) -> bool {
+        let Some(at) = self.contribution.saves.iter().position(|(t, _)| *t == ticket) else {
+            return false;
+        };
+        let (_, game) = self.contribution.saves.remove(at);
+        if let Err(detail) = result {
+            self.log(true, format!("saving the contribution game failed: {detail}"));
+            if let (Some((id, index)), Some(session)) = (game, self.contribution.session.as_mut()) {
+                if session.id == id {
+                    if let Some(game) = session.games.get_mut(index) {
+                        game.saved = false;
+                    }
                 }
             }
         }
+        if self.contribution.saves.is_empty() {
+            if let Some(folder) = self.contribution.saved_folder.take() {
+                self.contribution.notices.push(ContributionNotice::Saved { folder });
+            }
+        }
+        true
     }
 
     // -------------------------------------------------------------------- watching clock
 
+    /// The watching thread (`startWatchingGameThread`) runs while the window exists: after a clean
+    /// end too; only 强制结束 (which removes the session) stops it.
     pub(super) fn contribution_deadline(&self) -> Option<Instant> {
         let session = self.contribution.session.as_ref()?;
-        if session.phase == ContributionPhase::Exited || !session.watch_started {
+        if !session.watch_started {
             return None;
         }
         Some(session.watch_tick + WATCH_INTERVAL)
@@ -1447,7 +1568,7 @@ impl Workbench {
             let Some(session) = self.contribution.session.as_mut() else {
                 return false;
             };
-            if session.phase == ContributionPhase::Exited || !session.watch_started {
+            if !session.watch_started {
                 return false;
             }
             let delta = now.saturating_duration_since(session.watch_tick);

@@ -487,6 +487,7 @@ impl Workbench {
         jobs.extend(self.take_batch_saves());
         jobs.extend(self.take_play_saves());
         jobs.extend(self.take_match_saves());
+        jobs.extend(self.take_contribution_saves());
         jobs
     }
 

@@ -103,9 +103,12 @@ async function settingsDialog(saved: ContributionSettings): Promise<void> {
   useCommand.input.dataset.key = "contribution.useCommand"; remote.input.dataset.key = "contribution.remote"; ignore.input.dataset.key = "contribution.usePureCommand";
   ownership.dataset.key = "contribution.showEstimate"; noRating.dataset.key = "contribution.disableRatingMatches"; autoSave.dataset.key = "contribution.autoSave";
 
+  // GetEngineLine.relativizePath: a chosen file goes into the command line quoted, so a path with
+  // spaces stays one argument (kept absolute: the contribution runs in its own folder).
+  const quoted = (path: string) => `"${path}"`;
   const browseEngine = button(t("ContributeSettings.btnScan"), async () => {
     const r = await contribution({ type: "ChooseFile", kind: "Engine", title: t("LizzieConfig.prompt.selectEngine") });
-    if (r?.type === "FileChosen") { enginePath.value = r.path; void qualify(); }
+    if (r?.type === "FileChosen") { enginePath.value = quoted(r.path); void qualify(); }
   });
   browseEngine.title = tip.engine; browseEngine.dataset.key = "contribution.browseEngine";
   const savedEngine = button(t("ContributeSettings.btnSavedEngine"), async () => {
@@ -118,7 +121,7 @@ async function settingsDialog(saved: ContributionSettings): Promise<void> {
   savedEngine.title = tip.savedEngine; savedEngine.setAttribute("aria-description", tip.savedEngine); savedEngine.dataset.key = "contribution.savedEngine";
   const browseConfig = button(t("ContributeSettings.btnScan"), async () => {
     const r = await contribution({ type: "ChooseFile", kind: "Config", title: t("MoreEngines.chooseConfig") });
-    if (r?.type === "FileChosen") configPath.value = r.path;
+    if (r?.type === "FileChosen") configPath.value = quoted(r.path);
   });
   browseConfig.title = tip.config; browseConfig.dataset.key = "contribution.browseConfig";
   // 远程引擎设置's 确定 keeps the connection at once and marks it used (RemoteEngineSettings.java:192-207).

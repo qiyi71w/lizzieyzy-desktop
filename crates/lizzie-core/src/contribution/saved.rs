@@ -263,9 +263,13 @@ impl NormalizeLexically for PathBuf {
 
 /// What this client knows about `engine_path`'s 跑谱贡献 capability: only an engine package this
 /// client installed is known; everything else is `Unknown` (never inferred from 官方 origin or
-/// analysis support).
+/// analysis support). The field is read as the command line reads it (a chooser or 已配置引擎
+/// path is quoted), so the program that would run is the one qualified.
 pub fn qualification(engine_path: &str, resources_dir: &Path) -> ContributionQualification {
-    let trimmed = engine_path.trim();
+    let Some(program) = crate::engine::gtp::split_command(engine_path.trim()).into_iter().next() else {
+        return ContributionQualification::Unknown;
+    };
+    let trimmed = program.as_str();
     if trimmed.is_empty() {
         return ContributionQualification::Unknown;
     }
