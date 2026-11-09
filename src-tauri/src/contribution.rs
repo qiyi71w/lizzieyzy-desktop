@@ -16,8 +16,8 @@ use crate::secrets::Store;
 use crate::{publish, State};
 
 const KIND: &str = "contribution-password";
-/// The values behind the saved custom command's `password=` markers, one per line.
-const COMMAND_KIND: &str = "contribution-command-passwords";
+/// The custom command as typed when it carries a password (its concealed form is what is saved).
+const COMMAND_KIND: &str = "contribution-command";
 const COMMAND_ACCOUNT: &str = "command";
 
 /// The training password and the custom command's passwords: system credential storage, or this
@@ -80,37 +80,26 @@ impl Adapter {
         }
     }
 
-    fn command_passwords(&self) -> Vec<String> {
+    fn kept_command(&self) -> Option<String> {
         let session = self.command_session.lock().unwrap().clone();
-        let text = session
+        session
             .or_else(|| self.store.read(COMMAND_KIND, COMMAND_ACCOUNT).ok().flatten())
-            .unwrap_or_default();
-        if text.is_empty() {
-            Vec::new()
-        } else {
-            text.split('\n').map(str::to_string).collect()
-        }
+            .filter(|command| !command.is_empty())
     }
 
-    /// Keeps the custom command's passwords (`values` from `conceal_passwords`: `None` keeps the
-    /// stored value at that position) so that only their markers are saved.
-    fn keep_command_passwords(&self, values: Vec<Option<String>>) {
-        let stored = self.command_passwords();
-        let kept: Vec<String> = values
-            .into_iter()
-            .enumerate()
-            .map(|(index, value)| value.or_else(|| stored.get(index).cloned()).unwrap_or_default())
-            .collect();
-        if kept == stored {
+    /// Keeps `typed` when saving it conceals a password, and forgets the kept command when it holds
+    /// none. Saving the concealed form already saved (`saved`) keeps what is kept.
+    fn keep_command(&self, typed: &str, saved: &str) {
+        if typed == saved {
             return;
         }
-        let text = kept.join("\n");
+        let concealed = lizzie_core::contribution::command::conceal_passwords(typed) != typed;
         let mut session = self.command_session.lock().unwrap();
         *session = None;
-        if text.is_empty() {
+        if !concealed {
             let _ = self.store.delete(COMMAND_KIND, COMMAND_ACCOUNT);
-        } else if self.store.write(COMMAND_KIND, COMMAND_ACCOUNT, &text).is_err() {
-            *session = Some(text);
+        } else if self.store.write(COMMAND_KIND, COMMAND_ACCOUNT, typed).is_err() {
+            *session = Some(typed.to_string());
         }
     }
 }
@@ -142,11 +131,10 @@ pub fn dispatch(
             state: adapter.state(&user),
         }),
         ContributionCommand::OpenLink { link } => open_link(app, link),
-        ContributionCommand::SaveSettings { mut settings } => {
+        ContributionCommand::SaveSettings { settings } => {
             // The credential storage can be slow; it is written without holding the workbench.
-            let (command, values) = lizzie_core::contribution::command::conceal_passwords(&settings.command);
-            adapter.keep_command_passwords(values);
-            settings.command = command;
+            let saved = shared.workbench.lock().unwrap().config().contribution.command.clone();
+            adapter.keep_command(&settings.command, &saved);
             let result = shared
                 .workbench
                 .lock()
@@ -159,12 +147,12 @@ pub fn dispatch(
             // The credential storage can be slow; it is read without holding the workbench.
             let user = shared.workbench.lock().unwrap().config().contribution.user_name.clone();
             let password = adapter.password(&user);
-            let command_passwords = adapter.command_passwords();
+            let kept = adapter.kept_command();
             let result = shared
                 .workbench
                 .lock()
                 .unwrap()
-                .contribution_start(password, &command_passwords)?;
+                .contribution_start(password, kept.as_deref())?;
             publish(app, shared);
             Ok(result)
         }

@@ -157,7 +157,7 @@ impl Fixture {
 
     fn start(&mut self) -> InstanceId {
         assert_eq!(
-            self.wb.contribution_start(Some("s3cret".into()), &[]).unwrap(),
+            self.wb.contribution_start(Some("s3cret".into()), None).unwrap(),
             CommandResult::Done
         );
         self.world.last().0
@@ -261,7 +261,7 @@ fn a_start_without_a_user_name_opens_the_settings_and_changes_nothing() {
     fixture.configure(settings);
     let before = fixture.view().document;
     assert_eq!(
-        fixture.wb.contribution_start(Some("x".into()), &[]).unwrap(),
+        fixture.wb.contribution_start(Some("x".into()), None).unwrap(),
         CommandResult::Done
     );
     let view = fixture.view();
@@ -280,7 +280,7 @@ fn a_start_without_an_engine_opens_the_settings_and_changes_nothing() {
     fixture.configure(Fixture::settings(""));
     let before = fixture.view().document;
     assert_eq!(
-        fixture.wb.contribution_start(None, &[]).unwrap(),
+        fixture.wb.contribution_start(None, None).unwrap(),
         CommandResult::Done
     );
     let view = fixture.view();
@@ -300,7 +300,7 @@ fn a_second_start_is_refused_while_the_first_runs() {
     let (id, _) = fixture.start_pair();
     let document = fixture.view().document.id;
     assert_eq!(
-        fixture.wb.contribution_start(None, &[]).unwrap(),
+        fixture.wb.contribution_start(None, None).unwrap(),
         CommandResult::Refused {
             message_key: "Contribute.tips.alreadyTraining".into()
         }
@@ -313,7 +313,7 @@ fn a_second_start_is_refused_while_the_first_runs() {
 impl Fixture {
     fn start_pair(&mut self) -> (InstanceId, Proc) {
         assert_eq!(
-            self.wb.contribution_start(Some("s3cret".into()), &[]).unwrap(),
+            self.wb.contribution_start(Some("s3cret".into()), None).unwrap(),
             CommandResult::Done
         );
         self.world.last()
@@ -496,8 +496,8 @@ fn a_finished_game_reads_its_result_from_the_working_directory() {
         "2022-03-14 09:00:41+0800: Finished game 1 (training), uploaded sgf \
          kata_contribute/kata1/sgfs/ABC123.sgf and training data x (1 rows)",
     );
-    // The result file is read off the workbench and handed back.
-    assert_eq!(fixture.contribution().game.unwrap().result, "");
+    // The result file is read off the workbench; the game is complete once its result is in.
+    assert_eq!(fixture.contribution().finished, 0);
     for (ticket, path) in fixture.wb.take_contribution_reads() {
         assert_eq!(path, sgf);
         assert!(fixture.wb.complete_contribution_read(ticket, std::fs::read_to_string(&path).ok()));
@@ -952,7 +952,7 @@ fn an_unsupported_package_is_refused_however_its_path_is_written_and_a_custom_co
     );
     fixture.configure(Fixture::settings(&path));
     assert_eq!(
-        fixture.wb.contribution_start(Some("s3cret".into()), &[]).unwrap(),
+        fixture.wb.contribution_start(Some("s3cret".into()), None).unwrap(),
         CommandResult::Refused { message_key: "contribution.resourceUnsupported".into() }
     );
     assert_eq!(fixture.world.launched(), 0);
@@ -961,7 +961,7 @@ fn an_unsupported_package_is_refused_however_its_path_is_written_and_a_custom_co
         command: "my-katago contribute".into(),
         ..Fixture::settings(&path)
     });
-    assert_eq!(fixture.wb.contribution_start(Some("s3cret".into()), &[]).unwrap(), CommandResult::Done);
+    assert_eq!(fixture.wb.contribution_start(Some("s3cret".into()), None).unwrap(), CommandResult::Done);
     assert_eq!(fixture.world.last().1.program, "my-katago");
 }
 
@@ -1004,6 +1004,7 @@ fn a_game_allowing_suicide_keeps_its_suicide_move() {
     std::fs::create_dir_all(sgf.parent().unwrap()).unwrap();
     std::fs::write(&sgf, "(;RE[W+R]SZ[9])").unwrap();
     fixture.stdout(id, "Finished game 1 (training), uploaded sgf kata_contribute/kata1/sgfs/s9.sgf and training data x");
+    deliver_reads(&mut fixture);
     let played = line_moves(&mut fixture.wb);
     assert_eq!(played.last(), Some(&(Stone::Black, Some(Point { x: 1, y: 8 }))), "{played:?}");
     let stones = fixture.view().position.stones;
@@ -1037,7 +1038,7 @@ fn the_kept_window_still_plays_after_a_clean_exit() {
 fn the_failure_window_masks_a_password_with_a_comma() {
     let mut fixture = Fixture::new();
     fixture.configure(Fixture::settings("/opt/katago"));
-    fixture.wb.contribution_start(Some("FIRSTSECRET,TAILSECRET".into()), &[]).unwrap();
+    fixture.wb.contribution_start(Some("FIRSTSECRET,TAILSECRET".into()), None).unwrap();
     let id = fixture.world.last().0;
     fixture.stdout(id, "Compile with -DBUILD_DISTRIBUTED=1");
     let view = fixture.view();
@@ -1047,28 +1048,105 @@ fn the_failure_window_masks_a_password_with_a_comma() {
 }
 
 /// A password typed into a custom command is kept like the training password: the saved setting,
-/// the configuration file and the projection carry a marker; the run gets the real value.
+/// the configuration file and the projection carry a marker; the run gets the command as typed.
 #[test]
 fn a_password_in_a_custom_command_is_never_saved() {
     let mut fixture = Fixture::new();
+    let typed = "katago contribute -override-config username=bob,password=\"UNIQUE SECRET\"";
     fixture.configure(ContributionSettings {
         use_command: true,
         use_pure_command: true,
-        command: "katago contribute -override-config \"username=bob,password=UNIQUE_SECRET\"".into(),
+        command: typed.into(),
         ..Fixture::settings("/opt/katago")
     });
     let saved = fixture.wb.config().contribution.command.clone();
-    assert_eq!(saved, "katago contribute -override-config \"username=bob,password=******\"");
-    assert!(!serde_json::to_string(&fixture.view()).unwrap().contains("UNIQUE_SECRET"));
+    assert_eq!(saved, "katago contribute -override-config username=bob,password=******");
+    assert!(!serde_json::to_string(&fixture.view()).unwrap().contains("SECRET"));
     for entry in std::fs::read_dir(fixture.dir.path().join("config")).unwrap() {
         let text = std::fs::read(entry.unwrap().path()).unwrap_or_default();
-        assert!(!String::from_utf8_lossy(&text).contains("UNIQUE_SECRET"));
+        assert!(!String::from_utf8_lossy(&text).contains("SECRET"));
     }
-    assert_eq!(
-        fixture.wb.contribution_start(None, &["UNIQUE_SECRET".into()]).unwrap(),
-        CommandResult::Done
-    );
+    assert_eq!(fixture.wb.contribution_start(None, Some(typed)).unwrap(), CommandResult::Done);
     let launched = &fixture.world.last().1;
-    assert_eq!(launched.args.last().unwrap(), "username=bob,password=UNIQUE_SECRET");
-    assert!(!serde_json::to_string(&fixture.view()).unwrap().contains("UNIQUE_SECRET"));
+    assert_eq!(launched.args.last().unwrap(), "username=bob,password=UNIQUE SECRET");
+    assert!(!serde_json::to_string(&fixture.view()).unwrap().contains("SECRET"));
+}
+
+/// Writes `game_id`'s finished record (result `B+R`) and reports it finished.
+fn finish(fixture: &mut Fixture, id: InstanceId, game_id: &str) {
+    let sgf = fixture
+        .dir
+        .path()
+        .join(format!("data/contribution/kata_contribute/kata1/sgfs/{game_id}.sgf"));
+    std::fs::create_dir_all(sgf.parent().unwrap()).unwrap();
+    std::fs::write(&sgf, "(;RE[B+R]SZ[19])").unwrap();
+    fixture.stdout(
+        id,
+        &format!("Finished game 1 (training), uploaded sgf kata_contribute/kata1/sgfs/{game_id}.sgf and training data x"),
+    );
+}
+
+fn deliver_reads(fixture: &mut Fixture) {
+    for (ticket, path) in fixture.wb.take_contribution_reads() {
+        fixture.wb.complete_contribution_read(ticket, std::fs::read_to_string(&path).ok());
+    }
+}
+
+/// A result read that comes back after the user opened another board (the contribution paused)
+/// completes the game but leaves that board alone.
+#[test]
+fn a_late_result_does_not_touch_a_board_opened_meanwhile() {
+    let mut fixture = Fixture::new();
+    fixture.configure(Fixture::settings("/opt/katago"));
+    let id = fixture.start();
+    fixture.stdout(id, &snapshot("A", json!([]), json!(["B", "Q16"]), 0.5, 0.5, None));
+    finish(&mut fixture, id, "A");
+    fixture.wb.contribution(ContributionCommand::PauseResume).unwrap();
+    fixture.wb.edit(EditCommand::ClearBoard).unwrap();
+    let board = serde_json::to_value(&fixture.view().document).unwrap();
+    deliver_reads(&mut fixture);
+    assert_eq!(serde_json::to_value(&fixture.view().document).unwrap(), board);
+    let game = fixture.contribution().game.unwrap();
+    assert!(game.complete);
+    assert_eq!(game.result, "B+R");
+}
+
+/// 自动保存 of a game opened while its result is still being read waits for the result: the
+/// file is named and written with it.
+#[test]
+fn an_automatic_save_waits_for_the_result() {
+    let mut fixture = Fixture::new();
+    fixture.configure(ContributionSettings {
+        auto_save: true,
+        ..Fixture::settings("/opt/katago")
+    });
+    let id = fixture.start();
+    fixture.stdout(id, &snapshot("A", json!([]), json!(["B", "Q16"]), 0.5, 0.5, None));
+    fixture.stdout(id, &snapshot("B", json!([]), json!(["B", "D4"]), 0.5, 0.5, None));
+    finish(&mut fixture, id, "B");
+    fixture.wb.contribution(ContributionCommand::WatchGame { index: 1 }).unwrap();
+    assert!(fixture.wb.take_background_saves().is_empty(), "nothing saved before the result");
+    deliver_reads(&mut fixture);
+    let jobs = fixture.wb.take_background_saves();
+    assert_eq!(jobs.len(), 1);
+    assert!(jobs[0].path.to_string_lossy().ends_with("(B+R).sgf"), "{:?}", jobs[0].path);
+    assert!(jobs[0].text.contains("RE[B+R]"));
+}
+
+/// 保存所有棋谱 whose write fails says so instead of naming the folder.
+#[test]
+fn a_failed_save_all_is_not_reported_as_saved() {
+    let mut fixture = Fixture::new();
+    fixture.configure(Fixture::settings("/opt/katago"));
+    let id = fixture.start();
+    fixture.stdout(id, &snapshot("A", json!([]), json!(["B", "Q16"]), 0.5, 0.5, None));
+    fixture.wb.contribution(ContributionCommand::SaveAllGames).unwrap();
+    for job in fixture.wb.take_background_saves() {
+        assert!(fixture.wb.complete_save(job.ticket, Err("disk full".into())));
+    }
+    let notices = fixture.view().contribution_notices;
+    assert!(!notices.iter().any(|n| matches!(n, ContributionNotice::Saved { .. })), "{notices:?}");
+    assert!(notices.contains(&ContributionNotice::Message {
+        key: "LizzieFrame.saveFileFailed".into()
+    }));
 }
