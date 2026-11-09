@@ -6,6 +6,7 @@ import type { Command, CommandResult, CommentLabels, ExportKind, Navigation, Sto
 import { ask, confirm, message } from "./dialogs";
 import { product, t } from "./i18n";
 import { tuningText } from "./engine/tuningText";
+import { contributionText } from "./contribution/text";
 
 export const APP_TITLE = "LizzieYzy Tauri";
 
@@ -116,7 +117,8 @@ export function run(command: Command): Promise<CommandResult | null> {
           "LizzieFrame.engineGameStopFirstHint": t("LizzieFrame.engineGameStopFirstHint"),
           "HumanSlGame.missingModelDownloadPrompt": t("HumanSlGame.missingModelDownloadPrompt"),
         };
-        const text = messages[result.message_key] ?? t(result.message_key);
+        // 跑谱贡献 refusals: Java keys and the product's unsupported-package text.
+        const text = messages[result.message_key] ?? contributionText(result.message_key);
         void message(t("Message.title"), text, "warning");
       }
       return result;

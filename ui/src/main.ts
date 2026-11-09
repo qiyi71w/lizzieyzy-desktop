@@ -40,6 +40,7 @@ import { frameReport, framesReport, handleTableKey, relayFrame, startFrame } fro
 import { handleHawkeyeKey, hawkeyeReport, relayHawkeye, startHawkeye } from "./hawkeye/commands";
 import { commentaryReport, relayCommentary, renderCommentPanel, startCommentary } from "./commentary/commands";
 import { batchReport, handleBatchKey, startBatchTable } from "./batch/commands";
+import { contributionReport } from "./contribution/window";
 import { bindCommentEditor, commentEditing } from "./editing/comment";
 import { contextMenuItems, contextMenuOpen } from "./editing/contextMenu";
 import { bindBoardInput, handleEditKey, pressBoard, releaseBoard } from "./editing/input";
@@ -898,7 +899,8 @@ function statusLines(): string[] {
   const fg = v?.engine.foreground;
   if (fg && v?.engine.engines[fg.index]?.state === "Loading") return [t("LizzieFrame.display.loading"), hint];
   return [
-    v?.engine.foreground?.name ?? t("LizzieFrame.noEngineText"),
+    // weightText: 跑谱贡献中 while the contribution runs (LizzieFrame.java:7548-7553).
+    v?.contribution?.active ? t("LizzieFrame.weightText.contributing") : (v?.engine.foreground?.name ?? t("LizzieFrame.noEngineText")),
     `${t("LizzieFrame.display.pondering")} ${v?.engine.analysing ? t("LizzieFrame.display.on") : t("LizzieFrame.display.off")}${t("LizzieFrame.display.space")}`,
     hint,
   ];
@@ -1399,6 +1401,8 @@ function uiReport() {
     strength: strengthReport(),
     /** AI 解说 (T26): whether its window is open and what it shows, settings dialog included. */
     commentary: commentaryReport(),
+    /** 跑谱贡献 (T36): the KataGo分布式训练 window as drawn, or null when it is closed. */
+    contribution: contributionReport(),
     /** Visible menu, toolbar, bottom-bar and dialog controls with client-area centres, so
      *  automation clicks the real controls. */
     targets: [...document.querySelectorAll<HTMLElement>("[data-key], [data-name], #moveInput, .modal-box button")]

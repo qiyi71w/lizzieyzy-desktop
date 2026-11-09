@@ -19,6 +19,7 @@ mod appearance;
 mod auto_analysis;
 mod batch;
 mod commentary;
+mod contribution;
 mod editing;
 mod exporting;
 mod flash;
@@ -283,6 +284,8 @@ pub struct Workbench {
     human_sl: humansl::HumanSlFlow,
     strength: strength::StrengthFlow,
     commentary: commentary::CommentaryFlow,
+    /// 跑谱贡献: the KataGo distributed-training session.
+    contribution: contribution::ContributionFlow,
 }
 
 impl Workbench {
@@ -405,6 +408,7 @@ impl Workbench {
             human_sl: humansl::HumanSlFlow::default(),
             strength: strength::StrengthFlow::default(),
             commentary: commentary::CommentaryFlow::default(),
+            contribution: contribution::ContributionFlow::default(),
         }
     }
 
@@ -952,6 +956,7 @@ impl Workbench {
         (v.game_outcome, v.game_notices, v.byoyomi_voices) = self.take_play_outcome();
         (v.match_outcome, v.match_notices, v.match_winrate_image) = self.take_match_outcome();
         v.human_sl_notices = self.take_human_sl_notices();
+        v.contribution_notices = self.take_contribution_notices();
         v.human_sl_continuation = self.take_human_sl_continuation();
         v.commentary.restore_question = self.take_commentary_restore();
         v
@@ -976,6 +981,7 @@ impl Workbench {
         (v.game_outcome, v.game_notices, v.byoyomi_voices) = self.play_outcome_copy();
         (v.match_outcome, v.match_notices, v.match_winrate_image) = self.match_outcome_copy();
         v.human_sl_notices = self.human_sl_notices();
+        v.contribution_notices = self.contribution_notices();
         v.human_sl_continuation = self.human_sl_continuation();
         v
     }
@@ -1084,7 +1090,7 @@ impl Workbench {
             strength: self.strength_view(),
             commentary: self.commentary_view(),
             human_sl_notices: Vec::new(),
-            contribution: None,
+            contribution: self.contribution_view(),
             contribution_notices: Vec::new(),
             human_sl_continuation: None,
             byoyomi_voices: Vec::new(),

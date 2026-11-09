@@ -191,6 +191,9 @@ pub enum RuntimeEvent {
     LeaseEnded { lease: u64, failure: Option<LeaseFailure> },
     /// One stdout line of an analysis process.
     WorkerLine { instance: InstanceId, line: String },
+    /// One stderr line of an analysis process whose consumer asked for stderr separately
+    /// ([`Engines::report_worker_stderr`]).
+    WorkerErrorLine { instance: InstanceId, line: String },
     /// A deferred analysis worker's fingerprint check and process launch completed.
     WorkerReady { instance: InstanceId },
     WorkerLaunchFailed { instance: InstanceId, message: String },
@@ -324,6 +327,8 @@ struct Worker {
     tail: VecDeque<String>,
     queued: Option<Vec<String>>,
     report_diagnostics: bool,
+    /// Report stderr as its own event (stdout and stderr stay distinguishable).
+    separate_stderr: bool,
     /// The SSH host it runs on (精析设置's 远程引擎).
     remote: Option<SshSettings>,
 }
@@ -2712,12 +2717,27 @@ impl Engines {
     /// [`Self::start_worker`] on the SSH host `ssh` when given (精析设置's 远程引擎,
     /// `AnalysisEngineSSHController`): the command runs there as written.
     pub fn start_worker_on(&mut self, command: &str, name: &str, ssh: Option<&SshSettings>) -> Result<InstanceId, String> {
+        self.start_worker_in_dir(command, name, ssh, None)
+    }
+
+    /// [`Self::start_worker_on`] in the explicit working directory `working_dir` (a local
+    /// analysis process); a remote command runs there as written.
+    pub fn start_worker_in_dir(
+        &mut self,
+        command: &str,
+        name: &str,
+        ssh: Option<&SshSettings>,
+        working_dir: Option<&std::path::Path>,
+    ) -> Result<InstanceId, String> {
         let spec = match ssh {
             Some(_) if command.trim().is_empty() => return Err("empty command".to_string()),
             Some(ssh) => gtp::LaunchSpec::remote(command, ssh),
             None => {
                 let mut spec = gtp::prepare_launch(command, &self.roots).ok_or_else(|| "empty command".to_string())?;
                 spec.library_dirs = self.library_dirs.clone();
+                if let Some(directory) = working_dir {
+                    spec.working_dir = Some(directory.to_path_buf());
+                }
                 spec
             }
         };
@@ -2732,6 +2752,7 @@ impl Engines {
             tail: VecDeque::new(),
             queued: None,
             report_diagnostics: false,
+            separate_stderr: false,
             remote: ssh.cloned(),
         });
         Ok(id)
@@ -2747,6 +2768,32 @@ impl Engines {
         if let Some(worker) = self.workers.iter_mut().find(|w| w.id == id) { worker.report_diagnostics = true; }
     }
 
+    /// Report `id`'s stderr as [`RuntimeEvent::WorkerErrorLine`] instead of folding it into the
+    /// diagnostics tail: a consumer that must tell the two streams apart.
+    pub fn report_worker_stderr(&mut self, id: InstanceId) {
+        if let Some(worker) = self.workers.iter_mut().find(|w| w.id == id) { worker.separate_stderr = true; }
+    }
+
+    /// Adds one console line under `engine` (a process that is not a GTP engine, e.g. 跑谱贡献).
+    pub fn push_console(&mut self, engine: &str, kind: ConsoleKind, text: String) {
+        self.console_push(engine.to_string(), kind, text);
+    }
+
+    /// Writes `line` to worker `id` and ends it through the ordinary terminate path (quit, the
+    /// grace period, then a kill); 跑谱贡献's 强制结束 sends `forcequit` this way.
+    pub fn send_line_then_terminate(&mut self, id: InstanceId, line: &str) {
+        let name = self.workers.iter_mut().find(|w| w.id == id).map(|worker| {
+            if let Some(io) = worker.io.as_mut() {
+                let _ = io.send(line);
+            }
+            worker.name.clone()
+        });
+        if let Some(name) = name {
+            self.trace(&name, ">>", line);
+        }
+        self.terminate(id);
+    }
+
     /// A whole-game process can defer its launch for an accepted measured-scene fingerprint
     /// check. JSON requests queue until the existing off-lock LaunchCheck returns.
     pub fn start_whole_game_worker(&mut self, command: &str, configured: &str, saved: Option<&EngineProfile>) -> Result<InstanceId, String> {
@@ -2758,7 +2805,7 @@ impl Engines {
         self.checks.push(LaunchCheck { instance: id, command: configured.into(), policy: policy.clone(),
             roots: self.roots.clone(), spec, apple: None, measured: Some(hardware.clone()),
             whole_game: saved.map(|p| p.command.clone()) });
-        self.workers.push(Worker { id, name: "整盘精析".into(), io: None, tail: VecDeque::new(), queued: Some(Vec::new()), report_diagnostics: false, remote: None });
+        self.workers.push(Worker { id, name: "整盘精析".into(), io: None, tail: VecDeque::new(), queued: Some(Vec::new()), report_diagnostics: false, separate_stderr: false, remote: None });
         Ok(id)
     }
 
@@ -2793,8 +2840,13 @@ impl Engines {
             EngineInput::Stderr(line) => {
                 push_tail(&mut w.tail, &line);
                 let report = w.report_diagnostics;
+                let separate = w.separate_stderr;
                 self.trace(&name, "!!", &line);
-                if report { events.push(RuntimeEvent::WorkerLine { instance: id, line }); }
+                if separate {
+                    events.push(RuntimeEvent::WorkerErrorLine { instance: id, line });
+                } else if report {
+                    events.push(RuntimeEvent::WorkerLine { instance: id, line });
+                }
             }
             EngineInput::Exited(code) => {
                 let message = match code {

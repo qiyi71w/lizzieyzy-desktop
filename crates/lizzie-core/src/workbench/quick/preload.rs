@@ -41,7 +41,7 @@ impl Workbench {
     /// analysis process starts now, once the foreground engine it depends on is ready, or not at
     /// all. Nothing happens with the setting off.
     pub fn preload_analysis_engine(&mut self) {
-        if !self.config.analysis_engine.preload {
+        if !self.config.analysis_engine.preload || self.contribution_session_exists() {
             return;
         }
         self.quick.warmup = Some(Warmup { doc: self.doc.id, sync_doc: None });
@@ -120,6 +120,7 @@ impl Workbench {
             && !self.whole_game_active()
             && !self.match_active()
             && !self.game_active()
+            && !self.contribution_session_exists()
     }
 
     /// The foreground engine searches or a stone is placed (`onMainEnginePonder`): unless a

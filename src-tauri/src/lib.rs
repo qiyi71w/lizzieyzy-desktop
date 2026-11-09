@@ -5,6 +5,7 @@
 mod acceptance;
 mod appearance;
 mod commentary;
+mod contribution;
 mod diagnostics;
 mod independent;
 mod logging;
@@ -25,8 +26,8 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use lizzie_core::api::{
-    ApiError, BatchCommand, BatchMode, Command, CommandResult, ConsoleLineView, ErrorKind, LogsStatus, OpenSource,
-    SshCredentialCommand, WorkbenchView,
+    ApiError, BatchCommand, BatchMode, Command, CommandResult, ConsoleLineView, ContributionCommand,
+    ErrorKind, LogsStatus, OpenSource, SshCredentialCommand, WorkbenchView,
 };
 use lizzie_core::engine::process::{ProcessLauncher, ProcessWaiter};
 use lizzie_core::formats;
@@ -964,8 +965,30 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
                 .await
                 .map_err(|_| ApiError::new(ErrorKind::Unavailable, "SSH credential worker stopped."))?
         }
-        // T36 core task replaces this placeholder with the contribution adapter (`contribution.rs`).
-        Command::Contribution { .. } => Ok(CommandResult::Unchanged),
+        Command::Contribution { op: ContributionCommand::ChooseFile { title, .. } } => {
+            let dialog = app.dialog().clone();
+            let picked = tauri::async_runtime::spawn_blocking(move || {
+                dialog.file().set_title(title).blocking_pick_file()
+            })
+            .await
+            .map_err(|e| ApiError::new(ErrorKind::Unavailable, e.to_string()))?;
+            Ok(match picked.and_then(|p| p.into_path().ok()) {
+                Some(path) => CommandResult::FileChosen {
+                    path: path.to_string_lossy().into_owned(),
+                },
+                None => CommandResult::Unchanged,
+            })
+        }
+        Command::Contribution { op } => {
+            let adapter = app.state::<Arc<contribution::Adapter>>().inner().clone();
+            let app = app.clone();
+            let shared = shared.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                contribution::dispatch(&app, &shared, &adapter, op)
+            })
+            .await
+            .map_err(|_| ApiError::new(ErrorKind::Unavailable, "Contribution worker stopped."))?
+        }
         Command::SetEditSettings { settings } => {
             let done = shared.workbench.lock().unwrap().set_edit_settings(settings)?;
             Ok(changed(&app, &shared, done))
@@ -1779,6 +1802,7 @@ pub fn run() {
             app.manage(commentary::Adapter::new(app.config().identifier.clone(), &config_dir, &data_dir));
             let ssh_adapter = ssh::Adapter::new(app.config().identifier.clone(), &config_dir);
             app.manage(ssh_adapter.clone());
+            app.manage(contribution::Adapter::new(app.config().identifier.clone(), &config_dir));
             let log = logging::Log::start(&storage.logs_dir);
             log.info(&format!(
                 "start {} {} on {}/{}",

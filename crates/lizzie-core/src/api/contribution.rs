@@ -135,7 +135,7 @@ pub enum ContributionNotice {
     /// `EngineGameInfo.engineGameEndHintKifuPos` + `folder`.
     Saved { folder: String },
     /// The contribution engine ended abnormally (`EngineFailedMessage` with 重启引擎).
-    Failed { failure: crate::api::EngineFailureView },
+    Failed { failure: Box<crate::api::EngineFailureView> },
 }
 
 /// `SavedEnginePathResolver.Kind`.

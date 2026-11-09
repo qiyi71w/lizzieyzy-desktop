@@ -49,8 +49,9 @@ function endedWindow(failure: EngineFailureView): void {
 
 /** EngineFailedMessage: the failure text, the launch command and 详细信息. A remote engine's
  *  failure takes SSHController's wording; a configured engine whose login or connection failed
- *  opens 更多引擎 afterwards (SSHController.java:38-54). */
-async function failureDialog(failure: EngineFailureView): Promise<void> {
+ *  opens 更多引擎 afterwards (SSHController.java:38-54). The 跑谱贡献 engine's failure also offers
+ *  重启引擎 (restartContribute, EngineFailedMessage.java:331-340). */
+async function failureDialog(failure: EngineFailureView, restartContribution = false): Promise<void> {
   const body = document.createElement("div"); body.className = "engine-failure";
   const text = failure.remote ? remoteFailureText(failure.remote) : failure.message;
   const summary = document.createElement("pre"); summary.textContent = `${failure.engine_name}: ${text}`;
@@ -81,9 +82,22 @@ async function failureDialog(failure: EngineFailureView): Promise<void> {
     trust.dataset.key = "engine.failure.trustHostKey";
     actions(body, trust);
   }
+  if (restartContribution) {
+    const restart = button(t("EngineFailedMessage.btnRestart"), async () => {
+      await dialog.close();
+      await run({ type: "Contribution", op: { type: "Start" } });
+    });
+    restart.dataset.key = "engine.failure.restartContribution";
+    actions(body, restart);
+  }
   actions(body, button(t("EngineFailedMessage.details"), () => details(failure, error)), button(product("close"), () => dialog.close()));
   await dialog.closed;
   if (index >= 0 && (remote?.type === "Authentication" || remote?.type === "Connect" || remote?.type === "PasswordMissing")) await openMoreEngines();
+}
+
+/** The 跑谱贡献 engine ended abnormally: the failure window with 重启引擎, queued with the others. */
+export function contributionFailure(failure: EngineFailureView): void {
+  failures = failures.then(() => failureDialog(failure, true));
 }
 
 let notice: HTMLElement | null = null;

@@ -61,7 +61,8 @@ impl Workbench {
             && !f.held
             && proven
             && !self.setup_mode()
-            && !self.match_active();
+            && !self.match_active()
+            && !self.contribution_session_exists();
         if admitted {
             self.restart.due = Some(f.profile_id.clone());
         }

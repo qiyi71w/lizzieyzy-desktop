@@ -11,8 +11,9 @@ import { highlight } from "../search/highlight";
 import { buildAiCoachButton } from "../humansl/commands";
 import { buildCommentaryButton } from "../commentary/commands";
 
-/** Java defaults for conditional menus (Config.java: show-quick-links false, show-Contribute true;
- *  the secondary engine menu needs double-engine mode; ReadBoard is Windows only). */
+/** Java defaults for conditional menus (Config.java: show-quick-links false; show-Contribute is
+ *  settings.contribution.showMenu, true by default; the secondary engine menu needs double-engine
+ *  mode; ReadBoard is Windows only). */
 function visible(when: string | undefined): boolean {
   switch (when) {
     case undefined:
@@ -25,7 +26,7 @@ function visible(when: string | undefined): boolean {
     case "javaLooks":
       return !navigator.userAgent.includes("Windows");
     case "contribute":
-      return true;
+      return state.view?.settings.contribution.showMenu ?? true;
     // Menu.setEngineMenuone2status: the secondary engine menu shows in 双引擎模式 only.
     case "doubleEngine":
       return state.view?.settings.extra_mode === "DoubleEngine";
@@ -246,8 +247,9 @@ const tops = new Map<TopMenu, { top: HTMLElement; open: () => void }>();
 export function buildMenubar(host: HTMLElement): void {
   const measure = document.createElement("canvas").getContext("2d")!;
   for (const menu of JAVA_MENUS) {
-    // The secondary engine menu follows the layout mode; it is built hidden.
-    if (menu.when !== "doubleEngine" && !visible(menu.when)) continue;
+    // The secondary engine menu follows the layout mode and 跑谱贡献 设置 > 显示跑谱贡献菜单; both are
+    // built and shown or hidden as the view changes (contributeMenu.setVisible).
+    if (menu.when !== "doubleEngine" && menu.when !== "contribute" && !visible(menu.when)) continue;
     if (menu.key === "Menu.aiCoach") {
       // AI 陪练 is a button on the menu bar (Menu.java:5699-5732), its label following the session.
       host.append(buildAiCoachButton());
@@ -266,6 +268,14 @@ export function buildMenubar(host: HTMLElement): void {
     // MenuButton: text width plus EmptyBorder(5, 10, 5, 10) (WindowMenuStrip.java:295)
     measure.font = getComputedStyle(top).font;
     top.style.width = `${Math.ceil(measure.measureText(top.textContent).width) + 20}px`;
+    if (menu.when === "contribute") {
+      const update = () => {
+        const shown = visible(menu.when);
+        top.style.display = shown ? "" : "none";
+        if (!shown && openMenu === top) closeMenus();
+      };
+      subscribe(update); update();
+    }
     if (menu.key === "Menu.noEngine") {
       // The engine menus' titles (Menu.java:10419, EngineManager.reStartEngine2): "[n]: name" of the
       // foreground engine, or of the secondary engine on 双引擎模式's menu, else Menu.noEngine.
@@ -282,7 +292,9 @@ export function buildMenubar(host: HTMLElement): void {
         // menu icons, so Playing2 / ready2 are not visible there; java-ref-ui j08a, j09a).
         const match = secondary ? null : state.view?.engine_match;
         top.classList.toggle("match-off", !!match);
-        const text = match ? t("EngineManager.engineGamePlaying") : engine ? `[${engine.index + 1}]: ${engine.name}` : t("Menu.noEngine");
+        // 跑谱贡献中 while the contribution runs (ContributeEngine.java:175, 716).
+        const contributing = !secondary && !!state.view?.contribution?.active;
+        const text = match ? t("EngineManager.engineGamePlaying") : contributing ? t("Contribute.engineMenu.contributing") : engine ? `[${engine.index + 1}]: ${engine.name}` : t("Menu.noEngine");
         if (top.firstChild?.textContent === text) return;
         if (top.firstChild?.nodeType === Node.TEXT_NODE) top.firstChild.textContent = text;
         else top.prepend(document.createTextNode(text));

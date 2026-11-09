@@ -15,6 +15,8 @@ import { openRules } from "./engine/rules";
 import { openAnalysisSettings } from "./engine/settings";
 import { openAutoSetup } from "./setup/dialog";
 import "./engine/events";
+import { openContributionSettings } from "./contribution/settings";
+import "./contribution/window";
 
 export interface CommandEntry {
   run: () => void;
@@ -116,6 +118,14 @@ export const COMMANDS: Record<string, CommandEntry> = {
     },
   },
   "product.javaImport": { run: () => openJavaImport() },
+  // 设置 > 显示跑谱贡献菜单 and the 跑谱贡献 menu (Menu.java:5558-5575, 5636-5680).
+  "menu.showContribute": {
+    run: () => run({ type: "Contribution", op: { type: "SetShowMenu", enabled: !(state.view?.settings.contribution.showMenu ?? true) } }),
+    checked: () => state.view?.settings.contribution.showMenu ?? true,
+  },
+  "menu.kataGoDistributedTraining": { run: () => run({ type: "Contribution", op: { type: "Start" } }) },
+  "menu.kataGoTrainingSettings": { run: () => void openContributionSettings() },
+  "menu.kataGoOfficialWebsite": { run: () => run({ type: "Contribution", op: { type: "OpenLink", link: "OfficialWebsite" } }) },
   "menu.language.default": language("System"),
   简体中文: language("ZhCn"),
   繁體中文: language("ZhTw"),

@@ -872,7 +872,7 @@ importing the matching LizzieYzy Next settings.
   Windows the NVIDIA page installs the CUDA 12.8 / cuDNN 9 / TensorRT 10.9 runtime from NVIDIA
   after confirming (drivers are never installed). The official online weight list
   (katagotraining.org) can be refreshed; a failed refresh keeps the previous list. Selected-move
-  focus is not supported by these releases; contribution is not provided or verified here.
+  focus is not supported by these releases.
   Network access follows Settings > 网络代理 (direct by default, system, or a manual HTTP proxy).
 - Engine performance: MoreEngines has Java's thread policy (CFG uses the engine's config file;
   Benchmark uses the measured recommendation and sends `kata-set-param numSearchThreads` at start),
@@ -886,6 +886,23 @@ importing the matching LizzieYzy Next settings.
   reports can be reviewed, applied and restored; they and Apple Silicon tuning apply only while
   the content of the engine, model and config still matches, which is checked before the engine
   starts without blocking the window. Apple Silicon deep tuning is experimental and asks first.
+- 跑谱贡献 (KataGo distributed training, the 跑谱贡献 menu; Settings > 显示跑谱贡献菜单 hides it):
+  KataGo跑谱贡献设置 keeps Java's fields (engine path, optional config, custom command with the
+  Java SSH remote, user name, password, simultaneous games, ownership, no rating games, auto save)
+  and 已配置引擎… fills the path from a saved engine. The line under the fields says what this
+  client knows: an official package it installed shows its catalog status (a package marked
+  unsupported, the Windows DirectML and OpenVINO builds, cannot be started; the others are not
+  verified by this client against the training server); any other engine or command is unknown
+  and still allowed. 开始跑谱贡献! starts `katago contribute` with Java's command line (the
+  password is masked wherever the command is shown) after closing the analysis engines and
+  opening a new empty board. The KataGo分布式训练 window shows the console, the tip, the watched
+  game (type, komi, result, rules) and Java's game/move navigation, auto play, 暂停/恢复,
+  顺序结束(延迟), 强制结束(立刻) and 保存所有棋谱. While it runs the board cannot be edited and
+  other engine work is refused; while paused both are free again. A crash restarts it up to three
+  times (a missing CA bundle adds KataGo's `cacert.pem` once); a build without distributed
+  support or one the server rejects stops at once with the engine failure window and 重启引擎.
+  A KataGo older than the server accepts is stopped with a link to the releases page. Closing the
+  application stops the contribution process.
 
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
 as not yet available (greyed in menus; a notice when used). Not available yet: the other layout
@@ -1102,7 +1119,10 @@ remembers are DPAPI-encrypted under `secure-credentials/` in the configuration d
 macOS and Linux use the Keychain and Secret Service. LizzieYzy Next keeps its own
 `config.txt` and `persist` elsewhere (for example `~/.lizzieyzy-next/`); this client never writes
 there. The first start is detected by the missing `config.json`; declining the import offer
-writes it.
+writes it. 跑谱贡献 runs KataGo in `contribution/` of the data directory (its downloaded models
+and finished-game SGFs stay there) and 保存所有棋谱 writes to `ContributeGames/<yyyy-MM-dd-HH>/`
+next to it. The training password is kept in the system credential storage like the keys above
+(for the current run only where none is available) and never in `config.json`.
 
 ### Engine resource sources
 
@@ -1128,8 +1148,8 @@ come from NVIDIA's redistributable archives: CUDA 12.8, cuDNN 9.8.0, NVRTC 12.8.
 10.9.0.34 are pinned, with license files kept next to the installed libraries.
 
 Analysis is supported. Selected-move focus is not supported by these releases. Official
-non-ONNX builds include upstream distributed support, but this app does not verify contribution
-eligibility or provide a contribution flow here; DirectML and OpenVINO builds do not support it.
+non-ONNX builds include upstream distributed support and are offered to 跑谱贡献 as not verified
+by this client; DirectML and OpenVINO builds do not support it and cannot be started there.
 Models remain the b11 network from katagotraining.org (KataGo Neural Network License) and the
 two b10 networks from the KataGo v1.17.1 release; the HumanSL network `b18c384nbt-humanv0` from
 katagotraining.org's extra models is pinned for AI 陪练 only. License references are shown per asset; official

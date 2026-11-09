@@ -388,6 +388,7 @@ impl Workbench {
     /// them, so a read still in flight starts nothing. The platform adapter waits for the
     /// processes outside the workbench lock.
     pub fn end_engines(&mut self) {
+        self.contribution_end_for_exit();
         self.batch_shutdown();
         self.shutdown_strength();
         self.engines.terminate_all();
@@ -1249,6 +1250,7 @@ impl Workbench {
             self.match_deadline(),
             self.human_sl_deadline(),
             self.strength_deadline(),
+            self.contribution_deadline(),
         ]
             .into_iter()
             .flatten()
@@ -1267,7 +1269,8 @@ impl Workbench {
         let matches = self.match_tick(now);
         let human_sl = self.human_sl_tick(now);
         let strength = self.strength_tick(now);
-        engines | quick | whole | tracking | play | matches | human_sl | strength
+        let contribution = self.contribution_tick(now);
+        engines | quick | whole | tracking | play | matches | human_sl | strength | contribution
     }
 
     /// Handles runtime events produced by operations outside engine output.
@@ -1281,7 +1284,8 @@ impl Workbench {
         for ev in events {
             changed = true;
             let Some(ev) = self
-                .match_event(ev)
+                .contribution_event(ev)
+                .and_then(|ev| self.match_event(ev))
                 .and_then(|ev| self.play_event(ev))
                 .and_then(|ev| self.human_sl_event(ev))
                 .and_then(|ev| self.strength_event(ev))
