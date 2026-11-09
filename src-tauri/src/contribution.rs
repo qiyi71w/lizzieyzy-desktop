@@ -87,19 +87,22 @@ impl Adapter {
             .filter(|command| !command.is_empty())
     }
 
-    /// Keeps `typed` when saving it conceals a password, and forgets the kept command when it holds
-    /// none. Saving the concealed form already saved (`saved`) keeps what is kept.
-    fn keep_command(&self, typed: &str, saved: &str) {
-        if typed == saved {
+    /// Keeps the custom command as typed when saving conceals a password in it, the passwords still
+    /// written as saved taken from the command kept before; forgets it when it holds none.
+    fn keep_command(&self, typed: &str) {
+        use lizzie_core::contribution::command::{conceal_passwords, fill_passwords};
+        let kept = self.kept_command();
+        let command = fill_passwords(typed, kept.as_deref());
+        if kept.as_deref() == Some(command.as_str()) {
             return;
         }
-        let concealed = lizzie_core::contribution::command::conceal_passwords(typed) != typed;
+        let concealed = conceal_passwords(&command) != command;
         let mut session = self.command_session.lock().unwrap();
         *session = None;
         if !concealed {
             let _ = self.store.delete(COMMAND_KIND, COMMAND_ACCOUNT);
-        } else if self.store.write(COMMAND_KIND, COMMAND_ACCOUNT, typed).is_err() {
-            *session = Some(typed.to_string());
+        } else if self.store.write(COMMAND_KIND, COMMAND_ACCOUNT, &command).is_err() {
+            *session = Some(command);
         }
     }
 }
@@ -133,8 +136,7 @@ pub fn dispatch(
         ContributionCommand::OpenLink { link } => open_link(app, link),
         ContributionCommand::SaveSettings { settings } => {
             // The credential storage can be slow; it is written without holding the workbench.
-            let saved = shared.workbench.lock().unwrap().config().contribution.command.clone();
-            adapter.keep_command(&settings.command, &saved);
+            adapter.keep_command(&settings.command);
             let result = shared
                 .workbench
                 .lock()

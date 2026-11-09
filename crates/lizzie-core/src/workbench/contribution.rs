@@ -56,6 +56,9 @@ struct Session {
     unparsed: Vec<snapshot::Unparsed>,
     console_engine: String,
     engine_command: String,
+    /// The document the watched game was last written into: a later result or held move only
+    /// goes there, never into a record the user opened meanwhile.
+    board: u64,
     /// `engine_command` with the password field written as `<redacted>`, built the same way: what
     /// every surface shows, whatever characters the password has.
     shown_command: String,
@@ -111,6 +114,8 @@ pub(super) struct ContributionFlow {
     /// Result reads still running.
     waiting: Vec<PendingRead>,
     next_read: u64,
+    /// 保存所有棋谱 of this session waits for the results being read.
+    save_all_waiting: Option<u64>,
 }
 
 /// A finished game whose result file is being read: until it is back the game is not complete.
@@ -118,8 +123,6 @@ struct PendingRead {
     ticket: u64,
     session: u64,
     game: usize,
-    /// The document open when the game finished: only that one gets its last move and result.
-    document: u64,
     /// 自动保存 asked for the game meanwhile; it is saved once its result is in.
     save: bool,
 }
@@ -137,6 +140,7 @@ impl Default for ContributionFlow {
             reads: Vec::new(),
             waiting: Vec::new(),
             next_read: 1,
+            save_all_waiting: None,
         }
     }
 }
@@ -411,7 +415,7 @@ impl Workbench {
             .join("contribution");
         let _ = std::fs::create_dir_all(&cwd);
         let shown_command = sanitize(&contribute_command::build(&settings, password.as_ref().map(|_| "<redacted>")));
-        settings.command = contribute_command::command_to_run(&settings.command, kept_command);
+        settings.command = contribute_command::fill_passwords(&settings.command, kept_command);
         let command = contribute_command::build(&settings, password.as_deref());
         let remote = (settings.use_command && settings.remote).then(|| settings.ssh.clone());
         let id = self.contribution.next_id;
@@ -432,6 +436,7 @@ impl Workbench {
             unparsed: Vec::new(),
             console_engine: CONSOLE_ENGINE.into(),
             engine_command: command,
+            board: self.doc.id,
             shown_command,
             pure_command: settings.use_command && settings.use_pure_command,
             remote,
@@ -871,7 +876,6 @@ impl Workbench {
                     ticket: self.contribution.next_read,
                     session: session.id,
                     game: index,
-                    document: self.doc.id,
                     save: false,
                 };
                 (read, result_path(&session.cwd, sgf))
@@ -887,14 +891,15 @@ impl Workbench {
                 self.contribution.waiting.push(read);
             }
             // A remote game's file is on the host: no result (Java `useJavaSSH`).
-            None => self.contribution_game_complete(index, String::new(), true, false),
+            None => self.contribution_game_complete(index, String::new(), false),
         }
     }
 
-    /// Game `index` is complete with `result`. When watched on the document it was played into
-    /// (`on_board`), the held last move is played and the result written; `save` is an automatic
-    /// save that waited for the result.
-    fn contribution_game_complete(&mut self, index: usize, result: String, on_board: bool, save: bool) {
+    /// Game `index` is complete with `result`. On the contribution's own board a watched game gets
+    /// its held last move and result; `save` is an automatic save that waited for the result. A
+    /// record the user opened meanwhile is left alone: the game shows (and saves) when next opened.
+    fn contribution_game_complete(&mut self, index: usize, result: String, save: bool) {
+        let document = self.doc.id;
         let Some(session) = self.contribution.session.as_mut() else {
             return;
         };
@@ -903,7 +908,21 @@ impl Workbench {
         };
         game.complete = true;
         game.result = result.clone();
-        if !on_board || session.watching != Some(index) {
+        if session.board != document {
+            return;
+        }
+        let Some(watching) = session.watching else {
+            return;
+        };
+        if watching != index {
+            if save {
+                // The game was opened and left before its result came: saved like 保存所有棋谱
+                // saves it, back on the watched game afterwards.
+                let move_number = self.doc.record.node(self.cursor).move_number;
+                self.contribution_save_game(index);
+                self.contribution_set_game(watching, false);
+                self.contribution_goto_move_number(move_number);
+            }
             return;
         }
         self.contribution_play_held_last();
@@ -924,8 +943,7 @@ impl Workbench {
     }
 
     /// Hands back a result file's text (`None` when unreadable: the result stays empty).
-    /// `SGFParser.getResult`: the first 20 characters after `RE[`, up to `]`. The board is only
-    /// touched while it is still the document the game was played into. Returns `false` for a
+    /// `SGFParser.getResult`: the first 20 characters after `RE[`, up to `]`. Returns `false` for a
     /// read no session wants any more.
     pub fn complete_contribution_read(&mut self, ticket: u64, text: Option<String>) -> bool {
         let Some(at) = self.contribution.waiting.iter().position(|read| read.ticket == ticket) else {
@@ -936,7 +954,12 @@ impl Workbench {
             return false;
         }
         let result = text.as_deref().map(snapshot::parse_result).unwrap_or_default();
-        self.contribution_game_complete(read.game, result, read.document == self.doc.id, read.save);
+        self.contribution_game_complete(read.game, result, read.save);
+        let reading = self.contribution.waiting.iter().any(|other| other.session == read.session);
+        if !reading && self.contribution.save_all_waiting == Some(read.session) {
+            self.contribution.save_all_waiting = None;
+            self.contribution_save_all();
+        }
         true
     }
 
@@ -1134,8 +1157,13 @@ impl Workbench {
             .and_then(|session| session.watching);
         let remain = self.contribution_remain(&game);
         let same = previous == Some(index) && remain.is_some();
+        let document = self.doc.id;
         if let Some(session) = self.contribution.session.as_mut() {
             session.watching = Some(index);
+            if same {
+                // The open record is this game's: it goes on being written here.
+                session.board = document;
+            }
         }
         if same {
             let remain = remain.unwrap_or_default();
@@ -1150,12 +1178,14 @@ impl Workbench {
         self.contribution_rebuild(&game);
         let document = self.doc.id;
         let auto_save = !save_game && self.config.contribution.auto_save && !game.saved;
-        let session = self.contribution.session.as_ref().map(|session| session.id);
+        let Some(session) = self.contribution.session.as_mut() else {
+            return;
+        };
+        session.board = document;
+        let session = session.id;
         for read in &mut self.contribution.waiting {
-            if Some(read.session) == session && read.game == index {
-                // The game is now on this document; a save waits for its result (it is not
-                // complete until then).
-                read.document = document;
+            if read.session == session && read.game == index {
+                // A save waits for the result (the game is not complete until then).
                 read.save |= auto_save;
             }
         }
@@ -1485,6 +1515,11 @@ impl Workbench {
         };
         if session.games.is_empty() {
             return refused("Contribute.tips.noGameToSave");
+        }
+        // Java reads a finished game's result before anything can save it.
+        if self.contribution.waiting.iter().any(|read| read.session == session.id) {
+            self.contribution.save_all_waiting = Some(session.id);
+            return CommandResult::Done;
         }
         let total = session.games.len();
         let move_number = self.doc.record.node(self.cursor).move_number;

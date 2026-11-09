@@ -59,23 +59,46 @@ pub fn build(settings: &ContributionSettings, password: Option<&str>) -> String 
 /// settings projection.
 pub const SAVED_PASSWORD: &str = "******";
 
-/// The `(start, end)` byte range of each `password=` value in `command`, read with the quoting of
-/// [`crate::engine::gtp::split_command`] (`'…'`, `"…"`, joined runs): the value ends at a `,`
-/// (KataGo splits override values there), at the quote closing a run it started in, or at
-/// whitespace outside quotes.
-fn password_values(command: &str) -> Vec<(usize, usize)> {
-    #[derive(Clone, Copy, PartialEq)]
-    enum Quote {
-        None,
-        Single,
-        Double,
+#[derive(Clone, Copy, PartialEq)]
+enum Quote {
+    None,
+    Single,
+    Double,
+}
+
+impl Quote {
+    /// [`crate::engine::gtp::split_command`]'s quoting: `'…'` and `"…"`, each literal inside the
+    /// other.
+    fn after(self, c: char) -> Quote {
+        match (self, c) {
+            (Quote::None, '\'') => Quote::Single,
+            (Quote::None, '"') => Quote::Double,
+            (Quote::Single, '\'') | (Quote::Double, '"') => Quote::None,
+            (quote, _) => quote,
+        }
     }
-    let next = |quote: Quote, c: char| match (quote, c) {
-        (Quote::None, '\'') => Quote::Single,
-        (Quote::None, '"') => Quote::Double,
-        (Quote::Single, '\'') | (Quote::Double, '"') => Quote::None,
-        (quote, _) => quote,
-    };
+
+    fn mark(self) -> &'static str {
+        match self {
+            Quote::None => "",
+            Quote::Single => "'",
+            Quote::Double => "\"",
+        }
+    }
+}
+
+/// One `password=` value as the command line is split: its byte range, and what replaces it when
+/// saved (`None` for an empty value).
+struct Value {
+    start: usize,
+    end: usize,
+    concealed: Option<String>,
+}
+
+/// Each `password=` value of `command`. A value runs, across quoted and joined runs, up to a `,`
+/// (KataGo splits override values there) or whitespace outside quotes; its concealed form keeps
+/// the quotes the rest of the line relies on.
+fn password_values(command: &str) -> Vec<Value> {
     const KEY: &str = "password=";
     let mut values = Vec::new();
     let mut quote = Quote::None;
@@ -83,52 +106,72 @@ fn password_values(command: &str) -> Vec<(usize, usize)> {
     while at < command.len() {
         if command[at..].starts_with(KEY) {
             let start = at + KEY.len();
-            let outer = quote;
+            let opened = quote;
             let mut end = command.len();
+            let mut text = false;
             for (offset, c) in command[start..].char_indices() {
-                let after = next(quote, c);
-                let closes_outer = outer != Quote::None && quote == outer && after == Quote::None;
-                if c == ',' || closes_outer || (quote == Quote::None && c.is_whitespace()) {
+                if c == ',' || (quote == Quote::None && c.is_whitespace()) {
                     end = start + offset;
                     break;
                 }
+                let after = quote.after(c);
+                text |= after == quote;
                 quote = after;
             }
-            values.push((start, end));
+            let concealed = text.then(|| {
+                let mut concealed = SAVED_PASSWORD.to_string();
+                if quote != opened {
+                    concealed.push_str(opened.mark());
+                    concealed.push_str(quote.mark());
+                }
+                concealed
+            });
+            values.push(Value { start, end, concealed });
             at = end;
             continue;
         }
         let Some(c) = command[at..].chars().next() else { break };
-        quote = next(quote, c);
+        quote = quote.after(c);
         at += c.len_utf8();
     }
     values
 }
 
-/// `command` as it is saved and shown: each non-empty `password=` value replaced by
+/// `command` as it is saved and shown: each non-empty `password=` value written as
 /// [`SAVED_PASSWORD`].
 pub fn conceal_passwords(command: &str) -> String {
     let mut saved = String::with_capacity(command.len());
     let mut last = 0;
-    for (start, end) in password_values(command) {
-        if start == end {
-            continue;
-        }
-        saved.push_str(&command[last..start]);
-        saved.push_str(SAVED_PASSWORD);
-        last = end;
+    for value in password_values(command) {
+        let Some(concealed) = value.concealed else { continue };
+        saved.push_str(&command[last..value.start]);
+        saved.push_str(&concealed);
+        last = value.end;
     }
     saved.push_str(&command[last..]);
     saved
 }
 
-/// The custom command to run: the one the adapter kept as typed (`kept`) when it is what the saved
-/// `command` conceals, otherwise the saved command itself.
-pub fn command_to_run(command: &str, kept: Option<&str>) -> String {
-    match kept {
-        Some(kept) if conceal_passwords(kept) == command => kept.to_string(),
-        _ => command.to_string(),
+/// `command` (saved, or edited from the saved one) with each password still written as it was
+/// saved taken back, by position, from `kept` (the command as typed before): the rest of the line
+/// is `command`'s own.
+pub fn fill_passwords(command: &str, kept: Option<&str>) -> String {
+    let Some(kept) = kept else {
+        return command.to_string();
+    };
+    let kept_values = password_values(kept);
+    let mut filled = String::with_capacity(command.len());
+    let mut last = 0;
+    for (value, old) in password_values(command).into_iter().zip(&kept_values) {
+        if old.concealed.as_deref() != Some(&command[value.start..value.end]) {
+            continue;
+        }
+        filled.push_str(&command[last..value.start]);
+        filled.push_str(&kept[old.start..old.end]);
+        last = value.end;
     }
+    filled.push_str(&command[last..]);
+    filled
 }
 
 /// `ContributeEngine.certificateRecoveryCommand`: append KataGo's bundled CA file, resolved
@@ -229,12 +272,20 @@ mod tests {
             ("k -override-config username=bob,password=\"TOP SECRET\"", "k -override-config username=bob,password=******"),
             ("k -override-config 'username=alice,password=TOP SECRET'", "k -override-config 'username=alice,password=******'"),
             ("k -override-config \"username=a,password=\"", "k -override-config \"username=a,password=\""),
+            ("k -override-config \"username=b,password=HEAD\"TAIL", "k -override-config \"username=b,password=******\""),
+            ("k -override-config \"username=c,password=TOP\"' SECRET' -x", "k -override-config \"username=c,password=******\" -x"),
+            ("k -override-config \"username=d,password=a,b\"", "k -override-config \"username=d,password=******,b\""),
         ];
         for (typed, saved) in cases {
             assert_eq!(conceal_passwords(typed), saved);
-            assert_eq!(command_to_run(saved, Some(typed)), typed);
+            assert_eq!(fill_passwords(saved, Some(typed)), typed);
         }
-        // A saved command edited since the typed one was kept runs as saved.
-        assert_eq!(command_to_run("k password=******", Some("k password=old -x")), "k password=******");
+        // Editing the rest of the saved line keeps the password; a password typed anew replaces it.
+        let kept = Some("k -override-config \"username=b,password=HEAD\"TAIL");
+        assert_eq!(
+            fill_passwords("k -override-config \"username=b,password=******\" -x", kept),
+            "k -override-config \"username=b,password=HEAD\"TAIL -x"
+        );
+        assert_eq!(fill_passwords("k password=new", Some("k password=old")), "k password=new");
     }
 }
