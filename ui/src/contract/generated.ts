@@ -116,7 +116,7 @@ autoCheckEngineAlive: boolean, };
 
 export type EngineScope = "Current" | "Others" | "All";
 
-export type Command = { "type": "CloudAccount", op: CloudCommand, owner: number, } | { "type": "CloudActivate", settings: CloudSettings, confirmed: boolean, } | { "type": "CloudLocal" } | { "type": "CloudCancel" } | { "type": "CloudCancelRequest", owner: number, } | { "type": "CloudImportQr" } | { "type": "OpenCloudLink", custom: boolean, } | { "type": "Strength", op: StrengthCommand, } | { "type": "Commentary", op: CommentaryCommand, } | { "type": "ReadBoard", op: ReadBoardCommand, } | { "type": "CommentaryConnection", op: ConnectionCommand, } | { "type": "SshCredential", op: SshCredentialCommand, } | { "type": "Contribution", op: ContributionCommand, } | { "type": "SetAppearanceSettings", settings: AppearanceSettings, theme: ThemeSettings, } | { "type": "SetFrameFontSize", size: number, } | { "type": "AddTheme", name: string, } | { "type": "DeleteTheme", name: string, } | { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SetExtraMode", mode: ExtraMode, } | { "type": "SetClassicMode" } | { "type": "ToggleIndependentBoard", board: IndependentBoard, } | { "type": "CloseIndependentBoard", board: IndependentBoard, } | { "type": "CommitLayout", mode: ExtraMode, panels: PanelSettings, board_position_proportion: number, save_slot: number | null, window: WindowPlacement | null, } | { "type": "ApplyCustomLayout", slot: number, } | { "type": "SwitchSecondaryEngine", index: number, } | { "type": "RestartSecondaryEngine" } | { "type": "ShutdownSecondaryEngine" } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, 
+export type Command = { "type": "CloudAccount", op: CloudCommand, owner: number, } | { "type": "CloudActivate", settings: CloudSettings, confirmed: boolean, } | { "type": "CloudLocal" } | { "type": "CloudCancel" } | { "type": "CloudCancelRequest", owner: number, } | { "type": "CloudImportQr" } | { "type": "OpenCloudLink", custom: boolean, } | { "type": "Strength", op: StrengthCommand, } | { "type": "Commentary", op: CommentaryCommand, } | { "type": "ReadBoard", op: ReadBoardCommand, } | { "type": "CommentaryConnection", op: ConnectionCommand, } | { "type": "FoxKifu", op: FoxKifuCommand, } | { "type": "TencentKifu", op: TencentKifuCommand, } | { "type": "SshCredential", op: SshCredentialCommand, } | { "type": "Contribution", op: ContributionCommand, } | { "type": "SetAppearanceSettings", settings: AppearanceSettings, theme: ThemeSettings, } | { "type": "SetFrameFontSize", size: number, } | { "type": "AddTheme", name: string, } | { "type": "DeleteTheme", name: string, } | { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SetExtraMode", mode: ExtraMode, } | { "type": "SetClassicMode" } | { "type": "ToggleIndependentBoard", board: IndependentBoard, } | { "type": "CloseIndependentBoard", board: IndependentBoard, } | { "type": "CommitLayout", mode: ExtraMode, panels: PanelSettings, board_position_proportion: number, save_slot: number | null, window: WindowPlacement | null, } | { "type": "ApplyCustomLayout", slot: number, } | { "type": "SwitchSecondaryEngine", index: number, } | { "type": "RestartSecondaryEngine" } | { "type": "ShutdownSecondaryEngine" } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, 
 /**
  * Separate, unchecked-by-default consent for Java's commentary API key.
  */
@@ -653,7 +653,15 @@ game_outcome: GameOutcomeView | null,
 /**
  * 人机对弈 messages, once each, in order.
  */
-game_notices: Array<GameNotice>, engine_match: MatchView | null, match_outcome: MatchOutcomeView | null, match_notices: Array<MatchNotice>, match_winrate_image: MatchWinrateImageRequest | null, human_sl: HumanSlView | null, strength: StrengthView, commentary: CommentaryView, human_sl_notices: Array<HumanSlNotice>, 
+game_notices: Array<GameNotice>, engine_match: MatchView | null, match_outcome: MatchOutcomeView | null, match_notices: Array<MatchNotice>, match_winrate_image: MatchWinrateImageRequest | null, human_sl: HumanSlView | null, strength: StrengthView, commentary: CommentaryView, 
+/**
+ * 野狐棋谱 window.
+ */
+fox_kifu: FoxKifuView, 
+/**
+ * 腾讯棋谱 window.
+ */
+tencent_kifu: TencentKifuView, human_sl_notices: Array<HumanSlNotice>, 
 /**
  * 跑谱贡献 session, until its window is closed after it ended.
  */
@@ -706,7 +714,7 @@ export type ImportStatus = "Imported" | "Incompatible" | "NotMigrated";
 
 export type ImportReason = "NotYetAvailable" | "Credential" | "InvalidValue" | "WindowCoordinates" | "CredentialNotConfirmed" | "SessionOnly" | "Unreadable" | "NotChosen" | "Obsolete";
 
-export type ImportTarget = "Appearance" | "Commentary" | "Cloud" | "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "NoSoundInSync" | "ReadBoardStatSync" | "ReadBoardGetFocus" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "AutoCheckEngineAlive" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode" | "WorkbenchPanels" | "PanelSizes" | "BottomToolbar" | "AutoQuickAnalysis" | "AnalysisEngine" | "QuickModel" | "HumanSlTraining" | "HumanSlModel" | "StrengthBackground" | "StrengthModels" | "Tsumego" | "CaptureTsumego" | "ProblemList" | "FlashRange" | "AutoAnalysis" | "HumanEngineGame" | "GameAiTime" | "GameRandomStart" | "AutoPlay" | "EngineMatch" | "WholeGameVisits" | "AnalysisRegion" | "Tracking" | "Hawkeye";
+export type ImportTarget = "Appearance" | "Commentary" | "Cloud" | "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "NoSoundInSync" | "ReadBoardStatSync" | "ReadBoardGetFocus" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "AutoCheckEngineAlive" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode" | "WorkbenchPanels" | "PanelSizes" | "BottomToolbar" | "AutoQuickAnalysis" | "AnalysisEngine" | "QuickModel" | "HumanSlTraining" | "HumanSlModel" | "StrengthBackground" | "StrengthModels" | "Tsumego" | "CaptureTsumego" | "ProblemList" | "FlashRange" | "AutoAnalysis" | "HumanEngineGame" | "GameAiTime" | "GameRandomStart" | "AutoPlay" | "EngineMatch" | "WholeGameVisits" | "AnalysisRegion" | "Tracking" | "Hawkeye" | "FoxKifu" | "TencentKifu";
 
 export type ImportItemView = { 
 /**
@@ -2305,6 +2313,138 @@ export type CommentaryStatus = { key: string, args: Array<string>, tone: Comment
 export type CommentaryTone = "Neutral" | "Running" | "Success" | "Warning" | "Error";
 
 export type CommentaryOutputState = "Empty" | "Loading" | "Output";
+
+export type FoxKifuCommand = { "type": "Open" } | { "type": "Search", text: string, by_uid: boolean, nickname_hint: string, } | { "type": "Page", to: KifuPage, } | { "type": "OpenGame", chessid: string, } | { "type": "SetAfterGet", action: KifuAfterGet, } | { "type": "ClearRecent" };
+
+export type KifuPage = "First" | "Previous" | "Next" | "Last";
+
+export type FoxKifuView = { 
+/**
+ * Starts each search (and the window's first state): the account field and 查询方式 show
+ * `last_name` / `last_query_by_uid` again then.
+ */
+search: number, last_name: string, last_query_by_uid: boolean, after_get: KifuAfterGet, 
+/**
+ * 近期搜索, newest first.
+ */
+recent: Array<FoxRecentSearch>, 
+/**
+ * 当前野狐账号; both empty: 等待搜索.
+ */
+nickname: string, uid: string, 
+/**
+ * The table's rows (the shown page). A new search keeps the previous rows until its games
+ * arrive.
+ */
+rows: Array<FoxKifuRow>, 
+/**
+ * A list exists: the page buttons work.
+ */
+listed: boolean, 
+/**
+ * The page label `page/pages`, with `...` while more games may exist.
+ */
+page: number, pages: number, complete: boolean, 
+/**
+ * The progress overlay over the window (blocks the window's mouse input).
+ */
+busy: FoxKifuBusy | null, 
+/**
+ * The table is disabled while a record downloads and opens.
+ */
+loading: boolean, 
+/**
+ * The latest message box, by increasing id.
+ */
+notice: KifuNotice | null, 
+/**
+ * Counts records opened from this window: after each, 打开棋谱后此窗口 applies and the main
+ * window comes forward.
+ */
+opened: number, };
+
+export type FoxKifuRow = { index: number, time: string, black_name: string | null, black_uid: string, black_rank: number, white_name: string | null, white_uid: string, white_rank: number, winner: number, point: number, rule: number, moves: number, 
+/**
+ * The searched account won (red text).
+ */
+won: boolean, chessid: string, };
+
+export type FoxKifuBusy = { "type": "Searching", text: string, } | { "type": "Downloading" } | { "type": "Opening" };
+
+export type KifuNotice = { id: number, 
+/**
+ * The Java message key; a `getKifuFailed` key is followed by `detail`.
+ */
+message_key: string, detail: string, };
+
+export type KifuAfterGet = "Minimize" | "Close" | "Keep";
+
+export type FoxRecentSearch = { uid: string, nickname: string, };
+
+export type TencentKifuCommand = { "type": "Open" } | { "type": "Search", text: string, } | { "type": "Page", to: KifuPage, } | { "type": "OpenGame", chessid: string, } | { "type": "SetAfterGet", action: KifuAfterGet, } | { "type": "ClearRecent" };
+
+export type TencentKifuView = { 
+/**
+ * Starts each search (and the window's first state): the nickname / UID field shows
+ * `last_name` again then.
+ */
+search: number, last_name: string, 
+/**
+ * 打开棋谱后此窗口: the window's own choice, else 野狐棋谱's.
+ */
+after_get: KifuAfterGet, 
+/**
+ * 近期搜索, newest first.
+ */
+recent: Array<TencentRecentSearch>, 
+/**
+ * 当前腾讯查询; empty: 等待搜索.
+ */
+query: string, 
+/**
+ * The table's rows (the shown page). A new search keeps the previous rows until its games
+ * arrive.
+ */
+rows: Array<TencentKifuRow>, 
+/**
+ * A list exists: the page buttons work.
+ */
+listed: boolean, 
+/**
+ * The page label `page/pages`, with `...` while more games may exist.
+ */
+page: number, pages: number, complete: boolean, 
+/**
+ * The progress overlay over the window (blocks the window's mouse input).
+ */
+busy: TencentKifuBusy | null, 
+/**
+ * The table is disabled while a record downloads and opens.
+ */
+loading: boolean, 
+/**
+ * The latest message box, by increasing id.
+ */
+notice: KifuNotice | null, 
+/**
+ * Counts records opened from this window: after each, 打开棋谱后此窗口 applies and the main
+ * window comes forward.
+ */
+opened: number, };
+
+export type TencentKifuRow = { index: number, 
+/**
+ * `starttime`; when empty, `start_seconds` (Unix seconds, 0 none) in local time.
+ */
+time: string, start_seconds: number, black_name: string | null, black_uid: string, black_rank: number, white_name: string | null, white_uid: string, white_rank: number, winner: number, point: number, rule: number, moves: number, 
+/**
+ * The searched player won (red text).
+ */
+won: boolean, chessid: string, };
+
+export type TencentKifuBusy = { "type": "Searching", text: string, } | { "type": "LoadingMore" } | { "type": "Downloading" } | { "type": "Opening" };
+
+export type TencentRecentSearch = { uid: string, query: string, };
 
 export type FunctionMatch = { id: string, level: MatchLevel, title: string, description: string, category: string, target: FunctionTarget, path: Array<string>, shortcut: string, section: SettingsSection | null, };
 

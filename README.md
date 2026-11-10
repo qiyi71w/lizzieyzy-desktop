@@ -77,6 +77,45 @@ importing the matching LizzieYzy Next settings.
   without its exit save, the next start keeps the newest periodic save as the automatic slot.
   With 启动时自动恢复 on, a start without a record to open resumes the automatic slot at the end
   of its main line. Slots live in this program's data folder (`save/`), never in Java's.
+- 野狐棋谱 (同步 menu, the toolbar's 野狐棋谱 button or the bottom bar's 同步 popup) opens Java's
+  search window; opening it also lets 启动Lizzie时预加载引擎 start the analysis process, as in Java.
+  Search a Fox account by 昵称 or UID (搜索 or `Enter`); 当前野狐账号 and up to eight 近期搜索
+  buttons (a saved UID searches by UID; 清空历史 asks first) show the account. The table lists 25
+  public games per page with Java's columns, the account's wins in red; `|<` `<` `>` `>|` page
+  through them, and on the last page (or the one before it, once there are four) the next Fox
+  list is fetched, until 没有更多棋谱. 打开 or a double click downloads a game behind a progress
+  overlay; it opens through the ordinary open path as a new unsaved record without a file of its
+  own (saving asks for a name), and 打开棋谱后此窗口 then minimizes, hides or keeps the window. An
+  unknown account, a network error or an unreadable game shows Java's message and keeps the
+  current record. Closing the window or `Escape` hides it with its list. The window uses only
+  Fox's public read-only queries, follows Settings > 网络代理, tries each request up to three
+  times, and never writes the account or Fox's replies to the log. Downloaded SGF is corrected
+  like Java (Fox's windowed variation tree is merged back) before the ordinary SGF reader reads
+  it. The searched account, 查询方式, 打开棋谱后此窗口 and 近期搜索 are kept in the settings and
+  imported from LizzieYzy Next; Help > 清除所有个人数据 also clears 近期搜索. Unlike Java, a failed
+  list page does not end a game download that is running. Fox's list currently ignores its paging
+  cursor, so the next list repeats the newest games (Java sends the same request).
+- 腾讯棋谱 (同步 menu or the toolbar's 腾讯棋谱 button) opens Java's Tencent Weiqi search window,
+  laid out like 野狐棋谱; opening it also lets 启动Lizzie时预加载引擎 start the analysis process.
+  Enter a Tencent Weiqi nickname or numeric UID (搜索 or `Enter`; an all-digit text is also sent
+  as the UID); 当前腾讯查询 and up to eight 近期搜索 buttons (清空历史 asks first) show the query.
+  The table lists 25 games per page with Java's columns (time, players with their UIDs, ranks,
+  result, moves), the searched player's wins in red, and the last pages fetch the next Tencent
+  list behind a 正在加载更多腾讯棋谱 card until 没有更多棋谱. 打开 or a double click downloads a
+  game; it opens through the ordinary open path as a new unsaved record without a file of its
+  own, with every variation and comment the service sends. As in Java, the record's KM is not
+  taken as the komi (Tencent writes komi × 100) unless the game starts from setup or handicap,
+  so the current komi stays. 打开棋谱后此窗口 minimizes, hides or keeps the window; until chosen
+  here it is 野狐棋谱's choice at the time the window is first opened in this run. A network
+  error, a service error or an unreadable game shows Java's message and keeps the current
+  record; an empty record reply or a successful reply without a list or record is reported as a
+  failure instead of leaving the window waiting as Java did, and a failed list
+  can be asked for again. The window uses only Tencent's public read-only queries, follows
+  Settings > 网络代理, tries each request up to three times and never logs the query or the
+  replies. The last query, 打开棋谱后此窗口 and 近期搜索 are kept in the settings and imported from
+  LizzieYzy Next; as in Java, 清除所有个人数据 does not clear them. The service currently answers
+  nicknames (including a player's English name) but returns no games for a numeric UID, and
+  shows a resignation as a 0-point win (Java shows the same).
 - Editing, at the Java entries (Edit and Game menus, the top edit and markup buttons, the bottom
   bar, board clicks, the two board context menus and the Java keys):
   - A board click plays the side to play (交替落子) or, with 添加黑子 / 添加白子, that colour
@@ -123,8 +162,8 @@ importing the matching LizzieYzy Next settings.
   (启用双击找子, 启用拖动棋子, 显示清空棋盘提示对话框, 标记工具, 五子棋无提子规则). A setting that
   cannot be saved is reported and left unchanged.
 - Help > 诊断与日志 shows this client's logs, opens the log folder and exports a diagnostics zip;
-  Help > 清除所有个人数据 clears the recent-record list; View > 重置界面位置 resets the saved
-  window placement and last folder and turns the overwrite prompt back on.
+  Help > 清除所有个人数据 clears the recent-record list and 野狐棋谱's 近期搜索; View > 重置界面位置
+  resets the saved window placement and last folder and turns the overwrite prompt back on.
 - 搜索功能 (the top toolbar button, or `Ctrl+K`, `⌘K` on macOS, with no other modifier) opens a
   search bar centred over the window; it is refused while a text field has the focus (the key
   stays with the field and its input method) and while a dialog, menu or context menu is open.

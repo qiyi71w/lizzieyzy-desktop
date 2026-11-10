@@ -8,13 +8,16 @@ mod batch;
 mod contribution;
 mod editing;
 mod export;
+mod fox_kifu;
 mod hawkeye;
 mod humansl;
 mod humansl_settings;
+mod kifu_list;
 mod matches;
 mod readboard;
 mod recovery;
 mod resources;
+mod tencent_kifu;
 mod tuning;
 
 use serde::{Deserialize, Serialize};
@@ -24,13 +27,16 @@ pub use contribution::*;
 pub use batch::*;
 pub use editing::*;
 pub use export::*;
+pub use fox_kifu::*;
 pub use hawkeye::*;
 pub use humansl::*;
 pub use humansl_settings::*;
+pub use kifu_list::*;
 pub use matches::*;
 pub use readboard::*;
 pub use recovery::*;
 pub use resources::*;
+pub use tencent_kifu::*;
 pub use tuning::*;
 pub use crate::strength::{StrengthModelView, StrengthReport, StrengthSideReport, StrengthSegment, StrengthSummary, StrengthSample, StrengthConfidence, StrengthMoveCategory};
 
@@ -110,6 +116,10 @@ pub enum Command {
     /// 棋盘同步工具 (Windows).
     ReadBoard { op: ReadBoardCommand },
     CommentaryConnection { op: ConnectionCommand },
+    /// 野狐棋谱 window.
+    FoxKifu { op: FoxKifuCommand },
+    /// 腾讯棋谱 window.
+    TencentKifu { op: TencentKifuCommand },
     /// SSH passwords and trusted host keys of remote engines: kept by the platform adapter, never
     /// in the settings.
     SshCredential { op: SshCredentialCommand },
@@ -1344,6 +1354,10 @@ pub struct WorkbenchView {
     pub human_sl: Option<HumanSlView>,
     pub strength: StrengthView,
     pub commentary: CommentaryView,
+    /// 野狐棋谱 window.
+    pub fox_kifu: FoxKifuView,
+    /// 腾讯棋谱 window.
+    pub tencent_kifu: TencentKifuView,
     pub human_sl_notices: Vec<HumanSlNotice>,
     /// 跑谱贡献 session, until its window is closed after it ended.
     pub contribution: Option<ContributionView>,
@@ -1600,6 +1614,11 @@ pub enum ImportTarget {
     /// `game-statistics-custom-start`, `game-statistics-custom-end`, `winrate-diff-range1/2`,
     /// `score-diff-range1/2`, `loss-panel-select-winrate`.
     Hawkeye,
+    /// 野狐棋谱: `ui.last-fox-name`, `last-fox-query-by-uid`, `fox-after-get`,
+    /// `fox-recent-searches`.
+    FoxKifu,
+    /// 腾讯棋谱: `ui.last-tencent-name`, `tencent-after-get`, `tencent-recent-searches`.
+    TencentKifu,
 }
 
 /// A problem found with an imported engine without starting it.

@@ -24,6 +24,7 @@ mod contribution;
 mod editing;
 mod exporting;
 mod flash;
+mod fox_kifu;
 mod hawkeye;
 mod importing;
 mod information;
@@ -39,6 +40,7 @@ mod recovery;
 mod resources;
 mod restart;
 mod search;
+mod tencent_kifu;
 mod tsumego;
 mod tuning;
 mod whole_game;
@@ -51,6 +53,8 @@ pub use analysis::LogLine;
 pub use editing::{NOT_SQUARE, SETUP_ENGINE_RUNNING, SETUP_MODE_ROOT_ONLY, SETUP_ROOT_ONLY};
 pub use flash::ANALYSIS_COMMAND_MISSING;
 pub use readboard::ReadBoardInstall;
+pub use fox_kifu::FoxKifuJob;
+pub use tencent_kifu::TencentKifuJob;
 pub use importing::{IMPORT_NEEDS_REPLACE, IMPORT_STALE};
 pub use recovery::RecoveryStep;
 pub use resources::{prepare_resource_setup, run_resource_job, ResourceCompletion, ResourceJob};
@@ -148,6 +152,8 @@ pub enum OpenOrigin {
         source: OpenSource,
     },
     Clipboard,
+    /// A record downloaded by 野狐棋谱 or 腾讯棋谱 (`loadDownloadedSgfString`): no file of its own.
+    Downloaded(KifuSource),
     /// A 存档与读档 slot (`loadFile(file, fromTemp = true)`): the record gets no file of its own and
     /// the recent list and last folder stay; `name` is the slot file shown in the title.
     Recovery {
@@ -155,6 +161,13 @@ pub enum OpenOrigin {
         name: String,
         position: SlotPosition,
     },
+}
+
+/// The kifu window a downloaded record came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KifuSource {
+    Fox,
+    Tencent,
 }
 
 /// Where browsing starts after a slot is loaded.
@@ -294,6 +307,8 @@ pub struct Workbench {
     cloud_authenticated: bool,
     /// 棋盘同步工具 and its GMA auto-play.
     readboard: readboard::ReadBoardState,
+    fox_kifu: fox_kifu::FoxKifuFlow,
+    tencent_kifu: tencent_kifu::TencentKifuFlow,
 }
 
 impl Workbench {
@@ -420,6 +435,8 @@ impl Workbench {
             cloud_activation: None,
             cloud_authenticated: false,
             readboard: readboard::ReadBoardState::default(),
+            fox_kifu: fox_kifu::FoxKifuFlow::default(),
+            tencent_kifu: tencent_kifu::TencentKifuFlow::default(),
         }
     }
 
@@ -480,13 +497,36 @@ impl Workbench {
     pub fn begin_open(&mut self, origin: OpenOrigin) -> u64 {
         let ticket = self.next_ticket;
         self.next_ticket += 1;
-        self.pending = Some(Pending { ticket, origin });
+        // A read still waiting is replaced; a kifu download that started it ends unopened.
+        if let Some(replaced) = self.pending.replace(Pending { ticket, origin }) {
+            self.download_open_ended(&replaced.origin, replaced.ticket, false);
+        }
         ticket
     }
 
     /// Whether `ticket` is still the request the user is waiting for.
     pub fn is_current_open(&self, ticket: u64) -> bool {
         self.pending.as_ref().is_some_and(|p| p.ticket == ticket)
+    }
+
+    /// Ends an open request whose source produced no record (a failed kifu download, reported by
+    /// its own window): nothing is published and the current document stays.
+    fn abandon_open(&mut self, ticket: u64) {
+        if let Some(abandoned) = self.pending.take_if(|p| p.ticket == ticket) {
+            self.download_open_ended(&abandoned.origin, ticket, false);
+            // A preload waiting for this read decides now.
+            self.warmup_review();
+        }
+    }
+
+    /// Tells the kifu window whose download started an open request that it ended (`adopted`:
+    /// the record became the document).
+    fn download_open_ended(&mut self, origin: &OpenOrigin, ticket: u64, adopted: bool) {
+        match origin {
+            OpenOrigin::Downloaded(KifuSource::Fox) => self.fox_kifu_open_ended(ticket, adopted),
+            OpenOrigin::Downloaded(KifuSource::Tencent) => self.tencent_kifu_open_ended(ticket, adopted),
+            _ => {}
+        }
     }
 
     /// Hands back a finished read. Returns `false` (and changes nothing) for a superseded ticket.
@@ -499,7 +539,7 @@ impl Workbench {
             Err(e) => {
                 let message_key = match pending.origin {
                     OpenOrigin::File { .. } | OpenOrigin::Recovery { .. } => FAILED_TO_OPEN_FILE,
-                    OpenOrigin::Clipboard => KIFU_LOAD_FAILED,
+                    OpenOrigin::Clipboard | OpenOrigin::Downloaded(_) => KIFU_LOAD_FAILED,
                 };
                 self.outcome = Some(OpenOutcome::Failed {
                     ticket,
@@ -523,9 +563,13 @@ impl Workbench {
                     return true;
                 };
                 // Java applies a record komi when automatic loading is on or the game starts
-                // from setup/handicap; otherwise the session komi stays (`resetAllNoKomi`).
-                let use_record_komi =
-                    record.komi_declared && (self.config.record.read_komi || record.has_setup_or_handicap);
+                // from setup/handicap; otherwise the session komi stays (`resetAllNoKomi`). A
+                // 腾讯棋谱 record is read with automatic loading off (its KM is komi × 100).
+                let read_komi = match pending.origin {
+                    OpenOrigin::Downloaded(KifuSource::Tencent) => false,
+                    _ => self.config.record.read_komi,
+                };
+                let use_record_komi = record.komi_declared && (read_komi || record.has_setup_or_handicap);
                 if use_record_komi {
                     self.komi = record.info.komi;
                 } else {
@@ -545,7 +589,7 @@ impl Workbench {
                 };
                 let (path, origin_name) = match &pending.origin {
                     OpenOrigin::File { path, .. } => (Some(path.clone()), None),
-                    OpenOrigin::Clipboard => (None, None),
+                    OpenOrigin::Clipboard | OpenOrigin::Downloaded(_) => (None, None),
                     OpenOrigin::Recovery { name, .. } => (None, Some(name.clone())),
                 };
                 if let OpenOrigin::File {
@@ -608,6 +652,8 @@ impl Workbench {
                 self.quick_after_load();
             }
         }
+        let adopted = matches!(self.outcome, Some(OpenOutcome::Adopted { ticket: t, .. }) if t == ticket);
+        self.download_open_ended(&pending.origin, ticket, adopted);
         // A preload waiting for this read decides now (also after a failed read).
         self.warmup_review();
         true
@@ -895,13 +941,16 @@ impl Workbench {
     }
 
     /// Help > "清除所有个人数据": the personal data this product stores so far is the recent
-    /// record list. (Java removed a mistyped `recent-files` key and left the list in place; the
-    /// list is actually cleared here.)
+    /// record list and 野狐棋谱's 近期搜索 (`fox-recent-searches`). (Java removed a mistyped
+    /// `recent-files` key and left the record list in place; the list is actually cleared here.)
     pub fn clear_personal_data(&mut self) -> Result<bool, ApiError> {
-        if self.config.recent_files.is_empty() {
+        if self.config.recent_files.is_empty() && self.config.fox_kifu.recent.is_empty() {
             return Ok(false);
         }
-        self.commit_config(|c| c.recent_files.clear())?;
+        self.commit_config(|c| {
+            c.recent_files.clear();
+            c.fox_kifu.recent.clear();
+        })?;
         Ok(true)
     }
 
@@ -1035,7 +1084,7 @@ impl Workbench {
                 ticket: p.ticket,
                 path: match &p.origin {
                     OpenOrigin::File { path, .. } | OpenOrigin::Recovery { path, .. } => Some(path.clone()),
-                    OpenOrigin::Clipboard => None,
+                    OpenOrigin::Clipboard | OpenOrigin::Downloaded(_) => None,
                 },
             }),
             open_outcome: None,
@@ -1128,6 +1177,8 @@ impl Workbench {
             human_sl: self.human_sl_view(),
             strength: self.strength_view(),
             commentary: self.commentary_view(),
+            fox_kifu: self.fox_kifu_view(),
+            tencent_kifu: self.tencent_kifu_view(),
             human_sl_notices: Vec::new(),
             contribution: self.contribution_view(),
             contribution_notices: Vec::new(),

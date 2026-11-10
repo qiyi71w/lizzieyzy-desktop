@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "fox-kifu",
+  "description": "野狐棋谱 (FoxKifuDownload): sends its commands, comes forward for its progress and hides on Escape",
+  "windows": ["fox-kifu"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-show",
+    "core:window:allow-unminimize",
+    "core:window:allow-set-focus",
+    "core:window:allow-hide"
+  ]
+}

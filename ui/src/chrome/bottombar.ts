@@ -15,6 +15,7 @@ import { toggleKataEstimate } from "../analysis/infoCommands";
 import { toggleScore } from "../analysis/scoreDialog";
 import { AUTO_ANALYSIS_MENU } from "../quick/autoAnalysis";
 import { openPopupMenu } from "./menubar";
+import type { MenuNode } from "./javaMenus";
 import { buildBottomDetail, layoutBottomDetail } from "./bottomDetail";
 
 interface Item {
@@ -103,6 +104,18 @@ const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" 
 };
 const MORE: Item = { name: "moreActionsButton", key: "BottomToolbar.moreActions" };
 
+/** The 同步 button's popup (BottomToolbar.java:1182-1273); 棋盘同步 is listed on Windows only.
+ *  Entries without a command show as not available yet. */
+const LIVE_POPUP: MenuNode[] = [
+  { t: "item", key: "BottomToolbar.yikeLive", id: "menu.yikeLive" },
+  { t: "item", key: "Menu.yikeLiveWeb", id: "menu.yikeLiveWeb" },
+  { t: "item", key: "BottomToolbar.yikeRoom", id: "menu.yikeRoom" },
+  { t: "item", key: "Menu.foxKifu", id: "menu.foxKifu" },
+  ...(navigator.userAgent.includes("Windows") ? [{ t: "item", key: "BottomToolbar.syncBoard", id: "sync.board" } as MenuNode] : []),
+  { t: "item", key: "Menu.webBoardStart", id: "menu.webBoardToggle" },
+  { t: "item", key: "Menu.webBoardForceExitTrial", id: "sync.exit-web-trial" },
+];
+
 /** Config.badMoves's default, from the toolbar flags the program started with. */
 let badMovesShown = false;
 let badMovesDecided = false;
@@ -164,6 +177,13 @@ export function buildBottomBar(host: HTMLElement): void {
       b.dataset.key = "autoAnalysis.popup";
       b.setAttribute("role", "button"); b.tabIndex = 0;
       b.onclick = () => openPopupMenu(b, AUTO_ANALYSIS_MENU, true);
+      b.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); b.click(); } };
+      elements.set(item, b); host.append(b); continue;
+    }
+    if (item.name === "liveButton") {
+      b.dataset.key = "toolbar.live";
+      b.setAttribute("role", "button"); b.tabIndex = 0;
+      b.onclick = () => openPopupMenu(b, LIVE_POPUP, true);
       b.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); b.click(); } };
       elements.set(item, b); host.append(b); continue;
     }

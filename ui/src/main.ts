@@ -41,6 +41,8 @@ import { handleHawkeyeKey, hawkeyeReport, relayHawkeye, startHawkeye } from "./h
 import { commentaryReport, relayCommentary, renderCommentPanel, startCommentary } from "./commentary/commands";
 import { batchReport, handleBatchKey, startBatchTable } from "./batch/commands";
 import { contributionReport } from "./contribution/window";
+import { foxKifuReport, startFoxKifu } from "./foxkifu/commands";
+import { startTencentKifu, tencentKifuReport } from "./tencentkifu/commands";
 import { bindCommentEditor, commentEditing } from "./editing/comment";
 import { contextMenuItems, contextMenuOpen } from "./editing/contextMenu";
 import { bindBoardInput, handleEditKey, pressBoard, releaseBoard } from "./editing/input";
@@ -1437,6 +1439,10 @@ function uiReport() {
     commentary: commentaryReport(),
     /** 跑谱贡献 (T36): the KataGo分布式训练 window as drawn, or null when it is closed. */
     contribution: contributionReport(),
+    /** 野狐棋谱 (T30): what its window last showed. */
+    foxKifu: foxKifuReport(),
+    /** 腾讯棋谱: what its window last showed. */
+    tencentKifu: tencentKifuReport(),
     /** Visible menu, toolbar, bottom-bar and dialog controls with client-area centres, so
      *  automation clicks the real controls. */
     targets: [...document.querySelectorAll<HTMLElement>("[data-key], [data-name], #moveInput, .modal-box button")]
@@ -1604,6 +1610,8 @@ async function boot() {
   await startIndependent(independentInput, schedule);
   await startFloatBoard(boardScene);
   await startBatchTable();
+  await startFoxKifu();
+  await startTencentKifu();
   await getCurrentWindow().show();
   await getCurrentWindow().setFocus();
   schedule();
