@@ -505,6 +505,14 @@ pub enum DocumentEdit {
         moves: Vec<Point>,
         rules: PlayRules,
     },
+    /// The end placeholder (`DD[true]`) that keeps moves added under `at` side branches: with
+    /// `present` one is added when `at` has no continuation; without, the placeholder is taken
+    /// out again while it is still `at`'s only child. The placeholder is not record content: the
+    /// revision does not move either way (`WebBoardManager` enter/`cleanupMainlineDummy`).
+    EndPlaceholder {
+        at: NodeId,
+        present: bool,
+    },
     /// A move between `at` and its continuation, which is played again after it
     /// (`LizzieFrame.insertMove`).
     Insert {

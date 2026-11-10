@@ -392,17 +392,3 @@
 .hs-bar-actions [hidden] {
   display: none;
 }
-
-/* ---- Utils.showMsgNoModalForTime */
-.hs-notice {
-  position: fixed;
-  z-index: 30;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  max-width: min(520px, 90vw);
-}
-.hs-notice .modal-body {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}

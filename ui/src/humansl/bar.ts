@@ -131,18 +131,3 @@ export function refreshTrainingBar(): boolean {
   return shown === bar.hidden;
 }
 
-let notices = 0;
-
-/** Utils.showMsgNoModalForTime: the Message window, closed after `seconds`. */
-export function timedMessage(text: string, seconds: number): void {
-  const box = el("div", "modal-box hs-notice");
-  box.setAttribute("role", "dialog");
-  box.setAttribute("aria-label", t("Message.title"));
-  box.dataset.freeWindow = "";
-  box.dataset.name = "humansl.notice";
-  box.style.translate = `${(notices % 5) * 16}px ${(notices % 5) * 16}px`;
-  notices++;
-  box.append(el("div", "modal-title", t("Message.title")), el("div", "modal-body", text));
-  document.body.append(box);
-  window.setTimeout(() => box.remove(), seconds * 1000);
-}

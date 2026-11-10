@@ -19,6 +19,7 @@ mod recovery;
 mod resources;
 mod tencent_kifu;
 mod tuning;
+mod web_board;
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -38,6 +39,7 @@ pub use recovery::*;
 pub use resources::*;
 pub use tencent_kifu::*;
 pub use tuning::*;
+pub use web_board::*;
 pub use crate::strength::{StrengthModelView, StrengthReport, StrengthSideReport, StrengthSegment, StrengthSummary, StrengthSample, StrengthConfidence, StrengthMoveCategory};
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
@@ -120,6 +122,8 @@ pub enum Command {
     FoxKifu { op: FoxKifuCommand },
     /// 腾讯棋谱 window.
     TencentKifu { op: TencentKifuCommand },
+    /// Web 旁观: start, stop, 强制结束试下.
+    WebBoard { op: WebBoardCommand },
     /// SSH passwords and trusted host keys of remote engines: kept by the platform adapter, never
     /// in the settings.
     SshCredential { op: SshCredentialCommand },
@@ -1233,6 +1237,8 @@ pub enum LeaseAvailabilityView {
     EngineStateUnrestored,
     /// 人机对弈 holds the engine (`AnalysisSettings.reuseStatus.play_mode`).
     PlayMode,
+    /// Web 试下 follows the engine (`AnalysisSettings.reuseStatus.application_exclusive_mode`).
+    ApplicationExclusive,
     HumanSlGame,
     /// ReadBoard GMA holds the engine (`AnalysisSettings.reuseStatus.readboard_gma`).
     ReadBoardGma,
@@ -1358,6 +1364,8 @@ pub struct WorkbenchView {
     pub fox_kifu: FoxKifuView,
     /// 腾讯棋谱 window.
     pub tencent_kifu: TencentKifuView,
+    /// Web 旁观 and a viewer's 试下.
+    pub web_board: WebBoardView,
     pub human_sl_notices: Vec<HumanSlNotice>,
     /// 跑谱贡献 session, until its window is closed after it ended.
     pub contribution: Option<ContributionView>,
@@ -1481,6 +1489,8 @@ pub enum ImportTarget {
     StartupBenchmark,
     /// `ui.network-proxy-mode` / `-host` / `-port`.
     NetworkProxy,
+    /// `web-board.http-port` / `ws-port` / `max-connections` (Web 旁观).
+    WebBoard,
     /// `ui.allow-double-click`.
     AllowDoubleClick,
     /// `ui.allow-drag`.

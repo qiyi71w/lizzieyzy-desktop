@@ -170,6 +170,7 @@ impl Workbench {
     /// game whose engine does not confirm its restore (a move it never answers) can be released
     /// by restarting or closing that engine.
     pub fn game_gate(&mut self, command: &Command) -> Option<CommandResult> {
+        if let Some(result) = self.web_trial_gate(command) { return Some(result); }
         if let Some(result) = self.readboard_gate(command) { return Some(result); }
         if self.contribution_active() { return self.contribution_gate(command); }
         if let Some(result) = self.human_sl_gate(command) { return Some(result); }

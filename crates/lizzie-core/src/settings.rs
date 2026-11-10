@@ -1590,6 +1590,8 @@ pub struct Config {
     pub edit: EditSettings,
     /// Network access (Java `ui.network-proxy-*`).
     pub network: NetworkSettings,
+    /// Web 旁观 (Java `web-board`).
+    pub web_board: WebBoardSettings,
     /// 存档与读档 (Java `ui.auto-save-exit`, `resume-previous-game`, `load-save-zoom`).
     pub recovery: RecoverySettings,
     /// Analysis numbers (Java `ui.win-rate-always-black`, `show-katago-score-lead-with-komi`).
@@ -1711,6 +1713,25 @@ pub struct TencentKifuSettings {
 pub struct TencentRecentSearch {
     pub uid: String,
     pub query: String,
+}
+
+/// Web 旁观 (Java `config.txt` `web-board`, read by `WebBoardManager.start`; Java has no dialog
+/// for it). Each port is the first one tried; the next nine are tried when it is taken.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct WebBoardSettings {
+    /// `http-port` (9998): the page.
+    pub http_port: u16,
+    /// `ws-port` (9999): the board stream.
+    pub ws_port: u16,
+    /// `max-connections` (20): viewers beyond it are closed when they connect.
+    pub max_connections: u32,
+}
+
+impl Default for WebBoardSettings {
+    fn default() -> Self {
+        WebBoardSettings { http_port: 9998, ws_port: 9999, max_connections: 20 }
+    }
 }
 
 impl Config {

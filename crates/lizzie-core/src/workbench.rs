@@ -43,6 +43,7 @@ mod search;
 mod tencent_kifu;
 mod tsumego;
 mod tuning;
+mod web_board;
 mod whole_game;
 
 use std::path::{Path, PathBuf};
@@ -309,6 +310,8 @@ pub struct Workbench {
     readboard: readboard::ReadBoardState,
     fox_kifu: fox_kifu::FoxKifuFlow,
     tencent_kifu: tencent_kifu::TencentKifuFlow,
+    /// Web 旁观's running session and a viewer's 试下.
+    web_board: web_board::WebBoardFlow,
 }
 
 impl Workbench {
@@ -437,6 +440,7 @@ impl Workbench {
             readboard: readboard::ReadBoardState::default(),
             fox_kifu: fox_kifu::FoxKifuFlow::default(),
             tencent_kifu: tencent_kifu::TencentKifuFlow::default(),
+            web_board: web_board::WebBoardFlow::default(),
         }
     }
 
@@ -1179,6 +1183,7 @@ impl Workbench {
             commentary: self.commentary_view(),
             fox_kifu: self.fox_kifu_view(),
             tencent_kifu: self.tencent_kifu_view(),
+            web_board: self.web_board_view(),
             human_sl_notices: Vec::new(),
             contribution: self.contribution_view(),
             contribution_notices: Vec::new(),

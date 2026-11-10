@@ -14,7 +14,7 @@ import { openRemoteCompute } from "../cloud/center";
 import { toggleKataEstimate } from "../analysis/infoCommands";
 import { toggleScore } from "../analysis/scoreDialog";
 import { AUTO_ANALYSIS_MENU } from "../quick/autoAnalysis";
-import { openPopupMenu } from "./menubar";
+import { locatePopupItem, openPopupMenu } from "./menubar";
 import type { MenuNode } from "./javaMenus";
 import { buildBottomDetail, layoutBottomDetail } from "./bottomDetail";
 
@@ -115,6 +115,18 @@ const LIVE_POPUP: MenuNode[] = [
   { t: "item", key: "Menu.webBoardStart", id: "menu.webBoardToggle" },
   { t: "item", key: "Menu.webBoardForceExitTrial", id: "sync.exit-web-trial" },
 ];
+
+/** The 同步 button when `id` is one of its popup's items (BottomToolbar.functionTarget's yike
+ *  entries), the control function search reveals before locating the item. */
+export function livePopupAnchor(id: string): HTMLElement | null {
+  if (!LIVE_POPUP.some((node) => node.t !== "sep" && node.id === id)) return null;
+  return document.querySelector<HTMLElement>('#bottombar [data-name="liveButton"]');
+}
+
+export function locateLivePopupItem(id: string): boolean {
+  const anchor = livePopupAnchor(id);
+  return !!anchor && locatePopupItem(anchor, LIVE_POPUP, id);
+}
 
 /** Config.badMoves's default, from the toolbar flags the program started with. */
 let badMovesShown = false;

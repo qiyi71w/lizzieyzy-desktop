@@ -64,6 +64,7 @@ import { bindFunctionSearch, functionSearchReport } from "./search/controller";
 import { strengthReport } from "./strength/dashboard";
 import { appearanceRevision, onAppearanceChange, startAppearance } from "./appearance/state";
 import "./appearance/commands";
+import "./webBoard";
 import { humanSlDisplay } from "./humansl/state";
 import {
   aiScoreText,

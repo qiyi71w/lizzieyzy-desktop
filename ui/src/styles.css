@@ -688,6 +688,15 @@ body {
   user-select: text;
   overflow-wrap: anywhere;
 }
+/* Utils.showMsgNoModalForTime */
+.timed-notice {
+  position: fixed;
+  z-index: 30;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: min(520px, 90vw);
+}
 .modal-buttons {
   display: flex;
   justify-content: flex-end;

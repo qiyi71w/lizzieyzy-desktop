@@ -846,6 +846,30 @@ importing the matching LizzieYzy Next settings.
   once by the client itself: GDI on Windows, Core Graphics on macOS (needs the Screen Recording
   permission; a one-time hint says so), `GetImage` on X11 and the desktop portal's screenshot on
   Wayland (the desktop may ask for permission). Only the primary screen is used, as in Java.
+- Web 旁观 (同步 > Web 旁观, the bottom bar's 同步 popup, function search): 启动 Web 旁观 serves
+  Java's viewer page to browsers on the network, at the address shown after the window title
+  (`| Web: http://<this machine's address>:9998`) and copied by 复制访问地址. The page listens on
+  every network interface; the page uses port 9998 and the board stream 9999, each moving up to
+  nine ports further when taken. The ports and the limit of 20 viewers come from settings
+  (imported from Java's `web-board` section) and are not edited in the client. Viewers see the
+  shown position, its candidates, Kata形势, win-rate/score graphs and 问题手 list. Only the page's
+  own three files are served, never records, settings or anything else, and nothing is sent
+  unless the share runs. The page has no password, so anyone who can reach the address can watch.
+  A viewer may 进入试下: one viewer at a time plays variations from the shown position; they are
+  added to the open record as side branches, never the main line (a position without continuation
+  first gets an end placeholder, removed again when nothing was played there). The desktop and
+  every viewer follow them and the foreground engine analyses them. While it runs, desktop moves
+  and 贴目 changes are refused with Java's 3-second hint, desktop browsing waits, and the GTP
+  console, switching, restarting or closing the foreground engine, saving the engine list and modes
+  that take the engine (人机对弈, AI 陪练, 引擎对战, flash/automatic/whole-game analysis, batch,
+  tracking, benchmark) are refused. It ends at the viewer's 退出试下, after five idle minutes, by
+  强制结束试下, when the share stops or when another record opens; browsing then returns to where
+  it started.
+  Since Java placed only the first placeholder, a 试下 continued past the record's last move could
+  extend the main line there; here it stays a branch.
+  A 试下 needs a free foreground engine. 停止 Web 旁观 or quitting closes both ports and disconnects
+  every viewer; messages of a stopped share never reach a later one. A firewall between viewer and
+  this machine must allow both ports.
 - 快速曲线轻量模型 (引擎一键设置 > 权重管理): the official lightweight b10 model is downloaded on demand
   (size and SHA-256 checked), which turns 自动使用 on. A model file is used only while its SHA-256
   matches the catalog (checked again when the file changes); with 自动使用 and a KataGo of 1.17 or
@@ -1067,7 +1091,7 @@ prompt, and full input-method coverage on Windows and macOS.
 | Path | Contents |
 | --- | --- |
 | `crates/lizzie-core` | Platform-independent core: game record model, SGF/GIB readers and SGF writer, browsing, settings, the LizzieYzy Next settings reader (`java_import`), the engine runtime (GTP framing, launch, analysis requests, rules, the foreground lease, KataGo analysis processes, thread policy and benchmark), automatic quick analysis, engine resources (`resources`: trusted package/model catalog, machine detection, recommendation, downloads, installs, verification), the credential sanitizer and the workbench command/view contract. No Tauri or DOM dependency. |
-| `src-tauri` | Desktop shell: window, file dialogs, drag and drop, engine and helper processes, HTTP downloads, logging, diagnostics export, the 抓取死活题 screen picture (`screen.rs`) and overlay, and the optional acceptance channel. |
+| `src-tauri` | Desktop shell: window, file dialogs, drag and drop, engine and helper processes, HTTP downloads, logging, diagnostics export, the 抓取死活题 screen picture (`screen.rs`) and overlay, the Web 旁观 page and board-stream servers (`web_board.rs`, Java's viewer page in `src-tauri/web`), and the optional acceptance channel. |
 | `ui` | Web UI: menus, toolbars, canvas painters, dialogs and the Java UI strings. |
 | `fixtures` | Sample records used by tests and manual checks. |
 | `tools` | Maintenance scripts. |
@@ -1277,4 +1301,6 @@ GPL-3.0-only (see `LICENSE.txt`). The images, stone sounds and the winrate font 
 unchanged from LizzieYzy Next (GPL-3.0), and the application icons are generated from its icon;
 see `ui/public/assets/SOURCE.txt` and `ui/public/fonts/SOURCE.txt`. The strength models and the
 HumanSL 40 policy configuration in `crates/lizzie-core/resources/strength/` are copied unchanged
-from LizzieYzy Next's `src/main/resources/models/strength/` (GPL-3.0).
+from LizzieYzy Next's `src/main/resources/models/strength/` (GPL-3.0). The Web 旁观 viewer page
+(`src-tauri/web/index.html`, `board.js`, `board.css`) is copied unchanged from LizzieYzy Next's
+`src/main/resources/web/` (GPL-3.0).

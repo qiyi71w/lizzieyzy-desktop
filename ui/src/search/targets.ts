@@ -4,6 +4,7 @@
 // opens a menu or runs a command. Only an ACTION destination runs its catalog command; settings,
 // menus, toolbar controls and windows other than the Java openers are located, never clicked.
 import { state } from "../app";
+import { livePopupAnchor, locateLivePopupItem } from "../chrome/bottombar";
 import { locateMenuItem, menuItemState } from "../chrome/menubar";
 import { COMMANDS } from "../commands";
 import type { FunctionMatch } from "../contract/generated";
@@ -89,9 +90,10 @@ const CONTEXT_ITEMS: Record<string, true> = {
   "RightClickMenu2.deleteone": true,
 };
 
-/** The located control of a toolbar destination (`data-function` = Java action id). */
+/** The located control of a toolbar destination (`data-function` = Java action id), or the 同步
+ *  button holding a popup item. */
 function toolbarControl(id: string): HTMLElement | null {
-  return document.querySelector<HTMLElement>(`#toolbar [data-function="${CSS.escape(id)}"], #bottombar [data-function="${CSS.escape(id)}"]`);
+  return document.querySelector<HTMLElement>(`#toolbar [data-function="${CSS.escape(id)}"], #bottombar [data-function="${CSS.escape(id)}"]`) ?? livePopupAnchor(id);
 }
 
 function kindOf(m: FunctionMatch): DestinationKind | null {
@@ -195,6 +197,11 @@ function entryReason(id: string): Reason | null {
     case "sync.board":
       if (!navigator.userAgent.includes("Windows")) return { key: "FunctionSearch.unavailable.windows" };
       return view.readboard.available ? null : { key: "FunctionSearch.unavailable.readBoard" };
+    // LizzieFrame.java:13172-13177, 13240-13241.
+    case "sync.exit-web-trial":
+      return view.web_board.url && view.web_board.trial_active ? null : { key: "FunctionSearch.unavailable.webBoard" };
+    case "menu.webBoardCopyUrl":
+      return view.web_board.url ? null : { key: "FunctionSearch.unavailable.webBoard" };
     case "game.komi":
     case "lightning-analysis-settings":
     case "whole-game-lightning-overview":
@@ -307,6 +314,7 @@ async function locateToolbarControl(id: string): Promise<Reason | null> {
   if (revealsMarkup(id) && !markupToolsShown()) setEditing({ markupRevealed: true });
   await revealToolbar(control.closest("#bottombar") ? "bottom" : "top");
   if (!control.isConnected || control.getClientRects().length === 0) return TOOLBAR;
+  if (control.dataset.function !== id) return locateLivePopupItem(id) ? null : TARGET_MISSING;
   control.scrollIntoView({ block: "nearest", inline: "nearest" });
   if (!control.hasAttribute("tabindex")) control.tabIndex = -1;
   control.focus({ preventScroll: true });

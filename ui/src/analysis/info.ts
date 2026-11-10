@@ -159,12 +159,17 @@ export function startTitleUpdates(repaint: () => void): void {
 
 /** LizzieFrame.updateTitle (LizzieFrame.java:10942-11052): the app name, the [Black win rate, Black
  *  lead, visits] of the current position (else of the previous one), the engine with its speed (or
- *  " - 搜索/秒" while paused), the players, result and file. A Genmove 引擎对战 game shows the
- *  thinking engine; the batch title (enginePkTitile) replaces the players and file. 试下 keeps
- *  LizzieFrame.tryTitle. */
+ *  " - 搜索/秒" while paused), the players, result and file, then the Web 旁观 address
+ *  (webBoardSuffix). A Genmove 引擎对战 game shows the thinking engine; the batch title
+ *  (enginePkTitile) replaces the players and file. 试下 keeps LizzieFrame.tryTitle. */
 export function workbenchTitle(v: WorkbenchView, version: string, history: Map<number, HistoryPoint>, parent: number | undefined): string {
+  if (v.editing.trying) return windowTitle(version);
+  const web = v.web_board.url;
+  return mainTitle(v, version, history, parent) + (web ? ` | Web: ${web}` : "");
+}
+
+function mainTitle(v: WorkbenchView, version: string, history: Map<number, HistoryPoint>, parent: number | undefined): string {
   const base = windowTitle(version);
-  if (v.editing.trying) return base;
   const stem = `${APP_TITLE} ${version}`;
   const match = v.engine_match;
   const pk = matchUi.pkTitle;

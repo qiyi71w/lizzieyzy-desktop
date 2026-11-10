@@ -31,13 +31,16 @@ sha2 = "0.10"
 ring = "0.17"
 fs2 = "0.4"
 subtle = "2"
-tokio = { version = "1", features = ["time", "macros", "sync"] }
+tokio = { version = "1", features = ["time", "macros", "sync", "net", "io-util"] }
 bytes = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 rust_decimal = "1"
 russh = { version = "0.65", default-features = false, features = ["ring", "rsa"] }
 rqrr = "0.10"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp"] }
+# Web 旁观's board stream: a WebSocket server for the viewers' browsers.
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 # Pure Rust system font discovery, run on a blocking worker without workbench locks.
 fontdb = "0.23"
 

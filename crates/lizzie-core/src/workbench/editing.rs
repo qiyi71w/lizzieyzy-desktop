@@ -101,6 +101,7 @@ impl Workbench {
     /// emptied (`setHistory`, `clearBoardState` → `cleanedittemp`).
     pub(super) fn reset_editing(&mut self) {
         self.commentary_document_changed();
+        self.web_board_document_replaced();
         self.editing = Editing::default();
     }
 
