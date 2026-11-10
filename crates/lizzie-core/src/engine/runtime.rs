@@ -140,8 +140,9 @@ pub struct EngineFailure {
     pub foreground: bool,
     /// When it ended, its state belonged to a holder other than the seat's wish: lent to a
     /// background task (the lease, its restore included), being given back by a play mode or
-    /// HumanSL, or left unrestored by such a return (Java's exclusive GTP session, foreground
-    /// restore and `engineStateUnrestored`).
+    /// HumanSL, reserved by a ReadBoard GMA hand or its restore, or left unrestored by such a
+    /// return (Java's exclusive GTP session, foreground restore, `readBoardGmaReservation` /
+    /// restore barrier and `engineStateUnrestored`).
     pub held: bool,
     pub cloud_recovery: bool,
 }
@@ -243,6 +244,9 @@ pub enum LeaseAvailability {
     /// A play mode holds the engine (Java `PLAY_MODE`).
     PlayMode,
     HumanSlGame,
+    /// ReadBoard's GMA auto-play holds the engine (Java `READBOARD_GMA`, returned while
+    /// `ReadBoard.isReadBoardGmaEngineBusy()`).
+    ReadBoardGma,
 }
 
 /// How borrowing or giving back the foreground engine failed (Java
@@ -682,6 +686,10 @@ pub struct Engines {
     games: Vec<game::GameSeat>,
     human_sl: bool,
     human_sl_restore: Option<u64>,
+    /// ReadBoard GMA is armed or busy (Java `isReadBoardGmaEngineBusy`): the foreground engine is
+    /// not lent and no other mode reserves it; GMA's own hands reserve it through
+    /// [`reserve_readboard_gma`](Self::reserve_readboard_gma).
+    readboard_gma: bool,
 }
 
 impl Instance {
@@ -794,6 +802,7 @@ impl Engines {
             games: Vec::new(),
             human_sl: false,
             human_sl_restore: None,
+            readboard_gma: false,
         }
     }
 
@@ -1368,7 +1377,8 @@ impl Engines {
         failure.foreground = self.foreground == Some(id);
         failure.held = self.get(id).is_some_and(|i| i.unrestored.is_some())
             || self.leased(id)
-            || self.game_restoring(id);
+            || self.game_restoring(id)
+            || self.readboard_gma_holds(id);
         if failure.foreground {
             self.failed_foreground = self.get(id).map(|i| i.profile.clone());
         }
@@ -2267,7 +2277,7 @@ impl Engines {
     /// Whether the foreground engine can be borrowed now (`previewForegroundAnalysisLeaseAvailability`).
     pub fn lease_availability(&self) -> LeaseAvailability {
         // Java's mode order is play, HumanSL, then ordinary foreground availability.
-        if self.games.iter().any(|g| Some(g.id) != self.human_sl_restore) {
+        if self.games.iter().any(|g| Some(g.id) != self.human_sl_restore && !g.readboard_gma()) {
             return LeaseAvailability::PlayMode;
         }
         if self.human_sl { return LeaseAvailability::HumanSlGame; }
@@ -2276,6 +2286,8 @@ impl Engines {
         };
         if inst.unrestored.is_some() {
             LeaseAvailability::EngineStateUnrestored
+        } else if self.readboard_gma || self.games.iter().any(|g| g.readboard_gma()) {
+            LeaseAvailability::ReadBoardGma
         } else if inst.phase != Phase::Ready {
             LeaseAvailability::EngineNotReady
         } else if inst.kind != EngineKind::KataGo {

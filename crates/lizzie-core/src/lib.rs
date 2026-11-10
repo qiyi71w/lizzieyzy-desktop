@@ -27,6 +27,7 @@ pub mod function_search;
 pub mod humansl;
 pub mod java_import;
 pub mod play;
+pub mod readboard;
 pub mod record;
 pub mod recovery;
 pub mod resources;

@@ -170,6 +170,7 @@ impl Workbench {
     /// game whose engine does not confirm its restore (a move it never answers) can be released
     /// by restarting or closing that engine.
     pub fn game_gate(&mut self, command: &Command) -> Option<CommandResult> {
+        if let Some(result) = self.readboard_gate(command) { return Some(result); }
         if self.contribution_active() { return self.contribution_gate(command); }
         if let Some(result) = self.human_sl_gate(command) { return Some(result); }
         if self.match_active() { return self.match_gate(command); }
@@ -903,12 +904,13 @@ impl Workbench {
 
     /// Who may move from the analysis of the current position now (`notifyAutoPlay`: the
     /// 自动落子 box and the box of the side to move): `Some(true)` a 分析模式 game's engine,
-    /// `Some(false)` the bottom bar outside a game. Nobody during 终局点目.
+    /// `Some(false)` the bottom bar outside a game. Nobody during 终局点目 or while 棋盘同步工具's
+    /// GMA holds 自动落子.
     fn analysis_mover(&self) -> Option<bool> {
         let to_play = self.to_play();
         let a = &self.persisted.autoplay;
         let side = if to_play == Stone::Black { a.black } else { a.white };
-        if !self.play.autoplay || !side || self.scoring.is_some() {
+        if !self.play.autoplay || !side || self.scoring.is_some() || self.readboard_holds_autoplay() {
             return None;
         }
         match &self.play.session {
@@ -1195,6 +1197,71 @@ impl Workbench {
 
     pub(super) fn play_autoplay_enabled(&self) -> bool {
         self.play.autoplay
+    }
+
+    // -------------------------------------------------------------------- 棋盘同步工具
+
+    /// What ReadBoard reads of the game (Java `isPlayingAgainstLeelaz`, `playerIsBlack`,
+    /// `isAnaPlayingAgainstLeelaz`): a running Genmove game, the human's colour, and a 分析模式
+    /// game or the toolbar's 自动落子 outside a game.
+    pub(super) fn play_readboard_facts(&self) -> (bool, bool, bool) {
+        match self.play.session.as_ref().filter(|s| s.step == Step::Playing) {
+            Some(s) => (s.kind == GameKind::Genmove, s.human == Stone::Black, s.kind == GameKind::Analysis),
+            None => (false, false, self.play.autoplay),
+        }
+    }
+
+    /// The synced board shows the engine to move in a Genmove game (`genmove` after a `place`).
+    pub(super) fn play_readboard_genmove(&mut self) {
+        self.request_engine_move();
+    }
+
+    /// The helper's `play>` / `timechanged` / `playoutschanged` / `firstchanged` lines write the
+    /// 自动落子 group (`ReadBoard.java:1049-1142`): a time ≤ 0 is the AI's fixed time
+    /// (`max-game-thinking-time-seconds`), playouts ≤ 0 uncheck their box; a side turns 自动落子 on
+    /// for that side only.
+    pub(super) fn play_readboard_toolbar(&mut self, side: Option<Stone>, time: Option<i32>, playouts: Option<i32>, first: Option<i32>) {
+        let a = &mut self.persisted.autoplay;
+        if let Some(t) = time {
+            a.time_enabled = true;
+            a.time_seconds = if t > 0 { t } else { self.config.game.ai_time.fixed_seconds as i32 };
+        }
+        if let Some(p) = playouts {
+            a.playouts_enabled = p > 0;
+            if p > 0 {
+                a.playouts = p;
+            }
+        }
+        if let Some(f) = first {
+            a.first_playouts_enabled = f > 0;
+            if f > 0 {
+                a.first_playouts = f;
+            }
+        }
+        if let Some(side) = side {
+            a.black = side == Stone::Black;
+            a.white = side == Stone::White;
+            self.play.autoplay = true;
+        }
+        if let Err(e) = self.save_persisted() {
+            self.log(true, format!("saving the 自动落子 settings failed: {}", e.message));
+        }
+        self.sync_engine();
+    }
+
+    /// `stopAutoPlay`: 自动落子 off.
+    pub(super) fn play_readboard_autoplay_off(&mut self) {
+        self.play.autoplay = false;
+        self.sync_engine();
+    }
+
+    /// `stopAiPlayingAndPolicy`: the game ends and 自动落子 is off.
+    pub(super) fn play_readboard_stop_game(&mut self) {
+        self.play.autoplay = false;
+        if self.game_active() {
+            self.game_stop();
+        }
+        self.sync_engine();
     }
 
     pub(super) fn take_play_outcome(&mut self) -> (Option<GameOutcomeView>, Vec<GameNotice>, Vec<u8>) {

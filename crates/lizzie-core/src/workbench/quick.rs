@@ -1302,6 +1302,7 @@ impl Workbench {
             LeaseAvailability::EngineStateUnrestored => LeaseAvailabilityView::EngineStateUnrestored,
             LeaseAvailability::PlayMode => LeaseAvailabilityView::PlayMode,
             LeaseAvailability::HumanSlGame => LeaseAvailabilityView::HumanSlGame,
+            LeaseAvailability::ReadBoardGma => LeaseAvailabilityView::ReadBoardGma,
         };
         let unrestored = self
             .engines

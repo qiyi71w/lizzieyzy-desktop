@@ -2,7 +2,8 @@
 // players it controls:
 // - 变化图 (LizzieFrame.autoReplayBranch, LizzieFrame.java:11538-11615): while auto-replay-branch is
 //   on, a newly hovered variation starts at its first move (or whole, for 先显示整个变化图) and grows
-//   one move every replay-branch-interval-seconds; analysis keeps running.
+//   one move every replay-branch-interval-seconds, on the main board and on 棋盘同步工具's float
+//   board alike; analysis keeps running.
 // - 副棋盘 (BottomToolbar.autoPlaySub, BottomToolbar.java:4759-4814): the sub board's variation
 //   grows one move every N milliseconds; placing a move starts it again at 1.
 // - 主棋盘 (BottomToolbar.autoPlayMain, BottomToolbar.java:4707-4754): every N seconds one move
@@ -13,6 +14,7 @@
 import { registerViewHandler, run, state } from "../app";
 import { setDisplay } from "../commands";
 import { formPanel } from "../dialogs";
+import type { DisplaySettings } from "../contract/generated";
 import { t } from "../i18n";
 import { edit } from "../editing/state";
 import { javaDouble } from "../workbench/paint";
@@ -33,9 +35,43 @@ export function bindAutoplayHost(h: AutoplayHost): void {
 
 // ------------------------------------------------------------------ 变化图
 
-/** The auto-replayed variation: its key, displayed length (null: whole) and next step time. */
-const branch = { key: null as string | null, length: null as number | null, steps: 0, nextAt: 0 };
+/** The main board's auto-replayed variation: its key, displayed length (null: whole) and moves. */
+const branch = { key: null as string | null, length: null as number | null, steps: 0 };
 let branchTimer: number | undefined;
+
+/** 棋盘同步工具's float board (FloatBoardRenderer.replayTarget / getDisplayedBranchLength /
+ *  setReplayLength, FloatBoardRenderer.java:2528-2548): its own variation and displayed length,
+ *  which its wheel also changes, stepped by the same timer (LizzieFrame.java:11568-11571,
+ *  11596-11607). */
+interface FloatReplayHost {
+  /** The shown variation while the window is visible; a new key restarts the wait (the wheel
+   *  changes it too: setDisplayedBranchLength → stopReplay). */
+  target(): ReplayTarget | null;
+  length(): number | null;
+  /** Sets the length and repaints the window. */
+  setLength(length: number): void;
+}
+
+let floatHost: FloatReplayHost | null = null;
+
+/** The one wait both boards step on (`mainTarget`, `floatingTarget`, `nextStepAt`,
+ *  LizzieFrame.java:11566-11583): either target changing restarts it. */
+const clock = { main: null as string | null, float: null as string | null, nextAt: 0 };
+
+export function bindFloatReplayHost(h: FloatReplayHost): void {
+  floatHost = h;
+}
+
+/** The wait before a new variation's first step, in ms (LizzieFrame.java:11578-11582). */
+function firstStepDelay(d: DisplaySettings): number {
+  return (d.entireVariationFirst ? d.entireVariationFirstSeconds : d.replayIntervalSeconds * 0.3) * 1000;
+}
+
+/** The next displayed length (LizzieFrame.java:11588-11605): the whole variation or one move
+ *  become two, then one more up to the variation's end. */
+function nextLength(length: number | null, steps: number): number {
+  return length === null || length === 1 ? 2 : Math.min(Math.max(0, length + 1), steps + 1);
+}
 
 /** The displayed length of the hovered variation `key` (`steps` moves long) while auto-replay is
  *  on, else null. A new key restarts it (LizzieFrame.java:10131-10135, 11566-11583). */
@@ -46,35 +82,47 @@ export function autoReplayLength(key: string, steps: number): number | null {
   if (branch.key !== key) {
     branch.key = key;
     branch.length = d.entireVariationFirst ? null : 1;
-    const delay = d.entireVariationFirst ? d.entireVariationFirstSeconds : d.replayIntervalSeconds * 0.3;
-    branch.nextAt = performance.now() + delay * 1000;
   }
   branch.steps = steps;
   return branch.length;
 }
 
-/** The 20 ms Swing timer (LizzieFrame.java:11553-11612). */
+/** The 20 ms Swing timer (LizzieFrame.java:11553-11612): one wait for the main board's and the
+ *  float board's variations; when it is over both step and the next wait is the interval. */
 function branchTick(): void {
   const d = state.view?.settings.display;
   if (!d?.autoReplayBranch) {
     window.clearInterval(branchTimer);
     branchTimer = undefined;
     branch.key = null;
+    clock.main = null;
+    clock.float = null;
     return;
   }
-  // The target lookup itself restarts a changed variation (autoReplayLength).
-  const target = host?.target() ?? null;
-  if (!target) {
-    branch.key = null;
-    return;
-  }
+  // The main target lookup itself restarts a changed variation's length (autoReplayLength).
+  const main = host?.target() ?? null;
+  const float = floatHost?.target() ?? null;
+  if (!main) branch.key = null;
   const now = performance.now();
-  if (now < branch.nextAt) return;
-  const length = branch.length === null || branch.length === 1 ? 2 : Math.min(Math.max(0, branch.length + 1), branch.steps + 1);
-  branch.nextAt = now + d.replayIntervalSeconds * 1000;
-  if (length === branch.length) return;
-  branch.length = length;
-  host?.repaint();
+  if ((main?.key ?? null) !== clock.main || (float?.key ?? null) !== clock.float) {
+    clock.main = main?.key ?? null;
+    clock.float = float?.key ?? null;
+    clock.nextAt = now + firstStepDelay(d);
+  }
+  if (now < clock.nextAt) return;
+  if (main) {
+    const length = nextLength(branch.length, branch.steps);
+    if (length !== branch.length) {
+      branch.length = length;
+      host?.repaint();
+    }
+  }
+  if (float && floatHost) {
+    const length = floatHost.length();
+    const next = nextLength(length, float.steps);
+    if (next !== length) floatHost.setLength(next);
+  }
+  clock.nextAt = now + d.replayIntervalSeconds * 1000;
 }
 
 /** Starts the timer when auto-replay is already on at start-up (Lizzie.java:488). */

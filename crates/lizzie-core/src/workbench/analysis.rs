@@ -605,7 +605,9 @@ impl Workbench {
             self.check_rules_prompt();
             return;
         }
-        // A running quick analysis leaves the foreground engine idle until it ends.
+        // A running quick analysis leaves the foreground engine idle until it ends; ReadBoard GMA
+        // keeps it following the position without analysing (its moves come from
+        // `kata-genmove_analyze`).
         let analyse = !self.paused
             && !self.benchmark_running()
             && self.limit_stop.is_none()
@@ -613,6 +615,7 @@ impl Workbench {
             && !self.flash_holds_foreground()
             && !self.whole_game_holds_foreground()
             && !self.batch_holds_foreground()
+            && !self.readboard_gma_busy()
             && self.rules_permit_analysis();
         let target = self.analysis_target();
         self.sync_search(analyse);
@@ -668,6 +671,7 @@ impl Workbench {
         self.reset_analysis();
         self.reset_editing();
         self.publish_record_rules(None);
+        self.readboard_history_overwritten();
     }
 
     // -------------------------------------------------------------------- engine operations
@@ -750,17 +754,22 @@ impl Workbench {
         Ok(true)
     }
 
-    /// "重启当前引擎".
+    /// "重启当前引擎". An engine that ended and was not started again is still the current engine
+    /// (Java keeps `Lizzie.leelaz` and restarts `currentEngineNo`).
     pub fn restart_engine(&mut self) -> Result<bool, ApiError> {
-        let Some(fg) = self.engines.foreground() else {
-            return Ok(false);
+        let fg = self.engines.foreground();
+        let id = match fg {
+            Some(fg) => self.engines.profile_of(fg).map(|p| p.id.clone()),
+            None => self.engines.foreground_failure().map(|p| p.id.clone()),
         };
-        let Some(id) = self.engines.profile_of(fg).map(|p| p.id.clone()) else {
+        let Some(id) = id else {
             return Ok(false);
         };
         self.quick_engine_changed();
         self.auto_analysis_abandon();
-        self.engines.terminate(fg);
+        if let Some(fg) = fg {
+            self.engines.terminate(fg);
+        }
         let Some(index) = self.config.engine.index_of(&id) else {
             return Ok(true);
         };
@@ -902,6 +911,7 @@ impl Workbench {
     /// stopped. Never written to disk. A pause stops a waiting analysis engine warm-up
     /// (`cancelLoadedGameQuickAnalysisForUserPause`).
     pub fn toggle_analysis(&mut self) -> Result<bool, ApiError> {
+        self.readboard_user_toggled_analysis();
         let toggled = self.toggle_pause_state();
         if self.paused {
             self.warmup_stop();
@@ -1275,6 +1285,7 @@ impl Workbench {
             self.human_sl_deadline(),
             self.strength_deadline(),
             self.contribution_deadline(),
+            self.readboard_deadline(),
         ]
             .into_iter()
             .flatten()
@@ -1294,7 +1305,8 @@ impl Workbench {
         let human_sl = self.human_sl_tick(now);
         let strength = self.strength_tick(now);
         let contribution = self.contribution_tick(now);
-        engines | quick | whole | tracking | play | matches | human_sl | strength | contribution
+        let readboard = self.readboard_tick(now);
+        engines | quick | whole | tracking | play | matches | human_sl | strength | contribution | readboard
     }
 
     /// Handles runtime events produced by operations outside engine output.
@@ -1309,6 +1321,7 @@ impl Workbench {
             changed = true;
             let Some(ev) = self
                 .contribution_event(ev)
+                .and_then(|ev| self.gma_event(ev))
                 .and_then(|ev| self.match_event(ev))
                 .and_then(|ev| self.play_event(ev))
                 .and_then(|ev| self.human_sl_event(ev))
@@ -1331,6 +1344,7 @@ impl Workbench {
                             self.apply_komi(komi);
                         }
                     }
+                    self.readboard_engine_ready(instance);
                 }
                 RuntimeEvent::Rules { .. } => {}
                 RuntimeEvent::RawNet { .. } => {}
@@ -1448,10 +1462,15 @@ impl Workbench {
         // (a game retired, a lease ended) are applied.
         self.restart_due();
         let changed = self.restart_settle() || changed;
+        // A settling GMA hand ends once its engine holds the record's position; the reply that
+        // completes that sync need not be an event.
+        let changed = self.gma_settle() || changed;
         if changed {
             // Readiness, rules answers and failures can change what the engine should do.
             self.sync_engine();
             self.cloud_activation_settle();
+            // GMA's notices, and an auto-play line waiting for GMA to give the engine back.
+            self.readboard_after_engine();
         }
         changed
     }
@@ -1639,7 +1658,7 @@ impl Workbench {
         self.shown_analysis_at(store, self.cursor)
     }
 
-    fn shown_analysis_at(&self, store: &AnalysisStore, node: NodeId) -> Option<NodeAnalysisView> {
+    pub(super) fn shown_analysis_at(&self, store: &AnalysisStore, node: NodeId) -> Option<NodeAnalysisView> {
         let s = store.get(&self.doc.record, node)?;
         // Stored results keep the engine's numbers; what is shown follows the settings now. The
         // komi is the one the result was analysed with (results of another komi are dropped).
@@ -1766,14 +1785,19 @@ impl Workbench {
 
     /// The board marks of the current position, the analysis-based ones from `store`.
     fn overlay(&self, store: &AnalysisStore) -> BoardOverlayView {
+        self.overlay_at(store, self.cursor)
+    }
+
+    /// The board marks of `node`'s position (the ReadBoard float board shows the main line's end).
+    pub(super) fn overlay_at(&self, store: &AnalysisStore, node: NodeId) -> BoardOverlayView {
         let rec = &self.doc.record;
         let s = &self.config.display;
-        let path = rec.path_to(self.cursor);
+        let path = rec.path_to(node);
         let numbering = display::numbering(rec, &path);
         let analysis = |n: NodeId| store.get(rec, n);
         let rank_override = self.whole_game_results_for_current()
             && std::ptr::eq(store, &self.store)
-            && rec.node(self.cursor).parent.is_some_and(|n| store.get(rec, n).is_some_and(|a| a.visits > 0));
+            && rec.node(node).parent.is_some_and(|n| store.get(rec, n).is_some_and(|a| a.visits > 0));
         let ranks = if rank_override {
             let mut effective = s.clone();
             effective.move_numbers = 0;
@@ -1787,9 +1811,9 @@ impl Workbench {
             ranks,
             rank_corner: display::shows_ranks(s) && (s.move_rank == 0 || s.move_rank > 1),
             ranks_after_numbers: rank_override,
-            next_move: display::next_move_info(rec, self.cursor, s, self.config.edit.no_capture,
+            next_move: display::next_move_info(rec, node, s, self.config.edit.no_capture,
                 self.config.engine.analysis.limit_branch_length, analysis),
-            info_order_sample: display::info_order_sample(s, rec.node(self.cursor).to_play, self.komi),
+            info_order_sample: display::info_order_sample(s, rec.node(node).to_play, self.komi),
         }
     }
 }

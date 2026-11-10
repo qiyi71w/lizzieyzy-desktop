@@ -59,8 +59,18 @@ impl Workbench {
 
     /// Applies `edit` to the open document: the one content write path. The revision moves on
     /// when saved content changed; stored analysis of removed or edited nodes is dropped. A placed
-    /// stone counts as the foreground engine's search (`Board.place` → `onMainEnginePonder`).
+    /// stone counts as the foreground engine's search (`Board.place` → `onMainEnginePonder`), and
+    /// while 棋盘同步工具 syncs, it goes through ReadBoard's checks and is sent to the helper.
     pub(super) fn apply_edit(&mut self, edit: DocumentEdit) -> Result<Applied, EditError> {
+        let placed = match edit {
+            DocumentEdit::Play { at, color, point, .. } => Some((at, color, point)),
+            _ => None,
+        };
+        if let Some((at, color, point)) = placed {
+            if let Some(applied) = self.readboard_before_play(at, color, point) {
+                return Ok(applied);
+            }
+        }
         let record = Arc::make_mut(&mut self.doc.record);
         record.set_branch_numbering(self.config.display.branch_numbers_from_one);
         let applied = record.apply(&edit)?;
@@ -70,8 +80,11 @@ impl Workbench {
         if applied.changed {
             self.retain_valid_analysis();
         }
-        if matches!(edit, DocumentEdit::Play { .. }) {
+        if let Some((_, _, point)) = placed {
             self.foreground_pondered();
+            if applied.content && applied.node.is_some() {
+                self.readboard_after_play(point);
+            }
         }
         Ok(applied)
     }
@@ -161,7 +174,7 @@ impl Workbench {
     }
 
     /// Browsing moves to `node` after an edit, silently (bulk edits mute Java's stone sound).
-    fn land(&mut self, node: NodeId) {
+    pub(super) fn land(&mut self, node: NodeId) {
         self.cursor = node;
         self.sounds.clear();
         self.sync_engine();
@@ -197,7 +210,7 @@ impl Workbench {
         Ok(result)
     }
 
-    fn run_edit(&mut self, op: EditCommand) -> Result<CommandResult, ApiError> {
+    pub(super) fn run_edit(&mut self, op: EditCommand) -> Result<CommandResult, ApiError> {
         match op {
             EditCommand::Play { point, color } => {
                 if self.editing.setup_mode {
@@ -531,13 +544,16 @@ impl Workbench {
             .filter(|&n| self.doc.record.contains(n))
             .unwrap_or(ROOT);
         self.land(cursor);
+        self.readboard_history_overwritten();
     }
 
-    /// `LizzieFrame.tryPlay`: starting keeps the record and position and removes what follows the
+    /// `LizzieFrame.tryPlay`: a shown ReadBoard float board leaves its edit mode (back to the main
+    /// line's end) first; starting keeps the record and position and removes what follows the
     /// current node (`deleteMoveNoHintAfter`); ending restores both. When nothing changed the
     /// record meanwhile it is still the kept one (every edit copies a shared record), so only the
     /// position comes back and the document stays at its revision.
     fn try_play(&mut self) -> Result<CommandResult, ApiError> {
+        self.readboard_before_try_play();
         if let Some(kept) = self.editing.trial.take() {
             if Arc::ptr_eq(&kept.record, &self.doc.record) {
                 self.cursor = kept.cursor;

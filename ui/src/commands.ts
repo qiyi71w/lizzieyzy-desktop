@@ -59,7 +59,8 @@ export const COMMANDS: Record<string, CommandEntry> = {
   // 综合设置 opens at its first page, 棋盘与显示 (Menu.java:5395-5399, ConfigDialog2.java:4168-4171).
   "settings.general": { run: () => void openAnalysisSettings("display") },
   "menu.gtpPanel": { run: toggleConsole, checked: consoleVisible },
-  "menu.restartCurrentEngine": { run: () => run({ type: "RestartEngine" }), enabled: () => !!state.view?.engine.foreground },
+  // An engine that ended and was not started again is still the current engine (Java `reStartEngine`).
+  "menu.restartCurrentEngine": { run: () => run({ type: "RestartEngine" }), enabled: () => !!state.view?.engine.foreground || !!state.view?.engine.down },
   "menu.shutdownCurrentEngine": { run: () => run({ type: "ShutdownEngines", scope: "Current" }), enabled: () => !!state.view?.engine.foreground },
   // 双引擎模式's engine menu (Menu.java:5857-5876): restartEngine2 / killThisEngines2.
   "menu.restartCurrentEngine2": { run: () => run({ type: "RestartSecondaryEngine" }), enabled: () => !!state.view?.engine.secondary },

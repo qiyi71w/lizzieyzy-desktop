@@ -5,15 +5,19 @@
 //   node tools/package.mjs [--identity formal|acceptance] [--target <rust triple>]
 //                          [--out <dir>] [--allow-dirty]
 //
-// Windows x64: NSIS installer and portable zip. macOS arm64/x64: dmg (build each architecture
-// with its --target on a Mac). Linux x64: deb and AppImage (build on Ubuntu 24.04, see
-// tools/packaging/build-linux.sh). The acceptance identity uses its own application identifier,
-// binary and package names and contains the acceptance channel; the formal identity never does.
+// Windows x64: NSIS installer and portable zip, both carrying the board synchronization helper
+// (qiyi71w/readboard, pinned below) as `readboard/` next to the program. macOS arm64/x64: dmg
+// (build each architecture with its --target on a Mac). Linux x64: deb and AppImage (build on
+// Ubuntu 24.04, see tools/packaging/build-linux.sh). The acceptance identity uses its own
+// application identifier, binary and package names and contains the acceptance channel; the
+// formal identity never does.
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -31,6 +35,14 @@ const HOST_TRIPLES = {
   "darwin-arm64": "aarch64-apple-darwin",
   "darwin-x64": "x86_64-apple-darwin",
   "linux-x64": "x86_64-unknown-linux-gnu",
+};
+// The board synchronization helper of the Windows packages: the release asset of
+// qiyi71w/readboard, with the size and SHA-256 of the release's `.sha256` file.
+const READBOARD = {
+  version: "v3.2.0",
+  asset: "readboard-webview2-v3.2.0.zip",
+  size: 126901426,
+  sha256: "6abb1c2764fe14f72f77a2444d314e037d1d1e95c6c95974cd6c9c67de6e9512",
 };
 
 function fail(message) {
@@ -77,6 +89,48 @@ function single(dir, extension) {
   return path.join(dir, found[0]);
 }
 
+/** Windows' own bsdtar: it reads and writes zip archives; Git's GNU tar earlier on PATH cannot. */
+function windowsTar() {
+  return path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
+}
+
+/** The pinned helper archive, downloaded once into target/readboard and checked by size and SHA-256. */
+async function readboardArchive() {
+  const dir = path.join(root, "target", "readboard");
+  const file = path.join(dir, READBOARD.asset);
+  const valid = () => fs.existsSync(file) && fs.statSync(file).size === READBOARD.size && sha256(file) === READBOARD.sha256;
+  if (valid()) return file;
+  fs.mkdirSync(dir, { recursive: true });
+  const url = `https://github.com/qiyi71w/readboard/releases/download/${READBOARD.version}/${READBOARD.asset}`;
+  console.log(`package: downloading ${url}`);
+  const response = await fetch(url);
+  if (!response.ok || !response.body) fail(`download ${url}: HTTP ${response.status}`);
+  const partial = `${file}.part`;
+  await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(partial));
+  fs.renameSync(partial, file);
+  if (!valid()) {
+    fs.rmSync(file, { force: true });
+    fail(`${READBOARD.asset} does not have the pinned size ${READBOARD.size} and SHA-256 ${READBOARD.sha256}`);
+  }
+  return file;
+}
+
+/**
+ * The helper's files, extracted afresh from the archive: the archive root, or its single
+ * top-level directory (the layouts the hosted-update installer accepts). It must hold
+ * readboard.exe, which the program looks for in `<resources>/readboard/`.
+ */
+function readboardDirectory(archive) {
+  const dir = path.join(root, "target", "readboard", READBOARD.version);
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  run(windowsTar(), ["-x", "-f", archive, "-C", dir]);
+  const entries = fs.readdirSync(dir);
+  const top = entries.length === 1 && fs.statSync(path.join(dir, entries[0])).isDirectory() ? path.join(dir, entries[0]) : dir;
+  if (!fs.existsSync(path.join(top, "readboard.exe"))) fail(`${READBOARD.asset} has no readboard.exe`);
+  return top;
+}
+
 const options = parseArgs(process.argv.slice(2));
 const triple = options.target ?? HOST_TRIPLES[`${process.platform}-${process.arch}`];
 const platform = PLATFORMS[triple];
@@ -95,9 +149,16 @@ const bundleDir = path.join(releaseDir, "bundle");
 // Bundle directories keep files from earlier builds; start empty so only this build is collected.
 for (const kind of [...platform.bundles, "macos"]) fs.rmSync(path.join(bundleDir, kind), { recursive: true, force: true });
 
+// Windows packages carry the helper as a resource directory `readboard/` (next to the program).
+const readboardDir = platform.os === "windows" ? readboardDirectory(await readboardArchive()) : null;
+
 const tauriArgs = ["build", "--ci", "--bundles", platform.bundles.join(",")];
 if (options.target) tauriArgs.push("--target", options.target);
 if (options.identity === "acceptance") tauriArgs.push("--config", ACCEPTANCE_CONFIG, "--features", "acceptance");
+if (readboardDir) {
+  const source = `${readboardDir.split(path.sep).join("/")}/`;
+  tauriArgs.push("--config", JSON.stringify({ bundle: { resources: { [source]: "readboard/" } } }));
+}
 run(process.execPath, [path.join(root, "node_modules", "@tauri-apps", "cli", "tauri.js"), ...tauriArgs], { stdio: "inherit" });
 
 fs.mkdirSync(options.out, { recursive: true });
@@ -118,18 +179,18 @@ for (const kind of platform.bundles) {
 }
 
 if (platform.os === "windows") {
-  // Portable zip: one folder with the program and its licence. Data stays in the per-user
-  // directories of the identity, as for the installed program.
+  // Portable zip: one folder with the program, the board synchronization helper and the
+  // licence. Data stays in the per-user directories of the identity, as for the installed
+  // program.
   const staging = fs.mkdtempSync(path.join(options.out, ".portable-"));
   const folder = path.join(staging, config.productName);
   fs.mkdirSync(folder);
   fs.copyFileSync(path.join(releaseDir, `${config.mainBinaryName}.exe`), path.join(folder, `${config.mainBinaryName}.exe`));
+  fs.cpSync(readboardDir, path.join(folder, "readboard"), { recursive: true });
   fs.copyFileSync(path.join(root, "LICENSE.txt"), path.join(folder, "LICENSE.txt"));
   const file = `${assetPrefix}-portable.zip`;
   fs.rmSync(path.join(options.out, file), { force: true });
-  // Windows' own bsdtar writes zip archives with -a; Git's GNU tar earlier on PATH cannot.
-  const tar = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
-  run(tar, ["-a", "-c", "-f", path.join(options.out, file), "-C", staging, config.productName]);
+  run(windowsTar(), ["-a", "-c", "-f", path.join(options.out, file), "-C", staging, config.productName]);
   fs.rmSync(staging, { recursive: true, force: true });
   assets.push({ file, form: "portable-zip" });
 }
@@ -155,6 +216,7 @@ const manifest = {
     tauriCli: JSON.parse(fs.readFileSync(path.join(root, "node_modules", "@tauri-apps", "cli", "package.json"), "utf8")).version,
   },
   assets,
+  bundled: readboardDir ? { readboard: { version: READBOARD.version, asset: READBOARD.asset, size: READBOARD.size, sha256: READBOARD.sha256 } } : {},
 };
 fs.writeFileSync(path.join(options.out, `${assetPrefix}.manifest.json`), JSON.stringify(manifest, null, 2) + "\n");
 fs.writeFileSync(path.join(options.out, `${assetPrefix}.sha256`), assets.map((a) => `${a.sha256}  ${a.file}\n`).join(""));

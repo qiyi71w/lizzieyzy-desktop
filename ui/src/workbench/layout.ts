@@ -718,6 +718,12 @@ export interface BoardGeom {
   n: number;
   cols: number;
   rows: number;
+  /** A board whose rows are spaced apart from its columns (棋盘同步工具's float board,
+   *  FloatBoardRenderer.setupSizeParameters): the wood height, the top margin and the row
+   *  spacing. Absent, they are `size`, `margin` and `square`. */
+  sizeY?: number;
+  marginY?: number;
+  squareY?: number;
 }
 
 function pixelMargins(length: number, n: number, ratio: number): { size: number; margin: number; avail: number } {

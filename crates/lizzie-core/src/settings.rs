@@ -1276,6 +1276,10 @@ pub struct DisplaySettings {
     pub move_rank_custom: u32,
     /// 判定依据 (`move-rank-evaluation-mode`).
     pub move_rank_mode: MoveRankMode,
+    /// 落子评价 > 原棋盘不显示评价标记(棋盘同步时) (`disable-move-rank-in-origin`, off): the
+    /// 棋盘同步工具 float board draws no rank marks (`FloatBoardRenderer.java:152-157`); the main
+    /// board is unaffected.
+    pub disable_move_rank_in_origin: bool,
     /// Win rate loss of rank levels 1–5 (`win-loss-threshold-1..5`), percentage points.
     pub win_loss_thresholds: [f64; 5],
     /// Score loss of rank levels 1–5 (`score-loss-threshold-1..5`), points.
@@ -1396,6 +1400,7 @@ impl Default for DisplaySettings {
             move_rank: 1,
             move_rank_custom: 3,
             move_rank_mode: MoveRankMode::Auto,
+            disable_move_rank_in_origin: false,
             win_loss_thresholds: [-1.0, -3.0, -6.0, -12.0, -24.0],
             score_loss_thresholds: [-0.5, -1.5, -3.0, -6.0, -12.0],
             suggestion_winrate: true,
@@ -1551,6 +1556,27 @@ pub struct StrengthSettings {
     pub humansl_background: bool,
 }
 
+/// 棋盘同步工具 (ReadBoard) options (Java `ui.*` keys; defaults from `Config.java`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ReadBoardSettings {
+    /// `Menu.alwaysKeepBoardStatSync` (`always-sync-boardstat`, default on): every sync shows
+    /// the newest move instead of the node the user browsed to meanwhile.
+    pub always_sync_board_stat: bool,
+    /// `Menu.readBoardGetFocus` (`read-board-get-focus`, default on): the helper is sent `loss`
+    /// after the floating board took the focus.
+    pub get_focus: bool,
+    /// `Menu.notPlaySoundInSync` (`not-play-sound-insync`, default on): no stone sounds while
+    /// the board is synced.
+    pub no_sound_in_sync: bool,
+}
+
+impl Default for ReadBoardSettings {
+    fn default() -> Self {
+        ReadBoardSettings { always_sync_board_stat: true, get_focus: true, no_sound_in_sync: true }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Config {
@@ -1603,6 +1629,8 @@ pub struct Config {
     pub tsumego: TsumegoSettings,
     /// 跑谱贡献.
     pub contribution: ContributionSettings,
+    /// 棋盘同步工具.
+    pub read_board: ReadBoardSettings,
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).

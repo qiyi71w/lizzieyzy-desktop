@@ -6,26 +6,87 @@
 //! - `{"query": "view"}` → `{"view": <WorkbenchView>}` (full view).
 //! - `{"query": "ui"}` → `{"ui": <object>}`: the page's own report of focus, title, dialogs and
 //!   visible text, collected through the `acceptance-probe` event.
+//! - `{"fault": "float_hide", "enabled": <bool>}` → `{"fault": "float_hide", "enabled": <bool>}`:
+//!   while enabled, hiding the 棋盘同步工具 float board fails as a native hide error would.
+//!
+//! When `LIZZIEYZY_TAURI_READBOARD_WIRE` names a file, every 棋盘同步工具 line in and out (and each
+//! launch, stop, end and exit) is appended to it as `<ms since epoch>\t<helper>\t<kind>\t<text>`.
 
-use std::io::{BufRead, BufReader, Write};
+use std::fs::{File, OpenOptions};
+use std::io::{self, BufRead, BufReader, Write};
 use std::net::TcpListener;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::sync::Mutex;
-use std::time::Duration;
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use lizzie_core::api::Command;
+use lizzie_core::readboard::{HelperHost, HelperId, HelperInput, HelperLaunch};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::State;
 
+static WIRE: LazyLock<Option<Mutex<File>>> = LazyLock::new(|| {
+    let path = std::env::var_os("LIZZIEYZY_TAURI_READBOARD_WIRE")?;
+    OpenOptions::new().create(true).append(true).open(path).ok().map(Mutex::new)
+});
+
+fn wire(helper: HelperId, kind: &str, text: &str) {
+    let Some(file) = WIRE.as_ref() else { return };
+    let ms = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis());
+    let _ = writeln!(file.lock().unwrap(), "{ms}\t{helper}\t{kind}\t{text}");
+}
+
+/// A helper's output as it reaches the workbench.
+pub fn wire_input(helper: HelperId, input: &HelperInput) {
+    match input {
+        HelperInput::Line(line) => wire(helper, "IN", line),
+        HelperInput::Ended { error } => wire(helper, "END", error.as_deref().unwrap_or("")),
+    }
+}
+
+/// A stopped helper's process exit as it reaches the workbench.
+pub fn wire_exit(helper: HelperId) {
+    wire(helper, "EXIT", "");
+}
+
+/// The helper host with its writes, launches and stops in the transcript.
+pub struct WireHost<H>(pub H);
+
+impl<H: HelperHost> HelperHost for WireHost<H> {
+    fn launch(&mut self, helper: HelperId, spec: &HelperLaunch) -> io::Result<()> {
+        wire(helper, "LAUNCH", &spec.program.display().to_string());
+        self.0.launch(helper, spec)
+    }
+
+    fn send(&mut self, helper: HelperId, line: &str) -> io::Result<()> {
+        wire(helper, "OUT", line);
+        self.0.send(helper, line)
+    }
+
+    fn stop(&mut self, helper: HelperId) -> bool {
+        wire(helper, "STOP", "");
+        self.0.stop(helper)
+    }
+}
+
 static UI_REPLY: Mutex<Option<mpsc::Sender<Value>>> = Mutex::new(None);
+
+static FAIL_FLOAT_HIDE: AtomicBool = AtomicBool::new(false);
+
+/// Whether the `float_hide` fault is enabled.
+pub fn float_hide_fails() -> bool {
+    FAIL_FLOAT_HIDE.load(Ordering::Relaxed)
+}
 
 #[derive(Deserialize)]
 struct Request {
     command: Option<Command>,
     query: Option<String>,
+    fault: Option<String>,
+    enabled: Option<bool>,
 }
 
 #[tauri::command]
@@ -47,6 +108,10 @@ fn handle(app: &AppHandle, line: &str) -> Value {
             Ok(r) => json!({ "result": r }),
             Err(e) => json!({ "error": e }),
         };
+    }
+    if let (Some("float_hide"), Some(enabled)) = (req.fault.as_deref(), req.enabled) {
+        FAIL_FLOAT_HIDE.store(enabled, Ordering::Relaxed);
+        return json!({ "fault": "float_hide", "enabled": enabled });
     }
     match req.query.as_deref() {
         Some("view") => json!({ "view": shared.workbench.lock().unwrap().inspect() }),

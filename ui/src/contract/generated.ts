@@ -116,7 +116,7 @@ autoCheckEngineAlive: boolean, };
 
 export type EngineScope = "Current" | "Others" | "All";
 
-export type Command = { "type": "CloudAccount", op: CloudCommand, owner: number, } | { "type": "CloudActivate", settings: CloudSettings, confirmed: boolean, } | { "type": "CloudLocal" } | { "type": "CloudCancel" } | { "type": "CloudCancelRequest", owner: number, } | { "type": "CloudImportQr" } | { "type": "OpenCloudLink", custom: boolean, } | { "type": "Strength", op: StrengthCommand, } | { "type": "Commentary", op: CommentaryCommand, } | { "type": "CommentaryConnection", op: ConnectionCommand, } | { "type": "SshCredential", op: SshCredentialCommand, } | { "type": "Contribution", op: ContributionCommand, } | { "type": "SetAppearanceSettings", settings: AppearanceSettings, theme: ThemeSettings, } | { "type": "SetFrameFontSize", size: number, } | { "type": "AddTheme", name: string, } | { "type": "DeleteTheme", name: string, } | { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SetExtraMode", mode: ExtraMode, } | { "type": "SetClassicMode" } | { "type": "ToggleIndependentBoard", board: IndependentBoard, } | { "type": "CloseIndependentBoard", board: IndependentBoard, } | { "type": "CommitLayout", mode: ExtraMode, panels: PanelSettings, board_position_proportion: number, save_slot: number | null, window: WindowPlacement | null, } | { "type": "ApplyCustomLayout", slot: number, } | { "type": "SwitchSecondaryEngine", index: number, } | { "type": "RestartSecondaryEngine" } | { "type": "ShutdownSecondaryEngine" } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, 
+export type Command = { "type": "CloudAccount", op: CloudCommand, owner: number, } | { "type": "CloudActivate", settings: CloudSettings, confirmed: boolean, } | { "type": "CloudLocal" } | { "type": "CloudCancel" } | { "type": "CloudCancelRequest", owner: number, } | { "type": "CloudImportQr" } | { "type": "OpenCloudLink", custom: boolean, } | { "type": "Strength", op: StrengthCommand, } | { "type": "Commentary", op: CommentaryCommand, } | { "type": "ReadBoard", op: ReadBoardCommand, } | { "type": "CommentaryConnection", op: ConnectionCommand, } | { "type": "SshCredential", op: SshCredentialCommand, } | { "type": "Contribution", op: ContributionCommand, } | { "type": "SetAppearanceSettings", settings: AppearanceSettings, theme: ThemeSettings, } | { "type": "SetFrameFontSize", size: number, } | { "type": "AddTheme", name: string, } | { "type": "DeleteTheme", name: string, } | { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SetExtraMode", mode: ExtraMode, } | { "type": "SetClassicMode" } | { "type": "ToggleIndependentBoard", board: IndependentBoard, } | { "type": "CloseIndependentBoard", board: IndependentBoard, } | { "type": "CommitLayout", mode: ExtraMode, panels: PanelSettings, board_position_proportion: number, save_slot: number | null, window: WindowPlacement | null, } | { "type": "ApplyCustomLayout", slot: number, } | { "type": "SwitchSecondaryEngine", index: number, } | { "type": "RestartSecondaryEngine" } | { "type": "ShutdownSecondaryEngine" } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, 
 /**
  * Separate, unchecked-by-default consent for Java's commentary API key.
  */
@@ -684,7 +684,11 @@ tuning: TuningView | null, editing: EditingView,
 /**
  * 存档与读档.
  */
-recovery: RecoveryView, };
+recovery: RecoveryView, 
+/**
+ * 棋盘同步工具.
+ */
+readboard: ReadBoardView, };
 
 export type LogsStatus = { directory: string, app_log_bytes: number | null, crash_log_bytes: number | null, };
 
@@ -702,7 +706,7 @@ export type ImportStatus = "Imported" | "Incompatible" | "NotMigrated";
 
 export type ImportReason = "NotYetAvailable" | "Credential" | "InvalidValue" | "WindowCoordinates" | "CredentialNotConfirmed" | "SessionOnly" | "Unreadable" | "NotChosen" | "Obsolete";
 
-export type ImportTarget = "Appearance" | "Commentary" | "Cloud" | "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "AutoCheckEngineAlive" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode" | "WorkbenchPanels" | "PanelSizes" | "BottomToolbar" | "AutoQuickAnalysis" | "AnalysisEngine" | "QuickModel" | "HumanSlTraining" | "HumanSlModel" | "StrengthBackground" | "StrengthModels" | "Tsumego" | "CaptureTsumego" | "ProblemList" | "FlashRange" | "AutoAnalysis" | "HumanEngineGame" | "GameAiTime" | "GameRandomStart" | "AutoPlay" | "EngineMatch" | "WholeGameVisits" | "AnalysisRegion" | "Tracking" | "Hawkeye";
+export type ImportTarget = "Appearance" | "Commentary" | "Cloud" | "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "NoSoundInSync" | "ReadBoardStatSync" | "ReadBoardGetFocus" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "AutoCheckEngineAlive" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode" | "WorkbenchPanels" | "PanelSizes" | "BottomToolbar" | "AutoQuickAnalysis" | "AnalysisEngine" | "QuickModel" | "HumanSlTraining" | "HumanSlModel" | "StrengthBackground" | "StrengthModels" | "Tsumego" | "CaptureTsumego" | "ProblemList" | "FlashRange" | "AutoAnalysis" | "HumanEngineGame" | "GameAiTime" | "GameRandomStart" | "AutoPlay" | "EngineMatch" | "WholeGameVisits" | "AnalysisRegion" | "Tracking" | "Hawkeye";
 
 export type ImportItemView = { 
 /**
@@ -1019,6 +1023,12 @@ moveRankCustom: number,
  * 判定依据 (`move-rank-evaluation-mode`).
  */
 moveRankMode: MoveRankMode, 
+/**
+ * 落子评价 > 原棋盘不显示评价标记(棋盘同步时) (`disable-move-rank-in-origin`, off): the
+ * 棋盘同步工具 float board draws no rank marks (`FloatBoardRenderer.java:152-157`); the main
+ * board is unaffected.
+ */
+disableMoveRankInOrigin: boolean, 
 /**
  * Win rate loss of rank levels 1–5 (`win-loss-threshold-1..5`), percentage points.
  */
@@ -1656,7 +1666,7 @@ tier: number,
  */
 current: boolean, };
 
-export type LeaseAvailabilityView = "Available" | "NoForegroundEngine" | "EngineNotReady" | "NotKatago" | "MissingCapability" | "ExistingLease" | "EngineStateUnrestored" | "PlayMode" | "HumanSlGame";
+export type LeaseAvailabilityView = "Available" | "NoForegroundEngine" | "EngineNotReady" | "NotKatago" | "MissingCapability" | "ExistingLease" | "EngineStateUnrestored" | "PlayMode" | "HumanSlGame" | "ReadBoardGma";
 
 export type UnrestoredReason = "Stop" | "Restore";
 
@@ -2664,6 +2674,131 @@ hideRules: boolean,
  * 总在最前 (`contribute-always-top`).
  */
 alwaysTop: boolean, };
+
+export type ReadBoardCommand = { "type": "Open" } | { "type": "SetAlwaysSyncBoardStat", enabled: boolean, } | { "type": "SetGetFocus", enabled: boolean, } | { "type": "SetNoSoundInSync", enabled: boolean, } | { "type": "AnswerUpdate", accept: boolean, } | { "type": "ReturnFocus" } | { "type": "SetFloatEditMode", enabled: boolean, } | { "type": "SetFloatSuggestionsHidden", hidden: boolean, } | { "type": "FloatBoardHidden", request: number, } | { "type": "SetHelperLogging", diagnostics: boolean, capture: boolean, trace: boolean, };
+
+export type ReadBoardView = { 
+/**
+ * `readboard.exe` was found next to the program (the menu entry works; Windows only).
+ */
+available: boolean, 
+/**
+ * A helper process runs.
+ */
+running: boolean, 
+/**
+ * The helper syncs a board (`sync` … `endsync`/`stopsync`).
+ */
+syncing: boolean, 
+/**
+ * Moves played here are clicked on the target window (`bothSync`).
+ */
+both_sync: boolean, 
+/**
+ * GMA auto-play is armed for this colour (the helper's `play>…gma`).
+ */
+gma: Stone | null, 
+/**
+ * The float board over the target window, while shown.
+ */
+float_board: FloatBoardView | null, 
+/**
+ * The float board was hidden because a `place` is about to be sent (`foreFoxWithInBoard`)
+ * and that `place` waits until the window is off the screen: once it is, answer
+ * `FloatBoardHidden` with this number. Without the answer the `place` is never written; the
+ * local move fails at its confirmation timeout.
+ */
+float_hide_request: number | null, 
+/**
+ * A helper update waits for the user's answer (`ReadBoard.updateInstallConfirmMessage`
+ * with this version tag).
+ */
+update_offer: string | null, 
+/**
+ * The helper's log writers (诊断与日志 > ReadBoard), while a helper runs.
+ */
+logging: HelperLoggingView | null, 
+/**
+ * 棋盘同步工具选项 > `Menu.alwaysKeepBoardStatSync` (Java `ui.always-sync-boardstat`).
+ */
+always_sync_board_stat: boolean, 
+/**
+ * 棋盘同步工具选项 > `Menu.readBoardGetFocus` (Java `ui.read-board-get-focus`).
+ */
+get_focus: boolean, 
+/**
+ * 设置 > `Menu.notPlaySoundInSync` (Java `ui.not-play-sound-insync`).
+ */
+no_sound_in_sync: boolean, 
+/**
+ * Messages to show once each, in order.
+ */
+notices: Array<ReadBoardNotice>, };
+
+export type FloatBoardView = { x: number, y: number, width: number, height: number, 
+/**
+ * `0` Fox, `1` Tygem, `2` Sina, other values a generic client.
+ */
+board_type: number, 
+/**
+ * The DPI factor of the helper's scaled form, if it sent one.
+ */
+scale: number | null, edit_mode: boolean, suggestions_hidden: boolean, 
+/**
+ * The edit button is shown (not while both boards are synced).
+ */
+edit_button: boolean, 
+/**
+ * A click places a move (both boards synced, or edit mode; `FloatBoard.onClicked`).
+ */
+clicks_play: boolean, 
+/**
+ * What the overlay draws outside the edit mode: the main line's end
+ * (`getCurOrMainEnd(false)`), whatever node the main window shows. Absent in the edit mode,
+ * which draws the current position like the main board.
+ */
+scene: FloatSceneView | null, };
+
+export type FloatSceneView = { node: number, 
+/**
+ * Row-major, `size.width * size.height`.
+ */
+stones: Array<Stone | null>, last_action: LastAction | null, to_play: Stone, snapshot: boolean, 
+/**
+ * Points of the move children (variations behind an end placeholder), first child first.
+ */
+next_moves: Array<Point>, 
+/**
+ * Stored analysis of that node, as the main board's `analysis`.
+ */
+analysis: NodeAnalysisView | null, 
+/**
+ * Move numbers and 落子评价 of that node, as the main board's `board`.
+ */
+board: BoardOverlayView, 
+/**
+ * Kata形势 of that node, else of its parent (`preEstimateArray`); absent while Kata形势 is
+ * off or nothing was reported.
+ */
+ownership: Array<number> | null, };
+
+export type ReadBoardNotice = { "type": "Message", key: string, args: Array<string>, } | { "type": "GmaUnsupported" };
+
+export type HelperLoggingView = { status: LoggingStatus, 
+/**
+ * The helper process's log session (`DiagnosticsDialog.helperCapability`), empty while unknown.
+ */
+process_session_id: string, persistence: Persistence | null, drop_count: number | null, desired_diagnostics: boolean, desired_capture: boolean, desired_trace: boolean, diagnostics: Presentation, capture: Presentation, trace: Presentation, 
+/**
+ * `DiagnosticsDialog.captureSummary`.
+ */
+capture_summary: string, };
+
+export type LoggingStatus = "Starting" | "CapabilityReady" | "Applying" | "Observed" | "Unknown" | "LegacyUnconfirmed";
+
+export type Persistence = "Healthy" | "Degraded" | "Unavailable";
+
+export type Presentation = "Off" | "On" | "OnStorageDegraded" | "OnStorageUnavailable" | "NotApplied" | "Unknown" | "LegacyUnconfirmed";
 
 export type ManagedProfile = { command: string, assetId: string, weightPath: string, configPath: string, };
 

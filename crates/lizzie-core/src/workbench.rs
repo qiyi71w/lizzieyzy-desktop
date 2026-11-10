@@ -34,6 +34,7 @@ mod matches;
 mod panels;
 mod play;
 mod quick;
+mod readboard;
 mod recovery;
 mod resources;
 mod restart;
@@ -49,6 +50,7 @@ use analysis::AnalysisStore;
 pub use analysis::LogLine;
 pub use editing::{NOT_SQUARE, SETUP_ENGINE_RUNNING, SETUP_MODE_ROOT_ONLY, SETUP_ROOT_ONLY};
 pub use flash::ANALYSIS_COMMAND_MISSING;
+pub use readboard::ReadBoardInstall;
 pub use importing::{IMPORT_NEEDS_REPLACE, IMPORT_STALE};
 pub use recovery::RecoveryStep;
 pub use resources::{prepare_resource_setup, run_resource_job, ResourceCompletion, ResourceJob};
@@ -61,7 +63,7 @@ use crate::api::{
 use crate::browse::{self, Navigation};
 use crate::engine::runtime::{Engines, InstanceId, Launcher};
 use crate::formats::{self, saved_analysis, ReadError};
-use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, RecordFormat, Stone, ROOT};
+use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, Point, RecordFormat, Stone, ROOT};
 use crate::settings::{
     self, Config, DisplaySettings, ExtraMode, FramePlacement, Language, Persisted, PvVisitsMode, Storage,
     WindowPlacement,
@@ -290,6 +292,8 @@ pub struct Workbench {
     cloud_activation: Option<String>,
     /// Session credential availability; never persisted with cloud settings.
     cloud_authenticated: bool,
+    /// 棋盘同步工具 and its GMA auto-play.
+    readboard: readboard::ReadBoardState,
 }
 
 impl Workbench {
@@ -415,6 +419,7 @@ impl Workbench {
             contribution: contribution::ContributionFlow::default(),
             cloud_activation: None,
             cloud_authenticated: false,
+            readboard: readboard::ReadBoardState::default(),
         }
     }
 
@@ -570,6 +575,7 @@ impl Workbench {
                 };
                 // Loading is silent (Java turns sound off while it builds the history).
                 self.sounds.clear();
+                self.readboard_history_overwritten();
                 self.reset_analysis();
                 let (settings, no_circle) = (&self.config.engine.analysis, self.config.display.no_sugg_circle);
                 self.store
@@ -752,7 +758,7 @@ impl Workbench {
         let from = rec.path_to(self.cursor);
         let to = rec.path_to(target);
         let shared = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
-        self.sounds = if self.config.ui.play_sound {
+        self.sounds = if self.sounds_on() {
             to[shared..].iter().map(|&n| step_sound(rec, n)).collect()
         } else {
             Vec::new()
@@ -764,10 +770,16 @@ impl Workbench {
         true
     }
 
+    /// Stone sounds play (`ui.play-sound`), except while the board is synced with
+    /// 同步时不播放落子声 on (`Utils.playVoiceFile`).
+    fn sounds_on(&self) -> bool {
+        self.config.ui.play_sound && !(self.config.read_board.no_sound_in_sync && self.readboard_syncing())
+    }
+
     pub fn navigate(&mut self, nav: Navigation) -> bool {
         if self.match_active() { return false; }
         let target = browse::navigate(&self.doc.record, self.cursor, nav);
-        self.move_to(target)
+        self.browse_to(target)
     }
 
     pub fn goto_node(&mut self, node: NodeId) -> Result<bool, ApiError> {
@@ -778,7 +790,7 @@ impl Workbench {
                 format!("no node {node} in this document"),
             ));
         }
-        Ok(self.move_to(node))
+        Ok(self.browse_to(node))
     }
 
     /// A number of 0 is ignored like Java's empty/invalid move field.
@@ -788,7 +800,16 @@ impl Workbench {
             return false;
         }
         let target = browse::goto_move_number(&self.doc.record, self.cursor, number);
-        self.move_to(target)
+        self.browse_to(target)
+    }
+
+    /// The user moves the view (a synced board then no longer resumes analysis by itself).
+    fn browse_to(&mut self, target: NodeId) -> bool {
+        let moved = self.move_to(target);
+        if moved {
+            self.readboard_navigated();
+        }
+        moved
     }
 
     // ---------------------------------------------------------------- settings and data
@@ -974,6 +995,7 @@ impl Workbench {
         v.contribution_notices = self.take_contribution_notices();
         v.human_sl_continuation = self.take_human_sl_continuation();
         v.commentary.restore_question = self.take_commentary_restore();
+        v.readboard.notices = self.take_readboard_notices();
         v
     }
 
@@ -1095,6 +1117,7 @@ impl Workbench {
             tuning: None,
             editing: self.editing_view(),
             recovery: self.recovery_view(),
+            readboard: self.readboard_view(),
             game: self.play_view(),
             game_outcome: None,
             game_notices: Vec::new(),
@@ -1148,14 +1171,7 @@ impl Workbench {
         let rec = &self.doc.record;
         let node = rec.node(self.cursor);
         let pos = rec.position(self.cursor);
-        let last_action = match node.kind {
-            NodeKind::Move { color, point } => Some(LastAction {
-                color,
-                point: Some(point),
-            }),
-            NodeKind::Pass { color } => Some(LastAction { color, point: None }),
-            NodeKind::Snapshot | NodeKind::DummyPass => None,
-        };
+        let last_action = last_action(node.kind);
         PositionView {
             document: self.doc.id,
             node: self.cursor,
@@ -1173,20 +1189,38 @@ impl Workbench {
             path: rec.path_to(self.cursor),
             line_end: browse::navigate(rec, self.cursor, Navigation::Last),
             main_trunk: rec.is_main_trunk(self.cursor),
-            next_moves: node
-                .children
-                .iter()
-                .filter_map(|&c| match rec.node(c).kind {
-                    NodeKind::Move { point, .. } => Some(point),
-                    _ => None,
-                })
-                .collect(),
+            next_moves: next_moves(rec, self.cursor),
             next_color: node.children.iter().find_map(|&c| match rec.node(c).kind {
                 NodeKind::Move { color, .. } => Some(color),
                 _ => None,
             }),
         }
     }
+}
+
+/// The stone or pass that leads to a node of `kind`.
+fn last_action(kind: NodeKind) -> Option<LastAction> {
+    match kind {
+        NodeKind::Move { color, point } => Some(LastAction {
+            color,
+            point: Some(point),
+        }),
+        NodeKind::Pass { color } => Some(LastAction { color, point: None }),
+        NodeKind::Snapshot | NodeKind::DummyPass => None,
+    }
+}
+
+/// Points of `node`'s move children, first child first (Java `drawNextMoves`: passes and dummies
+/// are not shown).
+fn next_moves(rec: &GameRecord, node: NodeId) -> Vec<Point> {
+    rec.node(node)
+        .children
+        .iter()
+        .filter_map(|&c| match rec.node(c).kind {
+            NodeKind::Move { point, .. } => Some(point),
+            _ => None,
+        })
+        .collect()
 }
 
 /// `Utils.playVoiceFile(node)`: compares the captures at `node` with its parent's.
