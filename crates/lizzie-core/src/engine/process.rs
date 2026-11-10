@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use super::gtp::LaunchSpec;
 use super::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
 use super::ssh::SshConnector;
+use super::cloud::CloudConnector;
 
 pub type Sink = Arc<dyn Fn(InstanceId, EngineInput) + Send + Sync>;
 
@@ -23,6 +24,7 @@ pub struct ProcessLauncher {
     sink: Sink,
     endings: Arc<Mutex<Vec<JoinHandle<()>>>>,
     ssh: Option<SshConnector>,
+    cloud: Option<CloudConnector>,
 }
 
 /// Waits for the processes a [`ProcessLauncher`] is ending (application exit), without access to
@@ -38,12 +40,18 @@ impl ProcessLauncher {
             sink,
             endings: Arc::new(Mutex::new(Vec::new())),
             ssh: None,
+            cloud: None,
         }
     }
 
     /// Remote engine commands run through `ssh`; without it they fail to start.
     pub fn with_ssh(mut self, ssh: SshConnector) -> ProcessLauncher {
         self.ssh = Some(ssh);
+        self
+    }
+
+    pub fn with_cloud(mut self, cloud: CloudConnector) -> ProcessLauncher {
+        self.cloud = Some(cloud);
         self
     }
 
@@ -101,6 +109,12 @@ fn read_lines(stream: impl Read, mut each: impl FnMut(String)) {
 
 impl Launcher for ProcessLauncher {
     fn launch(&self, instance: InstanceId, spec: &LaunchSpec) -> std::io::Result<Box<dyn EngineIo>> {
+        if let Some(launch) = &spec.cloud {
+            return match &self.cloud {
+                Some(cloud) => cloud.launch(instance, launch, self.sink.clone(), self.endings.clone()),
+                None => Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "cloud engines are not available")),
+            };
+        }
         if let Some(remote) = &spec.remote {
             return match &self.ssh {
                 Some(ssh) => ssh.launch(instance, remote, self.sink.clone(), self.endings.clone()),

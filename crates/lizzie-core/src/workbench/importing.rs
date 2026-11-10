@@ -67,6 +67,7 @@ impl Workbench {
             engines: candidate.engines.clone(),
             commentary_credential: candidate.commentary_credential.clone(),
             analysis_ssh_credential: candidate.analysis_ssh_credential(),
+            cloud_credentials: candidate.cloud_credentials.clone(),
             replaces: self.java_import_replaces(&candidate),
             // As choosing the slots would import them; the report shows the choice made.
             recovery: slots::after(&candidate.slots, true),
@@ -81,6 +82,25 @@ impl Workbench {
         let (id, candidate) = self.java_preview.as_ref()?;
         if *id != preview { return None; }
         Some((candidate.source.clone(), candidate.commentary_credential.clone()?))
+    }
+
+    /// Non-secret cloud source-read plan. Each credential still needs separate adapter consent;
+    /// a stale preview cannot authorize a source or native-store credential read.
+    pub fn java_cloud_import(&self, preview: u64) -> Option<(crate::java_import::JavaSource, crate::cloud::CloudSettings, crate::java_import::CloudImportCredentials)> {
+        let (id, candidate) = self.java_preview.as_ref()?;
+        if *id != preview { return None; }
+        Some((candidate.source.clone(), candidate.mapped.cloud.clone()?, candidate.cloud_credentials.clone()?))
+    }
+
+    /// Stages effective preferences only after the shell's independently confirmed credential
+    /// persistence. This changes the prospective atomic import, never live settings or secrets.
+    pub fn stage_java_cloud_preferences(&mut self, preview: u64, remember_token: bool, remember_password: bool) -> bool {
+        let Some((id, candidate)) = &mut self.java_preview else { return false; };
+        if *id != preview { return false; }
+        let Some(settings) = &mut candidate.mapped.cloud else { return false; };
+        settings.remember_token = remember_token;
+        settings.remember_password = remember_password;
+        true
     }
 
     /// The SSH passwords preview `preview` would bring over, by account, for the adapter to

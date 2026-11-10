@@ -11,6 +11,7 @@ import { accelerationCard } from "./acceleration";
 import { performanceCard } from "./performance";
 import { action, actions, javaFormat, node, resourceText, row, size } from "./setupText";
 import "./setup.css";
+import { openRemoteCompute } from "../cloud/center";
 
 let resources: ResourcesView | null = null;
 let tuning: TuningView | null = null;
@@ -188,8 +189,9 @@ export async function openAutoSetup(card: SetupCardKey = "overview", ctx: SetupC
     const button = action(`setup.nav.${key}`, title, () => show(key));
     const icon = node("span", "", "setup-nav-icon"); icon.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${icons[key]}</svg>`; button.prepend(icon); navButtons.set(key, button); nav.append(button);
   }
-  const remote = action("setup.nav.remote", t("Menu.remoteCompute"), () => {}, false); remote.className = "unavailable"; remote.title = product("unavailable");
-  const globe = node("span", "", "setup-nav-icon"); globe.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${icons.remote}</svg>`; remote.prepend(globe); nav.append(remote);
+  // openRemoteComputeCenter: refused with the status notice while a setup task runs.
+  const remote = action("setup.nav.remote", t("Menu.remoteCompute"), () => { if (setupBusy()) setupStatus(t("AutoSetup.taskAlreadyRunning")); else openRemoteCompute(); });
+  const globe = node("span", "", "setup-nav-icon"); globe.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${icons.remote}</svg>`; remote.prepend(globe); remote.classList.add("setup-nav-remote"); nav.append(remote);
   layout.append(nav, content);
   const footer = node("footer", "", "setup-footer");
   const progressTitle = node("strong", t("AutoSetup.progressTitle")), progress = node("progress"), progressStatus = node("span", "", "setup-progress-status"), status = node("span", "", "setup-footer-status"); status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");

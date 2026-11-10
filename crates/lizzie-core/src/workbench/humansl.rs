@@ -619,6 +619,9 @@ impl Workbench {
             | Command::SetKomi { .. }
             | Command::SetKataRules { .. }
             | Command::SwitchEngine { .. }
+            | Command::CloudActivate { .. }
+            | Command::CloudLocal
+            | Command::CloudCancel
             | Command::RestartEngine
             | Command::ShutdownEngines { .. }
             | Command::SaveEngineSettings { .. }

@@ -389,6 +389,7 @@ impl Workbench {
             remote,
             foreground: false,
             held: false,
+            cloud_recovery: false,
         });
         self.flash.outcome = Some(FlashOutcome::EngineFailed { run });
     }

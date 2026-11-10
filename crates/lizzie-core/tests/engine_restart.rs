@@ -192,6 +192,135 @@ fn a_foreground_engine_that_dies_starts_again_and_resumes_the_current_position()
 }
 
 #[test]
+fn cloud_recovery_replays_the_latest_position_without_ordinary_alive_check_or_failure_dialog() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world, Vec::new());
+    set_auto_check(&mut wb, false);
+    open(&mut wb, RECORD);
+    wb.navigate(Navigation::Last);
+    wb.activate_cloud(lizzie_core::cloud::CloudSettings {
+        provider: lizzie_core::cloud::Provider::Zhizi,
+        identifier: "fixture-account".into(),
+        ..Default::default()
+    }, true).unwrap();
+    let old = world.last();
+    serve(&mut wb, &world, old);
+    wb.engine_input(old, EngineInput::CloudRecovery { message: "connection lost".into() });
+    let new = world.last();
+    assert_ne!(new, old);
+    wb.navigate(Navigation::Back(2));
+    wb.set_komi(0.5).unwrap();
+    let sent = serve(&mut wb, &world, new);
+    let view = wb.view(false);
+    assert!(view.engine.foreground.unwrap().ready);
+    assert!(view.engine_failure.is_none(), "cloud reconstruction is quiet");
+    assert!(sent.iter().any(|c| c == "komi 0.5"));
+    assert!(sent.iter().any(|c| c == "play B Q16"));
+    assert!(!sent.iter().any(|c| c == "play B Q4"));
+    wb.engine_input(old, EngineInput::CloudRecovery { message: "late retired callback".into() });
+    assert_eq!(world.last(), new);
+}
+
+#[test]
+fn cloud_recovery_retires_the_borrow_and_rebuilds_the_foreground() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world, Vec::new());
+    set_auto_check(&mut wb, false);
+    wb.activate_cloud(lizzie_core::cloud::CloudSettings {
+        provider: lizzie_core::cloud::Provider::Zhizi,
+        identifier: "fixture-account".into(),
+        ..Default::default()
+    }, true).unwrap();
+    let old = world.last();
+    serve(&mut wb, &world, old);
+    wb.set_auto_quick_analyze(true).unwrap();
+    open(&mut wb, RECORD);
+    serve(&mut wb, &world, old);
+    wb.engine_tick(Instant::now() + Duration::from_secs(2));
+    serve(&mut wb, &world, old);
+    assert!(wb.view(true).quick.borrowed);
+    wb.engine_input(old, EngineInput::CloudRecovery { message: "accepted progress stalled".into() });
+    let new = world.last();
+    assert_ne!(new, old, "cloud recovery follows lease retirement, unlike ordinary alive checks");
+    serve(&mut wb, &world, new);
+    assert!(wb.view(false).engine.foreground.unwrap().ready);
+}
+
+fn zhizi(args: &str) -> lizzie_core::cloud::CloudSettings {
+    lizzie_core::cloud::CloudSettings {
+        provider: lizzie_core::cloud::Provider::Zhizi,
+        identifier: "fixture-account".into(),
+        args: args.into(),
+        ..Default::default()
+    }
+}
+
+/// The cloud switch receipt (seated profile, `view_seq` read under the commit): a launch that
+/// fails at once is already down in the first later view, and re-enabling after that failure
+/// shows the new engine after its boundary while the old failure stays before it.
+#[test]
+fn cloud_switch_boundary_separates_an_old_failure_from_the_switch_outcome() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world, Vec::new());
+    world.refuse_launches();
+    let profile = wb.activate_cloud(zhizi(""), true).unwrap();
+    let after = wb.view_seq();
+    assert_eq!(wb.config().engine.engines.iter().find(|p| p.is_default).unwrap().id, profile);
+    let failed = wb.view(false);
+    assert!(failed.seq > after);
+    assert!(failed.engine.down && failed.engine.foreground.is_none(), "the immediate launch failure is the first later view");
+
+    world.1.store(false, Ordering::SeqCst);
+    let old = wb.view(false);
+    assert!(old.engine.down, "the old failure is still published before the next switch commits");
+    let again = wb.activate_cloud(zhizi(""), true).unwrap();
+    let after = wb.view_seq();
+    assert_eq!(again, profile);
+    assert!(old.seq <= after, "the old failure is not an outcome of the new switch");
+    let starting = wb.view(false);
+    assert!(starting.seq > after && !starting.engine.down);
+    let fg = starting.engine.foreground.expect("the switched-in engine holds the seat");
+    assert!(!fg.ready);
+    assert_eq!(wb.config().engine.engines[fg.index as usize].id, profile);
+    serve(&mut wb, &world, world.last());
+    assert!(wb.view(false).engine.foreground.unwrap().ready);
+}
+
+/// Re-enabling the same provider with other launch arguments keeps its profile but seats a new
+/// launch: the old ready engine's view lies before the receipt boundary, and the first later
+/// view shows the new launch loading until it is ready.
+#[test]
+fn cloud_switch_with_changed_args_seats_a_new_launch_of_the_same_profile() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world, Vec::new());
+    let profile = wb.activate_cloud(zhizi("--gpu-type vip-share --kata-weight 10b512t"), true).unwrap();
+    let old = world.last();
+    serve(&mut wb, &world, old);
+    let before = wb.view(false);
+    assert!(before.engine.foreground.unwrap().ready);
+
+    let again = wb.activate_cloud(zhizi("--gpu-type vip-share --kata-weight 18b"), true).unwrap();
+    let after = wb.view_seq();
+    assert_eq!(again, profile, "the same provider keeps its profile");
+    assert!(before.seq <= after, "the old ready engine is not an outcome of the new switch");
+    let new = world.last();
+    assert_ne!(new, old, "the changed launch starts a new engine");
+    let v = wb.view(false);
+    assert!(v.seq > after);
+    let fg = v.engine.foreground.expect("the new launch holds the seat");
+    assert!(!fg.ready, "not ready until the new launch is");
+    let seated = &wb.config().engine.engines[fg.index as usize];
+    assert_eq!(seated.id, profile);
+    assert_eq!(seated.cloud.as_ref().unwrap().args, "--gpu-type vip-share --kata-weight 18b");
+    serve(&mut wb, &world, new);
+    assert!(wb.view(false).engine.foreground.unwrap().ready);
+}
+
+#[test]
 fn a_paused_analysis_stays_paused_after_the_restart() {
     let dir = tempfile::tempdir().unwrap();
     let world = World::default();
@@ -456,4 +585,165 @@ fn only_a_batch_line_that_is_accepted_proves_a_restarted_engine() {
         wb.engine_input(new, EngineInput::Exited(Some(1)));
         assert_eq!(world.launched().len(), before + usize::from(accepted), "accepted line: {accepted}");
     }
+}
+
+#[test]
+fn cloud_local_skips_profiles_with_missing_model_config_or_jar() {
+    let dir = tempfile::tempdir().unwrap();
+    let executable = dir.path().join("engine");
+    std::fs::write(&executable, "fixture").unwrap();
+    let missing = dir.path().join("missing");
+    let world = World::default();
+    let mut profiles = Vec::new();
+    for (i, option) in ["-model", "--config=", "-jar"].iter().enumerate() {
+        let mut p = profile(&format!("missing-{i}"), executable.to_str().unwrap());
+        p.command = format!("\"{}\" {}{}\"{}\"", executable.display(), option,
+            if option.ends_with('=') { "" } else { " " }, missing.display());
+        profiles.push(p);
+    }
+    profiles.push(profile("usable", executable.to_str().unwrap()));
+    let mut wb = workbench(dir.path(), &world, profiles);
+    wb.cloud_local().unwrap();
+    assert_eq!(wb.config().engine.engines.iter().find(|p| p.is_default).unwrap().id, "usable");
+    assert_eq!(wb.config().cloud.provider, lizzie_core::cloud::Provider::Local);
+}
+
+/// Persist the same provider/default/last choice as an explicit cloud activation, then open a
+/// fresh workbench with no session credentials. No real transport or network is involved.
+fn cloud_startup_workbench(
+    dir: &std::path::Path,
+    world: &World,
+    provider: lizzie_core::cloud::Provider,
+    startup: EngineStartup,
+    with_local: bool,
+) -> Workbench {
+    let executable = dir.join("local-engine");
+    std::fs::write(&executable, "fixture").unwrap();
+    let mut missing = profile("missing-model", executable.to_str().unwrap());
+    missing.command = format!("\"{}\" -model \"{}\"", executable.display(), dir.join("missing-model").display());
+    let mut profiles = vec![missing];
+    if with_local {
+        profiles.push(profile("first-usable-local", executable.to_str().unwrap()));
+        let later = dir.join("later-local-engine");
+        std::fs::write(&later, "fixture").unwrap();
+        profiles.push(profile("later-usable-local", later.to_str().unwrap()));
+    }
+    let staging_world = World::default();
+    let mut staging = workbench(dir, &staging_world, profiles);
+    staging.activate_cloud(lizzie_core::cloud::CloudSettings {
+        provider, identifier: "fixture-account".into(),
+        custom_url: "ws://fixture.invalid/private-path".into(),
+        ..Default::default()
+    }, true).unwrap();
+    let profiles = staging.config().engine.engines.clone();
+    staging.save_engine_settings(profiles, startup).unwrap();
+    staging.end_engines();
+    drop(staging);
+    Workbench::new(
+        Storage::in_dirs(&dir.join("config"), &dir.join("data")),
+        None, Box::new(Launch(world.clone())), Vec::new(),
+    )
+}
+
+#[test]
+fn unauthenticated_zhizi_default_and_last_fall_back_without_changing_saved_selection() {
+    for startup in [EngineStartup::Default, EngineStartup::Last] {
+        let dir = tempfile::tempdir().unwrap();
+        let world = World::default();
+        let mut wb = cloud_startup_workbench(dir.path(), &world,
+            lizzie_core::cloud::Provider::Zhizi, startup, true);
+        let path = dir.path().join("config/config.json");
+        let bytes_before = std::fs::read(&path).unwrap();
+        let config_before = serde_json::to_value(wb.config()).unwrap();
+        let selected = wb.config().engine.engines.iter().find(|p| p.is_default).unwrap().id.clone();
+        assert_eq!(wb.config().engine.last_engine.as_deref(), Some(selected.as_str()));
+        wb.start_engines();
+        assert_eq!(world.launched().len(), 1);
+        assert_eq!(world.launched()[0].1, dir.path().join("local-engine").to_str().unwrap());
+        assert_eq!(serde_json::to_value(wb.config()).unwrap(), config_before);
+        assert_eq!(std::fs::read(&path).unwrap(), bytes_before);
+        assert_eq!(wb.config().cloud.provider, lizzie_core::cloud::Provider::Zhizi);
+        assert_eq!(wb.config().engine.startup, startup);
+        assert_eq!(wb.config().engine.last_engine.as_deref(), Some(selected.as_str()));
+        assert_eq!(wb.config().engine.engines.iter().find(|p| p.is_default).unwrap().id, selected);
+    }
+}
+
+#[test]
+fn authenticated_zhizi_startup_keeps_the_requested_cloud_engine() {
+    for startup in [EngineStartup::Default, EngineStartup::Last] {
+        let dir = tempfile::tempdir().unwrap();
+        let world = World::default();
+        let mut wb = cloud_startup_workbench(dir.path(), &world,
+            lizzie_core::cloud::Provider::Zhizi, startup, true);
+        let bytes_before = std::fs::read(dir.path().join("config/config.json")).unwrap();
+        assert!(!wb.set_cloud_authenticated(true));
+        assert!(wb.set_cloud_authenticated(false));
+        assert!(!wb.set_cloud_authenticated(true));
+        assert_eq!(std::fs::read(dir.path().join("config/config.json")).unwrap(), bytes_before);
+        wb.start_engines();
+        assert_eq!(world.launched().len(), 1);
+        assert_eq!(world.launched()[0].1, "", "cloud launch has no local executable");
+        assert_eq!(wb.config().cloud.provider, lizzie_core::cloud::Provider::Zhizi);
+    }
+}
+
+#[test]
+fn custom_cloud_startup_does_not_require_zhizi_authentication() {
+    for startup in [EngineStartup::Default, EngineStartup::Last] {
+        let dir = tempfile::tempdir().unwrap();
+        let world = World::default();
+        let mut wb = cloud_startup_workbench(dir.path(), &world,
+            lizzie_core::cloud::Provider::Custom, startup, true);
+        wb.start_engines();
+        assert_eq!(world.launched().len(), 1);
+        assert_eq!(world.launched()[0].1, "");
+        assert_eq!(wb.config().cloud.provider, lizzie_core::cloud::Provider::Custom);
+    }
+}
+
+#[test]
+fn unauthenticated_zhizi_without_a_usable_local_keeps_the_requested_selection() {
+    for startup in [EngineStartup::Default, EngineStartup::Last] {
+        let dir = tempfile::tempdir().unwrap();
+        let world = World::default();
+        let mut wb = cloud_startup_workbench(dir.path(), &world,
+            lizzie_core::cloud::Provider::Zhizi, startup, false);
+        let config_before = serde_json::to_value(wb.config()).unwrap();
+        wb.start_engines();
+        assert_eq!(world.launched().len(), 1);
+        assert_eq!(world.launched()[0].1, "");
+        assert_eq!(serde_json::to_value(wb.config()).unwrap(), config_before);
+    }
+}
+
+#[test]
+fn cloud_login_fallback_does_not_start_an_engine_when_startup_is_empty_or_manual() {
+    for startup in [EngineStartup::Empty, EngineStartup::Manual] {
+        let dir = tempfile::tempdir().unwrap();
+        let world = World::default();
+        let mut wb = cloud_startup_workbench(dir.path(), &world,
+            lizzie_core::cloud::Provider::Zhizi, startup, true);
+        wb.start_engines();
+        assert!(world.launched().is_empty());
+    }
+}
+
+#[test]
+fn session_local_fallback_preserves_independent_preloaded_profiles() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = cloud_startup_workbench(dir.path(), &world,
+        lizzie_core::cloud::Provider::Zhizi, EngineStartup::Last, true);
+    let mut profiles = wb.config().engine.engines.clone();
+    profiles.iter_mut().find(|p| p.id == "later-usable-local").unwrap().preload = true;
+    wb.save_engine_settings(profiles, EngineStartup::Last).unwrap();
+    let bytes_before = std::fs::read(dir.path().join("config/config.json")).unwrap();
+    wb.start_engines();
+    let launched: Vec<String> = world.launched().into_iter().map(|(_, program)| program).collect();
+    assert_eq!(launched, vec![
+        dir.path().join("local-engine").to_str().unwrap().to_string(),
+        dir.path().join("later-local-engine").to_str().unwrap().to_string(),
+    ]);
+    assert_eq!(std::fs::read(dir.path().join("config/config.json")).unwrap(), bytes_before);
 }

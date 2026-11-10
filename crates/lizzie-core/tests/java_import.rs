@@ -2148,3 +2148,203 @@ fn imported_commentary_settings_remember_nothing_until_a_key_is_copied() {
     // Only a confirmed, successful copy into this client's credential store turns remembering on.
     assert!(!settings.remember_api_key);
 }
+
+fn cloud_java(root: &Path, remote: serde_json::Value) -> PathBuf {
+    let java = root.join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("local-engine"), "fixture").unwrap();
+    std::fs::write(java.join("config.txt"), json!({
+        "ui": { "autoload-empty": true, "last-engine": 2, "default-engine": 2 },
+        "leelaz": {
+            "remote-compute": remote,
+            "engine-settings-list": [
+                { "id": "local", "name": "Local", "command": "./local-engine gtp" },
+                { "id": "zhizi", "name": "Cloud", "command": "remote-compute://zhizi", "useJavaSSH": true },
+                { "id": "custom", "name": "Custom", "command": "remote-compute://custom-websocket", "isDefault": true },
+            ],
+        },
+    }).to_string()).unwrap();
+    java
+}
+
+#[test]
+fn cloud_markers_map_before_local_or_ssh_launch_and_keep_engine_selection() {
+    use lizzie_core::cloud::{DiscoverySource, Provider};
+    use lizzie_core::engine::cloud::CloudProvider;
+    let temp = tempfile::tempdir().unwrap();
+    let java = cloud_java(temp.path(), json!({
+        "provider": "custom", "zhizi-identifier": "account@example.invalid",
+        "zhizi-args": "--gpu-type 3x --kata-weight 10b512t",
+        "custom-remote-code": "复制 ＷＳＳ：／／example.invalid／analysis 更多文字",
+        "zhizi-catalog-updated-at": 1234,
+        "zhizi-engine-catalog": {
+            "serverVersion": "java-cache", "defaultKataWeight": "10b512t",
+            "supportKataWeights": [{ "name": "test-weight", "description": "saved weight", "source": "CACHED_LEGACY" }],
+        },
+    }));
+    let before = snapshot(&java);
+    let mut wb = workbench(&temp.path().join("product"), Recorder::default());
+    let p = preview(&mut wb, &java);
+    assert!(p.engines.iter().all(|engine| engine.problems.is_empty()));
+    assert!(p.engines.iter().all(|engine| !engine.credential));
+    wb.apply_java_import(p.id, &[], false, None).unwrap().unwrap();
+    let config = wb.config();
+    assert_eq!(config.cloud.provider, Provider::Custom);
+    assert_eq!(config.cloud.custom_url, "WSS://example.invalid/analysis");
+    assert_eq!(config.cloud.catalog_updated_at, 1234);
+    assert!(config.cloud.catalog.weights.iter().any(|weight| weight.name == "test-weight" && weight.source == DiscoverySource::CachedLegacy));
+    assert_eq!(config.engine.last_engine.as_deref(), Some("custom"));
+    assert!(config.engine.engines[2].is_default);
+    assert!(config.engine.engines[0].cloud.is_none());
+    let cloud = &config.engine.engines[1];
+    assert!(cloud.ssh.is_none());
+    assert_eq!(cloud.command, "remote-compute://zhizi");
+    assert_eq!(cloud.cloud.as_ref().unwrap().provider, CloudProvider::Zhizi);
+    assert_eq!(cloud.cloud.as_ref().unwrap().args, config.cloud.args);
+    assert_eq!(config.engine.engines[2].cloud.as_ref().unwrap().url, config.cloud.custom_url);
+    assert_eq!(snapshot(&java), before);
+}
+
+#[test]
+fn cloud_secrets_have_independent_availability_and_never_enter_preview_or_core_state() {
+    const TOKEN: &str = "CLOUD-TOKEN-SECRET";
+    const PASSWORD: &str = "päss";
+    const ENCODED: &str = "cMOkc3M=";
+    let temp = tempfile::tempdir().unwrap();
+    let java = cloud_java(temp.path(), json!({
+        "provider": "zhizi", "zhizi-identifier": "user@example.invalid",
+        "zhizi-account-token": TOKEN, "zhizi-password-v1": ENCODED,
+        "remember-zhizi-token": true, "remember-zhizi-password": true,
+    }));
+    let before = snapshot(&java);
+    let candidate = java_import::read(&JavaSource::new(&java, None)).unwrap();
+    let debug = format!("{candidate:?}");
+    let choices = candidate.cloud_credentials.as_ref().unwrap();
+    assert!(choices.token && choices.password);
+    let mut wb = workbench(&temp.path().join("product"), Recorder::default());
+    let p = wb.preview_java_import(candidate);
+    assert!(wb.java_cloud_import(p.id + 1).is_none());
+    let (_, settings, availability) = wb.java_cloud_import(p.id).unwrap();
+    assert_eq!(availability.identifier, settings.identifier);
+    // These source reads correspond to independent shell checkboxes, not per-engine consent.
+    assert_eq!(java_import::read_java_cloud_secret(&java, false).as_deref(), Some(TOKEN));
+    assert_eq!(java_import::read_java_cloud_secret(&java, true).as_deref(), Some(PASSWORD));
+    let report = wb.apply_java_import(p.id, &[0, 1, 2], false, None).unwrap().unwrap();
+    assert!(!wb.config().cloud.remember_token && !wb.config().cloud.remember_password);
+    for key in ["credential:cloud-token", "credential:cloud-password"] {
+        assert_eq!(item(&report.items, key).reason, Some(ImportReason::CredentialNotConfirmed));
+    }
+    for text in [debug, serde_json::to_string(&p).unwrap(), serde_json::to_string(&report).unwrap(), serde_json::to_string(wb.config()).unwrap()] {
+        for secret in [TOKEN, PASSWORD, ENCODED] { assert!(!text.contains(secret)); }
+    }
+    assert!(wb.java_cloud_import(p.id).is_none());
+    assert_eq!(snapshot(&java), before);
+}
+
+#[test]
+fn custom_cloud_url_requires_engine_consent_including_top_level_settings() {
+    let temp = tempfile::tempdir().unwrap();
+    let url = "wss://example.invalid/analysis?accessCode=CUSTOM-URL-SECRET";
+    let java = cloud_java(temp.path(), json!({ "provider": "custom", "custom-remote-code": url }));
+    let candidate = java_import::read(&JavaSource::new(&java, None)).unwrap();
+    assert!(!format!("{candidate:?}").contains("CUSTOM-URL-SECRET"));
+    assert_eq!(candidate.credential_engines(), vec![2]);
+    let mut wb = workbench(&temp.path().join("product"), Recorder::default());
+    let p = wb.preview_java_import(candidate);
+    assert!(!serde_json::to_string(&p).unwrap().contains("CUSTOM-URL-SECRET"));
+    let report = wb.apply_java_import(p.id, &[1], false, None).unwrap().unwrap();
+    assert_eq!(wb.config().engine.engines.len(), 2);
+    assert!(wb.config().cloud.custom_url.is_empty());
+    assert!(wb.config().engine.last_engine.is_none());
+    assert_eq!(item(&report.items, "leelaz.remote-compute.custom-remote-code").reason, Some(ImportReason::CredentialNotConfirmed));
+    assert!(!serde_json::to_string(&report).unwrap().contains("CUSTOM-URL-SECRET"));
+    let p = preview(&mut wb, &java);
+    let report = wb.apply_java_import(p.id, &[2], true, None).unwrap().unwrap();
+    assert_eq!(wb.config().cloud.custom_url, url);
+    assert_eq!(wb.config().engine.engines[2].cloud.as_ref().unwrap().url, url);
+    assert_eq!(wb.config().engine.last_engine.as_deref(), Some("custom"));
+    assert!(!serde_json::to_string(&report).unwrap().contains("CUSTOM-URL-SECRET"));
+}
+
+#[test]
+fn native_cloud_availability_does_not_select_the_other_secret_and_defaults_are_java_defaults() {
+    let temp = tempfile::tempdir().unwrap();
+    let java = cloud_java(temp.path(), json!({ "zhizi-identifier": "user@example.invalid", "zhizi-catalog-updated-at": -9 }));
+    let mut candidate = java_import::read(&JavaSource::new(&java, None)).unwrap();
+    candidate.set_cloud_credential_available(true);
+    candidate.set_cloud_credential_available(true);
+    assert_eq!(candidate.items.iter().filter(|item| item.key == "credential:cloud-password").count(), 1);
+    assert!(!candidate.cloud_credentials.as_ref().unwrap().token);
+    assert!(candidate.cloud_credentials.as_ref().unwrap().password);
+    let (config, _) = candidate.mapped.apply(&Config::default(), &Persisted::default(), &[]);
+    assert_eq!(config.cloud.provider, lizzie_core::cloud::Provider::Local);
+    assert_eq!(config.cloud.args, lizzie_core::cloud::VIP_ARGS);
+    assert_eq!(config.cloud.catalog_updated_at, 0);
+    assert_eq!(config.cloud.catalog, lizzie_core::cloud::Catalog::default());
+    std::fs::write(java.join("config.txt"), json!({"leelaz":{"remote-compute":{"zhizi-password-v1":"%%%invalid"}}}).to_string()).unwrap();
+    assert!(java_import::read_java_cloud_secret(&java, true).is_none());
+}
+
+#[test]
+fn rejected_cloud_replacement_and_failed_transaction_leave_java_and_current_state_unchanged() {
+    let temp = tempfile::tempdir().unwrap();
+    let java = cloud_java(temp.path(), json!({ "provider": "zhizi", "zhizi-identifier": "new-account" }));
+    std::fs::write(java.join("persist"), json!({"filesystem":{"last-folder":"/imported-games"}}).to_string()).unwrap();
+    let before_java = snapshot(&java);
+    let product = temp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    wb.set_play_sound(false).unwrap();
+    let before = wb.config().clone();
+    let before_disk = std::fs::read(storage(&product).config_file).unwrap();
+    let p = preview(&mut wb, &java);
+    assert!(p.replaces.contains(&ImportTarget::Cloud));
+    assert_eq!(wb.apply_java_import(p.id, &[], false, None).unwrap(), Err(IMPORT_NEEDS_REPLACE));
+    assert_eq!(wb.config(), &before);
+    std::fs::create_dir_all(storage(&product).persist_file.join("blocker")).unwrap();
+    assert!(wb.apply_java_import(p.id, &[], true, None).is_err());
+    assert_eq!(wb.config(), &before);
+    assert_eq!(std::fs::read(storage(&product).config_file).unwrap(), before_disk);
+    assert!(wb.java_cloud_import(p.id).is_some());
+    assert_eq!(snapshot(&java), before_java);
+}
+
+#[test]
+fn remembered_cloud_choices_are_metadata_only_and_shell_staging_is_preview_scoped() {
+    let temp = tempfile::tempdir().unwrap();
+    let java = cloud_java(temp.path(), json!({
+        "zhizi-identifier": "native-account", "remember-zhizi-token": true, "remember-zhizi-password": false,
+    }));
+    let candidate = java_import::read(&JavaSource::new(&java, None)).unwrap();
+    let availability = candidate.cloud_credentials.as_ref().unwrap();
+    assert!(availability.token && !availability.password);
+    assert!(java_import::read_java_cloud_secret(&java, false).is_none());
+    let mut wb = workbench(&temp.path().join("product"), Recorder::default());
+    let p = wb.preview_java_import(candidate);
+    assert!(!wb.stage_java_cloud_preferences(p.id + 1, true, true));
+    assert!(!wb.config().cloud.remember_token);
+    assert!(wb.stage_java_cloud_preferences(p.id, true, false));
+    assert!(!wb.config().cloud.remember_token, "staging never changes live settings");
+    wb.apply_java_import(p.id, &[], false, None).unwrap().unwrap();
+    assert!(wb.config().cloud.remember_token && !wb.config().cloud.remember_password);
+    assert!(!wb.stage_java_cloud_preferences(p.id, false, false));
+}
+
+#[test]
+fn cloud_marker_without_remote_settings_uses_fixed_java_defaults() {
+    let temp = tempfile::tempdir().unwrap();
+    let java = temp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), json!({
+        "ui": { "autoload-last": true, "last-engine": 0 },
+        "leelaz": { "engine-settings-list": [{"id":"cloud-only","command":"remote-compute://zhizi","isDefault":true}] },
+    }).to_string()).unwrap();
+    let candidate = java_import::read(&JavaSource::new(&java, None)).unwrap();
+    assert!(candidate.engines[0].problems.is_empty());
+    assert!(!candidate.cloud_credentials.as_ref().unwrap().token);
+    let (config, _) = candidate.mapped.apply(&Config::default(), &Persisted::default(), &[]);
+    assert_eq!(config.cloud, lizzie_core::cloud::CloudSettings::default());
+    assert_eq!(config.engine.startup, EngineStartup::Last);
+    assert_eq!(config.engine.last_engine.as_deref(), Some("cloud-only"));
+    assert!(config.engine.engines[0].is_default);
+    assert_eq!(config.engine.engines[0].cloud.as_ref().unwrap().args, lizzie_core::cloud::VIP_ARGS);
+}

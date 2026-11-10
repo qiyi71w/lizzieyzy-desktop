@@ -347,6 +347,9 @@ impl Workbench {
         if self.config.analysis_engine.reuse_current_engine {
             return true;
         }
+        if self.engines.foreground().and_then(|f| self.engines.profile_of(f)).is_some_and(|p| p.cloud.is_some()) {
+            return true;
+        }
         let Some(marker) = self
             .engines
             .foreground()

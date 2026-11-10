@@ -399,8 +399,8 @@ importing the matching LizzieYzy Next settings.
   lightweight quick-analysis model is a file of this computer and is not used then.
   - 启动Lizzie时预加载引擎 starts the analysis process with the configured command when the
     application starts, as in Java: at once, or, when the analysis depends on the foreground
-    engine (复用当前前台引擎, or this client's Windows NVIDIA, TensorRT or OpenCL KataGo), once
-    that engine is ready. With 复用当前前台引擎 no process starts. Nothing is preloaded while
+    engine (复用当前前台引擎, a cloud foreground engine, or this client's Windows NVIDIA,
+    TensorRT or OpenCL KataGo), once that engine is ready. With 复用当前前台引擎 no process starts. Nothing is preloaded while
     analysis is paused or 自动分析, 整盘精析, a game or an engine match runs, or when the engine it
     depends on failed (also failed to launch). A record still being read (at start-up, the record
     given on the command line or the resumed game) is waited for; as in Java, opening an SGF
@@ -435,6 +435,43 @@ importing the matching LizzieYzy Next settings.
   command still running 3 s later (also one that has stopped reading its input) is sent `KILL`
   where the server honours signals, and the channel is closed. A remote engine that ends on its
   own or loses its connection is started again over a new connection (自动检测引擎是否存活, above).
+- Cloud engines: 设置 > 远程算力, the bottom toolbar's 远程算力 button and 引擎一键设置's
+  远程算力 entry open the same non-modal center. 智子云算力 supports password/code sign-in,
+  password reset, account balances, usage and credit details, available models, membership
+  and balance orders. 自建算力 takes a `ws://` or `wss://` KataGo Analysis WebSocket link,
+  including one imported from a QR image. It is not a raw GTP-over-WebSocket endpoint.
+  - Sign-in and account refresh do not start an engine. 启用智子云算力 or 使用此远程链接
+    explicitly selects and starts the configured service; 创建订单 separately authorizes an
+    order. Failed or uncertain order creation is not automatically retried. Closing a payment
+    window stops local polling, not an order already created by the service. Check the account
+    or order before paying again. Service fees and remote resource lifetime remain with the
+    provider; closing a socket is not proof that a billed resource has been released.
+  - Remember-token and remember-password choices are independent. Secrets use the native
+    credential store, with a visible session-only fallback when it is unavailable; neither is
+    written to `config.json`. Logout clears the account credentials. A custom link can itself
+    contain a credential: its saved URL is part of this client's private configuration, so do
+    not share that file. Diagnostics omit passwords, tokens and credential-bearing URLs.
+    When the saved startup choice is Zhizi but no token is available, startup uses the first
+    usable local engine for that session, if one exists. The saved provider, default engine and
+    last-engine choice stay unchanged.
+  - Switching replaces the foreground engine and synchronizes the current board, komi and
+    rules. Automatic quick analysis borrows a cloud foreground engine rather than launching a
+    separate local process. Successful cloud/local switching also runs the normal analysis
+    preload entry. 切换到本地引擎 selects the first local profile whose executable and referenced
+    model/config/JAR files exist. 引擎 > 关闭当前引擎 disconnects it; closing the center alone
+    leaves an established engine running.
+  - Zhizi uses HTTPS account operations and its Socket.IO v4 transport. A startup has at most
+    three connection attempts with a fresh socket token for each; temporary token-service
+    failures share that budget, while fatal authentication or service rejection does not retry.
+    Account HTTP and both cloud WebSocket transports use the selected direct, system-proxy or
+    manual-proxy mode. Invalid or unavailable manual proxies never fall back to a direct connection.
+    An established Zhizi analysis that has no accepted visit
+    progress for 20 seconds triggers the foreground recovery path, independently of the ordinary
+    alive-check preference. Late data from a retired connection cannot update the board. Custom
+    WebSocket failures use the normal engine failure/restart policy.
+  - Local protocol fixtures and the Linux desktop exercise these paths. Authorized live Zhizi
+    and independently hosted custom-service acceptance, including real billing, have not yet
+    been completed; fixture success is not a claim of current provider availability.
 - 闪电分析 (分析 menu and the toolbar's lightning button): 整盘速览 (`Ctrl+B`) asks every main-trunk
   move, 局部精析 asks from its start move up to, not including, its end move (an empty field means
   from the first / to the last move; the range is remembered), and 全部分支精析 asks every move of
@@ -839,6 +876,12 @@ importing the matching LizzieYzy Next settings.
   holds a credential, or a remote engine with a saved password, is imported only after ticking
   "复制凭据"; 精析设置's remote password has its own box. Java's encrypted passwords go to the
   credential store as above, and credential values never appear in the preview, report or logs.
+  Cloud provider settings, launch arguments, cached model catalog and custom links also migrate.
+  Remembered cloud token and password each have a separate, initially unchecked consent box;
+  source credentials are read only for a consented apply, not preview. Credential-bearing custom
+  links/arguments follow the engine's credential consent. A failed destination settings write
+  rolls back staged credentials; an unavailable credential store keeps approved secrets only
+  for this session and reports that limitation. The source Java credential store is never changed.
   Once this client has its own settings, every setting the import would change is
   listed and replaced only after confirming. Importing writes this client's `config.json` and
   `persist.json` together (a failed write leaves both unchanged; an existing settings file that

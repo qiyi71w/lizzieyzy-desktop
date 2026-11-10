@@ -10,6 +10,7 @@ import { toggleRawNet } from "../display/state";
 import "../editing/commands";
 import { product, t } from "../i18n";
 import { openAutoSetup } from "../setup/dialog";
+import { openRemoteCompute } from "../cloud/center";
 import { toggleKataEstimate } from "../analysis/infoCommands";
 import { toggleScore } from "../analysis/scoreDialog";
 import { AUTO_ANALYSIS_MENU } from "../quick/autoAnalysis";
@@ -59,7 +60,7 @@ const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" 
     { name: "batchOpen", key: "BottomToolbar.batchOpen", cls: "primary" },
   ],
   leftOptional: [
-    { name: "remoteComputeButton", key: "Menu.remoteCompute", cls: "primary" },
+    { name: "remoteComputeButton", key: "Menu.remoteCompute", cls: "primary", run: openRemoteCompute },
     { name: "downloadWeightButton", key: "BottomToolbar.downloadWeight", run: () => openAutoSetup("weights") },
     // toggleShowKataEstimate, shown only for a KataGo engine (BottomToolbar.java:1519-1524, 5192-5196)
     { name: "kataEstimate", key: "BottomToolbar.kataEstimate", run: toggleKataEstimate, shown: () => !!state.view?.engine.foreground?.katago },

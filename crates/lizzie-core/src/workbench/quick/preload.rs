@@ -86,6 +86,7 @@ impl Workbench {
         let failed = self.engines.foreground_failure().filter(|_| foreground.is_none());
         let primary = foreground.and_then(|f| self.engines.profile_of(f)).or(failed);
         let depends = a.reuse_current_engine
+            || primary.is_some_and(|p| p.cloud.is_some())
             || primary.filter(|p| r::is_managed(p)).and_then(|p| p.managed.as_ref()).is_some_and(|m| PRIMARY_ASSETS.contains(&m.asset_id.as_str()));
         if depends && failed.is_some() {
             return Action::Stop;

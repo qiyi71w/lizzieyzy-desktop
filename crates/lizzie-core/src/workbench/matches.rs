@@ -206,6 +206,9 @@ impl Workbench {
             Command::SendGtpCommand { .. } => Some(refused("GtpConsolePane.isEngineGame")),
             Command::Game { .. }
             | Command::SwitchEngine { .. }
+            | Command::CloudActivate { .. }
+            | Command::CloudLocal
+            | Command::CloudCancel
             | Command::RestartEngine
             | Command::ShutdownEngines { .. }
             | Command::SaveEngineSettings { .. }

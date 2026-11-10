@@ -67,6 +67,18 @@ impl Store {
             &normalize(account),
         )
     }
+    /// Explicit cloud credential import; the Java store remains read-only.
+    pub fn read_java_cloud_secret(&self, source: &Path, account: &str, password: bool) -> io::Result<Option<String>> {
+        if !self.available {
+            return Ok(None);
+        }
+        platform::read(
+            "lizzieyzy-next",
+            &source.join("secure-credentials"),
+            if password { "password" } else { "account-token" },
+            &normalize(account),
+        )
+    }
 }
 
 #[cfg(target_os = "linux")]

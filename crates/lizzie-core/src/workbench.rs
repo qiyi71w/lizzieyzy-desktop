@@ -19,6 +19,7 @@ mod appearance;
 mod auto_analysis;
 mod batch;
 mod commentary;
+mod cloud;
 mod contribution;
 mod editing;
 mod exporting;
@@ -286,6 +287,9 @@ pub struct Workbench {
     commentary: commentary::CommentaryFlow,
     /// 跑谱贡献: the KataGo distributed-training session.
     contribution: contribution::ContributionFlow,
+    cloud_activation: Option<String>,
+    /// Session credential availability; never persisted with cloud settings.
+    cloud_authenticated: bool,
 }
 
 impl Workbench {
@@ -409,6 +413,8 @@ impl Workbench {
             strength: strength::StrengthFlow::default(),
             commentary: commentary::CommentaryFlow::default(),
             contribution: contribution::ContributionFlow::default(),
+            cloud_activation: None,
+            cloud_authenticated: false,
         }
     }
 
@@ -929,6 +935,11 @@ impl Workbench {
         self.save_persisted()
     }
 
+    /// `seq` of the last built view: a view with a greater `seq` is built after this call.
+    pub fn view_seq(&self) -> u64 {
+        self.seq
+    }
+
     // ---------------------------------------------------------------- projection
 
     /// Builds the next view for the UI. `full` always includes the tree (initial load, reload);
@@ -1009,6 +1020,7 @@ impl Workbench {
             save_outcome: None,
             sounds: Vec::new(),
             settings: SettingsView {
+                cloud: self.config.cloud.clone(),
                 language: self.config.ui.language,
                 active_language: self.active_language,
                 restart_required: self.config.ui.language.resolve(self.system_locale.as_deref()) != self.active_language

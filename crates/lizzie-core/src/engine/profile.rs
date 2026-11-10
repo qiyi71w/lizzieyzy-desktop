@@ -40,13 +40,18 @@ pub struct EngineProfile {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub ssh: Option<crate::engine::ssh::SshSettings>,
+    /// Cloud launch parameters selected in the remote compute center; credentials stay in the
+    /// account adapter. The command is only the provider marker, never a bearer token.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cloud: Option<crate::engine::cloud::CloudLaunch>,
 }
 
 impl EngineProfile {
     /// Runs on an SSH host: its command, model and threads belong to that host
     /// (`EngineThreadPolicy.isRemoteManaged`).
     pub fn is_remote(&self) -> bool {
-        self.ssh.is_some()
+        self.ssh.is_some() || self.cloud.is_some()
     }
 }
 
@@ -66,6 +71,7 @@ impl Default for EngineProfile {
             thread_policy: None,
             gtp_configuration: None,
             ssh: None,
+            cloud: None,
         }
     }
 }

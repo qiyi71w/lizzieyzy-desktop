@@ -364,8 +364,15 @@ impl Workbench {
 
     /// Starts the engine chosen for start-up (`autoload-*`) and the preloaded engines.
     pub fn start_engines(&mut self) {
+        let requested = self.config.engine.startup_index();
+        // Java resolveStartupSelection: a forgotten login changes this launch only, not the
+        // saved provider/default/last selection. Custom WebSocket profiles need no account login.
+        let fallback = requested.filter(|&index| {
+            !self.cloud_authenticated && self.config.engine.engines[index].cloud.as_ref()
+                .is_some_and(|launch| launch.provider == crate::engine::cloud::CloudProvider::Zhizi)
+        }).and_then(|_| self.first_usable_local_engine());
+        let startup = fallback.or(requested);
         let settings = &self.config.engine;
-        let startup = settings.startup_index();
         let preload: Vec<usize> = settings
             .engines
             .iter()
@@ -374,7 +381,7 @@ impl Workbench {
             .map(|(i, _)| i)
             .collect();
         if let Some(i) = startup {
-            let _ = self.switch_engine(i as u32);
+            let _ = self.switch_engine_inner(i as u32, fallback.is_none());
         }
         for i in preload {
             let profile = self.config.engine.engines[i].clone();
@@ -670,6 +677,10 @@ impl Workbench {
     /// foreground start goes through here, so none starts during setup mode
     /// (`EngineManager.setupModeActive`).
     pub fn switch_engine(&mut self, index: u32) -> Result<bool, ApiError> {
+        self.switch_engine_inner(index, true)
+    }
+
+    fn switch_engine_inner(&mut self, index: u32, remember_selection: bool) -> Result<bool, ApiError> {
         let Some(profile) = self.config.engine.engines.get(index as usize).cloned() else {
             return Err(ApiError::new(ErrorKind::InvalidArgument, format!("no engine {index}")));
         };
@@ -730,7 +741,7 @@ impl Workbench {
         self.limit_stop = None;
         self.limit_tip_shown = false;
         self.engines.set_foreground(Some(instance), keep);
-        if self.config.engine.startup == EngineStartup::Last {
+        if remember_selection && self.config.engine.startup == EngineStartup::Last {
             let id = profile.id.clone();
             let _ = self.commit_config(|c| c.engine.last_engine = Some(id));
         }
@@ -1161,8 +1172,17 @@ impl Workbench {
     /// and the secondary engine come back in their seats (`updateEnginesWhileMarkedUpdating`).
     pub fn save_engine_settings(
         &mut self,
+        engines: Vec<EngineProfile>,
+        startup: EngineStartup,
+    ) -> Result<bool, ApiError> {
+        self.save_engine_settings_with_cloud(engines, startup, None)
+    }
+
+    pub(super) fn save_engine_settings_with_cloud(
+        &mut self,
         mut engines: Vec<EngineProfile>,
         startup: EngineStartup,
+        cloud: Option<crate::cloud::CloudSettings>,
     ) -> Result<bool, ApiError> {
         for i in 0..engines.len() {
             if engines[i].id.is_empty() {
@@ -1176,13 +1196,17 @@ impl Workbench {
             seen_default |= e.is_default;
         }
         let old = self.config.engine.engines.clone();
-        if old == engines && self.config.engine.startup == startup {
+        if old == engines && self.config.engine.startup == startup && cloud.is_none() {
             return Ok(false);
         }
         let list = engines.clone();
         self.commit_config(|c| {
             c.engine.engines = list;
             c.engine.startup = startup;
+            if let Some(cloud) = cloud {
+                c.cloud = cloud;
+                c.engine.last_engine = c.engine.engines.iter().find(|p| p.is_default).map(|p| p.id.clone());
+            }
         })?;
         let fg_profile = self
             .engines
@@ -1193,7 +1217,7 @@ impl Workbench {
         let (mut restart_fg, mut restart_secondary) = (None, None);
         for (instance, id, _) in self.engines.running() {
             // `EngineManager.isSameEngine` also compares the SSH connection.
-            let launch = |p: &EngineProfile| (p.command.clone(), p.initial_command.clone(), p.width, p.height, p.ssh.clone());
+            let launch = |p: &EngineProfile| (p.command.clone(), p.initial_command.clone(), p.width, p.height, p.ssh.clone(), p.cloud.clone());
             let before = old.iter().find(|p| p.id == id).map(launch);
             let after = engines.iter().position(|p| p.id == id);
             let changed = after.is_none() || before != after.map(|a| launch(&engines[a]));
@@ -1347,8 +1371,10 @@ impl Workbench {
                     }
                     // 批量分析's record has its own store and run.
                     if !secondary && Some(doc) == self.batch_doc_id() {
+                        let progress = line.candidates.iter().map(|c| c.visits).sum();
                         if self.batch_foreground_result(doc, node, stamp, komi, to_play, engine_name, line, elapsed) {
                             self.restart_proven(instance);
+                            self.engines.analysis_progress_accepted(instance, progress);
                         }
                         continue;
                     }
@@ -1367,6 +1393,7 @@ impl Workbench {
                     };
                     self.restart_proven(instance);
                     let visits = result.visits;
+                    self.engines.analysis_progress_accepted(instance, visits);
                     let played = (!secondary && self.play_wants_analysis(node)).then(|| result.clone());
                     let matched = (!secondary && self.match_wants_analysis(node)).then(|| result.clone());
                     let first_visits = result.candidates.first().map_or(0, |c| c.visits);
@@ -1424,6 +1451,7 @@ impl Workbench {
         if changed {
             // Readiness, rules answers and failures can change what the engine should do.
             self.sync_engine();
+            self.cloud_activation_settle();
         }
         changed
     }

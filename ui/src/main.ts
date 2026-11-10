@@ -898,9 +898,13 @@ function statusLines(): string[] {
   if (v?.engine.down) return [t("LizzieFrame.display.down"), hint];
   const fg = v?.engine.foreground;
   if (fg && v?.engine.engines[fg.index]?.state === "Loading") return [t("LizzieFrame.display.loading"), hint];
+  // LizzieFrame.statusEngineName: a cloud engine shows only its provider (compactDisplayNameForCommand).
+  const cloud = fg ? v?.settings.engine.engines[fg.index]?.cloud?.provider : undefined;
   return [
     // weightText: 跑谱贡献中 while the contribution runs (LizzieFrame.java:7548-7553).
-    v?.contribution?.active ? t("LizzieFrame.weightText.contributing") : (v?.engine.foreground?.name ?? t("LizzieFrame.noEngineText")),
+    v?.contribution?.active
+      ? t("LizzieFrame.weightText.contributing")
+      : cloud === "Zhizi" ? t("RemoteCompute.zhizi") : cloud === "Custom" ? t("RemoteCompute.custom") : fg?.name ?? t("LizzieFrame.noEngineText"),
     `${t("LizzieFrame.display.pondering")} ${v?.engine.analysing ? t("LizzieFrame.display.on") : t("LizzieFrame.display.off")}${t("LizzieFrame.display.space")}`,
     hint,
   ];

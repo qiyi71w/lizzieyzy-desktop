@@ -5,6 +5,9 @@
 mod acceptance;
 mod appearance;
 mod commentary;
+mod cloud;
+mod cloud_dispatch;
+mod cloud_import;
 mod contribution;
 mod diagnostics;
 mod independent;
@@ -518,6 +521,32 @@ pub async fn dispatch(app: AppHandle, shared: State, command: Command) -> Result
 
 async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<CommandResult, ApiError> {
     match command {
+        Command::CloudAccount { op, owner } => cloud_dispatch::account_scoped(app, shared, op, owner).await,
+        Command::CloudActivate { settings, confirmed } => cloud_dispatch::activate(app, shared, settings, confirmed).await,
+        Command::CloudLocal => {
+            let mut wb = shared.workbench.lock().unwrap();
+            let profile = wb.cloud_local()?;
+            // Read under the commit's lock: every later view shows the switch's outcome.
+            let after = wb.view_seq();
+            drop(wb);
+            publish(&app, &shared);
+            Ok(CommandResult::CloudSwitch { profile, after })
+        }
+        Command::CloudCancel => {
+            let applied = shared.workbench.lock().unwrap().cancel_cloud_start();
+            Ok(changed(&app, &shared, applied))
+        }
+        Command::CloudCancelRequest { owner } => {
+            cloud_dispatch::cancel_request(&app, owner);
+            Ok(CommandResult::Done)
+        }
+        Command::CloudImportQr => cloud_dispatch::import_qr(&app).await,
+        Command::OpenCloudLink { custom } => {
+            let url = if custom { "https://github.com/wimi321/katago-remote-one-click" } else { "http://www.zhizigo.cn/" };
+            app.opener().open_url(url, None::<&str>)
+                .map_err(|_| ApiError::new(ErrorKind::Unavailable, "RemoteCompute.error.browserUnsupported"))?;
+            Ok(CommandResult::Done)
+        }
         Command::ChooseAndOpenRecord => {
             let start_dir = shared.workbench.lock().unwrap().persisted().last_folder.clone();
             let dialog = app.dialog().clone();
@@ -845,6 +874,8 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             copy_credentials,
             copy_commentary_key,
             copy_analysis_ssh_password,
+            copy_cloud_token,
+            copy_cloud_password,
             replace,
             recovery,
         } => {
@@ -864,12 +895,33 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
                     .await
                     .map_err(|_| ApiError::new(ErrorKind::Unavailable, "Java credential import worker stopped."))?
             };
-            let result = shared.workbench.lock().unwrap().apply_java_import(
-                preview,
-                &copy_credentials,
-                replace,
-                recovery.as_ref(),
-            );
+            let import_app = app.clone();
+            let import_shared = shared.clone();
+            let result = tauri::async_runtime::spawn_blocking(move || {
+                let plan = import_shared.workbench.lock().unwrap().java_cloud_import(preview);
+                let cloud_staged = cloud_import::stage(&import_app, plan, copy_cloud_token, copy_cloud_password)?;
+                let mut result = {
+                    let mut wb = import_shared.workbench.lock().unwrap();
+                    let previous_authenticated = cloud_staged.as_ref().map(|staged| {
+                        let s = staged.stage.settings();
+                        wb.stage_java_cloud_preferences(preview, s.remember_token, s.remember_password);
+                        wb.set_cloud_authenticated(staged.authenticated())
+                    });
+                    let result = wb.apply_java_import(preview, &copy_credentials, replace, recovery.as_ref());
+                    if !matches!(result, Ok(Ok(_))) {
+                        if let Some(previous) = previous_authenticated { wb.set_cloud_authenticated(previous); }
+                    }
+                    result
+                };
+                if let Some(staged) = cloud_staged {
+                    let adapter = import_app.state::<Arc<cloud::Adapter>>();
+                    match &mut result {
+                        Ok(Ok(report)) => cloud_import::settle(&adapter, staged, true, Some(report))?,
+                        _ => cloud_import::settle(&adapter, staged, false, None)?,
+                    }
+                }
+                result
+            }).await.unwrap_or_else(|_| Err(ApiError::new(ErrorKind::Unavailable, "Java cloud import worker stopped.")));
             let mut report = match result {
                 Ok(Ok(report)) => report,
                 failed => {
@@ -1803,6 +1855,9 @@ pub fn run() {
             let ssh_adapter = ssh::Adapter::new(app.config().identifier.clone(), &config_dir);
             app.manage(ssh_adapter.clone());
             app.manage(contribution::Adapter::new(app.config().identifier.clone(), &config_dir));
+            let cloud_adapter = Arc::new(cloud::Adapter::new(app.config().identifier.clone(), &config_dir));
+            app.manage(cloud_adapter.clone());
+            app.manage(cloud_dispatch::Requests::default());
             let log = logging::Log::start(&storage.logs_dir);
             log.info(&format!(
                 "start {} {} on {}/{}",
@@ -1816,6 +1871,25 @@ pub fn run() {
             // after the workbench: the sink looks it up once it is set.
             let cell: Arc<OnceLock<State>> = Arc::new(OnceLock::new());
             let sink_cell = cell.clone();
+            let token_adapter = cloud_adapter.clone();
+            let token_cell = cell.clone();
+            let network_cell = cell.clone();
+            let cloud_connector = lizzie_core::engine::cloud::CloudConnector::new(Arc::new(move |account, args| {
+                if let Some(shared) = token_cell.get() {
+                    let network = shared.workbench.lock().unwrap().config().network.clone();
+                    token_adapter.set_network(&network);
+                }
+                token_adapter.token(account, args)
+                    .map(|t| lizzie_core::engine::cloud::SocketCredentials { socket_url: t.socket_url, token: t.token })
+                    .map_err(|e| lizzie_core::engine::cloud::CloudConnectError {
+                        message: e.to_string(), fatal: !e.retryable,
+                    })
+            })).with_network(Arc::new(move || {
+                network_cell.get().map(|shared| shared.workbench.lock().unwrap().config().network.clone())
+                    .ok_or_else(|| lizzie_core::engine::cloud::CloudConnectError {
+                        message: "Cloud network settings unavailable".into(), fatal: true,
+                    })
+            }));
             let launcher = ProcessLauncher::new(Arc::new(move |instance, input| {
                 let Some(shared) = sink_cell.get() else { return };
                 let mut wb = shared.workbench.lock().unwrap();
@@ -1827,9 +1901,14 @@ pub fn run() {
                     shared.request_refresh(view, console);
                 }
             }))
-            .with_ssh(ssh_adapter.connector());
+            .with_ssh(ssh_adapter.connector())
+            .with_cloud(cloud_connector);
             let processes = launcher.waiter();
             let mut workbench = Workbench::new(storage, locale.as_deref(), Box::new(launcher), engine_roots());
+            if let Ok(reply) = cloud_adapter.dispatch(&workbench.config().cloud, &workbench.config().network,
+                lizzie_core::cloud::CloudCommand::State) {
+                workbench.set_cloud_authenticated(reply.state.authenticated);
+            }
             workbench.set_java_import_locations(java_locations());
             let placement = workbench.persisted().window;
             let tables = TableLayout::new(workbench.persisted());

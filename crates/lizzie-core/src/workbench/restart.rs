@@ -52,6 +52,15 @@ impl Workbench {
             self.log(true, format!("engine restart [{}] failed: {}", f.engine_name, sanitize(&f.message)));
             return false;
         }
+        // A deliberately retired cloud session uses Java's transport-recovery path, independent
+        // of the ordinary alive-check setting and whether this incarnation has produced yet.
+        if f.cloud_recovery {
+            if f.foreground && !self.setup_mode() && !self.match_active() {
+                self.restart.due = Some(f.profile_id.clone());
+            }
+            self.log_engine_failure(f);
+            return false;
+        }
         // `checkEngineAlive`: the foreground engine only, once it was ready, not while a holder
         // owned its state, while 起始局面设置模式 is on, or during an engine match (whose
         // participants are restarted after it).

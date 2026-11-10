@@ -1162,6 +1162,7 @@ impl Workbench {
             remote,
             foreground: false,
             held: false,
+            cloud_recovery: false,
         });
         self.batch.run = None;
         self.batch_end(None, false);
