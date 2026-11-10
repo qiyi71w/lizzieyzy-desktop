@@ -895,24 +895,29 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             copy_analysis_ssh_password,
             copy_cloud_token,
             copy_cloud_password,
+            copy_contribution_credentials,
             replace,
             recovery,
         } => {
-            let (commentary_plan, previous_commentary, ssh_passwords) = {
+            let (commentary_plan, previous_commentary, ssh_passwords, contribution_credentials) = {
                 let wb = shared.workbench.lock().unwrap();
                 (
                     wb.java_commentary_import(preview),
                     wb.config().commentary.clone(),
-                    wb.java_ssh_passwords(preview, &copy_credentials, copy_analysis_ssh_password),
+                    wb.java_ssh_passwords(preview, &copy_credentials, copy_analysis_ssh_password, copy_contribution_credentials),
+                    wb.java_contribution_credentials(preview, copy_contribution_credentials),
                 )
             };
-            // Confirmed SSH passwords are in place before the imported engines start.
+            // Confirmed SSH and 跑谱贡献 passwords are in place before the imported engines start.
             let ssh_adapter = app.state::<Arc<ssh::Adapter>>().inner().clone();
-            let staged = {
-                let adapter = ssh_adapter.clone();
-                tauri::async_runtime::spawn_blocking(move || adapter.stage_import(ssh_passwords))
-                    .await
-                    .map_err(|_| ApiError::new(ErrorKind::Unavailable, "Java credential import worker stopped."))?
+            let contribution_adapter = app.state::<Arc<contribution::Adapter>>().inner().clone();
+            let (staged, contribution_staged) = {
+                let (ssh, contribution) = (ssh_adapter.clone(), contribution_adapter.clone());
+                tauri::async_runtime::spawn_blocking(move || {
+                    (ssh.stage_import(ssh_passwords), contribution.stage_import(contribution_credentials))
+                })
+                .await
+                .map_err(|_| ApiError::new(ErrorKind::Unavailable, "Java credential import worker stopped."))?
             };
             let import_app = app.clone();
             let import_shared = shared.clone();
@@ -926,7 +931,7 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
                         wb.stage_java_cloud_preferences(preview, s.remember_token, s.remember_password);
                         wb.set_cloud_authenticated(staged.authenticated())
                     });
-                    let result = wb.apply_java_import(preview, &copy_credentials, replace, recovery.as_ref());
+                    let result = wb.apply_java_import(preview, &copy_credentials, copy_contribution_credentials, replace, recovery.as_ref());
                     if !matches!(result, Ok(Ok(_))) {
                         if let Some(previous) = previous_authenticated { wb.set_cloud_authenticated(previous); }
                     }
@@ -944,8 +949,12 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let mut report = match result {
                 Ok(Ok(report)) => report,
                 failed => {
-                    let adapter = ssh_adapter.clone();
-                    let _ = tauri::async_runtime::spawn_blocking(move || adapter.unstage_import(staged)).await;
+                    let (ssh, contribution) = (ssh_adapter.clone(), contribution_adapter.clone());
+                    let _ = tauri::async_runtime::spawn_blocking(move || {
+                        contribution.unstage_import(contribution_staged);
+                        ssh.unstage_import(staged);
+                    })
+                    .await;
                     return match failed {
                         Err(e) => {
                             shared.log.warn(&format!("java import failed: {}", e.message));
@@ -960,6 +969,7 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
                 }
             };
             staged.report(&mut report);
+            contribution_staged.report(&mut report);
             let commentary_changed = shared.workbench.lock().unwrap().config().commentary != previous_commentary;
             let import_app = app.clone(); let import_shared = shared.clone();
             report = tauri::async_runtime::spawn_blocking(move || {

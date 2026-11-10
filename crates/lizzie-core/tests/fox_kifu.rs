@@ -492,7 +492,7 @@ fn java_fox_settings_are_imported() {
     std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
     let candidate = java_import::read(&JavaSource::new(&java, None)).unwrap();
     let wb = workbench(dir.path());
-    let (c, _) = candidate.mapped.apply(wb.config(), wb.persisted(), &[]);
+    let (c, _) = candidate.mapped.apply(wb.config(), wb.persisted(), &[], false);
     assert_eq!(c.fox_kifu.last_name, "6757425");
     assert!(c.fox_kifu.last_query_by_uid);
     assert_eq!(c.fox_kifu.after_get, KifuAfterGet::Close);

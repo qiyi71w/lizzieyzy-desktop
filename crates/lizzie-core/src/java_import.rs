@@ -21,7 +21,9 @@ pub mod slots;
 mod appearance;
 mod matches;
 mod cloud;
+mod contribution;
 pub use cloud::{CloudImportCredentials, read_java_cloud_secret};
+pub use contribution::{ContributionCredentials, ContributionSecrets};
 
 use std::path::{Path, PathBuf};
 
@@ -260,6 +262,11 @@ pub struct Mapped {
     /// Appearance/default-theme fields, validated against the same types as the live command.
     pub appearance: Vec<(&'static str, Value)>,
     pub theme: Vec<(&'static str, Value)>,
+    /// 跑谱贡献 settings other than its account (`ui.contribute-*`, `ui.show-Contribute`,
+    /// `leelaz.contribute-engine-ssh-info`).
+    pub contribution: Vec<DisplayValue>,
+    /// The 跑谱贡献 account and passwords; copied only when confirmed.
+    pub contribution_secrets: Option<ContributionSecrets>,
 }
 
 /// [`HawkeyeSettings`] with the imported values; the 统计 range selects the period Java shows for
@@ -436,8 +443,9 @@ impl Candidate {
     }
 
     /// The setting entries as the report shows them once the user chose which credentials to
-    /// copy: the default and last engine choices of an engine that is left out are left out too.
-    pub fn items_after(&self, copy_credentials: &[u32]) -> Vec<ImportItemView> {
+    /// copy (`copy_credentials` engines, `contribution` the 跑谱贡献 account): the default and
+    /// last engine choices of an engine that is left out are left out too.
+    pub fn items_after(&self, copy_credentials: &[u32], contribution: bool) -> Vec<ImportItemView> {
         let engines = self.engines_after(copy_credentials);
         self.items
             .iter()
@@ -467,6 +475,7 @@ impl Candidate {
                     i.status = ImportStatus::NotMigrated;
                     i.reason = Some(ImportReason::CredentialNotConfirmed);
                 }
+                self.contribution_after(&mut i, contribution);
                 i
             })
             .collect()
@@ -489,9 +498,9 @@ impl Candidate {
     }
 
     /// The SSH passwords to remember once imported, by account: those of engines whose
-    /// credentials the user agreed to copy, and the analysis engine's when `analysis` is chosen.
-    /// A value that is not one Java wrote is left out.
-    pub fn ssh_passwords(&self, copy_credentials: &[u32], analysis: bool) -> Vec<(String, String)> {
+    /// credentials the user agreed to copy, the analysis engine's when `analysis` is chosen and
+    /// 跑谱贡献's 远程SSH when `contribution` is. A value that is not one Java wrote is left out.
+    pub fn ssh_passwords(&self, copy_credentials: &[u32], analysis: bool, contribution: bool) -> Vec<(String, String)> {
         let mut out: Vec<(String, String)> = Vec::new();
         for m in self.mapped.engines.iter().flatten() {
             let (Some(ssh), Some(secret)) = (&m.profile.ssh, &m.ssh_password) else { continue };
@@ -509,6 +518,7 @@ impl Candidate {
                 }
             }
         }
+        out.extend(self.contribution_ssh_password(contribution));
         out
     }
 }
@@ -1308,6 +1318,49 @@ const LEGACY_ENGINE_KEYS: [&str; 7] = [
     "engine-komi-list",
 ];
 
+/// Keys the fixed Java program keeps or writes without using them: no reader, a field no code
+/// reads, a value no Java control can change, a feature whose menu is hidden (the lizzieyzy.cn
+/// 分享), or keys Java removes on start. Reported as no longer used.
+const JAVA_UNUSED: &[&str] = &[
+    // Loaded into fields nothing reads, or template-only keys (Config.java).
+    "ui.auto-check-date", "ui.use-factor", "ui.use-pipeline-readboard", "ui.first-load-katago",
+    "ui.autosave-interval-seconds", "ui.board-size", "ui.confirm-exit", "ui.flash-analyze",
+    "ui.allow-close-comment-control-hint", "ui.color-by-winrate-instead-of-visits",
+    "ui.handicap-instead-of-winrate", "ui.show-dynamic-komi", "ui.weighted-blunder-bar-height",
+    "ui.shadows-enabled", "ui.show-movelist-graph", "ui.problem-list-metric",
+    // Fixed in Java: no control writes them (always the default).
+    "ui.show-best-moves", "ui.show-leelaz-variation", "ui.show-board-light-gradient",
+    "ui.show-hover-glow", "ui.show-stone-highlight", "ui.show-winrate-overview",
+    // Navigation button flags BottomToolbar never applies.
+    "ui.firstButton", "ui.lastButton", "ui.forward1", "ui.forward10", "ui.backward1",
+    "ui.backward10", "ui.gotomove",
+    // The old 问题手 table that is never added to the window (LizzieFrame.java:1114-1117).
+    "ui.blunder-table-only-after", "ui.blunder-is-sorted-AF", "ui.blunder-is-sorted-NAF",
+    "ui.blunder-sort-is-origin-order-AF", "ui.blunder-sort-is-origin-order-NAF",
+    "ui.blunder-sort-num-AF", "ui.blunder-sort-num-NAF", "ui.blunder-win-threshold",
+    "ui.blunder-score-threshold",
+    // lizzieyzy.cn 分享: its menu and toolbar button are hidden (Menu.java:4099, 4915).
+    "ui.share", "ui.share-public", "ui.share-label-1", "ui.share-label-2", "ui.share-label-3",
+    "ui.share-label-4", "ui.share-label-5",
+    // Removed by Java when it starts or clears personal data.
+    "ui.log-gtp-to-file", "ui.log-console-to-file", "ui.recent-files", "ui.batch-analysis-history",
+    "ui.share-history", "ui.tracking-engine-preload", "ui.tracking-engine-skip-warning",
+    "ui.tracking-point-interior-color", "ui.tracking-point-interior-opacity",
+    "ui.tracking-point-text-auto-color", "ui.tracking-point-text-color",
+    "persist:ui-persist.max-alpha", "persist:ui-persist.winrate-graph",
+];
+
+/// Java's own bookkeeping, not settings: one-time migration markers, first-start and machine
+/// markers, windows left open, and the paths its KataGo auto setup remembers (this product keeps
+/// its own engine resources; the engine commands carry their files).
+const JAVA_STATE: &[&str] = &[
+    "ui.engine-thread-policy-migrated", "ui.first-time-load", "ui.host-name",
+    "ui.migrated-hide-gtp-console-default-v2", "ui.migrated-hide-subboard-default-v1",
+    "ui.restored-show-subboard-default-v2", "ui.user-known-x", "ui.is-ctrl-opened",
+    "ui.katago-auto-setup-engine-path", "ui.katago-preferred-weight-path",
+    "persist:checked-empty-blunder-thresholds", "persist:first-time-factor",
+];
+
 type Handled = Vec<(&'static str, &'static str)>;
 
 impl Reader<'_> {
@@ -1437,6 +1490,20 @@ impl Reader<'_> {
                     self.imported(format!("ui.{key}"), ImportTarget::WorkbenchPanels, shown(raw));
                 }
                 None => self.invalid(format!("ui.{key}"), ImportTarget::WorkbenchPanels, raw),
+            }
+        }
+        // 棋盘比例 as loaded at start (Config.java:1834, Java's spelling); the persisted
+        // `board-postion-propotion` read later replaces it (LizzieFrame.java:931-932).
+        if let Some(raw) = ui.get("board-postion-proportion") {
+            handled.push(("ui", "board-postion-proportion"));
+            match as_i64(raw) {
+                Some(value) => {
+                    self.mapped.panel_sizes.push(DisplayValue {
+                        target: ImportTarget::PanelSizes, field: "boardPositionProportion", value: Value::from(value.clamp(0, 8)),
+                    });
+                    self.imported("ui.board-postion-proportion".into(), ImportTarget::PanelSizes, shown(raw));
+                }
+                None => self.invalid("ui.board-postion-proportion".into(), ImportTarget::PanelSizes, raw),
             }
         }
         // Config.java:1999-2000 stores PDA as text; empty means no confirmed preference.
@@ -1643,21 +1710,49 @@ impl Reader<'_> {
         self.display(ui, leelaz, &mut handled);
         self.game(ui, leelaz, &mut handled);
         self.matches(ui, &mut handled);
+        self.contribution(ui, leelaz, &mut handled);
         self.cloud(leelaz, &mut handled);
         self.engines(ui, leelaz, &mut handled);
 
+        // `Utils.getEngineData`: the older engine lists are read only without
+        // `engine-settings-list` (then they are the engines, see `engines`).
+        let listed = leelaz.contains_key("engine-settings-list");
         for (section, value) in root {
             match value.as_object() {
                 Some(map) => {
                     for (key, v) in map {
-                        if !handled.iter().any(|(s, k)| s == section && k == key) {
-                            self.not_migrated(format!("{section}.{key}"), v);
+                        if handled.iter().any(|(s, k)| s == section && k == key) {
+                            continue;
+                        }
+                        let name = format!("{section}.{key}");
+                        if listed && section == "leelaz" && LEGACY_ENGINE_KEYS.contains(&key.as_str()) {
+                            self.obsolete(name);
+                        } else {
+                            self.leftover(name, v);
                         }
                     }
                 }
                 None => self.not_migrated(section.clone(), value),
             }
         }
+    }
+
+    /// A Java key with no setting here: Java no longer uses it, it is Java's own bookkeeping, or
+    /// its feature is not in this product yet.
+    fn leftover(&mut self, name: String, v: &Value) {
+        if JAVA_UNUSED.contains(&name.as_str()) {
+            self.obsolete(name);
+        } else if JAVA_STATE.contains(&name.as_str()) {
+            let it = self.item(name, ImportStatus::NotMigrated);
+            it.reason = Some(ImportReason::JavaState);
+        } else {
+            self.not_migrated(name, v);
+        }
+    }
+
+    fn obsolete(&mut self, name: String) {
+        let it = self.item(name, ImportStatus::NotMigrated);
+        it.reason = Some(ImportReason::Obsolete);
     }
 
     fn game_value(&mut self, name: String, target: ImportTarget, field: &'static str, value: Option<Value>, raw: &Value) {
@@ -2426,7 +2521,7 @@ impl Reader<'_> {
                     }
                     continue;
                 }
-                self.not_migrated(format!("persist:{section}"), value);
+                self.leftover(format!("persist:{section}"), value);
                 continue;
             };
             for (key, v) in map {
@@ -2505,8 +2600,6 @@ impl Reader<'_> {
                         }
                     }
                     ("ui-persist", "toolbar-parameter") => {
-                        // Keep a not-migrated report for the engine-match and other toolbar state.
-                        self.not_migrated(name.clone(), v);
                         let Some(values) = v.as_array().filter(|a| a.len() == 51) else {
                             self.invalid(name, ImportTarget::Suggestions, v);
                             continue;
@@ -2565,17 +2658,33 @@ impl Reader<'_> {
                             let raw = &values[index];
                             self.auto_analysis_value(format!("{name}[{index}]"), field, as_bool(raw).map(Value::from), raw);
                         }
+                        // 39: 自动播放分支 (`chkAutoSub`); a checked box starts the cycling at
+                        // start-up (BottomToolbar.java:2503-2505, 2524-2526).
+                        let raw = &values[39];
+                        let value = as_i64(raw).map(|n| n > 0);
+                        if value == Some(true) {
+                            self.display_value(format!("{name}[39]"), ImportTarget::Suggestions, "autoReplayBranch", Some(Value::from(true)), raw);
+                        } else if value.is_none() {
+                            self.invalid(format!("{name}[39]"), ImportTarget::Suggestions, raw);
+                        }
+                        // 32–34 order the three detailed-toolbar panels and 50 mirrors them
+                        // (`setOrder`, 左移/右移); 28, 29, 42 and 43 are fixed -100 placeholders.
+                        for index in [32, 33, 34, 50] {
+                            self.not_migrated(format!("{name}[{index}]"), &values[index]);
+                        }
                     }
                     // Window bounds and the tables' column pixels follow Java's own scaling,
                     // fonts and layout.
                     ("ui-persist", "main-window-position" | "window-maximized" | "suggestions-list-position"
                         | "suggestions-list-position-7" | "suggestions-list-position-9" | "main-window-list"
-                        | "badmoves-list-position") => {
+                        | "badmoves-list-position" | "main-window-blunder" | "public-kifu-search"
+                        | "ctrl-position" | "fast-commands-width" | "fast-commands-height"
+                        | "gtp-console-position" | "gtp-console-opened") => {
                         let it = self.item(name, ImportStatus::Incompatible);
                         it.value = Some(shown(v));
                         it.reason = Some(ImportReason::WindowCoordinates);
                     }
-                    _ => self.not_migrated(name, v),
+                    _ => self.leftover(name, v),
                 }
             }
         }
@@ -2870,8 +2979,8 @@ fn on_path(name: &str) -> bool {
 
 impl Mapped {
     /// This product's settings after the import. Engines with credentials are included only when
-    /// their Java index is in `copy_credentials`.
-    pub fn apply(&self, config: &Config, persisted: &Persisted, copy_credentials: &[u32]) -> (Config, Persisted) {
+    /// their Java index is in `copy_credentials`; the 跑谱贡献 account only with `contribution`.
+    pub fn apply(&self, config: &Config, persisted: &Persisted, copy_credentials: &[u32], contribution: bool) -> (Config, Persisted) {
         let mut c = config.clone();
         let mut p = persisted.clone();
         macro_rules! set {
@@ -2916,6 +3025,7 @@ impl Mapped {
         let mut matches = serde_json::to_value(&c.matches).expect("settings serialize");
         for value in &self.matches { value.set(&mut matches); }
         c.matches = serde_json::from_value(matches).expect("typed imported match values");
+        self.apply_contribution(&mut c.contribution, contribution);
         let mut toolbar = serde_json::to_value(&p.matches).expect("settings serialize");
         for value in &self.match_toolbar { value.set(&mut toolbar); }
         p.matches = serde_json::from_value(toolbar).expect("typed imported match toolbar values");
@@ -3111,6 +3221,9 @@ impl Mapped {
         }
         if !has_settings {
             return out;
+        }
+        if self.replaces_contribution(&config.contribution) {
+            out.push(ImportTarget::Contribution);
         }
         macro_rules! cmp {
             ($target:expr, $current:expr, $new:expr) => {

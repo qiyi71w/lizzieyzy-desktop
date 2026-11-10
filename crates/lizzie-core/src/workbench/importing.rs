@@ -63,10 +63,11 @@ impl Workbench {
                 .as_ref()
                 .map(|p| p.to_string_lossy().into_owned()),
             // As confirming every credential would import them; the report shows the choice made.
-            items: candidate.items_after(&candidate.credential_engines()),
+            items: candidate.items_after(&candidate.credential_engines(), true),
             engines: candidate.engines.clone(),
             commentary_credential: candidate.commentary_credential.clone(),
             analysis_ssh_credential: candidate.analysis_ssh_credential(),
+            contribution_credential: candidate.contribution_credential(),
             cloud_credentials: candidate.cloud_credentials.clone(),
             replaces: self.java_import_replaces(&candidate),
             // As choosing the slots would import them; the report shows the choice made.
@@ -104,12 +105,23 @@ impl Workbench {
     }
 
     /// The SSH passwords preview `preview` would bring over, by account, for the adapter to
-    /// remember once the import is applied: those of the engines in `copy_credentials` and, when
-    /// `analysis`, 精析设置's 远程引擎. A stale preview gives nothing.
-    pub fn java_ssh_passwords(&self, preview: u64, copy_credentials: &[u32], analysis: bool) -> Vec<(String, String)> {
+    /// remember once the import is applied: those of the engines in `copy_credentials`, 精析设置's
+    /// 远程引擎 when `analysis` and 跑谱贡献's 远程SSH when `contribution`. A stale preview gives
+    /// nothing.
+    pub fn java_ssh_passwords(&self, preview: u64, copy_credentials: &[u32], analysis: bool, contribution: bool) -> Vec<(String, String)> {
         match &self.java_preview {
-            Some((id, candidate)) if *id == preview => candidate.ssh_passwords(copy_credentials, analysis),
+            Some((id, candidate)) if *id == preview => candidate.ssh_passwords(copy_credentials, analysis, contribution),
             _ => Vec::new(),
+        }
+    }
+
+    /// The 跑谱贡献 account, password and custom command preview `preview` would bring over when
+    /// `copy` is confirmed, for the adapter to keep in the credential storage. A stale preview
+    /// gives nothing.
+    pub fn java_contribution_credentials(&self, preview: u64, copy: bool) -> Option<crate::java_import::ContributionCredentials> {
+        match &self.java_preview {
+            Some((id, candidate)) if *id == preview => candidate.contribution_credentials(copy),
+            _ => None,
         }
     }
 
@@ -120,13 +132,15 @@ impl Workbench {
     }
 
     /// Imports preview `preview`. `copy_credentials` are the Java engine indexes whose credentials
-    /// the user agreed to copy; `replace` confirms replacing settings chosen in this product;
-    /// `recovery` is the choice to import the Java slots.
+    /// the user agreed to copy and `copy_contribution` the choice to copy the 跑谱贡献 account;
+    /// `replace` confirms replacing settings chosen in this product; `recovery` is the choice to
+    /// import the Java slots.
     /// `Ok(Err(key))` is a refusal with nothing changed; `Err` a failed write with nothing changed.
     pub fn apply_java_import(
         &mut self,
         preview: u64,
         copy_credentials: &[u32],
+        copy_contribution: bool,
         replace: bool,
         recovery: Option<&RecoveryImport>,
     ) -> Result<Result<ImportReportView, &'static str>, ApiError> {
@@ -147,7 +161,7 @@ impl Workbench {
             self.java_preview = Some((id, candidate));
             return Ok(Err(IMPORT_NEEDS_REPLACE));
         }
-        let (mut config, persisted) = candidate.mapped.apply(&self.config, &self.persisted, copy_credentials);
+        let (mut config, persisted) = candidate.mapped.apply(&self.config, &self.persisted, copy_credentials, copy_contribution);
         let images = match crate::appearance::capture_external_images(&self.storage, &mut config.appearance, &mut config.appearance_defaults) {
             Ok(images) => images,
             Err(e) => {
@@ -234,7 +248,7 @@ impl Workbench {
         self.start_engines();
 
         let engines = candidate.engines_after(copy_credentials);
-        let items = candidate.items_after(copy_credentials);
+        let items = candidate.items_after(copy_credentials, copy_contribution);
         let recovery = slots::after(&candidate.slots, recovery.is_some());
         let count = |s: ImportStatus| items.iter().filter(|i| i.status == s).count();
         self.log(

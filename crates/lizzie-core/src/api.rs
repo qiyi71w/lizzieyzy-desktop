@@ -356,6 +356,10 @@ pub enum Command {
         copy_cloud_token: bool,
         #[serde(default)]
         copy_cloud_password: bool,
+        /// Separate, unchecked-by-default consent for the 跑谱贡献 account, its password, a custom
+        /// command's passwords and its 远程SSH password.
+        #[serde(default)]
+        copy_contribution_credentials: bool,
         replace: bool,
         recovery: Option<RecoveryImport>,
     },
@@ -1441,6 +1445,9 @@ pub enum ImportReason {
     NotChosen,
     /// Java keeps the key but no longer uses it.
     Obsolete,
+    /// Java's own bookkeeping (a one-time migration marker, first-start or machine marker, a window
+    /// left open), not a setting.
+    JavaState,
 }
 
 /// One Java setting in the import preview / report. Credential values are never included.
@@ -1645,6 +1652,8 @@ pub enum ImportTarget {
     FoxKifu,
     /// 腾讯棋谱: `ui.last-tencent-name`, `tencent-after-get`, `tencent-recent-searches`.
     TencentKifu,
+    /// 跑谱贡献: `ui.contribute-*`, `ui.show-Contribute`, `leelaz.contribute-engine-ssh-info`.
+    Contribution,
 }
 
 /// A problem found with an imported engine without starting it.
@@ -1703,6 +1712,8 @@ pub struct ImportPreviewView {
     /// The SSH account (`user@host:port`) whose Java password 精析设置's 远程引擎 would copy
     /// when confirmed.
     pub analysis_ssh_credential: Option<String>,
+    /// Java has a 跑谱贡献 account, password or SSH password to copy when confirmed.
+    pub contribution_credential: bool,
     /// Settings already chosen in this product that the import would replace.
     pub replaces: Vec<ImportTarget>,
     /// Java 存档与读档 slots; imported only when the user chooses to.

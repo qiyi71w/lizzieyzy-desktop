@@ -140,6 +140,25 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   // 引擎 > 远程算力 and 同步 > Web 旁观 (Menu.java remote compute and web board menus).
   Cloud: "Menu.remoteCompute",
   WebBoard: "Menu.webBoard",
+  // 显示 menus and dialogs these settings belong to (Menu.java, ConfigDialog2, EnginePkConfig).
+  Coordinates: "Menu.coordsMenu",
+  NamesOnBoard: "Menu.showNameInBoard",
+  MoveNumbers: "Menu.moveMenu",
+  MoveRank: "Menu.moveRankMenu",
+  Suggestions: "Menu.Suggestions",
+  NextMoves: "Menu.nextMoveHint",
+  SubBoard: "Menu.subBoardSettings",
+  AutoQuickAnalysis: "ConfigDialog2.modern.kifu.autoAnalyze",
+  AnalysisEngine: "Menu.flashAnalyzeSettings",
+  QuickModel: "AutoSetup.quickAnalysisModel",
+  StrengthBackground: "HumanSL40.backgroundToggle",
+  StrengthModels: "PlayerStrengthEstimate.model",
+  Tsumego: "TsumeGoFrame.title",
+  CaptureTsumego: "CaptureTsumeGoFrame.title",
+  ProblemList: "Menu.commitPane",
+  FlashRange: "Menu.flashAnalyzePartGame",
+  EngineMatch: "EnginePkConfig.title",
+  Contribution: "Menu.contributeMenu",
 };
 
 function targetLabel(target: ImportTarget): string {
@@ -272,6 +291,14 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
     cloudPassword = box.input;
     body.append(box.label);
   }
+  // 跑谱贡献's account, password, custom-command passwords and 远程SSH password: only when chosen.
+  let contribution: HTMLInputElement | null = null;
+  if (p.contribution_credential) {
+    const box = checkbox(product("importCopyContribution", t("Menu.contributeMenu")), false);
+    box.input.dataset.key = "import-contribution-credentials";
+    contribution = box.input;
+    body.append(box.label);
+  }
   if (p.engines.some((e) => e.problems.some((x) => x.type === "ProgramNotFound" || x.type === "FileNotFound")) || p.program_dir) {
     const row = document.createElement("div");
     row.className = "java-import-row";
@@ -319,6 +346,7 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
       copy_analysis_ssh_password: analysisSsh?.checked ?? false,
       copy_cloud_token: cloudToken?.checked ?? false,
       copy_cloud_password: cloudPassword?.checked ?? false,
+      copy_contribution_credentials: contribution?.checked ?? false,
       replace: replace?.checked ?? false,
       recovery: recovery?.checked ? { auto_slot_name: t("LizzieFrame.saveAndLoad.exitRecord") } : null,
     });
