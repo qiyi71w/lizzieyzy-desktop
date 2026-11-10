@@ -7,6 +7,7 @@
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use lizzie_core::api::{
     Command, CommandResult, GameCommand, GameKind, LeaseAvailabilityView, ReadBoardCommand, ReadBoardNotice,
@@ -15,9 +16,11 @@ use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
+use lizzie_core::java_import::{self, JavaSource};
 use lizzie_core::readboard::{HelperHost, HelperId, HelperInput, HelperLaunch};
 use lizzie_core::record::{NodeKind, Point, Stone, ROOT};
 use lizzie_core::settings::{GameSettings, Storage};
+use lizzie_core::web_board::parse_client_message;
 use lizzie_core::workbench::Workbench;
 
 // ------------------------------------------------------------------------ scripted helper
@@ -506,6 +509,106 @@ fn an_engine_that_dies_during_a_gma_hand_is_not_restarted_automatically_but_the_
     assert!(r.wb.view(false).engine.foreground.is_some_and(|f| f.ready), "{sent:?}");
     assert!(sent.iter().any(|c| c.starts_with("kata-analyze")), "analysis continues: {sent:?}");
     assert_ne!(r.lease(), LeaseAvailabilityView::ReadBoardGma);
+}
+
+#[test]
+fn a_retired_cloud_session_is_not_rebuilt_while_gma_reserves_the_engine_or_left_it_unrestored() {
+    // The cloud transport recovery goes through the same automatic restart admission
+    // (`EngineManager.restartRemoteEngineInBackground` → `beginAutomaticRestartAttempt`).
+    let (mut r, _h) = gma_rig();
+    r.serve(&|_| None);
+    assert!(!r.held.is_empty(), "the hand waits for its move");
+    let before = r.engines.count();
+    r.wb.engine_input(r.engine, EngineInput::CloudRecovery { message: "accepted progress stalled".into() });
+    assert_eq!(r.engines.count(), before, "no session rebuild while a GMA hand reserves the engine");
+
+    let (mut r, _h) = gma_rig();
+    r.serve(&|c| c.starts_with("kata-set-param maxTime").then(|| "?unknown parameter".to_string()));
+    assert_eq!(r.lease(), LeaseAvailabilityView::EngineStateUnrestored);
+    let before = r.engines.count();
+    r.wb.engine_input(r.engine, EngineInput::CloudRecovery { message: "accepted progress stalled".into() });
+    assert_eq!(r.engines.count(), before, "no session rebuild of an engine left unrestored");
+}
+
+#[test]
+fn contribution_does_not_start_while_a_gma_hand_reserves_the_engine() {
+    let (mut r, _h) = gma_rig();
+    r.serve(&|_| None);
+    assert!(!r.held.is_empty(), "the hand waits for its move");
+    let before = r.engines.count();
+    // beginReadBoardGmaSession holds the lifecycle transition startContributeEngine needs
+    // (Leelaz.java:21342-21357, 15190-15198).
+    assert_eq!(
+        r.wb.contribution_start(None, None).unwrap(),
+        CommandResult::Refused { message_key: "AnalysisSettings.reuseStatus.existing_lease".into() }
+    );
+    assert_eq!(r.engines.count(), before);
+    assert!(r.wb.view(false).engine.foreground.is_some(), "the GMA hand keeps its engine");
+}
+
+fn enter_trial(wb: &mut Workbench) -> Option<String> {
+    let message = parse_client_message(r#"{"type":"enter_trial","clientId":"a"}"#).unwrap();
+    wb.web_board_message(7, message, Instant::now())
+}
+
+/// A GMA hand holds `readBoardGmaReservation`, which Web 试下's `beginEngineModeReservation`
+/// refuses (Leelaz.java:15200-15205); and GMA is not armed while a 试下 holds the engine
+/// (`canArmReadBoardGma`, Leelaz.java:15165-15177).
+#[test]
+fn a_web_trial_and_a_gma_hand_do_not_take_the_engine_from_each_other() {
+    let (mut r, _h) = gma_rig();
+    r.serve(&|_| None);
+    assert!(!r.held.is_empty(), "the hand waits for its move");
+    r.wb.web_board_started(7, "http://127.0.0.1:9998".into());
+    let denied = enter_trial(&mut r.wb).expect("the hand holds the engine");
+    assert!(denied.contains(r#""reason":"engine_busy""#), "{denied}");
+    assert!(!r.wb.view(false).web_board.trial_active);
+
+    let mut r = Rig::new();
+    r.wb.web_board_started(7, "http://127.0.0.1:9998".into());
+    assert_eq!(enter_trial(&mut r.wb), None);
+    let h = r.open();
+    r.lines(h, &["ready", "start 19 19", "sync", "bothSync", "play>black>5 100 0 gma"]);
+    r.frame(h, &[]);
+    let sent = r.serve(&|_| None);
+    assert!(r.held.is_empty() && !sent.iter().any(|c| c.starts_with("kata-set-param")), "no hand is asked: {sent:?}");
+    // The refused `play>…gma` is not kept for later: after the 试下 the next frame asks no hand.
+    let exit = parse_client_message(r#"{"type":"exit_trial","clientId":"a"}"#).unwrap();
+    assert_eq!(r.wb.web_board_message(7, exit, Instant::now()), None);
+    r.frame(h, &[]);
+    let sent = r.serve(&|_| None);
+    assert!(r.held.is_empty() && !sent.iter().any(|c| c.starts_with("kata-set-param")), "no hand is asked: {sent:?}");
+    assert_ne!(r.lease(), LeaseAvailabilityView::ReadBoardGma);
+}
+
+/// 远程算力 and a settings import replace the engine outside the desktop gate; a GMA hand's
+/// reservation refuses them as it refuses a switch (EngineManager.java:14386-14426).
+#[test]
+fn remote_compute_and_a_settings_import_wait_for_the_gma_hand() {
+    let (mut r, _h) = gma_rig();
+    r.serve(&|_| None);
+    assert!(!r.held.is_empty(), "the hand waits for its move");
+    let before = r.engines.count();
+    let engines = r.wb.config().engine.engines.clone();
+    let zhizi = lizzie_core::cloud::CloudSettings {
+        provider: lizzie_core::cloud::Provider::Zhizi,
+        identifier: "fixture-account".into(),
+        ..Default::default()
+    };
+    assert_eq!(r.wb.activate_cloud(zhizi, true).unwrap_err().message, "RemoteCompute.error.engineSwitchFailed");
+    assert_eq!(r.wb.config().engine.engines, engines);
+
+    let java = r._dir.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), r#"{"ui": {"play-sound": false}}"#).unwrap();
+    let preview = r.wb.preview_java_import(java_import::read(&JavaSource::new(&java, None)).unwrap());
+    assert_eq!(
+        r.wb.apply_java_import(preview.id, &[], true, None).unwrap(),
+        Err("AnalysisSettings.reuseStatus.existing_lease")
+    );
+    assert!(r.wb.config().ui.play_sound, "nothing is imported");
+    assert_eq!(r.engines.count(), before, "the hand keeps its engine");
+    assert_eq!(r.lease(), LeaseAvailabilityView::ReadBoardGma);
 }
 
 #[test]

@@ -145,6 +145,12 @@ pub struct EngineFailure {
     /// return (Java's exclusive GTP session, foreground restore, `readBoardGmaReservation` /
     /// restore barrier and `engineStateUnrestored`).
     pub held: bool,
+    /// Within `held`: reserved by a ReadBoard GMA hand or its restore or by Web 试下, or left
+    /// unrestored. No automatic restart takes such an engine, the cloud transport recovery
+    /// included (Java `beginAutomaticRestartAttempt(false)`, Leelaz.java:2121-2146, whose
+    /// lifecycle reservation Web 试下 refuses, 15190-15198; `restartRemoteEngineInBackground`
+    /// goes through it too).
+    pub reserved: bool,
     pub cloud_recovery: bool,
 }
 
@@ -772,6 +778,7 @@ impl Instance {
             // Filled in by `Engines::fail`, which knows the seats.
             foreground: false,
             held: false,
+            reserved: false,
             cloud_recovery: false,
         }
     }
@@ -1174,6 +1181,7 @@ impl Engines {
             remote: None,
             foreground: false,
             held: false,
+            reserved: false,
             cloud_recovery: false,
         };
         // A remote engine's command runs on its host as written: no local paths, thread policy
@@ -1400,10 +1408,10 @@ impl Engines {
     /// says which seat the instance held and whether a holder owned its state at that moment.
     fn fail(&mut self, id: InstanceId, mut failure: EngineFailure) -> RuntimeEvent {
         failure.foreground = self.foreground == Some(id);
-        failure.held = self.get(id).is_some_and(|i| i.unrestored.is_some())
-            || self.leased(id)
-            || self.game_restoring(id)
-            || self.readboard_gma_holds(id);
+        failure.reserved = self.get(id).is_some_and(|i| i.unrestored.is_some())
+            || self.readboard_gma_holds(id)
+            || (failure.foreground && self.application_exclusive);
+        failure.held = failure.reserved || self.leased(id) || self.game_restoring(id);
         if failure.foreground {
             self.failed_foreground = self.get(id).map(|i| i.profile.clone());
         }

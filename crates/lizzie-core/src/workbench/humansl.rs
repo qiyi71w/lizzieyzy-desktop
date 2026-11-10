@@ -327,7 +327,7 @@ impl Workbench {
         }
         if !current {
             let size = self.doc.record.size;
-            self.reopen_empty_board(size);
+            self.reopen_empty_board(size, false);
             self.komi_changed = true;
             self.start_komi = None;
             self.apply_komi(settings.komi);

@@ -44,7 +44,9 @@ impl Workbench {
         if !confirmed {
             return Err(ApiError::new(ErrorKind::InvalidArgument, "RemoteCompute.error.activationRequired"));
         }
-        if self.setup_mode() || self.match_active() || self.game_active() || self.human_sl_active() {
+        if self.setup_mode() || self.match_active() || self.game_active() || self.human_sl_active()
+            || self.foreground_lifecycle_held().is_some()
+        {
             return Err(ApiError::new(ErrorKind::Unavailable, "RemoteCompute.error.engineSwitchFailed"));
         }
         let mut settings = self.config.cloud.clone();
@@ -97,7 +99,9 @@ impl Workbench {
     /// Java chooses the first usable local engine, not an SSH or another cloud profile. Returns
     /// the chosen profile's id, like [`Self::activate_cloud`].
     pub fn cloud_local(&mut self) -> Result<String, ApiError> {
-        if self.setup_mode() || self.match_active() || self.game_active() || self.human_sl_active() {
+        if self.setup_mode() || self.match_active() || self.game_active() || self.human_sl_active()
+            || self.foreground_lifecycle_held().is_some()
+        {
             return Err(ApiError::new(ErrorKind::Unavailable, "RemoteCompute.error.engineSwitchFailed"));
         }
         let index = self.first_usable_local_engine()

@@ -137,6 +137,9 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   FoxKifu: "Menu.foxKifu",
   // 同步 > 腾讯棋谱's last query, 近期搜索 and 打开棋谱后此窗口.
   TencentKifu: "Menu.tencentKifu",
+  // 引擎 > 远程算力 and 同步 > Web 旁观 (Menu.java remote compute and web board menus).
+  Cloud: "Menu.remoteCompute",
+  WebBoard: "Menu.webBoard",
 };
 
 function targetLabel(target: ImportTarget): string {

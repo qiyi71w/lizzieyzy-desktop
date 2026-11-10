@@ -440,6 +440,8 @@ impl Workbench {
             self.sounds.clear(); self.reset_editing(); self.limit_stop = None; self.komi_changed = false;
             self.fox.adopted = Some(snapshot.game); self.fox.applied = 0; self.fox.live = Some(ROOT); self.fox.document = Some(self.doc.id);
             self.publish_record_rules(Some(&selected)); self.reset_analysis();
+            // `Board.setHistory` of the live game tells 棋盘同步工具 its history was replaced.
+            self.readboard_history_overwritten();
         }
         if self.fox.document != Some(self.doc.id) || self.fox.applied > snapshot.actions.len() { return Err(()); }
         let following = Some(self.cursor) == self.fox.live;

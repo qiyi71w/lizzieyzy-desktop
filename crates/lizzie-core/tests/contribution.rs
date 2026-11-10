@@ -13,6 +13,7 @@ use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineSettings};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
+use lizzie_core::java_import::{self, JavaSource};
 use lizzie_core::record::{Point, Stone};
 use lizzie_core::settings::{ContributionSettings, Storage};
 use lizzie_core::workbench::Workbench;
@@ -738,6 +739,31 @@ fn the_board_is_read_only_while_contributing_and_free_when_paused() {
             .unwrap(),
         CommandResult::Done
     );
+}
+
+/// Java starts no engine while contributing (EngineManager.java:11524-11527); 远程算力 and a
+/// settings import start one without passing the desktop gate.
+#[test]
+fn remote_compute_and_a_settings_import_start_no_engine_while_contributing() {
+    let mut fixture = Fixture::new();
+    fixture.configure(Fixture::settings("/opt/katago"));
+    fixture.start();
+    let launched = fixture.world.launched();
+    let zhizi = lizzie_core::cloud::CloudSettings {
+        provider: lizzie_core::cloud::Provider::Zhizi,
+        identifier: "fixture-account".into(),
+        ..Default::default()
+    };
+    assert_eq!(fixture.wb.activate_cloud(zhizi, true).unwrap_err().message, "RemoteCompute.error.engineSwitchFailed");
+    assert!(fixture.wb.config().engine.engines.is_empty(), "no remote profile is committed");
+
+    let java = fixture.dir.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), r#"{"ui": {"play-sound": false}}"#).unwrap();
+    let preview = fixture.wb.preview_java_import(java_import::read(&JavaSource::new(&java, None)).unwrap());
+    assert_eq!(fixture.wb.apply_java_import(preview.id, &[], true, None).unwrap(), Err(CONTRIBUTING));
+    assert!(fixture.wb.config().ui.play_sound, "nothing is imported");
+    assert_eq!(fixture.world.launched(), launched, "only the contribution process runs");
 }
 
 #[test]

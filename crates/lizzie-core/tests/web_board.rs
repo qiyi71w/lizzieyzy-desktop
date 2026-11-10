@@ -11,6 +11,7 @@ use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
 use lizzie_core::formats::sgf;
+use lizzie_core::java_import::{self, JavaSource};
 use lizzie_core::record::{NodeKind, Point, RecordFormat, ROOT};
 use lizzie_core::settings::{AutoAnalysisSettings, Storage};
 use lizzie_core::web_board::{parse_client_message, ClientMessage, TRIAL_IDLE};
@@ -391,6 +392,79 @@ fn during_a_trial_the_console_komi_and_the_foreground_engine_lifecycle_are_refus
         }),
         None
     );
+}
+
+#[test]
+fn during_a_trial_contribution_does_not_start_and_leaves_the_record_and_engine_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, id) = sharing(dir.path(), "(;SZ[9];B[ee];W[cc])");
+    assert_eq!(enter(&mut wb, "a", Instant::now()), None);
+    let doc = wb.document().id;
+    // LizzieFrame.startContributeEngine cannot take the lifecycle reservation while a 试下 holds
+    // the engine (Leelaz.java:15193) and shows existing_lease.
+    assert_eq!(
+        wb.contribution_start(None, None).unwrap(),
+        CommandResult::Refused {
+            message_key: "AnalysisSettings.reuseStatus.existing_lease".into()
+        }
+    );
+    assert!(trial_active(&mut wb));
+    assert_eq!(wb.document().id, doc, "no empty contribution board replaces the record");
+    assert_eq!(world.latest(), id, "no engine was closed or started");
+    assert!(wb.view(true).engine.foreground.is_some_and(|f| f.ready), "the trial's engine keeps running");
+}
+
+/// Paths that replace the foreground engine without passing the desktop gate: 远程算力, a settings
+/// import and a restart asked by another feature. Java's switch takes `reserveEngineLifecycle`,
+/// which a 试下 refuses (EngineManager.java:14386-14426, Leelaz.java:15190-15198).
+#[test]
+fn during_a_trial_remote_compute_a_settings_import_or_a_restart_keeps_the_trial_engine() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, id) = sharing(dir.path(), "(;SZ[9];B[ee];W[cc])");
+    assert_eq!(enter(&mut wb, "a", Instant::now()), None);
+    let engines = wb.config().engine.engines.clone();
+
+    let zhizi = lizzie_core::cloud::CloudSettings {
+        provider: lizzie_core::cloud::Provider::Zhizi,
+        identifier: "fixture-account".into(),
+        ..Default::default()
+    };
+    let refused = wb.activate_cloud(zhizi, true).unwrap_err();
+    assert_eq!(refused.message, "RemoteCompute.error.engineSwitchFailed");
+    assert_eq!(wb.config().engine.engines, engines, "no remote profile is committed");
+
+    let java = dir.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), r#"{"ui": {"play-sound": false}}"#).unwrap();
+    let preview = wb.preview_java_import(java_import::read(&JavaSource::new(&java, None)).unwrap());
+    assert_eq!(
+        wb.apply_java_import(preview.id, &[], true, None).unwrap(),
+        Err("AnalysisSettings.reuseStatus.application_exclusive_mode")
+    );
+    assert!(wb.config().ui.play_sound, "nothing is imported");
+
+    assert!(wb.restart_engine().is_err());
+    assert_eq!(world.latest(), id, "no engine was closed or started");
+    assert!(trial_active(&mut wb));
+    assert!(wb.view(true).engine.foreground.is_some_and(|f| f.ready), "the trial's engine keeps running");
+}
+
+/// An engine that dies under a 试下 is left for the user, as under any lifecycle reservation
+/// (`beginAutomaticRestartAttempt`, Leelaz.java:2121-2127); once the 试下 ends it can be restarted.
+#[test]
+fn an_engine_that_dies_during_a_trial_is_not_restarted_automatically() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, id) = sharing(dir.path(), "(;SZ[9];B[ee];W[cc])");
+    assert_eq!(enter(&mut wb, "a", Instant::now()), None);
+    wb.engine_input(id, EngineInput::Exited(Some(1)));
+    assert_eq!(world.latest(), id, "no automatic restart under the 试下");
+
+    exit(&mut wb, "a", Instant::now());
+    wb.restart_engine().unwrap();
+    let restarted = world.latest();
+    assert_ne!(restarted, id, "the user's restart starts a new process");
+    serve(&mut wb, &world, restarted);
+    assert!(wb.view(true).engine.foreground.is_some_and(|f| f.ready));
 }
 
 #[test]

@@ -53,9 +53,11 @@ impl Workbench {
             return false;
         }
         // A deliberately retired cloud session uses Java's transport-recovery path, independent
-        // of the ordinary alive-check setting and whether this incarnation has produced yet.
+        // of the ordinary alive-check setting and whether this incarnation has produced yet. Like
+        // every automatic restart it leaves an engine a GMA hand reserves or that was left
+        // unrestored alone (`restartRemoteEngineInBackground` → `beginAutomaticRestartAttempt`).
         if f.cloud_recovery {
-            if f.foreground && !self.setup_mode() && !self.match_active() {
+            if f.foreground && !f.reserved && !self.setup_mode() && !self.match_active() {
                 self.restart.due = Some(f.profile_id.clone());
             }
             self.log_engine_failure(f);

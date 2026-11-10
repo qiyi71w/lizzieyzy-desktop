@@ -592,7 +592,7 @@ impl Workbench {
         self.komi_changed = false;
         self.start_komi = None;
         self.limit_stop = None;
-        self.reopen_empty_board(size);
+        self.reopen_empty_board(size, false);
         self.sync_engine();
     }
 

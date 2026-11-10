@@ -213,7 +213,18 @@ impl Workbench {
                 | LeaseAvailability::HumanSlGame
                 | LeaseAvailability::ApplicationExclusive
         );
-        !held && !self.game_active() && !self.match_active() && !self.human_sl_active() && !self.auto_analysis_active()
+        // A GMA hand or its restore holds `readBoardGmaReservation` (Leelaz.java:15201-15205).
+        !held
+            && !self.readboard.gma.reserved()
+            && !self.game_active()
+            && !self.match_active()
+            && !self.human_sl_active()
+            && !self.auto_analysis_active()
+    }
+
+    /// A viewer's 试下 holds the foreground engine (`isWebTrialEngineBusy`).
+    pub(super) fn web_trial_active(&self) -> bool {
+        self.web_board.trial.is_some()
     }
 
     /// Gives `at` an end placeholder when it has no continuation and was there before the 试下,

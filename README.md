@@ -232,10 +232,12 @@ importing the matching LizzieYzy Next settings.
   支持 KataGo): each move reads the engine's pondering, time and visit parameters, sets the
   helper's limits, asks the move for the synced position, plays it and has the helper click it.
   While GMA holds the engine, 人机对弈, engine matches and HumanSL games are refused; while a move
-  is in flight, switching, restarting or closing the engine is refused too, and an engine that
-  ends meanwhile is not restarted automatically. Clearing GMA (stopping the sync or the helper ending)
-  gives the original parameters back once the engine holds the record's position again; if the
-  engine refuses them it stays unrestored (引擎状态未恢复) until it is switched or restarted.
+  is in flight, switching, restarting or closing the engine (also through 远程算力 or applying a
+  settings import), 跑谱贡献 and a Web 旁观 viewer's 试下 are refused too, and an engine that ends
+  meanwhile is not restarted automatically. GMA is not armed while a 试下 holds the engine.
+  Clearing GMA (stopping the sync or the helper ending) gives the original parameters back once
+  the engine holds the record's position again; if the engine refuses them it stays unrestored
+  (引擎状态未恢复) until it is switched or restarted.
 - Analysis: candidates on the board (win rate, visits, score lead), the variation shown when
   hovering a candidate (captures are worked out by the core), the sub board cycling through
   candidates on click, the candidate tables, the win-rate graph, 统计 and Kata形势 (below), and
@@ -860,9 +862,11 @@ importing the matching LizzieYzy Next settings.
   first gets an end placeholder, removed again when nothing was played there). The desktop and
   every viewer follow them and the foreground engine analyses them. While it runs, desktop moves
   and 贴目 changes are refused with Java's 3-second hint, desktop browsing waits, and the GTP
-  console, switching, restarting or closing the foreground engine, saving the engine list and modes
-  that take the engine (人机对弈, AI 陪练, 引擎对战, flash/automatic/whole-game analysis, batch,
-  tracking, benchmark) are refused. It ends at the viewer's 退出试下, after five idle minutes, by
+  console, switching, restarting or closing the foreground engine (also through 远程算力 or
+  applying a settings import), saving the engine list and modes that take the engine (人机对弈,
+  AI 陪练, 引擎对战, flash/automatic/whole-game analysis, batch, tracking, benchmark, 跑谱贡献,
+  GMA) are refused; an engine that ends meanwhile is not restarted automatically. It ends at the
+  viewer's 退出试下, after five idle minutes, by
   强制结束试下, when the share stops or when another record opens; browsing then returns to where
   it started.
   Since Java placed only the first placeholder, a 试下 continued past the record's last move could
@@ -1030,9 +1034,11 @@ importing the matching LizzieYzy Next settings.
   opening a new empty board. The KataGo分布式训练 window shows the console, the tip, the watched
   game (type, komi, result, rules) and Java's game/move navigation, auto play, 暂停/恢复,
   顺序结束(延迟), 强制结束(立刻) and 保存所有棋谱. While it runs the board cannot be edited and
-  other engine work is refused; while paused both are free again. A crash restarts it up to three
-  times (a missing CA bundle adds KataGo's `cacert.pem` once); a build without distributed
-  support or one the server rejects stops at once with the engine failure window and 重启引擎.
+  other engine work (including 远程算力 and applying a settings import) is refused; while paused
+  both are free again. 跑谱贡献 does not start while a 试下 or a GMA move holds the engine. A
+  crash restarts it up to three times (a missing CA bundle adds KataGo's `cacert.pem` once); a
+  build without distributed support or one the server rejects stops at once with the engine
+  failure window and 重启引擎.
   A KataGo older than the server accepts is stopped with a link to the releases page. Closing the
   application stops the contribution process.
 - Fox AI direct play: 同步 > 野狐 AI 直连 opens a modeless session window. It listens on
@@ -1061,7 +1067,8 @@ importing the matching LizzieYzy Next settings.
   The real Linux application and KataGo have been exercised with a controlled local peer,
   including confirmation, reconnect, browsing, PDA and stop/restoration. Authorized official
   account/client interoperability has not yet been verified; controlled-peer checks do not
-  establish it. This TCP integration is separate from screen-reading helpers.
+  establish it. This TCP integration is separate from screen-reading helpers: while a session owns
+  the record, boards the 棋盘同步工具 reads do not change it.
 - 在线棋谱 and 弈客直播 (同步 menu, the bottom bar's 同步 popup, function search):
   - 文件 > 打开在线链接 (`Q`) stops any follow, fills in a link from the clipboard and follows
     what the link names, like Java: 弈客 new live rooms (`#/live/new-room/…`, read every 刷新
@@ -1069,7 +1076,9 @@ importing the matching LizzieYzy Next settings.
     Socket.IO room), a 弈客 live board (read once), 野狐分享 and 腾讯欢乐 broadcast links (the
     huanle WebSocket), and any other link, which is read once and opened as an SGF record.
     中断 stops the follow, empties the link and closes the dialog; closing the dialog leaves the
-    follow running. An unknown link shows 无效的链接.
+    follow running. 新建 / 清空棋盘 and anything else that starts an empty board (人机对弈, AI
+    陪练, 跑谱贡献) also ends the follow, as in Java; an engine match keeps it. An unknown link
+    shows 无效的链接.
   - 弈客直播 (`Shift+O`) opens 弈客直播中心: the 推荐 / 地方 / 个人 lists with Java's columns,
     filtering, sorting, 刷新 / 更多, and 同步 (or double-click / Enter) to follow a room.
   - A followed source only writes the main line. Your variations, comments and marks stay. The

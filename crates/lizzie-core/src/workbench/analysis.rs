@@ -654,9 +654,14 @@ impl Workbench {
     }
 
     /// `Board.reopenOnlyBoard` / `clear`: a new empty game of `size` replaces the open one; a
-    /// running game ends first.
-    pub(super) fn reopen_empty_board(&mut self, size: BoardSize) {
+    /// running game ends first. A clear that is not an engine game's own also ends a 在线同步
+    /// follow, its first game included (`clearBoardState(false)` → `urlSgfStopSyncAction`,
+    /// Board.java:5493-5525).
+    pub(super) fn reopen_empty_board(&mut self, size: BoardSize, engine_game: bool) {
         self.play_document_closing();
+        if !engine_game {
+            self.online_stop();
+        }
         let id = self.next_doc;
         self.next_doc += 1;
         self.doc = super::Document {
@@ -688,7 +693,26 @@ impl Workbench {
     /// (`EngineManager.setupModeActive`).
     pub fn switch_engine(&mut self, index: u32) -> Result<bool, ApiError> {
         if self.fox_owns_board() || self.fox_holds_engine() { return Err(ApiError::new(ErrorKind::Unavailable, "Fox.conflict")); }
+        if let Some(key) = self.foreground_lifecycle_held() { return Err(ApiError::new(ErrorKind::Unavailable, key)); }
         self.switch_engine_inner(index, true)
+    }
+
+    /// What keeps the foreground engine from a switch, restart or restart of all engines, also one
+    /// that does not come through `game_gate` (远程算力, resource setup, tuning, settings import):
+    /// Java's switch first takes `reserveEngineLifecycle` (EngineManager.java:12232-12235,
+    /// 14386-14426), which Web 试下 and a GMA hand or its restore refuse
+    /// (Leelaz.java:15156-15160), as does a running contribution (EngineManager.java:11524-11527).
+    /// Returns the refusal's message key.
+    pub(super) fn foreground_lifecycle_held(&self) -> Option<&'static str> {
+        if self.web_trial_active() {
+            Some("AnalysisSettings.reuseStatus.application_exclusive_mode")
+        } else if self.readboard.gma.reserved() {
+            Some("AnalysisSettings.reuseStatus.existing_lease")
+        } else if self.contribution_active() {
+            Some(super::contribution::CONTRIBUTING)
+        } else {
+            None
+        }
     }
 
     fn switch_engine_inner(&mut self, index: u32, remember_selection: bool) -> Result<bool, ApiError> {
@@ -719,7 +743,7 @@ impl Workbench {
             height: profile.height,
         };
         if self.game_is_empty() && size != self.doc.record.size {
-            self.reopen_empty_board(size);
+            self.reopen_empty_board(size, false);
         }
         // The engine's komi becomes the game komi unless the user chose it (`targetKomi`): at
         // once for a running engine, for a new one when it is ready and the game still empty.
@@ -765,6 +789,7 @@ impl Workbench {
     /// (Java keeps `Lizzie.leelaz` and restarts `currentEngineNo`).
     pub fn restart_engine(&mut self) -> Result<bool, ApiError> {
         if self.fox_owns_board() || self.fox_holds_engine() { return Err(ApiError::new(ErrorKind::Unavailable, "Fox.conflict")); }
+        if let Some(key) = self.foreground_lifecycle_held() { return Err(ApiError::new(ErrorKind::Unavailable, key)); }
         let fg = self.engines.foreground();
         let id = match fg {
             Some(fg) => self.engines.profile_of(fg).map(|p| p.id.clone()),

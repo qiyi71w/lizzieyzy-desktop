@@ -359,6 +359,23 @@ fn opening_another_record_ends_the_follow() {
 }
 
 #[test]
+fn clearing_the_board_ends_the_follow_even_before_its_first_game() {
+    // Board.clearBoardState(false) defers urlSgfStopSyncAction (Board.java:5505-5525): a follow
+    // ends with any board clear that is not an engine match's, as soon as the sync started.
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    wb.online(OnlineCommand::FollowLive { url: ROOM.into() }).unwrap();
+    let first = next_read(&mut wb);
+    assert_eq!(wb.edit(EditCommand::ClearBoard).unwrap(), CommandResult::Done);
+    assert!(wb.view(true).online.following.is_none(), "the clear stopped the follow");
+    let (doc, revision) = (wb.document().id, wb.document().revision);
+    reply(&mut wb, first, ";B[pd];W[dp]");
+    assert_eq!((wb.document().id, wb.document().revision), (doc, revision), "the room's game does not replace the cleared board");
+    assert!(main_line(&wb).is_empty());
+    assert!(reads_within(&mut wb, Duration::from_secs(3)).is_empty(), "nothing is polled any more");
+}
+
+#[test]
 fn a_later_source_komi_applies_unless_the_user_set_one() {
     let dir = tempfile::tempdir().unwrap();
     let mut wb = workbench(dir.path());

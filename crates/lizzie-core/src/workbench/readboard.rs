@@ -141,7 +141,9 @@ fn helper_language(language: Language) -> &'static str {
     }
 }
 
-/// The record as the session sees it: reads of the open document, writes as record edits.
+/// The record as the session sees it: reads of the open document, writes as record edits. While
+/// 野狐 AI 直连 owns the board every write is dropped, as Java's `Board` drops the helper thread's
+/// `place` / `addStone` / `reopen` / `clear` / `setHistory` (`FoxLiveSession.rejectOrdinaryMutation`).
 struct SyncTarget<'a> {
     wb: &'a mut Workbench,
 }
@@ -156,6 +158,9 @@ impl SyncBoard for SyncTarget<'_> {
     }
 
     fn place_for_sync(&mut self, color: Stone, point: Point) -> Option<NodeId> {
+        if self.wb.fox_owns_board() {
+            return None;
+        }
         let at = self.main_end();
         let rules = self.wb.play_rules();
         let node = self.wb.apply_edit(DocumentEdit::Play { at, color, point, alternate: false, rules }).ok()?.node?;
@@ -167,6 +172,9 @@ impl SyncBoard for SyncTarget<'_> {
     }
 
     fn rebuild(&mut self, snapshot: RebuiltSnapshot) -> NodeId {
+        if self.wb.fox_owns_board() {
+            return ROOT;
+        }
         let (comment, properties) =
             snapshot.metadata.map(|m| (m.comment, m.properties)).unwrap_or_default();
         let edit = DocumentEdit::SyncSnapshot {
@@ -191,7 +199,7 @@ impl SyncBoard for SyncTarget<'_> {
     }
 
     fn discard_failed_move(&mut self, node: NodeId) -> Option<NodeId> {
-        if self.main_end() != node {
+        if self.wb.fox_owns_board() || self.main_end() != node {
             return None;
         }
         let parent = self.wb.doc.record.parent(node)?;
@@ -205,15 +213,22 @@ impl SyncBoard for SyncTarget<'_> {
     }
 
     fn clear_board(&mut self) {
-        let size = self.wb.doc.record.size;
-        self.wb.new_board(size);
+        if !self.wb.fox_owns_board() {
+            let size = self.wb.doc.record.size;
+            self.wb.new_board(size);
+        }
     }
 
     fn reopen(&mut self, width: u8, height: u8) {
-        self.wb.new_board(BoardSize { width: width.into(), height: height.into() });
+        if !self.wb.fox_owns_board() {
+            self.wb.new_board(BoardSize { width: width.into(), height: height.into() });
+        }
     }
 
     fn change_next_turn(&mut self) {
+        if self.wb.fox_owns_board() {
+            return;
+        }
         if let Err(e) = self.wb.run_edit(EditCommand::ChangeTurn) {
             self.wb.log(true, format!("readboard: changing the side to play failed: {}", e.message));
         }

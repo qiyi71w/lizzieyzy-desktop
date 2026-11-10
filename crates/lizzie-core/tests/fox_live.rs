@@ -287,3 +287,45 @@ fn valid_confirmation_before_a_bad_frame_is_committed_before_disconnect() {
     assert_eq!(h.wb.inspect().position.move_number,1,"validated prefix is an authoritative move");
     assert_eq!(h.wb.inspect().fox.submissions[0].outcome,"Confirmed");
 }
+
+/// 棋盘同步工具's helper, scripted: it only has to exist; its lines are fed by the test.
+struct Helper(Arc<Mutex<Option<lizzie_core::readboard::HelperId>>>);
+impl lizzie_core::readboard::HelperHost for Helper {
+    fn launch(&mut self, helper: lizzie_core::readboard::HelperId, _: &lizzie_core::readboard::HelperLaunch) -> std::io::Result<()> { *self.0.lock().unwrap() = Some(helper); Ok(()) }
+    fn send(&mut self, _: lizzie_core::readboard::HelperId, _: &str) -> std::io::Result<()> { Ok(()) }
+    fn stop(&mut self, _: lizzie_core::readboard::HelperId) -> bool { false }
+}
+
+#[test]
+fn a_board_sync_helper_never_writes_into_the_fox_live_record() {
+    // Java's Board drops the helper thread's place/addStone/reopen/clear/setHistory while the
+    // Fox session owns the board (FoxLiveSession.rejectOrdinaryMutation, Board.java:938, 2739, 5438).
+    use lizzie_core::{api::ReadBoardCommand, readboard::HelperInput};
+    let mut h=Harness::new();
+    let base=h.dir.path().join("app"); std::fs::create_dir_all(base.join("readboard")).unwrap();
+    std::fs::write(base.join("readboard").join("readboard.exe"), b"helper").unwrap();
+    let launched=Arc::new(Mutex::new(None));
+    h.wb.set_readboard_host(Box::new(Helper(launched.clone())), vec![base]);
+    assert_eq!(h.wb.readboard(ReadBoardCommand::Open).unwrap(), CommandResult::Done);
+    let helper=launched.lock().unwrap().expect("the helper started");
+    for line in ["ready","start 19 19","sync"] { h.wb.readboard_input(helper, HelperInput::Line(line.into())); }
+    h.serve(None);
+    h.start(); h.initialize(); h.choose("R16"); h.send(&["FAMOVE,0,B,1^16^3^B"]);
+    h.wait_for(|h| h.wb.cursor() != ROOT);
+    let (live, doc, revision)=(h.wb.inspect().fox.live_node, h.wb.document().id, h.wb.document().revision);
+    // The helper reads a different board: a rebuilt snapshot and a further move.
+    for frame in [&[(3usize,3usize,1u8),(15,15,4)][..], &[(3,3,1),(15,15,2),(16,16,3)][..]] {
+        for y in 0..19 {
+            let row: Vec<String>=(0..19).map(|x| frame.iter().find(|s| s.0==x && s.1==y).map_or("0".into(), |s| s.2.to_string())).collect();
+            h.wb.readboard_input(helper, HelperInput::Line(format!("re={}", row.join(","))));
+        }
+        h.wb.readboard_input(helper, HelperInput::Line("end".into()));
+        h.pump();
+    }
+    assert_eq!((h.wb.document().id, h.wb.document().revision), (doc, revision), "the live record is untouched");
+    assert_eq!(h.wb.inspect().fox.live_node, live);
+    h.send(&["FAMOVE,1,B,2^3^15^W","FATIMELEFT,58,30,3"]);
+    h.wait_for(|h| h.wb.inspect().fox.live_node != live);
+    assert_eq!(h.wb.inspect().position.move_number, 2, "the Fox game goes on");
+    assert_ne!(h.wb.inspect().fox.status_key, "Fox.incomplete");
+}

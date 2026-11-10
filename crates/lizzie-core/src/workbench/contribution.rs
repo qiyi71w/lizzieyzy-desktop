@@ -28,7 +28,7 @@ const WATCH_INTERVAL: Duration = Duration::from_millis(50);
 /// `pauseAndResume`'s `2000` ms throttle.
 const PAUSE_THROTTLE: Duration = Duration::from_secs(2);
 /// `Contribute.tips.contributingAndStartAnotherLizzieYzy`.
-const CONTRIBUTING: &str = "Contribute.tips.contributingAndStartAnotherLizzieYzy";
+pub(super) const CONTRIBUTING: &str = "Contribute.tips.contributingAndStartAnotherLizzieYzy";
 /// The product key for an installed engine package that cannot contribute.
 pub const RESOURCE_UNSUPPORTED: &str = "contribution.resourceUnsupported";
 
@@ -354,6 +354,13 @@ impl Workbench {
         ) {
             return Ok(refused(&super::flash::reuse_status_key(availability)));
         }
+        // Java first takes the foreground's lifecycle reservation (`startContributeEngine`): Web
+        // 试下 or a GMA hand / its restore holding the engine refuses it with this message
+        // (`beginExclusiveGtpLifecycleReservationInternal`, `beginReadBoardGmaSession`,
+        // Leelaz.java:15190-15198, 21342-21357; LizzieFrame.java:16668-16670).
+        if availability == LeaseAvailability::ApplicationExclusive || self.readboard.gma.reserved() {
+            return Ok(refused("AnalysisSettings.reuseStatus.existing_lease"));
+        }
         if self
             .contribution
             .session
@@ -396,7 +403,7 @@ impl Workbench {
         self.warmup_stop();
         self.quick_drop_warm();
         let size = self.doc.record.size;
-        self.reopen_empty_board(size);
+        self.reopen_empty_board(size, false);
         let timestamp = chrono::Local::now().format("%Y-%m-%d-%H").to_string();
         let cwd = self
             .storage
@@ -1142,7 +1149,7 @@ impl Workbench {
             width: game.width,
             height: game.height,
         };
-        self.reopen_empty_board(size);
+        self.reopen_empty_board(size, false);
         let _ = self.edit_document(DocumentEdit::SetPlayers {
             black: game.black.replace(' ', ""),
             white: game.white.replace(' ', ""),

@@ -249,7 +249,7 @@ impl Workbench {
         true
     }
 
-    /// `canArmReadBoardGma`.
+    /// `canArmReadBoardGma`, Web 试下 included (Leelaz.java:15165-15177).
     pub(in crate::workbench) fn gma_can_arm(&self) -> bool {
         let Some(fg) = self.engines.foreground() else { return true };
         if self.engines.unrestored(fg).is_some() || self.double_engine() || self.restart_restoring() {
@@ -261,6 +261,7 @@ impl Workbench {
                 | LeaseAvailability::HumanSlGame
                 | LeaseAvailability::ExistingLease
                 | LeaseAvailability::ReadBoardGma
+                | LeaseAvailability::ApplicationExclusive
         )
     }
 

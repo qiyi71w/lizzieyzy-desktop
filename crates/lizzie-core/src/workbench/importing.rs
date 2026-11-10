@@ -130,6 +130,11 @@ impl Workbench {
         replace: bool,
         recovery: Option<&RecoveryImport>,
     ) -> Result<Result<ImportReportView, &'static str>, ApiError> {
+        // Applying ends and restarts every engine: refused while Web 试下, a GMA hand or a running
+        // contribution holds the foreground engine, as their own shutdown refusals are.
+        if let Some(key) = self.foreground_lifecycle_held() {
+            return Ok(Err(key));
+        }
         let Some((id, candidate)) = self.java_preview.take() else {
             return Ok(Err(IMPORT_STALE));
         };

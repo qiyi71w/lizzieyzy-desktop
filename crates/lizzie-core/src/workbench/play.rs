@@ -326,7 +326,7 @@ impl Workbench {
         let human = if settings.play_black { Stone::Black } else { Stone::White };
         let size = self.doc.record.size;
         match (kind, settings.continue_play) {
-            (_, false) => self.reopen_empty_board(size),
+            (_, false) => self.reopen_empty_board(size, false),
             // `board.clear` + `setlist(moveList)`: a new record with the moves up to here.
             (GameKind::Genmove, true) => self.replay_to_new_board(),
             (GameKind::Analysis, true) => {}
@@ -397,7 +397,7 @@ impl Workbench {
         let path = rec.path_to(self.cursor);
         let start = rec.position(ROOT);
         let root_to_play = rec.node(ROOT).to_play;
-        self.reopen_empty_board(rec.size);
+        self.reopen_empty_board(rec.size, false);
         let w = rec.size.width as usize;
         for (i, stone) in start.stones.iter().enumerate() {
             if let Some(c) = stone {

@@ -680,7 +680,7 @@ impl Workbench {
             height: black.height,
         };
         let size = source.as_ref().map_or(empty_size, |(r, _)| r.size);
-        self.reopen_empty_board(size);
+        self.reopen_empty_board(size, true);
         if let Some((rec, end)) = source {
             let pos = rec.position(ROOT);
             for (n, stone) in pos.stones.iter().enumerate() {
