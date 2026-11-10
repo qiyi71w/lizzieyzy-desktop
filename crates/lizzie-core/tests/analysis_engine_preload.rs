@@ -537,3 +537,35 @@ fn automatic_analysis_running_gives_up_at_once() {
     wb.stop_auto_analysis();
     assert!(world.others(ENGINE).is_empty());
 }
+
+/// A remote foreground that loses its connection ends only itself: the local analysis process
+/// keeps running through the cloud session's rebuild and through the rebuilt session ending.
+/// (A foreground that starts searching releases an idle local process, as in Java; that is not a
+/// disconnect and is left out here.)
+#[test]
+fn a_remote_foreground_losing_its_connection_leaves_the_local_analysis_process_running() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, true, false);
+    let zhizi = lizzie_core::cloud::CloudSettings {
+        provider: lizzie_core::cloud::Provider::Zhizi,
+        identifier: "fixture-account".into(),
+        ..Default::default()
+    };
+    wb.activate_cloud(zhizi, true).unwrap();
+    let remote = world.0.lock().unwrap().last().unwrap().id;
+    serve(&mut wb, &world, remote, KATA);
+    wb.preload_analysis_engine();
+    let local = world.latest("/opt/katago");
+    assert_ne!(local, remote);
+
+    wb.engine_input(remote, EngineInput::CloudRecovery { message: "connection lost".into() });
+    let rebuilt = world.0.lock().unwrap().last().unwrap().id;
+    assert_ne!(rebuilt, remote, "the cloud session is rebuilt");
+    assert!(world.terminated(remote) && !world.terminated(local), "only the remote session ends");
+    wb.engine_input(rebuilt, EngineInput::Exited(Some(1)));
+    assert!(!world.terminated(local), "the local analysis process keeps running");
+    wb.end_engines();
+    assert!(world.terminated(local));
+}
