@@ -1,0 +1,4 @@
+/* 打开在线链接 (OnlineDialog, 730x172, not resizable): wider than the shared modal maximum. */
+.modal-box.online-dialog { max-width: none; }
+.online-dialog .online-error { color: red; }
+.online-dialog .online-error[hidden] { display: none; }

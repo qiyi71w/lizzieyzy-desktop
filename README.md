@@ -1062,6 +1062,42 @@ importing the matching LizzieYzy Next settings.
   including confirmation, reconnect, browsing, PDA and stop/restoration. Authorized official
   account/client interoperability has not yet been verified; controlled-peer checks do not
   establish it. This TCP integration is separate from screen-reading helpers.
+- 在线棋谱 and 弈客直播 (同步 menu, the bottom bar's 同步 popup, function search):
+  - 文件 > 打开在线链接 (`Q`) stops any follow, fills in a link from the clipboard and follows
+    what the link names, like Java: 弈客 new live rooms (`#/live/new-room/…`, read every 刷新
+    seconds from the signed detail service), older 弈客 live rooms and game rooms (the 弈客
+    Socket.IO room), a 弈客 live board (read once), 野狐分享 and 腾讯欢乐 broadcast links (the
+    huanle WebSocket), and any other link, which is read once and opened as an SGF record.
+    中断 stops the follow, empties the link and closes the dialog; closing the dialog leaves the
+    follow running. An unknown link shows 无效的链接.
+  - 弈客直播 (`Shift+O`) opens 弈客直播中心: the 推荐 / 地方 / 个人 lists with Java's columns,
+    filtering, sorting, 刷新 / 更多, and 同步 (or double-click / Enter) to follow a room.
+  - A followed source only writes the main line. Your variations, comments and marks stay. The
+    cursor follows a new move only from the live end, on the first sync, or with
+    同步 > 有新的一手时总是跳转到最新一手. Java replaced the whole game on every update, losing
+    variations and moving the cursor; this client does not. A finished game adds its result to
+    the last move's comment.
+  - 打开网页 / 弈客网页版 open a 弈客-only web window with Java's toolbar (后退, address, 加载,
+    停止同步). 加载 (or Enter) of a 弈客 room address follows it, and from then on a 弈客 room
+    address the page moves to is followed automatically; any other address shows URL 无法识别.
+    The window title shows the follow's status. Only `https://yikeweiqi.com` and its
+    subdomains load in the window, plus the frames of the 腾讯验证码 the 弈客 login shows; other
+    links go to the system browser. The page can call exactly one bridge command, which reports
+    its address and 对局室 replies. The client checks these reports again before using them.
+    Following a 对局室 (`#/unite/…`) reads the page's own signed-in requests, so it needs a 弈客
+    login in that window.
+  - Reads use Settings > 网络代理 like Java; the 弈客 Socket.IO room connects directly, as in
+    Java. An unusable manual proxy shows Java's 网络代理设置 warning and stops the polling or the
+    broadcast connection.
+  - Commentator variations are added as side branches with their own colours, passes and
+    comments. A game that arrives while a borrowed engine is being given back waits for it; 中断
+    meanwhile drops it.
+  Verified on Linux (X11, WebKitGTK) against the live 弈客 service: the 直播中心 list, following
+  a live room while browsing, adding a variation and analysing, stopping, 打开在线链接, the web
+  window's 加载 auto-follow, logging in, and following a 对局室 (new moves, a variation of your own
+  kept, moving to another room in the page, 停止同步). Not run live: the 弈客 Socket.IO rooms
+  (the server refused connections during the run) and the huanle broadcasts (session tests with
+  constructed frames).
 
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
 as not yet available (greyed in menus; a notice when used). Not available yet: the other layout
@@ -1117,8 +1153,8 @@ prompt, and full input-method coverage on Windows and macOS.
 
 | Path | Contents |
 | --- | --- |
-| `crates/lizzie-core` | Platform-independent core: game record model, SGF/GIB readers and SGF writer, browsing, settings, the LizzieYzy Next settings reader (`java_import`), the engine runtime (GTP framing, launch, analysis requests, rules, the foreground lease, KataGo analysis processes, thread policy and benchmark), automatic quick analysis, engine resources (`resources`: trusted package/model catalog, machine detection, recommendation, downloads, installs, verification), the credential sanitizer and the workbench command/view contract. No Tauri or DOM dependency. |
-| `src-tauri` | Desktop shell: window, file dialogs, drag and drop, engine and helper processes, HTTP downloads, logging, diagnostics export, the 抓取死活题 screen picture (`screen.rs`) and overlay, the Web 旁观 page and board-stream servers (`web_board.rs`, Java's viewer page in `src-tauri/web`), and the optional acceptance channel. |
+| `crates/lizzie-core` | Platform-independent core: game record model, SGF/GIB readers and SGF writer, browsing, settings, the LizzieYzy Next settings reader (`java_import`), the engine runtime (GTP framing, launch, analysis requests, rules, the foreground lease, KataGo analysis processes, thread policy and benchmark), automatic quick analysis, engine resources (`resources`: trusted package/model catalog, machine detection, recommendation, downloads, installs, verification), online sources (`online`: link classification, the 弈客 REST client and the sans-IO 弈客 Socket.IO and huanle sessions; the workbench's follow flow writes their main line), the credential sanitizer and the workbench command/view contract. No Tauri or DOM dependency. |
+| `src-tauri` | Desktop shell: window, file dialogs, drag and drop, engine and helper processes, HTTP downloads, logging, diagnostics export, the 抓取死活题 screen picture (`screen.rs`) and overlay, the Web 旁观 page and board-stream servers (`web_board.rs`, Java's viewer page in `src-tauri/web`), the online transports (`online.rs`: GETs and WebSockets for the follow flow), the 弈客 windows and the remote page's one-command bridge (`yike_browser.rs`, `capabilities/yike-page.json`), and the optional acceptance channel. |
 | `ui` | Web UI: menus, toolbars, canvas painters, dialogs and the Java UI strings. |
 | `fixtures` | Sample records used by tests and manual checks. |
 | `tools` | Maintenance scripts. |

@@ -1,0 +1,11 @@
+/* The 弈客 web window's JToolBar (no border, not floatable): the 后退 icon button, the address field
+   taking the rest of the row, and the two label buttons (#F0F0F0 on a #B0B0B0 line, padding 4/12,
+   #E0E0E0 hovered, #C8C8C8 pressed; BrowserFrame.makeLabelButton). */
+html, body { margin: 0; height: 100%; overflow: hidden; background: #eee; font-size: 12px; user-select: none; }
+body { display: flex; align-items: center; gap: 2px; padding: 0 2px; box-sizing: border-box; }
+#yb-back { flex: none; height: 28px; width: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+#yb-back img { display: block; }
+#yb-address { flex: 1; min-width: 0; height: 24px; box-sizing: border-box; padding: 0 3px; font: inherit; border: 1px solid rgb(160, 165, 170); background: #fff; user-select: text; }
+.yb-label { flex: none; padding: 4px 12px; color: #000; background: #f0f0f0; border: 1px solid #b0b0b0; cursor: pointer; white-space: nowrap; line-height: 16px; }
+.yb-label:hover { background: #e0e0e0; }
+.yb-label:active { background: #c8c8c8; }

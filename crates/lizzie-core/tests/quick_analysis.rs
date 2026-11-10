@@ -6,13 +6,14 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use lizzie_core::api::{OpenSource, QuickModelStatus, ResourceCommand, ResourceItem, UnrestoredReason};
+use lizzie_core::api::{OnlineCommand, OnlineJob, OpenSource, QuickModelStatus, ResourceCommand, ResourceItem, UnrestoredReason};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
 use lizzie_core::formats::sgf;
-use lizzie_core::record::{RecordFormat, Stone};
+use lizzie_core::online::HttpReply;
+use lizzie_core::record::{RecordFormat, Stone, ROOT};
 use lizzie_core::resources as r;
 use lizzie_core::settings::{AnalysisEngineSettings, Storage};
 use lizzie_core::workbench::{run_resource_job, OpenOrigin, Workbench};
@@ -612,6 +613,70 @@ fn opening_a_record_during_the_lease_waits_for_the_hand_back() {
     let v = wb.view(false);
     assert_ne!(v.document.id, before);
     assert_eq!(v.engine.unrestored, None);
+}
+
+/// A followed 弈客 room's first game arrives while the foreground engine is borrowed, so its
+/// adoption waits for the hand-back. Returns the foreground engine and the document before.
+fn live_game_waiting_for_the_hand_back(wb: &mut Workbench, world: &World, finished: bool) -> (InstanceId, u64) {
+    wb.save_analysis_engine_settings(analysis_settings(true), "", false)
+        .unwrap()
+        .unwrap();
+    let fg = with_engine(wb, world);
+    open(wb, RECORD);
+    serve(wb, world, fg, 0, false);
+    let before = wb.view(false).document.id;
+    wb.online(OnlineCommand::FollowLive { url: "https://home.yikeweiqi.com/#/live/new-room/7/0/0".into() })
+        .unwrap();
+    wb.engine_tick(Instant::now());
+    let request = wb
+        .take_online_jobs()
+        .into_iter()
+        .find_map(|j| match j {
+            OnlineJob::Get { request, .. } => Some(request),
+            _ => None,
+        })
+        .expect("the room is read");
+    let (status, result) = if finished { (3, "B+R") } else { (2, "") };
+    let body = serde_json::json!({ "status": 0, "result": {
+        "sgf": "(;GM[1]SZ[19];B[pd];W[dp])", "status": status, "game_result": result } });
+    assert!(wb.online_http(request, HttpReply::Ok { status: 200, body: body.to_string() }));
+    let v = wb.view(false);
+    assert_eq!(v.document.id, before, "the live game waits for the engine");
+    assert!(v.pending_open.is_some());
+    (fg, before)
+}
+
+#[test]
+fn stopping_or_switching_a_follow_drops_its_game_waiting_for_the_hand_back() {
+    for switch in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let world = World::default();
+        let mut wb = workbench(dir.path(), &world);
+        let (fg, before) = live_game_waiting_for_the_hand_back(&mut wb, &world, false);
+        let op = if switch {
+            OnlineCommand::FollowLive { url: "https://home.yikeweiqi.com/#/live/new-room/8/0/0".into() }
+        } else {
+            OnlineCommand::Stop
+        };
+        wb.online(op).unwrap();
+        serve(&mut wb, &world, fg, 0, true);
+        let v = wb.view(false);
+        assert_eq!(v.document.id, before, "the old room's game is not adopted (switch {switch})");
+        assert!(v.pending_open.is_none());
+        assert_eq!(v.online.following.is_some(), switch);
+    }
+}
+
+#[test]
+fn a_finished_live_game_waiting_for_the_hand_back_keeps_its_result() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    let (fg, before) = live_game_waiting_for_the_hand_back(&mut wb, &world, true);
+    serve(&mut wb, &world, fg, 0, true);
+    assert_ne!(wb.view(false).document.id, before);
+    let rec = &wb.document().record;
+    assert_eq!(rec.node(rec.line_end(ROOT)).comment, "B+R\n");
 }
 
 #[test]

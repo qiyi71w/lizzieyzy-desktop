@@ -59,6 +59,8 @@ fn java_dir(root: &Path) -> PathBuf {
             "append-winrate-to-comment": false,
             "play-sound": false,
             "allow-double-click": false,
+            "always-gotolast-onlive": true,
+            "open-html-onlive": false,
             "allow-drag": true,
             "show-right-menu": false,
             "show-new-board-hint": false,
@@ -382,6 +384,11 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
             e.no_capture
         ),
         (false, true, false, false, true, true)
+    );
+    assert_eq!(
+        (c.live.always_goto_last, c.live.open_html_on_live),
+        (true, false),
+        "both differ from the defaults"
     );
     assert_eq!(
         (e.other_size_width, e.other_size_height),

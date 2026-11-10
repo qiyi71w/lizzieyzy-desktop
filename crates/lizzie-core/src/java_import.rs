@@ -161,6 +161,8 @@ pub struct Mapped {
     /// Cloud settings; custom URL credentials follow engine consent, account secrets are separate.
     pub cloud: Option<crate::cloud::CloudSettings>,
     pub allow_double_click: Option<bool>,
+    pub live_always_goto_last: Option<bool>,
+    pub live_open_html: Option<bool>,
     pub allow_drag: Option<bool>,
     pub show_right_menu: Option<bool>,
     pub show_new_board_hint: Option<bool>,
@@ -722,6 +724,18 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "allow-double-click",
         ImportTarget::AllowDoubleClick,
         Kind::Bool(|m, v| m.allow_double_click = Some(v)),
+    ),
+    (
+        "ui",
+        "always-gotolast-onlive",
+        ImportTarget::LiveAlwaysGotoLast,
+        Kind::Bool(|m, v| m.live_always_goto_last = Some(v)),
+    ),
+    (
+        "ui",
+        "open-html-onlive",
+        ImportTarget::LiveOpenHtml,
+        Kind::Bool(|m, v| m.live_open_html = Some(v)),
     ),
     (
         "ui",
@@ -2962,6 +2976,8 @@ impl Mapped {
         set!(c.commentary, self.commentary);
         set!(c.cloud, self.cloud_after(copy_credentials));
         set!(c.edit.allow_double_click, self.allow_double_click);
+        set!(c.live.always_goto_last, self.live_always_goto_last);
+        set!(c.live.open_html_on_live, self.live_open_html);
         set!(c.edit.allow_drag, self.allow_drag);
         set!(c.edit.show_right_menu, self.show_right_menu);
         set!(c.edit.show_new_board_hint, self.show_new_board_hint);
@@ -3117,6 +3133,12 @@ impl Mapped {
             e.allow_double_click,
             self.allow_double_click
         );
+        cmp!(
+            ImportTarget::LiveAlwaysGotoLast,
+            config.live.always_goto_last,
+            self.live_always_goto_last
+        );
+        cmp!(ImportTarget::LiveOpenHtml, config.live.open_html_on_live, self.live_open_html);
         cmp!(ImportTarget::AllowDrag, e.allow_drag, self.allow_drag);
         cmp!(ImportTarget::RightClickMenu, e.show_right_menu, self.show_right_menu);
         cmp!(

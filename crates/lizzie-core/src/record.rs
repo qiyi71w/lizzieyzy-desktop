@@ -598,6 +598,34 @@ pub enum DocumentEdit {
     ClearMarks {
         node: NodeId,
     },
+    /// A followed live source's main line (打开在线链接, 弈客直播): the source owns the main line
+    /// only. From the root, each action of `line` follows an equal child, which becomes the first
+    /// child, or is added as a new first child, so a different continuation made there stays as a
+    /// variation. A move the position refuses ends the sync there. After the last action, the
+    /// first continuation is removed when every node of it is in `retractable` (source moves the
+    /// source no longer has); anything else stays. `Applied::node` is the node of the last
+    /// synced action (the root for an empty line).
+    SyncMainline {
+        line: Vec<SourceAction>,
+        retractable: Vec<NodeId>,
+        rules: PlayRules,
+    },
+    /// A followed source's commentator variation at `at` (`SGFParser.parseBranch` after
+    /// `addBranch`): as [`DocumentEdit::AddBranch`], but each action keeps its own colour, a
+    /// pass is a pass, and a created node takes the action's comment.
+    AddSourceBranch {
+        at: NodeId,
+        line: Vec<SourceAction>,
+        rules: PlayRules,
+    },
+}
+
+/// One action of a followed source's main line ([`DocumentEdit::SyncMainline`]); `comment` is
+/// written only when the node is created.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SourceAction {
+    pub kind: NodeKind,
+    pub comment: String,
 }
 
 /// Stones on the board after replaying a path, with capture counts.

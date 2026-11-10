@@ -102,6 +102,8 @@ function count(items: ImportItemView[], status: ImportStatus): number {
 const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   PureNetwork: "Menu.showHeatmap",
   AppendWinrateToComment: "Menu.appendWinrateToComment",
+  LiveAlwaysGotoLast: "Menu.alwaysGoToLastMove",
+  LiveOpenHtml: "Menu.EnableEnterYikeGame",
   WinrateGraph: "Menu.winrateGraphSettings",
   KataEstimate: "Menu.kataEstimate",
   KataPda: "Menu.chkPDA.toolTopText",

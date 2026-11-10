@@ -43,6 +43,8 @@ import { batchReport, handleBatchKey, startBatchTable } from "./batch/commands";
 import { contributionReport } from "./contribution/window";
 import { foxKifuReport, startFoxKifu } from "./foxkifu/commands";
 import { startTencentKifu, tencentKifuReport } from "./tencentkifu/commands";
+import { handleOnlineKey, onlineReport, startOnline } from "./online/commands";
+import { onlineDialogReport } from "./online/dialog";
 import { bindCommentEditor, commentEditing } from "./editing/comment";
 import { contextMenuItems, contextMenuOpen } from "./editing/contextMenu";
 import { bindBoardInput, handleEditKey, pressBoard, releaseBoard } from "./editing/input";
@@ -468,7 +470,7 @@ document.addEventListener("keydown", (e) => {
   if (appMenuKey(e) || dialogOpen() || flashWindowOpen() || menuOpen() || contextMenuOpen() || textTarget(e.target)) return;
   // The 存档与读档 controls keep their keys, like the Swing components holding the focus there.
   if (e.target instanceof Element && e.target.closest("#recovery")) return;
-  if (handleLayoutKey(e) || handlePanelKey(e) || handleReadBoardKey(e) || handleEngineKey(e) || handleEditKey(e) || handleMatchKey(e) || handleTsumegoKey(e) || handleGameKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e)) {
+  if (handleLayoutKey(e) || handlePanelKey(e) || handleReadBoardKey(e) || handleEngineKey(e) || handleEditKey(e) || handleMatchKey(e) || handleTsumegoKey(e) || handleGameKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e) || handleOnlineKey(e)) {
     e.preventDefault();
     return;
   }
@@ -1446,6 +1448,8 @@ function uiReport() {
     foxKifu: foxKifuReport(),
     /** 腾讯棋谱: what its window last showed. */
     tencentKifu: tencentKifuReport(),
+    /** 弈客直播 / 打开在线链接 (T32): the link dialog, 弈客直播中心 as drawn and the web window's title. */
+    online: { dialog: onlineDialogReport(), ...onlineReport() },
     /** Visible menu, toolbar, bottom-bar and dialog controls with client-area centres, so
      *  automation clicks the real controls. */
     targets: [...document.querySelectorAll<HTMLElement>("[data-key], [data-name], #moveInput, .modal-box button")]
@@ -1615,6 +1619,7 @@ async function boot() {
   await startBatchTable();
   await startFoxKifu();
   await startTencentKifu();
+  await startOnline();
   await getCurrentWindow().show();
   await getCurrentWindow().setFocus();
   schedule();

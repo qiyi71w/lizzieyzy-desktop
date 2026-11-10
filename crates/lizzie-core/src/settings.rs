@@ -1637,6 +1637,24 @@ pub struct Config {
     pub fox_kifu: FoxKifuSettings,
     /// 腾讯棋谱 window.
     pub tencent_kifu: TencentKifuSettings,
+    /// 同步 menu's live options.
+    pub live: LiveSettings,
+}
+
+/// 同步 menu's live options (Java `ui.always-gotolast-onlive`, `ui.open-html-onlive`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LiveSettings {
+    /// 有新的一手时总是跳转到最新一手, default false.
+    pub always_goto_last: bool,
+    /// 允许弈客直播/大厅进入对局室, default true. Java stores and toggles it without reading it.
+    pub open_html_on_live: bool,
+}
+
+impl Default for LiveSettings {
+    fn default() -> Self {
+        LiveSettings { always_goto_last: false, open_html_on_live: true }
+    }
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).
@@ -1791,6 +1809,8 @@ pub struct Persisted {
     /// Java toolbar-parameter's engine-match values (not the folder/start-number session fields).
     #[serde(serialize_with = "matches::serialize_toolbar", deserialize_with = "matches::deserialize_toolbar")]
     pub matches: crate::api::MatchSessionSettings,
+    /// The 弈客 web window (`persistedUi.main-window-other` 1–4, default −5, 0, 1240×750).
+    pub yike_browser: Option<WindowPlacement>,
 }
 
 /// File locations inside the product's per-user data directories.

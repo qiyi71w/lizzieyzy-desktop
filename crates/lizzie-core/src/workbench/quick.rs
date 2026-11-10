@@ -182,7 +182,7 @@ impl Workbench {
     }
 
     /// Main-trunk moves and passes (not placeholders) without analysis (`hasMissingMainlineAnalysis`).
-    fn quick_missing(&self) -> Vec<NodeId> {
+    pub(super) fn quick_missing(&self) -> Vec<NodeId> {
         let rec = &self.doc.record;
         rec.path_to(rec.line_end(ROOT))
             .into_iter()
@@ -193,7 +193,7 @@ impl Workbench {
 
     /// `canContinueQuickAnalysisAfterHistoryNavigation`, the user's cancellation, and no manual
     /// flash analysis using the analysis engine.
-    fn quick_allowed(&self) -> bool {
+    pub(super) fn quick_allowed(&self) -> bool {
         self.config.record.auto_quick_analyze_on_load
             && !self.paused
             && self.quick.cancelled_doc != Some(self.doc.id)
@@ -499,9 +499,14 @@ impl Workbench {
 
     // -------------------------------------------------------------------- lifecycle
 
+    /// A quick analysis task runs (or waits to start).
+    pub(super) fn quick_busy(&self) -> bool {
+        self.quick.task.is_some()
+    }
+
     /// Starts a task for the open record when the settings allow and a main-trunk move lacks
     /// analysis.
-    fn quick_start(&mut self) {
+    pub(super) fn quick_start(&mut self) {
         if self.quick.task.is_none() && self.quick_allowed() && !self.quick_missing().is_empty() {
             self.quick.next_task += 1;
             self.quick.task = Some(new_task(self.doc.id));
@@ -661,6 +666,11 @@ impl Workbench {
                 self.complete_open(ticket, result);
             }
         }
+    }
+
+    /// The read waiting as `ticket` was withdrawn.
+    pub(super) fn quick_drop_deferred_open(&mut self, ticket: u64) {
+        self.quick.deferred_open.take_if(|(t, _)| *t == ticket);
     }
 
     fn quick_settle(&mut self) {

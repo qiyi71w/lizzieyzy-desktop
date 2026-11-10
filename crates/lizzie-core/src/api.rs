@@ -16,6 +16,7 @@ mod humansl_settings;
 mod kifu_list;
 mod matches;
 mod readboard;
+mod online;
 mod recovery;
 mod resources;
 mod tencent_kifu;
@@ -37,6 +38,7 @@ pub use humansl_settings::*;
 pub use kifu_list::*;
 pub use matches::*;
 pub use readboard::*;
+pub use online::*;
 pub use recovery::*;
 pub use resources::*;
 pub use tencent_kifu::*;
@@ -116,6 +118,8 @@ pub enum Command {
     CloudImportQr,
     OpenCloudLink { custom: bool },
     Fox { op: FoxCommand },
+    /// 在线棋谱 / 弈客直播 (打开在线链接, 弈客直播中心, the 弈客 web window, 同步 options).
+    Online { op: OnlineCommand },
     Strength { op: StrengthCommand },
     Commentary { op: CommentaryCommand },
     /// 棋盘同步工具 (Windows).
@@ -1363,6 +1367,8 @@ pub struct WorkbenchView {
     pub match_winrate_image: Option<MatchWinrateImageRequest>,
     pub human_sl: Option<HumanSlView>,
     pub strength: StrengthView,
+    /// 在线棋谱 / 弈客直播.
+    pub online: OnlineView,
     pub commentary: CommentaryView,
     /// 野狐棋谱 window.
     pub fox_kifu: FoxKifuView,
@@ -1499,6 +1505,10 @@ pub enum ImportTarget {
     WebBoard,
     /// `ui.allow-double-click`.
     AllowDoubleClick,
+    /// `ui.always-gotolast-onlive`.
+    LiveAlwaysGotoLast,
+    /// `ui.open-html-onlive`.
+    LiveOpenHtml,
     /// `ui.allow-drag`.
     AllowDrag,
     /// `ui.show-right-menu`.

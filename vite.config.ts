@@ -12,7 +12,7 @@ export default defineConfig({
     target: "es2022",
     // The workbench, the 独立选点列表 window, the 超级鹰眼 window, 批量分析进度表, the
     // 浮动主棋盘 / 浮动小棋盘 windows, 抓取死活题's full-screen overlay, the AI 解说 window,
-    // 棋盘同步工具's float board, 野狐棋谱 and 腾讯棋谱.
+    // 棋盘同步工具's float board, 野狐棋谱, 腾讯棋谱, 弈客直播中心 and the 弈客 web window's toolbar.
     rollupOptions: {
       input: {
         main: resolve(__dirname, "ui/index.html"),
@@ -25,6 +25,8 @@ export default defineConfig({
         floatboard: resolve(__dirname, "ui/floatboard.html"),
         foxkifu: resolve(__dirname, "ui/foxkifu.html"),
         tencentkifu: resolve(__dirname, "ui/tencentkifu.html"),
+        yikelive: resolve(__dirname, "ui/yikelive.html"),
+        yikebrowser: resolve(__dirname, "ui/yikebrowser.html"),
       },
     },
   },

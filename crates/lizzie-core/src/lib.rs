@@ -14,6 +14,7 @@
 //! - [`resources`]: engine resources: trusted catalog, machine detection, recommendation,
 //!   acquisition and verification.
 //! - [`web_board`]: Web 旁观's viewer messages and board stream.
+//! - [`online`]: 在线棋谱 / 弈客直播 sources (link classification, 弈客 REST, live protocols).
 
 pub mod api;
 pub mod appearance;
@@ -30,6 +31,7 @@ pub mod function_search;
 pub mod humansl;
 pub mod java_import;
 pub mod kifu_web;
+pub mod online;
 pub mod play;
 pub mod readboard;
 pub mod record;

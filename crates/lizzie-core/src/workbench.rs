@@ -32,6 +32,7 @@ mod information;
 mod humansl;
 mod humansl_model;
 mod strength;
+mod online;
 mod matches;
 mod panels;
 mod play;
@@ -163,6 +164,9 @@ pub enum OpenOrigin {
         name: String,
         position: SlotPosition,
     },
+    /// A record read from an online link (打开在线链接, 弈客直播): no file of its own. A followed
+    /// live game (`follow`) starts at the end of its main line (`syncLiveBoardStat` first sync).
+    Online { follow: bool },
 }
 
 /// The kifu window a downloaded record came from.
@@ -302,6 +306,7 @@ pub struct Workbench {
     restart: restart::RestartFlow,
     human_sl: humansl::HumanSlFlow,
     strength: strength::StrengthFlow,
+    online: online::OnlineFlow,
     commentary: commentary::CommentaryFlow,
     /// 跑谱贡献: the KataGo distributed-training session.
     contribution: contribution::ContributionFlow,
@@ -436,6 +441,7 @@ impl Workbench {
             restart: restart::RestartFlow::default(),
             human_sl: humansl::HumanSlFlow::default(),
             strength: strength::StrengthFlow::default(),
+            online: online::OnlineFlow::default(),
             commentary: commentary::CommentaryFlow::default(),
             contribution: contribution::ContributionFlow::default(),
             cloud_activation: None,
@@ -536,6 +542,14 @@ impl Workbench {
         }
     }
 
+    /// Withdraws the open `ticket`, a read waiting for a borrowed engine included: it is never
+    /// adopted.
+    pub(super) fn withdraw_open(&mut self, ticket: u64) {
+        if self.pending.take_if(|p| p.ticket == ticket).is_some() {
+            self.quick_drop_deferred_open(ticket);
+        }
+    }
+
     /// Hands back a finished read. Returns `false` (and changes nothing) for a superseded ticket.
     /// A failure keeps the current document and publishes the Java failure message.
     pub fn complete_open(&mut self, ticket: u64, result: Result<(RecordFormat, GameRecord), ReadError>) -> bool {
@@ -546,13 +560,14 @@ impl Workbench {
             Err(e) => {
                 let message_key = match pending.origin {
                     OpenOrigin::File { .. } | OpenOrigin::Recovery { .. } => FAILED_TO_OPEN_FILE,
-                    OpenOrigin::Clipboard | OpenOrigin::Downloaded(_) => KIFU_LOAD_FAILED,
+                    OpenOrigin::Clipboard | OpenOrigin::Downloaded(_) | OpenOrigin::Online { .. } => KIFU_LOAD_FAILED,
                 };
                 self.outcome = Some(OpenOutcome::Failed {
                     ticket,
                     message_key: message_key.to_string(),
                     detail: e.to_string(),
                 });
+                self.online_open_failed(ticket);
             }
             Ok(_) if self.game_active() || self.match_active() || self.fox_owns_board() => {
                 // A read started before the game began is not adopted into it.
@@ -561,6 +576,7 @@ impl Workbench {
                     message_key: play::OPEN_IN_GAME.to_string(),
                     detail: String::new(),
                 });
+                self.online_open_failed(ticket);
             }
             Ok(read) => {
                 self.auto_analysis_document_replaced();
@@ -591,12 +607,13 @@ impl Workbench {
                         SlotPosition::Path(path) => crate::recovery::follow(&record, path),
                         SlotPosition::LineEnd => browse::navigate(&record, ROOT, Navigation::Last),
                     },
+                    OpenOrigin::Online { follow: true } => browse::navigate(&record, ROOT, Navigation::Last),
                     _ if self.config.record.load_sgf_last => browse::navigate(&record, ROOT, Navigation::Last),
                     _ => ROOT,
                 };
                 let (path, origin_name) = match &pending.origin {
                     OpenOrigin::File { path, .. } => (Some(path.clone()), None),
-                    OpenOrigin::Clipboard | OpenOrigin::Downloaded(_) => (None, None),
+                    OpenOrigin::Clipboard | OpenOrigin::Downloaded(_) | OpenOrigin::Online { .. } => (None, None),
                     OpenOrigin::Recovery { name, .. } => (None, Some(name.clone())),
                 };
                 if let OpenOrigin::File {
@@ -657,6 +674,7 @@ impl Workbench {
                 self.publish_record_rules(declared.as_deref());
                 self.sync_engine();
                 self.quick_after_load();
+                self.online_adopted(ticket);
             }
         }
         let adopted = matches!(self.outcome, Some(OpenOutcome::Adopted { ticket: t, .. }) if t == ticket);
@@ -1091,7 +1109,7 @@ impl Workbench {
                 ticket: p.ticket,
                 path: match &p.origin {
                     OpenOrigin::File { path, .. } | OpenOrigin::Recovery { path, .. } => Some(path.clone()),
-                    OpenOrigin::Clipboard | OpenOrigin::Downloaded(_) => None,
+                    OpenOrigin::Clipboard | OpenOrigin::Downloaded(_) | OpenOrigin::Online { .. } => None,
                 },
             }),
             open_outcome: None,
@@ -1184,6 +1202,7 @@ impl Workbench {
             match_winrate_image: None,
             human_sl: self.human_sl_view(),
             strength: self.strength_view(),
+            online: self.online_view(),
             commentary: self.commentary_view(),
             fox_kifu: self.fox_kifu_view(),
             tencent_kifu: self.tencent_kifu_view(),

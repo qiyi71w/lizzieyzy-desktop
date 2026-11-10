@@ -2861,10 +2861,12 @@ dependencies = [
  "flate2",
  "futures-util",
  "image",
+ "md-5",
  "reqwest 0.12.28",
  "russh",
  "serde",
  "serde_json",
+ "sha1 0.10.7",
  "sha2 0.10.9",
  "tempfile",
  "tokio",
@@ -2887,6 +2889,9 @@ dependencies = [
  "fontdb",
  "fs2",
  "futures-util",
+ "gtk",
+ "http",
+ "hyper-util",
  "image",
  "lizzie-core",
  "objc2-core-foundation",
@@ -2955,6 +2960,16 @@ dependencies = [
  "log",
  "tendril",
  "web_atoms",
+]
+
+[[package]]
+name = "md-5"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
+dependencies = [
+ "cfg-if",
+ "digest 0.10.7",
 ]
 
 [[package]]

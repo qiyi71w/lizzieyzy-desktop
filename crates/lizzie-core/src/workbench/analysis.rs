@@ -1307,6 +1307,7 @@ impl Workbench {
             self.contribution_deadline(),
             self.readboard_deadline(),
             self.web_trial_deadline(),
+            self.online_deadline(),
         ]
             .into_iter()
             .flatten()
@@ -1329,7 +1330,8 @@ impl Workbench {
         let readboard = self.readboard_tick(now);
         let web_trial = self.web_trial_tick(now);
         let fox = self.fox_tick(now);
-        engines | quick | whole | tracking | play | matches | human_sl | strength | contribution | readboard | web_trial | fox
+        let online = self.online_tick(now);
+        engines | quick | whole | tracking | play | matches | human_sl | strength | contribution | readboard | web_trial | fox | online
     }
 
     /// Handles runtime events produced by operations outside engine output.
