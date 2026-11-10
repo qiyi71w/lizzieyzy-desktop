@@ -329,3 +329,44 @@ fn a_board_sync_helper_never_writes_into_the_fox_live_record() {
     assert_eq!(h.wb.inspect().position.move_number, 2, "the Fox game goes on");
     assert_ne!(h.wb.inspect().fox.status_key, "Fox.incomplete");
 }
+
+#[test]
+fn an_engine_that_dies_under_the_fox_session_is_not_restarted_automatically() {
+    // The session holds an exclusive GTP session, which refuses beginAutomaticRestartAttempt
+    // (FoxEngineSession.acquire, Leelaz.java:2121-2138, 15224-15227).
+    let mut h=Harness::new(); h.start(); h.initialize();
+    let engine=h.engine;
+    h.wb.engine_input(engine, EngineInput::Exited(Some(1)));
+    h.wb.engine_tick(Instant::now());
+    assert_eq!(h.world.0.lock().unwrap().0, engine, "no engine is started automatically");
+    assert!(h.wb.inspect().engine.foreground.is_none());
+    // Once the session is stopped the user restarts the engine.
+    h.wb.fox(FoxCommand::Stop).unwrap(); h.pump();
+    h.wb.restart_engine().unwrap();
+    assert_ne!(h.world.0.lock().unwrap().0, engine, "the user's restart starts a new process");
+}
+
+#[test]
+fn an_online_follow_does_not_write_into_the_record_the_fox_session_owns() {
+    // Java's Board.setHistory (the 弈客 new-room update, OnlineDialog.replaceYikeMainline) is
+    // refused while the Fox session owns the board (Board.java:5270, FoxLiveSession.java:406-411).
+    use lizzie_core::{api::{OnlineCommand, OnlineJob}, online::HttpReply};
+    let detail=|moves:&str| serde_json::json!({"status":0,"message":"","result":{"sgf":format!("(;GM[1]SZ[19]KM[7.5]PB[Shin]PW[Ke]{moves})"),"status":2,"game_result":""}}).to_string();
+    let next_read=|wb:&mut Workbench| -> u64 {
+        for _ in 0..200 {
+            let Some(due)=wb.engine_timer() else { break };
+            wb.engine_tick(due.max(Instant::now()));
+            if let Some(r)=wb.take_online_jobs().into_iter().find_map(|j| match j { OnlineJob::Get{request,..}=>Some(request), _=>None }) { return r; }
+        }
+        panic!("the follow reads its room")
+    };
+    let mut h=Harness::new();
+    h.wb.online(OnlineCommand::FollowLive{url:"https://home.yikeweiqi.com/#/live/new-room/186031/0/0".into()}).unwrap();
+    let r=next_read(&mut h.wb); assert!(h.wb.online_http(r, HttpReply::Ok{status:200, body:detail(";B[pd]")}));
+    h.serve(None);
+    h.start();
+    assert!(h.wb.inspect().fox.owns_board);
+    let (doc,revision)=(h.wb.document().id,h.wb.document().revision);
+    let r=next_read(&mut h.wb); h.wb.online_http(r, HttpReply::Ok{status:200, body:detail(";B[pd];W[dp]")});
+    assert_eq!((h.wb.document().id,h.wb.document().revision),(doc,revision), "the record the Fox session owns is untouched");
+}

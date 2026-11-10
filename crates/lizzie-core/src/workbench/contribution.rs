@@ -357,8 +357,9 @@ impl Workbench {
         // Java first takes the foreground's lifecycle reservation (`startContributeEngine`): Web
         // 试下 or a GMA hand / its restore holding the engine refuses it with this message
         // (`beginExclusiveGtpLifecycleReservationInternal`, `beginReadBoardGmaSession`,
-        // Leelaz.java:15190-15198, 21342-21357; LizzieFrame.java:16668-16670).
-        if availability == LeaseAvailability::ApplicationExclusive || self.readboard.gma.reserved() {
+        // Leelaz.java:15190-15198, 21342-21357; LizzieFrame.java:16668-16670). Java's engine
+        // object outlives its process, so a 试下 whose engine died still refuses it.
+        if self.web_trial_active() || self.readboard.gma.reserved() {
             return Ok(refused("AnalysisSettings.reuseStatus.existing_lease"));
         }
         if self

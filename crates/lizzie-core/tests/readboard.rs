@@ -579,6 +579,23 @@ fn a_web_trial_and_a_gma_hand_do_not_take_the_engine_from_each_other() {
     let sent = r.serve(&|_| None);
     assert!(r.held.is_empty() && !sent.iter().any(|c| c.starts_with("kata-set-param")), "no hand is asked: {sent:?}");
     assert_ne!(r.lease(), LeaseAvailabilityView::ReadBoardGma);
+
+    // A 试下 whose engine died still refuses arming: no hand is asked of the restarted engine.
+    let mut r = Rig::new();
+    r.wb.web_board_started(7, "http://127.0.0.1:9998".into());
+    assert_eq!(enter_trial(&mut r.wb), None);
+    r.wb.engine_input(r.engine, EngineInput::Exited(Some(1)));
+    let h = r.open();
+    r.lines(h, &["ready", "start 19 19", "sync", "bothSync", "play>black>5 100 0 gma"]);
+    let exit = parse_client_message(r#"{"type":"exit_trial","clientId":"a"}"#).unwrap();
+    assert_eq!(r.wb.web_board_message(7, exit, Instant::now()), None);
+    r.wb.restart_engine().unwrap();
+    r.engine = r.engines.last();
+    r.serve(&|_| None);
+    r.frame(h, &[]);
+    let sent = r.serve(&|_| None);
+    assert!(r.held.is_empty() && !sent.iter().any(|c| c.starts_with("kata-set-param")), "no hand is asked: {sent:?}");
+    assert_ne!(r.lease(), LeaseAvailabilityView::ReadBoardGma);
 }
 
 /// 远程算力 and a settings import replace the engine outside the desktop gate; a GMA hand's

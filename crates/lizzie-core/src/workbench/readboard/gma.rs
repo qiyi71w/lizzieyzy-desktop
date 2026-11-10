@@ -234,7 +234,7 @@ impl Workbench {
     /// the move being asked. Returns whether GMA is armed.
     pub(in crate::workbench) fn gma_arm(&mut self, color: Stone, time: i32, visits: i32) -> bool {
         let already = self.readboard.gma.armed.is_some();
-        if !already && self.engines.foreground().is_some() && !self.gma_can_arm() {
+        if !already && !self.gma_can_arm() {
             self.readboard.gma.notices.push(GmaNotice::Message("AnalysisSettings.reuseStatus.existing_lease".into()));
             return false;
         }
@@ -249,8 +249,11 @@ impl Workbench {
         true
     }
 
-    /// `canArmReadBoardGma`, Web 试下 included (Leelaz.java:15165-15177).
+    /// `canArmReadBoardGma`, Web 试下 included also once its engine died (Leelaz.java:15165-15177).
     pub(in crate::workbench) fn gma_can_arm(&self) -> bool {
+        if self.web_trial_active() {
+            return false;
+        }
         let Some(fg) = self.engines.foreground() else { return true };
         if self.engines.unrestored(fg).is_some() || self.double_engine() || self.restart_restoring() {
             return false;
@@ -261,7 +264,6 @@ impl Workbench {
                 | LeaseAvailability::HumanSlGame
                 | LeaseAvailability::ExistingLease
                 | LeaseAvailability::ReadBoardGma
-                | LeaseAvailability::ApplicationExclusive
         )
     }
 

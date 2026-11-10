@@ -736,6 +736,12 @@ impl Workbench {
         {
             return;
         }
+        // While 野狐 AI 直连 owns the board, Java's Board refuses the source's writes
+        // (`setHistory` → `FoxLiveSession.rejectOrdinaryMutation`, Board.java:5270,
+        // FoxLiveSession.java:406-411); the follow keeps reading.
+        if self.fox_owns_board() && !matches!(update, SourceUpdate::Status(_) | SourceUpdate::Stopped(_)) {
+            return;
+        }
         match update {
             SourceUpdate::Game { record, names, komi, handicap } => self.online_game(*record, names, komi, handicap),
             SourceUpdate::Finished { result, set_result } => self.online_finished(&result, set_result),

@@ -142,6 +142,12 @@ impl Engines {
         self.games.iter().any(|g| g.instance == id && g.readboard_gma)
     }
 
+    /// Whether instance `id` is held by a raw exclusive GTP session (野狐 AI 直连,
+    /// `beginExclusiveGtpSession`), which refuses an automatic restart (Leelaz.java:15224-15227).
+    pub(super) fn exclusive_session_holds(&self, id: InstanceId) -> bool {
+        self.games.iter().any(|g| g.instance == id && g.raw)
+    }
+
     /// The instance `game` holds, while it holds one.
     pub fn game_instance(&self, game: u64) -> Option<InstanceId> {
         self.games.iter().find(|g| g.id == game).map(|g| g.instance)

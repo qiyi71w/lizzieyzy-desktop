@@ -450,7 +450,9 @@ fn during_a_trial_remote_compute_a_settings_import_or_a_restart_keeps_the_trial_
 }
 
 /// An engine that dies under a 试下 is left for the user, as under any lifecycle reservation
-/// (`beginAutomaticRestartAttempt`, Leelaz.java:2121-2127); once the 试下 ends it can be restarted.
+/// (`beginAutomaticRestartAttempt`, Leelaz.java:2121-2127), and the 试下 still holds the engine
+/// seat: 跑谱贡献 does not take it (Java's engine object outlives its process); once the 试下
+/// ends the engine can be restarted.
 #[test]
 fn an_engine_that_dies_during_a_trial_is_not_restarted_automatically() {
     let dir = tempfile::tempdir().unwrap();
@@ -458,6 +460,13 @@ fn an_engine_that_dies_during_a_trial_is_not_restarted_automatically() {
     assert_eq!(enter(&mut wb, "a", Instant::now()), None);
     wb.engine_input(id, EngineInput::Exited(Some(1)));
     assert_eq!(world.latest(), id, "no automatic restart under the 试下");
+    let doc = wb.document().id;
+    assert_eq!(
+        wb.contribution_start(None, None).unwrap(),
+        CommandResult::Refused { message_key: "AnalysisSettings.reuseStatus.existing_lease".into() }
+    );
+    assert_eq!(wb.document().id, doc, "the 试下's record stays");
+    assert!(trial_active(&mut wb));
 
     exit(&mut wb, "a", Instant::now());
     wb.restart_engine().unwrap();

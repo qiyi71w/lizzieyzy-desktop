@@ -1410,6 +1410,7 @@ impl Engines {
         failure.foreground = self.foreground == Some(id);
         failure.reserved = self.get(id).is_some_and(|i| i.unrestored.is_some())
             || self.readboard_gma_holds(id)
+            || self.exclusive_session_holds(id)
             || (failure.foreground && self.application_exclusive);
         failure.held = failure.reserved || self.leased(id) || self.game_restoring(id);
         if failure.foreground {

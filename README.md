@@ -1061,14 +1061,15 @@ importing the matching LizzieYzy Next settings.
   dialog leaves the session running. A normal game end restores and releases the engine while
   retaining the listener for another game. Use 停止 to also close the listener. Restoration confirms
   the original rules, limits, no-clock state and displayed position before returning the engine;
-  failure leaves it unavailable until restarted. Reconnection resumes automatically only when the confirmed
-  history and engine identity establish a safe continuation; scoring and resignation remain
-  actions in the official client.
+  failure leaves it unavailable until restarted. An engine that ends while the session holds it
+  is not restarted automatically; stop the session and restart it. Reconnection resumes
+  automatically only when the confirmed history and engine identity establish a safe
+  continuation; scoring and resignation remain actions in the official client.
   The real Linux application and KataGo have been exercised with a controlled local peer,
   including confirmation, reconnect, browsing, PDA and stop/restoration. Authorized official
   account/client interoperability has not yet been verified; controlled-peer checks do not
-  establish it. This TCP integration is separate from screen-reading helpers: while a session owns
-  the record, boards the 棋盘同步工具 reads do not change it.
+  establish it. This TCP integration is separate from screen-reading helpers. While a session owns
+  the record, neither boards the 棋盘同步工具 reads nor a running 在线棋谱／弈客 follow change it.
 - 在线棋谱 and 弈客直播 (同步 menu, the bottom bar's 同步 popup, function search):
   - 文件 > 打开在线链接 (`Q`) stops any follow, fills in a link from the clipboard and follows
     what the link names, like Java: 弈客 new live rooms (`#/live/new-room/…`, read every 刷新
