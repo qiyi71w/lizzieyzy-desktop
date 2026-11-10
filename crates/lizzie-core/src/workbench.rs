@@ -247,6 +247,9 @@ pub struct Workbench {
     secondary_limit_stop: Option<(u64, NodeId)>,
     /// The limit notice was shown since the secondary engine was chosen.
     secondary_limit_tip_shown: bool,
+    /// The user resumed the analysis of this empty board after it stopped there: 空棋盘停止计算
+    /// no longer stops it until the position changes (`Leelaz.outOfPlayoutsLimit`).
+    empty_board_resumed: Option<(u64, NodeId)>,
     /// A secondary engine still starting and the kept previous one it replaced, to return to if
     /// the new one fails during start-up (`rollbackSecondaryEngineSelection`).
     secondary_fallback: Option<(InstanceId, InstanceId)>,
@@ -359,6 +362,7 @@ impl Workbench {
             engines.set_library_dirs(vec![runtime]);
         }
         engines.set_interval(config.engine.analysis.interval_centisec, config.engine.analysis.interval_centisec_ssh);
+        engines.set_always_gtp(config.engine.analysis.always_gtp);
         engines.set_pv_visits(config.display.pv_visits != PvVisitsMode::Off);
         let estimate = information::EstimateSession::starting(config.display.kata_estimate);
         engines.set_ownership(estimate.state.shown, config.display.use_moves_ownership);
@@ -406,6 +410,7 @@ impl Workbench {
             limit_tip_shown: false,
             secondary_limit_stop: None,
             secondary_limit_tip_shown: false,
+            empty_board_resumed: None,
             secondary_fallback: None,
             session_rules: analysis::SessionRules::Unspecified,
             rules_revision: 0,

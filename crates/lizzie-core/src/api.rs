@@ -252,6 +252,16 @@ pub enum Command {
     /// "开始/停止 分析(空格)", the bottom bar 分析 / 暂停分析 button, Space
     /// (`LizzieFrame.togglePonderMannul`). Not remembered across restarts.
     ToggleAnalysis,
+    /// 分析 > 清除Lizzie缓存(全局) (Shift+A) / (此手): the stored analysis stays shown and saved
+    /// but gives way to the next live result, even a weaker one.
+    ClearAnalysisCache {
+        scope: AnalysisScope,
+    },
+    /// 分析 > 清除分析信息(全局) / (此手): the analysis is gone from the board and the saved
+    /// record; then the current move is analysed afresh (`refreshCurrentMove`).
+    ClearAnalysisInfo {
+        scope: AnalysisScope,
+    },
     /// Engine menu `[n] name`, Ctrl+1..9 / Ctrl+0: make engine `index` the foreground engine.
     SwitchEngine {
         index: u32,
@@ -312,6 +322,11 @@ pub enum Command {
     /// GtpConsolePane: send a raw command to the foreground engine.
     SendGtpCommand {
         command: String,
+    },
+    /// The GTP console was shown or hidden: with `always-gtp` off, a hidden console does not
+    /// record ready engines.
+    SetConsoleVisible {
+        visible: bool,
     },
     /// 诊断与日志 > 完整日志 (engine GTP scope) on or off; "停止完整日志" turns it off.
     SetFullTrace {
@@ -837,6 +852,14 @@ pub enum EngineScope {
     Current,
     Others,
     All,
+}
+
+/// Which stored analysis a 清除 menu item applies to: every node of the game (全局) or the
+/// current move (此手).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
+pub enum AnalysisScope {
+    All,
+    Current,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
@@ -1500,6 +1523,12 @@ pub enum ImportTarget {
     PonderLimitTips,
     /// `ui.auto-check-engine-alive`.
     AutoCheckEngineAlive,
+    /// `leelaz.enable-lizzie-cache`.
+    LizzieCache,
+    /// `leelaz.stop-at-empty-board`.
+    StopAtEmptyBoard,
+    /// `ui.always-gtp`.
+    AlwaysGtp,
     KataRules,
     AutoLoadKataRules,
     /// `ui.txt-kata-engine-pda` / `ui.chk-kata-engine-pda`.

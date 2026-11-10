@@ -497,3 +497,21 @@ fn a_pure_network_display_does_not_keep_an_analysis_game_from_analysing() {
     output(&mut g.wb, g.engine, &info("Q16", 150, 0.5));
     assert_eq!(last_move(&g.wb).map(|m| m.0), Some(Stone::White));
 }
+
+#[test]
+fn an_analysis_game_on_the_empty_board_is_not_stopped_by_stop_at_empty_board() {
+    let mut g = Game::new();
+    let mut settings = g.wb.config().engine.analysis.clone();
+    settings.stop_at_empty_board = true;
+    g.wb.set_analysis_settings(settings).unwrap();
+    let autoplay = AutoPlaySettings { time_enabled: false, playouts_enabled: true, playouts: 100, ..AutoPlaySettings::default() };
+    // The engine opens as Black on the empty board (`isAnaPlayingAgainstLeelaz`).
+    start(&mut g, GameKind::Analysis, genmove_settings(false), Some(autoplay));
+    let sent = g.serve(&|_| None);
+    assert!(sent.iter().any(|c| c.starts_with("kata-analyze B")), "{sent:?}");
+    output(&mut g.wb, g.engine, &info("Q16", 50, 0.5));
+    assert!(!g.wb.view(false).engine.stopped_by_limit);
+    assert!(!g.serve(&|_| None).iter().any(|c| c == "stop"));
+    output(&mut g.wb, g.engine, &info("Q16", 150, 0.5));
+    assert_eq!(last_move(&g.wb).map(|m| m.0), Some(Stone::Black), "the engine still plays from its analysis");
+}

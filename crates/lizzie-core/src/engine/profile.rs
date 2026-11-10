@@ -117,6 +117,15 @@ pub struct AnalysisSettings {
     /// `ui.auto-check-engine-alive` [true]: a foreground engine that ends unexpectedly is
     /// started again and brought back to the current position (`EngineManager.checkEngineAlive`).
     pub auto_check_engine_alive: bool,
+    /// `leelaz.enable-lizzie-cache` [true]: a node's stored result gives way only to a stronger
+    /// one (more visits, or marked to give way); off, every new result replaces it.
+    pub enable_lizzie_cache: bool,
+    /// `leelaz.stop-at-empty-board` [false]: an analysis of the empty board stops at its first
+    /// result, without the limit notice (`Leelaz.java:7458-7468`).
+    pub stop_at_empty_board: bool,
+    /// `ui.always-gtp` [true]: the GTP console records while it is hidden; off, a hidden console
+    /// records only engines that are still starting.
+    pub always_gtp: bool,
 }
 
 impl Default for AnalysisSettings {
@@ -133,6 +142,9 @@ impl Default for AnalysisSettings {
             fast_engine_change: true,
             show_ponder_limited_tips: true,
             auto_check_engine_alive: true,
+            enable_lizzie_cache: true,
+            stop_at_empty_board: false,
+            always_gtp: true,
         }
     }
 }

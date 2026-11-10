@@ -684,6 +684,10 @@ pub struct Engines {
     options: StreamOptions,
     console: VecDeque<ConsoleLine>,
     console_seq: u64,
+    /// `ui.always-gtp`: the console records while it is hidden.
+    always_gtp: bool,
+    /// The GTP console is shown (`gtpConsole.isVisible()`).
+    console_visible: bool,
     trace: Option<Box<dyn Write + Send>>,
     lease: Option<Lease>,
     next_lease: u64,
@@ -806,6 +810,8 @@ impl Engines {
             options: StreamOptions::default(),
             console: VecDeque::new(),
             console_seq: 0,
+            always_gtp: true,
+            console_visible: false,
             trace: None,
             lease: None,
             next_lease: 1,
@@ -1147,6 +1153,24 @@ impl Engines {
                 .map_or(0, |d| d.as_millis());
             let _ = writeln!(t, "{ms} [{engine}] {dir} {}", crate::sanitize::sanitize(text));
             let _ = t.flush();
+        }
+    }
+
+    /// `ui.always-gtp` (控制台隐藏时仍记录 GTP).
+    pub fn set_always_gtp(&mut self, always: bool) {
+        self.always_gtp = always;
+    }
+
+    /// Whether the GTP console is shown.
+    pub fn set_console_visible(&mut self, visible: bool) {
+        self.console_visible = visible;
+    }
+
+    /// A GTP engine's command or output line: with `always-gtp` off a hidden console records
+    /// only an engine that is still starting (`Leelaz.isLoaded` false).
+    fn console_record(&mut self, engine: String, phase: Phase, kind: ConsoleKind, text: String) {
+        if self.always_gtp || self.console_visible || phase != Phase::Ready {
+            self.console_push(engine, kind, text);
         }
     }
 
@@ -1838,9 +1862,9 @@ impl Engines {
             (None, None) => false,
         };
         inst.waiting.insert(n, purpose);
-        let name = inst.display_name();
+        let (name, phase) = (inst.display_name(), inst.phase);
         self.trace(&name, ">>", &line);
-        self.console_push(name, ConsoleKind::Sent, command.to_string());
+        self.console_record(name, phase, ConsoleKind::Sent, command.to_string());
         ok.then_some(n)
     }
 
@@ -1875,6 +1899,34 @@ impl Engines {
             self.fence_last(id);
         }
         Ok(())
+    }
+
+    /// `refreshCurrentMove` for seat `id`: the engine drops its search cache (`clear_cache`,
+    /// only when it lists the command), and an analysis it is running starts again
+    /// (`ponder`). Nothing goes to an engine that is starting, lent out, unrestored or playing.
+    pub fn refresh_analysis(&mut self, id: InstanceId) {
+        let Some(inst) = self.get(id) else { return };
+        if inst.phase != Phase::Ready
+            || inst.unrestored.is_some()
+            || self.leased(id)
+            || self.in_game(id)
+        {
+            return;
+        }
+        let clear_cache = inst.has("clear_cache");
+        // The new search is another search of the same position: the stopped stream's late
+        // lines, written before the engine reads the next command, are not published.
+        let inst = self.get_mut(id).unwrap();
+        if let Some(old) = inst.stream {
+            inst.requests.retain(|(r, _)| *r != old);
+        }
+        if clear_cache {
+            self.send(id, "clear_cache", Purpose::Setup);
+        } else if !self.stop_stream(id) {
+            return;
+        }
+        // Its answer lets the wish be sent again: a new search when the seat analyses.
+        self.fence_last(id);
     }
 
     /// Sends `kata-set-rules` and the confirming `kata-get-rules` once per requested rules value;
@@ -1954,7 +2006,7 @@ impl Engines {
         let Some(inst) = self.get_mut(id) else {
             return events; // a retired instance
         };
-        let name = inst.display_name();
+        let (name, phase) = (inst.display_name(), inst.phase);
         match input {
             EngineInput::Stderr(line) => {
                 push_tail(&mut inst.output_tail, &line);
@@ -1974,7 +2026,7 @@ impl Engines {
                 self.finish_raw(id, &mut events);
                 self.summary(id, &line, &mut events);
                 self.trace(&name, "!!", &line);
-                self.console_push(name, ConsoleKind::Error, line);
+                self.console_record(name, phase, ConsoleKind::Error, line);
             }
             EngineInput::Exited(code) => {
                 let message = match code {
@@ -2006,7 +2058,7 @@ impl Engines {
                 }
                 self.trace(&name, "<<", &line);
                 if !is_info && !line.trim().is_empty() {
-                    self.console_push(name, ConsoleKind::Output, line);
+                    self.console_record(name, phase, ConsoleKind::Output, line);
                 }
                 for f in frames {
                     self.frame(id, f, &mut events);

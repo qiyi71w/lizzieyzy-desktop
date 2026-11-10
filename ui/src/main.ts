@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { apply, copyRecord, exportRecord, navigate, pasteRecord, run, saveRecord, saveRecordAs, state, subscribe, unavailable } from "./app";
+import { COMMANDS } from "./commands";
 import { buildBottomBar, layoutBottomBar } from "./chrome/bottombar";
 import { buildMenubar, menuOpen, secondaryMenuTitle } from "./chrome/menubar";
 import { buildToolbar, renderToolbar } from "./chrome/toolbar";
@@ -489,6 +490,10 @@ document.addEventListener("keydown", (e) => {
   } else if (key === "A" && !ctrl && !e.altKey && !e.shiftKey) {
     e.preventDefault();
     void openAutoAnalysis();
+  } else if (key === "A" && e.shiftKey && !ctrl && !e.altKey) {
+    // Input.java:732-734: Shift+A is 清除Lizzie缓存(全局) (clearBoardStat).
+    e.preventDefault();
+    COMMANDS["menu.clearAllLizzieCache"].run();
   } else if (key === "V" && ctrl && !e.altKey) {
     e.preventDefault();
     pasteRecord();

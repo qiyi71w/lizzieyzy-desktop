@@ -23,8 +23,9 @@ const targets = new Map<string, SettingsSection>([
     "config.interaction.coordinates",
   ].map((id): [string, SettingsSection] => [id, "play"]),
   ...[
-    "config.advanced.ponder", "config.advanced.fast-switch", "config.advanced.startup-benchmark", "config.advanced.no-capture",
-    "config.proxy.mode", "config.proxy.manual-address", "config.engine.check-alive", "config.engine.update-interval", "config.engine.ssh-update-interval",
+    "config.advanced.ponder", "config.advanced.fast-switch", "config.advanced.cache", "config.advanced.stop-empty",
+    "config.advanced.startup-benchmark", "config.advanced.no-capture", "config.proxy.mode", "config.proxy.manual-address",
+    "config.engine.always-gtp", "config.engine.check-alive", "config.engine.update-interval", "config.engine.ssh-update-interval",
   ].map((id): [string, SettingsSection] => [id, "advanced"]),
 ]);
 

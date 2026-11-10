@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime};
 
-use super::analysis::{fill_pv_captures, more_visits, node_analysis, AnalysisStore};
+use super::analysis::{fill_pv_captures, node_analysis, AnalysisStore};
 use super::resources::QUICK_MODEL;
 use super::Workbench;
 use crate::api::{
@@ -962,7 +962,7 @@ impl Workbench {
             }
         }
         let replace = self.config.analysis_engine.always_override
-            || store.get(rec, q.node).is_none_or(|old| more_visits(&result, old));
+            || store.takes_place(rec, q.node, &result, self.config.engine.analysis.enable_lizzie_cache);
         if replace {
             let limit = self.config.engine.analysis.limit_branch_length;
             fill_pv_captures(&mut result, &rec.position(q.node), limit, !self.config.edit.no_capture);

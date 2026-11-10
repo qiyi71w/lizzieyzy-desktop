@@ -146,6 +146,9 @@ pub struct Mapped {
     pub fast_engine_change: Option<bool>,
     pub show_ponder_limited_tips: Option<bool>,
     pub auto_check_engine_alive: Option<bool>,
+    pub enable_lizzie_cache: Option<bool>,
+    pub stop_at_empty_board: Option<bool>,
+    pub always_gtp: Option<bool>,
     pub kata_rules: Option<String>,
     pub auto_load_kata_rules: Option<bool>,
     /// Outer None means absent/invalid; inner None preserves Java's empty PDA text.
@@ -857,6 +860,12 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
     ),
     (
         "ui",
+        "always-gtp",
+        ImportTarget::AlwaysGtp,
+        Kind::Bool(|m, v| m.always_gtp = Some(v)),
+    ),
+    (
+        "ui",
         "kata-rules",
         ImportTarget::KataRules,
         Kind::Str(|m, v| m.kata_rules = Some(v)),
@@ -926,6 +935,18 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "fast-engine-change",
         ImportTarget::FastEngineChange,
         Kind::Bool(|m, v| m.fast_engine_change = Some(v)),
+    ),
+    (
+        "leelaz",
+        "enable-lizzie-cache",
+        ImportTarget::LizzieCache,
+        Kind::Bool(|m, v| m.enable_lizzie_cache = Some(v)),
+    ),
+    (
+        "leelaz",
+        "stop-at-empty-board",
+        ImportTarget::StopAtEmptyBoard,
+        Kind::Bool(|m, v| m.stop_at_empty_board = Some(v)),
     ),
     (
         "ui",
@@ -3068,6 +3089,9 @@ impl Mapped {
             c.engine.analysis.auto_check_engine_alive,
             self.auto_check_engine_alive
         );
+        set!(c.engine.analysis.enable_lizzie_cache, self.enable_lizzie_cache);
+        set!(c.engine.analysis.stop_at_empty_board, self.stop_at_empty_board);
+        set!(c.engine.analysis.always_gtp, self.always_gtp);
         set!(c.engine.kata_rules, self.kata_rules);
         set!(c.engine.kata_pda, self.kata_pda);
         set!(c.engine.kata_pda_enabled, self.kata_pda_enabled);
@@ -3383,6 +3407,9 @@ impl Mapped {
             a.auto_check_engine_alive,
             self.auto_check_engine_alive
         );
+        cmp!(ImportTarget::LizzieCache, a.enable_lizzie_cache, self.enable_lizzie_cache);
+        cmp!(ImportTarget::StopAtEmptyBoard, a.stop_at_empty_board, self.stop_at_empty_board);
+        cmp!(ImportTarget::AlwaysGtp, a.always_gtp, self.always_gtp);
         cmp!(ImportTarget::KataRules, config.engine.kata_rules, self.kata_rules);
         cmp!(
             ImportTarget::AutoLoadKataRules,

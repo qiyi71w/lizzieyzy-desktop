@@ -4,10 +4,10 @@
 
 use std::sync::{Arc, Mutex};
 
-use lizzie_core::api::{EngineNotice, EngineScope};
+use lizzie_core::api::{AnalysisScope, EngineNotice, EngineScope};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
-use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
+use lizzie_core::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
 use lizzie_core::formats::sgf;
 use lizzie_core::record::RecordFormat;
@@ -176,13 +176,24 @@ fn info(mv: &str, visits: u64) -> String {
 
 /// A configured KataGo, started as the foreground engine and answered through start-up.
 fn started(dir: &std::path::Path, world: &World) -> (Workbench, InstanceId) {
+    started_listing(dir, world, KATA)
+}
+
+/// The same with `list` as its `list_commands` answer.
+fn started_listing(dir: &std::path::Path, world: &World, list: &str) -> (Workbench, InstanceId) {
     let mut wb = workbench(dir, world);
     wb.save_engine_settings(vec![profile("KataGo", "/opt/katago")], EngineStartup::Default)
         .unwrap();
     wb.start_engines();
     let id = world.launched()[0].0;
-    answer_all(&mut wb, world, id, KATA);
+    answer_all(&mut wb, world, id, list);
     (wb, id)
+}
+
+fn analysis_settings(wb: &mut Workbench, change: impl FnOnce(&mut AnalysisSettings)) {
+    let mut settings = wb.config().engine.analysis.clone();
+    change(&mut settings);
+    wb.set_analysis_settings(settings).unwrap();
 }
 
 #[test]
@@ -1453,4 +1464,175 @@ fn stronger_live_analysis_replaces_loaded_results_and_is_saved_for_every_node() 
     let next = reopened.view(false).analysis.unwrap();
     assert_eq!((next.visits, next.root_visits, next.winrate, next.score_lead), (400, Some(400), 60.0, Some(1.5)));
     assert_eq!(next.candidates[0].visits, 400);
+}
+
+/// A 9x9 record whose root (`LZOP`) and first move (`LZ`) carry saved 200-visit analysis.
+const ANALYSED: &str = "(;SZ[9]KM[7.5]LZOP[old 48.0 200 0.5 1 0 rootVisits=200\nmove E5 visits 200 winrate 5200 scoreMean 0.5 pv E5]\
+    ;B[ee]LZ[old 47.0 200 0.8 1 0 rootVisits=200\nmove C3 visits 200 winrate 5300 scoreMean 0.8 pv C3])";
+
+#[test]
+fn clearing_the_cache_keeps_the_analysis_but_lets_the_next_weaker_result_replace_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    open(&mut wb, ANALYSED);
+    wb.set_append_winrate_to_comment(false).unwrap();
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("D4", 50));
+    assert_eq!(wb.view(false).analysis.unwrap().engine, "old", "the cache keeps the stronger result");
+
+    // 此手 marks the current move only.
+    wb.navigate(Navigation::Forward(1));
+    answer_all(&mut wb, &world, id, KATA);
+    wb.clear_analysis_cache(AnalysisScope::Current);
+    wb.navigate(Navigation::Back(1));
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("D4", 50));
+    assert_eq!(wb.view(false).analysis.unwrap().engine, "old", "the root was not marked");
+
+    // 全局 (Shift+A): nothing is sent and the shown and saved analysis stay as they were.
+    wb.clear_analysis_cache(AnalysisScope::All);
+    assert!(world.take(id).is_empty());
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 200);
+    let text = wb.begin_save("cached.sgf", "interop:test").text;
+    assert!(text.contains("LZOP[old") && text.contains("LZ[old"), "{text}");
+    // The next result replaces the marked one even when weaker; after that the cache holds again.
+    out(&mut wb, id, &info("D4", 50));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 50);
+    out(&mut wb, id, &info("D4", 20));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 50);
+    wb.navigate(Navigation::Forward(1));
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("C3", 30));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 30, "the first move was marked too");
+}
+
+#[test]
+fn without_the_lizzie_cache_every_result_replaces_the_stored_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    analysis_settings(&mut wb, |s| s.enable_lizzie_cache = false);
+    out(&mut wb, id, &info("Q16", 200));
+    out(&mut wb, id, &info("D4", 20));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 20);
+}
+
+/// A stored result made with another PDA (`BoardData.pda`, the sixth header field) gives way to
+/// the live search, whose PDA is 0 (`cachedPda != engine.pda`), even when the new one is weaker.
+#[test]
+fn a_result_saved_with_another_pda_gives_way_to_a_weaker_live_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    open(&mut wb, "(;SZ[9]KM[7.5]LZOP[old 48.0 200 0.5 1 1.5 rootVisits=200\nmove E5 visits 200 winrate 5200 scoreMean 0.5 pv E5])");
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("D4", 50));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 50);
+    out(&mut wb, id, &info("D4", 20));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 50, "the live result is cached again");
+}
+
+#[test]
+fn clearing_analysis_information_erases_it_from_the_board_and_the_saved_record() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    open(&mut wb, ANALYSED);
+    wb.set_append_winrate_to_comment(false).unwrap();
+    wb.navigate(Navigation::Forward(1));
+    answer_all(&mut wb, &world, id, KATA);
+    wb.clear_analysis_info(AnalysisScope::Current);
+    let v = wb.view(false);
+    assert!(v.analysis.is_none());
+    assert!(!v.history.iter().any(|p| p.node == 1 && p.visits > 0), "{:?}", v.history);
+    let text = wb.begin_save("cleared.sgf", "interop:test").text;
+    assert!(text.contains("LZOP[old") && !text.contains("LZ[old"), "this move only: {text}");
+    // This engine does not list `clear_cache`: the running search only starts again.
+    assert_eq!(answer_all(&mut wb, &world, id, KATA), ["stop", "kata-analyze W 10 rootInfo true"]);
+
+    wb.clear_analysis_info(AnalysisScope::All);
+    let text = wb.begin_save("cleared.sgf", "interop:test").text;
+    assert!(!text.contains("LZOP[") && !text.contains("LZ["), "{text}");
+    let mut reopened = workbench(dir.path(), &world);
+    open(&mut reopened, &text);
+    assert!(reopened.view(false).analysis.is_none());
+    reopened.navigate(Navigation::Forward(1));
+    assert!(reopened.view(false).analysis.is_none());
+}
+
+#[test]
+fn refreshing_sends_clear_cache_only_to_an_engine_that_lists_it_and_restarts_only_a_running_search() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let list = format!("{KATA}\nclear_cache");
+    let (mut wb, id) = started_listing(dir.path(), &world, &list);
+    out(&mut wb, id, &info("Q16", 40));
+    wb.clear_analysis_info(AnalysisScope::Current);
+    // The stopped search's last line, written before the engine read `clear_cache`, is not shown.
+    out(&mut wb, id, &info("Q16", 45));
+    assert!(wb.view(false).analysis.is_none());
+    assert_eq!(answer_all(&mut wb, &world, id, &list), ["clear_cache", "kata-analyze B 10 rootInfo true"]);
+    out(&mut wb, id, &info("Q16", 5));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 5, "the new search is shown from its start");
+    wb.toggle_analysis().unwrap();
+    answer_all(&mut wb, &world, id, &list);
+    wb.clear_analysis_info(AnalysisScope::Current);
+    assert_eq!(answer_all(&mut wb, &world, id, &list), ["clear_cache"], "a paused engine stays paused");
+}
+
+#[test]
+fn the_empty_board_stops_its_analysis_silently_until_the_user_resumes_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    analysis_settings(&mut wb, |s| s.stop_at_empty_board = true);
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("Q16", 5));
+    let v = wb.view(false);
+    assert!(v.engine.stopped_by_limit && !v.engine.paused);
+    assert_eq!(v.engine_notice, None, "no limit notice for the empty board");
+    assert_eq!(answer_all(&mut wb, &world, id, KATA), ["stop"]);
+    // Resumed by the user, the empty board is searched on (`outOfPlayoutsLimit`).
+    wb.toggle_analysis().unwrap();
+    assert_eq!(answer_all(&mut wb, &world, id, KATA), ["kata-analyze B 10 rootInfo true"]);
+    out(&mut wb, id, &info("Q16", 50));
+    assert!(!wb.view(false).engine.stopped_by_limit);
+
+    // Another empty board stops again; a position with stones does not.
+    open(&mut wb, "(;SZ[19];B[pd])");
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("Q16", 5));
+    assert!(wb.view(false).engine.stopped_by_limit);
+    wb.navigate(Navigation::Forward(1));
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("D4", 5));
+    assert!(!wb.view(false).engine.stopped_by_limit);
+    open(&mut wb, "(;SZ[19]AB[pd])");
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("D4", 5));
+    assert!(!wb.view(false).engine.stopped_by_limit, "setup stones are not the empty board");
+}
+
+#[test]
+fn a_hidden_console_without_always_gtp_records_only_a_starting_engine() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    analysis_settings(&mut wb, |s| s.always_gtp = false);
+    wb.save_engine_settings(vec![profile("KataGo", "/opt/katago")], EngineStartup::Default)
+        .unwrap();
+    wb.start_engines();
+    let id = world.launched()[0].0;
+    answer_all(&mut wb, &world, id, KATA);
+    let start_up: Vec<String> = wb.console_since(0).into_iter().map(|l| l.text).collect();
+    assert!(start_up.iter().any(|t| t == "list_commands"), "{start_up:?}");
+    let seq = wb.console_seq();
+    wb.toggle_analysis().unwrap();
+    answer_all(&mut wb, &world, id, KATA);
+    assert!(wb.console_since(seq).is_empty(), "{:?}", wb.console_since(seq));
+    wb.set_console_visible(true);
+    wb.toggle_analysis().unwrap();
+    answer_all(&mut wb, &world, id, KATA);
+    assert!(wb.console_since(seq).iter().any(|l| l.text.starts_with("kata-analyze")));
 }

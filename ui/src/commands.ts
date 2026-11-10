@@ -51,6 +51,11 @@ export function setDisplay(change: Partial<DisplaySettings>): void {
 
 export const COMMANDS: Record<string, CommandEntry> = {
   "analysis.toggle": { run: () => run({ type: "ToggleAnalysis" }) },
+  // 分析 > 清除Lizzie缓存 / 清除分析信息 (Menu.java:3533-3583); Shift+A is the 全局 cache item.
+  "menu.clearAllLizzieCache": { run: () => run({ type: "ClearAnalysisCache", scope: "All" }) },
+  "menu.clearThisLizzieCache": { run: () => run({ type: "ClearAnalysisCache", scope: "Current" }) },
+  "menu.clearAllLizzieBestmoves": { run: () => run({ type: "ClearAnalysisInfo", scope: "All" }) },
+  "menu.clearThisLizzieBestmoves": { run: () => run({ type: "ClearAnalysisInfo", scope: "Current" }) },
   "engine.configuration": { run: openMoreEngines },
   "engine.setup": { run: () => openAutoSetup("overview") },
   "weights.download": { run: () => openAutoSetup("weights") },

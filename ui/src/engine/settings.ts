@@ -139,11 +139,14 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   (interactionRows.lastElementChild as HTMLElement).dataset.settingTarget = "config.interaction.right-click";
   const interaction = document.createDocumentFragment(); interaction.append(...interactionRows.childNodes, hint(rightClick.title));
   const displayRows = buildDisplaySettings(form, play, { analysis: analysisRows, play: playRows, interaction });
-  // 高级与性能 (3238-3278): Java order 对局时后台计算, 快速切换, 首次启动智能测速, 五子棋无提子规则, 网络代理.
+  // 高级与性能 (3238-3278): Java order 对局时后台计算, 快速切换, Lizzie 缓存, 空棋盘停止计算, 首次启动智能测速,
+  // 五子棋无提子规则, 网络代理.
   heading(advanced, t("ConfigDialog2.modern.advanced.title"), t("ConfigDialog2.modern.advanced.subtitle"));
   // chkPonder (leelaz.play-ponder, ConfigDialog2.java:1898-1901, 6674): the 修改AI用时 setting.
   const ponder = toggleRow(advanced, "config.advanced.ponder", "settings.game.playPonder", t("ConfigDialog2.modern.advanced.ponder"), t("ConfigDialog2.modern.advanced.ponderSub"), state.view.settings.game.playPonder);
   const fast = toggleRow(advanced, "config.advanced.fast-switch", "settings.analysis.fastEngineChange", t("ConfigDialog2.modern.advanced.fastSwitch"), t("ConfigDialog2.modern.advanced.fastSwitchSub"), settings.fastEngineChange);
+  const cache = toggleRow(advanced, "config.advanced.cache", "settings.analysis.enableLizzieCache", t("ConfigDialog2.modern.advanced.cache"), t("ConfigDialog2.modern.advanced.cacheSub"), settings.enableLizzieCache);
+  const stopEmpty = toggleRow(advanced, "config.advanced.stop-empty", "settings.analysis.stopAtEmptyBoard", t("ConfigDialog2.modern.advanced.stopEmpty"), t("ConfigDialog2.modern.advanced.stopEmptySub"), settings.stopAtEmptyBoard);
   const benchmark = toggleRow(advanced, "config.advanced.startup-benchmark", "settings.startupBenchmark", t("ConfigDialog2.modern.advanced.firstBenchmark"), t("ConfigDialog2.modern.advanced.firstBenchmarkSub"), startupBenchmark);
   // ConfigDialog2 高级与性能 (3271-3276): turning 五子棋无提子规则 on asks first; Cancel unchecks it.
   const noCapture = toggleRow(advanced, "config.advanced.no-capture", "settings.noCapture", t("ConfigDialog2.modern.advanced.noCapture"), t("ConfigDialog2.modern.advanced.noCaptureSub"), edit.noCapture);
@@ -173,8 +176,9 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   const manualRow = document.createElement("div"); manualRow.className = "engine-field"; manualRow.dataset.settingTarget = "config.proxy.manual-address";
   const manualTitle = document.createElement("span"); manualTitle.textContent = t("ConfigDialog2.modern.proxy.manual"); manualRow.append(manualTitle, address); advanced.append(manualRow);
   const toggleManual = () => { host.disabled = port.disabled = mode.value !== "Manual"; }; mode.onchange = toggleManual; toggleManual();
-  // 日志与分析刷新 (3279-3310): 自动检测引擎是否存活 and the two refresh intervals are settings of this product.
+  // 日志与分析刷新 (3279-3310): 控制台隐藏时仍记录 GTP, 自动检测引擎是否存活 and the two refresh intervals.
   heading(advanced, t("ConfigDialog2.modern.engineHealth.title"), t("ConfigDialog2.modern.engineHealth.subtitle"));
+  const alwaysGtp = toggleRow(advanced, "config.engine.always-gtp", "settings.analysis.alwaysGtp", t("ConfigDialog2.modern.engineHealth.alwaysGtp"), t("ConfigDialog2.modern.engineHealth.alwaysGtpSub"), settings.alwaysGtp);
   const checkAlive = toggleRow(advanced, "config.engine.check-alive", "settings.analysis.autoCheckEngineAlive", t("ConfigDialog2.modern.engineHealth.checkAlive"), t("ConfigDialog2.modern.engineHealth.checkAliveSub"), settings.autoCheckEngineAlive);
   numberRow(advanced, "config.engine.update-interval", "intervalCentisec", t("ConfigDialog2.modern.engineHealth.interval"), t("ConfigDialog2.modern.engineHealth.intervalSub"), t("LizzieConfig.title.centisecond"));
   numberRow(advanced, "config.engine.ssh-update-interval", "intervalCentisecSsh", t("ConfigDialog2.modern.engineHealth.intervalSsh"), t("ConfigDialog2.modern.engineHealth.intervalSshSub"), t("LizzieConfig.title.centisecond"));
@@ -194,6 +198,7 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
     }
     settings.limitTime = time.checked; settings.limitPlayout = visits.checked; settings.fastEngineChange = fast.checked;
     settings.autoCheckEngineAlive = checkAlive.checked;
+    settings.enableLizzieCache = cache.checked; settings.stopAtEmptyBoard = stopEmpty.checked; settings.alwaysGtp = alwaysGtp.checked;
     const proxy = { proxyMode, proxyHost: host.value.trim(), proxyPort: validPort ? Number(port.value) : 7897 };
     if (JSON.stringify(proxy) !== JSON.stringify(network)) {
       const result = await resourceCommand({ type: "SetNetworkProxy", settings: proxy }); if (!result || result.type === "Refused") return false;

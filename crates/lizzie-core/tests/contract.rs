@@ -40,7 +40,7 @@ fn generate() -> String {
     let cfg = Config::default().with_large_int("number");
     let mut decls = decls![&cfg;
         Stone, Point, BoardSize, MarkKind, Mark, GameInfo, RecordFormat, Language, WindowPlacement,
-        Navigation, OpenSource, EngineProfile, EngineStartup, AnalysisSettings, EngineScope,
+        Navigation, OpenSource, EngineProfile, EngineStartup, AnalysisSettings, EngineScope, AnalysisScope,
         Command, CommandResult, ErrorKind, ApiError,
         DocumentView, TreeNodeKind, TreeNodeView, TreeView, LastAction, PositionView,
         OpenOutcome, SaveOutcome, PendingOpen, EngineSettingsView, SettingsView, StoneSound,

@@ -74,6 +74,7 @@ fn java_dir(root: &Path) -> PathBuf {
             "limit-playouts": 5000,
             "show-ponder-limited-tips": false,
             "auto-check-engine-alive": false,
+            "always-gtp": false,
             "kata-rules": "japanese",
             "auto-load-kata-rules": true,
             "txt-kata-engine-pda": "0.5",
@@ -110,6 +111,8 @@ fn java_dir(root: &Path) -> PathBuf {
             "limit-branch-length": 8,
             "analyze-update-interval-centisec": 20,
             "fast-engine-change": false,
+            "enable-lizzie-cache": false,
+            "stop-at-empty-board": true,
             "engine-settings-list": [
                 {
                     "id": "java-0",
@@ -329,6 +332,7 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
         (10, 8, 20)
     );
     assert!(!a.fast_engine_change && !a.show_ponder_limited_tips && !a.auto_check_engine_alive);
+    assert!(!a.enable_lizzie_cache && a.stop_at_empty_board && !a.always_gtp);
     assert_eq!(
         c.display,
         DisplaySettings {
@@ -842,7 +846,7 @@ fn java_keys_without_a_setting_say_why() {
     let java = tmp.path().join("java");
     std::fs::create_dir_all(&java).unwrap();
     let config = json!({
-        "ui": { "first-time-load": false, "use-factor": true, "always-gtp": false },
+        "ui": { "first-time-load": false, "use-factor": true, "always-gtp": "sometimes" },
         "leelaz": { "engine-settings-list": [], "engine-command": "old-katago gtp" },
     });
     std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
@@ -860,8 +864,8 @@ fn java_keys_without_a_setting_say_why() {
         reason("persist:ui-persist.gtp-console-position"),
         (ImportStatus::Incompatible, Some(ImportReason::WindowCoordinates))
     );
-    // A Java capability this product does not have yet stays reported as such.
-    assert_eq!(reason("ui.always-gtp"), (ImportStatus::NotMigrated, Some(ImportReason::NotYetAvailable)));
+    // A value Java's optBoolean would not read is reported, not guessed.
+    assert_eq!(reason("ui.always-gtp"), (ImportStatus::Incompatible, Some(ImportReason::InvalidValue)));
 }
 
 #[test]

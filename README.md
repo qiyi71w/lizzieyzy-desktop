@@ -251,6 +251,23 @@ importing the matching LizzieYzy Next settings.
   the position, komi and rules they were requested for, so browsing quickly, switching records,
   changing komi or rules never shows another context's analysis; changing komi or rules discards
   the stored analysis like Java.
+- Stored analysis and the Lizzie cache (分析 menu; 综合设置 > 高级 > 高级与性能, saved and taken over
+  by the LizzieYzy Next import):
+  - 启用 Lizzie 缓存 (on by default): a position's stored result is replaced only by a stronger
+    one (more visits), after it was marked by 清除Lizzie缓存, or when it was saved with a nonzero
+    PDA; automatic analysis, the playing engine of an engine match and 总是覆盖 always replace.
+    Off, every new result replaces the stored one.
+  - 清除Lizzie缓存(全局) (`Shift+A`) / (此手) mark every analysed position or the current one: the
+    analysis stays shown and saved, and the next result replaces it even when weaker. Nothing is
+    sent to the engine.
+  - 清除分析信息(全局) / (此手) remove the analysis of every position or the current one from the
+    board, tables, graph and saved file (an erased position writes no `LZ` analysis, where Java
+    still wrote a 50 % / 0-visit header). Then the current position is refreshed: the engine gets
+    `clear_cache` if it lists that command, and a running analysis starts a new search. In 双引擎模式
+    both engines' stored analysis is cleared and both engines are refreshed.
+  - 空棋盘停止计算 (off by default): an ordinary analysis of the empty board (the root without
+    setup stones) stops at its first result, without the limit notice; resuming it with `Space`
+    searches on until the position changes. Games, engine matches and 自动分析 are not stopped.
 - 显示 > 选点信息 > 总是显示黑胜率/目数 and 显示 > KataGo相关设置 > 目数显示 (计算贴目后目数差 /
   盘面目数差) are Java's two shared settings, both off by default, saved and taken over by the
   LizzieYzy Next import. The board candidates and the candidate table show the side to move, or
@@ -915,7 +932,10 @@ importing the matching LizzieYzy Next settings.
 - GTP console (`E`) shows the engine traffic and sends commands. Like Java, `komi <v>` sets the
   game komi and `undo` steps back in the record; other commands that would change the engine's
   board (`play`, `clear_board`, `place_free_handicap`, …) are refused because the record owns the
-  position. The 完整日志 option writes the GTP traffic to `logs/engine-trace.log`. A failing
+  position. The 完整日志 option writes the GTP traffic to `logs/engine-trace.log`. With 控制台隐藏时仍记录
+  GTP (综合设置 > 高级 > 日志与分析刷新, on by default) turned off, a hidden console records only engines
+  that are still starting; once an engine is ready its traffic appears only while the console is
+  shown. A failing
   engine shows Java's failure dialog with its output, copy and diagnostics export. Engines are
   ended (`quit`, then killed after 3 s) when the application exits, including application Quit.
 - Logs, the engine trace, failure details and exported diagnostics pass through a port of

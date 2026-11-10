@@ -102,6 +102,22 @@ fn advances_on_elapsed_time_only_after_foreground_packet() {
 }
 
 #[test]
+fn stop_at_empty_board_does_not_stop_automatic_analysis_at_the_root() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, id) = setup(dir.path(), LINE);
+    let mut analysis = wb.config().engine.analysis.clone();
+    analysis.stop_at_empty_board = true;
+    wb.set_analysis_settings(analysis).unwrap();
+    wb.start_auto_analysis(settings()).unwrap().unwrap();
+    serve(&mut wb, &world, id);
+    info(&mut wb, id, 6, 3, 0.5);
+    let v = wb.view(true);
+    assert!(v.position.node == 0 && !v.engine.stopped_by_limit);
+    info(&mut wb, id, 6, 4, 0.5);
+    assert_eq!(wb.view(true).position.node, 1);
+}
+
+#[test]
 fn auto_analysis_excludes_whole_game_and_hawkeye_list_navigation() {
     use lizzie_core::api::HawkeyeCommand;
     let dir = tempfile::tempdir().unwrap();

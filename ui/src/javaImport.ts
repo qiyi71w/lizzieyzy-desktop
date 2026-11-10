@@ -127,7 +127,10 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   HumanSlModel: "AutoSetup.humanSlModel",
   // AI 解说's teacher.properties (TeacherSettingsDialog title).
   Commentary: "Teacher.settings.title",
-  // 综合设置 > 高级 > 日志与分析刷新 (ConfigDialog2.java:3290-3295).
+  // 综合设置 > 高级 > 高级与性能 and 日志与分析刷新 (ConfigDialog2.java:3253-3264, 3284-3295).
+  LizzieCache: "ConfigDialog2.modern.advanced.cache",
+  StopAtEmptyBoard: "ConfigDialog2.modern.advanced.stopEmpty",
+  AlwaysGtp: "ConfigDialog2.modern.engineHealth.alwaysGtp",
   AutoCheckEngineAlive: "ConfigDialog2.modern.engineHealth.checkAlive",
   // 设置 > 同步时不播放落子声 and 同步 > 棋盘同步工具选项 (Menu.java:5547-5556, 4352-4392).
   NoSoundInSync: "Menu.notPlaySoundInSync",

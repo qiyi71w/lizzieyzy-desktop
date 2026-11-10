@@ -681,6 +681,28 @@ fn spec_03_komi_revision_commits_only_after_both_participants_confirm() {
     }
 }
 
+/// The Lizzie cache does not hold a stored result against the playing engine's search
+/// (`BoardData`: `!Lizzie.engineGame.current().playing()`): each new result is shown.
+#[test]
+fn an_engine_game_shows_each_new_result_even_when_weaker() {
+    let mut m = Match::new();
+    m.start(MatchSessionSettings {
+        kind: GameKind::Analysis,
+        time_enabled: false,
+        visits_enabled: true,
+        first_visits: 1000,
+        second_visits: 1000,
+        auto_save: false,
+        ..MatchSessionSettings::default()
+    });
+    m.serve(&|_, _| None);
+    let first = m.world.ids()[0];
+    m.out(first, "info move D4 visits 10 winrate 0.5 prior 0.5 order 0 pv D4");
+    m.out(first, "info move Q16 visits 5 winrate 0.5 prior 0.5 order 0 pv Q16");
+    let analysis = m.wb.inspect().analysis.unwrap();
+    assert_eq!((analysis.node, analysis.visits), (ROOT, 5));
+}
+
 #[test]
 fn analysis_intervention_uses_current_candidates_while_previous_candidates_are_shown() {
     let mut m = Match::new();

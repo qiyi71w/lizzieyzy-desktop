@@ -727,6 +727,14 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().toggle_analysis()?;
             Ok(changed(&app, &shared, done))
         }
+        Command::ClearAnalysisCache { scope } => {
+            shared.workbench.lock().unwrap().clear_analysis_cache(scope);
+            Ok(changed(&app, &shared, true))
+        }
+        Command::ClearAnalysisInfo { scope } => {
+            shared.workbench.lock().unwrap().clear_analysis_info(scope);
+            Ok(changed(&app, &shared, true))
+        }
         Command::SwitchEngine { index } => {
             let done = shared.workbench.lock().unwrap().switch_engine(index)?;
             Ok(changed(&app, &shared, done))
@@ -825,6 +833,10 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
                     message_key: key.to_string(),
                 },
             })
+        }
+        Command::SetConsoleVisible { visible } => {
+            shared.workbench.lock().unwrap().set_console_visible(visible);
+            Ok(CommandResult::Done)
         }
         Command::SetFullTrace { enabled } => {
             let done = shared.workbench.lock().unwrap().set_full_trace(enabled)?;

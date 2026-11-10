@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use super::Workbench;
 use crate::api::{
-    ApiError, CandidateView, ConsoleLineKind, ConsoleLineView, EngineEntryView, EngineFailureView, EngineNotice,
+    AnalysisScope, ApiError, CandidateView, ConsoleLineKind, ConsoleLineView, EngineEntryView, EngineFailureView, EngineNotice,
     EngineScope, EngineSettingsView, EngineState, EngineView, ErrorKind, ForegroundEngineView, HistoryPoint,
     NodeAnalysisView, RulesPromptView, SecondaryEngineView, SecondaryView,
 };
@@ -219,8 +219,34 @@ impl AnalysisStore {
         }
     }
 
-    pub(super) fn is_stale(&self, node: NodeId) -> bool {
+    fn is_stale(&self, node: NodeId) -> bool {
         self.stale.contains(&node)
+    }
+
+    /// Whether `result` takes the place of the node's stored result (`BoardData`'s Lizzie
+    /// cache): with the cache on only when there is none, it was marked to give way, it was
+    /// made with another PDA (a live result carries none: `cachedPda != engine.pda`), or the
+    /// new search went further; with the cache off always.
+    pub(super) fn takes_place(&self, rec: &GameRecord, node: NodeId, result: &NodeAnalysisView, cache: bool) -> bool {
+        !cache
+            || self.is_stale(node)
+            || self.pda(node) != 0.0
+            || self.get(rec, node).is_none_or(|old| more_visits(result, old))
+    }
+
+    /// `clearBestMovesInfomation`: the node's analysis is gone; it is neither shown nor saved.
+    pub(super) fn erase(&mut self, node: NodeId) {
+        self.nodes.remove(&node);
+        self.ownership.remove(&node);
+        self.metadata.remove(&node);
+        self.stale.remove(&node);
+        self.kept_since.remove(&node);
+        self.attended.remove(&node);
+    }
+
+    /// `clearBestMovesInfomationAfter(start)`: every node's analysis is gone.
+    pub(super) fn erase_all(&mut self) {
+        self.reset(self.doc);
     }
 
     pub(super) fn doc(&self) -> u64 {
@@ -352,7 +378,7 @@ pub(super) fn fill_pv_captures(result: &mut NodeAnalysisView, base: &Position, l
 
 /// `BoardData.adoptOrdinaryAnalysis` with the cache on: a result replaces the stored one only
 /// with more visits (root visits when both report them).
-pub(super) fn more_visits(new: &NodeAnalysisView, old: &NodeAnalysisView) -> bool {
+fn more_visits(new: &NodeAnalysisView, old: &NodeAnalysisView) -> bool {
     match (new.root_visits, old.root_visits) {
         (Some(n), Some(o)) => n > o,
         _ => new.visits > old.visits,
@@ -586,6 +612,9 @@ impl Workbench {
         if self.secondary_limit_stop.is_some_and(|l| l != here) {
             self.secondary_limit_stop = None;
         }
+        if self.empty_board_resumed.is_some_and(|l| l != here) {
+            self.empty_board_resumed = None;
+        }
         // 批量分析 analyses its own record with the foreground engine (the user's pause stops it,
         // as Java's ponder toggle does); the secondary engine stays idle meanwhile.
         if self.auto_analysis_holds_foreground() {
@@ -775,6 +804,7 @@ impl Workbench {
         let keep = self.config.engine.analysis.fast_engine_change;
         self.limit_stop = None;
         self.limit_tip_shown = false;
+        self.empty_board_resumed = None;
         self.engines.set_foreground(Some(instance), keep);
         if remember_selection && self.config.engine.startup == EngineStartup::Last {
             let id = profile.id.clone();
@@ -983,6 +1013,11 @@ impl Workbench {
         if !running && self.benchmark_running() {
             self.stop_benchmark();
         }
+        // Resuming after a stop on the empty board searches on (`ponder` sets
+        // `outOfPlayoutsLimit` after `stopByPlayouts`).
+        if !self.paused && (self.limit_stop.is_some() || self.secondary_limit_stop.is_some()) && self.at_empty_board() {
+            self.empty_board_resumed = Some((self.doc.id, self.cursor));
+        }
         self.limit_stop = None;
         self.secondary_limit_stop = None;
         self.sync_engine();
@@ -1027,6 +1062,52 @@ impl Workbench {
         self.store.reset(self.doc.id);
         if self.double_engine() {
             self.secondary_store.reset(self.doc.id);
+        }
+    }
+
+    /// The stores a 清除 menu item applies to: the secondary engine's only in 双引擎模式
+    /// (`isDoubleEngineMode`), as for `clearBestMovesAfter`.
+    fn cleared_stores(&mut self) -> impl Iterator<Item = &mut AnalysisStore> + '_ {
+        let secondary = self.double_engine().then_some(&mut self.secondary_store);
+        std::iter::once(&mut self.store).chain(secondary)
+    }
+
+    /// 清除Lizzie缓存 (全局 `clearBoardStat`, Shift+A; 此手 `clearbestmoves`): the stored
+    /// results in `scope` stay shown and saved, and the next live result replaces them even
+    /// when it is weaker. Nothing is sent to an engine and nothing is analysed again.
+    pub fn clear_analysis_cache(&mut self, scope: AnalysisScope) {
+        let cursor = self.cursor;
+        for store in self.cleared_stores() {
+            match scope {
+                AnalysisScope::All => store.invalidate_all(),
+                AnalysisScope::Current => store.invalidate(cursor),
+            }
+        }
+    }
+
+    /// 清除分析信息 (全局 `clearBestMovesInfomationAfter(start)`, 此手
+    /// `clearBestMovesInfomation`): the analysis in `scope` is gone from the board, the tables
+    /// and the saved record, then the current move is refreshed ([`Self::refresh_current_move`]).
+    pub fn clear_analysis_info(&mut self, scope: AnalysisScope) {
+        let cursor = self.cursor;
+        for store in self.cleared_stores() {
+            match scope {
+                AnalysisScope::All => store.erase_all(),
+                AnalysisScope::Current => store.erase(cursor),
+            }
+        }
+        self.refresh_current_move();
+    }
+
+    /// `refreshCurrentMove` (重算当前局面): the current move's stored result gives way to the
+    /// next live one, and the foreground engine, with the secondary one in 双引擎模式 (Java
+    /// mirrors the commands to it), drops its search cache (`clear_cache`, only when it lists
+    /// the command) and, if it is analysing, searches this move again.
+    pub fn refresh_current_move(&mut self) {
+        self.clear_analysis_cache(AnalysisScope::Current);
+        let secondary = self.double_engine().then(|| self.engines.secondary()).flatten();
+        for id in self.engines.foreground().into_iter().chain(secondary) {
+            self.engines.refresh_analysis(id);
         }
     }
 
@@ -1201,14 +1282,20 @@ impl Workbench {
         if self.config.display.no_sugg_circle { 0 } else { limit }
     }
 
-    /// Puts committed analysis settings into effect: the engine update interval and, for a new
-    /// variation length, the previews of stored analysis.
+    /// Puts committed analysis settings into effect: the engine update interval, the console's
+    /// `always-gtp` and, for a new variation length, the previews of stored analysis.
     pub(super) fn analysis_settings_changed(&mut self, previous: &AnalysisSettings) {
         let settings = &self.config.engine.analysis;
         self.engines.set_interval(settings.interval_centisec, settings.interval_centisec_ssh);
+        self.engines.set_always_gtp(settings.always_gtp);
         if settings.limit_branch_length != previous.limit_branch_length {
             self.refresh_pv_captures();
         }
+    }
+
+    /// The GTP console was shown or hidden (`always-gtp` decides what a hidden one records).
+    pub fn set_console_visible(&mut self, visible: bool) {
+        self.engines.set_console_visible(visible);
     }
 
     /// Plays the variations of stored analysis out again under the current length and rules.
@@ -1470,7 +1557,10 @@ impl Workbench {
                             (doc, node, stamp),
                             result.candidates.iter().filter_map(|c| Some((c.point?, c.visits))),
                         );
+                    // Neither 自动分析 nor the foreground engine in an engine game keeps a stored
+                    // result against the current search (`BoardData`'s `protectedCache`).
                     let automatic = !secondary && self.auto_analysis_active();
+                    let in_game = !secondary && self.match_active();
                     let shown = self.suggestion_limit();
                     // Attended points belong to the main board's candidates only (`isMain`).
                     let tracked_points = if secondary { Vec::new() } else { self.tracked_points(node).to_vec() };
@@ -1480,10 +1570,8 @@ impl Workbench {
                     } else {
                         &mut self.store
                     };
-                    let replace = automatic
-                        || tracked
-                        || store.is_stale(node)
-                        || store.get(rec, node).is_none_or(|old| more_visits(&result, old));
+                    let cache = self.config.engine.analysis.enable_lizzie_cache;
+                    let replace = automatic || in_game || tracked || store.takes_place(rec, node, &result, cache);
                     if replace {
                         let mut result = result;
                         let limit = self.config.engine.analysis.limit_branch_length;
@@ -1539,14 +1627,31 @@ impl Workbench {
         by_visits || by_time
     }
 
+    /// The current position is the empty board: the root with no setup stones
+    /// (`BoardHistoryList.noStoneBoard`).
+    fn at_empty_board(&self) -> bool {
+        self.cursor == ROOT && self.doc.record.position(ROOT).stones.iter().all(Option::is_none)
+    }
+
+    /// 空棋盘停止计算 (`Leelaz.java:7455-7468`): an ordinary analysis of the empty board stops at
+    /// its result, once per position until the user resumes it. Like the limits it belongs to,
+    /// it never applies to a game, an engine match or 自动分析, whose results do not get here.
+    fn stops_at_empty_board(&self) -> bool {
+        self.config.engine.analysis.stop_at_empty_board
+            && self.empty_board_resumed != Some((self.doc.id, self.cursor))
+            && self.at_empty_board()
+    }
+
     /// The foreground engine's limit stops the analysis of this node, the secondary engine's
-    /// too (it resumes when the position changes); the notice is shown once per engine start.
+    /// too (it resumes when the position changes); the notice is shown once per engine start,
+    /// never for 空棋盘停止计算.
     fn check_limits(&mut self, visits: u64, elapsed: std::time::Duration) {
-        if !self.limit_reached(visits, elapsed) {
+        let empty = self.stops_at_empty_board();
+        if !empty && !self.limit_reached(visits, elapsed) {
             return;
         }
         self.limit_stop = Some((self.doc.id, self.cursor));
-        if self.config.engine.analysis.show_ponder_limited_tips && !self.limit_tip_shown {
+        if !empty && self.config.engine.analysis.show_ponder_limited_tips && !self.limit_tip_shown {
             self.limit_tip_shown = true;
             self.engine_notice = Some(EngineNotice::StoppedByLimit);
         }
@@ -1556,11 +1661,12 @@ impl Workbench {
     /// The secondary engine's own limit stops only its analysis of this node (Java `leelaz2`
     /// stops itself; the stop is not mirrored back), with the notice once per choice.
     fn check_secondary_limits(&mut self, visits: u64, elapsed: std::time::Duration) {
-        if !self.limit_reached(visits, elapsed) {
+        let empty = self.stops_at_empty_board();
+        if !empty && !self.limit_reached(visits, elapsed) {
             return;
         }
         self.secondary_limit_stop = Some((self.doc.id, self.cursor));
-        if self.config.engine.analysis.show_ponder_limited_tips && !self.secondary_limit_tip_shown {
+        if !empty && self.config.engine.analysis.show_ponder_limited_tips && !self.secondary_limit_tip_shown {
             self.secondary_limit_tip_shown = true;
             self.engine_notice = Some(EngineNotice::StoppedByLimit);
         }
