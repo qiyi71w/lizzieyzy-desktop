@@ -149,6 +149,10 @@ pub struct EngineSettings {
     pub kata_rules: String,
     /// `auto-load-kata-rules` [false]: apply `kata_rules` whenever KataGo starts.
     pub auto_load_kata_rules: bool,
+    /// `ui.txt-kata-engine-pda`: last confirmed PDA; Java's empty default is unconfirmed.
+    pub kata_pda: Option<f64>,
+    /// `ui.chk-kata-engine-pda` [false]; confirmed nonzero PDA enables it.
+    pub kata_pda_enabled: bool,
     /// `ui.enable-startup-benchmark` [false on a new profile, Config.applyFirstLaunchDefaults]:
     /// the user opted in to the official benchmark after start-up when the foreground KataGo has
     /// no stored result (Settings > Advanced).

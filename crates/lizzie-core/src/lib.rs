@@ -24,6 +24,7 @@ pub mod contribution;
 pub mod display;
 pub mod engine;
 pub mod formats;
+pub mod fox;
 pub mod fox_kifu;
 pub mod function_search;
 pub mod humansl;

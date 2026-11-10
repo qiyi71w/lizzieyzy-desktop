@@ -146,6 +146,9 @@ pub struct Mapped {
     pub auto_check_engine_alive: Option<bool>,
     pub kata_rules: Option<String>,
     pub auto_load_kata_rules: Option<bool>,
+    /// Outer None means absent/invalid; inner None preserves Java's empty PDA text.
+    pub kata_pda: Option<Option<f64>>,
+    pub kata_pda_enabled: Option<bool>,
     pub startup_benchmark: Option<bool>,
     /// The start-up benchmark the user dismissed (signature, version).
     pub startup_benchmark_dismissed_signature: Option<String>,
@@ -842,6 +845,12 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
     ),
     (
         "ui",
+        "chk-kata-engine-pda",
+        ImportTarget::KataPda,
+        Kind::Bool(|m, v| m.kata_pda_enabled = Some(v)),
+    ),
+    (
+        "ui",
         "enable-startup-benchmark",
         ImportTarget::StartupBenchmark,
         Kind::Bool(|m, v| m.startup_benchmark = Some(v)),
@@ -1414,6 +1423,22 @@ impl Reader<'_> {
                     self.imported(format!("ui.{key}"), ImportTarget::WorkbenchPanels, shown(raw));
                 }
                 None => self.invalid(format!("ui.{key}"), ImportTarget::WorkbenchPanels, raw),
+            }
+        }
+        // Config.java:1999-2000 stores PDA as text; empty means no confirmed preference.
+        if let Some(raw) = ui.get("txt-kata-engine-pda") {
+            handled.push(("ui", "txt-kata-engine-pda"));
+            let value = if raw.as_str().is_some_and(|s| s.trim().is_empty()) {
+                Some(None)
+            } else {
+                as_f64(raw).map(Some)
+            };
+            match value {
+                Some(value) => {
+                    self.mapped.kata_pda = Some(value);
+                    self.imported("ui.txt-kata-engine-pda".into(), ImportTarget::KataPda, shown(raw));
+                }
+                None => self.invalid("ui.txt-kata-engine-pda".into(), ImportTarget::KataPda, raw),
             }
         }
         for (section, key, target, kind) in SIMPLE {
@@ -2920,6 +2945,8 @@ impl Mapped {
             self.auto_check_engine_alive
         );
         set!(c.engine.kata_rules, self.kata_rules);
+        set!(c.engine.kata_pda, self.kata_pda);
+        set!(c.engine.kata_pda_enabled, self.kata_pda_enabled);
         set!(
             c.engine.startup_benchmark_dismissed_signature,
             self.startup_benchmark_dismissed_signature
@@ -3227,6 +3254,10 @@ impl Mapped {
             config.engine.auto_load_kata_rules,
             self.auto_load_kata_rules
         );
+        if self.kata_pda.is_some_and(|v| v != config.engine.kata_pda)
+            || self.kata_pda_enabled.is_some_and(|v| v != config.engine.kata_pda_enabled) {
+            out.push(ImportTarget::KataPda);
+        }
         cmp!(
             ImportTarget::StartupBenchmark,
             config.engine.startup_benchmark,

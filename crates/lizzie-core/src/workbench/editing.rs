@@ -92,6 +92,7 @@ impl Workbench {
     /// The content-write entry for callers outside editing (komi, tests): returns whether the
     /// record changed.
     pub fn edit_document(&mut self, edit: DocumentEdit) -> Result<bool, ApiError> {
+        if self.fox_owns_board() || self.fox_holds_engine() { return Err(ApiError::new(ErrorKind::Unavailable, "Fox.conflict")); }
         self.apply_edit(edit)
             .map(|a| a.changed)
             .map_err(|e| ApiError::new(ErrorKind::InvalidArgument, e.to_string()))
@@ -189,6 +190,7 @@ impl Workbench {
         if let Some(refusal) = self.contribution_edit_refusal(&op) {
             return Ok(refusal);
         }
+        if self.fox_owns_board() || self.fox_holds_engine() { return Ok(CommandResult::Refused { message_key: "Fox.conflict".into() }); }
         if self.human_sl_active() {
             return Ok(match op {
                 EditCommand::Play { point, .. } => self.human_sl_human_move(Some(point)),

@@ -17,6 +17,7 @@ import { functionSearchRefused, openFunctionSearch } from "../search/controller"
 import { limitPopup } from "../analysis/region";
 import { clockText } from "../game/commands";
 import { matchPlaying } from "../match/state";
+import { foxOwnsEngine, submitFoxPda } from "../fox/dialog";
 import "../editing/chrome.css";
 import "../strength/commands";
 
@@ -256,6 +257,77 @@ function field(id?: string): HTMLInputElement {
   return c;
 }
 
+/** The PDA statuses on which FoxLiveSession republishes the confirmed value (publishConfirmedPda):
+ *  a dynamic / unverified refusal and a failed update. */
+const PDA_REPUBLISH: Record<string, true> = { "Fox.pdaDynamic": true, "Fox.pdaUnknown": true, "Fox.pdaFailed": true };
+
+/** chkPDA / txtGfPDA (Menu.java:6315-6447, setUseGfPda 11124-11131). While 野狐 AI 直连 holds the
+ *  engine every check and every text edit is the session's PDA intent (FoxLiveSession.submitPda)
+ *  and the controls show its confirmed value whenever that changes, and again after an intent is
+ *  refused or an update fails; otherwise they keep the ordinary look of a parameter not migrated
+ *  yet. */
+function pdaGroup(): HTMLElement {
+  const box = check(false) as HTMLInputElement;
+  const value = field();
+  box.dataset.key = "toolbar.pda";
+  value.dataset.key = "toolbar.pda-value";
+  let shown: number | null = null;
+  let shownStatus = "";
+  let edits = 0;
+  // Assigning the controls fires neither click nor input, so showing sends no new intent.
+  const show = (confirmed: number | null) => {
+    shown = confirmed;
+    box.checked = confirmed !== null && confirmed !== 0;
+    value.value = confirmed === null ? "" : javaDouble(confirmed);
+    value.disabled = confirmed !== null && confirmed === 0;
+  };
+  // A refusal leaves the status as it was when the same draft is refused again, so the view
+  // after each intent decides; only the latest edit may reset the controls it was typed into.
+  const submit = (draft: string) => {
+    const edit = ++edits;
+    void submitFoxPda(draft).then((fox) => {
+      if (fox && edit === edits && foxOwnsEngine() && PDA_REPUBLISH[fox.pda_status_key] === true) show(fox.confirmed_pda);
+    });
+  };
+  box.onclick = (e) => {
+    if (!foxOwnsEngine()) {
+      e.preventDefault();
+      unavailable();
+      return;
+    }
+    submit(box.checked ? value.value : "0");
+    value.disabled = !box.checked;
+  };
+  value.addEventListener("input", () => {
+    if (foxOwnsEngine()) submit(value.value);
+  });
+  updaters.push(() => {
+    const live = foxOwnsEngine();
+    for (const control of [box, value]) {
+      control.classList.toggle("unavailable", !live);
+      control.tabIndex = live ? 0 : -1;
+      control.title = live ? t("Menu.chkPDA.toolTopText") : product("unavailable");
+    }
+    value.readOnly = !live;
+    const confirmed = live ? (state.view?.fox.confirmed_pda ?? null) : null;
+    const status = live ? (state.view?.fox.pda_status_key ?? "") : "";
+    const republish = status !== shownStatus && PDA_REPUBLISH[status] === true;
+    shownStatus = status;
+    if (confirmed === shown && !republish) return;
+    show(confirmed);
+  });
+  return group("pda", box, label(withColon(t("Menu.separateLblPda"))), value);
+}
+
+/** chkWRN: 广度 is disabled while 野狐 AI 直连 holds the engine (Menu.refreshBreadthAdmission). */
+function breadthCheck(): HTMLElement {
+  const c = check(false) as HTMLInputElement;
+  updaters.push(() => {
+    c.disabled = foxOwnsEngine();
+  });
+  return c;
+}
+
 function komiSpinner(): HTMLElement {
   const spinner = document.createElement("span"); spinner.className = "tb-spin";
   for (const step of [0.5, -0.5]) {
@@ -435,8 +507,8 @@ export function buildToolbar(host: HTMLElement): void {
     group("komi", label(t("Menu.komi")), komiField(), komiSpinner()),
     sep("dash"),
     // KataGo parameter fields stay empty and unchecked without an engine
-    group("pda", check(false), label(withColon(t("Menu.separateLblPda"))), field()),
-    group("wrn", at("toolbar.wrn", check(false)), label(withColon(t("Menu.separateLblWrn"))), field()),
+    pdaGroup(),
+    group("wrn", at("toolbar.wrn", breadthCheck()), label(withColon(t("Menu.separateLblWrn"))), field()),
     sep(),
     label(t("Menu.lblShowCandidate")),
     at("toolbar.candidate-sides", candidateCheck(t("Menu.Black"), true)),

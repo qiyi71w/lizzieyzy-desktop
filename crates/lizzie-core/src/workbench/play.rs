@@ -172,6 +172,7 @@ impl Workbench {
     pub fn game_gate(&mut self, command: &Command) -> Option<CommandResult> {
         if let Some(result) = self.web_trial_gate(command) { return Some(result); }
         if let Some(result) = self.readboard_gate(command) { return Some(result); }
+        if let Some(result) = self.fox_gate(command) { return Some(result); }
         if self.contribution_active() { return self.contribution_gate(command); }
         if let Some(result) = self.human_sl_gate(command) { return Some(result); }
         if self.match_active() { return self.match_gate(command); }
@@ -221,6 +222,7 @@ impl Workbench {
     // -------------------------------------------------------------------- commands
 
     pub fn game(&mut self, op: GameCommand) -> Result<CommandResult, ApiError> {
+        if self.fox_owns_board() || self.fox_holds_engine() { return Ok(refused("Fox.conflict")); }
         if self.match_active() { return Ok(refused(PLAY_MODE)); }
         if self.human_sl_active() { return Ok(refused("AnalysisSettings.reuseStatus.human_sl_game")); }
         match op {

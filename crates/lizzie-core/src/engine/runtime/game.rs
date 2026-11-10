@@ -66,6 +66,8 @@ pub(super) struct GameSeat {
     /// How long the restore may take once the engine answers (Java's foreground restore watchdog;
     /// GMA uses its 8 s restore response limit).
     restore_window: Duration,
+    /// Raw acknowledged replay/search owns this board, not ordinary browsing wishes.
+    raw: bool,
 }
 
 impl GameSeat {
@@ -121,7 +123,7 @@ impl Engines {
         self.games.push(GameSeat {
             id: game, instance: id, readboard_gma, wanted: None, genmove: None, placed: None,
             releasing: None, restoring: Vec::new(), restore_failed: false, release_answered: false,
-            verify_rules: None, deadline: None,
+            verify_rules: None, deadline: None, raw: false,
             restore_window: if readboard_gma { GMA_RESTORE } else { LEASE_RESTORE },
         });
         Ok(game)
@@ -184,6 +186,43 @@ impl Engines {
         let n = self.send(id, command, Purpose::Game)?;
         self.fence_last(id);
         Some(n)
+    }
+
+    /// Cancellable choice-only search: unlike genmove this never changes the engine board or
+    /// creates a document move. The reservation holder must explicitly confirm external moves.
+    pub fn game_search(&mut self, game: u64, target: Target, color: Stone) -> Option<u64> {
+        let id = self.game_instance(game).filter(|_| !self.game_releasing(game))?;
+        if !self.has_command(id, "kata-search_analyze_cancellable") { return None; }
+        let n = self.game_send(game, &format!("kata-search_analyze_cancellable {} 10", color_letter(color)))?;
+        self.get_mut(id)?.requests.push_back((n, Request {
+            key: target.key(), to_play: color, size: target.record.size, started: Instant::now(),
+        }));
+        Some(n)
+    }
+
+    /// Invalidates display/search ownership immediately, before the acknowledged stop. Raw
+    /// replay is owned by the reservation; discard the ordinary board cache so handback cannot
+    /// mistake a protocol position for the browsing position.
+    pub fn game_invalidate_search(&mut self, game: u64) {
+        if let Some(id) = self.game_instance(game) {
+            if let Some(seat) = self.games.iter_mut().find(|g| g.id == game) { seat.raw = true; }
+            if let Some(inst) = self.get_mut(id) { inst.requests.clear(); inst.board = None; }
+        }
+    }
+
+    /// Uses the ordinary document synchronizer for handback, including non-root setup anchors
+    /// and rectangular boards. The caller acknowledges every returned command before release.
+    pub fn game_restore_position_commands(&mut self, game: u64, target: &Target) -> Option<Vec<String>> {
+        let id = self.game_instance(game)?;
+        let inst = self.get(id)?;
+        let (commands, board) = sync_commands(inst, target);
+        self.get_mut(id)?.board = Some(board);
+        Some(commands)
+    }
+
+    /// An unconfirmed parameter write makes handback fail even if later restore commands ACK.
+    pub fn game_mark_restore_failed(&mut self, game: u64) {
+        if let Some(seat) = self.games.iter_mut().find(|g| g.id == game) { seat.restore_failed = true; }
     }
 
     /// Asks `game`'s engine for its move at `target` as `color` (`Leelaz.genmove`), after the
@@ -343,6 +382,7 @@ impl Engines {
     /// holds the engine board as it is; a move to ask for syncs the position, then asks.
     /// Returns whether the seat's wish waits.
     pub(super) fn game_pump(&mut self, id: InstanceId) -> bool {
+        if self.games.iter().any(|g| g.instance == id && g.raw) { return true; }
         if self.games.iter().any(|g| g.instance == id && g.placed.is_some()) {
             return true;
         }

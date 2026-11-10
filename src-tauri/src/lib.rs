@@ -980,6 +980,11 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             publish(&app, &shared);
             Ok(result)
         }
+        Command::Fox { op } => {
+            let result = shared.workbench.lock().unwrap().fox(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
         Command::Game { op } => {
             let result = shared.workbench.lock().unwrap().game(op)?;
             publish(&app, &shared);

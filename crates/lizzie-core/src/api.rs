@@ -10,6 +10,7 @@ mod editing;
 mod export;
 mod fox_kifu;
 mod hawkeye;
+mod fox;
 mod humansl;
 mod humansl_settings;
 mod kifu_list;
@@ -30,6 +31,7 @@ pub use editing::*;
 pub use export::*;
 pub use fox_kifu::*;
 pub use hawkeye::*;
+pub use fox::*;
 pub use humansl::*;
 pub use humansl_settings::*;
 pub use kifu_list::*;
@@ -113,6 +115,7 @@ pub enum Command {
     CloudCancelRequest { owner: u64 },
     CloudImportQr,
     OpenCloudLink { custom: bool },
+    Fox { op: FoxCommand },
     Strength { op: StrengthCommand },
     Commentary { op: CommentaryCommand },
     /// 棋盘同步工具 (Windows).
@@ -1349,6 +1352,7 @@ pub struct WorkbenchView {
     pub engine_notice: Option<EngineNotice>,
     /// The running 人机对弈 (also while it gives the engine back).
     pub game: Option<GameView>,
+    pub fox: FoxView,
     /// How the last game ended, once.
     pub game_outcome: Option<GameOutcomeView>,
     /// 人机对弈 messages, once each, in order.
@@ -1485,6 +1489,8 @@ pub enum ImportTarget {
     AutoCheckEngineAlive,
     KataRules,
     AutoLoadKataRules,
+    /// `ui.txt-kata-engine-pda` / `ui.chk-kata-engine-pda`.
+    KataPda,
     /// `ui.enable-startup-benchmark`.
     StartupBenchmark,
     /// `ui.network-proxy-mode` / `-host` / `-port`.
