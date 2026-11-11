@@ -111,6 +111,7 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   // 设置KataGo引擎高级参数's 自动加载 and 在工具栏中控制 columns (SetKataEngines.java).
   KataParamAutoLoad: "SetKataEngines.title",
   KataParamToolbar: "SetKataEngines.title",
+  LeelaOptions: "SetLeelaEngines.title",
   Scoring: "BottomToolbar.finalScore",
   SuggestionsFrame: "Menu.SuggestionList",
   ExtraMode: "Menu.layoutMode",

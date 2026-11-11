@@ -34,6 +34,7 @@ use crate::api::{
 };
 use crate::engine::gtp::{join_command, prepare_launch, split_command, FILE_PATH_OPTIONS};
 use crate::engine::profile::{new_profile_id, EngineProfile, EngineStartup};
+use crate::engine::runtime::LeelaOption;
 use crate::engine::ssh::SshSettings;
 use crate::engine::tuning::{GtpConfiguration, ThreadPolicy};
 use crate::sanitize::sanitize;
@@ -164,6 +165,9 @@ pub struct Mapped {
     pub auto_load_kata_wrn_value: Option<Option<f64>>,
     pub show_kata_pda: Option<bool>,
     pub show_kata_wrn: Option<bool>,
+    /// `ui.chk-lzsai-engine*` / `ui.autoload-Lzsai-engine*` / `ui.txt-lzsai-engine*`, in
+    /// [`LeelaOption::ALL`] order.
+    pub leela_options: [LeelaOptionImport; 4],
     pub startup_benchmark: Option<bool>,
     /// The start-up benchmark the user dismissed (signature, version).
     pub startup_benchmark_dismissed_signature: Option<String>,
@@ -359,6 +363,14 @@ fn with_display(current: &DisplaySettings, values: &[DisplayValue]) -> DisplaySe
         v.set(&mut json);
     }
     serde_json::from_value(json).unwrap_or_else(|_| current.clone())
+}
+
+/// One row of the Leela Zero / Sai 引擎参数 window as Java saved it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LeelaOptionImport {
+    pub enabled: Option<bool>,
+    pub auto_load: Option<bool>,
+    pub value: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -921,6 +933,78 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "show-wrn-in-menu",
         ImportTarget::KataParamToolbar,
         Kind::Bool(|m, v| m.show_kata_wrn = Some(v)),
+    ),
+    (
+        "ui",
+        "chk-lzsai-enginemem",
+        ImportTarget::LeelaOptions,
+        Kind::Bool(|m, v| m.leela_options[0].enabled = Some(v)),
+    ),
+    (
+        "ui",
+        "autoload-Lzsai-enginemem",
+        ImportTarget::LeelaOptions,
+        Kind::Bool(|m, v| m.leela_options[0].auto_load = Some(v)),
+    ),
+    (
+        "ui",
+        "txt-lzsai-enginemem",
+        ImportTarget::LeelaOptions,
+        Kind::Str(|m, v| m.leela_options[0].value = Some(v)),
+    ),
+    (
+        "ui",
+        "chk-lzsai-enginevisits",
+        ImportTarget::LeelaOptions,
+        Kind::Bool(|m, v| m.leela_options[1].enabled = Some(v)),
+    ),
+    (
+        "ui",
+        "autoload-Lzsai-enginevisits",
+        ImportTarget::LeelaOptions,
+        Kind::Bool(|m, v| m.leela_options[1].auto_load = Some(v)),
+    ),
+    (
+        "ui",
+        "txt-lzsai-enginevisits",
+        ImportTarget::LeelaOptions,
+        Kind::Str(|m, v| m.leela_options[1].value = Some(v)),
+    ),
+    (
+        "ui",
+        "chk-lzsai-enginelagbuffer",
+        ImportTarget::LeelaOptions,
+        Kind::Bool(|m, v| m.leela_options[2].enabled = Some(v)),
+    ),
+    (
+        "ui",
+        "autoload-Lzsai-enginelagbuffer",
+        ImportTarget::LeelaOptions,
+        Kind::Bool(|m, v| m.leela_options[2].auto_load = Some(v)),
+    ),
+    (
+        "ui",
+        "txt-lzsai-enginelagbuffer",
+        ImportTarget::LeelaOptions,
+        Kind::Str(|m, v| m.leela_options[2].value = Some(v)),
+    ),
+    (
+        "ui",
+        "chk-lzsai-engineresign",
+        ImportTarget::LeelaOptions,
+        Kind::Bool(|m, v| m.leela_options[3].enabled = Some(v)),
+    ),
+    (
+        "ui",
+        "autoload-Lzsai-engineresign",
+        ImportTarget::LeelaOptions,
+        Kind::Bool(|m, v| m.leela_options[3].auto_load = Some(v)),
+    ),
+    (
+        "ui",
+        "txt-lzsai-engineresign",
+        ImportTarget::LeelaOptions,
+        Kind::Str(|m, v| m.leela_options[3].value = Some(v)),
     ),
     (
         "ui",
@@ -3152,6 +3236,12 @@ impl Mapped {
         set!(kata.auto_load_wrn_value, self.auto_load_kata_wrn_value);
         set!(kata.show_pda, self.show_kata_pda);
         set!(kata.show_wrn, self.show_kata_wrn);
+        for (option, row) in LeelaOption::ALL.into_iter().zip(&self.leela_options) {
+            let current = c.engine.leela_options.get_mut(option);
+            set!(current.enabled, row.enabled);
+            set!(current.auto_load, row.auto_load);
+            set!(current.value, row.value);
+        }
         set!(
             c.engine.startup_benchmark_dismissed_signature,
             self.startup_benchmark_dismissed_signature
@@ -3490,6 +3580,15 @@ impl Mapped {
         }
         if self.show_kata_pda.is_some_and(|v| v != p.show_pda) || self.show_kata_wrn.is_some_and(|v| v != p.show_wrn) {
             out.push(ImportTarget::KataParamToolbar);
+        }
+        let leela_changed = LeelaOption::ALL.into_iter().zip(&self.leela_options).any(|(option, row)| {
+            let current = config.engine.leela_options.get(option);
+            row.enabled.is_some_and(|v| v != current.enabled)
+                || row.auto_load.is_some_and(|v| v != current.auto_load)
+                || row.value.as_ref().is_some_and(|v| *v != current.value)
+        });
+        if leela_changed {
+            out.push(ImportTarget::LeelaOptions);
         }
         cmp!(
             ImportTarget::StartupBenchmark,

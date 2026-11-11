@@ -833,6 +833,11 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             publish(&app, &shared);
             Ok(refused.map_or(CommandResult::Done, |key| CommandResult::Refused { message_key: key.to_string() }))
         }
+        Command::SaveLeelaEngineOptions { options } => {
+            let refused = shared.workbench.lock().unwrap().save_leela_engine_options(options)?;
+            publish(&app, &shared);
+            Ok(refused.map_or(CommandResult::Done, |key| CommandResult::Refused { message_key: key.to_string() }))
+        }
         Command::SendGtpCommand { command } => {
             let refused = shared.workbench.lock().unwrap().send_gtp(&command)?;
             publish(&app, &shared);

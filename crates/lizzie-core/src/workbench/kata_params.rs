@@ -1,10 +1,13 @@
-//! The foreground KataGo's PDA (`playoutDoublingAdvantage`, 激进度) and WRN
-//! (`analysisWideRootNoise`, 广度): the toolbar's two groups (`Menu.chkPDA` / `chkWRN`) and the
-//! 引擎参数 window (`SetKataEngines`). The engine runtime keeps what each engine confirmed; this
-//! module decides when the user's values may reach the foreground engine and remembers them.
+//! The foreground engine's search parameters. KataGo: PDA (`playoutDoublingAdvantage`, 激进度)
+//! and WRN (`analysisWideRootNoise`, 广度), the toolbar's two groups (`Menu.chkPDA` / `chkWRN`)
+//! and the 引擎参数 window (`SetKataEngines`). Leela Zero / Sai: the four `lz-setoption`
+//! options of their 引擎参数 window (`SetLeelaEngines`). The engine runtime keeps what each
+//! engine confirmed and applies the start-up values; this module decides when the user's values
+//! may reach the foreground engine and remembers them.
 
 use super::Workbench;
 use crate::api::{ApiError, GameKind, KataEngineParamsEdit, KataParamEdit, KataParamsView};
+use crate::engine::profile::LeelaOptionSettings;
 use crate::engine::runtime::{KataParam, LeaseAvailability};
 
 impl Workbench {
@@ -144,6 +147,30 @@ impl Workbench {
                 self.send_kata_param(param, value, row.enabled);
             }
         }
+        Ok(None)
+    }
+
+    /// Leela Zero / Sai 引擎参数 window 确定 (`SetLeelaEngines`): the four rows are saved as they
+    /// are, then each row with 修改 checked and a value goes to the foreground engine at once
+    /// (`lz-setoption`), which searches again; a row with 修改 and 自动加载 is set on every Leela
+    /// Zero / Sai start. Needs a ready Leela Zero / Sai in the foreground (another engine than
+    /// KataGo gets `LizzieFrame.setParamsWarning`); the values reach it only when it is free.
+    pub fn save_leela_engine_options(&mut self, options: LeelaOptionSettings) -> Result<Option<&'static str>, ApiError> {
+        if self.fox_owns_board() || self.fox_holds_engine() {
+            return Ok(Some("Fox.conflict"));
+        }
+        if matches!(
+            self.engines.exclusive_gtp_availability(),
+            LeaseAvailability::NoForegroundEngine | LeaseAvailability::EngineNotReady
+        ) {
+            return Ok(Some("LizzieFrame.setParamNoEngineHint"));
+        }
+        if !self.engines.foreground().is_some_and(|f| self.engines.takes_lz_options(f)) {
+            return Ok(Some("LizzieFrame.setParamsWarning"));
+        }
+        let edited = options.edited();
+        self.commit_config(|c| c.engine.leela_options = options)?;
+        self.engines.set_leela_options(&edited);
         Ok(None)
     }
 

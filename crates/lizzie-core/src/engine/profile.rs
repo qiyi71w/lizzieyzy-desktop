@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::runtime::LeelaOption;
+
 /// One configured engine (`EngineData`). Defaults are those of a new entry in Java.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
@@ -167,6 +169,8 @@ pub struct EngineSettings {
     pub kata_pda_enabled: bool,
     /// 广度, the start-up values and the toolbar's two groups (引擎参数 window).
     pub kata_params: KataParamSettings,
+    /// The Leela Zero / Sai 引擎参数 window (`SetLeelaEngines`).
+    pub leela_options: LeelaOptionSettings,
     /// `ui.enable-startup-benchmark` [false on a new profile, Config.applyFirstLaunchDefaults]:
     /// the user opted in to the official benchmark after start-up when the foreground KataGo has
     /// no stored result (Settings > Advanced).
@@ -237,6 +241,67 @@ impl Default for KataParamSettings {
             show_pda: true,
             show_wrn: true,
         }
+    }
+}
+
+/// One row of the Leela Zero / Sai 引擎参数 window: 修改 (`ui.chk-lzsai-engine<row>` [false]),
+/// 自动加载 (`ui.autoload-Lzsai-engine<row>` [false]) and the value as typed
+/// (`ui.txt-lzsai-engine<row>` [""]). 自动加载 keeps its tick while 修改 is off.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LeelaOptionSetting {
+    pub enabled: bool,
+    pub auto_load: bool,
+    pub value: String,
+}
+
+/// The four rows of the Leela Zero / Sai 引擎参数 window, global like Java's settings.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LeelaOptionSettings {
+    /// `mem`: `Maximum Memory Use (MiB)`.
+    pub memory: LeelaOptionSetting,
+    pub visits: LeelaOptionSetting,
+    pub lagbuffer: LeelaOptionSetting,
+    /// `resign`: `Resign Percentage`.
+    pub resign: LeelaOptionSetting,
+}
+
+impl LeelaOptionSettings {
+    pub fn get(&self, option: LeelaOption) -> &LeelaOptionSetting {
+        match option {
+            LeelaOption::Memory => &self.memory,
+            LeelaOption::Visits => &self.visits,
+            LeelaOption::Lagbuffer => &self.lagbuffer,
+            LeelaOption::Resign => &self.resign,
+        }
+    }
+
+    pub fn get_mut(&mut self, option: LeelaOption) -> &mut LeelaOptionSetting {
+        match option {
+            LeelaOption::Memory => &mut self.memory,
+            LeelaOption::Visits => &mut self.visits,
+            LeelaOption::Lagbuffer => &mut self.lagbuffer,
+            LeelaOption::Resign => &mut self.resign,
+        }
+    }
+
+    /// The rows whose value is sent now: 修改 checked (`SetLeelaEngines` 确定).
+    pub fn edited(&self) -> Vec<(LeelaOption, String)> {
+        self.rows(|r| r.enabled)
+    }
+
+    /// The rows every Leela Zero / Sai start gets: 修改 and 自动加载 checked.
+    pub fn auto_loaded(&self) -> Vec<(LeelaOption, String)> {
+        self.rows(|r| r.enabled && r.auto_load)
+    }
+
+    fn rows(&self, take: impl Fn(&LeelaOptionSetting) -> bool) -> Vec<(LeelaOption, String)> {
+        LeelaOption::ALL
+            .into_iter()
+            .filter(|&o| take(self.get(o)))
+            .map(|o| (o, self.get(o).value.clone()))
+            .collect()
     }
 }
 

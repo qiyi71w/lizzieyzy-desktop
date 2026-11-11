@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use lizzie_core::api::{AnalysisScope, EngineNotice, EngineScope, KataEngineParamsEdit, KataParamEdit};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
-use lizzie_core::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup};
+use lizzie_core::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup, LeelaOptionSetting, LeelaOptionSettings};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, KataParam, Launcher};
 use lizzie_core::formats::sgf;
 use lizzie_core::record::RecordFormat;
@@ -1837,4 +1837,89 @@ fn kata_parameters_need_a_ready_katago_in_the_foreground() {
     assert_eq!(wb.save_kata_engine_params(edit).unwrap(), Some("SetKataRules.notKataGoHint"));
     assert!(world.take(id).is_empty());
     assert!(!wb.config().engine.kata_params.auto_load_wrn, "a refused window saves nothing");
+}
+
+const LEELA: &str = "name\nversion\nlist_commands\nkomi\nboardsize\nclear_board\nplay\nundo\nlz-analyze\nlz-setoption\nclear_cache";
+
+fn option(enabled: bool, auto_load: bool, value: &str) -> LeelaOptionSetting {
+    LeelaOptionSetting { enabled, auto_load, value: value.into() }
+}
+
+/// SetLeelaEngines 确定 sends each row with 修改 checked at once (an empty value sends nothing)
+/// and the engine searches again; Leelaz.setLeelaSaiEnginePara sends the rows with 修改 and
+/// 自动加载 on every Leela Zero / Sai start. 自动加载 keeps its tick while 修改 is off.
+#[test]
+fn the_leela_window_sends_checked_options_now_and_auto_loaded_ones_on_every_start() {
+    for name in ["Leela Zero", "sai 0.18"] {
+        let dir = tempfile::tempdir().unwrap();
+        let world = World::default();
+        let (mut wb, id, start) = start_family(dir.path(), &world, name, LEELA);
+        assert!(!start.iter().any(|c| c.starts_with("lz-setoption")), "nothing is auto-loaded yet: {start:?}");
+        let options = LeelaOptionSettings {
+            memory: option(true, true, "4096"),
+            visits: option(true, false, "800"),
+            lagbuffer: option(false, true, "5"),
+            resign: option(true, true, " "),
+        };
+        assert_eq!(wb.save_leela_engine_options(options.clone()).unwrap(), None);
+        let sent = answer_family(&mut wb, &world, id, name, LEELA);
+        assert_eq!(
+            sent,
+            [
+                "lz-setoption name Maximum Memory Use (MiB) value 4096",
+                "lz-setoption name Visits value 800",
+                "lz-analyze B 10",
+            ],
+            "{name}: the analysis searches again after the options"
+        );
+        assert_eq!(wb.config().engine.leela_options, options, "{name}: the rows are saved as they are");
+
+        wb.restart_engine().unwrap();
+        let id = world.launched().last().unwrap().0;
+        let start = answer_family(&mut wb, &world, id, name, LEELA);
+        let set: Vec<&String> = start.iter().filter(|c| c.starts_with("lz-setoption")).collect();
+        assert_eq!(set, ["lz-setoption name Maximum Memory Use (MiB) value 4096"], "{name}: {start:?}");
+        let analyse = start.iter().position(|c| c.starts_with("lz-analyze")).unwrap();
+        assert!(start.iter().position(|c| c.starts_with("lz-setoption")).unwrap() < analyse);
+    }
+}
+
+/// Only Leela Zero and Sai take `lz-setoption`: KataGo has its own window, and any other engine
+/// (Sayuri; Pachi, which Java counts as Leela for analysis) gets Java's not-Leela/Sai notice
+/// instead of options it would refuse; none gets the auto-loaded options at start-up.
+#[test]
+fn leela_options_reach_only_leela_zero_and_sai() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    let options = LeelaOptionSettings { visits: option(true, true, "800"), ..LeelaOptionSettings::default() };
+    assert_eq!(wb.save_leela_engine_options(options.clone()).unwrap(), Some("LizzieFrame.setParamNoEngineHint"));
+    wb.save_engine_settings(
+        vec![
+            profile("Leela", "/opt/leelaz"),
+            profile("KataGo", "/opt/katago"),
+            profile("Sayuri", "/opt/sayuri"),
+            profile("Pachi", "/opt/pachi"),
+        ],
+        EngineStartup::Default,
+    )
+    .unwrap();
+    wb.start_engines();
+    let leela = world.launched()[0].0;
+    answer_family(&mut wb, &world, leela, "Leela Zero", LEELA);
+    assert!(wb.view(false).engine.foreground.unwrap().leela_sai);
+    assert_eq!(wb.save_leela_engine_options(options.clone()).unwrap(), None);
+    answer_family(&mut wb, &world, leela, "Leela Zero", LEELA);
+
+    for (index, name) in [(1, "KataGo"), (2, "Sayuri"), (3, "Pachi 12.84")] {
+        assert!(wb.switch_engine(index).unwrap());
+        let id = world.launched().last().unwrap().0;
+        let start = answer_family(&mut wb, &world, id, name, &format!("{LEELA}\nkata-analyze"));
+        assert!(!start.iter().any(|c| c.starts_with("lz-setoption")), "{name}: {start:?}");
+        assert!(!wb.view(false).engine.foreground.unwrap().leela_sai, "{name}");
+        let other = LeelaOptionSettings::default();
+        assert_eq!(wb.save_leela_engine_options(other).unwrap(), Some("LizzieFrame.setParamsWarning"), "{name}");
+        assert!(world.take(id).is_empty(), "{name}");
+        assert_eq!(wb.config().engine.leela_options, options, "{name}: a refused window saves nothing");
+    }
 }

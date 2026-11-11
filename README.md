@@ -269,8 +269,8 @@ importing the matching LizzieYzy Next settings.
   - 空棋盘停止计算 (off by default): an ordinary analysis of the empty board (the root without
     setup stones) stops at its first result, without the limit notice; resuming it with `Space`
     searches on until the position changes. Games, engine matches and 自动分析 are not stopped.
-- KataGo search parameters (standard KataGo in the foreground; Leela Zero, Sai and `KataGoPda`
-  builds have their own parameters):
+- KataGo search parameters (standard KataGo in the foreground; Leela Zero and Sai have the options
+  below, `KataGoPda` builds their own parameters):
   - Top toolbar 激进度 (`playoutDoublingAdvantage`) and 广度 (`analysisWideRootNoise`): ticking the
     box or each edit of the value sends `kata-set-param` at once and the analysis searches again;
     unticking sends 0. A value outside -3..3 (激进度) or 0..2 (广度) only turns the field red and is
@@ -292,6 +292,17 @@ importing the matching LizzieYzy Next settings.
     not available yet. The eight Java keys of these controls are taken over by the LizzieYzy Next
     import. Function search shows a hidden group, and a hidden top toolbar, for the current run
     without changing the saved choices.
+- Leela Zero / Sai options: with Leela Zero or Sai in the foreground, 设置 > 引擎参数 (`Alt+D`) or the
+  toolbar's 参数 opens 设置Leela(Sai)引擎高级参数 with Java's four rows (最大内存, 访问量, 延迟缓冲,
+  认输胜率; the labels give Java's ranges, which are not checked). 确定 saves the rows and sends
+  `lz-setoption name <option> value <value>` for each row whose 修改 is ticked, then the analysis
+  searches again; an empty value sends nothing. A row with 修改 and 自动加载 is sent to every Leela
+  Zero / Sai that starts. In an analysis-mode engine match, 访问量's 自动加载 sends
+  `lz-setoption name Visits value 1000000000` to the Leela Zero / Sai participants before the
+  game. The rows are global, as in Java, and the twelve Java keys are taken over by the
+  LizzieYzy Next import. Other engines never get `lz-setoption`: for an engine that is neither
+  KataGo nor Leela Zero / Sai (Sayuri, Pachi, Leela 0.11, unknown engines) the entry shows Java's
+  "not Leela or Sai" notice instead of the window, where Java would open it.
 - 显示 > 选点信息 > 总是显示黑胜率/目数 and 显示 > KataGo相关设置 > 目数显示 (计算贴目后目数差 /
   盘面目数差) are Java's two shared settings, both off by default, saved and taken over by the
   LizzieYzy Next import. The board candidates and the candidate table show the side to move, or

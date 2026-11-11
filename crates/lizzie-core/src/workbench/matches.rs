@@ -215,6 +215,7 @@ impl Workbench {
             | Command::SetKataRules { .. }
             | Command::SetKataParam { .. }
             | Command::SaveKataEngineParams { .. }
+            | Command::SaveLeelaEngineOptions { .. }
             | Command::ToggleRawNet
             | Command::StopRawNet
             | Command::StartFlashAnalysis { .. }
@@ -848,6 +849,14 @@ impl Workbench {
                     }
                 }
                 commands.push("kata-set-param analysisWideRootNoise 0".into());
+            }
+            // EngineManager.java:2607-2617 (分析模式对战): Visits 自动加载 lifts a Leela Zero / Sai
+            // participant's visit limit for the match; Java sends it to KataGo as well.
+            if values.kind == GameKind::Analysis
+                && self.config.engine.leela_options.visits.auto_load
+                && self.engines.takes_lz_options(id)
+            {
+                commands.push("lz-setoption name Visits value 1000000000".into());
             }
             if self.engines.has_command(id, "clear_cache") {
                 commands.push("clear_cache".into());

@@ -1,13 +1,15 @@
 // 引擎参数 (LizzieFrame.setLzSaiEngine, LizzieFrame.java:13109-13121) and its KataGo window
-// (SetKataEngines.java). The toolbar's 激进度 / 广度 groups are in chrome/toolbar.ts.
+// (SetKataEngines.java); the Leela Zero / Sai window is engine/leelaOptions.ts. The toolbar's
+// 激进度 / 广度 groups are in chrome/toolbar.ts.
 import { invoke } from "@tauri-apps/api/core";
-import { run, state, unavailable } from "../app";
+import { run, state } from "../app";
 import type { KataParam, KataParamEdit } from "../contract/generated";
 import { formPanel, message } from "../dialogs";
 import { product, t } from "../i18n";
 import { matchPlaying } from "../match/state";
 import { javaDouble, parseJavaDouble } from "../workbench/paint";
 import { actions, button } from "./controls";
+import { openLeelaEngines } from "./leelaOptions";
 
 /** Leelaz.isKataGoPda: a KataGoPda build sets its PDA in its own window, not here. */
 export function kataGoPda(): boolean {
@@ -39,13 +41,15 @@ export function kataValueInvalid(param: KataParam, text: string): boolean {
   return v === null || (param === "Pda" ? v < -3 || v > 3 : v < 0 || v > 2);
 }
 
-/** setLzSaiEngine: no loaded engine → the hint; KataGo → SetKataEngines; Leela Zero / Sai
- *  (SetLeelaEngines) is not migrated yet. */
+/** setLzSaiEngine: no loaded engine → the hint; KataGo → SetKataEngines; Leela Zero / Sai →
+ *  SetLeelaEngines. Java opens SetLeelaEngines for every other engine too, whose options would
+ *  not apply; those get Java's not-Leela/Sai notice instead. */
 export async function openEngineParameters(): Promise<void> {
   const foreground = state.view?.engine.foreground;
   if (!foreground?.ready) { await message(t("Message.title"), t("LizzieFrame.setParamNoEngineHint")); return; }
-  if (!foreground.katago) { unavailable(); return; }
-  await openKataEngines();
+  if (foreground.katago) { await openKataEngines(); return; }
+  if (foreground.leela_sai) { await openLeelaEngines(); return; }
+  await message(t("Message.title"), t("LizzieFrame.setParamsWarning"));
 }
 
 /** The red / blue parts and the 这里 link of SetKataEngines.Hint2 (LinkLabel). */

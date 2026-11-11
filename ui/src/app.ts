@@ -100,6 +100,7 @@ export function run(command: Command): Promise<CommandResult | null> {
         const messages: Record<string, string> = {
           "SetKataRules.notKataGoHint": t("SetKataRules.notKataGoHint"),
           "LizzieFrame.setParamNoEngineHint": t("LizzieFrame.setParamNoEngineHint"),
+          "LizzieFrame.setParamsWarning": t("LizzieFrame.setParamsWarning"),
           "product.consoleBoardCommand": product("consoleBoardCommand"),
           "product.importStale": product("importStale"),
           "product.importNeedsReplace": product("importNeedsReplace"),

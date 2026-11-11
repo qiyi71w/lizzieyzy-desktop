@@ -1636,6 +1636,38 @@ fn katago_parameter_keys_import_like_java_reads_them() {
 }
 
 #[test]
+fn leela_option_keys_import_like_java_reads_them() {
+    // Config.java:881-895, 1983-1997: optBoolean flags (note `autoload-Lzsai-…`) and the values
+    // as text, kept as they are.
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let source = json!({"ui": {
+        "chk-lzsai-enginemem": true, "autoload-Lzsai-enginemem": true, "txt-lzsai-enginemem": "4096",
+        "chk-lzsai-enginevisits": false, "autoload-Lzsai-enginevisits": true, "txt-lzsai-enginevisits": "800",
+        "chk-lzsai-enginelagbuffer": true, "autoload-Lzsai-enginelagbuffer": false, "txt-lzsai-enginelagbuffer": "",
+        "chk-lzsai-engineresign": "nope", "autoload-Lzsai-engineresign": true, "txt-lzsai-engineresign": "abc",
+    }});
+    std::fs::write(java.join("config.txt"), source.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    for row in ["mem", "visits", "lagbuffer", "resign"] {
+        for key in [format!("ui.chk-lzsai-engine{row}"), format!("ui.autoload-Lzsai-engine{row}"), format!("ui.txt-lzsai-engine{row}")] {
+            let item = item(&p.items, &key);
+            let status = if key == "ui.chk-lzsai-engineresign" { ImportStatus::Incompatible } else { ImportStatus::Imported };
+            assert_eq!((item.status, item.target), (status, Some(ImportTarget::LeelaOptions)), "{key}");
+        }
+    }
+    wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
+    let o = saved_config(&product).engine.leela_options;
+    assert_eq!((o.memory.enabled, o.memory.auto_load, o.memory.value.as_str()), (true, true, "4096"));
+    assert_eq!((o.visits.enabled, o.visits.auto_load, o.visits.value.as_str()), (false, true, "800"));
+    assert_eq!((o.lagbuffer.enabled, o.lagbuffer.auto_load, o.lagbuffer.value.as_str()), (true, false, ""));
+    assert_eq!((o.resign.enabled, o.resign.auto_load, o.resign.value.as_str()), (false, true, "abc"), "an unreadable flag keeps Java's default");
+}
+
+#[test]
 fn hawkeye_settings_import_like_java_reads_them() {
     // Config.java:1801-1827, 1891-1893, 1947-1956, 2021-2024; MoveListFrame.setFilterStatus.
     let tmp = tempfile::tempdir().unwrap();

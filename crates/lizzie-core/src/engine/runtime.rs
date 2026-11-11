@@ -76,6 +76,37 @@ pub enum EngineKind {
     Other,
 }
 
+/// A Leela Zero / Sai option of the 引擎参数 window (`SetLeelaEngines`, `lz-setoption`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LeelaOption {
+    Memory,
+    Visits,
+    Lagbuffer,
+    Resign,
+}
+
+impl LeelaOption {
+    pub const ALL: [LeelaOption; 4] = [LeelaOption::Memory, LeelaOption::Visits, LeelaOption::Lagbuffer, LeelaOption::Resign];
+
+    pub fn gtp_name(self) -> &'static str {
+        match self {
+            LeelaOption::Memory => "Maximum Memory Use (MiB)",
+            LeelaOption::Visits => "Visits",
+            LeelaOption::Lagbuffer => "Lagbuffer",
+            LeelaOption::Resign => "Resign Percentage",
+        }
+    }
+
+    /// `lz-setoption name <option> value <value>` with the value as typed: Java checks no range
+    /// (`SetLeelaEngines.java:76-92`). `None` for an empty value, which sends nothing, or one
+    /// with a line break, which would end the command early.
+    pub fn command(self, value: &str) -> Option<String> {
+        let value = value.trim();
+        (!value.is_empty() && !value.chars().any(char::is_control))
+            .then(|| format!("lz-setoption name {} value {value}", self.gtp_name()))
+    }
+}
+
 /// A KataGo search parameter of the toolbar and the 引擎参数 window (`kata-set-param`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
 pub enum KataParam {
@@ -596,6 +627,9 @@ pub struct Bootstrap {
     /// is not sent to a `KataGoPda` engine (`Leelaz.setKataEnginePara`).
     pub pda: Option<f64>,
     pub wrn: Option<f64>,
+    /// Options set on Leela Zero / Sai after start-up (`setLeelaSaiEnginePara`: 修改 and
+    /// 自动加载 both checked).
+    pub leela_options: Vec<(LeelaOption, String)>,
 }
 
 /// A start whose launch overlays depend on artifact content (measured or Apple tuning). Java
@@ -784,6 +818,12 @@ impl Instance {
 
     fn has(&self, command: &str) -> bool {
         self.commands.iter().any(|c| c == command)
+    }
+
+    /// Leela Zero and Sai take `lz-setoption` (the Leela 引擎参数 window, `SetLeelaEngines`).
+    /// Pachi, which Java counts as Leela for analysis, is not one of them.
+    fn takes_lz_options(&self) -> bool {
+        matches!(self.kind, EngineKind::LeelaZero | EngineKind::Sai) && !self.gtp_name.to_lowercase().starts_with("pachi")
     }
 
     fn dialect(&self) -> Option<Dialect> {
@@ -1006,6 +1046,11 @@ impl Engines {
 
     pub fn is_katago(&self, id: InstanceId) -> bool {
         self.get(id).is_some_and(|i| i.kind == EngineKind::KataGo)
+    }
+
+    /// Leela Zero or Sai, which take `lz-setoption`.
+    pub fn takes_lz_options(&self, id: InstanceId) -> bool {
+        self.get(id).is_some_and(Instance::takes_lz_options)
     }
 
     pub fn supports(&self, id: InstanceId, command: &str) -> bool {
@@ -2010,6 +2055,31 @@ impl Engines {
         true
     }
 
+    /// The Leela 引擎参数 window's `lz-setoption`s to the foreground engine, when it is a ready
+    /// Leela Zero / Sai that nothing else holds (not unrestored, not held by GMA). A search it is
+    /// running stops and, once the engine answered, the seat's wish searches again
+    /// (`SetLeelaEngines`: `isPondering` → `ponder`). Returns whether anything was sent.
+    pub fn set_leela_options(&mut self, options: &[(LeelaOption, String)]) -> bool {
+        let Some(id) = self.foreground else { return false };
+        // A free, ready engine that is not KataGo gets no further than `NotKatago`.
+        if !self.takes_lz_options(id) || self.exclusive_gtp_availability() != LeaseAvailability::NotKatago {
+            return false;
+        }
+        let commands: Vec<String> = options.iter().filter_map(|(o, v)| o.command(v)).collect();
+        if commands.is_empty() {
+            return false;
+        }
+        let inst = self.get_mut(id).unwrap();
+        if let Some(old) = inst.stream {
+            inst.requests.retain(|(r, _)| *r != old);
+        }
+        for c in commands {
+            self.send(id, &c, Purpose::Setup);
+        }
+        self.fence_last(id);
+        true
+    }
+
     /// `refreshCurrentMove` for seat `id`: the engine drops its search cache (`clear_cache`,
     /// only when it lists the command), and an analysis it is running starts again
     /// (`ponder`). Nothing goes to an engine that is starting, lent out, unrestored or playing.
@@ -2417,7 +2487,7 @@ impl Engines {
     /// and the rules query; the answer to the last of them marks the engine ready.
     fn boot_setup(&mut self, id: InstanceId) {
         let Some(inst) = self.get_mut(id) else { return };
-        let boot = inst.boot.take().unwrap_or(Bootstrap { komi: 7.5, rules: None, pda: None, wrn: None });
+        let boot = inst.boot.take().unwrap_or(Bootstrap { komi: 7.5, rules: None, pda: None, wrn: None, leela_options: Vec::new() });
         let (w, h) = (inst.profile.width.max(1), inst.profile.height.max(1));
         let mut cmds = vec![format!("komi {}", komi_text(boot.komi))];
         cmds.push(if w == h || !inst.has("rectangular_boardsize") {
@@ -2433,6 +2503,10 @@ impl Engines {
                 .filter(|c| !c.is_empty())
                 .map(str::to_string),
         );
+        // `setLeelaSaiEnginePara`, once the engine is known not to be KataGo.
+        if inst.takes_lz_options() {
+            cmds.extend(boot.leela_options.iter().filter_map(|(o, v)| o.command(v)));
+        }
         let katago = inst.kind == EngineKind::KataGo;
         // `setKataEnginePara`: the auto-loaded PDA, the launch threads, then the auto-loaded WRN.
         let set_param = katago && inst.has("kata-set-param");

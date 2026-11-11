@@ -92,7 +92,7 @@ pub enum StrengthManualOutcome {
 }
 
 use crate::browse::Navigation;
-use crate::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup, KataParamSettings};
+use crate::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup, KataParamSettings, LeelaOptionSettings};
 use crate::engine::runtime::KataParam;
 use crate::record::{BoardSize, GameInfo, Mark, NodeId, Point, RecordFormat, Stone};
 use crate::settings::{EditSettings, Language};
@@ -332,6 +332,12 @@ pub enum Command {
     /// KataGo gets each parameter's value (0 when unchecked).
     SaveKataEngineParams {
         params: KataEngineParamsEdit,
+    },
+    /// Leela Zero / Sai 引擎参数 window (`SetLeelaEngines`) 确定: the four rows are saved as they
+    /// are, then each row with 修改 checked and a value goes to the foreground engine
+    /// (`lz-setoption`), which searches again.
+    SaveLeelaEngineOptions {
+        options: LeelaOptionSettings,
     },
     /// GtpConsolePane: send a raw command to the foreground engine.
     SendGtpCommand {
@@ -1316,6 +1322,8 @@ pub struct EngineSettingsView {
     pub kata_pda: Option<f64>,
     pub kata_pda_enabled: bool,
     pub kata_params: KataParamSettings,
+    /// The Leela Zero / Sai 引擎参数 window's rows.
+    pub leela_options: LeelaOptionSettings,
 }
 
 /// One parameter row of the 引擎参数 window: 修改, the value field (`None` when it is not a
@@ -1594,6 +1602,8 @@ pub enum ImportTarget {
     KataParamAutoLoad,
     /// `ui.show-pda-in-menu` / `ui.show-wrn-in-menu`.
     KataParamToolbar,
+    /// `ui.chk-lzsai-engine*`, `ui.autoload-Lzsai-engine*` and `ui.txt-lzsai-engine*`.
+    LeelaOptions,
     /// `ui.enable-startup-benchmark`.
     StartupBenchmark,
     /// `ui.network-proxy-mode` / `-host` / `-port`.
@@ -1876,6 +1886,8 @@ pub struct ForegroundEngineView {
     pub gtp_name: String,
     pub version: String,
     pub katago: bool,
+    /// Leela Zero or Sai: its 引擎参数 window is the Leela one (`lz-setoption`).
+    pub leela_sai: bool,
     /// Speaks `kata-analyze` / `lz-analyze`.
     pub can_analyse: bool,
     /// Identified and synced to the current position: the switch is complete.

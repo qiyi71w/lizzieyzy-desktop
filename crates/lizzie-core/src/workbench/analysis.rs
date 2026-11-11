@@ -686,6 +686,7 @@ impl Workbench {
             rules,
             pda: p.auto_load_pda_value.filter(|_| p.auto_load_pda),
             wrn: p.auto_load_wrn_value.filter(|_| p.auto_load_wrn),
+            leela_options: s.leela_options.auto_loaded(),
         }
     }
 
@@ -1751,6 +1752,7 @@ impl Workbench {
                 gtp_name,
                 version,
                 katago: self.engines.is_katago(f),
+                leela_sai: self.engines.takes_lz_options(f),
                 can_analyse: self.engines.can_analyse(f),
                 ready: self.engines.foreground_complete(),
                 commands: self.engines.known_commands(f),
@@ -1801,6 +1803,7 @@ impl Workbench {
             kata_pda: s.kata_pda,
             kata_pda_enabled: s.kata_pda_enabled,
             kata_params: s.kata_params.clone(),
+            leela_options: s.leela_options.clone(),
         }
     }
 
