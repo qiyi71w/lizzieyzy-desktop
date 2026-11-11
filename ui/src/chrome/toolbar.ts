@@ -9,7 +9,7 @@ import { boardUi, onBoardUiChange } from "../display/state";
 import { choosePlacement, placementLit } from "../editing/commands";
 import { editing, markupToolsShown, onEditingChange } from "../editing/state";
 import { product, t } from "../i18n";
-import { javaDouble } from "../workbench/paint";
+import { javaDouble, parseJavaDouble } from "../workbench/paint";
 import type { MenuNode } from "./javaMenus";
 import { openPopupMenu } from "./menubar";
 import { FLASH_MENU } from "../quick/flash";
@@ -18,6 +18,8 @@ import { limitPopup } from "../analysis/region";
 import { clockText } from "../game/commands";
 import { matchPlaying } from "../match/state";
 import { foxOwnsEngine, submitFoxPda } from "../fox/dialog";
+import type { KataParam } from "../contract/generated";
+import { kataGoPda, kataRevealed, kataToolbarState, kataToolbarUse, kataValueInvalid } from "../engine/kataParams";
 import "../editing/chrome.css";
 import "../strength/commands";
 
@@ -217,21 +219,6 @@ function withColon(text: string): string {
   return text.endsWith(":") || text.endsWith("：") ? text : `${text}:`;
 }
 
-/** A Java check box whose setting belongs to a later slice: shown, not changeable. */
-function check(checked: boolean): HTMLElement {
-  const c = document.createElement("input");
-  c.type = "checkbox";
-  c.className = "tb-check unavailable";
-  c.checked = checked;
-  c.tabIndex = -1;
-  c.title = product("unavailable");
-  c.onclick = (e) => {
-    e.preventDefault();
-    unavailable();
-  };
-  return c;
-}
-
 /** 选点 黑 / 白 (chkShowBlack / chkShowWhite, Menu.java:9714-9753): one colour's candidates. */
 function candidateCheck(text: string, black: boolean): HTMLElement {
   const c = document.createElement("input");
@@ -247,85 +234,142 @@ function candidateCheck(text: string, black: boolean): HTMLElement {
   return l;
 }
 
-function field(id?: string): HTMLInputElement {
-  const c = document.createElement("input");
-  c.className = "tb-input unavailable";
-  c.readOnly = true;
-  c.tabIndex = -1;
-  c.title = product("unavailable");
-  if (id) c.id = id;
-  return c;
-}
-
 /** The PDA statuses on which FoxLiveSession republishes the confirmed value (publishConfirmedPda):
  *  a dynamic / unverified refusal and a failed update. */
 const PDA_REPUBLISH: Record<string, true> = { "Fox.pdaDynamic": true, "Fox.pdaUnknown": true, "Fox.pdaFailed": true };
 
-/** chkPDA / txtGfPDA (Menu.java:6315-6447, setUseGfPda 11124-11131). While 野狐 AI 直连 holds the
- *  engine every check and every text edit is the session's PDA intent (FoxLiveSession.submitPda)
- *  and the controls show its confirmed value whenever that changes, and again after an intent is
- *  refused or an update fails; otherwise they keep the ordinary look of a parameter not migrated
- *  yet. */
-function pdaGroup(): HTMLElement {
-  const box = check(false) as HTMLInputElement;
-  const value = field();
-  box.dataset.key = "toolbar.pda";
-  value.dataset.key = "toolbar.pda-value";
-  let shown: number | null = null;
-  let shownStatus = "";
-  let edits = 0;
+/** Menu.setPdaAndWrnByEngineForDouble (Menu.java:9970-10030): a group shows while the foreground
+ *  engine is KataGo, no engine game is starting or playing, and its show-*-in-menu is on (or
+ *  function search revealed it for this run). A KataGoPda engine has its own PDA panel instead.
+ *  While 野狐 AI 直连 holds the engine its 激进度 stays shown, as it was before these settings. */
+function kataGroupShown(param: KataParam): boolean {
+  const v = state.view;
+  if (param === "Pda" && foxOwnsEngine()) return true;
+  if (!v?.engine.foreground?.katago || v.engine_match?.phase === "Starting" || matchPlaying(v)) return false;
+  if (param === "Pda" && kataGoPda()) return false;
+  const saved = v.settings.engine.kata_params;
+  return kataRevealed[param] || (param === "Pda" ? saved.showPda : saved.showWrn);
+}
+
+/** 激进度 chkPDA / txtGfPDA and 广度 chkWRN / txtWRN (Menu.java:6174-6447). The check box or each
+ *  edit of the value sends the value (0 when unchecked or not a number) to the foreground KataGo at
+ *  once; a value outside -3..3 / 0..2 only turns the field red. The group shows the values the
+ *  engine reports when it starts (Menu.setPdaAndWrn), not the answers to its own sets, and is
+ *  disabled while the engine is not free for it (refreshBreadthAdmission).
+ *
+ *  While 野狐 AI 直连 holds the engine every PDA check and text edit is the session's PDA intent
+ *  (FoxLiveSession.submitPda) and the PDA controls show its confirmed value whenever that changes,
+ *  and again after an intent is refused or an update fails (setUseGfPda, Menu.java:11124-11131). */
+function kataGroup(param: KataParam): HTMLElement {
+  const pda = param === "Pda";
+  const tip = pda ? t("Menu.chkPDA.toolTopText") : t("Menu.chkWRN.toolTopText");
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.className = "tb-check";
+  box.tabIndex = -1;
+  box.title = tip;
+  const value = document.createElement("input");
+  value.className = "tb-input";
+  value.title = tip;
+  box.dataset.key = pda ? "toolbar.pda" : "toolbar.wrn";
+  value.dataset.key = pda ? "toolbar.pda-value" : "toolbar.wrn-value";
+  const foxLive = () => pda && foxOwnsEngine();
+  // The foreground engine's read-back last shown; `undefined` shows the next one in any case.
+  let shownReadBack: string | null | undefined = undefined;
+  let wasFox = false;
+  const use = (enabled: boolean, text: string) => {
+    box.checked = enabled;
+    value.value = text;
+    value.disabled = box.disabled || !enabled;
+    value.classList.toggle("invalid", kataValueInvalid(param, text));
+  };
+  kataToolbarUse[param] = use;
+  kataToolbarState[param] = () => ({ enabled: box.checked, text: value.value });
+  const send = (enabled: boolean) => {
+    const v = enabled ? (parseJavaDouble(value.value) ?? 0) : 0;
+    void run({ type: "SetKataParam", param, enabled, value: v });
+  };
+
+  let foxShown: number | null = null;
+  let foxStatus = "";
+  let foxEdits = 0;
   // Assigning the controls fires neither click nor input, so showing sends no new intent.
-  const show = (confirmed: number | null) => {
-    shown = confirmed;
+  const foxShow = (confirmed: number | null) => {
+    foxShown = confirmed;
     box.checked = confirmed !== null && confirmed !== 0;
     value.value = confirmed === null ? "" : javaDouble(confirmed);
     value.disabled = confirmed !== null && confirmed === 0;
   };
   // A refusal leaves the status as it was when the same draft is refused again, so the view
   // after each intent decides; only the latest edit may reset the controls it was typed into.
-  const submit = (draft: string) => {
-    const edit = ++edits;
+  const foxSubmit = (draft: string) => {
+    const edit = ++foxEdits;
     void submitFoxPda(draft).then((fox) => {
-      if (fox && edit === edits && foxOwnsEngine() && PDA_REPUBLISH[fox.pda_status_key] === true) show(fox.confirmed_pda);
+      if (fox && edit === foxEdits && foxOwnsEngine() && PDA_REPUBLISH[fox.pda_status_key] === true) foxShow(fox.confirmed_pda);
     });
   };
-  box.onclick = (e) => {
-    if (!foxOwnsEngine()) {
-      e.preventDefault();
-      unavailable();
+
+  box.onclick = () => {
+    value.disabled = !box.checked;
+    if (foxLive()) {
+      foxSubmit(box.checked ? value.value : "0");
       return;
     }
-    submit(box.checked ? value.value : "0");
-    value.disabled = !box.checked;
+    if (!box.checked && value.classList.contains("invalid")) {
+      value.value = "";
+      value.classList.remove("invalid");
+    }
+    send(box.checked);
   };
   value.addEventListener("input", () => {
-    if (foxOwnsEngine()) submit(value.value);
-  });
-  updaters.push(() => {
-    const live = foxOwnsEngine();
-    for (const control of [box, value]) {
-      control.classList.toggle("unavailable", !live);
-      control.tabIndex = live ? 0 : -1;
-      control.title = live ? t("Menu.chkPDA.toolTopText") : product("unavailable");
+    if (foxLive()) {
+      foxSubmit(value.value);
+      return;
     }
-    value.readOnly = !live;
-    const confirmed = live ? (state.view?.fox.confirmed_pda ?? null) : null;
-    const status = live ? (state.view?.fox.pda_status_key ?? "") : "";
-    const republish = status !== shownStatus && PDA_REPUBLISH[status] === true;
-    shownStatus = status;
-    if (confirmed === shown && !republish) return;
-    show(confirmed);
+    value.classList.toggle("invalid", kataValueInvalid(param, value.value));
+    send(box.checked);
   });
-  return group("pda", box, label(withColon(t("Menu.separateLblPda"))), value);
+  const name = pda ? t("Menu.separateLblPda") : t("Menu.separateLblWrn");
+  const g = group(pda ? "pda" : "wrn", at(pda ? "engine.pda" : "toolbar.wrn", box), label(withColon(name)), value);
+  updaters.push(() => {
+    const display = kataGroupShown(param) ? "" : "none";
+    if (g.style.display !== display) g.style.display = display;
+    if (foxLive()) {
+      box.disabled = false;
+      const confirmed = state.view?.fox.confirmed_pda ?? null;
+      const status = state.view?.fox.pda_status_key ?? "";
+      const republish = status !== foxStatus && PDA_REPUBLISH[status] === true;
+      foxStatus = status;
+      if (!wasFox || confirmed !== foxShown || republish) foxShow(confirmed);
+      wasFox = true;
+      return;
+    }
+    if (wasFox) {
+      // The session gave the engine back: show the engine's own value again.
+      wasFox = false;
+      foxStatus = "";
+      shownReadBack = undefined;
+    }
+    const params = state.view?.engine.kata_params;
+    box.disabled = ((pda ? params?.pda_unavailable : params?.wrn_unavailable) ?? null) !== null;
+    value.disabled = box.disabled || !box.checked;
+    const readBack = (pda ? params?.pda_read_back : params?.wrn_read_back) ?? null;
+    if (readBack === shownReadBack || document.activeElement === value) return;
+    shownReadBack = readBack;
+    const reported = (pda ? params?.pda : params?.wrn) ?? null;
+    if (reported !== null) use(reported !== 0, reported === 0 ? "0" : javaDouble(reported));
+  });
+  return g;
 }
 
-/** chkWRN: 广度 is disabled while 野狐 AI 直连 holds the engine (Menu.refreshBreadthAdmission). */
-function breadthCheck(): HTMLElement {
-  const c = check(false) as HTMLInputElement;
+/** sepForPdaWrn: the separator after the komi panel goes with the last PDA / WRN group. */
+function kataSeparator(): HTMLElement {
+  const s = sep("dash");
   updaters.push(() => {
-    c.disabled = foxOwnsEngine();
+    const display = kataGroupShown("Pda") || kataGroupShown("Wrn") ? "" : "none";
+    if (s.style.display !== display) s.style.display = display;
   });
-  return c;
+  return s;
 }
 
 function komiSpinner(): HTMLElement {
@@ -505,10 +549,9 @@ export function buildToolbar(host: HTMLElement): void {
     ...gameControls(),
     sep(),
     group("komi", label(t("Menu.komi")), komiField(), komiSpinner()),
-    sep("dash"),
-    // KataGo parameter fields stay empty and unchecked without an engine
-    pdaGroup(),
-    group("wrn", at("toolbar.wrn", breadthCheck()), label(withColon(t("Menu.separateLblWrn"))), field()),
+    kataSeparator(),
+    kataGroup("Pda"),
+    kataGroup("Wrn"),
     sep(),
     label(t("Menu.lblShowCandidate")),
     at("toolbar.candidate-sides", candidateCheck(t("Menu.Black"), true)),
@@ -516,7 +559,7 @@ export function buildToolbar(host: HTMLElement): void {
     sep(),
     pill(t("Menu.rulesBtn"), "small", "engine.rules"),
     tsumegoButton(),
-    pill(t("Menu.paramsBtn"), "small"),
+    pill(t("Menu.paramsBtn"), "small", "engine.parameters"),
     pill(t("Menu.gobanBtn"), "small"),
     pill(t("Menu.saveBtn"), "small", "menu.saveAndLoad"),
     clockLabel(),

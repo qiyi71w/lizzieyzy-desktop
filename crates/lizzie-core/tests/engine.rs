@@ -4,11 +4,11 @@
 
 use std::sync::{Arc, Mutex};
 
-use lizzie_core::api::{AnalysisScope, EngineNotice, EngineScope};
+use lizzie_core::api::{AnalysisScope, EngineNotice, EngineScope, KataEngineParamsEdit, KataParamEdit};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup};
-use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
+use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, KataParam, Launcher};
 use lizzie_core::formats::sgf;
 use lizzie_core::record::RecordFormat;
 use lizzie_core::settings::Storage;
@@ -1635,4 +1635,206 @@ fn a_hidden_console_without_always_gtp_records_only_a_starting_engine() {
     wb.toggle_analysis().unwrap();
     answer_all(&mut wb, &world, id, KATA);
     assert!(wb.console_since(seq).iter().any(|l| l.text.starts_with("kata-analyze")));
+}
+
+const KATA_PARAMS: &str = "name\nversion\nlist_commands\nkomi\nboardsize\nclear_board\nplay\nundo\nset_position\nkata-analyze\nkata-set-rules\nkata-get-rules\nkata-set-param\nkata-get-param\nstop";
+
+/// `answer_all` for an engine named `name` whose PDA / WRN are `pda` / `wrn`: `kata-set-param`
+/// of either changes them, `kata-get-param` reads them.
+fn answer_params(wb: &mut Workbench, world: &World, id: InstanceId, name: &str, params: &mut [(&str, String); 2]) -> Vec<String> {
+    let mut done = Vec::new();
+    loop {
+        let pending = world.take(id);
+        if pending.is_empty() {
+            return done;
+        }
+        for line in pending {
+            out(wb, id, "");
+            let n = number(&line);
+            let cmd = line.split_once(' ').unwrap().1.to_string();
+            let words: Vec<&str> = cmd.split(' ').collect();
+            let slot = words.get(1).and_then(|p| params.iter().position(|(k, _)| k == p));
+            match (words[0], slot) {
+                ("name", _) => answer(wb, id, n, name),
+                ("version", _) => answer(wb, id, n, "1.16.4"),
+                ("list_commands", _) => answer(wb, id, n, KATA_PARAMS),
+                ("kata-analyze" | "lz-analyze", _) => out(wb, id, &format!("={n}")),
+                ("kata-get-param", Some(slot)) => {
+                    let value = params[slot].1.clone();
+                    answer(wb, id, n, &value);
+                }
+                ("kata-set-param", Some(slot)) => {
+                    params[slot].1 = words[2].to_string();
+                    answer(wb, id, n, "");
+                }
+                _ => answer(wb, id, n, ""),
+            }
+            done.push(cmd);
+        }
+    }
+}
+
+fn engine_params(pda: &str, wrn: &str) -> [(&'static str, String); 2] {
+    [("playoutDoublingAdvantage", pda.into()), ("analysisWideRootNoise", wrn.into())]
+}
+
+fn row(enabled: bool, value: Option<f64>, auto_load: bool) -> KataParamEdit {
+    KataParamEdit { enabled, value, auto_load }
+}
+
+/// Without 自动加载 the engine keeps its own values; the toolbar shows what it reports.
+#[test]
+fn a_starting_katago_without_auto_load_gets_no_parameter_and_shows_its_own_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    wb.save_engine_settings(vec![profile("KataGo", "/opt/katago")], EngineStartup::Default).unwrap();
+    wb.start_engines();
+    let id = world.launched()[0].0;
+    let mut params = engine_params("0.25", "0.04");
+    let start = answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    assert!(!start.iter().any(|c| c.starts_with("kata-set-param playout") || c.starts_with("kata-set-param analysisWide")), "{start:?}");
+    let reads: Vec<&String> = start.iter().filter(|c| c.starts_with("kata-get-param")).collect();
+    assert_eq!(reads, ["kata-get-param playoutDoublingAdvantage", "kata-get-param analysisWideRootNoise"]);
+    let v = wb.view(false).engine.kata_params;
+    assert_eq!((v.pda, v.wrn, v.pda_unavailable, v.wrn_unavailable), (Some(0.25), Some(0.04), None, None));
+    assert!(v.pda_read_back.is_some() && v.wrn_read_back.is_some(), "the start-up read-back is one the toolbar shows");
+}
+
+/// 引擎参数 window: 确定 sends each row's value at once and remembers the checked 自动加载
+/// values, which every KataGo start applies before reading the values back. The toolbar takes
+/// the read-backs of each start, even of the same values, and not the answers to the sets.
+#[test]
+fn the_parameter_window_applies_values_now_and_its_auto_load_on_every_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    wb.save_engine_settings(vec![profile("KataGo", "/opt/katago")], EngineStartup::Default).unwrap();
+    wb.start_engines();
+    let id = world.launched()[0].0;
+    let mut params = engine_params("0", "0");
+    answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    let first = wb.view(false).engine.kata_params;
+    let first = (first.pda_read_back, first.wrn_read_back);
+    let edit = KataEngineParamsEdit {
+        pda: Some(row(true, Some(0.5), true)),
+        wrn: row(true, Some(0.3), true),
+        show_pda: false,
+        show_wrn: true,
+    };
+    assert_eq!(wb.save_kata_engine_params(edit).unwrap(), None);
+    let sent = answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    assert_eq!(&sent[..2], ["kata-set-param playoutDoublingAdvantage 0.5", "kata-set-param analysisWideRootNoise 0.3"]);
+    let v = wb.view(false).engine.kata_params;
+    assert_eq!((v.pda, v.wrn, (v.pda_read_back, v.wrn_read_back)), (Some(0.5), Some(0.3), first.clone()), "a confirmed set is no read-back");
+    let s = &wb.config().engine.kata_params;
+    assert_eq!((s.auto_load_pda, s.auto_load_pda_value, s.auto_load_wrn, s.auto_load_wrn_value), (true, Some(0.5), true, Some(0.3)));
+    assert_eq!((s.show_pda, s.show_wrn), (false, true));
+
+    // A restarted process starts with the engine's own values and gets the saved ones.
+    wb.restart_engine().unwrap();
+    let id = world.launched().last().unwrap().0;
+    let mut fresh = engine_params("0", "0");
+    let start = answer_params(&mut wb, &world, id, "KataGo", &mut fresh);
+    let pda = start.iter().position(|c| c == "kata-set-param playoutDoublingAdvantage 0.5").expect("PDA");
+    let wrn = start.iter().position(|c| c == "kata-set-param analysisWideRootNoise 0.3").expect("WRN");
+    let read = start.iter().position(|c| c == "kata-get-param playoutDoublingAdvantage").expect("read");
+    assert!(pda < wrn && wrn < read, "{start:?}");
+    let v = wb.view(false).engine.kata_params;
+    assert_eq!((v.pda, v.wrn), (Some(0.5), Some(0.3)));
+    assert!(v.pda_read_back.is_some() && v.pda_read_back != first.0, "a new engine's read-back of the same values is shown");
+    assert!(v.wrn_read_back.is_some() && v.wrn_read_back != first.1);
+
+    // A `KataGoPda` engine keeps its own PDA (its 激进度 belongs to the PDA dialog).
+    wb.restart_engine().unwrap();
+    let id = world.launched().last().unwrap().0;
+    let mut pda_engine = engine_params("1.2", "0");
+    let start = answer_params(&mut wb, &world, id, "KataGoPda-1.0", &mut pda_engine);
+    assert!(!start.iter().any(|c| c.starts_with("kata-set-param playoutDoublingAdvantage")), "{start:?}");
+    assert!(start.iter().any(|c| c == "kata-set-param analysisWideRootNoise 0.3"), "{start:?}");
+    assert_eq!(wb.view(false).engine.kata_params.pda, Some(1.2));
+}
+
+/// Toolbar 广度: a check or a value goes to the engine, which searches again; every stored
+/// result gives way to the next live one. Unchecking sends 0. Out-of-range values are sent.
+#[test]
+fn the_toolbar_breadth_reaches_the_engine_and_lets_stored_results_give_way() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    wb.save_engine_settings(vec![profile("KataGo", "/opt/katago")], EngineStartup::Default).unwrap();
+    wb.start_engines();
+    let id = world.launched()[0].0;
+    let mut params = engine_params("0", "0");
+    answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    open(&mut wb, ANALYSED);
+    answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    out(&mut wb, id, &info("D4", 50));
+    assert_eq!(wb.view(false).analysis.unwrap().engine, "old", "the cache holds the stronger result");
+
+    assert_eq!(wb.set_kata_param(KataParam::Wrn, true, 2.5).unwrap(), None);
+    // The stopped search's late line is not shown.
+    out(&mut wb, id, &info("D4", 60));
+    assert_eq!(wb.view(false).analysis.unwrap().engine, "old");
+    let sent = answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    assert_eq!(sent, ["kata-set-param analysisWideRootNoise 2.5", "kata-analyze B 10 rootInfo true"]);
+    assert_eq!(wb.view(false).engine.kata_params.wrn, Some(2.5));
+    out(&mut wb, id, &info("D4", 5));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 5, "the weaker new result replaces the stored one");
+    let s = &wb.config().engine.kata_params;
+    assert_eq!((s.wrn_enabled, s.wrn), (true, Some(2.5)));
+
+    wb.set_kata_param(KataParam::Wrn, false, 2.5).unwrap();
+    let sent = answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    assert_eq!(sent[0], "kata-set-param analysisWideRootNoise 0");
+    assert_eq!(wb.view(false).engine.kata_params.wrn, Some(0.0));
+    let s = &wb.config().engine.kata_params;
+    assert_eq!((s.wrn_enabled, s.wrn), (false, Some(2.5)), "the unchecked value is kept");
+}
+
+/// Toolbar 激进度: live results are made and saved with the engine's PDA (the sixth header
+/// field), and a stored result made with another PDA gives way.
+#[test]
+fn live_results_carry_the_engine_pda_into_the_saved_record() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    wb.save_engine_settings(vec![profile("KataGo", "/opt/katago")], EngineStartup::Default).unwrap();
+    wb.start_engines();
+    let id = world.launched()[0].0;
+    let mut params = engine_params("0", "0");
+    answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    wb.set_append_winrate_to_comment(false).unwrap();
+    out(&mut wb, id, &info("Q16", 200));
+    assert_eq!(wb.set_kata_param(KataParam::Pda, true, 0.5).unwrap(), None);
+    let sent = answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    assert_eq!(sent[0], "kata-set-param playoutDoublingAdvantage 0.5");
+    out(&mut wb, id, &info("Q16", 20));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 20, "made with PDA 0, the stored result gives way");
+    let text = wb.begin_save("pda.sgf", "interop:test").text;
+    let header = text.split("LZOP[").nth(1).and_then(|t| t.lines().next()).unwrap_or_default();
+    assert!(header.ends_with(" 0.5 rootVisits=20"), "the PDA is the sixth header field: {text}");
+    out(&mut wb, id, &info("Q16", 10));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 20, "same PDA: the cache holds");
+    let c = wb.config();
+    assert_eq!((c.engine.kata_pda_enabled, c.engine.kata_pda), (true, Some(0.5)));
+}
+
+#[test]
+fn kata_parameters_need_a_ready_katago_in_the_foreground() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    assert_eq!(wb.set_kata_param(KataParam::Wrn, true, 0.5).unwrap(), Some("LizzieFrame.setParamNoEngineHint"));
+    wb.save_engine_settings(vec![profile("Leela", "/opt/leelaz")], EngineStartup::Default).unwrap();
+    wb.start_engines();
+    let id = world.launched()[0].0;
+    let mut params = engine_params("0", "0");
+    answer_params(&mut wb, &world, id, "Leela Zero", &mut params);
+    let v = wb.view(false).engine.kata_params;
+    assert_eq!((v.pda_unavailable.as_deref(), v.wrn_unavailable.as_deref()), (Some("SetKataRules.notKataGoHint"), Some("SetKataRules.notKataGoHint")));
+    let edit = KataEngineParamsEdit { pda: None, wrn: row(true, Some(0.5), true), show_pda: true, show_wrn: true };
+    assert_eq!(wb.save_kata_engine_params(edit).unwrap(), Some("SetKataRules.notKataGoHint"));
+    assert!(world.take(id).is_empty());
+    assert!(!wb.config().engine.kata_params.auto_load_wrn, "a refused window saves nothing");
 }

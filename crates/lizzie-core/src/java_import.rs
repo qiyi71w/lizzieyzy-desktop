@@ -154,6 +154,16 @@ pub struct Mapped {
     /// Outer None means absent/invalid; inner None preserves Java's empty PDA text.
     pub kata_pda: Option<Option<f64>>,
     pub kata_pda_enabled: Option<bool>,
+    /// `ui.txt-kata-engine-wrn`, `ui.auto-load-txt-kata-engine-pda` / `-wrn`, like
+    /// [`Self::kata_pda`].
+    pub kata_wrn: Option<Option<f64>>,
+    pub kata_wrn_enabled: Option<bool>,
+    pub auto_load_kata_pda: Option<bool>,
+    pub auto_load_kata_pda_value: Option<Option<f64>>,
+    pub auto_load_kata_wrn: Option<bool>,
+    pub auto_load_kata_wrn_value: Option<Option<f64>>,
+    pub show_kata_pda: Option<bool>,
+    pub show_kata_wrn: Option<bool>,
     pub startup_benchmark: Option<bool>,
     /// The start-up benchmark the user dismissed (signature, version).
     pub startup_benchmark_dismissed_signature: Option<String>,
@@ -884,6 +894,36 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
     ),
     (
         "ui",
+        "chk-kata-engine-wrn",
+        ImportTarget::KataWrn,
+        Kind::Bool(|m, v| m.kata_wrn_enabled = Some(v)),
+    ),
+    (
+        "ui",
+        "autoload-kata-engine-pda",
+        ImportTarget::KataParamAutoLoad,
+        Kind::Bool(|m, v| m.auto_load_kata_pda = Some(v)),
+    ),
+    (
+        "ui",
+        "autoload-kata-engine-wrn",
+        ImportTarget::KataParamAutoLoad,
+        Kind::Bool(|m, v| m.auto_load_kata_wrn = Some(v)),
+    ),
+    (
+        "ui",
+        "show-pda-in-menu",
+        ImportTarget::KataParamToolbar,
+        Kind::Bool(|m, v| m.show_kata_pda = Some(v)),
+    ),
+    (
+        "ui",
+        "show-wrn-in-menu",
+        ImportTarget::KataParamToolbar,
+        Kind::Bool(|m, v| m.show_kata_wrn = Some(v)),
+    ),
+    (
+        "ui",
         "enable-startup-benchmark",
         ImportTarget::StartupBenchmark,
         Kind::Bool(|m, v| m.startup_benchmark = Some(v)),
@@ -1527,20 +1567,28 @@ impl Reader<'_> {
                 None => self.invalid("ui.board-postion-proportion".into(), ImportTarget::PanelSizes, raw),
             }
         }
-        // Config.java:1999-2000 stores PDA as text; empty means no confirmed preference.
-        if let Some(raw) = ui.get("txt-kata-engine-pda") {
-            handled.push(("ui", "txt-kata-engine-pda"));
+        // Config.java:1999-2010 stores PDA / WRN values as text; empty means no value.
+        type Text = fn(&mut Mapped, Option<f64>);
+        let texts: [(&str, ImportTarget, Text); 4] = [
+            ("txt-kata-engine-pda", ImportTarget::KataPda, |m, v| m.kata_pda = Some(v)),
+            ("txt-kata-engine-wrn", ImportTarget::KataWrn, |m, v| m.kata_wrn = Some(v)),
+            ("auto-load-txt-kata-engine-pda", ImportTarget::KataParamAutoLoad, |m, v| m.auto_load_kata_pda_value = Some(v)),
+            ("auto-load-txt-kata-engine-wrn", ImportTarget::KataParamAutoLoad, |m, v| m.auto_load_kata_wrn_value = Some(v)),
+        ];
+        for (key, target, set) in texts {
+            let Some(raw) = ui.get(key) else { continue };
+            handled.push(("ui", key));
             let value = if raw.as_str().is_some_and(|s| s.trim().is_empty()) {
                 Some(None)
             } else {
-                as_f64(raw).map(Some)
+                as_f64(raw).filter(|v| v.is_finite()).map(Some)
             };
             match value {
                 Some(value) => {
-                    self.mapped.kata_pda = Some(value);
-                    self.imported("ui.txt-kata-engine-pda".into(), ImportTarget::KataPda, shown(raw));
+                    set(&mut self.mapped, value);
+                    self.imported(format!("ui.{key}"), target, shown(raw));
                 }
-                None => self.invalid("ui.txt-kata-engine-pda".into(), ImportTarget::KataPda, raw),
+                None => self.invalid(format!("ui.{key}"), target, raw),
             }
         }
         for (section, key, target, kind) in SIMPLE {
@@ -3095,6 +3143,15 @@ impl Mapped {
         set!(c.engine.kata_rules, self.kata_rules);
         set!(c.engine.kata_pda, self.kata_pda);
         set!(c.engine.kata_pda_enabled, self.kata_pda_enabled);
+        let kata = &mut c.engine.kata_params;
+        set!(kata.wrn, self.kata_wrn);
+        set!(kata.wrn_enabled, self.kata_wrn_enabled);
+        set!(kata.auto_load_pda, self.auto_load_kata_pda);
+        set!(kata.auto_load_pda_value, self.auto_load_kata_pda_value);
+        set!(kata.auto_load_wrn, self.auto_load_kata_wrn);
+        set!(kata.auto_load_wrn_value, self.auto_load_kata_wrn_value);
+        set!(kata.show_pda, self.show_kata_pda);
+        set!(kata.show_wrn, self.show_kata_wrn);
         set!(
             c.engine.startup_benchmark_dismissed_signature,
             self.startup_benchmark_dismissed_signature
@@ -3419,6 +3476,20 @@ impl Mapped {
         if self.kata_pda.is_some_and(|v| v != config.engine.kata_pda)
             || self.kata_pda_enabled.is_some_and(|v| v != config.engine.kata_pda_enabled) {
             out.push(ImportTarget::KataPda);
+        }
+        let p = &config.engine.kata_params;
+        if self.kata_wrn.is_some_and(|v| v != p.wrn) || self.kata_wrn_enabled.is_some_and(|v| v != p.wrn_enabled) {
+            out.push(ImportTarget::KataWrn);
+        }
+        if self.auto_load_kata_pda.is_some_and(|v| v != p.auto_load_pda)
+            || self.auto_load_kata_pda_value.is_some_and(|v| v != p.auto_load_pda_value)
+            || self.auto_load_kata_wrn.is_some_and(|v| v != p.auto_load_wrn)
+            || self.auto_load_kata_wrn_value.is_some_and(|v| v != p.auto_load_wrn_value)
+        {
+            out.push(ImportTarget::KataParamAutoLoad);
+        }
+        if self.show_kata_pda.is_some_and(|v| v != p.show_pda) || self.show_kata_wrn.is_some_and(|v| v != p.show_wrn) {
+            out.push(ImportTarget::KataParamToolbar);
         }
         cmp!(
             ImportTarget::StartupBenchmark,

@@ -2026,6 +2026,15 @@ export function javaDouble(v: number): string {
   return Number.isInteger(v) ? v.toFixed(1) : String(v);
 }
 
+/** Double.parseDouble: surrounding blanks allowed, a signed decimal with an optional exponent and
+ *  float / double suffix; NaN and Infinity are refused (Java's limits reject them too). */
+export function parseJavaDouble(text: string): number | null {
+  const s = text.trim();
+  if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?[fFdD]?$/.test(s)) return null;
+  const v = Number(s.replace(/[fFdD]$/, ""));
+  return Number.isFinite(v) ? v : null;
+}
+
 /** LizzieFrame.drawCaptured (LizzieFrame.java:9098-9375): captures, rules caption, komi and
  * the live pondering dot. Stored analysis is intentionally independent of this indicator. */
 export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedScene) {

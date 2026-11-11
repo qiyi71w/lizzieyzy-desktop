@@ -66,15 +66,27 @@ export function layoutRequest(v: WorkbenchView): LayoutRequest {
 // ------------------------------------------------------------------ toolbars
 
 /** 界面 > 工具栏 > 顶部工具栏 (Menu.java:4409-4455): 分开 shows the double-menu row, 合并 and 不显示
- *  hide it (the combined row's controls are not added to the menu bar in the fixed build). */
+ *  hide it (the combined row's controls are not added to the menu bar in the fixed build). The
+ *  user's choice also ends a reveal by function search. */
 function setTopToolbar(showTopToolbar: boolean, showDoubleMenu: boolean): Promise<unknown> {
+  topRevealed = false;
   const p = panels();
   if (!p) return Promise.resolve();
   return run({ type: "SetPanelSettings", settings: { ...p, showTopToolbar, showDoubleMenu } });
 }
 
+/** Function search showed the top toolbar 分开 for this run (Menu.locateTopFunction changes the
+ *  running settings only); the saved choice stays as it is. */
+let topRevealed = false;
+
 function topSeparated(p: PanelSettings | undefined): boolean {
-  return !!p && p.showTopToolbar && p.showDoubleMenu;
+  return topRevealed || (!!p && p.showTopToolbar && p.showDoubleMenu);
+}
+
+function showTopToolbar(p: PanelSettings): void {
+  const top = $("toolbar");
+  const display = topSeparated(p) ? "" : "none";
+  if (top.style.display !== display) top.style.display = display;
 }
 
 function setBottomToolbar(mode: BottomToolbar): Promise<unknown> {
@@ -97,8 +109,12 @@ async function toggleDetailedToolbar(): Promise<void> {
  *  (BottomToolbar.java:632-643: a hidden bottom toolbar takes its main-bar height) do. Resolves
  *  once the toolbar is laid out; the destination's value and action are untouched. */
 export async function revealToolbar(kind: "top" | "bottom"): Promise<void> {
+  const p = panels();
   if (kind === "top") {
-    if (!topSeparated(panels())) await setTopToolbar(true, true);
+    if (p && !topSeparated(p)) {
+      topRevealed = true;
+      showTopToolbar(p);
+    }
   } else if (state.view?.settings.bottom_toolbar === "Hidden") await setBottomToolbar("Simple");
   const frame = Promise.withResolvers<void>();
   requestAnimationFrame(() => frame.resolve());
@@ -113,9 +129,7 @@ registerViewHandler((v) => {
     appliedOnTop = p.alwaysOnTop;
     void getCurrentWindow().setAlwaysOnTop(p.alwaysOnTop);
   }
-  const top = $("toolbar");
-  const display = topSeparated(p) ? "" : "none";
-  if (top.style.display !== display) top.style.display = display;
+  showTopToolbar(p);
 });
 
 // ------------------------------------------------------------------ menus
@@ -149,9 +163,9 @@ Object.assign(COMMANDS, {
   "Menu.rightMove": { run: () => void run({ type: "NudgeBoardPosition", delta: 1 }) },
   // 工具栏 > 顶部工具栏, marked as its menu listener does (Menu.java:4476-4494).
   "menu.topToolBar.separated": { run: () => void setTopToolbar(true, true), checked: () => topSeparated(panels()) },
-  "menu.topToolBar.combined": { run: () => void setTopToolbar(true, false), checked: () => !!panels()?.showTopToolbar && !panels()?.showDoubleMenu },
+  "menu.topToolBar.combined": { run: () => void setTopToolbar(true, false), checked: () => !topRevealed && !!panels()?.showTopToolbar && !panels()?.showDoubleMenu },
   // 不显示 keeps (or restores) the double-menu flag (Menu.java:4440-4453).
-  "menu.topToolBar.invisible": { run: () => void setTopToolbar(false, true), checked: () => !!panels() && !panels()!.showTopToolbar },
+  "menu.topToolBar.invisible": { run: () => void setTopToolbar(false, true), checked: () => !topRevealed && !!panels() && !panels()!.showTopToolbar },
   // 工具栏 > 底部工具栏 (Menu.java:4532-4591, syncBottomToolbarMenuMarks 10628-10654).
   "menu.bottomToolBar.visible": { run: () => void setBottomToolbar("Simple"), checked: () => state.view?.settings.bottom_toolbar === "Simple" },
   "menu.bottomToolBar.invisible": { run: () => void setBottomToolbar("Hidden"), checked: () => state.view?.settings.bottom_toolbar === "Hidden" },

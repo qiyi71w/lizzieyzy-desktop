@@ -92,7 +92,8 @@ pub enum StrengthManualOutcome {
 }
 
 use crate::browse::Navigation;
-use crate::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup};
+use crate::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup, KataParamSettings};
+use crate::engine::runtime::KataParam;
 use crate::record::{BoardSize, GameInfo, Mark, NodeId, Point, RecordFormat, Stone};
 use crate::settings::{EditSettings, Language};
 
@@ -318,6 +319,19 @@ pub enum Command {
     SetKataRules {
         rules: String,
         auto_load: bool,
+    },
+    /// Toolbar 激进度 / 广度 (`chkPDA` / `txtGfPDA`, `chkWRN` / `txtWRN`): the foreground KataGo
+    /// uses `value` when `enabled`, else 0, and searches again; the check and the value are
+    /// remembered (the value only while checked). A new 广度 lets every stored result give way.
+    SetKataParam {
+        param: KataParam,
+        enabled: bool,
+        value: f64,
+    },
+    /// 引擎参数 window (`SetKataEngines`) 确定: the settings are saved, then the foreground
+    /// KataGo gets each parameter's value (0 when unchecked).
+    SaveKataEngineParams {
+        params: KataEngineParamsEdit,
     },
     /// GtpConsolePane: send a raw command to the foreground engine.
     SendGtpCommand {
@@ -1298,6 +1312,47 @@ pub struct EngineSettingsView {
     pub auto_load_kata_rules: bool,
     /// Settings > Advanced: run the official benchmark after start-up (`ui.enable-startup-benchmark`).
     pub startup_benchmark: bool,
+    /// The toolbar's 激进度 (`ui.txt-kata-engine-pda`, `ui.chk-kata-engine-pda`).
+    pub kata_pda: Option<f64>,
+    pub kata_pda_enabled: bool,
+    pub kata_params: KataParamSettings,
+}
+
+/// One parameter row of the 引擎参数 window: 修改, the value field (`None` when it is not a
+/// number) and 自动加载.
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, TS)]
+pub struct KataParamEdit {
+    pub enabled: bool,
+    pub value: Option<f64>,
+    pub auto_load: bool,
+}
+
+/// The 引擎参数 window's choices. `pda` is `None` for a `KataGoPda` engine, whose PDA row is
+/// replaced by a hint (`SetKataEngines.lblPdaEngineUseMenu`).
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, TS)]
+pub struct KataEngineParamsEdit {
+    pub pda: Option<KataParamEdit>,
+    pub wrn: KataParamEdit,
+    /// 在工具栏中控制 (`show-pda-in-menu`, `show-wrn-in-menu`).
+    pub show_pda: bool,
+    pub show_wrn: bool,
+}
+
+/// The foreground KataGo's PDA and WRN for the toolbar.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct KataParamsView {
+    /// What the engine last confirmed (read after start-up, or a set it accepted).
+    pub pda: Option<f64>,
+    pub wrn: Option<f64>,
+    /// Why the toolbar cannot change each now (a Java message key), `None` when it can.
+    pub pda_unavailable: Option<String>,
+    pub wrn_unavailable: Option<String>,
+    /// Change with every start-up read-back of the foreground engine (`readKataParameters`)
+    /// and with another foreground engine; the toolbar shows each value then
+    /// (`LizzieFrame.setPdaAndWrn`), not after each set it made itself. 广度's also changes when
+    /// a game gives back a 广度 the user changed during it (`restoreWRN`). `None` before any.
+    pub pda_read_back: Option<String>,
+    pub wrn_read_back: Option<String>,
 }
 
 /// Stone sound for a forward step onto a node (`Utils.playVoiceFile`): a capture of three or more
@@ -1533,6 +1588,12 @@ pub enum ImportTarget {
     AutoLoadKataRules,
     /// `ui.txt-kata-engine-pda` / `ui.chk-kata-engine-pda`.
     KataPda,
+    /// `ui.txt-kata-engine-wrn` / `ui.chk-kata-engine-wrn`.
+    KataWrn,
+    /// `ui.autoload-kata-engine-pda` / `-wrn` and `ui.auto-load-txt-kata-engine-pda` / `-wrn`.
+    KataParamAutoLoad,
+    /// `ui.show-pda-in-menu` / `ui.show-wrn-in-menu`.
+    KataParamToolbar,
     /// `ui.enable-startup-benchmark`.
     StartupBenchmark,
     /// `ui.network-proxy-mode` / `-host` / `-port`.
@@ -1891,6 +1952,8 @@ pub struct EngineView {
     /// The foreground engine failed and nothing took its seat since (`LizzieFrame.display.down`,
     /// Java `isDownWithError`).
     pub down: bool,
+    /// The foreground KataGo's PDA and WRN (toolbar 激进度 / 广度).
+    pub kata_params: KataParamsView,
 }
 
 /// One candidate (`MoveData`). Percentages 0–100 from the side to move.

@@ -49,6 +49,8 @@ fn generate() -> String {
         WorkbenchView, LogsStatus, JavaImportView, ImportStatus, ImportReason, ImportTarget, ImportItemView,
         EngineProblem, ImportEngineView, ImportPreviewView, ImportReportView, ImportFailure,
         ImportCommentaryCredential,
+        lizzie_core::engine::runtime::KataParam, lizzie_core::engine::profile::KataParamSettings,
+        lizzie_core::api::KataParamEdit, lizzie_core::api::KataEngineParamsEdit, lizzie_core::api::KataParamsView,
         lizzie_core::java_import::CloudImportCredentials,
         lizzie_core::engine::cloud::CloudLaunch, lizzie_core::engine::cloud::CloudProvider,
         lizzie_core::cloud::CloudSettings, lizzie_core::cloud::Provider,

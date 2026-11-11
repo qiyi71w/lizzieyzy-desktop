@@ -1599,6 +1599,43 @@ fn web_board_ports_and_viewer_limit_import_like_java_starts_with_them() {
 }
 
 #[test]
+fn katago_parameter_keys_import_like_java_reads_them() {
+    // Config.java:1999-2015: booleans by optBoolean, values as text (empty is no value).
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let source = json!({"ui": {
+        "chk-kata-engine-wrn": true, "txt-kata-engine-wrn": "0.3",
+        "autoload-kata-engine-pda": true, "auto-load-txt-kata-engine-pda": "-0.5",
+        "autoload-kata-engine-wrn": false, "auto-load-txt-kata-engine-wrn": "",
+        "show-pda-in-menu": false, "show-wrn-in-menu": "nope",
+    }});
+    std::fs::write(java.join("config.txt"), source.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    for (key, status, target) in [
+        ("ui.chk-kata-engine-wrn", ImportStatus::Imported, ImportTarget::KataWrn),
+        ("ui.txt-kata-engine-wrn", ImportStatus::Imported, ImportTarget::KataWrn),
+        ("ui.autoload-kata-engine-pda", ImportStatus::Imported, ImportTarget::KataParamAutoLoad),
+        ("ui.auto-load-txt-kata-engine-pda", ImportStatus::Imported, ImportTarget::KataParamAutoLoad),
+        ("ui.autoload-kata-engine-wrn", ImportStatus::Imported, ImportTarget::KataParamAutoLoad),
+        ("ui.auto-load-txt-kata-engine-wrn", ImportStatus::Imported, ImportTarget::KataParamAutoLoad),
+        ("ui.show-pda-in-menu", ImportStatus::Imported, ImportTarget::KataParamToolbar),
+        ("ui.show-wrn-in-menu", ImportStatus::Incompatible, ImportTarget::KataParamToolbar),
+    ] {
+        let row = item(&p.items, key);
+        assert_eq!((row.status, row.target), (status, Some(target)), "{key}");
+    }
+    wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
+    let k = saved_config(&product).engine.kata_params;
+    assert_eq!((k.wrn_enabled, k.wrn), (true, Some(0.3)));
+    assert_eq!((k.auto_load_pda, k.auto_load_pda_value), (true, Some(-0.5)));
+    assert_eq!((k.auto_load_wrn, k.auto_load_wrn_value), (false, None));
+    assert_eq!((k.show_pda, k.show_wrn), (false, true), "an unreadable flag keeps Java's default");
+}
+
+#[test]
 fn hawkeye_settings_import_like_java_reads_them() {
     // Config.java:1801-1827, 1891-1893, 1947-1956, 2021-2024; MoveListFrame.setFilterStatus.
     let tmp = tempfile::tempdir().unwrap();

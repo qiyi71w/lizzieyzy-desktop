@@ -37,6 +37,18 @@
 .engine-rule-row { display: grid; grid-template-columns: minmax(190px, 1.3fr) repeat(3, minmax(90px, 1fr)); align-items: center; gap: 14px; margin: 12px 0; }
 .engine-rule-row label { white-space: nowrap; }
 .engine-hint { margin-top: 10px; }
+/* 设置KataGo引擎高级参数 (SetKataEngines.java, middle font: label, 修改 at 560, value 133 wide at
+   591, 自动加载 at 756, 在工具栏中控制 at 854; hint rows below). */
+.kata-params { padding: 4px 10px 10px; }
+.kata-params-grid { display: grid; grid-template-columns: minmax(420px, auto) 25px 133px 110px 140px; align-items: center; column-gap: 6px; row-gap: 8px; }
+.kata-params-grid input[type=checkbox] { justify-self: center; }
+.kata-params-grid input:not([type=checkbox]) { height: 24px; box-sizing: border-box; }
+.kata-params-grid input.invalid { background: red; }
+.kata-params-head { text-align: center; white-space: nowrap; }
+.kata-params-pda-engine { grid-column: span 4; }
+.kata-params > div:not(.kata-params-grid) { margin-top: 8px; }
+.kata-params-link { cursor: pointer; text-decoration: underline; }
+.kata-params .engine-actions { justify-content: center; }
 .engine-settings { display: grid; grid-template-columns: 150px minmax(360px, 1fr); padding: 12px; gap: 20px; }
 .engine-settings nav { display: flex; flex-direction: column; gap: 6px; }
 .engine-settings-form { display: grid; gap: 10px; }

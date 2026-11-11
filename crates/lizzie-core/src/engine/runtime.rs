@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::gtp::{self, Dialect, Frame, Framer, InfoLine, LaunchSpec};
@@ -74,6 +74,59 @@ pub enum EngineKind {
     Sai,
     Leela011,
     Other,
+}
+
+/// A KataGo search parameter of the toolbar and the 引擎参数 window (`kata-set-param`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
+pub enum KataParam {
+    /// `playoutDoublingAdvantage` (激进度).
+    Pda,
+    /// `analysisWideRootNoise` (广度).
+    Wrn,
+}
+
+impl KataParam {
+    pub fn gtp_name(self) -> &'static str {
+        match self {
+            KataParam::Pda => "playoutDoublingAdvantage",
+            KataParam::Wrn => "analysisWideRootNoise",
+        }
+    }
+
+    fn named(name: &str) -> Option<KataParam> {
+        [KataParam::Pda, KataParam::Wrn].into_iter().find(|p| p.gtp_name() == name)
+    }
+}
+
+/// The values an engine last confirmed for the [`KataParam`]s: an accepted `kata-set-param` or
+/// a `kata-get-param` answer, whoever sent it. `None` until one is known.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct KataParams {
+    pub pda: Option<f64>,
+    pub wrn: Option<f64>,
+    /// Start-up `kata-get-param` answers taken so far: a read-back (`readKataParameters`), which
+    /// the toolbar shows, as opposed to a confirmed set or another reader's answer (a game's,
+    /// the console's), which only record what the engine holds.
+    pub reads: u32,
+}
+
+impl KataParams {
+    pub fn get(&self, param: KataParam) -> Option<f64> {
+        match param {
+            KataParam::Pda => self.pda,
+            KataParam::Wrn => self.wrn,
+        }
+    }
+
+    fn set(&mut self, param: KataParam, value: f64) -> bool {
+        let slot = match param {
+            KataParam::Pda => &mut self.pda,
+            KataParam::Wrn => &mut self.wrn,
+        };
+        let changed = *slot != Some(value);
+        *slot = Some(value);
+        changed
+    }
 }
 
 /// The position an engine should hold: one node of one document at a komi, and the rules the
@@ -177,6 +230,8 @@ pub enum RuntimeEvent {
     /// The engine answered `kata-get-rules` or refused session rules: whether analysis may run
     /// can have changed.
     Rules { instance: InstanceId },
+    /// The engine confirmed a new value of a [`KataParam`].
+    KataParams { instance: InstanceId },
     /// A complete pure-network answer became available for the current foreground target.
     RawNet { instance: InstanceId },
     /// The process failed to start or ended unexpectedly; the instance is gone.
@@ -499,6 +554,11 @@ struct Instance {
     /// and the request that asked for them; empty once that stream ended.
     installed_focus: Vec<Point>,
     installed_from: Option<u64>,
+    /// PDA and WRN as the engine last confirmed them.
+    kata_params: KataParams,
+    /// `kata-set-param` / `kata-get-param` of a [`KataParam`] in flight, by GTP id.
+    param_writes: HashMap<u64, (KataParam, f64)>,
+    param_reads: HashMap<u64, KataParam>,
 }
 
 const OUTPUT_TAIL: usize = 40;
@@ -532,6 +592,10 @@ pub struct Bootstrap {
     pub komi: f64,
     /// Rules applied to KataGo at start-up (`auto-load-kata-rules`).
     pub rules: Option<KataRules>,
+    /// PDA and WRN set on KataGo after start-up (`autoload-kata-engine-pda` / `-wrn`); the PDA
+    /// is not sent to a `KataGoPda` engine (`Leelaz.setKataEnginePara`).
+    pub pda: Option<f64>,
+    pub wrn: Option<f64>,
 }
 
 /// A start whose launch overlays depend on artifact content (measured or Apple tuning). Java
@@ -1313,6 +1377,9 @@ impl Engines {
             stream_focus: Vec::new(),
             installed_focus: Vec::new(),
             installed_from: None,
+            kata_params: KataParams::default(),
+            param_writes: HashMap::new(),
+            param_reads: HashMap::new(),
         });
         let name = profile.name.clone();
         self.trace(&name, "--", &format!("start {}", profile.command));
@@ -1862,6 +1929,19 @@ impl Engines {
             (None, None) => false,
         };
         inst.waiting.insert(n, purpose);
+        // Whoever sets or reads PDA / WRN, the answer tells what the engine holds.
+        let mut words = command.split_whitespace();
+        match (words.next(), words.next().and_then(KataParam::named), words.next(), words.next()) {
+            (Some("kata-set-param"), Some(param), Some(value), None) => {
+                if let Ok(value) = value.parse::<f64>() {
+                    inst.param_writes.insert(n, (param, value));
+                }
+            }
+            (Some("kata-get-param"), Some(param), None, None) => {
+                inst.param_reads.insert(n, param);
+            }
+            _ => {}
+        }
         let (name, phase) = (inst.display_name(), inst.phase);
         self.trace(&name, ">>", &line);
         self.console_record(name, phase, ConsoleKind::Sent, command.to_string());
@@ -1899,6 +1979,35 @@ impl Engines {
             self.fence_last(id);
         }
         Ok(())
+    }
+
+    /// PDA and WRN as instance `id` last confirmed them.
+    pub fn kata_params(&self, id: InstanceId) -> KataParams {
+        self.get(id).map_or_else(KataParams::default, |i| i.kata_params)
+    }
+
+    /// The toolbar's and the 引擎参数 window's `kata-set-param` to the foreground engine, when it
+    /// is free for it ([`Self::exclusive_gtp_availability`]; the 激进度 does not need the borrowing
+    /// commands, as Java's `setPda` is not admitted like 广度). A search it is running stops and,
+    /// once the engine answered, the seat's wish searches again with the new value; the stopped
+    /// search's late lines are not published. Returns whether the command was sent.
+    pub fn set_kata_param(&mut self, param: KataParam, value: f64) -> bool {
+        let Some(id) = self.foreground else { return false };
+        let free = match self.exclusive_gtp_availability() {
+            LeaseAvailability::Available => true,
+            LeaseAvailability::MissingCapability => param == KataParam::Pda,
+            _ => false,
+        };
+        if !free || !value.is_finite() {
+            return false;
+        }
+        let inst = self.get_mut(id).unwrap();
+        if let Some(old) = inst.stream {
+            inst.requests.retain(|(r, _)| *r != old);
+        }
+        self.send(id, &format!("kata-set-param {} {value}", param.gtp_name()), Purpose::Setup);
+        self.fence_last(id);
+        true
     }
 
     /// `refreshCurrentMove` for seat `id`: the engine drops its search cache (`clear_cache`,
@@ -2186,6 +2295,19 @@ impl Engines {
                         events.push(RuntimeEvent::FocusConfirmed { instance: id });
                     }
                 }
+                if let Some((param, value)) = inst.param_writes.remove(&n).filter(|_| ok) {
+                    if inst.kata_params.set(param, value) {
+                        events.push(RuntimeEvent::KataParams { instance: id });
+                    }
+                }
+                let read = inst.param_reads.remove(&n).filter(|_| ok);
+                if let Some((param, value)) = read.zip(text.trim().parse::<f64>().ok().filter(|v| v.is_finite())) {
+                    inst.kata_params.set(param, value);
+                    if matches!(inst.waiting.get(&n), Some(Purpose::Setup)) {
+                        inst.kata_params.reads += 1;
+                    }
+                    events.push(RuntimeEvent::KataParams { instance: id });
+                }
                 match inst.waiting.remove(&n) {
                     Some(Purpose::Name) => {
                         if !ok {
@@ -2295,7 +2417,7 @@ impl Engines {
     /// and the rules query; the answer to the last of them marks the engine ready.
     fn boot_setup(&mut self, id: InstanceId) {
         let Some(inst) = self.get_mut(id) else { return };
-        let boot = inst.boot.take().unwrap_or(Bootstrap { komi: 7.5, rules: None });
+        let boot = inst.boot.take().unwrap_or(Bootstrap { komi: 7.5, rules: None, pda: None, wrn: None });
         let (w, h) = (inst.profile.width.max(1), inst.profile.height.max(1));
         let mut cmds = vec![format!("komi {}", komi_text(boot.komi))];
         cmds.push(if w == h || !inst.has("rectangular_boardsize") {
@@ -2312,11 +2434,20 @@ impl Engines {
                 .map(str::to_string),
         );
         let katago = inst.kind == EngineKind::KataGo;
+        // `setKataEnginePara`: the auto-loaded PDA, the launch threads, then the auto-loaded WRN.
+        let set_param = katago && inst.has("kata-set-param");
+        let pda_engine = inst.gtp_name.starts_with("KataGoPda");
+        if let Some(pda) = boot.pda.filter(|_| set_param && !pda_engine) {
+            cmds.push(format!("kata-set-param {} {pda}", KataParam::Pda.gtp_name()));
+        }
         if katago {
             let threads = inst.launch_threads;
             if threads > 0 {
                 cmds.push(format!("kata-set-param numSearchThreads {threads}"));
             }
+        }
+        if let Some(wrn) = boot.wrn.filter(|_| set_param) {
+            cmds.push(format!("kata-set-param {} {wrn}", KataParam::Wrn.gtp_name()));
         }
         if let Some(configuration) = &inst.profile.gtp_configuration {
             if configuration.protocol == "zengtp-config" && !configuration.profile.is_empty() {
@@ -2331,11 +2462,18 @@ impl Engines {
             }
         }
         let get_rules = katago && inst.has("kata-get-rules");
+        let get_params = katago && inst.has("kata-get-param");
         for c in cmds {
             self.send(id, &c, Purpose::Setup);
         }
         if get_rules {
             self.send(id, "kata-get-rules", Purpose::GetRules);
+        }
+        // `readKataParameters`: the toolbar shows what the engine holds once it is ready.
+        if get_params {
+            for param in [KataParam::Pda, KataParam::Wrn] {
+                self.send(id, &format!("kata-get-param {}", param.gtp_name()), Purpose::Setup);
+            }
         }
         // 选点重点研究's capability probe (`Leelaz.startMoveFocusProbe…`), part of every start-up
         // so neither a paused start nor an engine switch skips it: an empty-board analysis with
@@ -2367,12 +2505,21 @@ impl Engines {
             return LeaseAvailability::PlayMode;
         }
         if self.human_sl { return LeaseAvailability::HumanSlGame; }
-        let Some(inst) = self.foreground.and_then(|id| self.get(id)) else {
+        if self.foreground.and_then(|id| self.get(id)).is_none() {
             return LeaseAvailability::NoForegroundEngine;
-        };
+        }
         if self.application_exclusive {
             return LeaseAvailability::ApplicationExclusive;
         }
+        self.exclusive_gtp_availability()
+    }
+
+    /// The foreground engine's own state for a direct GTP use, whatever mode runs
+    /// (`previewExclusiveGtpLeaseAvailability`, which the toolbar's 广度 follows).
+    pub fn exclusive_gtp_availability(&self) -> LeaseAvailability {
+        let Some(inst) = self.foreground.and_then(|id| self.get(id)) else {
+            return LeaseAvailability::NoForegroundEngine;
+        };
         if inst.unrestored.is_some() {
             LeaseAvailability::EngineStateUnrestored
         } else if self.readboard_gma || self.games.iter().any(|g| g.readboard_gma()) {

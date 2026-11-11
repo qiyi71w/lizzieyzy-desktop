@@ -213,6 +213,8 @@ impl Workbench {
             | Command::ShutdownEngines { .. }
             | Command::SaveEngineSettings { .. }
             | Command::SetKataRules { .. }
+            | Command::SetKataParam { .. }
+            | Command::SaveKataEngineParams { .. }
             | Command::ToggleRawNet
             | Command::StopRawNet
             | Command::StartFlashAnalysis { .. }

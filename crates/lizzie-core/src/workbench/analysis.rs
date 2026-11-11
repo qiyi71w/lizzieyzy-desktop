@@ -225,13 +225,21 @@ impl AnalysisStore {
 
     /// Whether `result` takes the place of the node's stored result (`BoardData`'s Lizzie
     /// cache): with the cache on only when there is none, it was marked to give way, it was
-    /// made with another PDA (a live result carries none: `cachedPda != engine.pda`), or the
-    /// new search went further; with the cache off always.
-    pub(super) fn takes_place(&self, rec: &GameRecord, node: NodeId, result: &NodeAnalysisView, cache: bool) -> bool {
+    /// made with another PDA than `pda`, the one of the new result's engine
+    /// (`cachedPda != engine.pda`), or the new search went further; with the cache off always.
+    pub(super) fn takes_place(&self, rec: &GameRecord, node: NodeId, result: &NodeAnalysisView, cache: bool, pda: f64) -> bool {
         !cache
             || self.is_stale(node)
-            || self.pda(node) != 0.0
+            || self.pda(node) != pda
             || self.get(rec, node).is_none_or(|old| more_visits(result, old))
+    }
+
+    /// A live result just stored was made with PDA `pda` (`BoardData.pda`): it is saved with it.
+    pub(super) fn made_with_pda(&mut self, node: NodeId, pda: f64) {
+        if pda != 0.0 && self.nodes.contains_key(&node) {
+            let metadata = crate::formats::saved_analysis::Metadata { pda, header_slots: 0 };
+            self.metadata.insert(node, metadata);
+        }
     }
 
     /// `clearBestMovesInfomation`: the node's analysis is gone; it is neither shown nor saved.
@@ -672,7 +680,13 @@ impl Workbench {
             None
         };
         let _ = profile;
-        Bootstrap { komi: self.komi, rules }
+        let p = &s.kata_params;
+        Bootstrap {
+            komi: self.komi,
+            rules,
+            pda: p.auto_load_pda_value.filter(|_| p.auto_load_pda),
+            wrn: p.auto_load_wrn_value.filter(|_| p.auto_load_wrn),
+        }
     }
 
     /// Whether the open game is still a new empty game: no moves, no setup and not read from a
@@ -1564,19 +1578,21 @@ impl Workbench {
                     let shown = self.suggestion_limit();
                     // Attended points belong to the main board's candidates only (`isMain`).
                     let tracked_points = if secondary { Vec::new() } else { self.tracked_points(node).to_vec() };
+                    let pda = self.engine_pda(instance);
                     let rec = &self.doc.record;
+                    let cache = self.config.engine.analysis.enable_lizzie_cache;
                     let store = if secondary {
                         &mut self.secondary_store
                     } else {
                         &mut self.store
                     };
-                    let cache = self.config.engine.analysis.enable_lizzie_cache;
-                    let replace = automatic || in_game || tracked || store.takes_place(rec, node, &result, cache);
+                    let replace = automatic || in_game || tracked || store.takes_place(rec, node, &result, cache, pda);
                     if replace {
                         let mut result = result;
                         let limit = self.config.engine.analysis.limit_branch_length;
                         fill_pv_captures(&mut result, &rec.position(node), limit, !self.config.edit.no_capture);
                         store.update(node, stamp, result, ownership, shown, &tracked_points);
+                        store.made_with_pda(node, pda);
                     }
                     let running = node == self.cursor
                         && !self.paused
@@ -1769,6 +1785,7 @@ impl Workbench {
             lease,
             unrestored,
             down: fg.is_none() && self.engines.foreground_failure().is_some(),
+            kata_params: self.kata_params_view(),
         }
     }
 
@@ -1781,6 +1798,9 @@ impl Workbench {
             kata_rules: s.kata_rules.clone(),
             auto_load_kata_rules: s.auto_load_kata_rules,
             startup_benchmark: s.startup_benchmark,
+            kata_pda: s.kata_pda,
+            kata_pda_enabled: s.kata_pda_enabled,
+            kata_params: s.kata_params.clone(),
         }
     }
 

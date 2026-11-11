@@ -330,6 +330,14 @@ body {
   width: 48px;
   height: 23px;
 }
+/* AppleStyleSupport.errorFieldBackground: out of range or not a number. */
+.tb-group.pda .tb-input.invalid,
+.tb-group.wrn .tb-input.invalid {
+  background: rgb(255, 0, 0);
+}
+:root[data-chrome="apple"] .tb-group .tb-input.invalid {
+  background: rgba(180, 50, 50, 0.314);
+}
 #toolbar > .tb-label {
   width: 27px;
 }

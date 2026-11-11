@@ -28,7 +28,7 @@ impl Harness {
         let config = dir.path().join("engine.cfg"); std::fs::write(&config, "numSearchThreads = 1\n").unwrap();
         wb.save_engine_settings(vec![EngineProfile { name:"KataGo".into(), command:format!("/opt/katago gtp -config {}", config.display()), ..EngineProfile::default() }], EngineStartup::Default).unwrap();
         wb.start_engines(); let engine = world.0.lock().unwrap().0;
-        let mut h = Self { wb,world,engine,params:HashMap::from([("maxTime".into(),"12.5".into()),("maxVisits".into(),"999".into()),("playoutDoublingAdvantage".into(),"0".into())]),rules:RULES.into(),held:vec![],sent:vec![],streaming:false,peer:None,framer:Framer::default(),received:vec![],dir,pda_readback:None };
+        let mut h = Self { wb,world,engine,params:HashMap::from([("maxTime".into(),"12.5".into()),("maxVisits".into(),"999".into()),("playoutDoublingAdvantage".into(),"0".into()),("analysisWideRootNoise".into(),"0".into())]),rules:RULES.into(),held:vec![],sent:vec![],streaming:false,peer:None,framer:Framer::default(),received:vec![],dir,pda_readback:None };
         h.serve(None); h
     }
     fn output(&mut self, text: &str) { self.wb.engine_input(self.engine, EngineInput::Stdout(text.into())); }

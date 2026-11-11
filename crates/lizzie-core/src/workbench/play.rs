@@ -69,6 +69,12 @@ struct Session {
     resign: u32,
     passed: bool,
     raw_net: bool,
+    /// 对局时不使用广度 turned 广度 off: whether it was on before (Java `WRNStatusBeforeGame`:
+    /// the toolbar's 广度 or its 自动加载).
+    wrn_was_on: bool,
+    /// The user changed 广度 during the game while it was on before: the end gives the 广度
+    /// field's value back and ticks it again (`restoreWRN`).
+    wrn_retick: bool,
 }
 
 /// Alt+, : one engine move outside a game.
@@ -94,6 +100,8 @@ pub(super) struct PlayFlow {
     voices: Vec<u8>,
     jobs: Vec<SaveJob>,
     saves: Vec<u64>,
+    /// Games that gave a 广度 back the toolbar must show again (`restoreWRN`).
+    wrn_given_back: u32,
 }
 
 fn notice(key: &str) -> GameNotice {
@@ -118,6 +126,32 @@ impl Workbench {
 
     pub(super) fn game_active(&self) -> bool {
         self.play.session.is_some()
+    }
+
+    /// The kind of the game running, if any.
+    pub(super) fn play_kind(&self) -> Option<GameKind> {
+        self.play.session.as_ref().map(|s| s.kind)
+    }
+
+    /// The user set 广度 during the game, sending `sent` (`Menu.chkWRN` / `txtWRN`). A 广度 the
+    /// game gives back at its end becomes the 广度 field's value when 广度 was on before the game
+    /// (`restoreWRN` sends the field's text, unticked or not), else the value sent (Java gives
+    /// nothing back then, so the engine keeps it).
+    pub(super) fn play_wrn_changed(&mut self, sent: f64) {
+        let field = self.config().engine.kata_params.wrn;
+        let Some(s) = self.play.session.as_mut() else { return };
+        let value = if s.wrn_was_on { field.unwrap_or(sent) } else { sent };
+        let mut gives_back = false;
+        for c in s.restore.iter_mut().filter(|c| c.starts_with("kata-set-param analysisWideRootNoise ")) {
+            *c = format!("kata-set-param analysisWideRootNoise {value}");
+            gives_back = true;
+        }
+        s.wrn_retick = gives_back && s.wrn_was_on && field.is_some();
+    }
+
+    /// How many games gave a 广度 back that the toolbar shows again.
+    pub(super) fn play_wrn_given_back(&self) -> u32 {
+        self.play.wrn_given_back
     }
 
     /// A game or Alt+, holds the foreground engine: whether it analyses now. 终局点目 stops it
@@ -468,6 +502,8 @@ impl Workbench {
             resign: 0,
             passed: false,
             raw_net: false,
+            wrn_was_on: false,
+            wrn_retick: false,
         });
         self.sync_engine();
         self.play_setup();
@@ -484,6 +520,8 @@ impl Workbench {
         let settings = s.settings.clone();
         let katago = self.engines.is_katago(fg);
         let readable = katago && self.engines.has_command(fg, "kata-get-param");
+        let kata = &self.config().engine.kata_params;
+        let wrn_was_on = kata.wrn_enabled || kata.auto_load_wrn;
         let mut capture: Vec<&'static str> = Vec::new();
         let mut set: Vec<String> = Vec::new();
         match kind {
@@ -540,6 +578,7 @@ impl Workbench {
         }
         let s = self.play.session.as_mut().unwrap();
         s.setup_sent = true;
+        s.wrn_was_on = kind == GameKind::Analysis && settings.disable_wrn && katago && wrn_was_on;
         s.capture = captured;
         s.awaiting = awaiting;
         if custom {
@@ -1078,7 +1117,16 @@ impl Workbench {
                     // The engine is gone while the game runs: retired, nothing more to restore.
                     self.game_end(GameEnd::Retired, None);
                 } else {
+                    let retick = failure.is_none()
+                        && self.play.session.as_ref().is_some_and(|s| s.reservation == game && s.wrn_retick);
                     self.play_released(game);
+                    if retick {
+                        // `restoreWRN`: 广度 is ticked again with the value given back.
+                        self.play.wrn_given_back += 1;
+                        if let Err(e) = self.commit_config(|c| c.engine.kata_params.wrn_enabled = true) {
+                            self.log(true, format!("saving the toolbar 广度 failed: {}", e.message));
+                        }
+                    }
                 }
                 None
             }

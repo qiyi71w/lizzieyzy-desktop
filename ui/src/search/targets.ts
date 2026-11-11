@@ -16,6 +16,9 @@ import { markupToolsShown, setEditing } from "../editing/state";
 import { revealToolbar } from "../workbench/panels";
 import { matchPlaying } from "../match/state";
 import { aiCoachBlockedByGame } from "../humansl/state";
+import { renderToolbar } from "../chrome/toolbar";
+import type { KataParam } from "../contract/generated";
+import { kataRevealed } from "../engine/kataParams";
 import { clearHighlight, highlight } from "./highlight";
 
 export type DestinationKind = "action" | "menu" | "toolbar" | "setting" | "window" | "context";
@@ -96,6 +99,11 @@ function toolbarControl(id: string): HTMLElement | null {
   return document.querySelector<HTMLElement>(`#toolbar [data-function="${CSS.escape(id)}"], #bottombar [data-function="${CSS.escape(id)}"]`) ?? livePopupAnchor(id);
 }
 
+/** The 激进度 / 广度 groups (Menu.locateTopFunction sets showPDAInMenu / showWRNInMenu): locating
+ *  shows the group for this run, so a group its setting hides is not a reason; the engine-state
+ *  reasons are LizzieFrame.functionEntryUnavailableReason's. */
+const KATA_GROUPS: Record<string, KataParam> = { "engine.pda": "Pda", "toolbar.wrn": "Wrn" };
+
 function kindOf(m: FunctionMatch): DestinationKind | null {
   if (m.target === "Context") return "context";
   if (m.section !== null) return "setting";
@@ -121,7 +129,7 @@ function missing(m: FunctionMatch, kind: DestinationKind | null): boolean {
       return menuItemState(m.id) === "missing";
     case "toolbar": {
       const control = toolbarControl(m.id);
-      return !control || control.classList.contains("unavailable") || control.matches(":disabled");
+      return !control || control.classList.contains("unavailable");
     }
   }
 }
@@ -263,9 +271,11 @@ function unavailableReason(m: FunctionMatch, kind: DestinationKind | null, absen
   if (dialogOpen(search ?? undefined)) return { key: "FunctionSearch.unavailable.modal" };
   if (absent) return UNAVAILABLE;
   if (kind === "context") return state.view.settings.edit.showRightMenu ? null : CONTEXT;
-  if (kind === "toolbar" && !revealsMarkup(m.id) && groupHidden(toolbarControl(m.id)!)) return TOOLBAR;
+  if (kind === "toolbar" && !revealsMarkup(m.id) && !KATA_GROUPS[m.id] && groupHidden(toolbarControl(m.id)!)) return TOOLBAR;
   const reason = entryReason(m.id);
   if (reason) return reason;
+  // A real toolbar control disabled for now (广度 while the engine is not free for it).
+  if (kind === "toolbar" && toolbarControl(m.id)?.matches(":disabled")) return CONTEXT;
   if (kind === "menu" && menuItemState(m.id) === "hidden") return CONTEXT;
   // A registered command its owner reports disabled or hidden, whatever the destination.
   const entry = COMMANDS[m.id];
@@ -311,6 +321,11 @@ function revealsMarkup(id: string): boolean {
 async function locateToolbarControl(id: string): Promise<Reason | null> {
   const control = toolbarControl(id);
   if (!control) return TOOLBAR;
+  const kata = KATA_GROUPS[id];
+  if (kata && !kataRevealed[kata]) {
+    kataRevealed[kata] = true;
+    renderToolbar();
+  }
   if (revealsMarkup(id) && !markupToolsShown()) setEditing({ markupRevealed: true });
   await revealToolbar(control.closest("#bottombar") ? "bottom" : "top");
   if (!control.isConnected || control.getClientRects().length === 0) return TOOLBAR;

@@ -165,6 +165,8 @@ pub struct EngineSettings {
     pub kata_pda: Option<f64>,
     /// `ui.chk-kata-engine-pda` [false]; confirmed nonzero PDA enables it.
     pub kata_pda_enabled: bool,
+    /// 广度, the start-up values and the toolbar's two groups (引擎参数 window).
+    pub kata_params: KataParamSettings,
     /// `ui.enable-startup-benchmark` [false on a new profile, Config.applyFirstLaunchDefaults]:
     /// the user opted in to the official benchmark after start-up when the foreground KataGo has
     /// no stored result (Settings > Advanced).
@@ -199,6 +201,42 @@ impl EngineSettings {
 
     pub fn index_of(&self, id: &str) -> Option<usize> {
         self.engines.iter().position(|e| e.id == id)
+    }
+}
+
+/// KataGo parameters of the toolbar and the 引擎参数 window (`SetKataEngines`) besides the
+/// toolbar's PDA, which [`EngineSettings::kata_pda`] holds.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct KataParamSettings {
+    /// `ui.txt-kata-engine-wrn`: the last 广度 value; Java's empty default is none.
+    pub wrn: Option<f64>,
+    /// `ui.chk-kata-engine-wrn` [false].
+    pub wrn_enabled: bool,
+    /// `ui.autoload-kata-engine-pda` [false] with `ui.auto-load-txt-kata-engine-pda`: set on
+    /// every KataGo that starts, except a `KataGoPda` one.
+    pub auto_load_pda: bool,
+    pub auto_load_pda_value: Option<f64>,
+    /// `ui.autoload-kata-engine-wrn` [false] with `ui.auto-load-txt-kata-engine-wrn`.
+    pub auto_load_wrn: bool,
+    pub auto_load_wrn_value: Option<f64>,
+    /// `ui.show-pda-in-menu` / `ui.show-wrn-in-menu` [true]: the toolbar shows the group.
+    pub show_pda: bool,
+    pub show_wrn: bool,
+}
+
+impl Default for KataParamSettings {
+    fn default() -> Self {
+        KataParamSettings {
+            wrn: None,
+            wrn_enabled: false,
+            auto_load_pda: false,
+            auto_load_pda_value: None,
+            auto_load_wrn: false,
+            auto_load_wrn_value: None,
+            show_pda: true,
+            show_wrn: true,
+        }
     }
 }
 

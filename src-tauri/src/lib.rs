@@ -823,6 +823,16 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
                 },
             })
         }
+        Command::SetKataParam { param, enabled, value } => {
+            let refused = shared.workbench.lock().unwrap().set_kata_param(param, enabled, value)?;
+            publish(&app, &shared);
+            Ok(refused.map_or(CommandResult::Done, |key| CommandResult::Refused { message_key: key.to_string() }))
+        }
+        Command::SaveKataEngineParams { params } => {
+            let refused = shared.workbench.lock().unwrap().save_kata_engine_params(params)?;
+            publish(&app, &shared);
+            Ok(refused.map_or(CommandResult::Done, |key| CommandResult::Refused { message_key: key.to_string() }))
+        }
         Command::SendGtpCommand { command } => {
             let refused = shared.workbench.lock().unwrap().send_gtp(&command)?;
             publish(&app, &shared);
@@ -1481,6 +1491,18 @@ fn logs_directory(state: tauri::State<'_, State>) -> LogsStatus {
 fn open_katago_releases(app: AppHandle) -> Result<(), ApiError> {
     app.opener()
         .open_url("https://github.com/lightvector/KataGo/releases", None::<&str>)
+        .map_err(|_| ApiError::new(ErrorKind::Unavailable, "AutoSetup.openBrowserUnsupported"))
+}
+
+/// 引擎参数 window's 这里 link (`SetKataEngines.Hint2`): the parameter notes of KataGo's example
+/// GTP configuration, at the revision Java links.
+#[tauri::command]
+fn open_katago_parameter_help(app: AppHandle) -> Result<(), ApiError> {
+    app.opener()
+        .open_url(
+            "https://github.com/lightvector/KataGo/blob/20d34784703c5b4000643d3ccc43bb37d418f3b5/cpp/configs/gtp_example.cfg#L76",
+            None::<&str>,
+        )
         .map_err(|_| ApiError::new(ErrorKind::Unavailable, "AutoSetup.openBrowserUnsupported"))
 }
 
@@ -2255,6 +2277,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         logs_directory,
         engine_console,
         open_katago_releases,
+        open_katago_parameter_help,
         output::recovery_thumbnail,
         open_suggestions_frame,
         close_suggestions_frame,
@@ -2310,6 +2333,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         logs_directory,
         engine_console,
         open_katago_releases,
+        open_katago_parameter_help,
         output::recovery_thumbnail,
         open_suggestions_frame,
         close_suggestions_frame,

@@ -254,9 +254,10 @@ importing the matching LizzieYzy Next settings.
 - Stored analysis and the Lizzie cache (分析 menu; 综合设置 > 高级 > 高级与性能, saved and taken over
   by the LizzieYzy Next import):
   - 启用 Lizzie 缓存 (on by default): a position's stored result is replaced only by a stronger
-    one (more visits), after it was marked by 清除Lizzie缓存, or when it was saved with a nonzero
-    PDA; automatic analysis, the playing engine of an engine match and 总是覆盖 always replace.
-    Off, every new result replaces the stored one.
+    one (more visits), after it was marked by 清除Lizzie缓存, or when it was made with another
+    PDA than the engine now uses; automatic analysis, the playing engine of an engine match and
+    总是覆盖 always replace. Off, every new result replaces the stored one. A live result is saved
+    with the engine's PDA when it is nonzero.
   - 清除Lizzie缓存(全局) (`Shift+A`) / (此手) mark every analysed position or the current one: the
     analysis stays shown and saved, and the next result replaces it even when weaker. Nothing is
     sent to the engine.
@@ -268,6 +269,29 @@ importing the matching LizzieYzy Next settings.
   - 空棋盘停止计算 (off by default): an ordinary analysis of the empty board (the root without
     setup stones) stops at its first result, without the limit notice; resuming it with `Space`
     searches on until the position changes. Games, engine matches and 自动分析 are not stopped.
+- KataGo search parameters (standard KataGo in the foreground; Leela Zero, Sai and `KataGoPda`
+  builds have their own parameters):
+  - Top toolbar 激进度 (`playoutDoublingAdvantage`) and 广度 (`analysisWideRootNoise`): ticking the
+    box or each edit of the value sends `kata-set-param` at once and the analysis searches again;
+    unticking sends 0. A value outside -3..3 (激进度) or 0..2 (广度) only turns the field red and is
+    still sent, like Java; text that is not a number sends 0. A 广度 change lets every stored
+    result give way to the next one. After an engine starts, both values are read back with
+    `kata-get-param` and the toolbar shows what the engine holds (it keeps the user's own
+    entries otherwise). The groups show only while the foreground engine is KataGo and no
+    engine match runs. In a 人机对弈 game both reach the playing engine, except 广度 in a Genmove
+    game. When an analysis game turned 广度 off (对局时不使用广度) and the user changed it during
+    the game, the end gives back the 广度 field's value and ticks it again if 广度 (or its
+    自动加载) was on before the game, else the engine keeps the last value sent. They
+    are disabled while the engine is busy elsewhere (GMA, an unrestored engine, and for 广度
+    野狐 AI 直连, whose session owns the 激进度 edits; its 激进度 stays shown while it runs).
+  - 设置 > 引擎参数 (`Alt+D`) or the toolbar's 参数 opens 设置KataGo引擎高级参数 (without a loaded
+    engine: Java's "no engine" hint). 确定 sends each row's value (0 when 修改 is off) and saves
+    it; 自动加载 makes every KataGo that starts get that value before the read-back (the 激进度
+    row is skipped for a `KataGoPda` engine); 在工具栏中控制 shows or hides the toolbar group.
+    Without 自动加载 a starting engine keeps its own configuration values. 搜索线程数 is shown but
+    not available yet. The eight Java keys of these controls are taken over by the LizzieYzy Next
+    import. Function search shows a hidden group, and a hidden top toolbar, for the current run
+    without changing the saved choices.
 - 显示 > 选点信息 > 总是显示黑胜率/目数 and 显示 > KataGo相关设置 > 目数显示 (计算贴目后目数差 /
   盘面目数差) are Java's two shared settings, both off by default, saved and taken over by the
   LizzieYzy Next import. The board candidates and the candidate table show the side to move, or

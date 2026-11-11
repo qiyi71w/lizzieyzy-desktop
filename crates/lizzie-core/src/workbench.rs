@@ -31,6 +31,7 @@ mod importing;
 mod information;
 mod humansl;
 mod humansl_model;
+mod kata_params;
 mod strength;
 mod online;
 mod matches;

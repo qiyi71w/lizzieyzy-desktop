@@ -9,7 +9,7 @@ use lizzie_core::api::{
 };
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
-use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
+use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, KataParam, Launcher};
 use lizzie_core::record::{NodeKind, Point, Stone, ROOT};
 use lizzie_core::settings::{AiTimeMode, AutoPlaySettings, GameSettings, Storage};
 use lizzie_core::workbench::Workbench;
@@ -42,7 +42,7 @@ impl Launcher for Launch {
     }
 }
 
-const KATA: &str = "name\nversion\nlist_commands\nkomi\nboardsize\nclear_board\nplay\nundo\nkata-analyze\n\
+const KATA: &str = "name\nversion\nlist_commands\nkomi\nboardsize\nclear_board\nplay\nundo\nset_position\nkata-analyze\n\
 kata-set-rules\nkata-get-rules\nkata-get-param\nkata-set-param\nkata-time_settings\ngenmove\nfixed_handicap\n\
 place_free_handicap\nkata-raw-nn\nstop";
 const RULES: &str = r#"{"friendlyPassOk":true,"hasButton":false,"ko":"SIMPLE","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N"}"#;
@@ -514,4 +514,63 @@ fn an_analysis_game_on_the_empty_board_is_not_stopped_by_stop_at_empty_board() {
     assert!(!g.serve(&|_| None).iter().any(|c| c == "stop"));
     output(&mut g.wb, g.engine, &info("Q16", 150, 0.5));
     assert_eq!(last_move(&g.wb).map(|m| m.0), Some(Stone::Black), "the engine still plays from its analysis");
+}
+
+/// Toolbar 激进度 / 广度 during 人机对弈 reach the playing engine (Menu.chkPDA / chkWRN): a
+/// genmove game takes 激进度 but not 广度 (`clearWRNforGame` disables it); an analysis game takes
+/// 广度 too and gives the user's value back at its end, not the one it read before (`restoreWRN`).
+#[test]
+fn kata_parameters_reach_the_game_engine_and_the_game_gives_back_the_users_breadth() {
+    let set = |param, value| Command::SetKataParam { param, enabled: true, value };
+    let mut g = Game::new();
+    start(&mut g, GameKind::Genmove, genmove_settings(true), None);
+    g.serve(&|_| None);
+    assert_eq!(g.wb.game_gate(&set(KataParam::Pda, 0.5)), None);
+    assert_eq!(g.wb.set_kata_param(KataParam::Pda, true, 0.5).unwrap(), None);
+    assert!(g.serve(&|_| None).iter().any(|c| c == "kata-set-param playoutDoublingAdvantage 0.5"));
+    assert_eq!(g.wb.set_kata_param(KataParam::Wrn, true, 0.3).unwrap(), Some("AnalysisSettings.reuseStatus.play_mode"));
+    let v = g.wb.view(false).engine.kata_params;
+    assert_eq!((v.pda, v.pda_unavailable, v.wrn_unavailable.as_deref()), (Some(0.5), None, Some("AnalysisSettings.reuseStatus.play_mode")));
+    assert!(!g.serve(&|_| None).iter().any(|c| c.contains("analysisWideRootNoise 0.3")));
+
+    let mut g = Game::new();
+    let autoplay = AutoPlaySettings { time_enabled: false, playouts_enabled: true, playouts: 100, ..AutoPlaySettings::default() };
+    start(&mut g, GameKind::Analysis, GameSettings { disable_wrn: true, ..genmove_settings(true) }, Some(autoplay));
+    let setup = g.serve(&|c| (c == "kata-get-param analysisWideRootNoise").then(|| "0.04".to_string()));
+    assert!(setup.iter().any(|c| c == "kata-set-param analysisWideRootNoise 0"), "{setup:?}");
+    assert_eq!(g.wb.set_kata_param(KataParam::Wrn, true, 0.3).unwrap(), None);
+    assert!(g.serve(&|_| None).iter().any(|c| c == "kata-set-param analysisWideRootNoise 0.3"));
+    assert_eq!(g.game(GameCommand::End), CommandResult::Done);
+    let restore = g.serve(&|_| None);
+    assert!(restore.iter().any(|c| c == "kata-set-param analysisWideRootNoise 0.3"), "{restore:?}");
+    assert!(!restore.iter().any(|c| c == "kata-set-param analysisWideRootNoise 0.04"), "{restore:?}");
+    assert_eq!(g.phase(), None);
+}
+
+/// 对局时不使用广度 with 广度 on before the game (`WRNStatusBeforeGame`): unticking it during the
+/// game sends 0, and the end gives back the 广度 field's value and ticks it again
+/// (`restoreWRN`); the game's own reads are no read-back the toolbar shows.
+#[test]
+fn an_analysis_game_gives_back_the_breadth_field_and_ticks_it_again() {
+    let mut g = Game::new();
+    assert_eq!(g.wb.set_kata_param(KataParam::Wrn, true, 0.3).unwrap(), None);
+    g.serve(&|_| None);
+    let before = g.wb.view(false).engine.kata_params;
+    let autoplay = AutoPlaySettings { time_enabled: false, playouts_enabled: true, playouts: 100, ..AutoPlaySettings::default() };
+    start(&mut g, GameKind::Analysis, GameSettings { disable_wrn: true, ..genmove_settings(true) }, Some(autoplay));
+    g.serve(&|c| (c == "kata-get-param analysisWideRootNoise").then(|| "0.3".to_string()));
+    let playing = g.wb.view(false).engine.kata_params;
+    assert_eq!((&playing.pda_read_back, &playing.wrn_read_back), (&before.pda_read_back, &before.wrn_read_back));
+
+    assert_eq!(g.wb.set_kata_param(KataParam::Wrn, false, 0.3).unwrap(), None);
+    assert!(g.serve(&|_| None).iter().any(|c| c == "kata-set-param analysisWideRootNoise 0"));
+    assert_eq!(g.game(GameCommand::End), CommandResult::Done);
+    let restore = g.serve(&|_| None);
+    assert!(restore.iter().any(|c| c == "kata-set-param analysisWideRootNoise 0.3"), "{restore:?}");
+    assert_eq!(g.phase(), None);
+    let after = g.wb.view(false).engine.kata_params;
+    assert_eq!(after.wrn, Some(0.3));
+    assert_ne!(after.wrn_read_back, before.wrn_read_back, "the toolbar shows the 广度 given back");
+    assert_eq!(after.pda_read_back, before.pda_read_back, "激进度 keeps what the user left in it");
+    assert!(g.wb.config().engine.kata_params.wrn_enabled);
 }
