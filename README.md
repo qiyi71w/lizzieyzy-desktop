@@ -1254,8 +1254,16 @@ npx tauri dev                       # run with hot reload
 npx tauri build --no-bundle         # release binary in target/release
 npm run typecheck                   # TypeScript
 cargo test --workspace              # core tests (records, browsing, saving, engine protocol, contract)
+node tools/cargo-test.mjs           # the same tests, test binaries run four at a time
 cargo clippy --workspace --all-targets
 ```
+
+`tools/cargo-test.mjs` takes `cargo test`'s selection arguments (`-p lizzie-core`,
+`--test panels`, `--features …`) and passes the arguments after `--` to every test binary. Each
+binary runs in its own process from its package directory, as under `cargo test`; at most four run
+at once (`--jobs N`), longest first by the durations recorded in `target/cargo-test-durations.json`.
+Starting every binary together makes the timing-sensitive tests fail. It reports every failing
+binary with its output and exits non-zero, like `cargo test --no-fail-fast`.
 
 ### Generated files
 
@@ -1315,6 +1323,12 @@ positions of visible controls). With the feature, `LIZZIEYZY_TAURI_RESOURCE_BASE
 engine resource downloads fetch `<url>/<file name>` instead of the trusted source (digests and
 sizes stay pinned), for isolated download tests. The feature is off by default; builds made
 without `--features acceptance` contain neither, whatever the profile.
+
+After changing only Rust code, `cargo build --bins --features acceptance,tauri/custom-protocol`
+(the command `tauri build` runs) produces the same `target/debug/lizzieyzy-tauri`. It skips
+`npm run build`; that step rewrites `dist/` and so forces the app crate to recompile even when
+the frontend is unchanged. After changing the frontend, use `npx tauri build`, which runs `tsc`
+itself as part of `npm run build`.
 
 ### Packages
 
