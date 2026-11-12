@@ -4,7 +4,7 @@
 import { run, state } from "../app";
 import type { AnalysisSettings, Command, MoveRect, ProxyMode } from "../contract/generated";
 import { confirm, formPanel, message } from "../dialogs";
-import { product, t } from "../i18n";
+import { t } from "../i18n";
 import { actions, button, checkbox, field, input } from "./controls";
 import { resourceCommand, resourceView } from "../setup/dialog";
 import { buildDisplaySettings } from "../display/settingsPage";
@@ -27,7 +27,7 @@ export interface SettingsDialog {
   reopen: (section: SettingsSection) => Promise<void>;
 }
 
-/** Section pages registered by their owners; a section without a page stays unavailable. */
+/** Section pages registered by their owners (显示, 主题, 关于). */
 export const SETTINGS_PAGES: Partial<Record<SettingsSection, (host: HTMLElement, dialog: SettingsDialog) => SettingsPage>> = {};
 
 /** A row's description line, shown below it as in Java's design rows. */
@@ -49,8 +49,20 @@ function heading(host: ParentNode, title: string, subtitle: string): void {
 
 /** `onOpened` runs once the dialog and its 保存设置 / 取消 controls are in place, before the
  *  dialog closes; it may locate rows but must not change the draft. */
-export async function openAnalysisSettings(section: SettingsSection = "engine", onOpened?: (body: HTMLElement) => void): Promise<void> {
+export function openAnalysisSettings(section: SettingsSection = "engine", onOpened?: (body: HTMLElement) => void): Promise<void> {
+  return openSettings(section, onOpened, null);
+}
+
+/** LizzieFrame.openConfigDialog2 (LizzieFrame.java:3032-3048): running analysis pauses while the
+ *  modal dialog is open and resumes once it closes. A page reopening the dialog hands that pause
+ *  to the new dialog (`resume`, null when opened afresh), as Java's nested openConfigDialog2
+ *  finds analysis already paused and the outer call resumes it after both. */
+async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElement) => void) | undefined, resume: boolean | null): Promise<void> {
   if (!state.view) return;
+  const resumeAnalysis = resume ?? state.view.engine.analysing;
+  if (resume === null && resumeAnalysis) await run({ type: "ToggleAnalysis" });
+  if (!state.view) return;
+  let handedOver = false;
   const settings = { ...state.view.settings.engine.analysis };
   const network = { ...(resourceView()?.network ?? { proxyMode: "Direct" as const, proxyHost: "127.0.0.1", proxyPort: 7897 }) };
   const startupBenchmark = state.view.settings.engine.startup_benchmark;
@@ -65,13 +77,15 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   const registered: SettingsPage[] = [];
   const owner: SettingsDialog = {
     saveAndReopen: async (target) => {
-      if (!(await apply())) return false;
-      void openAnalysisSettings(target);
+      handedOver = true;
+      if (!(await apply())) { handedOver = false; return false; }
+      void openSettings(target, undefined, resumeAnalysis);
       return true;
     },
     reopen: async (target) => {
+      handedOver = true;
       await dialog.close();
-      void openAnalysisSettings(target);
+      void openSettings(target, undefined, resumeAnalysis);
     },
   };
   for (const [key, build] of Object.entries(SETTINGS_PAGES)) {
@@ -81,14 +95,10 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   const showPage = (key: string) => { for (const [id, page] of Object.entries(pages)) page.hidden = id !== key; };
   for (const [key, text] of [["display", t("ConfigDialog2.modern.nav.display")], ["kifu", t("ConfigDialog2.modern.nav.kifu")], ["engine", t("ConfigDialog2.modern.nav.engine")], ["play", t("ConfigDialog2.modern.nav.play")], ["theme", t("ConfigDialog2.modern.nav.theme")], ["advanced", t("ConfigDialog2.modern.nav.advanced")], ["about", t("ConfigDialog2.modern.nav.about")]]) {
     const item = document.createElement("button"); item.textContent = text; item.dataset.key = `settings.nav.${key}`;
-    item.disabled = !(key in pages);
-    if (item.disabled) { item.title = product("unavailable"); item.className = "unavailable"; }
-    else item.onclick = () => showPage(key);
+    item.onclick = () => showPage(key);
     nav.append(item);
   }
   body.append(nav);
-  const unavailable = document.createElement("small"); unavailable.className = "engine-unavailable-note";
-  unavailable.textContent = product("unavailable"); nav.append(unavailable);
   // Numeric analysis fields (addInputRow / addToggleInputRow): checked with 保存设置. A limit's
   // switch shares the row with its value, so locating the row reaches both.
   const inputs: HTMLInputElement[] = [];
@@ -259,4 +269,5 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   actions(body, save, cancel);
   onOpened?.(body);
   await dialog.closed;
+  if (!handedOver && resumeAnalysis && state.view?.engine.foreground && state.view.engine.paused) await run({ type: "ToggleAnalysis" });
 }

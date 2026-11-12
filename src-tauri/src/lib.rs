@@ -1548,6 +1548,29 @@ fn open_katago_parameter_help(app: AppHandle) -> Result<(), ApiError> {
         .map_err(|_| ApiError::new(ErrorKind::Unavailable, "AutoSetup.openBrowserUnsupported"))
 }
 
+/// The pages 关于's link buttons open (`ConfigDialog2.createUnifiedAboutHero`), on this product's
+/// repository instead of Java's.
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum ProjectPage {
+    Home,
+    Releases,
+    Issues,
+}
+
+/// 关于's 项目主页 / 发布下载 / 问题反馈 in the system browser; no caller-provided URL is accepted.
+#[tauri::command]
+fn open_project_page(app: AppHandle, page: ProjectPage) -> Result<(), ApiError> {
+    let url = match page {
+        ProjectPage::Home => "https://github.com/qiyi71w/lizzieyzy-desktop",
+        ProjectPage::Releases => "https://github.com/qiyi71w/lizzieyzy-desktop/releases",
+        ProjectPage::Issues => "https://github.com/qiyi71w/lizzieyzy-desktop/issues",
+    };
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|_| ApiError::new(ErrorKind::Unavailable, "AutoSetup.openBrowserUnsupported"))
+}
+
 fn window_placement(window: &tauri::WebviewWindow, previous: Option<WindowPlacement>) -> Option<WindowPlacement> {
     let maximized = window.is_maximized().ok()?;
     if maximized {
@@ -2326,6 +2349,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         engine_console,
         open_katago_releases,
         open_katago_parameter_help,
+        open_project_page,
         output::recovery_thumbnail,
         open_suggestions_frame,
         close_suggestions_frame,
@@ -2384,6 +2408,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         engine_console,
         open_katago_releases,
         open_katago_parameter_help,
+        open_project_page,
         output::recovery_thumbnail,
         open_suggestions_frame,
         close_suggestions_frame,

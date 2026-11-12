@@ -489,7 +489,13 @@ importing the matching LizzieYzy Next settings.
   (窗口总在最前, 显示状态面板, 显示小棋盘, 窗口标题显示胜率) apply with 保存设置; Java's 显示快速启动
   row is not shown because this client has no quick-launch links. Panel sizes, the bottom
   toolbar mode and the panel order are window placement (`persist.json`), cleared by
-  重置界面位置.
+  重置界面位置. While 综合设置 is open, however it was opened, running analysis is paused; it
+  resumes when the dialog closes (保存设置 or 取消), and analysis paused beforehand stays paused.
+- 帮助 > 关于 opens 综合设置 at 关于 (also reachable from its navigation and function search):
+  the product name, the running version (the same as in the window title), a note that this
+  client is migrated from LizzieYzy Next (Java), and 项目主页 / 发布下载 / 问题反馈 buttons that open
+  this project's GitHub repository, Releases and Issues pages in the system browser. Java's feature
+  cards, QQ group and 查看更新 button are not shown.
 - Appearance (Java defaults; saved and taken over by the LizzieYzy Next import):
   - 设置 > 主题 opens 综合设置 > 主题外观: the theme (默认 plus the bundled sabaki, yasnaya,
     Megapack, Custom and Fast, and the user's own), a preview of the edited background, board and
