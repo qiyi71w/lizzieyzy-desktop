@@ -1722,6 +1722,8 @@ pub enum ImportTarget {
     MoveRect,
     /// `ui.enable-click-review`.
     ClickReview,
+    /// `ui.last-painting-color`.
+    PaintingColor,
     /// `ui.auto-save-exit`.
     AutoSaveOnExit,
     /// `ui.resume-previous-game`.

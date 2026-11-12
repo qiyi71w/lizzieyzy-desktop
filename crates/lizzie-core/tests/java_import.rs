@@ -2462,6 +2462,25 @@ fn move_rect_and_click_review_import_by_value() {
 }
 
 #[test]
+fn painting_color_imports_by_value() {
+    use lizzie_core::settings::PaintingColor;
+    // DrawPainting opens with 1 green, 2 red, anything else blue (DrawPainting.java:75-85).
+    for (value, expected) in [(1, PaintingColor::Green), (2, PaintingColor::Red), (5, PaintingColor::Blue)] {
+        let tmp = tempfile::tempdir().unwrap();
+        let java = tmp.path().join("java");
+        std::fs::create_dir_all(&java).unwrap();
+        std::fs::write(java.join("config.txt"), json!({"ui": {"last-painting-color": value}}).to_string()).unwrap();
+        let product = tmp.path().join("product");
+        let mut wb = workbench(&product, Recorder::default());
+        let p = preview(&mut wb, &java);
+        let row = item(&p.items, "ui.last-painting-color");
+        assert_eq!((row.status, row.target), (ImportStatus::Imported, Some(ImportTarget::PaintingColor)), "{value}");
+        wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
+        assert_eq!(saved_config(&product).edit.painting_color, expected, "last-painting-color {value}");
+    }
+}
+
+#[test]
 fn variation_tree_width_settings_import_by_value() {
     let tmp = tempfile::tempdir().unwrap();
     let java = tmp.path().join("java");

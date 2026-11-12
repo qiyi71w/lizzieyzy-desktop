@@ -25,6 +25,7 @@ import "../editing/chrome.css";
 import "../strength/commands";
 import { topGroupShown, topToolbarWraps, type TopGroup } from "./topGroups";
 import { toggleDoubleMenu } from "../workbench/panels";
+import "../display/painting";
 
 const updaters: (() => void)[] = [];
 
@@ -61,8 +62,8 @@ function at(id: string, control: HTMLElement): HTMLElement {
   return control;
 }
 
-/** btnMarkup and, while show-markup-tools is on, the markup buttons after it in Java's rightArea
- *  order (Menu.java:8694-8703; the circle button is created but never added). */
+/** btnMarkup and, while show-markup-tools is on, the markup buttons and 自由涂鸦 after it in Java's
+ *  rightArea order (Menu.java:8694-8703; the circle button is created but never added). */
 function markupTools(): HTMLElement[] {
   const tools = document.createElement("span");
   tools.className = "tb-markup";
@@ -74,6 +75,7 @@ function markupTools(): HTMLElement[] {
     at("toolbar.markup-triangle", commandIcon("sanjiao.png", "sanjiao2.png", t("Accessibility.markupTriangle"), "toolbar.markup-triangle")),
     at("toolbar.markup-eraser", commandIcon("eraser.png", "eraser2.png", t("Accessibility.markupEraser"), "toolbar.markup-eraser")),
     at("toolbar.markup-clear", icon("clear.png", t("Menu.btnMarkupClear.toolTipText"), "toolbar.markup-clear")),
+    at("toolbar.painting", icon("paint.png", t("Menu.drawPainting.toolTipText"), "toolbar.painting")),
   );
   updaters.push(() => {
     const display = markupToolsShown() ? "" : "none";

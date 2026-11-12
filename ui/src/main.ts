@@ -28,6 +28,7 @@ import { bindReplayHost, finishReplayBranch, replayLength, replaying, type Repla
 import { autoplayReport, autoReplayLength, bindAutoplayHost, subAutoplayLength, subWheeled } from "./display/autoplay";
 import { bindClickReview, clickReviewReport, pointerAt, reviewScene } from "./display/clickReview";
 import { moveRect, rectPointer } from "./display/moveRect";
+import { paintingKey, paintingReport } from "./display/painting";
 import { sameAnalysis, sameHistory } from "./workbench/viewEquality";
 import { handleEngineKey } from "./engine/keys";
 import { handleDisplayKey } from "./display/keys";
@@ -479,6 +480,11 @@ const JAVA_BOUND = new Set([..."ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", " ", ",",
 
 document.addEventListener("keydown", (e) => {
   if (appMenuKey(e) || dialogOpen() || flashWindowOpen() || menuOpen() || contextMenuOpen() || textTarget(e.target)) return;
+  // 自由涂鸦 holds the keys while it is open; ESC closes it.
+  if (paintingKey(e)) {
+    e.preventDefault();
+    return;
+  }
   // The 存档与读档 controls keep their keys, like the Swing components holding the focus there.
   if (e.target instanceof Element && e.target.closest("#recovery")) return;
   if (handleLayoutKey(e) || handlePanelKey(e) || handleReadBoardKey(e) || handleEngineKey(e) || handleEditKey(e) || handleMatchKey(e) || handleTsumegoKey(e) || handleGameKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e) || handleOnlineKey(e)) {
@@ -1553,6 +1559,8 @@ function uiReport() {
       autoplay: autoplayReport(),
       /** 点击棋子回看: the pressed point, the shown node once looked up and the variation length. */
       clickReview: clickReviewReport(),
+      /** 自由涂鸦: the open layer's pen, lines and place, or null. */
+      painting: paintingReport(),
     },
     /** 双引擎模式 (T12): the mode, the right board's drawing, both boards' client geometry, the
      *  status strips as drawn, the secondary engine menu's title and the candidate windows. */

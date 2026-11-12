@@ -1363,6 +1363,17 @@ pub struct EditSettings {
     /// 启用点击棋子回看 (`enable-click-review`, default off): holding a stone shows the position
     /// before it was played (`Board.setPressStoneInfo`). 右键 回看 works either way.
     pub click_review: bool,
+    /// 自由涂鸦's pen when it opens: the one it was closed with (`last-painting-color`, blue).
+    pub painting_color: PaintingColor,
+}
+
+/// 自由涂鸦's pens (`DrawPainting.PEN_COLOR`; Java `ui.last-painting-color` 0, 1, 2).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum PaintingColor {
+    #[default]
+    Blue,
+    Green,
+    Red,
 }
 
 /// When the square under the pointer marks where a stone would go (`LizzieFrame.shouldShowRect`;
@@ -1389,6 +1400,7 @@ impl Default for EditSettings {
             no_capture: false,
             move_rect: MoveRect::OnPlay,
             click_review: false,
+            painting_color: PaintingColor::Blue,
         }
     }
 }

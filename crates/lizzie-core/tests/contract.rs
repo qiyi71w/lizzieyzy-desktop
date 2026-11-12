@@ -67,6 +67,7 @@ fn generate() -> String {
         lizzie_core::cloud::MembershipProduct, lizzie_core::cloud::PaymentStatus,
         lizzie_core::cloud::PaymentPurpose, lizzie_core::cloud::PaymentOrder, lizzie_core::cloud::PaymentVerification,
         EditCommand, EditTarget, EditingView, EditSettings, lizzie_core::settings::MoveRect, ClickReviewView,
+        lizzie_core::settings::PaintingColor,
         MarkTool, StoneChange, Transform,
         ExportKind, CommentLabels, SlotRef, RecoveryCommand, SlotView, RecoveryView, RecoverySettings,
         ImportSlotView, RecoveryImport, DisplaySettings, ShownValues, AsCandidate,

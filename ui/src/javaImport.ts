@@ -177,6 +177,8 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   // 综合设置 > 对局与操作 > 显示落子矩形 / 启用点击复盘 (ConfigDialog2.java:3168-3214).
   MoveRect: "ConfigDialog2.modern.interaction.moveRect",
   ClickReview: "ConfigDialog2.modern.play.clickReview",
+  // The top toolbar's 自由涂鸦 button (Menu.java:8639-8643), whose layer opens with this pen.
+  PaintingColor: "Menu.drawPainting.toolTipText",
 };
 
 function targetLabel(target: ImportTarget): string {

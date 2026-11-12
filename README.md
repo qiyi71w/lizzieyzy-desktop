@@ -158,6 +158,14 @@ importing the matching LizzieYzy Next settings.
     another place is pressed or the position changes. While typing, keys never play or navigate.
   - Markup (标记工具, shown when switched on): letters and numbers count on (A, B, … / 1, 2, …),
     triangle, square, cross, the eraser and 清除标记.
+  - 自由涂鸦 (the top toolbar button after 清除标记, shown with the markup tools; also found by
+    function search): a layer over the workbench between the toolbars to draw on while
+    explaining. Drag with the left button to draw 3 px lines; the buttons at its top right choose
+    the blue, green or red pen (the chosen one framed), take back the last line, clear every line
+    and close the layer, as `Esc` does. While it is open the board and panels take no clicks,
+    right clicks, wheel or keys. The lines are never saved: they do not enter the record or mark
+    it unsaved, and they go when the layer closes. Only the pen is kept (saved on closing, used
+    the next time, imported from LizzieYzy Next).
   - 起始局面设置 (Game menu): setup mode is available on a record without moves (otherwise it
     asks to turn the current position into the starting position) while no foreground engine
     runs, and no engine starts while it is on. Clicks place black or white setup stones or erase
@@ -1241,8 +1249,8 @@ importing the matching LizzieYzy Next settings.
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
 as not yet available (greyed in menus; a notice when used). Not available yet: the other layout
 modes (classic, minimal, thinking, four sub boards, independent board, custom layouts),
-cloud engines, whole-game measured tuning, 自由涂鸦, and the analysis-region items of the board
-context menu.
+cloud engines, whole-game measured tuning, and the analysis-region items of the board context
+menu.
 
 Resource acquisition and real engine analysis have been verified on Linux (private X11,
 WebKitGTK), including downloads of the official KataGo v1.18.1 Eigen AVX2 AppImage and model

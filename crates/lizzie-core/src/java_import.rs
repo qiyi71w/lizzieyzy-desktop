@@ -229,6 +229,7 @@ pub struct Mapped {
     pub no_capture: Option<bool>,
     pub move_rect: Option<crate::settings::MoveRect>,
     pub click_review: Option<bool>,
+    pub painting_color: Option<crate::settings::PaintingColor>,
     /// `ui.auto-save-exit`, `ui.resume-previous-game`, `ui.load-save-zoom`.
     pub auto_save_on_exit: Option<bool>,
     pub resume_previous_game: Option<bool>,
@@ -889,6 +890,16 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "enable-click-review",
         ImportTarget::ClickReview,
         Kind::Bool(|m, v| m.click_review = Some(v)),
+    ),
+    // DrawPainting opens with 1 green, 2 red and any other number blue (DrawPainting.java:75-85).
+    (
+        "ui",
+        "last-painting-color",
+        ImportTarget::PaintingColor,
+        Kind::I32(|m, v| {
+            use crate::settings::PaintingColor as P;
+            m.painting_color = Some(match v { 1 => P::Green, 2 => P::Red, _ => P::Blue });
+        }),
     ),
     (
         "ui",
@@ -3440,6 +3451,7 @@ impl Mapped {
         set!(c.edit.no_capture, self.no_capture);
         set!(c.edit.move_rect, self.move_rect);
         set!(c.edit.click_review, self.click_review);
+        set!(c.edit.painting_color, self.painting_color);
         set!(c.display.winrate_always_black, self.winrate_always_black);
         set!(c.display.score_lead_with_komi, self.score_lead_with_komi);
         c.display = with_display(&c.display, &self.display);
@@ -3640,6 +3652,7 @@ impl Mapped {
         cmp!(ImportTarget::NoCapture, e.no_capture, self.no_capture);
         cmp!(ImportTarget::MoveRect, e.move_rect, self.move_rect);
         cmp!(ImportTarget::ClickReview, e.click_review, self.click_review);
+        cmp!(ImportTarget::PaintingColor, e.painting_color, self.painting_color);
         let d = &config.display;
         cmp!(
             ImportTarget::WinrateAlwaysBlack,

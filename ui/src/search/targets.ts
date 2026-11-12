@@ -323,10 +323,11 @@ async function navigateBoard(m: FunctionMatch): Promise<null> {
   return null;
 }
 
-/** Menu.locateTopFunction (Menu.java:6997-7001): locating a markup button shows the markup tools
- *  for this session (Config.isShowingMarkupTools, not saved); btnMarkup itself does not. */
+/** Menu.locateTopFunction (Menu.java:6997-7001): locating a markup button or 自由涂鸦 shows the
+ *  markup tools for this session (Config.isShowingMarkupTools, not saved); btnMarkup itself does
+ *  not. */
 function revealsMarkup(id: string): boolean {
-  return id.startsWith("toolbar.markup-") && id !== "toolbar.markup-tools";
+  return (id.startsWith("toolbar.markup-") && id !== "toolbar.markup-tools") || id === "toolbar.painting";
 }
 
 /** BottomToolbar.locateFunction / Menu.locateTopFunction: shows the toolbar (and the markup tools
