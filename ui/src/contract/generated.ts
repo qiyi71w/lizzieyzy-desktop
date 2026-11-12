@@ -296,7 +296,7 @@ replace_file_hint: boolean,
  */
 extra_mode: ExtraMode, panels: PanelSettings, 
 /**
- * The top toolbar's optional groups (自定义内容).
+ * The top toolbar's groups (自定义内容) and 自动换行.
  */
 top_toolbar: TopToolbarSettings, panel_sizes: PanelSizes, bottom_toolbar: BottomToolbar, comment_panel_auto_hidden: boolean, custom_layouts: [CustomLayout | null, CustomLayout | null], independent_main_board: WindowPlacement | null, independent_sub_board: WindowPlacement | null, engine: EngineSettingsView, edit: EditSettings, display: DisplaySettings, 
 /**
@@ -2627,6 +2627,26 @@ export type PanelSizes = { leftoverLeftShare: number | null, boardPositionPropor
 
 export type TopToolbarSettings = { 
 /**
+ * The ▲ button first in the row, which turns the row off (`ui.show-double-menu-btn` [false]).
+ */
+showDoubleMenuButton: boolean, 
+/**
+ * 新建 / 打开 / 保存 … 标记 (`ui.show-basic-btn` [true]).
+ */
+showBasicButtons: boolean, 
+/**
+ * 落子工具 黑 / 白 / 交替 / 停一手 (`ui.show-edit-bar` [true]).
+ */
+showEditBar: boolean, 
+/**
+ * 强制计算工具 允许 / 排除 / 清除 (`ui.show-force-menu` [true]).
+ */
+showForce: boolean, 
+/**
+ * 对局控制 新对局 / 暂停 / 认输 (`ui.show-double-menu-game-control` [true]).
+ */
+showGameControls: boolean, 
+/**
  * 限制: 时间 (`ui.show-time-control-in-menu` [false]).
  */
 showTimeLimit: boolean, 
@@ -2639,9 +2659,34 @@ showVisitLimit: boolean,
  */
 showAnalyzeSides: boolean, 
 /**
+ * 选点 黑 / 白 (`ui.show-double-menu-var` [true]).
+ */
+showCandidateSides: boolean, 
+/**
  * 选点 胜率 / 计算量 / 目数 (`ui.show-double-menu-moveinfo` [false]).
  */
-showCandidateInfo: boolean, };
+showCandidateInfo: boolean, 
+/**
+ * 规则 (`ui.show-rule-menu` [true]).
+ */
+showRules: boolean, 
+/**
+ * 参数 (`ui.show-param-menu` [true]).
+ */
+showParameters: boolean, 
+/**
+ * 棋盘 (`ui.show-goban-menu` [true]).
+ */
+showBoardSize: boolean, 
+/**
+ * 存档 (`ui.show-saveload-menu` [true]).
+ */
+showSaveLoad: boolean, 
+/**
+ * 自动换行: the row wraps; off, it stays one row and what does not fit is cut off
+ * (`ui.auto-wrap-tool-bar` [true], LizzieFrame.java:14488-14507).
+ */
+autoWrap: boolean, };
 
 export type BottomToolbar = "Hidden" | "Simple" | "Detailed";
 

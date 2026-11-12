@@ -593,7 +593,7 @@ pub enum Command {
     SetTsumegoButtonShown {
         shown: bool,
     },
-    /// 自定义内容 of the top toolbar: its optional groups.
+    /// 自定义内容 of the top toolbar (its groups) and its 自动换行.
     SetTopToolbarSettings {
         settings: crate::settings::TopToolbarSettings,
     },
@@ -1168,7 +1168,7 @@ pub struct SettingsView {
     /// 布局模式 (Java `ui.extra-mode`).
     pub extra_mode: crate::settings::ExtraMode,
     pub panels: crate::settings::PanelSettings,
-    /// The top toolbar's optional groups (自定义内容).
+    /// The top toolbar's groups (自定义内容) and 自动换行.
     pub top_toolbar: crate::settings::TopToolbarSettings,
     pub panel_sizes: crate::settings::PanelSizes,
     pub bottom_toolbar: crate::settings::BottomToolbar,
@@ -1747,8 +1747,11 @@ pub enum ImportTarget {
     /// 抓取死活题 参数设置: `ui.capture-black-offset`, `capture-black-percent`,
     /// `capture-white-offset`, `capture-white-percent`, `capture-gray-percent`.
     CaptureTsumego,
-    /// 顶部工具栏 自定义内容: `ui.show-time-control-in-menu`, `show-playout-control-in-menu`,
-    /// `show-analyze-controller`, `show-double-menu-moveinfo`.
+    /// 顶部工具栏 自定义内容 and 自动换行: `ui.show-double-menu-btn`, `show-basic-btn`,
+    /// `show-edit-bar`, `show-force-menu`, `show-double-menu-game-control`,
+    /// `show-time-control-in-menu`, `show-playout-control-in-menu`, `show-analyze-controller`,
+    /// `show-double-menu-var`, `show-double-menu-moveinfo`, `show-rule-menu`, `show-param-menu`,
+    /// `show-goban-menu`, `show-saveload-menu`, `auto-wrap-tool-bar`.
     TopToolbar,
     /// 问题手: `ui.is-showing-blunder-table`, `problem-list-side-filter`, `problem-list-sort`,
     /// `problem-list-winrate-threshold`, `blunder-playouts-threshold`,

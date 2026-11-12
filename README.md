@@ -430,9 +430,15 @@ importing the matching LizzieYzy Next settings.
   `X` shows Java's key list over the workbench until the key is released; moving over the board,
   the variation tree or the list returns the keyboard to the workbench unless a comment is being
   edited. 工具栏 > 顶部工具栏 is 分开 (the second toolbar row), 合并 or 不显示 (no toolbar row, as in
-  the fixed Java build); its 自定义内容 items 单步分析限制(时间)(秒), 单步分析限制(计算量), 选点分析控制
-  and 选点信息控制 (all off by default, saved at once and taken over by the LizzieYzy Next import)
-  add the 限制: 时间 / 计算 fields, 分析: 黑 / 白 and 选点 胜率 / 计算量 / 目数 to the row. The limit
+  the fixed Java build). Its 自定义内容 items show or hide each group of the row, as in Java:
+  独立/合并工具栏按钮 (off by default), 基本按钮, 落子工具, 强制计算工具, 对局控制, 选点显示控制, 规则,
+  参数, 棋盘 and 存档 (on by default), and 单步分析限制(时间)(秒), 单步分析限制(计算量), 选点分析控制 and
+  选点信息控制 (off by default). Each choice is saved at once and taken over by the LizzieYzy Next
+  import; 对局控制 still follows the game state while shown, and 死活 has its own item. 独立/合并工具栏按钮
+  puts a ▲ button first in the row that switches it to 合并 (the same setting as the menu).
+  自动换行(仅独立显示时), on by default, lets the row wrap; off, it stays one line and what does not
+  fit the window is cut off, with no scroll bar. 棋盘 opens 设置棋盘大小. The optional groups add the
+  限制: 时间 / 计算 fields, 分析: 黑 / 白 and 选点 胜率 / 计算量 / 目数 to the row. The limit
   fields write 综合设置's analysis limits on every edit (digits only; an empty field keeps the
   value); the 选点 boxes are 显示 > 推荐点's win rate / visits / score items. Function search shows
   a hidden group for the current run without saving it. 底部工具栏 is 显示, 不显示 or (Chinese

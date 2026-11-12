@@ -1,7 +1,7 @@
-// Java double-menu top toolbar (Menu.doubleMenu / TopHeaderPanel) with the default item set of
-// the fixed Java build (Config.java defaults; Menu.java:8189-8230, 9633-9931). Items this client
-// implements run their catalog command; the others keep their Java look and report that the
-// capability is not available yet.
+// Java double-menu top toolbar (Menu.doubleMenu / TopHeaderPanel) with the groups 自定义内容
+// chooses (chrome/topGroups.ts; Menu.java:8251-9931). Items this client implements run their
+// catalog command; the others keep their Java look and report that the capability is not
+// available yet.
 import { run, state, unavailable } from "../app";
 import { COMMANDS } from "../commands";
 import { rankMarkLit, setCandidateSide } from "../display/commands";
@@ -23,7 +23,8 @@ import { kataGoPda, kataRevealed, kataToolbarState, kataToolbarUse, kataValueInv
 import { openCustomPda } from "../engine/customPda";
 import "../editing/chrome.css";
 import "../strength/commands";
-import { topGroupShown, type TopGroup } from "./topGroups";
+import { topGroupShown, topToolbarWraps, type TopGroup } from "./topGroups";
+import { toggleDoubleMenu } from "../workbench/panels";
 
 const updaters: (() => void)[] = [];
 
@@ -689,42 +690,90 @@ function tencentKifuButton(): HTMLElement {
   return b;
 }
 
+/** btnDoubleMenu (Menu.java:7534-7550, 8259): first in the row while its 自定义内容 choice is on.
+ *  The row shows only 分开, so the button shows ▲, which turns the row to 合并. */
+function doubleMenuButton(): HTMLElement {
+  const b = document.createElement("span");
+  b.className = "tb-icon";
+  b.dataset.key = "toolbar.double-menu";
+  b.title = t("Accessibility.toolbarDetailsDescription");
+  const image = document.createElement("img");
+  image.src = "/assets/up.png";
+  image.alt = "";
+  b.append(image);
+  b.onclick = toggleDoubleMenu;
+  return b;
+}
+
+/** 选点: (lblShowCandidate, Menu.java:9874-9899): shown with either 黑 / 白 or 胜率 / 计算量 / 目数,
+ *  with a separator between the two while both are. */
+function candidateGroup(): HTMLElement {
+  const sides = shownGroup("showCandidateSides");
+  const info = shownGroup("showCandidateInfo");
+  const caption = label(t("Menu.lblShowCandidate"));
+  caption.classList.add("candidate");
+  return optional(
+    () => sides() || info(),
+    sep(),
+    caption,
+    optional(sides, at("toolbar.candidate-sides", candidateCheck(t("Menu.Black"), true)), candidateCheck(t("Menu.White"), false)),
+    optional(
+      info,
+      optional(sides, sep()),
+      at("toolbar.candidate-info", candidateInfoCheck(t("Menu.winrate"), "menu.suggestion1", "toolbar.candidate-winrate")),
+      candidateInfoCheck(t("Menu.visits"), "menu.suggestion2", "toolbar.candidate-visits"),
+      candidateInfoCheck(t("Menu.score"), "menu.suggestion3", "toolbar.candidate-score"),
+    ),
+  );
+}
+
+/** Menu.doubleMenu / setKomiPanelInDoubleMenu (Menu.java:8251-9931): each 自定义内容 group with
+ *  the separator after it; 自动换行 off keeps one row (LizzieFrame.java:14503-14507). */
 export function buildToolbar(host: HTMLElement): void {
   const search = searchButton();
   const setup = pill(t("Menu.autoSetupButton"), "wide w80", "engine.setup");
   setup.dataset.key = "engine.setup"; setup.title = t("Menu.autoSetup"); setup.setAttribute("role", "button"); setup.tabIndex = 0;
   setup.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); COMMANDS["engine.setup"].run(); } };
+  const rules = shownGroup("showRules");
+  const parameters = shownGroup("showParameters");
+  const boardSize = shownGroup("showBoardSize");
+  const saveLoad = shownGroup("showSaveLoad");
   host.append(
-    sep("lead"),
-    buttons(
-      icon("newFile.png", t("Menu.btnNewFile.toolTipText"), "files.new"),
-      icon("open.png", t("Menu.btnOpen.toolTipText"), "files.open"),
-      icon("save.png", t("Menu.btnSave.toolTipText"), "files.save"),
-      foxKifuButton(),
-      tencentKifuButton(),
-      strengthButton(),
+    optional(shownGroup("showDoubleMenuButton"), doubleMenuButton()),
+    optional(
+      shownGroup("showBasicButtons"),
+      sep("lead"),
+      buttons(
+        icon("newFile.png", t("Menu.btnNewFile.toolTipText"), "files.new"),
+        icon("open.png", t("Menu.btnOpen.toolTipText"), "files.open"),
+        icon("save.png", t("Menu.btnSave.toolTipText"), "files.save"),
+        foxKifuButton(),
+        tencentKifuButton(),
+        strengthButton(),
+      ),
+      buttons(setup, flashButton(), search),
+      buttons(
+        icon("hawkeye2.png", t("Menu.btnHawkeye.toolTipText"), "analysis.bad-moves"),
+        rankMarkButton(),
+        at("toolbar.change-turn", icon("pass.png", t("Menu.btnChangeTurn.toolTipText"), "toolbar.change-turn")),
+        icon("setmain.png", t("Menu.btnSetMain.toolTipText"), "menu.setAsMain"),
+        icon("backmain.png", t("Menu.btnBackMain.toolTipText"), "menu.backToMainBranch"),
+        icon("control.png", t("Menu.btnContrlPanel.toolTipText")),
+        ...markupTools(),
+      ),
+      sep(),
     ),
-    buttons(setup, flashButton(), search),
-    buttons(
-      icon("hawkeye2.png", t("Menu.btnHawkeye.toolTipText"), "analysis.bad-moves"),
-      rankMarkButton(),
-      at("toolbar.change-turn", icon("pass.png", t("Menu.btnChangeTurn.toolTipText"), "toolbar.change-turn")),
-      icon("setmain.png", t("Menu.btnSetMain.toolTipText"), "menu.setAsMain"),
-      icon("backmain.png", t("Menu.btnBackMain.toolTipText"), "menu.backToMainBranch"),
-      icon("control.png", t("Menu.btnContrlPanel.toolTipText")),
-      ...markupTools(),
+    optional(shownGroup("showEditBar"), ...editBar(), sep()),
+    optional(
+      shownGroup("showForce"),
+      at("toolbar.force-allow", commandIcon("blueallow.png", "blueallow2.png", t("Menu.selectAllowToolTipText"), "toolbar.force-allow", "force")),
+      at("toolbar.force-allow-options", limitButton(true, t("Accessibility.allowMoveOptions"))),
+      at("toolbar.force-avoid", commandIcon("redavoid.png", "redavoid2.png", t("Menu.selectAvoidToolTipText"), "toolbar.force-avoid", "force")),
+      at("toolbar.force-avoid-options", limitButton(false, t("Accessibility.avoidMoveOptions"))),
+      at("toolbar.force-clear", icon("clear.png", t("Menu.clearSelectToolTipText"), "toolbar.force-clear", "force")),
+      sep(),
     ),
-    sep(),
-    ...editBar(),
-    sep(),
-    at("toolbar.force-allow", commandIcon("blueallow.png", "blueallow2.png", t("Menu.selectAllowToolTipText"), "toolbar.force-allow", "force")),
-    at("toolbar.force-allow-options", limitButton(true, t("Accessibility.allowMoveOptions"))),
-    at("toolbar.force-avoid", commandIcon("redavoid.png", "redavoid2.png", t("Menu.selectAvoidToolTipText"), "toolbar.force-avoid", "force")),
-    at("toolbar.force-avoid-options", limitButton(false, t("Accessibility.avoidMoveOptions"))),
-    at("toolbar.force-clear", icon("clear.png", t("Menu.clearSelectToolTipText"), "toolbar.force-clear", "force")),
-    sep(),
-    ...gameControls(),
-    sep(),
+    optional(shownGroup("showGameControls"), ...gameControls(), sep()),
     group("komi", label(t("Menu.komi")), komiField(), komiSpinner()),
     kataSeparator(),
     kataGroup("Pda"),
@@ -733,25 +782,18 @@ export function buildToolbar(host: HTMLElement): void {
     kataGroup("Wrn"),
     limitGroup(),
     optional(shownGroup("showAnalyzeSides"), sep(), label(t("Menu.lblShowAnalyze")), analyzeCheck(true), analyzeCheck(false)),
-    sep(),
-    label(t("Menu.lblShowCandidate")),
-    at("toolbar.candidate-sides", candidateCheck(t("Menu.Black"), true)),
-    candidateCheck(t("Menu.White"), false),
-    optional(
-      shownGroup("showCandidateInfo"),
-      sep(),
-      at("toolbar.candidate-info", candidateInfoCheck(t("Menu.winrate"), "menu.suggestion1", "toolbar.candidate-winrate")),
-      candidateInfoCheck(t("Menu.visits"), "menu.suggestion2", "toolbar.candidate-visits"),
-      candidateInfoCheck(t("Menu.score"), "menu.suggestion3", "toolbar.candidate-score"),
-    ),
-    sep(),
-    pill(t("Menu.rulesBtn"), "small", "engine.rules"),
+    candidateGroup(),
+    // 死活题 alone brings no separator (Menu.java:9905-9909).
+    optional(() => rules() || parameters() || boardSize() || saveLoad(), sep()),
+    optional(rules, pill(t("Menu.rulesBtn"), "small", "engine.rules")),
     tsumegoButton(),
-    pill(t("Menu.paramsBtn"), "small", "engine.parameters"),
-    pill(t("Menu.gobanBtn"), "small"),
-    pill(t("Menu.saveBtn"), "small", "menu.saveAndLoad"),
+    optional(parameters, pill(t("Menu.paramsBtn"), "small", "engine.parameters")),
+    // setBoardSize opens 设置棋盘大小 (Menu.java:6145-6153).
+    optional(boardSize, pill(t("Menu.gobanBtn"), "small", "menu.setBoard")),
+    optional(saveLoad, pill(t("Menu.saveBtn"), "small", "menu.saveAndLoad")),
     clockLabel(),
   );
+  updaters.push(() => host.classList.toggle("nowrap", !topToolbarWraps()));
 }
 
 /** btnPlayerStrengthEstimate (Menu.java:8386-8404): 棋力评估 with the menu item's text as its tip. */

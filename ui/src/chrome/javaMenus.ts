@@ -291,23 +291,28 @@ export const JAVA_MENUS: TopMenu[] = [
         "items": [
          {
           "t": "check",
-          "key": "Menu.showDoubleMenuBtn"
+          "key": "Menu.showDoubleMenuBtn",
+          "id": "menu.showDoubleMenuBtn"
          },
          {
           "t": "check",
-          "key": "Menu.showBasicBtn"
+          "key": "Menu.showBasicBtn",
+          "id": "menu.showBasicBtn"
          },
          {
           "t": "check",
-          "key": "Menu.playMoveTools"
+          "key": "Menu.playMoveTools",
+          "id": "menu.playMoveTools"
          },
          {
           "t": "check",
-          "key": "Menu.allowAvoidTools"
+          "key": "Menu.allowAvoidTools",
+          "id": "menu.allowAvoidTools"
          },
          {
           "t": "check",
-          "key": "Menu.showGameController"
+          "key": "Menu.showGameController",
+          "id": "menu.showGameController"
          },
          {
           "t": "check",
@@ -326,7 +331,8 @@ export const JAVA_MENUS: TopMenu[] = [
          },
          {
           "t": "check",
-          "key": "Menu.showCandidateController"
+          "key": "Menu.showCandidateController",
+          "id": "menu.showCandidateController"
          },
          {
           "t": "check",
@@ -335,7 +341,8 @@ export const JAVA_MENUS: TopMenu[] = [
          },
          {
           "t": "check",
-          "key": "Menu.showRuleMenu"
+          "key": "Menu.showRuleMenu",
+          "id": "menu.showRuleMenu"
          },
          {
           "t": "check",
@@ -344,15 +351,18 @@ export const JAVA_MENUS: TopMenu[] = [
          },
          {
           "t": "check",
-          "key": "Menu.showParamMenu"
+          "key": "Menu.showParamMenu",
+          "id": "menu.showParamMenu"
          },
          {
           "t": "check",
-          "key": "Menu.showGobanMenu"
+          "key": "Menu.showGobanMenu",
+          "id": "menu.showGobanMenu"
          },
          {
           "t": "check",
-          "key": "Menu.showSaveLoadMenu"
+          "key": "Menu.showSaveLoadMenu",
+          "id": "menu.showSaveLoadMenu"
          }
         ]
        }

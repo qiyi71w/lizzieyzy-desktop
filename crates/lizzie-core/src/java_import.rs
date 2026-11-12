@@ -288,11 +288,22 @@ pub struct Mapped {
     pub tsumego_ko_threat: Option<crate::tsumego::TsumegoKoThreat>,
     pub tsumego_wall_distance: Option<i32>,
     pub tsumego_show_button: Option<bool>,
-    /// 顶部工具栏 自定义内容.
+    /// 顶部工具栏 自定义内容 and 自动换行.
+    pub top_show_double_menu_button: Option<bool>,
+    pub top_show_basic_buttons: Option<bool>,
+    pub top_show_edit_bar: Option<bool>,
+    pub top_show_force: Option<bool>,
+    pub top_show_game_controls: Option<bool>,
     pub top_show_time_limit: Option<bool>,
     pub top_show_visit_limit: Option<bool>,
     pub top_show_analyze_sides: Option<bool>,
+    pub top_show_candidate_sides: Option<bool>,
     pub top_show_candidate_info: Option<bool>,
+    pub top_show_rules: Option<bool>,
+    pub top_show_parameters: Option<bool>,
+    pub top_show_board_size: Option<bool>,
+    pub top_show_save_load: Option<bool>,
+    pub top_auto_wrap: Option<bool>,
     /// 抓取死活题 参数设置.
     pub capture_black_offset: Option<i32>,
     pub capture_black_percent: Option<i32>,
@@ -1310,11 +1321,22 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
     ),
     ("ui", "tsume-go-wall-distance", ImportTarget::Tsumego, Kind::I32(|m, v| m.tsumego_wall_distance = Some(v))),
     ("ui", "show-tsume-go-menu", ImportTarget::Tsumego, Kind::Bool(|m, v| m.tsumego_show_button = Some(v))),
-    // 顶部工具栏 自定义内容 (Menu.java:4712-4782).
+    // 顶部工具栏 自定义内容 (Menu.java:4643-4847) and 自动换行 (Menu.java:4457-4467).
+    ("ui", "show-double-menu-btn", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_double_menu_button = Some(v))),
+    ("ui", "show-basic-btn", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_basic_buttons = Some(v))),
+    ("ui", "show-edit-bar", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_edit_bar = Some(v))),
+    ("ui", "show-force-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_force = Some(v))),
+    ("ui", "show-double-menu-game-control", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_game_controls = Some(v))),
     ("ui", "show-time-control-in-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_time_limit = Some(v))),
     ("ui", "show-playout-control-in-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_visit_limit = Some(v))),
     ("ui", "show-analyze-controller", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_analyze_sides = Some(v))),
+    ("ui", "show-double-menu-var", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_candidate_sides = Some(v))),
     ("ui", "show-double-menu-moveinfo", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_candidate_info = Some(v))),
+    ("ui", "show-rule-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_rules = Some(v))),
+    ("ui", "show-param-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_parameters = Some(v))),
+    ("ui", "show-goban-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_board_size = Some(v))),
+    ("ui", "show-saveload-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_save_load = Some(v))),
+    ("ui", "auto-wrap-tool-bar", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_auto_wrap = Some(v))),
     ("ui", "capture-black-offset", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_black_offset = Some(v))),
     ("ui", "capture-black-percent", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_black_percent = Some(v))),
     ("ui", "capture-white-offset", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_white_offset = Some(v))),
@@ -3412,10 +3434,21 @@ impl Mapped {
         set!(ts.capture.white_percent, self.capture_white_percent);
         set!(ts.capture.gray_offset, self.capture_gray_offset);
         let top = &mut c.top_toolbar;
+        set!(top.show_double_menu_button, self.top_show_double_menu_button);
+        set!(top.show_basic_buttons, self.top_show_basic_buttons);
+        set!(top.show_edit_bar, self.top_show_edit_bar);
+        set!(top.show_force, self.top_show_force);
+        set!(top.show_game_controls, self.top_show_game_controls);
         set!(top.show_time_limit, self.top_show_time_limit);
         set!(top.show_visit_limit, self.top_show_visit_limit);
         set!(top.show_analyze_sides, self.top_show_analyze_sides);
+        set!(top.show_candidate_sides, self.top_show_candidate_sides);
         set!(top.show_candidate_info, self.top_show_candidate_info);
+        set!(top.show_rules, self.top_show_rules);
+        set!(top.show_parameters, self.top_show_parameters);
+        set!(top.show_board_size, self.top_show_board_size);
+        set!(top.show_save_load, self.top_show_save_load);
+        set!(top.auto_wrap, self.top_auto_wrap);
         let pl = &mut c.problems;
         set!(pl.showing, self.problems_showing);
         set!(pl.side, self.problem_side);
@@ -3781,11 +3814,24 @@ impl Mapped {
             out.push(ImportTarget::Tsumego);
         }
         let top = &config.top_toolbar;
-        if self.top_show_time_limit.is_some_and(|v| v != top.show_time_limit)
-            || self.top_show_visit_limit.is_some_and(|v| v != top.show_visit_limit)
-            || self.top_show_analyze_sides.is_some_and(|v| v != top.show_analyze_sides)
-            || self.top_show_candidate_info.is_some_and(|v| v != top.show_candidate_info)
-        {
+        let top_changes = [
+            (self.top_show_double_menu_button, top.show_double_menu_button),
+            (self.top_show_basic_buttons, top.show_basic_buttons),
+            (self.top_show_edit_bar, top.show_edit_bar),
+            (self.top_show_force, top.show_force),
+            (self.top_show_game_controls, top.show_game_controls),
+            (self.top_show_time_limit, top.show_time_limit),
+            (self.top_show_visit_limit, top.show_visit_limit),
+            (self.top_show_analyze_sides, top.show_analyze_sides),
+            (self.top_show_candidate_sides, top.show_candidate_sides),
+            (self.top_show_candidate_info, top.show_candidate_info),
+            (self.top_show_rules, top.show_rules),
+            (self.top_show_parameters, top.show_parameters),
+            (self.top_show_board_size, top.show_board_size),
+            (self.top_show_save_load, top.show_save_load),
+            (self.top_auto_wrap, top.auto_wrap),
+        ];
+        if top_changes.iter().any(|&(new, old)| new.is_some_and(|v| v != old)) {
             out.push(ImportTarget::TopToolbar);
         }
         let cs = &ts.capture;

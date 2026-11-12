@@ -1116,18 +1116,64 @@ impl Default for PanelSettings {
 }
 
 /// 显示 > 工具栏 > 顶部工具栏 > 自定义内容 (`Menu.customTopToolBar`, Menu.java:4639-4846): which
-/// optional groups the top toolbar shows. Each check writes at once; Java defaults in brackets.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+/// groups the top toolbar shows, and its 自动换行 (Menu.java:4457-4467). Each check writes at
+/// once; Java defaults in brackets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
 pub struct TopToolbarSettings {
+    /// The ▲ button first in the row, which turns the row off (`ui.show-double-menu-btn` [false]).
+    pub show_double_menu_button: bool,
+    /// 新建 / 打开 / 保存 … 标记 (`ui.show-basic-btn` [true]).
+    pub show_basic_buttons: bool,
+    /// 落子工具 黑 / 白 / 交替 / 停一手 (`ui.show-edit-bar` [true]).
+    pub show_edit_bar: bool,
+    /// 强制计算工具 允许 / 排除 / 清除 (`ui.show-force-menu` [true]).
+    pub show_force: bool,
+    /// 对局控制 新对局 / 暂停 / 认输 (`ui.show-double-menu-game-control` [true]).
+    pub show_game_controls: bool,
     /// 限制: 时间 (`ui.show-time-control-in-menu` [false]).
     pub show_time_limit: bool,
     /// 限制: 计算 (`ui.show-playout-control-in-menu` [false]).
     pub show_visit_limit: bool,
     /// 分析: 黑 / 白 (`ui.show-analyze-controller` [false]).
     pub show_analyze_sides: bool,
+    /// 选点 黑 / 白 (`ui.show-double-menu-var` [true]).
+    pub show_candidate_sides: bool,
     /// 选点 胜率 / 计算量 / 目数 (`ui.show-double-menu-moveinfo` [false]).
     pub show_candidate_info: bool,
+    /// 规则 (`ui.show-rule-menu` [true]).
+    pub show_rules: bool,
+    /// 参数 (`ui.show-param-menu` [true]).
+    pub show_parameters: bool,
+    /// 棋盘 (`ui.show-goban-menu` [true]).
+    pub show_board_size: bool,
+    /// 存档 (`ui.show-saveload-menu` [true]).
+    pub show_save_load: bool,
+    /// 自动换行: the row wraps; off, it stays one row and what does not fit is cut off
+    /// (`ui.auto-wrap-tool-bar` [true], LizzieFrame.java:14488-14507).
+    pub auto_wrap: bool,
+}
+
+impl Default for TopToolbarSettings {
+    fn default() -> Self {
+        Self {
+            show_double_menu_button: false,
+            show_basic_buttons: true,
+            show_edit_bar: true,
+            show_force: true,
+            show_game_controls: true,
+            show_time_limit: false,
+            show_visit_limit: false,
+            show_analyze_sides: false,
+            show_candidate_sides: true,
+            show_candidate_info: false,
+            show_rules: true,
+            show_parameters: true,
+            show_board_size: true,
+            show_save_load: true,
+            auto_wrap: true,
+        }
+    }
 }
 
 /// Java's in-frame shares (`LizzieFrame.java:7976-8035`), independent of panel visibility.

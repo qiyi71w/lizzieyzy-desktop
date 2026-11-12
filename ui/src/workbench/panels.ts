@@ -67,12 +67,26 @@ export function layoutRequest(v: WorkbenchView): LayoutRequest {
 
 /** 界面 > 工具栏 > 顶部工具栏 (Menu.java:4409-4455): 分开 shows the double-menu row, 合并 and 不显示
  *  hide it (the combined row's controls are not added to the menu bar in the fixed build). The
- *  user's choice also ends a reveal by function search. */
-function setTopToolbar(showTopToolbar: boolean, showDoubleMenu: boolean): Promise<unknown> {
+ *  user's choice also ends a reveal by function search, at once: a choice equal to the saved one
+ *  publishes no view. A choice that could not be saved leaves the toolbar as saved. */
+async function setTopToolbar(visible: boolean, separated: boolean): Promise<void> {
   topRevealed = false;
   const p = panels();
-  if (!p) return Promise.resolve();
-  return run({ type: "SetPanelSettings", settings: { ...p, showTopToolbar, showDoubleMenu } });
+  if (!p) return;
+  const settings = { ...p, showTopToolbar: visible, showDoubleMenu: separated };
+  showTopToolbar(settings);
+  if (await run({ type: "SetPanelSettings", settings }) === null) {
+    const saved = panels();
+    if (saved) showTopToolbar(saved);
+  }
+}
+
+/** btnDoubleMenu (Menu.java:7542-7549): flips 分开 / 合并, the same setting as the menu's. The row
+ *  it sits in is shown, also when function search showed a toolbar saved 不显示 (locateTopFunction
+ *  sets the running showTopToolBar), so the toolbar stays on. */
+export function toggleDoubleMenu(): void {
+  const p = panels();
+  if (p) void setTopToolbar(true, !topSeparated(p));
 }
 
 /** Function search showed the top toolbar 分开 for this run (Menu.locateTopFunction changes the

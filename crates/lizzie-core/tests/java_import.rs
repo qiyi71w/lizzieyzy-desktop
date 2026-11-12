@@ -2340,21 +2340,47 @@ fn top_toolbar_groups_import_by_value() {
     let tmp = tempfile::tempdir().unwrap();
     let java = tmp.path().join("java");
     std::fs::create_dir_all(&java).unwrap();
+    // Every value but show-playout-control-in-menu differs from its default.
     let source = json!({"ui": {
+        "show-double-menu-btn": true, "show-basic-btn": false, "show-edit-bar": false,
+        "show-force-menu": false, "show-double-menu-game-control": false,
         "show-time-control-in-menu": true, "show-playout-control-in-menu": false,
-        "show-analyze-controller": true, "show-double-menu-moveinfo": true
+        "show-analyze-controller": true, "show-double-menu-var": false, "show-double-menu-moveinfo": true,
+        "show-rule-menu": false, "show-param-menu": false, "show-goban-menu": false,
+        "show-saveload-menu": false, "auto-wrap-tool-bar": false
     }})
     .to_string();
     std::fs::write(java.join("config.txt"), &source).unwrap();
     let product = tmp.path().join("product");
     let mut wb = workbench(&product, Recorder::default());
     let p = preview(&mut wb, &java);
-    for key in ["ui.show-time-control-in-menu", "ui.show-playout-control-in-menu", "ui.show-analyze-controller", "ui.show-double-menu-moveinfo"] {
+    for key in [
+        "ui.show-double-menu-btn", "ui.show-basic-btn", "ui.show-edit-bar", "ui.show-force-menu",
+        "ui.show-double-menu-game-control", "ui.show-time-control-in-menu", "ui.show-playout-control-in-menu",
+        "ui.show-analyze-controller", "ui.show-double-menu-var", "ui.show-double-menu-moveinfo", "ui.show-rule-menu",
+        "ui.show-param-menu", "ui.show-goban-menu", "ui.show-saveload-menu", "ui.auto-wrap-tool-bar",
+    ] {
         let row = p.items.iter().find(|row| row.key == key).unwrap();
         assert_eq!((row.status, row.target), (ImportStatus::Imported, Some(ImportTarget::TopToolbar)), "{key}");
     }
     wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
-    let expected = TopToolbarSettings { show_time_limit: true, show_visit_limit: false, show_analyze_sides: true, show_candidate_info: true };
+    let expected = TopToolbarSettings {
+        show_double_menu_button: true,
+        show_basic_buttons: false,
+        show_edit_bar: false,
+        show_force: false,
+        show_game_controls: false,
+        show_time_limit: true,
+        show_visit_limit: false,
+        show_analyze_sides: true,
+        show_candidate_sides: false,
+        show_candidate_info: true,
+        show_rules: false,
+        show_parameters: false,
+        show_board_size: false,
+        show_save_load: false,
+        auto_wrap: false,
+    };
     assert_eq!(wb.config().top_toolbar, expected);
     assert_eq!(saved_config(&product).top_toolbar, expected);
 }

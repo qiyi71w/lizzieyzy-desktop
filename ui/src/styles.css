@@ -216,8 +216,14 @@ body {
   column-gap: 3px;
   row-gap: 2px;
 }
-#toolbar > * {
+#toolbar > *,
+#toolbar .tb-run > * {
   flex: none;
+}
+/* 自动换行 off: one row 9999 wide, the rest cut off without a scroll bar (LizzieFrame.java:14503-14507) */
+#toolbar.nowrap {
+  flex-wrap: nowrap;
+  overflow: clip;
 }
 .tb-buttons {
   column-gap: 2px;
@@ -367,7 +373,8 @@ body {
 :root[data-chrome="apple"] .tb-group .tb-input.invalid {
   background: rgba(180, 50, 50, 0.314);
 }
-#toolbar > .tb-label {
+#toolbar > .tb-label,
+#toolbar .tb-label.candidate {
   width: 27px;
 }
 .tb-checklabel {

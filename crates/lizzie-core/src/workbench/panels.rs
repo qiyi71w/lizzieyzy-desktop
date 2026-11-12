@@ -181,7 +181,8 @@ impl Workbench {
         Ok(true)
     }
 
-    /// 自定义内容 of the top toolbar (Menu.java:4712-4782): each check is written at once.
+    /// 自定义内容 of the top toolbar (Menu.java:4643-4847) and 自动换行 (Menu.java:4457-4467):
+    /// each check is written at once.
     pub fn set_top_toolbar_settings(&mut self, settings: crate::settings::TopToolbarSettings) -> Result<bool, ApiError> {
         if self.config.top_toolbar == settings {
             return Ok(false);
