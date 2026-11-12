@@ -165,6 +165,7 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   StrengthModels: "PlayerStrengthEstimate.model",
   Tsumego: "TsumeGoFrame.title",
   CaptureTsumego: "CaptureTsumeGoFrame.title",
+  TopToolbar: "Menu.topToolBar",
   ProblemList: "Menu.commitPane",
   FlashRange: "Menu.flashAnalyzePartGame",
   EngineMatch: "EnginePkConfig.title",

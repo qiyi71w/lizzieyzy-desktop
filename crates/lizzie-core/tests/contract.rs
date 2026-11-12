@@ -120,6 +120,7 @@ fn generate() -> String {
         lizzie_core::settings::TencentRecentSearch,
         FunctionMatch, FunctionTarget, MatchLevel, SettingsSection,
         lizzie_core::settings::PanelSettings, lizzie_core::settings::PanelSizes,
+        lizzie_core::settings::TopToolbarSettings,
         lizzie_core::settings::BottomToolbar, lizzie_core::settings::WorkbenchPanel,
         lizzie_core::appearance::AppearanceSettings, lizzie_core::appearance::BoardStyle,
         lizzie_core::appearance::ThemeSettings,

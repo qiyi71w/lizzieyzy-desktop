@@ -417,6 +417,164 @@ fn an_analysis_limit_stops_this_position_once_and_navigation_resumes() {
     );
 }
 
+fn analyses(sent: &[String]) -> bool {
+    sent.iter().any(|c| c.starts_with("kata-analyze"))
+}
+
+#[test]
+fn a_raised_or_lifted_limit_resumes_the_analysis_it_stopped() {
+    // Menu.reCalculateLeelazPonderingIfOutOfLimit (Menu.java:10385-10398).
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    analysis_settings(&mut wb, |s| {
+        s.limit_playout = true;
+        s.limit_playouts = 6;
+    });
+    open(&mut wb, "(;B[pd];W[dd])");
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("Q16", 7));
+    assert!(wb.view(false).engine.stopped_by_limit);
+    assert_eq!(answer_all(&mut wb, &world, id, KATA), ["stop"]);
+    // A change that leaves the search past its limits keeps it stopped.
+    analysis_settings(&mut wb, |s| s.max_analyze_time_seconds = 300);
+    assert!(wb.view(false).engine.stopped_by_limit);
+    assert_eq!(answer_all(&mut wb, &world, id, KATA), Vec::<String>::new());
+    // A higher visit limit: it goes on here, and stops at the new limit.
+    analysis_settings(&mut wb, |s| s.limit_playouts = 10);
+    let v = wb.view(false);
+    assert!(!v.engine.stopped_by_limit && !v.engine.paused);
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+    out(&mut wb, id, &info("Q16", 11));
+    assert!(wb.view(false).engine.stopped_by_limit);
+    assert_eq!(answer_all(&mut wb, &world, id, KATA), ["stop"]);
+    // No visit limit at all.
+    analysis_settings(&mut wb, |s| s.limit_playout = false);
+    assert!(!wb.view(false).engine.stopped_by_limit);
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+    out(&mut wb, id, &info("Q16", 500));
+    assert!(!wb.view(false).engine.stopped_by_limit);
+
+    // 空棋盘停止计算 is no limit a new limit lifts.
+    analysis_settings(&mut wb, |s| s.stop_at_empty_board = true);
+    open(&mut wb, "(;SZ[19])");
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("Q16", 5));
+    assert!(wb.view(false).engine.stopped_by_limit);
+    answer_all(&mut wb, &world, id, KATA);
+    analysis_settings(&mut wb, |s| s.limit_playouts = 1000);
+    assert!(wb.view(false).engine.stopped_by_limit);
+    assert_eq!(answer_all(&mut wb, &world, id, KATA), Vec::<String>::new());
+}
+
+#[test]
+fn a_time_limit_counts_from_when_the_stopped_search_began() {
+    // `System.currentTimeMillis() - getStartPonderTime()`: the stopped time counts too.
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    analysis_settings(&mut wb, |s| {
+        s.limit_time = true;
+        s.max_analyze_time_seconds = 1;
+    });
+    open(&mut wb, "(;B[pd];W[dd])");
+    answer_all(&mut wb, &world, id, KATA);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    out(&mut wb, id, &info("Q16", 5));
+    assert!(wb.view(false).engine.stopped_by_limit);
+    answer_all(&mut wb, &world, id, KATA);
+    analysis_settings(&mut wb, |s| s.limit_playouts = 50);
+    assert!(wb.view(false).engine.stopped_by_limit, "still past one second");
+    analysis_settings(&mut wb, |s| s.max_analyze_time_seconds = 600);
+    assert!(!wb.view(false).engine.stopped_by_limit);
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+    // Unchecking the time limit resumes as well.
+    analysis_settings(&mut wb, |s| s.max_analyze_time_seconds = 1);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    out(&mut wb, id, &info("Q16", 9));
+    assert!(wb.view(false).engine.stopped_by_limit);
+    answer_all(&mut wb, &world, id, KATA);
+    analysis_settings(&mut wb, |s| s.limit_time = false);
+    assert!(!wb.view(false).engine.stopped_by_limit);
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+}
+
+#[test]
+fn analyze_sides_judge_the_users_moves_and_browsing_but_not_opening() {
+    // Leelaz.playMove / undo (Leelaz.java:19891-19911, 22923-22936) behind every move and
+    // browsing step; Menu.java:9754-9793 for the check boxes.
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    open(&mut wb, "(;B[pd];W[dd];B[pp])");
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+    let held = |wb: &Workbench| {
+        let e = wb.inspect().engine;
+        !e.analysing && !e.paused && !e.stopped_by_limit
+    };
+
+    // Black is to move: unchecking White changes nothing now.
+    assert!(wb.set_analyze_sides(true, false));
+    let v = wb.view(false).engine;
+    assert!(v.analyze_black && !v.analyze_white && v.analysing);
+    assert_eq!(answer_all(&mut wb, &world, id, KATA), Vec::<String>::new());
+
+    // A step forward to White's turn waits there; the next one resumes.
+    wb.navigate(Navigation::Forward(1));
+    assert!(!analyses(&answer_all(&mut wb, &world, id, KATA)));
+    assert!(held(&wb));
+    wb.navigate(Navigation::Forward(1));
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+    // 悔棋 back to White's turn waits; Space resumes it.
+    wb.navigate(Navigation::Back(1));
+    assert!(!analyses(&answer_all(&mut wb, &world, id, KATA)));
+    assert!(held(&wb));
+    wb.toggle_analysis().unwrap();
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+    assert!(!wb.view(false).engine.paused);
+
+    // Black's new move leaves White to move.
+    wb.navigate(Navigation::First);
+    answer_all(&mut wb, &world, id, KATA);
+    wb.edit(EditCommand::Play { point: Point { x: 2, y: 2 }, color: None }).unwrap();
+    assert!(!analyses(&answer_all(&mut wb, &world, id, KATA)));
+    assert!(held(&wb));
+    // Checking White again resumes at once; unchecking it stops at once.
+    wb.set_analyze_sides(true, true);
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+    wb.set_analyze_sides(true, false);
+    assert!(answer_all(&mut wb, &world, id, KATA).iter().any(|c| c == "stop"));
+    assert!(held(&wb));
+    // Any browsing judges, a jump in the tree as well.
+    wb.goto_node(lizzie_core::record::ROOT).unwrap();
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+    wb.goto_move_number(1);
+    assert!(!analyses(&answer_all(&mut wb, &world, id, KATA)));
+    assert!(held(&wb));
+
+    // A paused analysis stays paused, and Space then analyses this side anyway.
+    wb.navigate(Navigation::First);
+    answer_all(&mut wb, &world, id, KATA);
+    wb.toggle_analysis().unwrap();
+    answer_all(&mut wb, &world, id, KATA);
+    wb.navigate(Navigation::Forward(1));
+    answer_all(&mut wb, &world, id, KATA);
+    assert!(wb.view(false).engine.paused);
+    wb.toggle_analysis().unwrap();
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+
+    // Opening a record is no step: its White to move is analysed.
+    open(&mut wb, "(;PL[W])");
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+    assert!(wb.view(false).engine.analysing);
+
+    // A new session analyses both sides.
+    wb.end_engines();
+    let mut fresh = workbench(dir.path(), &world);
+    let v = fresh.view(false).engine;
+    assert!(v.analyze_black && v.analyze_white);
+}
+
 #[test]
 fn switching_keeps_the_previous_engine_and_reuses_it() {
     let dir = tempfile::tempdir().unwrap();

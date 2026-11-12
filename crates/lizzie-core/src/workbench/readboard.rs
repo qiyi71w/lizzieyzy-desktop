@@ -806,6 +806,8 @@ impl Workbench {
     /// Java would, which already respects a pause of the user's own.
     fn readboard_resume_analysis(&mut self) {
         self.readboard.stopped_analysis = false;
+        // Java's `ponder()` also ends a wait for 分析 黑 / 白 (`underPonder`).
+        self.side_hold = None;
         if self.paused && self.engines.foreground().is_some() {
             self.paused = false;
             self.limit_stop = None;

@@ -18,11 +18,12 @@ import { limitPopup } from "../analysis/region";
 import { clockText } from "../game/commands";
 import { matchPlaying } from "../match/state";
 import { foxOwnsEngine, submitFoxPda } from "../fox/dialog";
-import type { KataParam } from "../contract/generated";
+import type { AnalysisSettings, KataParam } from "../contract/generated";
 import { kataGoPda, kataRevealed, kataToolbarState, kataToolbarUse, kataValueInvalid } from "../engine/kataParams";
 import { openCustomPda } from "../engine/customPda";
 import "../editing/chrome.css";
 import "../strength/commands";
+import { topGroupShown, type TopGroup } from "./topGroups";
 
 const updaters: (() => void)[] = [];
 
@@ -233,6 +234,129 @@ function candidateCheck(text: string, black: boolean): HTMLElement {
   l.className = "tb-checklabel";
   l.append(c, document.createTextNode(text));
   return l;
+}
+
+/** A check box with its text after it (JFontCheckBox). */
+function checkLabel(text: string, key: string): { box: HTMLInputElement; label: HTMLElement } {
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.className = "tb-check";
+  box.tabIndex = -1;
+  box.dataset.key = key;
+  const label = document.createElement("label");
+  label.className = "tb-checklabel";
+  label.append(box, document.createTextNode(text));
+  return { box, label };
+}
+
+/** A run of top-toolbar items shown while its 自定义内容 choice is on (or function search revealed
+ *  it); the items wrap one by one like Java's. */
+function optional(shown: () => boolean, ...items: HTMLElement[]): HTMLElement {
+  const run = document.createElement("span");
+  run.className = "tb-run";
+  run.append(...items);
+  updaters.push(() => {
+    const display = shown() ? "" : "none";
+    if (run.style.display !== display) run.style.display = display;
+  });
+  return run;
+}
+
+function shownGroup(group: TopGroup): () => boolean {
+  return () => topGroupShown(group);
+}
+
+function saveAnalysis(change: Partial<AnalysisSettings>): void {
+  const settings = state.view?.settings.engine.analysis;
+  if (settings) void run({ type: "SetAnalysisSettings", settings: { ...settings, ...change } });
+}
+
+/** IntDocument (IntDocument.java:25-50): an edit is taken only when the whole text is still an
+ *  int; deleting is always taken. Negative numbers have no meaning as a limit here. */
+function intText(text: string): boolean {
+  return text === "" || (/^\d+$/.test(text) && Number(text) <= 2147483647);
+}
+
+/** 时间 chkTime + txtTimeLimit and 计算 chkPlayOut + txtPlayOutsLimit (Menu.java:6502-6587,
+ *  7124-7137): the check writes limit-time / limit-playout and enables the field; every edit of
+ *  the field writes its number (an empty field keeps the value, Utils.parseTextToLong). Each
+ *  change lets an analysis a limit stopped go on when it is within the new limits. Both are
+ *  separate toolbar items, so the field may wrap away from its check box as in Java. */
+function limitControl(time: boolean): HTMLElement[] {
+  const { box, label } = checkLabel(t(time ? "Menu.chkTime" : "Menu.chkPlayOut"), time ? "toolbar.limit-time" : "toolbar.limit-visits");
+  label.classList.add("fit");
+  const field = document.createElement("input");
+  field.className = `tb-input ${time ? "time-limit" : "visit-limit"}`;
+  field.inputMode = "numeric";
+  field.dataset.key = time ? "toolbar.limit-time-value" : "toolbar.limit-visits-value";
+  field.setAttribute("aria-label", t(time ? "Menu.chkTime" : "Menu.chkPlayOut"));
+  let taken = "";
+  box.onchange = () => {
+    field.disabled = !box.checked;
+    saveAnalysis(time ? { limitTime: box.checked } : { limitPlayout: box.checked });
+  };
+  field.addEventListener("input", () => {
+    if (!intText(field.value)) {
+      field.value = taken;
+      return;
+    }
+    taken = field.value;
+    if (taken === "") return;
+    saveAnalysis(time ? { maxAnalyzeTimeSeconds: Number(taken) } : { limitPlayouts: Number(taken) });
+  });
+  updaters.push(() => {
+    const s = state.view?.settings.engine.analysis;
+    if (!s) return;
+    box.checked = time ? s.limitTime : s.limitPlayout;
+    field.disabled = !box.checked;
+    if (document.activeElement === field) return;
+    const value = String(time ? s.maxAnalyzeTimeSeconds : s.limitPlayouts);
+    if (field.value !== value) field.value = taken = value;
+  });
+  at(time ? "toolbar.time-limit" : "toolbar.visit-limit", box);
+  return [label, field];
+}
+
+/** 限制: (Menu.lblLimit, Menu.java:9698-9712): shown while either limit is. */
+function limitGroup(): HTMLElement {
+  const time = shownGroup("showTimeLimit");
+  const visits = shownGroup("showVisitLimit");
+  return optional(
+    () => time() || visits(),
+    sep(),
+    label(t("Menu.lblLimit")),
+    optional(time, ...limitControl(true)),
+    optional(visits, ...limitControl(false)),
+    sep("gap"),
+  );
+}
+
+/** 分析 黑 / 白 (chkAnalyzeBlack / chkAnalyzeWhite, Menu.java:9754-9793, 9864-9872): the session's
+ *  choice of the sides analysis goes on for after moves and browsing. */
+function analyzeCheck(black: boolean): HTMLElement {
+  const { box, label } = checkLabel(t(black ? "Menu.Black" : "Menu.White"), black ? "toolbar.analyze-black" : "toolbar.analyze-white");
+  box.onchange = () => {
+    const e = state.view?.engine;
+    if (!e) return;
+    void run({ type: "SetAnalyzeSides", black: black ? box.checked : e.analyze_black, white: black ? e.analyze_white : box.checked });
+  };
+  updaters.push(() => {
+    const e = state.view?.engine;
+    if (e) box.checked = black ? e.analyze_black : e.analyze_white;
+  });
+  if (black) at("toolbar.analyze-sides", box);
+  return label;
+}
+
+/** 选点 胜率 / 计算量 / 目数 (chkShowWinrate / chkShowPlayouts / chkShowScore, Menu.java:9804-9899):
+ *  the same choices as 显示 > 推荐点's items, redrawn at once. */
+function candidateInfoCheck(text: string, command: string, key: string): HTMLElement {
+  const entry = COMMANDS[command];
+  const { box, label } = checkLabel(text, key);
+  label.classList.add("fit");
+  box.onchange = () => entry.run();
+  updaters.push(() => (box.checked = entry.checked?.() ?? false));
+  return label;
 }
 
 /** The PDA statuses on which FoxLiveSession republishes the confirmed value (publishConfirmedPda):
@@ -607,10 +731,19 @@ export function buildToolbar(host: HTMLElement): void {
     customPdaGroup(),
     pdaMoreButton(),
     kataGroup("Wrn"),
+    limitGroup(),
+    optional(shownGroup("showAnalyzeSides"), sep(), label(t("Menu.lblShowAnalyze")), analyzeCheck(true), analyzeCheck(false)),
     sep(),
     label(t("Menu.lblShowCandidate")),
     at("toolbar.candidate-sides", candidateCheck(t("Menu.Black"), true)),
     candidateCheck(t("Menu.White"), false),
+    optional(
+      shownGroup("showCandidateInfo"),
+      sep(),
+      at("toolbar.candidate-info", candidateInfoCheck(t("Menu.winrate"), "menu.suggestion1", "toolbar.candidate-winrate")),
+      candidateInfoCheck(t("Menu.visits"), "menu.suggestion2", "toolbar.candidate-visits"),
+      candidateInfoCheck(t("Menu.score"), "menu.suggestion3", "toolbar.candidate-score"),
+    ),
     sep(),
     pill(t("Menu.rulesBtn"), "small", "engine.rules"),
     tsumegoButton(),

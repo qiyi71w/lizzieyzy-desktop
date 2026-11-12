@@ -311,15 +311,18 @@ export const JAVA_MENUS: TopMenu[] = [
          },
          {
           "t": "check",
-          "key": "Menu.showTimeLimitController"
+          "key": "Menu.showTimeLimitController",
+          "id": "menu.showTimeLimitController"
          },
          {
           "t": "check",
-          "key": "Menu.showPlayoutLimitController"
+          "key": "Menu.showPlayoutLimitController",
+          "id": "menu.showPlayoutLimitController"
          },
          {
           "t": "check",
-          "key": "Menu.showAnalyzeController"
+          "key": "Menu.showAnalyzeController",
+          "id": "menu.showAnalyzeController"
          },
          {
           "t": "check",
@@ -327,7 +330,8 @@ export const JAVA_MENUS: TopMenu[] = [
          },
          {
           "t": "check",
-          "key": "Menu.showCandidateInfoController"
+          "key": "Menu.showCandidateInfoController",
+          "id": "menu.showCandidateInfoController"
          },
          {
           "t": "check",

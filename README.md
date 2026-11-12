@@ -247,10 +247,21 @@ importing the matching LizzieYzy Next settings.
   the pointer leaves. The bottom-bar analysis button uses pause/play
   icons and keeps its width when switching states. `Space` pauses
   and resumes for this session only (never saved); opening another record ends the pause. Time
-  and visit limits stop the current position once and resume on the next one. Results stay with
-  the position, komi and rules they were requested for, so browsing quickly, switching records,
-  changing komi or rules never shows another context's analysis; changing komi or rules discards
-  the stored analysis like Java.
+  and visit limits stop the current position once and resume on the next one. Raising or
+  unticking a limit (on the top toolbar or in 综合设置) lets a search a limit stopped go on at
+  once when its visits and the time since it began are within the new limits; the resumed search
+  stops again at the new limit. A stop by 空棋盘停止计算 is not lifted by a limit change. Results
+  stay with the position, komi and rules they were requested for, so browsing quickly, switching
+  records, changing komi or rules never shows another context's analysis; changing komi or rules
+  discards the stored analysis like Java.
+- 分析 黑 / 白 (top toolbar, shown with 自定义内容 > 选点分析控制): which sides analysis goes on for.
+  It is a session choice, both ticked at every start and never saved. As in Java it is judged
+  after each of your moves (including 停一手) and each browsing step or jump (forward, back,
+  the variation tree, 跳转): when the side to move is unticked the engine stops there, without
+  pausing; the next move or step to a ticked side resumes, and so does `Space`. Ticking or
+  unticking the side to move starts or stops the current analysis at once. Opening or creating a
+  record, 棋盘同步 and other whole-board syncs are not judged, and games, engine matches, AI 陪练
+  and 自动分析 are not affected.
 - Stored analysis and the Lizzie cache (分析 menu; 综合设置 > 高级 > 高级与性能, saved and taken over
   by the LizzieYzy Next import):
   - 启用 Lizzie 缓存 (on by default): a position's stored result is replaced only by a stronger
@@ -419,7 +430,13 @@ importing the matching LizzieYzy Next settings.
   `X` shows Java's key list over the workbench until the key is released; moving over the board,
   the variation tree or the list returns the keyboard to the workbench unless a comment is being
   edited. 工具栏 > 顶部工具栏 is 分开 (the second toolbar row), 合并 or 不显示 (no toolbar row, as in
-  the fixed Java build); 底部工具栏 is 显示, 不显示 or (Chinese interface) 使用详细工具栏, which adds
+  the fixed Java build); its 自定义内容 items 单步分析限制(时间)(秒), 单步分析限制(计算量), 选点分析控制
+  and 选点信息控制 (all off by default, saved at once and taken over by the LizzieYzy Next import)
+  add the 限制: 时间 / 计算 fields, 分析: 黑 / 白 and 选点 胜率 / 计算量 / 目数 to the row. The limit
+  fields write 综合设置's analysis limits on every edit (digits only; an empty field keeps the
+  value); the 选点 boxes are 显示 > 推荐点's win rate / visits / score items. Function search shows
+  a hidden group for the current run without saving it. 底部工具栏 is 显示, 不显示 or (Chinese
+  interface) 使用详细工具栏, which adds
   Java's 自动分析, 自动播放, 自动落子 and 引擎对战 panels under the bar. `Shift+X` and 设置 > 综合设置
   open 综合设置 at 棋盘与显示, whose 启动时加载 rows
   (窗口总在最前, 显示状态面板, 显示小棋盘, 窗口标题显示胜率) apply with 保存设置; Java's 显示快速启动

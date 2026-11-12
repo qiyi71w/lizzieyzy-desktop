@@ -288,6 +288,11 @@ pub struct Mapped {
     pub tsumego_ko_threat: Option<crate::tsumego::TsumegoKoThreat>,
     pub tsumego_wall_distance: Option<i32>,
     pub tsumego_show_button: Option<bool>,
+    /// 顶部工具栏 自定义内容.
+    pub top_show_time_limit: Option<bool>,
+    pub top_show_visit_limit: Option<bool>,
+    pub top_show_analyze_sides: Option<bool>,
+    pub top_show_candidate_info: Option<bool>,
     /// 抓取死活题 参数设置.
     pub capture_black_offset: Option<i32>,
     pub capture_black_percent: Option<i32>,
@@ -1305,6 +1310,11 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
     ),
     ("ui", "tsume-go-wall-distance", ImportTarget::Tsumego, Kind::I32(|m, v| m.tsumego_wall_distance = Some(v))),
     ("ui", "show-tsume-go-menu", ImportTarget::Tsumego, Kind::Bool(|m, v| m.tsumego_show_button = Some(v))),
+    // 顶部工具栏 自定义内容 (Menu.java:4712-4782).
+    ("ui", "show-time-control-in-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_time_limit = Some(v))),
+    ("ui", "show-playout-control-in-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_visit_limit = Some(v))),
+    ("ui", "show-analyze-controller", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_analyze_sides = Some(v))),
+    ("ui", "show-double-menu-moveinfo", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_candidate_info = Some(v))),
     ("ui", "capture-black-offset", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_black_offset = Some(v))),
     ("ui", "capture-black-percent", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_black_percent = Some(v))),
     ("ui", "capture-white-offset", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_white_offset = Some(v))),
@@ -3401,6 +3411,11 @@ impl Mapped {
         set!(ts.capture.white_offset, self.capture_white_offset);
         set!(ts.capture.white_percent, self.capture_white_percent);
         set!(ts.capture.gray_offset, self.capture_gray_offset);
+        let top = &mut c.top_toolbar;
+        set!(top.show_time_limit, self.top_show_time_limit);
+        set!(top.show_visit_limit, self.top_show_visit_limit);
+        set!(top.show_analyze_sides, self.top_show_analyze_sides);
+        set!(top.show_candidate_info, self.top_show_candidate_info);
         let pl = &mut c.problems;
         set!(pl.showing, self.problems_showing);
         set!(pl.side, self.problem_side);
@@ -3764,6 +3779,14 @@ impl Mapped {
             || self.tsumego_show_button.is_some_and(|v| v != ts.show_button)
         {
             out.push(ImportTarget::Tsumego);
+        }
+        let top = &config.top_toolbar;
+        if self.top_show_time_limit.is_some_and(|v| v != top.show_time_limit)
+            || self.top_show_visit_limit.is_some_and(|v| v != top.show_visit_limit)
+            || self.top_show_analyze_sides.is_some_and(|v| v != top.show_analyze_sides)
+            || self.top_show_candidate_info.is_some_and(|v| v != top.show_candidate_info)
+        {
+            out.push(ImportTarget::TopToolbar);
         }
         let cs = &ts.capture;
         if self.capture_black_offset.is_some_and(|v| v != cs.black_offset)

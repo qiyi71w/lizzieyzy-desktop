@@ -367,6 +367,7 @@ impl Workbench {
             }
             EditCommand::FindMove { point, any_branch } => match self.find_move(point, any_branch) {
                 Some(node) if node != self.cursor => {
+                    self.hold_for_side(node);
                     self.cursor = node;
                     self.sync_engine();
                     done(true)
@@ -465,11 +466,12 @@ impl Workbench {
             .map_err(|e| ApiError::new(ErrorKind::InvalidArgument, e.to_string()))
     }
 
-    /// A placed or followed move becomes the current node with its stone sound.
+    /// A placed or followed move becomes the current node with its stone sound; 分析 黑 / 白 judge
+    /// whether analysis goes on there (`Leelaz.playMove`).
     fn follow(&mut self, applied: Applied) -> CommandResult {
         match applied.node {
             Some(node) => {
-                self.move_to(node);
+                self.step_to(node);
                 CommandResult::Done
             }
             None => CommandResult::Unchanged,

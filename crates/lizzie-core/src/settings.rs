@@ -1115,6 +1115,21 @@ impl Default for PanelSettings {
     }
 }
 
+/// 显示 > 工具栏 > 顶部工具栏 > 自定义内容 (`Menu.customTopToolBar`, Menu.java:4639-4846): which
+/// optional groups the top toolbar shows. Each check writes at once; Java defaults in brackets.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TopToolbarSettings {
+    /// 限制: 时间 (`ui.show-time-control-in-menu` [false]).
+    pub show_time_limit: bool,
+    /// 限制: 计算 (`ui.show-playout-control-in-menu` [false]).
+    pub show_visit_limit: bool,
+    /// 分析: 黑 / 白 (`ui.show-analyze-controller` [false]).
+    pub show_analyze_sides: bool,
+    /// 选点 胜率 / 计算量 / 目数 (`ui.show-double-menu-moveinfo` [false]).
+    pub show_candidate_info: bool,
+}
+
 /// Java's in-frame shares (`LizzieFrame.java:7976-8035`), independent of panel visibility.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
@@ -1615,6 +1630,8 @@ pub struct Config {
     pub hawkeye: HawkeyeSettings,
     /// Fixed Java workbench panel and toolbar presentation.
     pub panels: PanelSettings,
+    /// The top toolbar's optional groups (自定义内容).
+    pub top_toolbar: TopToolbarSettings,
     pub appearance: crate::appearance::AppearanceSettings,
     /// Default theme edits live in config; named themes have their own theme.txt.
     pub appearance_defaults: crate::appearance::ThemeSettings,

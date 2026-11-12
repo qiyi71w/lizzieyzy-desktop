@@ -249,6 +249,17 @@ pub struct Workbench {
     start_komi: Option<(InstanceId, f64)>,
     /// A limit stopped the analysis of this position (document, node).
     limit_stop: Option<(u64, NodeId)>,
+    /// The foreground search a limit (not 空棋盘停止计算) stopped: its visits and when it began
+    /// (`getBestMovesPlayouts`, `startPonderTime`), judged again when the limits change.
+    limit_search: Option<(u64, std::time::Instant)>,
+    /// 分析 黑 / 白 on the top toolbar (`Config.analyzeBlack` / `analyzeWhite`): session only,
+    /// both on at start.
+    analyze_black: bool,
+    analyze_white: bool,
+    /// The user's move or browsing reached this position with the side to move not analysed:
+    /// ordinary analysis waits here until the position changes or the user resumes it
+    /// (`Leelaz.underPonder`).
+    side_hold: Option<(u64, NodeId)>,
     /// The limit notice was shown since the foreground engine started.
     limit_tip_shown: bool,
     /// A limit stopped the secondary engine's analysis of this position; only its own (Java
@@ -419,6 +430,10 @@ impl Workbench {
             komi_changed: false,
             start_komi: None,
             limit_stop: None,
+            limit_search: None,
+            analyze_black: true,
+            analyze_white: true,
+            side_hold: None,
             limit_tip_shown: false,
             secondary_limit_stop: None,
             secondary_limit_tip_shown: false,
@@ -862,6 +877,18 @@ impl Workbench {
         true
     }
 
+    /// A move, 悔棋 or browsing step of the user's own: Java sends it to the engine as `play` /
+    /// `undo`, after which ordinary analysis goes on only for a side 分析 黑 / 白 keeps
+    /// (`Leelaz.playMove`, `Leelaz.undo`). Whole-board syncs (opening a record, 棋盘同步) use
+    /// [`Self::move_to`] and are not judged.
+    pub(super) fn step_to(&mut self, target: NodeId) -> bool {
+        if target == self.cursor {
+            return false;
+        }
+        self.hold_for_side(target);
+        self.move_to(target)
+    }
+
     /// Stone sounds play (`ui.play-sound`), except while the board is synced with
     /// 同步时不播放落子声 on (`Utils.playVoiceFile`).
     fn sounds_on(&self) -> bool {
@@ -897,7 +924,7 @@ impl Workbench {
 
     /// The user moves the view (a synced board then no longer resumes analysis by itself).
     fn browse_to(&mut self, target: NodeId) -> bool {
-        let moved = self.move_to(target);
+        let moved = self.step_to(target);
         if moved {
             self.readboard_navigated();
         }
@@ -1150,6 +1177,7 @@ impl Workbench {
                 replace_file_hint: self.config.record.show_replace_file_hint,
                 extra_mode: self.config.ui.extra_mode,
                 panels: self.config.panels.clone(),
+                top_toolbar: self.config.top_toolbar,
                 panel_sizes: self.persisted.panel_sizes,
                 bottom_toolbar: self.persisted.bottom_toolbar,
                 comment_panel_auto_hidden: self.config.ui.extra_mode.hides_comment(),

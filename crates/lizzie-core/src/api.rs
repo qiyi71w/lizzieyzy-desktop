@@ -373,6 +373,12 @@ pub enum Command {
     SetPonderLimitTips {
         enabled: bool,
     },
+    /// 分析 黑 / 白 on the top toolbar: which sides ordinary analysis goes on for after the
+    /// user's moves and browsing. Session only.
+    SetAnalyzeSides {
+        black: bool,
+        white: bool,
+    },
     /// Answer to a rules prompt: continue with the engine's current rules, or pause analysis.
     AnswerRulesPrompt {
         prompt: u64,
@@ -586,6 +592,10 @@ pub enum Command {
     /// 自定义工具栏 > 死活 (`show-tsume-go-menu`).
     SetTsumegoButtonShown {
         shown: bool,
+    },
+    /// 自定义内容 of the top toolbar: its optional groups.
+    SetTopToolbarSettings {
+        settings: crate::settings::TopToolbarSettings,
     },
 }
 
@@ -1158,6 +1168,8 @@ pub struct SettingsView {
     /// 布局模式 (Java `ui.extra-mode`).
     pub extra_mode: crate::settings::ExtraMode,
     pub panels: crate::settings::PanelSettings,
+    /// The top toolbar's optional groups (自定义内容).
+    pub top_toolbar: crate::settings::TopToolbarSettings,
     pub panel_sizes: crate::settings::PanelSizes,
     pub bottom_toolbar: crate::settings::BottomToolbar,
     pub comment_panel_auto_hidden: bool,
@@ -1735,6 +1747,9 @@ pub enum ImportTarget {
     /// 抓取死活题 参数设置: `ui.capture-black-offset`, `capture-black-percent`,
     /// `capture-white-offset`, `capture-white-percent`, `capture-gray-percent`.
     CaptureTsumego,
+    /// 顶部工具栏 自定义内容: `ui.show-time-control-in-menu`, `show-playout-control-in-menu`,
+    /// `show-analyze-controller`, `show-double-menu-moveinfo`.
+    TopToolbar,
     /// 问题手: `ui.is-showing-blunder-table`, `problem-list-side-filter`, `problem-list-sort`,
     /// `problem-list-winrate-threshold`, `blunder-playouts-threshold`,
     /// `hide-blunder-table-control-pane`.
@@ -1979,6 +1994,9 @@ pub struct EngineView {
     pub analysing: bool,
     /// An analysis limit stopped the analysis of the current node.
     pub stopped_by_limit: bool,
+    /// 分析 黑 / 白: ordinary analysis goes on for these sides (session only, both at start).
+    pub analyze_black: bool,
+    pub analyze_white: bool,
     /// Captured-panel rules caption key (`KataGoRules.Summary`), when KataGo reported its rules.
     pub rules_key: Option<String>,
     /// Rules the foreground KataGo reported (JSON), for the rules dialog.

@@ -181,6 +181,15 @@ impl Workbench {
         Ok(true)
     }
 
+    /// 自定义内容 of the top toolbar (Menu.java:4712-4782): each check is written at once.
+    pub fn set_top_toolbar_settings(&mut self, settings: crate::settings::TopToolbarSettings) -> Result<bool, ApiError> {
+        if self.config.top_toolbar == settings {
+            return Ok(false);
+        }
+        self.commit_config(|c| c.top_toolbar = settings)?;
+        Ok(true)
+    }
+
     /// LizzieFrame.java:3284-3535. Mode entry is a complete operation, also when reselected.
     pub fn set_extra_mode(&mut self, mode: ExtraMode) -> Result<bool, ApiError> {
         let mut p = self.config.panels.clone();

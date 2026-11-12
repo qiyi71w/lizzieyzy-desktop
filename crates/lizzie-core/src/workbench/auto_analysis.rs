@@ -229,6 +229,7 @@ impl Workbench {
         run.pending = pending;
         self.limit_stop = None;
         self.secondary_limit_stop = None;
+        self.side_hold = None;
         self.engines.stop_raw_net();
         if self.auto_analysis_batch() {
             self.batch_set_cursor(start);

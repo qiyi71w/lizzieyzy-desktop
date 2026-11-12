@@ -239,6 +239,15 @@ body {
   height: 20px;
   background: none;
 }
+/* addSeparator(new Dimension(2, 0)) closing the 限制 group: a 2 px gap with no line */
+.tb-sep.gap {
+  width: 2px;
+  background: none;
+}
+/* A run of optional top-toolbar items (自定义内容); its items wrap one by one */
+.tb-run {
+  display: contents;
+}
 .tb-icon {
   width: 20px;
   height: 20px;
@@ -343,6 +352,13 @@ body {
   width: 48px;
   height: 23px;
 }
+/* txtTimeLimit 50 wide, txtPlayOutsLimit 80 wide (Menu.java:6525-6526, 6568-6569) */
+.tb-input.time-limit {
+  width: 50px;
+}
+.tb-input.visit-limit {
+  width: 80px;
+}
 /* AppleStyleSupport.errorFieldBackground: out of range or not a number. */
 .tb-group.pda .tb-input.invalid,
 .tb-group.wrn .tb-input.invalid {
@@ -357,6 +373,11 @@ body {
 .tb-checklabel {
   width: 52px;
   height: 17px;
+}
+/* chkTime / chkPlayOut / chkShowWinrate…: their text's width plus 4 (Menu.java:6505-6510, 9818-9823) */
+.tb-checklabel.fit {
+  width: auto;
+  padding-right: 4px;
 }
 /* txtKomi is an enabled field: black text, unlike the disabled KataGo parameter fields */
 #komiField {

@@ -874,6 +874,10 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().set_ponder_limit_tips(enabled)?;
             Ok(changed(&app, &shared, done))
         }
+        Command::SetAnalyzeSides { black, white } => {
+            let done = shared.workbench.lock().unwrap().set_analyze_sides(black, white);
+            Ok(changed(&app, &shared, done))
+        }
         Command::AnswerRulesPrompt { prompt, accept } => {
             let done = shared.workbench.lock().unwrap().answer_rules_prompt(prompt, accept);
             Ok(changed(&app, &shared, done))
@@ -1384,6 +1388,10 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         }
         Command::SetTsumegoButtonShown { shown } => {
             let done = shared.workbench.lock().unwrap().set_tsumego_button_shown(shown)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetTopToolbarSettings { settings } => {
+            let done = shared.workbench.lock().unwrap().set_top_toolbar_settings(settings)?;
             Ok(changed(&app, &shared, done))
         }
         Command::ExportTable { rows } => export_table(&app, rows).await,

@@ -623,6 +623,9 @@ impl Workbench {
         if self.empty_board_resumed.is_some_and(|l| l != here) {
             self.empty_board_resumed = None;
         }
+        if self.side_hold.is_some_and(|l| l != here) {
+            self.side_hold = None;
+        }
         // 批量分析 analyses its own record with the foreground engine (the user's pause stops it,
         // as Java's ponder toggle does); the secondary engine stays idle meanwhile.
         if self.auto_analysis_holds_foreground() {
@@ -654,6 +657,7 @@ impl Workbench {
         let analyse = !self.paused
             && !self.benchmark_running()
             && self.limit_stop.is_none()
+            && self.side_hold.is_none()
             && !self.quick_holds_foreground()
             && !self.flash_holds_foreground()
             && !self.whole_game_holds_foreground()
@@ -1009,6 +1013,7 @@ impl Workbench {
         if self.quick_toggle_pause() || self.flash_toggle_pause() || self.whole_game_toggle_pause() || self.batch_toggle_pause() {
             self.limit_stop = None;
             self.secondary_limit_stop = None;
+            self.side_hold = None;
             self.sync_engine();
             return Ok(true);
         }
@@ -1024,7 +1029,9 @@ impl Workbench {
             }
             return Ok(false);
         }
-        let running = !self.paused && self.limit_stop.is_none();
+        // A position 分析 黑 / 白 holds resumes like a limit stop (`togglePonder` with
+        // `underPonder` ponders).
+        let running = !self.paused && self.limit_stop.is_none() && self.side_hold.is_none();
         self.paused = running;
         if !running && self.benchmark_running() {
             self.stop_benchmark();
@@ -1036,6 +1043,7 @@ impl Workbench {
         }
         self.limit_stop = None;
         self.secondary_limit_stop = None;
+        self.side_hold = None;
         self.sync_engine();
         Ok(true)
     }
@@ -1049,6 +1057,7 @@ impl Workbench {
         self.paused = false;
         self.limit_stop = None;
         self.secondary_limit_stop = None;
+        self.side_hold = None;
         self.sync_engine();
         true
     }
@@ -1058,8 +1067,49 @@ impl Workbench {
         self.paused = false;
         self.limit_stop = None;
         self.secondary_limit_stop = None;
+        self.side_hold = None;
         self.sync_engine();
         true
+    }
+
+    /// 分析 黑 / 白 (`chkAnalyzeBlack` / `chkAnalyzeWhite`, Menu.java:9754-9793): session only.
+    /// When the changed side is to move now and ordinary analysis runs or waits for it, analysis
+    /// starts or stops here at once (`ponder` / `nameCmdfornoponder`); otherwise the choice
+    /// counts from the user's next move or browsing step.
+    pub fn set_analyze_sides(&mut self, black: bool, white: bool) -> bool {
+        if (black, white) == (self.analyze_black, self.analyze_white) {
+            return false;
+        }
+        let changed = match self.doc.record.node(self.cursor).to_play {
+            Stone::Black => black != self.analyze_black,
+            Stone::White => white != self.analyze_white,
+        };
+        self.analyze_black = black;
+        self.analyze_white = white;
+        if changed && !self.paused && self.limit_stop.is_none() && self.side_choice_applies() {
+            self.hold_for_side(self.cursor);
+            self.sync_engine();
+        }
+        true
+    }
+
+    /// Ordinary analysis, the one 分析 黑 / 白 decides about: not a game, an engine match, AI
+    /// 陪练 or any 自动分析 run (`isPlayingAgainstLeelaz`, `isAutoAna`).
+    fn side_choice_applies(&self) -> bool {
+        self.play_analyse().is_none()
+            && self.match_analyse().is_none()
+            && self.human_sl_analyse().is_none()
+            && !self.auto_analysis_running()
+    }
+
+    /// Before the user's move or browsing step lands on `node`: running ordinary analysis waits
+    /// there when the side to move at `node` is not analysed; a paused one stays paused.
+    pub(super) fn hold_for_side(&mut self, node: NodeId) {
+        let analysed = match self.doc.record.node(node).to_play {
+            Stone::Black => self.analyze_black,
+            Stone::White => self.analyze_white,
+        };
+        self.side_hold = (!analysed && !self.paused && self.side_choice_applies()).then_some((self.doc.id, node));
     }
 
     pub(super) fn raw_net_view(&self) -> Option<crate::engine::raw_net::RawNetView> {
@@ -1299,14 +1349,37 @@ impl Workbench {
     }
 
     /// Puts committed analysis settings into effect: the engine update interval, the console's
-    /// `always-gtp` and, for a new variation length, the previews of stored analysis.
+    /// `always-gtp`, for a new variation length the previews of stored analysis, and for new
+    /// limits a search a limit stopped resumes when it is within them now.
     pub(super) fn analysis_settings_changed(&mut self, previous: &AnalysisSettings) {
         let settings = &self.config.engine.analysis;
         self.engines.set_interval(settings.interval_centisec, settings.interval_centisec_ssh);
         self.engines.set_always_gtp(settings.always_gtp);
+        let limits = |a: &AnalysisSettings| (a.limit_time, a.max_analyze_time_seconds, a.limit_playout, a.limit_playouts);
+        let limits_changed = limits(settings) != limits(previous);
         if settings.limit_branch_length != previous.limit_branch_length {
             self.refresh_pv_captures();
         }
+        if limits_changed {
+            self.resume_within_limits();
+        }
+    }
+
+    /// `Menu.reCalculateLeelazPonderingIfOutOfLimit`: the foreground search a time or visit
+    /// limit stopped goes on when its visits and the time since it began are within the limits
+    /// now. A stop by 空棋盘停止计算 is not a limit's and stays.
+    fn resume_within_limits(&mut self) {
+        let here = (self.doc.id, self.cursor);
+        if self.limit_stop != Some(here) {
+            return;
+        }
+        let Some((visits, began)) = self.limit_search else { return };
+        if self.limit_reached(visits, began.elapsed()) {
+            return;
+        }
+        self.limit_stop = None;
+        self.limit_search = None;
+        self.sync_engine();
     }
 
     /// The GTP console was shown or hidden (`always-gtp` decides what a hidden one records).
@@ -1669,6 +1742,7 @@ impl Workbench {
             return;
         }
         self.limit_stop = Some((self.doc.id, self.cursor));
+        self.limit_search = if empty { None } else { Instant::now().checked_sub(elapsed).map(|began| (visits, began)) };
         if !empty && self.config.engine.analysis.show_ponder_limited_tips && !self.limit_tip_shown {
             self.limit_tip_shown = true;
             self.engine_notice = Some(EngineNotice::StoppedByLimit);
@@ -1781,6 +1855,8 @@ impl Workbench {
             paused: self.paused,
             analysing: self.engines.analysing(self.doc.id, self.cursor),
             stopped_by_limit: self.limit_stop == Some((self.doc.id, self.cursor)),
+            analyze_black: self.analyze_black,
+            analyze_white: self.analyze_white,
             rules_key: rules.map(|r| r.summary_key().to_string()),
             rules: rules.map(KataRules::to_gtp_argument),
             console_seq: self.engines.console_seq(),

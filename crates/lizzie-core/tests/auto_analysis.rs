@@ -118,6 +118,23 @@ fn stop_at_empty_board_does_not_stop_automatic_analysis_at_the_root() {
 }
 
 #[test]
+fn analyze_sides_do_not_hold_automatic_analysis() {
+    // Leelaz.playMove / undo skip the 分析 黑 / 白 check while `isAutoAna` (Leelaz.java:19895, 22929).
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, id) = setup(dir.path(), LINE);
+    wb.set_analyze_sides(false, true); // ordinary analysis waits at the root, Black to play
+    wb.start_auto_analysis(settings()).unwrap().unwrap();
+    serve(&mut wb, &world, id);
+    info(&mut wb, id, 6, 4, 0.5);
+    assert_eq!(wb.view(true).position.node, 1, "a run started where the choice held analysis");
+    serve(&mut wb, &world, id);
+    wb.set_analyze_sides(false, false); // White to play now
+    serve(&mut wb, &world, id);
+    info(&mut wb, id, 6, 4, 0.5);
+    assert_eq!(wb.view(true).position.node, 2, "unticking the side to move during a run");
+}
+
+#[test]
 fn auto_analysis_excludes_whole_game_and_hawkeye_list_navigation() {
     use lizzie_core::api::HawkeyeCommand;
     let dir = tempfile::tempdir().unwrap();

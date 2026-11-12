@@ -19,6 +19,7 @@ import { aiCoachBlockedByGame } from "../humansl/state";
 import { renderToolbar } from "../chrome/toolbar";
 import type { KataParam } from "../contract/generated";
 import { kataGoPda, kataRevealed } from "../engine/kataParams";
+import { revealTopGroup, TOP_GROUP_OF } from "../chrome/topGroups";
 import { kataGoCustom } from "../engine/customPda";
 import { clearHighlight, highlight } from "./highlight";
 
@@ -105,9 +106,10 @@ function toolbarControl(id: string): HTMLElement | null {
   return document.querySelector<HTMLElement>(`#toolbar ${selector}, #bottombar ${selector}`) ?? livePopupAnchor(id);
 }
 
-/** The 激进度 / 广度 groups (Menu.locateTopFunction sets showPDAInMenu / showWRNInMenu): locating
- *  shows the group for this run, so a group its setting hides is not a reason; the engine-state
- *  reasons are LizzieFrame.functionEntryUnavailableReason's. */
+/** The 激进度 / 广度 groups (Menu.locateTopFunction sets showPDAInMenu / showWRNInMenu) and the
+ *  自定义内容 groups of chrome/topGroups.ts: locating shows the group for this run, so a group its
+ *  setting hides is not a reason; the engine-state reasons are
+ *  LizzieFrame.functionEntryUnavailableReason's. */
 const KATA_GROUPS: Record<string, KataParam> = { "engine.pda": "Pda", "toolbar.wrn": "Wrn" };
 
 function kindOf(m: FunctionMatch): DestinationKind | null {
@@ -281,7 +283,7 @@ function unavailableReason(m: FunctionMatch, kind: DestinationKind | null, absen
   if (dialogOpen(search ?? undefined)) return { key: "FunctionSearch.unavailable.modal" };
   if (absent) return UNAVAILABLE;
   if (kind === "context") return state.view.settings.edit.showRightMenu ? null : CONTEXT;
-  if (kind === "toolbar" && !revealsMarkup(m.id) && !KATA_GROUPS[m.id] && groupHidden(toolbarControl(m.id)!)) return TOOLBAR;
+  if (kind === "toolbar" && !revealsMarkup(m.id) && !KATA_GROUPS[m.id] && !TOP_GROUP_OF[m.id] && groupHidden(toolbarControl(m.id)!)) return TOOLBAR;
   const reason = entryReason(m.id);
   if (reason) return reason;
   // A real toolbar control disabled for now (广度 while the engine is not free for it).
@@ -332,10 +334,11 @@ async function locateToolbarControl(id: string): Promise<Reason | null> {
   const control = toolbarControl(id);
   if (!control) return TOOLBAR;
   const kata = KATA_GROUPS[id];
+  const top = TOP_GROUP_OF[id];
   if (kata && !kataRevealed[kata]) {
     kataRevealed[kata] = true;
     renderToolbar();
-  }
+  } else if (top && revealTopGroup(top)) renderToolbar();
   if (revealsMarkup(id) && !markupToolsShown()) setEditing({ markupRevealed: true });
   await revealToolbar(control.closest("#bottombar") ? "bottom" : "top");
   if (!control.isConnected || control.getClientRects().length === 0) return TOOLBAR;

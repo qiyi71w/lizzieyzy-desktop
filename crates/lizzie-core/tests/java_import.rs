@@ -2335,6 +2335,31 @@ fn tsumego_choices_capture_thresholds_and_button_import_like_java_reads_them() {
 }
 
 #[test]
+fn top_toolbar_groups_import_by_value() {
+    use lizzie_core::settings::TopToolbarSettings;
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let source = json!({"ui": {
+        "show-time-control-in-menu": true, "show-playout-control-in-menu": false,
+        "show-analyze-controller": true, "show-double-menu-moveinfo": true
+    }})
+    .to_string();
+    std::fs::write(java.join("config.txt"), &source).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    for key in ["ui.show-time-control-in-menu", "ui.show-playout-control-in-menu", "ui.show-analyze-controller", "ui.show-double-menu-moveinfo"] {
+        let row = p.items.iter().find(|row| row.key == key).unwrap();
+        assert_eq!((row.status, row.target), (ImportStatus::Imported, Some(ImportTarget::TopToolbar)), "{key}");
+    }
+    wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
+    let expected = TopToolbarSettings { show_time_limit: true, show_visit_limit: false, show_analyze_sides: true, show_candidate_info: true };
+    assert_eq!(wb.config().top_toolbar, expected);
+    assert_eq!(saved_config(&product).top_toolbar, expected);
+}
+
+#[test]
 fn teacher_settings_preserve_legacy_defaults_and_java_clamping() {
     use lizzie_core::api::CommentaryProvider;
     let temp = tempfile::tempdir().unwrap();
