@@ -760,7 +760,7 @@ export function buildToolbar(host: HTMLElement): void {
         at("toolbar.change-turn", icon("pass.png", t("Menu.btnChangeTurn.toolTipText"), "toolbar.change-turn")),
         icon("setmain.png", t("Menu.btnSetMain.toolTipText"), "menu.setAsMain"),
         icon("backmain.png", t("Menu.btnBackMain.toolTipText"), "menu.backToMainBranch"),
-        icon("control.png", t("Menu.btnContrlPanel.toolTipText")),
+        icon("control.png", t("Menu.btnContrlPanel.toolTipText"), "menu.ctrlPanel"),
         ...markupTools(),
       ),
       sep(),

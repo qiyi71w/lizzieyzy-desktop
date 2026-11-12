@@ -9,6 +9,7 @@ mod cloud;
 mod cloud_dispatch;
 mod cloud_import;
 mod contribution;
+mod control_panel;
 mod diagnostics;
 mod floatboard;
 mod fox_kifu;
@@ -1600,6 +1601,7 @@ fn prepare_exit(app: &AppHandle, shared: &Shared) -> bool {
         record_hawkeye(shared, &mut wb, &hawkeye);
     }
     if let Err(error) = independent::capture(app, &mut wb) { shared.log.warn(&error.message); }
+    control_panel::capture(app, shared, &mut wb);
     persist_ui(app, shared, &mut wb);
     wb.shutdown_strength();
     true
@@ -2212,6 +2214,11 @@ pub fn run() {
                 api.prevent_close();
                 let _ = window.hide();
             }
+            // 独立棋局控制面板's close box hides it (a JDialog's HIDE_ON_CLOSE).
+            WindowEvent::CloseRequested { api, .. } if window.label() == control_panel::LABEL => {
+                api.prevent_close();
+                control_panel::closing(window.app_handle());
+            }
             WindowEvent::CloseRequested { .. } if window.label() == "commentary" => {}
             // 棋盘同步工具's float board has no close of its own: the helper shows and hides it,
             // and Alt+F4 there must not take the main window's exit path.
@@ -2230,7 +2237,7 @@ pub fn run() {
                 } else {
                     // Java exits with the main window; the tool windows must not keep the
                     // application running.
-                    for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW, HAWKEYE_WINDOW, HAWKEYE_SUB_WINDOW, BATCH_WINDOW, fox_kifu::WINDOW, tencent_kifu::WINDOW, independent::MAIN, independent::SUB, floatboard::LABEL] {
+                    for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW, HAWKEYE_WINDOW, HAWKEYE_SUB_WINDOW, BATCH_WINDOW, fox_kifu::WINDOW, tencent_kifu::WINDOW, independent::MAIN, independent::SUB, floatboard::LABEL, control_panel::LABEL] {
                         if let Some(frame) = app.get_webview_window(label) {
                             let _ = frame.destroy();
                         }
@@ -2348,6 +2355,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         floatboard::show_float_board,
         floatboard::hide_float_board,
         open_batch_table,
+        control_panel::toggle_control_panel,
+        control_panel::reopen_control_panel,
         tsumego_capture::start_tsumego_capture,
         tsumego_capture::tsumego_capture_picture,
         tsumego_capture::tsumego_capture_preview,
@@ -2404,6 +2413,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         floatboard::show_float_board,
         floatboard::hide_float_board,
         open_batch_table,
+        control_panel::toggle_control_panel,
+        control_panel::reopen_control_panel,
         tsumego_capture::start_tsumego_capture,
         tsumego_capture::tsumego_capture_picture,
         tsumego_capture::tsumego_capture_preview,

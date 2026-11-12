@@ -549,6 +549,15 @@ importing the matching LizzieYzy Next settings.
   saves the panels, board position and (for a slot) the snapshot together, and a save that fails
   keeps the dialog open with its choices. Java configuration import recognizes these modes, the
   classic flag and both saved layouts.
+- 独立棋局控制面板 (显示 > 面板, a check item; the top toolbar's control button; also found by
+  function search): a separate, ordinary window (title bar, resizable, not always on top) with
+  eight large buttons: `|<` / `>|` go to the first / last move, `<<` / `>>` back / forward five
+  moves, `<` / `>` one move, 返回 goes back to the main line and 涂鸦 opens 自由涂鸦 on the
+  workbench. As in Java, `<<`, `<`, `>` and `>>` do nothing during a game against the engine. The
+  menu item and the toolbar button show it or hide it; its close box hides it. It first opens
+  510 x 470 centred on the main window, then keeps the place and size it was given; open when the
+  application closes, it opens again at the next start. 重置界面位置 forgets its place. Its place
+  and open state are this product's own and are not imported from LizzieYzy Next.
 - 双引擎模式 (显示 > 布局模式, `Alt+6`; 默认模式 `Alt+1`): a second engine analyses the same
   position next to the foreground engine. The window takes Java's width for the mode (the board
   height doubled, or 1.65 times it for 默认模式) unless it is maximized, and shows two equal

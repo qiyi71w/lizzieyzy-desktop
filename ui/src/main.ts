@@ -45,6 +45,7 @@ import { frameReport, framesReport, handleTableKey, relayFrame, startFrame } fro
 import { handleHawkeyeKey, hawkeyeReport, relayHawkeye, startHawkeye } from "./hawkeye/commands";
 import { commentaryReport, relayCommentary, renderCommentPanel, startCommentary } from "./commentary/commands";
 import { batchReport, handleBatchKey, startBatchTable } from "./batch/commands";
+import { controlPanelReport, startControlPanel } from "./control/commands";
 import { contributionReport } from "./contribution/window";
 import { foxKifuReport, startFoxKifu } from "./foxkifu/commands";
 import { startTencentKifu, tencentKifuReport } from "./tencentkifu/commands";
@@ -1499,6 +1500,8 @@ function uiReport() {
     hawkeye: hawkeyeReport(),
     /** 批量分析 (T17): whether its settings dialog is shown and what the 进度表 window last drew. */
     batch: batchReport(),
+    /** 独立棋局控制面板: whether it is shown and its buttons as the window last drew them. */
+    controlPanel: controlPanelReport(),
     /** 棋力评估 (T25): the dashboard, 详细数据 and HumanSL 40 progress dialogs as shown. */
     strength: strengthReport(),
     /** AI 解说 (T26): whether its window is open and what it shows, settings dialog included. */
@@ -1697,6 +1700,8 @@ async function boot() {
   await startTencentKifu();
   await startOnline();
   await getCurrentWindow().show();
+  // Lizzie.java:1029: the control panel shown at the last exit opens over the shown workbench.
+  await startControlPanel();
   await getCurrentWindow().setFocus();
   schedule();
   // First use (no settings of this product yet): offer the LizzieYzy Next import.

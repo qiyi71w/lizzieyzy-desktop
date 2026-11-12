@@ -2017,6 +2017,11 @@ pub struct Persisted {
     pub matches: crate::api::MatchSessionSettings,
     /// The 弈客 web window (`persistedUi.main-window-other` 1–4, default −5, 0, 1240×750).
     pub yike_browser: Option<WindowPlacement>,
+    /// 独立棋局控制面板's outer bounds (physical pixels) and whether it was shown when the
+    /// application last closed (Java `persistedUi.ctrl-position`, `ui.is-ctrl-opened`; neither is
+    /// imported).
+    pub control_panel: Option<WindowPlacement>,
+    pub control_panel_open: bool,
 }
 
 /// File locations inside the product's per-user data directories.

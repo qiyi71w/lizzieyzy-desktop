@@ -344,6 +344,21 @@ impl Workbench {
         Ok(())
     }
 
+    /// 独立棋局控制面板 at exit (Config.persist `ctrl-position`, Lizzie.shutdown `is-ctrl-opened`):
+    /// the bounds of a panel built this session (`None` keeps the saved ones) and whether it is
+    /// shown, so the next start reopens it. Nothing is written after the UI position was reset.
+    pub fn record_control_panel(&mut self, placement: Option<WindowPlacement>, open: bool) -> Result<(), ApiError> {
+        if self.persist_reset { return Ok(()); }
+        let previous = (self.persisted.control_panel, self.persisted.control_panel_open);
+        if placement.is_some() { self.persisted.control_panel = placement; }
+        self.persisted.control_panel_open = open;
+        if let Err(error) = self.save_persisted() {
+            (self.persisted.control_panel, self.persisted.control_panel_open) = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
     /// SetCustomMode 确定 (SetCustomMode.java; Config.savePanelConfig, then saveCustomMode for a
     /// slot): the dialog's mode (published without the mode's entry defaults), panel flags and
     /// board position, and for a 自定义布局 slot its snapshot, saved as one change. A failed write

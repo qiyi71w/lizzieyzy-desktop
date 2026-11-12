@@ -1046,6 +1046,7 @@ impl Workbench {
         self.persisted.bottom_toolbar = crate::settings::BottomToolbar::default();
         self.persisted.independent_main_board = None;
         self.persisted.independent_sub_board = None;
+        self.persisted.control_panel = None;
         self.set_replace_file_hint(true)?;
         Ok(())
     }
