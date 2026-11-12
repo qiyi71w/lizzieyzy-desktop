@@ -1446,6 +1446,15 @@ pub struct DisplaySettings {
     pub all_numbers_in_branch: bool,
     /// 显示分支面板上的手数 (`show-var-move`, on).
     pub tree_move_numbers: bool,
+    /// 分支面板设置 > 使用滚动面板拓展宽度 (`show-scroll-variation`, on): the variation tree scrolls;
+    /// off, the whole tree is laid out in the panel around the current node.
+    pub scroll_variation: bool,
+    /// 设置最大宽度 (`max-tree-width`, 10000): a scrolled tree this wide is cut off there and
+    /// counts as too wide.
+    pub max_tree_width: i32,
+    /// 超过宽度依然使用滚动条(超过部分将不显示) (`ignore-out-of-width`, off): a too wide tree keeps
+    /// scrolling instead of being laid out in the panel.
+    pub ignore_out_of_width: bool,
     /// 落子评价 (`move-rank-mark-last-move`): -1 none, 0 every move, n the last n moves (1).
     pub move_rank: i32,
     /// 显示最后多手 (`txt-move-rank-mark-last-move`, 3).
@@ -1573,6 +1582,9 @@ impl Default for DisplaySettings {
             branch_numbers_from_one: true,
             all_numbers_in_branch: false,
             tree_move_numbers: true,
+            scroll_variation: true,
+            max_tree_width: 10000,
+            ignore_out_of_width: false,
             move_rank: 1,
             move_rank_custom: 3,
             move_rank_mode: MoveRankMode::Auto,

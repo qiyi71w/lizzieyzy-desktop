@@ -2462,6 +2462,25 @@ fn move_rect_and_click_review_import_by_value() {
 }
 
 #[test]
+fn variation_tree_width_settings_import_by_value() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let source = json!({"ui": {"show-scroll-variation": false, "max-tree-width": 600, "ignore-out-of-width": true}});
+    std::fs::write(java.join("config.txt"), source.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    for key in ["ui.show-scroll-variation", "ui.max-tree-width", "ui.ignore-out-of-width"] {
+        let row = item(&p.items, key);
+        assert_eq!((row.status, row.target), (ImportStatus::Imported, Some(ImportTarget::VariationTree)), "{key}");
+    }
+    wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
+    let d = &saved_config(&product).display;
+    assert_eq!((d.scroll_variation, d.max_tree_width, d.ignore_out_of_width), (false, 600, true));
+}
+
+#[test]
 fn teacher_settings_preserve_legacy_defaults_and_java_clamping() {
     use lizzie_core::api::CommentaryProvider;
     let temp = tempfile::tempdir().unwrap();

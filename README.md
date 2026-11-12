@@ -21,6 +21,14 @@ importing the matching LizzieYzy Next settings.
   comment), `B` (back to the main branch), the mouse wheel, the bottom bar navigation buttons and
   move-number field, and clicks in the variation tree. The variation tree scrolls with its own
   scroll bars and mouse wheel; it re-centres on the current node when the position changes.
+  界面 > 面板 > 分支面板设置 chooses how it fits: unticking 使用滚动面板拓展宽度 lays the tree out
+  inside the panel without scroll bars, with the current node in the middle row and the wheel
+  stepping through the moves as over the board (the other two items are then disabled).
+  设置最大宽度 (10000 by default) cuts a scrolled tree at that width; a tree that reaches it is
+  laid out inside the panel instead, or keeps scrolling with the part beyond the width hidden when
+  超过宽度依然使用滚动条(超过部分将不显示) is ticked. That state lasts for the open record until
+  another record opens or the maximum width is confirmed again. All three settings are saved and
+  imported from LizzieYzy Next.
 - Stepping forward plays the Java stone sounds (stone, capture, capture of three or more).
 - The board shows setup stones, moves, passes, captures, comments, SGF markup (TR/SQ/CR/MA/LB),
   next-move rings, player names, the sub board, the variation tree and the empty winrate graph.

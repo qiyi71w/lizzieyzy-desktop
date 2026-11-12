@@ -22,6 +22,7 @@ import { independentReport, relayIndependent, startIndependent } from "./workben
 import type { IndependentInput } from "./workbench/independentModel";
 import "./workbench/displayPage";
 import { boardUi, candidatesShownFor, onBoardUiChange } from "./display/state";
+import { markTreeTooWide, onTreeTooWideCleared, treeFit } from "./display/variationTree";
 import { onRegionUiChange, regionDrag, selectionClicked, selectionDragged, selectionReleased } from "./analysis/region";
 import { bindReplayHost, finishReplayBranch, replayLength, replaying, type ReplayTarget } from "./display/replay";
 import { autoplayReport, autoReplayLength, bindAutoplayHost, subAutoplayLength, subWheeled } from "./display/autoplay";
@@ -84,6 +85,7 @@ import {
   playouts,
   paintSubBoard,
   paintTree,
+  paintTreeFit,
   prepare,
   ARROW,
   SCROLLBAR,
@@ -111,6 +113,8 @@ document.documentElement.dataset.os = navigator.userAgent.includes("Windows")
 let panels: Panels | null = null;
 let treeHits = new Map<string, number>();
 let treeView: TreeViewport | null = null;
+/** The tree panel shows the whole tree without scroll bars (shouldShowSimpleVariation). */
+let treeFitShown = false;
 /** The tree the panel last drew (state.nodes is replaced with every tree update). */
 let treeSource = state.nodes;
 let treeRevision = 0;
@@ -557,11 +561,12 @@ function bindPointer() {
     }, true);
   }
   // Input.mouseWheelMoved: one move per notch over the workbench. Scroll panes take their own
-  // wheel: the comment, the candidate list and the variation tree (a JScrollPane, scrolled below).
+  // wheel: the comment, the candidate list and the variation tree while it is a JScrollPane
+  // (scrolled below); the whole-tree view has no scroll pane and the workbench takes it.
   main.addEventListener(
     "wheel",
     (ev) => {
-      if ((ev.target as HTMLElement).closest("#comment, #table, #tree, #sub, .quad, #recovery")) return;
+      if ((ev.target as HTMLElement).closest(`#comment, #table, ${treeFitShown ? "" : "#tree, "}#sub, .quad, #recovery`)) return;
       ev.preventDefault();
       if (ev.deltaY !== 0 && !boardWheel(ev.deltaY > 0)) navigate(ev.deltaY > 0 ? { op: "Forward", count: 1 } : { op: "Back", count: 1 });
     },
@@ -772,6 +777,7 @@ function bindPointer() {
   tree.addEventListener(
     "wheel",
     (ev) => {
+      if (treeFitShown) return;
       ev.preventDefault();
       const step = Math.sign(ev.deltaY || ev.deltaX) * TREE_UNIT * 3;
       if (treeView?.vertical && !ev.shiftKey) scrollTree(step, 0);
@@ -1162,8 +1168,18 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
   const treeNumbers = v.settings.display.treeMoveNumbers;
   // The core's 错误节点 colours of every node (white ones omitted); they change with the analysis.
   const nodeColors = JSON.stringify(v.theme_nodes);
-  if (P.shown.tree && changed("tree", `${at(P.tree)}:${docSig}:${treeRevision}:${nodeColors}:${treeNumbers}:${treeScroll?.top}:${treeScroll?.left}`)) {
-    const painted = paintTree(prepare($("tree"), P.tree), P.tree, state.nodes, state.root, pos.node, state.line, treeScroll, treeNumbers, new Map(v.theme_nodes.map((n) => [n.node, n.color] as const)));
+  const treeDisplay = v.settings.display;
+  const fitBefore = treeFit(treeDisplay, v.document.id);
+  const treeSettings = `${treeDisplay.scrollVariation}:${treeDisplay.maxTreeWidth}:${treeDisplay.ignoreOutOfWidth}:${fitBefore}`;
+  if (P.shown.tree && changed("tree", `${at(P.tree)}:${docSig}:${treeRevision}:${nodeColors}:${treeNumbers}:${treeSettings}:${treeScroll?.top}:${treeScroll?.left}`)) {
+    const colors = new Map(v.theme_nodes.map((n) => [n.node, n.color] as const));
+    const scrolled = fitBefore ? null : paintTree(prepare($("tree"), P.tree), P.tree, state.nodes, state.root, pos.node, state.line, treeScroll, treeNumbers, colors, treeDisplay.maxTreeWidth);
+    // setTreeMaxLimit marks the tree too wide; without 超过宽度依然使用滚动条 the whole tree is
+    // then laid out in the panel instead.
+    if (scrolled?.tooWide) markTreeTooWide(v.document.id, treeDisplay.maxTreeWidth);
+    treeFitShown = treeFit(treeDisplay, v.document.id);
+    // Not fitted now means not fitted before either: the scroll pane was drawn.
+    const painted = treeFitShown ? paintTreeFit(prepare($("tree"), P.tree), P.tree, state.nodes, pos.node, state.line, treeNumbers, colors) : scrolled!;
     treeHits = painted.hits;
     treeView = painted.viewport;
     treeNumbersDrawn = painted.numbers;
@@ -1526,7 +1542,14 @@ function uiReport() {
       nextMovePreview: boardReport?.preview?.order === -1,
       /** Candidates kept beyond 最大候选点数 by lastTimeUnlimited ("x,y"). */
       keptBeyondLimit: [...keptPoints(state.view?.analysis ?? null)],
-      tree: { numbers: state.view?.settings.display.treeMoveNumbers ?? false, drawn: treeNumbersDrawn },
+      tree: {
+        numbers: state.view?.settings.display.treeMoveNumbers ?? false,
+        drawn: treeNumbersDrawn,
+        /** The whole tree in the panel; the node centres a click goes to (panel coordinates). */
+        fit: treeFitShown,
+        viewport: treeView,
+        hits: [...treeHits].map(([k, node]) => ({ at: k, node })),
+      },
       autoplay: autoplayReport(),
       /** 点击棋子回看: the pressed point, the shown node once looked up and the variation length. */
       clickReview: clickReviewReport(),
@@ -1604,6 +1627,8 @@ async function boot() {
   startTitleUpdates(schedule);
   // F, holding Z, 延迟显示候选点 and T repaint both boards at once.
   onBoardUiChange(schedule);
+  // 设置最大宽度 confirmed: the tree is laid out again even with the same width.
+  onTreeTooWideCleared(schedule);
   // An open 自定义布局 设置 dialog's draft relays out the workbench and the floating boards.
   onPresentationChange(schedule);
   // A region selection being dragged, and the lit region buttons.

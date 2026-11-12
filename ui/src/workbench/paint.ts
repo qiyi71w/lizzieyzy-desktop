@@ -2454,48 +2454,57 @@ export function paintDualStrip(g: CanvasRenderingContext2D, text: string, x: num
   return { text: shown, width: stringWidth };
 }
 
-/** LizzieFrame.createVarTreeImage + VariationTree.draw/drawTree (VariationTree.java:44-402): the
- * whole tree laid out from the root at (20, 20) with Java's lane allocation, shown through the scroll
- * pane that renderVarTree positions on the current node (LizzieFrame.java:13942-13975) unless the
- * user scrolled it (`scroll`). Nodes off the current line are dimmed; with show-comment-node-color
- * commented nodes get the comment-node-color ring, and every node is filled with the 错误节点
- * colour the core projects for it (`nodeColors`, LizzieFrame.getBlunderNodeColor 11465-11536 with
- * Board.updateIsBest; VariationTree.java:136-158), white without one; 显示分支面板上的手数 (`numbers`)
- * writes each node's core display
- * number beside it (VariationTree.java:159-176, 285-304). Returns node centres (panel coordinates)
- * for click hit-testing and the viewport. */
-export function paintTree(
-  g: CanvasRenderingContext2D,
-  r: Rect,
+/** One drawing of VariationTree.drawTree (scroll pane) or VariationTreeBig.drawTree (whole tree
+ *  in the panel): the deferred drawing, the centre of every node walked (for click hit-testing,
+ *  Java's calc pass), the current node's place and lane and the extent of what was drawn. */
+interface TreeWalk {
+  ops: ((g: CanvasRenderingContext2D) => void)[];
+  hits: Map<string, number>;
+  curX: number;
+  curY: number;
+  curLane: number;
+  maxLane: number;
+  maxX: number;
+  maxY: number;
+  numbers: number;
+}
+
+const [TREE_YS, TREE_XS, TREE_DOT, TREE_CENTER, TREE_RING] = [20, 20, 11, 5, 15];
+
+/** VariationTree.drawTree / VariationTreeBig.drawTree from `start` at (`posx`, `posy`), Java's lane
+ *  allocation. Nodes left of `minX` or above the top are not drawn. `fit` is the whole-tree view:
+ *  the first node also obeys that, the main line stops above `maxY`, and the current node takes
+ *  VariationTreeBig's red (or reversed 错误节点 colour) centre instead of the black one. */
+function walkTree(
   nodes: Map<number, TreeNodeView>,
-  root: number,
+  start0: number,
   current: number,
   line: Set<number>,
-  scroll: { top: number; left: number } | null,
   numbers: boolean,
   nodeColors: Map<number, number[]>,
-): { hits: Map<string, number>; viewport: TreeViewport; numbers: number } {
-  const hits = new Map<string, number>();
-  const { w, h } = r;
-  g.fillStyle = "rgba(0,0,0,0.51)";
-  g.fillRect(0, 0, w, h);
+  posx: number,
+  posy0: number,
+  minX: number,
+  maxposy: number,
+  fit: boolean,
+  w: number,
+  h: number,
+): TreeWalk {
+  const [YS, XS, DOT, CENTER, RING] = [TREE_YS, TREE_XS, TREE_DOT, TREE_CENTER, TREE_RING];
   const node = (n: number) => nodes.get(n)!;
-  const [YS, XS, DOT, CENTER, RING] = [20, 20, 11, 5, 15];
   const kids = (n: number) => node(n).children;
   const moveNo = (n: number) => {
     let d = 0;
     for (let p = node(n).parent; p !== null; p = node(p).parent) d++;
     return d;
   };
-  const ops: ((g: CanvasRenderingContext2D) => void)[] = [];
-  let maxY = h;
-  let maxX = w;
-  let curY = 0;
-  let curX = 0;
-  // LizzieFrame varTreeMaxX / varTreeMaxY: 60 px beyond the farthest node
+  const walk: TreeWalk = { ops: [], hits: new Map(), curX: 0, curY: 0, curLane: 0, maxLane: 0, maxX: w, maxY: h, numbers: 0 };
+  const { ops, hits } = walk;
+  const shown = (x: number, y: number) => x > minX && y > 0;
+  // LizzieFrame varTreeMaxX / varTreeMaxY: 60 px beyond the farthest node drawn
   const grow = (x: number, y: number) => {
-    maxX = Math.max(maxX, x + 60);
-    maxY = Math.max(maxY, y + 60);
+    walk.maxX = Math.max(walk.maxX, x + 60);
+    walk.maxY = Math.max(walk.maxY, y + 60);
   };
   const segment = (x1: number, y1: number, x2: number, y2: number, color: string) =>
     ops.push((g) => {
@@ -2506,12 +2515,11 @@ export function paintTree(
       g.lineTo(x2 + 0.5, y2 + 0.5);
       g.stroke();
     });
-  let drawnNumbers = 0;
   /** Font(uiFontName, PLAIN, 9) in white, left of a trunk node or above a branch's first node. */
   const label = (n: number, x: (k: number) => number, y: number) => {
     const k = node(n).number;
     if (!numbers || k === 0) return;
-    drawnNumbers++;
+    walk.numbers++;
     ops.push((g) => {
       g.font = `9px ${UI_FONT}`;
       g.fillStyle = "#fff";
@@ -2525,8 +2533,6 @@ export function paintTree(
     const commented = look.showCommentNode && node(n).has_comment;
     const projected = nodeColors.get(n);
     const fill = projected ? cssColor(projected) : "#fff";
-    if (n === current) [curX, curY] = [x, y];
-    hits.set(`${x + 5},${y + 5}`, n);
     ops.push((g) => {
       const disc = (color: string, d: number) => {
         g.fillStyle = color;
@@ -2536,12 +2542,19 @@ export function paintTree(
       if (commented) disc(look.commentNode, RING);
       disc(fill, DOT);
       if (dim) disc("rgba(0,0,0,0.153)", commented ? RING : DOT);
-      if (n === current) disc("#000", CENTER);
+      if (n !== current) return;
+      // VariationTreeBig: the reversed 错误节点 colour, red on a white node, one pixel larger
+      if (fit) disc(projected ? cssColor(reverseColor(projected)) : "rgb(255,0,0)", CENTER + 2);
+      else disc("#000", CENTER);
     });
-    grow(x, y);
+    if (!fit) grow(x, y);
+  };
+  const visit = (n: number, x: number, y: number, lane: number) => {
+    hits.set(`${x + 5},${y + 5}`, n);
+    if (n === current) [walk.curX, walk.curY, walk.curLane] = [x, y, lane];
   };
   const lanes: number[] = [];
-  const drawTree = (posx: number, posy: number, startLane: number, start: number, variation: number) => {
+  const drawTree = (posy: number, startLane: number, start: number, variation: number) => {
     let depth = 1;
     for (let n = start; kids(n).length; n = kids(n)[0]) depth++;
     const mn = moveNo(start);
@@ -2550,49 +2563,90 @@ export function paintTree(
     if (lane >= lanes.length) lanes.push(0);
     if (variation > 1) lanes[lane - 1] = mn - 1;
     lanes[lane] = mn;
+    walk.maxLane = Math.max(walk.maxLane, lane);
     const x = posx + lane * XS;
     const color = line.has(start) ? "#fff" : "rgb(103,103,103)";
+    visit(start, x, posy, lane);
     if (lane > 0) {
       if (lane - startLane > 0 || variation > 1) {
         segment(x + 5, posy + 5, x + 5 - XS, posy + 5 - YS, color);
         segment(posx + (startLane - variation) * XS + 11, posy - YS + 5, x + 5 - XS, posy + 5 - YS, color);
       } else segment(x + 5, posy + 5, x + 10 - XS, posy + 10 - YS, color);
     }
-    if (node(start).parent !== null) {
-      dot(start, x, posy);
-      label(start, (k) => (k < 10 ? x + 3 : k >= 100 ? x - 3 : x), posy - 5);
-    } else {
-      // root: square, red centre while it is the displayed node
-      ops.push((g) => {
-        g.fillStyle = color;
-        g.fillRect(x, posy, DOT, DOT);
-        g.strokeStyle = "#000";
-        g.lineWidth = 1;
-        g.strokeRect(x - 0.5, posy - 0.5, DOT + 1, DOT + 1);
-        if (start === current) {
-          g.fillStyle = "rgb(255,0,0)";
-          g.fillRect(x + 2, posy + 2, DOT - 4, DOT - 4);
-        }
-      });
-      hits.set(`${x + 5},${posy + 5}`, start);
-      if (start === current) [curX, curY] = [x, posy];
-      grow(x, posy);
+    if (!fit || shown(x, posy)) {
+      if (node(start).parent !== null) {
+        dot(start, x, posy);
+        label(start, (k) => (k < 10 ? x + 3 : k >= 100 ? x - 3 : x), posy - 5);
+      } else {
+        // root: square, red centre while it is the displayed node
+        ops.push((g) => {
+          g.fillStyle = color;
+          g.fillRect(x, posy, DOT, DOT);
+          g.strokeStyle = "#000";
+          g.lineWidth = 1;
+          g.strokeRect(x - 0.5, posy - 0.5, DOT + 1, DOT + 1);
+          if (start === current) {
+            g.fillStyle = "rgb(255,0,0)";
+            g.fillRect(x + 2, posy + 2, DOT - 4, DOT - 4);
+          }
+        });
+        if (!fit) grow(x, posy);
+      }
     }
     let n = start;
-    while (kids(n).length) {
+    while (kids(n).length && (!fit || posy + YS < maxposy)) {
       posy += YS;
       n = kids(n)[0];
+      visit(n, x, posy, lane);
+      if (!shown(x, posy)) continue;
       dot(n, x, posy);
       segment(x + 5, posy - 1, x + 5, posy - YS + 11, line.has(n) ? "#fff" : "rgb(103,103,103)");
       label(n, (k) => (k < 10 ? x - 7 : k >= 100 ? x - 13 : x - 10), posy - 1);
     }
     while (n !== start) {
       n = node(n).parent!;
-      kids(n).slice(1).forEach((c, k) => drawTree(posx, posy, lane + k + 1, c, k + 1));
+      kids(n).slice(1).forEach((c, k) => drawTree(posy, lane + k + 1, c, k + 1));
       posy -= YS;
     }
   };
-  drawTree(20, 20, 0, root, 0);
+  drawTree(posy0, 0, start0, 0);
+  return walk;
+}
+
+/** LizzieFrame.createVarTreeImage + VariationTree.draw/drawTree (VariationTree.java:44-402): the
+ * whole tree laid out from the root at (20, 20) with Java's lane allocation, shown through the scroll
+ * pane that renderVarTree positions on the current node (LizzieFrame.java:13942-13975) unless the
+ * user scrolled it (`scroll`). Nodes off the current line are dimmed; with show-comment-node-color
+ * commented nodes get the comment-node-color ring, and every node is filled with the 错误节点
+ * colour the core projects for it (`nodeColors`, LizzieFrame.getBlunderNodeColor 11465-11536 with
+ * Board.updateIsBest; VariationTree.java:136-158), white without one; 显示分支面板上的手数 (`numbers`)
+ * writes each node's core display number beside it (VariationTree.java:159-176, 285-304).
+ * 设置最大宽度 (`maxWidth`, setTreeMaxLimit 13894-13908): a layout that wide is cut off there and
+ * reported `tooWide` (Board.setBigBranch). Returns node centres (panel coordinates) for click
+ * hit-testing and the viewport. */
+export function paintTree(
+  g: CanvasRenderingContext2D,
+  r: Rect,
+  nodes: Map<number, TreeNodeView>,
+  root: number,
+  current: number,
+  line: Set<number>,
+  scroll: { top: number; left: number } | null,
+  numbers: boolean,
+  nodeColors: Map<number, number[]>,
+  maxWidth: number,
+): { hits: Map<string, number>; viewport: TreeViewport; numbers: number; tooWide: boolean } {
+  const { w, h } = r;
+  g.fillStyle = "rgba(0,0,0,0.51)";
+  g.fillRect(0, 0, w, h);
+  let walk = walkTree(nodes, root, current, line, numbers, nodeColors, 20, 20, 0, Infinity, false, w, h);
+  const tooWide = walk.maxX >= maxWidth;
+  const maxX = tooWide ? maxWidth : walk.maxX;
+  // VariationTree.draw: with the current lane taken as 0 (getCurLane from the root), the tree
+  // moves left only when the cut width is under 51 px.
+  const shift = Math.max(0, TREE_XS + 20 + TREE_DOT - maxX);
+  if (shift > 0) walk = walkTree(nodes, root, current, line, numbers, nodeColors, 20 - shift, 20, 0, Infinity, false, w, h);
+  const { hits, ops, curX, curY, maxY } = walk;
   // JScrollPane with AS_NEEDED bars of DemoScrollBarUI width 9; the horizontal bar is off when the
   // pane is under 100 px high (LizzieFrame.java:13976-13983).
   const hbar = maxX > w && h >= 100;
@@ -2602,12 +2656,14 @@ export function paintTree(
   const clampTop = (v: number) => Math.max(0, Math.min(i(v), maxY - viewH));
   const clampLeft = (v: number) => Math.max(0, Math.min(i(v), maxX - viewW));
   // renderVarTree: the current node centred in each direction; the root keeps the origin.
-  const atRoot = node(current).parent === null;
+  const atRoot = nodes.get(current)!.parent === null;
   const top = clampTop(scroll ? scroll.top : curY <= viewH / 2 || atRoot ? 0 : curY - viewH / 2);
   const left = clampLeft(scroll ? scroll.left : curX <= viewW / 2 || atRoot ? 0 : curX - viewW / 2);
+  // The cut image is maxX wide: nothing beyond it shows.
+  const shownW = Math.min(viewW, maxX - left);
   g.save();
   g.beginPath();
-  g.rect(0, 0, viewW, viewH);
+  g.rect(0, 0, shownW, viewH);
   g.clip();
   g.translate(-left, -top);
   ops.forEach((op) => op(g));
@@ -2615,7 +2671,7 @@ export function paintTree(
   const visible = new Map<string, number>();
   for (const [k, id] of hits) {
     const [x, y] = k.split(",").map(Number);
-    if (y - top >= 0 && y - top < viewH && x - left >= 0 && x - left < viewW) visible.set(`${x - left},${y - top}`, id);
+    if (y - top >= 0 && y - top < viewH && x - left >= 0 && x - left < shownW) visible.set(`${x - left},${y - top}`, id);
   }
   const vertical = vbar ? scrollbar(viewH, maxY, top) : null;
   const horizontal = hbar ? scrollbar(viewW, maxX, left) : null;
@@ -2643,7 +2699,70 @@ export function paintTree(
     g.fillStyle = "rgba(230,230,250,0.7)";
     g.fillRect(ARROW + horizontal.thumbStart, sy, horizontal.thumb, SCROLLBAR);
   }
-  return { hits: visible, viewport: { top, left, maxX, maxY, viewW, viewH, vertical, horizontal }, numbers: drawnNumbers };
+  return { hits: visible, viewport: { top, left, maxX, maxY, viewW, viewH, vertical, horizontal }, numbers: walk.numbers, tooWide };
+}
+
+/** LizzieFrame.createVarTreeImage's simple view (shouldShowSimpleVariation) drawn by
+ *  VariationTreeBig.draw (VariationTreeBig.java:320-367): no scroll bars; the current node sits
+ *  in the middle row, the drawing starts at the ancestor near the top of the panel and stops at its
+ *  bottom, and it moves left so that the current lane (and as much of the lanes to its right as
+ *  fits) shows. Nodes are drawn as in the scroll pane; returns their centres for clicks. */
+export function paintTreeFit(
+  g: CanvasRenderingContext2D,
+  r: Rect,
+  nodes: Map<number, TreeNodeView>,
+  current: number,
+  line: Set<number>,
+  numbers: boolean,
+  nodeColors: Map<number, number[]>,
+): { hits: Map<string, number>; viewport: TreeViewport; numbers: number } {
+  const { w, h } = r;
+  g.fillStyle = "rgba(0,0,0,0.51)";
+  g.fillRect(0, 0, w, h);
+  const viewport: TreeViewport = { top: 0, left: 0, maxX: w, maxY: h, viewW: w, viewH: h, vertical: null, horizontal: null };
+  if (w <= 0 || h <= 0) return { hits: new Map(), viewport, numbers: 0 };
+  const node = (n: number) => nodes.get(n)!;
+  const depth = (n: number) => {
+    let d = 0;
+    for (let p = node(n).parent; p !== null; p = node(p).parent) d++;
+    return d;
+  };
+  // BoardHistoryNode.findTop: the highest branching point the current line leaves the first
+  // children at; the node itself on the main line.
+  let top = current;
+  for (let s = current, p = node(s).parent; p !== null; s = p, p = node(s).parent) {
+    if (node(p).children[0] !== s) top = p;
+  }
+  let posy = i(h / 2) - TREE_YS * (depth(current) - depth(top));
+  let start = top;
+  while (posy > -TREE_YS && node(start).parent !== null) {
+    start = node(start).parent!;
+    posy -= TREE_YS;
+  }
+  // The dummy drawing finds the current lane and the widest lane.
+  const { curLane: lane, maxLane } = walkTree(nodes, start, current, line, numbers, nodeColors, 0, posy, 0, h, true, w, h);
+  const x0 = 20;
+  let startx = x0;
+  const over = (lane + 1) * TREE_XS + x0 + TREE_DOT - w;
+  if (over > 0) startx -= over;
+  if (maxLane * TREE_XS + x0 + TREE_DOT > w) {
+    const half = i((w - x0 - TREE_DOT) / 2);
+    if ((maxLane - lane) * TREE_XS < half) startx -= (maxLane - lane) * TREE_XS;
+    else if (lane * TREE_XS + x0 + TREE_DOT > w) startx -= half;
+  }
+  const walk = walkTree(nodes, start, current, line, numbers, nodeColors, startx, posy, 0, h, true, w, h);
+  g.save();
+  g.beginPath();
+  g.rect(0, 0, w, h);
+  g.clip();
+  walk.ops.forEach((op) => op(g));
+  g.restore();
+  const hits = new Map<string, number>();
+  for (const [k, id] of walk.hits) {
+    const [x, y] = k.split(",").map(Number);
+    if (x >= 0 && x < w && y >= 0 && y < h) hits.set(k, id);
+  }
+  return { hits, viewport, numbers: walk.numbers };
 }
 
 /** Scroll bar width and arrow button length of DemoScrollBarUI. */

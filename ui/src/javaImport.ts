@@ -154,6 +154,7 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   Coordinates: "Menu.coordsMenu",
   NamesOnBoard: "Menu.showNameInBoard",
   MoveNumbers: "Menu.moveMenu",
+  VariationTree: "Menu.variationPaneSettings",
   MoveRank: "Menu.moveRankMenu",
   Suggestions: "Menu.Suggestions",
   NextMoves: "Menu.nextMoveHint",

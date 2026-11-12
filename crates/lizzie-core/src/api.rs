@@ -1742,6 +1742,8 @@ pub enum ImportTarget {
     /// `movenumber-from-one`, `new-move-number-in-branch`, `show-moveall-inbranch`,
     /// `show-var-move`.
     MoveNumbers,
+    /// 分支面板设置: `ui.show-scroll-variation`, `max-tree-width`, `ignore-out-of-width`.
+    VariationTree,
     /// 落子评价: `ui.move-rank-mark-last-move`, `txt-move-rank-mark-last-move`,
     /// `move-rank-evaluation-mode` (or the older `use-win-loss-in-move-rank` /
     /// `use-score-loss-in-move-rank`), `win-loss-threshold-1..5`, `score-loss-threshold-1..5`.
