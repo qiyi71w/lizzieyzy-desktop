@@ -1358,6 +1358,22 @@ pub struct EditSettings {
     /// 五子棋无提子规则 (`no-capture`, default off): stones placed or read while it is on remove
     /// nothing (`Board.place`, `BoardHistoryList.place`).
     pub no_capture: bool,
+    /// 显示落子矩形 (`show-move-rect`, default 仅对局时).
+    pub move_rect: MoveRect,
+    /// 启用点击棋子回看 (`enable-click-review`, default off): holding a stone shows the position
+    /// before it was played (`Board.setPressStoneInfo`). 右键 回看 works either way.
+    pub click_review: bool,
+}
+
+/// When the square under the pointer marks where a stone would go (`LizzieFrame.shouldShowRect`;
+/// Java `ui.show-move-rect` 0, 1, anything else).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum MoveRect {
+    Always,
+    /// In a game against the engine (人机对局 or 分析模式对局) on the human's turn.
+    #[default]
+    OnPlay,
+    Never,
 }
 
 impl Default for EditSettings {
@@ -1371,6 +1387,8 @@ impl Default for EditSettings {
             other_size_width: 21,
             other_size_height: 21,
             no_capture: false,
+            move_rect: MoveRect::OnPlay,
+            click_review: false,
         }
     }
 }

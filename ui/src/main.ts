@@ -25,6 +25,8 @@ import { boardUi, candidatesShownFor, onBoardUiChange } from "./display/state";
 import { onRegionUiChange, regionDrag, selectionClicked, selectionDragged, selectionReleased } from "./analysis/region";
 import { bindReplayHost, finishReplayBranch, replayLength, replaying, type ReplayTarget } from "./display/replay";
 import { autoplayReport, autoReplayLength, bindAutoplayHost, subAutoplayLength, subWheeled } from "./display/autoplay";
+import { bindClickReview, clickReviewReport, pointerAt, reviewScene } from "./display/clickReview";
+import { moveRect, rectPointer } from "./display/moveRect";
 import { sameAnalysis, sameHistory } from "./workbench/viewEquality";
 import { handleEngineKey } from "./engine/keys";
 import { handleDisplayKey } from "./display/keys";
@@ -599,7 +601,12 @@ function bindPointer() {
   const pointerMoved = (ev: MouseEvent, right: boolean) => {
     const v = state.view;
     if (!v || !panels) return;
-    if (!boardPointerMoved(boardPointAt(ev.clientX, ev.clientY) !== null)) return;
+    const point = boardPointAt(ev.clientX, ev.clientY);
+    // Input.mouseMoved only: a drag with a button held keeps the review (mouseDragged).
+    if (ev.buttons === 0) pointerAt(point);
+    // The right board's square is removed as soon as it is drawn (LizzieFrame.java:10147-10162).
+    if (rectPointer("main", right ? null : point)) schedule();
+    if (!boardPointerMoved(point !== null)) return;
     if (right && !dual) return hover(null);
     const geo = mainGeom(v, right && dual ? dual.right : panels.board);
     const rect = $("main").getBoundingClientRect();
@@ -614,6 +621,9 @@ function bindPointer() {
     $(id).addEventListener("mouseleave", () => {
       finishReplayBranch();
       if (!contextMenuOpen()) hover(null);
+      // onMouseExited: removeblock and clearPressStoneInfo(null).
+      if (rectPointer("main", null)) schedule();
+      pointerAt(null);
     });
   }
   // The replay ends when the window is no longer the active one (LizzieFrame.java:11650).
@@ -984,6 +994,8 @@ function boardScene(v: WorkbenchView, hovered: number | null, preview: PreviewVa
     tracking: v.settings.tracking,
     // 优先分析此点 (LizzieFrame.priorityMoveCoords) belongs to the current position only.
     priority: at ? [] : v.engine.priority_points,
+    moveRect: null,
+    review: null,
   };
 }
 
@@ -1050,20 +1062,23 @@ function render() {
   // AI 陪练's 实战后复盘 (applyTrainingModeVisualState): no candidates, winrate in the suggestions,
   // Kata形势, policy or heat map for the game; the committed display settings stay as they are.
   const training = humanSlDisplay(v);
-  const scene = boardScene(v, hoverAllowed(v) ? hoveredCandidate : null, hoveredVariation(v)?.preview ?? null);
+  const base = boardScene(v, hoverAllowed(v) ? hoveredCandidate : null, hoveredVariation(v)?.preview ?? null);
+  const scene = reviewScene(base) ?? { ...base, moveRect: moveRect(v, "main") };
+  const reviewSig = JSON.stringify(clickReviewReport());
   const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}:${v.game?.id ?? ""}:${v.game?.play_mode ?? ""}:${training ?? ""}`;
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
   const scoreSig = v.score ? JSON.stringify(v.score) : "";
   const searchSig = JSON.stringify([v.region, scene.selecting, v.focus, v.settings.tracking, scene.priority]);
-  if (!floating && changed("board", `${background}:${P.board.x},${P.board.y},${P.board.w}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}:${searchSig}`))
+  if (!floating && changed("board", `${background}:${P.board.x},${P.board.y},${P.board.w}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}:${searchSig}:${JSON.stringify(scene.moveRect)}:${reviewSig}`))
     boardReport = paintBoard(prepare($("board"), P.board), mainGeom(v, P.board), P.board, scene);
   if (dual) renderDual(v, dual, W, H, size, docSig, ui, scoreSig, scene);
-  else renderPanels(v, P, H, size, docSig, ui, scene);
+  // The sub boards and panels follow the current position, never a review.
+  else renderPanels(v, P, H, size, docSig, ui, base);
   if (side && mode === "Thinking") renderRawBoard(v, side.aux, size, docSig, scene);
-  if (side && mode === "FourSub") renderQuads(v, side, size, docSig, ui, scene);
+  if (side && mode === "FourSub") renderQuads(v, side, size, docSig, ui, base);
   relayIndependent(v, {
-    main: presentation(v).panels.showingIndependentMain ? { scene: { ...scene, unlimited: [...scene.unlimited] }, bigMargin: bigMargin(v) } : null,
-    sub: floatSubScene(v, scene),
+    main: presentation(v).panels.showingIndependentMain ? { scene: { ...scene, unlimited: [...scene.unlimited], moveRect: scene.review ? null : moveRect(v, "independent") }, bigMargin: bigMargin(v) } : null,
+    sub: floatSubScene(v, base),
   });
   relayFrame(v);
   relayHawkeye(v);
@@ -1170,7 +1185,8 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
  *  marks; no candidates, next moves or variation, and the bottom coordinates instead of the names
  *  or the pure network line. */
 function renderRawBoard(v: WorkbenchView, r: Rect, size: string, docSig: string, scene: BoardScene) {
-  const raw: BoardScene = {
+  // A review shows on this board too (BoardRenderer.draw has no board check there).
+  const raw: BoardScene = scene.review ? { ...scene, names: false } : {
     ...scene,
     names: false,
     candidatesShown: false,
@@ -1181,8 +1197,9 @@ function renderRawBoard(v: WorkbenchView, r: Rect, size: string, docSig: string,
     hovered: null,
     preview: null,
     ownership: mainOwnership(v, null),
+    moveRect: null,
   };
-  if (changed("raw", `${size}:${r.x},${r.y},${r.w}:${docSig}:${analysisRevision}:${displaySig}:${layerSignature("raw", raw.ownership)}:${JSON.stringify(v.score)}:${raw.mark?.x},${raw.mark?.y}`))
+  if (changed("raw", `${size}:${r.x},${r.y},${r.w}:${docSig}:${analysisRevision}:${displaySig}:${layerSignature("raw", raw.ownership)}:${JSON.stringify(v.score)}:${raw.mark?.x},${raw.mark?.y}:${JSON.stringify(clickReviewReport())}`))
     rawReport = paintBoard(prepare($<HTMLCanvasElement>("board2"), r), mainGeom(v, r), r, raw);
 }
 
@@ -1266,13 +1283,19 @@ function independentInput(input: IndependentInput): void {
     case "hover": {
       const { width, height } = v.document.size;
       const x = Math.floor(input.fx + 0.5), y = Math.floor(input.fy + 0.5);
-      if (!boardPointerMoved(x >= 0 && y >= 0 && x < width && y < height)) return;
+      const point = x >= 0 && y >= 0 && x < width && y < height ? { x, y } : null;
+      // IndependentMainBoard.java:584-607: its own square, and the review ends off the point.
+      if (!input.pressed) pointerAt(point);
+      if (rectPointer("independent", point)) schedule();
+      if (!boardPointerMoved(point !== null)) return;
       hoverNear(v, (p) => Math.hypot(input.fx - p.x, input.fy - p.y) <= input.reach);
       break;
     }
     case "leave":
       finishReplayBranch();
       if (!contextMenuOpen()) hover(null);
+      if (rectPointer("independent", null)) schedule();
+      pointerAt(null);
       break;
     case "press":
       // leftClickInScoreMode: while scoring a left press marks the point and nothing else runs.
@@ -1307,7 +1330,8 @@ function independentInput(input: IndependentInput): void {
 function renderDual(v: WorkbenchView, d: DualPanels, W: number, H: number, size: string, docSig: string, ui: string, scoreSig: string, left: BoardScene) {
   const s = v.secondary;
   const allowed = hoverAllowed(v);
-  const scene: BoardScene = {
+  // A review shows on both boards (Lizzie.board.isMouseOnStone is the boards' common state).
+  const scene: BoardScene = left.review ? left : {
     ...left,
     display: v.settings.display,
     candidatesShown: candidatesShownFor(v.position.to_play),
@@ -1327,9 +1351,11 @@ function renderDual(v: WorkbenchView, d: DualPanels, W: number, H: number, size:
     selecting: null,
     focus: null,
     priority: [],
+    // LizzieFrame.java:10160-10162: the right board's square is removed as soon as it is drawn.
+    moveRect: null,
   };
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
-  if (changed("board2", `${size}:${docSig}:${secondaryRevision}:${displaySig2}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("right", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}`))
+  if (changed("board2", `${size}:${docSig}:${secondaryRevision}:${displaySig2}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("right", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}:${JSON.stringify(clickReviewReport())}`))
     rightReport = paintBoard(prepare($("board2"), d.right), mainGeom(v, d.right), d.right, scene);
   // drawPonderingStateForExtraMode2 (LizzieFrame.java:6663-6719): each engine's name and 思考
   // state, then its visits and side-to-move win rate for this node when it has a result. The
@@ -1502,6 +1528,8 @@ function uiReport() {
       keptBeyondLimit: [...keptPoints(state.view?.analysis ?? null)],
       tree: { numbers: state.view?.settings.display.treeMoveNumbers ?? false, drawn: treeNumbersDrawn },
       autoplay: autoplayReport(),
+      /** 点击棋子回看: the pressed point, the shown node once looked up and the variation length. */
+      clickReview: clickReviewReport(),
     },
     /** 双引擎模式 (T12): the mode, the right board's drawing, both boards' client geometry, the
      *  status strips as drawn, the secondary engine menu's title and the candidate windows. */
@@ -1580,6 +1608,7 @@ async function boot() {
   onPresentationChange(schedule);
   // A region selection being dragged, and the lit region buttons.
   onRegionUiChange(schedule);
+  bindClickReview(schedule);
   bindAutoplayHost({
     target: () => (state.view ? hoveredVariation(state.view)?.target ?? null : null),
     repaint: schedule,

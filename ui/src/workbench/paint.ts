@@ -219,6 +219,11 @@ export interface BoardScene {
   tracking: TrackingSettings;
   /** 优先分析此点 points of this position (LizzieFrame.priorityMoveCoords, main board only). */
   priority: Point[];
+  /** 显示落子矩形: the empty point under the pointer and the side to play (drawmoveblock). */
+  moveRect: { point: Point; black: boolean } | null;
+  /** 点击棋子回看 shows (BoardRenderer.java:313-326): its 落子评价 marks, or only the last move's
+   *  mark (drawLastMoveMark). The scene then holds the reviewed position. */
+  review: "ranks" | "last" | null;
 }
 
 /** What the main board drew, for the acceptance probe. */
@@ -259,6 +264,10 @@ export interface BoardReport {
   /** Tracked-point markers: the quality outline colour (null when hidden), the progress ratio
    *  while still searched, and the pending-cancel arc. */
   tracked: { x: number; y: number; outline: string | null; progress: number | null; cancelling: boolean }[];
+  /** The 落子矩形 drawn. */
+  moveRect: Point | null;
+  /** The click review drawn: its position's node marks ("ranks" / "last"). */
+  review: BoardScene["review"];
 }
 
 export const images: Record<string, HTMLImageElement> = {};
@@ -1452,6 +1461,8 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     region: null,
     selecting: null,
     tracked: [],
+    moveRect: null,
+    review: null,
   };
   // drawWoodenBoard (BoardRenderer.java:3620-3651): a custom board image gets a (0,0,0,50) wash.
   Object.assign(surface, { x: ox, y: oy, size: geo.size, image: look.board, custom: look.customBoard });
@@ -1524,6 +1535,15 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
       if (stone && (!onlyNew || onlyNew.has(p))) drawStone(g, px(p), py(p), r, stone === "Black");
     }
   }
+  // drawmoveblock (BoardRenderer.java:1390-1408), composited after the stones and any shown
+  // variation (renderImages 1880): a square 46% of the grid wide in the colour to play, on a point
+  // empty in the current position.
+  if (s.moveRect && !s.review && !s.stones[s.moveRect.point.y * cols + s.moveRect.point.x]) {
+    const half = i((sq * 23) / 100);
+    g.fillStyle = s.moveRect.black ? "#000" : "#fff";
+    g.fillRect(X(s.moveRect.point.x) - half, Y(s.moveRect.point.y) - half, i((sq * 46) / 100), i((sq * 46) / 100));
+    report.moveRect = s.moveRect.point;
+  }
   if (layers.float?.setup) return report;
   if (layer && !below) drawOwnership(g, layer.ownership, s.stones, cols, layer.style, X, Y, sq, true);
   // renderImages draws the selection images after Kata形势 (BoardRenderer.java:1884-1887).
@@ -1536,6 +1556,10 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
   if (preview) {
     if (layers.float) drawFloatCapturedPoints(g, preview, px, py, r, cols, s.rows, hoverIndex, layers.float.boardType);
     else drawPreviewStones(g, preview, px, py, r);
+  }
+  if (s.review) {
+    drawReviewOverlay(g, s, geo, X, Y, preview, report);
+    return report;
   }
   const hideHoverInfo = layers.float ? drawFloatMoveOverlay(g, s, geo, X, Y, preview, hoverIndex, report) : drawMoveOverlay(g, s, geo, ox, oy, X, Y, preview, hoverIndex, report);
   if (preview) report.preview = { order: s.preview!.order, length: s.preview!.length, numbers: preview.numbers.size };
@@ -1581,6 +1605,42 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     report.mark = s.mark;
   }
   return report;
+}
+
+/** The review's marks over its position (BoardRenderer.java:313-326, 1465-1559): the variation's
+ *  numbers in the contrasting colour (none red), then drawMoveRankMark or drawLastMoveMark, whose
+ *  stone-indicator-type 0 is the red triangle, 1 the ring and 2 the dot; 3 draws nothing. */
+function drawReviewOverlay(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardGeom, X: (x: number) => number, Y: (y: number) => number, preview: Preview | null, report: BoardReport): void {
+  const r = geo.stoneRadius, cols = s.cols, ring = Math.round(geo.square * 0.22);
+  report.review = s.review;
+  if (preview) {
+    for (const [p, n] of preview.numbers) {
+      const x = X(p % cols), y = Y(i(p / cols));
+      g.fillStyle = preview.stones[p] === "Black" ? "#fff" : "#000";
+      jString(g, String(n), x, y, UI_FONT, r * 1.4, i(r * (n >= 100 ? 1.85 : 1.4)));
+      report.moveNumbers.push({ x: p % cols, y: i(p / cols), text: String(n), red: false });
+    }
+    report.preview = { order: s.preview!.order, length: s.preview!.length, numbers: preview.numbers.size };
+  }
+  if (s.review === "ranks") {
+    drawRankMarks(g, s, geo, X, Y, preview, ring / 5, report);
+    return;
+  }
+  const last = s.lastAction;
+  if (!last?.point || s.snapshot || look.indicator === 3) return;
+  const x = X(last.point.x), y = Y(last.point.y);
+  const opposite = last.color === "White" ? "#000" : "#fff";
+  if (look.indicator === 0) {
+    g.fillStyle = "#f00";
+    indicatorTriangle(g, x, y, r, true);
+  } else if (look.indicator === 2) {
+    g.fillStyle = opposite;
+    fillCircle(g, x, y, i(r * 0.325));
+  } else {
+    g.strokeStyle = opposite;
+    strokeCircle(g, x, y, ring, ring / 5);
+  }
+  report.lastMoveMarker = last.point;
 }
 
 /** drawPolygon / drawPolygonCircle (BoardRenderer.java:4184-4198): the stone-indicator-type 0

@@ -227,6 +227,8 @@ pub struct Mapped {
     pub other_size_width: Option<u16>,
     pub other_size_height: Option<u16>,
     pub no_capture: Option<bool>,
+    pub move_rect: Option<crate::settings::MoveRect>,
+    pub click_review: Option<bool>,
     /// `ui.auto-save-exit`, `ui.resume-previous-game`, `ui.load-save-zoom`.
     pub auto_save_on_exit: Option<bool>,
     pub resume_previous_game: Option<bool>,
@@ -870,6 +872,23 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "no-capture",
         ImportTarget::NoCapture,
         Kind::Bool(|m, v| m.no_capture = Some(v)),
+    ),
+    // `Config.showrect`: 0 始终, 1 仅对局时, any other number 否 (ConfigDialog2.java:1215-1221,
+    // LizzieFrame.shouldShowRect).
+    (
+        "ui",
+        "show-move-rect",
+        ImportTarget::MoveRect,
+        Kind::I32(|m, v| {
+            use crate::settings::MoveRect as R;
+            m.move_rect = Some(match v { 0 => R::Always, 1 => R::OnPlay, _ => R::Never });
+        }),
+    ),
+    (
+        "ui",
+        "enable-click-review",
+        ImportTarget::ClickReview,
+        Kind::Bool(|m, v| m.click_review = Some(v)),
     ),
     (
         "ui",
@@ -3416,6 +3435,8 @@ impl Mapped {
         set!(c.edit.other_size_width, self.other_size_width);
         set!(c.edit.other_size_height, self.other_size_height);
         set!(c.edit.no_capture, self.no_capture);
+        set!(c.edit.move_rect, self.move_rect);
+        set!(c.edit.click_review, self.click_review);
         set!(c.display.winrate_always_black, self.winrate_always_black);
         set!(c.display.score_lead_with_komi, self.score_lead_with_komi);
         c.display = with_display(&c.display, &self.display);
@@ -3614,6 +3635,8 @@ impl Mapped {
             out.push(ImportTarget::OtherBoardSize);
         }
         cmp!(ImportTarget::NoCapture, e.no_capture, self.no_capture);
+        cmp!(ImportTarget::MoveRect, e.move_rect, self.move_rect);
+        cmp!(ImportTarget::ClickReview, e.click_review, self.click_review);
         let d = &config.display;
         cmp!(
             ImportTarget::WinrateAlwaysBlack,

@@ -2439,6 +2439,29 @@ fn bottom_toolbar_buttons_and_detail_panel_order_import_by_value() {
 }
 
 #[test]
+fn move_rect_and_click_review_import_by_value() {
+    use lizzie_core::settings::MoveRect;
+    // Config.showrect: 0 始终, 1 仅对局时, any other number 否 (ConfigDialog2.java:1215-1221).
+    for (rect, expected) in [(0, MoveRect::Always), (2, MoveRect::Never), (7, MoveRect::Never)] {
+        let tmp = tempfile::tempdir().unwrap();
+        let java = tmp.path().join("java");
+        std::fs::create_dir_all(&java).unwrap();
+        let source = json!({"ui": {"show-move-rect": rect, "enable-click-review": true}}).to_string();
+        std::fs::write(java.join("config.txt"), source).unwrap();
+        let product = tmp.path().join("product");
+        let mut wb = workbench(&product, Recorder::default());
+        let p = preview(&mut wb, &java);
+        for (key, target) in [("ui.show-move-rect", ImportTarget::MoveRect), ("ui.enable-click-review", ImportTarget::ClickReview)] {
+            let row = item(&p.items, key);
+            assert_eq!((row.status, row.target), (ImportStatus::Imported, Some(target)), "{key}");
+        }
+        wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
+        let edit = &saved_config(&product).edit;
+        assert_eq!((edit.move_rect, edit.click_review), (expected, true), "show-move-rect {rect}");
+    }
+}
+
+#[test]
 fn teacher_settings_preserve_legacy_defaults_and_java_clamping() {
     use lizzie_core::api::CommentaryProvider;
     let temp = tempfile::tempdir().unwrap();

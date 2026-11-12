@@ -135,6 +135,17 @@ importing the matching LizzieYzy Next settings.
     possible) and the context menu 撤销编辑 / 恢复编辑 / 清除编辑缓存 undo and redo the last
     delete, insert or stone edit. `Shift+Left`/`Shift+Right` move the current branch, `L` and
     设为主分支 make it the main line, 添加为分支 adds a previewed variation beside the line.
+  - 显示落子矩形 (综合设置 > 对局与操作 > 鼠标交互与坐标格式; 是 / 仅对局时 (default) / 否): a
+    small square in the colour to play marks the empty point under the pointer on the main board
+    and 浮动主棋盘. 仅对局时 means a game against the engine (人机对局 or 分析模式对局) on your
+    turn; 终局点目 never shows it, and it goes when the pointer leaves the board.
+  - 回看 a stone: with 启用点击棋子回看 (Edit menu or 综合设置 > 对局与操作, off by default), or
+    from the stone context menu's 回看 whatever that setting says, the board shows the position
+    before that stone was played (the latest such move on the current line) and the stored best
+    variation of that position, one more move every 分支回放间隔. Moving to another point
+    (after 300 ms), leaving the board or moving in the record ends it, as in Java; releasing the
+    button alone does not. It only changes what is drawn: the current node, the record's saved
+    state and the analysis stay as they are.
   - Comments: click the comment pane to edit; the text is saved to the node it was opened on when
     another place is pressed or the position changes. While typing, keys never play or navigate.
   - Markup (标记工具, shown when switched on): letters and numbers count on (A, B, … / 1, 2, …),
@@ -159,8 +170,8 @@ importing the matching LizzieYzy Next settings.
     switched; it is not a Gomoku rule set (no five-in-a-row detection).
 - Settings available now: reading komi from SGF records, stone sounds on/off, the UI language
   (zh-CN, zh-TW, en, ja, ko, th; applied after a restart, like Java), and the editing toggles
-  (启用双击找子, 启用拖动棋子, 显示清空棋盘提示对话框, 标记工具, 五子棋无提子规则). A setting that
-  cannot be saved is reported and left unchanged.
+  (启用双击找子, 启用拖动棋子, 启用点击棋子回看, 显示落子矩形, 显示清空棋盘提示对话框, 标记工具,
+  五子棋无提子规则). A setting that cannot be saved is reported and left unchanged.
 - Help > 诊断与日志 shows this client's logs, opens the log folder and exports a diagnostics zip;
   Help > 清除所有个人数据 clears the recent-record list and 野狐棋谱's 近期搜索; View > 重置界面位置
   resets the saved window placement and last folder and turns the overwrite prompt back on.
@@ -1222,8 +1233,8 @@ importing the matching LizzieYzy Next settings.
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
 as not yet available (greyed in menus; a notice when used). Not available yet: the other layout
 modes (classic, minimal, thinking, four sub boards, independent board, custom layouts),
-cloud engines, whole-game measured tuning, 启用点击棋子回看 (click review),
-自由涂鸦, and the analysis-region items of the board context menu.
+cloud engines, whole-game measured tuning, 自由涂鸦, and the analysis-region items of the board
+context menu.
 
 Resource acquisition and real engine analysis have been verified on Linux (private X11,
 WebKitGTK), including downloads of the official KataGo v1.18.1 Eigen AVX2 AppImage and model

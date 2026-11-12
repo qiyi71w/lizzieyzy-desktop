@@ -95,6 +95,7 @@ const CONTEXT_ITEMS: Record<string, true> = {
   "RightClickMenu2.moveStone": true,
   "RightClickMenu2.switchone": true,
   "RightClickMenu2.deleteone": true,
+  "RightClickMenu2.review": true,
 };
 
 /** The located control of a toolbar destination (`data-function` = Java action id), or the 同步

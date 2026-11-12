@@ -2,7 +2,7 @@
 // (createDisplaySection 2955-3356). Every setting row carries its ConfigSettingTargets id as
 // `data-setting-target`; edits stay a draft until 保存设置.
 import { run, state } from "../app";
-import type { AnalysisSettings, Command, ProxyMode } from "../contract/generated";
+import type { AnalysisSettings, Command, MoveRect, ProxyMode } from "../contract/generated";
 import { confirm, formPanel, message } from "../dialogs";
 import { product, t } from "../i18n";
 import { actions, button, checkbox, field, input } from "./controls";
@@ -118,18 +118,28 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   numberRow(analysisRows, "config.analysis.limit-time", "maxAnalyzeTimeSeconds", t("ConfigDialog2.modern.analysis.limitTime"), t("ConfigDialog2.modern.analysis.limitTimeSub"), t("ConfigDialog2.modern.unit.seconds"), time);
   const visits = input("", "checkbox"); visits.checked = settings.limitPlayout; visits.dataset.key = "settings.analysis.limitPlayout";
   numberRow(analysisRows, "config.analysis.limit-visits", "limitPlayouts", t("ConfigDialog2.modern.analysis.limitVisits"), t("ConfigDialog2.modern.analysis.limitVisitsSub"), t("ConfigDialog2.modern.unit.visits"), visits);
-  // 对局与操作 (3162-3191) and 鼠标交互与坐标格式 > 右键行为 (3215-3220, 1430-1496, 6650-6657, 6819-6826).
-  // The 点击复盘 / 落子矩形 rows are not part of this product's settings yet.
+  // 对局与操作 (3162-3203) and 鼠标交互与坐标格式 > 落子矩形, 右键行为 (3205-3220, 1194-1221, 1430-1496,
+  // 6650-6690, 6819-6826).
   const edit = state.view.settings.edit;
   const problems = state.view.settings.problems;
   const playRows = document.createDocumentFragment();
   const doubleClick = toggleRow(playRows, "config.play.double-click", "settings.edit.allowDoubleClick", t("ConfigDialog2.modern.play.doubleClick"), t("ConfigDialog2.modern.play.doubleClickSub"), edit.allowDoubleClick);
+  const clickReview = toggleRow(playRows, "config.play.click-review", "settings.edit.clickReview", t("ConfigDialog2.modern.play.clickReview"), t("ConfigDialog2.modern.play.clickReviewSub"), edit.clickReview);
   const drag = toggleRow(playRows, "config.play.drag-stone", "settings.edit.allowDrag", t("ConfigDialog2.modern.play.drag"), t("ConfigDialog2.modern.play.dragSub"), edit.allowDrag);
   // chkShowComment is disabled while the layout mode hides the panel (ConfigDialog2.java:4270-4283).
   panels.row(playRows, "showComment", "config.play.comment-panel", t("ConfigDialog2.modern.play.commentPanel"), t("ConfigDialog2.modern.play.commentPanelSub"), state.view.settings.comment_panel_auto_hidden);
   // Checked hides the control bar (chkHideCommentControlPane -> hide-blunder-table-control-pane).
   const hideControls = toggleRow(playRows, "config.play.hide-panel-controls", "settings.problems.hideControlPane", t("ConfigDialog2.modern.play.hidePanelControls"), t("ConfigDialog2.modern.play.hidePanelControlsSub"), problems.hideControlPane);
   const interactionRows = document.createElement("div");
+  // comboFromRadios(rdoShowMoveRect, rdoShowMoveRectOnPlay, rdoNoShowMoveRect).
+  const moveRect = document.createElement("select"); moveRect.dataset.key = "settings.edit.moveRect"; moveRect.title = t("ConfigDialog2.modern.interaction.moveRectSub");
+  for (const [value, text] of [["Always", t("LizzieConfig.rdoShowMoveRect")], ["OnPlay", t("LizzieConfig.rdoShowMoveRectOnPlay")], ["Never", t("LizzieConfig.rdoNoShowMoveRect")]]) {
+    const option = document.createElement("option"); option.value = value; option.textContent = text; moveRect.append(option);
+  }
+  moveRect.value = edit.moveRect;
+  field(interactionRows, t("ConfigDialog2.modern.interaction.moveRect"), moveRect);
+  (interactionRows.lastElementChild as HTMLElement).dataset.settingTarget = "config.interaction.move-rectangle";
+  interactionRows.append(hint(moveRect.title));
   const rightClick = document.createElement("select"); rightClick.dataset.key = "settings.edit.showRightMenu"; rightClick.title = t("ConfigDialog2.modern.interaction.rightClickSub");
   for (const [value, text] of [["menu", t("LizzieConfig.rdoRightClickMenu")], ["back", t("LizzieConfig.rdoRightClickBack")]]) {
     const option = document.createElement("option"); option.value = value; option.textContent = text; rightClick.append(option);
@@ -213,7 +223,7 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
     }
     // The draft's rows over the currently committed settings; untouched fields keep their values.
     const committed = state.view?.settings ?? loading;
-    const nextEdit = { ...committed.edit, noCapture: noCapture.checked, allowDoubleClick: doubleClick.checked, allowDrag: drag.checked, showRightMenu: rightClick.value === "menu" };
+    const nextEdit = { ...committed.edit, noCapture: noCapture.checked, allowDoubleClick: doubleClick.checked, clickReview: clickReview.checked, allowDrag: drag.checked, showRightMenu: rightClick.value === "menu", moveRect: moveRect.value as MoveRect };
     if (JSON.stringify(nextEdit) !== JSON.stringify(committed.edit)) {
       const result = await run({ type: "SetEditSettings", settings: nextEdit }); if (!result || result.type === "Refused") return false;
     }

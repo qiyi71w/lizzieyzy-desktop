@@ -444,6 +444,12 @@ pub enum Command {
     SetEditSettings {
         settings: EditSettings,
     },
+    /// 点击棋子回看 / 右键 回看 (`Board.setPressStoneInfo`): what the board shows while a stone at
+    /// `point` is reviewed. Reads only; the current node, the record and the analysis stay as
+    /// they are.
+    ClickReview {
+        point: Point,
+    },
     /// 显示 > 总是显示黑胜率 and 目差显示 (盘面 / 目差).
     SetDisplaySettings {
         settings: crate::settings::DisplaySettings,
@@ -999,6 +1005,9 @@ pub enum CommandResult {
     /// 死活题 framed the position; each colour in `no_room` is one "没有布置 [x方] 劫材的空间"
     /// message, in order.
     TsumegoFramed { no_room: Vec<Stone> },
+    /// Answer to [`Command::ClickReview`]; `None` when no move on the current line, the current
+    /// node included, was played at the point.
+    ClickReview { review: Option<ClickReviewView> },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -1107,6 +1116,29 @@ pub struct PositionView {
     pub next_moves: Vec<Point>,
     /// Colour of the first move child; the next-move rings use it.
     pub next_color: Option<Stone>,
+}
+
+/// The position a click review shows (`Board.mouseOnNode`, drawn by `BoardRenderer.java:313-326`):
+/// the parent of the latest move at the point on the current line, with its first candidate's
+/// variation replayed over it.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct ClickReviewView {
+    pub document: u64,
+    pub revision: u64,
+    /// The current node the move was looked up from.
+    pub from: NodeId,
+    /// The node shown: the position before that move.
+    pub node: NodeId,
+    /// Row-major, `size.width * size.height`.
+    pub stones: Vec<Option<Stone>>,
+    pub last_action: Option<LastAction>,
+    pub snapshot: bool,
+    pub to_play: Stone,
+    /// Its stored analysis, as the displays show it.
+    pub analysis: Option<NodeAnalysisView>,
+    /// 落子评价 marks of that position (`drawMoveRankMark`, move numbers ignored), or `None`
+    /// while 落子评价 is off and only its last move is marked (`drawLastMoveMark`).
+    pub ranks: Option<Vec<crate::display::RankMark>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
@@ -1686,6 +1718,10 @@ pub enum ImportTarget {
     OtherBoardSize,
     /// `ui.no-capture`.
     NoCapture,
+    /// `ui.show-move-rect`.
+    MoveRect,
+    /// `ui.enable-click-review`.
+    ClickReview,
     /// `ui.auto-save-exit`.
     AutoSaveOnExit,
     /// `ui.resume-previous-game`.

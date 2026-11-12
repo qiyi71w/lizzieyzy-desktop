@@ -865,3 +865,31 @@ fn forced_pass_creates_a_fresh_variation_without_following_the_existing_pass() {
     assert_eq!(record.node(ROOT).children, vec![first, second]);
     assert_eq!(record.node(second).to_play, Stone::White);
 }
+
+/// 点击棋子回看 (Board.setPressStoneInfo): the latest move at the point back from the current
+/// node, the current node included, shows its parent with that position's stored analysis; the
+/// document, the current node and its analysis stay as they were.
+#[test]
+fn click_review_shows_the_position_before_the_move_without_moving() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = opened(
+        dir.path(),
+        "(;SZ[9]KM[7.5]LZOP[b11 40.0 100 2 0.5 0 rootVisits=100\nmove E5 visits 100 winrate 6000 scoreMean 2 pv E5 D6 C3]\
+         ;B[ee];W[dd];B[cc])",
+    );
+    wb.navigate(Navigation::Last);
+    let before = wb.view(false);
+    let review = wb.click_review(p("ee")).expect("E5 was played on this line");
+    assert_eq!((review.node, review.from), (ROOT, before.position.node));
+    assert!(review.stones.iter().all(Option::is_none) && review.last_action.is_none());
+    assert_eq!(review.to_play, Stone::Black);
+    let best = &review.analysis.expect("the root's stored analysis").candidates[0];
+    assert_eq!(best.pv, [Some(p("ee")), Some(p("dd")), Some(p("cg"))]);
+    // The current node's own move: the position before it.
+    let last = wb.click_review(p("cc")).unwrap();
+    assert_eq!(last.node, before.position.path[before.position.path.len() - 2]);
+    assert_eq!(last.last_action.map(|a| (a.color, a.point)), Some((Stone::White, Some(p("dd")))));
+    assert!(wb.click_review(p("aa")).is_none(), "no move there");
+    let after = wb.view(false);
+    assert_eq!((after.document, after.position, after.analysis), (before.document, before.position, before.analysis));
+}

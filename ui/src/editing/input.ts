@@ -11,6 +11,7 @@ import { contextMenuShowing, openContextMenu, type ContextEntry, type ContextIte
 import { deleteWithPrompt, edit, editing } from "./state";
 import { humanSlGameActive } from "../humansl/state";
 import { priorityMenuEntries } from "../engine/customPda";
+import { pressStone } from "../display/clickReview";
 
 /** What the workbench knows about the board panel. */
 export interface BoardHost {
@@ -131,8 +132,7 @@ function pointMenu(point: Point): ContextEntry[] {
 }
 
 /** RightClickMenu2 (a stone), Java order outside engine games; during a game only 悔棋
- *  (RightClickMenu2.java:67-75). 回看 (click review) belongs to the display tickets and stays
- *  disabled. */
+ *  (RightClickMenu2.java:67-75). 回看 reviews the stone whatever 启用点击棋子回看 says. */
 function stoneMenu(point: Point): ContextEntry[] {
   if (state.view?.game) return [previousMove()];
   return [
@@ -140,7 +140,7 @@ function stoneMenu(point: Point): ContextEntry[] {
     { key: "RightClickMenu2.switchone", label: t("RightClickMenu2.switchone"), run: () => void edit({ op: "EditStone", point, change: { kind: "Switch" } }) },
     { key: "RightClickMenu2.deleteone", label: t("RightClickMenu2.deleteone"), run: () => void edit({ op: "EditStone", point, change: { kind: "Delete" } }) },
     "sep",
-    { key: "RightClickMenu2.review", label: t("RightClickMenu2.review") },
+    { key: "RightClickMenu2.review", label: t("RightClickMenu2.review"), run: () => pressStone(point, true) },
     "sep",
     previousMove(),
     { key: "RightClickMenu2.findStone", label: t("RightClickMenu2.findStone"), icon: "upSearch.png", run: () => void edit({ op: "FindMove", point, any_branch: true }) },
@@ -179,8 +179,9 @@ function leftPress(detail: number, point: Point | null): void {
     return;
   }
   if (stone) {
-    // onClicked: a press on a stone starts a drag with 启用拖动棋子 (never released onto the
-    // board during a game); Board.place ignores it.
+    // onClicked (LizzieFrame.java:9705-9714): a press on a stone starts 点击棋子回看, then a drag
+    // with 启用拖动棋子 (never released onto the board during a game); Board.place ignores it.
+    pressStone(point, false);
     if (settings.allowDrag && !v.editing.trying && !game) moving = { from: point, color: stone, picked: false, at: positionKey() };
     return;
   }

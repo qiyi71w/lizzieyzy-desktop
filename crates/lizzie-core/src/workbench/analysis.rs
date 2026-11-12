@@ -19,6 +19,7 @@ use crate::api::{
     AnalysisScope, ApiError, CandidateView, ConsoleLineKind, ConsoleLineView, EngineEntryView,
     EngineFailureView, EngineNotice, EngineScope, EngineSettingsView, EngineState, EngineView, ErrorKind,
     ForegroundEngineView, HistoryPoint, NodeAnalysisView, RulesPromptView, SecondaryEngineView, SecondaryView,
+    ClickReviewView,
 };
 use crate::browse::Navigation;
 use crate::display::{self, BoardOverlayView};
@@ -2086,5 +2087,47 @@ impl Workbench {
                 self.config.engine.analysis.limit_branch_length, analysis),
             info_order_sample: display::info_order_sample(s, rec.node(node).to_play, self.komi),
         }
+    }
+
+    /// 点击棋子回看 (`Board.setPressStoneInfo`, Board.java:7338-7354): back from the current node,
+    /// the latest move played at `point`; the review shows its parent (`mouseOnNode`), that
+    /// position's stored analysis and its 落子评价 marks (`BoardRenderer.java:313-326`).
+    pub fn click_review(&self, point: Point) -> Option<ClickReviewView> {
+        let rec = &self.doc.record;
+        let mut node = self.cursor;
+        let shown = loop {
+            let parent = rec.parent(node)?;
+            if matches!(rec.node(node).kind, NodeKind::Move { point: p, .. } if p == point) {
+                break parent;
+            }
+            node = parent;
+        };
+        let data = rec.node(shown);
+        // effectiveMoveRankMarkLimit decides between drawMoveRankMark and drawLastMoveMark; the
+        // move numbers setting plays no part there.
+        let mut s = self.config.display.clone();
+        s.move_numbers = 0;
+        let rank_override = self.whole_game_results_for_current()
+            && data.parent.is_some_and(|n| self.store.get(rec, n).is_some_and(|a| a.visits > 0));
+        if rank_override && s.move_rank < 0 {
+            s.move_rank = 1;
+        }
+        let ranks = (s.move_rank >= 0).then(|| {
+            let path = rec.path_to(shown);
+            let numbering = display::numbering(rec, &path);
+            display::rank_marks(rec, &path, &numbering, &s, |n| self.store.get(rec, n))
+        });
+        Some(ClickReviewView {
+            document: self.doc.id,
+            revision: self.doc.revision,
+            from: self.cursor,
+            node: shown,
+            stones: rec.position(shown).stones,
+            last_action: super::last_action(data.kind),
+            snapshot: data.kind == NodeKind::Snapshot,
+            to_play: data.to_play,
+            analysis: self.shown_analysis_at(&self.store, shown),
+            ranks,
+        })
     }
 }

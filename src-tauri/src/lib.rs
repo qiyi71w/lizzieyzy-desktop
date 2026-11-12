@@ -1161,6 +1161,9 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().set_edit_settings(settings)?;
             Ok(changed(&app, &shared, done))
         }
+        Command::ClickReview { point } => Ok(CommandResult::ClickReview {
+            review: shared.workbench.lock().unwrap().click_review(point),
+        }),
         Command::SetAppearanceSettings { settings, theme } => {
             let done = shared.workbench.lock().unwrap().set_appearance_settings(settings, *theme)?;
             Ok(changed(&app, &shared, done))

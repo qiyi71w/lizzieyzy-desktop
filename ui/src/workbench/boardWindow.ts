@@ -181,7 +181,7 @@ export function bootBoardWindow(): void {
       canvas.style.cursor = "default";
     }
     if (data.board === "Main" && geo) {
-      send({ type: "hover", fx: (e.clientX - geo.x - geo.margin) / geo.square, fy: (e.clientY - geo.y - geo.margin) / geo.square, reach: (geo.stoneRadius + 1) / geo.square });
+      send({ type: "hover", fx: (e.clientX - geo.x - geo.margin) / geo.square, fy: (e.clientY - geo.y - geo.margin) / geo.square, reach: (geo.stoneRadius + 1) / geo.square, pressed: e.buttons !== 0 });
     }
   });
   window.addEventListener("mouseup", (e) => {

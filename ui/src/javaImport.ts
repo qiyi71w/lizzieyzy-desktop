@@ -173,6 +173,9 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   FlashRange: "Menu.flashAnalyzePartGame",
   EngineMatch: "EnginePkConfig.title",
   Contribution: "Menu.contributeMenu",
+  // 综合设置 > 对局与操作 > 显示落子矩形 / 启用点击复盘 (ConfigDialog2.java:3168-3214).
+  MoveRect: "ConfigDialog2.modern.interaction.moveRect",
+  ClickReview: "ConfigDialog2.modern.play.clickReview",
 };
 
 function targetLabel(target: ImportTarget): string {
