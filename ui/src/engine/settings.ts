@@ -50,21 +50,17 @@ function heading(host: ParentNode, title: string, subtitle: string): void {
 /** `onOpened` runs once the dialog and its 保存设置 / 取消 controls are in place, before the
  *  dialog closes; it may locate rows but must not change the draft. */
 export function openAnalysisSettings(section: SettingsSection = "engine", onOpened?: (body: HTMLElement) => void): Promise<void> {
-  return openSettings(section, onOpened, null);
+  return openSettings(section, onOpened, false);
 }
 
-/** LizzieFrame.openConfigDialog2 (LizzieFrame.java:3032-3048): running analysis pauses while the
- *  modal dialog is open and resumes once it closes. A page reopening the dialog hands that pause
- *  to the new dialog (`resume`, null when opened afresh), as Java's nested openConfigDialog2
- *  finds analysis already paused and the outer call resumes it after both. The pause is the
- *  user's 暂停 (ToggleAnalysis), which ends a game and exits 自动分析 and which an engine match's
- *  analysis does not follow, so the analysis those sessions drive keeps running. */
-async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElement) => void) | undefined, resume: boolean | null): Promise<void> {
-  const v = state.view;
-  if (!v) return;
-  const resumeAnalysis = resume ?? (v.engine.analysing && !v.game && !v.engine_match && !v.auto_analysis.active);
-  if (resume === null && resumeAnalysis) await run({ type: "ToggleAnalysis" });
+/** LizzieFrame.openConfigDialog2 (LizzieFrame.java:3032-3048): no engine analyses while the
+ *  modal dialog is open, and everything goes on as before once it closes (HoldAnalysis; a game,
+ *  an engine match, 自动分析 and the user's pause are left as they are). A page reopening the
+ *  dialog hands the hold to the new dialog (`inherited`), as Java's nested openConfigDialog2
+ *  finds analysis already paused and the outer call resumes it after both. */
+async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElement) => void) | undefined, inherited: boolean): Promise<void> {
   if (!state.view) return;
+  if (!inherited) await run({ type: "HoldAnalysis", held: true });
   let handedOver = false;
   const settings = { ...state.view.settings.engine.analysis };
   const network = { ...(resourceView()?.network ?? { proxyMode: "Direct" as const, proxyHost: "127.0.0.1", proxyPort: 7897 }) };
@@ -82,13 +78,13 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
     saveAndReopen: async (target) => {
       handedOver = true;
       if (!(await apply())) { handedOver = false; return false; }
-      void openSettings(target, undefined, resumeAnalysis);
+      void openSettings(target, undefined, true);
       return true;
     },
     reopen: async (target) => {
       handedOver = true;
       await dialog.close();
-      void openSettings(target, undefined, resumeAnalysis);
+      void openSettings(target, undefined, true);
     },
   };
   for (const [key, build] of Object.entries(SETTINGS_PAGES)) {
@@ -272,5 +268,5 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
   actions(body, save, cancel);
   onOpened?.(body);
   await dialog.closed;
-  if (!handedOver && resumeAnalysis && state.view?.engine.foreground && state.view.engine.paused) await run({ type: "ToggleAnalysis" });
+  if (!handedOver) await run({ type: "HoldAnalysis", held: false });
 }

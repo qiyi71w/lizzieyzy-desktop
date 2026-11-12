@@ -244,6 +244,26 @@ fn forced_stop_keeps_position_and_pause_exit_respects_setting() {
 }
 
 #[test]
+fn the_settings_hold_stops_analysis_without_ending_the_run() {
+    let dir = tempfile::tempdir().unwrap(); let (mut wb, world, id) = setup(dir.path(), LINE);
+    let mut s = settings(); s.exit_by_pause = true;
+    wb.start_auto_analysis(s).unwrap().unwrap(); serve(&mut wb, &world, id);
+    info(&mut wb, id, 3, 0, 0.5);
+    assert!(wb.view(true).engine.analysing);
+    assert!(wb.hold_analysis(true));
+    let view = wb.view(true);
+    assert!(view.auto_analysis.active && !view.auto_analysis.pause_tip);
+    assert!(!view.engine.analysing && !view.engine.paused);
+    // Results arriving meanwhile do not move the run on.
+    info(&mut wb, id, 1_000_000, 0, 0.5);
+    assert_eq!(wb.view(true).position.node, 0);
+    assert!(wb.hold_analysis(false));
+    serve(&mut wb, &world, id);
+    let view = wb.view(true);
+    assert!(view.auto_analysis.active && view.engine.analysing && !view.engine.paused);
+}
+
+#[test]
 fn diff_collects_pairs_deduplicates_and_asks_only_on_forced_stop() {
     for forced in [false, true] {
         let dir = tempfile::tempdir().unwrap(); let (mut wb, world, id) = setup(dir.path(), "(;SZ[19];B[pd];W[dd])");

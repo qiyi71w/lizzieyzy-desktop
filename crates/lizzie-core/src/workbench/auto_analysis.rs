@@ -244,7 +244,7 @@ impl Workbench {
     /// protectedCache off during automatic analysis. Time is measured by the runtime's stream.
     pub(super) fn auto_analysis_result(&mut self, node: NodeId, visits: u64, first: u64, elapsed: Duration) {
         let Some(r) = &self.auto_analysis.run else { return };
-        if r.starting || r.confirmation || node != self.auto_cursor() || self.paused { return; }
+        if r.starting || r.confirmation || node != self.auto_cursor() || self.paused || self.analysis_hold { return; }
         let rec = self.auto_record();
         let s = &r.settings;
         let number = rec.node(node).move_number;

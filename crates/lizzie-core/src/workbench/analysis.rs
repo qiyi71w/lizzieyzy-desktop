@@ -598,10 +598,12 @@ impl Workbench {
     /// Tells the runtime what the foreground and the secondary engine should do now. Both hold
     /// the browsing position; the secondary engine analyses only in 双引擎模式 and only while the
     /// foreground engine may (the user's pause and a foreground limit stop it too, as Java
-    /// mirrors the primary engine's commands), and stops alone at its own limit. A waiting
-    /// analysis engine warm-up decides again on the changed state.
+    /// mirrors the primary engine's commands), and stops alone at its own limit. While
+    /// 综合设置 holds analysis neither engine analyses, in every mode. A waiting analysis engine
+    /// warm-up decides again on the changed state.
     pub(super) fn sync_engine(&mut self) {
         self.warmup_review();
+        let hold = self.analysis_hold;
         if self.fox_holds_engine() || self.fox_owns_board() {
             self.engines.want_secondary(None, false);
             self.engines.want(None, false);
@@ -609,7 +611,7 @@ impl Workbench {
         }
         if let Some(analyse) = self.human_sl_analyse() {
             self.engines.want_secondary(None, false);
-            if analyse { self.engines.want(Some(self.analysis_target()), true); }
+            if analyse { self.engines.want(Some(self.analysis_target()), !hold); }
             else { self.engines.want(None, false); }
             return;
         }
@@ -630,7 +632,7 @@ impl Workbench {
         // 批量分析 analyses its own record with the foreground engine (the user's pause stops it,
         // as Java's ponder toggle does); the secondary engine stays idle meanwhile.
         if self.auto_analysis_holds_foreground() {
-            let analyse = !self.paused && !self.benchmark_running() && !self.quick_holds_foreground();
+            let analyse = !hold && !self.paused && !self.benchmark_running() && !self.quick_holds_foreground();
             self.engines.want_secondary(None, false);
             self.engines.want(Some(self.foreground_target()), analyse);
             return;
@@ -641,12 +643,12 @@ impl Workbench {
                 self.engines.want(None, false);
                 return;
             }
-            self.engines.want(Some(self.analysis_target()), analyse);
+            self.engines.want(Some(self.analysis_target()), analyse && !hold);
             return;
         }
         // A game decides whether its engine analyses; the secondary engine stays idle.
         if let Some(analyse) = self.play_analyse() {
-            let analyse = analyse && !self.benchmark_running() && self.rules_permit_analysis();
+            let analyse = analyse && !hold && !self.benchmark_running() && self.rules_permit_analysis();
             self.engines.want_secondary(None, false);
             self.engines.want(Some(self.analysis_target()), analyse);
             self.check_rules_prompt();
@@ -655,7 +657,8 @@ impl Workbench {
         // A running quick analysis leaves the foreground engine idle until it ends; ReadBoard GMA
         // keeps it following the position without analysing (its moves come from
         // `kata-genmove_analyze`).
-        let analyse = !self.paused
+        let analyse = !hold
+            && !self.paused
             && !self.benchmark_running()
             && self.limit_stop.is_none()
             && self.side_hold.is_none()
@@ -1003,6 +1006,18 @@ impl Workbench {
             self.warmup_stop();
         }
         toggled
+    }
+
+    /// 综合设置 opened (`held`) or closed: Java's `togglePonder` around the modal dialog. No
+    /// engine analyses while held; nothing else changes, so a game, an engine match, 自动分析 and
+    /// the user's own pause are as they were once released. Returns whether it changed.
+    pub fn hold_analysis(&mut self, held: bool) -> bool {
+        if self.analysis_hold == held {
+            return false;
+        }
+        self.analysis_hold = held;
+        self.sync_engine();
+        true
     }
 
     fn toggle_pause_state(&mut self) -> Result<bool, ApiError> {

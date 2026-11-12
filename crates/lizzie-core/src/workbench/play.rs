@@ -962,9 +962,10 @@ impl Workbench {
         }
     }
 
-    /// Whether the foreground engine's analysis of `node` may make a move.
+    /// Whether the foreground engine's analysis of `node` may make a move (not while 综合设置
+    /// holds analysis: a late line of the stopped search does not play).
     pub(super) fn play_wants_analysis(&self, node: NodeId) -> bool {
-        node == self.cursor && self.analysis_mover().is_some()
+        node == self.cursor && !self.analysis_hold && self.analysis_mover().is_some()
     }
 
     /// `notifyAutoPlay`: a 分析模式 game's engine, or the toolbar's 自动落子 side, plays when a

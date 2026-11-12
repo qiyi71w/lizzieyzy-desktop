@@ -234,6 +234,9 @@ pub struct Workbench {
     secondary_store: AnalysisStore,
     /// The user paused analysis (session only, like Java `userAnalysisPaused`).
     paused: bool,
+    /// 综合设置 is open: no engine analyses meanwhile, whatever the mode (see
+    /// [`Workbench::hold_analysis`]).
+    analysis_hold: bool,
     /// 优先分析此点 of the current position (`LizzieFrame.priorityMoveCoords`): session only,
     /// cleared by a move and by leaving the position.
     priority_points: Vec<Point>,
@@ -424,6 +427,7 @@ impl Workbench {
             store,
             secondary_store,
             paused: false,
+            analysis_hold: false,
             priority_points: Vec::new(),
             priority_engine: None,
             priority_at: None,

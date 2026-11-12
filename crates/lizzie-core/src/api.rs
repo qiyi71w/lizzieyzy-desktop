@@ -256,6 +256,12 @@ pub enum Command {
     /// "开始/停止 分析(空格)", the bottom bar 分析 / 暂停分析 button, Space
     /// (`LizzieFrame.togglePonderMannul`). Not remembered across restarts.
     ToggleAnalysis,
+    /// 综合设置 is open (`LizzieFrame.openConfigDialog2`'s `togglePonder` around the modal
+    /// dialog): while `held` no engine analyses; a game, an engine match or 自动分析 stays on
+    /// and goes on once released. Not the user's pause, never remembered.
+    HoldAnalysis {
+        held: bool,
+    },
     /// 分析 > 清除Lizzie缓存(全局) (Shift+A) / (此手): the stored analysis stays shown and saved
     /// but gives way to the next live result, even a weaker one.
     ClearAnalysisCache {

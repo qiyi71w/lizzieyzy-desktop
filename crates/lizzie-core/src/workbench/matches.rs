@@ -1300,6 +1300,7 @@ impl Workbench {
     }
     pub(super) fn match_wants_analysis(&self, node: NodeId) -> bool {
         node == self.cursor
+            && !self.analysis_hold
             && self.matches.run.as_ref().is_some_and(|r| {
                 r.values.kind == GameKind::Analysis
                     && r.phase == MatchPhase::Playing

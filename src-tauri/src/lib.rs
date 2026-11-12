@@ -728,6 +728,10 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().toggle_analysis()?;
             Ok(changed(&app, &shared, done))
         }
+        Command::HoldAnalysis { held } => {
+            let done = shared.workbench.lock().unwrap().hold_analysis(held);
+            Ok(changed(&app, &shared, done))
+        }
         Command::ClearAnalysisCache { scope } => {
             shared.workbench.lock().unwrap().clear_analysis_cache(scope);
             Ok(changed(&app, &shared, true))
