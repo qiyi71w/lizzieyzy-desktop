@@ -4,13 +4,16 @@
 
 use std::sync::{Arc, Mutex};
 
-use lizzie_core::api::{AnalysisScope, EngineNotice, EngineScope, KataEngineParamsEdit, KataParamEdit};
+use lizzie_core::api::{AnalysisScope, EditCommand, EngineNotice, EngineScope, KataEngineParamsEdit, KataParamEdit};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
-use lizzie_core::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup, LeelaOptionSetting, LeelaOptionSettings};
+use lizzie_core::engine::profile::{
+    AnalysisSettings, CustomPdaMode, CustomPdaSettings, EngineProfile, EngineStartup, LeelaOptionSetting,
+    LeelaOptionSettings,
+};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, KataParam, Launcher};
 use lizzie_core::formats::sgf;
-use lizzie_core::record::RecordFormat;
+use lizzie_core::record::{Point, RecordFormat, Stone};
 use lizzie_core::settings::Storage;
 use lizzie_core::workbench::{OpenOrigin, Workbench};
 
@@ -1922,4 +1925,302 @@ fn leela_options_reach_only_leela_zero_and_sai() {
         assert!(world.take(id).is_empty(), "{name}");
         assert_eq!(wb.config().engine.leela_options, options, "{name}: a refused window saves nothing");
     }
+}
+
+/// Answers the start-up of a `KataGoPda` engine: its name, the two private queries with their
+/// labelled bodies, and every other command as the ordinary helper does.
+fn answer_all_pda(wb: &mut Workbench, world: &World, id: InstanceId, list: &str) -> Vec<String> {
+    let mut done = Vec::new();
+    loop {
+        let pending = world.take(id);
+        if pending.is_empty() {
+            return done;
+        }
+        for line in pending {
+            out(wb, id, "");
+            let n = number(&line);
+            let cmd = line.split_once(' ').unwrap().1.to_string();
+            match cmd.split(' ').next().unwrap() {
+                "name" => answer(wb, id, n, "KataGoPda 1.16.4"),
+                "version" => answer(wb, id, n, "1.16.4"),
+                "list_commands" => answer(wb, id, n, list),
+                "kata-get-rules" => answer(
+                    wb,
+                    id,
+                    n,
+                    r#"{"friendlyPassOk":true,"hasButton":false,"ko":"SIMPLE","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N"}"#,
+                ),
+                "getpda" => answer(wb, id, n, "pda: 0.25"),
+                "getdympdacap" => answer(wb, id, n, "PDACap: 0.5"),
+                "kata-analyze" | "lz-analyze" => out(wb, id, &format!("={n}")),
+                _ => answer(wb, id, n, ""),
+            }
+            done.push(cmd);
+        }
+    }
+}
+
+fn started_pda_with(
+    dir: &std::path::Path,
+    world: &World,
+    settings: CustomPdaSettings,
+) -> (Workbench, InstanceId, Vec<String>) {
+    let mut wb = workbench(dir, world);
+    if settings != CustomPdaSettings::default() {
+        let _ = wb.save_custom_pda(settings).unwrap();
+    }
+    wb.save_engine_settings(vec![profile("KataGoPda", "/opt/katago")], EngineStartup::Default)
+        .unwrap();
+    wb.start_engines();
+    let id = world.launched()[0].0;
+    let sent = answer_all_pda(&mut wb, world, id, KATA);
+    (wb, id, sent)
+}
+
+fn started_pda(dir: &std::path::Path, world: &World) -> (Workbench, InstanceId) {
+    let (wb, id, _) = started_pda_with(dir, world, CustomPdaSettings::default());
+    (wb, id)
+}
+
+fn commands(sent: &[String]) -> Vec<String> {
+    sent.iter().map(|line| line.split_once(' ').unwrap().1.to_string()).collect()
+}
+
+fn dynamic(cap: f64, auto_apply: bool) -> CustomPdaSettings {
+    CustomPdaSettings {
+        mode: CustomPdaMode::Dynamic,
+        dynamic_cap: Some(cap),
+        fixed_value: None,
+        auto_apply,
+    }
+}
+
+fn pda_candidates() -> String {
+    [
+        "info move D4 visits 50 winrate 0.6 scoreLead 1.5 prior 0.2 order 0 pv D4",
+        "info move Q16 visits 40 winrate 0.55 scoreLead 0.5 prior 0.2 order 1 pv Q16",
+        "info move C3 visits 10 winrate 0.5 scoreLead -0.5 prior 0.2 order 2 pv C3 rootInfo visits 50",
+    ]
+    .join(" ")
+}
+
+#[test]
+fn kata_go_pda_start_up_queries_its_private_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, _, sent) = started_pda_with(dir.path(), &world, CustomPdaSettings::default());
+    assert!(sent.contains(&"getpda".to_string()), "{sent:?}");
+    assert!(sent.contains(&"getdympdacap".to_string()), "{sent:?}");
+    assert!(!sent.iter().any(|c| c == "pda 0"), "自动套用 is off: {sent:?}");
+    let pda = wb.view(false).engine.custom_pda;
+    assert_eq!(pda.pda, Some(0.25));
+    assert_eq!(pda.cap, Some(0.5));
+    assert_eq!(pda.mode, CustomPdaMode::Dynamic);
+}
+
+#[test]
+fn a_standard_katago_never_receives_the_private_queries_or_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    world.take(id);
+    assert_eq!(wb.save_custom_pda(dynamic(0.5, false)).unwrap(), None);
+    assert!(world.sent(id).is_empty(), "a standard KataGo gets no pda command");
+    assert_eq!(wb.config().engine.custom_pda, dynamic(0.5, false));
+    assert_eq!(wb.view(false).engine.custom_pda.mode, CustomPdaMode::Dynamic);
+}
+
+#[test]
+fn the_dialog_sends_only_a_kata_go_pda_engine_its_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started_pda(dir.path(), &world);
+    world.take(id);
+
+    let fixed = CustomPdaSettings {
+        mode: CustomPdaMode::Fixed,
+        dynamic_cap: None,
+        fixed_value: Some(2.0),
+        auto_apply: false,
+    };
+    assert_eq!(wb.save_custom_pda(fixed.clone()).unwrap(), None);
+    assert_eq!(commands(&world.take(id)), ["pda 2.0"]);
+    assert_eq!(wb.config().engine.custom_pda, fixed);
+    assert_eq!(wb.view(false).engine.custom_pda.pda, Some(2.0));
+
+    // An empty value is saved but sends nothing.
+    let empty = CustomPdaSettings {
+        mode: CustomPdaMode::Dynamic,
+        dynamic_cap: None,
+        fixed_value: None,
+        auto_apply: false,
+    };
+    assert_eq!(wb.save_custom_pda(empty.clone()).unwrap(), None);
+    assert!(world.sent(id).is_empty());
+    assert_eq!(wb.config().engine.custom_pda, empty);
+
+    // A zero 系数 is the dialog's wrongParameter and changes nothing.
+    assert_eq!(
+        wb.save_custom_pda(dynamic(0.0, false)).unwrap(),
+        Some("SetKataPDA.wrongParameter")
+    );
+    assert_eq!(wb.config().engine.custom_pda, empty);
+}
+
+#[test]
+fn auto_apply_follows_the_two_start_up_answers_in_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, _, sent) = started_pda_with(dir.path(), &world, dynamic(0.5, true));
+    let at = |needle: &str| sent.iter().position(|c| c == needle).unwrap_or_else(|| panic!("{needle}: {sent:?}"));
+    assert!(at("getpda") < at("getdympdacap"));
+    assert!(at("getdympdacap") < at("pda 0"));
+    assert!(at("pda 0") < at("dympdacap 0.5"));
+    let pda = wb.view(false).engine.custom_pda;
+    assert_eq!((pda.pda, pda.cap), (Some(0.0), Some(0.5)));
+}
+
+#[test]
+fn unsolicited_private_labels_update_the_current_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started_pda(dir.path(), &world);
+    out(&mut wb, id, "pda: 0.75");
+    out(&mut wb, id, "PDACap: 0.25");
+    out(&mut wb, id, "");
+    let pda = wb.view(false).engine.custom_pda;
+    assert_eq!((pda.pda, pda.cap), (Some(0.75), Some(0.25)));
+}
+
+#[test]
+fn priority_points_reach_a_custom_engine_and_are_kept_beyond_the_candidate_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started_pda(dir.path(), &world);
+    analysis_settings(&mut wb, |s| s.limit_max_suggestion = 2);
+    let _ = answer_all_pda(&mut wb, &world, id, KATA);
+    world.take(id);
+    out(&mut wb, id, &pda_candidates());
+    let c3 = Point { x: 2, y: 16 };
+    assert!(wb.set_priority_point(c3).unwrap());
+    assert_eq!(commands(&world.take(id)), ["setmaxpolicy C3 1.1"]);
+    let view = wb.view(false);
+    assert_eq!(view.engine.priority_points, [c3]);
+    assert!(
+        view.analysis.unwrap().candidates.iter().any(|c| c.point == Some(c3)),
+        "the priority point stays in the stored candidates beyond 最大候选点数"
+    );
+}
+
+#[test]
+fn clear_priority_sends_clearpolicy_and_leaving_the_position_does_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started_pda(dir.path(), &world);
+    world.take(id);
+    let point = Point { x: 15, y: 3 };
+    assert!(wb.set_priority_point(point).unwrap());
+    world.take(id);
+    assert!(wb.clear_priority_points().unwrap());
+    assert_eq!(commands(&world.take(id)), ["clearpolicy"]);
+    assert!(wb.view(false).engine.priority_points.is_empty());
+
+    // A move clears the record without a command.
+    let _ = wb.set_priority_point(point).unwrap();
+    world.take(id);
+    wb.edit(EditCommand::Play { point: Point { x: 3, y: 15 }, color: Some(Stone::Black) })
+        .unwrap();
+    assert!(wb.view(false).engine.priority_points.is_empty());
+    assert!(!commands(&world.sent(id)).iter().any(|c| c == "clearpolicy"));
+}
+
+#[test]
+fn priority_is_refused_for_a_standard_katago() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    world.take(id);
+    assert!(!wb.set_priority_point(Point { x: 3, y: 15 }).unwrap());
+    assert!(!wb.clear_priority_points().unwrap());
+    assert!(world.sent(id).is_empty());
+}
+
+#[test]
+fn setting_priority_resumes_a_paused_analysis() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started_pda(dir.path(), &world);
+    assert!(wb.toggle_analysis().unwrap());
+    let _ = answer_all_pda(&mut wb, &world, id, KATA);
+    world.take(id);
+    assert!(wb.set_priority_point(Point { x: 3, y: 15 }).unwrap());
+    let sent = commands(&world.take(id));
+    assert!(sent.iter().any(|c| c.starts_with("kata-analyze")), "{sent:?}");
+    assert!(sent.iter().any(|c| c == "setmaxpolicy D4 1.1"), "{sent:?}");
+}
+
+#[test]
+fn auto_apply_runs_on_a_handicap_games_first_white_move_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id, _) = started_pda_with(dir.path(), &world, dynamic(0.5, true));
+    world.take(id);
+
+    // A move on an ordinary empty board is not a handicap game's first White move.
+    wb.edit(EditCommand::Play { point: Point { x: 3, y: 15 }, color: Some(Stone::Black) })
+        .unwrap();
+    assert!(!commands(&world.sent(id)).iter().any(|c| c == "dympdacap 0.5"));
+
+    // Handicap stones as root setup (this product's form) and White to play.
+    open(&mut wb, "(;SZ[19]HA[2]AB[dd][pp]PL[W])");
+    world.take(id);
+    wb.edit(EditCommand::Play { point: Point { x: 15, y: 3 }, color: Some(Stone::White) })
+        .unwrap();
+    let sent = commands(&world.take(id));
+    assert!(sent.contains(&"pda 0".to_string()), "{sent:?}");
+    assert!(sent.contains(&"dympdacap 0.5".to_string()), "{sent:?}");
+}
+
+#[test]
+fn a_custom_toolbar_pda_edit_leaves_the_standard_preferences_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started_pda(dir.path(), &world);
+    world.take(id);
+    let before = (wb.config().engine.kata_pda, wb.config().engine.kata_pda_enabled);
+    assert_eq!(wb.set_kata_param(KataParam::Pda, true, 1.5).unwrap(), None);
+    assert_eq!(commands(&world.take(id)), ["kata-set-param playoutDoublingAdvantage 1.5"]);
+    assert_eq!((wb.config().engine.kata_pda, wb.config().engine.kata_pda_enabled), before);
+}
+
+#[test]
+fn priority_resumes_automatically_stopped_analysis() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started_pda(dir.path(), &world);
+    analysis_settings(&mut wb, |s| s.stop_at_empty_board = true);
+    answer_all_pda(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("Q16", 5));
+    assert!(wb.view(false).engine.stopped_by_limit);
+    answer_all_pda(&mut wb, &world, id, KATA);
+    wb.set_priority_point(Point { x: 3, y: 15 }).unwrap();
+    let sent = answer_all_pda(&mut wb, &world, id, KATA);
+    assert!(sent.iter().any(|c| c.starts_with("kata-analyze")), "{sent:?}");
+    out(&mut wb, id, &info("D4", 50));
+    assert!(!wb.view(false).engine.stopped_by_limit);
+}
+
+#[test]
+fn handicap_first_white_pass_applies_pda_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id, _) = started_pda_with(dir.path(), &world, dynamic(0.5, true));
+    open(&mut wb, "(;SZ[19]HA[2]AB[dd][pp]PL[W])");
+    answer_all_pda(&mut wb, &world, id, KATA);
+    wb.edit(EditCommand::Pass).unwrap();
+    let sent = answer_all_pda(&mut wb, &world, id, KATA);
+    assert!(sent.iter().any(|c| c == "dympdacap 0.5"), "{sent:?}");
+    wb.edit(EditCommand::Pass).unwrap();
+    wb.edit(EditCommand::Pass).unwrap();
+    assert!(!commands(&world.take(id)).iter().any(|c| c == "dympdacap 0.5"));
 }

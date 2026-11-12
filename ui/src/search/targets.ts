@@ -18,7 +18,8 @@ import { matchPlaying } from "../match/state";
 import { aiCoachBlockedByGame } from "../humansl/state";
 import { renderToolbar } from "../chrome/toolbar";
 import type { KataParam } from "../contract/generated";
-import { kataRevealed } from "../engine/kataParams";
+import { kataGoPda, kataRevealed } from "../engine/kataParams";
+import { kataGoCustom } from "../engine/customPda";
 import { clearHighlight, highlight } from "./highlight";
 
 export type DestinationKind = "action" | "menu" | "toolbar" | "setting" | "window" | "context";
@@ -85,6 +86,8 @@ const CONTEXT_ITEMS: Record<string, true> = {
   "RightClickMenu.trackPoint": true,
   "RightClickMenu.untrackPoint": true,
   "RightClickMenu.clearAllTracked": true,
+  "RightClickMenu.priority": true,
+  "RightClickMenu.clearPriority": true,
   "RightClickMenu.addSuggestionAsBranch": true,
   "RightClickMenu.previousMove": true,
   "RightClickMenu2.findStone": true,
@@ -94,9 +97,12 @@ const CONTEXT_ITEMS: Record<string, true> = {
 };
 
 /** The located control of a toolbar destination (`data-function` = Java action id), or the 同步
- *  button holding a popup item. */
+ *  button holding a popup item. `engine.pda` is the 激进度 check box, except with a KataGoPda engine,
+ *  whose 激进度 group is hidden: then its "..." (Menu.topFunctionTarget → more2). */
 function toolbarControl(id: string): HTMLElement | null {
-  return document.querySelector<HTMLElement>(`#toolbar [data-function="${CSS.escape(id)}"], #bottombar [data-function="${CSS.escape(id)}"]`) ?? livePopupAnchor(id);
+  const only = id === "engine.pda" ? (kataGoPda() ? ".pda-more" : ":not(.pda-more)") : "";
+  const selector = `[data-function="${CSS.escape(id)}"]${only}`;
+  return document.querySelector<HTMLElement>(`#toolbar ${selector}, #bottombar ${selector}`) ?? livePopupAnchor(id);
 }
 
 /** The 激进度 / 广度 groups (Menu.locateTopFunction sets showPDAInMenu / showWRNInMenu): locating
@@ -186,6 +192,10 @@ function entryReason(id: string): Reason | null {
       if (view.engine_match?.phase === "Starting" || matchPlaying(view)) return ENGINE_GAME;
       if (!engine) return NO_ENGINE;
       return engine.katago ? null : NOT_KATAGO;
+    // RightClickMenu.java:124-156: shown only outside games with a KataGoCustom / KataGoPda engine.
+    case "board.priority-point":
+    case "board.clear-priority":
+      return kataGoCustom() && !view.game ? null : CONTEXT;
     case "toolbar.force-allow":
     case "toolbar.force-avoid":
     case "toolbar.force-clear":

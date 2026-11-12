@@ -92,7 +92,10 @@ pub enum StrengthManualOutcome {
 }
 
 use crate::browse::Navigation;
-use crate::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup, KataParamSettings, LeelaOptionSettings};
+use crate::engine::profile::{
+    AnalysisSettings, CustomPdaMode, CustomPdaSettings, EngineProfile, EngineStartup, KataParamSettings,
+    LeelaOptionSettings,
+};
 use crate::engine::runtime::KataParam;
 use crate::record::{BoardSize, GameInfo, Mark, NodeId, Point, RecordFormat, Stone};
 use crate::settings::{EditSettings, Language};
@@ -339,6 +342,20 @@ pub enum Command {
     SaveLeelaEngineOptions {
         options: LeelaOptionSettings,
     },
+    /// KataGoPda 激进参数PDA设置 (`SetKataPDA`) 确定: the mode, its value and 自动套用 are saved
+    /// (an empty value is kept and sends nothing); only a `KataGoPda` engine receives the
+    /// private `pda` / `dympdacap` commands.
+    SaveCustomPda {
+        settings: CustomPdaSettings,
+    },
+    /// 优先分析此点 (`RightClickMenu.priority`): an empty point of the current position is
+    /// recorded and the foreground `KataGoCustom` / `KataGoPda` engine gets
+    /// `setmaxpolicy <vertex> 1.1`, its analysis started first if it was paused.
+    SetPriorityPoint {
+        point: Point,
+    },
+    /// 清除优先分析 (`RightClickMenu.clearPriority`): `clearpolicy` and the recorded points.
+    ClearPriorityPoints,
     /// GtpConsolePane: send a raw command to the foreground engine.
     SendGtpCommand {
         command: String,
@@ -1324,6 +1341,8 @@ pub struct EngineSettingsView {
     pub kata_params: KataParamSettings,
     /// The Leela Zero / Sai 引擎参数 window's rows.
     pub leela_options: LeelaOptionSettings,
+    /// KataGoPda 激进参数PDA设置 (`SetKataPDA`): mode, value and 自动套用.
+    pub custom_pda: CustomPdaSettings,
 }
 
 /// One parameter row of the 引擎参数 window: 修改, the value field (`None` when it is not a
@@ -1361,6 +1380,15 @@ pub struct KataParamsView {
     /// a game gives back a 广度 the user changed during it (`restoreWRN`). `None` before any.
     pub pda_read_back: Option<String>,
     pub wrn_read_back: Option<String>,
+}
+
+/// The foreground KataGoPda's PDA as its private `getpda` / `getdympdacap` answers (or its
+/// unsolicited `pda:` / `PDACap:` lines) last reported, with the saved dialog mode.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, TS)]
+pub struct CustomPdaView {
+    pub pda: Option<f64>,
+    pub cap: Option<f64>,
+    pub mode: CustomPdaMode,
 }
 
 /// Stone sound for a forward step onto a node (`Utils.playVoiceFile`): a capture of three or more
@@ -1604,6 +1632,9 @@ pub enum ImportTarget {
     KataParamToolbar,
     /// `ui.chk-lzsai-engine*`, `ui.autoload-Lzsai-engine*` and `ui.txt-lzsai-engine*`.
     LeelaOptions,
+    /// `ui.chk-dym-pda`, `ui.chk-static-pda`, `ui.chk-auto-pda`, `ui.dym-pda-cap`,
+    /// `ui.static-pda-cur` and `ui.auto-pda` (KataGoPda 激进参数PDA设置).
+    CustomPda,
     /// `ui.enable-startup-benchmark`.
     StartupBenchmark,
     /// `ui.network-proxy-mode` / `-host` / `-port`.
@@ -1966,6 +1997,11 @@ pub struct EngineView {
     pub down: bool,
     /// The foreground KataGo's PDA and WRN (toolbar 激进度 / 广度).
     pub kata_params: KataParamsView,
+    /// The foreground KataGoPda's current PDA and cap and the saved dialog mode.
+    pub custom_pda: CustomPdaView,
+    /// Points recorded with 优先分析此点 for the current position; a recorded point stays
+    /// visible beyond 最大候选点数. Session only.
+    pub priority_points: Vec<Point>,
 }
 
 /// One candidate (`MoveData`). Percentages 0–100 from the side to move.

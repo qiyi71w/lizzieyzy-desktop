@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::gtp::{self, Dialect, Frame, Framer, InfoLine, LaunchSpec};
-use super::profile::EngineProfile;
+use super::profile::{CustomPdaMode, CustomPdaSettings, EngineProfile};
 use super::raw_net::{self, RawNetMode, RawNetView};
 use super::rules::KataRules;
 use super::ssh::{RemoteFailure, SshSettings};
@@ -267,6 +267,9 @@ pub enum RuntimeEvent {
     RawNet { instance: InstanceId },
     /// The process failed to start or ended unexpectedly; the instance is gone.
     Failed(EngineFailure),
+    /// A `KataGoPda` engine reported its PDA or cap (`getpda` / `getdympdacap` answer, or an
+    /// unsolicited `pda:` / `PDACap:` line).
+    CustomPda { instance: InstanceId },
     /// The foreground engine was asked to search a position (Java `Leelaz.ponder` of the
     /// primary engine, which calls `onMainEnginePonder`).
     Pondering { instance: InstanceId },
@@ -467,6 +470,9 @@ enum Purpose {
     Version,
     ListCommands,
     Setup,
+    /// KataGoPda `getpda` / `getdympdacap`.
+    GetPda,
+    GetPdaCap,
     GetRules,
     SetRules,
     Sync,
@@ -590,6 +596,15 @@ struct Instance {
     /// `kata-set-param` / `kata-get-param` of a [`KataParam`] in flight, by GTP id.
     param_writes: HashMap<u64, (KataParam, f64)>,
     param_reads: HashMap<u64, KataParam>,
+    /// KataGoPda's dedicated settings and what its private answers last reported.
+    custom_pda: CustomPdaSettings,
+    pda: Option<f64>,
+    pda_cap: Option<f64>,
+    pda_mode: Option<CustomPdaMode>,
+    /// Start-up `getpda` / `getdympdacap` answers still expected.
+    pda_queries: u8,
+    /// The start-up answers were followed by the 自动套用 commands.
+    pda_autoloaded: bool,
 }
 
 const OUTPUT_TAIL: usize = 40;
@@ -630,6 +645,9 @@ pub struct Bootstrap {
     /// Options set on Leela Zero / Sai after start-up (`setLeelaSaiEnginePara`: 修改 and
     /// 自动加载 both checked).
     pub leela_options: Vec<(LeelaOption, String)>,
+    /// KataGoPda 激进参数PDA设置, applied after the start-up `getpda` / `getdympdacap` answers
+    /// when 自动套用 is checked, and on a handicap game's first White move.
+    pub custom_pda: CustomPdaSettings,
 }
 
 /// A start whose launch overlays depend on artifact content (measured or Apple tuning). Java
@@ -824,6 +842,17 @@ impl Instance {
     /// Pachi, which Java counts as Leela for analysis, is not one of them.
     fn takes_lz_options(&self) -> bool {
         matches!(self.kind, EngineKind::LeelaZero | EngineKind::Sai) && !self.gtp_name.to_lowercase().starts_with("pachi")
+    }
+
+    /// Reads a `pda:` / `PDACap:` line, as a `getpda` / `getdympdacap` answer body or an
+    /// unsolicited line of a private setter (`Leelaz` parses both while `isCheckingPda`).
+    /// Returns whether a value changed.
+    fn note_pda_text(&mut self, text: &str) -> bool {
+        match parse_pda_label(text) {
+            Some(PdaLabel::Pda(value)) => std::mem::replace(&mut self.pda, Some(value)) != Some(value),
+            Some(PdaLabel::Cap(value)) => std::mem::replace(&mut self.pda_cap, Some(value)) != Some(value),
+            None => false,
+        }
     }
 
     fn dialect(&self) -> Option<Dialect> {
@@ -1425,6 +1454,12 @@ impl Engines {
             kata_params: KataParams::default(),
             param_writes: HashMap::new(),
             param_reads: HashMap::new(),
+            custom_pda: CustomPdaSettings::default(),
+            pda: None,
+            pda_cap: None,
+            pda_mode: None,
+            pda_queries: 0,
+            pda_autoloaded: false,
         });
         let name = profile.name.clone();
         self.trace(&name, "--", &format!("start {}", profile.command));
@@ -2031,6 +2066,131 @@ impl Engines {
         self.get(id).map_or_else(KataParams::default, |i| i.kata_params)
     }
 
+    /// The foreground `KataGoPda`'s current PDA and cap (`getpda` / `getdympdacap` answers or
+    /// the private setters' own `pda:` / `PDACap:` lines), `None` before one.
+    pub fn custom_pda(&self, id: InstanceId) -> (Option<f64>, Option<f64>, Option<CustomPdaMode>) {
+        self.get(id).map_or((None, None, None), |i| (i.pda, i.pda_cap, i.pda_mode))
+    }
+
+    /// The GTP `name` starts with `KataGoPda` (`Leelaz.isKataGoPda`): the only engines that
+    /// speak `pda`, `dympdacap`, `getpda` and `getdympdacap`.
+    pub fn is_kata_go_pda(&self, id: InstanceId) -> bool {
+        self.get(id).is_some_and(|i| i.gtp_name.starts_with("KataGoPda"))
+    }
+
+    /// `KataGoCustom` or `KataGoPda` (`Leelaz.isKatagoCustom`, which `KataGoPda` also sets):
+    /// the engines whose right-click menu shows 优先分析此点.
+    pub fn supports_custom_policy(&self, id: InstanceId) -> bool {
+        self.get(id).is_some_and(|i| i.gtp_name.starts_with("KataGoCustom") || i.gtp_name.starts_with("KataGoPda"))
+    }
+
+    /// Sends a `KataGoPda`'s private settings to the foreground engine: the dialog's 确定 and a
+    /// handicap game's re-apply. Commands go only to a ready, unrestored `KataGoPda`; a missing
+    /// numeric value sends nothing. Returns whether anything was sent.
+    pub fn apply_custom_pda(&mut self, settings: &CustomPdaSettings) -> bool {
+        let Some(id) = self.foreground else { return false };
+        let Some(inst) = self.get(id) else { return false };
+        if !inst.gtp_name.starts_with("KataGoPda")
+            || inst.phase != Phase::Ready
+            || inst.unrestored.is_some()
+            || self.leased(id)
+        {
+            return false;
+        }
+        let commands = settings.commands();
+        if commands.is_empty() {
+            return false;
+        }
+        for command in &commands {
+            self.send(id, command, Purpose::Setup);
+        }
+        self.fence_last(id);
+        let inst = self.get_mut(id).unwrap();
+        inst.pda_mode = Some(settings.mode);
+        match settings.mode {
+            super::profile::CustomPdaMode::Disabled => inst.pda = Some(0.0),
+            super::profile::CustomPdaMode::Dynamic => inst.pda = Some(0.0),
+            super::profile::CustomPdaMode::Fixed => inst.pda = settings.fixed_value,
+        }
+        if settings.mode == super::profile::CustomPdaMode::Dynamic {
+            if let Some(cap) = settings.dynamic_cap.filter(|cap| cap.is_finite() && *cap != 0.0) {
+                inst.pda_cap = Some(cap);
+            }
+        }
+        self.pending.push(RuntimeEvent::CustomPda { instance: id });
+        true
+    }
+
+    /// `setmaxpolicy <vertex> 1.1` for 优先分析此点, to a ready `KataGoCustom` / `KataGoPda`
+    /// foreground engine. Returns whether the command was sent.
+    pub fn set_priority_point(&mut self, point: Point, size: BoardSize) -> bool {
+        let Some(id) = self.foreground else { return false };
+        let Some(inst) = self.get(id) else { return false };
+        if !self.supports_custom_policy(id)
+            || inst.phase != Phase::Ready
+            || inst.unrestored.is_some()
+            || self.leased(id)
+        {
+            return false;
+        }
+        self.send(id, &format!("setmaxpolicy {} 1.1", gtp::vertex(size, point)), Purpose::Setup);
+        self.fence_last(id);
+        true
+    }
+
+    /// `clearpolicy` for 清除优先分析, to the same engines. Returns whether it was sent.
+    pub fn clear_priority_points(&mut self) -> bool {
+        let Some(id) = self.foreground else { return false };
+        let Some(inst) = self.get(id) else { return false };
+        if !self.supports_custom_policy(id)
+            || inst.phase != Phase::Ready
+            || inst.unrestored.is_some()
+            || self.leased(id)
+        {
+            return false;
+        }
+        self.send(id, "clearpolicy", Purpose::Setup);
+        self.fence_last(id);
+        true
+    }
+
+    /// 自动套用 after both start-up answers (`Leelaz` sends the stored command once `pda:` and
+    /// `PDACap:` arrived). The commands go after the queries, before the start-up fence closes.
+    fn custom_pda_after_startup(&mut self, id: InstanceId, events: &mut Vec<RuntimeEvent>) {
+        let commands = {
+            let Some(inst) = self.get_mut(id) else { return };
+            if inst.pda_queries != 0 || inst.pda_autoloaded || !inst.gtp_name.starts_with("KataGoPda") {
+                return;
+            }
+            inst.pda_autoloaded = true;
+            inst.pda_mode = if inst.pda_cap.is_some_and(|cap| cap != 0.0) {
+                Some(CustomPdaMode::Dynamic)
+            } else {
+                inst.pda.map(|pda| if pda == 0.0 { CustomPdaMode::Disabled } else { CustomPdaMode::Fixed })
+            };
+            if inst.custom_pda.auto_apply { inst.custom_pda.commands() } else { Vec::new() }
+        };
+        for command in &commands {
+            self.send(id, command, Purpose::Setup);
+        }
+        let inst = self.get_mut(id).unwrap();
+        if !commands.is_empty() {
+            inst.pda_mode = Some(inst.custom_pda.mode);
+            inst.ready_fence = inst.next_id.checked_sub(1);
+            match inst.custom_pda.mode {
+                super::profile::CustomPdaMode::Disabled => inst.pda = Some(0.0),
+                super::profile::CustomPdaMode::Dynamic => {
+                    inst.pda = Some(0.0);
+                    if let Some(cap) = inst.custom_pda.dynamic_cap.filter(|cap| cap.is_finite() && *cap != 0.0) {
+                        inst.pda_cap = Some(cap);
+                    }
+                }
+                super::profile::CustomPdaMode::Fixed => inst.pda = inst.custom_pda.fixed_value,
+            }
+            events.push(RuntimeEvent::CustomPda { instance: id });
+        }
+    }
+
     /// The toolbar's and the 引擎参数 window's `kata-set-param` to the foreground engine, when it
     /// is free for it ([`Self::exclusive_gtp_availability`]; the 激进度 does not need the borrowing
     /// commands, as Java's `setPda` is not admitted like 广度). A search it is running stops and,
@@ -2230,6 +2390,11 @@ impl Engines {
             }
             EngineInput::Stdout(line) => {
                 let mut frames = Vec::new();
+                // A private setter echoes `pda:` / `PDACap:` outside a response frame; the
+                // answer body itself is read in `Frame::Response`.
+                if inst.note_pda_text(&line) {
+                    events.push(RuntimeEvent::CustomPda { instance: id });
+                }
                 inst.framer.feed(&line, &mut frames);
                 let is_info = line.starts_with("info ");
                 if !is_info {
@@ -2354,6 +2519,9 @@ impl Engines {
                 });
             }
             Frame::Response { id: n, ok, text } => {
+                if inst.note_pda_text(&text) {
+                    events.push(RuntimeEvent::CustomPda { instance: id });
+                }
                 if inst.stream == Some(n) && !matches!(inst.waiting.get(&n), Some(Purpose::Ponder)) {
                     inst.stream = None;
                 }
@@ -2378,6 +2546,7 @@ impl Engines {
                     }
                     events.push(RuntimeEvent::KataParams { instance: id });
                 }
+                let mut pda_answer = false;
                 match inst.waiting.remove(&n) {
                     Some(Purpose::Name) => {
                         if !ok {
@@ -2453,7 +2622,16 @@ impl Engines {
                     Some(purpose @ (Purpose::Game | Purpose::Genmove)) => {
                         self.game_answer(id, n, matches!(purpose, Purpose::Genmove), ok, text, events);
                     }
+                    // The two queries count even when refused, so the engine still becomes
+                    // ready; their bodies were read above.
+                    Some(Purpose::GetPda) | Some(Purpose::GetPdaCap) => {
+                        inst.pda_queries = inst.pda_queries.saturating_sub(1);
+                        pda_answer = true;
+                    }
                     _ => {}
+                }
+                if pda_answer {
+                    self.custom_pda_after_startup(id, events);
                 }
                 let Some(inst) = self.get_mut(id) else { return };
                 if inst.ready_fence == Some(n) {
@@ -2487,7 +2665,15 @@ impl Engines {
     /// and the rules query; the answer to the last of them marks the engine ready.
     fn boot_setup(&mut self, id: InstanceId) {
         let Some(inst) = self.get_mut(id) else { return };
-        let boot = inst.boot.take().unwrap_or(Bootstrap { komi: 7.5, rules: None, pda: None, wrn: None, leela_options: Vec::new() });
+        let boot = inst.boot.take().unwrap_or(Bootstrap {
+            komi: 7.5,
+            rules: None,
+            pda: None,
+            wrn: None,
+            leela_options: Vec::new(),
+            custom_pda: CustomPdaSettings::default(),
+        });
+        inst.custom_pda = boot.custom_pda.clone();
         let (w, h) = (inst.profile.width.max(1), inst.profile.height.max(1));
         let mut cmds = vec![format!("komi {}", komi_text(boot.komi))];
         cmds.push(if w == h || !inst.has("rectangular_boardsize") {
@@ -2548,6 +2734,13 @@ impl Engines {
             for param in [KataParam::Pda, KataParam::Wrn] {
                 self.send(id, &format!("kata-get-param {}", param.gtp_name()), Purpose::Setup);
             }
+        }
+        // `getpda` / `getdympdacap`: only a `KataGoPda` engine speaks them (`Leelaz.isCheckingPda`).
+        // 自动套用 follows their answers, not the check box's literal claim.
+        if pda_engine {
+            self.send(id, "getpda", Purpose::GetPda);
+            self.send(id, "getdympdacap", Purpose::GetPdaCap);
+            self.get_mut(id).unwrap().pda_queries = 2;
         }
         // 选点重点研究's capability probe (`Leelaz.startMoveFocusProbe…`), part of every start-up
         // so neither a paused start nor an engine switch skips it: an empty-board analysis with
@@ -3363,4 +3556,29 @@ fn sync_commands(inst: &Instance, target: &Target) -> (Vec<String>, EngineBoard)
     }
     cmds.extend(action_nodes.iter().map(|&n| play(n)));
     (cmds, want)
+}
+
+/// One value of a `KataGoPda` private answer (`Leelaz` `pda :` / `PDACap:` handling).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PdaLabel {
+    Pda(f64),
+    Cap(f64),
+}
+
+/// `pda: <value>` or `PDACap: <value>` at the start of a line, as the response body or an
+/// unsolicited private setter echo. Any other text is none.
+fn parse_pda_label(text: &str) -> Option<PdaLabel> {
+    let text = text.trim();
+    let (rest, cap) = if let Some(rest) = text.strip_prefix("pda:") {
+        (rest, false)
+    } else if let Some(rest) = text.strip_prefix("PDA:") {
+        // `Leelaz.parsePDALine`: the analysis line's `PDA: <value>`.
+        (rest, false)
+    } else if let Some(rest) = text.strip_prefix("PDACap:") {
+        (rest, true)
+    } else {
+        return None;
+    };
+    let value = rest.split_whitespace().next()?.parse::<f64>().ok().filter(|v| v.is_finite())?;
+    Some(if cap { PdaLabel::Cap(value) } else { PdaLabel::Pda(value) })
 }

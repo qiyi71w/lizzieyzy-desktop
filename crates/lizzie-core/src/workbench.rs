@@ -234,6 +234,14 @@ pub struct Workbench {
     secondary_store: AnalysisStore,
     /// The user paused analysis (session only, like Java `userAnalysisPaused`).
     paused: bool,
+    /// 优先分析此点 of the current position (`LizzieFrame.priorityMoveCoords`): session only,
+    /// cleared by a move and by leaving the position.
+    priority_points: Vec<Point>,
+    /// The foreground engine the recorded points were sent to: a restart or switch gives an
+    /// engine without those policies, so the list is not shown for it.
+    priority_engine: Option<InstanceId>,
+    /// The document and node the points were recorded for: another position never shows them.
+    priority_at: Option<(u64, NodeId)>,
     /// The user chose this game's komi (`GameInfo.changedKomi`): engine profiles no longer set it.
     komi_changed: bool,
     /// A newly started foreground engine whose profile komi applies to a still empty game once
@@ -405,6 +413,9 @@ impl Workbench {
             store,
             secondary_store,
             paused: false,
+            priority_points: Vec::new(),
+            priority_engine: None,
+            priority_at: None,
             komi_changed: false,
             start_komi: None,
             limit_stop: None,
@@ -841,6 +852,10 @@ impl Workbench {
             Vec::new()
         };
         self.human_sl_position_changed();
+        // 优先分析此点 is recorded for the shown position only.
+        self.priority_points.clear();
+        self.priority_engine = None;
+        self.priority_at = None;
         self.cursor = target;
         self.sync_engine();
         self.quick_navigated();

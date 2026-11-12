@@ -52,6 +52,16 @@
 .kata-params > div:not(.kata-params-grid) { margin-top: 8px; }
 .kata-params-link { cursor: pointer; text-decoration: underline; }
 .kata-params .engine-actions { justify-content: center; }
+/* KataGo 激进参数PDA设置 (SetKataPDA.java, middle font 680 wide: 当前PDA row, the three choices
+   with 动态系数 and the two 66 x 24 fields, the tip, 自动加载, the red notes, 确定 / 取消). */
+.kata-params.custom-pda { min-width: 640px; }
+.custom-pda-current { display: flex; align-items: baseline; gap: 8px; font-size: 14px; }
+.custom-pda-current-value { font-size: 15px; }
+.custom-pda-modes { display: flex; flex-wrap: wrap; align-items: center; column-gap: 14px; row-gap: 6px; }
+.custom-pda-check, .custom-pda-ratio { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.custom-pda-value { width: 66px; height: 24px; box-sizing: border-box; }
+.kata-params > .custom-pda-check { display: flex; margin-top: 8px; }
+.kata-params > .custom-pda-warning { color: red; margin-top: 4px; }
 .engine-settings { display: grid; grid-template-columns: 150px minmax(360px, 1fr); padding: 12px; gap: 20px; }
 .engine-settings nav { display: flex; flex-direction: column; gap: 6px; }
 .engine-settings-form { display: grid; gap: 10px; }

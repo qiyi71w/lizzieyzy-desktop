@@ -283,6 +283,19 @@ body {
   line-height: 15px;
   padding: 0;
 }
+/* more2 "..." beside PDA (Menu.java:9664-9672, middle font 23 x 23). */
+.tb-pill.small.pda-more {
+  width: 23px;
+  margin-left: 2px;
+}
+/* lblCustomPda + txtPDA (Menu.java:5944-5946, 9676-9679: right-aligned, middle font 60 wide). */
+.tb-group.custom-pda {
+  column-gap: 4px;
+}
+.tb-group.custom-pda .tb-input {
+  width: 60px;
+  text-align: right;
+}
 .tb-group {
   column-gap: 0;
 }

@@ -33,7 +33,7 @@ use crate::api::{
     EngineProblem, ImportEngineView, ImportFailure, ImportItemView, ImportReason, ImportStatus, ImportTarget,
 };
 use crate::engine::gtp::{join_command, prepare_launch, split_command, FILE_PATH_OPTIONS};
-use crate::engine::profile::{new_profile_id, EngineProfile, EngineStartup};
+use crate::engine::profile::{new_profile_id, CustomPdaMode, CustomPdaSettings, EngineProfile, EngineStartup};
 use crate::engine::runtime::LeelaOption;
 use crate::engine::ssh::SshSettings;
 use crate::engine::tuning::{GtpConfiguration, ThreadPolicy};
@@ -99,6 +99,42 @@ pub fn conventional_dirs(home: Option<&Path>, public: Option<&Path>, program_dat
         dirs.push(h.join(".lizzieyzy-next-foxuid"));
     }
     dirs
+}
+
+/// Partial Java settings: absent or invalid keys leave the current preference alone.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CustomPdaImport {
+    dynamic: Option<bool>,
+    fixed: Option<bool>,
+    auto_apply: Option<bool>,
+    cap: Option<Option<f64>>,
+    value: Option<Option<f64>>,
+    command: Option<(CustomPdaMode, f64)>,
+}
+
+impl CustomPdaImport {
+    fn apply(&self, current: &CustomPdaSettings) -> CustomPdaSettings {
+        let mut out = current.clone();
+        if let Some(v) = self.auto_apply { out.auto_apply = v; }
+        if let Some(v) = self.cap { out.dynamic_cap = v; }
+        if let Some(v) = self.value { out.fixed_value = v; }
+        if self.dynamic.is_some() || self.fixed.is_some() {
+            out.mode = if self.dynamic == Some(true) { CustomPdaMode::Dynamic }
+                else if self.fixed == Some(true) { CustomPdaMode::Fixed }
+                else { CustomPdaMode::Disabled };
+        } else if let Some((mode, _)) = self.command {
+            out.mode = mode;
+        }
+        // The command is a fallback for old/partial configs, not a second persisted command.
+        if let Some((mode, value)) = self.command {
+            match mode {
+                CustomPdaMode::Dynamic if self.cap.is_none() => out.dynamic_cap = Some(value),
+                CustomPdaMode::Fixed if self.value.is_none() => out.fixed_value = Some(value),
+                _ => {}
+            }
+        }
+        out
+    }
 }
 
 /// Settings this product can take over. `None` = not present (or not usable) in the Java files.
@@ -168,6 +204,7 @@ pub struct Mapped {
     /// `ui.chk-lzsai-engine*` / `ui.autoload-Lzsai-engine*` / `ui.txt-lzsai-engine*`, in
     /// [`LeelaOption::ALL`] order.
     pub leela_options: [LeelaOptionImport; 4],
+    pub custom_pda: CustomPdaImport,
     pub startup_benchmark: Option<bool>,
     /// The start-up benchmark the user dismissed (signature, version).
     pub startup_benchmark_dismissed_signature: Option<String>,
@@ -1570,6 +1607,7 @@ impl Reader<'_> {
         let ui = root.get("ui").and_then(Value::as_object).unwrap_or(&empty);
         let leelaz = root.get("leelaz").and_then(Value::as_object).unwrap_or(&empty);
         let mut handled: Handled = Vec::new();
+        self.custom_pda(ui, &mut handled);
 
         for (key, field, kind) in [
             ("analyze-all-branch", "allBranches", 0),
@@ -1887,6 +1925,47 @@ impl Reader<'_> {
                 }
                 None => self.not_migrated(section.clone(), value),
             }
+        }
+    }
+
+    fn custom_pda(&mut self, ui: &Map<String, Value>, handled: &mut Handled) {
+        for key in ["chk-dym-pda", "chk-static-pda", "chk-auto-pda", "dym-pda-cap", "static-pda-cur", "auto-pda"] {
+            let Some(raw) = ui.get(key) else { continue };
+            handled.push(("ui", key));
+            let valid = match key {
+                "chk-dym-pda" | "chk-static-pda" | "chk-auto-pda" => as_bool(raw).map(|v| {
+                    match key {
+                        "chk-dym-pda" => self.mapped.custom_pda.dynamic = Some(v),
+                        "chk-static-pda" => self.mapped.custom_pda.fixed = Some(v),
+                        _ => self.mapped.custom_pda.auto_apply = Some(v),
+                    }
+                }).is_some(),
+                "dym-pda-cap" | "static-pda-cur" => {
+                    let value = if raw.as_str().is_some_and(|s| s.trim().is_empty()) { Some(None) }
+                        else { as_f64(raw).filter(|v| v.is_finite()).map(Some) };
+                    value.map(|v| {
+                        if key == "dym-pda-cap" { self.mapped.custom_pda.cap = Some(v); }
+                        else { self.mapped.custom_pda.value = Some(v); }
+                    }).is_some()
+                }
+                _ => raw.as_str().is_some_and(|s| {
+                    if s.trim().is_empty() { return true; }
+                    let mut words = s.split_whitespace();
+                    let command = words.next();
+                    let value = words.next().and_then(|s| s.parse::<f64>().ok()).filter(|v| v.is_finite());
+                    if words.next().is_some() || s.chars().any(char::is_control) { return false; }
+                    let Some(value) = value else { return false };
+                    let mode = match command {
+                        Some("pda") => if value == 0.0 { CustomPdaMode::Disabled } else { CustomPdaMode::Fixed },
+                        Some("dympdacap") if value != 0.0 => CustomPdaMode::Dynamic,
+                        _ => return false,
+                    };
+                    self.mapped.custom_pda.command = Some((mode, value));
+                    true
+                }),
+            };
+            if valid { self.imported(format!("ui.{key}"), ImportTarget::CustomPda, shown(raw)); }
+            else { self.invalid(format!("ui.{key}"), ImportTarget::CustomPda, raw); }
         }
     }
 
@@ -3242,6 +3321,7 @@ impl Mapped {
             set!(current.auto_load, row.auto_load);
             set!(current.value, row.value);
         }
+        c.engine.custom_pda = self.custom_pda.apply(&c.engine.custom_pda);
         set!(
             c.engine.startup_benchmark_dismissed_signature,
             self.startup_benchmark_dismissed_signature
@@ -3589,6 +3669,9 @@ impl Mapped {
         });
         if leela_changed {
             out.push(ImportTarget::LeelaOptions);
+        }
+        if self.custom_pda.apply(&config.engine.custom_pda) != config.engine.custom_pda {
+            out.push(ImportTarget::CustomPda);
         }
         cmp!(
             ImportTarget::StartupBenchmark,

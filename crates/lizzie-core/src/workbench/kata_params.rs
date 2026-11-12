@@ -6,9 +6,10 @@
 //! may reach the foreground engine and remembers them.
 
 use super::Workbench;
-use crate::api::{ApiError, GameKind, KataEngineParamsEdit, KataParamEdit, KataParamsView};
-use crate::engine::profile::LeelaOptionSettings;
+use crate::api::{ApiError, CustomPdaView, ErrorKind, GameKind, KataEngineParamsEdit, KataParamEdit, KataParamsView};
+use crate::engine::profile::{CustomPdaSettings, LeelaOptionSettings};
 use crate::engine::runtime::{KataParam, LeaseAvailability};
+use crate::record::{GameRecord, NodeId, NodeKind, Point, Stone, ROOT};
 
 impl Workbench {
     /// Why the user's `param` cannot reach the foreground KataGo now, as a Java message key
@@ -77,6 +78,14 @@ impl Workbench {
             return Ok(Some(refusal));
         }
         let value = if value.is_finite() { value } else { 0.0 };
+        // A `KataGoPda` toolbar has its own value read-back (`txtPDA` beside the custom label);
+        // Java's `setPda` only sends there and leaves the standard 激进度 preferences alone.
+        if param == KataParam::Pda
+            && self.engines.foreground().is_some_and(|f| self.engines.is_kata_go_pda(f))
+        {
+            self.send_kata_param(param, if enabled { value } else { 0.0 }, true);
+            return Ok(None);
+        }
         self.commit_config(|c| {
             let e = &mut c.engine;
             match param {
@@ -185,4 +194,130 @@ impl Workbench {
             self.clear_analysis_cache(crate::api::AnalysisScope::All);
         }
     }
+
+    /// The foreground KataGoPda's reported PDA / cap and live mode; saved mode before read-back.
+    pub(super) fn custom_pda_view(&self) -> CustomPdaView {
+        let (pda, cap, mode) = self
+            .engines
+            .foreground()
+            .map(|f| self.engines.custom_pda(f))
+            .unwrap_or((None, None, None));
+        CustomPdaView { pda, cap, mode: mode.unwrap_or(self.config.engine.custom_pda.mode) }
+    }
+
+    /// KataGoPda 激进参数PDA设置 确定 (`SetKataPDA`): the mode, its value and 自动套用 are saved;
+    /// only a foreground `KataGoPda` receives `pda` / `dympdacap`, and an empty value sends
+    /// nothing. The dialog opens and saves on any engine (the fixed Java build could not tell
+    /// whether the engine understands these commands). A 动态 系数 of zero or a non-finite
+    /// value is `SetKataPDA.wrongParameter` and changes nothing.
+    pub fn save_custom_pda(&mut self, settings: CustomPdaSettings) -> Result<Option<&'static str>, ApiError> {
+        if settings.invalid() {
+            return Ok(Some("SetKataPDA.wrongParameter"));
+        }
+        self.commit_config(|c| c.engine.custom_pda = settings.clone())?;
+        // 野狐 owns the search; the settings are kept for the next start instead of changing
+        // the engine under it.
+        if !self.fox_owns_board() && !self.fox_holds_engine() {
+            self.engines.apply_custom_pda(&settings);
+        }
+        Ok(None)
+    }
+
+    /// 优先分析此点 (`RightClickMenu.priority`): records an empty, legal point of the shown
+    /// position (the list is session only and cleared by a move or navigation), starts analysis
+    /// when it was paused, and sends `setmaxpolicy <vertex> 1.1` to a `KataGoCustom` /
+    /// `KataGoPda` foreground engine. Other engines and points change nothing.
+    pub fn set_priority_point(&mut self, point: Point) -> Result<bool, ApiError> {
+        if self.fox_owns_board() || self.fox_holds_engine() {
+            return Err(ApiError::new(ErrorKind::Unavailable, "Fox.conflict"));
+        }
+        let Some(fg) = self.engines.foreground() else { return Ok(false) };
+        if !self.engines.supports_custom_policy(fg) {
+            return Ok(false);
+        }
+        let (size, to_play, position) = {
+            let rec = &self.doc.record;
+            (rec.size, rec.node(self.cursor).to_play, rec.position(self.cursor))
+        };
+        if !size.contains(point) || position.at(point).is_some() {
+            return Ok(false);
+        }
+        // A suicide outside 允许自杀 is not a legal point.
+        let mut trial = position.clone();
+        if trial.play(to_play, point) > 0 && !self.play_rules().allow_suicide {
+            return Ok(false);
+        }
+        let was_paused = self.paused || self.limit_stop.is_some();
+        if was_paused {
+            self.toggle_analysis()?;
+        }
+        let sent = self.engines.set_priority_point(point, size);
+        if sent {
+            if self.priority_engine != Some(fg) {
+                self.priority_points.clear();
+            }
+            if !self.priority_points.contains(&point) {
+                self.priority_points.push(point);
+            }
+            self.priority_engine = Some(fg);
+            self.priority_at = Some((self.doc.id, self.cursor));
+        }
+        Ok(was_paused || sent)
+    }
+
+    /// 清除优先分析 (`RightClickMenu.clearPriority`): `clearpolicy`, and the session's points.
+    pub fn clear_priority_points(&mut self) -> Result<bool, ApiError> {
+        let had = !self.priority_points.is_empty();
+        self.priority_points.clear();
+        self.priority_engine = None;
+        self.priority_at = None;
+        if self.fox_owns_board() || self.fox_holds_engine() {
+            return Ok(had);
+        }
+        let sent = self.engines.clear_priority_points();
+        Ok(had || sent)
+    }
+
+    /// 自动套用 on a handicap game's first White move (`BoardHistoryNode` →
+    /// `Leelaz.maybeAjustPDA`). Only a `KataGoPda` engine receives the private commands, and
+    /// only while 自动套用 is checked.
+    pub(super) fn custom_pda_after_move(&mut self, node: NodeId) {
+        let settings = &self.config.engine.custom_pda;
+        if !settings.auto_apply {
+            return;
+        }
+        let Some(fg) = self.engines.foreground() else { return };
+        if !self.engines.is_kata_go_pda(fg) || !first_white_node_with_handicap(&self.doc.record, node) {
+            return;
+        }
+        let settings = settings.clone();
+        self.engines.apply_custom_pda(&settings);
+    }
+}
+
+/// `Board.isFirstWhiteNodeWithHandicap`: a White action with no earlier White action and more
+/// than one Black action before it. The fixed Java build keeps its handicap stones as history
+/// actions; this product keeps them as root setup, so the setup/HA count stands in for them.
+fn first_white_node_with_handicap(rec: &GameRecord, node: NodeId) -> bool {
+    let white_action = match rec.node(node).kind {
+        NodeKind::Move { color, .. } | NodeKind::Pass { color } => color == Stone::White,
+        _ => return false,
+    };
+    if !white_action {
+        return false;
+    }
+    let root = rec.node(ROOT);
+    let mut black_actions = root.setup.add_black.len().max(rec.info.handicap as usize);
+    let mut current = node;
+    while let Some(parent) = rec.parent(current) {
+        current = parent;
+        match rec.node(current).kind {
+            NodeKind::Move { color: Stone::White, .. } | NodeKind::Pass { color: Stone::White } => return false,
+            NodeKind::Move { color: Stone::Black, .. } | NodeKind::Pass { color: Stone::Black } => {
+                black_actions += 1;
+            }
+            _ => {}
+        }
+    }
+    black_actions > 1
 }

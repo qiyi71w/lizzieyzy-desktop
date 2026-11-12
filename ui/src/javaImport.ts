@@ -112,6 +112,8 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   KataParamAutoLoad: "SetKataEngines.title",
   KataParamToolbar: "SetKataEngines.title",
   LeelaOptions: "SetLeelaEngines.title",
+  // KataGo 激进参数PDA设置 (SetKataPDA.java): mode, ratio / value and 自动加载.
+  CustomPda: "SetKataPDA.title",
   Scoring: "BottomToolbar.finalScore",
   SuggestionsFrame: "Menu.SuggestionList",
   ExtraMode: "Menu.layoutMode",

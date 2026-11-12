@@ -20,6 +20,7 @@ import { matchPlaying } from "../match/state";
 import { foxOwnsEngine, submitFoxPda } from "../fox/dialog";
 import type { KataParam } from "../contract/generated";
 import { kataGoPda, kataRevealed, kataToolbarState, kataToolbarUse, kataValueInvalid } from "../engine/kataParams";
+import { openCustomPda } from "../engine/customPda";
 import "../editing/chrome.css";
 import "../strength/commands";
 
@@ -362,11 +363,63 @@ function kataGroup(param: KataParam): HTMLElement {
   return g;
 }
 
+/** more2 "..." (Menu.java:6101-6116) opens KataGo 激进参数PDA设置. Java shows it only in a
+ *  KataGoPda engine's own PDA panel; here it follows every foreground KataGo outside engine games
+ *  (approved: the window can be opened and saved with any KataGo). */
+function pdaMoreShown(): boolean {
+  const v = state.view;
+  return !!v?.engine.foreground?.katago && v.engine_match?.phase !== "Starting" && !matchPlaying(v);
+}
+
+/** A KataGoPda engine's own PDA panel, lblCustomPda and txtPDA (Menu.java:5943-5965, 9658-9661,
+ *  9970-9986): the label without a colon and the engine's PDA as it reports it ("%.3f"), shown
+ *  until the field is being edited. Each key release with a number sets it on the engine
+ *  (`kata-set-param playoutDoublingAdvantage`); empty, "-" or "." send nothing. While 野狐 AI 直连
+ *  holds the engine its own 激进度 group shows instead. */
+function customPdaGroup(): HTMLElement {
+  const value = document.createElement("input");
+  value.className = "tb-input custom-pda";
+  value.dataset.key = "toolbar.customPda";
+  value.setAttribute("aria-label", t("Menu.chkPDA.toolTopText"));
+  value.addEventListener("keyup", () => {
+    const pda = parseJavaDouble(value.value);
+    if (pda !== null) void run({ type: "SetKataParam", param: "Pda", enabled: true, value: pda });
+  });
+  const g = group("custom-pda", label(t("Menu.separateLblPda")), value);
+  let shown: number | null | undefined = undefined;
+  updaters.push(() => {
+    const display = kataGoPda() && !foxOwnsEngine() && pdaMoreShown() ? "" : "none";
+    if (g.style.display !== display) g.style.display = display;
+    const pda = state.view?.engine.custom_pda.pda ?? null;
+    if (pda === shown || document.activeElement === value) return;
+    shown = pda;
+    value.value = pda === null ? "" : pda.toFixed(3);
+  });
+  return g;
+}
+
+function pdaMoreButton(): HTMLElement {
+  const b = pill("...", "small pda-more");
+  b.classList.remove("unavailable");
+  b.title = t("Accessibility.pdaOptions");
+  b.setAttribute("role", "button");
+  b.setAttribute("aria-label", t("Accessibility.pdaOptions"));
+  b.dataset.key = "toolbar.pdaMore";
+  // Function search's engine.pda with a KataGoPda engine (search/targets.ts toolbarControl).
+  at("engine.pda", b);
+  b.onclick = () => void openCustomPda();
+  updaters.push(() => {
+    const display = pdaMoreShown() ? "" : "none";
+    if (b.style.display !== display) b.style.display = display;
+  });
+  return b;
+}
+
 /** sepForPdaWrn: the separator after the komi panel goes with the last PDA / WRN group. */
 function kataSeparator(): HTMLElement {
   const s = sep("dash");
   updaters.push(() => {
-    const display = kataGroupShown("Pda") || kataGroupShown("Wrn") ? "" : "none";
+    const display = kataGroupShown("Pda") || kataGroupShown("Wrn") || pdaMoreShown() ? "" : "none";
     if (s.style.display !== display) s.style.display = display;
   });
   return s;
@@ -551,6 +604,8 @@ export function buildToolbar(host: HTMLElement): void {
     group("komi", label(t("Menu.komi")), komiField(), komiSpinner()),
     kataSeparator(),
     kataGroup("Pda"),
+    customPdaGroup(),
+    pdaMoreButton(),
     kataGroup("Wrn"),
     sep(),
     label(t("Menu.lblShowCandidate")),

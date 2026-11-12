@@ -217,6 +217,8 @@ export interface BoardScene {
   /** 选点重点研究 of this position (main board only) and its outline settings. */
   focus: FocusView | null;
   tracking: TrackingSettings;
+  /** 优先分析此点 points of this position (LizzieFrame.priorityMoveCoords, main board only). */
+  priority: Point[];
 }
 
 /** What the main board drew, for the acceptance probe. */
@@ -1103,8 +1105,8 @@ function isHovered(c: CandidateView, s: BoardScene): boolean {
 
 /** drawLeelazSuggestionsUnimportant (BoardRenderer.java:3057-3172): candidates of rank 20 and
  *  beyond, and with show-nosugg-circle those beyond 最大候选点数, get a plain disc and ring without
- *  text, except the actual next move. Returns the points covered (hasDrawBackground); draws them
- *  only when `draw` (no branch shows). */
+ *  text, except the actual next move and a 优先分析此点 point (3108-3119). Returns the points
+ *  covered (hasDrawBackground); draws them only when `draw` (no branch shows). */
 function drawUnimportant(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardGeom, X: (x: number) => number, Y: (y: number) => number, draw: boolean, report: BoardReport): Set<number> {
   const covered = new Set<number>();
   const candidates = s.analysis?.candidates ?? [];
@@ -1115,7 +1117,7 @@ function drawUnimportant(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardG
     if (!pt || c.visits <= 0 || pt.x >= s.cols || pt.y >= s.rows || pt.x < 0 || pt.y < 0) continue;
     const beyond = outOfOrder(c, s);
     if (!beyond && c.order < 20) continue;
-    if (samePoint(pt, s.nextMainMove)) continue;
+    if (samePoint(pt, s.nextMainMove) || s.priority.some((p) => samePoint(p, pt))) continue;
     if (!s.display.noSuggCircle && beyond) continue;
     covered.add(pt.y * s.cols + pt.x);
     if (!draw) continue;
@@ -1133,9 +1135,10 @@ function drawUnimportant(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardG
 /** Candidates drawLeelazSuggestions (BoardRenderer.java:2437-2632) shows, worst first; the move
  *  played and analysed further than its candidate (`ignored`) is returned apart. Without
  *  show-nosugg-circle the candidates beyond 最大候选点数 are not kept at all, except the one
- *  lastTimeUnlimited keeps (BoardData.tryToLimitMoves, BoardData.java:586-635); with it, those under an unimportant
- *  circle show nothing more unless hovered (2523-2524). The actual next move (needShow) and the
- *  hovered one keep their numbers (2547-2553, 2571-2572). */
+ *  lastTimeUnlimited keeps (BoardData.tryToLimitMoves, BoardData.java:586-635) and a 优先分析此点
+ *  point (619-628); with it, those under an unimportant circle show nothing more unless hovered
+ *  (2523-2524). The actual next move and a 优先分析此点 point (needShow) and the hovered one keep
+ *  their numbers (2547-2553, 2571-2572). */
 function shownCandidates(s: BoardScene, X: (x: number) => number, Y: (y: number) => number, ignored: Point | null, covered: Set<number>): { shown: ShownCandidate[]; ignoredCandidate: CandidateView | null } {
   const candidates = s.analysis?.candidates ?? [];
   const max = Math.max(1, ...candidates.map((c) => c.allocation_visits));
@@ -1144,7 +1147,8 @@ function shownCandidates(s: BoardScene, X: (x: number) => number, Y: (y: number)
   for (let k = candidates.length - 1; k >= 0; k--) {
     const c = candidates[k], pt = c.point;
     if (!pt || c.visits <= 0 || pt.x >= s.cols || pt.y >= s.rows || pt.x < 0 || pt.y < 0) continue;
-    const beyond = outOfOrder(c, s);
+    const priority = s.priority.some((p) => samePoint(p, pt));
+    const beyond = outOfOrder(c, s) && !priority;
     if (beyond && !s.display.noSuggCircle) continue;
     if (samePoint(ignored, pt)) {
       ignoredCandidate = c;
@@ -1154,7 +1158,7 @@ function shownCandidates(s: BoardScene, X: (x: number) => number, Y: (y: number)
     const background = covered.has(pt.y * s.cols + pt.x);
     if (beyond && !hovered && background) continue;
     const ratio = Math.min(1, c.allocation_visits / max);
-    const needShow = samePoint(s.nextMainMove, pt);
+    const needShow = samePoint(s.nextMainMove, pt) || priority;
     const lack = ratio <= s.display.minPlayoutRatio;
     shown.push({
       c,

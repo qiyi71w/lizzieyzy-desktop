@@ -303,6 +303,23 @@ importing the matching LizzieYzy Next settings.
   LizzieYzy Next import. Other engines never get `lz-setoption`: for an engine that is neither
   KataGo nor Leela Zero / Sai (Sayuri, Pachi, Leela 0.11, unknown engines) the entry shows Java's
   "not Leela or Sai" notice instead of the window, where Java would open it.
+- KataGoPda settings: the `...` button beside the toolbar's PDA controls opens the dedicated
+  dialog. Choose 不启用PDA, 动态PDA with a nonzero coefficient, or 固定PDA with a value.
+  确定 saves the choice; 取消 leaves it unchanged. An empty value is saved without sending a
+  command. The dialog can also be used with standard KataGo, but only an engine whose GTP name
+  begins with `KataGoPda` receives `pda`, `dympdacap`, `getpda` or `getdympdacap`.
+  自动加载 applies the saved choice after startup read-back and again on the first white move
+  of a handicap game. These are the Java implementation's triggers, not every new game.
+  The six Java PDA-dialog settings import as a mode, numeric values and an automatic-apply
+  choice; an invalid `auto-pda` command is reported as an invalid value, never stored as a raw
+  command. Explicit mode/value keys take precedence; a parsed command supplies missing fields.
+- With a `KataGoCustom` or `KataGoPda` engine, right-click an empty intersection for
+  优先分析此点 (`setmaxpolicy <coordinate> 1.1`) or 清除优先分析 (`clearpolicy`). Choosing a priority
+  point starts analysis if it is paused. Reported priority candidates remain visible beyond the
+  candidate-count and low-visit display limits. A move clears the temporary priority selection
+  without sending `clearpolicy`; it is not saved in the record or preferences.
+  The private protocol is covered with controlled engines; acceptance by a real KataGoPda
+  binary remains unverified.
 - 显示 > 选点信息 > 总是显示黑胜率/目数 and 显示 > KataGo相关设置 > 目数显示 (计算贴目后目数差 /
   盘面目数差) are Java's two shared settings, both off by default, saved and taken over by the
   LizzieYzy Next import. The board candidates and the candidate table show the side to move, or

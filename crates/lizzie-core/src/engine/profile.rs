@@ -171,6 +171,8 @@ pub struct EngineSettings {
     pub kata_params: KataParamSettings,
     /// The Leela Zero / Sai 引擎参数 window (`SetLeelaEngines`).
     pub leela_options: LeelaOptionSettings,
+    /// KataGoPda's dedicated dialog; never a stored raw GTP command.
+    pub custom_pda: CustomPdaSettings,
     /// `ui.enable-startup-benchmark` [false on a new profile, Config.applyFirstLaunchDefaults]:
     /// the user opted in to the official benchmark after start-up when the foreground KataGo has
     /// no stored result (Settings > Advanced).
@@ -241,6 +243,64 @@ impl Default for KataParamSettings {
             show_pda: true,
             show_wrn: true,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum CustomPdaMode {
+    #[default]
+    Disabled,
+    Dynamic,
+    Fixed,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CustomPdaSettings {
+    pub mode: CustomPdaMode,
+    pub dynamic_cap: Option<f64>,
+    pub fixed_value: Option<f64>,
+    pub auto_apply: bool,
+}
+
+impl CustomPdaSettings {
+    /// Java's `SetKataPDA` mapping, in the order the dialog sends it: 不启用 `pda 0`; 动态
+    /// `pda 0` then `dympdacap <cap>`; 固定 `pda <value>`. A missing value sends nothing (the
+    /// dialog saves an empty field without a command), and a zero or non-finite 动态 系数 is
+    /// invalid (`SetKataPDA.wrongParameter`), so neither reaches an engine.
+    pub fn commands(&self) -> Vec<String> {
+        match self.mode {
+            CustomPdaMode::Disabled => vec!["pda 0".to_string()],
+            CustomPdaMode::Dynamic => self
+                .dynamic_cap
+                .filter(|cap| cap.is_finite() && *cap != 0.0)
+                .map(|cap| vec!["pda 0".to_string(), format!("dympdacap {}", java_double(cap))])
+                .unwrap_or_default(),
+            CustomPdaMode::Fixed => self
+                .fixed_value
+                .filter(|value| value.is_finite())
+                .map(|value| vec![format!("pda {}", java_double(value))])
+                .unwrap_or_default(),
+        }
+    }
+
+    /// The dialog's refusal (`SetKataPDA.wrongParameter`): a 动态 系数 that is zero or not a
+    /// finite number, or a 固定 value that is not finite.
+    pub fn invalid(&self) -> bool {
+        match self.mode {
+            CustomPdaMode::Disabled => false,
+            CustomPdaMode::Dynamic => self.dynamic_cap.is_some_and(|cap| !cap.is_finite() || cap == 0.0),
+            CustomPdaMode::Fixed => self.fixed_value.is_some_and(|value| !value.is_finite()),
+        }
+    }
+}
+
+/// `Double.toString` for the values a PDA takes (a whole number keeps `.0`).
+fn java_double(value: f64) -> String {
+    if value.fract() == 0.0 && value.abs() < 1e7 {
+        format!("{value:.1}")
+    } else {
+        format!("{value}")
     }
 }
 

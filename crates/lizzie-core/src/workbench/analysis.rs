@@ -16,9 +16,9 @@ use std::time::{Duration, Instant};
 
 use super::Workbench;
 use crate::api::{
-    AnalysisScope, ApiError, CandidateView, ConsoleLineKind, ConsoleLineView, EngineEntryView, EngineFailureView, EngineNotice,
-    EngineScope, EngineSettingsView, EngineState, EngineView, ErrorKind, ForegroundEngineView, HistoryPoint,
-    NodeAnalysisView, RulesPromptView, SecondaryEngineView, SecondaryView,
+    AnalysisScope, ApiError, CandidateView, ConsoleLineKind, ConsoleLineView, EngineEntryView,
+    EngineFailureView, EngineNotice, EngineScope, EngineSettingsView, EngineState, EngineView, ErrorKind,
+    ForegroundEngineView, HistoryPoint, NodeAnalysisView, RulesPromptView, SecondaryEngineView, SecondaryView,
 };
 use crate::browse::Navigation;
 use crate::display::{self, BoardOverlayView};
@@ -687,6 +687,7 @@ impl Workbench {
             pda: p.auto_load_pda_value.filter(|_| p.auto_load_pda),
             wrn: p.auto_load_wrn_value.filter(|_| p.auto_load_wrn),
             leela_options: s.leela_options.auto_loaded(),
+            custom_pda: s.custom_pda.clone(),
         }
     }
 
@@ -1788,6 +1789,14 @@ impl Workbench {
             unrestored,
             down: fg.is_none() && self.engines.foreground_failure().is_some(),
             kata_params: self.kata_params_view(),
+            custom_pda: self.custom_pda_view(),
+            priority_points: if self.priority_engine == self.engines.foreground()
+                && self.priority_at == Some((self.doc.id, self.cursor))
+            {
+                self.priority_points.clone()
+            } else {
+                Vec::new()
+            },
         }
     }
 
@@ -1804,6 +1813,7 @@ impl Workbench {
             kata_pda_enabled: s.kata_pda_enabled,
             kata_params: s.kata_params.clone(),
             leela_options: s.leela_options.clone(),
+            custom_pda: s.custom_pda.clone(),
         }
     }
 

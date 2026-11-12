@@ -838,6 +838,19 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             publish(&app, &shared);
             Ok(refused.map_or(CommandResult::Done, |key| CommandResult::Refused { message_key: key.to_string() }))
         }
+        Command::SaveCustomPda { settings } => {
+            let refused = shared.workbench.lock().unwrap().save_custom_pda(settings)?;
+            publish(&app, &shared);
+            Ok(refused.map_or(CommandResult::Done, |key| CommandResult::Refused { message_key: key.to_string() }))
+        }
+        Command::SetPriorityPoint { point } => {
+            let done = shared.workbench.lock().unwrap().set_priority_point(point)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::ClearPriorityPoints => {
+            let done = shared.workbench.lock().unwrap().clear_priority_points()?;
+            Ok(changed(&app, &shared, done))
+        }
         Command::SendGtpCommand { command } => {
             let refused = shared.workbench.lock().unwrap().send_gtp(&command)?;
             publish(&app, &shared);

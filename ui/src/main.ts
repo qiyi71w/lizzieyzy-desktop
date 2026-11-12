@@ -215,7 +215,8 @@ const NEXT_MOVE = "next";
 
 /** BoardRenderer.mouseOveredMove for a pointer: `near` tells whether an intersection is under it
  *  (within a stone radius + 1 px). The 下一手 详细 point comes first; beyond 最大候选点数 the
- *  candidates exist only with show-nosugg-circle (BoardData.tryToLimitMoves). */
+ *  candidates exist only with show-nosugg-circle (BoardData.tryToLimitMoves), except a 优先分析此点
+ *  point of the foreground engine (BoardData.java:619-628). */
 function hoverNear(v: WorkbenchView, near: (p: Point) => boolean) {
   if (!hoverAllowed(v)) return hover(null);
   const doubleEngine = dual !== null;
@@ -223,7 +224,8 @@ function hoverNear(v: WorkbenchView, near: (p: Point) => boolean) {
   if (next && near(next)) return hover(NEXT_MOVE);
   const limit = v.settings.engine.analysis.limitMaxSuggestion;
   const candidate = v.analysis?.candidates.find((c) => c.point && c.visits > 0 && near(c.point) &&
-    (limit === 0 || c.order < limit || v.settings.display.noSuggCircle || c.kept))
+    (limit === 0 || c.order < limit || v.settings.display.noSuggCircle || c.kept ||
+      v.engine.priority_points.some((p) => p.x === c.point!.x && p.y === c.point!.y)))
     ?? (doubleEngine ? v.secondary?.analysis?.candidates.find((c) => c.point && c.visits > 0 && near(c.point) &&
       (limit === 0 || c.order < limit || v.settings.display.noSuggCircle)) : undefined);
   hover(candidate?.point ? `${candidate.point.x},${candidate.point.y}` : null);
@@ -349,8 +351,10 @@ function hoveredVariation(v: WorkbenchView, right = false): { target: ReplayTarg
   const replayed = replayLength(key) ?? tableBranchLength(key) ?? autoReplayLength(key, steps);
   const order = nextPoint ? -1 : c!.order;
   if (c && replayed === null && !v.settings.display.autoReplayBranch) {
+    // BoardRenderer.java:1669-1677: the actual next move and a 优先分析此点 point always preview.
     const next = v.position.next_moves[0];
-    const needShow = !!next && next.x === point.x && next.y === point.y;
+    const priority = !right && v.engine.priority_points.some((p) => p.x === point.x && p.y === point.y);
+    const needShow = (!!next && next.x === point.x && next.y === point.y) || priority;
     const ratio = c.allocation_visits / Math.max(1, ...candidates.map((x) => x.allocation_visits));
     const maxSuggestion = v.settings.engine.analysis.limitMaxSuggestion;
     // lastTimeUnlimited is kept for the main board's candidates only.
@@ -978,6 +982,8 @@ function boardScene(v: WorkbenchView, hovered: number | null, preview: PreviewVa
     selecting: regionDrag(),
     focus: v.focus,
     tracking: v.settings.tracking,
+    // 优先分析此点 (LizzieFrame.priorityMoveCoords) belongs to the current position only.
+    priority: at ? [] : v.engine.priority_points,
   };
 }
 
@@ -1048,7 +1054,7 @@ function render() {
   const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}:${v.game?.id ?? ""}:${v.game?.play_mode ?? ""}:${training ?? ""}`;
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
   const scoreSig = v.score ? JSON.stringify(v.score) : "";
-  const searchSig = JSON.stringify([v.region, scene.selecting, v.focus, v.settings.tracking]);
+  const searchSig = JSON.stringify([v.region, scene.selecting, v.focus, v.settings.tracking, scene.priority]);
   if (!floating && changed("board", `${background}:${P.board.x},${P.board.y},${P.board.w}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}:${searchSig}`))
     boardReport = paintBoard(prepare($("board"), P.board), mainGeom(v, P.board), P.board, scene);
   if (dual) renderDual(v, dual, W, H, size, docSig, ui, scoreSig, scene);
@@ -1320,6 +1326,7 @@ function renderDual(v: WorkbenchView, d: DualPanels, W: number, H: number, size:
     region: null,
     selecting: null,
     focus: null,
+    priority: [],
   };
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
   if (changed("board2", `${size}:${docSig}:${secondaryRevision}:${displaySig2}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("right", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}`))

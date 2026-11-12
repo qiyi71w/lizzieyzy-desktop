@@ -52,6 +52,8 @@ fn generate() -> String {
         lizzie_core::engine::runtime::KataParam, lizzie_core::engine::profile::KataParamSettings,
         lizzie_core::api::KataParamEdit, lizzie_core::api::KataEngineParamsEdit, lizzie_core::api::KataParamsView,
         lizzie_core::engine::profile::LeelaOptionSetting, lizzie_core::engine::profile::LeelaOptionSettings,
+        lizzie_core::engine::profile::CustomPdaMode, lizzie_core::engine::profile::CustomPdaSettings,
+        lizzie_core::api::CustomPdaView,
         lizzie_core::java_import::CloudImportCredentials,
         lizzie_core::engine::cloud::CloudLaunch, lizzie_core::engine::cloud::CloudProvider,
         lizzie_core::cloud::CloudSettings, lizzie_core::cloud::Provider,

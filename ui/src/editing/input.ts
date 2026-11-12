@@ -10,6 +10,7 @@ import { commitComment } from "./comment";
 import { contextMenuShowing, openContextMenu, type ContextEntry, type ContextItem } from "./contextMenu";
 import { deleteWithPrompt, edit, editing } from "./state";
 import { humanSlGameActive } from "../humansl/state";
+import { priorityMenuEntries } from "../engine/customPda";
 
 /** What the workbench knows about the board panel. */
 export interface BoardHost {
@@ -104,8 +105,8 @@ function previousMove(): ContextItem {
 }
 
 /** RightClickMenu (empty intersection), Java order with its visibility outside engine games.
- *  During a game the region, tracking, 查找 and 添加 items are hidden (RightClickMenu.java:124-141)
- *  and 分析模式 hides 加入变化 (106-107). */
+ *  During a game the region, tracking, 优先分析, 查找 and 添加 items are hidden
+ *  (RightClickMenu.java:124-141) and 分析模式 hides 加入变化 (106-107). */
 function pointMenu(point: Point): ContextEntry[] {
   const v = state.view!;
   const preview = host.previewMoves();
@@ -114,6 +115,7 @@ function pointMenu(point: Point): ContextEntry[] {
     : [
       ...regionMenuEntries(point),
       "sep",
+      ...priorityMenuEntries(point),
       previousMove(),
       { key: "RightClickMenu.findMove", label: t("RightClickMenu.findMove"), icon: "search.png", run: () => void edit({ op: "FindMove", point, any_branch: true }) },
       { key: "RightClickMenu.addblack", label: t("RightClickMenu.addblack"), icon: "smallblack1.png", run: () => void edit({ op: "Insert", point, color: "Black" }) },

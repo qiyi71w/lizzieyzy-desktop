@@ -1668,6 +1668,63 @@ fn leela_option_keys_import_like_java_reads_them() {
 }
 
 #[test]
+fn custom_pda_import_restores_modes_and_reports_invalid_commands_without_storing_them() {
+    use lizzie_core::engine::profile::CustomPdaMode;
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let source = json!({"ui": {
+        "chk-dym-pda": true, "chk-static-pda": false, "chk-auto-pda": true,
+        "dym-pda-cap": "0.75", "static-pda-cur": "-1.5", "auto-pda": "dympdacap 0.75"
+    }});
+    std::fs::write(java.join("config.txt"), source.to_string()).unwrap();
+    let p = preview(&mut wb, &java);
+    for key in ["chk-dym-pda", "chk-static-pda", "chk-auto-pda", "dym-pda-cap", "static-pda-cur", "auto-pda"] {
+        let row = item(&p.items, &format!("ui.{key}"));
+        assert_eq!((row.status, row.target), (ImportStatus::Imported, Some(ImportTarget::CustomPda)));
+    }
+    wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
+    let saved = saved_config(&product).engine.custom_pda;
+    assert_eq!(saved.mode, CustomPdaMode::Dynamic);
+    assert_eq!((saved.dynamic_cap, saved.fixed_value, saved.auto_apply), (Some(0.75), Some(-1.5), true));
+    let mut reopened = workbench(&product, Recorder::default());
+    assert_eq!(reopened.config().engine.custom_pda, saved);
+
+    // Invalid source values cannot destroy the already committed preference.
+    std::fs::write(java.join("config.txt"), json!({"ui": {
+        "dym-pda-cap": "NaN", "auto-pda": "pda 3\nquit"
+    }}).to_string()).unwrap();
+    let p = preview(&mut reopened, &java);
+    for key in ["ui.dym-pda-cap", "ui.auto-pda"] {
+        assert_eq!(item(&p.items, key).reason, Some(ImportReason::InvalidValue));
+    }
+    reopened.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
+    assert_eq!(reopened.config().engine.custom_pda, saved);
+
+    // A partial historical profile can recover the typed setting from its command.
+    std::fs::write(java.join("config.txt"), json!({"ui": {"auto-pda": "pda -2"}}).to_string()).unwrap();
+    let p = preview(&mut reopened, &java);
+    assert!(p.replaces.contains(&ImportTarget::CustomPda));
+    reopened.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
+    assert_eq!(reopened.config().engine.custom_pda.mode, CustomPdaMode::Fixed);
+    assert_eq!(reopened.config().engine.custom_pda.fixed_value, Some(-2.0));
+    assert!(!serde_json::to_string(reopened.config()).unwrap().contains("pda -2"));
+    // Disabled selection and a dormant zero coefficient are valid Java dialog state.
+    std::fs::write(java.join("config.txt"), json!({"ui": {
+        "chk-dym-pda": false, "chk-static-pda": false, "chk-auto-pda": false,
+        "dym-pda-cap": "0", "static-pda-cur": "", "auto-pda": "pda 0"
+    }}).to_string()).unwrap();
+    let p = preview(&mut reopened, &java);
+    assert_eq!(item(&p.items, "ui.dym-pda-cap").status, ImportStatus::Imported);
+    reopened.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
+    let saved = &reopened.config().engine.custom_pda;
+    assert_eq!((saved.mode, saved.dynamic_cap, saved.fixed_value, saved.auto_apply),
+        (CustomPdaMode::Disabled, Some(0.0), None, false));
+}
+
+#[test]
 fn hawkeye_settings_import_like_java_reads_them() {
     // Config.java:1801-1827, 1891-1893, 1947-1956, 2021-2024; MoveListFrame.setFilterStatus.
     let tmp = tempfile::tempdir().unwrap();
