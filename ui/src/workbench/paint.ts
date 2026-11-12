@@ -1553,7 +1553,8 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
   const nextHover = s.preview?.order === -1 && s.overlay.next_move ? s.overlay.next_move.point : null;
   const hoverPoint = nextHover ?? (s.preview ? s.analysis?.candidates.find((c) => c.order === s.preview!.order)?.point ?? null : null);
   const hoverIndex = hoverPoint ? hoverPoint.y * cols + hoverPoint.x : -1;
-  if (preview) {
+  // A review draws its variation's captured stones itself (drawBranchForMouseOnStone).
+  if (preview && !s.review) {
     if (layers.float) drawFloatCapturedPoints(g, preview, px, py, r, cols, s.rows, hoverIndex, layers.float.boardType);
     else drawPreviewStones(g, preview, px, py, r);
   }
@@ -1608,19 +1609,51 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
 }
 
 /** The review's marks over its position (BoardRenderer.java:313-326, 1465-1559): the variation's
- *  numbers in the contrasting colour (none red), then drawMoveRankMark or drawLastMoveMark, whose
- *  stone-indicator-type 0 is the red triangle, 1 the ring and 2 the dot; 3 draws nothing. */
+ *  stones a later move captures are covered by the board and shaded, crossed when they were
+ *  stones of the position (drawCapturedStone); every variation move keeps its number, the last
+ *  one played on its point, in the contrasting colour (none red); then drawMoveRankMark or
+ *  drawLastMoveMark, whose stone-indicator-type 0 is the red triangle, 1 the ring and 2 the dot;
+ *  3 draws nothing. */
 function drawReviewOverlay(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardGeom, X: (x: number) => number, Y: (y: number) => number, preview: Preview | null, report: BoardReport): void {
   const r = geo.stoneRadius, cols = s.cols, ring = Math.round(geo.square * 0.22);
   report.review = s.review;
-  if (preview) {
-    for (const [p, n] of preview.numbers) {
+  if (preview && s.preview) {
+    // Branch.moveNumberList: a captured move keeps its number.
+    const numbers = new Map<number, number>();
+    s.preview.pv.slice(0, s.preview.length).forEach((pt, k) => { if (pt) numbers.set(pt.y * cols + pt.x, k + 1); });
+    for (const [p, stone] of preview.captured) {
+      if (preview.stones[p]) continue;
+      const x = X(p % cols), y = Y(i(p / cols)), played = numbers.has(p);
+      g.save();
+      g.beginPath();
+      g.arc(x + 0.5, y + 0.5, r + 1.5, 0, Math.PI * 2);
+      g.clip();
+      drawTexture(g, surface.image, x - r - 2, y - r - 2, 2 * r + 5, 2 * r + 5, surface.x, surface.y);
+      g.restore();
+      if (!played) {
+        const px = p % cols, py = i(p / cols);
+        g.strokeStyle = "#000";
+        g.lineWidth = 1;
+        g.beginPath();
+        g.moveTo(x - (px === 0 ? 0 : r + 1), y + 0.5);
+        g.lineTo(x + (px === cols - 1 ? 0 : r + 1) + 1, y + 0.5);
+        g.moveTo(x + 0.5, y - (py === 0 ? 0 : r + 1));
+        g.lineTo(x + 0.5, y + (py === s.rows - 1 ? 0 : r + 1) + 1);
+        g.stroke();
+      }
+      g.fillStyle = stone === "Black" ? `rgba(0,0,0,${(played ? 80 : 60) / 255})` : `rgba(255,255,255,${(played ? 110 : 85) / 255})`;
+      circle(g, x, y, r);
+      g.fill();
+    }
+    for (const [p, n] of numbers) {
+      const stone = preview.stones[p] ?? preview.captured.get(p);
+      if (!stone) continue;
       const x = X(p % cols), y = Y(i(p / cols));
-      g.fillStyle = preview.stones[p] === "Black" ? "#fff" : "#000";
+      g.fillStyle = stone === "Black" ? "#fff" : "#000";
       jString(g, String(n), x, y, UI_FONT, r * 1.4, i(r * (n >= 100 ? 1.85 : 1.4)));
       report.moveNumbers.push({ x: p % cols, y: i(p / cols), text: String(n), red: false });
     }
-    report.preview = { order: s.preview!.order, length: s.preview!.length, numbers: preview.numbers.size };
+    report.preview = { order: s.preview.order, length: s.preview.length, numbers: numbers.size };
   }
   if (s.review === "ranks") {
     drawRankMarks(g, s, geo, X, Y, preview, ring / 5, report);
