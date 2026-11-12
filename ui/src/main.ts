@@ -28,7 +28,7 @@ import { bindReplayHost, finishReplayBranch, replayLength, replaying, type Repla
 import { autoplayReport, autoReplayLength, bindAutoplayHost, subAutoplayLength, subWheeled } from "./display/autoplay";
 import { bindClickReview, clickReviewReport, pointerAt, reviewScene } from "./display/clickReview";
 import { moveRect, rectPointer } from "./display/moveRect";
-import { paintingKey, paintingReport } from "./display/painting";
+import { paintingKey, paintingOpen, paintingReport } from "./display/painting";
 import { sameAnalysis, sameHistory } from "./workbench/viewEquality";
 import { handleEngineKey } from "./engine/keys";
 import { handleDisplayKey } from "./display/keys";
@@ -547,7 +547,8 @@ document.addEventListener("keydown", (e) => {
 
 // 搜索功能 (toolbar button, Ctrl+K / Cmd+K) is refused where workbench shortcuts are: in text controls
 // (their own editing and the input method keep the key), menus, the context menu and progress windows.
-bindFunctionSearch((target) => textTarget(target) || dialogOpen() || flashWindowOpen() || menuOpen() || contextMenuOpen());
+// 自由涂鸦's layer holds the keys like Java's dialog, so the shortcut alone waits for it to close.
+bindFunctionSearch((target) => textTarget(target) || dialogOpen() || flashWindowOpen() || menuOpen() || contextMenuOpen(), paintingOpen);
 
 // ------------------------------------------------------------------ pointer
 
