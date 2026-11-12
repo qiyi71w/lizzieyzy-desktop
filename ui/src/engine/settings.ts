@@ -56,10 +56,13 @@ export function openAnalysisSettings(section: SettingsSection = "engine", onOpen
 /** LizzieFrame.openConfigDialog2 (LizzieFrame.java:3032-3048): running analysis pauses while the
  *  modal dialog is open and resumes once it closes. A page reopening the dialog hands that pause
  *  to the new dialog (`resume`, null when opened afresh), as Java's nested openConfigDialog2
- *  finds analysis already paused and the outer call resumes it after both. */
+ *  finds analysis already paused and the outer call resumes it after both. The pause is the
+ *  user's 暂停 (ToggleAnalysis), which ends a game and exits 自动分析 and which an engine match's
+ *  analysis does not follow, so the analysis those sessions drive keeps running. */
 async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElement) => void) | undefined, resume: boolean | null): Promise<void> {
-  if (!state.view) return;
-  const resumeAnalysis = resume ?? state.view.engine.analysing;
+  const v = state.view;
+  if (!v) return;
+  const resumeAnalysis = resume ?? (v.engine.analysing && !v.game && !v.engine_match && !v.auto_analysis.active);
   if (resume === null && resumeAnalysis) await run({ type: "ToggleAnalysis" });
   if (!state.view) return;
   let handedOver = false;

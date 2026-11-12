@@ -491,6 +491,7 @@ importing the matching LizzieYzy Next settings.
   toolbar mode and the panel order are window placement (`persist.json`), cleared by
   重置界面位置. While 综合设置 is open, however it was opened, running analysis is paused; it
   resumes when the dialog closes (保存设置 or 取消), and analysis paused beforehand stays paused.
+  A game, an engine match or 自动分析 keeps running meanwhile.
 - 帮助 > 关于 opens 综合设置 at 关于 (also reachable from its navigation and function search):
   the product name, the running version (the same as in the window title), a note that this
   client is migrated from LizzieYzy Next (Java), and 项目主页 / 发布下载 / 问题反馈 buttons that open
