@@ -344,16 +344,18 @@ impl Workbench {
         Ok(())
     }
 
-    /// 独立棋局控制面板 at exit (Config.persist `ctrl-position`, Lizzie.shutdown `is-ctrl-opened`):
-    /// the bounds of a panel built this session (`None` keeps the saved ones) and whether it is
-    /// shown, so the next start reopens it. Nothing is written after the UI position was reset.
+    /// 独立棋局控制面板 hidden or at exit (Config.persist `ctrl-position`, Lizzie.shutdown
+    /// `is-ctrl-opened`): whether it is shown, so the next start reopens it, and the bounds of a
+    /// panel built this session (`None` keeps the saved ones). After 重置界面位置 the bounds are
+    /// not written; whether it is shown is a configuration value and still is.
     pub fn record_control_panel(&mut self, placement: Option<WindowPlacement>, open: bool) -> Result<(), ApiError> {
-        if self.persist_reset { return Ok(()); }
-        let previous = (self.persisted.control_panel, self.persisted.control_panel_open);
-        if placement.is_some() { self.persisted.control_panel = placement; }
-        self.persisted.control_panel_open = open;
+        if self.config.ui.control_panel_open != open {
+            self.commit_config(|c| c.ui.control_panel_open = open)?;
+        }
+        if self.persist_reset || placement.is_none() { return Ok(()); }
+        let previous = std::mem::replace(&mut self.persisted.control_panel, placement);
         if let Err(error) = self.save_persisted() {
-            (self.persisted.control_panel, self.persisted.control_panel_open) = previous;
+            self.persisted.control_panel = previous;
             return Err(error);
         }
         Ok(())

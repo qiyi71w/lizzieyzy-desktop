@@ -1325,6 +1325,10 @@ pub struct UiSettings {
     pub play_sound: bool,
     /// Java `ui.extra-mode`, default `Normal`.
     pub extra_mode: ExtraMode,
+    /// 独立棋局控制面板 was shown when the application last closed and opens again at start (Java
+    /// `ui.is-ctrl-opened`, off; not imported). A configuration value as in Java, so 重置界面位置
+    /// forgets the panel's bounds but not this.
+    pub control_panel_open: bool,
 }
 
 impl Default for UiSettings {
@@ -1333,6 +1337,7 @@ impl Default for UiSettings {
             language: Language::default(),
             play_sound: true,
             extra_mode: ExtraMode::Normal,
+            control_panel_open: false,
         }
     }
 }
@@ -2017,11 +2022,8 @@ pub struct Persisted {
     pub matches: crate::api::MatchSessionSettings,
     /// The 弈客 web window (`persistedUi.main-window-other` 1–4, default −5, 0, 1240×750).
     pub yike_browser: Option<WindowPlacement>,
-    /// 独立棋局控制面板's outer bounds (physical pixels) and whether it was shown when the
-    /// application last closed (Java `persistedUi.ctrl-position`, `ui.is-ctrl-opened`; neither is
-    /// imported).
+    /// 独立棋局控制面板's bounds (physical pixels; Java `persistedUi.ctrl-position`, not imported).
     pub control_panel: Option<WindowPlacement>,
-    pub control_panel_open: bool,
 }
 
 /// File locations inside the product's per-user data directories.

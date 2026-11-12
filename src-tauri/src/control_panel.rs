@@ -1,7 +1,7 @@
 //! 独立棋局控制面板 (Java `Controller`, a JDialog owned by the main frame): a decorated, resizable
 //! window that is not always on top. It is built at its first opening and afterwards hidden and
 //! shown again (`LizzieFrame.openController`); its close box hides it. Its bounds are kept for the
-//! next opening and, with whether it is shown, written at exit for the next start.
+//! next opening and written at exit; whether it is shown at exit is kept for the next start.
 use lizzie_core::api::{ApiError, ErrorKind};
 use lizzie_core::workbench::Workbench;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -42,7 +42,7 @@ pub(super) async fn reopen_control_panel(app: AppHandle, state: tauri::State<'_,
     if let Some(window) = app.get_webview_window(LABEL) {
         return window.is_visible().map_err(unavailable);
     }
-    if !state.workbench.lock().unwrap().persisted().control_panel_open {
+    if !state.workbench.lock().unwrap().config().ui.control_panel_open {
         return Ok(false);
     }
     build(&app, &state, title)?;
