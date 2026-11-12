@@ -120,19 +120,29 @@ async function toggleDetailedToolbar(): Promise<void> {
 
 /** Shows a toolbar so one of its controls can be located, as Menu.locateTopFunction
  *  (Menu.java:6979-7014: the top toolbar becomes 分开) and BottomToolbar.locateFunction
- *  (BottomToolbar.java:632-643: a hidden bottom toolbar takes its main-bar height) do. Resolves
- *  once the toolbar is laid out; the destination's value and action are untouched. */
-export async function revealToolbar(kind: "top" | "bottom"): Promise<void> {
+ *  (BottomToolbar.java:632-643: a hidden bottom toolbar takes its main-bar height, and the
+ *  详细工具栏's height for one of its controls) do. Resolves once the toolbar is laid out; the
+ *  destination's value and action are untouched. */
+export async function revealToolbar(kind: "top" | "bottom" | "detail"): Promise<void> {
   const p = panels();
   if (kind === "top") {
     if (p && !topSeparated(p)) {
       topRevealed = true;
       showTopToolbar(p);
     }
+  } else if (kind === "detail") {
+    if (state.view?.settings.bottom_toolbar !== "Detailed") await setBottomToolbar("Detailed");
   } else if (state.view?.settings.bottom_toolbar === "Hidden") await setBottomToolbar("Simple");
-  const frame = Promise.withResolvers<void>();
-  requestAnimationFrame(() => frame.resolve());
-  await frame.promise;
+  // The bar is laid out when the view with the new mode arrives, which may follow the command's
+  // reply; give it up to about a second.
+  const wanted = kind === "detail" ? "Detailed" : kind === "bottom" ? "Simple" : null;
+  for (let n = 0; n < 60; n++) {
+    const frame = Promise.withResolvers<void>();
+    requestAnimationFrame(() => frame.resolve());
+    await frame.promise;
+    const mode = state.view?.settings.bottom_toolbar;
+    if (!wanted || mode === wanted || (wanted === "Simple" && mode === "Detailed")) break;
+  }
 }
 
 let appliedOnTop: boolean | null = null;

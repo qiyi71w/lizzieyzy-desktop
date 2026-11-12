@@ -166,6 +166,9 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   Tsumego: "TsumeGoFrame.title",
   CaptureTsumego: "CaptureTsumeGoFrame.title",
   TopToolbar: "Menu.topToolBar",
+  // Menu.java:4897 底部工具栏 > 自定义内容, 4606 设置模块顺序 (literal Chinese, Chinese interface only).
+  BottomButtons: "Menu.customToolbar",
+  DetailPanelOrder: "设置模块顺序",
   ProblemList: "Menu.commitPane",
   FlashRange: "Menu.flashAnalyzePartGame",
   EngineMatch: "EnginePkConfig.title",

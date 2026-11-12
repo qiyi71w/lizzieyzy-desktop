@@ -1176,6 +1176,103 @@ impl Default for TopToolbarSettings {
     }
 }
 
+/// 显示 > 工具栏 > 底部工具栏 > 自定义内容 (`Menu.customToolbarItem`, Menu.java:4896-5156): which
+/// buttons the bottom toolbar shows (`BottomToolbar.setButtonVisiable`, 4659-4705), and the
+/// 详细工具栏 expand button (Menu.java:4593-4604). Each check writes at once; Java defaults
+/// (Config.java:1909-1936) in brackets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct BottomButtonSettings {
+    /// 同步 (`ui.liveButton` [true]).
+    pub live: bool,
+    /// Kata形势 (`ui.kataEstimate` [true]); shown only for a KataGo engine.
+    pub kata_estimate: bool,
+    /// 批量分析 (`ui.batchOpen` [true]).
+    pub batch_open: bool,
+    /// 打开 (`ui.openfile` [false]).
+    pub open_file: bool,
+    /// 保存 (`ui.savefile` [false]).
+    pub save_file: bool,
+    /// 终局数子 (`ui.finalScore` [false]).
+    pub final_score: bool,
+    /// 纯网络 (`ui.heatMap` [true]).
+    pub heat_map: bool,
+    /// 超级鹰眼 (`ui.badMoves`). `None` until chosen: Java's default is off while the top toolbar
+    /// and its double menu were both shown at start-up, on otherwise.
+    pub bad_moves: Option<bool>,
+    /// 选点列表 (`ui.analyze-list` [false]).
+    pub analyze_list: bool,
+    /// 刷新 (`ui.refresh` [false]).
+    pub refresh: bool,
+    /// 分析 (`ui.analyse` [true]).
+    pub analyse: bool,
+    /// 试下 (`ui.tryPlay` [false]).
+    pub try_play: bool,
+    /// 设为主分支 (`ui.setMain` [true]).
+    pub set_main: bool,
+    /// 返回主分支 (`ui.backMain` [false]).
+    pub back_main: bool,
+    /// 清空棋盘 (`ui.clearButton` [true]).
+    pub clear_board: bool,
+    /// 删除 (`ui.deleteMove` [true]).
+    pub delete_move: bool,
+    /// 手数评价 (`ui.move-rank` [false]).
+    pub move_rank: bool,
+    /// 手数 (`ui.move` [true]).
+    pub move_numbers: bool,
+    /// 坐标 (`ui.coords` [true]).
+    pub coords: bool,
+    /// 自动播放 (`ui.autoPlay` [true]).
+    pub auto_play: bool,
+    /// The ▴/▾ button that expands or collapses the 详细工具栏, Chinese interface only
+    /// (`ui.show-detailed-toolbar-menu` [false]).
+    pub detail_button: bool,
+}
+
+impl Default for BottomButtonSettings {
+    fn default() -> Self {
+        Self {
+            live: true,
+            kata_estimate: true,
+            batch_open: true,
+            open_file: false,
+            save_file: false,
+            final_score: false,
+            heat_map: true,
+            bad_moves: None,
+            analyze_list: false,
+            refresh: false,
+            analyse: true,
+            try_play: false,
+            set_main: true,
+            back_main: false,
+            clear_board: true,
+            delete_move: true,
+            move_rank: false,
+            move_numbers: true,
+            coords: true,
+            auto_play: true,
+            detail_button: false,
+        }
+    }
+}
+
+/// 详细工具栏 设置模块顺序 (`ToolbarPositionConfig`; Java `persistedUi.toolbar-parameter` 32–34):
+/// each panel's place, 0–2. Panels with equal places keep 自动分析, 引擎对战, 自动播放 order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DetailPanelOrder {
+    pub auto_analysis: u8,
+    pub engine_match: u8,
+    pub auto_play: u8,
+}
+
+impl Default for DetailPanelOrder {
+    fn default() -> Self {
+        Self { auto_analysis: 0, engine_match: 1, auto_play: 2 }
+    }
+}
+
 /// Java's in-frame shares (`LizzieFrame.java:7976-8035`), independent of panel visibility.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
@@ -1676,8 +1773,10 @@ pub struct Config {
     pub hawkeye: HawkeyeSettings,
     /// Fixed Java workbench panel and toolbar presentation.
     pub panels: PanelSettings,
-    /// The top toolbar's optional groups (自定义内容).
+    /// The top toolbar's groups (自定义内容) and 自动换行.
     pub top_toolbar: TopToolbarSettings,
+    /// The bottom toolbar's buttons (自定义内容) and its 详细工具栏 button.
+    pub bottom_buttons: BottomButtonSettings,
     pub appearance: crate::appearance::AppearanceSettings,
     /// Default theme edits live in config; named themes have their own theme.txt.
     pub appearance_defaults: crate::appearance::ThemeSettings,
@@ -1864,6 +1963,8 @@ pub struct Persisted {
     pub hawkeye: Option<HawkeyePlacement>,
     pub panel_sizes: PanelSizes,
     pub bottom_toolbar: BottomToolbar,
+    /// The 详细工具栏 panels' places (设置模块顺序).
+    pub detail_panel_order: DetailPanelOrder,
     /// Independent boards use physical outer-window bounds (Java's four-element arrays).
     pub independent_main_board: Option<WindowPlacement>,
     pub independent_sub_board: Option<WindowPlacement>,

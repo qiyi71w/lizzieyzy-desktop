@@ -443,11 +443,26 @@ importing the matching LizzieYzy Next settings.
   value); the 选点 boxes are 显示 > 推荐点's win rate / visits / score items. Function search shows
   a hidden group for the current run without saving it. 底部工具栏 is 显示, 不显示 or (Chinese
   interface) 使用详细工具栏, which adds
-  Java's 自动分析, 自动播放, 自动落子 and 引擎对战 panels under the bar. `Shift+X` and 设置 > 综合设置
+  Java's 自动分析, 自动播放, 自动落子 and 引擎对战 panels under the bar. Its 自定义内容 items show or
+  hide each bottom-bar button, as in Java: 同步, Kata形势 (with a KataGo engine), 自动分析, 纯网络,
+  分析, 设为主分支, 清空棋盘, 删除, 手数, 坐标 and 自动播放 (on by default), 打开, 保存, 终局点目,
+  选点列表, 刷新, 试下, 返回主分支 and 落子评价 (off by default), and 超级鹰眼 (off by default only when
+  the top toolbar and its second row were both shown at start). Each choice is saved at once and
+  taken over by the LizzieYzy Next import. The buttons keep Java's places; those that do not fit
+  go to 更多, whose popup runs them. 打开 / 保存 act as 文件 > 打开 / 保存 (保存 overwrites the
+  record's own file, otherwise asks for a name), 选点列表 as `U`, 落子评价 as `Alt+M`, 终局点目 as
+  `Ctrl+Q`, and 刷新 lets the current move's stored result give way and searches the move again
+  while analysing. In the Chinese interface, 详细工具栏(过时的) > 显示拓展/隐藏详细工具栏按钮 adds a
+  button at the left of the bar that opens or closes the detailed panels without asking, and
+  设置模块顺序 places the three panels (1–3, saved with the window placement and taken over from
+  Java's `toolbar-parameter`). Function search locates a bottom button that is switched off or
+  does not fit in the 更多 popup, without changing the saved choice, and opens the detailed
+  toolbar for its controls. `Shift+X` and 设置 > 综合设置
   open 综合设置 at 棋盘与显示, whose 启动时加载 rows
   (窗口总在最前, 显示状态面板, 显示小棋盘, 窗口标题显示胜率) apply with 保存设置; Java's 显示快速启动
-  row is not shown because this client has no quick-launch links. Panel sizes and the bottom
-  toolbar are window placement (`persist.json`), cleared by 重置界面位置.
+  row is not shown because this client has no quick-launch links. Panel sizes, the bottom
+  toolbar mode and the panel order are window placement (`persist.json`), cleared by
+  重置界面位置.
 - Appearance (Java defaults; saved and taken over by the LizzieYzy Next import):
   - 设置 > 主题 opens 综合设置 > 主题外观: the theme (默认 plus the bundled sabaki, yasnaya,
     Megapack, Custom and Fast, and the user's own), a preview of the edited background, board and
@@ -1340,7 +1355,8 @@ them where its control lives:
   opens the menu path and focuses the item (`locateMenuItem`); it does not run it.
 - Toolbar controls: `data-function="<Java action id>"` on the control (`at()` in
   `chrome/toolbar.ts`, `located` in `chrome/bottombar.ts`). A control marked `unavailable` or
-  disabled does not count.
+  disabled does not count. A bottom-bar button not on the bar is located in its 更多 popup
+  (`locateHiddenButton`).
 - Settings rows: the section page (`SETTINGS_PAGES` in `ui/src/engine/settings.ts`) builds the
   row with `data-setting-target="<Java setting id>"`, and its module registers the ids with
   `registerSettingTargets(section, ids)` (`ui/src/engine/settingsTargets.ts`) when it loads, so

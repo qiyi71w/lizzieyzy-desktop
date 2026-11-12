@@ -304,6 +304,10 @@ pub struct Mapped {
     pub top_show_board_size: Option<bool>,
     pub top_show_save_load: Option<bool>,
     pub top_auto_wrap: Option<bool>,
+    /// 底部工具栏 自定义内容, as (BottomButtonSettings field, value).
+    pub bottom_buttons: Vec<(&'static str, bool)>,
+    /// 详细工具栏 设置模块顺序 (`toolbar-parameter` 32–34): 自动分析, 引擎对战, 自动播放.
+    pub detail_panel_order: [Option<u8>; 3],
     /// 抓取死活题 参数设置.
     pub capture_black_offset: Option<i32>,
     pub capture_black_percent: Option<i32>,
@@ -1337,6 +1341,28 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
     ("ui", "show-goban-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_board_size = Some(v))),
     ("ui", "show-saveload-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_save_load = Some(v))),
     ("ui", "auto-wrap-tool-bar", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_auto_wrap = Some(v))),
+    // 底部工具栏 自定义内容 (Menu.java:4896-5156) and 显示拓展/隐藏详细工具栏按钮 (4593-4604).
+    ("ui", "liveButton", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("live", v)))),
+    ("ui", "kataEstimate", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("kataEstimate", v)))),
+    ("ui", "batchOpen", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("batchOpen", v)))),
+    ("ui", "openfile", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("openFile", v)))),
+    ("ui", "savefile", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("saveFile", v)))),
+    ("ui", "finalScore", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("finalScore", v)))),
+    ("ui", "heatMap", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("heatMap", v)))),
+    ("ui", "badMoves", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("badMoves", v)))),
+    ("ui", "analyze-list", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("analyzeList", v)))),
+    ("ui", "refresh", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("refresh", v)))),
+    ("ui", "analyse", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("analyse", v)))),
+    ("ui", "tryPlay", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("tryPlay", v)))),
+    ("ui", "setMain", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("setMain", v)))),
+    ("ui", "backMain", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("backMain", v)))),
+    ("ui", "clearButton", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("clearBoard", v)))),
+    ("ui", "deleteMove", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("deleteMove", v)))),
+    ("ui", "move-rank", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("moveRank", v)))),
+    ("ui", "move", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("moveNumbers", v)))),
+    ("ui", "coords", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("coords", v)))),
+    ("ui", "autoPlay", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("autoPlay", v)))),
+    ("ui", "show-detailed-toolbar-menu", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("detailButton", v)))),
     ("ui", "capture-black-offset", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_black_offset = Some(v))),
     ("ui", "capture-black-percent", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_black_percent = Some(v))),
     ("ui", "capture-white-offset", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_white_offset = Some(v))),
@@ -2931,11 +2957,19 @@ impl Reader<'_> {
                         } else if value.is_none() {
                             self.invalid(format!("{name}[39]"), ImportTarget::Suggestions, raw);
                         }
-                        // 32–34 order the three detailed-toolbar panels and 50 mirrors them
-                        // (`setOrder`, 左移/右移); 28, 29, 42 and 43 are fixed -100 placeholders.
-                        for index in [32, 33, 34, 50] {
-                            self.not_migrated(format!("{name}[{index}]"), &values[index]);
+                        // 32–34 place the three 详细工具栏 panels (ToolbarPositionConfig writes the
+                        // combo index, 0–2). 50 is the hidden 左移/右移 buttons' flag.
+                        for (slot, index) in [32, 33, 34].into_iter().enumerate() {
+                            let raw = &values[index];
+                            match as_i64(raw).filter(|n| (0..=2).contains(n)) {
+                                Some(n) => {
+                                    self.mapped.detail_panel_order[slot] = Some(n as u8);
+                                    self.imported(format!("{name}[{index}]"), ImportTarget::DetailPanelOrder, n.to_string());
+                                }
+                                None => self.invalid(format!("{name}[{index}]"), ImportTarget::DetailPanelOrder, raw),
+                            }
                         }
+                        self.not_migrated(format!("{name}[50]"), &values[50]);
                     }
                     // Window bounds and the tables' column pixels follow Java's own scaling,
                     // fonts and layout.
@@ -3280,6 +3314,10 @@ impl Mapped {
             p.panel_sizes = serde_json::from_value(values).unwrap_or(p.panel_sizes);
         }
         set!(p.bottom_toolbar, self.bottom_toolbar);
+        let order = &mut p.detail_panel_order;
+        for (place, value) in [&mut order.auto_analysis, &mut order.engine_match, &mut order.auto_play].into_iter().zip(self.detail_panel_order) {
+            if let Some(v) = value { *place = v; }
+        }
         let mut game = serde_json::to_value(&c.game).expect("settings serialize");
         for value in &self.game { value.set(&mut game); }
         c.game = serde_json::from_value(game).expect("typed imported game values");
@@ -3449,6 +3487,11 @@ impl Mapped {
         set!(top.show_board_size, self.top_show_board_size);
         set!(top.show_save_load, self.top_show_save_load);
         set!(top.auto_wrap, self.top_auto_wrap);
+        if !self.bottom_buttons.is_empty() {
+            let mut values = serde_json::to_value(c.bottom_buttons).expect("settings serialize");
+            for &(field, value) in &self.bottom_buttons { values[field] = Value::from(value); }
+            c.bottom_buttons = serde_json::from_value(values).expect("typed imported bottom buttons");
+        }
         let pl = &mut c.problems;
         set!(pl.showing, self.problems_showing);
         set!(pl.side, self.problem_side);
@@ -3501,6 +3544,12 @@ impl Mapped {
         }
         if self.bottom_toolbar.is_some_and(|v| v != persisted.bottom_toolbar) {
             out.push(ImportTarget::BottomToolbar);
+        }
+        let order = persisted.detail_panel_order;
+        if [order.auto_analysis, order.engine_match, order.auto_play].into_iter().zip(self.detail_panel_order)
+            .any(|(old, new)| new.is_some_and(|v| v != old))
+        {
+            out.push(ImportTarget::DetailPanelOrder);
         }
         if let Ok(current) = serde_json::to_value(persisted.autoplay) {
             if self.autoplay.iter().any(|v| v.current(&current).is_none_or(|c| c != v.value)) {
@@ -3833,6 +3882,11 @@ impl Mapped {
         ];
         if top_changes.iter().any(|&(new, old)| new.is_some_and(|v| v != old)) {
             out.push(ImportTarget::TopToolbar);
+        }
+        if let Ok(current) = serde_json::to_value(config.bottom_buttons) {
+            if self.bottom_buttons.iter().any(|&(field, value)| current[field] != Value::from(value)) {
+                out.push(ImportTarget::BottomButtons);
+            }
         }
         let cs = &ts.capture;
         if self.capture_black_offset.is_some_and(|v| v != cs.black_offset)

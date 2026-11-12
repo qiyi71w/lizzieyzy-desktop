@@ -4,7 +4,7 @@
 // opens a menu or runs a command. Only an ACTION destination runs its catalog command; settings,
 // menus, toolbar controls and windows other than the Java openers are located, never clicked.
 import { state } from "../app";
-import { livePopupAnchor, locateLivePopupItem } from "../chrome/bottombar";
+import { livePopupAnchor, locateHiddenButton, locateLivePopupItem } from "../chrome/bottombar";
 import { locateMenuItem, menuItemState } from "../chrome/menubar";
 import { COMMANDS } from "../commands";
 import type { FunctionMatch } from "../contract/generated";
@@ -270,7 +270,8 @@ function dependencyReason(id: string): Reason | null {
 }
 
 /** A toolbar control inside a tool group its own setting switched off. The whole toolbar being
- *  hidden does not count (locating shows it), nor the markup buttons, which locating shows too. */
+ *  hidden does not count (locating shows it), nor the markup buttons, which locating shows too, nor
+ *  the 详细工具栏's controls, which locating expands. */
 function groupHidden(control: HTMLElement): boolean {
   for (let el = control.parentElement; el && el.id !== "toolbar" && el.id !== "bottombar"; el = el.parentElement) {
     if (getComputedStyle(el).display === "none") return true;
@@ -283,7 +284,7 @@ function unavailableReason(m: FunctionMatch, kind: DestinationKind | null, absen
   if (dialogOpen(search ?? undefined)) return { key: "FunctionSearch.unavailable.modal" };
   if (absent) return UNAVAILABLE;
   if (kind === "context") return state.view.settings.edit.showRightMenu ? null : CONTEXT;
-  if (kind === "toolbar" && !revealsMarkup(m.id) && !KATA_GROUPS[m.id] && !TOP_GROUP_OF[m.id] && groupHidden(toolbarControl(m.id)!)) return TOOLBAR;
+  if (kind === "toolbar" && !revealsMarkup(m.id) && !KATA_GROUPS[m.id] && !TOP_GROUP_OF[m.id] && !m.id.startsWith("legacy.") && groupHidden(toolbarControl(m.id)!)) return TOOLBAR;
   const reason = entryReason(m.id);
   if (reason) return reason;
   // A real toolbar control disabled for now (广度 while the engine is not free for it).
@@ -328,8 +329,9 @@ function revealsMarkup(id: string): boolean {
 }
 
 /** BottomToolbar.locateFunction / Menu.locateTopFunction: shows the toolbar (and the markup tools
- *  for a markup button), then scrolls to and focuses the control with the gold line. The control
- *  is not clicked and no saved setting changes. */
+ *  for a markup button, the 详细工具栏 for its controls), then scrolls to and focuses the control
+ *  with the gold line. A bottom button not on the bar is located in 更多. The control is not
+ *  clicked and no saved setting changes. */
 async function locateToolbarControl(id: string): Promise<Reason | null> {
   const control = toolbarControl(id);
   if (!control) return TOOLBAR;
@@ -340,7 +342,9 @@ async function locateToolbarControl(id: string): Promise<Reason | null> {
     renderToolbar();
   } else if (top && revealTopGroup(top)) renderToolbar();
   if (revealsMarkup(id) && !markupToolsShown()) setEditing({ markupRevealed: true });
-  await revealToolbar(control.closest("#bottombar") ? "bottom" : "top");
+  const bottom = !!control.closest("#bottombar");
+  await revealToolbar(!bottom ? "top" : id.startsWith("legacy.") ? "detail" : "bottom");
+  if (bottom && control.isConnected && control.getClientRects().length === 0 && locateHiddenButton(id)) return null;
   if (!control.isConnected || control.getClientRects().length === 0) return TOOLBAR;
   if (control.dataset.function !== id) return locateLivePopupItem(id) ? null : TARGET_MISSING;
   control.scrollIntoView({ block: "nearest", inline: "nearest" });

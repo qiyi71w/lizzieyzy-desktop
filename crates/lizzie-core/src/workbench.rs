@@ -1180,6 +1180,8 @@ impl Workbench {
                 top_toolbar: self.config.top_toolbar,
                 panel_sizes: self.persisted.panel_sizes,
                 bottom_toolbar: self.persisted.bottom_toolbar,
+                bottom_buttons: self.config.bottom_buttons,
+                detail_panel_order: self.persisted.detail_panel_order,
                 comment_panel_auto_hidden: self.config.ui.extra_mode.hides_comment(),
                 custom_layouts: self.config.custom_layouts.clone(),
                 independent_main_board: self.persisted.independent_main_board,

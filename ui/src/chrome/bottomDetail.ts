@@ -79,6 +79,7 @@ let panels: HTMLElement[] = [];
 /** anaPanel (BottomToolbar.java:1574-1800). */
 function analysisPanel(host: HTMLElement): void {
   const p = detailPanel(host, "anaPanel", 400);
+  p.dataset.function = "legacy.auto-analysis";
   const autoAnalyse = check(p, "toolbar.detail.autoAnalyze", [1, 1, 20, 18]);
   label(p, t("BottomToolbar.detail.autoAnalyze"), [21, 0, 60, 20]);
   const black = check(p, "toolbar.detail.anaBlack", [68, 1, 40, 20], t("BottomToolbar.detail.black"));
@@ -90,6 +91,7 @@ function analysisPanel(host: HTMLElement): void {
   label(p, t("BottomToolbar.detail.firstPlayouts"), [234, 0, 80, 20]);
   const firstVisits = digits(p, "toolbar.detail.firstPlayouts", [298, 2, 42, 18]);
   const start = push(p, "toolbar.detail.start", t("BottomToolbar.detail.start"), [340, 1, 30, 20]);
+  start.dataset.function = "legacy.auto-analysis-start";
   const pause = push(p, "toolbar.detail.pause", t("BottomToolbar.detail.pause"), [369, 1, 30, 20]);
   const autoSave = check(p, "toolbar.detail.saveKifu", [1, 22, 20, 20]);
   label(p, t("BottomToolbar.detail.saveKifu"), [21, 22, 50, 20]);
@@ -263,6 +265,7 @@ function engineMatchPanel(host: HTMLElement): void {
 /** autoPlayPanel (BottomToolbar.java:1802-2006). */
 function autoPlayPanel(host: HTMLElement): void {
   const p = detailPanel(host, "autoPlayPanel", 495);
+  p.dataset.function = "legacy.auto-play";
   const showBlack = check(p, "toolbar.detail.showBlack", [5, 1, 20, 18]);
   label(p, t("BottomToolbar.detail.showBlack"), [25, 0, 40, 18]);
   const showWhite = check(p, "toolbar.detail.showWhite", [5, 22, 20, 18]);
@@ -302,11 +305,13 @@ function autoPlayPanel(host: HTMLElement): void {
   for (const control of [autoOn, autoBlack, autoWhite, timeOn, time, playoutsOn, playouts, firstOn, first]) control.addEventListener("change", sendAutoPlay);
   // chkAutoMain: autoPlayMain, reading txtAutoMain (seconds) at every step.
   const autoMain = check(p, "toolbar.detail.autoMain", [325, 1, 20, 18]);
+  autoMain.dataset.function = "legacy.auto-main";
   label(p, t("BottomToolbar.detail.autoMain"), [345, 0, 100, 18]);
   const mainField = digits(p, "toolbar.detail.autoMainSeconds", [445, 2, 40, 18], true);
   // chkAutoSub: auto-replay-branch (BottomToolbar.java:1857-1884); txtAutoSub is the sub board
   // player's interval in milliseconds.
   const autoSub = check(p, "toolbar.detail.autoVariation", [325, 22, 20, 18]);
+  autoSub.dataset.function = "legacy.auto-sub";
   label(p, t("BottomToolbar.detail.autoVariation"), [345, 22, 100, 18]);
   const subField = digits(p, "toolbar.detail.autoVariationMillis", [445, 23, 40, 18], true);
   const interval = (field: HTMLInputElement) => {
@@ -353,19 +358,22 @@ export function buildBottomDetail(host: HTMLElement): void {
   for (const panel of panels) panel.style.display = "none";
 }
 
-/** layoutDetailPanels: in their default order (自动分析, 引擎对战, 自动播放) from the left, wrapping
- *  to a new row when the next one does not fit; returns the toolbar height. */
+/** layoutDetailPanels: in their 设置模块顺序 places (equal places keep 自动分析, 引擎对战, 自动播放) from
+ *  the left, wrapping to a new row when the next one does not fit; returns the toolbar height. */
 export function layoutBottomDetail(host: HTMLElement, expanded: boolean): number {
   if (!expanded) {
     for (const panel of panels) panel.style.display = "none";
     return MAIN_BAR_HEIGHT;
   }
+  const order = state.view?.settings.detail_panel_order ?? { autoAnalysis: 0, engineMatch: 1, autoPlay: 2 };
+  const place: Record<string, number> = { anaPanel: order.autoAnalysis, enginePkPanel: order.engineMatch, autoPlayPanel: order.autoPlay };
+  const ordered = [...panels].sort((a, b) => place[a.dataset.name!] - place[b.dataset.name!]);
   const width = host.clientWidth;
   const available = Math.max(320, width - SIDE_PADDING * 2);
   let x = SIDE_PADDING;
   let y = MAIN_BAR_HEIGHT + 4;
   let rows = 1;
-  for (const panel of panels) {
+  for (const panel of ordered) {
     const w = Math.min(Number(panel.dataset.width), available);
     if (x > SIDE_PADDING && x + w > width - SIDE_PADDING) {
       rows++;

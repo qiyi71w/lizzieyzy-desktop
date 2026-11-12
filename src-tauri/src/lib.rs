@@ -735,6 +735,10 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             shared.workbench.lock().unwrap().clear_analysis_info(scope);
             Ok(changed(&app, &shared, true))
         }
+        Command::RefreshCurrentMove => {
+            shared.workbench.lock().unwrap().refresh_current_move();
+            Ok(changed(&app, &shared, true))
+        }
         Command::SwitchEngine { index } => {
             let done = shared.workbench.lock().unwrap().switch_engine(index)?;
             Ok(changed(&app, &shared, done))
@@ -1392,6 +1396,14 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         }
         Command::SetTopToolbarSettings { settings } => {
             let done = shared.workbench.lock().unwrap().set_top_toolbar_settings(settings)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetBottomButtons { settings } => {
+            let done = shared.workbench.lock().unwrap().set_bottom_buttons(settings)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetDetailPanelOrder { order } => {
+            let done = shared.workbench.lock().unwrap().set_detail_panel_order(order)?;
             Ok(changed(&app, &shared, done))
         }
         Command::ExportTable { rows } => export_table(&app, rows).await,

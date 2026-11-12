@@ -395,11 +395,13 @@ export const JAVA_MENUS: TopMenu[] = [
          },
          {
           "t": "check",
-          "key": "显示拓展/隐藏详细工具栏按钮"
+          "key": "显示拓展/隐藏详细工具栏按钮",
+          "id": "menu.showDetailedToolbarMenu"
          },
          {
           "t": "item",
-          "key": "设置模块顺序"
+          "key": "设置模块顺序",
+          "id": "menu.detailedToolbarOrder"
          }
         ]
        },
@@ -413,83 +415,103 @@ export const JAVA_MENUS: TopMenu[] = [
         "items": [
          {
           "t": "check",
-          "key": "BottomToolbar.liveButton"
+          "key": "BottomToolbar.liveButton",
+          "id": "menu.customToolbar.liveButton"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.kataEstimate"
+          "key": "BottomToolbar.kataEstimate",
+          "id": "menu.customToolbar.kataEstimate"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.batchOpen"
+          "key": "BottomToolbar.batchOpen",
+          "id": "menu.customToolbar.batchOpen"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.openfile"
+          "key": "BottomToolbar.openfile",
+          "id": "menu.customToolbar.openfile"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.savefile"
+          "key": "BottomToolbar.savefile",
+          "id": "menu.customToolbar.savefile"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.finalScore"
+          "key": "BottomToolbar.finalScore",
+          "id": "menu.customToolbar.finalScore"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.heatMap"
+          "key": "BottomToolbar.heatMap",
+          "id": "menu.customToolbar.heatMap"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.badMoves"
+          "key": "BottomToolbar.badMoves",
+          "id": "menu.customToolbar.badMoves"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.analyzeList"
+          "key": "BottomToolbar.analyzeList",
+          "id": "menu.customToolbar.analyzeList"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.refresh"
+          "key": "BottomToolbar.refresh",
+          "id": "menu.customToolbar.refresh"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.analyse"
+          "key": "BottomToolbar.analyse",
+          "id": "menu.customToolbar.analyse"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.tryPlay"
+          "key": "BottomToolbar.tryPlay",
+          "id": "menu.customToolbar.tryPlay"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.setMain"
+          "key": "BottomToolbar.setMain",
+          "id": "menu.customToolbar.setMain"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.backMain"
+          "key": "BottomToolbar.backMain",
+          "id": "menu.customToolbar.backMain"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.clearButton"
+          "key": "BottomToolbar.clearButton",
+          "id": "menu.customToolbar.clearButton"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.deleteMove"
+          "key": "BottomToolbar.deleteMove",
+          "id": "menu.customToolbar.deleteMove"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.moveRank"
+          "key": "BottomToolbar.moveRank",
+          "id": "menu.customToolbar.moveRank"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.move"
+          "key": "BottomToolbar.move",
+          "id": "menu.customToolbar.move"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.coords"
+          "key": "BottomToolbar.coords",
+          "id": "menu.customToolbar.coords"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.autoPlay"
+          "key": "BottomToolbar.autoPlay",
+          "id": "menu.customToolbar.autoPlay"
          }
         ]
        }

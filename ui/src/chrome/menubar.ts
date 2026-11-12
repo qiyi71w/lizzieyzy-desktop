@@ -53,7 +53,8 @@ function closeMenus() {
   openMenu = null;
 }
 
-/** A JPopupMenu shown below `anchor` (a toolbar button), drawn and closed like the menu bar's. */
+/** A JPopupMenu shown below `anchor` (a toolbar button), drawn and closed like the menu bar's; like
+ *  Swing's, it moves left rather than leave the window. */
 export function openPopupMenu(anchor: HTMLElement, items: MenuNode[], above = false): void {
   closeMenus();
   const r = anchor.getBoundingClientRect();
@@ -63,7 +64,9 @@ export function openPopupMenu(anchor: HTMLElement, items: MenuNode[], above = fa
   holder.style.top = `${r.bottom}px`;
   holder.append(dropdown(items));
   document.body.append(holder);
-  if (above) holder.style.top = `${r.top - holder.firstElementChild!.getBoundingClientRect().height}px`;
+  const box = holder.firstElementChild!.getBoundingClientRect();
+  if (box.right > window.innerWidth) holder.style.left = `${Math.max(0, r.left - (box.right - window.innerWidth))}px`;
+  if (above) holder.style.top = `${r.top - box.height}px`;
   openMenu = holder;
 }
 

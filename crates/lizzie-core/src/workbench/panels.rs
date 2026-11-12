@@ -191,6 +191,33 @@ impl Workbench {
         Ok(true)
     }
 
+    /// 自定义内容 of the bottom toolbar (Menu.java:4896-5156) and 显示拓展/隐藏详细工具栏按钮
+    /// (4593-4604): each check is written at once.
+    pub fn set_bottom_buttons(&mut self, settings: crate::settings::BottomButtonSettings) -> Result<bool, ApiError> {
+        if self.config.bottom_buttons == settings {
+            return Ok(false);
+        }
+        self.commit_config(|c| c.bottom_buttons = settings)?;
+        Ok(true)
+    }
+
+    /// 设置模块顺序 确认 (`ToolbarPositionConfig`): window presentation, saved like the toolbar mode.
+    pub fn set_detail_panel_order(&mut self, order: crate::settings::DetailPanelOrder) -> Result<bool, ApiError> {
+        if order.auto_analysis > 2 || order.engine_match > 2 || order.auto_play > 2 {
+            return Err(ApiError::new(ErrorKind::InvalidArgument, "a panel place is 0, 1 or 2"));
+        }
+        if self.persisted.detail_panel_order == order {
+            return Ok(false);
+        }
+        let old = self.persisted.detail_panel_order;
+        self.persisted.detail_panel_order = order;
+        if let Err(error) = self.save_persisted() {
+            self.persisted.detail_panel_order = old;
+            return Err(error);
+        }
+        Ok(true)
+    }
+
     /// LizzieFrame.java:3284-3535. Mode entry is a complete operation, also when reselected.
     pub fn set_extra_mode(&mut self, mode: ExtraMode) -> Result<bool, ApiError> {
         let mut p = self.config.panels.clone();
