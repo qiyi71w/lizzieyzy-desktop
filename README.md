@@ -497,6 +497,18 @@ importing the matching LizzieYzy Next settings.
   client is migrated from LizzieYzy Next (Java), and 项目主页 / 发布下载 / 问题反馈 buttons that open
   this project's GitHub repository, Releases and Issues pages in the system browser. Java's feature
   cards, QQ group and 查看更新 button are not shown.
+- 设置 > 初始化设置 opens Java's quick settings form, filled from the current settings: 变化图 and
+  小棋盘 refresh while hovered (不断刷新 / 不刷新), 目数 on candidates (盘面目数差 / 计算贴目后目数差), the
+  胜率(目数) perspective (总是黑棋 / 黑白交替), the Lizzie cache, the 选点信息 items with 自定义显示顺序,
+  限制选点个数 and 限制变化图长度, the per-move time and visit limits with their switches, and the
+  language. 加载默认设置 puts Java's defaults into the form only (the language stays; an empty
+  计算量 field keeps the saved visit limit); 确定 saves every row through the same settings as the
+  menus, toolbar and 综合设置; Escape or the close box saves nothing. A field that is not a whole
+  number shows 错误的输入格式 and keeps the dialog open (a time or visit field whose switch is off is
+  not checked); a time limit of 0 or less is saved as 9999 minutes, negative candidate / variation
+  limits as 0 (no limit). The language applies from the next start, without a restart notice, as in
+  Java. Java's 界面样式 row (Swing look and feel) has no counterpart here, and the form does not open
+  by itself on first start.
 - Appearance (Java defaults; saved and taken over by the LizzieYzy Next import):
   - 设置 > 主题 opens 综合设置 > 主题外观: the theme (默认 plus the bundled sabaki, yasnaya,
     Megapack, Custom and Fast, and the user's own), a preview of the edited background, board and

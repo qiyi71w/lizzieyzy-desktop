@@ -22,6 +22,7 @@ import { independentReport, relayIndependent, startIndependent } from "./workben
 import type { IndependentInput } from "./workbench/independentModel";
 import "./workbench/displayPage";
 import "./about";
+import "./initSettings";
 import { boardUi, candidatesShownFor, onBoardUiChange } from "./display/state";
 import { markTreeTooWide, onTreeTooWideCleared, treeFit } from "./display/variationTree";
 import { onRegionUiChange, regionDrag, selectionClicked, selectionDragged, selectionReleased } from "./analysis/region";
@@ -1523,8 +1524,8 @@ function uiReport() {
       .map(({ el, r }) => ({
         key: el.dataset.key ?? el.dataset.name ?? el.id ?? "",
         text: el.textContent ?? "",
-        checked: el instanceof HTMLInputElement && el.type === "checkbox" ? el.checked : undefined,
-        value: el instanceof HTMLInputElement && el.type === "text" ? el.value : undefined,
+        checked: el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio") ? el.checked : undefined,
+        value: (el instanceof HTMLInputElement && (el.type === "text" || el.type === "number")) || el instanceof HTMLSelectElement ? el.value : undefined,
         disabled: el.classList.contains("disabled") || (el instanceof HTMLInputElement && el.disabled) || undefined,
         invalid: el.classList.contains("invalid") || undefined,
         title: el.title || undefined,

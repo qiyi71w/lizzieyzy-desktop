@@ -885,6 +885,14 @@ body {
   align-items: center;
   gap: 4px;
 }
+/* 初始化设置 (FirstUseSettings): the red lblHint, the "?" helpers with settings.png, the close box */
+.init-settings .modal-title { display: flex; justify-content: space-between; align-items: center; }
+.init-settings .display-abs { overflow: hidden; }
+.init-close { border: 0; background: none; font: inherit; padding: 0 4px; cursor: pointer; }
+.display-abs .init-hint { color: red; }
+.display-abs .init-help { display: flex; align-items: center; justify-content: center; padding: 0; }
+.display-abs .init-help img { width: 16px; height: 16px; }
+.display-abs .init-order { padding: 0; }
 .display-preview {
   display: block;
 }

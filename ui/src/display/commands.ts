@@ -213,7 +213,7 @@ Object.assign(COMMANDS, {
   "menu.suggestion2": flag("suggestionPlayouts"),
   "menu.suggestion3": flag("suggestionScore"),
   "menu.showScoreAsDiff": flag("scoreAsDiff"),
-  "menu.customInfoOrdr": { run: openInfoOrderDialog },
+  "menu.customInfoOrdr": { run: () => openInfoOrderDialog() },
   "menu.setCandidatesDelay": { run: openCandidatesDelayDialog, checked: () => display()?.delayCandidates ?? false },
   "menu.showSuggestionOrder": flag("suggestionOrder"),
   "menu.showMaxValueReverse": flag("suggestionMaxRed"),
