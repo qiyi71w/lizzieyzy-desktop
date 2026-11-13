@@ -51,7 +51,7 @@ impl Reader<'_> {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(e) => { self.theme_unreadable(key, e.to_string()); continue; }
             }
-            if !appearance::valid_name(&name) || name.eq_ignore_ascii_case("default") {
+            if !appearance::valid_name(&product_name(&name)) {
                 let it = self.item(key, ImportStatus::Incompatible);
                 it.target = Some(ImportTarget::Themes);
                 it.reason = Some(ImportReason::InvalidValue);
@@ -86,9 +86,13 @@ impl Reader<'_> {
                     _ => Shown::Inherit,
                 },
             })).collect();
-            self.mapped.themes.push(folder(name, raw, images));
+            let product = product_name(&name);
+            let renamed = product != name;
+            self.mapped.themes.push(folder(product.clone(), raw, images));
             let it = self.item(key, ImportStatus::Imported);
             it.target = Some(ImportTarget::Themes);
+            // This product's default theme is `default`: the Java theme comes over renamed.
+            if renamed { it.value = Some(super::sanitize(&product)); }
         }
     }
 
@@ -98,6 +102,12 @@ impl Reader<'_> {
         it.reason = Some(ImportReason::Unreadable);
         it.detail = Some(super::sanitize(&detail));
     }
+}
+
+/// The name a Java theme folder has here: `default` (any case) is this product's default theme,
+/// so a Java theme of that name becomes "<name> (LizzieYzy Next)".
+pub(super) fn product_name(java: &str) -> String {
+    if java.eq_ignore_ascii_case("default") { format!("{java} (LizzieYzy Next)") } else { java.to_string() }
 }
 
 /// `config.optString(key, default)` for an image key; `None` for a value that is not text.

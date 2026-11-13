@@ -1128,8 +1128,9 @@ importing the matching LizzieYzy Next settings.
   theme. An untouched copy of a bundled theme is skipped; a changed one becomes the user's copy
   of that bundled theme, whose own files are not changed. A theme folder that cannot be read, or
   whose `theme.txt` holds values no theme can use (such as a colour channel above 255), is listed
-  as not usable with those keys; the other themes and settings still come over. A Java theme
-  named `default` cannot become a theme here, since that name is the default theme's. Replacing
+  as not usable with those keys; the other themes and settings still come over. `default` is
+  this client's default theme, so a Java theme folder named `default` comes over as
+  "default (LizzieYzy Next)" (and stays selected if Java used it). Replacing
   a theme of this client with the same name is listed with the theme names and needs the same
   confirmation as other settings; the folders are written in the same change as the settings,
   so a refused or failed import leaves this client's themes as they were.

@@ -2241,6 +2241,30 @@ fn java_theme_replacing_a_user_theme_needs_confirmation_and_failures_leave_theme
 }
 
 #[test]
+fn java_theme_named_default_comes_over_renamed_and_stays_selected() {
+    // Java's ui.theme "default" reads theme/default/ when that folder exists (Theme.java:63-68).
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    java_theme(&java, "default", PLAIN_BOARD, json!({"shadow-size": 33}));
+    std::fs::write(java.join("config.txt"), json!({"ui": {"theme": "default"}}).to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    let it = item(&p.items, "file:theme/default");
+    assert_eq!((it.status, it.value.as_deref()), (ImportStatus::Imported, Some("default (LizzieYzy Next)")));
+    wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
+    let s = wb.view(false).settings;
+    assert_eq!((s.appearance.theme.as_str(), s.theme.shadow_size), ("default (LizzieYzy Next)", 33));
+    assert_eq!(committed_board(&mut wb), data_url(PLAIN_BOARD, tmp.path()));
+    let names: Vec<String> = lizzie_core::appearance::catalog(wb.storage(), &Default::default()).into_iter().map(|e| e.name).collect();
+    assert!(names.contains(&"default".to_string()) && names.contains(&"default (LizzieYzy Next)".to_string()), "{names:?}");
+    drop(wb);
+    let mut reopened = workbench(&product, Recorder::default());
+    assert_eq!(reopened.view(false).settings.appearance.theme, "default (LizzieYzy Next)");
+    assert_eq!(committed_board(&mut reopened), data_url(PLAIN_BOARD, tmp.path()));
+}
+
+#[test]
 fn java_default_theme_label_selects_the_default_theme() {
     let tmp = tempfile::tempdir().unwrap();
     let java = tmp.path().join("java");
