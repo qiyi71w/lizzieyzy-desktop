@@ -2043,7 +2043,7 @@ fn java_bundled_theme_copy_is_skipped_and_a_changed_one_overrides_the_bundle() {
     let tmp = tempfile::tempdir().unwrap();
     let java = tmp.path().join("java");
     let bundled = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/public/themes");
-    for name in ["sabaki", "Fast"] {
+    for name in ["sabaki", "Fast", "Megapack"] {
         std::fs::create_dir_all(java.join("theme").join(name)).unwrap();
         for e in std::fs::read_dir(bundled.join(name)).unwrap() {
             let p = e.unwrap().path();
@@ -2055,19 +2055,149 @@ fn java_bundled_theme_copy_is_skipped_and_a_changed_one_overrides_the_bundle() {
     raw["shadow-size"] = json!(37);
     std::fs::write(&fast, raw.to_string()).unwrap();
     std::fs::write(java.join("theme/Fast/board.jpg"), PLAIN_BOARD).unwrap();
+    // Only a picture changed: still the user's own copy.
+    std::fs::write(java.join("theme/Megapack/board.png"), SABAKI_BOARD).unwrap();
     std::fs::write(java.join("config.txt"), json!({"ui": {"theme": "Fast"}}).to_string()).unwrap();
     let bundled_before = snapshot(&bundled);
     let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
     let p = preview(&mut wb, &java);
     assert!(!p.items.iter().any(|i| i.key == "file:theme/sabaki"), "an untouched bundled copy needs no folder");
     assert_eq!(item(&p.items, "file:theme/Fast").status, ImportStatus::Imported);
+    assert_eq!(item(&p.items, "file:theme/Megapack").status, ImportStatus::Imported);
     wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
     let dir = lizzie_core::appearance::themes_dir(wb.storage());
     assert!(!dir.join("sabaki").exists() && dir.join("Fast/theme.txt").is_file());
     let s = wb.view(false).settings;
     assert_eq!((s.appearance.theme.as_str(), s.theme.shadow_size), ("Fast", 37));
     assert_eq!(shown_board(&wb, "Fast"), data_url(PLAIN_BOARD, tmp.path()));
+    assert_eq!(shown_board(&wb, "Megapack"), data_url(SABAKI_BOARD, tmp.path()));
     assert_eq!(snapshot(&bundled), bundled_before, "the bundled files are not changed");
+}
+
+/// The board this product shows with its committed appearance.
+fn committed_board(wb: &mut Workbench) -> String {
+    let s = wb.view(false).settings;
+    lizzie_core::appearance::images(wb.storage(), &s.appearance, &s.theme).board
+}
+
+#[test]
+fn bundled_theme_missing_its_picture_shows_the_ui_picture_as_java_does() {
+    // Theme.getImageByKey: the theme's board.png is unreadable, so Java reads ui `board-image`.
+    let bundled = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/public/themes/sabaki");
+    for changed in [false, true] {
+        let tmp = tempfile::tempdir().unwrap();
+        let java = tmp.path().join("java");
+        let dir = java.join("theme/sabaki");
+        std::fs::create_dir_all(&dir).unwrap();
+        for e in std::fs::read_dir(&bundled).unwrap() {
+            let p = e.unwrap().path();
+            if p.file_name().unwrap() != "board.png" { std::fs::copy(&p, dir.join(p.file_name().unwrap())).unwrap(); }
+        }
+        if changed {
+            let mut raw: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("theme.txt")).unwrap()).unwrap();
+            raw["shadow-size"] = json!(44);
+            std::fs::write(dir.join("theme.txt"), raw.to_string()).unwrap();
+        }
+        std::fs::write(java.join("theme/ui-board.png"), PLAIN_BOARD).unwrap();
+        std::fs::write(java.join("config.txt"), json!({"ui": {"theme": "sabaki", "board-image": "ui-board.png"}}).to_string()).unwrap();
+        let product = tmp.path().join("product");
+        let mut wb = workbench(&product, Recorder::default());
+        let p = preview(&mut wb, &java);
+        wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
+        assert_eq!(committed_board(&mut wb), data_url(PLAIN_BOARD, tmp.path()), "theme.txt changed: {changed}");
+        drop(wb);
+        let mut reopened = workbench(&product, Recorder::default());
+        assert_eq!(committed_board(&mut reopened), data_url(PLAIN_BOARD, tmp.path()), "after restart, changed: {changed}");
+    }
+}
+
+#[test]
+fn java_themes_come_from_the_work_or_program_folder_only() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), json!({"ui": {}}).to_string()).unwrap();
+    let program = tmp.path().join("install/app");
+    std::fs::create_dir_all(&program).unwrap();
+    java_theme(&tmp.path().join("install"), "Elsewhere", PLAIN_BOARD, json!({}));
+    let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+    let read = |wb: &mut Workbench| wb.preview_java_import(java_import::read(&JavaSource::new(&java, Some(&program))).unwrap());
+    let p = read(&mut wb);
+    assert!(!p.items.iter().any(|i| i.key.starts_with("file:theme")), "a parent of the program folder is not Java's theme folder");
+    java_theme(&program, "Installed", PLAIN_BOARD, json!({}));
+    let p = read(&mut wb);
+    assert_eq!(item(&p.items, "file:theme/Installed").status, ImportStatus::Imported);
+}
+
+#[test]
+fn user_theme_without_its_picture_shows_java_s_shared_theme_folder_picture() {
+    // No board.png in the theme and no ui `board-image`: Java reads theme/board.png.
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    java_theme(&java, "Mine", PLAIN_BOARD, json!({}));
+    std::fs::remove_file(java.join("theme/Mine/board.png")).unwrap();
+    std::fs::write(java.join("theme/board.png"), SABAKI_BOARD).unwrap();
+    std::fs::write(java.join("config.txt"), json!({"ui": {"theme": "Mine"}}).to_string()).unwrap();
+    let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+    let p = preview(&mut wb, &java);
+    wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
+    std::fs::remove_dir_all(&java).unwrap();
+    assert_eq!(committed_board(&mut wb), data_url(SABAKI_BOARD, tmp.path()));
+}
+
+#[test]
+fn unusable_theme_folders_are_reported_and_leave_the_others_and_existing_themes() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    java_theme(&java, "Good", PLAIN_BOARD, json!({}));
+    java_theme(&java, "BadColour", SABAKI_BOARD, json!({"pure-board-color": [999, 0, 0], "shadow-size": 0}));
+    java_theme(&java, "Locked", SABAKI_BOARD, json!({}));
+    std::fs::write(java.join("config.txt"), json!({"ui": {"read-komi": false}}).to_string()).unwrap();
+    let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+    wb.add_theme("BadColour").unwrap();
+    let before = snapshot(&lizzie_core::appearance::themes_dir(wb.storage()).join("BadColour"));
+    let locked = java.join("theme/Locked");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let candidate = java_import::read(&JavaSource::new(&java, None));
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let p = wb.preview_java_import(candidate.unwrap());
+    let bad = item(&p.items, "file:theme/BadColour");
+    assert_eq!((bad.status, bad.reason), (ImportStatus::Incompatible, Some(ImportReason::InvalidValue)));
+    assert_eq!(bad.detail.as_deref(), Some("pure-board-color, shadow-size"));
+    let locked_item = item(&p.items, "file:theme/Locked");
+    assert_eq!((locked_item.status, locked_item.reason), (ImportStatus::Incompatible, Some(ImportReason::Unreadable)));
+    assert!(!p.replaces.contains(&ImportTarget::Themes), "an unusable folder replaces nothing");
+    wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
+    assert!(lizzie_core::appearance::themes_dir(wb.storage()).join("Good/theme.txt").is_file());
+    assert_eq!(snapshot(&lizzie_core::appearance::themes_dir(wb.storage()).join("BadColour")), before);
+    assert!(!wb.config().record.read_komi, "the other settings still come over");
+}
+
+#[test]
+fn a_failed_import_with_ui_pictures_leaves_no_new_theme_folders() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    java_theme(&java, "Mine", PLAIN_BOARD, json!({}));
+    std::fs::write(java.join("theme/ui.png"), SABAKI_BOARD).unwrap();
+    std::fs::write(java.join("config.txt"), json!({"ui": {"theme": "Mine", "custom-board-image": "ui.png"}}).to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    wb.dismiss_java_import_offer().unwrap();
+    let config_dir = product.join("config");
+    let before = snapshot(&config_dir);
+    let p = preview(&mut wb, &java);
+    let mode = std::fs::metadata(&config_dir).unwrap().permissions();
+    let mut read_only = mode.clone();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut read_only, 0o555);
+    // The themes folder is created first so the import can write into it; the settings cannot.
+    std::fs::create_dir(config_dir.join("themes")).unwrap();
+    std::fs::set_permissions(&config_dir, read_only).unwrap();
+    let failed = wb.apply_java_import(p.id, &[], false, true, None);
+    std::fs::set_permissions(&config_dir, mode).unwrap();
+    assert!(failed.as_ref().is_err_and(|e| e.message.starts_with("saving imported settings failed")), "{failed:?}");
+    std::fs::remove_dir(config_dir.join("themes")).unwrap();
+    assert_eq!(snapshot(&config_dir), before);
 }
 
 #[test]

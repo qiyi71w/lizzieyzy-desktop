@@ -117,6 +117,24 @@ pub fn java_key(field: &str) -> String {
     for c in field.chars() { if c.is_ascii_uppercase() { out.push('-'); out.push(c.to_ascii_lowercase()); } else { out.push(c); } }
     out
 }
+/// Keys of a Java `theme.txt` whose value no theme can use (a colour channel out of range, a
+/// non-positive width, a wrong type). The 错误节点 pair is not judged here: Java itself falls back
+/// to the ui rules for a bad pair (Theme.java:373-422), and so does [`merge_java`].
+pub fn invalid_java_keys(raw: &Map<String,Value>) -> Vec<String> {
+    let base = serde_json::to_value(ThemeSettings::default()).expect("theme serializes");
+    let mut out = Vec::new();
+    for field in base.as_object().expect("theme object").keys() {
+        if field == "blunderWinrateThresholds" || field == "blunderNodeColors" { continue; }
+        let key = java_key(field);
+        let Some(value) = raw.get(&key) else { continue };
+        // merge_java raises these to their minimum, as the glass painters do.
+        if matches!(field.as_str(),"glassBlurRadius"|"liquidBlurRadius"|"glassCornerRadius") && value.as_i64().is_some() { continue; }
+        let mut one = base.clone();
+        one[field] = value.clone();
+        if serde_json::from_value::<ThemeSettings>(one).ok().is_none_or(|theme| !theme.valid()) { out.push(key); }
+    }
+    out
+}
 /// Java theme fields override ui fields individually (Theme.java:473-478).
 pub fn merge_java(base: &ThemeSettings, raw: &Map<String,Value>) -> ThemeSettings {
     let mut json = serde_json::to_value(base).expect("theme serializes");
@@ -370,16 +388,22 @@ pub fn images(storage:&Storage, appearance:&AppearanceSettings, theme:&ThemeSett
 }
 
 
-/// Newly copied immutable images belong to the surrounding settings transaction until kept.
-pub(crate) struct ImageCopies(Vec<PathBuf>);
-impl ImageCopies { pub(crate) fn keep(mut self) { self.0.clear(); } }
+/// Newly copied immutable images belong to the surrounding settings transaction until kept;
+/// dropped, they are removed with the folders created for them.
+pub(crate) struct ImageCopies { files: Vec<PathBuf>, created: Vec<PathBuf> }
+impl ImageCopies { pub(crate) fn keep(mut self) { self.files.clear(); self.created.clear(); } }
 impl Drop for ImageCopies {
-    fn drop(&mut self) { for path in &self.0 { let _ = std::fs::remove_file(path); } }
+    fn drop(&mut self) {
+        for path in &self.files { let _ = std::fs::remove_file(path); }
+        for dir in &self.created { let _ = std::fs::remove_dir(dir); }
+    }
 }
 pub(crate) fn capture_external_images(storage: &Storage, settings: &mut AppearanceSettings, theme: &mut ThemeSettings) -> std::io::Result<ImageCopies> {
     use sha2::{Digest, Sha256};
     let root = themes_dir(storage).join(".images");
-    let mut copies = ImageCopies(Vec::new());
+    // Innermost first, so removing them in order empties the parent.
+    let created = [root.clone(), themes_dir(storage)].into_iter().filter(|d| !d.exists()).collect();
+    let mut copies = ImageCopies { files: Vec::new(), created };
     for value in [&mut settings.custom_board_image, &mut settings.custom_background_image,
         &mut theme.board_image, &mut theme.background_image, &mut theme.black_stone_image, &mut theme.white_stone_image] {
         if value.is_empty() { continue; }
@@ -394,7 +418,7 @@ pub(crate) fn capture_external_images(storage: &Storage, settings: &mut Appearan
         let format = image::guess_format(&bytes).map_err(std::io::Error::other)?;
         image::load_from_memory_with_format(&bytes, format).map_err(std::io::Error::other)?;
         let file = root.join(format!("{:x}.{}", Sha256::digest(&bytes), format.extensions_str()[0]));
-        if !file.is_file() { settings::write_atomic(&file, &bytes)?; copies.0.push(file.clone()); }
+        if !file.is_file() { settings::write_atomic(&file, &bytes)?; copies.files.push(file.clone()); }
         *value = file.to_string_lossy().into_owned();
     }
     Ok(copies)
@@ -419,5 +443,14 @@ mod tests {
         let mut table: Vec<_> = super::BUNDLED_IMAGES.iter().map(|(t,f,h)|(t.to_string(),f.to_string(),h.to_string())).collect();
         shipped.sort(); table.sort();
         assert_eq!(table,shipped);
+    }
+    /// The themes Java ships and its 新建主题 template are all usable as they are.
+    #[test]
+    fn java_s_own_themes_have_no_invalid_values() {
+        let template = include_str!("../../../ui/public/assets/newtheme/theme.txt");
+        for raw in super::BUNDLED.iter().map(|(_,raw)|*raw).chain([template]) {
+            let raw: serde_json::Map<String,serde_json::Value> = serde_json::from_str(raw.trim_start_matches('\u{feff}')).unwrap();
+            assert!(super::invalid_java_keys(&raw).is_empty(), "{:?}", super::invalid_java_keys(&raw));
+        }
     }
 }

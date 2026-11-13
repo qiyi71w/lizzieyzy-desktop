@@ -647,7 +647,8 @@ pub fn read(source: &JavaSource) -> Result<Candidate, ImportFailure> {
         engines: Vec::new(),
     };
     // The theme folders first: `ui.theme` may select one of them.
-    r.themes();
+    let no_ui = Map::new();
+    r.themes(config.get("ui").and_then(Value::as_object).unwrap_or(&no_ui));
     r.config(&config);
 
     let persist_path = source.config_dir.join(PERSIST_FILE);
