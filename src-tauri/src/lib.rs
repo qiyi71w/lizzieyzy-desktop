@@ -78,7 +78,7 @@ pub const HAWKEYE_CLOSED_EVENT: &str = "hawkeye-closed";
 
 pub struct Shared {
     pub workbench: Mutex<Workbench>,
-    pub log: logging::Log,
+    pub log: Arc<logging::Log>,
     /// Engine-caused view change, console lines, and a timer the refresher must re-read.
     refresh: Mutex<(bool, bool, bool)>,
     refresh_cv: Condvar,
@@ -875,8 +875,12 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             shared.workbench.lock().unwrap().set_console_visible(visible);
             Ok(CommandResult::Done)
         }
-        Command::SetFullTrace { enabled } => {
-            let done = shared.workbench.lock().unwrap().set_full_trace(enabled)?;
+        Command::SetFullTrace { enabled, scopes } => {
+            let done = shared.workbench.lock().unwrap().set_full_trace(enabled, scopes)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetLogging { settings } => {
+            let done = shared.workbench.lock().unwrap().set_logging(settings)?;
             Ok(changed(&app, &shared, done))
         }
         Command::SetPonderLimitTips { enabled } => {
@@ -2037,7 +2041,7 @@ pub fn run() {
             let cloud_adapter = Arc::new(cloud::Adapter::new(app.config().identifier.clone(), &config_dir));
             app.manage(cloud_adapter.clone());
             app.manage(cloud_dispatch::Requests::default());
-            let log = logging::Log::start(&storage.logs_dir);
+            let log = Arc::new(logging::Log::start(&storage.logs_dir));
             log.info(&format!(
                 "start {} {} on {}/{}",
                 app.package_info().name,
@@ -2045,6 +2049,15 @@ pub fn run() {
                 std::env::consts::OS,
                 std::env::consts::ARCH
             ));
+            // 诊断与日志: one recorder for the workbench, the engines and the network adapters;
+            // its records go to app.log.
+            let diagnostics = lizzie_core::diagnostics::Diagnostics::new(storage.logs_dir.clone());
+            let diagnostics_log = log.clone();
+            diagnostics.set_sink(Arc::new(move |level, text| match level {
+                lizzie_core::diagnostics::LogLevel::Debug => diagnostics_log.debug(text),
+                lizzie_core::diagnostics::LogLevel::Warn => diagnostics_log.warn(text),
+            }));
+            logging::install_diagnostics(diagnostics.clone());
             let locale = sys_locale::get_locale();
             // Engine output reaches the workbench through the shared state, which exists only
             // after the workbench: the sink looks it up once it is set.
@@ -2081,9 +2094,10 @@ pub fn run() {
                 }
             }))
             .with_ssh(ssh_adapter.connector())
-            .with_cloud(cloud_connector);
+            .with_cloud(cloud_connector.with_diagnostics(diagnostics.clone()));
             let processes = launcher.waiter();
             let mut workbench = Workbench::new(storage, locale.as_deref(), Box::new(launcher), engine_roots());
+            workbench.set_diagnostics(diagnostics);
             if let Ok(reply) = cloud_adapter.dispatch(&workbench.config().cloud, &workbench.config().network,
                 lizzie_core::cloud::CloudCommand::State) {
                 workbench.set_cloud_authenticated(reply.state.authenticated);

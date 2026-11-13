@@ -151,6 +151,11 @@ pub struct Mapped {
     pub no_sound_in_sync: Option<bool>,
     pub read_board_stat_sync: Option<bool>,
     pub read_board_get_focus: Option<bool>,
+    /// 诊断与日志: `logging.diagnostics-enabled`, `diagnostic-modules`,
+    /// `preferred-full-trace-scopes`.
+    pub logging_enabled: Option<bool>,
+    pub logging_modules: Option<Vec<crate::diagnostics::DiagnosticModule>>,
+    pub logging_scopes: Option<Vec<crate::diagnostics::TraceScope>>,
     /// 布局模式 (`ui.extra-mode`).
     pub extra_mode: Option<ExtraMode>,
     pub recent_files: Option<Vec<String>>,
@@ -1995,6 +2000,7 @@ impl Reader<'_> {
         self.hawkeye(ui, &mut handled);
         self.network(ui, &mut handled);
         self.web_board(root, &mut handled);
+        self.logging(root, &mut handled);
         self.display(ui, leelaz, &mut handled);
         self.game(ui, leelaz, &mut handled);
         self.matches(ui, &mut handled);
@@ -2726,6 +2732,47 @@ impl Reader<'_> {
         }
     }
 
+    /// 诊断与日志 (`LoggingSettings.fromJson`). A list naming an unknown module or scope is
+    /// refused whole (Java's `fromWireName` rejects it); the other keys still come over.
+    fn logging(&mut self, root: &Map<String, Value>, handled: &mut Handled) {
+        use crate::diagnostics::{DiagnosticModule, TraceScope};
+        const SECTION: &str = "logging";
+        let Some(section) = root.get(SECTION).and_then(Value::as_object) else { return };
+        fn names<T>(v: &Value, parse: fn(&str) -> Option<T>) -> Option<Vec<T>> {
+            v.as_array()?.iter().map(|n| n.as_str().and_then(parse)).collect()
+        }
+        if let Some(v) = section.get("diagnostics-enabled") {
+            handled.push((SECTION, "diagnostics-enabled"));
+            match as_bool(v) {
+                Some(on) => {
+                    self.mapped.logging_enabled = Some(on);
+                    self.imported("logging.diagnostics-enabled".into(), ImportTarget::Diagnostics, on.to_string());
+                }
+                None => self.invalid("logging.diagnostics-enabled".into(), ImportTarget::Diagnostics, v),
+            }
+        }
+        if let Some(v) = section.get("diagnostic-modules") {
+            handled.push((SECTION, "diagnostic-modules"));
+            match names(v, DiagnosticModule::from_wire_name) {
+                Some(modules) => {
+                    self.mapped.logging_modules = Some(modules);
+                    self.imported("logging.diagnostic-modules".into(), ImportTarget::Diagnostics, shown(v));
+                }
+                None => self.invalid("logging.diagnostic-modules".into(), ImportTarget::Diagnostics, v),
+            }
+        }
+        if let Some(v) = section.get("preferred-full-trace-scopes") {
+            handled.push((SECTION, "preferred-full-trace-scopes"));
+            match names(v, TraceScope::from_wire_name) {
+                Some(scopes) => {
+                    self.mapped.logging_scopes = Some(scopes);
+                    self.imported("logging.preferred-full-trace-scopes".into(), ImportTarget::Diagnostics, shown(v));
+                }
+                None => self.invalid("logging.preferred-full-trace-scopes".into(), ImportTarget::Diagnostics, v),
+            }
+        }
+    }
+
     /// The engine list and the start-up choice.
     fn engines(&mut self, ui: &Map<String, Value>, leelaz: &Map<String, Value>, handled: &mut Handled) {
         let flag = |key: &str| ui.get(key).and_then(as_bool).unwrap_or(false);
@@ -3311,6 +3358,24 @@ fn on_path(name: &str) -> bool {
 }
 
 impl Mapped {
+    /// 诊断与日志 after the import: the Java values that came over in place of `current`'s.
+    fn logging_after(&self, current: &crate::diagnostics::LoggingSettings) -> Option<crate::diagnostics::LoggingSettings> {
+        if self.logging_enabled.is_none() && self.logging_modules.is_none() && self.logging_scopes.is_none() {
+            return None;
+        }
+        let mut next = current.clone();
+        if let Some(on) = self.logging_enabled {
+            next.diagnostics_enabled = on;
+        }
+        if let Some(modules) = &self.logging_modules {
+            next.diagnostic_modules = modules.clone();
+        }
+        if let Some(scopes) = &self.logging_scopes {
+            next.preferred_full_trace_scopes = scopes.clone();
+        }
+        Some(next.normalized())
+    }
+
     /// This product's settings after the import. Engines with credentials are included only when
     /// their Java index is in `copy_credentials`; the 跑谱贡献 account only with `contribution`.
     pub fn apply(&self, config: &Config, persisted: &Persisted, copy_credentials: &[u32], contribution: bool) -> (Config, Persisted) {
@@ -3332,6 +3397,7 @@ impl Mapped {
         set!(c.read_board.no_sound_in_sync, self.no_sound_in_sync);
         set!(c.read_board.always_sync_board_stat, self.read_board_stat_sync);
         set!(c.read_board.get_focus, self.read_board_get_focus);
+        set!(c.logging, self.logging_after(&c.logging));
         set!(c.ui.extra_mode, self.extra_mode);
         if let Ok(mut values) = serde_json::to_value(&c.panels) {
             for value in &self.panels { value.set(&mut values); }
@@ -3717,6 +3783,7 @@ impl Mapped {
         cmp!(ImportTarget::NoSoundInSync, config.read_board.no_sound_in_sync, self.no_sound_in_sync);
         cmp!(ImportTarget::ReadBoardStatSync, config.read_board.always_sync_board_stat, self.read_board_stat_sync);
         cmp!(ImportTarget::ReadBoardGetFocus, config.read_board.get_focus, self.read_board_get_focus);
+        cmp!(ImportTarget::Diagnostics, config.logging, self.logging_after(&config.logging));
         cmp!(ImportTarget::ExtraMode, config.ui.extra_mode, self.extra_mode);
         cmp!(ImportTarget::RecentFiles, config.recent_files, self.recent_files);
         let fox = &config.fox_kifu;

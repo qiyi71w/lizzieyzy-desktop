@@ -235,7 +235,7 @@ function entryReason(id: string): Reason | null {
     case "engine.select-secondary":
       return view.settings.extra_mode === "DoubleEngine" ? null : { key: "FunctionSearch.unavailable.secondary" };
     case "menu.stopFullTrace":
-      return view.engine.full_trace ? null : { key: "FunctionSearch.unavailable.fullTrace" };
+      return view.full_trace.length ? null : { key: "FunctionSearch.unavailable.fullTrace" };
     case "menu.undoDelete":
       return view.editing.can_undo ? null : { key: "FunctionSearch.unavailable.undoEdit" };
     case "menu.redoDelete":

@@ -121,7 +121,7 @@ export const COMMANDS: Record<string, CommandEntry> = {
   "menu.jumpToLeft": { run: () => navigate({ op: "PreviousBranch" }) },
   "menu.jumpToRight": { run: () => navigate({ op: "NextBranch" }) },
   "menu.diagnosticsAndLogs": { run: openDiagnostics },
-  "menu.stopFullTrace": { run: () => run({ type: "SetFullTrace", enabled: false }), enabled: () => state.view?.engine.full_trace ?? false },
+  "menu.stopFullTrace": { run: () => run({ type: "SetFullTrace", enabled: false }), enabled: () => (state.view?.full_trace.length ?? 0) > 0 },
   "menu.clearUserData": {
     run: async () => {
       const ok = await confirm(t("Menu.clearAllPersonalData.confirmTitle"), t("Menu.clearAllPersonalData.confirmMessage"));

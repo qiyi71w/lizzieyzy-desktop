@@ -19,6 +19,7 @@ use url::Url;
 use super::process::Sink;
 use super::runtime::{EngineInput, EngineIo, InstanceId};
 
+use crate::diagnostics::{Diagnostics, EndpointCategory, NetworkExchange};
 use crate::settings::NetworkSettings;
 mod custom;
 mod network;
@@ -78,6 +79,8 @@ pub type CloudNetworkSource = Arc<dyn Fn() -> Result<NetworkSettings, CloudConne
 pub struct CloudConnector {
     tokens: SocketTokenSource,
     network: CloudNetworkSource,
+    /// 网络/远程 records and the 网络/WebSocket full log of the custom transport.
+    diagnostics: Diagnostics,
 }
 
 enum Write {
@@ -128,13 +131,19 @@ impl Output {
 
 impl CloudConnector {
     pub fn new(tokens: SocketTokenSource) -> Self {
-        Self { tokens, network: Arc::new(|| Ok(NetworkSettings::default())) }
+        Self { tokens, network: Arc::new(|| Ok(NetworkSettings::default())), diagnostics: Diagnostics::default() }
     }
 
     /// Supply current application networking without coupling the core to its settings owner.
     /// Without a source, standalone connectors use the product's default Direct mode.
     pub fn with_network(mut self, network: CloudNetworkSource) -> Self {
         self.network = network;
+        self
+    }
+
+    /// Records the custom WebSocket transport through the application's recorder.
+    pub fn with_diagnostics(mut self, diagnostics: Diagnostics) -> Self {
+        self.diagnostics = diagnostics;
         self
     }
 
@@ -228,7 +237,9 @@ async fn run(
         CloudProvider::Zhizi => {
             run_zhizi(connector, &client, launch, &output, &mut rx, &mut cancel, endings).await
         }
-        CloudProvider::Custom => run_custom(&client, launch, &output, &mut rx, &mut cancel).await,
+        CloudProvider::Custom => {
+            run_custom(&client, launch, &output, &mut rx, &mut cancel, &connector.diagnostics).await
+        }
     };
     if let Some((established, message)) = result {
         output.failure(established && zhizi, message);
@@ -527,21 +538,33 @@ async fn run_zhizi(
     }
 }
 
-
 async fn run_custom(
     client: &reqwest::Client,
     launch: CloudLaunch,
     output: &Output,
     rx: &mut mpsc::UnboundedReceiver<Write>,
     cancel: &mut watch::Receiver<bool>,
+    diagnostics: &Diagnostics,
 ) -> Option<(bool, &'static str)> {
     let Ok(url) = Url::parse(launch.url.trim()) else { return Some((false, "Invalid custom cloud WebSocket URL")); };
     if !matches!(url.scheme(), "ws" | "wss") { return Some((false, "Custom cloud URL requires ws or wss")); }
+    let started = Instant::now();
     let connection = tokio::select! {
         biased;
         _ = cancel.changed() => return None,
         result = tokio::time::timeout(Duration::from_secs(20), network::connect(client, url.as_str())) => result,
     };
+    // Java `KataGoAnalysisWebSocketTransport.recordConnect`.
+    let connected = matches!(connection, Ok(Ok(_)));
+    diagnostics.network(&NetworkExchange {
+        remote: false,
+        method: "WS",
+        host: url.host_str().unwrap_or_default(),
+        category: EndpointCategory::Protocol,
+        status: None,
+        latency_ms: started.elapsed().as_millis() as u64,
+        outcome: if connected { "connected" } else { "failed" },
+    });
     let mut socket = match connection {
         Ok(Ok(socket)) => socket,
         _ => return Some((false, "Custom cloud WebSocket connection failed")),
@@ -554,6 +577,7 @@ async fn run_custom(
             command = rx.recv() => match command {
                 Some(Write::Line(line)) => match adapter.command(&line, output) {
                     Ok(custom::Action::Send(payload)) => {
+                        diagnostics.trace_payload(EndpointCategory::Protocol, "send", &payload);
                         if send(&mut socket, Message::Text(payload.into()), cancel).await.is_err() {
                             if *cancel.borrow() { return None; }
                             return Some((true, "Custom cloud request failed; rebuilding the current position"));
@@ -570,6 +594,7 @@ async fn run_custom(
             },
             message = socket.next() => match message {
                 Some(Ok(Message::Text(text))) => {
+                    diagnostics.trace_payload(EndpointCategory::Protocol, "recv", &text);
                     for line in text.lines().filter(|line| !line.trim().is_empty()) {
                         if adapter.response(line, output).is_err() {
                             return Some((true, "Custom cloud returned an invalid analysis response"));

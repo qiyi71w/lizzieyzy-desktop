@@ -188,8 +188,16 @@ importing the matching LizzieYzy Next settings.
   (zh-CN, zh-TW, en, ja, ko, th; applied after a restart, like Java), and the editing toggles
   (启用双击找子, 启用拖动棋子, 启用点击棋子回看, 显示落子矩形, 显示清空棋盘提示对话框, 标记工具,
   五子棋无提子规则). A setting that cannot be saved is reported and left unchanged.
-- Help > 诊断与日志 shows this client's logs, opens the log folder and exports a diagnostics zip;
-  Help > 清除所有个人数据 clears the recent-record list and 野狐棋谱's 近期搜索; View > 重置界面位置
+- Help > 诊断与日志 shows this client's logs, opens the log folder and exports a diagnostics zip.
+  诊断记录 and its four modules (引擎, GTP 摘要, 读盘/弈客, 网络/远程) take effect on 应用 without a
+  restart and are saved (config `logging`, all on by default); they decide which summary records
+  reach `app.log`. A failed network request is always recorded. 完整日志 is a session, not a
+  setting: after a confirmation it writes the chosen scopes (引擎/GTP → `logs/engine-trace.log`,
+  读盘/弈客 → `logs/readboard-trace.log`, 网络/WebSocket → `logs/network-trace.log`; none chosen
+  means all) until it is stopped (here or with Help > 停止完整日志). The scope choice is saved for
+  the next session; while one runs its scopes are locked, and a restart never resumes it.
+  Diagnostics exports include these files.
+- Help > 清除所有个人数据 clears the recent-record list and 野狐棋谱's 近期搜索; View > 重置界面位置
   resets the saved window placement and last folder and turns the overwrite prompt back on.
 - 搜索功能 (the top toolbar button, or `Ctrl+K`, `⌘K` on macOS, with no other modifier) opens a
   search bar centred over the window; it is refused while a text field has the focus (the key
@@ -1077,13 +1085,13 @@ importing the matching LizzieYzy Next settings.
 - GTP console (`E`) shows the engine traffic and sends commands. Like Java, `komi <v>` sets the
   game komi and `undo` steps back in the record; other commands that would change the engine's
   board (`play`, `clear_board`, `place_free_handicap`, …) are refused because the record owns the
-  position. The 完整日志 option writes the GTP traffic to `logs/engine-trace.log`. With 控制台隐藏时仍记录
+  position. 完整日志 with the 引擎/GTP scope writes the GTP traffic to `logs/engine-trace.log`. With 控制台隐藏时仍记录
   GTP (综合设置 > 高级 > 日志与分析刷新, on by default) turned off, a hidden console records only engines
   that are still starting; once an engine is ready its traffic appears only while the console is
   shown. A failing
   engine shows Java's failure dialog with its output, copy and diagnostics export. Engines are
   ended (`quit`, then killed after 3 s) when the application exits, including application Quit.
-- Logs, the engine trace, failure details and exported diagnostics pass through a port of
+- Logs, the full-log files, failure details and exported diagnostics pass through a port of
   Java's credential sanitizer (`--password …`, `token=…`, JSON credential keys, authorization
   headers, URL user info, encoded forms); the live console shows raw traffic like Java.
 - Importing LizzieYzy Next settings: offered at the first start (no settings of this client

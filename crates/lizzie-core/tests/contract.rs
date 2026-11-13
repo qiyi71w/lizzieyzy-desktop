@@ -49,6 +49,8 @@ fn generate() -> String {
         WorkbenchView, LogsStatus, JavaImportView, ImportStatus, ImportReason, ImportTarget, ImportItemView,
         EngineProblem, ImportEngineView, ImportPreviewView, ImportReportView, ImportFailure,
         ImportCommentaryCredential,
+        lizzie_core::diagnostics::DiagnosticModule, lizzie_core::diagnostics::TraceScope,
+        lizzie_core::diagnostics::LoggingSettings,
         lizzie_core::engine::runtime::KataParam, lizzie_core::engine::profile::KataParamSettings,
         lizzie_core::api::KataParamEdit, lizzie_core::api::KataEngineParamsEdit, lizzie_core::api::KataParamsView,
         lizzie_core::engine::profile::LeelaOptionSetting, lizzie_core::engine::profile::LeelaOptionSettings,

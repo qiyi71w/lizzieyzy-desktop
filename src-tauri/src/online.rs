@@ -131,14 +131,36 @@ async fn get(settings: &NetworkSettings, url: &str, headers: &[(String, String)]
     for (name, value) in headers {
         request = request.header(name, value);
     }
+    let started = std::time::Instant::now();
+    // Java `AjaxHttpRequest.observeAjax`: a status of 400 or more is a failure.
+    let observe = |status: Option<u16>| {
+        crate::logging::network(&lizzie_core::diagnostics::NetworkExchange {
+            remote: false,
+            method: "GET",
+            host: url,
+            category: lizzie_core::diagnostics::EndpointCategory::Other,
+            status,
+            latency_ms: started.elapsed().as_millis() as u64,
+            outcome: if status.is_some_and(|s| s < 400) { "ok" } else { "failed" },
+        })
+    };
     let response = match request.send().await {
         Ok(response) => response,
-        Err(error) => return failed(error),
+        Err(error) => {
+            observe(None);
+            return failed(error);
+        }
     };
     let status = response.status().as_u16();
     match response.bytes().await {
-        Ok(body) => HttpReply::Ok { status, body: String::from_utf8_lossy(&body).into_owned() },
-        Err(error) => failed(error),
+        Ok(body) => {
+            observe(Some(status));
+            HttpReply::Ok { status, body: String::from_utf8_lossy(&body).into_owned() }
+        }
+        Err(error) => {
+            observe(None);
+            failed(error)
+        }
     }
 }
 

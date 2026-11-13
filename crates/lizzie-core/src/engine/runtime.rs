@@ -13,7 +13,6 @@
 //! so quick navigation does not queue a command batch per step.
 
 use std::collections::{HashMap, VecDeque};
-use std::io::Write;
 use std::hash::BuildHasher;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -27,6 +26,7 @@ use super::profile::{CustomPdaMode, CustomPdaSettings, EngineProfile};
 use super::raw_net::{self, RawNetMode, RawNetView};
 use super::rules::KataRules;
 use super::ssh::{RemoteFailure, SshSettings};
+use crate::diagnostics::{DiagnosticModule, Diagnostics, TraceScope};
 use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, Point, Stone, ROOT};
 
 mod game;
@@ -544,6 +544,8 @@ struct Instance {
     commands: Vec<String>,
     next_id: u64,
     waiting: HashMap<u64, Purpose>,
+    /// GTP 摘要: the name of each numbered command and when it was written, while it waits.
+    sent: HashMap<u64, (String, Instant)>,
     framer: Framer,
     boot: Option<Bootstrap>,
     ready_fence: Option<u64>,
@@ -804,7 +806,8 @@ pub struct Engines {
     always_gtp: bool,
     /// The GTP console is shown (`gtpConsole.isVisible()`).
     console_visible: bool,
-    trace: Option<Box<dyn Write + Send>>,
+    /// 诊断与日志: the 引擎 and GTP 摘要 records and the 引擎/GTP full log.
+    diagnostics: Diagnostics,
     lease: Option<Lease>,
     next_lease: u64,
     workers: Vec<Worker>,
@@ -945,7 +948,7 @@ impl Engines {
             console_seq: 0,
             always_gtp: true,
             console_visible: false,
-            trace: None,
+            diagnostics: Diagnostics::default(),
             lease: None,
             next_lease: 1,
             workers: Vec::new(),
@@ -1275,23 +1278,37 @@ impl Engines {
         StreamOptions { moves_ownership: self.options.moves_ownership && inst.supports_moves_ownership(), ..self.options }
     }
 
-    /// Full trace (诊断与日志 > 完整日志, engine GTP scope): every line to and from engines.
-    pub fn set_trace(&mut self, sink: Option<Box<dyn Write + Send>>) {
-        self.trace = sink;
+    /// Where the engines' diagnostic records and full log go.
+    pub fn set_diagnostics(&mut self, diagnostics: Diagnostics) {
+        self.diagnostics = diagnostics;
     }
 
-    pub fn tracing(&self) -> bool {
-        self.trace.is_some()
+    /// 完整日志 (engine GTP scope): every line to and from engines.
+    fn trace(&self, engine: &str, dir: &str, text: &str) {
+        self.diagnostics.trace(TraceScope::EngineGtp, || format!("[{engine}] {dir} {text}"));
     }
 
-    fn trace(&mut self, engine: &str, dir: &str, text: &str) {
-        if let Some(t) = self.trace.as_mut() {
-            let ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_millis());
-            let _ = writeln!(t, "{ms} [{engine}] {dir} {}", crate::sanitize::sanitize(text));
-            let _ = t.flush();
+    /// Java `EngineObservation.recordRecentStderr` when an engine ends: its last output lines.
+    fn record_recent_output(&self, engine: &str, tail: &VecDeque<String>) {
+        if tail.is_empty() {
+            return;
         }
+        self.diagnostics.debug(DiagnosticModule::Engine, || {
+            let facts: Vec<&str> = tail.iter().map(String::as_str).collect();
+            format!("engine event=stderr engine={engine} facts={}", facts.join(" / "))
+        });
+    }
+
+    /// Java `EngineObservation.recordCommandOutcome` (GTP 摘要) for a numbered answer.
+    fn record_answer(&mut self, id: InstanceId, n: u64, ok: bool) {
+        let Some(inst) = self.get_mut(id) else { return };
+        let Some((command, sent)) = inst.sent.remove(&n) else { return };
+        let name = inst.display_name();
+        let latency = sent.elapsed().as_millis();
+        let outcome = if ok { "ok" } else { "error" };
+        self.diagnostics.debug(DiagnosticModule::GtpSummary, || {
+            format!("gtp command={command} outcome={outcome} latencyMs={latency} engine={name}")
+        });
     }
 
     /// `ui.always-gtp` (控制台隐藏时仍记录 GTP).
@@ -1435,6 +1452,7 @@ impl Engines {
             syncing: None,
             synced: false,
             output_tail: VecDeque::new(),
+            sent: HashMap::new(),
             confirmed_rules: None,
             rules_request: None,
             raw_mode: RawNetMode::Off,
@@ -1599,6 +1617,11 @@ impl Engines {
         if let Some(at) = self.workers.iter().position(|w| w.id == id) {
             let mut w = self.workers.remove(at);
             self.trace(&w.name, "--", "terminate");
+            // Java `AnalysisResourceCoordinator` `process-stopped`.
+            self.diagnostics.debug(DiagnosticModule::Engine, || {
+                format!("engine event=process-stopped purpose={} pid=-1 command=", w.name)
+            });
+            self.record_recent_output(&w.name, &w.tail);
             if let Some(io) = w.io.take() {
                 io.terminate();
             }
@@ -1622,7 +1645,9 @@ impl Engines {
                 failure: Some(LeaseFailure::TransportClosed),
             });
         }
-        self.trace(&inst.display_name(), "--", "terminate");
+        let name = inst.display_name();
+        self.trace(&name, "--", "terminate");
+        self.record_recent_output(&name, &inst.output_tail);
         if let Some(io) = inst.io.take() {
             io.terminate();
         }
@@ -1992,6 +2017,7 @@ impl Engines {
     /// Writes a numbered command. A non-analysis command ends the current stream, except
     /// Leela 0.11 cycle commands, whose table retains the original request owner.
     fn send(&mut self, id: InstanceId, command: &str, purpose: Purpose) -> Option<u64> {
+        let summary = self.diagnostics.records(DiagnosticModule::GtpSummary);
         let inst = self.get_mut(id)?;
         let n = inst.next_id;
         inst.next_id += 1;
@@ -2009,6 +2035,10 @@ impl Engines {
             (None, None) => false,
         };
         inst.waiting.insert(n, purpose);
+        let command_name = command.split_whitespace().next().unwrap_or_default().to_string();
+        if summary {
+            inst.sent.insert(n, (command_name.clone(), Instant::now()));
+        }
         // Whoever sets or reads PDA / WRN, the answer tells what the engine holds.
         let mut words = command.split_whitespace();
         match (words.next(), words.next().and_then(KataParam::named), words.next(), words.next()) {
@@ -2024,6 +2054,8 @@ impl Engines {
         }
         let (name, phase) = (inst.display_name(), inst.phase);
         self.trace(&name, ">>", &line);
+        // Java `EngineObservation.recordCommandSent` (GTP 摘要).
+        self.diagnostics.debug(DiagnosticModule::GtpSummary, || format!("gtp command={command_name} outcome=sent engine={name}"));
         self.console_record(name, phase, ConsoleKind::Sent, command.to_string());
         ok.then_some(n)
     }
@@ -2405,6 +2437,9 @@ impl Engines {
                     self.console_record(name, phase, ConsoleKind::Output, line);
                 }
                 for f in frames {
+                    if let Frame::Response { id: n, ok, .. } = &f {
+                        self.record_answer(id, *n, *ok);
+                    }
                     self.frame(id, f, &mut events);
                 }
             }
@@ -3293,6 +3328,10 @@ impl Engines {
         self.next_instance += 1;
         self.trace(name, "--", &format!("start {shown}"));
         let io = self.launcher.launch(id, &spec).map_err(|e| e.to_string())?;
+        // Java `AnalysisResourceCoordinator` `process-started` (the sanitizer removes secrets).
+        self.diagnostics.debug(DiagnosticModule::Engine, || {
+            format!("engine event=process-started purpose={name} pid=-1 command={shown}")
+        });
         self.workers.push(Worker {
             id,
             name: name.to_string(),

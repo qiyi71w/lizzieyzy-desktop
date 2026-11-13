@@ -248,6 +248,7 @@ impl Workbench {
         let captures_changed = self.config.edit.no_capture != config.edit.no_capture;
         self.config = config;
         self.reload_appearance_theme();
+        self.logging_replaced();
         self.persisted = persisted;
         self.new_profile = false;
         self.analysis_settings_changed(&previous_analysis);

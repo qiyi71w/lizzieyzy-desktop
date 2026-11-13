@@ -18,6 +18,7 @@ use crate::api::{
     Command, CommandResult, EditCommand, FloatBoardView, FloatSceneView, GameCommand, HelperLoggingView, HumanSlCommand,
     MatchCommand, ReadBoardCommand, ReadBoardNotice, ReadBoardView, TuningCommand,
 };
+use crate::diagnostics::{DiagnosticModule, TraceScope};
 use crate::engine::runtime::{InstanceId, Phase};
 use crate::readboard::diagnostics::{self, ReadBoardDiagnostics, SyncDiagnostics, SyncState};
 use crate::readboard::launch::{self, LaunchParams};
@@ -255,7 +256,9 @@ impl Workbench {
         }
         let ended = matches!(input, HelperInput::Ended { .. });
         if let HelperInput::Line(line) = &input {
-            self.readboard.diagnostics.record_line(line, SystemTime::now());
+            let summary = self.readboard.diagnostics.record_line(line, SystemTime::now());
+            // Java `SyncDiagnosticsRecorder.recordProtocolLine` → `traceProtocol`.
+            self.diagnostics.trace(TraceScope::ReadBoardYike, || format!("readboard raw protocol={summary}"));
             if logging::is_control_line(line) {
                 if let Some(h) = self.readboard.helper.as_mut() {
                     h.logging.on_line(line, SystemTime::now());
@@ -662,8 +665,8 @@ impl Workbench {
         let logging = LoggingLaunch {
             log_dir: logging::readboard_log_directory(&self.storage.logs_dir),
             host_session_id: self.readboard.host_session_id.clone(),
-            // Java's default logging policy (`LoggingSettings.defaults`): diagnostics on.
-            diagnostics: true,
+            // Java `ReadBoard` launch: the helper follows 诊断记录.
+            diagnostics: self.config.logging.diagnostics_enabled,
         };
         let params = LaunchParams {
             time: field(a.time_enabled, a.time_seconds),
@@ -964,11 +967,21 @@ impl Workbench {
                 }
                 SessionEvent::LocalMoveConfirmed { .. } => {}
                 SessionEvent::LocalMoveFailed { reason, .. } => {
-                    self.log(true, format!("readboard: the helper could not place the move: {reason}"));
+                    // Java `ReadBoardObservation.recordLocalMove("failed", reason)`.
+                    self.diagnostics.debug(DiagnosticModule::ReadBoardYike, || {
+                        format!("readboard event=local-move outcome=failed reason={reason}")
+                    });
                 }
                 SessionEvent::Decision(d) => {
                     self.readboard.diagnostics.record_decision(d, SystemTime::now());
-                    self.log(false, format!("readboard: sync {:?} ({})", d.outcome, d.reason));
+                    // Java `ReadBoardObservation.recordDecision`.
+                    let result = diagnostics::outcome_name(d.outcome);
+                    self.diagnostics.debug(DiagnosticModule::ReadBoardYike, || {
+                        format!("readboard event=decision result={result} reason={}", d.reason)
+                    });
+                    self.diagnostics.trace(TraceScope::ReadBoardYike, || {
+                        format!("readboard raw decision result={result} reason={}", d.reason)
+                    });
                 }
             }
         }

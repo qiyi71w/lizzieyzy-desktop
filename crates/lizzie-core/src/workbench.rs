@@ -21,6 +21,7 @@ mod batch;
 mod commentary;
 mod cloud;
 mod contribution;
+mod diagnostics;
 mod editing;
 mod exporting;
 mod flash;
@@ -292,6 +293,8 @@ pub struct Workbench {
     engine_failure: Option<EngineFailureView>,
     engine_notice: Option<EngineNotice>,
     logs: Vec<LogLine>,
+    /// 诊断与日志: the switches in effect and the 完整日志 session.
+    diagnostics: crate::diagnostics::Diagnostics,
     /// No settings file existed at start (Java `isNewProfile`): the Java import is offered.
     new_profile: bool,
     /// Java configuration folders found in Java's conventional locations.
@@ -382,6 +385,9 @@ impl Workbench {
         let active_frame_font_size = config.appearance.frame_font_size;
         let appearance_theme = crate::appearance::load_theme(&storage, &config.appearance.theme, &config.appearance_defaults);
         let mut engines = Engines::new(launcher, engine_roots);
+        let diagnostics = crate::diagnostics::Diagnostics::new(storage.logs_dir.clone());
+        diagnostics.apply(&config.logging);
+        engines.set_diagnostics(diagnostics.clone());
         let runtime = storage.resources_dir.join("runtime/nvidia");
         if runtime.is_dir() {
             engines.set_library_dirs(vec![runtime]);
@@ -456,6 +462,7 @@ impl Workbench {
             engine_failure: None,
             engine_notice: None,
             logs: Vec::new(),
+            diagnostics,
             new_profile,
             java_candidates: Vec::new(),
             java_preview: None,
@@ -1195,6 +1202,7 @@ impl Workbench {
                 independent_main_board: self.persisted.independent_main_board,
                 independent_sub_board: self.persisted.independent_sub_board,
                 engine: self.engine_settings_view(),
+                logging: self.config.logging.clone(),
                 edit: self.config.edit.clone(),
                 display: self.config.display.clone(),
                 analysis_engine: self.config.analysis_engine.clone(),
@@ -1223,6 +1231,7 @@ impl Workbench {
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
             engine: self.engine_view(),
+            full_trace: self.diagnostics.full_trace(),
             fox: self.fox_view(),
             quick: self.quick_view(),
             flash: self.flash_view(),

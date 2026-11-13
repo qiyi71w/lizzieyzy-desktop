@@ -143,6 +143,7 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   NoSoundInSync: "Menu.notPlaySoundInSync",
   ReadBoardStatSync: "Menu.alwaysKeepBoardStatSync",
   ReadBoardGetFocus: "Menu.readBoardGetFocus",
+  Diagnostics: "DiagnosticsDialog.title",
   // 同步 > 野狐棋谱's account, 近期搜索 and 打开棋谱后此窗口.
   FoxKifu: "Menu.foxKifu",
   // 同步 > 腾讯棋谱's last query, 近期搜索 and 打开棋谱后此窗口.

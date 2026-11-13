@@ -1599,6 +1599,39 @@ fn web_board_ports_and_viewer_limit_import_like_java_starts_with_them() {
 }
 
 #[test]
+fn diagnostics_settings_import_by_value_and_unknown_names_are_invalid_alone() {
+    // LoggingSettings.fromJson: top-level `logging`, wire names; fromWireName rejects others.
+    use lizzie_core::diagnostics::{DiagnosticModule, TraceScope};
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let source = json!({"ui": {}, "logging": {
+        "diagnostics-enabled": false,
+        "diagnostic-modules": ["network-remote", "engine"],
+        "preferred-full-trace-scopes": ["readboard-yike", "future-scope"],
+    }});
+    std::fs::write(java.join("config.txt"), source.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    for (key, status) in [
+        ("logging.diagnostics-enabled", ImportStatus::Imported),
+        ("logging.diagnostic-modules", ImportStatus::Imported),
+        ("logging.preferred-full-trace-scopes", ImportStatus::Incompatible),
+    ] {
+        let row = item(&p.items, key);
+        assert_eq!((row.status, row.target), (status, Some(ImportTarget::Diagnostics)), "{key}");
+    }
+    assert_eq!(item(&p.items, "logging.preferred-full-trace-scopes").reason, Some(ImportReason::InvalidValue));
+    wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
+    let l = saved_config(&product).logging;
+    assert!(!l.diagnostics_enabled);
+    assert_eq!(l.diagnostic_modules, [DiagnosticModule::Engine, DiagnosticModule::NetworkRemote]);
+    assert_eq!(l.preferred_full_trace_scopes, TraceScope::ALL);
+    assert_eq!(wb.view(false).settings.logging, l);
+}
+
+#[test]
 fn katago_parameter_keys_import_like_java_reads_them() {
     // Config.java:1999-2015: booleans by optBoolean, values as text (empty is no value).
     let tmp = tempfile::tempdir().unwrap();

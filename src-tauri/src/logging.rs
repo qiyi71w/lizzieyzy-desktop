@@ -6,7 +6,7 @@
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Rotate `app.log` to `app.log.1` at start once it exceeds this size.
@@ -65,6 +65,27 @@ impl Log {
 
     pub fn warn(&self, message: &str) {
         self.write("WARN", message);
+    }
+
+    /// A diagnostic record (诊断与日志's modules).
+    pub fn debug(&self, message: &str) {
+        self.write("DEBUG", message);
+    }
+}
+
+/// The application's diagnostics recorder, for the network adapters that run outside the
+/// workbench (Java's static `NetworkObservation`). Set once at start with the log folder.
+static DIAGNOSTICS: OnceLock<lizzie_core::diagnostics::Diagnostics> = OnceLock::new();
+
+pub fn install_diagnostics(diagnostics: lizzie_core::diagnostics::Diagnostics) {
+    let _ = DIAGNOSTICS.set(diagnostics);
+}
+
+/// One network exchange of an adapter (Java `NetworkObservation.recordNetwork` /
+/// `recordRemote`).
+pub fn network(exchange: &lizzie_core::diagnostics::NetworkExchange) {
+    if let Some(diagnostics) = DIAGNOSTICS.get() {
+        diagnostics.network(exchange);
     }
 }
 

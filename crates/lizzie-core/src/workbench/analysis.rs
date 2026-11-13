@@ -1316,30 +1316,6 @@ impl Workbench {
             .collect()
     }
 
-    /// 完整日志 for engine GTP traffic, written to `engine-trace.log` in the log folder.
-    pub fn set_full_trace(&mut self, enabled: bool) -> Result<bool, ApiError> {
-        if enabled == self.engines.tracing() {
-            return Ok(false);
-        }
-        if !enabled {
-            self.engines.set_trace(None);
-            self.log(false, "full trace stopped".into());
-            return Ok(true);
-        }
-        let dir = self.storage.logs_dir.clone();
-        let file = std::fs::create_dir_all(&dir)
-            .and_then(|_| {
-                std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(dir.join("engine-trace.log"))
-            })
-            .map_err(|e| ApiError::new(ErrorKind::Io, format!("engine trace: {e}")))?;
-        self.engines.set_trace(Some(Box::new(file)));
-        self.log(false, "full trace started (engine GTP)".into());
-        Ok(true)
-    }
-
     pub fn set_ponder_limit_tips(&mut self, enabled: bool) -> Result<bool, ApiError> {
         if self.config.engine.analysis.show_ponder_limited_tips == enabled {
             return Ok(false);
@@ -1876,7 +1852,6 @@ impl Workbench {
             rules_key: rules.map(|r| r.summary_key().to_string()),
             rules: rules.map(KataRules::to_gtp_argument),
             console_seq: self.engines.console_seq(),
-            full_trace: self.engines.tracing(),
             lease,
             unrestored,
             down: fg.is_none() && self.engines.foreground_failure().is_some(),

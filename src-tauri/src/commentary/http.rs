@@ -53,10 +53,23 @@ impl Http {
             Duration::from_secs(30),
         )
     }
-    fn send(&self, request: reqwest::RequestBuilder, timeout: Duration) -> Result<HttpReply, HttpFailure> {
+    fn send(&self, method: &str, url: &str, request: reqwest::RequestBuilder, timeout: Duration) -> Result<HttpReply, HttpFailure> {
         if self.cancel.load(Ordering::Acquire) {
             return Err(failed(true));
         }
+        let started = Instant::now();
+        // Java `TeacherLlmClient` `recordNetwork`; a cancelled request is not an exchange.
+        let observe = |status: Option<u16>| {
+            crate::logging::network(&lizzie_core::diagnostics::NetworkExchange {
+                remote: false,
+                method,
+                host: url,
+                category: lizzie_core::diagnostics::EndpointCategory::Other,
+                status,
+                latency_ms: started.elapsed().as_millis() as u64,
+                outcome: if status.is_some_and(|s| s < 400) { "ok" } else { "failed" },
+            })
+        };
         let (headers_tx, headers_rx) = mpsc::sync_channel(1);
         // Bounded backpressure; chunks retain reqwest's Bytes allocation without copying.
         let (body_tx, body_rx) = tokio::sync::mpsc::channel(2);
@@ -104,14 +117,22 @@ impl Http {
                 return Err(failed(true));
             }
             if Instant::now() >= deadline {
+                observe(None);
                 return Err(failed(false));
             }
             match headers_rx.recv_timeout(Duration::from_millis(25)) {
-                Ok(result) => break result?,
+                Ok(Ok(status)) => break status,
+                Ok(Err(failure)) => {
+                    if !failure.cancelled {
+                        observe(None);
+                    }
+                    return Err(failure);
+                }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => return Err(failed(self.cancel.load(Ordering::Acquire))),
             }
         };
+        observe(Some(status));
         let body = Body {
             receiver: body_rx,
             cancel: self.cancel.clone(),
@@ -147,7 +168,7 @@ impl HttpExchange for Http {
         for (name, value) in headers {
             request = request.header(name, value);
         }
-        self.send(request, timeout)
+        self.send("GET", url, request, timeout)
     }
     fn post(
         &mut self,
@@ -160,7 +181,7 @@ impl HttpExchange for Http {
         for (name, value) in headers {
             request = request.header(name, value);
         }
-        self.send(request, timeout)
+        self.send("POST", url, request, timeout)
     }
 }
 struct Body {

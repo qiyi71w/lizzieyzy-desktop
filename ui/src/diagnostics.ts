@@ -1,11 +1,29 @@
-// Help > 诊断与日志 (DiagnosticsDialog): engine GTP full trace plus application/crash logs, and the
-// ReadBoard helper's own log writers. The host's ReadBoard/network recording and trace scopes
-// remain visibly unavailable.
+// Help > 诊断与日志 (DiagnosticsDialog): 诊断记录 and its modules, 完整日志 and its scopes (applied
+// with 应用), application/crash logs, and the ReadBoard helper's own log writers.
 import { registerViewHandler, run, state } from "./app";
 import { logsStatus } from "./contract/client";
-import type { HelperLoggingView, Persistence, Presentation } from "./contract/generated";
+import type { DiagnosticModule, HelperLoggingView, LoggingSettings, Persistence, Presentation, TraceScope } from "./contract/generated";
 import { confirm, panel } from "./dialogs";
 import { format, product, t } from "./i18n";
+
+// Labels resolve in the active language when the dialog opens.
+const moduleRows = (): [DiagnosticModule, string][] => [
+  ["engine", t("DiagnosticsDialog.module.engine")],
+  ["gtp-summary", t("DiagnosticsDialog.module.gtpSummary")],
+  ["readboard-yike", t("DiagnosticsDialog.module.readboardYike")],
+  ["network-remote", t("DiagnosticsDialog.module.networkRemote")],
+];
+const scopeRows = (): [TraceScope, string][] => [
+  ["engine-gtp", t("DiagnosticsDialog.scope.engineGtp")],
+  ["readboard-yike", t("DiagnosticsDialog.scope.readboardYike")],
+  ["network-websocket", t("DiagnosticsDialog.scope.networkWebsocket")],
+];
+
+/** DiagnosticsDialog.scopeLabels (DiagnosticsDialog.java:1132-1150). */
+function scopeLabels(chosen: TraceScope[]): string {
+  const labels = scopeRows().filter(([s]) => chosen.includes(s)).map(([, label]) => label);
+  return labels.length ? labels.join(", ") : t("DiagnosticsDialog.noScopes");
+}
 
 function bytes(n: number | null): string {
   return n === null ? product("none") : `${(n / 1024).toFixed(1)} KB`;
@@ -85,41 +103,112 @@ export async function openDiagnostics(): Promise<void> {
     return b;
   };
 
+  // LizzieYzy pane (DiagnosticsDialog.java:288-352).
   section(t("DiagnosticsDialog.hostPane"));
-  const modules = row(`${t("DiagnosticsDialog.diagnosticsEnabled")}:`);
-  const moduleNames = [
-    t("DiagnosticsDialog.module.engine"),
-    t("DiagnosticsDialog.module.gtpSummary"),
-    t("DiagnosticsDialog.module.readboardYike"),
-    t("DiagnosticsDialog.module.networkRemote"),
-  ];
-  for (const name of moduleNames) {
-    const label = document.createElement("label");
-    label.className = "unavailable";
-    label.title = product("unavailable");
+  /** checkRow (DiagnosticsDialog.java): the label, then the box at the row's end. */
+  const check = (label: string, key: string, indent: boolean) => {
     const box = document.createElement("input");
     box.type = "checkbox";
-    box.disabled = true;
-    label.append(box, name);
-    modules.append(label);
-  }
-  const traceState = document.createElement("span");
-  const trace = document.createElement("input"); trace.type = "checkbox";
-  const traceLabel = document.createElement("label"); traceLabel.append(trace, t("DiagnosticsDialog.fullTrace"));
-  const scope = document.createElement("input"); scope.type = "checkbox"; scope.checked = true; scope.disabled = true;
-  const scopeLabel = document.createElement("label"); scopeLabel.append(scope, t("DiagnosticsDialog.scope.engineGtp"));
-  row(traceLabel, scopeLabel, traceState);
-  for (const text of [t("DiagnosticsDialog.scope.readboardYike"), t("DiagnosticsDialog.scope.networkWebsocket")]) {
-    const label = document.createElement("label"); label.className = "unavailable"; label.title = product("unavailable");
-    const check = document.createElement("input"); check.type = "checkbox"; check.disabled = true;
-    label.append(check, text); row(label);
-  }
-  const updateTrace = () => {
-    trace.checked = state.view?.engine.full_trace ?? false;
-    traceState.textContent = trace.checked ? t("DiagnosticsDialog.stopFullTrace") : t("DiagnosticsDialog.traceOff");
+    box.dataset.key = key;
+    const text = document.createElement("span");
+    text.textContent = label;
+    const l = document.createElement("label");
+    l.className = "diag-check";
+    l.append(text, box);
+    const r = row(l);
+    if (indent) r.classList.add("diag-indent");
+    return { box, row: r };
   };
-  updateTrace();
-  trace.onchange = async () => { await run({ type: "SetFullTrace", enabled: trace.checked }); updateTrace(); };
+  const enabled = check(t("DiagnosticsDialog.diagnosticsEnabled"), "diagnostics.enabled", false);
+  const modules = moduleRows().map(([m, label]) => [m, check(label, `diagnostics.module.${m}`, true).box] as const);
+  const fullLogs = check(t("DiagnosticsDialog.fullTrace"), "diagnostics.fullTrace", false);
+  const traceState = document.createElement("span");
+  traceState.className = "diag-feedback";
+  fullLogs.box.before(traceState);
+  const scopes = scopeRows().map(([s, label]) => [s, check(label, `diagnostics.scope.${s}`, true).box] as const);
+  const scopeNote = document.createElement("div");
+  scopeNote.className = "diag-feedback diag-note";
+  const migration = document.createElement("div");
+  migration.className = "diag-feedback diag-note";
+  migration.textContent = t("DiagnosticsDialog.gtpMigrationNote");
+  body.append(scopeNote, migration);
+  // The status area under the buttons (statusArea): 应用 and export results.
+  const feedback = document.createElement("span");
+  feedback.className = "diag-feedback";
+  // A 完整日志 start or stop shows once the view after it arrives.
+  let refreshPending = false;
+
+  const active = () => state.view?.full_trace ?? [];
+  /** setModulesEnabled (DiagnosticsDialog.java:1097-1102). */
+  const modulesEnabled = () => { for (const [, box] of modules) box.disabled = !enabled.box.checked; };
+  /** refreshScopeControls (DiagnosticsDialog.java:1007-1027): a running session's scopes are
+   *  shown and locked while 完整日志 stays checked. */
+  const refreshScopes = () => {
+    const running = active();
+    const locked = running.length > 0 && fullLogs.box.checked;
+    if (locked) for (const [s, box] of scopes) box.checked = running.includes(s);
+    for (const [, box] of scopes) box.disabled = locked;
+    scopeNote.textContent = running.length
+      ? `${t("DiagnosticsDialog.activeScopes")}: ${scopeLabels(running)}\n${t("DiagnosticsDialog.stopToChangeScopes")}`
+      : t("DiagnosticsDialog.scopesNextSession");
+    traceState.textContent = running.length ? t("DiagnosticsDialog.stopFullTrace") : t("DiagnosticsDialog.traceOff");
+  };
+  /** refreshFromRuntime (DiagnosticsDialog.java:646-659). */
+  const refreshHost = () => {
+    const s = state.view?.settings.logging;
+    if (!s) return;
+    enabled.box.checked = s.diagnosticsEnabled;
+    for (const [m, box] of modules) box.checked = s.diagnosticModules.includes(m);
+    const running = active();
+    fullLogs.box.checked = running.length > 0;
+    const shown = running.length ? running : s.preferredFullTraceScopes;
+    for (const [sc, box] of scopes) box.checked = shown.includes(sc);
+    refreshScopes();
+    modulesEnabled();
+  };
+  enabled.box.onchange = modulesEnabled;
+  fullLogs.box.onchange = refreshScopes;
+  /** selectedScopes (DiagnosticsDialog.java:980-995): none checked means all. */
+  const selectedScopes = (): TraceScope[] => {
+    const chosen = scopes.filter(([, box]) => box.checked).map(([s]) => s);
+    return chosen.length ? chosen : scopes.map(([s]) => s);
+  };
+  /** applyCurrentPlan (DiagnosticsDialog.java:418-475). */
+  const apply = async () => {
+    const saved = state.view?.settings.logging;
+    if (!saved) return;
+    const continues = active().length > 0 && fullLogs.box.checked;
+    const next: LoggingSettings = {
+      diagnosticsEnabled: enabled.box.checked,
+      diagnosticModules: modules.filter(([, box]) => box.checked).map(([m]) => m),
+      preferredFullTraceScopes: continues ? saved.preferredFullTraceScopes : selectedScopes(),
+    };
+    if ((await run({ type: "SetLogging", settings: next })) === null) {
+      refreshHost();
+      feedback.textContent = t("DiagnosticsDialog.applyFailed");
+      return;
+    }
+    feedback.textContent = t("DiagnosticsDialog.applied");
+    if (fullLogs.box.checked) {
+      if (!active().length) {
+        const message = `${t("DiagnosticsDialog.confirmMessage")}\n${scopeLabels(selectedScopes())}`;
+        if (await confirm(t("DiagnosticsDialog.confirmTitle"), message)) {
+          if ((await run({ type: "SetFullTrace", enabled: true, scopes: selectedScopes() })) === null) {
+            feedback.textContent = t("DiagnosticsDialog.applyFailed");
+          }
+        }
+        refreshPending = true;
+        refreshHost();
+      } else {
+        feedback.textContent = t("DiagnosticsDialog.activeScopesUnchanged");
+      }
+    } else if (active().length) {
+      await run({ type: "SetFullTrace", enabled: false });
+      refreshPending = true;
+      refreshHost();
+    }
+  };
+  refreshHost();
 
   // ReadBoard (DiagnosticsDialog.java:354-388): the helper's capability, persistence, dropped
   // events and process session, then the desired writers beside what the helper confirmed, then
@@ -186,21 +275,29 @@ export async function openDiagnostics(): Promise<void> {
   const path = document.createElement("code");
   path.textContent = status.directory;
   row(`${t("DiagnosticsDialog.logsFolder")}: `, path);
-  const feedback = document.createElement("span");
-  feedback.className = "diag-feedback";
   row(
     button(t("DiagnosticsDialog.openLogs"), () => run({ type: "OpenLogFolder" })),
+    button(t("DiagnosticsDialog.apply"), () => void apply()),
     button(t("DiagnosticsDialog.exportDefault"), async () => {
       feedback.textContent = t("DiagnosticsDialog.exporting");
       const r = await run({ type: "ExportDiagnostics" });
       feedback.textContent = r?.type === "Exported" ? `${t("DiagnosticsDialog.exportSuccess")}${r.path}` : r ? "" : t("DiagnosticsDialog.exportFailure");
     }),
-    feedback,
   );
-  refreshReadBoard = updateReadBoard;
+  row(feedback);
+  const refresh = () => {
+    updateReadBoard();
+    if (refreshPending) {
+      refreshPending = false;
+      refreshHost();
+    } else {
+      refreshScopes();
+    }
+  };
+  refreshReadBoard = refresh;
   try {
     await panel(t("DiagnosticsDialog.title"), body);
   } finally {
-    if (refreshReadBoard === updateReadBoard) refreshReadBoard = null;
+    if (refreshReadBoard === refresh) refreshReadBoard = null;
   }
 }

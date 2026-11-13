@@ -374,9 +374,19 @@ pub enum Command {
     SetConsoleVisible {
         visible: bool,
     },
-    /// 诊断与日志 > 完整日志 (engine GTP scope) on or off; "停止完整日志" turns it off.
+    /// 诊断与日志 > 完整日志 on or off; "停止完整日志" turns it off. On starts a session for
+    /// `scopes` (saved as the preference; none chosen means all), or for the saved preference
+    /// without them; a running session keeps its scopes.
     SetFullTrace {
         enabled: bool,
+        #[serde(default)]
+        #[ts(optional)]
+        scopes: Option<Vec<crate::diagnostics::TraceScope>>,
+    },
+    /// 诊断与日志 > 应用: 诊断记录, its modules and the 完整日志 scope preference, saved and in
+    /// effect at once.
+    SetLogging {
+        settings: crate::diagnostics::LoggingSettings,
     },
     /// The "不再提示" box of the analysis-limit notice (`show-ponder-limited-tips`).
     SetPonderLimitTips {
@@ -1230,6 +1240,8 @@ pub struct SettingsView {
     pub independent_main_board: Option<crate::settings::WindowPlacement>,
     pub independent_sub_board: Option<crate::settings::WindowPlacement>,
     pub engine: EngineSettingsView,
+    /// 诊断与日志's saved switches and 完整日志 scope preference.
+    pub logging: crate::diagnostics::LoggingSettings,
     pub edit: EditSettings,
     pub display: crate::settings::DisplaySettings,
     /// 精析设置 as saved.
@@ -1490,6 +1502,8 @@ pub struct WorkbenchView {
     /// Current session komi (toolbar komi field).
     pub komi: f64,
     pub engine: EngineView,
+    /// The scopes of the running 完整日志 session; empty while none runs.
+    pub full_trace: Vec<crate::diagnostics::TraceScope>,
     /// Automatic quick analysis of the open record.
     pub quick: QuickAnalysisView,
     /// Manual flash analysis in progress.
@@ -1668,6 +1682,9 @@ pub enum ImportTarget {
     ReadBoardStatSync,
     /// `ui.read-board-get-focus`.
     ReadBoardGetFocus,
+    /// 诊断与日志 (`logging.diagnostics-enabled`, `diagnostic-modules`,
+    /// `preferred-full-trace-scopes`).
+    Diagnostics,
     RecentFiles,
     LastFolder,
     Engines,
@@ -2082,8 +2099,6 @@ pub struct EngineView {
     pub rules: Option<String>,
     /// Last console line; the console fetches newer lines.
     pub console_seq: u64,
-    /// Full trace of engine GTP traffic is being written.
-    pub full_trace: bool,
     /// 复用当前前台引擎 target status (`AnalysisSettings.reuseStatus`).
     pub lease: LeaseAvailabilityView,
     /// The foreground engine was not given back after it was borrowed: it does not analyse until

@@ -1848,6 +1848,8 @@ pub struct Config {
     pub tencent_kifu: TencentKifuSettings,
     /// 同步 menu's live options.
     pub live: LiveSettings,
+    /// 诊断与日志 (Java top-level `logging`).
+    pub logging: crate::diagnostics::LoggingSettings,
 }
 
 /// 同步 menu's live options (Java `ui.always-gotolast-onlive`, `ui.open-html-onlive`).

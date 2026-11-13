@@ -801,8 +801,24 @@ body {
   margin-top: 6px;
   white-space: normal;
 }
-.diagnostics label.unavailable {
-  color: rgb(150, 150, 150);
+/* checkRow: the label, then its state and box at the row's end; modules and scopes sit
+   under their switch. */
+.diagnostics label.diag-check {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+}
+.diagnostics label.diag-check > span:first-child {
+  flex: 1;
+}
+.diagnostics .diag-row.diag-indent {
+  padding-left: 20px;
+}
+.diagnostics .diag-note {
+  margin-top: 6px;
+  white-space: pre-line;
+  color: rgb(100, 100, 100);
 }
 .diagnostics button:disabled {
   color: rgb(160, 160, 160);
