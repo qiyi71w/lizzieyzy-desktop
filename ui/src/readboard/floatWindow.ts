@@ -188,7 +188,7 @@ export function bootFloatWindow(): void {
   onAppearanceChange(render);
   void self.listen<FloatPayload>(FLOAT_DATA_EVENT, (e) => {
     data = e.payload;
-    void syncAppearance(data.appearance, data.theme);
+    void syncAppearance(data.appearance, data.theme, data.themeFilesRevision);
     render();
   }).then(async () => {
     await Promise.all([loadImages(["board.png", "heatmap.png"]), document.fonts.load('12px "Lizzie Winrate"')]);

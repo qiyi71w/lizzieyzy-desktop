@@ -19,6 +19,7 @@
 
 pub mod slots;
 mod appearance;
+mod themes;
 mod matches;
 mod cloud;
 mod contribution;
@@ -339,6 +340,8 @@ pub struct Mapped {
     /// Appearance/default-theme fields, validated against the same types as the live command.
     pub appearance: Vec<(&'static str, Value)>,
     pub theme: Vec<(&'static str, Value)>,
+    /// Java's own theme folders (`theme/<name>/`), as this product stores them.
+    pub themes: Vec<crate::appearance::ThemeFolder>,
     /// 跑谱贡献 settings other than its account (`ui.contribute-*`, `ui.show-Contribute`,
     /// `leelaz.contribute-engine-ssh-info`).
     pub contribution: Vec<DisplayValue>,
@@ -643,6 +646,8 @@ pub fn read(source: &JavaSource) -> Result<Candidate, ImportFailure> {
         items: Vec::new(),
         engines: Vec::new(),
     };
+    // The theme folders first: `ui.theme` may select one of them.
+    r.themes();
     r.config(&config);
 
     let persist_path = source.config_dir.join(PERSIST_FILE);
@@ -3025,10 +3030,6 @@ impl Reader<'_> {
     /// credentials are discovered by the platform adapter and require independent consent.
     fn other_files(&mut self) {
         let dir = self.source.config_dir.clone();
-        if dir.join("theme").is_dir() {
-            let it = self.item("file:theme".into(), ImportStatus::NotMigrated);
-            it.reason = Some(ImportReason::NotYetAvailable);
-        }
         let models = crate::strength::java_models(&dir.join("strength-models"));
         if !models.is_empty() {
             let it = self.item("file:strength-models".into(), ImportStatus::Imported);

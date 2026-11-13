@@ -166,6 +166,7 @@ function send(v: WorkbenchView, f: FloatBoardView): void {
     language: language(),
     appearance: v.settings.appearance,
     theme: v.settings.theme,
+    themeFilesRevision: v.settings.theme_files_revision,
     ...win.placed,
     scene: {
       ...base,

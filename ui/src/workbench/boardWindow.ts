@@ -213,7 +213,7 @@ export function bootBoardWindow(): void {
   onAppearanceChange(render);
   void self.listen<IndependentPayload>(INDEPENDENT_DATA_EVENT, (e) => {
     data = e.payload;
-    void syncAppearance(data.appearance, data.theme);
+    void syncAppearance(data.appearance, data.theme, data.themeFilesRevision);
     render();
   }).then(async () => {
     await Promise.all([

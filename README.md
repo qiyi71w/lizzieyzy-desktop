@@ -1118,6 +1118,18 @@ importing the matching LizzieYzy Next settings.
   Java's 继承 / 自动检测 / 无), the 死活 toolbar button (`show-tsume-go-menu`) and the 抓取死活题
   thresholds (`capture-*`, the gray offset under Java's `capture-gray-percent`) — only values Java
   itself accepts.
+  Java's own themes also come over: every folder of Java's `theme/` (in the Java folder, else the
+  Java program folder) that holds a `theme.txt` becomes a theme of this client with the same
+  name, together with the board, background and stone images it shows, found as Java finds them
+  (relative to that theme's folder, or absolute) and copied into the theme; an image Java takes
+  from the default theme's settings is taken from them here too. The theme Java had selected
+  stays selected, and Java's translated 默认 / Default entry selects the default theme. An
+  untouched copy of a bundled theme is skipped; a changed one becomes the user's copy of that
+  bundled theme, whose own files are not changed. A theme folder that cannot be read is listed
+  as not usable and the other themes and settings still come over. Replacing a theme of this
+  client with the same name is listed with the theme names and needs the same confirmation as
+  other settings; the folders are written in the same change as the settings, so a refused or
+  failed import leaves this client's themes as they were.
   Automatic-analysis conditions (`analyze-all-branch`, all ten `auto-ana-diff-*` keys,
   `exit-auto-analyze-by-pause`, `exit-auto-analyze-tip`) and `toolbar-parameter` slots 0–8,
   47 and 48 also migrate with Java's restore rules: an empty start becomes 1, empty time 2

@@ -339,7 +339,9 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
   if (p.replaces.length) {
     const box = document.createElement("div");
     box.className = "java-import-replaces";
-    box.append(text("p", product("importReplaces", p.replaces.map(targetLabel).join("、"))));
+    // The replaced themes are named: each is a whole folder of this product's own.
+    const label = (target: ImportTarget) => target === "Themes" ? `${targetLabel(target)}（${p.replaced_themes.join("、")}）` : targetLabel(target);
+    box.append(text("p", product("importReplaces", p.replaces.map(label).join("、"))));
     const confirm = checkbox(product("importReplaceConfirm"), false);
     confirm.input.dataset.key = "import-replace";
     replace = confirm.input;

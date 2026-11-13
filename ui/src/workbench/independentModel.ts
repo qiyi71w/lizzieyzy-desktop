@@ -20,6 +20,8 @@ export type IndependentPayload = {
   /** The committed appearance the window paints with (its board, stones and fonts). */
   appearance: AppearanceSettings;
   theme: ThemeSettings;
+  /** SettingsView.theme_files_revision. */
+  themeFilesRevision: number;
   /** The lock button (independent-mainboard-locked / independent-subboard-locked): no moving
    *  or resizing by dragging. */
   locked: boolean;

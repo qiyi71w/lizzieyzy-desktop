@@ -214,18 +214,100 @@ pub fn delete_theme(storage: &Storage, name: &str) -> std::io::Result<()> {
     Ok(())
 }
 
+/// A whole theme folder to write: `theme.txt` and the image files it names, by file name.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ThemeFolder { pub name: String, pub files: Vec<(String, Vec<u8>)> }
+
+/// Whether a theme folder holds the untouched bundled theme `name`: the same `theme.txt` values,
+/// and every image it shows (`(file, bytes)`) the bundled file of that name.
+pub fn bundled_copy(name: &str, raw: &Map<String,Value>, images: &[(&str,&[u8])]) -> bool {
+    use sha2::{Digest, Sha256};
+    let Some((_,bundled)) = BUNDLED.iter().find(|(n,_)| *n == name) else { return false };
+    serde_json::from_str::<Value>(bundled).ok().as_ref().and_then(Value::as_object) == Some(raw)
+        && images.iter().all(|(file,bytes)| { let hash = format!("{:x}",Sha256::digest(bytes));
+            BUNDLED_IMAGES.iter().any(|(t,f,h)| *t == name && f == file && *h == hash) })
+}
+/// Entries of the themes folder named `name` in any letter case (one folder on Windows and macOS).
+fn same_name_entries(dir: &Path, name: &str) -> Vec<PathBuf> {
+    std::fs::read_dir(dir).into_iter().flatten().flatten()
+        .filter(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(name)).map(|e| e.path()).collect()
+}
+/// The folder already exists under exactly this name and holds these files.
+fn unchanged(dir: &Path, folder: &ThemeFolder) -> bool {
+    same_name_entries(dir,&folder.name).iter().any(|p| p.file_name().is_some_and(|n| *n == *folder.name))
+        && folder.files.iter().all(|(file,bytes)| std::fs::read(dir.join(&folder.name).join(file)).is_ok_and(|b| b == *bytes))
+}
+/// The existing theme folders that writing `folders` would replace.
+pub fn replaced_themes(storage: &Storage, folders: &[ThemeFolder]) -> Vec<String> {
+    let dir = themes_dir(storage);
+    folders.iter().filter(|f| !unchanged(&dir,f) && !same_name_entries(&dir,&f.name).is_empty()).map(|f| f.name.clone()).collect()
+}
+/// Theme folders written by a settings import; dropping it before [`Self::keep`] removes them
+/// and puts every folder they replaced back.
+pub(crate) struct ThemeInstall { work: Option<PathBuf>, created: Option<PathBuf>, moves: Vec<(PathBuf, PathBuf)> }
+impl ThemeInstall {
+    /// Keeps the written folders; whether any folder was written.
+    pub(crate) fn keep(mut self) -> bool {
+        let written = !self.moves.is_empty();
+        self.moves.clear(); self.created = None;
+        if let Some(work) = self.work.take() { let _ = std::fs::remove_dir_all(work); }
+        written
+    }
+}
+impl Drop for ThemeInstall {
+    fn drop(&mut self) {
+        for (from,to) in self.moves.drain(..).rev() { let _ = std::fs::rename(to,from); }
+        if let Some(work) = self.work.take() { let _ = std::fs::remove_dir_all(work); }
+        if let Some(dir) = self.created.take() { let _ = std::fs::remove_dir(dir); }
+    }
+}
+/// Writes `folders` into the themes folder, each replacing any folder of the same name; folders
+/// already holding the same files are left alone. All are written aside first and then moved in.
+pub(crate) fn install_themes(storage: &Storage, folders: &[ThemeFolder]) -> std::io::Result<ThemeInstall> {
+    let dir = themes_dir(storage);
+    let mut install = ThemeInstall { work: None, created: None, moves: Vec::new() };
+    let pending: Vec<&ThemeFolder> = folders.iter().filter(|f| !unchanged(&dir,f)).collect();
+    if pending.is_empty() { return Ok(install); }
+    if !dir.is_dir() { std::fs::create_dir_all(&dir)?; install.created = Some(dir.clone()); }
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0,|d| d.as_nanos());
+    let work = dir.join(format!(".import-{}-{stamp}",std::process::id()));
+    std::fs::create_dir(&work)?;
+    install.work = Some(work.clone());
+    for (i,folder) in pending.iter().enumerate() {
+        let staged = work.join(i.to_string());
+        std::fs::create_dir(&staged)?;
+        for (file,bytes) in &folder.files { std::fs::write(staged.join(file),bytes)?; }
+    }
+    for (i,folder) in pending.iter().enumerate() {
+        for (j,old) in same_name_entries(&dir,&folder.name).into_iter().enumerate() {
+            let aside = work.join(format!("replaced-{i}-{j}"));
+            std::fs::rename(&old,&aside)?;
+            install.moves.push((old,aside));
+        }
+        let (staged,target) = (work.join(i.to_string()),dir.join(&folder.name));
+        std::fs::rename(&staged,&target)?;
+        install.moves.push((staged,target));
+    }
+    Ok(install)
+}
+
 /// Only explicit image settings are read. Bytes are decoded before crossing IPC; no directory
 /// is exposed through a WebView file/asset protocol (Theme.java:519-530 override precedence).
 pub fn image_data(path: &Path) -> std::io::Result<String> {
     image_bytes(&std::fs::read(path)?)
 }
 fn image_bytes(bytes: &[u8]) -> std::io::Result<String> {
+    Ok(format!("data:{};base64,{}",image_mime(bytes)?,base64::engine::general_purpose::STANDARD.encode(bytes)))
+}
+/// The MIME type of a decodable PNG, JPEG, GIF or BMP image.
+fn image_mime(bytes: &[u8]) -> std::io::Result<&'static str> {
     let format = image::guess_format(bytes).map_err(std::io::Error::other)?;
     image::load_from_memory_with_format(bytes,format).map_err(std::io::Error::other)?;
-    let mime = match format { image::ImageFormat::Png=>"image/png",image::ImageFormat::Jpeg=>"image/jpeg",
-        image::ImageFormat::Gif=>"image/gif",image::ImageFormat::Bmp=>"image/bmp",_=>return Err(std::io::Error::other("unsupported image format")) };
-    Ok(format!("data:{mime};base64,{}",base64::engine::general_purpose::STANDARD.encode(bytes)))
+    match format { image::ImageFormat::Png=>Ok("image/png"),image::ImageFormat::Jpeg=>Ok("image/jpeg"),
+        image::ImageFormat::Gif=>Ok("image/gif"),image::ImageFormat::Bmp=>Ok("image/bmp"),_=>Err(std::io::Error::other("unsupported image format")) }
 }
+/// Whether `bytes` are an image this product shows.
+pub fn is_image(bytes: &[u8]) -> bool { image_mime(bytes).is_ok() }
 /// `appearance_images`: loadable URLs of the four theme images; `custom_board` /
 /// `custom_background` are Theme.isUsingCustomBoardImage / isUsingCustomBackgroundImage
 /// (Theme.java:210-217), the configured override decoded.
@@ -235,14 +317,32 @@ pub struct ThemeImages {
     pub board:String, pub background:String, pub black:String, pub white:String,
     pub custom_board:bool, pub custom_background:bool,
 }
+/// The image files shipped with each bundled theme (byte-identical to Java's `theme/` folders)
+/// and their SHA-256, so an untouched Java copy of a bundled theme is recognised.
+const BUNDLED_IMAGES: &[(&str, &str, &str)] = &[
+    ("sabaki","background.png","273bce866dbb5cddfc88420783bcf1ce53126c4ecca064946aedf19c5170c3e2"),
+    ("sabaki","black.png","8501003b04b61792cb88419720a3a3185e0f354fe96078c2ba619b4cae503f2c"),
+    ("sabaki","board.png","6494a8d724cabf8211a3c3e640ac65ccfb8a47a2b0a0e2eb308e6ec71866e5e7"),
+    ("sabaki","white.png","c71eee3ecca625de9f5561ed59b956f4b11972728c7a57729c51f2c9870a8cbb"),
+    ("yasnaya","background2.png","2c81f36723892f21611cfacc1f9501b4f604f3c256b4f8fe67c3c34b5f7170aa"),
+    ("yasnaya","black1.png","8c972e6321fd0a8ed8881b736ea2c698a1dea857e5f55ecaee4650a04a91f45e"),
+    ("yasnaya","board7.jpg","b293b4faf13727f2717aa5594ebc4be9cf2512fde9eb374714de24cef6e1addc"),
+    ("yasnaya","white1.png","d40aa399125062fca66e1eb2ce2d0996f0d3cd2fd5795ba84cdb0709b1c0851d"),
+    ("Megapack","background.png","273bce866dbb5cddfc88420783bcf1ce53126c4ecca064946aedf19c5170c3e2"),
+    ("Megapack","black.png","ae2dfeaddb159ed20687c8550fb6047a327b5801fe24814c0273569b947faff0"),
+    ("Megapack","board.png","a6b3acebb3c627df8fa3ad73092c2f377c08290ba45939e7d104a96480fda563"),
+    ("Megapack","white.png","6e882efec042173efcb230cfd93e5dbba84a42d78ada2cd00acff24c1337497c"),
+    ("Custom","background.jpg","71cde6ab1d4d606f81fe2ed5627c6b83251dd6813c97b766942d1ae45d5b8636"),
+    ("Custom","black1.png","8c972e6321fd0a8ed8881b736ea2c698a1dea857e5f55ecaee4650a04a91f45e"),
+    ("Custom","board.png","be5a03ce70484a13f41e7fda5360f1ec4a6632f7579e821d583c59e0e42e8426"),
+    ("Custom","white1.png","d40aa399125062fca66e1eb2ce2d0996f0d3cd2fd5795ba84cdb0709b1c0851d"),
+    ("Fast","background.jpg","f619859a8781cec52b6b0ac9cf9e302e0ba4394e3345840e128e1068a5ca39a8"),
+    ("Fast","black0.png","d716a6ecc27529ed388b72199e85a66f257f6431cc2fb28b1f35aa4b7658ad7b"),
+    ("Fast","board.jpg","b293b4faf13727f2717aa5594ebc4be9cf2512fde9eb374714de24cef6e1addc"),
+    ("Fast","white0.png","e2a25f80f301a8b0b9588ca8cda0248b33bc40e6b3b5e9d960ab90648cd884e1"),
+];
 fn bundled_image_exists(theme:&str, image:&str) -> bool {
-    match theme {
-        "sabaki"|"Megapack" => matches!(image,"board.png"|"background.png"|"black.png"|"white.png"),
-        "yasnaya" => matches!(image,"board7.jpg"|"background2.png"|"black1.png"|"white1.png"),
-        "Custom" => matches!(image,"board.png"|"background.jpg"|"black1.png"|"white1.png"),
-        "Fast" => matches!(image,"board.jpg"|"background.jpg"|"black0.png"|"white0.png"),
-        _ => false,
-    }
+    BUNDLED_IMAGES.iter().any(|(t,f,_)| *t == theme && *f == image)
 }
 pub fn images(storage:&Storage, appearance:&AppearanceSettings, theme:&ThemeSettings) -> ThemeImages {
     let resolve = |custom:&str, value:&str, fallback:&str| {
@@ -298,4 +398,26 @@ pub(crate) fn capture_external_images(storage: &Storage, settings: &mut Appearan
         *value = file.to_string_lossy().into_owned();
     }
     Ok(copies)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use sha2::{Digest, Sha256};
+    /// The table names exactly the shipped image files, with their current bytes.
+    #[test]
+    fn bundled_image_table_matches_the_shipped_files() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/public/themes");
+        let mut shipped = Vec::new();
+        for (theme,_) in super::BUNDLED {
+            for entry in std::fs::read_dir(root.join(theme)).unwrap() {
+                let path = entry.unwrap().path();
+                let file = path.file_name().unwrap().to_string_lossy().into_owned();
+                if file != "theme.txt" { shipped.push((theme.to_string(),file,format!("{:x}",Sha256::digest(std::fs::read(&path).unwrap())))); }
+            }
+        }
+        let mut table: Vec<_> = super::BUNDLED_IMAGES.iter().map(|(t,f,h)|(t.to_string(),f.to_string(),h.to_string())).collect();
+        shipped.sort(); table.sort();
+        assert_eq!(table,shipped);
+    }
 }

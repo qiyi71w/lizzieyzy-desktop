@@ -7,6 +7,9 @@ const APPEARANCE: &[(&str,&str)] = &[
     ("use-morandi-colors","morandiColors"),("custom-board-image","customBoardImage"),
     ("glass-effect-level","glassEffectLevel"),
     ("custom-window-background-image","customBackgroundImage"),("frame-font-size","frameFontSize")];
+/// `LizzieConfig.title.defaultTheme` in every Java language: the theme tab saves the label of its
+/// first entry, the default theme (ConfigDialog2.java:4384, 6864), which no folder holds.
+const DEFAULT_THEME_LABELS: [&str; 7] = ["Default","デフォルト","기본값","ค่าเริ่มต้น","默认","默認","預設"];
 const THEME: &[(&str,&str)] = &[
     ("glass-panel-overlay-color","glassPanelOverlayColor"),("glass-panel-border-color","glassPanelBorderColor"),
     ("glass-panel-highlight-color","glassPanelHighlightColor"),("glass-panel-shadow-color","glassPanelShadowColor"),
@@ -32,7 +35,10 @@ impl Reader<'_> {
         for &(key,field) in APPEARANCE {
             let Some(raw)=ui.get(key) else {continue}; handled.push(("ui",key));
             let value=match key {
-                "theme"=>raw.as_str().filter(|v|appearance::valid_name(v)).map(|s|Value::from(s.to_string())),
+                "theme"=>raw.as_str().map(|v| {
+                    let folder = self.mapped.themes.iter().any(|t| t.name == v);
+                    if !folder && (v.eq_ignore_ascii_case("default") || DEFAULT_THEME_LABELS.contains(&v)) {"default"} else {v}
+                }).filter(|v|appearance::valid_name(v)).map(Value::from),
                 "board-style"=>raw.as_str().and_then(|v|match v {"japanese"=>Some(Value::from("Japanese")),"chinese-classic"=>Some(Value::from("ChineseClassic")),_=>None}),
                 "is-apple-style"|"use-morandi-colors"=>as_bool(raw).map(Value::from),
                 // Config.java:1871 reads optInt without the interactive dialog's 12..20 limit.
@@ -41,8 +47,13 @@ impl Reader<'_> {
             };
             match value {
                 Some(value)=> {
-                    if key=="theme" && value.as_str().is_some_and(|n| n!="default" && !appearance::BUNDLED.iter().any(|(b,_)|*b==n)) {
-                        self.not_migrated(format!("ui.{key}"),raw); continue;
+                    if key=="theme" && value.as_str().is_some_and(|n| n!="default" && !appearance::BUNDLED.iter().any(|(b,_)|*b==n)
+                        && !self.mapped.themes.iter().any(|t| t.name == n)) {
+                        // Java shows its default values for a theme without a readable folder.
+                        let it=self.item(format!("ui.{key}"),ImportStatus::Incompatible);
+                        it.target=Some(ImportTarget::Appearance); it.reason=Some(ImportReason::Unreadable);
+                        it.value=Some(super::sanitize(&super::shown(raw))); it.detail=value.as_str().map(|n| super::sanitize(&format!("theme/{n}/theme.txt")));
+                        continue;
                     }
                     self.mapped.appearance.push((field,value)); self.imported(format!("ui.{key}"),ImportTarget::Appearance,super::shown(raw));
                 },

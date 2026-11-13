@@ -213,6 +213,8 @@ pub struct Workbench {
     system_locale: Option<String>,
     active_frame_font_size: i32,
     appearance_theme: crate::appearance::ThemeSettings,
+    /// See [`crate::api::SettingsView::theme_files_revision`].
+    theme_files_revision: u32,
     doc: Document,
     cursor: NodeId,
     komi: f64,
@@ -401,6 +403,7 @@ impl Workbench {
             active_language,
             active_frame_font_size,
             appearance_theme,
+            theme_files_revision: 0,
             system_locale: system_locale.map(str::to_string),
             doc: Document {
                 id: 1,
@@ -1204,6 +1207,7 @@ impl Workbench {
                 hawkeye: self.config.hawkeye.clone(),
                 appearance: self.config.appearance.clone(),
                 theme: self.appearance_theme.clone(),
+                theme_files_revision: self.theme_files_revision,
                 active_frame_font_size: self.active_frame_font_size,
                 region: self.config.region,
                 tracking: self.config.tracking,

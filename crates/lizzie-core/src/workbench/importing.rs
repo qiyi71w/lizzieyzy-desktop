@@ -10,6 +10,9 @@
 //! Java 存档与读档 slots the user chose are added after this product's own slots in the same
 //! change: they are written first and taken back if the settings cannot be written. This
 //! product's automatic slot and the open record are never touched.
+//!
+//! Java's theme folders are written into this product's themes folder in the same change: each
+//! is staged aside and moved in, and on failure the replaced folders are moved back.
 
 use super::Workbench;
 use crate::api::{
@@ -70,6 +73,7 @@ impl Workbench {
             contribution_credential: candidate.contribution_credential(),
             cloud_credentials: candidate.cloud_credentials.clone(),
             replaces: self.java_import_replaces(&candidate),
+            replaced_themes: crate::appearance::replaced_themes(&self.storage, &candidate.mapped.themes),
             // As choosing the slots would import them; the report shows the choice made.
             recovery: slots::after(&candidate.slots, true),
         };
@@ -179,6 +183,13 @@ impl Workbench {
                 return Err(ApiError::new(ErrorKind::Io, format!("importing the strength models failed: {e}")));
             }
         };
+        let themes = match crate::appearance::install_themes(&self.storage, &candidate.mapped.themes) {
+            Ok(themes) => themes,
+            Err(e) => {
+                self.java_preview = Some((id, candidate));
+                return Err(ApiError::new(ErrorKind::Io, format!("importing the theme folders failed: {e}")));
+            }
+        };
         // After "重置界面位置" the persist file stays deleted until the next start
         // (`Config.deletePersist`), except for the folder the user imports now: it is written
         // alone, without the placement that was reset.
@@ -228,6 +239,9 @@ impl Workbench {
         }
         images.keep();
         models.keep();
+        if themes.keep() {
+            self.theme_files_revision = self.theme_files_revision.wrapping_add(1);
+        }
         self.strength_reload_models();
 
         let previous_analysis = self.config.engine.analysis.clone();
@@ -275,10 +289,15 @@ impl Workbench {
         }))
     }
 
-    /// Settings of this product the candidate would change (see [`crate::java_import::Mapped::replaces`]).
+    /// Settings of this product the candidate would change (see [`crate::java_import::Mapped::replaces`]),
+    /// and this product's themes its theme folders would replace.
     fn java_import_replaces(&self, candidate: &Candidate) -> Vec<crate::api::ImportTarget> {
         let has_settings = self.storage.config_file.exists();
-        candidate.mapped.replaces(&self.config, &self.persisted, has_settings)
+        let mut out = candidate.mapped.replaces(&self.config, &self.persisted, has_settings);
+        if !crate::appearance::replaced_themes(&self.storage, &candidate.mapped.themes).is_empty() {
+            out.push(crate::api::ImportTarget::Themes);
+        }
+        out
     }
 
     /// The first-use offer was declined: this product's settings file is written (with the

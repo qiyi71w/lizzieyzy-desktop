@@ -1247,6 +1247,9 @@ pub struct SettingsView {
     pub hawkeye: crate::settings::HawkeyeSettings,
     pub appearance: crate::appearance::AppearanceSettings,
     pub theme: crate::appearance::ThemeSettings,
+    /// Increases whenever theme folders are rewritten in place (a Java import replacing them):
+    /// the same theme values may then name different image files' contents.
+    pub theme_files_revision: u32,
     /// Frame size in use until the next start (LizzieFrame.java:20766-20768).
     pub active_frame_font_size: i32,
     /// 强制计算区域's depth choices.
@@ -1649,6 +1652,8 @@ pub struct ImportItemView {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, TS)]
 pub enum ImportTarget {
     Appearance,
+    /// Java's theme folders (`theme/<name>/`), each one this product's theme.
+    Themes,
     Commentary,
     Cloud,
     ReadKomi,
@@ -1933,6 +1938,9 @@ pub struct ImportPreviewView {
     pub contribution_credential: bool,
     /// Settings already chosen in this product that the import would replace.
     pub replaces: Vec<ImportTarget>,
+    /// This product's themes that the Java theme folders of the same name would replace
+    /// (listed under [`ImportTarget::Themes`] in `replaces`).
+    pub replaced_themes: Vec<String>,
     /// Java 存档与读档 slots; imported only when the user chooses to.
     pub recovery: Vec<ImportSlotView>,
 }

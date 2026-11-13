@@ -328,6 +328,11 @@ flash_range: FlashRange, auto_analysis: AutoAnalysisSettings, whole_game: WholeG
  */
 hawkeye: HawkeyeSettings, appearance: AppearanceSettings, theme: ThemeSettings, 
 /**
+ * Increases whenever theme folders are rewritten in place (a Java import replacing them):
+ * the same theme values may then name different image files' contents.
+ */
+theme_files_revision: number, 
+/**
  * Frame size in use until the next start (LizzieFrame.java:20766-20768).
  */
 active_frame_font_size: number, 
@@ -789,7 +794,7 @@ export type ImportStatus = "Imported" | "Incompatible" | "NotMigrated";
 
 export type ImportReason = "NotYetAvailable" | "Credential" | "InvalidValue" | "WindowCoordinates" | "CredentialNotConfirmed" | "SessionOnly" | "Unreadable" | "NotChosen" | "Obsolete" | "JavaState";
 
-export type ImportTarget = "Appearance" | "Commentary" | "Cloud" | "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "NoSoundInSync" | "ReadBoardStatSync" | "ReadBoardGetFocus" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "AutoCheckEngineAlive" | "LizzieCache" | "StopAtEmptyBoard" | "AlwaysGtp" | "KataRules" | "AutoLoadKataRules" | "KataPda" | "KataWrn" | "KataParamAutoLoad" | "KataParamToolbar" | "LeelaOptions" | "CustomPda" | "StartupBenchmark" | "NetworkProxy" | "WebBoard" | "AllowDoubleClick" | "LiveAlwaysGotoLast" | "LiveOpenHtml" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "MoveRect" | "ClickReview" | "PaintingColor" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "VariationTree" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode" | "WorkbenchPanels" | "PanelSizes" | "BottomToolbar" | "AutoQuickAnalysis" | "AnalysisEngine" | "QuickModel" | "HumanSlTraining" | "HumanSlModel" | "StrengthBackground" | "StrengthModels" | "Tsumego" | "CaptureTsumego" | "TopToolbar" | "BottomButtons" | "DetailPanelOrder" | "ProblemList" | "FlashRange" | "AutoAnalysis" | "HumanEngineGame" | "GameAiTime" | "GameRandomStart" | "AutoPlay" | "EngineMatch" | "WholeGameVisits" | "AnalysisRegion" | "Tracking" | "Hawkeye" | "FoxKifu" | "TencentKifu" | "Contribution";
+export type ImportTarget = "Appearance" | "Themes" | "Commentary" | "Cloud" | "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "NoSoundInSync" | "ReadBoardStatSync" | "ReadBoardGetFocus" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "AutoCheckEngineAlive" | "LizzieCache" | "StopAtEmptyBoard" | "AlwaysGtp" | "KataRules" | "AutoLoadKataRules" | "KataPda" | "KataWrn" | "KataParamAutoLoad" | "KataParamToolbar" | "LeelaOptions" | "CustomPda" | "StartupBenchmark" | "NetworkProxy" | "WebBoard" | "AllowDoubleClick" | "LiveAlwaysGotoLast" | "LiveOpenHtml" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "MoveRect" | "ClickReview" | "PaintingColor" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "VariationTree" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode" | "WorkbenchPanels" | "PanelSizes" | "BottomToolbar" | "AutoQuickAnalysis" | "AnalysisEngine" | "QuickModel" | "HumanSlTraining" | "HumanSlModel" | "StrengthBackground" | "StrengthModels" | "Tsumego" | "CaptureTsumego" | "TopToolbar" | "BottomButtons" | "DetailPanelOrder" | "ProblemList" | "FlashRange" | "AutoAnalysis" | "HumanEngineGame" | "GameAiTime" | "GameRandomStart" | "AutoPlay" | "EngineMatch" | "WholeGameVisits" | "AnalysisRegion" | "Tracking" | "Hawkeye" | "FoxKifu" | "TencentKifu" | "Contribution";
 
 export type ImportItemView = { 
 /**
@@ -850,6 +855,11 @@ contribution_credential: boolean,
  * Settings already chosen in this product that the import would replace.
  */
 replaces: Array<ImportTarget>, 
+/**
+ * This product's themes that the Java theme folders of the same name would replace
+ * (listed under [`ImportTarget::Themes`] in `replaces`).
+ */
+replaced_themes: Array<string>, 
 /**
  * Java 存档与读档 slots; imported only when the user chooses to.
  */

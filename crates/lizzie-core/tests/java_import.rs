@@ -1907,7 +1907,7 @@ fn appearance_import_applies_defaults_styles_fonts_and_owned_images() {
     let p = preview(&mut wb, &java);
     assert_eq!(item(&p.items,"ui.custom-board-image").status, ImportStatus::Imported);
     assert_eq!(item(&p.items,"ui.custom-window-background-image").status, ImportStatus::Incompatible);
-    assert_eq!(item(&p.items,"file:theme").status, ImportStatus::NotMigrated);
+    assert!(!p.items.iter().any(|i| i.key.starts_with("file:theme")), "a theme/ folder without theme folders holds no theme");
     wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
     let s = wb.view(true).settings;
     assert_eq!(s.appearance.board_style,lizzie_core::appearance::BoardStyle::ChineseClassic);
@@ -1929,16 +1929,18 @@ fn appearance_import_applies_defaults_styles_fonts_and_owned_images() {
 }
 
 #[test]
-fn importing_a_bundled_theme_selects_it_but_reports_java_theme_folders_separately() {
+fn importing_a_bundled_theme_selects_it_and_skips_folders_without_theme_txt() {
     let tmp=tempfile::tempdir().unwrap(); let java=tmp.path().join("java");
     std::fs::create_dir_all(java.join("theme/Personal")).unwrap();
     std::fs::write(java.join("config.txt"),json!({"ui":{"theme":"sabaki"}}).to_string()).unwrap();
     let mut wb=workbench(&tmp.path().join("product"),Recorder::default());
     let p=preview(&mut wb,&java);
+    assert!(!p.items.iter().any(|i| i.key.starts_with("file:theme")));
     wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
     let v=wb.view(true).settings;
     assert_eq!(v.appearance.theme,"sabaki"); assert_eq!(v.theme.shadow_size,100);
     assert_eq!(v.theme.stone_indicator_type,0);
+    assert!(!lizzie_core::appearance::themes_dir(wb.storage()).join("Personal").exists());
 }
 
 #[test]
@@ -1952,7 +1954,8 @@ fn appearance_import_requires_replacement_and_keeps_failed_image_out_of_configur
     wb.set_frame_font_size(16).unwrap();
     let p=preview(&mut wb,&java);
     assert!(p.replaces.contains(&ImportTarget::Appearance));
-    assert_eq!(item(&p.items,"ui.theme").status,ImportStatus::NotMigrated);
+    let theme=item(&p.items,"ui.theme");
+    assert_eq!((theme.status,theme.reason),(ImportStatus::Incompatible,Some(ImportReason::Unreadable)));
     assert_eq!(item(&p.items,"ui.custom-board-image").reason,Some(ImportReason::Unreadable));
     assert_eq!(wb.apply_java_import(p.id, &[], false, false, None).unwrap(),Err(IMPORT_NEEDS_REPLACE));
     assert_eq!(wb.view(false).settings.theme.font_name,"Lizzie Default");
@@ -1960,6 +1963,169 @@ fn appearance_import_requires_replacement_and_keeps_failed_image_out_of_configur
     let s=wb.view(false).settings;
     assert_eq!(s.theme.font_name,"Imported Font"); assert!(s.appearance.custom_board_image.is_empty());
     assert_eq!(s.appearance.theme,"default");
+}
+
+const PLAIN_BOARD: &[u8] = include_bytes!("../../../ui/public/assets/board.png");
+const SABAKI_BOARD: &[u8] = include_bytes!("../../../ui/public/themes/sabaki/board.png");
+
+/// A Java theme folder as Java's 新建主题 writes it, with `board.png` given and `extra` values.
+fn java_theme(java: &Path, name: &str, board: &[u8], extra: serde_json::Value) {
+    let dir = java.join("theme").join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut raw: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_slice(include_bytes!("../../../ui/public/assets/newtheme/theme.txt")).unwrap();
+    raw.extend(extra.as_object().unwrap().clone());
+    std::fs::write(dir.join("theme.txt"), serde_json::to_vec(&raw).unwrap()).unwrap();
+    std::fs::write(dir.join("board.png"), board).unwrap();
+    std::fs::write(dir.join("black.png"), include_bytes!("../../../ui/public/assets/newtheme/black.png")).unwrap();
+    std::fs::write(dir.join("white.png"), include_bytes!("../../../ui/public/assets/newtheme/white.png")).unwrap();
+}
+
+fn data_url(bytes: &[u8], dir: &Path) -> String {
+    let path = dir.join("expected.png");
+    std::fs::write(&path, bytes).unwrap();
+    lizzie_core::appearance::image_data(&path).unwrap()
+}
+
+/// The board image this product shows with theme `name` selected.
+fn shown_board(wb: &Workbench, name: &str) -> String {
+    let appearance = lizzie_core::appearance::AppearanceSettings { theme: name.into(), ..Default::default() };
+    let theme = lizzie_core::appearance::load_theme(wb.storage(), name, &lizzie_core::appearance::ThemeSettings::default());
+    lizzie_core::appearance::images(wb.storage(), &appearance, &theme).board
+}
+
+fn themes_snapshot(wb: &Workbench) -> Vec<(PathBuf, Vec<u8>)> {
+    let dir = lizzie_core::appearance::themes_dir(wb.storage());
+    if dir.exists() { snapshot(&dir) } else { Vec::new() }
+}
+
+#[test]
+fn java_theme_folders_become_themes_with_their_own_images_and_stay_selected() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    java_theme(&java, "我的主题", PLAIN_BOARD, json!({"shadow-size": 42, "winrate-line-color": [1, 2, 3]}));
+    java_theme(&java, "Night", SABAKI_BOARD, json!({"background-image": "/no/such/file.png"}));
+    std::fs::write(java.join("config.txt"), json!({"ui": {"theme": "我的主题"}}).to_string()).unwrap();
+    let java_before = snapshot(&java);
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    for key in ["file:theme/我的主题", "file:theme/Night"] {
+        let it = item(&p.items, key);
+        assert_eq!((it.status, it.target), (ImportStatus::Imported, Some(ImportTarget::Themes)), "{key}");
+    }
+    assert_eq!(item(&p.items, "ui.theme").status, ImportStatus::Imported);
+    assert!(!p.replaces.contains(&ImportTarget::Themes) && p.replaced_themes.is_empty());
+    wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
+    let s = wb.view(true).settings;
+    assert_eq!(s.appearance.theme, "我的主题");
+    assert_eq!((s.theme.shadow_size, s.theme.winrate_line_color.clone()), (42, vec![1, 2, 3]));
+    let names: Vec<String> = lizzie_core::appearance::catalog(wb.storage(), &Default::default()).into_iter().map(|e| e.name).collect();
+    assert!(names.contains(&"我的主题".to_string()) && names.contains(&"Night".to_string()), "{names:?}");
+    // Same file name, different pictures: each theme shows its own.
+    assert_eq!(shown_board(&wb, "我的主题"), data_url(PLAIN_BOARD, tmp.path()));
+    assert_eq!(shown_board(&wb, "Night"), data_url(SABAKI_BOARD, tmp.path()));
+    // Java takes an unreadable theme image from the ui settings; so does the imported theme.
+    let night = lizzie_core::appearance::load_theme(wb.storage(), "Night", &Default::default());
+    assert!(night.background_image.is_empty());
+    assert_eq!(snapshot(&java), java_before, "the Java folder is only read");
+    // Importing the same folders again replaces nothing.
+    let again = preview(&mut wb, &java);
+    assert!(!again.replaces.contains(&ImportTarget::Themes));
+    drop(wb);
+    let mut reopened = workbench(&product, Recorder::default());
+    assert_eq!(reopened.view(false).settings.appearance.theme, "我的主题");
+    assert_eq!(shown_board(&reopened, "我的主题"), data_url(PLAIN_BOARD, tmp.path()));
+}
+
+#[test]
+fn java_bundled_theme_copy_is_skipped_and_a_changed_one_overrides_the_bundle() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    let bundled = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/public/themes");
+    for name in ["sabaki", "Fast"] {
+        std::fs::create_dir_all(java.join("theme").join(name)).unwrap();
+        for e in std::fs::read_dir(bundled.join(name)).unwrap() {
+            let p = e.unwrap().path();
+            std::fs::copy(&p, java.join("theme").join(name).join(p.file_name().unwrap())).unwrap();
+        }
+    }
+    let fast = java.join("theme/Fast/theme.txt");
+    let mut raw: serde_json::Value = serde_json::from_slice(&std::fs::read(&fast).unwrap()).unwrap();
+    raw["shadow-size"] = json!(37);
+    std::fs::write(&fast, raw.to_string()).unwrap();
+    std::fs::write(java.join("theme/Fast/board.jpg"), PLAIN_BOARD).unwrap();
+    std::fs::write(java.join("config.txt"), json!({"ui": {"theme": "Fast"}}).to_string()).unwrap();
+    let bundled_before = snapshot(&bundled);
+    let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+    let p = preview(&mut wb, &java);
+    assert!(!p.items.iter().any(|i| i.key == "file:theme/sabaki"), "an untouched bundled copy needs no folder");
+    assert_eq!(item(&p.items, "file:theme/Fast").status, ImportStatus::Imported);
+    wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
+    let dir = lizzie_core::appearance::themes_dir(wb.storage());
+    assert!(!dir.join("sabaki").exists() && dir.join("Fast/theme.txt").is_file());
+    let s = wb.view(false).settings;
+    assert_eq!((s.appearance.theme.as_str(), s.theme.shadow_size), ("Fast", 37));
+    assert_eq!(shown_board(&wb, "Fast"), data_url(PLAIN_BOARD, tmp.path()));
+    assert_eq!(snapshot(&bundled), bundled_before, "the bundled files are not changed");
+}
+
+#[test]
+fn java_theme_replacing_a_user_theme_needs_confirmation_and_failures_leave_themes_as_they_were() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    java_theme(&java, "Mine", SABAKI_BOARD, json!({"shadow-size": 50}));
+    std::fs::create_dir_all(java.join("theme/Broken")).unwrap();
+    std::fs::write(java.join("theme/Broken/theme.txt"), "{\"shadow-size\": ").unwrap();
+    std::fs::write(java.join("config.txt"), json!({"ui": {"theme": "Mine"}}).to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    wb.add_theme("Mine").unwrap();
+    let before = themes_snapshot(&wb);
+    let p = preview(&mut wb, &java);
+    assert!(p.replaces.contains(&ImportTarget::Themes));
+    assert_eq!(p.replaced_themes, vec!["Mine".to_string()]);
+    let broken = item(&p.items, "file:theme/Broken");
+    assert_eq!((broken.status, broken.reason), (ImportStatus::Incompatible, Some(ImportReason::Unreadable)));
+    assert_eq!(wb.apply_java_import(p.id, &[], false, false, None).unwrap(), Err(IMPORT_NEEDS_REPLACE));
+    assert_eq!(themes_snapshot(&wb), before, "not confirmed: the theme is unchanged");
+    // The settings file cannot be written: the theme folders are put back as they were.
+    let config_dir = product.join("config");
+    let mode = std::fs::metadata(&config_dir).unwrap().permissions();
+    let mut read_only = mode.clone();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut read_only, 0o555);
+    std::fs::set_permissions(&config_dir, read_only).unwrap();
+    let failed = wb.apply_java_import(p.id, &[], false, true, None);
+    std::fs::set_permissions(&config_dir, mode).unwrap();
+    assert!(failed.as_ref().is_err_and(|e| e.message.starts_with("saving imported settings failed")), "{failed:?}");
+    assert_eq!(themes_snapshot(&wb), before, "a failed import leaves no half-written theme");
+    let revision = wb.view(false).settings.theme_files_revision;
+    wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
+    let s = wb.view(false).settings;
+    assert_eq!((s.appearance.theme.as_str(), s.theme.shadow_size), ("Mine", 50));
+    // The window reloads the images of a theme rewritten in place under the same values.
+    assert_ne!(s.theme_files_revision, revision);
+    assert_eq!(shown_board(&wb, "Mine"), data_url(SABAKI_BOARD, tmp.path()));
+    let names: Vec<String> = lizzie_core::appearance::catalog(wb.storage(), &Default::default()).into_iter().map(|e| e.name).collect();
+    assert!(!names.contains(&"Broken".to_string()));
+}
+
+#[test]
+fn java_default_theme_label_selects_the_default_theme() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), json!({"ui": {"theme": "默认"}}).to_string()).unwrap();
+    let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+    wb.add_theme("Other").unwrap();
+    let mut a = wb.view(false).settings.appearance;
+    a.theme = "Other".into();
+    let theme = wb.view(false).settings.theme;
+    wb.set_appearance_settings(a, theme).unwrap();
+    let p = preview(&mut wb, &java);
+    assert_eq!(item(&p.items, "ui.theme").status, ImportStatus::Imported);
+    wb.apply_java_import(p.id, &[], false, true, None).unwrap().unwrap();
+    assert_eq!(wb.view(false).settings.appearance.theme, "default");
 }
 
 #[test]
