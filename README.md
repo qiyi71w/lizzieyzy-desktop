@@ -196,7 +196,9 @@ importing the matching LizzieYzy Next settings.
   读盘/弈客 → `logs/readboard-trace.log`, 网络/WebSocket → `logs/network-trace.log`; none chosen
   means all) until it is stopped (here or with Help > 停止完整日志). The scope choice is saved for
   the next session; while one runs its scopes are locked, and a restart never resumes it.
-  Diagnostics exports include these files.
+  Like Java, each full log rolls over at 10 MB or on a new day into `logs/archive/`
+  (`<name>.<date>.<n>.log.gz`), keeping 7 days and at most 100 MB of archives per log.
+  Diagnostics exports include the active files.
 - Help > 清除所有个人数据 clears the recent-record list and 野狐棋谱's 近期搜索; View > 重置界面位置
   resets the saved window placement and last folder and turns the overwrite prompt back on.
 - 搜索功能 (the top toolbar button, or `Ctrl+K`, `⌘K` on macOS, with no other modifier) opens a

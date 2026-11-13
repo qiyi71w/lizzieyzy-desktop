@@ -58,7 +58,8 @@ impl Http {
             return Err(failed(true));
         }
         let started = Instant::now();
-        // Java `TeacherLlmClient` `recordNetwork`; a cancelled request is not an exchange.
+        // Java `TeacherLlmClient` `recordNetwork` (only 2xx succeeds; redirects are not followed);
+        // a cancelled request is not an exchange.
         let observe = |status: Option<u16>| {
             crate::logging::network(&lizzie_core::diagnostics::NetworkExchange {
                 remote: false,
@@ -67,7 +68,7 @@ impl Http {
                 category: lizzie_core::diagnostics::EndpointCategory::Other,
                 status,
                 latency_ms: started.elapsed().as_millis() as u64,
-                outcome: if status.is_some_and(|s| s < 400) { "ok" } else { "failed" },
+                outcome: if status.is_some_and(|s| (200..300).contains(&s)) { "ok" } else { "failed" },
             })
         };
         let (headers_tx, headers_rx) = mpsc::sync_channel(1);

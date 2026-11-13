@@ -4,13 +4,16 @@
 //! One [`Diagnostics`] is shared by everything that records: the engines, the 棋盘同步 flow and
 //! the network adapters. A module's diagnostic records reach the application log only while
 //! 诊断记录 and that module are on; a full-log file is written only while a session started for
-//! its scope runs. Every line passes the credential sanitizer before it is written.
+//! its scope runs. Every line passes the credential sanitizer before it is written. A full log
+//! rolls over into `archive/` like Java's (`LoggingRuntime.rollingAppender`, `LoggingLimits`).
 
 use std::fs::{File, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use chrono::{DateTime, Days, Local, NaiveDate};
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -191,8 +194,105 @@ struct Inner {
     sink: RwLock<Option<LogSink>>,
 }
 
+/// Java `LoggingLimits`: the active file rolls over at 10 MiB or on a new day; a log keeps its
+/// archives for 7 days and at most 100 MiB of them.
+const ACTIVE_FILE_MAX_BYTES: u64 = 10 * 1024 * 1024;
+const RETENTION_DAYS: u64 = 7;
+const ARCHIVE_SIZE_CAP_BYTES: u64 = 100 * 1024 * 1024;
+
 struct Session {
-    files: Vec<(TraceScope, File)>,
+    dir: PathBuf,
+    files: Vec<TraceFile>,
+}
+
+/// One scope's active full-log file.
+struct TraceFile {
+    scope: TraceScope,
+    file: File,
+    len: u64,
+    /// The day the file's lines were written on.
+    day: NaiveDate,
+}
+
+impl TraceFile {
+    fn open(dir: &Path, scope: TraceScope) -> std::io::Result<TraceFile> {
+        let file = OpenOptions::new().create(true).append(true).open(dir.join(scope.file_name()))?;
+        let meta = file.metadata()?;
+        let today = Local::now().date_naive();
+        let day = match meta.modified() {
+            Ok(at) if meta.len() > 0 => DateTime::<Local>::from(at).date_naive(),
+            _ => today,
+        };
+        Ok(TraceFile { scope, file, len: meta.len(), day })
+    }
+
+    /// Appends one line, rolling the file over first when it is full or from an earlier day.
+    fn write(&mut self, dir: &Path, line: &str) {
+        let today = Local::now().date_naive();
+        if self.len > 0 && (self.len >= ACTIVE_FILE_MAX_BYTES || self.day != today) {
+            // A failed rollover keeps appending to the active file.
+            let _ = self.roll(dir);
+        }
+        self.day = today;
+        if writeln!(self.file, "{line}").is_ok() {
+            self.len += line.len() as u64 + 1;
+        }
+        let _ = self.file.flush();
+    }
+
+    /// Compresses the active file to `archive/<stem>.<day>.<i>.log.gz`, empties it and removes
+    /// the archives past the limits.
+    fn roll(&mut self, dir: &Path) -> std::io::Result<()> {
+        let archive = dir.join("archive");
+        std::fs::create_dir_all(&archive)?;
+        let active = dir.join(self.scope.file_name());
+        let stem = self.scope.file_name().trim_end_matches(".log");
+        let day = self.day.format("%Y-%m-%d");
+        let target = (0..)
+            .map(|i| archive.join(format!("{stem}.{day}.{i}.log.gz")))
+            .find(|path| !path.exists())
+            .expect("a free archive index");
+        let mut gz = flate2::write::GzEncoder::new(File::create(&target)?, flate2::Compression::default());
+        std::io::copy(&mut File::open(&active)?, &mut gz)?;
+        gz.finish()?;
+        self.file = File::create(&active)?;
+        self.len = 0;
+        prune_archives(&archive, stem);
+        Ok(())
+    }
+}
+
+/// Removes `stem`'s archives older than [`RETENTION_DAYS`], then its oldest ones beyond
+/// [`ARCHIVE_SIZE_CAP_BYTES`]; other logs' archives are left alone.
+fn prune_archives(archive: &Path, stem: &str) {
+    let Ok(entries) = std::fs::read_dir(archive) else { return };
+    let oldest = Local::now().date_naive() - Days::new(RETENTION_DAYS);
+    let mut kept = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some((day, index)) = name
+            .to_str()
+            .and_then(|n| n.strip_prefix(stem)?.strip_prefix('.')?.strip_suffix(".log.gz")?.split_once('.'))
+            .and_then(|(day, index)| Some((NaiveDate::parse_from_str(day, "%Y-%m-%d").ok()?, index.parse::<u32>().ok()?)))
+        else {
+            continue;
+        };
+        if day < oldest {
+            let _ = std::fs::remove_file(entry.path());
+        } else {
+            kept.push((day, index, entry.path(), entry.metadata().map_or(0, |m| m.len())));
+        }
+    }
+    kept.sort();
+    let mut total: u64 = kept.iter().map(|(.., len)| len).sum();
+    for (_, _, path, len) in kept {
+        if total <= ARCHIVE_SIZE_CAP_BYTES {
+            break;
+        }
+        if std::fs::remove_file(path).is_ok() {
+            total -= len;
+        }
+    }
 }
 
 /// The diagnostics switches in effect and the running 完整日志 session; clones share both.
@@ -295,15 +395,14 @@ impl Diagnostics {
         std::fs::create_dir_all(&dir)?;
         let mut files = Vec::new();
         for scope in scopes {
-            let file = OpenOptions::new().create(true).append(true).open(dir.join(scope.file_name()))?;
-            files.push((scope, file));
+            files.push(TraceFile::open(&dir, scope)?);
         }
         self.stop_full_trace();
-        let now = SystemTime::now();
-        for (scope, file) in &mut files {
-            let _ = writeln!(file, "{} full trace session started scope={}", millis(now), scope.wire_name());
+        let now = millis(SystemTime::now());
+        for f in &mut files {
+            f.write(&dir, &format!("{now} full trace session started scope={}", f.scope.wire_name()));
         }
-        *self.0.session.lock().unwrap() = Some(Session { files });
+        *self.0.session.lock().unwrap() = Some(Session { dir, files });
         Ok(())
     }
 
@@ -313,26 +412,23 @@ impl Diagnostics {
             return false;
         };
         let now = millis(SystemTime::now());
-        for (scope, file) in &mut session.files {
-            let _ = writeln!(file, "{now} full trace session stopped scope={}", scope.wire_name());
-            let _ = file.flush();
+        for f in &mut session.files {
+            f.write(&session.dir, &format!("{now} full trace session stopped scope={}", f.scope.wire_name()));
         }
         true
     }
 
     /// The running session's scopes; empty when none runs.
     pub fn full_trace(&self) -> Vec<TraceScope> {
-        self.0.session.lock().unwrap().as_ref().map(|s| s.files.iter().map(|(scope, _)| *scope).collect()).unwrap_or_default()
+        self.0.session.lock().unwrap().as_ref().map(|s| s.files.iter().map(|f| f.scope).collect()).unwrap_or_default()
     }
 
     /// One line of `scope`'s full log, built only while the session records it.
     pub fn trace(&self, scope: TraceScope, text: impl FnOnce() -> String) {
         let mut session = self.0.session.lock().unwrap();
-        let Some(file) = session.as_mut().and_then(|s| s.files.iter_mut().find(|(sc, _)| *sc == scope)).map(|(_, f)| f) else {
-            return;
-        };
-        let _ = writeln!(file, "{} {}", millis(SystemTime::now()), bounded(&text()));
-        let _ = file.flush();
+        let Some(Session { dir, files }) = session.as_mut() else { return };
+        let Some(file) = files.iter_mut().find(|f| f.scope == scope) else { return };
+        file.write(dir, &format!("{} {}", millis(SystemTime::now()), bounded(&text())));
     }
 
     /// Java `NetworkObservation.tracePayload`: a WebSocket payload of the network scope.

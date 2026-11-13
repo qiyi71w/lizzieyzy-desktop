@@ -113,3 +113,37 @@ fn network_failures_are_written_even_with_diagnostics_off() {
     assert_eq!(lines[0].0, LogLevel::Warn);
     assert_eq!(lines[0].1, "remote event=http method=POST host=api.example.org category=authentication status=200 latencyMs=5 outcome=failed");
 }
+
+#[test]
+fn a_full_log_rolls_over_at_10_mib_and_keeps_7_days_and_100_mib_of_archives() {
+    // Java `LoggingRuntime.rollingAppender` with `LoggingLimits`: archive/<stem>.<day>.<i>.log.gz.
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    let logs = storage(dir.path()).logs_dir;
+    let archive = logs.join("archive");
+    std::fs::create_dir_all(&archive).unwrap();
+    let day = |days_ago: u64| (chrono::Local::now().date_naive() - chrono::Days::new(days_ago)).format("%Y-%m-%d").to_string();
+    let sized = |path: std::path::PathBuf, len: u64| std::fs::File::create(path).unwrap().set_len(len).unwrap();
+    sized(archive.join(format!("network-trace.{}.0.log.gz", day(30))), 10);
+    sized(archive.join(format!("network-trace.{}.0.log.gz", day(3))), 60 << 20);
+    sized(archive.join(format!("network-trace.{}.0.log.gz", day(2))), 50 << 20);
+    sized(archive.join(format!("readboard-trace.{}.0.log.gz", day(30))), 10);
+    // An earlier session left the active file at the 10 MiB threshold.
+    sized(logs.join("network-trace.log"), 10 << 20);
+
+    wb.set_full_trace(true, Some(vec![TraceScope::NetworkWebSocket])).unwrap();
+    wb.diagnostics().trace_payload(EndpointCategory::Protocol, "send", "after the rollover");
+    wb.set_full_trace(false, None).unwrap();
+
+    let active = std::fs::read_to_string(logs.join("network-trace.log")).unwrap();
+    assert!(active.contains("full trace session started") && active.contains("after the rollover"), "{active}");
+    assert!(active.len() < 1024);
+    let mut names: Vec<String> = std::fs::read_dir(&archive).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+    names.sort();
+    let today = format!("network-trace.{}.0.log.gz", day(0));
+    // Older than 7 days, then the oldest beyond 100 MiB, go; another log's archives stay.
+    assert_eq!(names, [format!("network-trace.{}.0.log.gz", day(2)), today.clone(), format!("readboard-trace.{}.0.log.gz", day(30))]);
+    let mut rolled = Vec::new();
+    std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(std::fs::File::open(archive.join(today)).unwrap()), &mut rolled).unwrap();
+    assert_eq!(rolled.len(), 10 << 20);
+}
