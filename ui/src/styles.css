@@ -885,9 +885,11 @@ body {
   align-items: center;
   gap: 4px;
 }
-/* 初始化设置 (FirstUseSettings): the red lblHint, the "?" helpers with settings.png, the close box */
+/* 初始化设置 (FirstUseSettings): JFont* controls at Config.frameFontSize, the red lblHint, the "?"
+   helpers with settings.png, the close box */
 .init-settings .modal-title { display: flex; justify-content: space-between; align-items: center; }
-.init-settings .display-abs { overflow: hidden; }
+.init-settings .modal-body.display-abs { overflow: hidden; font-size: var(--frame-font-size, 12px); }
+.init-settings .display-abs select, .init-settings .display-abs button { padding: 0 2px; }
 .init-close { border: 0; background: none; font: inherit; padding: 0 4px; cursor: pointer; }
 .display-abs .init-hint { color: red; }
 .display-abs .init-help { display: flex; align-items: center; justify-content: center; padding: 0; }
