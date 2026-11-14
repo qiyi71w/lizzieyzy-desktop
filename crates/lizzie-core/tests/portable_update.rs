@@ -197,6 +197,29 @@ fn an_interrupted_update_is_undone_at_the_next_start() {
     assert_eq!(snapshot(&folder), before);
 }
 
+#[cfg(unix)]
+#[test]
+fn undoing_again_after_a_partly_failed_undo_keeps_the_files_already_put_back() {
+    let root = tempfile::tempdir().unwrap();
+    let folder = folder(root.path());
+    let before = snapshot(&folder);
+    let zip = package(root.path(), VERSION_2);
+    portable::prepare(&zip, &folder, "LizzieYzy.exe", BINARY, "0.2.0").unwrap();
+    interrupted_after(&folder, 3);
+
+    // One file cannot be put back at this start; the others are.
+    set_mode(&folder.join("readboard"), 0o555);
+    let first = portable::recover(&folder);
+    set_mode(&folder.join("readboard"), 0o755);
+    assert!(matches!(first, Recovery::Failed(_)), "{first:?}");
+    assert_eq!(read(folder.join("LICENSE.txt")), "licence 1");
+
+    // The next start finishes putting them back without losing the ones already restored.
+    assert_eq!(portable::recover(&folder), Recovery::RolledBack);
+    assert_eq!(snapshot(&folder), before);
+    assert_eq!(portable::recover(&folder), Recovery::None);
+}
+
 #[test]
 fn an_update_interrupted_after_its_last_file_is_finished_at_the_next_start() {
     let root = tempfile::tempdir().unwrap();

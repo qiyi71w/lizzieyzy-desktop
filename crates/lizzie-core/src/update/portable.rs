@@ -104,9 +104,12 @@ struct Journal {
     /// Files to replace, `/`-separated and relative to the folder; the program is last.
     files: Vec<String>,
     stage: Stage,
-    /// Folders the update creates, recorded when it starts so undoing it can remove them.
+    /// Folders and files the update creates, recorded when it starts so undoing it removes
+    /// them (and only them).
     #[serde(default)]
     created_dirs: Vec<String>,
+    #[serde(default)]
+    created_files: Vec<String>,
 }
 
 fn work_dir(folder: &Path) -> PathBuf {
@@ -260,6 +263,7 @@ pub fn prepare(package: &Path, folder: &Path, program: &str, binary: &str, versi
             files: files.into_iter().map(|(_, f)| f).collect(),
             stage: Stage::Prepared,
             created_dirs: Vec::new(),
+            created_files: Vec::new(),
         };
         File::create(work.join(LOCK))?;
         write_journal(&work, &journal)
@@ -348,6 +352,12 @@ impl Claim {
         }
         created.sort_by_key(|d| d.len());
         journal.created_dirs = created;
+        journal.created_files = journal
+            .files
+            .iter()
+            .filter(|f| !below(folder, f).exists())
+            .cloned()
+            .collect();
         journal.stage = Stage::Applying;
         write_journal(&work, &journal).map_err(io_error)?;
 
@@ -402,9 +412,10 @@ fn replace(folder: &Path, work: &Path, file: &str) -> io::Result<()> {
 }
 
 /// Puts back every file the update replaced: a file still in `new/` was not replaced; a
-/// replaced one is restored from `backup/`, or removed when it is new. Then the folders the
-/// update created and the work folder are removed. The first failure is returned and the work
-/// folder kept.
+/// replaced one is restored from `backup/`, or removed when the update created it; one without
+/// either was put back by an earlier undo. Then the folders the update created and the work
+/// folder are removed. The first failure is returned and the work folder kept, so undoing again
+/// at the next start finishes it.
 fn undo(folder: &Path, work: &Path, journal: &Journal) -> io::Result<()> {
     let mut first = Ok(());
     for file in journal.files.iter().rev() {
@@ -415,11 +426,13 @@ fn undo(folder: &Path, work: &Path, journal: &Journal) -> io::Result<()> {
         let backup = below(&work.join(BACKUP), file);
         let result = if backup.exists() {
             retrying(|| fs::rename(&backup, &target))
-        } else {
+        } else if journal.created_files.contains(file) {
             match retrying(|| fs::remove_file(&target)) {
                 Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
                 other => other,
             }
+        } else {
+            Ok(())
         };
         if let Err(e) = result {
             if first.is_ok() {
