@@ -164,3 +164,27 @@ fn a_command_list_java_cannot_read_is_refused_whole() {
     wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
     assert_eq!(wb.view(false).settings.quick_links, QuickLinkSettings::default());
 }
+
+#[cfg(unix)]
+#[test]
+fn a_relative_java_program_is_found_in_the_java_folder() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let java = java_dir(dir.path(), json!({"leelaz": {"program-name-list": ["M"], "program-command-list": ["tools/marker.sh one"]}}));
+    std::fs::create_dir_all(java.join("tools")).unwrap();
+    let tool = java.join("tools/marker.sh");
+    std::fs::write(&tool, "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/marker.txt\"\n").unwrap();
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut wb = workbench(dir.path());
+    let p = wb.preview_java_import(java_import::read(&JavaSource::new(&java, None)).unwrap());
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    // The product does not run from the Java folder; the program is still the Java folder's.
+    assert_eq!(wb.launch_quick_link(0), CommandResult::Done);
+    let marker = java.join("tools/marker.txt");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while std::fs::read_to_string(&marker).map_or(true, |t| t.lines().next() != Some("one")) {
+        assert!(Instant::now() < deadline, "the Java folder's program did not run");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+

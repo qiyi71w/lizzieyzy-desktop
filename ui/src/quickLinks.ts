@@ -1,7 +1,7 @@
 // 快速启动设置 (OtherPrograms.java): the form above a 30-row table of the programs. A row is chosen
 // for editing (rows past the list add a program); 保存 writes it, 删除 empties its command, and
 // 上移 / 下移 / 置顶 reorder at once. Every change is saved and the 快速启动 menu follows it.
-import { run, state } from "./app";
+import { run, state, subscribe } from "./app";
 import { COMMANDS } from "./commands";
 import type { QuickLinkProgram } from "./contract/generated";
 import { formPanel } from "./dialogs";
@@ -18,14 +18,26 @@ function saved(): QuickLinkProgram[] {
   return (state.view?.settings.quick_links.programs ?? []).map((p) => ({ ...p }));
 }
 
-/** Saves `programs` as the list; the list as saved. The published view may arrive after the
- *  command's answer, so the saved form is the core's rule applied here (QuickLinkSettings::
- *  normalized, OtherPrograms.saveEngineConfig): commands trimmed, empty commands dropped. */
+/** Resolved at each published view: a saved list arrives after its command's answer. */
+const viewWaiters: (() => void)[] = [];
+subscribe(() => viewWaiters.splice(0).forEach((resume) => resume()));
+
+/** Saves `programs` as the list and gives the list the core saved (it trims commands and drops
+ *  empty ones), or null when nothing was saved. */
 async function persist(programs: QuickLinkProgram[]): Promise<QuickLinkProgram[] | null> {
   const show = state.view?.settings.quick_links.show ?? false;
+  const before = JSON.stringify(state.view?.settings.quick_links.programs);
   const result = await run({ type: "SetQuickLinks", settings: { show, programs } });
   if (!result || result.type === "Refused") return null;
-  return programs.map((p) => ({ name: p.name, command: p.command.trim() })).filter((p) => p.command !== "");
+  // A changed list is published right after the answer; continue from it.
+  if (result.type === "Done") {
+    while (JSON.stringify(state.view?.settings.quick_links.programs) === before) {
+      const published = Promise.withResolvers<void>();
+      viewWaiters.push(published.resolve);
+      await published.promise;
+    }
+  }
+  return saved();
 }
 
 export async function openQuickLinks(): Promise<void> {
@@ -95,7 +107,7 @@ export async function openQuickLinks(): Promise<void> {
     };
     const render = () => {
       rows.replaceChildren();
-      for (let index = 0; index < Math.max(ROWS, programs.length); index++) {
+      for (let index = 0; index < ROWS; index++) {
         const program = programs[index];
         const row = rows.insertRow();
         row.dataset.key = `quick-links.row.${index}`;
@@ -111,7 +123,7 @@ export async function openQuickLinks(): Promise<void> {
       const edited = { name: name.value, command: command.value };
       if (current >= next.length) next.push(edited);
       else next[current] = edited;
-      const after = await persist(next);
+      const after = await commit(next);
       if (after) programs = after;
       render();
     };
@@ -123,11 +135,21 @@ export async function openQuickLinks(): Promise<void> {
       if (target < 0 || target >= programs.length || target === from) return;
       const next = programs.map((p) => ({ ...p }));
       next.splice(target, 0, next.splice(from, 1)[0]);
-      const after = await persist(next);
+      const after = await commit(next);
       if (!after) return;
       programs = after;
       current = target;
       render();
+    };
+    /** One save at a time, with the dialog inert until its list is back (a second change made
+     *  meanwhile would start from the list before it). */
+    const commit = async (next: QuickLinkProgram[]): Promise<QuickLinkProgram[] | null> => {
+      body.inert = true;
+      try {
+        return await persist(next);
+      } finally {
+        body.inert = false;
+      }
     };
     const moveUp = button(t("MoreEngines.moveUp"), () => void move((i) => i - 1));
     const moveDown = button(t("MoreEngines.moveDown"), () => void move((i) => i + 1));

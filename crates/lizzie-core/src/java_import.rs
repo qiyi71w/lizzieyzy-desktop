@@ -2793,7 +2793,8 @@ impl Reader<'_> {
     /// 快速启动 (`Config.showQuickLinks`, `Menu.getProgramData`). Java builds the list from the
     /// command array, skipping empty commands and naming each by the name at the same index
     /// (`optString`); a command that is not text breaks the list, so such a list is refused whole.
-    /// Without a command array Java has no programs.
+    /// Without a command array Java has no programs. Paths relative to the Java folders are made
+    /// absolute, as for engine commands (`FastLink` launches through `CommandLaunchHelper`).
     fn quick_links(&mut self, ui: &Map<String, Value>, leelaz: &Map<String, Value>, handled: &mut Handled) {
         use crate::quick_links::{QuickLinkProgram, QuickLinkSettings};
         const TARGET: ImportTarget = ImportTarget::QuickLinks;
@@ -2843,7 +2844,11 @@ impl Reader<'_> {
             .enumerate()
             .map(|(i, command)| QuickLinkProgram { name: name(i), command: command.to_string() })
             .collect();
-        let programs = QuickLinkSettings { show: false, programs }.normalized().programs;
+        let mut programs = QuickLinkSettings { show: false, programs }.normalized().programs;
+        let roots = self.source.roots();
+        for program in &mut programs {
+            program.command = resolve_command(&program.command, &roots, &mut Vec::new());
+        }
         let credential = programs.iter().any(|p| sanitize(&p.command) != p.command);
         if name_list.is_some() {
             let shown_names: Vec<&str> = programs.iter().map(|p| p.name.as_str()).collect();
