@@ -519,7 +519,8 @@ pub fn finish_on_exit(app: &AppHandle, shared: &State) {
         // An installation already running as the administrator finishes on its own, and the
         // next start reads what it did.
         if matches!(child.try_wait(), Ok(None)) && child.kill().is_ok() {
-            shared.log.info("update: withdrew the authorization request");
+            // (The log's credential filter blanks whatever follows the word "authorization".)
+            shared.log.info("update: withdrew the request to authorize the installation");
             let _ = child.wait();
             if let Some(marker) = HANDOVER_FAILED.get() {
                 let _ = std::fs::remove_file(marker);
@@ -705,12 +706,12 @@ fn install_deb(app: &AppHandle, shared: &State, job: &UpdateInstallJob) {
         Handover::Dismissed => failed(
             UpdateError::AuthorizationDismissed,
             None,
-            "the authorization prompt was dismissed".into(),
+            "the system's prompt was dismissed".into(),
         ),
         Handover::Unauthorized => failed(
             UpdateError::Unauthorized,
             Some(by_hand(&job.path)),
-            "authorization was not granted".into(),
+            "the system did not authorize the installation".into(),
         ),
         Handover::NotInstalled => failed(
             UpdateError::PackageManager,
@@ -719,7 +720,7 @@ fn install_deb(app: &AppHandle, shared: &State, job: &UpdateInstallJob) {
         ),
         Handover::Unfinished => failed(
             UpdateError::PackageUnfinished,
-            Some(by_hand(&job.path)),
+            None,
             format!("the package is left as {now:?}"),
         ),
     }

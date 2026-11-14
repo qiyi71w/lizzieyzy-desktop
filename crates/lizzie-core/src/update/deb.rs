@@ -85,14 +85,27 @@ pub fn settle(exit: Option<i32>, now: Option<&Package>, offered: &str) -> Handov
     }
 }
 
-/// The package manager's own reasons in its output: apt's `E:` lines, else the last line.
+/// The package manager's own reasons in its output: apt's `E:` lines and the dependencies it
+/// lists as unmet, else the last line.
 pub fn reasons(output: &str) -> Option<String> {
-    let lines: Vec<&str> = output.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
-    let errors: Vec<&str> = lines.iter().filter_map(|l| l.strip_prefix("E: ")).take(3).collect();
-    let text = if errors.is_empty() {
-        lines.last().copied()?.to_string()
+    let mut picked: Vec<&str> = Vec::new();
+    let mut unmet = false;
+    for line in output.lines() {
+        // apt lists what it cannot satisfy, indented, under this heading.
+        if unmet && line.starts_with(' ') && !line.trim().is_empty() {
+            picked.push(line.trim());
+            continue;
+        }
+        unmet = line.trim_end().ends_with("unmet dependencies:");
+        if let Some(error) = line.trim().strip_prefix("E: ") {
+            picked.push(error);
+        }
+    }
+    let text = if picked.is_empty() {
+        output.lines().map(str::trim).rfind(|l| !l.is_empty())?.to_string()
     } else {
-        errors.join("\n")
+        picked.truncate(4);
+        picked.join("\n")
     };
     Some(text.chars().take(600).collect())
 }

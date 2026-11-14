@@ -54,19 +54,25 @@ architecture, or it is refused before the prompt. `apt-get` runs with `--no-remo
 installs missing dependencies but never removes another package for the update. The result is
 read from the package manager's records, not from the download or the command alone:
 
-- Dismissing the prompt, or closing the program while it is shown, installs nothing.
-- Without authorization (a wrong password, an account that may not administer the system, or a
-  session without a polkit prompt) nothing is installed, and the program shows the command that
-  installs the verified package from a terminal: `sudo apt install '<package>'`.
+- Dismissing the prompt, or closing the program while it is shown, installs nothing. (After a
+  wrong password the system's prompt asks again.)
+- When the system grants no authorization, or the session has no polkit prompt to ask with
+  (a desktop session normally has one), nothing is installed, and the program shows the command
+  that installs the verified package from a terminal: `sudo apt install '<package>'`.
 - If the package manager refuses or fails (another package operation holds its lock, a
   dependency cannot be installed), the installed program is unchanged and the program shows the
   package manager's own error lines. 立即更新 tries again with the package already downloaded.
-- If the installation stops part-way and leaves the package unfinished, the program says so and
-  asks you to install it again.
+- If the installation stops part-way and leaves the package unfinished, the program says so:
+  `sudo dpkg --configure -a` finishes an interrupted installation; otherwise install the package
+  again.
 
 If the program is closed after authorization, while the package manager is still installing, the
 installation continues; the next start reports it only when it did not install the new version.
 The complete output of the package manager is in the program's log.
+
+The package is checked while this program runs as you, and the package manager then reads the
+same file from your cache folder as the administrator; as with any package you install from your
+own folders, programs running under your account are trusted with that file.
 
 Downloads use the proxy set in the program's network settings. The package is kept in the
 program's cache folder (`updates/<version>`); downloading another version removes it.

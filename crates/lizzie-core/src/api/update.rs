@@ -79,8 +79,8 @@ pub enum UpdateError {
     Unauthorized,
     /// Deb: the system package manager refused or failed; the installed program is unchanged.
     PackageManager,
-    /// Deb: the installation stopped part-way and the package is not in an installed state; it
-    /// has to be installed again.
+    /// Deb: the installation stopped part-way and the package is not in an installed state; the
+    /// package manager has to finish it or the package be installed again.
     PackageUnfinished,
     Generic,
 }

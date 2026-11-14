@@ -30,7 +30,7 @@ registerProduct({
     updateErrorDismissed: "已取消系统授权，未安装更新，当前程序未改变。",
     updateErrorUnauthorized: "未获得系统授权，未安装更新，当前程序未改变。可以重试，或在终端用下面的命令安装已校验的安装包：",
     updateErrorPackageManager: "系统软件包管理没有安装这个更新，当前程序未改变。",
-    updateErrorPackageUnfinished: "更新没有装完，本程序的软件包处于未完成状态。请重新安装：再次检查更新并点击“立即更新”，或用安装包在终端安装。",
+    updateErrorPackageUnfinished: "更新没有装完，本程序的软件包处于未完成状态。请在终端运行 sudo dpkg --configure -a 完成安装；如果仍未解决，请重新安装这个安装包（可从 Release 页面下载）。",
   },
   ZhTw: {
     updateSigningNotConfigured: "此版本沒有更新簽名公鑰，無法檢查更新。",
@@ -51,7 +51,7 @@ registerProduct({
     updateErrorDismissed: "已取消系統授權，未安裝更新，目前的程式未改變。",
     updateErrorUnauthorized: "未取得系統授權，未安裝更新，目前的程式未改變。可以重試，或在終端機用下面的指令安裝已校驗的安裝套件：",
     updateErrorPackageManager: "系統套件管理沒有安裝這個更新，目前的程式未改變。",
-    updateErrorPackageUnfinished: "更新沒有裝完，本程式的套件處於未完成狀態。請重新安裝：再次檢查更新並點擊「立即更新」，或用安裝套件在終端機安裝。",
+    updateErrorPackageUnfinished: "更新沒有裝完，本程式的套件處於未完成狀態。請在終端機執行 sudo dpkg --configure -a 完成安裝；如果仍未解決，請重新安裝這個安裝套件（可從 Release 頁面下載）。",
   },
   EnUs: {
     updateSigningNotConfigured: "This build has no update signing key, so it cannot check for updates.",
@@ -72,7 +72,7 @@ registerProduct({
     updateErrorDismissed: "System authorization was cancelled. The update was not installed; the program is unchanged.",
     updateErrorUnauthorized: "The system did not authorize the installation. The update was not installed; the program is unchanged. Retry, or install the verified package from a terminal with this command:",
     updateErrorPackageManager: "The system package manager did not install this update; the program is unchanged.",
-    updateErrorPackageUnfinished: "The update was not fully installed, and the program's package is left unfinished. Install it again: check for updates and choose Update now, or install the package from a terminal.",
+    updateErrorPackageUnfinished: "The update was not fully installed, and the program's package is left unfinished. Run sudo dpkg --configure -a in a terminal to finish it; if that does not help, install the package again (it can be downloaded from the Release page).",
   },
 });
 

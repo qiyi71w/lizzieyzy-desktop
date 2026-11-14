@@ -104,6 +104,21 @@ fn the_package_managers_own_reasons_are_its_error_lines() {
              Unable to acquire the dpkg frontend lock, is another process using it?"
         )
     );
+    // A dependency apt cannot install: the line that names it comes with apt's error.
+    let unmet = "Reading state information...\n\
+                 Some packages could not be installed. This may mean that you have\n\
+                 requested an impossible situation.\n\
+                 The following information may help to resolve the situation:\n\n\
+                 The following packages have unmet dependencies:\n \
+                 lizzie-yzy-tauri : Depends: libexample1 but it is not installable\n\
+                 E: Unable to correct problems, you have held broken packages.\n";
+    assert_eq!(
+        reasons(unmet).as_deref(),
+        Some(
+            "lizzie-yzy-tauri : Depends: libexample1 but it is not installable\n\
+             Unable to correct problems, you have held broken packages."
+        )
+    );
     // Without an error line, its last word.
     assert_eq!(
         reasons("Reading package lists...\nlizzie-yzy-tauri is already the newest version (0.1.0).\n").as_deref(),
