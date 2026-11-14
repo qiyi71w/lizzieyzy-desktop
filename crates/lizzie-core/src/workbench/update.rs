@@ -123,8 +123,8 @@ pub(super) struct UpdateFlow {
     show_offer: u64,
     prepared: Option<PathBuf>,
     installing: bool,
-    /// The previous run closed for a Windows installation whose installer did not start.
-    handover_failed: bool,
+    /// The previous run closed to hand an update over, which did not happen.
+    handover_failed: Option<UpdateError>,
 }
 
 impl Default for UpdateFlow {
@@ -159,7 +159,7 @@ impl Default for UpdateFlow {
             show_offer: 0,
             prepared: None,
             installing: false,
-            handover_failed: false,
+            handover_failed: None,
         }
     }
 }
@@ -224,11 +224,12 @@ impl Workbench {
         u.startup = settings.auto_check.then(|| Selection::of(&settings));
     }
 
-    /// The previous run closed to hand an update to the Windows installer, and the installer did
-    /// not start (the platform adapter learns this at start). The program is unchanged; the
-    /// prepared package stays for another 立即更新.
-    pub fn update_handover_failed_last_run(&mut self) {
-        self.update.handover_failed = true;
+    /// The previous run closed to hand an update over, and it did not happen (the platform
+    /// adapter learns this at start): the Windows installer did not start, or the portable
+    /// folder's files could not be replaced. The program is unchanged except for
+    /// [`UpdateError::Unrecovered`]; the prepared package stays for another 立即更新.
+    pub fn update_handover_failed_last_run(&mut self, error: UpdateError) {
+        self.update.handover_failed = Some(error);
     }
 
     /// The main window is ready: 启动时自动检查更新 starts its one check (`applicationReady`).

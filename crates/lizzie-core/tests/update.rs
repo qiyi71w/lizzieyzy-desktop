@@ -144,7 +144,6 @@ fn a_build_that_cannot_update_itself_reads_nothing() {
     for (app, expected) in [
         (installed(InstallForm::Unpackaged), CheckOutcome::UnavailableBuild),
         (unsigned, CheckOutcome::SigningNotConfigured),
-        (installed(InstallForm::PortableZip), CheckOutcome::UnsupportedForm),
         (installed(InstallForm::Deb), CheckOutcome::UnsupportedForm),
     ] {
         assert_eq!(discover(&app, STABLE, &site).outcome, expected, "{:?}", app.form);
@@ -167,6 +166,18 @@ fn the_stable_channel_offers_the_package_of_this_installation_only() {
         discover(&installed(InstallForm::App), STABLE, &site).outcome,
         CheckOutcome::NoPackage
     );
+    // The portable zip is never offered the installer, and takes its own zip entry.
+    assert_eq!(
+        discover(&installed(InstallForm::PortableZip), STABLE, &site).outcome,
+        CheckOutcome::NoPackage
+    );
+    let mut with_zip: serde_json::Value = serde_json::from_str(&manifest("0.2.0", false)).unwrap();
+    with_zip["platforms"]["windows-x86_64-zip"] = entry("portable.zip");
+    let zip_site = Site::default().with(GITHUB_STABLE_MANIFEST, with_zip.to_string());
+    let CheckOutcome::Offer(offer) = discover(&installed(InstallForm::PortableZip), STABLE, &zip_site).outcome else {
+        panic!("no zip offer")
+    };
+    assert_eq!(offer.key, "windows-x86_64-zip");
 
     let same = Site::default().with(GITHUB_STABLE_MANIFEST, manifest("0.1.0", false));
     assert_eq!(

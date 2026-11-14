@@ -5,7 +5,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { registerViewHandler, run, state } from "./app";
 import { COMMANDS } from "./commands";
-import type { UpdateDownloadView, UpdateOfferView, UpdateResultView, UpdateSettings, UpdateView } from "./contract/generated";
+import type { UpdateDownloadView, UpdateError, UpdateOfferView, UpdateResultView, UpdateSettings, UpdateView } from "./contract/generated";
 import { message } from "./dialogs";
 import { product, registerProduct, t } from "./i18n";
 import "./update.css";
@@ -20,6 +20,10 @@ registerProduct({
     updateReadyIntroInPlace: "更新文件已下载并校验。点击“立即更新”后，将替换程序文件并重新打开。",
     updatePreserved: "用户数据、棋谱、设置、引擎和权重都会保留。",
     updateInstalling: "正在安装更新，程序将关闭并重新打开…",
+    updateErrorPermission: "程序所在文件夹无法写入，未安装更新，当前程序未改变。请把程序文件夹移到可写入的位置后重试，或打开 Release 页面手动下载。",
+    updateErrorInUse: "有程序文件正在使用，无法替换。已恢复原文件，当前程序未改变。请关闭正在使用这些文件的程序（例如另一个已打开的本程序或棋盘同步工具）后重试。",
+    updateErrorInterrupted: "上次更新被中断，已恢复原文件，当前程序未改变。请重新检查更新。",
+    updateErrorUnrecovered: "上次更新被中断，部分原文件暂未恢复。请关闭其他使用程序文件夹的程序后重新启动本程序；仍有问题请从 Release 页面重新下载程序。",
   },
   ZhTw: {
     updateSigningNotConfigured: "此版本沒有更新簽名公鑰，無法檢查更新。",
@@ -30,6 +34,10 @@ registerProduct({
     updateReadyIntroInPlace: "更新檔案已下載並校驗。點擊「立即更新」後，將替換程式檔案並重新開啟。",
     updatePreserved: "使用者資料、棋譜、設定、引擎和權重都會保留。",
     updateInstalling: "正在安裝更新，程式將關閉並重新開啟…",
+    updateErrorPermission: "程式所在資料夾無法寫入，未安裝更新，目前的程式未改變。請將程式資料夾移到可寫入的位置後重試，或開啟 Release 頁面手動下載。",
+    updateErrorInUse: "有程式檔案正在使用，無法替換。已還原原檔案，目前的程式未改變。請關閉正在使用這些檔案的程式（例如另一個已開啟的本程式或棋盤同步工具）後重試。",
+    updateErrorInterrupted: "上次更新被中斷，已還原原檔案，目前的程式未改變。請重新檢查更新。",
+    updateErrorUnrecovered: "上次更新被中斷，部分原檔案暫未還原。請關閉其他使用程式資料夾的程式後重新啟動本程式；仍有問題請從 Release 頁面重新下載程式。",
   },
   EnUs: {
     updateSigningNotConfigured: "This build has no update signing key, so it cannot check for updates.",
@@ -40,6 +48,10 @@ registerProduct({
     updateReadyIntroInPlace: "The update is downloaded and verified. Update now replaces the program files and restarts the program.",
     updatePreserved: "User data, game records, settings, engines and weights are kept.",
     updateInstalling: "Installing the update; the program closes and restarts…",
+    updateErrorPermission: "The program's folder cannot be written, so the update was not installed and the program is unchanged. Move the folder to a writable location and retry, or download the update from the Release page.",
+    updateErrorInUse: "A program file is in use and could not be replaced. The original files were restored; the program is unchanged. Close whatever uses them (another copy of this program or the board synchronization tool, for example) and retry.",
+    updateErrorInterrupted: "The last update was interrupted. The original files were restored; the program is unchanged. Check for updates to try again.",
+    updateErrorUnrecovered: "The last update was interrupted and some original files could not be restored yet. Close other programs that use the program's folder and start this program again; if the problem remains, download the program again from the Release page.",
   },
 });
 
@@ -78,9 +90,20 @@ function errorText(d: UpdateDownloadView): string | null {
   switch (d.error) {
     case "Integrity": return t("WindowsUpdate.error.integrity");
     case "Sources": return product("updateErrorSources");
-    case "Install": return product("updateErrorInstall");
     case "Generic": return t("WindowsUpdate.error.generic");
-    default: return null;
+    case null: return null;
+    default: return handoverText(d.error);
+  }
+}
+
+/** An installation that did not happen: the program is unchanged unless said otherwise. */
+function handoverText(error: UpdateError): string {
+  switch (error) {
+    case "Permission": return product("updateErrorPermission");
+    case "InUse": return product("updateErrorInUse");
+    case "Interrupted": return product("updateErrorInterrupted");
+    case "Unrecovered": return product("updateErrorUnrecovered");
+    default: return product("updateErrorInstall");
   }
 }
 
@@ -295,9 +318,12 @@ function openPage(): void {
 let offerWindow: { id: number; close: () => void; show: (u: UpdateView) => void } | null = null;
 
 function intro(offer: UpdateOfferView, ready: boolean): string {
-  // The NSIS installer closes the program, installs and reopens it (Java's own wording); the app
-  // bundle and AppImage are replaced in place before the program restarts.
-  if (offer.form === "Nsis") return ready ? t("WindowsUpdate.summary.readyIntro") : t("WindowsUpdate.summary.intro");
+  // The NSIS installer and the portable zip's helper close the program, replace its files and
+  // reopen it (Java's own wording); the app bundle and AppImage are replaced in place before the
+  // program restarts.
+  if (offer.form === "Nsis" || offer.form === "PortableZip") {
+    return ready ? t("WindowsUpdate.summary.readyIntro") : t("WindowsUpdate.summary.intro");
+  }
   return ready ? product("updateReadyIntroInPlace") : product("updateIntroInPlace");
 }
 
@@ -389,10 +415,10 @@ registerViewHandler((view) => {
   const u = view.update;
   page?.show(u);
   offerWindow?.show(u);
-  // The previous run closed for the installer, which did not start.
+  // The previous run closed to install an update, which did not happen.
   if (u.handover_failed && !handoverReported) {
     handoverReported = true;
-    void message(t("Message.title"), product("updateErrorInstall"), "error");
+    void message(t("Message.title"), handoverText(u.handover_failed), "error");
   }
   // An offer the core asks to show: a manual check's, or once an automatic one's.
   if (u.remind > reminded) {

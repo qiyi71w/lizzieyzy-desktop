@@ -21,8 +21,10 @@ tauri = { version = "=2.12.4", features = ["unstable"] }
 tauri-plugin-dialog = "=2.8.3"
 tauri-plugin-opener = "2"
 tauri-plugin-clipboard-manager = "2"
-# 检查更新: the Tauri updater's package signature check and installers (NSIS, app bundle, AppImage).
+# 检查更新: the Tauri updater's package signature check and installers (NSIS, app bundle, AppImage);
+# the portable zip is checked with the same signature and replaced by this program's helper.
 tauri-plugin-updater = "=2.14.1"
+semver = "1"
 serde.workspace = true
 serde_json.workspace = true
 sys-locale = "0.3"
@@ -65,7 +67,7 @@ security-framework = "3"
 
 [target.'cfg(windows)'.dependencies]
 rfd = { version = "0.16", default-features = false }
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security_Cryptography", "Win32_System_Memory"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security_Cryptography", "Win32_System_Memory", "Win32_System_Threading"] }
 
 [features]
 # Isolated acceptance builds only: a loopback control channel that dispatches the same commands

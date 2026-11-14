@@ -1,21 +1,28 @@
 //! 检查更新's platform side: which installation this is, reading manifests and packages off the
 //! state lock, checking package signatures with the Tauri updater, and handing a verified package
-//! to the Tauri updater's installer for this installation form.
+//! over for this installation form.
 //!
 //! Windows (NSIS): the program first goes through its normal exit (saves, window state, engines),
 //! then the installer starts and reopens the program. macOS (app bundle) and Linux (AppImage):
 //! the bundle is replaced in place (the previous one is restored if that fails), then the
-//! program restarts through its normal exit.
+//! program restarts through its normal exit. Windows portable zip: the package is unpacked into
+//! the program folder, the program goes through its normal exit, and a copy of the program
+//! started as the helper ([`helper`]) replaces the files and reopens it.
 use crate::resources::HttpFetch;
 use crate::{publish, State};
 use lizzie_core::api::{ApiError, CommandResult, UpdateCommand, UpdateError};
 use lizzie_core::resources as r;
+use lizzie_core::update::portable::{self, PortableFailure, Recovery};
 use lizzie_core::update::{self as u, InstallForm, InstalledApp, Offer};
 use lizzie_core::workbench::{UpdateCheckJob, UpdateDownloadJob, UpdateInstallJob, UpdateStep, UpdateTask};
+use std::ffi::{OsStr, OsString};
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::Ordering;
 use std::sync::{Mutex, OnceLock};
 use std::thread;
+use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
@@ -151,14 +158,54 @@ pub fn setup(app: &AppHandle, shared: &State) {
         }
     ));
     let marker = HANDOVER_FAILED.get_or_init(|| staging.join("handover-failed"));
-    let handover_failed = std::fs::remove_file(marker).is_ok();
+    let mut failure = std::fs::read_to_string(marker).ok().map(|reason| marker_error(&reason));
+    let _ = std::fs::remove_file(marker);
+    if let Ok(notes) = std::fs::read_to_string(staging.join(HELPER_LOG)) {
+        for line in notes.lines() {
+            shared.log.info(&format!("update helper: {line}"));
+        }
+        let _ = std::fs::remove_file(staging.join(HELPER_LOG));
+    }
+    if installed.form == InstallForm::PortableZip {
+        let folder = std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf));
+        match folder.map(|f| portable::recover(&f)) {
+            Some(Recovery::Completed) => shared.log.info("update: finished an interrupted portable update"),
+            Some(Recovery::RolledBack) => {
+                shared.log.warn("update: undid an interrupted portable update; the program is unchanged");
+                failure = failure.or(Some(UpdateError::Interrupted));
+            }
+            Some(Recovery::Failed(e)) => {
+                shared.log.warn(&format!("update: an interrupted portable update could not be undone: {e}"));
+                failure = Some(UpdateError::Unrecovered);
+            }
+            Some(Recovery::None) | None => {}
+        }
+    }
+    remove_installed(&staging, &installed.version);
     let mut wb = shared.workbench.lock().unwrap();
     wb.set_update_installation(installed, staging);
-    if handover_failed {
+    if let Some(error) = failure {
         shared
             .log
-            .warn("update: the previous run's installer did not start; the program is unchanged");
-        wb.update_handover_failed_last_run();
+            .warn(&format!("update: the previous run's update did not happen ({error:?})"));
+        wb.update_handover_failed_last_run(error);
+    }
+}
+
+/// Removes the staging folders of releases not newer than this program: they are installed.
+fn remove_installed(staging: &Path, version: &semver::Version) {
+    let Ok(entries) = std::fs::read_dir(staging) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let installed = entry
+            .file_name()
+            .to_str()
+            .and_then(|n| semver::Version::parse(n).ok())
+            .is_some_and(|v| v <= *version);
+        if installed && entry.file_type().is_ok_and(|t| t.is_dir()) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
     }
 }
 
@@ -417,6 +464,18 @@ fn install(app: &AppHandle, shared: &State, job: UpdateInstallJob) {
         app.exit(0);
         return;
     }
+    if job.form == InstallForm::PortableZip {
+        drop(bytes);
+        // The helper replaces the files after the normal exit and reopens the program.
+        match prepare_portable(app, &job) {
+            Ok(handover) => {
+                *PORTABLE.lock().unwrap() = Some(handover);
+                app.exit(0);
+            }
+            Err((error, reason)) => failed(error, reason),
+        }
+        return;
+    }
     if let Err(e) = update.install(&bytes) {
         return failed(UpdateError::Install, e.to_string());
     }
@@ -424,10 +483,14 @@ fn install(app: &AppHandle, shared: &State, job: UpdateInstallJob) {
     app.request_restart();
 }
 
-/// The end of the program's exit: starts a Windows installation waiting for it. The installer
-/// takes over and the process ends here. When it cannot start, the program opens again and says
-/// so (Java keeps its window and shows the failure; this program has already closed).
+/// The end of the program's exit: starts a Windows installation or the portable update's helper
+/// waiting for it, which takes over; the process ends here. When it cannot start, the program
+/// opens again and says so (Java keeps its window and shows the failure; this program has
+/// already closed).
 pub fn finish_on_exit(app: &AppHandle, shared: &State) {
+    if let Some(handover) = PORTABLE.lock().unwrap().take() {
+        return start_helper(app, shared, handover);
+    }
     let Some((update, bytes)) = PENDING.lock().unwrap().take() else {
         return;
     };
@@ -436,8 +499,13 @@ pub fn finish_on_exit(app: &AppHandle, shared: &State) {
         return;
     };
     shared.log.warn(&format!("update installer did not start: {e}"));
+    handover_failed(app, shared, "install");
+}
+
+/// The handover did not start after the program's exit: the program opens again and says so.
+fn handover_failed(app: &AppHandle, shared: &State, reason: &str) {
     if let Some(marker) = HANDOVER_FAILED.get() {
-        let _ = std::fs::write(marker, b"");
+        let _ = std::fs::write(marker, reason);
     }
     let env = app.env();
     let reopened = tauri::process::current_binary(&env).and_then(|program| {
@@ -448,4 +516,231 @@ pub fn finish_on_exit(app: &AppHandle, shared: &State) {
     if let Err(e) = reopened {
         shared.log.warn(&format!("update: the program could not reopen: {e}"));
     }
+}
+
+// ------------------------------------------------------------------ portable zip
+
+/// The command-line flag that makes this program the portable update's helper.
+const HELPER_FLAG: &str = "--lizzieyzy-portable-update";
+/// The helper's notes for the next start's log, in the update staging folder.
+const HELPER_LOG: &str = "portable-helper.log";
+/// How long the helper waits for the program to close (Java `waitForProcessExit`).
+const EXIT_WAIT: Duration = Duration::from_secs(30);
+
+/// A portable update waiting for the program's exit.
+struct PortableHandover {
+    /// A copy of this program that applies the update.
+    helper: PathBuf,
+    folder: PathBuf,
+    program: OsString,
+}
+
+static PORTABLE: Mutex<Option<PortableHandover>> = Mutex::new(None);
+
+fn portable_error(failure: PortableFailure) -> UpdateError {
+    match failure {
+        PortableFailure::Permission => UpdateError::Permission,
+        PortableFailure::InUse => UpdateError::InUse,
+        PortableFailure::Unrecovered => UpdateError::Unrecovered,
+        PortableFailure::Package | PortableFailure::Io => UpdateError::Install,
+    }
+}
+
+/// The helper's result as the handover marker records it.
+fn marker_reason(failure: PortableFailure) -> &'static str {
+    match portable_error(failure) {
+        UpdateError::Permission => "permission",
+        UpdateError::InUse => "in-use",
+        UpdateError::Unrecovered => "unrecovered",
+        _ => "install",
+    }
+}
+
+fn marker_error(reason: &str) -> UpdateError {
+    match reason.trim() {
+        "permission" => UpdateError::Permission,
+        "in-use" => UpdateError::InUse,
+        "unrecovered" => UpdateError::Unrecovered,
+        _ => UpdateError::Install,
+    }
+}
+
+/// 立即更新 on the portable zip, while the program runs: unpacks the verified package into the
+/// program folder's work folder and copies this program as the helper. Nothing in the folder
+/// changes yet; a folder that cannot be written fails here.
+fn prepare_portable(app: &AppHandle, job: &UpdateInstallJob) -> Result<PortableHandover, (UpdateError, String)> {
+    let program = std::env::current_exe().map_err(|e| (UpdateError::Install, e.to_string()))?;
+    let (Some(folder), Some(name)) = (program.parent(), program.file_name()) else {
+        return Err((UpdateError::Install, format!("no program folder for {}", program.display())));
+    };
+    let binary = format!(
+        "{}{}",
+        app.config()
+            .main_binary_name
+            .clone()
+            .unwrap_or_else(|| app.package_info().crate_name.to_string()),
+        std::env::consts::EXE_SUFFIX
+    );
+    portable::prepare(
+        &job.path,
+        folder,
+        &name.to_string_lossy(),
+        &binary,
+        &job.offer.release.version.to_string(),
+    )
+    .map_err(|e| (portable_error(e.failure), e.to_string()))?;
+    let helper = job
+        .path
+        .with_file_name(format!("lizzieyzy-update-helper{}", std::env::consts::EXE_SUFFIX));
+    if let Err(e) = std::fs::copy(&program, &helper) {
+        portable::discard(folder);
+        return Err((UpdateError::Install, format!("the helper could not be copied: {e}")));
+    }
+    Ok(PortableHandover {
+        helper,
+        folder: folder.to_path_buf(),
+        program: name.to_os_string(),
+    })
+}
+
+/// The end of the program's exit: starts the helper, which waits for this process to end,
+/// replaces the files and opens the program again.
+fn start_helper(app: &AppHandle, shared: &State, handover: PortableHandover) {
+    let Some(staging) = HANDOVER_FAILED.get().and_then(|m| m.parent()) else {
+        return;
+    };
+    shared.log.info("update: starting the portable update helper");
+    let mut command = Command::new(&handover.helper);
+    command
+        .arg(HELPER_FLAG)
+        .arg(&handover.folder)
+        .arg(&handover.program)
+        .arg(std::process::id().to_string())
+        .arg(staging)
+        .current_dir(staging);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // DETACHED_PROCESS: no console of its own.
+        command.creation_flags(0x0000_0008);
+    }
+    if let Err(e) = command.spawn() {
+        shared.log.warn(&format!("update: the portable update helper did not start: {e}"));
+        portable::discard(&handover.folder);
+        handover_failed(app, shared, "install");
+    }
+}
+
+/// When this process was started as the portable update's helper: applies the update and
+/// returns the exit code. The program's own start is never reached.
+pub fn helper() -> Option<i32> {
+    let mut args = std::env::args_os().skip(1);
+    if args.next()? != HELPER_FLAG {
+        return None;
+    }
+    let args: Vec<OsString> = args.collect();
+    let [folder, program, parent, staging] = args.as_slice() else {
+        return Some(2);
+    };
+    let Some(parent) = parent.to_str().and_then(|p| p.parse::<u32>().ok()) else {
+        return Some(2);
+    };
+    let (folder, staging) = (PathBuf::from(folder), PathBuf::from(staging));
+    Some(run_helper(&folder, program, parent, &staging))
+}
+
+fn run_helper(folder: &Path, program: &OsStr, parent: u32, staging: &Path) -> i32 {
+    let mut log = std::fs::File::create(staging.join(HELPER_LOG)).ok();
+    let mut note = |text: &str| {
+        if let Some(file) = log.as_mut() {
+            let _ = writeln!(file, "{text}");
+        }
+    };
+    let failed = |note: &mut dyn FnMut(&str), failure: PortableFailure, detail: &str| {
+        note(&format!("failed ({failure:?}): {detail}"));
+        let _ = std::fs::write(staging.join("handover-failed"), marker_reason(failure));
+    };
+    note(&format!("helper for {} in {}", program.to_string_lossy(), folder.display()));
+    let claim = match portable::claim(folder) {
+        Ok(claim) => claim,
+        Err(e) => {
+            failed(&mut note, e.failure, &e.detail);
+            reopen(folder, program, &mut note);
+            return 1;
+        }
+    };
+    note(&format!("version {}", claim.version()));
+    if !wait_for_exit(parent, EXIT_WAIT) {
+        // The program is still open: nothing was changed, and it is not opened a second time.
+        failed(&mut note, PortableFailure::InUse, "the program did not close");
+        return 1;
+    }
+    #[cfg(feature = "acceptance")]
+    let stop_after = std::env::var("LIZZIEYZY_TAURI_UPDATE_HELPER_STOP_AFTER")
+        .ok()
+        .and_then(|n| n.parse::<usize>().ok());
+    let mut count = 0usize;
+    let result = claim.apply(&mut |file| {
+        count += 1;
+        note(&format!("replaced {file}"));
+        // Acceptance builds only: the helper stops as if the computer had, mid-way.
+        #[cfg(feature = "acceptance")]
+        if stop_after == Some(count) {
+            std::process::exit(9);
+        }
+    });
+    match result {
+        Ok(()) => note(&format!("done: {count} files")),
+        Err(e) => failed(&mut note, e.failure, &e.detail),
+    }
+    reopen(folder, program, &mut note);
+    0
+}
+
+fn reopen(folder: &Path, program: &OsStr, note: &mut dyn FnMut(&str)) {
+    if let Err(e) = Command::new(folder.join(program)).current_dir(folder).spawn() {
+        note(&format!("the program could not open: {e}"));
+    }
+}
+
+/// Waits up to `timeout` for process `pid` to end; true when it has.
+#[cfg(windows)]
+fn wait_for_exit(pid: u32, timeout: Duration) -> bool {
+    use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
+    use windows::Win32::System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE};
+    // SAFETY: the handle is used for this wait only and closed afterwards.
+    unsafe {
+        let Ok(handle) = OpenProcess(PROCESS_SYNCHRONIZE, false, pid) else {
+            // The process has already ended.
+            return true;
+        };
+        let ended = WaitForSingleObject(handle, timeout.as_millis() as u32) == WAIT_OBJECT_0;
+        let _ = CloseHandle(handle);
+        ended
+    }
+}
+
+/// Waits up to `timeout` for process `pid` to end (or to be a zombie); true when it has.
+#[cfg(target_os = "linux")]
+fn wait_for_exit(pid: u32, timeout: Duration) -> bool {
+    let end = std::time::Instant::now() + timeout;
+    loop {
+        let running = std::fs::read_to_string(format!("/proc/{pid}/stat"))
+            .ok()
+            .and_then(|s| s.rsplit_once(')').map(|(_, rest)| rest.trim_start().starts_with(|c| c != 'Z')))
+            .unwrap_or(false);
+        if !running {
+            return true;
+        }
+        if std::time::Instant::now() >= end {
+            return false;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// The portable zip exists only on Windows (and is exercised on Linux in acceptance builds).
+#[cfg(not(any(windows, target_os = "linux")))]
+fn wait_for_exit(_pid: u32, _timeout: Duration) -> bool {
+    true
 }

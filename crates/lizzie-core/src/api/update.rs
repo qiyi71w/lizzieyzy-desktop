@@ -61,6 +61,17 @@ pub enum UpdateError {
     Sources,
     /// Installing the verified package failed; the installed program is unchanged.
     Install,
+    /// Portable zip: the program folder cannot be written, so nothing was changed.
+    Permission,
+    /// Portable zip: a program file was in use and could not be replaced; the old files were put
+    /// back.
+    InUse,
+    /// Portable zip: the replacement was interrupted (the computer stopped, say); the old files
+    /// were put back at start.
+    Interrupted,
+    /// Portable zip: the old files could not all be put back yet; it is tried again at the next
+    /// start.
+    Unrecovered,
     Generic,
 }
 
@@ -122,7 +133,7 @@ pub struct UpdateView {
     pub remind: u64,
     /// The installation was handed over: the program closes (and restarts) now.
     pub installing: bool,
-    /// The previous run closed to install an update, and the installer did not start: the
-    /// program is unchanged (`无法安装更新`, shown once at start).
-    pub handover_failed: bool,
+    /// The previous run closed to install an update, which did not happen: why (`Install` when
+    /// the installer did not start). Shown once at start.
+    pub handover_failed: Option<UpdateError>,
 }

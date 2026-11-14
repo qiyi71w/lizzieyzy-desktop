@@ -2578,7 +2578,7 @@ export type UpdateOutcome = "UnavailableBuild" | "SigningNotConfigured" | "Unsup
 
 export type UpdateDownloadPhase = "None" | "Downloading" | "Paused" | "Cancelled" | "Failed" | "Ready";
 
-export type UpdateError = "Integrity" | "Sources" | "Install" | "Generic";
+export type UpdateError = "Integrity" | "Sources" | "Install" | "Permission" | "InUse" | "Interrupted" | "Unrecovered" | "Generic";
 
 export type UpdateOfferView = { 
 /**
@@ -2633,10 +2633,10 @@ remind: number,
  */
 installing: boolean, 
 /**
- * The previous run closed to install an update, and the installer did not start: the
- * program is unchanged (`无法安装更新`, shown once at start).
+ * The previous run closed to install an update, which did not happen: why (`Install` when
+ * the installer did not start). Shown once at start.
  */
-handover_failed: boolean, };
+handover_failed: UpdateError | null, };
 
 export type UpdateSettings = { 
 /**

@@ -28,15 +28,25 @@ continues where it stopped), verifies its signature, and installs it:
 | Installation | What 立即更新 does |
 | --- | --- |
 | Windows installer (`-setup.exe`) | Closes the program normally (saving as on any exit), runs the new installer, which reopens the program. |
+| Windows portable zip | Unpacks the new zip into the program folder (in a hidden `.lizzieyzy-update` folder), closes the program normally, then a copy of the program replaces the folder's files with the new ones and reopens it. The folder stays a portable folder: no installer runs and nothing is registered with Windows. |
 | macOS app | Replaces the app bundle and restarts the program. |
 | Linux AppImage | Replaces the AppImage file and restarts the program. |
-| Windows portable zip, Linux deb | Not updated from within the program: the check says this installation cannot update itself. Download the new package from GitHub Releases. |
+| Linux deb | Not updated from within the program: the check says this installation cannot update itself. Download the new package from GitHub Releases. |
 
 A package that fails verification is deleted and never installed. A failed installation leaves
 the installed program as it was and says so; if the Windows installer cannot start after the
 program has closed, the program opens again with that message, and 检查更新 → 立即更新 tries
 again with the package already downloaded. Updates never touch settings, logs, saved games,
 engines or weights.
+
+For the portable zip, only the files the new zip contains are replaced; anything else in the
+folder (your own files, the board synchronization tool's settings) stays. A folder that cannot be
+written (for example under `C:\Program Files`) is reported before the program closes, and
+nothing changes. If a file cannot be replaced after the program has closed (another copy of the
+program, or another program, still uses it), every file already replaced is put back and the
+program reopens with a message. If the replacement is interrupted (the computer shuts down, say),
+the next start puts the old files back, or finishes the update when every file had already been
+replaced.
 
 Downloads use the proxy set in the program's network settings. The package is kept in the
 program's cache folder (`updates/<version>`); downloading another version removes it.
@@ -86,7 +96,8 @@ node tools/package.mjs --update-pubkey ~/.lizzieyzy-tauri-update.key.pub --out t
 
 Besides the packages, this writes for each update package a `.sig` file and
 `<prefix>.update.json` listing the update entries of this platform: `windows-x86_64-nsis`,
-`darwin-aarch64-app` / `darwin-x86_64-app` (an extra `.app.tar.gz`), `linux-x86_64-appimage`.
+`windows-x86_64-zip` (the portable zip), `darwin-aarch64-app` / `darwin-x86_64-app` (an extra
+`.app.tar.gz`), `linux-x86_64-appimage`.
 
 For Linux, run `UPDATE_PUBKEY=~/.lizzieyzy-tauri-update.key.pub tools/packaging/build-linux.sh`
 with the same two variables; the key files are mounted read-only into the build container.

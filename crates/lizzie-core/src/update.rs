@@ -13,6 +13,8 @@
 //! This module does no I/O of its own: manifests are read through a caller-owned
 //! [`crate::resources::Fetch`].
 
+pub mod portable;
+
 use crate::resources::Fetch;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -105,9 +107,13 @@ impl InstallForm {
         }
     }
 
-    /// Forms whose installation the client hands over itself: the Tauri updater's routes.
+    /// Forms whose installation the client hands over itself: the Tauri updater's routes and the
+    /// portable zip's own file replacement ([`portable`]).
     pub fn hands_over(self) -> bool {
-        matches!(self, InstallForm::Nsis | InstallForm::App | InstallForm::AppImage)
+        matches!(
+            self,
+            InstallForm::Nsis | InstallForm::App | InstallForm::AppImage | InstallForm::PortableZip
+        )
     }
 }
 

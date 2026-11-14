@@ -2045,6 +2045,12 @@ fn install_macos_quit(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>>
     Err(std::io::Error::other("Default macOS menu has no Quit item").into())
 }
 
+/// When this process was started as the portable update's helper, applies the update and
+/// returns the exit code; the program does not start.
+pub fn update_helper() -> Option<i32> {
+    update::helper()
+}
+
 pub fn run() {
     let context = tauri::generate_context!();
     let logs = startup::logs_dir(&context.config().identifier);
