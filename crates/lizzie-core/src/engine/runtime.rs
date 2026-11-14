@@ -1080,6 +1080,14 @@ impl Engines {
         self.get(id).is_some_and(|i| i.kind == EngineKind::KataGo)
     }
 
+    /// The 自建算力 engine (Java `RemoteComputeConfig.isCustomWebSocketEngineCommand`): its
+    /// WebSocket analysis service has no background pondering.
+    pub fn is_custom_websocket(&self, id: InstanceId) -> bool {
+        self.get(id).is_some_and(|i| {
+            i.profile.cloud.as_ref().is_some_and(|c| c.provider == super::cloud::CloudProvider::Custom)
+        })
+    }
+
     /// Leela Zero or Sai, which take `lz-setoption`.
     pub fn takes_lz_options(&self, id: InstanceId) -> bool {
         self.get(id).is_some_and(Instance::takes_lz_options)

@@ -1774,11 +1774,19 @@ pub struct ReadBoardSettings {
     /// `Menu.notPlaySoundInSync` (`not-play-sound-insync`, default on): no stone sounds while
     /// the board is synced.
     pub no_sound_in_sync: bool,
+    /// `suppress-readboard-websocket-pondering-notice` (default off): 不再提示 was chosen on the
+    /// notice that a custom WebSocket engine cannot ponder while GMA plays.
+    pub suppress_websocket_pondering_notice: bool,
 }
 
 impl Default for ReadBoardSettings {
     fn default() -> Self {
-        ReadBoardSettings { always_sync_board_stat: true, get_focus: true, no_sound_in_sync: true }
+        ReadBoardSettings {
+            always_sync_board_stat: true,
+            get_focus: true,
+            no_sound_in_sync: true,
+            suppress_websocket_pondering_notice: false,
+        }
     }
 }
 

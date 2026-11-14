@@ -147,10 +147,12 @@ pub struct Mapped {
     pub append_winrate_to_comment: Option<bool>,
     pub language: Option<Language>,
     pub play_sound: Option<bool>,
-    /// `ui.not-play-sound-insync`, `ui.always-sync-boardstat`, `ui.read-board-get-focus`.
+    /// `ui.not-play-sound-insync`, `ui.always-sync-boardstat`, `ui.read-board-get-focus`,
+    /// `ui.suppress-readboard-websocket-pondering-notice`.
     pub no_sound_in_sync: Option<bool>,
     pub read_board_stat_sync: Option<bool>,
     pub read_board_get_focus: Option<bool>,
+    pub suppress_websocket_pondering_notice: Option<bool>,
     /// 诊断与日志: `logging.diagnostics-enabled`, `diagnostic-modules`,
     /// `preferred-full-trace-scopes`.
     pub logging_enabled: Option<bool>,
@@ -963,6 +965,12 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "read-board-get-focus",
         ImportTarget::ReadBoardGetFocus,
         Kind::Bool(|m, v| m.read_board_get_focus = Some(v)),
+    ),
+    (
+        "ui",
+        "suppress-readboard-websocket-pondering-notice",
+        ImportTarget::ReadBoardPonderingNotice,
+        Kind::Bool(|m, v| m.suppress_websocket_pondering_notice = Some(v)),
     ),
     (
         "ui",
@@ -3506,6 +3514,7 @@ impl Mapped {
         set!(c.read_board.no_sound_in_sync, self.no_sound_in_sync);
         set!(c.read_board.always_sync_board_stat, self.read_board_stat_sync);
         set!(c.read_board.get_focus, self.read_board_get_focus);
+        set!(c.read_board.suppress_websocket_pondering_notice, self.suppress_websocket_pondering_notice);
         set!(c.logging, self.logging_after(&c.logging));
         set!(c.quick_links, self.quick_links_after(&c.quick_links, quick_links));
         set!(c.ui.extra_mode, self.extra_mode);
@@ -3893,6 +3902,11 @@ impl Mapped {
         cmp!(ImportTarget::NoSoundInSync, config.read_board.no_sound_in_sync, self.no_sound_in_sync);
         cmp!(ImportTarget::ReadBoardStatSync, config.read_board.always_sync_board_stat, self.read_board_stat_sync);
         cmp!(ImportTarget::ReadBoardGetFocus, config.read_board.get_focus, self.read_board_get_focus);
+        cmp!(
+            ImportTarget::ReadBoardPonderingNotice,
+            config.read_board.suppress_websocket_pondering_notice,
+            self.suppress_websocket_pondering_notice
+        );
         cmp!(ImportTarget::Diagnostics, config.logging, self.logging_after(&config.logging));
         cmp!(ImportTarget::QuickLinks, config.quick_links, self.quick_links_after(&config.quick_links, true));
         cmp!(ImportTarget::ExtraMode, config.ui.extra_mode, self.extra_mode);

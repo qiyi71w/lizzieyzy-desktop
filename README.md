@@ -275,6 +275,11 @@ importing the matching LizzieYzy Next settings.
   Clearing GMA (stopping the sync or the helper ending) gives the original parameters back once
   the engine holds the record's position again; if the engine refuses them it stays unrestored
   (引擎状态未恢复) until it is switched or restarted.
+  The 自建算力 engine (远程算力's WebSocket link) cannot ponder in the background: GMA leaves the
+  pondering parameter alone on it, and when the helper asks for pondering (`playpon on`) each
+  arming first shows ReadBoard 后台思考能力差异. GMA waits for the answer: 确定 or 不再提示 lets it
+  play with the helper's fixed time and visit limits, 不再提示 is saved; closing the notice leaves
+  GMA waiting until the helper arms it again.
 - Analysis: candidates on the board (win rate, visits, score lead), the variation shown when
   hovering a candidate (captures are worked out by the core), the sub board cycling through
   candidates on click, the candidate tables, the win-rate graph, 统计 and Kata形势 (below), and
@@ -1109,8 +1114,8 @@ importing the matching LizzieYzy Next settings.
   `LizzieYzyNext` folders are suggested when they exist). A preview lists every Java setting as
   imported, not usable here (invalid values; Java window positions) or left out (features not in
   this client yet, accounts and credentials), with the engine list. Imported: record settings
-  (load komi, go to last move, replace prompt), language, stone sounds, 棋盘同步工具选项 and
-  同步时不播放落子声, the editing settings
+  (load komi, go to last move, replace prompt), language, stone sounds, 棋盘同步工具选项,
+  同步时不播放落子声 and the 不再提示 of the 自建算力 pondering notice, the editing settings
   (double click, drag, right-click menu or back, new-board prompt, markup tools, 其他 board
   size, no-capture), recent records, last
   folder, the engine list with its default and start-up choice, each engine's thread policy and

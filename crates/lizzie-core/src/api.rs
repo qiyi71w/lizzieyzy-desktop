@@ -1702,6 +1702,8 @@ pub enum ImportTarget {
     ReadBoardStatSync,
     /// `ui.read-board-get-focus`.
     ReadBoardGetFocus,
+    /// `ui.suppress-readboard-websocket-pondering-notice`.
+    ReadBoardPonderingNotice,
     /// 诊断与日志 (`logging.diagnostics-enabled`, `diagnostic-modules`,
     /// `preferred-full-trace-scopes`).
     Diagnostics,

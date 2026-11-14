@@ -10,9 +10,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use lizzie_core::api::{
-    Command, CommandResult, GameCommand, GameKind, LeaseAvailabilityView, ReadBoardCommand, ReadBoardNotice,
+    Command, CommandResult, GameCommand, GameKind, ImportStatus, ImportTarget, LeaseAvailabilityView, PonderingNoticeDecision,
+    ReadBoardCommand, ReadBoardNotice,
 };
 use lizzie_core::browse::Navigation;
+use lizzie_core::engine::cloud::{CloudLaunch, CloudProvider};
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
@@ -121,6 +123,10 @@ fn out(wb: &mut Workbench, id: InstanceId, text: &str) {
 
 impl Rig {
     fn new() -> Rig {
+        Rig::with_engine(EngineProfile { name: "KataGo".into(), command: "/opt/katago gtp".into(), ..EngineProfile::default() })
+    }
+
+    fn with_engine(profile: EngineProfile) -> Rig {
         let dir = tempfile::tempdir().unwrap();
         let base = dir.path().join("app");
         std::fs::create_dir_all(base.join("readboard")).unwrap();
@@ -134,11 +140,7 @@ impl Rig {
             vec![],
         );
         wb.set_auto_quick_analyze(false).unwrap();
-        wb.save_engine_settings(
-            vec![EngineProfile { name: "KataGo".into(), command: "/opt/katago gtp".into(), ..EngineProfile::default() }],
-            EngineStartup::Default,
-        )
-        .unwrap();
+        wb.save_engine_settings(vec![profile], EngineStartup::Default).unwrap();
         wb.set_readboard_host(Box::new(Host(helpers.clone())), vec![PathBuf::from(&base)]);
         wb.start_engines();
         let engine = engines.last();
@@ -273,6 +275,40 @@ fn gma_rig() -> (Rig, HelperId) {
     r.lines(h, &["ready", "start 19 19", "sync", "bothSync", "play>black>5 100 0 gma"]);
     r.frame(h, &[]);
     (r, h)
+}
+
+/// The 自建算力 engine (`remote-compute://custom-websocket`), here answering as KataGo through the
+/// controlled process; its real adapter rejects `ponderingEnabled` (`kata-get-param` and
+/// `kata-set-param` answer `unknown parameter`).
+fn websocket_rig() -> Rig {
+    let cloud = CloudLaunch { provider: CloudProvider::Custom, identifier: String::new(), args: String::new(), url: "ws://127.0.0.1:9/analysis".into() };
+    Rig::with_engine(EngineProfile {
+        name: "Custom Compute".into(),
+        command: "remote-compute://custom-websocket".into(),
+        cloud: Some(cloud),
+        ..EngineProfile::default()
+    })
+}
+
+fn websocket_adapter(cmd: &str) -> Option<String> {
+    cmd.contains("ponderingEnabled").then(|| "?unknown parameter".to_string())
+}
+
+/// GMA armed for Black on an empty board, the helper having asked for pondering or not.
+fn arm_gma(r: &mut Rig, ponder: bool) -> HelperId {
+    let h = r.open();
+    r.lines(h, &["ready", "start 19 19", "sync", "bothSync", if ponder { "playpon on" } else { "playpon off" }, "play>black>5 100 0 gma"]);
+    r.frame(h, &[]);
+    h
+}
+
+fn pondering_notice(r: &mut Rig) -> Option<u64> {
+    r.wb.view(false).readboard.pondering_notice
+}
+
+fn answer(r: &mut Rig, generation: u64, decision: PonderingNoticeDecision) {
+    let op = ReadBoardCommand::AnswerPonderingNotice { generation, decision };
+    assert_eq!(r.wb.readboard(op).unwrap(), CommandResult::Done);
 }
 
 // ------------------------------------------------------------------------ helper lifecycle
@@ -1055,4 +1091,126 @@ fn the_diagnostics_package_holds_the_recent_sync_protocol_and_decisions() {
     early.line(h, "roomToken secret-room");
     let protocol = early.wb.readboard_diagnostics("9.9.9").snapshots[4].1.clone();
     assert!(protocol.ends_with("\troomToken <redacted>\n") && !protocol.contains("secret-room"), "{protocol}");
+}
+
+// ------------------------------------------------------------------------ custom WebSocket engine
+// Java `ReadBoard.scheduleReadBoardGmaIfNeeded` (ReadBoard.java:4893-4922),
+// `Leelaz.supportsReadBoardGmaPondering` (20561-20564), `ReadBoardGmaPreparation.start`
+// (20195-20201) and `Config.suppressReadBoardWebSocketPonderingNotice` (3576-3580).
+
+fn genmove_held(r: &Rig) -> bool {
+    r.held.iter().any(|(_, c)| c.starts_with("kata-genmove_analyze B"))
+}
+
+#[test]
+fn a_custom_websocket_engine_plays_gma_without_the_pondering_parameter_it_lacks() {
+    let mut r = websocket_rig();
+    arm_gma(&mut r, false);
+    let sent = r.serve(&websocket_adapter);
+    assert!(!sent.iter().any(|c| c.contains("ponderingEnabled")), "{sent:?}");
+    assert!(sent.iter().any(|c| c == "kata-set-param maxTime 5"), "{sent:?}");
+    assert!(genmove_held(&r), "{:?}", r.held);
+    assert_eq!(pondering_notice(&mut r), None, "nothing to explain without the wish to ponder");
+    r.answer_genmove("Q16");
+    r.serve(&websocket_adapter);
+    assert_eq!(r.main_line(), [(Stone::Black, p(15, 3))]);
+}
+
+#[test]
+fn a_local_katago_ponders_for_gma_without_the_notice() {
+    let mut r = Rig::new();
+    arm_gma(&mut r, true);
+    let sent = r.serve(&|_| None);
+    assert!(sent.iter().any(|c| c == "kata-set-param ponderingEnabled true"), "{sent:?}");
+    assert!(genmove_held(&r), "{:?}", r.held);
+    assert_eq!(pondering_notice(&mut r), None);
+}
+
+#[test]
+fn the_pondering_wish_on_a_websocket_engine_is_explained_once_per_arming_before_gma_plays() {
+    let mut r = websocket_rig();
+    let h = arm_gma(&mut r, true);
+    let sent = r.serve(&websocket_adapter);
+    assert!(!sent.iter().any(|c| c.starts_with("kata-get-param")) && !genmove_held(&r), "GMA waits: {sent:?}");
+    let first = pondering_notice(&mut r).expect("the notice is shown");
+
+    // Closed: GMA keeps waiting for this arming, and the notice is not shown again.
+    answer(&mut r, first, PonderingNoticeDecision::Dismiss);
+    r.frame(h, &[]);
+    let sent = r.serve(&websocket_adapter);
+    assert!(!sent.iter().any(|c| c.starts_with("kata-get-param")) && !genmove_held(&r), "{sent:?}");
+    assert_eq!(pondering_notice(&mut r), None);
+
+    // Armed again: asked again. 确定 lets this arming play, without pondering.
+    r.line(h, "play>black>5 100 0 gma");
+    r.frame(h, &[]);
+    let second = pondering_notice(&mut r).expect("asked again for the new arming");
+    assert_ne!(second, first);
+    answer(&mut r, first, PonderingNoticeDecision::Confirm);
+    assert_eq!(pondering_notice(&mut r), Some(second), "an answer for an earlier arming changes nothing");
+    answer(&mut r, second, PonderingNoticeDecision::Confirm);
+    assert_eq!(pondering_notice(&mut r), None);
+    let sent = r.serve(&websocket_adapter);
+    assert!(!sent.iter().any(|c| c.contains("ponderingEnabled")), "{sent:?}");
+    assert!(genmove_held(&r), "{:?}", r.held);
+    assert!(!r.wb.config().read_board.suppress_websocket_pondering_notice, "确定 saves nothing");
+    r.answer_genmove("Q16");
+    r.serve(&websocket_adapter);
+    assert_eq!(r.main_line(), [(Stone::Black, p(15, 3))]);
+
+    // The same arming's next hand does not ask.
+    r.frame(h, &[(15, 3, 3)]);
+    r.frame(h, &[(15, 3, 1), (3, 3, 4)]);
+    r.serve(&websocket_adapter);
+    assert_eq!(pondering_notice(&mut r), None);
+    assert!(genmove_held(&r), "{:?}", r.held);
+}
+
+#[test]
+fn not_showing_the_pondering_notice_again_is_saved() {
+    let mut r = websocket_rig();
+    let h = arm_gma(&mut r, true);
+    r.serve(&websocket_adapter);
+    let generation = pondering_notice(&mut r).expect("the notice is shown");
+    answer(&mut r, generation, PonderingNoticeDecision::Suppress);
+    assert!(r.wb.config().read_board.suppress_websocket_pondering_notice);
+    let reopened = Workbench::new(
+        Storage::in_dirs(&r._dir.path().join("config"), &r._dir.path().join("data")),
+        None,
+        Box::new(Launch(Engines::default())),
+        vec![],
+    );
+    assert!(reopened.config().read_board.suppress_websocket_pondering_notice, "saved for the next start");
+    let sent = r.serve(&websocket_adapter);
+    assert!(!sent.iter().any(|c| c.contains("ponderingEnabled")) && genmove_held(&r), "{sent:?}");
+    r.answer_genmove("Q16");
+    r.serve(&websocket_adapter);
+
+    // Armed again, it plays at once.
+    r.frame(h, &[(15, 3, 3)]);
+    r.line(h, "play>black>5 100 0 gma");
+    r.frame(h, &[(15, 3, 1), (3, 3, 4)]);
+    r.serve(&websocket_adapter);
+    assert_eq!(pondering_notice(&mut r), None);
+    assert!(genmove_held(&r), "{:?}", r.held);
+}
+
+#[test]
+fn the_java_choice_not_to_show_the_pondering_notice_is_imported() {
+    let mut r = websocket_rig();
+    let java = r._dir.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), r#"{"ui": {"suppress-readboard-websocket-pondering-notice": true}}"#).unwrap();
+    let preview = r.wb.preview_java_import(java_import::read(&JavaSource::new(&java, None)).unwrap());
+    let item = preview.items.iter().find(|i| i.key == "ui.suppress-readboard-websocket-pondering-notice").expect("listed");
+    assert_eq!((item.status, item.target), (ImportStatus::Imported, Some(ImportTarget::ReadBoardPonderingNotice)));
+    r.wb.apply_java_import(preview.id, &[], false, false, true, None).unwrap().unwrap();
+    assert!(r.wb.config().read_board.suppress_websocket_pondering_notice);
+
+    r.engine = r.engines.last();
+    r.serve(&websocket_adapter);
+    arm_gma(&mut r, true);
+    r.serve(&websocket_adapter);
+    assert_eq!(pondering_notice(&mut r), None);
+    assert!(genmove_held(&r), "{:?}", r.held);
 }

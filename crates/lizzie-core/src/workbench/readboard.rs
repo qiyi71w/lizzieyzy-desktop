@@ -371,6 +371,10 @@ impl Workbench {
                 Ok(CommandResult::Done)
             }
             ReadBoardCommand::AnswerUpdate { accept } => Ok(self.readboard_answer_update(accept)),
+            ReadBoardCommand::AnswerPonderingNotice { generation, decision } => {
+                self.gma_pondering_notice_answered(generation, decision)?;
+                Ok(CommandResult::Done)
+            }
             ReadBoardCommand::ReturnFocus => {
                 let events = self.readboard.helper.as_ref().map(|h| h.session.return_focus()).unwrap_or_default();
                 self.readboard_effects(events);
@@ -628,6 +632,7 @@ impl Workbench {
             float_board,
             float_hide_request: f.hide_request.filter(|_| helper.is_some()),
             update_offer: self.readboard.update.as_ref().map(|u| u.request.version_tag().to_string()),
+            pondering_notice: self.readboard.gma.pondering_notice(),
             logging: helper.map(|h| logging_view(h.logging.snapshot())),
             always_sync_board_stat: self.config.read_board.always_sync_board_stat,
             get_focus: self.config.read_board.get_focus,
