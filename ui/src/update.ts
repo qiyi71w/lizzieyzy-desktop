@@ -162,15 +162,20 @@ function frame(title: string, cls: string, key: string, onClose: () => void): { 
 
 let page: { box: HTMLElement; close: () => void; show: (u: UpdateView) => void } | null = null;
 
-function saveSettings(change: Partial<UpdateSettings>): void {
+/** Saves at once; a save that fails shows its error and the page returns to the saved settings
+ *  (the control already shows the unsaved choice, and no new view follows a failure). */
+async function saveSettings(change: Partial<UpdateSettings>): Promise<void> {
   const settings = state.view?.update.settings;
-  if (settings) void run({ type: "Update", op: { type: "Settings", settings: { ...settings, ...change } } });
+  if (!settings) return;
+  const result = await run({ type: "Update", op: { type: "Settings", settings: { ...settings, ...change } } });
+  if (result === null && state.view) page?.show(state.view.update);
 }
 
 function radio(name: string, text: string, key: string, onPick: () => void): { label: HTMLLabelElement; input: HTMLInputElement } {
   const input = el("input");
   input.type = "radio";
   input.name = name;
+  input.dataset.key = `${key}.input`;
   input.onchange = () => { if (input.checked) onPick(); };
   const label = el("label", "update-choice");
   label.dataset.key = key;
@@ -202,6 +207,7 @@ function openPage(): void {
   const check = (key: string, onChange: (on: boolean) => void) => {
     const input = el("input");
     input.type = "checkbox";
+    input.dataset.key = `${key}.input`;
     input.onchange = () => onChange(input.checked);
     const text = el("span");
     const label = el("label", "update-check");
@@ -378,10 +384,16 @@ function openOffer(focus: boolean): void {
 }
 
 let reminded = 0;
+let handoverReported = false;
 registerViewHandler((view) => {
   const u = view.update;
   page?.show(u);
   offerWindow?.show(u);
+  // The previous run closed for the installer, which did not start.
+  if (u.handover_failed && !handoverReported) {
+    handoverReported = true;
+    void message(t("Message.title"), product("updateErrorInstall"), "error");
+  }
   // An offer the core asks to show: a manual check's, or once an automatic one's.
   if (u.remind > reminded) {
     reminded = u.remind;

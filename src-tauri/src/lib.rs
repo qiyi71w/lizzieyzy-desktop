@@ -2381,7 +2381,7 @@ pub fn run() {
                 shared.log.info("engines ended");
                 shared.log.info("exit");
                 // A Windows update installs once the program has ended its work.
-                update::finish_on_exit(&shared);
+                update::finish_on_exit(app, &shared);
             }
         }),
         Err(e) => {

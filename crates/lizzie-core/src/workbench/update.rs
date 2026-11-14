@@ -123,6 +123,8 @@ pub(super) struct UpdateFlow {
     show_offer: u64,
     prepared: Option<PathBuf>,
     installing: bool,
+    /// The previous run closed for a Windows installation whose installer did not start.
+    handover_failed: bool,
 }
 
 impl Default for UpdateFlow {
@@ -157,6 +159,7 @@ impl Default for UpdateFlow {
             show_offer: 0,
             prepared: None,
             installing: false,
+            handover_failed: false,
         }
     }
 }
@@ -221,6 +224,13 @@ impl Workbench {
         u.startup = settings.auto_check.then(|| Selection::of(&settings));
     }
 
+    /// The previous run closed to hand an update to the Windows installer, and the installer did
+    /// not start (the platform adapter learns this at start). The program is unchanged; the
+    /// prepared package stays for another 立即更新.
+    pub fn update_handover_failed_last_run(&mut self) {
+        self.update.handover_failed = true;
+    }
+
     /// The main window is ready: 启动时自动检查更新 starts its one check (`applicationReady`).
     pub fn update_application_ready(&mut self) -> UpdateStep {
         let u = &mut self.update;
@@ -264,6 +274,15 @@ impl Workbench {
             return Ok(UpdateStep::default());
         }
         self.commit_config(|c| c.update = next)?;
+        self.update_settings_replaced(old);
+        Ok(UpdateStep::changed())
+    }
+
+    /// The saved update settings changed from `old` (the page, or a Java import): turning an
+    /// automatic option off, or changing the channel or source, withdraws this run's automatic
+    /// work at once. Turning one on waits for the next start.
+    pub(super) fn update_settings_replaced(&mut self, old: UpdateSettings) {
+        let next = self.config.update;
         let selection_changed =
             old.channel != next.channel || (next.channel != UpdateChannel::Beta && old.source != next.source);
         if (old.auto_check && !next.auto_check) || selection_changed {
@@ -275,7 +294,6 @@ impl Workbench {
                 self.cancel_update_download();
             }
         }
-        Ok(UpdateStep::changed())
     }
 
     /// Java `invalidateAutomatic`: this run's automatic check and download end; a manual check,
@@ -599,6 +617,7 @@ impl Workbench {
             },
             remind: u.show_offer,
             installing: u.installing,
+            handover_failed: u.handover_failed,
         }
     }
 }

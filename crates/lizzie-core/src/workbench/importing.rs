@@ -249,10 +249,12 @@ impl Workbench {
         self.strength_reload_models();
 
         let previous_analysis = self.config.engine.analysis.clone();
+        let previous_update = self.config.update;
         let captures_changed = self.config.edit.no_capture != config.edit.no_capture;
         self.config = config;
         self.reload_appearance_theme();
         self.logging_replaced();
+        self.update_settings_replaced(previous_update);
         self.persisted = persisted;
         self.new_profile = false;
         self.analysis_settings_changed(&previous_analysis);

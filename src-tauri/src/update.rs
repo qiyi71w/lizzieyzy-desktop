@@ -23,6 +23,9 @@ use tauri_plugin_updater::UpdaterExt;
 static PUBKEY: OnceLock<String> = OnceLock::new();
 /// A Windows installation waiting for the program's exit.
 static PENDING: Mutex<Option<(tauri_plugin_updater::Update, Vec<u8>)>> = Mutex::new(None);
+/// Left in the update staging folder when the installer did not start after the program's exit;
+/// the reopened program reports it.
+static HANDOVER_FAILED: OnceLock<PathBuf> = OnceLock::new();
 
 fn pubkey() -> &'static str {
     PUBKEY.get().map(String::as_str).unwrap_or("")
@@ -147,11 +150,16 @@ pub fn setup(app: &AppHandle, shared: &State) {
             "not configured"
         }
     ));
-    shared
-        .workbench
-        .lock()
-        .unwrap()
-        .set_update_installation(installed, staging);
+    let marker = HANDOVER_FAILED.get_or_init(|| staging.join("handover-failed"));
+    let handover_failed = std::fs::remove_file(marker).is_ok();
+    let mut wb = shared.workbench.lock().unwrap();
+    wb.set_update_installation(installed, staging);
+    if handover_failed {
+        shared
+            .log
+            .warn("update: the previous run's installer did not start; the program is unchanged");
+        wb.update_handover_failed_last_run();
+    }
 }
 
 /// The main window is ready: 启动时自动检查更新.
@@ -417,13 +425,27 @@ fn install(app: &AppHandle, shared: &State, job: UpdateInstallJob) {
 }
 
 /// The end of the program's exit: starts a Windows installation waiting for it. The installer
-/// takes over and the process ends here.
-pub fn finish_on_exit(shared: &State) {
+/// takes over and the process ends here. When it cannot start, the program opens again and says
+/// so (Java keeps its window and shows the failure; this program has already closed).
+pub fn finish_on_exit(app: &AppHandle, shared: &State) {
     let Some((update, bytes)) = PENDING.lock().unwrap().take() else {
         return;
     };
     shared.log.info("update: starting the installer");
-    if let Err(e) = update.install(&bytes) {
-        shared.log.warn(&format!("update installer did not start: {e}"));
+    let Err(e) = update.install(&bytes) else {
+        return;
+    };
+    shared.log.warn(&format!("update installer did not start: {e}"));
+    if let Some(marker) = HANDOVER_FAILED.get() {
+        let _ = std::fs::write(marker, b"");
+    }
+    let env = app.env();
+    let reopened = tauri::process::current_binary(&env).and_then(|program| {
+        std::process::Command::new(program)
+            .args(env.args_os.iter().skip(1))
+            .spawn()
+    });
+    if let Err(e) = reopened {
+        shared.log.warn(&format!("update: the program could not reopen: {e}"));
     }
 }

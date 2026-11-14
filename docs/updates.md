@@ -33,8 +33,10 @@ continues where it stopped), verifies its signature, and installs it:
 | Windows portable zip, Linux deb | Not updated from within the program: the check says this installation cannot update itself. Download the new package from GitHub Releases. |
 
 A package that fails verification is deleted and never installed. A failed installation leaves
-the installed program as it was. Updates never touch settings, logs, saved games, engines or
-weights.
+the installed program as it was and says so; if the Windows installer cannot start after the
+program has closed, the program opens again with that message, and 检查更新 → 立即更新 tries
+again with the package already downloaded. Updates never touch settings, logs, saved games,
+engines or weights.
 
 Downloads use the proxy set in the program's network settings. The package is kept in the
 program's cache folder (`updates/<version>`); downloading another version removes it.

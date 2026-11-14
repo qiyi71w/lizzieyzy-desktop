@@ -2631,7 +2631,12 @@ remind: number,
 /**
  * The installation was handed over: the program closes (and restarts) now.
  */
-installing: boolean, };
+installing: boolean, 
+/**
+ * The previous run closed to install an update, and the installer did not start: the
+ * program is unchanged (`无法安装更新`, shown once at start).
+ */
+handover_failed: boolean, };
 
 export type UpdateSettings = { 
 /**

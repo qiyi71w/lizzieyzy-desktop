@@ -616,3 +616,19 @@ fn java_update_values_outside_its_choices_read_as_the_defaults() {
     // 自动下载更新 needs 启动时自动检查更新; other channels and sources mean 正式 / 官网.
     assert_eq!(wb.view(false).update.settings, UpdateSettings::default());
 }
+
+#[test]
+fn a_java_import_that_turns_the_automatic_options_off_withdraws_this_runs_work() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = started(dir.path(), Some(UpdateSettings { auto_download: true, ..AUTO }));
+    let id = check_id(wb.update_application_ready());
+    let job = download(wb.complete_update_check(id, offer_result("0.2.0")));
+    let java = java_dir(dir.path(), json!({"ui": {"auto-check-update": false}}));
+    let p = wb.preview_java_import(java_import::read(&JavaSource::new(&java, None)).unwrap());
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    assert!(job.cancel.load(Ordering::Acquire), "the automatic download stops");
+    wb.complete_update_download(job.id, Ok(job.dir.join("p")));
+    let v = view(&mut wb);
+    assert!(!v.settings.auto_check && !v.settings.auto_download && !v.auto_check_active);
+    assert_eq!((v.download.phase, v.remind, v.result.is_none()), (UpdateDownloadPhase::None, 0, true));
+}

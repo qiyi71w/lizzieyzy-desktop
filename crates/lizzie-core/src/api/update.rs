@@ -122,4 +122,7 @@ pub struct UpdateView {
     pub remind: u64,
     /// The installation was handed over: the program closes (and restarts) now.
     pub installing: bool,
+    /// The previous run closed to install an update, and the installer did not start: the
+    /// program is unchanged (`无法安装更新`, shown once at start).
+    pub handover_failed: bool,
 }
