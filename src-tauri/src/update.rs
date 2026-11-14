@@ -7,18 +7,21 @@
 //! the bundle is replaced in place (the previous one is restored if that fails), then the
 //! program restarts through its normal exit. Windows portable zip: the package is unpacked into
 //! the program folder, the program goes through its normal exit, and a copy of the program
-//! started as the helper ([`helper`]) replaces the files and reopens it.
+//! started as the helper ([`helper`]) replaces the files and reopens it. Ubuntu deb: the system
+//! package manager installs the package after the system's own authorization prompt, while the
+//! program keeps running; it restarts through its normal exit once the new version is installed.
 use crate::resources::HttpFetch;
 use crate::{publish, State};
 use lizzie_core::api::{ApiError, CommandResult, UpdateCommand, UpdateError};
 use lizzie_core::resources as r;
+use lizzie_core::update::deb::{self, Handover, Package};
 use lizzie_core::update::portable::{self, PortableFailure, Recovery};
 use lizzie_core::update::{self as u, InstallForm, InstalledApp, Offer};
 use lizzie_core::workbench::{UpdateCheckJob, UpdateDownloadJob, UpdateInstallJob, UpdateStep, UpdateTask};
 use std::ffi::{OsStr, OsString};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::Ordering;
 use std::sync::{Mutex, OnceLock};
 use std::thread;
@@ -158,8 +161,25 @@ pub fn setup(app: &AppHandle, shared: &State) {
         }
     ));
     let marker = HANDOVER_FAILED.get_or_init(|| staging.join("handover-failed"));
-    let mut failure = std::fs::read_to_string(marker).ok().map(|reason| marker_error(&reason));
-    let _ = std::fs::remove_file(marker);
+    // A deb handover the previous run left with the system package manager, still under way:
+    // its result is read at a later start.
+    let mut pending = false;
+    let mut failure = std::fs::read_to_string(marker).ok().and_then(|reason| {
+        let Some(handover) = reason.trim().strip_prefix(DEB_MARKER) else {
+            return Some(marker_error(&reason));
+        };
+        let (version, pid) = handover.split_once(' ').unwrap_or((handover, ""));
+        pending = pid
+            .parse()
+            .is_ok_and(|pid| !wait_for_exit(pid, Duration::ZERO));
+        if pending {
+            return None;
+        }
+        deb_left_unobserved(&installed, version)
+    });
+    if !pending {
+        let _ = std::fs::remove_file(marker);
+    }
     if let Ok(notes) = std::fs::read_to_string(staging.join(HELPER_LOG)) {
         for line in notes.lines() {
             shared.log.info(&format!("update helper: {line}"));
@@ -436,12 +456,7 @@ pub fn open_update_release(app: AppHandle, shared: tauri::State<'_, State>) -> R
 }
 
 fn install(app: &AppHandle, shared: &State, job: UpdateInstallJob) {
-    let failed = |error: UpdateError, reason: String| {
-        shared.log.warn(&format!("update install failed: {reason}"));
-        if shared.workbench.lock().unwrap().update_install_failed(error) {
-            publish(app, shared);
-        }
-    };
+    let failed = |error: UpdateError, reason: String| install_failed(app, shared, error, None, &reason);
     let update = match tauri_update(app, &job.offer) {
         Ok(update) => update,
         Err(e) => return failed(UpdateError::Generic, e),
@@ -476,6 +491,10 @@ fn install(app: &AppHandle, shared: &State, job: UpdateInstallJob) {
         }
         return;
     }
+    if job.form == InstallForm::Deb {
+        drop(bytes);
+        return install_deb(app, shared, &job);
+    }
     if let Err(e) = update.install(&bytes) {
         return failed(UpdateError::Install, e.to_string());
     }
@@ -483,11 +502,31 @@ fn install(app: &AppHandle, shared: &State, job: UpdateInstallJob) {
     app.request_restart();
 }
 
+fn install_failed(app: &AppHandle, shared: &State, error: UpdateError, detail: Option<String>, reason: &str) {
+    shared.log.warn(&format!("update install failed: {reason}"));
+    if shared.workbench.lock().unwrap().update_install_failed(error, detail) {
+        publish(app, shared);
+    }
+}
+
 /// The end of the program's exit: starts a Windows installation or the portable update's helper
 /// waiting for it, which takes over; the process ends here. When it cannot start, the program
 /// opens again and says so (Java keeps its window and shows the failure; this program has
-/// already closed).
+/// already closed). A deb handover still asking for authorization is withdrawn.
 pub fn finish_on_exit(app: &AppHandle, shared: &State) {
+    if let Some(mut child) = DEB.lock().unwrap().take() {
+        // Only a request the system is still asking authorization for can be ended from here.
+        // An installation already running as the administrator finishes on its own, and the
+        // next start reads what it did.
+        if matches!(child.try_wait(), Ok(None)) && child.kill().is_ok() {
+            shared.log.info("update: withdrew the authorization request");
+            let _ = child.wait();
+            if let Some(marker) = HANDOVER_FAILED.get() {
+                let _ = std::fs::remove_file(marker);
+            }
+        }
+        return;
+    }
     if let Some(handover) = PORTABLE.lock().unwrap().take() {
         return start_helper(app, shared, handover);
     }
@@ -515,6 +554,174 @@ fn handover_failed(app: &AppHandle, shared: &State, reason: &str) {
     });
     if let Err(e) = reopened {
         shared.log.warn(&format!("update: the program could not reopen: {e}"));
+    }
+}
+
+// ------------------------------------------------------------------ deb
+
+/// A deb handover under way: the system's authorization prompt, then `apt-get`.
+static DEB: Mutex<Option<Child>> = Mutex::new(None);
+/// The handover marker of a deb handover whose result has not been seen yet, followed by the
+/// offered version and the handover's process id.
+const DEB_MARKER: &str = "deb ";
+/// What `pkexec` and `apt-get` print, in the update staging folder until it is copied to the log.
+const PACKAGE_MANAGER_LOG: &str = "package-manager.log";
+
+/// The output of a dpkg query, in dpkg's own untranslated words.
+fn dpkg(command: &mut Command) -> Option<String> {
+    let output = command.env("LC_ALL", "C").stdin(Stdio::null()).output().ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn package_record(name: &str) -> Option<Package> {
+    Package::parse(&dpkg(Command::new("dpkg-query").arg("--status").arg(name))?)
+}
+
+/// The installed package this program's file belongs to, from dpkg's records.
+fn installed_package() -> Option<Package> {
+    let program = tauri::utils::platform::current_exe().ok()?;
+    let owner = dpkg(Command::new("dpkg-query").arg("--search").arg(program))?;
+    // `package: /path`, or `package:architecture: /path`.
+    package_record(owner.split(':').next()?.trim())
+}
+
+/// The command that installs the prepared package from a terminal.
+fn by_hand(package: &Path) -> String {
+    format!("sudo apt install '{}'", package.display().to_string().replace('\'', r"'\''"))
+}
+
+/// The previous run ended while the system package manager had the `offered` version: what its
+/// records say now.
+fn deb_left_unobserved(installed: &InstalledApp, offered: &str) -> Option<UpdateError> {
+    if installed.form != InstallForm::Deb {
+        return None;
+    }
+    match deb::settle(None, installed_package().as_ref(), offered) {
+        Handover::Installed => None,
+        Handover::Unfinished => Some(UpdateError::PackageUnfinished),
+        _ => Some(UpdateError::PackageManager),
+    }
+}
+
+/// 立即更新 on a deb installation: the verified package is handed to the system package manager.
+/// `pkexec` shows the system's authorization prompt and runs `apt-get` as the administrator;
+/// this program asks for no password and writes no package-managed file. `--no-remove` keeps apt
+/// from removing other packages for it, and `--allow-downgrades` lets a version that is newer by
+/// this program's (signed) reckoning replace one dpkg orders after it, such as a test release.
+/// The program keeps running and restarts only when dpkg records the new version as installed.
+fn install_deb(app: &AppHandle, shared: &State, job: &UpdateInstallJob) {
+    let failed = |error: UpdateError, detail: Option<String>, reason: String| {
+        install_failed(app, shared, error, detail, &reason)
+    };
+    let version = job.offer.release.version.to_string();
+    let Some(installed) = installed_package() else {
+        return failed(
+            UpdateError::Install,
+            None,
+            "this program does not belong to an installed package".into(),
+        );
+    };
+    let package = dpkg(Command::new("dpkg-deb").arg("--field").arg(&job.path).args([
+        "Package",
+        "Version",
+        "Architecture",
+    ]))
+    .and_then(|fields| Package::parse(&fields));
+    if !package.as_ref().is_some_and(|p| p.updates(&installed, &version)) {
+        let _ = std::fs::remove_file(&job.path);
+        return failed(
+            UpdateError::Integrity,
+            None,
+            format!("the package is {package:?}, not {version} of {installed:?}"),
+        );
+    }
+    let Some(marker) = HANDOVER_FAILED.get() else {
+        return failed(UpdateError::Generic, None, "no update staging folder".into());
+    };
+    let log = marker.with_file_name(PACKAGE_MANAGER_LOG);
+    let output = std::fs::File::create(&log).and_then(|file| Ok((file.try_clone()?, file)));
+    let (stdout, stderr) = match output {
+        Ok(pair) => pair,
+        Err(e) => return failed(UpdateError::Generic, None, e.to_string()),
+    };
+    let spawned = Command::new("pkexec")
+        .args(["/usr/bin/apt-get", "install", "--yes", "--no-remove", "--allow-downgrades"])
+        .arg(&job.path)
+        .stdin(Stdio::null())
+        .stdout(stdout)
+        .stderr(stderr)
+        .spawn();
+    match spawned {
+        Ok(child) => {
+            // For the next start, should this run end before the result is seen.
+            let _ = std::fs::write(marker, format!("{DEB_MARKER}{version} {}", child.id()));
+            *DEB.lock().unwrap() = Some(child);
+        }
+        Err(e) => {
+            return failed(
+                UpdateError::Unauthorized,
+                Some(by_hand(&job.path)),
+                format!("pkexec did not start: {e}"),
+            );
+        }
+    }
+    shared.log.info("update: asked the system to authorize the package manager");
+    let exit = loop {
+        thread::sleep(Duration::from_millis(200));
+        let mut handover = DEB.lock().unwrap();
+        // The program is closing: `finish_on_exit` took the handover.
+        let Some(child) = handover.as_mut() else { return };
+        match child.try_wait() {
+            Ok(None) => continue,
+            Ok(Some(status)) => {
+                handover.take();
+                break status.code();
+            }
+            Err(_) => {
+                handover.take();
+                break None;
+            }
+        }
+    };
+    let said = std::fs::read_to_string(&log).unwrap_or_default();
+    let _ = std::fs::remove_file(&log);
+    for line in said.lines() {
+        shared.log.info(&format!("update package manager: {line}"));
+    }
+    let now = package_record(&installed.name);
+    let handover = deb::settle(exit, now.as_ref(), &version);
+    let _ = std::fs::remove_file(marker);
+    shared
+        .log
+        .info(&format!("update: the package manager ended with {exit:?}: {handover:?}"));
+    match handover {
+        Handover::Installed => {
+            shared.log.info("update: installed; restarting");
+            app.request_restart();
+        }
+        Handover::Dismissed => failed(
+            UpdateError::AuthorizationDismissed,
+            None,
+            "the authorization prompt was dismissed".into(),
+        ),
+        Handover::Unauthorized => failed(
+            UpdateError::Unauthorized,
+            Some(by_hand(&job.path)),
+            "authorization was not granted".into(),
+        ),
+        Handover::NotInstalled => failed(
+            UpdateError::PackageManager,
+            deb::reasons(&said),
+            "the package manager did not install the package".into(),
+        ),
+        Handover::Unfinished => failed(
+            UpdateError::PackageUnfinished,
+            Some(by_hand(&job.path)),
+            format!("the package is left as {now:?}"),
+        ),
     }
 }
 

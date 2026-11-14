@@ -31,7 +31,7 @@ continues where it stopped), verifies its signature, and installs it:
 | Windows portable zip | Unpacks the new zip into the program folder (in a hidden `.lizzieyzy-update` folder), closes the program normally, then a copy of the program replaces the folder's files with the new ones and reopens it. The folder stays a portable folder: no installer runs and nothing is registered with Windows. |
 | macOS app | Replaces the app bundle and restarts the program. |
 | Linux AppImage | Replaces the AppImage file and restarts the program. |
-| Linux deb | Not updated from within the program: the check says this installation cannot update itself. Download the new package from GitHub Releases. |
+| Linux deb | Hands the verified package to the system package manager: the system asks you to authorize it (polkit's prompt, which shows the `apt-get install` command), `apt-get` installs it, and the program restarts once the new version is installed. The program stays open meanwhile and never writes the installed files itself. |
 
 A package that fails verification is deleted and never installed. A failed installation leaves
 the installed program as it was and says so; if the Windows installer cannot start after the
@@ -47,6 +47,26 @@ program, or another program, still uses it), every file already replaced is put 
 program reopens with a message. If the replacement is interrupted (the computer shuts down, say),
 the next start puts the old files back, or finishes the update when every file had already been
 replaced.
+
+For the deb, the program asks for no password itself and never uses `sudo`: authorization is the
+system's own prompt. The package must be the offered version of the installed package for this
+architecture, or it is refused before the prompt. `apt-get` runs with `--no-remove`, so it
+installs missing dependencies but never removes another package for the update. The result is
+read from the package manager's records, not from the download or the command alone:
+
+- Dismissing the prompt, or closing the program while it is shown, installs nothing.
+- Without authorization (a wrong password, an account that may not administer the system, or a
+  session without a polkit prompt) nothing is installed, and the program shows the command that
+  installs the verified package from a terminal: `sudo apt install '<package>'`.
+- If the package manager refuses or fails (another package operation holds its lock, a
+  dependency cannot be installed), the installed program is unchanged and the program shows the
+  package manager's own error lines. 立即更新 tries again with the package already downloaded.
+- If the installation stops part-way and leaves the package unfinished, the program says so and
+  asks you to install it again.
+
+If the program is closed after authorization, while the package manager is still installing, the
+installation continues; the next start reports it only when it did not install the new version.
+The complete output of the package manager is in the program's log.
 
 Downloads use the proxy set in the program's network settings. The package is kept in the
 program's cache folder (`updates/<version>`); downloading another version removes it.
@@ -97,7 +117,7 @@ node tools/package.mjs --update-pubkey ~/.lizzieyzy-tauri-update.key.pub --out t
 Besides the packages, this writes for each update package a `.sig` file and
 `<prefix>.update.json` listing the update entries of this platform: `windows-x86_64-nsis`,
 `windows-x86_64-zip` (the portable zip), `darwin-aarch64-app` / `darwin-x86_64-app` (an extra
-`.app.tar.gz`), `linux-x86_64-appimage`.
+`.app.tar.gz`), `linux-x86_64-appimage`, `linux-x86_64-deb`.
 
 For Linux, run `UPDATE_PUBKEY=~/.lizzieyzy-tauri-update.key.pub tools/packaging/build-linux.sh`
 with the same two variables; the key files are mounted read-only into the build container.

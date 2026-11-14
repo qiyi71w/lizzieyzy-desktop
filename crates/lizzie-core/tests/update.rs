@@ -144,7 +144,7 @@ fn a_build_that_cannot_update_itself_reads_nothing() {
     for (app, expected) in [
         (installed(InstallForm::Unpackaged), CheckOutcome::UnavailableBuild),
         (unsigned, CheckOutcome::SigningNotConfigured),
-        (installed(InstallForm::Deb), CheckOutcome::UnsupportedForm),
+        (installed(InstallForm::Other), CheckOutcome::UnsupportedForm),
     ] {
         assert_eq!(discover(&app, STABLE, &site).outcome, expected, "{:?}", app.form);
     }
@@ -178,6 +178,21 @@ fn the_stable_channel_offers_the_package_of_this_installation_only() {
         panic!("no zip offer")
     };
     assert_eq!(offer.key, "windows-x86_64-zip");
+    // A deb installation is never offered the AppImage, and takes its own deb entry.
+    assert_eq!(
+        discover(&installed(InstallForm::Deb), STABLE, &site).outcome,
+        CheckOutcome::NoPackage
+    );
+    let mut with_deb: serde_json::Value = serde_json::from_str(&manifest("0.2.0", false)).unwrap();
+    with_deb["platforms"]["linux-x86_64-deb"] = entry("app.deb");
+    let deb_site = Site::default().with(GITHUB_STABLE_MANIFEST, with_deb.to_string());
+    let CheckOutcome::Offer(offer) = discover(&installed(InstallForm::Deb), STABLE, &deb_site).outcome else {
+        panic!("no deb offer")
+    };
+    assert_eq!(
+        (offer.key.as_str(), offer.asset.file_name()),
+        ("linux-x86_64-deb", "app.deb".to_string())
+    );
 
     let same = Site::default().with(GITHUB_STABLE_MANIFEST, manifest("0.1.0", false));
     assert_eq!(
@@ -406,19 +421,33 @@ fn update_now_downloads_pauses_resumes_and_installs() {
         "立即更新 installs once prepared"
     );
 
-    // The handover failed: the package stays ready for another try.
-    assert!(wb.update_install_failed(UpdateError::Install));
+    // The handover failed: the package stays ready for another try, with the system's reason.
+    assert!(wb.update_install_failed(
+        UpdateError::PackageManager,
+        Some("Could not get lock /var/lib/dpkg/lock-frontend".into())
+    ));
     let v = view(&mut wb);
     assert_eq!(
-        (v.installing, v.download.phase, v.download.error),
-        (false, UpdateDownloadPhase::Ready, Some(UpdateError::Install))
+        (v.installing, v.download.phase, v.download.error, v.download.detail.as_deref()),
+        (
+            false,
+            UpdateDownloadPhase::Ready,
+            Some(UpdateError::PackageManager),
+            Some("Could not get lock /var/lib/dpkg/lock-frontend")
+        )
     );
     assert!(matches!(
         wb.update(UpdateCommand::Update { offer }).unwrap().task,
         Some(UpdateTask::Install(_))
     ));
+    let v = view(&mut wb);
+    assert_eq!(
+        (v.installing, v.download.error, v.download.detail),
+        (true, None, None),
+        "another try starts clean"
+    );
     // A package that no longer verifies is discarded instead.
-    assert!(wb.update_install_failed(UpdateError::Integrity));
+    assert!(wb.update_install_failed(UpdateError::Integrity, None));
     assert_eq!(view(&mut wb).download.phase, UpdateDownloadPhase::Failed);
 }
 

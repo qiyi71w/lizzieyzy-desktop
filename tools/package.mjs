@@ -15,8 +15,8 @@
 // Update signing (docs/updates.md): --update-pubkey builds the update public key into the
 // program. When the Tauri CLI's private key variables are set (TAURI_SIGNING_PRIVATE_KEY or
 // TAURI_SIGNING_PRIVATE_KEY_PATH, with TAURI_SIGNING_PRIVATE_KEY_PASSWORD), the packages the
-// program updates itself from (NSIS installer, portable zip, macOS `.app.tar.gz`, AppImage) are
-// signed for this version and listed in `<prefix>.update.json` for tools/update-manifest.mjs.
+// program updates itself from (NSIS installer, portable zip, macOS `.app.tar.gz`, AppImage, deb)
+// are signed for this version and listed in `<prefix>.update.json` for tools/update-manifest.mjs.
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -224,11 +224,11 @@ for (const asset of assets) {
   asset.sha256 = sha256(file);
 }
 
-// Update entries, keyed `{os}-{arch}-{form}` as the program asks for them. The dmg and the deb
-// are not installed by the program itself.
+// Update entries, keyed `{os}-{arch}-{form}` as the program asks for them. The dmg is not an
+// update package: a macOS app updates from its `.app.tar.gz`.
 const UPDATE_OS = { windows: "windows", macos: "darwin", linux: "linux" };
 const UPDATE_ARCH = { x64: "x86_64", arm64: "aarch64" };
-const UPDATE_FORM = { nsis: "nsis", app: "app", appimage: "appimage", "portable-zip": "zip" };
+const UPDATE_FORM = { nsis: "nsis", app: "app", appimage: "appimage", "portable-zip": "zip", deb: "deb" };
 if (signing) {
   const platforms = {};
   for (const asset of assets.filter((a) => UPDATE_FORM[a.form])) {

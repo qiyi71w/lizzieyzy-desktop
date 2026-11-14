@@ -24,6 +24,13 @@ registerProduct({
     updateErrorInUse: "有程序文件正在使用，无法替换。已恢复原文件，当前程序未改变。请关闭正在使用这些文件的程序（例如另一个已打开的本程序或棋盘同步工具）后重试。",
     updateErrorInterrupted: "上次更新被中断，已恢复原文件，当前程序未改变。请重新检查更新。",
     updateErrorUnrecovered: "上次更新被中断，部分原文件暂未恢复。请关闭其他使用程序文件夹的程序后重新启动本程序；仍有问题请从 Release 页面重新下载程序。",
+    updateIntroDeb: "这次会先下载并校验安装包，然后交给系统软件包管理（apt）安装：系统会请你授权，安装完成后程序重新打开。",
+    updateReadyIntroDeb: "安装包已下载并校验。点击“立即更新”后，系统会请你授权，由系统软件包管理（apt）安装，完成后程序重新打开。",
+    updateInstallingDeb: "正在等待系统授权并安装更新，完成后程序会重新打开…",
+    updateErrorDismissed: "已取消系统授权，未安装更新，当前程序未改变。",
+    updateErrorUnauthorized: "未获得系统授权，未安装更新，当前程序未改变。可以重试，或在终端用下面的命令安装已校验的安装包：",
+    updateErrorPackageManager: "系统软件包管理没有安装这个更新，当前程序未改变。",
+    updateErrorPackageUnfinished: "更新没有装完，本程序的软件包处于未完成状态。请重新安装：再次检查更新并点击“立即更新”，或用安装包在终端安装。",
   },
   ZhTw: {
     updateSigningNotConfigured: "此版本沒有更新簽名公鑰，無法檢查更新。",
@@ -38,6 +45,13 @@ registerProduct({
     updateErrorInUse: "有程式檔案正在使用，無法替換。已還原原檔案，目前的程式未改變。請關閉正在使用這些檔案的程式（例如另一個已開啟的本程式或棋盤同步工具）後重試。",
     updateErrorInterrupted: "上次更新被中斷，已還原原檔案，目前的程式未改變。請重新檢查更新。",
     updateErrorUnrecovered: "上次更新被中斷，部分原檔案暫未還原。請關閉其他使用程式資料夾的程式後重新啟動本程式；仍有問題請從 Release 頁面重新下載程式。",
+    updateIntroDeb: "這次會先下載並校驗安裝套件，然後交給系統套件管理（apt）安裝：系統會請你授權，安裝完成後程式重新開啟。",
+    updateReadyIntroDeb: "安裝套件已下載並校驗。點擊「立即更新」後，系統會請你授權，由系統套件管理（apt）安裝，完成後程式重新開啟。",
+    updateInstallingDeb: "正在等待系統授權並安裝更新，完成後程式會重新開啟…",
+    updateErrorDismissed: "已取消系統授權，未安裝更新，目前的程式未改變。",
+    updateErrorUnauthorized: "未取得系統授權，未安裝更新，目前的程式未改變。可以重試，或在終端機用下面的指令安裝已校驗的安裝套件：",
+    updateErrorPackageManager: "系統套件管理沒有安裝這個更新，目前的程式未改變。",
+    updateErrorPackageUnfinished: "更新沒有裝完，本程式的套件處於未完成狀態。請重新安裝：再次檢查更新並點擊「立即更新」，或用安裝套件在終端機安裝。",
   },
   EnUs: {
     updateSigningNotConfigured: "This build has no update signing key, so it cannot check for updates.",
@@ -52,6 +66,13 @@ registerProduct({
     updateErrorInUse: "A program file is in use and could not be replaced. The original files were restored; the program is unchanged. Close whatever uses them (another copy of this program or the board synchronization tool, for example) and retry.",
     updateErrorInterrupted: "The last update was interrupted. The original files were restored; the program is unchanged. Check for updates to try again.",
     updateErrorUnrecovered: "The last update was interrupted and some original files could not be restored yet. Close other programs that use the program's folder and start this program again; if the problem remains, download the program again from the Release page.",
+    updateIntroDeb: "The update is downloaded and verified first, then handed to the system package manager (apt): the system asks you to authorize it, and the program restarts once it is installed.",
+    updateReadyIntroDeb: "The update is downloaded and verified. After Update now, the system asks you to authorize it, the system package manager (apt) installs it, and the program restarts.",
+    updateInstallingDeb: "Waiting for system authorization and installing the update; the program restarts when it is done…",
+    updateErrorDismissed: "System authorization was cancelled. The update was not installed; the program is unchanged.",
+    updateErrorUnauthorized: "The system did not authorize the installation. The update was not installed; the program is unchanged. Retry, or install the verified package from a terminal with this command:",
+    updateErrorPackageManager: "The system package manager did not install this update; the program is unchanged.",
+    updateErrorPackageUnfinished: "The update was not fully installed, and the program's package is left unfinished. Install it again: check for updates and choose Update now, or install the package from a terminal.",
   },
 });
 
@@ -85,14 +106,19 @@ export function formatBytes(bytes: number): string {
 
 const downloading = (d: UpdateDownloadView) => d.phase === "Downloading" || d.phase === "Paused";
 
-/** UpdateText.userFacingError. */
+/** UpdateText.userFacingError, with what the system itself said. */
 function errorText(d: UpdateDownloadView): string | null {
-  switch (d.error) {
+  if (d.error === null) return null;
+  const text = failureText(d.error);
+  return d.detail ? `${text}\n${d.detail}` : text;
+}
+
+function failureText(error: UpdateError): string {
+  switch (error) {
     case "Integrity": return t("WindowsUpdate.error.integrity");
     case "Sources": return product("updateErrorSources");
     case "Generic": return t("WindowsUpdate.error.generic");
-    case null: return null;
-    default: return handoverText(d.error);
+    default: return handoverText(error);
   }
 }
 
@@ -103,13 +129,17 @@ function handoverText(error: UpdateError): string {
     case "InUse": return product("updateErrorInUse");
     case "Interrupted": return product("updateErrorInterrupted");
     case "Unrecovered": return product("updateErrorUnrecovered");
+    case "AuthorizationDismissed": return product("updateErrorDismissed");
+    case "Unauthorized": return product("updateErrorUnauthorized");
+    case "PackageManager": return product("updateErrorPackageManager");
+    case "PackageUnfinished": return product("updateErrorPackageUnfinished");
     default: return product("updateErrorInstall");
   }
 }
 
 /** UpdateDownloadText.status. */
 function downloadStatus(u: UpdateView): string {
-  if (u.installing) return product("updateInstalling");
+  if (u.installing) return product(u.result?.offer?.form === "Deb" ? "updateInstallingDeb" : "updateInstalling");
   const d = u.download;
   let text = "";
   switch (d.phase) {
@@ -319,11 +349,13 @@ let offerWindow: { id: number; close: () => void; show: (u: UpdateView) => void 
 
 function intro(offer: UpdateOfferView, ready: boolean): string {
   // The NSIS installer and the portable zip's helper close the program, replace its files and
-  // reopen it (Java's own wording); the app bundle and AppImage are replaced in place before the
-  // program restarts.
+  // reopen it (Java's own wording); a deb is installed by the system package manager after the
+  // system's authorization; the app bundle and AppImage are replaced in place before the program
+  // restarts.
   if (offer.form === "Nsis" || offer.form === "PortableZip") {
     return ready ? t("WindowsUpdate.summary.readyIntro") : t("WindowsUpdate.summary.intro");
   }
+  if (offer.form === "Deb") return product(ready ? "updateReadyIntroDeb" : "updateIntroDeb");
   return ready ? product("updateReadyIntroInPlace") : product("updateIntroInPlace");
 }
 

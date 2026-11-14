@@ -13,6 +13,7 @@
 //! This module does no I/O of its own: manifests are read through a caller-owned
 //! [`crate::resources::Fetch`].
 
+pub mod deb;
 pub mod portable;
 
 use crate::resources::Fetch;
@@ -107,12 +108,17 @@ impl InstallForm {
         }
     }
 
-    /// Forms whose installation the client hands over itself: the Tauri updater's routes and the
-    /// portable zip's own file replacement ([`portable`]).
+    /// Forms whose installation the client hands over itself: the Tauri updater's routes, the
+    /// portable zip's own file replacement ([`portable`]) and the deb's handover to the system
+    /// package manager ([`deb`]).
     pub fn hands_over(self) -> bool {
         matches!(
             self,
-            InstallForm::Nsis | InstallForm::App | InstallForm::AppImage | InstallForm::PortableZip
+            InstallForm::Nsis
+                | InstallForm::App
+                | InstallForm::AppImage
+                | InstallForm::PortableZip
+                | InstallForm::Deb
         )
     }
 }

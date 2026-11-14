@@ -46,7 +46,8 @@
 .update-check { margin-bottom: 14px; }
 .update-choice.disabled,
 .update-check.disabled { color: rgb(150, 156, 160); }
-.update-result { color: rgb(85, 99, 94); overflow-wrap: anywhere; }
+/* A failure can carry the system's own words or a command to copy. */
+.update-result { color: rgb(85, 99, 94); overflow-wrap: anywhere; user-select: text; }
 
 .update-offer { width: min(560px, calc(100vw - 8px)); min-height: min(360px, calc(100vh - 8px)); }
 .update-offer .update-body { gap: 0; padding: 16px 18px 0; }
@@ -81,4 +82,4 @@
   justify-content: center;
   color: rgb(60, 90, 160);
 }
-.update-status { min-height: 1.4em; margin-top: 8px; font-weight: bold; }
+.update-status { min-height: 1.4em; margin-top: 8px; font-weight: bold; overflow-wrap: anywhere; user-select: text; }

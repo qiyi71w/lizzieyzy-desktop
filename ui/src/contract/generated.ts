@@ -2578,7 +2578,7 @@ export type UpdateOutcome = "UnavailableBuild" | "SigningNotConfigured" | "Unsup
 
 export type UpdateDownloadPhase = "None" | "Downloading" | "Paused" | "Cancelled" | "Failed" | "Ready";
 
-export type UpdateError = "Integrity" | "Sources" | "Install" | "Permission" | "InUse" | "Interrupted" | "Unrecovered" | "Generic";
+export type UpdateError = "Integrity" | "Sources" | "Install" | "Permission" | "InUse" | "Interrupted" | "Unrecovered" | "AuthorizationDismissed" | "Unauthorized" | "PackageManager" | "PackageUnfinished" | "Generic";
 
 export type UpdateOfferView = { 
 /**
@@ -2608,7 +2608,12 @@ started: boolean, bytes: number, total: number,
 /**
  * Downloaded; checking the signature.
  */
-verifying: boolean, error: UpdateError | null, };
+verifying: boolean, error: UpdateError | null, 
+/**
+ * With `error`, what the system itself said (the package manager's reasons), or the command
+ * that installs the prepared package by hand. Not translated.
+ */
+detail: string | null, };
 
 export type UpdateView = { 
 /**

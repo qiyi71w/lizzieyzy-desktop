@@ -81,9 +81,9 @@ Packages are built on Ubuntu 24.04 and need at least its system libraries (glibc
 
 ## Updating
 
-*Help > 检查更新* updates the Windows installer and portable zip, macOS and AppImage installations
-from within the program; a portable folder stays portable. The deb is updated by installing the
-new package. See [Updates](updates.md).
+*Help > 检查更新* updates every installation from within the program; a portable folder stays
+portable, and a deb is installed by the system package manager after the system's authorization
+prompt. Installing a newer package by hand also works. See [Updates](updates.md).
 
 ## Where your data is
 

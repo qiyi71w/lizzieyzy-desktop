@@ -72,6 +72,16 @@ pub enum UpdateError {
     /// Portable zip: the old files could not all be put back yet; it is tried again at the next
     /// start.
     Unrecovered,
+    /// Deb: the system's authorization prompt was dismissed; nothing was installed.
+    AuthorizationDismissed,
+    /// Deb: the system did not grant authorization, or could not ask for it; nothing was
+    /// installed.
+    Unauthorized,
+    /// Deb: the system package manager refused or failed; the installed program is unchanged.
+    PackageManager,
+    /// Deb: the installation stopped part-way and the package is not in an installed state; it
+    /// has to be installed again.
+    PackageUnfinished,
     Generic,
 }
 
@@ -112,6 +122,9 @@ pub struct UpdateDownloadView {
     /// Downloaded; checking the signature.
     pub verifying: bool,
     pub error: Option<UpdateError>,
+    /// With `error`, what the system itself said (the package manager's reasons), or the command
+    /// that installs the prepared package by hand. Not translated.
+    pub detail: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]

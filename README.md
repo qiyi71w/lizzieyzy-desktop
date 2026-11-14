@@ -1530,9 +1530,9 @@ unsigned and the macOS app is ad-hoc signed and not notarized. See
 
 Updates from within the program need packages signed with the project's update key:
 `--update-pubkey` builds the public key in, and with the Tauri CLI's private key variables set
-the script signs the NSIS installer, the portable zip, a macOS `.app.tar.gz` and the AppImage and
-writes a `.update.json` per platform; `tools/update-manifest.mjs` combines them into the release's
-`lizzieyzy-tauri-update.json`. See [docs/updates.md](docs/updates.md).
+the script signs the NSIS installer, the portable zip, a macOS `.app.tar.gz`, the AppImage and the
+deb and writes a `.update.json` per platform; `tools/update-manifest.mjs` combines them into the
+release's `lizzieyzy-tauri-update.json`. See [docs/updates.md](docs/updates.md).
 
 ## Data
 

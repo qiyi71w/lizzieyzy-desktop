@@ -93,6 +93,7 @@ struct Transfer {
     started: bool,
     verifying: bool,
     error: Option<UpdateError>,
+    detail: Option<String>,
 }
 
 pub(super) struct UpdateFlow {
@@ -225,9 +226,11 @@ impl Workbench {
     }
 
     /// The previous run closed to hand an update over, and it did not happen (the platform
-    /// adapter learns this at start): the Windows installer did not start, or the portable
-    /// folder's files could not be replaced. The program is unchanged except for
-    /// [`UpdateError::Unrecovered`]; the prepared package stays for another 立即更新.
+    /// adapter learns this at start): the Windows installer did not start, the portable folder's
+    /// files could not be replaced, or the program closed while the system package manager was
+    /// installing a deb, which then did not install it. The program is unchanged except for
+    /// [`UpdateError::Unrecovered`] and [`UpdateError::PackageUnfinished`]; the prepared package
+    /// stays for another 立即更新.
     pub fn update_handover_failed_last_run(&mut self, error: UpdateError) {
         self.update.handover_failed = Some(error);
     }
@@ -407,6 +410,7 @@ impl Workbench {
         });
         u.transfer.verifying = false;
         u.transfer.error = None;
+        u.transfer.detail = None;
         let mut urls = vec![offer.asset.url.clone()];
         urls.extend(offer.asset.mirrors.iter().cloned());
         let job = UpdateDownloadJob {
@@ -544,19 +548,22 @@ impl Workbench {
         }
         u.installing = true;
         u.transfer.error = None;
+        u.transfer.detail = None;
         let form = u.installed.form;
         UpdateStep::task(Some(UpdateTask::Install(UpdateInstallJob { offer, form, path })))
     }
 
     /// The handover failed and the installed program is unchanged. A package that no longer
-    /// verifies is discarded; otherwise it stays ready for another try.
-    pub fn update_install_failed(&mut self, error: UpdateError) -> bool {
+    /// verifies is discarded; otherwise it stays ready for another try. `detail` is the system's
+    /// own account of the failure, shown with it.
+    pub fn update_install_failed(&mut self, error: UpdateError, detail: Option<String>) -> bool {
         let u = &mut self.update;
         if !u.installing {
             return false;
         }
         u.installing = false;
         u.transfer.error = Some(error);
+        u.transfer.detail = detail;
         if error == UpdateError::Integrity {
             u.prepared = None;
             u.transfer.phase = UpdateDownloadPhase::Failed;
@@ -615,6 +622,7 @@ impl Workbench {
                 started: t.started,
                 verifying: t.verifying,
                 error: t.error,
+                detail: t.detail.clone(),
             },
             remind: u.show_offer,
             installing: u.installing,
