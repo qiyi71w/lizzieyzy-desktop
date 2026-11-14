@@ -438,7 +438,7 @@ fn during_a_trial_remote_compute_a_settings_import_or_a_restart_keeps_the_trial_
     std::fs::write(java.join("config.txt"), r#"{"ui": {"play-sound": false}}"#).unwrap();
     let preview = wb.preview_java_import(java_import::read(&JavaSource::new(&java, None)).unwrap());
     assert_eq!(
-        wb.apply_java_import(preview.id, &[], false, true, None).unwrap(),
+        wb.apply_java_import(preview.id, &[], false, false, true, None).unwrap(),
         Err("AnalysisSettings.reuseStatus.application_exclusive_mode")
     );
     assert!(wb.config().ui.play_sound, "nothing is imported");

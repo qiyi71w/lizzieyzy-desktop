@@ -620,7 +620,7 @@ fn remote_compute_and_a_settings_import_wait_for_the_gma_hand() {
     std::fs::write(java.join("config.txt"), r#"{"ui": {"play-sound": false}}"#).unwrap();
     let preview = r.wb.preview_java_import(java_import::read(&JavaSource::new(&java, None)).unwrap());
     assert_eq!(
-        r.wb.apply_java_import(preview.id, &[], false, true, None).unwrap(),
+        r.wb.apply_java_import(preview.id, &[], false, false, true, None).unwrap(),
         Err("AnalysisSettings.reuseStatus.existing_lease")
     );
     assert!(r.wb.config().ui.play_sound, "nothing is imported");

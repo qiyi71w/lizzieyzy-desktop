@@ -51,6 +51,7 @@ fn generate() -> String {
         ImportCommentaryCredential,
         lizzie_core::diagnostics::DiagnosticModule, lizzie_core::diagnostics::TraceScope,
         lizzie_core::diagnostics::LoggingSettings,
+        lizzie_core::quick_links::QuickLinkProgram, lizzie_core::quick_links::QuickLinkSettings,
         lizzie_core::engine::runtime::KataParam, lizzie_core::engine::profile::KataParamSettings,
         lizzie_core::api::KataParamEdit, lizzie_core::api::KataEngineParamsEdit, lizzie_core::api::KataParamsView,
         lizzie_core::engine::profile::LeelaOptionSetting, lizzie_core::engine::profile::LeelaOptionSettings,

@@ -35,6 +35,7 @@ pub mod java_import;
 pub mod kifu_web;
 pub mod online;
 pub mod play;
+pub mod quick_links;
 pub mod readboard;
 pub mod record;
 pub mod recovery;

@@ -1850,6 +1850,8 @@ pub struct Config {
     pub live: LiveSettings,
     /// 诊断与日志 (Java top-level `logging`).
     pub logging: crate::diagnostics::LoggingSettings,
+    /// 快速启动 (Java `ui.show-quick-links`, `leelaz.program-name-list`, `program-command-list`).
+    pub quick_links: crate::quick_links::QuickLinkSettings,
 }
 
 /// 同步 menu's live options (Java `ui.always-gotolast-onlive`, `ui.open-html-onlive`).

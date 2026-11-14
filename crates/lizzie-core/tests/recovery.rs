@@ -768,7 +768,7 @@ fn java_slots_are_imported_only_when_chosen_after_this_products_own() {
     assert_eq!(p.recovery[0].time, "2026-10-21 14:06:00");
 
     // Not chosen: reported, nothing added.
-    let report = wb.apply_java_import(p.id, &[], false, false, None).unwrap().unwrap();
+    let report = wb.apply_java_import(p.id, &[], false, false, false, None).unwrap().unwrap();
     assert_eq!(
         (report.recovery[1].status, report.recovery[1].reason),
         (ImportStatus::NotMigrated, Some(ImportReason::NotChosen))
@@ -783,7 +783,7 @@ fn java_slots_are_imported_only_when_chosen_after_this_products_own() {
     let choice = RecoveryImport {
         auto_slot_name: "自动存档".into(),
     };
-    let report = wb.apply_java_import(p.id, &[], false, true, Some(&choice)).unwrap().unwrap();
+    let report = wb.apply_java_import(p.id, &[], false, false, true, Some(&choice)).unwrap().unwrap();
     assert_eq!(report.recovery[0].status, ImportStatus::Imported);
     assert_eq!(names(&mut wb), ["mine", "自动存档", "开局", "slot two"]);
     let v = wb.view(false).recovery;
@@ -840,7 +840,7 @@ fn imported_java_slots_are_taken_back_when_the_settings_cannot_be_written() {
     let choice = RecoveryImport {
         auto_slot_name: "auto".into(),
     };
-    assert!(wb.apply_java_import(p.id, &[], false, true, Some(&choice)).is_err());
+    assert!(wb.apply_java_import(p.id, &[], false, false, true, Some(&choice)).is_err());
     assert_eq!(names(&mut wb), ["mine"]);
     assert_eq!(files(&product.join("data/save")), before);
 }
@@ -876,7 +876,7 @@ fn java_slots_are_placed_under_javas_capture_rule() {
     let choice = RecoveryImport {
         auto_slot_name: "auto".into(),
     };
-    wb.apply_java_import(p.id, &[], false, true, Some(&choice)).unwrap().unwrap();
+    wb.apply_java_import(p.id, &[], false, false, true, Some(&choice)).unwrap().unwrap();
     load(&mut wb, SlotRef::Manual { index: 1 });
     let v = wb.view(false);
     assert_eq!(v.position.move_number, 1);

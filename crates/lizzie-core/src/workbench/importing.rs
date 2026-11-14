@@ -66,11 +66,12 @@ impl Workbench {
                 .as_ref()
                 .map(|p| p.to_string_lossy().into_owned()),
             // As confirming every credential would import them; the report shows the choice made.
-            items: candidate.items_after(&candidate.credential_engines(), true),
+            items: candidate.items_after(&candidate.credential_engines(), true, true),
             engines: candidate.engines.clone(),
             commentary_credential: candidate.commentary_credential.clone(),
             analysis_ssh_credential: candidate.analysis_ssh_credential(),
             contribution_credential: candidate.contribution_credential(),
+            quick_link_credential: candidate.mapped.quick_link_credential,
             cloud_credentials: candidate.cloud_credentials.clone(),
             replaces: self.java_import_replaces(&candidate),
             replaced_themes: crate::appearance::replaced_themes(&self.storage, &candidate.mapped.themes),
@@ -136,15 +137,17 @@ impl Workbench {
     }
 
     /// Imports preview `preview`. `copy_credentials` are the Java engine indexes whose credentials
-    /// the user agreed to copy and `copy_contribution` the choice to copy the 跑谱贡献 account;
-    /// `replace` confirms replacing settings chosen in this product; `recovery` is the choice to
-    /// import the Java slots.
+    /// the user agreed to copy, `copy_contribution` the choice to copy the 跑谱贡献 account and
+    /// `copy_quick_links` the choice to copy 快速启动 commands carrying credentials; `replace`
+    /// confirms replacing settings chosen in this product; `recovery` is the choice to import the
+    /// Java slots.
     /// `Ok(Err(key))` is a refusal with nothing changed; `Err` a failed write with nothing changed.
     pub fn apply_java_import(
         &mut self,
         preview: u64,
         copy_credentials: &[u32],
         copy_contribution: bool,
+        copy_quick_links: bool,
         replace: bool,
         recovery: Option<&RecoveryImport>,
     ) -> Result<Result<ImportReportView, &'static str>, ApiError> {
@@ -165,7 +168,8 @@ impl Workbench {
             self.java_preview = Some((id, candidate));
             return Ok(Err(IMPORT_NEEDS_REPLACE));
         }
-        let (mut config, persisted) = candidate.mapped.apply(&self.config, &self.persisted, copy_credentials, copy_contribution);
+        let (mut config, persisted) =
+            candidate.mapped.apply(&self.config, &self.persisted, copy_credentials, copy_contribution, copy_quick_links);
         let images = match crate::appearance::capture_external_images(&self.storage, &mut config.appearance, &mut config.appearance_defaults) {
             Ok(images) => images,
             Err(e) => {
@@ -263,7 +267,7 @@ impl Workbench {
         self.start_engines();
 
         let engines = candidate.engines_after(copy_credentials);
-        let items = candidate.items_after(copy_credentials, copy_contribution);
+        let items = candidate.items_after(copy_credentials, copy_contribution, copy_quick_links);
         let recovery = slots::after(&candidate.slots, recovery.is_some());
         let count = |s: ImportStatus| items.iter().filter(|i| i.status == s).count();
         self.log(

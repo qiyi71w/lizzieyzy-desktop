@@ -38,6 +38,7 @@ const IMPORT_TEXT: Record<string, Table> = {
     importCopyCloudToken: "导入{1}的登录令牌（{0}）",
     importCopyCloudPassword: "导入{1}的登录密码（{0}）",
     importCopyContribution: "导入{0}的账号和密码",
+    importCopyQuickLinks: "导入{0}中带密码等凭据的命令",
     importUnmigratedFields: "未迁入字段：{0}",
     importIncompatibleFields: "不适用字段（LizzieYzy Next 对其自带引擎包的管理）：{0}",
     importProgramFolder: "LizzieYzy Next 程序文件夹",
@@ -141,6 +142,7 @@ const IMPORT_TEXT: Record<string, Table> = {
     importCopyCloudToken: "匯入{1}的登入權杖（{0}）",
     importCopyCloudPassword: "匯入{1}的登入密碼（{0}）",
     importCopyContribution: "匯入{0}的帳號和密碼",
+    importCopyQuickLinks: "匯入{0}中帶密碼等憑據的命令",
     importUnmigratedFields: "未遷入欄位：{0}",
     importIncompatibleFields: "不適用欄位（LizzieYzy Next 對其內建引擎包的管理）：{0}",
     importProgramFolder: "LizzieYzy Next 程式資料夾",
@@ -244,6 +246,7 @@ const IMPORT_TEXT: Record<string, Table> = {
     importCopyCloudToken: "Import the {1} sign-in token ({0})",
     importCopyCloudPassword: "Import the {1} sign-in password ({0})",
     importCopyContribution: "Import the {0} account and passwords",
+    importCopyQuickLinks: "Import the {0} commands that carry passwords or other credentials",
     importUnmigratedFields: "Fields left out: {0}",
     importIncompatibleFields: "Fields that do not apply (LizzieYzy Next's management of its own engine package): {0}",
     importProgramFolder: "LizzieYzy Next program folder",
@@ -323,9 +326,9 @@ const IMPORT_TEXT: Record<string, Table> = {
 /** Messages that exist only in this product (capability not migrated yet) and the JDK option-pane
  *  button labels Java takes from the platform. Other languages fall back to English. */
 const PRODUCT: Record<string, Table> = {
-  ZhCn: { ...IMPORT_TEXT.ZhCn, unavailable: "此功能尚未在 LizzieYzy Tauri 中提供", diagnosticsLogs: "app.log：{0}，crash.log：{1}", none: "无", ok: "确定", cancel: "取消", close: "关闭", yes: "是", no: "否", consoleBoardCommand: "棋谱管理当前局面，不能通过 GTP 控制台改变棋盘。请使用棋盘操作。", humanSlStopBatch: "批量分析正在进行。开始 AI 陪练前需要先停止批量分析，已完成的结果会保留。", humanSlStopBatchOk: "停止并开始" },
-  ZhTw: { ...IMPORT_TEXT.ZhTw, unavailable: "此功能尚未在 LizzieYzy Tauri 中提供", diagnosticsLogs: "app.log：{0}，crash.log：{1}", none: "無", ok: "確定", cancel: "取消", close: "關閉", yes: "是", no: "否", consoleBoardCommand: "棋譜管理目前局面，不能透過 GTP 控制台改變棋盤。請使用棋盤操作。", humanSlStopBatch: "批量分析正在進行。開始 AI 陪練前需要先停止批量分析，已完成的結果會保留。", humanSlStopBatchOk: "停止並開始" },
-  EnUs: { ...IMPORT_TEXT.EnUs, unavailable: "Not available in LizzieYzy Tauri yet", diagnosticsLogs: "app.log: {0}, crash.log: {1}", none: "none", ok: "OK", cancel: "Cancel", close: "Close", yes: "Yes", no: "No", consoleBoardCommand: "The game record owns the position. Use board controls instead of a board-changing GTP console command.", humanSlStopBatch: "A batch analysis is running. Starting AI Coach stops it first; finished results are kept.", humanSlStopBatchOk: "Stop batch and start" },
+  ZhCn: { ...IMPORT_TEXT.ZhCn, unavailable: "此功能尚未在 LizzieYzy Tauri 中提供", diagnosticsLogs: "app.log：{0}，crash.log：{1}", none: "无", ok: "确定", cancel: "取消", close: "关闭", yes: "是", no: "否", consoleBoardCommand: "棋谱管理当前局面，不能通过 GTP 控制台改变棋盘。请使用棋盘操作。", humanSlStopBatch: "批量分析正在进行。开始 AI 陪练前需要先停止批量分析，已完成的结果会保留。", humanSlStopBatchOk: "停止并开始", quickLinkFailed: "运行失败!" },
+  ZhTw: { ...IMPORT_TEXT.ZhTw, unavailable: "此功能尚未在 LizzieYzy Tauri 中提供", diagnosticsLogs: "app.log：{0}，crash.log：{1}", none: "無", ok: "確定", cancel: "取消", close: "關閉", yes: "是", no: "否", consoleBoardCommand: "棋譜管理目前局面，不能透過 GTP 控制台改變棋盤。請使用棋盤操作。", humanSlStopBatch: "批量分析正在進行。開始 AI 陪練前需要先停止批量分析，已完成的結果會保留。", humanSlStopBatchOk: "停止並開始", quickLinkFailed: "執行失敗!" },
+  EnUs: { ...IMPORT_TEXT.EnUs, unavailable: "Not available in LizzieYzy Tauri yet", diagnosticsLogs: "app.log: {0}, crash.log: {1}", none: "none", ok: "OK", cancel: "Cancel", close: "Close", yes: "Yes", no: "No", consoleBoardCommand: "The game record owns the position. Use board controls instead of a board-changing GTP console command.", humanSlStopBatch: "A batch analysis is running. Starting AI Coach stops it first; finished results are kept.", humanSlStopBatchOk: "Stop batch and start", quickLinkFailed: "Failed to run!" },
 };
 
 let lang: Exclude<Language, "System"> = "ZhCn";

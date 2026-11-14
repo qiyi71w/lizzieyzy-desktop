@@ -70,7 +70,8 @@ impl Workbench {
             | Command::CommitLayout { .. } | Command::ApplyCustomLayout { .. }
             | Command::ToggleIndependentBoard { .. } | Command::CloseIndependentBoard { .. }
             | Command::OpenLogFolder | Command::ExportDiagnostics | Command::SetReplaceFileHint { .. }
-            | Command::SetConsoleVisible { .. } => None,
+            | Command::SetConsoleVisible { .. } | Command::SetQuickLinks { .. } | Command::LaunchQuickLink { .. }
+            | Command::ChooseQuickLinkProgram { .. } => None,
             Command::Navigate { .. } | Command::GotoNode { .. } | Command::GotoMoveNumber { .. }
             | Command::JumpToProblemMove { .. } => if self.fox.live.is_some() && self.fox.mode != Mode::Restore && self.fox.mode != Mode::Releasing { None } else { Some(CommandResult::Unchanged) },
             Command::SendGtpCommand { command } if command.trim().starts_with("kata-set-param playoutDoublingAdvantage ") => None,

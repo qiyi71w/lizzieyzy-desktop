@@ -104,6 +104,7 @@ export function run(command: Command): Promise<CommandResult | null> {
           "product.consoleBoardCommand": product("consoleBoardCommand"),
           "product.importStale": product("importStale"),
           "product.importNeedsReplace": product("importNeedsReplace"),
+          "product.quickLinkFailed": product("quickLinkFailed"),
           "LizzieFrame.setupEditRequiresRootOnly": t("LizzieFrame.setupEditRequiresRootOnly"),
           "LizzieFrame.setupModeRequiresRootOnly": t("LizzieFrame.setupModeRequiresRootOnly"),
           "LizzieFrame.setupModeEngineNotReady": t("LizzieFrame.setupModeEngineNotReady"),

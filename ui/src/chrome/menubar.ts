@@ -11,9 +11,9 @@ import { highlight } from "../search/highlight";
 import { buildAiCoachButton } from "../humansl/commands";
 import { buildCommentaryButton } from "../commentary/commands";
 
-/** Java defaults for conditional menus (Config.java: show-quick-links false; show-Contribute is
- *  settings.contribution.showMenu, true by default; the secondary engine menu needs double-engine
- *  mode; ReadBoard is Windows only). */
+/** Java conditional menus: 快速启动 follows 显示快速启动 (Config.java: show-quick-links, false by
+ *  default); show-Contribute is settings.contribution.showMenu, true by default; the secondary
+ *  engine menu needs double-engine mode; ReadBoard is Windows only. */
 function visible(when: string | undefined): boolean {
   switch (when) {
     case undefined:
@@ -27,6 +27,8 @@ function visible(when: string | undefined): boolean {
       return !navigator.userAgent.includes("Windows");
     case "contribute":
       return state.view?.settings.contribution.showMenu ?? true;
+    case "quickLinks":
+      return state.view?.settings.quick_links.show ?? false;
     // Menu.setEngineMenuone2status: the secondary engine menu shows in 双引擎模式 only.
     case "doubleEngine":
       return state.view?.settings.extra_mode === "DoubleEngine";
@@ -168,6 +170,20 @@ function dropdown(items: MenuNode[]): HTMLElement {
       }
       continue;
     }
+    if (node.t === "dynamic" && node.key === "quickLinks.programs") {
+      // Menu.refreshQuickLinkItems: one item per saved program, named as saved; choosing one starts
+      // it (FastLink.startProgram).
+      (state.view?.settings.quick_links.programs ?? []).forEach((program, index) => {
+        const row = document.createElement("div"); row.className = "mi"; rowNodes.set(row, node);
+        row.dataset.key = `quickLinks.program.${index}`; row.title = program.command;
+        const mark = document.createElement("span"); mark.className = "mark";
+        const text = document.createElement("span"); text.className = "label"; text.textContent = program.name;
+        row.append(mark, text);
+        row.onclick = (event) => { event.stopPropagation(); closeMenus(); void run({ type: "LaunchQuickLink", index }); };
+        list.append(row);
+      });
+      continue;
+    }
     if (node.t === "dynamic" && node.key !== "Menu.openRecent") continue;
     const row = document.createElement("div");
     row.className = "mi";
@@ -251,9 +267,11 @@ const tops = new Map<TopMenu, { top: HTMLElement; open: () => void }>();
 export function buildMenubar(host: HTMLElement): void {
   const measure = document.createElement("canvas").getContext("2d")!;
   for (const menu of JAVA_MENUS) {
-    // The secondary engine menu follows the layout mode and 跑谱贡献 设置 > 显示跑谱贡献菜单; both are
-    // built and shown or hidden as the view changes (contributeMenu.setVisible).
-    if (menu.when !== "doubleEngine" && menu.when !== "contribute" && !visible(menu.when)) continue;
+    // The secondary engine menu follows the layout mode, the 跑谱贡献 menu 跑谱贡献 设置 >
+    // 显示跑谱贡献菜单 and 快速启动 显示快速启动; they are built and shown or hidden as the view
+    // changes (setVisible).
+    const toggled = menu.when === "doubleEngine" || menu.when === "contribute" || menu.when === "quickLinks";
+    if (!toggled && !visible(menu.when)) continue;
     if (menu.key === "Menu.aiCoach") {
       // AI 陪练 is a button on the menu bar (Menu.java:5699-5732), its label following the session.
       host.append(buildAiCoachButton());
@@ -272,7 +290,7 @@ export function buildMenubar(host: HTMLElement): void {
     // MenuButton: text width plus EmptyBorder(5, 10, 5, 10) (WindowMenuStrip.java:295)
     measure.font = getComputedStyle(top).font;
     top.style.width = `${Math.ceil(measure.measureText(top.textContent).width) + 20}px`;
-    if (menu.when === "contribute") {
+    if (menu.when === "contribute" || menu.when === "quickLinks") {
       const update = () => {
         const shown = visible(menu.when);
         top.style.display = shown ? "" : "none";
@@ -375,7 +393,7 @@ export function menuItemState(id: string): "ok" | "hidden" | "missing" | null {
   if (!path) return null;
   const leaf = path.nodes[path.nodes.length - 1];
   if (leaf.t === "sep") return null;
-  if (leaf.t === "dynamic" && leaf.key !== "engine.list" && leaf.key !== "Menu.openRecent") return "missing";
+  if (leaf.t === "dynamic" && leaf.key !== "engine.list" && leaf.key !== "Menu.openRecent" && leaf.key !== "quickLinks.programs") return "missing";
   if (leaf.t === "submenu" && !implemented(leaf.items ?? [])) return "missing";
   const entry = leaf.t === "item" || leaf.t === "check" || leaf.t === "radio" ? (COMMANDS[leaf.id ?? ""] ?? COMMANDS[leaf.key]) : null;
   if (entry === undefined) return "missing";
@@ -401,6 +419,9 @@ export function locateMenuItem(id: string): boolean {
       // The selected engine's row, else the first one.
       const current = node.id === "engine.select-secondary" ? state.view?.engine.secondary : state.view?.engine.foreground;
       row = rows.find((r) => r.dataset.engineIndex === String(current?.index)) ?? rows[0];
+    } else if (node.t === "dynamic" && node.key === "quickLinks.programs") {
+      // The 快速启动 menu itself (Menu.java:6843): its first item, 设置 when there is no program.
+      row = rows[0] ?? [...list.children].find((child): child is HTMLElement => (child as HTMLElement).dataset.key === "Menu.editProgram");
     } else row = rows[0];
     if (!row) return false;
     if (depth < path.nodes.length - 1) list = expand(row, list, node.t === "sep" ? [] : (node.items ?? []));

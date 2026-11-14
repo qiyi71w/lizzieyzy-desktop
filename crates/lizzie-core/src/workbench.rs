@@ -39,6 +39,7 @@ mod matches;
 mod panels;
 mod play;
 mod quick;
+mod quick_links;
 mod readboard;
 mod recovery;
 mod resources;
@@ -61,6 +62,7 @@ pub use readboard::ReadBoardInstall;
 pub use fox_kifu::FoxKifuJob;
 pub use tencent_kifu::TencentKifuJob;
 pub use importing::{IMPORT_NEEDS_REPLACE, IMPORT_STALE};
+pub use quick_links::QUICK_LINK_FAILED;
 pub use recovery::RecoveryStep;
 pub use resources::{prepare_resource_setup, run_resource_job, ResourceCompletion, ResourceJob};
 
@@ -1203,6 +1205,7 @@ impl Workbench {
                 independent_sub_board: self.persisted.independent_sub_board,
                 engine: self.engine_settings_view(),
                 logging: self.config.logging.clone(),
+                quick_links: self.config.quick_links.clone(),
                 edit: self.config.edit.clone(),
                 display: self.config.display.clone(),
                 analysis_engine: self.config.analysis_engine.clone(),

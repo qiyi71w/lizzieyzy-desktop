@@ -144,6 +144,7 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   ReadBoardStatSync: "Menu.alwaysKeepBoardStatSync",
   ReadBoardGetFocus: "Menu.readBoardGetFocus",
   Diagnostics: "DiagnosticsDialog.title",
+  QuickLinks: "Menu.quickLinks",
   // 同步 > 野狐棋谱's account, 近期搜索 and 打开棋谱后此窗口.
   FoxKifu: "Menu.foxKifu",
   // 同步 > 腾讯棋谱's last query, 近期搜索 and 打开棋谱后此窗口.
@@ -320,6 +321,14 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
     contribution = box.input;
     body.append(box.label);
   }
+  // 快速启动 commands carrying passwords or tokens: the program list comes over only when chosen.
+  let quickLinks: HTMLInputElement | null = null;
+  if (p.quick_link_credential) {
+    const box = checkbox(product("importCopyQuickLinks", t("Menu.quickLinks")), false);
+    box.input.dataset.key = "import-quick-link-credentials";
+    quickLinks = box.input;
+    body.append(box.label);
+  }
   if (p.engines.some((e) => e.problems.some((x) => x.type === "ProgramNotFound" || x.type === "FileNotFound")) || p.program_dir) {
     const row = document.createElement("div");
     row.className = "java-import-row";
@@ -370,6 +379,7 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
       copy_cloud_token: cloudToken?.checked ?? false,
       copy_cloud_password: cloudPassword?.checked ?? false,
       copy_contribution_credentials: contribution?.checked ?? false,
+      copy_quick_link_credentials: quickLinks?.checked ?? false,
       replace: replace?.checked ?? false,
       recovery: recovery?.checked ? { auto_slot_name: t("LizzieFrame.saveAndLoad.exitRecord") } : null,
     });

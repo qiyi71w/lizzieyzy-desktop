@@ -156,6 +156,12 @@ pub struct Mapped {
     pub logging_enabled: Option<bool>,
     pub logging_modules: Option<Vec<crate::diagnostics::DiagnosticModule>>,
     pub logging_scopes: Option<Vec<crate::diagnostics::TraceScope>>,
+    /// 快速启动: `ui.show-quick-links` and the program list (`leelaz.program-name-list`,
+    /// `program-command-list`).
+    pub quick_links_show: Option<bool>,
+    pub quick_link_programs: Option<Vec<crate::quick_links::QuickLinkProgram>>,
+    /// A program command carries credentials: the list comes over only when confirmed.
+    pub quick_link_credential: bool,
     /// 布局模式 (`ui.extra-mode`).
     pub extra_mode: Option<ExtraMode>,
     pub recent_files: Option<Vec<String>>,
@@ -536,9 +542,10 @@ impl Candidate {
     }
 
     /// The setting entries as the report shows them once the user chose which credentials to
-    /// copy (`copy_credentials` engines, `contribution` the 跑谱贡献 account): the default and
-    /// last engine choices of an engine that is left out are left out too.
-    pub fn items_after(&self, copy_credentials: &[u32], contribution: bool) -> Vec<ImportItemView> {
+    /// copy (`copy_credentials` engines, `contribution` the 跑谱贡献 account, `quick_links` the
+    /// 快速启动 commands): the default and last engine choices of an engine that is left out are
+    /// left out too.
+    pub fn items_after(&self, copy_credentials: &[u32], contribution: bool, quick_links: bool) -> Vec<ImportItemView> {
         let engines = self.engines_after(copy_credentials);
         self.items
             .iter()
@@ -565,6 +572,11 @@ impl Candidate {
                 if i.key == "leelaz.remote-compute.zhizi-args" && i.credential
                     && self.mapped.cloud_after(copy_credentials).zip(self.mapped.cloud.as_ref())
                         .is_some_and(|(after, before)| after.args != before.args) {
+                    i.status = ImportStatus::NotMigrated;
+                    i.reason = Some(ImportReason::CredentialNotConfirmed);
+                }
+                if !quick_links && self.mapped.quick_link_credential && i.status == ImportStatus::Imported
+                    && QUICK_LINK_KEYS.contains(&i.key.as_str()) {
                     i.status = ImportStatus::NotMigrated;
                     i.reason = Some(ImportReason::CredentialNotConfirmed);
                 }
@@ -737,6 +749,10 @@ fn as_f64(v: &Value) -> Option<f64> {
     }
     .filter(|f| f.is_finite())
 }
+
+/// Report keys of the 快速启动 program list, left out together when its credentials are not
+/// confirmed.
+const QUICK_LINK_KEYS: [&str; 2] = ["leelaz.program-name-list", "leelaz.program-command-list"];
 
 /// Shown value of a JSON scalar.
 fn shown(v: &Value) -> String {
@@ -2001,6 +2017,7 @@ impl Reader<'_> {
         self.network(ui, &mut handled);
         self.web_board(root, &mut handled);
         self.logging(root, &mut handled);
+        self.quick_links(ui, leelaz, &mut handled);
         self.display(ui, leelaz, &mut handled);
         self.game(ui, leelaz, &mut handled);
         self.matches(ui, &mut handled);
@@ -2773,6 +2790,75 @@ impl Reader<'_> {
         }
     }
 
+    /// 快速启动 (`Config.showQuickLinks`, `Menu.getProgramData`). Java builds the list from the
+    /// command array, skipping empty commands and naming each by the name at the same index
+    /// (`optString`); a command that is not text breaks the list, so such a list is refused whole.
+    /// Without a command array Java has no programs.
+    fn quick_links(&mut self, ui: &Map<String, Value>, leelaz: &Map<String, Value>, handled: &mut Handled) {
+        use crate::quick_links::{QuickLinkProgram, QuickLinkSettings};
+        const TARGET: ImportTarget = ImportTarget::QuickLinks;
+        if let Some(v) = ui.get("show-quick-links") {
+            handled.push(("ui", "show-quick-links"));
+            match as_bool(v) {
+                Some(on) => {
+                    self.mapped.quick_links_show = Some(on);
+                    self.imported("ui.show-quick-links".into(), TARGET, on.to_string());
+                }
+                None => self.invalid("ui.show-quick-links".into(), TARGET, v),
+            }
+        }
+        let (names, commands) = (leelaz.get("program-name-list"), leelaz.get("program-command-list"));
+        if names.is_none() && commands.is_none() {
+            return;
+        }
+        for (key, value) in [("program-name-list", names), ("program-command-list", commands)] {
+            if value.is_some() {
+                handled.push(("leelaz", key));
+            }
+        }
+        let name_list = names.and_then(Value::as_array);
+        let parsed: Option<Vec<&str>> = match commands {
+            None => Some(Vec::new()),
+            Some(v) => v.as_array().and_then(|list| list.iter().map(Value::as_str).collect()),
+        };
+        let Some(commands) = parsed else {
+            // Refused whole: without its commands the names have nothing to name.
+            for (key, value) in [("program-name-list", names), ("program-command-list", commands)] {
+                if let Some(v) = value {
+                    self.invalid(format!("leelaz.{key}"), TARGET, v);
+                }
+            }
+            return;
+        };
+        if let Some(v) = names.filter(|_| name_list.is_none()) {
+            self.invalid("leelaz.program-name-list".into(), TARGET, v);
+        }
+        let name = |i: usize| match name_list.and_then(|list| list.get(i)) {
+            None | Some(Value::Null) => String::new(),
+            Some(Value::String(s)) => s.clone(),
+            Some(other) => other.to_string(),
+        };
+        let programs = commands
+            .iter()
+            .enumerate()
+            .map(|(i, command)| QuickLinkProgram { name: name(i), command: command.to_string() })
+            .collect();
+        let programs = QuickLinkSettings { show: false, programs }.normalized().programs;
+        let credential = programs.iter().any(|p| sanitize(&p.command) != p.command);
+        if name_list.is_some() {
+            let shown_names: Vec<&str> = programs.iter().map(|p| p.name.as_str()).collect();
+            self.imported("leelaz.program-name-list".into(), TARGET, shown_names.join("\n"));
+            self.items.last_mut().unwrap().credential = credential;
+        }
+        if leelaz.contains_key("program-command-list") {
+            let shown_commands: Vec<&str> = programs.iter().map(|p| p.command.as_str()).collect();
+            self.imported("leelaz.program-command-list".into(), TARGET, shown_commands.join("\n"));
+            self.items.last_mut().unwrap().credential = credential;
+        }
+        self.mapped.quick_link_credential = credential;
+        self.mapped.quick_link_programs = Some(programs);
+    }
+
     /// The engine list and the start-up choice.
     fn engines(&mut self, ui: &Map<String, Value>, leelaz: &Map<String, Value>, handled: &mut Handled) {
         let flag = |key: &str| ui.get(key).and_then(as_bool).unwrap_or(false);
@@ -3376,9 +3462,27 @@ impl Mapped {
         Some(next.normalized())
     }
 
+    /// 快速启动 after the import: 显示快速启动 and, unless its commands carry credentials that
+    /// were not confirmed (`copy`), the Java program list in place of `current`'s.
+    fn quick_links_after(&self, current: &crate::quick_links::QuickLinkSettings, copy: bool) -> Option<crate::quick_links::QuickLinkSettings> {
+        let programs = self.quick_link_programs.as_ref().filter(|_| copy || !self.quick_link_credential);
+        if self.quick_links_show.is_none() && programs.is_none() {
+            return None;
+        }
+        let mut next = current.clone();
+        if let Some(show) = self.quick_links_show {
+            next.show = show;
+        }
+        if let Some(programs) = programs {
+            next.programs = programs.clone();
+        }
+        Some(next)
+    }
+
     /// This product's settings after the import. Engines with credentials are included only when
-    /// their Java index is in `copy_credentials`; the 跑谱贡献 account only with `contribution`.
-    pub fn apply(&self, config: &Config, persisted: &Persisted, copy_credentials: &[u32], contribution: bool) -> (Config, Persisted) {
+    /// their Java index is in `copy_credentials`; the 跑谱贡献 account only with `contribution`;
+    /// 快速启动 commands with credentials only with `quick_links`.
+    pub fn apply(&self, config: &Config, persisted: &Persisted, copy_credentials: &[u32], contribution: bool, quick_links: bool) -> (Config, Persisted) {
         let mut c = config.clone();
         let mut p = persisted.clone();
         macro_rules! set {
@@ -3398,6 +3502,7 @@ impl Mapped {
         set!(c.read_board.always_sync_board_stat, self.read_board_stat_sync);
         set!(c.read_board.get_focus, self.read_board_get_focus);
         set!(c.logging, self.logging_after(&c.logging));
+        set!(c.quick_links, self.quick_links_after(&c.quick_links, quick_links));
         set!(c.ui.extra_mode, self.extra_mode);
         if let Ok(mut values) = serde_json::to_value(&c.panels) {
             for value in &self.panels { value.set(&mut values); }
@@ -3784,6 +3889,7 @@ impl Mapped {
         cmp!(ImportTarget::ReadBoardStatSync, config.read_board.always_sync_board_stat, self.read_board_stat_sync);
         cmp!(ImportTarget::ReadBoardGetFocus, config.read_board.get_focus, self.read_board_get_focus);
         cmp!(ImportTarget::Diagnostics, config.logging, self.logging_after(&config.logging));
+        cmp!(ImportTarget::QuickLinks, config.quick_links, self.quick_links_after(&config.quick_links, true));
         cmp!(ImportTarget::ExtraMode, config.ui.extra_mode, self.extra_mode);
         cmp!(ImportTarget::RecentFiles, config.recent_files, self.recent_files);
         let fox = &config.fox_kifu;

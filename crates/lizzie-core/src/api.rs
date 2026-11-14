@@ -388,6 +388,21 @@ pub enum Command {
     SetLogging {
         settings: crate::diagnostics::LoggingSettings,
     },
+    /// 显示快速启动 (综合设置 > 棋盘与显示) and the 快速启动设置 program list, saved together.
+    SetQuickLinks {
+        settings: crate::quick_links::QuickLinkSettings,
+    },
+    /// A 快速启动 menu item: starts the saved program at `index` without waiting for it.
+    /// Answers `Refused` with `product.quickLinkFailed` when it cannot be started.
+    LaunchQuickLink {
+        index: u32,
+    },
+    /// 快速启动设置 > 浏览 (`OtherPrograms.getEngineLine`): the system file chooser titled `title`,
+    /// on Windows limited to `filter_name` (`*.jar`, `*.exe`, `*.bat`). Answers `FileChosen`.
+    ChooseQuickLinkProgram {
+        title: String,
+        filter_name: String,
+    },
     /// The "不再提示" box of the analysis-limit notice (`show-ponder-limited-tips`).
     SetPonderLimitTips {
         enabled: bool,
@@ -437,6 +452,9 @@ pub enum Command {
         /// command's passwords and its 远程SSH password.
         #[serde(default)]
         copy_contribution_credentials: bool,
+        /// Separate, unchecked-by-default consent for 快速启动 commands that carry credentials.
+        #[serde(default)]
+        copy_quick_link_credentials: bool,
         replace: bool,
         recovery: Option<RecoveryImport>,
     },
@@ -1242,6 +1260,8 @@ pub struct SettingsView {
     pub engine: EngineSettingsView,
     /// 诊断与日志's saved switches and 完整日志 scope preference.
     pub logging: crate::diagnostics::LoggingSettings,
+    /// 显示快速启动 and the 快速启动 program list.
+    pub quick_links: crate::quick_links::QuickLinkSettings,
     pub edit: EditSettings,
     pub display: crate::settings::DisplaySettings,
     /// 精析设置 as saved.
@@ -1810,6 +1830,8 @@ pub enum ImportTarget {
     WorkbenchPanels,
     PanelSizes,
     BottomToolbar,
+    /// 快速启动: `ui.show-quick-links`, `leelaz.program-name-list`, `program-command-list`.
+    QuickLinks,
     /// 加载棋谱后快速刷新胜率曲线: `ui.auto-quick-analyze-on-load`.
     AutoQuickAnalysis,
     /// 精析设置: `ui.analysis-engine-command`, `-command-customized`, `analysis-max-visits`,
@@ -1953,6 +1975,8 @@ pub struct ImportPreviewView {
     pub analysis_ssh_credential: Option<String>,
     /// Java has a 跑谱贡献 account, password or SSH password to copy when confirmed.
     pub contribution_credential: bool,
+    /// A Java 快速启动 command carries credentials: the program list comes over only when confirmed.
+    pub quick_link_credential: bool,
     /// Settings already chosen in this product that the import would replace.
     pub replaces: Vec<ImportTarget>,
     /// This product's themes that the Java theme folders of the same name would replace

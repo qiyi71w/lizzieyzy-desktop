@@ -23,6 +23,7 @@ import type { IndependentInput } from "./workbench/independentModel";
 import "./workbench/displayPage";
 import "./about";
 import "./initSettings";
+import "./quickLinks";
 import { boardUi, candidatesShownFor, onBoardUiChange } from "./display/state";
 import { markTreeTooWide, onTreeTooWideCleared, treeFit } from "./display/variationTree";
 import { onRegionUiChange, regionDrag, selectionClicked, selectionDragged, selectionReleased } from "./analysis/region";

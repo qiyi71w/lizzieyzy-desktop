@@ -496,12 +496,19 @@ importing the matching LizzieYzy Next settings.
   does not fit in the 更多 popup, without changing the saved choice, and opens the detailed
   toolbar for its controls. `Shift+X` and 设置 > 综合设置
   open 综合设置 at 棋盘与显示, whose 启动时加载 rows
-  (窗口总在最前, 显示状态面板, 显示小棋盘, 窗口标题显示胜率) apply with 保存设置; Java's 显示快速启动
-  row is not shown because this client has no quick-launch links. Panel sizes, the bottom
-  toolbar mode and the panel order are window placement (`persist.json`), cleared by
-  重置界面位置. While 综合设置 is open, however it was opened, no engine analyses; when the
-  dialog closes (保存设置 or 取消) analysis goes on as before: a game, an engine match or 自动分析
-  continues, and analysis the user paused stays paused.
+  (窗口总在最前, 显示快速启动, 显示状态面板, 显示小棋盘, 窗口标题显示胜率) apply with 保存设置. Panel
+  sizes, the bottom toolbar mode and the panel order are window placement (`persist.json`),
+  cleared by 重置界面位置. While 综合设置 is open, however it was opened, no engine analyses; when
+  the dialog closes (保存设置 or 取消) analysis goes on as before: a game, an engine match or
+  自动分析 continues, and analysis the user paused stays paused.
+- 快速启动 (shown in the menu bar while 综合设置 > 显示快速启动 is on; off by default): one item
+  per saved outside program, by name, then 设置. Choosing a program starts its command at once,
+  without asking or waiting; the command is split and its relative paths and working directory
+  are resolved like an engine command. A program that cannot be started shows 运行失败!. 设置 opens
+  快速启动设置: click a row of the 30-row table to edit it (a row past the list adds a program),
+  type 名称 and 命令行 or pick a file with 自动生成 (on Windows only `.jar`, `.exe`, `.bat`), and
+  保存; 删除 removes it, 上移 / 下移 / 置顶 reorder. Every change is saved at once, empty commands
+  are dropped, and nothing is started while editing, importing or starting the app.
 - 帮助 > 关于 opens 综合设置 at 关于 (also reachable from its navigation and function search):
   the product name, the running version (the same as in the window title), a note that this
   client is migrated from LizzieYzy Next (Java), and 项目主页 / 发布下载 / 问题反馈 buttons that open
@@ -1166,6 +1173,8 @@ importing the matching LizzieYzy Next settings.
   links/arguments follow the engine's credential consent. A failed destination settings write
   rolls back staged credentials; an unavailable credential store keeps approved secrets only
   for this session and reports that limitation. The source Java credential store is never changed.
+  The 快速启动 switch and program list migrate too; a list whose commands carry credentials
+  comes over only after ticking its own box, and importing never starts a program.
   Once this client has its own settings, every setting the import would change is
   listed and replaced only after confirming. Importing writes this client's `config.json` and
   `persist.json` together (a failed write leaves both unchanged; an existing settings file that

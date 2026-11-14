@@ -883,6 +883,30 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().set_logging(settings)?;
             Ok(changed(&app, &shared, done))
         }
+        Command::SetQuickLinks { settings } => {
+            let done = shared.workbench.lock().unwrap().set_quick_links(settings)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::LaunchQuickLink { index } => {
+            let result = shared.workbench.lock().unwrap().launch_quick_link(index as usize);
+            publish(&app, &shared);
+            Ok(result)
+        }
+        Command::ChooseQuickLinkProgram { title, filter_name } => {
+            let dialog = app.dialog().clone();
+            let picked = tauri::async_runtime::spawn_blocking(move || {
+                let builder = dialog.file().set_title(title);
+                // OtherPrograms.getEngineLine: Windows lists programs only; elsewhere any file.
+                let builder = if cfg!(windows) { builder.add_filter(filter_name, &["jar", "exe", "bat"]) } else { builder };
+                builder.blocking_pick_file()
+            })
+            .await
+            .map_err(|e| ApiError::new(ErrorKind::Unavailable, e.to_string()))?;
+            Ok(match picked.and_then(|p| p.into_path().ok()) {
+                Some(path) => CommandResult::FileChosen { path: path.to_string_lossy().into_owned() },
+                None => CommandResult::Unchanged,
+            })
+        }
         Command::SetPonderLimitTips { enabled } => {
             let done = shared.workbench.lock().unwrap().set_ponder_limit_tips(enabled)?;
             Ok(changed(&app, &shared, done))
@@ -953,6 +977,7 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             copy_cloud_token,
             copy_cloud_password,
             copy_contribution_credentials,
+            copy_quick_link_credentials,
             replace,
             recovery,
         } => {
@@ -988,7 +1013,14 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
                         wb.stage_java_cloud_preferences(preview, s.remember_token, s.remember_password);
                         wb.set_cloud_authenticated(staged.authenticated())
                     });
-                    let result = wb.apply_java_import(preview, &copy_credentials, copy_contribution_credentials, replace, recovery.as_ref());
+                    let result = wb.apply_java_import(
+                        preview,
+                        &copy_credentials,
+                        copy_contribution_credentials,
+                        copy_quick_link_credentials,
+                        replace,
+                        recovery.as_ref(),
+                    );
                     if !matches!(result, Ok(Ok(_))) {
                         if let Some(previous) = previous_authenticated { wb.set_cloud_authenticated(previous); }
                     }
