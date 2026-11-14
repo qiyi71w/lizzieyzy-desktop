@@ -21,6 +21,7 @@ mod recovery;
 mod resources;
 mod tencent_kifu;
 mod tuning;
+mod update;
 mod web_board;
 
 use serde::{Deserialize, Serialize};
@@ -43,6 +44,7 @@ pub use recovery::*;
 pub use resources::*;
 pub use tencent_kifu::*;
 pub use tuning::*;
+pub use update::*;
 pub use web_board::*;
 pub use crate::strength::{StrengthModelView, StrengthReport, StrengthSideReport, StrengthSegment, StrengthSummary, StrengthSample, StrengthConfidence, StrengthMoveCategory};
 
@@ -135,6 +137,8 @@ pub enum Command {
     TencentKifu { op: TencentKifuCommand },
     /// Web 旁观: start, stop, 强制结束试下.
     WebBoard { op: WebBoardCommand },
+    /// 检查更新: settings, checking, preparing and installing an update.
+    Update { op: UpdateCommand },
     /// SSH passwords and trusted host keys of remote engines: kept by the platform adapter, never
     /// in the settings.
     SshCredential { op: SshCredentialCommand },
@@ -1596,6 +1600,8 @@ pub struct WorkbenchView {
     pub tencent_kifu: TencentKifuView,
     /// Web 旁观 and a viewer's 试下.
     pub web_board: WebBoardView,
+    /// 检查更新.
+    pub update: UpdateView,
     pub human_sl_notices: Vec<HumanSlNotice>,
     /// 跑谱贡献 session, until its window is closed after it ended.
     pub contribution: Option<ContributionView>,
@@ -1834,6 +1840,9 @@ pub enum ImportTarget {
     BottomToolbar,
     /// 快速启动: `ui.show-quick-links`, `leelaz.program-name-list`, `program-command-list`.
     QuickLinks,
+    /// 检查更新: `ui.auto-check-update`, `ui.auto-download-update`, `ui.update-channel`,
+    /// `ui.update-source`.
+    Update,
     /// 加载棋谱后快速刷新胜率曲线: `ui.auto-quick-analyze-on-load`.
     AutoQuickAnalysis,
     /// 精析设置: `ui.analysis-engine-command`, `-command-customized`, `analysis-max-visits`,

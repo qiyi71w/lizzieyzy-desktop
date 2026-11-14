@@ -49,6 +49,7 @@ mod tencent_kifu;
 mod tsumego;
 mod tuning;
 mod web_board;
+mod update;
 mod whole_game;
 
 use std::path::{Path, PathBuf};
@@ -65,6 +66,7 @@ pub use importing::{IMPORT_NEEDS_REPLACE, IMPORT_STALE};
 pub use quick_links::QUICK_LINK_FAILED;
 pub use recovery::RecoveryStep;
 pub use resources::{prepare_resource_setup, run_resource_job, ResourceCompletion, ResourceJob};
+pub use update::{UpdateCheckJob, UpdateDownloadJob, UpdateInstallJob, UpdateStep, UpdateTask};
 
 use crate::api::{
     ApiError, DocumentView, EngineFailureView, EngineNotice, ErrorKind, ExportKind, LastAction, LogsStatus,
@@ -352,6 +354,8 @@ pub struct Workbench {
     tencent_kifu: tencent_kifu::TencentKifuFlow,
     /// Web 旁观's running session and a viewer's 试下.
     web_board: web_board::WebBoardFlow,
+    /// 检查更新: the check, offer, package preparation and installation handover.
+    update: update::UpdateFlow,
 }
 
 impl Workbench {
@@ -498,6 +502,7 @@ impl Workbench {
             fox_kifu: fox_kifu::FoxKifuFlow::default(),
             tencent_kifu: tencent_kifu::TencentKifuFlow::default(),
             web_board: web_board::WebBoardFlow::default(),
+            update: update::UpdateFlow::default(),
         }
     }
 
@@ -1279,6 +1284,7 @@ impl Workbench {
             fox_kifu: self.fox_kifu_view(),
             tencent_kifu: self.tencent_kifu_view(),
             web_board: self.web_board_view(),
+            update: self.update_view(),
             human_sl_notices: Vec::new(),
             contribution: self.contribution_view(),
             contribution_notices: Vec::new(),

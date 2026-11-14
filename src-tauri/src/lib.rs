@@ -28,6 +28,7 @@ mod startup;
 mod tencent_kifu;
 mod tsumego_capture;
 mod tuning;
+mod update;
 mod web_board;
 mod yike_browser;
 
@@ -1122,6 +1123,7 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         }
         Command::WebBoard { op: WebBoardCommand::Start } => Ok(web_board::start(&app, &shared)),
         Command::WebBoard { op: WebBoardCommand::Stop } => Ok(web_board::stop(&app, &shared)),
+        Command::Update { op } => update::dispatch(&app, &shared, op),
         Command::WebBoard { op } => {
             let result = shared.workbench.lock().unwrap().web_board(op)?;
             publish(&app, &shared);
@@ -2059,6 +2061,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        // 检查更新's signature check and installation; the page uses the core's commands, so no
+        // capability grants the plugin's own JavaScript commands.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(yike_browser::plugin())
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -2187,6 +2192,7 @@ pub fn run() {
             app.manage(tencent_kifu::Adapter::default());
             run_refresher(app.handle().clone(), shared.clone());
             shared.workbench.lock().unwrap().start_engines();
+            update::setup(app.handle(), &shared);
             publish(app.handle(), &shared);
             resources::startup(app.handle().clone(), shared.clone());
             tuning::startup(app.handle().clone(), shared.clone());
@@ -2217,6 +2223,8 @@ pub fn run() {
             }
             // 启动Lizzie时预加载引擎 after start-up (Lizzie.java:1075-1077).
             shared.workbench.lock().unwrap().preload_analysis_engine();
+            // 启动时自动检查更新 once the program is ready (`WindowsUpdateController.applicationReady`).
+            update::application_ready(app.handle(), &shared);
 
             #[cfg(feature = "acceptance")]
             acceptance::start(app.handle().clone(), shared.clone());
@@ -2372,6 +2380,8 @@ pub fn run() {
                 write_logs(&shared, logs);
                 shared.log.info("engines ended");
                 shared.log.info("exit");
+                // A Windows update installs once the program has ended its work.
+                update::finish_on_exit(&shared);
             }
         }),
         Err(e) => {
@@ -2400,6 +2410,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         open_katago_releases,
         open_katago_parameter_help,
         open_project_page,
+        update::open_update_release,
         output::recovery_thumbnail,
         open_suggestions_frame,
         close_suggestions_frame,
@@ -2459,6 +2470,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         open_katago_releases,
         open_katago_parameter_help,
         open_project_page,
+        update::open_update_release,
         output::recovery_thumbnail,
         open_suggestions_frame,
         close_suggestions_frame,

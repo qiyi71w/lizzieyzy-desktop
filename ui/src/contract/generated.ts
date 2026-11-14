@@ -133,7 +133,7 @@ export type EngineScope = "Current" | "Others" | "All";
 
 export type AnalysisScope = "All" | "Current";
 
-export type Command = { "type": "CloudAccount", op: CloudCommand, owner: number, } | { "type": "CloudActivate", settings: CloudSettings, confirmed: boolean, } | { "type": "CloudLocal" } | { "type": "CloudCancel" } | { "type": "CloudCancelRequest", owner: number, } | { "type": "CloudImportQr" } | { "type": "OpenCloudLink", custom: boolean, } | { "type": "Fox", op: FoxCommand, } | { "type": "Online", op: OnlineCommand, } | { "type": "Strength", op: StrengthCommand, } | { "type": "Commentary", op: CommentaryCommand, } | { "type": "ReadBoard", op: ReadBoardCommand, } | { "type": "CommentaryConnection", op: ConnectionCommand, } | { "type": "FoxKifu", op: FoxKifuCommand, } | { "type": "TencentKifu", op: TencentKifuCommand, } | { "type": "WebBoard", op: WebBoardCommand, } | { "type": "SshCredential", op: SshCredentialCommand, } | { "type": "Contribution", op: ContributionCommand, } | { "type": "SetAppearanceSettings", settings: AppearanceSettings, theme: ThemeSettings, } | { "type": "SetFrameFontSize", size: number, } | { "type": "AddTheme", name: string, } | { "type": "DeleteTheme", name: string, } | { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "HoldAnalysis", held: boolean, } | { "type": "ClearAnalysisCache", scope: AnalysisScope, } | { "type": "ClearAnalysisInfo", scope: AnalysisScope, } | { "type": "RefreshCurrentMove" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SetExtraMode", mode: ExtraMode, } | { "type": "SetClassicMode" } | { "type": "ToggleIndependentBoard", board: IndependentBoard, } | { "type": "CloseIndependentBoard", board: IndependentBoard, } | { "type": "CommitLayout", mode: ExtraMode, panels: PanelSettings, board_position_proportion: number, save_slot: number | null, window: WindowPlacement | null, } | { "type": "ApplyCustomLayout", slot: number, } | { "type": "SwitchSecondaryEngine", index: number, } | { "type": "RestartSecondaryEngine" } | { "type": "ShutdownSecondaryEngine" } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SetKataParam", param: KataParam, enabled: boolean, value: number, } | { "type": "SaveKataEngineParams", params: KataEngineParamsEdit, } | { "type": "SaveLeelaEngineOptions", options: LeelaOptionSettings, } | { "type": "SaveCustomPda", settings: CustomPdaSettings, } | { "type": "SetPriorityPoint", point: Point, } | { "type": "ClearPriorityPoints" } | { "type": "SendGtpCommand", command: string, } | { "type": "SetConsoleVisible", visible: boolean, } | { "type": "SetFullTrace", enabled: boolean, scopes?: Array<TraceScope>, } | { "type": "SetLogging", settings: LoggingSettings, } | { "type": "SetQuickLinks", settings: QuickLinkSettings, } | { "type": "LaunchQuickLink", index: number, } | { "type": "ChooseQuickLinkProgram", title: string, filter_name: string, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "SetAnalyzeSides", black: boolean, white: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, 
+export type Command = { "type": "CloudAccount", op: CloudCommand, owner: number, } | { "type": "CloudActivate", settings: CloudSettings, confirmed: boolean, } | { "type": "CloudLocal" } | { "type": "CloudCancel" } | { "type": "CloudCancelRequest", owner: number, } | { "type": "CloudImportQr" } | { "type": "OpenCloudLink", custom: boolean, } | { "type": "Fox", op: FoxCommand, } | { "type": "Online", op: OnlineCommand, } | { "type": "Strength", op: StrengthCommand, } | { "type": "Commentary", op: CommentaryCommand, } | { "type": "ReadBoard", op: ReadBoardCommand, } | { "type": "CommentaryConnection", op: ConnectionCommand, } | { "type": "FoxKifu", op: FoxKifuCommand, } | { "type": "TencentKifu", op: TencentKifuCommand, } | { "type": "WebBoard", op: WebBoardCommand, } | { "type": "Update", op: UpdateCommand, } | { "type": "SshCredential", op: SshCredentialCommand, } | { "type": "Contribution", op: ContributionCommand, } | { "type": "SetAppearanceSettings", settings: AppearanceSettings, theme: ThemeSettings, } | { "type": "SetFrameFontSize", size: number, } | { "type": "AddTheme", name: string, } | { "type": "DeleteTheme", name: string, } | { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "HoldAnalysis", held: boolean, } | { "type": "ClearAnalysisCache", scope: AnalysisScope, } | { "type": "ClearAnalysisInfo", scope: AnalysisScope, } | { "type": "RefreshCurrentMove" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SetExtraMode", mode: ExtraMode, } | { "type": "SetClassicMode" } | { "type": "ToggleIndependentBoard", board: IndependentBoard, } | { "type": "CloseIndependentBoard", board: IndependentBoard, } | { "type": "CommitLayout", mode: ExtraMode, panels: PanelSettings, board_position_proportion: number, save_slot: number | null, window: WindowPlacement | null, } | { "type": "ApplyCustomLayout", slot: number, } | { "type": "SwitchSecondaryEngine", index: number, } | { "type": "RestartSecondaryEngine" } | { "type": "ShutdownSecondaryEngine" } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SetKataParam", param: KataParam, enabled: boolean, value: number, } | { "type": "SaveKataEngineParams", params: KataEngineParamsEdit, } | { "type": "SaveLeelaEngineOptions", options: LeelaOptionSettings, } | { "type": "SaveCustomPda", settings: CustomPdaSettings, } | { "type": "SetPriorityPoint", point: Point, } | { "type": "ClearPriorityPoints" } | { "type": "SendGtpCommand", command: string, } | { "type": "SetConsoleVisible", visible: boolean, } | { "type": "SetFullTrace", enabled: boolean, scopes?: Array<TraceScope>, } | { "type": "SetLogging", settings: LoggingSettings, } | { "type": "SetQuickLinks", settings: QuickLinkSettings, } | { "type": "LaunchQuickLink", index: number, } | { "type": "ChooseQuickLinkProgram", title: string, filter_name: string, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "SetAnalyzeSides", black: boolean, white: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, 
 /**
  * Separate, unchecked-by-default consent for Java's commentary API key.
  */
@@ -753,7 +753,11 @@ tencent_kifu: TencentKifuView,
 /**
  * Web 旁观 and a viewer's 试下.
  */
-web_board: WebBoardView, human_sl_notices: Array<HumanSlNotice>, 
+web_board: WebBoardView, 
+/**
+ * 检查更新.
+ */
+update: UpdateView, human_sl_notices: Array<HumanSlNotice>, 
 /**
  * 跑谱贡献 session, until its window is closed after it ended.
  */
@@ -806,7 +810,7 @@ export type ImportStatus = "Imported" | "Incompatible" | "NotMigrated";
 
 export type ImportReason = "NotYetAvailable" | "Credential" | "InvalidValue" | "WindowCoordinates" | "CredentialNotConfirmed" | "SessionOnly" | "Unreadable" | "NotChosen" | "Obsolete" | "JavaState";
 
-export type ImportTarget = "Appearance" | "Themes" | "Commentary" | "Cloud" | "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "NoSoundInSync" | "ReadBoardStatSync" | "ReadBoardGetFocus" | "ReadBoardPonderingNotice" | "Diagnostics" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "AutoCheckEngineAlive" | "LizzieCache" | "StopAtEmptyBoard" | "AlwaysGtp" | "KataRules" | "AutoLoadKataRules" | "KataPda" | "KataWrn" | "KataParamAutoLoad" | "KataParamToolbar" | "LeelaOptions" | "CustomPda" | "StartupBenchmark" | "NetworkProxy" | "WebBoard" | "AllowDoubleClick" | "LiveAlwaysGotoLast" | "LiveOpenHtml" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "MoveRect" | "ClickReview" | "PaintingColor" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "VariationTree" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode" | "WorkbenchPanels" | "PanelSizes" | "BottomToolbar" | "QuickLinks" | "AutoQuickAnalysis" | "AnalysisEngine" | "QuickModel" | "HumanSlTraining" | "HumanSlModel" | "StrengthBackground" | "StrengthModels" | "Tsumego" | "CaptureTsumego" | "TopToolbar" | "BottomButtons" | "DetailPanelOrder" | "ProblemList" | "FlashRange" | "AutoAnalysis" | "HumanEngineGame" | "GameAiTime" | "GameRandomStart" | "AutoPlay" | "EngineMatch" | "WholeGameVisits" | "AnalysisRegion" | "Tracking" | "Hawkeye" | "FoxKifu" | "TencentKifu" | "Contribution";
+export type ImportTarget = "Appearance" | "Themes" | "Commentary" | "Cloud" | "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "NoSoundInSync" | "ReadBoardStatSync" | "ReadBoardGetFocus" | "ReadBoardPonderingNotice" | "Diagnostics" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "AutoCheckEngineAlive" | "LizzieCache" | "StopAtEmptyBoard" | "AlwaysGtp" | "KataRules" | "AutoLoadKataRules" | "KataPda" | "KataWrn" | "KataParamAutoLoad" | "KataParamToolbar" | "LeelaOptions" | "CustomPda" | "StartupBenchmark" | "NetworkProxy" | "WebBoard" | "AllowDoubleClick" | "LiveAlwaysGotoLast" | "LiveOpenHtml" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "MoveRect" | "ClickReview" | "PaintingColor" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "VariationTree" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode" | "WorkbenchPanels" | "PanelSizes" | "BottomToolbar" | "QuickLinks" | "Update" | "AutoQuickAnalysis" | "AnalysisEngine" | "QuickModel" | "HumanSlTraining" | "HumanSlModel" | "StrengthBackground" | "StrengthModels" | "Tsumego" | "CaptureTsumego" | "TopToolbar" | "BottomButtons" | "DetailPanelOrder" | "ProblemList" | "FlashRange" | "AutoAnalysis" | "HumanEngineGame" | "GameAiTime" | "GameRandomStart" | "AutoPlay" | "EngineMatch" | "WholeGameVisits" | "AnalysisRegion" | "Tracking" | "Hawkeye" | "FoxKifu" | "TencentKifu" | "Contribution";
 
 export type ImportItemView = { 
 /**
@@ -2565,6 +2569,87 @@ url: string | null,
  * A viewer's 试下 drives the board (`LizzieFrame.isTrialActive`).
  */
 trial_active: boolean, };
+
+export type UpdateCommand = { "type": "Settings", settings: UpdateSettings, } | { "type": "Check" } | { "type": "Update", offer: number, } | { "type": "TogglePause" } | { "type": "Cancel" } | { "type": "Retry" };
+
+export type UpdateOrigin = "Automatic" | "Manual";
+
+export type UpdateOutcome = "UnavailableBuild" | "SigningNotConfigured" | "UnsupportedForm" | "NoUpdate" | "NoPackage" | "Offer" | "Failed";
+
+export type UpdateDownloadPhase = "None" | "Downloading" | "Paused" | "Cancelled" | "Failed" | "Ready";
+
+export type UpdateError = "Integrity" | "Sources" | "Install" | "Generic";
+
+export type UpdateOfferView = { 
+/**
+ * Identifies this offer for [`UpdateCommand::Update`].
+ */
+id: number, version: string, current_version: string, form: InstallForm, asset_name: string, size: number, 
+/**
+ * 查看 Release.
+ */
+notes_url: string | null, };
+
+export type UpdateResultView = { outcome: UpdateOutcome, failure: FailureKind | null, 
+/**
+ * The channel the check used.
+ */
+channel: UpdateChannel, 
+/**
+ * 测试 channel: one candidate could not be verified (`UpdateCheckFeedback.warning`).
+ */
+stable_candidate_failed: boolean, beta_candidate_failed: boolean, offer: UpdateOfferView | null, };
+
+export type UpdateDownloadView = { phase: UpdateDownloadPhase, 
+/**
+ * No progress reported yet (`准备下载...`).
+ */
+started: boolean, bytes: number, total: number, 
+/**
+ * Downloaded; checking the signature.
+ */
+verifying: boolean, error: UpdateError | null, };
+
+export type UpdateView = { 
+/**
+ * 当前版本.
+ */
+current_version: string, settings: UpdateSettings, 
+/**
+ * This run's automatic check: a checked option without it shows (下次启动生效).
+ */
+auto_check_active: boolean, auto_download_active: boolean, checking: boolean, 
+/**
+ * A check, download or installation is under way: 检查更新 and 立即更新 wait.
+ */
+busy: boolean, origin: UpdateOrigin | null, result: UpdateResultView | null, download: UpdateDownloadView, 
+/**
+ * Increases when the offer should be shown: after a manual check, or once for an automatic
+ * check or download (`origin` tells which; an automatic one does not take focus).
+ */
+remind: number, 
+/**
+ * The installation was handed over: the program closes (and restarts) now.
+ */
+installing: boolean, };
+
+export type UpdateSettings = { 
+/**
+ * 启动时自动检查更新.
+ */
+autoCheck: boolean, 
+/**
+ * 自动下载更新: only with 启动时自动检查更新 (`UpdatePreferences.autoDownload`).
+ */
+autoDownload: boolean, channel: UpdateChannel, source: UpdateSource, };
+
+export type UpdateChannel = "Stable" | "Beta";
+
+export type UpdateSource = "Official" | "Github";
+
+export type InstallForm = "Nsis" | "App" | "AppImage" | "PortableZip" | "Deb" | "Other" | "Unpackaged";
+
+export type FailureKind = "Fetch" | "InvalidCandidate" | "Unexpected";
 
 export type Preferences = { rankMode: string, rankNum: number, styleIndex: number, densityIndex: number, paceIndex: number, variationIndex: number, };
 

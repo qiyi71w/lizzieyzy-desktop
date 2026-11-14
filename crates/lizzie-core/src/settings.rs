@@ -1860,6 +1860,9 @@ pub struct Config {
     pub logging: crate::diagnostics::LoggingSettings,
     /// 快速启动 (Java `ui.show-quick-links`, `leelaz.program-name-list`, `program-command-list`).
     pub quick_links: crate::quick_links::QuickLinkSettings,
+    /// 检查更新 (Java `ui.auto-check-update`, `ui.auto-download-update`, `ui.update-channel`,
+    /// `ui.update-source`).
+    pub update: crate::update::UpdateSettings,
 }
 
 /// 同步 menu's live options (Java `ui.always-gotolast-onlive`, `ui.open-html-onlive`).

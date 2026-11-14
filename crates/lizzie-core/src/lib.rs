@@ -46,6 +46,7 @@ pub mod settings;
 pub mod strength;
 pub mod tencent_kifu;
 pub mod tsumego;
+pub mod update;
 pub mod viewpoint;
 pub mod web_board;
 pub mod workbench;

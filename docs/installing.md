@@ -79,6 +79,12 @@ prints "Cannot mount AppImage"; run it with `--appimage-extract-and-run` instead
 
 Packages are built on Ubuntu 24.04 and need at least its system libraries (glibc 2.39).
 
+## Updating
+
+*Help > 检查更新* updates the Windows installer, macOS and AppImage installations from within the
+program; the portable zip and the deb are updated by installing the new package. See
+[Updates](updates.md).
+
 ## Where your data is
 
 Settings (`config.json`, `persist.json`) and logs (`logs/app.log`, `logs/crash.log`) are kept per

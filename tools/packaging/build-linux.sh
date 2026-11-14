@@ -2,6 +2,9 @@
 # Builds the Linux x64 packages of the committed HEAD in the Ubuntu 24.04 builder container.
 # Uncommitted changes are not included. Arguments go to tools/package.mjs (for example
 # --identity acceptance); packages are written to $OUT (default target/packages).
+# Update signing (docs/updates.md): UPDATE_PUBKEY names the public key file, and
+# TAURI_SIGNING_PRIVATE_KEY_PATH with TAURI_SIGNING_PRIVATE_KEY_PASSWORD the private key; the key
+# files are mounted read-only and the password is passed through the environment.
 set -euo pipefail
 
 root=$(git rev-parse --show-toplevel)
@@ -16,9 +19,20 @@ input=$(mktemp -d)
 trap 'rm -rf "$input"' EXIT
 git -C "$root" bundle create "$input/source.bundle" HEAD
 
+keys=()
+args=()
+if [[ -n "${UPDATE_PUBKEY:-}" ]]; then
+  keys+=(-v "$(realpath "$UPDATE_PUBKEY"):/keys/update.key.pub:ro")
+  args+=(--update-pubkey /keys/update.key.pub)
+fi
+if [[ -n "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ]]; then
+  keys+=(-v "$(realpath "$TAURI_SIGNING_PRIVATE_KEY_PATH"):/keys/update.key:ro"
+    -e TAURI_SIGNING_PRIVATE_KEY_PATH=/keys/update.key -e TAURI_SIGNING_PRIVATE_KEY_PASSWORD)
+fi
+
 # Named volumes keep downloaded crates, npm packages and Tauri's bundling tools between builds.
 docker run --rm \
-  -v "$input:/in:ro" -v "$out:/out" \
+  -v "$input:/in:ro" -v "$out:/out" "${keys[@]}" \
   -v lizzieyzy-tauri-cargo-registry:/usr/local/cargo/registry \
   -v lizzieyzy-tauri-npm-cache:/root/.npm \
   -v lizzieyzy-tauri-tauri-cache:/root/.cache/tauri \
@@ -29,4 +43,4 @@ docker run --rm \
     npm ci --no-audit --no-fund
     node tools/package.mjs --out /out "${@:2}"
     chown -R "$1" /out
-  ' "$commit" "$(id -u):$(id -g)" "$@"
+  ' "$commit" "$(id -u):$(id -g)" "${args[@]}" "$@"

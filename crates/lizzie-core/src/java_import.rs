@@ -164,6 +164,12 @@ pub struct Mapped {
     pub quick_link_programs: Option<Vec<crate::quick_links::QuickLinkProgram>>,
     /// A program command carries credentials: the list comes over only when confirmed.
     pub quick_link_credential: bool,
+    /// 检查更新: `ui.auto-check-update`, `ui.auto-download-update`, `ui.update-channel`,
+    /// `ui.update-source`.
+    pub update_auto_check: Option<bool>,
+    pub update_auto_download: Option<bool>,
+    pub update_channel: Option<crate::update::UpdateChannel>,
+    pub update_source: Option<crate::update::UpdateSource>,
     /// 布局模式 (`ui.extra-mode`).
     pub extra_mode: Option<ExtraMode>,
     pub recent_files: Option<Vec<String>>,
@@ -2026,6 +2032,7 @@ impl Reader<'_> {
         self.web_board(root, &mut handled);
         self.logging(root, &mut handled);
         self.quick_links(ui, leelaz, &mut handled);
+        self.updates(ui, &mut handled);
         self.display(ui, leelaz, &mut handled);
         self.game(ui, leelaz, &mut handled);
         self.matches(ui, &mut handled);
@@ -2798,6 +2805,46 @@ impl Reader<'_> {
         }
     }
 
+    /// 检查更新 (`UpdatePreferences`, `UpdateChannel.fromConfigValue`,
+    /// `UpdateSource.fromConfigValue`): Java reads the two switches as booleans and the channel and
+    /// source as text, where only `beta` / `github` (any case, trimmed) choose 测试 / GitHub and any
+    /// other value means 正式 / 官网.
+    fn updates(&mut self, ui: &Map<String, Value>, handled: &mut Handled) {
+        use crate::update::{UpdateChannel, UpdateSource};
+        const TARGET: ImportTarget = ImportTarget::Update;
+        for key in ["auto-check-update", "auto-download-update"] {
+            let Some(v) = ui.get(key) else { continue };
+            handled.push(("ui", key));
+            match as_bool(v) {
+                Some(on) => {
+                    if key == "auto-check-update" {
+                        self.mapped.update_auto_check = Some(on);
+                    } else {
+                        self.mapped.update_auto_download = Some(on);
+                    }
+                    self.imported(format!("ui.{key}"), TARGET, on.to_string());
+                }
+                None => self.invalid(format!("ui.{key}"), TARGET, v),
+            }
+        }
+        let text = |v: &Value| match v {
+            Value::String(s) => s.trim().to_ascii_lowercase(),
+            other => other.to_string(),
+        };
+        if let Some(v) = ui.get("update-channel") {
+            handled.push(("ui", "update-channel"));
+            let channel = if text(v) == "beta" { UpdateChannel::Beta } else { UpdateChannel::Stable };
+            self.mapped.update_channel = Some(channel);
+            self.imported("ui.update-channel".into(), TARGET, format!("{channel:?}"));
+        }
+        if let Some(v) = ui.get("update-source") {
+            handled.push(("ui", "update-source"));
+            let source = if text(v) == "github" { UpdateSource::Github } else { UpdateSource::Official };
+            self.mapped.update_source = Some(source);
+            self.imported("ui.update-source".into(), TARGET, format!("{source:?}"));
+        }
+    }
+
     /// 快速启动 (`Config.showQuickLinks`, `Menu.getProgramData`). Java builds the list from the
     /// command array, skipping empty commands and naming each by the name at the same index
     /// (`optString`); a command that is not text breaks the list, so such a list is refused whole.
@@ -3475,6 +3522,23 @@ impl Mapped {
         Some(next.normalized())
     }
 
+    /// 检查更新 after the import; 自动下载更新 counts only with 启动时自动检查更新.
+    fn update_after(&self, current: &crate::update::UpdateSettings) -> Option<crate::update::UpdateSettings> {
+        if self.update_auto_check.is_none()
+            && self.update_auto_download.is_none()
+            && self.update_channel.is_none()
+            && self.update_source.is_none()
+        {
+            return None;
+        }
+        let mut next = *current;
+        next.auto_check = self.update_auto_check.unwrap_or(next.auto_check);
+        next.auto_download = self.update_auto_download.unwrap_or(next.auto_download);
+        next.channel = self.update_channel.unwrap_or(next.channel);
+        next.source = self.update_source.unwrap_or(next.source);
+        Some(next.normalized())
+    }
+
     /// 快速启动 after the import: 显示快速启动 and, unless its commands carry credentials that
     /// were not confirmed (`copy`), the Java program list in place of `current`'s.
     fn quick_links_after(&self, current: &crate::quick_links::QuickLinkSettings, copy: bool) -> Option<crate::quick_links::QuickLinkSettings> {
@@ -3517,6 +3581,7 @@ impl Mapped {
         set!(c.read_board.suppress_websocket_pondering_notice, self.suppress_websocket_pondering_notice);
         set!(c.logging, self.logging_after(&c.logging));
         set!(c.quick_links, self.quick_links_after(&c.quick_links, quick_links));
+        set!(c.update, self.update_after(&c.update));
         set!(c.ui.extra_mode, self.extra_mode);
         if let Ok(mut values) = serde_json::to_value(&c.panels) {
             for value in &self.panels { value.set(&mut values); }
@@ -3909,6 +3974,7 @@ impl Mapped {
         );
         cmp!(ImportTarget::Diagnostics, config.logging, self.logging_after(&config.logging));
         cmp!(ImportTarget::QuickLinks, config.quick_links, self.quick_links_after(&config.quick_links, true));
+        cmp!(ImportTarget::Update, config.update, self.update_after(&config.update));
         cmp!(ImportTarget::ExtraMode, config.ui.extra_mode, self.extra_mode);
         cmp!(ImportTarget::RecentFiles, config.recent_files, self.recent_files);
         let fox = &config.fox_kifu;

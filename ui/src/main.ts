@@ -22,6 +22,7 @@ import { independentReport, relayIndependent, startIndependent } from "./workben
 import type { IndependentInput } from "./workbench/independentModel";
 import "./workbench/displayPage";
 import "./about";
+import "./update";
 import "./initSettings";
 import "./quickLinks";
 import { boardUi, candidatesShownFor, onBoardUiChange } from "./display/state";
