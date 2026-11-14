@@ -179,6 +179,8 @@ pub fn setup(app: &AppHandle, shared: &State) {
     });
     if !pending {
         let _ = std::fs::remove_file(marker);
+        // What the package manager printed for a handover the previous run did not see end.
+        log_package_manager(shared, &staging.join(PACKAGE_MANAGER_LOG));
     }
     if let Ok(notes) = std::fs::read_to_string(staging.join(HELPER_LOG)) {
         for line in notes.lines() {
@@ -577,6 +579,16 @@ fn dpkg(command: &mut Command) -> Option<String> {
         .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+/// Copies what the package manager printed into the log, removes its file and returns the text.
+fn log_package_manager(shared: &State, file: &Path) -> String {
+    let said = std::fs::read_to_string(file).unwrap_or_default();
+    let _ = std::fs::remove_file(file);
+    for line in said.lines() {
+        shared.log.info(&format!("update package manager: {line}"));
+    }
+    said
+}
+
 fn package_record(name: &str) -> Option<Package> {
     Package::parse(&dpkg(Command::new("dpkg-query").arg("--status").arg(name))?)
 }
@@ -643,7 +655,12 @@ fn install_deb(app: &AppHandle, shared: &State, job: &UpdateInstallJob) {
         return failed(UpdateError::Generic, None, "no update staging folder".into());
     };
     let log = marker.with_file_name(PACKAGE_MANAGER_LOG);
-    let output = std::fs::File::create(&log).and_then(|file| Ok((file.try_clone()?, file)));
+    // Appended: output a start has not copied to the log yet is kept.
+    let output = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log)
+        .and_then(|file| Ok((file.try_clone()?, file)));
     let (stdout, stderr) = match output {
         Ok(pair) => pair,
         Err(e) => return failed(UpdateError::Generic, None, e.to_string()),
@@ -687,11 +704,7 @@ fn install_deb(app: &AppHandle, shared: &State, job: &UpdateInstallJob) {
             }
         }
     };
-    let said = std::fs::read_to_string(&log).unwrap_or_default();
-    let _ = std::fs::remove_file(&log);
-    for line in said.lines() {
-        shared.log.info(&format!("update package manager: {line}"));
-    }
+    let said = log_package_manager(shared, &log);
     let now = package_record(&installed.name);
     let handover = deb::settle(exit, now.as_ref(), &version);
     let _ = std::fs::remove_file(marker);

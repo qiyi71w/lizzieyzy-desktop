@@ -34,9 +34,13 @@ impl Package {
         })
     }
 
-    /// Fully installed and configured: nothing is left for the package manager to finish.
+    /// Fully installed and configured: nothing is left for the package manager to finish. The
+    /// status is `<selection> <error flag> <state>`; the selection (`install`, or `hold` for a
+    /// package the administrator holds back) says what is wanted, not what is installed.
     fn installed(&self) -> bool {
-        self.status.as_deref() == Some("install ok installed")
+        let mut words = self.status.as_deref().unwrap_or("").split_whitespace();
+        let (_selection, flag, state) = (words.next(), words.next(), words.next());
+        flag == Some("ok") && state == Some("installed")
     }
 
     /// Whether this package file is the offered `version` of the `installed` package, for the

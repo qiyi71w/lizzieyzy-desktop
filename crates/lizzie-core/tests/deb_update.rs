@@ -70,11 +70,23 @@ fn a_handover_is_settled_by_what_the_package_manager_recorded() {
     ] {
         assert_eq!(settle(exit, now, "0.2.0"), expected, "{why}");
     }
+    // A package the administrator holds back (`apt-mark hold`) is fully installed: what was
+    // asked of it is its selection, not an unfinished installation.
+    let held = installed("0.1.0", "hold ok installed");
+    for (exit, expected) in [
+        (Some(126), Handover::Dismissed),
+        (Some(127), Handover::Unauthorized),
+        (Some(100), Handover::NotInstalled),
+    ] {
+        assert_eq!(settle(exit, Some(&held), "0.2.0"), expected, "held, exit {exit:?}");
+    }
     // Stopped part-way: dpkg's record is not an installed state, whatever the exit code.
     for status in [
         "install reinstreq half-installed",
         "install ok unpacked",
         "install ok half-configured",
+        "hold ok half-configured",
+        "install reinstreq installed",
         "deinstall ok config-files",
     ] {
         for version in ["0.1.0", "0.2.0"] {
