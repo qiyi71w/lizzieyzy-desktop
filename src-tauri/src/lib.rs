@@ -2382,6 +2382,16 @@ pub fn run() {
                     }
                 }
             }
+            // Tauri's `unstable` feature (the 弈客 web window's child webviews) makes every
+            // window's page a child view: macOS then gives a focused window's keys to the window
+            // itself, not its page, until a click. A one-page window hands them to its page, as
+            // Java's frames take the keys once active.
+            #[cfg(target_os = "macos")]
+            WindowEvent::Focused(true) => {
+                if let [page] = window.webviews().as_slice() {
+                    let _ = page.set_focus();
+                }
+            }
             _ => {}
         })
         .invoke_handler(handlers())
