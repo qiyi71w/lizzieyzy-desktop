@@ -599,11 +599,11 @@ impl Workbench {
     /// the browsing position; the secondary engine analyses only in 双引擎模式 and only while the
     /// foreground engine may (the user's pause and a foreground limit stop it too, as Java
     /// mirrors the primary engine's commands), and stops alone at its own limit. While
-    /// 综合设置 holds analysis neither engine analyses, in every mode. A waiting analysis engine
-    /// warm-up decides again on the changed state.
+    /// 综合设置 holds analysis, or a 搜索线程数 restore runs, neither engine analyses, in every
+    /// mode. A waiting analysis engine warm-up decides again on the changed state.
     pub(super) fn sync_engine(&mut self) {
         self.warmup_review();
-        let hold = self.analysis_hold;
+        let hold = self.analysis_hold || self.search_threads_restoring();
         if self.fox_holds_engine() || self.fox_owns_board() {
             self.engines.want_secondary(None, false);
             self.engines.want(None, false);
@@ -667,7 +667,6 @@ impl Workbench {
             && !self.whole_game_holds_foreground()
             && !self.batch_holds_foreground()
             && !self.readboard_gma_busy()
-            && !self.search_threads_restoring()
             && self.rules_permit_analysis();
         let target = self.analysis_target();
         self.sync_search(analyse);
