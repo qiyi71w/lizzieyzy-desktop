@@ -6,13 +6,14 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use lizzie_core::api::{
-    CommandResult, KataEngineParamsEdit, KataParamEdit, SearchThreadsCommand, SearchThreadsStatus, ThreadRestoreSource,
+    CommandResult, HumanSlCommand, KataEngineParamsEdit, KataParamEdit, SearchThreadsCommand, SearchThreadsStatus,
+    ThreadRestoreSource,
 };
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher, ThreadOverride};
 use lizzie_core::engine::tuning::{ThreadPolicy, ThreadSource};
-use lizzie_core::settings::Storage;
+use lizzie_core::settings::{self, Config, HumanSlTrainingSettings, Storage};
 use lizzie_core::workbench::Workbench;
 
 #[derive(Default)]
@@ -261,6 +262,37 @@ fn an_unanswered_request_times_out_and_its_late_answer_is_ignored() {
     assert!(failed("SetKataEngines.threadFailed")(&status(&mut wb, ticket)));
 }
 
+/// AI 陪练 searches with its own analysis engine: the foreground KataGo's value is still read and
+/// set (Java's admission checks only what occupies that engine, Leelaz.java:21133-21140).
+#[test]
+fn an_ai_coach_session_leaves_the_foreground_katago_free() {
+    let dir = tempfile::tempdir().unwrap();
+    let storage = Storage::in_dirs(&dir.path().join("config"), &dir.path().join("data"));
+    let mut config = Config::default();
+    config.analysis_engine.command = "/fake/katago analysis -config /fake/analysis.cfg -model /fake/main.bin.gz".into();
+    config.analysis_engine.command_customized = true;
+    let model = dir.path().join("custom-human.bin.gz");
+    std::fs::File::create(&model).unwrap().set_len(1024 * 1024 + 1).unwrap();
+    config.human_sl.model_path = Some(model.to_string_lossy().into_owned());
+    settings::save_json(&storage.config_file, &config).unwrap();
+    let world = World::default();
+    let mut engine = Katago::new();
+    let (mut wb, id) = started(dir.path(), &world, vec![katago("/opt/katago gtp")], &mut engine);
+    let start = HumanSlCommand::Start { settings: HumanSlTrainingSettings::default(), from_current: true, advanced_visible: false, stop_batch: false };
+    assert_eq!(wb.human_sl(start).unwrap(), CommandResult::Done);
+    assert_eq!(world.count(), 2, "the session's analysis engine started");
+    serve(&mut wb, &world, id, &mut engine);
+
+    let ticket = step(&mut wb, SearchThreadsCommand::Read { process: id });
+    let sent = serve(&mut wb, &world, id, &mut engine);
+    assert!(sent.contains(&"kata-get-param numSearchThreads".to_string()), "{sent:?}");
+    assert_eq!(status(&mut wb, ticket), SearchThreadsStatus::Done { threads: Some(2) });
+    let ticket = step(&mut wb, confirm(id, true, "6", true));
+    serve(&mut wb, &world, id, &mut engine);
+    assert_eq!(status(&mut wb, ticket), SearchThreadsStatus::Done { threads: Some(6) });
+    assert_eq!(row(&mut wb), (id, ThreadOverride::On, Some(6), false));
+}
+
 /// Unchecking an override offers restoring the launch source (configuration file, benchmark
 /// recommendation or launch command). Declining changes nothing; confirming restarts the engine
 /// at the same position and analysis state, the new process starts without the override, its
@@ -302,6 +334,12 @@ fn unchecking_an_override_restores_the_launch_source_by_restarting() {
         let read = sent.iter().position(|c| c == "kata-get-param numSearchThreads").expect("the new value is read");
         let wrn = sent.iter().rposition(|c| c == "kata-set-param analysisWideRootNoise 0.3").expect("the other rows");
         assert!(read < wrn, "{sent:?}");
+        // Java defers the resume until the restore completed (deferResumeUntilCompletion): after the
+        // position is synced nothing is analysed before the other rows are sent.
+        assert!(analysing, "the engine analysed before the restore");
+        let synced = sent.iter().position(|c| c == "clear_board").expect("synced");
+        let analyze = synced + sent[synced..].iter().position(|c| c.starts_with("kata-analyze")).expect("analysis resumes");
+        assert!(wrn < analyze, "analysis resumes only after the other rows: {sent:?}");
         assert_eq!(status(&mut wb, ticket), SearchThreadsStatus::Done { threads: Some(fresh.threads) });
         assert_eq!(row(&mut wb), (successor, ThreadOverride::Off, Some(fresh.threads), false));
         assert_eq!(wb.view(false).engine.analysing, analysing, "analysis resumes as before");

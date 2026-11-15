@@ -667,6 +667,7 @@ impl Workbench {
             && !self.whole_game_holds_foreground()
             && !self.batch_holds_foreground()
             && !self.readboard_gma_busy()
+            && !self.search_threads_restoring()
             && self.rules_permit_analysis();
         let target = self.analysis_target();
         self.sync_search(analyse);

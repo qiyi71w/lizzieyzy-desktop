@@ -110,6 +110,18 @@ impl Workbench {
         self.threads_set(ticket, status, Step::Idle);
     }
 
+    /// A restore holds analysis from the restart until it ended (Java
+    /// `deferResumeUntilCompletion`): the restarted engine is synced, read and given the other rows
+    /// before it analyses again as the seat wishes.
+    pub(super) fn search_threads_restoring(&self) -> bool {
+        self.threads.op.as_ref().is_some_and(|o| matches!(o.step, Step::Restart { .. }))
+    }
+
+    fn threads_restore_end(&mut self, ticket: u64, status: SearchThreadsStatus) {
+        self.threads_finish(ticket, status);
+        self.sync_engine();
+    }
+
     /// `process` is the ready foreground KataGo (Java `RuntimeSearchThreads.isCurrent`).
     fn threads_current(&self, process: InstanceId) -> bool {
         self.engines.foreground() == Some(process)
@@ -122,17 +134,20 @@ impl Workbench {
     }
 
     /// Whether something else holds the foreground engine (Java's admission: rules mutation and
-    /// engine games, ordinary forwarding, ReadBoard GMA, an unrestored engine, a restore).
+    /// engine games, ordinary forwarding, ReadBoard GMA, an unrestored engine, a restore). AI 陪练
+    /// searches with its own analysis engine, so only what occupies the foreground engine itself
+    /// counts during it.
     fn threads_occupied(&self) -> bool {
+        let free = |a: LeaseAvailability| matches!(a, LeaseAvailability::Available | LeaseAvailability::MissingCapability);
         self.fox_owns_board()
             || self.fox_holds_engine()
             || self.match_active()
             || self.restart_restoring()
             || self.foreground_lifecycle_held().is_some()
-            || !matches!(
-                self.engines.lease_availability(),
-                LeaseAvailability::Available | LeaseAvailability::MissingCapability
-            )
+            || match self.engines.lease_availability() {
+                LeaseAvailability::HumanSlGame => !free(self.engines.exclusive_gtp_availability()),
+                availability => !free(availability),
+            }
     }
 
     fn threads_read(&mut self, ticket: u64, process: InstanceId) {
@@ -255,7 +270,7 @@ impl Workbench {
         self.threads_set(ticket, SearchThreadsStatus::Running, Step::Restart { successor: None, reading: false, snapshot, params });
         self.engines.terminate(process);
         if !self.restart_failed_foreground(&profile_id) {
-            self.threads_finish(ticket, failed(RESTORE_FAILED, Some("KataGo restart successor is unavailable")));
+            self.threads_restore_end(ticket, failed(RESTORE_FAILED, Some("KataGo restart successor is unavailable")));
             return ticket;
         }
         let successor = self.engines.foreground();
@@ -316,7 +331,7 @@ impl Workbench {
         } else {
             self.threads_save(params, threads)
         };
-        self.threads_finish(ticket, status);
+        self.threads_restore_end(ticket, status);
     }
 
     /// A step whose process ended or left the seat is stale; a restarted engine that became ready
@@ -339,7 +354,7 @@ impl Workbench {
             Step::Restart { successor: Some(successor), reading, .. } => {
                 let (successor, reading) = (*successor, *reading);
                 if self.engines.foreground() != Some(successor) {
-                    self.threads_finish(ticket, failed(RESTORE_FAILED, Some("KataGo restart successor is unavailable")));
+                    self.threads_restore_end(ticket, failed(RESTORE_FAILED, Some("KataGo restart successor is unavailable")));
                     return true;
                 }
                 if reading || self.engines.phase(successor) != Some(Phase::Ready) {

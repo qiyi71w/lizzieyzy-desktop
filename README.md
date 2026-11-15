@@ -38,6 +38,8 @@ importing the matching LizzieYzy Next settings.
   without a shown variation these entries browse as usual. The bottom bar buttons always browse.
   In 双引擎模式 `Ctrl+Down`, `Ctrl+Shift+Down` and the panel's `>`/`>>` grow the main board's
   variation only (the right board's when only it shows one); the other entries step both boards.
+  A variation that auto-replays (自动回放变化图) is stepped from the length it shows, and the
+  replay goes on from the new length.
 - Stepping forward plays the Java stone sounds (stone, capture, capture of three or more).
 - The board shows setup stones, moves, passes, captures, comments, SGF markup (TR/SQ/CR/MA/LB),
   next-move rings, player names, the sub board, the variation tree and the empty winrate graph.
@@ -357,16 +359,19 @@ importing the matching LizzieYzy Next settings.
     saved. Opening the window shows the last value this process confirmed (读取中／刷新中) and reads
     `kata-get-param numSearchThreads`; a failed read shows 刷新失败. Ticked with a whole number
     1–1024, 确定 sends `kata-set-param numSearchThreads N` (确定, 取消 and closing wait for the
-    answer) and saves the other rows once the engine accepts it; an invalid number or a refusal
+    answer) and saves the other rows once the engine accepts it, as they are then (a row edited
+    while waiting is saved and sent as edited); an invalid number or a refusal
     (with the engine's reason) leaves the window open. Unticking an override of a local engine asks
     whether to restore the startup source (KataGo configuration file, saved benchmark
     recommendation with its value, or explicit launch command); confirming restarts the engine,
-    brings it back to the current position and analysis state, reads the new process's value and
-    saves the other rows. An SSH / 远程算力 / `ssh` command engine cannot be restored from here and
+    brings it back to the current position, reads the new process's value and saves the other
+    rows, and only then analyses again (unless analysis was paused). An SSH / 远程算力 / `ssh`
+    command engine cannot be restored from here and
     keeps its override ticked; its state is unknown until set. A restarted engine, or another
     engine process, starts without the override, and the window reports a stale engine if the engine changed while
     it was open. Requests are refused while the engine is occupied (games, matches, GMA, a lease,
-    an unrestored engine, a restart in progress) and fail after 8 s without an answer.
+    an unrestored engine, a restart in progress; AI 陪练 searches with its own engine and does not
+    count) and fail after 8 s without an answer.
 - Leela Zero / Sai options: with Leela Zero or Sai in the foreground, 设置 > 引擎参数 (`Alt+D`) or the
   toolbar's 参数 opens 设置Leela(Sai)引擎高级参数 with Java's four rows (最大内存, 访问量, 延迟缓冲,
   认输胜率; the labels give Java's ranges, which are not checked). 确定 saves the rows and sends

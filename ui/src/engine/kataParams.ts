@@ -250,10 +250,17 @@ async function openKataEngines(): Promise<void> {
     const [pdaEdit, wrnEdit]: KataParamEdit[] = [pda, wrn].map((r) => ({ enabled: r.edit.checked, value: parseJavaDouble(r.value.value), auto_load: r.autoLoad.checked }));
     return { pda: pdaEngine ? null : pdaEdit, wrn: wrnEdit, show_pda: pda.inMenu.checked, show_wrn: wrn.inMenu.checked };
   };
-  // applyExistingSettings after the core saved the rows: the toolbar groups take them.
-  const finish = async () => {
-    if (!pdaEngine) kataToolbarUse.Pda?.(pda.edit.checked, pda.value.value);
-    kataToolbarUse.Wrn?.(wrn.edit.checked, wrn.value.value);
+  // applyExistingSettings reads the rows once the 搜索线程数 step ended (SetKataEngines.java:653-660):
+  // rows edited while it ran are saved again, and the toolbar groups take what was saved.
+  const finish = async (committed: KataEngineParamsEdit) => {
+    const now = rows();
+    const shown = { pda: [pda.edit.checked, pda.value.value] as const, wrn: [wrn.edit.checked, wrn.value.value] as const };
+    if (JSON.stringify(now) !== JSON.stringify(committed)) {
+      const result = await run({ type: "SaveKataEngineParams", params: now });
+      if (!result || result.type === "Refused") return;
+    }
+    if (!pdaEngine) kataToolbarUse.Pda?.(...shown.pda);
+    kataToolbarUse.Wrn?.(...shown.wrn);
     await dialog.close();
   };
   /** One step of the row; resolves to how it ended, `null` when it did not run. */
@@ -269,14 +276,15 @@ async function openKataEngines(): Promise<void> {
   // confirmSettings: the core decides between saving, setting and restoring.
   const apply = button(t("SetKataEngines.btnApply"), async () => {
     if (busy) return;
+    const params = rows();
     if (process === null) {
       // No KataGo process: only the other rows (Java runtimeThreads == null).
       if (threadCheck.checked) { await threadError("SetKataEngines.threadStale"); return; }
-      const result = await run({ type: "SaveKataEngineParams", params: rows() });
-      if (result && result.type !== "Refused") await finish();
+      const result = await run({ type: "SaveKataEngineParams", params });
+      if (result && result.type !== "Refused") await finish(params);
       return;
     }
-    const step = await threadStep({ type: "Confirm", process, enabled: threadCheck.checked, text: threadValue.value, edited: threadEdited, params: rows() });
+    const step = await threadStep({ type: "Confirm", process, enabled: threadCheck.checked, text: threadValue.value, edited: threadEdited, params });
     let status = step?.status ?? null;
     if (step && status?.type === "ConfirmRestore") {
       const recommended = status.recommended === null ? t("SetKataEngines.threadSourceUnknown") : String(status.recommended);
@@ -290,7 +298,7 @@ async function openKataEngines(): Promise<void> {
       if (status?.type === "Failed") threadTooltips();
     }
     if (!status || !open) return;
-    if (status.type === "Done") { await finish(); return; }
+    if (status.type === "Done") { await finish(params); return; }
     if (status.type !== "Failed") return;
     if (status.message_key === "SetKataEngines.threadRemoteRestoreUnsupported" || status.message_key === "SetKataEngines.threadRestoreFailed") keepThreadOverride();
     await threadError(status.message_key, status.detail);

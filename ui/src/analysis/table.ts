@@ -11,6 +11,7 @@ import { frameCoordinate, playouts, themeFonts } from "../workbench/paint";
 import { appearance, frameMetrics } from "../appearance/state";
 import { customFont } from "../appearance/model";
 import { bindColumnResize, layoutColumns, MIN_COLUMN, type FrameBar, type FrameCell, type FramePayload } from "./suggestionsFrame";
+import { autoReplayed, setAutoReplayed } from "../display/autoplay";
 
 /** One row of a table model (`data2`), as Java's MoveData. */
 interface TableRow {
@@ -354,26 +355,38 @@ function shownVariations(): { left: ShownVariation | null; right: ShownVariation
   return { left: shown?.left ?? null, right: shown?.right ?? null };
 }
 
+/** A shown variation's displayedBranchLength: the length the wheel or the browsing keys set, else
+ *  the auto-replayed one; null is the whole variation (SHOW_NORMAL_BOARD). */
+function displayedLength(shown: ShownVariation): number | null {
+  return tableBranchLength(shown.key) ?? autoReplayed(shown.key) ?? null;
+}
+
+/** Sets a shown variation's displayed length; an auto-replayed one grows on from it. */
+function setDisplayedLength(shown: ShownVariation, length: number): void {
+  if (tableBranchLength(shown.key) === null && setAutoReplayed(shown.key, length)) return;
+  branches.set(shown.key, length);
+}
+
 /** doBranch (LizzieFrame.java:12036-12073) on both boards at once: forward from the left board's
  *  whole variation shows 2 moves on each board, then one more on each with room; back, the left
  *  board shows all but the last, then one less, and the right board goes from its whole variation
  *  to its replay length (Java's getReplayBranch), then one less. */
 function doBranch(left: ShownVariation | null, right: ShownVariation | null, down: boolean): void {
-  const leftLength = left ? tableBranchLength(left.key) : null;
-  const rightLength = right ? tableBranchLength(right.key) : null;
+  const leftLength = left ? displayedLength(left) : null;
+  const rightLength = right ? displayedLength(right) : null;
   if (down) {
     if (leftLength === null) {
-      if (left) branches.set(left.key, 2);
-      if (right) branches.set(right.key, 2);
+      if (left) setDisplayedLength(left, 2);
+      if (right) setDisplayedLength(right, 2);
     } else {
-      if (left && left.steps > leftLength) branches.set(left.key, leftLength + 1);
-      if (right && rightLength !== null && right.steps > rightLength) branches.set(right.key, rightLength + 1);
+      if (left && left.steps > leftLength) setDisplayedLength(left, leftLength + 1);
+      if (right && rightLength !== null && right.steps > rightLength) setDisplayedLength(right, rightLength + 1);
     }
   } else {
-    if (left && leftLength === null) branches.set(left.key, left.steps - 1);
-    else if (left && leftLength !== null && leftLength > 1) branches.set(left.key, leftLength - 1);
-    if (right && rightLength === null) branches.set(right.key, right.steps);
-    else if (right && rightLength !== null && rightLength > 1) branches.set(right.key, rightLength - 1);
+    if (left && leftLength === null) setDisplayedLength(left, left.steps - 1);
+    else if (left && leftLength !== null && leftLength > 1) setDisplayedLength(left, leftLength - 1);
+    if (right && rightLength === null) setDisplayedLength(right, right.steps);
+    else if (right && rightLength !== null && rightLength > 1) setDisplayedLength(right, rightLength - 1);
   }
   touched();
 }
@@ -382,12 +395,12 @@ function doBranch(left: ShownVariation | null, right: ShownVariation | null, dow
  *  whole variation becomes 2 moves; 1 move becomes 2 with 自动回放 or 1 + n moves; otherwise n more
  *  (or fewer), up to one past the variation's end. */
 function incrementBranch(shown: ShownVariation, n: number): void {
-  const length = tableBranchLength(shown.key);
-  if (length === null) branches.set(shown.key, 2);
+  const length = displayedLength(shown);
+  if (length === null) setDisplayedLength(shown, 2);
   else if (length === 1) {
-    if (state.view?.settings.display.autoReplayBranch) branches.set(shown.key, 2);
-    else if (n > 0) branches.set(shown.key, Math.min(1 + n, shown.steps + 1));
-  } else branches.set(shown.key, Math.min(Math.max(0, length + n), shown.steps + 1));
+    if (state.view?.settings.display.autoReplayBranch) setDisplayedLength(shown, 2);
+    else if (n > 0) setDisplayedLength(shown, Math.min(1 + n, shown.steps + 1));
+  } else setDisplayedLength(shown, Math.min(Math.max(0, length + n), shown.steps + 1));
   touched();
 }
 
