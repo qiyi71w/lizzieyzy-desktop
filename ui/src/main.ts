@@ -10,7 +10,7 @@ import { buildBottomBar, layoutBottomBar } from "./chrome/bottombar";
 import { buildMenubar, menuOpen, secondaryMenuTitle } from "./chrome/menubar";
 import { buildToolbar, renderToolbar } from "./chrome/toolbar";
 import { onUnavailable, onView, snapshot } from "./contract/client";
-import type { BoardOverlayView, FloatSceneView, HistoryPoint, Navigation, NodeAnalysisView, Point, SubBoardMode, WorkbenchView } from "./contract/generated";
+import type { BoardOverlayView, FloatSceneView, HistoryPoint, NodeAnalysisView, Point, SubBoardMode, WorkbenchView } from "./contract/generated";
 import { dialogOpen, message } from "./dialogs";
 import { format, isChinese, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
@@ -44,7 +44,7 @@ import { mountSetupBanner } from "./setup/banner";
 import "./editing/commands";
 import "./analysis/graphCommands";
 import { graphDestination, graphTarget, paintGraph, type GraphHits, type GraphReport } from "./analysis/graph";
-import { bindTables, boardPointerMoved, boardWheel, clearTableSelection, mainTableSignature, renderMainTable, resetTables, tableBranchLength, tablesReport } from "./analysis/table";
+import { bindTables, boardPointerMoved, boardWheel, clearTableSelection, mainTableSignature, pageStep, redo, renderMainTable, resetTables, stepVariationOrMove, tableBranchLength, tablesReport, undo } from "./analysis/table";
 import { frameReport, framesReport, handleTableKey, relayFrame, startFrame } from "./analysis/tableCommands";
 import { handleHawkeyeKey, hawkeyeReport, relayHawkeye, startHawkeye } from "./hawkeye/commands";
 import { commentaryReport, relayCommentary, renderCommentPanel, startCommentary } from "./commentary/commands";
@@ -452,29 +452,47 @@ function textTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLInputElement && target.type !== "checkbox";
 }
 
-/** Browsing keys of Input.keyPressed. Returns null for keys Java does not bind. */
-function navigationFor(e: KeyboardEvent): Navigation | null {
+/** Moves from the current node to the next (or previous) node with a comment, or to the line's
+ *  end (root) without one (BoardHistoryNode.goToNextNodeWithComment / goToPreviousNodeWithComment). */
+function commentDistance(forward: boolean): number {
+  let node = state.view ? state.nodes.get(state.view.position.node) : undefined;
+  let moves = 0;
+  while (node) {
+    const id = forward ? node.children[0] : node.parent;
+    const step = id === undefined || id === null ? undefined : state.nodes.get(id);
+    if (!step) break;
+    moves++;
+    if (step.has_comment) break;
+    node = step;
+  }
+  return moves;
+}
+
+/** Browsing keys of Input.keyPressed. Returns null for keys Java does not bind. Up / Down and
+ *  PageUp / PageDown step a shown variation first; Ctrl+Up / Ctrl+Down and the comment keys are
+ *  LizzieFrame.undo / redo (table.ts). */
+function navigationFor(e: KeyboardEvent): (() => void) | null {
   const ctrl = e.ctrlKey || e.metaKey;
   switch (e.key) {
     case "ArrowUp":
-      if (ctrl && e.shiftKey) return { op: "PreviousComment" };
-      if (e.shiftKey) return { op: "BranchStart" };
-      return ctrl ? { op: "Back", count: 10 } : { op: "Back", count: 1 };
+      if (ctrl && e.shiftKey) return () => undo(commentDistance(false), { op: "PreviousComment" });
+      if (e.shiftKey) return () => navigate({ op: "BranchStart" });
+      return ctrl ? () => undo(10) : () => stepVariationOrMove(false);
     case "ArrowDown":
-      if (ctrl && e.shiftKey) return { op: "NextComment" };
-      return ctrl ? { op: "Forward", count: 10 } : { op: "Forward", count: 1 };
+      if (ctrl && e.shiftKey) return () => redo(commentDistance(true), { op: "NextComment" });
+      return ctrl ? () => redo(10) : () => stepVariationOrMove(true);
     case "ArrowLeft":
-      return ctrl && !e.shiftKey ? { op: "BranchPoint" } : { op: "PreviousBranch" };
+      return () => navigate(ctrl && !e.shiftKey ? { op: "BranchPoint" } : { op: "PreviousBranch" });
     case "ArrowRight":
-      return { op: "NextBranch" };
+      return () => navigate({ op: "NextBranch" });
     case "PageUp":
-      return { op: "Back", count: 10 };
+      return () => pageStep(false);
     case "PageDown":
-      return { op: "Forward", count: 10 };
+      return () => pageStep(true);
     case "Home":
-      return { op: "First" };
+      return () => navigate({ op: "First" });
     case "End":
-      return { op: "Last" };
+      return () => navigate({ op: "Last" });
     default:
       return null;
   }
@@ -500,7 +518,7 @@ document.addEventListener("keydown", (e) => {
   const nav = navigationFor(e);
   if (nav) {
     e.preventDefault();
-    navigate(nav);
+    nav();
     return;
   }
   // macOS turns Option+letter into another character; Java's VK code is the letter key itself.
@@ -766,7 +784,7 @@ function bindPointer() {
     if (ev.button === 2) {
       // Off the board: openRightClickMenu clears the table selection, else undoForRightClick.
       ev.preventDefault();
-      if (!clearTableSelection()) navigate({ op: "Back", count: 1 });
+      if (!clearTableSelection()) undo(1);
       return;
     }
     if (ev.button !== 0) return;

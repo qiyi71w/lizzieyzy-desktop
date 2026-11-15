@@ -4,8 +4,8 @@
 // (mouseOverCoordinate, through the board's hover) and each table's clickOrder / selectedorder.
 // Values come from the core projections; nothing is converted by side here.
 import { invoke } from "@tauri-apps/api/core";
-import { state } from "../app";
-import type { CandidateView, HistoryPoint, Point, ShownValues, WorkbenchView } from "../contract/generated";
+import { navigate, state } from "../app";
+import type { CandidateView, HistoryPoint, Navigation, Point, ShownValues, WorkbenchView } from "../contract/generated";
 import { t } from "../i18n";
 import { frameCoordinate, playouts, themeFonts } from "../workbench/paint";
 import { appearance, frameMetrics } from "../appearance/state";
@@ -347,16 +347,18 @@ function rightClick(table: Table, row: number) {
   touched();
 }
 
-/** doBranch (LizzieFrame.java:12036-12073) for a table's clicked row, on both boards at once:
- *  forward from the left board's whole variation shows 2 moves on each board, then one more on
- *  each with room; back, the left board shows all but the last, then one less, and the right board
- *  goes from its whole variation to its replay length (Java's getReplayBranch), then one less. */
-function wheel(table: Table, down: boolean): boolean {
-  if (selection[table].click === -1) return false;
+/** The variations the boards show (BoardRenderer.hasSelectedVariation): a clicked row's or the
+ *  hovered candidate's, on the main (left) board and 双引擎模式's right board. */
+function shownVariations(): { left: ShownVariation | null; right: ShownVariation | null } {
   const shown = host?.variations();
-  const left = shown?.left ?? null;
-  const right = shown?.right ?? null;
-  if (!left && !right) return true;
+  return { left: shown?.left ?? null, right: shown?.right ?? null };
+}
+
+/** doBranch (LizzieFrame.java:12036-12073) on both boards at once: forward from the left board's
+ *  whole variation shows 2 moves on each board, then one more on each with room; back, the left
+ *  board shows all but the last, then one less, and the right board goes from its whole variation
+ *  to its replay length (Java's getReplayBranch), then one less. */
+function doBranch(left: ShownVariation | null, right: ShownVariation | null, down: boolean): void {
   const leftLength = left ? tableBranchLength(left.key) : null;
   const rightLength = right ? tableBranchLength(right.key) : null;
   if (down) {
@@ -374,6 +376,26 @@ function wheel(table: Table, down: boolean): boolean {
     else if (right && rightLength !== null && rightLength > 1) branches.set(right.key, rightLength - 1);
   }
   touched();
+}
+
+/** BoardRenderer.incrementDisplayedBranchLength (BoardRenderer.java:4617-4637) on one board: the
+ *  whole variation becomes 2 moves; 1 move becomes 2 with 自动回放 or 1 + n moves; otherwise n more
+ *  (or fewer), up to one past the variation's end. */
+function incrementBranch(shown: ShownVariation, n: number): void {
+  const length = tableBranchLength(shown.key);
+  if (length === null) branches.set(shown.key, 2);
+  else if (length === 1) {
+    if (state.view?.settings.display.autoReplayBranch) branches.set(shown.key, 2);
+    else if (n > 0) branches.set(shown.key, Math.min(1 + n, shown.steps + 1));
+  } else branches.set(shown.key, Math.min(Math.max(0, length + n), shown.steps + 1));
+  touched();
+}
+
+/** A table's wheel with a clicked row steps its variation (doBranch). */
+function wheel(table: Table, down: boolean): boolean {
+  if (selection[table].click === -1) return false;
+  const { left, right } = shownVariations();
+  if (left || right) doBranch(left, right, down);
   return true;
 }
 
@@ -383,6 +405,46 @@ function wheel(table: Table, down: boolean): boolean {
 export function boardWheel(down: boolean): boolean {
   const shown = host?.variations();
   return selection.main.click !== -1 && !!(shown?.left || shown?.right) && wheel("main", down);
+}
+
+/** Up / Down (Input.java:374-429): with a variation shown on either board one step of it
+ *  (doBranch), else one move of the record (navigateHistoryNoRefresh). */
+export function stepVariationOrMove(down: boolean): void {
+  const { left, right } = shownVariations();
+  if (left || right) doBranch(left, right, down);
+  else navigate({ op: down ? "Forward" : "Back", count: 1 });
+}
+
+/** PageDown / PageUp (Input.java:398-406, 503-511): with the main board's variation shown one
+ *  step of it (doBranch), else redo / undo of 10 moves. */
+export function pageStep(down: boolean): void {
+  const { left, right } = shownVariations();
+  if (left) doBranch(left, right, down);
+  else if (down) redo(10);
+  else undo(10);
+}
+
+/** LizzieFrame.redo / redoNoRefresh (LizzieFrame.java:20599-20647): nothing in a game against the
+ *  engine; the main board's shown variation, else 双引擎模式's right board's, grows by `count`
+ *  moves (incrementDisplayedBranchLength); without one the record goes forward (`browse`, by
+ *  default `count` moves). */
+export function redo(count: number, browse: Navigation = { op: "Forward", count }): void {
+  if (state.view?.game) return;
+  const { left, right } = shownVariations();
+  if (left) incrementBranch(left, count);
+  else if (right) incrementBranch(right, count);
+  else navigate(browse);
+}
+
+/** LizzieFrame.undo / undoNoRefresh (LizzieFrame.java:20649-20695): nothing in a game against the
+ *  engine; with a variation shown on either board one step back of it whatever `count` is
+ *  (doBranch(-count) only takes the direction); without one the record goes back (`browse`, by
+ *  default `count` moves). */
+export function undo(count: number, browse: Navigation = { op: "Back", count }): void {
+  if (state.view?.game) return;
+  const { left, right } = shownVariations();
+  if (left || right) doBranch(left, right, false);
+  else navigate(browse);
 }
 
 /** AnalysisFrame mouseMoved with 鼠标悬停 and no clicked row: the row under the pointer shows its

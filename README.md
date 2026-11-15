@@ -29,6 +29,15 @@ importing the matching LizzieYzy Next settings.
   超过宽度依然使用滚动条(超过部分将不显示) is ticked. That state lasts for the open record until
   another record opens or the maximum width is confirmed again. All three settings are saved and
   imported from LizzieYzy Next.
+- While a candidate's variation shows on the board (a clicked candidate-list row, or the
+  candidate under the pointer), the browsing keys step the variation instead of the record, as in
+  Java: `Up`/`Down` and `PageUp`/`PageDown` show one move less/more; `Ctrl+Down` shows 10 more
+  moves and `Ctrl+Shift+Down` as many more as the next comment is away; `Ctrl+Up` and
+  `Ctrl+Shift+Up` show one move less. The board menu's 回退一手 and the control panel's buttons
+  do the same (`>`/`>>` one/five more moves, `<`/`<<` one less). The record stays on its move;
+  without a shown variation these entries browse as usual. The bottom bar buttons always browse.
+  In 双引擎模式 `Ctrl+Down`, `Ctrl+Shift+Down` and the panel's `>`/`>>` grow the main board's
+  variation only (the right board's when only it shows one); the other entries step both boards.
 - Stepping forward plays the Java stone sounds (stone, capture, capture of three or more).
 - The board shows setup stones, moves, passes, captures, comments, SGF markup (TR/SQ/CR/MA/LB),
   next-move rings, player names, the sub board, the variation tree and the empty winrate graph.
@@ -607,7 +616,8 @@ importing the matching LizzieYzy Next settings.
   function search): a separate, ordinary window (title bar, resizable, not always on top) with
   eight large buttons: `|<` / `>|` go to the first / last move, `<<` / `>>` back / forward five
   moves, `<` / `>` one move, 返回 goes back to the main line and 涂鸦 opens 自由涂鸦 on the
-  workbench. As in Java, `<<`, `<`, `>` and `>>` do nothing during a game against the engine. The
+  workbench. While a candidate's variation shows, `<<`, `<`, `>` and `>>` step it instead (see
+  browsing above). As in Java, `<<`, `<`, `>` and `>>` do nothing during a game against the engine. The
   menu item and the toolbar button show it or hide it; its close box hides it. It first opens
   510 x 470 centred on the main window, then keeps the place and size it was given; open when the
   application closes, it opens again at the next start. 重置界面位置 forgets its place. Its place

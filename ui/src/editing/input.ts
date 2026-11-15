@@ -1,8 +1,9 @@
 // Board mouse and record-editing keys (Input.java mousePressed / mouseReleased / mouseDragged /
 // mouseMoved and keyPressed, LizzieFrame onClicked / onClickedRight / openRightClickMenu /
 // DraggedReleased). Every document change goes through the Edit command or a catalog entry.
-import { navigate, run, state, unavailable } from "../app";
+import { run, state, unavailable } from "../app";
 import { regionMenuEntries, selecting, selectionClicked, selectionDragged, selectionPressed, selectionReleased } from "../analysis/region";
+import { undo } from "../analysis/table";
 import { COMMANDS } from "../commands";
 import type { Point, Stone } from "../contract/generated";
 import { t } from "../i18n";
@@ -94,14 +95,15 @@ function startPick(point: Point): void {
 
 // ------------------------------------------------------------------ context menus
 
-/** undoForRightClick: during a game a move pair is taken back (悔棋), else one move. */
+/** undoForRightClick: during a game a move pair is taken back (悔棋), else Input.undo (a shown
+ *  variation steps back first). */
 function previousMove(): ContextItem {
   const game = !!state.view?.game;
   return {
     key: "RightClickMenu.previousMove",
     label: game ? t("RightClickMenu.regretOne") : t("RightClickMenu.previousMove"),
     icon: "left.png",
-    run: game ? () => void run({ type: "Game", op: { type: "Regret" } }) : () => navigate({ op: "Back", count: 1 }),
+    run: game ? () => void run({ type: "Game", op: { type: "Regret" } }) : () => undo(1),
   };
 }
 

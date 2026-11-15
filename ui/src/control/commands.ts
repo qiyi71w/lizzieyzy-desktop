@@ -1,11 +1,11 @@
 // 独立棋局控制面板 entries (视图 > 面板 > 独立棋局控制面板, the top toolbar's control button;
 // LizzieFrame.openController) and its buttons. The shell owns the window, its bounds and whether
 // it reopens at start; this module toggles it, follows whether it is shown for the menu check and
-// runs the browsing command of each button the window reports (Controller.java:35-124).
+// runs the action of each button the window reports (Controller.java:35-124).
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { navigate, state } from "../app";
+import { redo, undo } from "../analysis/table";
 import { COMMANDS, type CommandEntry } from "../commands";
 import { language, t } from "../i18n";
 import { CONTROL_CLOSED_EVENT, CONTROL_DATA_EVENT, CONTROL_INPUT_EVENT, type ControlButton, type ControlInput, type ControlReport } from "./model";
@@ -20,19 +20,14 @@ function toggle(): void {
   void invoke<boolean>("toggle_control_panel", { title: t("Controller.title") }).then((s) => (shown = s));
 }
 
-/** LizzieFrame.undo / redo return at once in a game against the engine (isPlayingAgainstLeelaz,
- *  isAnaPlayingAgainstLeelaz); the other buttons browse as their menu items do. */
-function step(op: "Back" | "Forward", count: number): void {
-  if (!state.view?.game) navigate({ op, count });
-}
-
 const ACTIONS: Record<ControlButton, () => void> = {
   first: () => COMMANDS["menu.jumpToFirst"].run(),
   last: () => COMMANDS["menu.jumpToLast"].run(),
-  back5: () => step("Back", 5),
-  forward5: () => step("Forward", 5),
-  back1: () => step("Back", 1),
-  forward1: () => step("Forward", 1),
+  // LizzieFrame.undo / redo (Controller.java:57-99): a shown variation steps first.
+  back5: () => undo(5),
+  forward5: () => redo(5),
+  back1: () => undo(1),
+  forward1: () => redo(1),
   backToMain: () => COMMANDS["menu.backToMainBranch"].run(),
   // drawPainting's layer is a dialog that takes the focus; here it is in the main window.
   painting: () => {
