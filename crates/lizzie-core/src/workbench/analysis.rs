@@ -1538,7 +1538,8 @@ impl Workbench {
         for ev in events {
             changed = true;
             let Some(ev) = self
-                .contribution_event(ev)
+                .search_threads_event(ev)
+                .and_then(|ev| self.contribution_event(ev))
                 .and_then(|ev| self.gma_event(ev))
                 .and_then(|ev| self.fox_event(ev))
                 .and_then(|ev| self.match_event(ev))
@@ -1684,6 +1685,8 @@ impl Workbench {
         // (a game retired, a lease ended) are applied.
         self.restart_due();
         let changed = self.restart_settle() || changed;
+        // A 搜索线程数 step whose process ended, or a restore whose new process became ready.
+        let changed = self.search_threads_settle() || changed;
         // A settling GMA hand ends once its engine holds the record's position; the reply that
         // completes that sync need not be an event.
         let changed = self.gma_settle() || changed;
@@ -1856,6 +1859,8 @@ impl Workbench {
             unrestored,
             down: fg.is_none() && self.engines.foreground_failure().is_some(),
             kata_params: self.kata_params_view(),
+            search_threads: self.search_threads_view(),
+            search_threads_operation: self.search_threads_operation_view(),
             custom_pda: self.custom_pda_view(),
             priority_points: if self.priority_engine == self.engines.foreground()
                 && self.priority_at == Some((self.doc.id, self.cursor))

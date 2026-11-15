@@ -160,6 +160,28 @@ impl KataParams {
     }
 }
 
+/// Whether a process's `numSearchThreads` was changed from the 引擎参数 window (Java
+/// `RuntimeThreadOverrideState`). It belongs to one process: a restarted or another engine
+/// starts `Off`, and a remote-managed one `Unknown` (its host may have changed it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum ThreadOverride {
+    Off,
+    On,
+    Unknown,
+}
+
+/// A `kata-get-param` / `kata-set-param numSearchThreads` in flight: the value set (`None` for a
+/// read), the caller's ticket and when the caller stops waiting.
+#[derive(Clone, Copy, Debug)]
+struct ThreadRequest {
+    set: Option<u32>,
+    ticket: u64,
+    deadline: Instant,
+}
+
+/// Java `runtimeSearchThreadsTimeoutMillis`.
+const THREAD_TIMEOUT: Duration = Duration::from_secs(8);
+
 /// The position an engine should hold: one node of one document at a komi, and the rules the
 /// session requires (`None`: whatever the engine has). The node's [`stamp`](crate::record::Node::stamp)
 /// is part of its identity: a node edited in place is another position.
@@ -263,6 +285,10 @@ pub enum RuntimeEvent {
     Rules { instance: InstanceId },
     /// The engine confirmed a new value of a [`KataParam`].
     KataParams { instance: InstanceId },
+    /// The foreground KataGo answered a numSearchThreads request
+    /// ([`Engines::request_search_threads`]), or it timed out: the value it confirmed, or why
+    /// not.
+    SearchThreads { instance: InstanceId, ticket: u64, result: Result<u32, String> },
     /// A complete pure-network answer became available for the current foreground target.
     RawNet { instance: InstanceId },
     /// The process failed to start or ended unexpectedly; the instance is gone.
@@ -607,6 +633,12 @@ struct Instance {
     pda_queries: u8,
     /// The start-up answers were followed by the 自动套用 commands.
     pda_autoloaded: bool,
+    /// `numSearchThreads` this process confirmed to the 引擎参数 window, and whether that window
+    /// changed it (Java `RuntimeSearchThreads`, bound to the process).
+    threads_overridden: bool,
+    threads_confirmed: Option<u32>,
+    /// Those requests in flight, by GTP id.
+    thread_requests: HashMap<u64, ThreadRequest>,
 }
 
 const OUTPUT_TAIL: usize = 40;
@@ -1199,7 +1231,7 @@ impl Engines {
 
     /// `Leelaz.getInterval`: `isSSH || useJavaSSH` use the SSH interval.
     fn interval_of(&self, inst: &Instance) -> u32 {
-        if inst.profile.is_remote() || super::ssh::is_external_ssh(&inst.profile.command) {
+        if inst.profile.is_remote_managed() {
             self.interval_centisec_ssh
         } else {
             self.interval_centisec
@@ -1486,6 +1518,9 @@ impl Engines {
             pda_mode: None,
             pda_queries: 0,
             pda_autoloaded: false,
+            threads_overridden: false,
+            threads_confirmed: None,
+            thread_requests: HashMap::new(),
         });
         let name = profile.name.clone();
         self.trace(&name, "--", &format!("start {}", profile.command));
@@ -1813,6 +1848,7 @@ impl Engines {
             self.due(self.secondary),
             self.lease.as_ref().and_then(|l| l.deadline),
             self.game_deadline(),
+            self.instances.iter().flat_map(|i| i.thread_requests.values().map(|r| r.deadline)).min(),
         ]
         .into_iter()
         .flatten()
@@ -1830,6 +1866,18 @@ impl Engines {
             }
         }
         let mut events = Vec::new();
+        // A numSearchThreads request that timed out fails; its late answer is ignored.
+        for inst in &mut self.instances {
+            let expired: Vec<u64> = inst.thread_requests.iter().filter(|(_, r)| now >= r.deadline).map(|(n, _)| *n).collect();
+            for n in expired {
+                let request = inst.thread_requests.remove(&n).unwrap();
+                events.push(RuntimeEvent::SearchThreads {
+                    instance: inst.id,
+                    ticket: request.ticket,
+                    result: Err("Timed out waiting for KataGo thread response".to_string()),
+                });
+            }
+        }
         if self.lease.as_ref().and_then(|l| l.deadline).is_some_and(|d| now >= d) {
             self.lease_timeout(&mut events);
         }
@@ -2255,6 +2303,46 @@ impl Engines {
         true
     }
 
+    /// Instance `id`'s numSearchThreads override and the value it last confirmed to the 引擎参数
+    /// window; `None` unless it is a KataGo.
+    pub fn search_threads(&self, id: InstanceId) -> Option<(ThreadOverride, Option<u32>)> {
+        let inst = self.get(id).filter(|i| i.kind == EngineKind::KataGo)?;
+        let state = if inst.threads_overridden {
+            ThreadOverride::On
+        } else if inst.profile.is_remote_managed() {
+            ThreadOverride::Unknown
+        } else {
+            ThreadOverride::Off
+        };
+        Some((state, inst.threads_confirmed))
+    }
+
+    /// Reads (`set: None`) or sets the numSearchThreads of `id`, a ready foreground KataGo (Java
+    /// `requestRuntimeSearchThreads`); the caller decides whether the engine is free for it. The
+    /// answer, or a timeout after 8 s, arrives as [`RuntimeEvent::SearchThreads`]
+    /// with `ticket`; a later answer is ignored. A search it is running stops and the seat's wish
+    /// searches again once the engine answered. Returns whether the command was sent.
+    pub fn request_search_threads(&mut self, id: InstanceId, set: Option<u32>, ticket: u64) -> bool {
+        if self.foreground != Some(id)
+            || !self.get(id).is_some_and(|i| i.phase == Phase::Ready && i.kind == EngineKind::KataGo)
+        {
+            return false;
+        }
+        let inst = self.get_mut(id).unwrap();
+        if let Some(old) = inst.stream {
+            inst.requests.retain(|(r, _)| *r != old);
+        }
+        let command = match set {
+            Some(threads) => format!("kata-set-param numSearchThreads {threads}"),
+            None => "kata-get-param numSearchThreads".to_string(),
+        };
+        let Some(n) = self.send(id, &command, Purpose::Setup) else { return false };
+        self.fence_last(id);
+        let request = ThreadRequest { set, ticket, deadline: Instant::now() + THREAD_TIMEOUT };
+        self.get_mut(id).unwrap().thread_requests.insert(n, request);
+        true
+    }
+
     /// The Leela 引擎参数 window's `lz-setoption`s to the foreground engine, when it is a ready
     /// Leela Zero / Sai that nothing else holds (not unrestored, not held by GMA). A search it is
     /// running stops and, once the engine answered, the seat's wish searches again
@@ -2527,6 +2615,8 @@ impl Engines {
         if self.lease.as_ref().is_some_and(|l| l.instance == id) && self.lease_frame(&frame, events) {
             return;
         }
+        // Only the foreground process takes a numSearchThreads answer (Java `target.isCurrent()`).
+        let foreground = self.foreground == Some(id);
         let Some(inst) = self.get_mut(id) else { return };
         match frame {
             Frame::Header { id: n } => {
@@ -2588,6 +2678,27 @@ impl Engines {
                         inst.kata_params.reads += 1;
                     }
                     events.push(RuntimeEvent::KataParams { instance: id });
+                }
+                if let Some(request) = inst.thread_requests.remove(&n) {
+                    let payload = text.trim();
+                    let result = if !foreground {
+                        Err("KataGo process or foreground selection changed".to_string())
+                    } else if !ok {
+                        Err(format!("KataGo rejected numSearchThreads: {payload}"))
+                    } else if let Some(threads) = request.set {
+                        inst.threads_overridden = true;
+                        Ok(threads)
+                    } else {
+                        payload
+                            .parse::<u32>()
+                            .ok()
+                            .filter(|v| (1..=1024).contains(v))
+                            .ok_or_else(|| format!("Invalid KataGo numSearchThreads response: {payload}"))
+                    };
+                    if let Ok(threads) = result {
+                        inst.threads_confirmed = Some(threads);
+                    }
+                    events.push(RuntimeEvent::SearchThreads { instance: id, ticket: request.ticket, result });
                 }
                 let mut pda_answer = false;
                 match inst.waiting.remove(&n) {

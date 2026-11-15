@@ -55,6 +55,12 @@ impl EngineProfile {
     pub fn is_remote(&self) -> bool {
         self.ssh.is_some() || self.cloud.is_some()
     }
+
+    /// Its process runs on another host (Java `EngineThreadPolicy.isRemoteManaged`): an SSH or
+    /// 远程算力 engine, or a command that starts `ssh` / `plink`.
+    pub fn is_remote_managed(&self) -> bool {
+        self.is_remote() || super::ssh::is_external_ssh(&self.command)
+    }
 }
 
 impl Default for EngineProfile {

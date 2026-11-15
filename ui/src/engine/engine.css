@@ -46,6 +46,8 @@
 .kata-params-grid input.invalid { background: red; }
 .kata-params-head { text-align: center; white-space: nowrap; }
 .kata-params-pda-engine { grid-column: span 4; }
+/* 搜索线程数's read status (lblThreadReadStatus, 150 wide right of the value). */
+.kata-params-thread-status { grid-column: span 2; white-space: nowrap; }
 /* 设置Leela(Sai)引擎高级参数 (SetLeelaEngines.java, middle font: label, 修改 at 560, value 133
    wide at 591, 自动加载 at 763; the hint below). */
 .leela-params-grid { grid-template-columns: minmax(420px, auto) 25px 133px 110px; }

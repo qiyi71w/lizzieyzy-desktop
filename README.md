@@ -341,10 +341,23 @@ importing the matching LizzieYzy Next settings.
     engine: Java's "no engine" hint). 确定 sends each row's value (0 when 修改 is off) and saves
     it; 自动加载 makes every KataGo that starts get that value before the read-back (the 激进度
     row is skipped for a `KataGoPda` engine); 在工具栏中控制 shows or hides the toolbar group.
-    Without 自动加载 a starting engine keeps its own configuration values. 搜索线程数 is shown but
-    not available yet. The eight Java keys of these controls are taken over by the LizzieYzy Next
-    import. Function search shows a hidden group, and a hidden top toolbar, for the current run
-    without changing the saved choices.
+    Without 自动加载 a starting engine keeps its own configuration values. The eight Java keys of
+    these controls are taken over by the LizzieYzy Next import. Function search shows a hidden
+    group, and a hidden top toolbar, for the current run without changing the saved choices.
+  - 搜索线程数（本次运行） in the same window belongs to the running KataGo process only and is never
+    saved. Opening the window shows the last value this process confirmed (读取中／刷新中) and reads
+    `kata-get-param numSearchThreads`; a failed read shows 刷新失败. Ticked with a whole number
+    1–1024, 确定 sends `kata-set-param numSearchThreads N` (确定, 取消 and closing wait for the
+    answer) and saves the other rows once the engine accepts it; an invalid number or a refusal
+    (with the engine's reason) leaves the window open. Unticking an override of a local engine asks
+    whether to restore the startup source (KataGo configuration file, saved benchmark
+    recommendation with its value, or explicit launch command); confirming restarts the engine,
+    brings it back to the current position and analysis state, reads the new process's value and
+    saves the other rows. An SSH / 远程算力 / `ssh` command engine cannot be restored from here and
+    keeps its override ticked; its state is unknown until set. A restarted engine, or another
+    engine process, starts without the override, and the window reports a stale engine if the engine changed while
+    it was open. Requests are refused while the engine is occupied (games, matches, GMA, a lease,
+    an unrestored engine, a restart in progress) and fail after 8 s without an answer.
 - Leela Zero / Sai options: with Leela Zero or Sai in the foreground, 设置 > 引擎参数 (`Alt+D`) or the
   toolbar's 参数 opens 设置Leela(Sai)引擎高级参数 with Java's four rows (最大内存, 访问量, 延迟缓冲,
   认输胜率; the labels give Java's ranges, which are not checked). 确定 saves the rows and sends

@@ -45,6 +45,7 @@ mod recovery;
 mod resources;
 mod restart;
 mod search;
+mod search_threads;
 mod tencent_kifu;
 mod tsumego;
 mod tuning;
@@ -339,6 +340,8 @@ pub struct Workbench {
     matches: matches::MatchFlow,
     /// Engines that ended unexpectedly and start again (自动检测引擎是否存活).
     restart: restart::RestartFlow,
+    /// 引擎参数 window's 搜索线程数 operation.
+    threads: search_threads::SearchThreadsFlow,
     human_sl: humansl::HumanSlFlow,
     strength: strength::StrengthFlow,
     online: online::OnlineFlow,
@@ -491,6 +494,7 @@ impl Workbench {
             fox: fox::FoxFlow::default(),
             matches: matches::MatchFlow::default(),
             restart: restart::RestartFlow::default(),
+            threads: search_threads::SearchThreadsFlow::default(),
             human_sl: humansl::HumanSlFlow::default(),
             strength: strength::StrengthFlow::default(),
             online: online::OnlineFlow::default(),

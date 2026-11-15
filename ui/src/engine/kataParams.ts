@@ -2,14 +2,63 @@
 // (SetKataEngines.java); the Leela Zero / Sai window is engine/leelaOptions.ts. The toolbar's
 // 激进度 / 广度 groups are in chrome/toolbar.ts.
 import { invoke } from "@tauri-apps/api/core";
-import { run, state } from "../app";
-import type { KataParam, KataParamEdit } from "../contract/generated";
-import { formPanel, message } from "../dialogs";
-import { product, t } from "../i18n";
+import { registerViewHandler, run, state } from "../app";
+import type { KataEngineParamsEdit, KataParam, KataParamEdit, SearchThreadsCommand, SearchThreadsStatus, ThreadRestoreSource } from "../contract/generated";
+import { confirm, formPanel, message } from "../dialogs";
+import { format, t } from "../i18n";
 import { matchPlaying } from "../match/state";
 import { javaDouble, parseJavaDouble } from "../workbench/paint";
 import { actions, button } from "./controls";
 import { openLeelaEngines } from "./leelaOptions";
+
+/** 搜索线程数 operations the window waits for, by ticket. A newer operation supersedes an older
+ *  one, whose waiter gets `null`. */
+const threadWaiters = new Map<number, (status: SearchThreadsStatus | null) => void>();
+registerViewHandler((view) => {
+  const op = view.engine.search_threads_operation;
+  if (!op) return;
+  for (const [ticket, resolve] of threadWaiters) {
+    if (ticket < op.ticket) { threadWaiters.delete(ticket); resolve(null); }
+  }
+  const resolve = threadWaiters.get(op.ticket);
+  if (resolve && op.status.type !== "Running") { threadWaiters.delete(op.ticket); resolve(op.status); }
+});
+
+/** How 搜索线程数 operation `ticket` ended (or asks to go on), `null` once another replaced it. */
+function threadSettled(ticket: number): Promise<SearchThreadsStatus | null> {
+  const op = state.view?.engine.search_threads_operation;
+  if (op && op.ticket > ticket) return Promise.resolve(null);
+  if (op?.ticket === ticket && op.status.type !== "Running") return Promise.resolve(op.status);
+  const { promise, resolve } = Promise.withResolvers<SearchThreadsStatus | null>();
+  threadWaiters.set(ticket, resolve);
+  return promise;
+}
+
+/** SetKataEngines.threadSource{CFG,BENCHMARK,COMMAND}. */
+const THREAD_SOURCES: Record<ThreadRestoreSource, () => string> = {
+  CFG: () => t("SetKataEngines.threadSourceCFG"),
+  BENCHMARK: () => t("SetKataEngines.threadSourceBENCHMARK"),
+  COMMAND: () => t("SetKataEngines.threadSourceCOMMAND"),
+};
+
+/** The row's messages the core names by key. */
+const THREAD_MESSAGES: Record<string, () => string> = {
+  "SetKataEngines.threadStale": () => t("SetKataEngines.threadStale"),
+  "SetKataEngines.threadInvalid": () => t("SetKataEngines.threadInvalid"),
+  "SetKataEngines.threadFailed": () => t("SetKataEngines.threadFailed"),
+  "SetKataEngines.threadReadFailed": () => t("SetKataEngines.threadReadFailed"),
+  "SetKataEngines.threadRemoteRestoreUnsupported": () => t("SetKataEngines.threadRemoteRestoreUnsupported"),
+  "SetKataEngines.threadRestoreFailed": () => t("SetKataEngines.threadRestoreFailed"),
+};
+
+/** showThreadError: the message, then the reason with control characters blanked, at most 240
+ *  characters. */
+function threadError(key: string, detail: string | null = null): Promise<void> {
+  let text = THREAD_MESSAGES[key]?.() ?? t(key);
+  const reason = detail?.replace(/[\x00-\x1f\x7f]/g, " ").trim();
+  if (reason) text += `\n${reason.slice(0, 240)}`;
+  return message(t("SetKataEngines.title"), text, "warning");
+}
 
 /** Leelaz.isKataGoPda: a KataGoPda build sets its PDA in its own window, not here. */
 export function kataGoPda(): boolean {
@@ -141,38 +190,138 @@ async function openKataEngines(): Promise<void> {
   // SetKataEngines.java:586-589: 广度 cannot be changed while the engine plays a genmove game.
   if (view.game?.kind === "Genmove" || (matchPlaying(view) && view.engine_match?.kind === "Genmove")) wrn.value.disabled = wrn.edit.disabled = true;
 
-  // 搜索线程数 (SetKataEngines.java:491-528): this run's numSearchThreads is not migrated yet.
+  // 搜索线程数（本次运行） (SetKataEngines.java:491-528, 754-762, 836-888): the numSearchThreads
+  // of the KataGo process this window was opened for; another process makes every step stale.
+  const threadsNow = view.engine.search_threads;
+  const process = threadsNow?.process ?? null;
+  const remote = threadsNow?.remote ?? false;
+  const threadTooltip = remote ? t("SetKataEngines.threadRemoteTooltip") : t("SetKataEngines.threadLocalTooltip");
+  /** The process's override state; another process's is unknown (overrideState of a stale row). */
+  const threadState = () => {
+    const v = state.view?.engine.search_threads;
+    return v && v.process === process ? v.state : "Unknown";
+  };
   const threads = document.createElement("span");
   threads.textContent = t("SetKataEngines.lblNumSearchThreads");
-  threads.title = t("SetKataEngines.threadLocalTooltip");
-  const threadCheck = check(false);
+  threads.title = threadTooltip;
+  const threadOn = threadState() === "On";
+  const threadCheck = check(threadOn);
+  threadCheck.dataset.key = "kataParams.threadsEdit";
   const threadValue = document.createElement("input");
-  for (const control of [threadCheck, threadValue]) {
-    control.disabled = true;
-    control.classList.add("unavailable");
-    control.title = product("unavailable");
-  }
-  grid.append(threads, threadCheck, threadValue, head(), head());
+  threadValue.dataset.key = "kataParams.threads";
+  threadValue.disabled = !threadOn;
+  threadValue.value = threadsNow?.confirmed?.toString() ?? "";
+  threadValue.title = t("SetKataEngines.threadUnknown");
+  const threadStatus = document.createElement("span");
+  threadStatus.className = "kata-params-thread-status";
+  threadStatus.dataset.key = "kataParams.threadsStatus";
+  threadStatus.textContent = process === null ? ""
+    : threadsNow?.confirmed == null ? t("SetKataEngines.threadReading") : t("SetKataEngines.threadRefreshing");
+  let threadEdited = false;
+  threadValue.addEventListener("input", () => { threadEdited = true; });
+  const threadTooltips = () => {
+    const title = process !== null && threadState() === "Unknown" ? t("SetKataEngines.threadProvenanceUnknown") : threadTooltip;
+    threadCheck.title = threadValue.title = title;
+  };
+  threadTooltips();
+  // A remote engine's override cannot be unchecked: its source is the server's.
+  threadCheck.onchange = () => {
+    if (remote && !threadCheck.checked && threadState() === "On") {
+      threadCheck.checked = true;
+      void threadError("SetKataEngines.threadRemoteRestoreUnsupported");
+    }
+    threadValue.disabled = !threadCheck.checked;
+  };
+  const keepThreadOverride = () => {
+    if (threadState() === "On") { threadCheck.checked = true; threadValue.disabled = false; }
+  };
+  grid.append(threads, threadCheck, threadValue, threadStatus);
 
   const hint = document.createElement("div");
   hint.textContent = t("SetKataEngines.lblHint");
   body.append(grid, hint, hint2());
 
-  const dialog = formPanel(t("SetKataEngines.title"), body);
-  const apply = button(t("SetKataEngines.btnApply"), async () => {
+  // A 搜索线程数 step in progress keeps the window open and its buttons disabled.
+  let busy = false;
+  let open = true;
+  const dialog = formPanel(t("SetKataEngines.title"), body, async () => !busy);
+  void dialog.closed.then(() => { open = false; });
+  const rows = (): KataEngineParamsEdit => {
     const [pdaEdit, wrnEdit]: KataParamEdit[] = [pda, wrn].map((r) => ({ enabled: r.edit.checked, value: parseJavaDouble(r.value.value), auto_load: r.autoLoad.checked }));
-    const result = await run({
-      type: "SaveKataEngineParams",
-      params: { pda: pdaEngine ? null : pdaEdit, wrn: wrnEdit, show_pda: pda.inMenu.checked, show_wrn: wrn.inMenu.checked },
-    });
-    if (!result || result.type === "Refused") return;
+    return { pda: pdaEngine ? null : pdaEdit, wrn: wrnEdit, show_pda: pda.inMenu.checked, show_wrn: wrn.inMenu.checked };
+  };
+  // applyExistingSettings after the core saved the rows: the toolbar groups take them.
+  const finish = async () => {
     if (!pdaEngine) kataToolbarUse.Pda?.(pda.edit.checked, pda.value.value);
     kataToolbarUse.Wrn?.(wrn.edit.checked, wrn.value.value);
     await dialog.close();
+  };
+  /** One step of the row; resolves to how it ended, `null` when it did not run. */
+  const threadStep = async (op: SearchThreadsCommand) => {
+    busy = apply.disabled = cancel.disabled = true;
+    try {
+      const result = await run({ type: "SearchThreads", op });
+      return result?.type === "SearchThreads" ? { ticket: result.ticket, status: await threadSettled(result.ticket) } : null;
+    } finally {
+      busy = apply.disabled = cancel.disabled = false;
+    }
+  };
+  // confirmSettings: the core decides between saving, setting and restoring.
+  const apply = button(t("SetKataEngines.btnApply"), async () => {
+    if (busy) return;
+    if (process === null) {
+      // No KataGo process: only the other rows (Java runtimeThreads == null).
+      if (threadCheck.checked) { await threadError("SetKataEngines.threadStale"); return; }
+      const result = await run({ type: "SaveKataEngineParams", params: rows() });
+      if (result && result.type !== "Refused") await finish();
+      return;
+    }
+    const step = await threadStep({ type: "Confirm", process, enabled: threadCheck.checked, text: threadValue.value, edited: threadEdited, params: rows() });
+    let status = step?.status ?? null;
+    if (step && status?.type === "ConfirmRestore") {
+      const recommended = status.recommended === null ? t("SetKataEngines.threadSourceUnknown") : String(status.recommended);
+      const warning = format(t("SetKataEngines.threadRestoreConfirm"), THREAD_SOURCES[status.source](), recommended);
+      if (!(await confirm(t("SetKataEngines.title"), warning))) {
+        threadCheck.checked = true;
+        threadValue.disabled = false;
+        return;
+      }
+      status = (await threadStep({ type: "Restore", ticket: step.ticket }))?.status ?? null;
+      if (status?.type === "Failed") threadTooltips();
+    }
+    if (!status || !open) return;
+    if (status.type === "Done") { await finish(); return; }
+    if (status.type !== "Failed") return;
+    if (status.message_key === "SetKataEngines.threadRemoteRestoreUnsupported" || status.message_key === "SetKataEngines.threadRestoreFailed") keepThreadOverride();
+    await threadError(status.message_key, status.detail);
+    if (status.message_key === "SetKataEngines.threadInvalid") threadValue.focus();
   });
   apply.dataset.key = "kataParams.apply";
   const cancel = button(t("SetKataEngines.btnCancel"), () => void dialog.close());
   cancel.dataset.key = "kataParams.cancel";
   actions(body, apply, cancel);
+
+  // Opening reads the process's value; a value the user typed meanwhile stays.
+  if (process !== null) {
+    const read = async () => {
+      const result = await run({ type: "SearchThreads", op: { type: "Read", process } });
+      const status = result?.type === "SearchThreads" ? await threadSettled(result.ticket) : null;
+      if (!status || !open) return;
+      if (status.type === "Failed" && status.message_key === "SetKataEngines.threadStale") {
+        if (!threadEdited) threadValue.value = "";
+        threadStatus.textContent = t("SetKataEngines.threadReadFailed");
+        threadStatus.title = t("SetKataEngines.threadStale");
+      } else if (status.type === "Done") {
+        threadStatus.textContent = "";
+        threadStatus.title = "";
+        if (status.threads !== null && !threadEdited) threadValue.value = String(status.threads);
+      } else {
+        threadStatus.textContent = t("SetKataEngines.threadReadFailed");
+        threadStatus.title = t("SetKataEngines.threadReadFailedHint");
+      }
+      threadTooltips();
+    };
+    void read();
+  }
   await dialog.closed;
 }

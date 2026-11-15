@@ -98,7 +98,7 @@ use crate::engine::profile::{
     AnalysisSettings, CustomPdaMode, CustomPdaSettings, EngineProfile, EngineStartup, KataParamSettings,
     LeelaOptionSettings,
 };
-use crate::engine::runtime::KataParam;
+use crate::engine::runtime::{KataParam, ThreadOverride};
 use crate::record::{BoardSize, GameInfo, Mark, NodeId, Point, RecordFormat, Stone};
 use crate::settings::{EditSettings, Language};
 
@@ -348,6 +348,12 @@ pub enum Command {
     /// KataGo gets each parameter's value (0 when unchecked).
     SaveKataEngineParams {
         params: KataEngineParamsEdit,
+    },
+    /// 引擎参数 window's 搜索线程数（本次运行） (`SetKataEngines`, Java `RuntimeSearchThreads`):
+    /// each step answers [`CommandResult::SearchThreads`]; its progress and end arrive as
+    /// [`EngineView::search_threads_operation`].
+    SearchThreads {
+        op: SearchThreadsCommand,
     },
     /// Leela Zero / Sai 引擎参数 window (`SetLeelaEngines`) 确定: the four rows are saved as they
     /// are, then each row with 修改 checked and a value goes to the foreground engine
@@ -1008,6 +1014,9 @@ pub enum CommandResult {
     /// The record content was captured and is being written; the result arrives as
     /// [`SaveOutcome`] in a later view.
     SaveStarted { ticket: u64 },
+    /// A [`Command::SearchThreads`] step was taken as operation `ticket`; its progress and end
+    /// arrive as [`EngineView::search_threads_operation`].
+    SearchThreads { ticket: u64 },
     /// "保存" would overwrite the record's own file; ask (`LizzieFrame.replaceFileTitle`), then
     /// resend `SaveRecord` with `confirmed: Some(document)`.
     NeedsReplaceConfirmation { document: u64, file_name: String },
@@ -1484,6 +1493,76 @@ pub struct KataParamsView {
     /// a game gives back a 广度 the user changed during it (`restoreWRN`). `None` before any.
     pub pda_read_back: Option<String>,
     pub wrn_read_back: Option<String>,
+}
+
+/// The 引擎参数 window's 搜索线程数 row of one foreground KataGo process (`process`). Every step
+/// names the process the window was opened for; another process (a restart, another engine)
+/// makes the step stale (`SetKataEngines.threadStale`).
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum SearchThreadsCommand {
+    /// The window opened: read the process's `numSearchThreads` (`kata-get-param`).
+    Read { process: u64 },
+    /// 确定 (`confirmSettings`). Checked: `text` must be a whole number 1–1024
+    /// (`threadInvalid`); unless the process already holds that override and the field was not
+    /// `edited`, it is set (`kata-set-param`), and once the engine confirmed it the other rows
+    /// (`params`) are saved as [`Command::SaveKataEngineParams`]. Unchecked while the process's
+    /// override is on: a local engine's restore asks for confirmation
+    /// ([`SearchThreadsStatus::ConfirmRestore`]), a remote one is refused
+    /// (`threadRemoteRestoreUnsupported`). Otherwise only the other rows are saved.
+    Confirm {
+        process: u64,
+        enabled: bool,
+        text: String,
+        edited: bool,
+        params: KataEngineParamsEdit,
+    },
+    /// The user confirmed restore operation `ticket`: the engine restarts from its saved launch
+    /// source through the restart of a failed foreground engine (position, komi, rules, analysis
+    /// unless paused), the new process's value is read, then the other rows are saved.
+    Restore { ticket: u64 },
+}
+
+/// Where a restarted KataGo takes its search threads from (`SetKataEngines.threadSource*`):
+/// its configuration file, the saved benchmark recommendation or its launch command.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum ThreadRestoreSource {
+    CFG,
+    BENCHMARK,
+    COMMAND,
+}
+
+/// The foreground KataGo process's 搜索线程数 (Java `RuntimeSearchThreads`).
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct SearchThreadsView {
+    /// The process; another value is another process.
+    pub process: u64,
+    pub state: ThreadOverride,
+    /// What the process last confirmed to this row (a read or a set), `None` before that.
+    pub confirmed: Option<u32>,
+    /// It runs on another host (SSH, 远程算力): its source cannot be restored from here.
+    pub remote: bool,
+}
+
+/// The latest [`Command::SearchThreads`] operation.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct SearchThreadsOperationView {
+    pub ticket: u64,
+    pub status: SearchThreadsStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum SearchThreadsStatus {
+    /// Waiting for the engine (or its restart); the window takes no other action meanwhile.
+    Running,
+    /// Restoring needs the user's confirmation (`SetKataEngines.threadRestoreConfirm`); send
+    /// [`SearchThreadsCommand::Restore`] to go on. `recommended` is the benchmark's threads.
+    ConfirmRestore { source: ThreadRestoreSource, recommended: Option<u32> },
+    /// Done; `threads` is the value the engine confirmed, if it was asked.
+    Done { threads: Option<u32> },
+    /// Not done: a Java message key and the engine's or runtime's reason.
+    Failed { message_key: String, detail: Option<String> },
 }
 
 /// The foreground KataGoPda's PDA as its private `getpda` / `getdympdacap` answers (or its
@@ -2144,6 +2223,10 @@ pub struct EngineView {
     pub down: bool,
     /// The foreground KataGo's PDA and WRN (toolbar 激进度 / 广度).
     pub kata_params: KataParamsView,
+    /// The foreground KataGo process's 搜索线程数, while one is ready.
+    pub search_threads: Option<SearchThreadsView>,
+    /// The latest 搜索线程数 operation (it outlives the process a restore replaces).
+    pub search_threads_operation: Option<SearchThreadsOperationView>,
     /// The foreground KataGoPda's current PDA and cap and the saved dialog mode.
     pub custom_pda: CustomPdaView,
     /// Points recorded with 优先分析此点 for the current position; a recorded point stays
