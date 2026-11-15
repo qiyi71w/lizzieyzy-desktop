@@ -67,8 +67,6 @@ const OPENERS: Record<string, true> = {
   "game.komi": true, // editGameKomi
   "engine.rules": true, // setRulesAtEditor
   "game.ai-coach": true, // handleAiCoachToolbarAction
-  "share.private-history": true, // openPrivateKifuSearch
-  "share.public-history": true, // openPublicKifuSearch
 };
 
 /** Board context-menu items (editing/input.ts pointMenu / stoneMenu, analysis/region.ts

@@ -1880,21 +1880,6 @@ export const JAVA_MENUS: TopMenu[] = [
     ]
    },
    {
-    "t": "submenu",
-    "key": "menu.frameLooks",
-    "id": "menu.frameLooks",
-    "items": [
-     {
-      "t": "check",
-      "key": "menu.frameLooksSystem"
-     },
-     {
-      "t": "check",
-      "key": "menu.frameLooksJava"
-     }
-    ]
-   },
-   {
     "t": "sep"
    },
    {

@@ -1457,11 +1457,16 @@ them where its control lives:
   `registerSettingTargets(section, ids)` (`ui/src/engine/settingsTargets.ts`) when it loads, so
   they are searchable before 综合设置 is ever opened.
 
+Three Java catalog entries are not offered and never listed (`WITHDRAWN` in
+`crates/lizzie-core/src/function_search/mod.rs`): the two lizzieyzy.cn kifu-history search windows,
+whose service is offline and which Java reaches only through search, and 设置 > 界面外观, which only
+switches the Swing look and feel.
+
 Two mappings live in `targets.ts` itself:
 
 - `OPENERS`: the Java ids that `FunctionSearchController.activate` opens with its own owner
-  method (weights download, acceleration, komi, rules, AI coach, private and public kifu
-  history). Each still needs its product `COMMANDS` entry; without one it is unavailable.
+  method (weights download, acceleration, komi, rules, AI coach). Each still needs its product
+  `COMMANDS` entry; without one it is unavailable.
 - `CONTEXT_ITEMS`: the board context-menu keys (`RightClickMenu.*`, `RightClickMenu2.*`) that act
   in `ui/src/editing/input.ts`. The context menu has no registration of its own yet, so a change
   that makes another context item act (or stops one) must update this list in the same change.

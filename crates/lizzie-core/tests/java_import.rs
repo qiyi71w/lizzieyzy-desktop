@@ -2507,10 +2507,10 @@ fn autoplay_imports_toolbar_slots_with_java_empty_and_checkbox_restore_semantics
             assert_eq!(row.status, ImportStatus::Imported);
             assert_eq!(row.target, Some(ImportTarget::AutoPlay));
         }
-        // Only the hidden 左移/右移 flag stays behind; -1 is no panel place Java ever writes.
+        // The hidden 左移/右移 flag is reported as no longer used; -1 is no panel place Java ever writes.
         assert!(p.items.iter().all(|i| i.key != "persist:ui-persist.toolbar-parameter"));
         let row = item(&p.items, "persist:ui-persist.toolbar-parameter[50]");
-        assert_eq!((row.status, row.reason), (ImportStatus::NotMigrated, Some(ImportReason::NotYetAvailable)));
+        assert_eq!((row.status, row.reason), (ImportStatus::NotMigrated, Some(ImportReason::Obsolete)));
         for index in [32, 33, 34] {
             let row = item(&p.items, &format!("persist:ui-persist.toolbar-parameter[{index}]"));
             assert_eq!((row.status, row.target), (ImportStatus::Incompatible, Some(ImportTarget::DetailPanelOrder)));

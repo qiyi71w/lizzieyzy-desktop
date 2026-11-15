@@ -1662,6 +1662,13 @@ const JAVA_UNUSED: &[&str] = &[
     "ui.tracking-point-interior-color", "ui.tracking-point-interior-opacity",
     "ui.tracking-point-text-auto-color", "ui.tracking-point-text-color",
     "persist:ui-persist.max-alpha", "persist:ui-persist.winrate-graph",
+    // Written by the settings dialog, never read back (ConfigDialog2.java:6723-6724,
+    // 6849-6850); Java starts from `board-postion-proportion`.
+    "ui.board-width", "ui.board-height", "ui.board-position-proportion",
+    // Read only when the contribution window opens; no control writes it.
+    "ui.contribute-hide-result",
+    // Swing Look&Feel choice; not carried over by approved decision (no Swing look here).
+    "ui.use-java-looks",
 ];
 
 /// Java's own bookkeeping, not settings: one-time migration markers, first-start and machine
@@ -1673,6 +1680,9 @@ const JAVA_STATE: &[&str] = &[
     "ui.restored-show-subboard-default-v2", "ui.user-known-x", "ui.is-ctrl-opened",
     "ui.katago-auto-setup-engine-path", "ui.katago-preferred-weight-path",
     "persist:checked-empty-blunder-thresholds", "persist:first-time-factor",
+    "ui.katago-auto-setup-analysis-config-path", "ui.katago-auto-setup-gtp-config-path",
+    "ui.katago-auto-setup-weight-path", "ui.katago-auto-setup-updated-at",
+    "ui.migrated-default-transformer-v1",
 ];
 
 type Handled = Vec<(&'static str, &'static str)>;
@@ -3190,7 +3200,8 @@ impl Reader<'_> {
                             self.invalid(format!("{name}[39]"), ImportTarget::Suggestions, raw);
                         }
                         // 32–34 place the three 详细工具栏 panels (ToolbarPositionConfig writes the
-                        // combo index, 0–2). 50 is the hidden 左移/右移 buttons' flag.
+                        // combo index, 0–2). 50 is the flag of the 左移/右移 buttons, which are
+                        // never shown and never read: no longer used.
                         for (slot, index) in [32, 33, 34].into_iter().enumerate() {
                             let raw = &values[index];
                             match as_i64(raw).filter(|n| (0..=2).contains(n)) {
@@ -3201,7 +3212,7 @@ impl Reader<'_> {
                                 None => self.invalid(format!("{name}[{index}]"), ImportTarget::DetailPanelOrder, raw),
                             }
                         }
-                        self.not_migrated(format!("{name}[50]"), &values[50]);
+                        self.obsolete(format!("{name}[50]"));
                     }
                     // Window bounds and the tables' column pixels follow Java's own scaling,
                     // fonts and layout.
