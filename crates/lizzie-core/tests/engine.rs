@@ -2385,9 +2385,10 @@ fn handicap_first_white_pass_applies_pda_once() {
 
 /// Java `B11ModelNotice`: the title's B11 speed notice follows the model this engine process
 /// loads. A local model is known from its header (a renamed B11 counts, a B11 file name with
-/// another header does not), read off the workbench; a replaced process's late answer never
-/// reaches its successor. A Zhizi connection is known from the model it selected; an indirect
-/// launcher's model paths are not this host's and never show it.
+/// another header or an unreadable model does not), read off the workbench; a replaced
+/// process's late answer never reaches its successor. A Zhizi connection is known from the
+/// model it selected; an indirect launcher's or SSH host's model paths are not this host's and
+/// never show it.
 #[test]
 fn the_b11_speed_notice_follows_the_model_the_engine_loads() {
     use lizzie_core::engine::cloud::{CloudLaunch, CloudProvider};
@@ -2413,6 +2414,11 @@ fn the_b11_speed_notice_follows_the_model_the_engine_loads() {
             local("Script", format!("{}/katago.sh gtp -model {}", dir.path().display(), renamed.display())),
             zhizi("Zhizi B11", "--gpu-type 1x --kata-weight 11B768T"),
             zhizi("Zhizi default", "--gpu-type 1x"),
+            EngineProfile {
+                ssh: Some(lizzie_core::engine::ssh::SshSettings::default()),
+                ..local("SSH", format!("/opt/katago gtp -model {}", renamed.display()))
+            },
+            local("Missing", format!("/opt/katago gtp -model {}", dir.path().join("missing.bin.gz").display())),
         ],
         EngineStartup::Default,
     )
@@ -2437,7 +2443,7 @@ fn the_b11_speed_notice_follows_the_model_the_engine_loads() {
     }
     assert!(b11(&mut wb), "a renamed B11 is known by its header");
 
-    for (index, expected) in [(1, false), (2, true), (3, false), (4, true), (5, false)] {
+    for (index, expected) in [(1, false), (2, true), (3, false), (4, true), (5, false), (6, false), (7, false)] {
         assert!(wb.switch_engine(index).unwrap());
         answer_all(&mut wb, &world, world.launched().last().unwrap().0, KATA);
         for found in wb.take_model_lookups() {
