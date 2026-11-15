@@ -62,6 +62,8 @@ export function bootYikeBar(): void {
   };
   labels();
   document.body.append(back, address, load, stop);
+  // A new window's initial focus owner (BrowserFrame: the address field is the first focusable).
+  address.focus();
   document.addEventListener("contextmenu", (e) => {
     if (e.target !== address) e.preventDefault();
   });
