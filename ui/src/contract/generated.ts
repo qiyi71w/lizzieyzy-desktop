@@ -407,7 +407,12 @@ ready: boolean,
 /**
  * `list_commands` (GtpConsolePane 常用命令).
  */
-commands: Array<string>, };
+commands: Array<string>, 
+/**
+ * This engine process loads an official B11 model (Java `Leelaz.usesB11ForSpeedNotice`):
+ * the title adds `B11SpeedNotice.title` after the speed. False until its model is known.
+ */
+b11: boolean, };
 
 export type EngineView = { engines: Array<EngineEntryView>, foreground: ForegroundEngineView | null, 
 /**

@@ -31,7 +31,9 @@ use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, Point, Stone, ROOT}
 
 mod game;
 mod fox;
+mod speed_model;
 pub use game::GenmoveReply;
+pub use speed_model::{ModelIdentity, ModelLookup};
 
 pub type InstanceId = u64;
 
@@ -559,6 +561,9 @@ struct Instance {
     profile: EngineProfile,
     launch_threads: u32,
     fox_pda_compatibility: &'static str,
+    /// This incarnation loads an official B11 model (`Leelaz.usesB11ForSpeedNotice`); false
+    /// while its [`ModelLookup`] is outstanding.
+    b11: bool,
     io: Option<Box<dyn EngineIo>>,
     /// Lines written before the process exists (its launch waits for a [`LaunchCheck`]).
     queued: Option<Vec<String>>,
@@ -816,6 +821,7 @@ pub struct Engines {
     apple_hardware: Option<serde_json::Value>,
     instances: Vec<Instance>,
     checks: Vec<LaunchCheck>,
+    model_lookups: Vec<ModelLookup>,
     next_instance: InstanceId,
     foreground: Option<InstanceId>,
     /// The foreground engine that failed, while nothing took its seat since (Java's primary
@@ -967,6 +973,7 @@ impl Engines {
             apple_hardware: None,
             instances: Vec::new(),
             checks: Vec::new(),
+            model_lookups: Vec::new(),
             next_instance: 1,
             foreground: None,
             failed_foreground: None,
@@ -1448,6 +1455,7 @@ impl Engines {
             });
             (spec, check)
         };
+        let speed = speed_model::identify(id, profile, &spec);
         // Java FoxPdaCompatibility: only a physical local launch is inspected (Leelaz.java:1333, 1529).
         let fox_pda_compatibility = if profile.cloud.is_none() && profile.ssh.is_none() && check.is_none() {
             fox::inspect(&spec)
@@ -1469,6 +1477,7 @@ impl Engines {
             profile: profile.clone(),
             launch_threads: launch_threads(&profile.command, &spec),
             fox_pda_compatibility,
+            b11: matches!(speed, speed_model::SpeedModel::Known(true)),
             io,
             queued,
             phase: Phase::Starting,
@@ -1522,6 +1531,9 @@ impl Engines {
             threads_confirmed: None,
             thread_requests: HashMap::new(),
         });
+        if let speed_model::SpeedModel::Lookup(lookup) = speed {
+            self.model_lookups.push(lookup);
+        }
         let name = profile.name.clone();
         self.trace(&name, "--", &format!("start {}", profile.command));
         self.send(id, "name", Purpose::Name);
@@ -1533,6 +1545,28 @@ impl Engines {
     /// Hands out the pending launch checks once each; the caller runs them off the workbench.
     pub fn take_launch_checks(&mut self) -> Vec<LaunchCheck> {
         std::mem::take(&mut self.checks)
+    }
+
+    /// Hands out the pending model header reads once each; the caller runs them off the workbench.
+    pub fn take_model_lookups(&mut self) -> Vec<ModelLookup> {
+        std::mem::take(&mut self.model_lookups)
+    }
+
+    /// Records what a [`ModelLookup`] found; a retired instance's late answer is ignored.
+    /// Returns whether the instance's identity changed.
+    pub fn finish_model_lookup(&mut self, found: ModelIdentity) -> bool {
+        match self.instances.iter_mut().find(|i| i.id == found.instance) {
+            Some(instance) if instance.b11 != found.b11 => {
+                instance.b11 = found.b11;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The engine runs an official B11 model, for the title's speed notice.
+    pub fn uses_b11(&self, id: InstanceId) -> bool {
+        self.get(id).is_some_and(|i| i.b11)
     }
 
     /// Starts the instance a check was made for and writes the commands queued meanwhile. A

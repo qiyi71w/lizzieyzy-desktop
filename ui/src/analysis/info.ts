@@ -159,9 +159,10 @@ export function startTitleUpdates(repaint: () => void): void {
 
 /** LizzieFrame.updateTitle (LizzieFrame.java:10942-11052): the app name, the [Black win rate, Black
  *  lead, visits] of the current position (else of the previous one), the engine with its speed (or
- *  " - 搜索/秒" while paused), the players, result and file, then the Web 旁观 address
- *  (webBoardSuffix). A Genmove 引擎对战 game shows the thinking engine; the batch title
- *  (enginePkTitile) replaces the players and file. 试下 keeps LizzieFrame.tryTitle. */
+ *  " - 搜索/秒" while paused) and the B11 speed notice (appendSpeedModelNotice), the players,
+ *  result and file, then the Web 旁观 address (webBoardSuffix). A Genmove 引擎对战 game shows the
+ *  thinking engine; the batch title (enginePkTitile) replaces the players and file. 试下 keeps
+ *  LizzieFrame.tryTitle. */
 export function workbenchTitle(v: WorkbenchView, version: string, history: Map<number, HistoryPoint>, parent: number | undefined): string {
   if (v.editing.trying) return windowTitle(version);
   const web = v.web_board.url;
@@ -187,8 +188,9 @@ function mainTitle(v: WorkbenchView, version: string, history: Map<number, Histo
   const lead = values?.black.score_lead ?? null;
   const prefix = values ? `[${values.black.winrate.toFixed(1)}${lead === null ? "" : ` ${lead.toFixed(1)}`} ${playouts(values.visits)}] ` : shown && v.game ? "[ ---   ---   --- ] " : "";
   const foreground = v.engine.foreground;
-  if (pk !== null && foreground) return `${pk} ${stem} - ${prefix}${foreground.name}${speedText} `;
   if (!foreground) return `${stem}${prefix ? ` - ${prefix}` : ""} ${rest}`;
+  const notice = foreground.b11 ? ` · ${t("B11SpeedNotice.title")} ` : "";
+  if (pk !== null) return `${pk} ${stem} - ${prefix}${foreground.name}${speedText} ${notice}`;
   const speed = v.engine.analysing ? `${speedText} ` : ` - ${t("LizzieFrame.speedUnit")} `;
-  return `${stem} - ${prefix}${foreground.name}${speed}${rest}`;
+  return `${stem} - ${prefix}${foreground.name}${speed}${notice}${rest}`;
 }

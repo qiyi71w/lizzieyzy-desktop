@@ -28,8 +28,8 @@ use crate::engine::profile::{new_profile_id, AnalysisSettings, EngineProfile, En
 use crate::engine::rules::KataRules;
 use crate::engine::ssh::RemoteFailure;
 use crate::engine::runtime::{
-    Bootstrap, CheckedLaunch, ConsoleKind, EngineFailure, EngineInput, InstanceId, LaunchCheck, Phase, RulesOutcome,
-    RuntimeEvent, Target, UserCommandError,
+    Bootstrap, CheckedLaunch, ConsoleKind, EngineFailure, EngineInput, InstanceId, LaunchCheck, ModelIdentity,
+    ModelLookup, Phase, RulesOutcome, RuntimeEvent, Target, UserCommandError,
 };
 use crate::record::{BoardSize, DocumentEdit, GameRecord, NodeId, NodeKind, Point, Position, Stone, ROOT};
 use crate::sanitize::sanitize;
@@ -1484,6 +1484,19 @@ impl Workbench {
         self.engine_events(events)
     }
 
+    /// Engine starts whose model header is read for the title's B11 speed notice, each handed
+    /// out once. The platform reads them off the workbench and reports back through
+    /// [`Self::finish_model_lookup`].
+    pub fn take_model_lookups(&mut self) -> Vec<ModelLookup> {
+        self.engines.take_model_lookups()
+    }
+
+    /// Records the model a lookup found, unless its engine was retired meanwhile. Returns
+    /// whether the view changed.
+    pub fn finish_model_lookup(&mut self, found: ModelIdentity) -> bool {
+        self.engines.finish_model_lookup(found)
+    }
+
     /// When timed work is due next: engine protocol timers and quick analysis (see
     /// [`Self::engine_tick`]).
     pub fn engine_timer(&self) -> Option<std::time::Instant> {
@@ -1826,6 +1839,7 @@ impl Workbench {
                 can_analyse: self.engines.can_analyse(f),
                 ready: self.engines.foreground_complete(),
                 commands: self.engines.known_commands(f),
+                b11: self.engines.uses_b11(f),
             })
         });
         let rules = fg.and_then(|f| self.engines.confirmed_rules(f));

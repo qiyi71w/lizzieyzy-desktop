@@ -29,6 +29,10 @@ fn safe(value: &str) -> bool {
         && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"._+-".contains(&b))
 }
 fn text(value: &str) -> String { value.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(180).collect() }
+/// Java `RemoteComputeConfig.kataWeightForArgs`: the model a Zhizi launch selects.
+pub fn kata_weight(args: &str) -> &str {
+    args.split_whitespace().skip_while(|word| *word != "--kata-weight").nth(1).unwrap_or("10b512t")
+}
 impl Catalog {
     pub fn resolve_weight(&self, requested: &str) -> &str {
         self.weights.iter().find(|w| w.name.eq_ignore_ascii_case(requested.trim()))
@@ -38,7 +42,7 @@ impl Catalog {
     /// model with the authoritative server default, using canonical advertised spelling.
     pub fn resolve_args(&self, draft: &str) -> String {
         let draft = if draft.trim().is_empty() { VIP_ARGS } else { draft };
-        let requested = draft.split_whitespace().skip_while(|word| *word != "--kata-weight").nth(1).unwrap_or("10b512t");
+        let requested = kata_weight(draft);
         let resolved = self.resolve_weight(requested);
         let mut result = String::with_capacity(draft.len() + resolved.len() + 16);
         let mut words = draft.split_whitespace();

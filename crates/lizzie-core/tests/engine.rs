@@ -2382,3 +2382,69 @@ fn handicap_first_white_pass_applies_pda_once() {
     wb.edit(EditCommand::Pass).unwrap();
     assert!(!commands(&world.take(id)).iter().any(|c| c == "dympdacap 0.5"));
 }
+
+/// Java `B11ModelNotice`: the title's B11 speed notice follows the model this engine process
+/// loads. A local model is known from its header (a renamed B11 counts, a B11 file name with
+/// another header does not), read off the workbench; a replaced process's late answer never
+/// reaches its successor. A Zhizi connection is known from the model it selected; an indirect
+/// launcher's model paths are not this host's and never show it.
+#[test]
+fn the_b11_speed_notice_follows_the_model_the_engine_loads() {
+    use lizzie_core::engine::cloud::{CloudLaunch, CloudProvider};
+    let dir = tempfile::tempdir().unwrap();
+    let renamed = dir.path().join("renamed.bin");
+    std::fs::write(&renamed, "kata1-tf3-b11c768-s12002M-d6304M\n16\n19\n19\nrest").unwrap();
+    let misnamed = dir.path().join("kata1-tf3-b11c768-s1M-d1M.bin");
+    std::fs::write(&misnamed, "kata1-b6c96-s175395328-d26788732\n16\n19\n19\nrest").unwrap();
+    let local = |name: &str, command: String| EngineProfile { name: name.into(), command, ..EngineProfile::default() };
+    let zhizi = |name: &str, args: &str| EngineProfile {
+        name: name.into(),
+        command: "remote-compute://zhizi".into(),
+        cloud: Some(CloudLaunch { provider: CloudProvider::Zhizi, identifier: String::new(), args: args.into(), url: String::new() }),
+        ..EngineProfile::default()
+    };
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    wb.save_engine_settings(
+        vec![
+            local("Renamed", format!("/opt/katago gtp -model {}", renamed.display())),
+            local("Misnamed", format!("/opt/katago gtp -model {}", misnamed.display())),
+            local("Equals", format!("/opt/katago gtp --model={}", renamed.display())),
+            local("Script", format!("{}/katago.sh gtp -model {}", dir.path().display(), renamed.display())),
+            zhizi("Zhizi B11", "--gpu-type 1x --kata-weight 11B768T"),
+            zhizi("Zhizi default", "--gpu-type 1x"),
+        ],
+        EngineStartup::Default,
+    )
+    .unwrap();
+    let b11 = |wb: &mut Workbench| wb.view(false).engine.foreground.unwrap().b11;
+    wb.start_engines();
+    answer_all(&mut wb, &world, world.launched()[0].0, KATA);
+    assert!(!b11(&mut wb), "unknown until the header is read");
+    let stale = wb.take_model_lookups();
+    assert_eq!(stale.len(), 1);
+    assert!(wb.take_model_lookups().is_empty(), "each lookup is handed out once");
+
+    wb.restart_engine().unwrap();
+    answer_all(&mut wb, &world, world.launched().last().unwrap().0, KATA);
+    let current = wb.take_model_lookups();
+    for found in stale {
+        wb.finish_model_lookup(found.run());
+    }
+    assert!(!b11(&mut wb), "the replaced process's answer is not the new one's");
+    for found in current {
+        assert!(wb.finish_model_lookup(found.run()));
+    }
+    assert!(b11(&mut wb), "a renamed B11 is known by its header");
+
+    for (index, expected) in [(1, false), (2, true), (3, false), (4, true), (5, false)] {
+        assert!(wb.switch_engine(index).unwrap());
+        answer_all(&mut wb, &world, world.launched().last().unwrap().0, KATA);
+        for found in wb.take_model_lookups() {
+            wb.finish_model_lookup(found.run());
+        }
+        assert_eq!(b11(&mut wb), expected, "engine {index}");
+    }
+    assert!(wb.switch_engine(0).unwrap());
+    assert!(b11(&mut wb), "a reused process keeps its model");
+}

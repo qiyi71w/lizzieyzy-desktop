@@ -191,6 +191,7 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
     drop(views);
     let logs = wb.take_logs();
     let checks = wb.take_launch_checks();
+    let lookups = wb.take_model_lookups();
     let auto_saves = wb.take_background_saves();
     let batch_reads = wb.take_batch_reads();
     let deferred = wb.take_human_sl_deferred();
@@ -202,6 +203,7 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
     shared.web_board.changed();
     write_logs(shared, logs);
     run_launch_checks(app, checks);
+    run_model_lookups(app, lookups);
     commentary::spawn_jobs(app, shared, commentary_jobs);
     fox_kifu::spawn_jobs(app, fox_kifu_jobs);
     tencent_kifu::spawn_jobs(app, tencent_kifu_jobs);
@@ -230,8 +232,12 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
 /// Engine starts whose overlays need artifact fingerprints (measured or Apple tuning) are hashed
 /// on their own thread, never under the workbench lock (Java `requireWorker`).
 pub fn check_launches(app: &AppHandle, shared: &Shared) {
-    let checks = shared.workbench.lock().unwrap().take_launch_checks();
+    let mut wb = shared.workbench.lock().unwrap();
+    let checks = wb.take_launch_checks();
+    let lookups = wb.take_model_lookups();
+    drop(wb);
     run_launch_checks(app, checks);
+    run_model_lookups(app, lookups);
 }
 
 fn run_launch_checks(app: &AppHandle, checks: Vec<lizzie_core::engine::runtime::LaunchCheck>) {
@@ -244,6 +250,24 @@ fn run_launch_checks(app: &AppHandle, checks: Vec<lizzie_core::engine::runtime::
             publish(&app, &shared);
         });
     }
+}
+
+/// Reads started engines' model headers for the title's B11 speed notice off the workbench
+/// (Java's `model-speed-notice` reader); the title updates once a model is known.
+fn run_model_lookups(app: &AppHandle, lookups: Vec<lizzie_core::engine::runtime::ModelLookup>) {
+    if lookups.is_empty() {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let shared = app.state::<State>().inner().clone();
+        for lookup in lookups {
+            let found = lookup.run();
+            if shared.workbench.lock().unwrap().finish_model_lookup(found) {
+                publish(&app, &shared);
+            }
+        }
+    });
 }
 
 impl Shared {

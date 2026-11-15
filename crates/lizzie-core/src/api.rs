@@ -2150,6 +2150,9 @@ pub struct ForegroundEngineView {
     pub ready: bool,
     /// `list_commands` (GtpConsolePane 常用命令).
     pub commands: Vec<String>,
+    /// This engine process loads an official B11 model (Java `Leelaz.usesB11ForSpeedNotice`):
+    /// the title adds `B11SpeedNotice.title` after the speed. False until its model is known.
+    pub b11: bool,
 }
 
 /// The secondary engine (副引擎, Java `Lizzie.leelaz2`) of 双引擎模式: it analyses the same
