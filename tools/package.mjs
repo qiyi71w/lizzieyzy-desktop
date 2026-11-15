@@ -166,7 +166,10 @@ for (const kind of [...platform.bundles, "macos"]) fs.rmSync(path.join(bundleDir
 // Windows packages carry the helper as a resource directory `readboard/` (next to the program).
 const readboardDir = platform.os === "windows" ? readboardDirectory(await readboardArchive()) : null;
 
-const tauriArgs = ["build", "--ci", "--bundles", platform.bundles.join(",")];
+// The macOS update package is made from the app bundle; without `app` among the requested
+// bundles the Tauri CLI deletes it once the dmg is made.
+const bundles = signing && platform.os === "macos" ? ["app", ...platform.bundles] : platform.bundles;
+const tauriArgs = ["build", "--ci", "--bundles", bundles.join(",")];
 if (options.target) tauriArgs.push("--target", options.target);
 if (options.identity === "acceptance") tauriArgs.push("--config", ACCEPTANCE_CONFIG, "--features", "acceptance");
 if (readboardDir) {
