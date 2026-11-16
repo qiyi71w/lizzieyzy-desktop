@@ -1409,7 +1409,8 @@ and an open runs in the background under a ticket so a late result from an older
 dropped. Engine results carry the record, position and komi they were requested for; the core
 drops any that no longer match and sends the engine only the moves that changed.
 
-The desktop shell sends view updates through an ordered Tauri IPC channel. Engine-driven
+The desktop shell sends view updates in order: on Windows as WebView2 web messages carrying the
+view's JSON, elsewhere through a Tauri IPC channel. Engine-driven
 updates are coalesced at 50 ms; user commands publish immediately. Startup subscribes before
 taking a full snapshot, then discards older queued views by sequence number. Analysis and
 history panels compare their fields to decide whether to repaint, including changes to a

@@ -162,7 +162,49 @@ fn frame_placement(window: &tauri::WebviewWindow, columns: &[u32]) -> Option<Fra
 #[derive(Default)]
 struct ViewSubscription {
     generation: u64,
-    channel: Option<Channel<WorkbenchView>>,
+    sink: Option<ViewSink>,
+}
+
+/// Where workbench views go. A `Channel` fetches every message over 8 KiB back over the IPC
+/// protocol, which WebView2 serves through resource interception on its browser thread, ten
+/// times a second while an engine analyses; there the view's JSON is posted to the page as a
+/// web message instead, which the page parses like the fetched one. Elsewhere the channel
+/// carries it.
+struct ViewSink {
+    #[cfg(windows)]
+    webview: tauri::Webview,
+    #[cfg(not(windows))]
+    channel: Channel<WorkbenchView>,
+}
+
+impl ViewSink {
+    #[cfg(windows)]
+    fn new(webview: tauri::Webview, _channel: Channel<WorkbenchView>) -> ViewSink {
+        ViewSink { webview }
+    }
+
+    #[cfg(not(windows))]
+    fn new(_webview: tauri::Webview, channel: Channel<WorkbenchView>) -> ViewSink {
+        ViewSink { channel }
+    }
+
+    #[cfg(windows)]
+    fn send(&self, view: WorkbenchView) -> tauri::Result<()> {
+        let message = windows::core::HSTRING::from(serde_json::to_string(&view)?);
+        let app = self.webview.app_handle().clone();
+        self.webview.with_webview(move |platform| {
+            let posted = unsafe { platform.controller().CoreWebView2().and_then(|core| core.PostWebMessageAsString(&message)) };
+            // The view is lost (with any tree or one-shot part it carried); the log says so.
+            if let Err(e) = posted {
+                app.state::<State>().log.warn(&format!("workbench view not delivered: {e}"));
+            }
+        })
+    }
+
+    #[cfg(not(windows))]
+    fn send(&self, view: WorkbenchView) -> tauri::Result<()> {
+        self.channel.send(view)
+    }
 }
 
 pub type State = Arc<Shared>;
@@ -183,9 +225,9 @@ fn write_logs(shared: &Shared, logs: Vec<lizzie_core::workbench::LogLine>) {
 pub fn publish(app: &AppHandle, shared: &Shared) {
     let mut wb = shared.workbench.lock().unwrap();
     let mut views = shared.views.lock().unwrap();
-    if let Some(channel) = &views.channel {
-        if channel.send(wb.view(false)).is_err() {
-            views.channel = None;
+    if let Some(sink) = &views.sink {
+        if sink.send(wb.view(false)).is_err() {
+            views.sink = None;
         }
     }
     drop(views);
@@ -1577,12 +1619,11 @@ fn search_functions(query: String, language: lizzie_core::settings::Language) ->
     lizzie_core::function_search::search(&query, language)
 }
 
-/// Channels transfer large views as IPC data instead of compiling a new JS object literal.
 #[tauri::command]
-fn subscribe_workbench(state: tauri::State<'_, State>, channel: Channel<WorkbenchView>) -> u64 {
+fn subscribe_workbench(state: tauri::State<'_, State>, webview: tauri::Webview, channel: Channel<WorkbenchView>) -> u64 {
     let mut views = state.views.lock().unwrap();
     views.generation += 1;
-    views.channel = Some(channel);
+    views.sink = Some(ViewSink::new(webview, channel));
     views.generation
 }
 
@@ -1590,7 +1631,7 @@ fn subscribe_workbench(state: tauri::State<'_, State>, channel: Channel<Workbenc
 fn unsubscribe_workbench(state: tauri::State<'_, State>, generation: u64) {
     let mut views = state.views.lock().unwrap();
     if views.generation == generation {
-        views.channel = None;
+        views.sink = None;
     }
 }
 

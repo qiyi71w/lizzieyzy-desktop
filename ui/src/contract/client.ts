@@ -20,12 +20,28 @@ export function logsStatus(): Promise<LogsStatus> {
   return invoke<LogsStatus>("logs_directory");
 }
 
+declare global {
+  interface Window {
+    /** WebView2's host bridge; absent in other webviews. */
+    chrome?: { webview?: EventTarget };
+  }
+}
+
+/** Views come over the channel, or as web messages carrying their JSON where the adapter posts
+ *  them that way (WebView2: `ViewSink` in `src-tauri/src/lib.rs`). */
 export async function onView(handler: (view: WorkbenchView) => void): Promise<UnlistenFn> {
   const channel = new Channel<WorkbenchView>();
   channel.onmessage = handler;
+  const webview = window.chrome?.webview;
+  // WebView2 dispatches a plain Event carrying `data`, not a MessageEvent.
+  const message = (e: Event) => {
+    if ("data" in e && typeof e.data === "string") handler(JSON.parse(e.data) as WorkbenchView);
+  };
+  webview?.addEventListener("message", message);
   const generation = await invoke<number>("subscribe_workbench", { channel });
   return () => {
     channel.onmessage = () => {};
+    webview?.removeEventListener("message", message);
     void invoke("unsubscribe_workbench", { generation });
   };
 }
