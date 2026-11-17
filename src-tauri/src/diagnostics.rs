@@ -1,6 +1,6 @@
 //! "诊断与日志" support: log status and the diagnostics package (Java `DiagnosticsDialog`,
 //! `DiagnosticBundleExporter`), limited to the data this product produces so far: the
-//! application, crash and engine trace logs, versions/runtime, a redacted settings snapshot, and
+//! application and crash logs, the 完整日志 files, versions/runtime, a redacted settings snapshot, and
 //! the 棋盘同步 helper's logs, logging state and sync snapshots (`SyncDiagnosticsExporter`).
 
 use std::io::Write;
@@ -29,7 +29,8 @@ impl Package {
         let sanitized = |path: std::path::PathBuf| {
             std::fs::read(path).ok().map(|bytes| lizzie_core::sanitize::sanitize(&String::from_utf8_lossy(&bytes)))
         };
-        for name in ["app.log", "app.log.1", "crash.log", "engine-trace.log"] {
+        let traces = lizzie_core::diagnostics::TraceScope::ALL.map(|scope| scope.file_name());
+        for name in ["app.log", "app.log.1", "crash.log"].into_iter().chain(traces) {
             if let Some(text) = sanitized(logs.join(name)) {
                 entries.push((format!("logs/lizzie/{name}"), text.into_bytes()));
             }
@@ -50,6 +51,9 @@ impl Package {
             "engines": config.engine.engines.len(),
             "engineStartup": config.engine.startup,
             "analysis": config.engine.analysis,
+            // Java `ConfigExportProjection`: the diagnostics switches and the running session.
+            "logging": config.logging,
+            "activeTraceScopes": wb.diagnostics().full_trace(),
         });
         entries.push((
             "snapshots/config.json".into(),

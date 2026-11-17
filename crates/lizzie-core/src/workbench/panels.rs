@@ -181,6 +181,43 @@ impl Workbench {
         Ok(true)
     }
 
+    /// 自定义内容 of the top toolbar (Menu.java:4643-4847) and 自动换行 (Menu.java:4457-4467):
+    /// each check is written at once.
+    pub fn set_top_toolbar_settings(&mut self, settings: crate::settings::TopToolbarSettings) -> Result<bool, ApiError> {
+        if self.config.top_toolbar == settings {
+            return Ok(false);
+        }
+        self.commit_config(|c| c.top_toolbar = settings)?;
+        Ok(true)
+    }
+
+    /// 自定义内容 of the bottom toolbar (Menu.java:4896-5156) and 显示拓展/隐藏详细工具栏按钮
+    /// (4593-4604): each check is written at once.
+    pub fn set_bottom_buttons(&mut self, settings: crate::settings::BottomButtonSettings) -> Result<bool, ApiError> {
+        if self.config.bottom_buttons == settings {
+            return Ok(false);
+        }
+        self.commit_config(|c| c.bottom_buttons = settings)?;
+        Ok(true)
+    }
+
+    /// 设置模块顺序 确认 (`ToolbarPositionConfig`): window presentation, saved like the toolbar mode.
+    pub fn set_detail_panel_order(&mut self, order: crate::settings::DetailPanelOrder) -> Result<bool, ApiError> {
+        if order.auto_analysis > 2 || order.engine_match > 2 || order.auto_play > 2 {
+            return Err(ApiError::new(ErrorKind::InvalidArgument, "a panel place is 0, 1 or 2"));
+        }
+        if self.persisted.detail_panel_order == order {
+            return Ok(false);
+        }
+        let old = self.persisted.detail_panel_order;
+        self.persisted.detail_panel_order = order;
+        if let Err(error) = self.save_persisted() {
+            self.persisted.detail_panel_order = old;
+            return Err(error);
+        }
+        Ok(true)
+    }
+
     /// LizzieFrame.java:3284-3535. Mode entry is a complete operation, also when reselected.
     pub fn set_extra_mode(&mut self, mode: ExtraMode) -> Result<bool, ApiError> {
         let mut p = self.config.panels.clone();
@@ -302,6 +339,23 @@ impl Workbench {
                 IndependentBoard::Main => self.persisted.independent_main_board = previous,
                 IndependentBoard::Sub => self.persisted.independent_sub_board = previous,
             }
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// 独立棋局控制面板 hidden or at exit (Config.persist `ctrl-position`, Lizzie.shutdown
+    /// `is-ctrl-opened`): whether it is shown, so the next start reopens it, and the bounds of a
+    /// panel built this session (`None` keeps the saved ones). After 重置界面位置 the bounds are
+    /// not written; whether it is shown is a configuration value and still is.
+    pub fn record_control_panel(&mut self, placement: Option<WindowPlacement>, open: bool) -> Result<(), ApiError> {
+        if self.config.ui.control_panel_open != open {
+            self.commit_config(|c| c.ui.control_panel_open = open)?;
+        }
+        if self.persist_reset || placement.is_none() { return Ok(()); }
+        let previous = std::mem::replace(&mut self.persisted.control_panel, placement);
+        if let Err(error) = self.save_persisted() {
+            self.persisted.control_panel = previous;
             return Err(error);
         }
         Ok(())

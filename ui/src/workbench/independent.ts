@@ -97,7 +97,7 @@ export function relayIndependent(v: WorkbenchView, scenes: IndependentScenes): v
       w.onTop = f.onTop;
       void WebviewWindow.getByLabel(INDEPENDENT_LABELS[board]).then((win) => win?.setAlwaysOnTop(f.onTop));
     }
-    const common = { language: language(), appearance: v.settings.appearance, theme: v.settings.theme, locked: f.locked, onTop: f.onTop };
+    const common = { language: language(), appearance: v.settings.appearance, theme: v.settings.theme, themeFilesRevision: v.settings.theme_files_revision, locked: f.locked, onTop: f.onTop };
     let payload: IndependentPayload;
     if (board === "Main") {
       if (!scenes.main) continue;

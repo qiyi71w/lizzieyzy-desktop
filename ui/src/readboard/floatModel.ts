@@ -16,6 +16,8 @@ export interface FloatPayload {
   language: Language;
   appearance: AppearanceSettings;
   theme: ThemeSettings;
+  /** SettingsView.theme_files_revision. */
+  themeFilesRevision: number;
   /** The window's size in physical pixels (posWidth × posHeight) and the edge between it and the
    *  helper's rectangle (zoomIn(20)), both as src-tauri placed it. */
   width: number;

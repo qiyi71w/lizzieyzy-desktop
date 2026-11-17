@@ -1,0 +1,85 @@
+/* 检查更新 (CheckUpdateDialog) and 发现新版本 (WindowsUpdateDialog): modeless, above the workbench
+   and below modal dialogs (#dialog, 30), centred over the window. Classic workspace colours
+   (AppleStyleSupport.workspace*): background 246 247 249, muted 85 99 94, text 31 41 38. The page
+   packs to at least 460 px wide (18 20 16 20 border, 16 px between header, form and footer, buttons
+   touching); the offer is at least 560 × 360 (16 18 14 18 border, 12 px gaps, buttons 8 px apart). */
+.modal-box.update-window {
+  position: fixed;
+  z-index: 29;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  max-width: calc(100vw - 8px);
+  max-height: calc(100vh - 8px);
+  padding-bottom: 0;
+  overflow: hidden;
+  resize: both;
+  box-sizing: border-box;
+  background: rgb(246, 247, 249);
+  color: rgb(31, 41, 38);
+  font: 12px "DejaVu Sans", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+}
+.update-window:focus { outline: none; }
+.update-title { display: flex; justify-content: space-between; align-items: center; }
+.update-close { border: 0; background: none; font: inherit; padding: 0 4px; cursor: pointer; color: inherit; }
+.update-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  white-space: pre-line;
+}
+.update-buttons { flex: none; }
+.update-buttons button[hidden] { display: none; }
+
+.update-page { width: min(460px, calc(100vw - 8px)); min-height: min(428px, calc(100vh - 8px)); }
+.update-page .update-body { padding: 18px 20px 0; }
+.update-page .update-buttons { gap: 0; padding: 16px 20px 16px; }
+.update-muted { color: rgb(85, 99, 94); }
+.update-version { margin: 4px 0 16px; font-size: 16px; font-weight: bold; }
+.update-label { margin-bottom: 8px; }
+.update-row { display: flex; gap: 12px; margin-bottom: 14px; }
+.update-choice,
+.update-check { display: flex; align-items: center; gap: 4px; }
+.update-check { margin-bottom: 14px; }
+.update-choice.disabled,
+.update-check.disabled { color: rgb(150, 156, 160); }
+/* A failure can carry the system's own words or a command to copy. */
+.update-result { color: rgb(85, 99, 94); overflow-wrap: anywhere; user-select: text; }
+
+.update-offer { width: min(560px, calc(100vw - 8px)); min-height: min(360px, calc(100vh - 8px)); }
+.update-offer .update-body { gap: 0; padding: 16px 18px 0; }
+.update-offer .update-buttons { padding: 8px 18px 14px; }
+.update-offer-heading { font-size: 15px; font-weight: bold; }
+.update-warning { margin-top: 8px; }
+.update-warning[hidden] { display: none; }
+.update-summary {
+  flex: 1;
+  min-height: 160px;
+  margin-top: 12px;
+  padding: 8px;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid rgb(213, 220, 218);
+  user-select: text;
+}
+.update-progress {
+  position: relative;
+  height: 20px;
+  margin-top: 12px;
+  border: 1px solid rgb(184, 192, 200);
+  background: rgb(238, 240, 242);
+}
+.update-progress[hidden] { display: none; }
+.update-progress-fill { height: 100%; background: rgb(168, 186, 206); }
+.update-progress-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgb(60, 90, 160);
+}
+.update-status { min-height: 1.4em; margin-top: 8px; font-weight: bold; overflow-wrap: anywhere; user-select: text; }

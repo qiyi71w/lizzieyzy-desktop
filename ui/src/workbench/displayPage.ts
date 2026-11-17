@@ -1,7 +1,9 @@
 // 综合设置 > 棋盘与显示 > 启动时加载 (ConfigDialog2.createDisplaySection, ConfigDialog2.java:3313-
 // 3356): the rows in Java's order, edited as a draft and committed together with 保存设置
-// (ConfigDialog2.java:6667-6668, 6734-6750); 取消 discards them. Java's 显示快速启动 row is not
-// shown: this product has no 快速启动 links for it to control.
+// (ConfigDialog2.java:6667-6668, 6734-6750); 取消 discards them. 显示快速启动 is the 快速启动
+// setting, saved by this page; the other rows are panel settings.
+import { run, state } from "../app";
+import { checkbox } from "../engine/controls";
 import { SETTINGS_PAGES } from "../engine/settings";
 import { registerSettingTargets } from "../engine/settingsTargets";
 import { t } from "../i18n";
@@ -16,6 +18,7 @@ const TARGETS: Record<Field, string> = {
   showSubBoard: "config.display.sub-board",
   showWinrateInTitle: "config.display.title-winrate",
 };
+const QUICK_LINKS = "config.display.quick-links";
 
 SETTINGS_PAGES.display = (host) => {
   const heading = document.createElement("h3");
@@ -30,8 +33,28 @@ SETTINGS_PAGES.display = (host) => {
     ["showWinrateInTitle", t("ConfigDialog2.modern.display.titleWr"), t("ConfigDialog2.modern.display.titleWrSub")],
   ];
   const draft = panelDraft();
-  for (const [field, title, sub] of rows) draft.row(host, field, TARGETS[field], title, sub);
+  const [first, ...rest] = rows;
+  draft.row(host, first[0], TARGETS[first[0]], first[1], first[2]);
+  // 显示快速启动 (chkShowQuickLinks), the second row; 保存设置 writes ui.show-quick-links.
+  const row = document.createElement("div");
+  row.className = "settings-row";
+  row.dataset.settingTarget = QUICK_LINKS;
+  const quickLinks = checkbox(t("ConfigDialog2.modern.display.quickLinks"), state.view?.settings.quick_links.show ?? false);
+  quickLinks.input.dataset.key = QUICK_LINKS;
+  quickLinks.label.title = t("ConfigDialog2.modern.display.quickLinksSub");
+  const hint = document.createElement("p");
+  hint.textContent = t("ConfigDialog2.modern.display.quickLinksSub");
+  row.append(quickLinks.label, hint);
+  host.append(row);
+  for (const [field, title, sub] of rest) draft.row(host, field, TARGETS[field], title, sub);
   // The dialog commits the shared panel draft once with 保存设置 (panelDraft.ts).
-  return { save: async () => true };
+  return {
+    save: async () => {
+      const now = state.view?.settings.quick_links;
+      if (!now || now.show === quickLinks.input.checked) return true;
+      const result = await run({ type: "SetQuickLinks", settings: { ...now, show: quickLinks.input.checked } });
+      return !!result && result.type !== "Refused";
+    },
+  };
 };
-registerSettingTargets("display", Object.values(TARGETS));
+registerSettingTargets("display", [...Object.values(TARGETS), QUICK_LINKS]);

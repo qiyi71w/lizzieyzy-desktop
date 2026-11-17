@@ -20,6 +20,8 @@ export type IndependentPayload = {
   /** The committed appearance the window paints with (its board, stones and fonts). */
   appearance: AppearanceSettings;
   theme: ThemeSettings;
+  /** SettingsView.theme_files_revision. */
+  themeFilesRevision: number;
   /** The lock button (independent-mainboard-locked / independent-subboard-locked): no moving
    *  or resizing by dragging. */
   locked: boolean;
@@ -53,8 +55,9 @@ export interface KeyInit {
 export type IndependentInput = { board: IndependentBoard } & (
   | { type: "ready" }
   /** The pointer over the main board, in intersection units from the top-left intersection, and
-   *  the stone radius + 1 px in the same units (BoardRenderer.mouseOveredMove's reach). */
-  | { type: "hover"; fx: number; fy: number; reach: number }
+   *  the stone radius + 1 px in the same units (BoardRenderer.mouseOveredMove's reach);
+   *  `pressed` while a button is held (mouseDragged). */
+  | { type: "hover"; fx: number; fy: number; reach: number; pressed: boolean }
   | { type: "enter" }
   | { type: "leave" }
   /** `sx`, `sy`: the pressed screen point (CSS px), where a popup opens. */

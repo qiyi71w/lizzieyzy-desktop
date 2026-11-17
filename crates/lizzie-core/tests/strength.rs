@@ -409,7 +409,7 @@ fn java_import_copies_the_strength_models_once_and_leaves_java_alone() {
             f.wb.preview_java_import(java_import::read(&JavaSource::new(&java, None)).unwrap());
         let it = p.items.iter().find(|i| i.key == "file:strength-models").unwrap();
         assert_eq!(it.value.as_deref(), Some("2"));
-        f.wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+        f.wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
     }
     let names: Vec<_> = f.wb.view(false).strength.models.into_iter().map(|m| m.name).collect();
     assert_eq!(

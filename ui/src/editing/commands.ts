@@ -26,7 +26,7 @@ function setEdit<K extends keyof EditSettings>(key: K, value: EditSettings[K]): 
   if (settings) void run({ type: "SetEditSettings", settings: { ...settings, [key]: value } });
 }
 
-function editToggle(key: "allowDoubleClick" | "allowDrag" | "showNewBoardHint"): CommandEntry {
+function editToggle(key: "allowDoubleClick" | "allowDrag" | "clickReview" | "showNewBoardHint"): CommandEntry {
   return {
     run: () => setEdit(key, !state.view?.settings.edit[key]),
     checked: () => state.view?.settings.edit[key] ?? false,
@@ -97,6 +97,7 @@ Object.assign(COMMANDS, {
   "menu.alternatelyMoves": { run: () => choosePlacement("alternate", true) },
   "menu.allowDoubleClick": editToggle("allowDoubleClick"),
   "menu.allowDrag": editToggle("allowDrag"),
+  "menu.allowClickReview": editToggle("clickReview"),
   "menu.insertBlack": insert("Black"),
   "menu.insertWhite": insert("White"),
   "menu.clearBoard": { run: () => void edit({ op: "ClearBoard" }) },

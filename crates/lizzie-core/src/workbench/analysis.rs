@@ -16,9 +16,10 @@ use std::time::{Duration, Instant};
 
 use super::Workbench;
 use crate::api::{
-    ApiError, CandidateView, ConsoleLineKind, ConsoleLineView, EngineEntryView, EngineFailureView, EngineNotice,
-    EngineScope, EngineSettingsView, EngineState, EngineView, ErrorKind, ForegroundEngineView, HistoryPoint,
-    NodeAnalysisView, RulesPromptView, SecondaryEngineView, SecondaryView,
+    AnalysisScope, ApiError, CandidateView, ConsoleLineKind, ConsoleLineView, EngineEntryView,
+    EngineFailureView, EngineNotice, EngineScope, EngineSettingsView, EngineState, EngineView, ErrorKind,
+    ForegroundEngineView, HistoryPoint, NodeAnalysisView, RulesPromptView, SecondaryEngineView, SecondaryView,
+    ClickReviewView,
 };
 use crate::browse::Navigation;
 use crate::display::{self, BoardOverlayView};
@@ -27,8 +28,8 @@ use crate::engine::profile::{new_profile_id, AnalysisSettings, EngineProfile, En
 use crate::engine::rules::KataRules;
 use crate::engine::ssh::RemoteFailure;
 use crate::engine::runtime::{
-    Bootstrap, CheckedLaunch, ConsoleKind, EngineFailure, EngineInput, InstanceId, LaunchCheck, Phase, RulesOutcome,
-    RuntimeEvent, Target, UserCommandError,
+    Bootstrap, CheckedLaunch, ConsoleKind, EngineFailure, EngineInput, InstanceId, LaunchCheck, ModelIdentity,
+    ModelLookup, Phase, RulesOutcome, RuntimeEvent, Target, UserCommandError,
 };
 use crate::record::{BoardSize, DocumentEdit, GameRecord, NodeId, NodeKind, Point, Position, Stone, ROOT};
 use crate::sanitize::sanitize;
@@ -219,8 +220,42 @@ impl AnalysisStore {
         }
     }
 
-    pub(super) fn is_stale(&self, node: NodeId) -> bool {
+    fn is_stale(&self, node: NodeId) -> bool {
         self.stale.contains(&node)
+    }
+
+    /// Whether `result` takes the place of the node's stored result (`BoardData`'s Lizzie
+    /// cache): with the cache on only when there is none, it was marked to give way, it was
+    /// made with another PDA than `pda`, the one of the new result's engine
+    /// (`cachedPda != engine.pda`), or the new search went further; with the cache off always.
+    pub(super) fn takes_place(&self, rec: &GameRecord, node: NodeId, result: &NodeAnalysisView, cache: bool, pda: f64) -> bool {
+        !cache
+            || self.is_stale(node)
+            || self.pda(node) != pda
+            || self.get(rec, node).is_none_or(|old| more_visits(result, old))
+    }
+
+    /// A live result just stored was made with PDA `pda` (`BoardData.pda`): it is saved with it.
+    pub(super) fn made_with_pda(&mut self, node: NodeId, pda: f64) {
+        if pda != 0.0 && self.nodes.contains_key(&node) {
+            let metadata = crate::formats::saved_analysis::Metadata { pda, header_slots: 0 };
+            self.metadata.insert(node, metadata);
+        }
+    }
+
+    /// `clearBestMovesInfomation`: the node's analysis is gone; it is neither shown nor saved.
+    pub(super) fn erase(&mut self, node: NodeId) {
+        self.nodes.remove(&node);
+        self.ownership.remove(&node);
+        self.metadata.remove(&node);
+        self.stale.remove(&node);
+        self.kept_since.remove(&node);
+        self.attended.remove(&node);
+    }
+
+    /// `clearBestMovesInfomationAfter(start)`: every node's analysis is gone.
+    pub(super) fn erase_all(&mut self) {
+        self.reset(self.doc);
     }
 
     pub(super) fn doc(&self) -> u64 {
@@ -352,7 +387,7 @@ pub(super) fn fill_pv_captures(result: &mut NodeAnalysisView, base: &Position, l
 
 /// `BoardData.adoptOrdinaryAnalysis` with the cache on: a result replaces the stored one only
 /// with more visits (root visits when both report them).
-pub(super) fn more_visits(new: &NodeAnalysisView, old: &NodeAnalysisView) -> bool {
+fn more_visits(new: &NodeAnalysisView, old: &NodeAnalysisView) -> bool {
     match (new.root_visits, old.root_visits) {
         (Some(n), Some(o)) => n > o,
         _ => new.visits > old.visits,
@@ -563,10 +598,12 @@ impl Workbench {
     /// Tells the runtime what the foreground and the secondary engine should do now. Both hold
     /// the browsing position; the secondary engine analyses only in 双引擎模式 and only while the
     /// foreground engine may (the user's pause and a foreground limit stop it too, as Java
-    /// mirrors the primary engine's commands), and stops alone at its own limit. A waiting
-    /// analysis engine warm-up decides again on the changed state.
+    /// mirrors the primary engine's commands), and stops alone at its own limit. While
+    /// 综合设置 holds analysis, or a 搜索线程数 restore runs, neither engine analyses, in every
+    /// mode. A waiting analysis engine warm-up decides again on the changed state.
     pub(super) fn sync_engine(&mut self) {
         self.warmup_review();
+        let hold = self.analysis_hold || self.search_threads_restoring();
         if self.fox_holds_engine() || self.fox_owns_board() {
             self.engines.want_secondary(None, false);
             self.engines.want(None, false);
@@ -574,7 +611,7 @@ impl Workbench {
         }
         if let Some(analyse) = self.human_sl_analyse() {
             self.engines.want_secondary(None, false);
-            if analyse { self.engines.want(Some(self.analysis_target()), true); }
+            if analyse { self.engines.want(Some(self.analysis_target()), !hold); }
             else { self.engines.want(None, false); }
             return;
         }
@@ -586,10 +623,16 @@ impl Workbench {
         if self.secondary_limit_stop.is_some_and(|l| l != here) {
             self.secondary_limit_stop = None;
         }
+        if self.empty_board_resumed.is_some_and(|l| l != here) {
+            self.empty_board_resumed = None;
+        }
+        if self.side_hold.is_some_and(|l| l != here) {
+            self.side_hold = None;
+        }
         // 批量分析 analyses its own record with the foreground engine (the user's pause stops it,
         // as Java's ponder toggle does); the secondary engine stays idle meanwhile.
         if self.auto_analysis_holds_foreground() {
-            let analyse = !self.paused && !self.benchmark_running() && !self.quick_holds_foreground();
+            let analyse = !hold && !self.paused && !self.benchmark_running() && !self.quick_holds_foreground();
             self.engines.want_secondary(None, false);
             self.engines.want(Some(self.foreground_target()), analyse);
             return;
@@ -600,12 +643,12 @@ impl Workbench {
                 self.engines.want(None, false);
                 return;
             }
-            self.engines.want(Some(self.analysis_target()), analyse);
+            self.engines.want(Some(self.analysis_target()), analyse && !hold);
             return;
         }
         // A game decides whether its engine analyses; the secondary engine stays idle.
         if let Some(analyse) = self.play_analyse() {
-            let analyse = analyse && !self.benchmark_running() && self.rules_permit_analysis();
+            let analyse = analyse && !hold && !self.benchmark_running() && self.rules_permit_analysis();
             self.engines.want_secondary(None, false);
             self.engines.want(Some(self.analysis_target()), analyse);
             self.check_rules_prompt();
@@ -614,9 +657,11 @@ impl Workbench {
         // A running quick analysis leaves the foreground engine idle until it ends; ReadBoard GMA
         // keeps it following the position without analysing (its moves come from
         // `kata-genmove_analyze`).
-        let analyse = !self.paused
+        let analyse = !hold
+            && !self.paused
             && !self.benchmark_running()
             && self.limit_stop.is_none()
+            && self.side_hold.is_none()
             && !self.quick_holds_foreground()
             && !self.flash_holds_foreground()
             && !self.whole_game_holds_foreground()
@@ -643,7 +688,15 @@ impl Workbench {
             None
         };
         let _ = profile;
-        Bootstrap { komi: self.komi, rules }
+        let p = &s.kata_params;
+        Bootstrap {
+            komi: self.komi,
+            rules,
+            pda: p.auto_load_pda_value.filter(|_| p.auto_load_pda),
+            wrn: p.auto_load_wrn_value.filter(|_| p.auto_load_wrn),
+            leela_options: s.leela_options.auto_loaded(),
+            custom_pda: s.custom_pda.clone(),
+        }
     }
 
     /// Whether the open game is still a new empty game: no moves, no setup and not read from a
@@ -775,6 +828,7 @@ impl Workbench {
         let keep = self.config.engine.analysis.fast_engine_change;
         self.limit_stop = None;
         self.limit_tip_shown = false;
+        self.empty_board_resumed = None;
         self.engines.set_foreground(Some(instance), keep);
         if remember_selection && self.config.engine.startup == EngineStartup::Last {
             let id = profile.id.clone();
@@ -954,6 +1008,18 @@ impl Workbench {
         toggled
     }
 
+    /// 综合设置 opened (`held`) or closed: Java's `togglePonder` around the modal dialog. No
+    /// engine analyses while held; nothing else changes, so a game, an engine match, 自动分析 and
+    /// the user's own pause are as they were once released. Returns whether it changed.
+    pub fn hold_analysis(&mut self, held: bool) -> bool {
+        if self.analysis_hold == held {
+            return false;
+        }
+        self.analysis_hold = held;
+        self.sync_engine();
+        true
+    }
+
     fn toggle_pause_state(&mut self) -> Result<bool, ApiError> {
         // Space during a game ends it (`togglePonderMannul` → `stopAiPlayingAndPolicy`).
         if self.game_active() {
@@ -963,6 +1029,7 @@ impl Workbench {
         if self.quick_toggle_pause() || self.flash_toggle_pause() || self.whole_game_toggle_pause() || self.batch_toggle_pause() {
             self.limit_stop = None;
             self.secondary_limit_stop = None;
+            self.side_hold = None;
             self.sync_engine();
             return Ok(true);
         }
@@ -978,13 +1045,21 @@ impl Workbench {
             }
             return Ok(false);
         }
-        let running = !self.paused && self.limit_stop.is_none();
+        // A position 分析 黑 / 白 holds resumes like a limit stop (`togglePonder` with
+        // `underPonder` ponders).
+        let running = !self.paused && self.limit_stop.is_none() && self.side_hold.is_none();
         self.paused = running;
         if !running && self.benchmark_running() {
             self.stop_benchmark();
         }
+        // Resuming after a stop on the empty board searches on (`ponder` sets
+        // `outOfPlayoutsLimit` after `stopByPlayouts`).
+        if !self.paused && (self.limit_stop.is_some() || self.secondary_limit_stop.is_some()) && self.at_empty_board() {
+            self.empty_board_resumed = Some((self.doc.id, self.cursor));
+        }
         self.limit_stop = None;
         self.secondary_limit_stop = None;
+        self.side_hold = None;
         self.sync_engine();
         Ok(true)
     }
@@ -998,6 +1073,7 @@ impl Workbench {
         self.paused = false;
         self.limit_stop = None;
         self.secondary_limit_stop = None;
+        self.side_hold = None;
         self.sync_engine();
         true
     }
@@ -1007,8 +1083,49 @@ impl Workbench {
         self.paused = false;
         self.limit_stop = None;
         self.secondary_limit_stop = None;
+        self.side_hold = None;
         self.sync_engine();
         true
+    }
+
+    /// 分析 黑 / 白 (`chkAnalyzeBlack` / `chkAnalyzeWhite`, Menu.java:9754-9793): session only.
+    /// When the changed side is to move now and ordinary analysis runs or waits for it, analysis
+    /// starts or stops here at once (`ponder` / `nameCmdfornoponder`); otherwise the choice
+    /// counts from the user's next move or browsing step.
+    pub fn set_analyze_sides(&mut self, black: bool, white: bool) -> bool {
+        if (black, white) == (self.analyze_black, self.analyze_white) {
+            return false;
+        }
+        let changed = match self.doc.record.node(self.cursor).to_play {
+            Stone::Black => black != self.analyze_black,
+            Stone::White => white != self.analyze_white,
+        };
+        self.analyze_black = black;
+        self.analyze_white = white;
+        if changed && !self.paused && self.limit_stop.is_none() && self.side_choice_applies() {
+            self.hold_for_side(self.cursor);
+            self.sync_engine();
+        }
+        true
+    }
+
+    /// Ordinary analysis, the one 分析 黑 / 白 decides about: not a game, an engine match, AI
+    /// 陪练 or any 自动分析 run (`isPlayingAgainstLeelaz`, `isAutoAna`).
+    fn side_choice_applies(&self) -> bool {
+        self.play_analyse().is_none()
+            && self.match_analyse().is_none()
+            && self.human_sl_analyse().is_none()
+            && !self.auto_analysis_running()
+    }
+
+    /// Before the user's move or browsing step lands on `node`: running ordinary analysis waits
+    /// there when the side to move at `node` is not analysed; a paused one stays paused.
+    pub(super) fn hold_for_side(&mut self, node: NodeId) {
+        let analysed = match self.doc.record.node(node).to_play {
+            Stone::Black => self.analyze_black,
+            Stone::White => self.analyze_white,
+        };
+        self.side_hold = (!analysed && !self.paused && self.side_choice_applies()).then_some((self.doc.id, node));
     }
 
     pub(super) fn raw_net_view(&self) -> Option<crate::engine::raw_net::RawNetView> {
@@ -1027,6 +1144,52 @@ impl Workbench {
         self.store.reset(self.doc.id);
         if self.double_engine() {
             self.secondary_store.reset(self.doc.id);
+        }
+    }
+
+    /// The stores a 清除 menu item applies to: the secondary engine's only in 双引擎模式
+    /// (`isDoubleEngineMode`), as for `clearBestMovesAfter`.
+    fn cleared_stores(&mut self) -> impl Iterator<Item = &mut AnalysisStore> + '_ {
+        let secondary = self.double_engine().then_some(&mut self.secondary_store);
+        std::iter::once(&mut self.store).chain(secondary)
+    }
+
+    /// 清除Lizzie缓存 (全局 `clearBoardStat`, Shift+A; 此手 `clearbestmoves`): the stored
+    /// results in `scope` stay shown and saved, and the next live result replaces them even
+    /// when it is weaker. Nothing is sent to an engine and nothing is analysed again.
+    pub fn clear_analysis_cache(&mut self, scope: AnalysisScope) {
+        let cursor = self.cursor;
+        for store in self.cleared_stores() {
+            match scope {
+                AnalysisScope::All => store.invalidate_all(),
+                AnalysisScope::Current => store.invalidate(cursor),
+            }
+        }
+    }
+
+    /// 清除分析信息 (全局 `clearBestMovesInfomationAfter(start)`, 此手
+    /// `clearBestMovesInfomation`): the analysis in `scope` is gone from the board, the tables
+    /// and the saved record, then the current move is refreshed ([`Self::refresh_current_move`]).
+    pub fn clear_analysis_info(&mut self, scope: AnalysisScope) {
+        let cursor = self.cursor;
+        for store in self.cleared_stores() {
+            match scope {
+                AnalysisScope::All => store.erase_all(),
+                AnalysisScope::Current => store.erase(cursor),
+            }
+        }
+        self.refresh_current_move();
+    }
+
+    /// `refreshCurrentMove` (重算当前局面): the current move's stored result gives way to the
+    /// next live one, and the foreground engine, with the secondary one in 双引擎模式 (Java
+    /// mirrors the commands to it), drops its search cache (`clear_cache`, only when it lists
+    /// the command) and, if it is analysing, searches this move again.
+    pub fn refresh_current_move(&mut self) {
+        self.clear_analysis_cache(AnalysisScope::Current);
+        let secondary = self.double_engine().then(|| self.engines.secondary()).flatten();
+        for id in self.engines.foreground().into_iter().chain(secondary) {
+            self.engines.refresh_analysis(id);
         }
     }
 
@@ -1153,30 +1316,6 @@ impl Workbench {
             .collect()
     }
 
-    /// 完整日志 for engine GTP traffic, written to `engine-trace.log` in the log folder.
-    pub fn set_full_trace(&mut self, enabled: bool) -> Result<bool, ApiError> {
-        if enabled == self.engines.tracing() {
-            return Ok(false);
-        }
-        if !enabled {
-            self.engines.set_trace(None);
-            self.log(false, "full trace stopped".into());
-            return Ok(true);
-        }
-        let dir = self.storage.logs_dir.clone();
-        let file = std::fs::create_dir_all(&dir)
-            .and_then(|_| {
-                std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(dir.join("engine-trace.log"))
-            })
-            .map_err(|e| ApiError::new(ErrorKind::Io, format!("engine trace: {e}")))?;
-        self.engines.set_trace(Some(Box::new(file)));
-        self.log(false, "full trace started (engine GTP)".into());
-        Ok(true)
-    }
-
     pub fn set_ponder_limit_tips(&mut self, enabled: bool) -> Result<bool, ApiError> {
         if self.config.engine.analysis.show_ponder_limited_tips == enabled {
             return Ok(false);
@@ -1201,14 +1340,43 @@ impl Workbench {
         if self.config.display.no_sugg_circle { 0 } else { limit }
     }
 
-    /// Puts committed analysis settings into effect: the engine update interval and, for a new
-    /// variation length, the previews of stored analysis.
+    /// Puts committed analysis settings into effect: the engine update interval, the console's
+    /// `always-gtp`, for a new variation length the previews of stored analysis, and for new
+    /// limits a search a limit stopped resumes when it is within them now.
     pub(super) fn analysis_settings_changed(&mut self, previous: &AnalysisSettings) {
         let settings = &self.config.engine.analysis;
         self.engines.set_interval(settings.interval_centisec, settings.interval_centisec_ssh);
+        self.engines.set_always_gtp(settings.always_gtp);
+        let limits = |a: &AnalysisSettings| (a.limit_time, a.max_analyze_time_seconds, a.limit_playout, a.limit_playouts);
+        let limits_changed = limits(settings) != limits(previous);
         if settings.limit_branch_length != previous.limit_branch_length {
             self.refresh_pv_captures();
         }
+        if limits_changed {
+            self.resume_within_limits();
+        }
+    }
+
+    /// `Menu.reCalculateLeelazPonderingIfOutOfLimit`: the foreground search a time or visit
+    /// limit stopped goes on when its visits and the time since it began are within the limits
+    /// now. A stop by 空棋盘停止计算 is not a limit's and stays.
+    fn resume_within_limits(&mut self) {
+        let here = (self.doc.id, self.cursor);
+        if self.limit_stop != Some(here) {
+            return;
+        }
+        let Some((visits, began)) = self.limit_search else { return };
+        if self.limit_reached(visits, began.elapsed()) {
+            return;
+        }
+        self.limit_stop = None;
+        self.limit_search = None;
+        self.sync_engine();
+    }
+
+    /// The GTP console was shown or hidden (`always-gtp` decides what a hidden one records).
+    pub fn set_console_visible(&mut self, visible: bool) {
+        self.engines.set_console_visible(visible);
     }
 
     /// Plays the variations of stored analysis out again under the current length and rules.
@@ -1316,6 +1484,19 @@ impl Workbench {
         self.engine_events(events)
     }
 
+    /// Engine starts whose model header is read for the title's B11 speed notice, each handed
+    /// out once. The platform reads them off the workbench and reports back through
+    /// [`Self::finish_model_lookup`].
+    pub fn take_model_lookups(&mut self) -> Vec<ModelLookup> {
+        self.engines.take_model_lookups()
+    }
+
+    /// Records the model a lookup found, unless its engine was retired meanwhile. Returns
+    /// whether the view changed.
+    pub fn finish_model_lookup(&mut self, found: ModelIdentity) -> bool {
+        self.engines.finish_model_lookup(found)
+    }
+
     /// When timed work is due next: engine protocol timers and quick analysis (see
     /// [`Self::engine_tick`]).
     pub fn engine_timer(&self) -> Option<std::time::Instant> {
@@ -1370,7 +1551,8 @@ impl Workbench {
         for ev in events {
             changed = true;
             let Some(ev) = self
-                .contribution_event(ev)
+                .search_threads_event(ev)
+                .and_then(|ev| self.contribution_event(ev))
                 .and_then(|ev| self.gma_event(ev))
                 .and_then(|ev| self.fox_event(ev))
                 .and_then(|ev| self.match_event(ev))
@@ -1470,25 +1652,28 @@ impl Workbench {
                             (doc, node, stamp),
                             result.candidates.iter().filter_map(|c| Some((c.point?, c.visits))),
                         );
+                    // Neither 自动分析 nor the foreground engine in an engine game keeps a stored
+                    // result against the current search (`BoardData`'s `protectedCache`).
                     let automatic = !secondary && self.auto_analysis_active();
+                    let in_game = !secondary && self.match_active();
                     let shown = self.suggestion_limit();
                     // Attended points belong to the main board's candidates only (`isMain`).
                     let tracked_points = if secondary { Vec::new() } else { self.tracked_points(node).to_vec() };
+                    let pda = self.engine_pda(instance);
                     let rec = &self.doc.record;
+                    let cache = self.config.engine.analysis.enable_lizzie_cache;
                     let store = if secondary {
                         &mut self.secondary_store
                     } else {
                         &mut self.store
                     };
-                    let replace = automatic
-                        || tracked
-                        || store.is_stale(node)
-                        || store.get(rec, node).is_none_or(|old| more_visits(&result, old));
+                    let replace = automatic || in_game || tracked || store.takes_place(rec, node, &result, cache, pda);
                     if replace {
                         let mut result = result;
                         let limit = self.config.engine.analysis.limit_branch_length;
                         fill_pv_captures(&mut result, &rec.position(node), limit, !self.config.edit.no_capture);
                         store.update(node, stamp, result, ownership, shown, &tracked_points);
+                        store.made_with_pda(node, pda);
                     }
                     let running = node == self.cursor
                         && !self.paused
@@ -1513,6 +1698,8 @@ impl Workbench {
         // (a game retired, a lease ended) are applied.
         self.restart_due();
         let changed = self.restart_settle() || changed;
+        // A 搜索线程数 step whose process ended, or a restore whose new process became ready.
+        let changed = self.search_threads_settle() || changed;
         // A settling GMA hand ends once its engine holds the record's position; the reply that
         // completes that sync need not be an event.
         let changed = self.gma_settle() || changed;
@@ -1539,14 +1726,32 @@ impl Workbench {
         by_visits || by_time
     }
 
+    /// The current position is the empty board: the root with no setup stones
+    /// (`BoardHistoryList.noStoneBoard`).
+    fn at_empty_board(&self) -> bool {
+        self.cursor == ROOT && self.doc.record.position(ROOT).stones.iter().all(Option::is_none)
+    }
+
+    /// 空棋盘停止计算 (`Leelaz.java:7455-7468`): an ordinary analysis of the empty board stops at
+    /// its result, once per position until the user resumes it. Like the limits it belongs to,
+    /// it never applies to a game, an engine match or 自动分析, whose results do not get here.
+    fn stops_at_empty_board(&self) -> bool {
+        self.config.engine.analysis.stop_at_empty_board
+            && self.empty_board_resumed != Some((self.doc.id, self.cursor))
+            && self.at_empty_board()
+    }
+
     /// The foreground engine's limit stops the analysis of this node, the secondary engine's
-    /// too (it resumes when the position changes); the notice is shown once per engine start.
+    /// too (it resumes when the position changes); the notice is shown once per engine start,
+    /// never for 空棋盘停止计算.
     fn check_limits(&mut self, visits: u64, elapsed: std::time::Duration) {
-        if !self.limit_reached(visits, elapsed) {
+        let empty = self.stops_at_empty_board();
+        if !empty && !self.limit_reached(visits, elapsed) {
             return;
         }
         self.limit_stop = Some((self.doc.id, self.cursor));
-        if self.config.engine.analysis.show_ponder_limited_tips && !self.limit_tip_shown {
+        self.limit_search = if empty { None } else { Instant::now().checked_sub(elapsed).map(|began| (visits, began)) };
+        if !empty && self.config.engine.analysis.show_ponder_limited_tips && !self.limit_tip_shown {
             self.limit_tip_shown = true;
             self.engine_notice = Some(EngineNotice::StoppedByLimit);
         }
@@ -1556,11 +1761,12 @@ impl Workbench {
     /// The secondary engine's own limit stops only its analysis of this node (Java `leelaz2`
     /// stops itself; the stop is not mirrored back), with the notice once per choice.
     fn check_secondary_limits(&mut self, visits: u64, elapsed: std::time::Duration) {
-        if !self.limit_reached(visits, elapsed) {
+        let empty = self.stops_at_empty_board();
+        if !empty && !self.limit_reached(visits, elapsed) {
             return;
         }
         self.secondary_limit_stop = Some((self.doc.id, self.cursor));
-        if self.config.engine.analysis.show_ponder_limited_tips && !self.secondary_limit_tip_shown {
+        if !empty && self.config.engine.analysis.show_ponder_limited_tips && !self.secondary_limit_tip_shown {
             self.secondary_limit_tip_shown = true;
             self.engine_notice = Some(EngineNotice::StoppedByLimit);
         }
@@ -1629,9 +1835,11 @@ impl Workbench {
                 gtp_name,
                 version,
                 katago: self.engines.is_katago(f),
+                leela_sai: self.engines.takes_lz_options(f),
                 can_analyse: self.engines.can_analyse(f),
                 ready: self.engines.foreground_complete(),
                 commands: self.engines.known_commands(f),
+                b11: self.engines.uses_b11(f),
             })
         });
         let rules = fg.and_then(|f| self.engines.confirmed_rules(f));
@@ -1656,13 +1864,25 @@ impl Workbench {
             paused: self.paused,
             analysing: self.engines.analysing(self.doc.id, self.cursor),
             stopped_by_limit: self.limit_stop == Some((self.doc.id, self.cursor)),
+            analyze_black: self.analyze_black,
+            analyze_white: self.analyze_white,
             rules_key: rules.map(|r| r.summary_key().to_string()),
             rules: rules.map(KataRules::to_gtp_argument),
             console_seq: self.engines.console_seq(),
-            full_trace: self.engines.tracing(),
             lease,
             unrestored,
             down: fg.is_none() && self.engines.foreground_failure().is_some(),
+            kata_params: self.kata_params_view(),
+            search_threads: self.search_threads_view(),
+            search_threads_operation: self.search_threads_operation_view(),
+            custom_pda: self.custom_pda_view(),
+            priority_points: if self.priority_engine == self.engines.foreground()
+                && self.priority_at == Some((self.doc.id, self.cursor))
+            {
+                self.priority_points.clone()
+            } else {
+                Vec::new()
+            },
         }
     }
 
@@ -1675,6 +1895,11 @@ impl Workbench {
             kata_rules: s.kata_rules.clone(),
             auto_load_kata_rules: s.auto_load_kata_rules,
             startup_benchmark: s.startup_benchmark,
+            kata_pda: s.kata_pda,
+            kata_pda_enabled: s.kata_pda_enabled,
+            kata_params: s.kata_params.clone(),
+            leela_options: s.leela_options.clone(),
+            custom_pda: s.custom_pda.clone(),
         }
     }
 
@@ -1871,5 +2096,47 @@ impl Workbench {
                 self.config.engine.analysis.limit_branch_length, analysis),
             info_order_sample: display::info_order_sample(s, rec.node(node).to_play, self.komi),
         }
+    }
+
+    /// 点击棋子回看 (`Board.setPressStoneInfo`, Board.java:7338-7354): back from the current node,
+    /// the latest move played at `point`; the review shows its parent (`mouseOnNode`), that
+    /// position's stored analysis and its 落子评价 marks (`BoardRenderer.java:313-326`).
+    pub fn click_review(&self, point: Point) -> Option<ClickReviewView> {
+        let rec = &self.doc.record;
+        let mut node = self.cursor;
+        let shown = loop {
+            let parent = rec.parent(node)?;
+            if matches!(rec.node(node).kind, NodeKind::Move { point: p, .. } if p == point) {
+                break parent;
+            }
+            node = parent;
+        };
+        let data = rec.node(shown);
+        // effectiveMoveRankMarkLimit decides between drawMoveRankMark and drawLastMoveMark; the
+        // move numbers setting plays no part there.
+        let mut s = self.config.display.clone();
+        s.move_numbers = 0;
+        let rank_override = self.whole_game_results_for_current()
+            && data.parent.is_some_and(|n| self.store.get(rec, n).is_some_and(|a| a.visits > 0));
+        if rank_override && s.move_rank < 0 {
+            s.move_rank = 1;
+        }
+        let ranks = (s.move_rank >= 0).then(|| {
+            let path = rec.path_to(shown);
+            let numbering = display::numbering(rec, &path);
+            display::rank_marks(rec, &path, &numbering, &s, |n| self.store.get(rec, n))
+        });
+        Some(ClickReviewView {
+            document: self.doc.id,
+            revision: self.doc.revision,
+            from: self.cursor,
+            node: shown,
+            stones: rec.position(shown).stones,
+            last_action: super::last_action(data.kind),
+            snapshot: data.kind == NodeKind::Snapshot,
+            to_play: data.to_play,
+            analysis: self.shown_analysis_at(&self.store, shown),
+            ranks,
+        })
     }
 }

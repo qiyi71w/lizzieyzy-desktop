@@ -5,7 +5,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use lizzie_core::api::{EngineNotice, EngineScope, OpenOutcome};
+use lizzie_core::api::{AnalysisScope, EngineNotice, EngineScope, OpenOutcome};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
@@ -218,6 +218,27 @@ fn streaming_results_send_neither_engine_another_command() {
     assert_eq!((world.take(a), world.take(b)), (Vec::new(), Vec::new()));
     let v = wb.view(false);
     assert!(v.engine.analysing && v.engine.secondary.unwrap().analysing);
+}
+
+/// 清除分析信息 in 双引擎模式: both engines' results are gone and both search the move again,
+/// as Java mirrors `refreshCurrentMove`'s commands to the secondary engine.
+#[test]
+fn clearing_analysis_info_searches_again_on_both_engines() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, a, b) = dual(dir.path(), &world);
+    out(&mut wb, a, &info("Q16", 120));
+    out(&mut wb, b, &info("D4", 80));
+    wb.clear_analysis_info(AnalysisScope::Current);
+    let v = wb.view(false);
+    assert!(v.analysis.is_none() && v.secondary.unwrap().analysis.is_none());
+    for id in [a, b] {
+        let sent = answer_all(&mut wb, &world, id);
+        assert_eq!((stops(&sent), analyses(&sent)), (1, 1), "{id:?} {sent:?}");
+    }
+    out(&mut wb, b, &info("C3", 5));
+    let v = wb.view(false);
+    assert_eq!(v.secondary.unwrap().analysis.unwrap().visits, 5);
 }
 
 #[test]

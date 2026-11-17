@@ -1115,6 +1115,164 @@ impl Default for PanelSettings {
     }
 }
 
+/// 显示 > 工具栏 > 顶部工具栏 > 自定义内容 (`Menu.customTopToolBar`, Menu.java:4639-4846): which
+/// groups the top toolbar shows, and its 自动换行 (Menu.java:4457-4467). Each check writes at
+/// once; Java defaults in brackets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TopToolbarSettings {
+    /// The ▲ button first in the row, which turns the row off (`ui.show-double-menu-btn` [false]).
+    pub show_double_menu_button: bool,
+    /// 新建 / 打开 / 保存 … 标记 (`ui.show-basic-btn` [true]).
+    pub show_basic_buttons: bool,
+    /// 落子工具 黑 / 白 / 交替 / 停一手 (`ui.show-edit-bar` [true]).
+    pub show_edit_bar: bool,
+    /// 强制计算工具 允许 / 排除 / 清除 (`ui.show-force-menu` [true]).
+    pub show_force: bool,
+    /// 对局控制 新对局 / 暂停 / 认输 (`ui.show-double-menu-game-control` [true]).
+    pub show_game_controls: bool,
+    /// 限制: 时间 (`ui.show-time-control-in-menu` [false]).
+    pub show_time_limit: bool,
+    /// 限制: 计算 (`ui.show-playout-control-in-menu` [false]).
+    pub show_visit_limit: bool,
+    /// 分析: 黑 / 白 (`ui.show-analyze-controller` [false]).
+    pub show_analyze_sides: bool,
+    /// 选点 黑 / 白 (`ui.show-double-menu-var` [true]).
+    pub show_candidate_sides: bool,
+    /// 选点 胜率 / 计算量 / 目数 (`ui.show-double-menu-moveinfo` [false]).
+    pub show_candidate_info: bool,
+    /// 规则 (`ui.show-rule-menu` [true]).
+    pub show_rules: bool,
+    /// 参数 (`ui.show-param-menu` [true]).
+    pub show_parameters: bool,
+    /// 棋盘 (`ui.show-goban-menu` [true]).
+    pub show_board_size: bool,
+    /// 存档 (`ui.show-saveload-menu` [true]).
+    pub show_save_load: bool,
+    /// 自动换行: the row wraps; off, it stays one row and what does not fit is cut off
+    /// (`ui.auto-wrap-tool-bar` [true], LizzieFrame.java:14488-14507).
+    pub auto_wrap: bool,
+}
+
+impl Default for TopToolbarSettings {
+    fn default() -> Self {
+        Self {
+            show_double_menu_button: false,
+            show_basic_buttons: true,
+            show_edit_bar: true,
+            show_force: true,
+            show_game_controls: true,
+            show_time_limit: false,
+            show_visit_limit: false,
+            show_analyze_sides: false,
+            show_candidate_sides: true,
+            show_candidate_info: false,
+            show_rules: true,
+            show_parameters: true,
+            show_board_size: true,
+            show_save_load: true,
+            auto_wrap: true,
+        }
+    }
+}
+
+/// 显示 > 工具栏 > 底部工具栏 > 自定义内容 (`Menu.customToolbarItem`, Menu.java:4896-5156): which
+/// buttons the bottom toolbar shows (`BottomToolbar.setButtonVisiable`, 4659-4705), and the
+/// 详细工具栏 expand button (Menu.java:4593-4604). Each check writes at once; Java defaults
+/// (Config.java:1909-1936) in brackets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct BottomButtonSettings {
+    /// 同步 (`ui.liveButton` [true]).
+    pub live: bool,
+    /// Kata形势 (`ui.kataEstimate` [true]); shown only for a KataGo engine.
+    pub kata_estimate: bool,
+    /// 批量分析 (`ui.batchOpen` [true]).
+    pub batch_open: bool,
+    /// 打开 (`ui.openfile` [false]).
+    pub open_file: bool,
+    /// 保存 (`ui.savefile` [false]).
+    pub save_file: bool,
+    /// 终局数子 (`ui.finalScore` [false]).
+    pub final_score: bool,
+    /// 纯网络 (`ui.heatMap` [true]).
+    pub heat_map: bool,
+    /// 超级鹰眼 (`ui.badMoves`). `None` until chosen: Java's default is off while the top toolbar
+    /// and its double menu were both shown at start-up, on otherwise.
+    pub bad_moves: Option<bool>,
+    /// 选点列表 (`ui.analyze-list` [false]).
+    pub analyze_list: bool,
+    /// 刷新 (`ui.refresh` [false]).
+    pub refresh: bool,
+    /// 分析 (`ui.analyse` [true]).
+    pub analyse: bool,
+    /// 试下 (`ui.tryPlay` [false]).
+    pub try_play: bool,
+    /// 设为主分支 (`ui.setMain` [true]).
+    pub set_main: bool,
+    /// 返回主分支 (`ui.backMain` [false]).
+    pub back_main: bool,
+    /// 清空棋盘 (`ui.clearButton` [true]).
+    pub clear_board: bool,
+    /// 删除 (`ui.deleteMove` [true]).
+    pub delete_move: bool,
+    /// 手数评价 (`ui.move-rank` [false]).
+    pub move_rank: bool,
+    /// 手数 (`ui.move` [true]).
+    pub move_numbers: bool,
+    /// 坐标 (`ui.coords` [true]).
+    pub coords: bool,
+    /// 自动播放 (`ui.autoPlay` [true]).
+    pub auto_play: bool,
+    /// The ▴/▾ button that expands or collapses the 详细工具栏, Chinese interface only
+    /// (`ui.show-detailed-toolbar-menu` [false]).
+    pub detail_button: bool,
+}
+
+impl Default for BottomButtonSettings {
+    fn default() -> Self {
+        Self {
+            live: true,
+            kata_estimate: true,
+            batch_open: true,
+            open_file: false,
+            save_file: false,
+            final_score: false,
+            heat_map: true,
+            bad_moves: None,
+            analyze_list: false,
+            refresh: false,
+            analyse: true,
+            try_play: false,
+            set_main: true,
+            back_main: false,
+            clear_board: true,
+            delete_move: true,
+            move_rank: false,
+            move_numbers: true,
+            coords: true,
+            auto_play: true,
+            detail_button: false,
+        }
+    }
+}
+
+/// 详细工具栏 设置模块顺序 (`ToolbarPositionConfig`; Java `persistedUi.toolbar-parameter` 32–34):
+/// each panel's place, 0–2. Panels with equal places keep 自动分析, 引擎对战, 自动播放 order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DetailPanelOrder {
+    pub auto_analysis: u8,
+    pub engine_match: u8,
+    pub auto_play: u8,
+}
+
+impl Default for DetailPanelOrder {
+    fn default() -> Self {
+        Self { auto_analysis: 0, engine_match: 1, auto_play: 2 }
+    }
+}
+
 /// Java's in-frame shares (`LizzieFrame.java:7976-8035`), independent of panel visibility.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
@@ -1167,6 +1325,10 @@ pub struct UiSettings {
     pub play_sound: bool,
     /// Java `ui.extra-mode`, default `Normal`.
     pub extra_mode: ExtraMode,
+    /// 独立棋局控制面板 was shown when the application last closed and opens again at start (Java
+    /// `ui.is-ctrl-opened`, off; not imported). A configuration value as in Java, so 重置界面位置
+    /// forgets the panel's bounds but not this.
+    pub control_panel_open: bool,
 }
 
 impl Default for UiSettings {
@@ -1175,6 +1337,7 @@ impl Default for UiSettings {
             language: Language::default(),
             play_sound: true,
             extra_mode: ExtraMode::Normal,
+            control_panel_open: false,
         }
     }
 }
@@ -1200,6 +1363,33 @@ pub struct EditSettings {
     /// 五子棋无提子规则 (`no-capture`, default off): stones placed or read while it is on remove
     /// nothing (`Board.place`, `BoardHistoryList.place`).
     pub no_capture: bool,
+    /// 显示落子矩形 (`show-move-rect`, default 仅对局时).
+    pub move_rect: MoveRect,
+    /// 启用点击棋子回看 (`enable-click-review`, default off): holding a stone shows the position
+    /// before it was played (`Board.setPressStoneInfo`). 右键 回看 works either way.
+    pub click_review: bool,
+    /// 自由涂鸦's pen when it opens: the one it was closed with (`last-painting-color`, blue).
+    pub painting_color: PaintingColor,
+}
+
+/// 自由涂鸦's pens (`DrawPainting.PEN_COLOR`; Java `ui.last-painting-color` 0, 1, 2).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum PaintingColor {
+    #[default]
+    Blue,
+    Green,
+    Red,
+}
+
+/// When the square under the pointer marks where a stone would go (`LizzieFrame.shouldShowRect`;
+/// Java `ui.show-move-rect` 0, 1, anything else).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum MoveRect {
+    Always,
+    /// In a game against the engine (人机对局 or 分析模式对局) on the human's turn.
+    #[default]
+    OnPlay,
+    Never,
 }
 
 impl Default for EditSettings {
@@ -1213,6 +1403,9 @@ impl Default for EditSettings {
             other_size_width: 21,
             other_size_height: 21,
             no_capture: false,
+            move_rect: MoveRect::OnPlay,
+            click_review: false,
+            painting_color: PaintingColor::Blue,
         }
     }
 }
@@ -1270,6 +1463,15 @@ pub struct DisplaySettings {
     pub all_numbers_in_branch: bool,
     /// 显示分支面板上的手数 (`show-var-move`, on).
     pub tree_move_numbers: bool,
+    /// 分支面板设置 > 使用滚动面板拓展宽度 (`show-scroll-variation`, on): the variation tree scrolls;
+    /// off, the whole tree is laid out in the panel around the current node.
+    pub scroll_variation: bool,
+    /// 设置最大宽度 (`max-tree-width`, 10000): a scrolled tree this wide is cut off there and
+    /// counts as too wide.
+    pub max_tree_width: i32,
+    /// 超过宽度依然使用滚动条(超过部分将不显示) (`ignore-out-of-width`, off): a too wide tree keeps
+    /// scrolling instead of being laid out in the panel.
+    pub ignore_out_of_width: bool,
     /// 落子评价 (`move-rank-mark-last-move`): -1 none, 0 every move, n the last n moves (1).
     pub move_rank: i32,
     /// 显示最后多手 (`txt-move-rank-mark-last-move`, 3).
@@ -1397,6 +1599,9 @@ impl Default for DisplaySettings {
             branch_numbers_from_one: true,
             all_numbers_in_branch: false,
             tree_move_numbers: true,
+            scroll_variation: true,
+            max_tree_width: 10000,
+            ignore_out_of_width: false,
             move_rank: 1,
             move_rank_custom: 3,
             move_rank_mode: MoveRankMode::Auto,
@@ -1569,11 +1774,19 @@ pub struct ReadBoardSettings {
     /// `Menu.notPlaySoundInSync` (`not-play-sound-insync`, default on): no stone sounds while
     /// the board is synced.
     pub no_sound_in_sync: bool,
+    /// `suppress-readboard-websocket-pondering-notice` (default off): 不再提示 was chosen on the
+    /// notice that a custom WebSocket engine cannot ponder while GMA plays.
+    pub suppress_websocket_pondering_notice: bool,
 }
 
 impl Default for ReadBoardSettings {
     fn default() -> Self {
-        ReadBoardSettings { always_sync_board_stat: true, get_focus: true, no_sound_in_sync: true }
+        ReadBoardSettings {
+            always_sync_board_stat: true,
+            get_focus: true,
+            no_sound_in_sync: true,
+            suppress_websocket_pondering_notice: false,
+        }
     }
 }
 
@@ -1615,6 +1828,10 @@ pub struct Config {
     pub hawkeye: HawkeyeSettings,
     /// Fixed Java workbench panel and toolbar presentation.
     pub panels: PanelSettings,
+    /// The top toolbar's groups (自定义内容) and 自动换行.
+    pub top_toolbar: TopToolbarSettings,
+    /// The bottom toolbar's buttons (自定义内容) and its 详细工具栏 button.
+    pub bottom_buttons: BottomButtonSettings,
     pub appearance: crate::appearance::AppearanceSettings,
     /// Default theme edits live in config; named themes have their own theme.txt.
     pub appearance_defaults: crate::appearance::ThemeSettings,
@@ -1639,6 +1856,13 @@ pub struct Config {
     pub tencent_kifu: TencentKifuSettings,
     /// 同步 menu's live options.
     pub live: LiveSettings,
+    /// 诊断与日志 (Java top-level `logging`).
+    pub logging: crate::diagnostics::LoggingSettings,
+    /// 快速启动 (Java `ui.show-quick-links`, `leelaz.program-name-list`, `program-command-list`).
+    pub quick_links: crate::quick_links::QuickLinkSettings,
+    /// 检查更新 (Java `ui.auto-check-update`, `ui.auto-download-update`, `ui.update-channel`,
+    /// `ui.update-source`).
+    pub update: crate::update::UpdateSettings,
 }
 
 /// 同步 menu's live options (Java `ui.always-gotolast-onlive`, `ui.open-html-onlive`).
@@ -1801,6 +2025,8 @@ pub struct Persisted {
     pub hawkeye: Option<HawkeyePlacement>,
     pub panel_sizes: PanelSizes,
     pub bottom_toolbar: BottomToolbar,
+    /// The 详细工具栏 panels' places (设置模块顺序).
+    pub detail_panel_order: DetailPanelOrder,
     /// Independent boards use physical outer-window bounds (Java's four-element arrays).
     pub independent_main_board: Option<WindowPlacement>,
     pub independent_sub_board: Option<WindowPlacement>,
@@ -1811,6 +2037,8 @@ pub struct Persisted {
     pub matches: crate::api::MatchSessionSettings,
     /// The 弈客 web window (`persistedUi.main-window-other` 1–4, default −5, 0, 1240×750).
     pub yike_browser: Option<WindowPlacement>,
+    /// 独立棋局控制面板's bounds (physical pixels; Java `persistedUi.ctrl-position`, not imported).
+    pub control_panel: Option<WindowPlacement>,
 }
 
 /// File locations inside the product's per-user data directories.

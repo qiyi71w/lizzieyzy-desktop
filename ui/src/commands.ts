@@ -12,6 +12,7 @@ import { t } from "./i18n";
 import { openMoreEngines } from "./engine/catalog";
 import { consoleVisible, toggleConsole } from "./engine/console";
 import { openRules } from "./engine/rules";
+import { openEngineParameters } from "./engine/kataParams";
 import { openAnalysisSettings } from "./engine/settings";
 import { openAutoSetup } from "./setup/dialog";
 import { openRemoteCompute } from "./cloud/center";
@@ -51,11 +52,18 @@ export function setDisplay(change: Partial<DisplaySettings>): void {
 
 export const COMMANDS: Record<string, CommandEntry> = {
   "analysis.toggle": { run: () => run({ type: "ToggleAnalysis" }) },
+  // 分析 > 清除Lizzie缓存 / 清除分析信息 (Menu.java:3533-3583); Shift+A is the 全局 cache item.
+  "menu.clearAllLizzieCache": { run: () => run({ type: "ClearAnalysisCache", scope: "All" }) },
+  "menu.clearThisLizzieCache": { run: () => run({ type: "ClearAnalysisCache", scope: "Current" }) },
+  "menu.clearAllLizzieBestmoves": { run: () => run({ type: "ClearAnalysisInfo", scope: "All" }) },
+  "menu.clearThisLizzieBestmoves": { run: () => run({ type: "ClearAnalysisInfo", scope: "Current" }) },
   "engine.configuration": { run: openMoreEngines },
   "engine.setup": { run: () => openAutoSetup("overview") },
   "weights.download": { run: () => openAutoSetup("weights") },
   "engine.acceleration": { run: () => openAutoSetup("acceleration") },
   "engine.rules": { run: openRules },
+  // 设置 > 引擎参数(Alt+D) and the toolbar's 参数 (Menu.java:5355-5363, 6136-6143).
+  "engine.parameters": { run: () => void openEngineParameters() },
   // 设置 > 远程算力 (Menu.java:5334-5342).
   "engine.remote": { run: openRemoteCompute },
   // 综合设置 opens at its first page, 棋盘与显示 (Menu.java:5395-5399, ConfigDialog2.java:4168-4171).
@@ -113,7 +121,7 @@ export const COMMANDS: Record<string, CommandEntry> = {
   "menu.jumpToLeft": { run: () => navigate({ op: "PreviousBranch" }) },
   "menu.jumpToRight": { run: () => navigate({ op: "NextBranch" }) },
   "menu.diagnosticsAndLogs": { run: openDiagnostics },
-  "menu.stopFullTrace": { run: () => run({ type: "SetFullTrace", enabled: false }), enabled: () => state.view?.engine.full_trace ?? false },
+  "menu.stopFullTrace": { run: () => run({ type: "SetFullTrace", enabled: false }), enabled: () => (state.view?.full_trace.length ?? 0) > 0 },
   "menu.clearUserData": {
     run: async () => {
       const ok = await confirm(t("Menu.clearAllPersonalData.confirmTitle"), t("Menu.clearAllPersonalData.confirmMessage"));

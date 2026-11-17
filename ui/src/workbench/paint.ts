@@ -217,6 +217,13 @@ export interface BoardScene {
   /** 选点重点研究 of this position (main board only) and its outline settings. */
   focus: FocusView | null;
   tracking: TrackingSettings;
+  /** 优先分析此点 points of this position (LizzieFrame.priorityMoveCoords, main board only). */
+  priority: Point[];
+  /** 显示落子矩形: the empty point under the pointer and the side to play (drawmoveblock). */
+  moveRect: { point: Point; black: boolean } | null;
+  /** 点击棋子回看 shows (BoardRenderer.java:313-326): its 落子评价 marks, or only the last move's
+   *  mark (drawLastMoveMark). The scene then holds the reviewed position. */
+  review: "ranks" | "last" | null;
 }
 
 /** What the main board drew, for the acceptance probe. */
@@ -257,6 +264,10 @@ export interface BoardReport {
   /** Tracked-point markers: the quality outline colour (null when hidden), the progress ratio
    *  while still searched, and the pending-cancel arc. */
   tracked: { x: number; y: number; outline: string | null; progress: number | null; cancelling: boolean }[];
+  /** The 落子矩形 drawn. */
+  moveRect: Point | null;
+  /** The click review drawn: its position's node marks ("ranks" / "last"). */
+  review: BoardScene["review"];
 }
 
 export const images: Record<string, HTMLImageElement> = {};
@@ -1103,8 +1114,8 @@ function isHovered(c: CandidateView, s: BoardScene): boolean {
 
 /** drawLeelazSuggestionsUnimportant (BoardRenderer.java:3057-3172): candidates of rank 20 and
  *  beyond, and with show-nosugg-circle those beyond 最大候选点数, get a plain disc and ring without
- *  text, except the actual next move. Returns the points covered (hasDrawBackground); draws them
- *  only when `draw` (no branch shows). */
+ *  text, except the actual next move and a 优先分析此点 point (3108-3119). Returns the points
+ *  covered (hasDrawBackground); draws them only when `draw` (no branch shows). */
 function drawUnimportant(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardGeom, X: (x: number) => number, Y: (y: number) => number, draw: boolean, report: BoardReport): Set<number> {
   const covered = new Set<number>();
   const candidates = s.analysis?.candidates ?? [];
@@ -1115,7 +1126,7 @@ function drawUnimportant(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardG
     if (!pt || c.visits <= 0 || pt.x >= s.cols || pt.y >= s.rows || pt.x < 0 || pt.y < 0) continue;
     const beyond = outOfOrder(c, s);
     if (!beyond && c.order < 20) continue;
-    if (samePoint(pt, s.nextMainMove)) continue;
+    if (samePoint(pt, s.nextMainMove) || s.priority.some((p) => samePoint(p, pt))) continue;
     if (!s.display.noSuggCircle && beyond) continue;
     covered.add(pt.y * s.cols + pt.x);
     if (!draw) continue;
@@ -1133,9 +1144,10 @@ function drawUnimportant(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardG
 /** Candidates drawLeelazSuggestions (BoardRenderer.java:2437-2632) shows, worst first; the move
  *  played and analysed further than its candidate (`ignored`) is returned apart. Without
  *  show-nosugg-circle the candidates beyond 最大候选点数 are not kept at all, except the one
- *  lastTimeUnlimited keeps (BoardData.tryToLimitMoves, BoardData.java:586-635); with it, those under an unimportant
- *  circle show nothing more unless hovered (2523-2524). The actual next move (needShow) and the
- *  hovered one keep their numbers (2547-2553, 2571-2572). */
+ *  lastTimeUnlimited keeps (BoardData.tryToLimitMoves, BoardData.java:586-635) and a 优先分析此点
+ *  point (619-628); with it, those under an unimportant circle show nothing more unless hovered
+ *  (2523-2524). The actual next move and a 优先分析此点 point (needShow) and the hovered one keep
+ *  their numbers (2547-2553, 2571-2572). */
 function shownCandidates(s: BoardScene, X: (x: number) => number, Y: (y: number) => number, ignored: Point | null, covered: Set<number>): { shown: ShownCandidate[]; ignoredCandidate: CandidateView | null } {
   const candidates = s.analysis?.candidates ?? [];
   const max = Math.max(1, ...candidates.map((c) => c.allocation_visits));
@@ -1144,7 +1156,8 @@ function shownCandidates(s: BoardScene, X: (x: number) => number, Y: (y: number)
   for (let k = candidates.length - 1; k >= 0; k--) {
     const c = candidates[k], pt = c.point;
     if (!pt || c.visits <= 0 || pt.x >= s.cols || pt.y >= s.rows || pt.x < 0 || pt.y < 0) continue;
-    const beyond = outOfOrder(c, s);
+    const priority = s.priority.some((p) => samePoint(p, pt));
+    const beyond = outOfOrder(c, s) && !priority;
     if (beyond && !s.display.noSuggCircle) continue;
     if (samePoint(ignored, pt)) {
       ignoredCandidate = c;
@@ -1154,7 +1167,7 @@ function shownCandidates(s: BoardScene, X: (x: number) => number, Y: (y: number)
     const background = covered.has(pt.y * s.cols + pt.x);
     if (beyond && !hovered && background) continue;
     const ratio = Math.min(1, c.allocation_visits / max);
-    const needShow = samePoint(s.nextMainMove, pt);
+    const needShow = samePoint(s.nextMainMove, pt) || priority;
     const lack = ratio <= s.display.minPlayoutRatio;
     shown.push({
       c,
@@ -1448,6 +1461,8 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     region: null,
     selecting: null,
     tracked: [],
+    moveRect: null,
+    review: null,
   };
   // drawWoodenBoard (BoardRenderer.java:3620-3651): a custom board image gets a (0,0,0,50) wash.
   Object.assign(surface, { x: ox, y: oy, size: geo.size, image: look.board, custom: look.customBoard });
@@ -1520,6 +1535,15 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
       if (stone && (!onlyNew || onlyNew.has(p))) drawStone(g, px(p), py(p), r, stone === "Black");
     }
   }
+  // drawmoveblock (BoardRenderer.java:1390-1408), composited after the stones and any shown
+  // variation (renderImages 1880): a square 46% of the grid wide in the colour to play, on a point
+  // empty in the current position.
+  if (s.moveRect && !s.review && !s.stones[s.moveRect.point.y * cols + s.moveRect.point.x]) {
+    const half = i((sq * 23) / 100);
+    g.fillStyle = s.moveRect.black ? "#000" : "#fff";
+    g.fillRect(X(s.moveRect.point.x) - half, Y(s.moveRect.point.y) - half, i((sq * 46) / 100), i((sq * 46) / 100));
+    report.moveRect = s.moveRect.point;
+  }
   if (layers.float?.setup) return report;
   if (layer && !below) drawOwnership(g, layer.ownership, s.stones, cols, layer.style, X, Y, sq, true);
   // renderImages draws the selection images after Kata形势 (BoardRenderer.java:1884-1887).
@@ -1529,9 +1553,14 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
   const nextHover = s.preview?.order === -1 && s.overlay.next_move ? s.overlay.next_move.point : null;
   const hoverPoint = nextHover ?? (s.preview ? s.analysis?.candidates.find((c) => c.order === s.preview!.order)?.point ?? null : null);
   const hoverIndex = hoverPoint ? hoverPoint.y * cols + hoverPoint.x : -1;
-  if (preview) {
+  // A review draws its variation's captured stones itself (drawBranchForMouseOnStone).
+  if (preview && !s.review) {
     if (layers.float) drawFloatCapturedPoints(g, preview, px, py, r, cols, s.rows, hoverIndex, layers.float.boardType);
     else drawPreviewStones(g, preview, px, py, r);
+  }
+  if (s.review) {
+    drawReviewOverlay(g, s, geo, X, Y, preview, report);
+    return report;
   }
   const hideHoverInfo = layers.float ? drawFloatMoveOverlay(g, s, geo, X, Y, preview, hoverIndex, report) : drawMoveOverlay(g, s, geo, ox, oy, X, Y, preview, hoverIndex, report);
   if (preview) report.preview = { order: s.preview!.order, length: s.preview!.length, numbers: preview.numbers.size };
@@ -1577,6 +1606,74 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     report.mark = s.mark;
   }
   return report;
+}
+
+/** The review's marks over its position (BoardRenderer.java:313-326, 1465-1559): the variation's
+ *  stones a later move captures are covered by the board and shaded, crossed when they were
+ *  stones of the position (drawCapturedStone); every variation move keeps its number, the last
+ *  one played on its point, in the contrasting colour (none red); then drawMoveRankMark or
+ *  drawLastMoveMark, whose stone-indicator-type 0 is the red triangle, 1 the ring and 2 the dot;
+ *  3 draws nothing. */
+function drawReviewOverlay(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardGeom, X: (x: number) => number, Y: (y: number) => number, preview: Preview | null, report: BoardReport): void {
+  const r = geo.stoneRadius, cols = s.cols, ring = Math.round(geo.square * 0.22);
+  report.review = s.review;
+  if (preview && s.preview) {
+    // Branch.moveNumberList: a captured move keeps its number.
+    const numbers = new Map<number, number>();
+    s.preview.pv.slice(0, s.preview.length).forEach((pt, k) => { if (pt) numbers.set(pt.y * cols + pt.x, k + 1); });
+    for (const [p, stone] of preview.captured) {
+      if (preview.stones[p]) continue;
+      const x = X(p % cols), y = Y(i(p / cols)), played = numbers.has(p);
+      g.save();
+      g.beginPath();
+      g.arc(x + 0.5, y + 0.5, r + 1.5, 0, Math.PI * 2);
+      g.clip();
+      drawTexture(g, surface.image, x - r - 2, y - r - 2, 2 * r + 5, 2 * r + 5, surface.x, surface.y);
+      g.restore();
+      if (!played) {
+        const px = p % cols, py = i(p / cols);
+        g.strokeStyle = "#000";
+        g.lineWidth = 1;
+        g.beginPath();
+        g.moveTo(x - (px === 0 ? 0 : r + 1), y + 0.5);
+        g.lineTo(x + (px === cols - 1 ? 0 : r + 1) + 1, y + 0.5);
+        g.moveTo(x + 0.5, y - (py === 0 ? 0 : r + 1));
+        g.lineTo(x + 0.5, y + (py === s.rows - 1 ? 0 : r + 1) + 1);
+        g.stroke();
+      }
+      g.fillStyle = stone === "Black" ? `rgba(0,0,0,${(played ? 80 : 60) / 255})` : `rgba(255,255,255,${(played ? 110 : 85) / 255})`;
+      circle(g, x, y, r);
+      g.fill();
+    }
+    for (const [p, n] of numbers) {
+      const stone = preview.stones[p] ?? preview.captured.get(p);
+      if (!stone) continue;
+      const x = X(p % cols), y = Y(i(p / cols));
+      g.fillStyle = stone === "Black" ? "#fff" : "#000";
+      jString(g, String(n), x, y, UI_FONT, r * 1.4, i(r * (n >= 100 ? 1.85 : 1.4)));
+      report.moveNumbers.push({ x: p % cols, y: i(p / cols), text: String(n), red: false });
+    }
+    report.preview = { order: s.preview.order, length: s.preview.length, numbers: numbers.size };
+  }
+  if (s.review === "ranks") {
+    drawRankMarks(g, s, geo, X, Y, preview, ring / 5, report);
+    return;
+  }
+  const last = s.lastAction;
+  if (!last?.point || s.snapshot || look.indicator === 3) return;
+  const x = X(last.point.x), y = Y(last.point.y);
+  const opposite = last.color === "White" ? "#000" : "#fff";
+  if (look.indicator === 0) {
+    g.fillStyle = "#f00";
+    indicatorTriangle(g, x, y, r, true);
+  } else if (look.indicator === 2) {
+    g.fillStyle = opposite;
+    fillCircle(g, x, y, i(r * 0.325));
+  } else {
+    g.strokeStyle = opposite;
+    strokeCircle(g, x, y, ring, ring / 5);
+  }
+  report.lastMoveMarker = last.point;
 }
 
 /** drawPolygon / drawPolygonCircle (BoardRenderer.java:4184-4198): the stone-indicator-type 0
@@ -2026,6 +2123,15 @@ export function javaDouble(v: number): string {
   return Number.isInteger(v) ? v.toFixed(1) : String(v);
 }
 
+/** Double.parseDouble: surrounding blanks allowed, a signed decimal with an optional exponent and
+ *  float / double suffix; NaN and Infinity are refused (Java's limits reject them too). */
+export function parseJavaDouble(text: string): number | null {
+  const s = text.trim();
+  if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?[fFdD]?$/.test(s)) return null;
+  const v = Number(s.replace(/[fFdD]$/, ""));
+  return Number.isFinite(v) ? v : null;
+}
+
 /** LizzieFrame.drawCaptured (LizzieFrame.java:9098-9375): captures, rules caption, komi and
  * the live pondering dot. Stored analysis is intentionally independent of this indicator. */
 export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedScene) {
@@ -2348,48 +2454,57 @@ export function paintDualStrip(g: CanvasRenderingContext2D, text: string, x: num
   return { text: shown, width: stringWidth };
 }
 
-/** LizzieFrame.createVarTreeImage + VariationTree.draw/drawTree (VariationTree.java:44-402): the
- * whole tree laid out from the root at (20, 20) with Java's lane allocation, shown through the scroll
- * pane that renderVarTree positions on the current node (LizzieFrame.java:13942-13975) unless the
- * user scrolled it (`scroll`). Nodes off the current line are dimmed; with show-comment-node-color
- * commented nodes get the comment-node-color ring, and every node is filled with the 错误节点
- * colour the core projects for it (`nodeColors`, LizzieFrame.getBlunderNodeColor 11465-11536 with
- * Board.updateIsBest; VariationTree.java:136-158), white without one; 显示分支面板上的手数 (`numbers`)
- * writes each node's core display
- * number beside it (VariationTree.java:159-176, 285-304). Returns node centres (panel coordinates)
- * for click hit-testing and the viewport. */
-export function paintTree(
-  g: CanvasRenderingContext2D,
-  r: Rect,
+/** One drawing of VariationTree.drawTree (scroll pane) or VariationTreeBig.drawTree (whole tree
+ *  in the panel): the deferred drawing, the centre of every node walked (for click hit-testing,
+ *  Java's calc pass), the current node's place and lane and the extent of what was drawn. */
+interface TreeWalk {
+  ops: ((g: CanvasRenderingContext2D) => void)[];
+  hits: Map<string, number>;
+  curX: number;
+  curY: number;
+  curLane: number;
+  maxLane: number;
+  maxX: number;
+  maxY: number;
+  numbers: number;
+}
+
+const [TREE_YS, TREE_XS, TREE_DOT, TREE_CENTER, TREE_RING] = [20, 20, 11, 5, 15];
+
+/** VariationTree.drawTree / VariationTreeBig.drawTree from `start` at (`posx`, `posy`), Java's lane
+ *  allocation. Nodes left of `minX` or above the top are not drawn. `fit` is the whole-tree view:
+ *  the first node also obeys that, the main line stops above `maxY`, and the current node takes
+ *  VariationTreeBig's red (or reversed 错误节点 colour) centre instead of the black one. */
+function walkTree(
   nodes: Map<number, TreeNodeView>,
-  root: number,
+  start0: number,
   current: number,
   line: Set<number>,
-  scroll: { top: number; left: number } | null,
   numbers: boolean,
   nodeColors: Map<number, number[]>,
-): { hits: Map<string, number>; viewport: TreeViewport; numbers: number } {
-  const hits = new Map<string, number>();
-  const { w, h } = r;
-  g.fillStyle = "rgba(0,0,0,0.51)";
-  g.fillRect(0, 0, w, h);
+  posx: number,
+  posy0: number,
+  minX: number,
+  maxposy: number,
+  fit: boolean,
+  w: number,
+  h: number,
+): TreeWalk {
+  const [YS, XS, DOT, CENTER, RING] = [TREE_YS, TREE_XS, TREE_DOT, TREE_CENTER, TREE_RING];
   const node = (n: number) => nodes.get(n)!;
-  const [YS, XS, DOT, CENTER, RING] = [20, 20, 11, 5, 15];
   const kids = (n: number) => node(n).children;
   const moveNo = (n: number) => {
     let d = 0;
     for (let p = node(n).parent; p !== null; p = node(p).parent) d++;
     return d;
   };
-  const ops: ((g: CanvasRenderingContext2D) => void)[] = [];
-  let maxY = h;
-  let maxX = w;
-  let curY = 0;
-  let curX = 0;
-  // LizzieFrame varTreeMaxX / varTreeMaxY: 60 px beyond the farthest node
+  const walk: TreeWalk = { ops: [], hits: new Map(), curX: 0, curY: 0, curLane: 0, maxLane: 0, maxX: w, maxY: h, numbers: 0 };
+  const { ops, hits } = walk;
+  const shown = (x: number, y: number) => x > minX && y > 0;
+  // LizzieFrame varTreeMaxX / varTreeMaxY: 60 px beyond the farthest node drawn
   const grow = (x: number, y: number) => {
-    maxX = Math.max(maxX, x + 60);
-    maxY = Math.max(maxY, y + 60);
+    walk.maxX = Math.max(walk.maxX, x + 60);
+    walk.maxY = Math.max(walk.maxY, y + 60);
   };
   const segment = (x1: number, y1: number, x2: number, y2: number, color: string) =>
     ops.push((g) => {
@@ -2400,12 +2515,11 @@ export function paintTree(
       g.lineTo(x2 + 0.5, y2 + 0.5);
       g.stroke();
     });
-  let drawnNumbers = 0;
   /** Font(uiFontName, PLAIN, 9) in white, left of a trunk node or above a branch's first node. */
   const label = (n: number, x: (k: number) => number, y: number) => {
     const k = node(n).number;
     if (!numbers || k === 0) return;
-    drawnNumbers++;
+    walk.numbers++;
     ops.push((g) => {
       g.font = `9px ${UI_FONT}`;
       g.fillStyle = "#fff";
@@ -2419,8 +2533,6 @@ export function paintTree(
     const commented = look.showCommentNode && node(n).has_comment;
     const projected = nodeColors.get(n);
     const fill = projected ? cssColor(projected) : "#fff";
-    if (n === current) [curX, curY] = [x, y];
-    hits.set(`${x + 5},${y + 5}`, n);
     ops.push((g) => {
       const disc = (color: string, d: number) => {
         g.fillStyle = color;
@@ -2430,12 +2542,19 @@ export function paintTree(
       if (commented) disc(look.commentNode, RING);
       disc(fill, DOT);
       if (dim) disc("rgba(0,0,0,0.153)", commented ? RING : DOT);
-      if (n === current) disc("#000", CENTER);
+      if (n !== current) return;
+      // VariationTreeBig: the reversed 错误节点 colour, red on a white node, one pixel larger
+      if (fit) disc(projected ? cssColor(reverseColor(projected)) : "rgb(255,0,0)", CENTER + 2);
+      else disc("#000", CENTER);
     });
-    grow(x, y);
+    if (!fit) grow(x, y);
+  };
+  const visit = (n: number, x: number, y: number, lane: number) => {
+    hits.set(`${x + 5},${y + 5}`, n);
+    if (n === current) [walk.curX, walk.curY, walk.curLane] = [x, y, lane];
   };
   const lanes: number[] = [];
-  const drawTree = (posx: number, posy: number, startLane: number, start: number, variation: number) => {
+  const drawTree = (posy: number, startLane: number, start: number, variation: number) => {
     let depth = 1;
     for (let n = start; kids(n).length; n = kids(n)[0]) depth++;
     const mn = moveNo(start);
@@ -2444,49 +2563,90 @@ export function paintTree(
     if (lane >= lanes.length) lanes.push(0);
     if (variation > 1) lanes[lane - 1] = mn - 1;
     lanes[lane] = mn;
+    walk.maxLane = Math.max(walk.maxLane, lane);
     const x = posx + lane * XS;
     const color = line.has(start) ? "#fff" : "rgb(103,103,103)";
+    visit(start, x, posy, lane);
     if (lane > 0) {
       if (lane - startLane > 0 || variation > 1) {
         segment(x + 5, posy + 5, x + 5 - XS, posy + 5 - YS, color);
         segment(posx + (startLane - variation) * XS + 11, posy - YS + 5, x + 5 - XS, posy + 5 - YS, color);
       } else segment(x + 5, posy + 5, x + 10 - XS, posy + 10 - YS, color);
     }
-    if (node(start).parent !== null) {
-      dot(start, x, posy);
-      label(start, (k) => (k < 10 ? x + 3 : k >= 100 ? x - 3 : x), posy - 5);
-    } else {
-      // root: square, red centre while it is the displayed node
-      ops.push((g) => {
-        g.fillStyle = color;
-        g.fillRect(x, posy, DOT, DOT);
-        g.strokeStyle = "#000";
-        g.lineWidth = 1;
-        g.strokeRect(x - 0.5, posy - 0.5, DOT + 1, DOT + 1);
-        if (start === current) {
-          g.fillStyle = "rgb(255,0,0)";
-          g.fillRect(x + 2, posy + 2, DOT - 4, DOT - 4);
-        }
-      });
-      hits.set(`${x + 5},${posy + 5}`, start);
-      if (start === current) [curX, curY] = [x, posy];
-      grow(x, posy);
+    if (!fit || shown(x, posy)) {
+      if (node(start).parent !== null) {
+        dot(start, x, posy);
+        label(start, (k) => (k < 10 ? x + 3 : k >= 100 ? x - 3 : x), posy - 5);
+      } else {
+        // root: square, red centre while it is the displayed node
+        ops.push((g) => {
+          g.fillStyle = color;
+          g.fillRect(x, posy, DOT, DOT);
+          g.strokeStyle = "#000";
+          g.lineWidth = 1;
+          g.strokeRect(x - 0.5, posy - 0.5, DOT + 1, DOT + 1);
+          if (start === current) {
+            g.fillStyle = "rgb(255,0,0)";
+            g.fillRect(x + 2, posy + 2, DOT - 4, DOT - 4);
+          }
+        });
+        if (!fit) grow(x, posy);
+      }
     }
     let n = start;
-    while (kids(n).length) {
+    while (kids(n).length && (!fit || posy + YS < maxposy)) {
       posy += YS;
       n = kids(n)[0];
+      visit(n, x, posy, lane);
+      if (!shown(x, posy)) continue;
       dot(n, x, posy);
       segment(x + 5, posy - 1, x + 5, posy - YS + 11, line.has(n) ? "#fff" : "rgb(103,103,103)");
       label(n, (k) => (k < 10 ? x - 7 : k >= 100 ? x - 13 : x - 10), posy - 1);
     }
     while (n !== start) {
       n = node(n).parent!;
-      kids(n).slice(1).forEach((c, k) => drawTree(posx, posy, lane + k + 1, c, k + 1));
+      kids(n).slice(1).forEach((c, k) => drawTree(posy, lane + k + 1, c, k + 1));
       posy -= YS;
     }
   };
-  drawTree(20, 20, 0, root, 0);
+  drawTree(posy0, 0, start0, 0);
+  return walk;
+}
+
+/** LizzieFrame.createVarTreeImage + VariationTree.draw/drawTree (VariationTree.java:44-402): the
+ * whole tree laid out from the root at (20, 20) with Java's lane allocation, shown through the scroll
+ * pane that renderVarTree positions on the current node (LizzieFrame.java:13942-13975) unless the
+ * user scrolled it (`scroll`). Nodes off the current line are dimmed; with show-comment-node-color
+ * commented nodes get the comment-node-color ring, and every node is filled with the 错误节点
+ * colour the core projects for it (`nodeColors`, LizzieFrame.getBlunderNodeColor 11465-11536 with
+ * Board.updateIsBest; VariationTree.java:136-158), white without one; 显示分支面板上的手数 (`numbers`)
+ * writes each node's core display number beside it (VariationTree.java:159-176, 285-304).
+ * 设置最大宽度 (`maxWidth`, setTreeMaxLimit 13894-13908): a layout that wide is cut off there and
+ * reported `tooWide` (Board.setBigBranch). Returns node centres (panel coordinates) for click
+ * hit-testing and the viewport. */
+export function paintTree(
+  g: CanvasRenderingContext2D,
+  r: Rect,
+  nodes: Map<number, TreeNodeView>,
+  root: number,
+  current: number,
+  line: Set<number>,
+  scroll: { top: number; left: number } | null,
+  numbers: boolean,
+  nodeColors: Map<number, number[]>,
+  maxWidth: number,
+): { hits: Map<string, number>; viewport: TreeViewport; numbers: number; tooWide: boolean } {
+  const { w, h } = r;
+  g.fillStyle = "rgba(0,0,0,0.51)";
+  g.fillRect(0, 0, w, h);
+  let walk = walkTree(nodes, root, current, line, numbers, nodeColors, 20, 20, 0, Infinity, false, w, h);
+  const tooWide = walk.maxX >= maxWidth;
+  const maxX = tooWide ? maxWidth : walk.maxX;
+  // VariationTree.draw: with the current lane taken as 0 (getCurLane from the root), the tree
+  // moves left only when the cut width is under 51 px.
+  const shift = Math.max(0, TREE_XS + 20 + TREE_DOT - maxX);
+  if (shift > 0) walk = walkTree(nodes, root, current, line, numbers, nodeColors, 20 - shift, 20, 0, Infinity, false, w, h);
+  const { hits, ops, curX, curY, maxY } = walk;
   // JScrollPane with AS_NEEDED bars of DemoScrollBarUI width 9; the horizontal bar is off when the
   // pane is under 100 px high (LizzieFrame.java:13976-13983).
   const hbar = maxX > w && h >= 100;
@@ -2496,12 +2656,14 @@ export function paintTree(
   const clampTop = (v: number) => Math.max(0, Math.min(i(v), maxY - viewH));
   const clampLeft = (v: number) => Math.max(0, Math.min(i(v), maxX - viewW));
   // renderVarTree: the current node centred in each direction; the root keeps the origin.
-  const atRoot = node(current).parent === null;
+  const atRoot = nodes.get(current)!.parent === null;
   const top = clampTop(scroll ? scroll.top : curY <= viewH / 2 || atRoot ? 0 : curY - viewH / 2);
   const left = clampLeft(scroll ? scroll.left : curX <= viewW / 2 || atRoot ? 0 : curX - viewW / 2);
+  // The cut image is maxX wide: nothing beyond it shows.
+  const shownW = Math.min(viewW, maxX - left);
   g.save();
   g.beginPath();
-  g.rect(0, 0, viewW, viewH);
+  g.rect(0, 0, shownW, viewH);
   g.clip();
   g.translate(-left, -top);
   ops.forEach((op) => op(g));
@@ -2509,7 +2671,7 @@ export function paintTree(
   const visible = new Map<string, number>();
   for (const [k, id] of hits) {
     const [x, y] = k.split(",").map(Number);
-    if (y - top >= 0 && y - top < viewH && x - left >= 0 && x - left < viewW) visible.set(`${x - left},${y - top}`, id);
+    if (y - top >= 0 && y - top < viewH && x - left >= 0 && x - left < shownW) visible.set(`${x - left},${y - top}`, id);
   }
   const vertical = vbar ? scrollbar(viewH, maxY, top) : null;
   const horizontal = hbar ? scrollbar(viewW, maxX, left) : null;
@@ -2537,7 +2699,70 @@ export function paintTree(
     g.fillStyle = "rgba(230,230,250,0.7)";
     g.fillRect(ARROW + horizontal.thumbStart, sy, horizontal.thumb, SCROLLBAR);
   }
-  return { hits: visible, viewport: { top, left, maxX, maxY, viewW, viewH, vertical, horizontal }, numbers: drawnNumbers };
+  return { hits: visible, viewport: { top, left, maxX, maxY, viewW, viewH, vertical, horizontal }, numbers: walk.numbers, tooWide };
+}
+
+/** LizzieFrame.createVarTreeImage's simple view (shouldShowSimpleVariation) drawn by
+ *  VariationTreeBig.draw (VariationTreeBig.java:320-367): no scroll bars; the current node sits
+ *  in the middle row, the drawing starts at the ancestor near the top of the panel and stops at its
+ *  bottom, and it moves left so that the current lane (and as much of the lanes to its right as
+ *  fits) shows. Nodes are drawn as in the scroll pane; returns their centres for clicks. */
+export function paintTreeFit(
+  g: CanvasRenderingContext2D,
+  r: Rect,
+  nodes: Map<number, TreeNodeView>,
+  current: number,
+  line: Set<number>,
+  numbers: boolean,
+  nodeColors: Map<number, number[]>,
+): { hits: Map<string, number>; viewport: TreeViewport; numbers: number } {
+  const { w, h } = r;
+  g.fillStyle = "rgba(0,0,0,0.51)";
+  g.fillRect(0, 0, w, h);
+  const viewport: TreeViewport = { top: 0, left: 0, maxX: w, maxY: h, viewW: w, viewH: h, vertical: null, horizontal: null };
+  if (w <= 0 || h <= 0) return { hits: new Map(), viewport, numbers: 0 };
+  const node = (n: number) => nodes.get(n)!;
+  const depth = (n: number) => {
+    let d = 0;
+    for (let p = node(n).parent; p !== null; p = node(p).parent) d++;
+    return d;
+  };
+  // BoardHistoryNode.findTop: the highest branching point the current line leaves the first
+  // children at; the node itself on the main line.
+  let top = current;
+  for (let s = current, p = node(s).parent; p !== null; s = p, p = node(s).parent) {
+    if (node(p).children[0] !== s) top = p;
+  }
+  let posy = i(h / 2) - TREE_YS * (depth(current) - depth(top));
+  let start = top;
+  while (posy > -TREE_YS && node(start).parent !== null) {
+    start = node(start).parent!;
+    posy -= TREE_YS;
+  }
+  // The dummy drawing finds the current lane and the widest lane.
+  const { curLane: lane, maxLane } = walkTree(nodes, start, current, line, numbers, nodeColors, 0, posy, 0, h, true, w, h);
+  const x0 = 20;
+  let startx = x0;
+  const over = (lane + 1) * TREE_XS + x0 + TREE_DOT - w;
+  if (over > 0) startx -= over;
+  if (maxLane * TREE_XS + x0 + TREE_DOT > w) {
+    const half = i((w - x0 - TREE_DOT) / 2);
+    if ((maxLane - lane) * TREE_XS < half) startx -= (maxLane - lane) * TREE_XS;
+    else if (lane * TREE_XS + x0 + TREE_DOT > w) startx -= half;
+  }
+  const walk = walkTree(nodes, start, current, line, numbers, nodeColors, startx, posy, 0, h, true, w, h);
+  g.save();
+  g.beginPath();
+  g.rect(0, 0, w, h);
+  g.clip();
+  walk.ops.forEach((op) => op(g));
+  g.restore();
+  const hits = new Map<string, number>();
+  for (const [k, id] of walk.hits) {
+    const [x, y] = k.split(",").map(Number);
+    if (x >= 0 && x < w && y >= 0 && y < h) hits.set(k, id);
+  }
+  return { hits, viewport, numbers: walk.numbers };
 }
 
 /** Scroll bar width and arrow button length of DemoScrollBarUI. */
