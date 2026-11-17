@@ -87,8 +87,9 @@ function applyStyles(settings: AppearanceSettings, theme: ThemeSettings): void {
 /** Applies a published appearance (the workbench's view, or the one a floating board window is
  *  sent). Unchanged values do nothing; a newer change wins over a slower earlier one, so images of
  *  a superseded change never reach the painters. */
-export async function syncAppearance(settings: AppearanceSettings, theme: ThemeSettings): Promise<void> {
-  const key = JSON.stringify([settings, theme]);
+export async function syncAppearance(settings: AppearanceSettings, theme: ThemeSettings, filesRevision: number): Promise<void> {
+  // The revision changes when theme folders were rewritten in place under the same values.
+  const key = JSON.stringify([settings, theme, filesRevision]);
   if (key === requested) return;
   requested = key;
   const mine = ++generation;
@@ -121,7 +122,7 @@ export async function startAppearance(first: WorkbenchView): Promise<void> {
   root.setProperty("--frame-font-size", `${size}px`);
   root.setProperty("--menu-icon-size", `${metrics.menuIconSize}px`);
   if (first.settings.appearance.appleStyle) installAppleIcons();
-  await syncAppearance(first.settings.appearance, first.settings.theme);
+  await syncAppearance(first.settings.appearance, first.settings.theme, first.settings.theme_files_revision);
 }
 
 /** brightenIcon's recolouring as an SVG filter: every visible pixel becomes #E0E4EA. */

@@ -57,6 +57,7 @@ impl Http {
             } else { self.client.get(parsed.clone()) }.header("Accept", "application/json").timeout(Duration::from_secs(20));
             if !token.is_empty() { request = request.bearer_auth(token); }
             let cancellation = self.clone();
+            let started = std::time::Instant::now();
             let (tx, rx) = mpsc::sync_channel(1);
             tauri::async_runtime::spawn(async move {
                 let exchange = async {
@@ -94,6 +95,18 @@ impl Http {
                     Err(_) => break Err(network_failure(write)),
                 }
             };
+            // Java `ZhiziApiClient` `recordRemote`; a cancelled request is not an exchange.
+            if result.as_ref().is_ok() || result.as_ref().is_err_and(|e| e.key != CloudFailure::cancelled().key) {
+                crate::logging::network(&lizzie_core::diagnostics::NetworkExchange {
+                    remote: true,
+                    method: if write { "POST" } else { "GET" },
+                    host: url,
+                    category: category(parsed.path()),
+                    status: result.as_ref().err().map(|e| e.status).filter(|s| *s != 0),
+                    latency_ms: started.elapsed().as_millis() as u64,
+                    outcome: if result.is_ok() { "ok" } else { "failed" },
+                });
+            }
             if attempt == 0 && !write && result.as_ref().is_err_and(|e| e.key == "network_error") {
                 for _ in 0..26 { self.current()?; std::thread::sleep(Duration::from_millis(25)); }
                 continue;
@@ -105,6 +118,23 @@ impl Http {
 }
 fn network_failure(write: bool) -> CloudFailure {
     CloudFailure { retryable: !write, uncertain: write, ..CloudFailure::new("network_error") }
+}
+/// Java `ZhiziApiClient.category`, from the endpoint the operation calls.
+fn category(path: &str) -> lizzie_core::diagnostics::EndpointCategory {
+    use lizzie_core::diagnostics::EndpointCategory as C;
+    let path = path.to_ascii_lowercase();
+    let has = |words: &[&str]| words.iter().any(|w| path.contains(w));
+    if has(&["login", "register", "password", "code"]) {
+        C::Authentication
+    } else if has(&["token", "connect"]) {
+        C::Credential
+    } else if has(&["product", "order", "pay"]) {
+        C::Payment
+    } else if has(&["account", "balance", "usage", "credit", "user"]) {
+        C::Account
+    } else {
+        C::Other
+    }
 }
 fn parse_retry_after(value: &str) -> u32 {
     value.trim().parse::<u32>().map(|v| v.min(600)).unwrap_or_else(|_| {

@@ -1,0 +1,6 @@
+/* 独立棋局控制面板 (Controller.java): basePanel's EmptyBorder(5, 0, 5, 0) and centerPanel's
+   EmptyBorder(0, 5, 0, 5) around a GridLayout(4, 2, 5, 5) of buttons with no margin. */
+html, body { margin: 0; height: 100%; overflow: hidden; background: #eee; user-select: none; }
+#cp-grid { box-sizing: border-box; height: 100%; padding: 5px; display: grid; gap: 5px;
+  grid-template-columns: 1fr 1fr; grid-template-rows: repeat(4, 1fr); }
+#cp-grid button { min-width: 0; min-height: 0; padding: 0; font-family: inherit; white-space: nowrap; overflow: hidden; }

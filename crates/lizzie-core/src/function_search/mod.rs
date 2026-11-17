@@ -66,10 +66,16 @@ struct Catalog {
     bundles: Vec<FunctionBundle>,
 }
 
+/// Java catalog entries this product does not offer by approved decision, so search never lists
+/// them: the two lizzieyzy.cn 棋谱查询 windows (the service is gone; Java's only entry to them is
+/// search) and 界面外观, which only switches the Swing Look&Feel.
+const WITHDRAWN: [&str; 3] = ["share.private-history", "share.public-history", "menu.frameLooks"];
+
 struct Production { categories: Vec<String>, index: FunctionIndex }
 static PRODUCTION: LazyLock<Production> = LazyLock::new(|| {
-    let catalog: Catalog = serde_json::from_str(include_str!("catalog.json"))
+    let mut catalog: Catalog = serde_json::from_str(include_str!("catalog.json"))
         .expect("committed Java function catalog");
+    catalog.entries.retain(|e| !WITHDRAWN.contains(&e.id.as_str()));
     Production { categories: catalog.categories, index: FunctionIndex::new(catalog.entries, catalog.bundles) }
 });
 static CATEGORIES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {

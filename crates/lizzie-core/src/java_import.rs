@@ -19,9 +19,12 @@
 
 pub mod slots;
 mod appearance;
+mod themes;
 mod matches;
 mod cloud;
+mod contribution;
 pub use cloud::{CloudImportCredentials, read_java_cloud_secret};
+pub use contribution::{ContributionCredentials, ContributionSecrets};
 
 use std::path::{Path, PathBuf};
 
@@ -31,7 +34,8 @@ use crate::api::{
     EngineProblem, ImportEngineView, ImportFailure, ImportItemView, ImportReason, ImportStatus, ImportTarget,
 };
 use crate::engine::gtp::{join_command, prepare_launch, split_command, FILE_PATH_OPTIONS};
-use crate::engine::profile::{new_profile_id, EngineProfile, EngineStartup};
+use crate::engine::profile::{new_profile_id, CustomPdaMode, CustomPdaSettings, EngineProfile, EngineStartup};
+use crate::engine::runtime::LeelaOption;
 use crate::engine::ssh::SshSettings;
 use crate::engine::tuning::{GtpConfiguration, ThreadPolicy};
 use crate::sanitize::sanitize;
@@ -98,6 +102,42 @@ pub fn conventional_dirs(home: Option<&Path>, public: Option<&Path>, program_dat
     dirs
 }
 
+/// Partial Java settings: absent or invalid keys leave the current preference alone.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CustomPdaImport {
+    dynamic: Option<bool>,
+    fixed: Option<bool>,
+    auto_apply: Option<bool>,
+    cap: Option<Option<f64>>,
+    value: Option<Option<f64>>,
+    command: Option<(CustomPdaMode, f64)>,
+}
+
+impl CustomPdaImport {
+    fn apply(&self, current: &CustomPdaSettings) -> CustomPdaSettings {
+        let mut out = current.clone();
+        if let Some(v) = self.auto_apply { out.auto_apply = v; }
+        if let Some(v) = self.cap { out.dynamic_cap = v; }
+        if let Some(v) = self.value { out.fixed_value = v; }
+        if self.dynamic.is_some() || self.fixed.is_some() {
+            out.mode = if self.dynamic == Some(true) { CustomPdaMode::Dynamic }
+                else if self.fixed == Some(true) { CustomPdaMode::Fixed }
+                else { CustomPdaMode::Disabled };
+        } else if let Some((mode, _)) = self.command {
+            out.mode = mode;
+        }
+        // The command is a fallback for old/partial configs, not a second persisted command.
+        if let Some((mode, value)) = self.command {
+            match mode {
+                CustomPdaMode::Dynamic if self.cap.is_none() => out.dynamic_cap = Some(value),
+                CustomPdaMode::Fixed if self.value.is_none() => out.fixed_value = Some(value),
+                _ => {}
+            }
+        }
+        out
+    }
+}
+
 /// Settings this product can take over. `None` = not present (or not usable) in the Java files.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Mapped {
@@ -107,10 +147,29 @@ pub struct Mapped {
     pub append_winrate_to_comment: Option<bool>,
     pub language: Option<Language>,
     pub play_sound: Option<bool>,
-    /// `ui.not-play-sound-insync`, `ui.always-sync-boardstat`, `ui.read-board-get-focus`.
+    /// `ui.not-play-sound-insync`, `ui.always-sync-boardstat`, `ui.read-board-get-focus`,
+    /// `ui.suppress-readboard-websocket-pondering-notice`.
     pub no_sound_in_sync: Option<bool>,
     pub read_board_stat_sync: Option<bool>,
     pub read_board_get_focus: Option<bool>,
+    pub suppress_websocket_pondering_notice: Option<bool>,
+    /// 诊断与日志: `logging.diagnostics-enabled`, `diagnostic-modules`,
+    /// `preferred-full-trace-scopes`.
+    pub logging_enabled: Option<bool>,
+    pub logging_modules: Option<Vec<crate::diagnostics::DiagnosticModule>>,
+    pub logging_scopes: Option<Vec<crate::diagnostics::TraceScope>>,
+    /// 快速启动: `ui.show-quick-links` and the program list (`leelaz.program-name-list`,
+    /// `program-command-list`).
+    pub quick_links_show: Option<bool>,
+    pub quick_link_programs: Option<Vec<crate::quick_links::QuickLinkProgram>>,
+    /// A program command carries credentials: the list comes over only when confirmed.
+    pub quick_link_credential: bool,
+    /// 检查更新: `ui.auto-check-update`, `ui.auto-download-update`, `ui.update-channel`,
+    /// `ui.update-source`.
+    pub update_auto_check: Option<bool>,
+    pub update_auto_download: Option<bool>,
+    pub update_channel: Option<crate::update::UpdateChannel>,
+    pub update_source: Option<crate::update::UpdateSource>,
     /// 布局模式 (`ui.extra-mode`).
     pub extra_mode: Option<ExtraMode>,
     pub recent_files: Option<Vec<String>>,
@@ -144,11 +203,28 @@ pub struct Mapped {
     pub fast_engine_change: Option<bool>,
     pub show_ponder_limited_tips: Option<bool>,
     pub auto_check_engine_alive: Option<bool>,
+    pub enable_lizzie_cache: Option<bool>,
+    pub stop_at_empty_board: Option<bool>,
+    pub always_gtp: Option<bool>,
     pub kata_rules: Option<String>,
     pub auto_load_kata_rules: Option<bool>,
     /// Outer None means absent/invalid; inner None preserves Java's empty PDA text.
     pub kata_pda: Option<Option<f64>>,
     pub kata_pda_enabled: Option<bool>,
+    /// `ui.txt-kata-engine-wrn`, `ui.auto-load-txt-kata-engine-pda` / `-wrn`, like
+    /// [`Self::kata_pda`].
+    pub kata_wrn: Option<Option<f64>>,
+    pub kata_wrn_enabled: Option<bool>,
+    pub auto_load_kata_pda: Option<bool>,
+    pub auto_load_kata_pda_value: Option<Option<f64>>,
+    pub auto_load_kata_wrn: Option<bool>,
+    pub auto_load_kata_wrn_value: Option<Option<f64>>,
+    pub show_kata_pda: Option<bool>,
+    pub show_kata_wrn: Option<bool>,
+    /// `ui.chk-lzsai-engine*` / `ui.autoload-Lzsai-engine*` / `ui.txt-lzsai-engine*`, in
+    /// [`LeelaOption::ALL`] order.
+    pub leela_options: [LeelaOptionImport; 4],
+    pub custom_pda: CustomPdaImport,
     pub startup_benchmark: Option<bool>,
     /// The start-up benchmark the user dismissed (signature, version).
     pub startup_benchmark_dismissed_signature: Option<String>,
@@ -171,6 +247,9 @@ pub struct Mapped {
     pub other_size_width: Option<u16>,
     pub other_size_height: Option<u16>,
     pub no_capture: Option<bool>,
+    pub move_rect: Option<crate::settings::MoveRect>,
+    pub click_review: Option<bool>,
+    pub painting_color: Option<crate::settings::PaintingColor>,
     /// `ui.auto-save-exit`, `ui.resume-previous-game`, `ui.load-save-zoom`.
     pub auto_save_on_exit: Option<bool>,
     pub resume_previous_game: Option<bool>,
@@ -232,6 +311,26 @@ pub struct Mapped {
     pub tsumego_ko_threat: Option<crate::tsumego::TsumegoKoThreat>,
     pub tsumego_wall_distance: Option<i32>,
     pub tsumego_show_button: Option<bool>,
+    /// 顶部工具栏 自定义内容 and 自动换行.
+    pub top_show_double_menu_button: Option<bool>,
+    pub top_show_basic_buttons: Option<bool>,
+    pub top_show_edit_bar: Option<bool>,
+    pub top_show_force: Option<bool>,
+    pub top_show_game_controls: Option<bool>,
+    pub top_show_time_limit: Option<bool>,
+    pub top_show_visit_limit: Option<bool>,
+    pub top_show_analyze_sides: Option<bool>,
+    pub top_show_candidate_sides: Option<bool>,
+    pub top_show_candidate_info: Option<bool>,
+    pub top_show_rules: Option<bool>,
+    pub top_show_parameters: Option<bool>,
+    pub top_show_board_size: Option<bool>,
+    pub top_show_save_load: Option<bool>,
+    pub top_auto_wrap: Option<bool>,
+    /// 底部工具栏 自定义内容, as (BottomButtonSettings field, value).
+    pub bottom_buttons: Vec<(&'static str, bool)>,
+    /// 详细工具栏 设置模块顺序 (`toolbar-parameter` 32–34): 自动分析, 引擎对战, 自动播放.
+    pub detail_panel_order: [Option<u8>; 3],
     /// 抓取死活题 参数设置.
     pub capture_black_offset: Option<i32>,
     pub capture_black_percent: Option<i32>,
@@ -260,6 +359,13 @@ pub struct Mapped {
     /// Appearance/default-theme fields, validated against the same types as the live command.
     pub appearance: Vec<(&'static str, Value)>,
     pub theme: Vec<(&'static str, Value)>,
+    /// Java's own theme folders (`theme/<name>/`), as this product stores them.
+    pub themes: Vec<crate::appearance::ThemeFolder>,
+    /// 跑谱贡献 settings other than its account (`ui.contribute-*`, `ui.show-Contribute`,
+    /// `leelaz.contribute-engine-ssh-info`).
+    pub contribution: Vec<DisplayValue>,
+    /// The 跑谱贡献 account and passwords; copied only when confirmed.
+    pub contribution_secrets: Option<ContributionSecrets>,
 }
 
 /// [`HawkeyeSettings`] with the imported values; the 统计 range selects the period Java shows for
@@ -339,6 +445,14 @@ fn with_display(current: &DisplaySettings, values: &[DisplayValue]) -> DisplaySe
         v.set(&mut json);
     }
     serde_json::from_value(json).unwrap_or_else(|_| current.clone())
+}
+
+/// One row of the Leela Zero / Sai 引擎参数 window as Java saved it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LeelaOptionImport {
+    pub enabled: Option<bool>,
+    pub auto_load: Option<bool>,
+    pub value: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -436,8 +550,10 @@ impl Candidate {
     }
 
     /// The setting entries as the report shows them once the user chose which credentials to
-    /// copy: the default and last engine choices of an engine that is left out are left out too.
-    pub fn items_after(&self, copy_credentials: &[u32]) -> Vec<ImportItemView> {
+    /// copy (`copy_credentials` engines, `contribution` the 跑谱贡献 account, `quick_links` the
+    /// 快速启动 commands): the default and last engine choices of an engine that is left out are
+    /// left out too.
+    pub fn items_after(&self, copy_credentials: &[u32], contribution: bool, quick_links: bool) -> Vec<ImportItemView> {
         let engines = self.engines_after(copy_credentials);
         self.items
             .iter()
@@ -467,6 +583,12 @@ impl Candidate {
                     i.status = ImportStatus::NotMigrated;
                     i.reason = Some(ImportReason::CredentialNotConfirmed);
                 }
+                if !quick_links && self.mapped.quick_link_credential && i.status == ImportStatus::Imported
+                    && QUICK_LINK_KEYS.contains(&i.key.as_str()) {
+                    i.status = ImportStatus::NotMigrated;
+                    i.reason = Some(ImportReason::CredentialNotConfirmed);
+                }
+                self.contribution_after(&mut i, contribution);
                 i
             })
             .collect()
@@ -489,9 +611,9 @@ impl Candidate {
     }
 
     /// The SSH passwords to remember once imported, by account: those of engines whose
-    /// credentials the user agreed to copy, and the analysis engine's when `analysis` is chosen.
-    /// A value that is not one Java wrote is left out.
-    pub fn ssh_passwords(&self, copy_credentials: &[u32], analysis: bool) -> Vec<(String, String)> {
+    /// credentials the user agreed to copy, the analysis engine's when `analysis` is chosen and
+    /// 跑谱贡献's 远程SSH when `contribution` is. A value that is not one Java wrote is left out.
+    pub fn ssh_passwords(&self, copy_credentials: &[u32], analysis: bool, contribution: bool) -> Vec<(String, String)> {
         let mut out: Vec<(String, String)> = Vec::new();
         for m in self.mapped.engines.iter().flatten() {
             let (Some(ssh), Some(secret)) = (&m.profile.ssh, &m.ssh_password) else { continue };
@@ -509,6 +631,7 @@ impl Candidate {
                 }
             }
         }
+        out.extend(self.contribution_ssh_password(contribution));
         out
     }
 }
@@ -548,6 +671,9 @@ pub fn read(source: &JavaSource) -> Result<Candidate, ImportFailure> {
         items: Vec::new(),
         engines: Vec::new(),
     };
+    // The theme folders first: `ui.theme` may select one of them.
+    let no_ui = Map::new();
+    r.themes(config.get("ui").and_then(Value::as_object).unwrap_or(&no_ui));
     r.config(&config);
 
     let persist_path = source.config_dir.join(PERSIST_FILE);
@@ -631,6 +757,10 @@ fn as_f64(v: &Value) -> Option<f64> {
     }
     .filter(|f| f.is_finite())
 }
+
+/// Report keys of the 快速启动 program list, left out together when its credentials are not
+/// confirmed.
+const QUICK_LINK_KEYS: [&str; 2] = ["leelaz.program-name-list", "leelaz.program-command-list"];
 
 /// Shown value of a JSON scalar.
 fn shown(v: &Value) -> String {
@@ -779,6 +909,33 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         ImportTarget::NoCapture,
         Kind::Bool(|m, v| m.no_capture = Some(v)),
     ),
+    // `Config.showrect`: 0 始终, 1 仅对局时, any other number 否 (ConfigDialog2.java:1215-1221,
+    // LizzieFrame.shouldShowRect).
+    (
+        "ui",
+        "show-move-rect",
+        ImportTarget::MoveRect,
+        Kind::I32(|m, v| {
+            use crate::settings::MoveRect as R;
+            m.move_rect = Some(match v { 0 => R::Always, 1 => R::OnPlay, _ => R::Never });
+        }),
+    ),
+    (
+        "ui",
+        "enable-click-review",
+        ImportTarget::ClickReview,
+        Kind::Bool(|m, v| m.click_review = Some(v)),
+    ),
+    // DrawPainting opens with 1 green, 2 red and any other number blue (DrawPainting.java:75-85).
+    (
+        "ui",
+        "last-painting-color",
+        ImportTarget::PaintingColor,
+        Kind::I32(|m, v| {
+            use crate::settings::PaintingColor as P;
+            m.painting_color = Some(match v { 1 => P::Green, 2 => P::Red, _ => P::Blue });
+        }),
+    ),
     (
         "ui",
         "win-rate-always-black",
@@ -817,6 +974,12 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
     ),
     (
         "ui",
+        "suppress-readboard-websocket-pondering-notice",
+        ImportTarget::ReadBoardPonderingNotice,
+        Kind::Bool(|m, v| m.suppress_websocket_pondering_notice = Some(v)),
+    ),
+    (
+        "ui",
         "limit-time",
         ImportTarget::LimitTime,
         Kind::Bool(|m, v| m.limit_time = Some(v)),
@@ -847,6 +1010,12 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
     ),
     (
         "ui",
+        "always-gtp",
+        ImportTarget::AlwaysGtp,
+        Kind::Bool(|m, v| m.always_gtp = Some(v)),
+    ),
+    (
+        "ui",
         "kata-rules",
         ImportTarget::KataRules,
         Kind::Str(|m, v| m.kata_rules = Some(v)),
@@ -862,6 +1031,108 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "chk-kata-engine-pda",
         ImportTarget::KataPda,
         Kind::Bool(|m, v| m.kata_pda_enabled = Some(v)),
+    ),
+    (
+        "ui",
+        "chk-kata-engine-wrn",
+        ImportTarget::KataWrn,
+        Kind::Bool(|m, v| m.kata_wrn_enabled = Some(v)),
+    ),
+    (
+        "ui",
+        "autoload-kata-engine-pda",
+        ImportTarget::KataParamAutoLoad,
+        Kind::Bool(|m, v| m.auto_load_kata_pda = Some(v)),
+    ),
+    (
+        "ui",
+        "autoload-kata-engine-wrn",
+        ImportTarget::KataParamAutoLoad,
+        Kind::Bool(|m, v| m.auto_load_kata_wrn = Some(v)),
+    ),
+    (
+        "ui",
+        "show-pda-in-menu",
+        ImportTarget::KataParamToolbar,
+        Kind::Bool(|m, v| m.show_kata_pda = Some(v)),
+    ),
+    (
+        "ui",
+        "show-wrn-in-menu",
+        ImportTarget::KataParamToolbar,
+        Kind::Bool(|m, v| m.show_kata_wrn = Some(v)),
+    ),
+    (
+        "ui",
+        "chk-lzsai-enginemem",
+        ImportTarget::LeelaOptions,
+        Kind::Bool(|m, v| m.leela_options[0].enabled = Some(v)),
+    ),
+    (
+        "ui",
+        "autoload-Lzsai-enginemem",
+        ImportTarget::LeelaOptions,
+        Kind::Bool(|m, v| m.leela_options[0].auto_load = Some(v)),
+    ),
+    (
+        "ui",
+        "txt-lzsai-enginemem",
+        ImportTarget::LeelaOptions,
+        Kind::Str(|m, v| m.leela_options[0].value = Some(v)),
+    ),
+    (
+        "ui",
+        "chk-lzsai-enginevisits",
+        ImportTarget::LeelaOptions,
+        Kind::Bool(|m, v| m.leela_options[1].enabled = Some(v)),
+    ),
+    (
+        "ui",
+        "autoload-Lzsai-enginevisits",
+        ImportTarget::LeelaOptions,
+        Kind::Bool(|m, v| m.leela_options[1].auto_load = Some(v)),
+    ),
+    (
+        "ui",
+        "txt-lzsai-enginevisits",
+        ImportTarget::LeelaOptions,
+        Kind::Str(|m, v| m.leela_options[1].value = Some(v)),
+    ),
+    (
+        "ui",
+        "chk-lzsai-enginelagbuffer",
+        ImportTarget::LeelaOptions,
+        Kind::Bool(|m, v| m.leela_options[2].enabled = Some(v)),
+    ),
+    (
+        "ui",
+        "autoload-Lzsai-enginelagbuffer",
+        ImportTarget::LeelaOptions,
+        Kind::Bool(|m, v| m.leela_options[2].auto_load = Some(v)),
+    ),
+    (
+        "ui",
+        "txt-lzsai-enginelagbuffer",
+        ImportTarget::LeelaOptions,
+        Kind::Str(|m, v| m.leela_options[2].value = Some(v)),
+    ),
+    (
+        "ui",
+        "chk-lzsai-engineresign",
+        ImportTarget::LeelaOptions,
+        Kind::Bool(|m, v| m.leela_options[3].enabled = Some(v)),
+    ),
+    (
+        "ui",
+        "autoload-Lzsai-engineresign",
+        ImportTarget::LeelaOptions,
+        Kind::Bool(|m, v| m.leela_options[3].auto_load = Some(v)),
+    ),
+    (
+        "ui",
+        "txt-lzsai-engineresign",
+        ImportTarget::LeelaOptions,
+        Kind::Str(|m, v| m.leela_options[3].value = Some(v)),
     ),
     (
         "ui",
@@ -916,6 +1187,18 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "fast-engine-change",
         ImportTarget::FastEngineChange,
         Kind::Bool(|m, v| m.fast_engine_change = Some(v)),
+    ),
+    (
+        "leelaz",
+        "enable-lizzie-cache",
+        ImportTarget::LizzieCache,
+        Kind::Bool(|m, v| m.enable_lizzie_cache = Some(v)),
+    ),
+    (
+        "leelaz",
+        "stop-at-empty-board",
+        ImportTarget::StopAtEmptyBoard,
+        Kind::Bool(|m, v| m.stop_at_empty_board = Some(v)),
     ),
     (
         "ui",
@@ -1113,6 +1396,44 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
     ),
     ("ui", "tsume-go-wall-distance", ImportTarget::Tsumego, Kind::I32(|m, v| m.tsumego_wall_distance = Some(v))),
     ("ui", "show-tsume-go-menu", ImportTarget::Tsumego, Kind::Bool(|m, v| m.tsumego_show_button = Some(v))),
+    // 顶部工具栏 自定义内容 (Menu.java:4643-4847) and 自动换行 (Menu.java:4457-4467).
+    ("ui", "show-double-menu-btn", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_double_menu_button = Some(v))),
+    ("ui", "show-basic-btn", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_basic_buttons = Some(v))),
+    ("ui", "show-edit-bar", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_edit_bar = Some(v))),
+    ("ui", "show-force-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_force = Some(v))),
+    ("ui", "show-double-menu-game-control", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_game_controls = Some(v))),
+    ("ui", "show-time-control-in-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_time_limit = Some(v))),
+    ("ui", "show-playout-control-in-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_visit_limit = Some(v))),
+    ("ui", "show-analyze-controller", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_analyze_sides = Some(v))),
+    ("ui", "show-double-menu-var", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_candidate_sides = Some(v))),
+    ("ui", "show-double-menu-moveinfo", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_candidate_info = Some(v))),
+    ("ui", "show-rule-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_rules = Some(v))),
+    ("ui", "show-param-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_parameters = Some(v))),
+    ("ui", "show-goban-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_board_size = Some(v))),
+    ("ui", "show-saveload-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_save_load = Some(v))),
+    ("ui", "auto-wrap-tool-bar", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_auto_wrap = Some(v))),
+    // 底部工具栏 自定义内容 (Menu.java:4896-5156) and 显示拓展/隐藏详细工具栏按钮 (4593-4604).
+    ("ui", "liveButton", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("live", v)))),
+    ("ui", "kataEstimate", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("kataEstimate", v)))),
+    ("ui", "batchOpen", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("batchOpen", v)))),
+    ("ui", "openfile", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("openFile", v)))),
+    ("ui", "savefile", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("saveFile", v)))),
+    ("ui", "finalScore", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("finalScore", v)))),
+    ("ui", "heatMap", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("heatMap", v)))),
+    ("ui", "badMoves", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("badMoves", v)))),
+    ("ui", "analyze-list", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("analyzeList", v)))),
+    ("ui", "refresh", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("refresh", v)))),
+    ("ui", "analyse", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("analyse", v)))),
+    ("ui", "tryPlay", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("tryPlay", v)))),
+    ("ui", "setMain", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("setMain", v)))),
+    ("ui", "backMain", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("backMain", v)))),
+    ("ui", "clearButton", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("clearBoard", v)))),
+    ("ui", "deleteMove", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("deleteMove", v)))),
+    ("ui", "move-rank", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("moveRank", v)))),
+    ("ui", "move", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("moveNumbers", v)))),
+    ("ui", "coords", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("coords", v)))),
+    ("ui", "autoPlay", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("autoPlay", v)))),
+    ("ui", "show-detailed-toolbar-menu", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("detailButton", v)))),
     ("ui", "capture-black-offset", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_black_offset = Some(v))),
     ("ui", "capture-black-percent", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_black_percent = Some(v))),
     ("ui", "capture-white-offset", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_white_offset = Some(v))),
@@ -1188,6 +1509,9 @@ const DISPLAY: &[(&str, ImportTarget, &str, DisplayKind)] = &[
     ("new-move-number-in-branch", ImportTarget::MoveNumbers, "branchNumbersFromOne", DisplayKind::Bool),
     ("show-moveall-inbranch", ImportTarget::MoveNumbers, "allNumbersInBranch", DisplayKind::Bool),
     ("show-var-move", ImportTarget::MoveNumbers, "treeMoveNumbers", DisplayKind::Bool),
+    ("show-scroll-variation", ImportTarget::VariationTree, "scrollVariation", DisplayKind::Bool),
+    ("max-tree-width", ImportTarget::VariationTree, "maxTreeWidth", DisplayKind::Int(i32::MIN as i64, i32::MAX as i64)),
+    ("ignore-out-of-width", ImportTarget::VariationTree, "ignoreOutOfWidth", DisplayKind::Bool),
     ("move-rank-mark-last-move", ImportTarget::MoveRank, "moveRank", DisplayKind::Int(-1, i32::MAX as i64)),
     ("txt-move-rank-mark-last-move", ImportTarget::MoveRank, "moveRankCustom", DisplayKind::Int(1, i32::MAX as i64)),
     ("disable-move-rank-in-origin", ImportTarget::MoveRank, "disableMoveRankInOrigin", DisplayKind::Bool),
@@ -1308,6 +1632,59 @@ const LEGACY_ENGINE_KEYS: [&str; 7] = [
     "engine-komi-list",
 ];
 
+/// Keys the fixed Java program keeps or writes without using them: no reader, a field no code
+/// reads, a value no Java control can change, a feature whose menu is hidden (the lizzieyzy.cn
+/// 分享), or keys Java removes on start. Reported as no longer used.
+const JAVA_UNUSED: &[&str] = &[
+    // Loaded into fields nothing reads, or template-only keys (Config.java).
+    "ui.auto-check-date", "ui.use-factor", "ui.use-pipeline-readboard", "ui.first-load-katago",
+    "ui.autosave-interval-seconds", "ui.board-size", "ui.confirm-exit", "ui.flash-analyze",
+    "ui.allow-close-comment-control-hint", "ui.color-by-winrate-instead-of-visits",
+    "ui.handicap-instead-of-winrate", "ui.show-dynamic-komi", "ui.weighted-blunder-bar-height",
+    "ui.shadows-enabled", "ui.show-movelist-graph", "ui.problem-list-metric",
+    // Fixed in Java: no control writes them (always the default).
+    "ui.show-best-moves", "ui.show-leelaz-variation", "ui.show-board-light-gradient",
+    "ui.show-hover-glow", "ui.show-stone-highlight", "ui.show-winrate-overview",
+    // Navigation button flags BottomToolbar never applies.
+    "ui.firstButton", "ui.lastButton", "ui.forward1", "ui.forward10", "ui.backward1",
+    "ui.backward10", "ui.gotomove",
+    // The old 问题手 table that is never added to the window (LizzieFrame.java:1114-1117).
+    "ui.blunder-table-only-after", "ui.blunder-is-sorted-AF", "ui.blunder-is-sorted-NAF",
+    "ui.blunder-sort-is-origin-order-AF", "ui.blunder-sort-is-origin-order-NAF",
+    "ui.blunder-sort-num-AF", "ui.blunder-sort-num-NAF", "ui.blunder-win-threshold",
+    "ui.blunder-score-threshold",
+    // lizzieyzy.cn 分享: its menu and toolbar button are hidden (Menu.java:4099, 4915).
+    "ui.share", "ui.share-public", "ui.share-label-1", "ui.share-label-2", "ui.share-label-3",
+    "ui.share-label-4", "ui.share-label-5",
+    // Removed by Java when it starts or clears personal data.
+    "ui.log-gtp-to-file", "ui.log-console-to-file", "ui.recent-files", "ui.batch-analysis-history",
+    "ui.share-history", "ui.tracking-engine-preload", "ui.tracking-engine-skip-warning",
+    "ui.tracking-point-interior-color", "ui.tracking-point-interior-opacity",
+    "ui.tracking-point-text-auto-color", "ui.tracking-point-text-color",
+    "persist:ui-persist.max-alpha", "persist:ui-persist.winrate-graph",
+    // Written by the settings dialog, never read back (ConfigDialog2.java:6723-6724,
+    // 6849-6850); Java starts from `board-postion-proportion`.
+    "ui.board-width", "ui.board-height", "ui.board-position-proportion",
+    // Read only when the contribution window opens; no control writes it.
+    "ui.contribute-hide-result",
+    // Swing Look&Feel choice; not carried over by approved decision (no Swing look here).
+    "ui.use-java-looks",
+];
+
+/// Java's own bookkeeping, not settings: one-time migration markers, first-start and machine
+/// markers, windows left open, and the paths its KataGo auto setup remembers (this product keeps
+/// its own engine resources; the engine commands carry their files).
+const JAVA_STATE: &[&str] = &[
+    "ui.engine-thread-policy-migrated", "ui.first-time-load", "ui.host-name",
+    "ui.migrated-hide-gtp-console-default-v2", "ui.migrated-hide-subboard-default-v1",
+    "ui.restored-show-subboard-default-v2", "ui.user-known-x", "ui.is-ctrl-opened",
+    "ui.katago-auto-setup-engine-path", "ui.katago-preferred-weight-path",
+    "persist:checked-empty-blunder-thresholds", "persist:first-time-factor",
+    "ui.katago-auto-setup-analysis-config-path", "ui.katago-auto-setup-gtp-config-path",
+    "ui.katago-auto-setup-weight-path", "ui.katago-auto-setup-updated-at",
+    "ui.migrated-default-transformer-v1",
+];
+
 type Handled = Vec<(&'static str, &'static str)>;
 
 impl Reader<'_> {
@@ -1372,6 +1749,7 @@ impl Reader<'_> {
         let ui = root.get("ui").and_then(Value::as_object).unwrap_or(&empty);
         let leelaz = root.get("leelaz").and_then(Value::as_object).unwrap_or(&empty);
         let mut handled: Handled = Vec::new();
+        self.custom_pda(ui, &mut handled);
 
         for (key, field, kind) in [
             ("analyze-all-branch", "allBranches", 0),
@@ -1439,20 +1817,42 @@ impl Reader<'_> {
                 None => self.invalid(format!("ui.{key}"), ImportTarget::WorkbenchPanels, raw),
             }
         }
-        // Config.java:1999-2000 stores PDA as text; empty means no confirmed preference.
-        if let Some(raw) = ui.get("txt-kata-engine-pda") {
-            handled.push(("ui", "txt-kata-engine-pda"));
+        // 棋盘比例 as loaded at start (Config.java:1834, Java's spelling); the persisted
+        // `board-postion-propotion` read later replaces it (LizzieFrame.java:931-932).
+        if let Some(raw) = ui.get("board-postion-proportion") {
+            handled.push(("ui", "board-postion-proportion"));
+            match as_i64(raw) {
+                Some(value) => {
+                    self.mapped.panel_sizes.push(DisplayValue {
+                        target: ImportTarget::PanelSizes, field: "boardPositionProportion", value: Value::from(value.clamp(0, 8)),
+                    });
+                    self.imported("ui.board-postion-proportion".into(), ImportTarget::PanelSizes, shown(raw));
+                }
+                None => self.invalid("ui.board-postion-proportion".into(), ImportTarget::PanelSizes, raw),
+            }
+        }
+        // Config.java:1999-2010 stores PDA / WRN values as text; empty means no value.
+        type Text = fn(&mut Mapped, Option<f64>);
+        let texts: [(&str, ImportTarget, Text); 4] = [
+            ("txt-kata-engine-pda", ImportTarget::KataPda, |m, v| m.kata_pda = Some(v)),
+            ("txt-kata-engine-wrn", ImportTarget::KataWrn, |m, v| m.kata_wrn = Some(v)),
+            ("auto-load-txt-kata-engine-pda", ImportTarget::KataParamAutoLoad, |m, v| m.auto_load_kata_pda_value = Some(v)),
+            ("auto-load-txt-kata-engine-wrn", ImportTarget::KataParamAutoLoad, |m, v| m.auto_load_kata_wrn_value = Some(v)),
+        ];
+        for (key, target, set) in texts {
+            let Some(raw) = ui.get(key) else { continue };
+            handled.push(("ui", key));
             let value = if raw.as_str().is_some_and(|s| s.trim().is_empty()) {
                 Some(None)
             } else {
-                as_f64(raw).map(Some)
+                as_f64(raw).filter(|v| v.is_finite()).map(Some)
             };
             match value {
                 Some(value) => {
-                    self.mapped.kata_pda = Some(value);
-                    self.imported("ui.txt-kata-engine-pda".into(), ImportTarget::KataPda, shown(raw));
+                    set(&mut self.mapped, value);
+                    self.imported(format!("ui.{key}"), target, shown(raw));
                 }
-                None => self.invalid("ui.txt-kata-engine-pda".into(), ImportTarget::KataPda, raw),
+                None => self.invalid(format!("ui.{key}"), target, raw),
             }
         }
         for (section, key, target, kind) in SIMPLE {
@@ -1640,24 +2040,96 @@ impl Reader<'_> {
         self.hawkeye(ui, &mut handled);
         self.network(ui, &mut handled);
         self.web_board(root, &mut handled);
+        self.logging(root, &mut handled);
+        self.quick_links(ui, leelaz, &mut handled);
+        self.updates(ui, &mut handled);
         self.display(ui, leelaz, &mut handled);
         self.game(ui, leelaz, &mut handled);
         self.matches(ui, &mut handled);
+        self.contribution(ui, leelaz, &mut handled);
         self.cloud(leelaz, &mut handled);
         self.engines(ui, leelaz, &mut handled);
 
+        // `Utils.getEngineData`: the older engine lists are read only without
+        // `engine-settings-list` (then they are the engines, see `engines`).
+        let listed = leelaz.contains_key("engine-settings-list");
         for (section, value) in root {
             match value.as_object() {
                 Some(map) => {
                     for (key, v) in map {
-                        if !handled.iter().any(|(s, k)| s == section && k == key) {
-                            self.not_migrated(format!("{section}.{key}"), v);
+                        if handled.iter().any(|(s, k)| s == section && k == key) {
+                            continue;
+                        }
+                        let name = format!("{section}.{key}");
+                        if listed && section == "leelaz" && LEGACY_ENGINE_KEYS.contains(&key.as_str()) {
+                            self.obsolete(name);
+                        } else {
+                            self.leftover(name, v);
                         }
                     }
                 }
                 None => self.not_migrated(section.clone(), value),
             }
         }
+    }
+
+    fn custom_pda(&mut self, ui: &Map<String, Value>, handled: &mut Handled) {
+        for key in ["chk-dym-pda", "chk-static-pda", "chk-auto-pda", "dym-pda-cap", "static-pda-cur", "auto-pda"] {
+            let Some(raw) = ui.get(key) else { continue };
+            handled.push(("ui", key));
+            let valid = match key {
+                "chk-dym-pda" | "chk-static-pda" | "chk-auto-pda" => as_bool(raw).map(|v| {
+                    match key {
+                        "chk-dym-pda" => self.mapped.custom_pda.dynamic = Some(v),
+                        "chk-static-pda" => self.mapped.custom_pda.fixed = Some(v),
+                        _ => self.mapped.custom_pda.auto_apply = Some(v),
+                    }
+                }).is_some(),
+                "dym-pda-cap" | "static-pda-cur" => {
+                    let value = if raw.as_str().is_some_and(|s| s.trim().is_empty()) { Some(None) }
+                        else { as_f64(raw).filter(|v| v.is_finite()).map(Some) };
+                    value.map(|v| {
+                        if key == "dym-pda-cap" { self.mapped.custom_pda.cap = Some(v); }
+                        else { self.mapped.custom_pda.value = Some(v); }
+                    }).is_some()
+                }
+                _ => raw.as_str().is_some_and(|s| {
+                    if s.trim().is_empty() { return true; }
+                    let mut words = s.split_whitespace();
+                    let command = words.next();
+                    let value = words.next().and_then(|s| s.parse::<f64>().ok()).filter(|v| v.is_finite());
+                    if words.next().is_some() || s.chars().any(char::is_control) { return false; }
+                    let Some(value) = value else { return false };
+                    let mode = match command {
+                        Some("pda") => if value == 0.0 { CustomPdaMode::Disabled } else { CustomPdaMode::Fixed },
+                        Some("dympdacap") if value != 0.0 => CustomPdaMode::Dynamic,
+                        _ => return false,
+                    };
+                    self.mapped.custom_pda.command = Some((mode, value));
+                    true
+                }),
+            };
+            if valid { self.imported(format!("ui.{key}"), ImportTarget::CustomPda, shown(raw)); }
+            else { self.invalid(format!("ui.{key}"), ImportTarget::CustomPda, raw); }
+        }
+    }
+
+    /// A Java key with no setting here: Java no longer uses it, it is Java's own bookkeeping, or
+    /// its feature is not in this product yet.
+    fn leftover(&mut self, name: String, v: &Value) {
+        if JAVA_UNUSED.contains(&name.as_str()) {
+            self.obsolete(name);
+        } else if JAVA_STATE.contains(&name.as_str()) {
+            let it = self.item(name, ImportStatus::NotMigrated);
+            it.reason = Some(ImportReason::JavaState);
+        } else {
+            self.not_migrated(name, v);
+        }
+    }
+
+    fn obsolete(&mut self, name: String) {
+        let it = self.item(name, ImportStatus::NotMigrated);
+        it.reason = Some(ImportReason::Obsolete);
     }
 
     fn game_value(&mut self, name: String, target: ImportTarget, field: &'static str, value: Option<Value>, raw: &Value) {
@@ -2302,6 +2774,161 @@ impl Reader<'_> {
         }
     }
 
+    /// 诊断与日志 (`LoggingSettings.fromJson`). A list naming an unknown module or scope is
+    /// refused whole (Java's `fromWireName` rejects it); the other keys still come over.
+    fn logging(&mut self, root: &Map<String, Value>, handled: &mut Handled) {
+        use crate::diagnostics::{DiagnosticModule, TraceScope};
+        const SECTION: &str = "logging";
+        let Some(section) = root.get(SECTION).and_then(Value::as_object) else { return };
+        fn names<T>(v: &Value, parse: fn(&str) -> Option<T>) -> Option<Vec<T>> {
+            v.as_array()?.iter().map(|n| n.as_str().and_then(parse)).collect()
+        }
+        if let Some(v) = section.get("diagnostics-enabled") {
+            handled.push((SECTION, "diagnostics-enabled"));
+            match as_bool(v) {
+                Some(on) => {
+                    self.mapped.logging_enabled = Some(on);
+                    self.imported("logging.diagnostics-enabled".into(), ImportTarget::Diagnostics, on.to_string());
+                }
+                None => self.invalid("logging.diagnostics-enabled".into(), ImportTarget::Diagnostics, v),
+            }
+        }
+        if let Some(v) = section.get("diagnostic-modules") {
+            handled.push((SECTION, "diagnostic-modules"));
+            match names(v, DiagnosticModule::from_wire_name) {
+                Some(modules) => {
+                    self.mapped.logging_modules = Some(modules);
+                    self.imported("logging.diagnostic-modules".into(), ImportTarget::Diagnostics, shown(v));
+                }
+                None => self.invalid("logging.diagnostic-modules".into(), ImportTarget::Diagnostics, v),
+            }
+        }
+        if let Some(v) = section.get("preferred-full-trace-scopes") {
+            handled.push((SECTION, "preferred-full-trace-scopes"));
+            match names(v, TraceScope::from_wire_name) {
+                Some(scopes) => {
+                    self.mapped.logging_scopes = Some(scopes);
+                    self.imported("logging.preferred-full-trace-scopes".into(), ImportTarget::Diagnostics, shown(v));
+                }
+                None => self.invalid("logging.preferred-full-trace-scopes".into(), ImportTarget::Diagnostics, v),
+            }
+        }
+    }
+
+    /// 检查更新 (`UpdatePreferences`, `UpdateChannel.fromConfigValue`,
+    /// `UpdateSource.fromConfigValue`): Java reads the two switches as booleans and the channel and
+    /// source as text, where only `beta` / `github` (any case, trimmed) choose 测试 / GitHub and any
+    /// other value means 正式 / 官网.
+    fn updates(&mut self, ui: &Map<String, Value>, handled: &mut Handled) {
+        use crate::update::{UpdateChannel, UpdateSource};
+        const TARGET: ImportTarget = ImportTarget::Update;
+        for key in ["auto-check-update", "auto-download-update"] {
+            let Some(v) = ui.get(key) else { continue };
+            handled.push(("ui", key));
+            match as_bool(v) {
+                Some(on) => {
+                    if key == "auto-check-update" {
+                        self.mapped.update_auto_check = Some(on);
+                    } else {
+                        self.mapped.update_auto_download = Some(on);
+                    }
+                    self.imported(format!("ui.{key}"), TARGET, on.to_string());
+                }
+                None => self.invalid(format!("ui.{key}"), TARGET, v),
+            }
+        }
+        let text = |v: &Value| match v {
+            Value::String(s) => s.trim().to_ascii_lowercase(),
+            other => other.to_string(),
+        };
+        if let Some(v) = ui.get("update-channel") {
+            handled.push(("ui", "update-channel"));
+            let channel = if text(v) == "beta" { UpdateChannel::Beta } else { UpdateChannel::Stable };
+            self.mapped.update_channel = Some(channel);
+            self.imported("ui.update-channel".into(), TARGET, format!("{channel:?}"));
+        }
+        if let Some(v) = ui.get("update-source") {
+            handled.push(("ui", "update-source"));
+            let source = if text(v) == "github" { UpdateSource::Github } else { UpdateSource::Official };
+            self.mapped.update_source = Some(source);
+            self.imported("ui.update-source".into(), TARGET, format!("{source:?}"));
+        }
+    }
+
+    /// 快速启动 (`Config.showQuickLinks`, `Menu.getProgramData`). Java builds the list from the
+    /// command array, skipping empty commands and naming each by the name at the same index
+    /// (`optString`); a command that is not text breaks the list, so such a list is refused whole.
+    /// Without a command array Java has no programs. Paths relative to the Java folders are made
+    /// absolute, as for engine commands (`FastLink` launches through `CommandLaunchHelper`).
+    fn quick_links(&mut self, ui: &Map<String, Value>, leelaz: &Map<String, Value>, handled: &mut Handled) {
+        use crate::quick_links::{QuickLinkProgram, QuickLinkSettings};
+        const TARGET: ImportTarget = ImportTarget::QuickLinks;
+        if let Some(v) = ui.get("show-quick-links") {
+            handled.push(("ui", "show-quick-links"));
+            match as_bool(v) {
+                Some(on) => {
+                    self.mapped.quick_links_show = Some(on);
+                    self.imported("ui.show-quick-links".into(), TARGET, on.to_string());
+                }
+                None => self.invalid("ui.show-quick-links".into(), TARGET, v),
+            }
+        }
+        let (names, commands) = (leelaz.get("program-name-list"), leelaz.get("program-command-list"));
+        if names.is_none() && commands.is_none() {
+            return;
+        }
+        for (key, value) in [("program-name-list", names), ("program-command-list", commands)] {
+            if value.is_some() {
+                handled.push(("leelaz", key));
+            }
+        }
+        let name_list = names.and_then(Value::as_array);
+        let parsed: Option<Vec<&str>> = match commands {
+            None => Some(Vec::new()),
+            Some(v) => v.as_array().and_then(|list| list.iter().map(Value::as_str).collect()),
+        };
+        let Some(commands) = parsed else {
+            // Refused whole: without its commands the names have nothing to name.
+            for (key, value) in [("program-name-list", names), ("program-command-list", commands)] {
+                if let Some(v) = value {
+                    self.invalid(format!("leelaz.{key}"), TARGET, v);
+                }
+            }
+            return;
+        };
+        if let Some(v) = names.filter(|_| name_list.is_none()) {
+            self.invalid("leelaz.program-name-list".into(), TARGET, v);
+        }
+        let name = |i: usize| match name_list.and_then(|list| list.get(i)) {
+            None | Some(Value::Null) => String::new(),
+            Some(Value::String(s)) => s.clone(),
+            Some(other) => other.to_string(),
+        };
+        let programs = commands
+            .iter()
+            .enumerate()
+            .map(|(i, command)| QuickLinkProgram { name: name(i), command: command.to_string() })
+            .collect();
+        let mut programs = QuickLinkSettings { show: false, programs }.normalized().programs;
+        let roots = self.source.roots();
+        for program in &mut programs {
+            program.command = resolve_command(&program.command, &roots, &mut Vec::new());
+        }
+        let credential = programs.iter().any(|p| sanitize(&p.command) != p.command);
+        if name_list.is_some() {
+            let shown_names: Vec<&str> = programs.iter().map(|p| p.name.as_str()).collect();
+            self.imported("leelaz.program-name-list".into(), TARGET, shown_names.join("\n"));
+            self.items.last_mut().unwrap().credential = credential;
+        }
+        if leelaz.contains_key("program-command-list") {
+            let shown_commands: Vec<&str> = programs.iter().map(|p| p.command.as_str()).collect();
+            self.imported("leelaz.program-command-list".into(), TARGET, shown_commands.join("\n"));
+            self.items.last_mut().unwrap().credential = credential;
+        }
+        self.mapped.quick_link_credential = credential;
+        self.mapped.quick_link_programs = Some(programs);
+    }
+
     /// The engine list and the start-up choice.
     fn engines(&mut self, ui: &Map<String, Value>, leelaz: &Map<String, Value>, handled: &mut Handled) {
         let flag = |key: &str| ui.get(key).and_then(as_bool).unwrap_or(false);
@@ -2426,7 +3053,7 @@ impl Reader<'_> {
                     }
                     continue;
                 }
-                self.not_migrated(format!("persist:{section}"), value);
+                self.leftover(format!("persist:{section}"), value);
                 continue;
             };
             for (key, v) in map {
@@ -2505,8 +3132,6 @@ impl Reader<'_> {
                         }
                     }
                     ("ui-persist", "toolbar-parameter") => {
-                        // Keep a not-migrated report for the engine-match and other toolbar state.
-                        self.not_migrated(name.clone(), v);
                         let Some(values) = v.as_array().filter(|a| a.len() == 51) else {
                             self.invalid(name, ImportTarget::Suggestions, v);
                             continue;
@@ -2565,17 +3190,42 @@ impl Reader<'_> {
                             let raw = &values[index];
                             self.auto_analysis_value(format!("{name}[{index}]"), field, as_bool(raw).map(Value::from), raw);
                         }
+                        // 39: 自动播放分支 (`chkAutoSub`); a checked box starts the cycling at
+                        // start-up (BottomToolbar.java:2503-2505, 2524-2526).
+                        let raw = &values[39];
+                        let value = as_i64(raw).map(|n| n > 0);
+                        if value == Some(true) {
+                            self.display_value(format!("{name}[39]"), ImportTarget::Suggestions, "autoReplayBranch", Some(Value::from(true)), raw);
+                        } else if value.is_none() {
+                            self.invalid(format!("{name}[39]"), ImportTarget::Suggestions, raw);
+                        }
+                        // 32–34 place the three 详细工具栏 panels (ToolbarPositionConfig writes the
+                        // combo index, 0–2). 50 is the flag of the 左移/右移 buttons, which are
+                        // never shown and never read: no longer used.
+                        for (slot, index) in [32, 33, 34].into_iter().enumerate() {
+                            let raw = &values[index];
+                            match as_i64(raw).filter(|n| (0..=2).contains(n)) {
+                                Some(n) => {
+                                    self.mapped.detail_panel_order[slot] = Some(n as u8);
+                                    self.imported(format!("{name}[{index}]"), ImportTarget::DetailPanelOrder, n.to_string());
+                                }
+                                None => self.invalid(format!("{name}[{index}]"), ImportTarget::DetailPanelOrder, raw),
+                            }
+                        }
+                        self.obsolete(format!("{name}[50]"));
                     }
                     // Window bounds and the tables' column pixels follow Java's own scaling,
                     // fonts and layout.
                     ("ui-persist", "main-window-position" | "window-maximized" | "suggestions-list-position"
                         | "suggestions-list-position-7" | "suggestions-list-position-9" | "main-window-list"
-                        | "badmoves-list-position") => {
+                        | "badmoves-list-position" | "main-window-blunder" | "public-kifu-search"
+                        | "ctrl-position" | "fast-commands-width" | "fast-commands-height"
+                        | "gtp-console-position" | "gtp-console-opened") => {
                         let it = self.item(name, ImportStatus::Incompatible);
                         it.value = Some(shown(v));
                         it.reason = Some(ImportReason::WindowCoordinates);
                     }
-                    _ => self.not_migrated(name, v),
+                    _ => self.leftover(name, v),
                 }
             }
         }
@@ -2585,10 +3235,6 @@ impl Reader<'_> {
     /// credentials are discovered by the platform adapter and require independent consent.
     fn other_files(&mut self) {
         let dir = self.source.config_dir.clone();
-        if dir.join("theme").is_dir() {
-            let it = self.item("file:theme".into(), ImportStatus::NotMigrated);
-            it.reason = Some(ImportReason::NotYetAvailable);
-        }
         let models = crate::strength::java_models(&dir.join("strength-models"));
         if !models.is_empty() {
             let it = self.item("file:strength-models".into(), ImportStatus::Imported);
@@ -2869,9 +3515,62 @@ fn on_path(name: &str) -> bool {
 }
 
 impl Mapped {
+    /// 诊断与日志 after the import: the Java values that came over in place of `current`'s.
+    fn logging_after(&self, current: &crate::diagnostics::LoggingSettings) -> Option<crate::diagnostics::LoggingSettings> {
+        if self.logging_enabled.is_none() && self.logging_modules.is_none() && self.logging_scopes.is_none() {
+            return None;
+        }
+        let mut next = current.clone();
+        if let Some(on) = self.logging_enabled {
+            next.diagnostics_enabled = on;
+        }
+        if let Some(modules) = &self.logging_modules {
+            next.diagnostic_modules = modules.clone();
+        }
+        if let Some(scopes) = &self.logging_scopes {
+            next.preferred_full_trace_scopes = scopes.clone();
+        }
+        Some(next.normalized())
+    }
+
+    /// 检查更新 after the import; 自动下载更新 counts only with 启动时自动检查更新.
+    fn update_after(&self, current: &crate::update::UpdateSettings) -> Option<crate::update::UpdateSettings> {
+        if self.update_auto_check.is_none()
+            && self.update_auto_download.is_none()
+            && self.update_channel.is_none()
+            && self.update_source.is_none()
+        {
+            return None;
+        }
+        let mut next = *current;
+        next.auto_check = self.update_auto_check.unwrap_or(next.auto_check);
+        next.auto_download = self.update_auto_download.unwrap_or(next.auto_download);
+        next.channel = self.update_channel.unwrap_or(next.channel);
+        next.source = self.update_source.unwrap_or(next.source);
+        Some(next.normalized())
+    }
+
+    /// 快速启动 after the import: 显示快速启动 and, unless its commands carry credentials that
+    /// were not confirmed (`copy`), the Java program list in place of `current`'s.
+    fn quick_links_after(&self, current: &crate::quick_links::QuickLinkSettings, copy: bool) -> Option<crate::quick_links::QuickLinkSettings> {
+        let programs = self.quick_link_programs.as_ref().filter(|_| copy || !self.quick_link_credential);
+        if self.quick_links_show.is_none() && programs.is_none() {
+            return None;
+        }
+        let mut next = current.clone();
+        if let Some(show) = self.quick_links_show {
+            next.show = show;
+        }
+        if let Some(programs) = programs {
+            next.programs = programs.clone();
+        }
+        Some(next)
+    }
+
     /// This product's settings after the import. Engines with credentials are included only when
-    /// their Java index is in `copy_credentials`.
-    pub fn apply(&self, config: &Config, persisted: &Persisted, copy_credentials: &[u32]) -> (Config, Persisted) {
+    /// their Java index is in `copy_credentials`; the 跑谱贡献 account only with `contribution`;
+    /// 快速启动 commands with credentials only with `quick_links`.
+    pub fn apply(&self, config: &Config, persisted: &Persisted, copy_credentials: &[u32], contribution: bool, quick_links: bool) -> (Config, Persisted) {
         let mut c = config.clone();
         let mut p = persisted.clone();
         macro_rules! set {
@@ -2890,6 +3589,10 @@ impl Mapped {
         set!(c.read_board.no_sound_in_sync, self.no_sound_in_sync);
         set!(c.read_board.always_sync_board_stat, self.read_board_stat_sync);
         set!(c.read_board.get_focus, self.read_board_get_focus);
+        set!(c.read_board.suppress_websocket_pondering_notice, self.suppress_websocket_pondering_notice);
+        set!(c.logging, self.logging_after(&c.logging));
+        set!(c.quick_links, self.quick_links_after(&c.quick_links, quick_links));
+        set!(c.update, self.update_after(&c.update));
         set!(c.ui.extra_mode, self.extra_mode);
         if let Ok(mut values) = serde_json::to_value(&c.panels) {
             for value in &self.panels { value.set(&mut values); }
@@ -2907,6 +3610,10 @@ impl Mapped {
             p.panel_sizes = serde_json::from_value(values).unwrap_or(p.panel_sizes);
         }
         set!(p.bottom_toolbar, self.bottom_toolbar);
+        let order = &mut p.detail_panel_order;
+        for (place, value) in [&mut order.auto_analysis, &mut order.engine_match, &mut order.auto_play].into_iter().zip(self.detail_panel_order) {
+            if let Some(v) = value { *place = v; }
+        }
         let mut game = serde_json::to_value(&c.game).expect("settings serialize");
         for value in &self.game { value.set(&mut game); }
         c.game = serde_json::from_value(game).expect("typed imported game values");
@@ -2916,6 +3623,7 @@ impl Mapped {
         let mut matches = serde_json::to_value(&c.matches).expect("settings serialize");
         for value in &self.matches { value.set(&mut matches); }
         c.matches = serde_json::from_value(matches).expect("typed imported match values");
+        self.apply_contribution(&mut c.contribution, contribution);
         let mut toolbar = serde_json::to_value(&p.matches).expect("settings serialize");
         for value in &self.match_toolbar { value.set(&mut toolbar); }
         p.matches = serde_json::from_value(toolbar).expect("typed imported match toolbar values");
@@ -2958,9 +3666,28 @@ impl Mapped {
             c.engine.analysis.auto_check_engine_alive,
             self.auto_check_engine_alive
         );
+        set!(c.engine.analysis.enable_lizzie_cache, self.enable_lizzie_cache);
+        set!(c.engine.analysis.stop_at_empty_board, self.stop_at_empty_board);
+        set!(c.engine.analysis.always_gtp, self.always_gtp);
         set!(c.engine.kata_rules, self.kata_rules);
         set!(c.engine.kata_pda, self.kata_pda);
         set!(c.engine.kata_pda_enabled, self.kata_pda_enabled);
+        let kata = &mut c.engine.kata_params;
+        set!(kata.wrn, self.kata_wrn);
+        set!(kata.wrn_enabled, self.kata_wrn_enabled);
+        set!(kata.auto_load_pda, self.auto_load_kata_pda);
+        set!(kata.auto_load_pda_value, self.auto_load_kata_pda_value);
+        set!(kata.auto_load_wrn, self.auto_load_kata_wrn);
+        set!(kata.auto_load_wrn_value, self.auto_load_kata_wrn_value);
+        set!(kata.show_pda, self.show_kata_pda);
+        set!(kata.show_wrn, self.show_kata_wrn);
+        for (option, row) in LeelaOption::ALL.into_iter().zip(&self.leela_options) {
+            let current = c.engine.leela_options.get_mut(option);
+            set!(current.enabled, row.enabled);
+            set!(current.auto_load, row.auto_load);
+            set!(current.value, row.value);
+        }
+        c.engine.custom_pda = self.custom_pda.apply(&c.engine.custom_pda);
         set!(
             c.engine.startup_benchmark_dismissed_signature,
             self.startup_benchmark_dismissed_signature
@@ -2985,6 +3712,9 @@ impl Mapped {
         set!(c.edit.other_size_width, self.other_size_width);
         set!(c.edit.other_size_height, self.other_size_height);
         set!(c.edit.no_capture, self.no_capture);
+        set!(c.edit.move_rect, self.move_rect);
+        set!(c.edit.click_review, self.click_review);
+        set!(c.edit.painting_color, self.painting_color);
         set!(c.display.winrate_always_black, self.winrate_always_black);
         set!(c.display.score_lead_with_komi, self.score_lead_with_komi);
         c.display = with_display(&c.display, &self.display);
@@ -3040,6 +3770,27 @@ impl Mapped {
         set!(ts.capture.white_offset, self.capture_white_offset);
         set!(ts.capture.white_percent, self.capture_white_percent);
         set!(ts.capture.gray_offset, self.capture_gray_offset);
+        let top = &mut c.top_toolbar;
+        set!(top.show_double_menu_button, self.top_show_double_menu_button);
+        set!(top.show_basic_buttons, self.top_show_basic_buttons);
+        set!(top.show_edit_bar, self.top_show_edit_bar);
+        set!(top.show_force, self.top_show_force);
+        set!(top.show_game_controls, self.top_show_game_controls);
+        set!(top.show_time_limit, self.top_show_time_limit);
+        set!(top.show_visit_limit, self.top_show_visit_limit);
+        set!(top.show_analyze_sides, self.top_show_analyze_sides);
+        set!(top.show_candidate_sides, self.top_show_candidate_sides);
+        set!(top.show_candidate_info, self.top_show_candidate_info);
+        set!(top.show_rules, self.top_show_rules);
+        set!(top.show_parameters, self.top_show_parameters);
+        set!(top.show_board_size, self.top_show_board_size);
+        set!(top.show_save_load, self.top_show_save_load);
+        set!(top.auto_wrap, self.top_auto_wrap);
+        if !self.bottom_buttons.is_empty() {
+            let mut values = serde_json::to_value(c.bottom_buttons).expect("settings serialize");
+            for &(field, value) in &self.bottom_buttons { values[field] = Value::from(value); }
+            c.bottom_buttons = serde_json::from_value(values).expect("typed imported bottom buttons");
+        }
         let pl = &mut c.problems;
         set!(pl.showing, self.problems_showing);
         set!(pl.side, self.problem_side);
@@ -3093,6 +3844,12 @@ impl Mapped {
         if self.bottom_toolbar.is_some_and(|v| v != persisted.bottom_toolbar) {
             out.push(ImportTarget::BottomToolbar);
         }
+        let order = persisted.detail_panel_order;
+        if [order.auto_analysis, order.engine_match, order.auto_play].into_iter().zip(self.detail_panel_order)
+            .any(|(old, new)| new.is_some_and(|v| v != old))
+        {
+            out.push(ImportTarget::DetailPanelOrder);
+        }
         if let Ok(current) = serde_json::to_value(persisted.autoplay) {
             if self.autoplay.iter().any(|v| v.current(&current).is_none_or(|c| c != v.value)) {
                 out.push(ImportTarget::AutoPlay);
@@ -3111,6 +3868,9 @@ impl Mapped {
         }
         if !has_settings {
             return out;
+        }
+        if self.replaces_contribution(&config.contribution) {
+            out.push(ImportTarget::Contribution);
         }
         macro_rules! cmp {
             ($target:expr, $current:expr, $new:expr) => {
@@ -3153,6 +3913,9 @@ impl Mapped {
             out.push(ImportTarget::OtherBoardSize);
         }
         cmp!(ImportTarget::NoCapture, e.no_capture, self.no_capture);
+        cmp!(ImportTarget::MoveRect, e.move_rect, self.move_rect);
+        cmp!(ImportTarget::ClickReview, e.click_review, self.click_review);
+        cmp!(ImportTarget::PaintingColor, e.painting_color, self.painting_color);
         let d = &config.display;
         cmp!(
             ImportTarget::WinrateAlwaysBlack,
@@ -3215,6 +3978,14 @@ impl Mapped {
         cmp!(ImportTarget::NoSoundInSync, config.read_board.no_sound_in_sync, self.no_sound_in_sync);
         cmp!(ImportTarget::ReadBoardStatSync, config.read_board.always_sync_board_stat, self.read_board_stat_sync);
         cmp!(ImportTarget::ReadBoardGetFocus, config.read_board.get_focus, self.read_board_get_focus);
+        cmp!(
+            ImportTarget::ReadBoardPonderingNotice,
+            config.read_board.suppress_websocket_pondering_notice,
+            self.suppress_websocket_pondering_notice
+        );
+        cmp!(ImportTarget::Diagnostics, config.logging, self.logging_after(&config.logging));
+        cmp!(ImportTarget::QuickLinks, config.quick_links, self.quick_links_after(&config.quick_links, true));
+        cmp!(ImportTarget::Update, config.update, self.update_after(&config.update));
         cmp!(ImportTarget::ExtraMode, config.ui.extra_mode, self.extra_mode);
         cmp!(ImportTarget::RecentFiles, config.recent_files, self.recent_files);
         let fox = &config.fox_kifu;
@@ -3270,6 +4041,9 @@ impl Mapped {
             a.auto_check_engine_alive,
             self.auto_check_engine_alive
         );
+        cmp!(ImportTarget::LizzieCache, a.enable_lizzie_cache, self.enable_lizzie_cache);
+        cmp!(ImportTarget::StopAtEmptyBoard, a.stop_at_empty_board, self.stop_at_empty_board);
+        cmp!(ImportTarget::AlwaysGtp, a.always_gtp, self.always_gtp);
         cmp!(ImportTarget::KataRules, config.engine.kata_rules, self.kata_rules);
         cmp!(
             ImportTarget::AutoLoadKataRules,
@@ -3279,6 +4053,32 @@ impl Mapped {
         if self.kata_pda.is_some_and(|v| v != config.engine.kata_pda)
             || self.kata_pda_enabled.is_some_and(|v| v != config.engine.kata_pda_enabled) {
             out.push(ImportTarget::KataPda);
+        }
+        let p = &config.engine.kata_params;
+        if self.kata_wrn.is_some_and(|v| v != p.wrn) || self.kata_wrn_enabled.is_some_and(|v| v != p.wrn_enabled) {
+            out.push(ImportTarget::KataWrn);
+        }
+        if self.auto_load_kata_pda.is_some_and(|v| v != p.auto_load_pda)
+            || self.auto_load_kata_pda_value.is_some_and(|v| v != p.auto_load_pda_value)
+            || self.auto_load_kata_wrn.is_some_and(|v| v != p.auto_load_wrn)
+            || self.auto_load_kata_wrn_value.is_some_and(|v| v != p.auto_load_wrn_value)
+        {
+            out.push(ImportTarget::KataParamAutoLoad);
+        }
+        if self.show_kata_pda.is_some_and(|v| v != p.show_pda) || self.show_kata_wrn.is_some_and(|v| v != p.show_wrn) {
+            out.push(ImportTarget::KataParamToolbar);
+        }
+        let leela_changed = LeelaOption::ALL.into_iter().zip(&self.leela_options).any(|(option, row)| {
+            let current = config.engine.leela_options.get(option);
+            row.enabled.is_some_and(|v| v != current.enabled)
+                || row.auto_load.is_some_and(|v| v != current.auto_load)
+                || row.value.as_ref().is_some_and(|v| *v != current.value)
+        });
+        if leela_changed {
+            out.push(ImportTarget::LeelaOptions);
+        }
+        if self.custom_pda.apply(&config.engine.custom_pda) != config.engine.custom_pda {
+            out.push(ImportTarget::CustomPda);
         }
         cmp!(
             ImportTarget::StartupBenchmark,
@@ -3371,6 +4171,32 @@ impl Mapped {
             || self.tsumego_show_button.is_some_and(|v| v != ts.show_button)
         {
             out.push(ImportTarget::Tsumego);
+        }
+        let top = &config.top_toolbar;
+        let top_changes = [
+            (self.top_show_double_menu_button, top.show_double_menu_button),
+            (self.top_show_basic_buttons, top.show_basic_buttons),
+            (self.top_show_edit_bar, top.show_edit_bar),
+            (self.top_show_force, top.show_force),
+            (self.top_show_game_controls, top.show_game_controls),
+            (self.top_show_time_limit, top.show_time_limit),
+            (self.top_show_visit_limit, top.show_visit_limit),
+            (self.top_show_analyze_sides, top.show_analyze_sides),
+            (self.top_show_candidate_sides, top.show_candidate_sides),
+            (self.top_show_candidate_info, top.show_candidate_info),
+            (self.top_show_rules, top.show_rules),
+            (self.top_show_parameters, top.show_parameters),
+            (self.top_show_board_size, top.show_board_size),
+            (self.top_show_save_load, top.show_save_load),
+            (self.top_auto_wrap, top.auto_wrap),
+        ];
+        if top_changes.iter().any(|&(new, old)| new.is_some_and(|v| v != old)) {
+            out.push(ImportTarget::TopToolbar);
+        }
+        if let Ok(current) = serde_json::to_value(config.bottom_buttons) {
+            if self.bottom_buttons.iter().any(|&(field, value)| current[field] != Value::from(value)) {
+                out.push(ImportTarget::BottomButtons);
+            }
         }
         let cs = &ts.capture;
         if self.capture_black_offset.is_some_and(|v| v != cs.black_offset)

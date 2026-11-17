@@ -4,7 +4,7 @@
 import { registerViewHandler, run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
 import type { ReadBoardNotice } from "../contract/generated";
-import { chooseSave, message } from "../dialogs";
+import { chooseSave, message, options } from "../dialogs";
 import { product, t } from "../i18n";
 
 /** LizzieFrame.openBoardSync (LizzieFrame.java:2741-2751): Windows only; without the helper the
@@ -71,9 +71,27 @@ function noticeText(n: ReadBoardNotice): string {
 /** The offer the confirmation is showing or was answered for, so a republished view does not ask
  *  again; a later offer (after this one cleared) asks anew. */
 let asked: string | null = null;
+/** The pondering notice (by arming) on the screen or answered, likewise. */
+let askedPondering: number | null = null;
+
+/** LizzieFrame.showReadBoardWebSocketPonderingNotice (LizzieFrame.java:3576-3605): an information
+ *  option dialog, 确定 the default; closing it answers neither. */
+function askPondering(generation: number): void {
+  const choices: [string, string][] = [
+    [t("LizzieFrame.confirm"), "readboard.pondering.confirm"],
+    [t("ReadBoard.websocketPonderingNotice.suppress"), "readboard.pondering.suppress"],
+  ];
+  void options(t("ReadBoard.websocketPonderingNotice.title"), t("ReadBoard.websocketPonderingNotice.message"), choices, 0, "info").then((chosen) => {
+    const decision = chosen === 0 ? "Confirm" : chosen === 1 ? "Suppress" : "Dismiss";
+    return run({ type: "ReadBoard", op: { type: "AnswerPonderingNotice", generation, decision } });
+  });
+}
 
 registerViewHandler((view) => {
   for (const n of view.readboard.notices) void message(t("Message.title"), noticeText(n));
+  const pondering = view.readboard.pondering_notice;
+  if (pondering !== null && pondering !== askedPondering) askPondering(pondering);
+  askedPondering = pondering;
   const offer = view.readboard.update_offer;
   if (offer === null) {
     asked = null;

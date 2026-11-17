@@ -1,7 +1,8 @@
-// Input.java:336, 438-440, 606-608, 753-755, 784-834.
+// Input.java:336, 438-440, 606-608, 751-755, 784-834.
 import { run } from "../app";
 import { openMoreEngines } from "./catalog";
 import { toggleConsole } from "./console";
+import { openEngineParameters } from "./kataParams";
 import { openRules } from "./rules";
 
 export function handleEngineKey(event: KeyboardEvent): boolean {
@@ -12,6 +13,8 @@ export function handleEngineKey(event: KeyboardEvent): boolean {
     if (key === "e") { void toggleConsole(); return true; }
   }
   if (event.altKey && !event.ctrlKey && !event.shiftKey && key === "x") { void openMoreEngines(); return true; }
+  // VK_D with Alt, whatever else is held (Input.java:750-752).
+  if (event.altKey && key === "d") { void openEngineParameters(); return true; }
   if (event.shiftKey && !event.altKey && !event.ctrlKey && key === "d") { void openRules(); return true; }
   if (event.ctrlKey && !event.altKey && !event.shiftKey && /^[0-9]$/.test(key)) {
     void run({ type: "SwitchEngine", index: key === "0" ? 9 : Number(key) - 1 });

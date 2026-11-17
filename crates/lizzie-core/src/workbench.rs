@@ -21,6 +21,7 @@ mod batch;
 mod commentary;
 mod cloud;
 mod contribution;
+mod diagnostics;
 mod editing;
 mod exporting;
 mod flash;
@@ -31,21 +32,25 @@ mod importing;
 mod information;
 mod humansl;
 mod humansl_model;
+mod kata_params;
 mod strength;
 mod online;
 mod matches;
 mod panels;
 mod play;
 mod quick;
+mod quick_links;
 mod readboard;
 mod recovery;
 mod resources;
 mod restart;
 mod search;
+mod search_threads;
 mod tencent_kifu;
 mod tsumego;
 mod tuning;
 mod web_board;
+mod update;
 mod whole_game;
 
 use std::path::{Path, PathBuf};
@@ -59,8 +64,10 @@ pub use readboard::ReadBoardInstall;
 pub use fox_kifu::FoxKifuJob;
 pub use tencent_kifu::TencentKifuJob;
 pub use importing::{IMPORT_NEEDS_REPLACE, IMPORT_STALE};
+pub use quick_links::QUICK_LINK_FAILED;
 pub use recovery::RecoveryStep;
 pub use resources::{prepare_resource_setup, run_resource_job, ResourceCompletion, ResourceJob};
+pub use update::{UpdateCheckJob, UpdateDownloadJob, UpdateInstallJob, UpdateStep, UpdateTask};
 
 use crate::api::{
     ApiError, DocumentView, EngineFailureView, EngineNotice, ErrorKind, ExportKind, LastAction, LogsStatus,
@@ -212,6 +219,8 @@ pub struct Workbench {
     system_locale: Option<String>,
     active_frame_font_size: i32,
     appearance_theme: crate::appearance::ThemeSettings,
+    /// See [`crate::api::SettingsView::theme_files_revision`].
+    theme_files_revision: u32,
     doc: Document,
     cursor: NodeId,
     komi: f64,
@@ -233,6 +242,17 @@ pub struct Workbench {
     secondary_store: AnalysisStore,
     /// The user paused analysis (session only, like Java `userAnalysisPaused`).
     paused: bool,
+    /// 综合设置 is open: no engine analyses meanwhile, whatever the mode (see
+    /// [`Workbench::hold_analysis`]).
+    analysis_hold: bool,
+    /// 优先分析此点 of the current position (`LizzieFrame.priorityMoveCoords`): session only,
+    /// cleared by a move and by leaving the position.
+    priority_points: Vec<Point>,
+    /// The foreground engine the recorded points were sent to: a restart or switch gives an
+    /// engine without those policies, so the list is not shown for it.
+    priority_engine: Option<InstanceId>,
+    /// The document and node the points were recorded for: another position never shows them.
+    priority_at: Option<(u64, NodeId)>,
     /// The user chose this game's komi (`GameInfo.changedKomi`): engine profiles no longer set it.
     komi_changed: bool,
     /// A newly started foreground engine whose profile komi applies to a still empty game once
@@ -240,6 +260,17 @@ pub struct Workbench {
     start_komi: Option<(InstanceId, f64)>,
     /// A limit stopped the analysis of this position (document, node).
     limit_stop: Option<(u64, NodeId)>,
+    /// The foreground search a limit (not 空棋盘停止计算) stopped: its visits and when it began
+    /// (`getBestMovesPlayouts`, `startPonderTime`), judged again when the limits change.
+    limit_search: Option<(u64, std::time::Instant)>,
+    /// 分析 黑 / 白 on the top toolbar (`Config.analyzeBlack` / `analyzeWhite`): session only,
+    /// both on at start.
+    analyze_black: bool,
+    analyze_white: bool,
+    /// The user's move or browsing reached this position with the side to move not analysed:
+    /// ordinary analysis waits here until the position changes or the user resumes it
+    /// (`Leelaz.underPonder`).
+    side_hold: Option<(u64, NodeId)>,
     /// The limit notice was shown since the foreground engine started.
     limit_tip_shown: bool,
     /// A limit stopped the secondary engine's analysis of this position; only its own (Java
@@ -247,6 +278,9 @@ pub struct Workbench {
     secondary_limit_stop: Option<(u64, NodeId)>,
     /// The limit notice was shown since the secondary engine was chosen.
     secondary_limit_tip_shown: bool,
+    /// The user resumed the analysis of this empty board after it stopped there: 空棋盘停止计算
+    /// no longer stops it until the position changes (`Leelaz.outOfPlayoutsLimit`).
+    empty_board_resumed: Option<(u64, NodeId)>,
     /// A secondary engine still starting and the kept previous one it replaced, to return to if
     /// the new one fails during start-up (`rollbackSecondaryEngineSelection`).
     secondary_fallback: Option<(InstanceId, InstanceId)>,
@@ -264,6 +298,8 @@ pub struct Workbench {
     engine_failure: Option<EngineFailureView>,
     engine_notice: Option<EngineNotice>,
     logs: Vec<LogLine>,
+    /// 诊断与日志: the switches in effect and the 完整日志 session.
+    diagnostics: crate::diagnostics::Diagnostics,
     /// No settings file existed at start (Java `isNewProfile`): the Java import is offered.
     new_profile: bool,
     /// Java configuration folders found in Java's conventional locations.
@@ -304,6 +340,8 @@ pub struct Workbench {
     matches: matches::MatchFlow,
     /// Engines that ended unexpectedly and start again (自动检测引擎是否存活).
     restart: restart::RestartFlow,
+    /// 引擎参数 window's 搜索线程数 operation.
+    threads: search_threads::SearchThreadsFlow,
     human_sl: humansl::HumanSlFlow,
     strength: strength::StrengthFlow,
     online: online::OnlineFlow,
@@ -319,6 +357,8 @@ pub struct Workbench {
     tencent_kifu: tencent_kifu::TencentKifuFlow,
     /// Web 旁观's running session and a viewer's 试下.
     web_board: web_board::WebBoardFlow,
+    /// 检查更新: the check, offer, package preparation and installation handover.
+    update: update::UpdateFlow,
 }
 
 impl Workbench {
@@ -354,11 +394,15 @@ impl Workbench {
         let active_frame_font_size = config.appearance.frame_font_size;
         let appearance_theme = crate::appearance::load_theme(&storage, &config.appearance.theme, &config.appearance_defaults);
         let mut engines = Engines::new(launcher, engine_roots);
+        let diagnostics = crate::diagnostics::Diagnostics::new(storage.logs_dir.clone());
+        diagnostics.apply(&config.logging);
+        engines.set_diagnostics(diagnostics.clone());
         let runtime = storage.resources_dir.join("runtime/nvidia");
         if runtime.is_dir() {
             engines.set_library_dirs(vec![runtime]);
         }
         engines.set_interval(config.engine.analysis.interval_centisec, config.engine.analysis.interval_centisec_ssh);
+        engines.set_always_gtp(config.engine.analysis.always_gtp);
         engines.set_pv_visits(config.display.pv_visits != PvVisitsMode::Off);
         let estimate = information::EstimateSession::starting(config.display.kata_estimate);
         engines.set_ownership(estimate.state.shown, config.display.use_moves_ownership);
@@ -374,6 +418,7 @@ impl Workbench {
             active_language,
             active_frame_font_size,
             appearance_theme,
+            theme_files_revision: 0,
             system_locale: system_locale.map(str::to_string),
             doc: Document {
                 id: 1,
@@ -400,12 +445,21 @@ impl Workbench {
             store,
             secondary_store,
             paused: false,
+            analysis_hold: false,
+            priority_points: Vec::new(),
+            priority_engine: None,
+            priority_at: None,
             komi_changed: false,
             start_komi: None,
             limit_stop: None,
+            limit_search: None,
+            analyze_black: true,
+            analyze_white: true,
+            side_hold: None,
             limit_tip_shown: false,
             secondary_limit_stop: None,
             secondary_limit_tip_shown: false,
+            empty_board_resumed: None,
             secondary_fallback: None,
             session_rules: analysis::SessionRules::Unspecified,
             rules_revision: 0,
@@ -417,6 +471,7 @@ impl Workbench {
             engine_failure: None,
             engine_notice: None,
             logs: Vec::new(),
+            diagnostics,
             new_profile,
             java_candidates: Vec::new(),
             java_preview: None,
@@ -439,6 +494,7 @@ impl Workbench {
             fox: fox::FoxFlow::default(),
             matches: matches::MatchFlow::default(),
             restart: restart::RestartFlow::default(),
+            threads: search_threads::SearchThreadsFlow::default(),
             human_sl: humansl::HumanSlFlow::default(),
             strength: strength::StrengthFlow::default(),
             online: online::OnlineFlow::default(),
@@ -450,6 +506,7 @@ impl Workbench {
             fox_kifu: fox_kifu::FoxKifuFlow::default(),
             tencent_kifu: tencent_kifu::TencentKifuFlow::default(),
             web_board: web_board::WebBoardFlow::default(),
+            update: update::UpdateFlow::default(),
         }
     }
 
@@ -835,10 +892,26 @@ impl Workbench {
             Vec::new()
         };
         self.human_sl_position_changed();
+        // 优先分析此点 is recorded for the shown position only.
+        self.priority_points.clear();
+        self.priority_engine = None;
+        self.priority_at = None;
         self.cursor = target;
         self.sync_engine();
         self.quick_navigated();
         true
+    }
+
+    /// A move, 悔棋 or browsing step of the user's own: Java sends it to the engine as `play` /
+    /// `undo`, after which ordinary analysis goes on only for a side 分析 黑 / 白 keeps
+    /// (`Leelaz.playMove`, `Leelaz.undo`). Whole-board syncs (opening a record, 棋盘同步) use
+    /// [`Self::move_to`] and are not judged.
+    pub(super) fn step_to(&mut self, target: NodeId) -> bool {
+        if target == self.cursor {
+            return false;
+        }
+        self.hold_for_side(target);
+        self.move_to(target)
     }
 
     /// Stone sounds play (`ui.play-sound`), except while the board is synced with
@@ -876,7 +949,7 @@ impl Workbench {
 
     /// The user moves the view (a synced board then no longer resumes analysis by itself).
     fn browse_to(&mut self, target: NodeId) -> bool {
-        let moved = self.move_to(target);
+        let moved = self.step_to(target);
         if moved {
             self.readboard_navigated();
         }
@@ -998,6 +1071,7 @@ impl Workbench {
         self.persisted.bottom_toolbar = crate::settings::BottomToolbar::default();
         self.persisted.independent_main_board = None;
         self.persisted.independent_sub_board = None;
+        self.persisted.control_panel = None;
         self.set_replace_file_hint(true)?;
         Ok(())
     }
@@ -1129,13 +1203,18 @@ impl Workbench {
                 replace_file_hint: self.config.record.show_replace_file_hint,
                 extra_mode: self.config.ui.extra_mode,
                 panels: self.config.panels.clone(),
+                top_toolbar: self.config.top_toolbar,
                 panel_sizes: self.persisted.panel_sizes,
                 bottom_toolbar: self.persisted.bottom_toolbar,
+                bottom_buttons: self.config.bottom_buttons,
+                detail_panel_order: self.persisted.detail_panel_order,
                 comment_panel_auto_hidden: self.config.ui.extra_mode.hides_comment(),
                 custom_layouts: self.config.custom_layouts.clone(),
                 independent_main_board: self.persisted.independent_main_board,
                 independent_sub_board: self.persisted.independent_sub_board,
                 engine: self.engine_settings_view(),
+                logging: self.config.logging.clone(),
+                quick_links: self.config.quick_links.clone(),
                 edit: self.config.edit.clone(),
                 display: self.config.display.clone(),
                 analysis_engine: self.config.analysis_engine.clone(),
@@ -1148,6 +1227,7 @@ impl Workbench {
                 hawkeye: self.config.hawkeye.clone(),
                 appearance: self.config.appearance.clone(),
                 theme: self.appearance_theme.clone(),
+                theme_files_revision: self.theme_files_revision,
                 active_frame_font_size: self.active_frame_font_size,
                 region: self.config.region,
                 tracking: self.config.tracking,
@@ -1163,6 +1243,7 @@ impl Workbench {
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
             engine: self.engine_view(),
+            full_trace: self.diagnostics.full_trace(),
             fox: self.fox_view(),
             quick: self.quick_view(),
             flash: self.flash_view(),
@@ -1207,6 +1288,7 @@ impl Workbench {
             fox_kifu: self.fox_kifu_view(),
             tencent_kifu: self.tencent_kifu_view(),
             web_board: self.web_board_view(),
+            update: self.update_view(),
             human_sl_notices: Vec::new(),
             contribution: self.contribution_view(),
             contribution_notices: Vec::new(),

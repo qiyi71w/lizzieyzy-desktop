@@ -100,9 +100,11 @@ export function run(command: Command): Promise<CommandResult | null> {
         const messages: Record<string, string> = {
           "SetKataRules.notKataGoHint": t("SetKataRules.notKataGoHint"),
           "LizzieFrame.setParamNoEngineHint": t("LizzieFrame.setParamNoEngineHint"),
+          "LizzieFrame.setParamsWarning": t("LizzieFrame.setParamsWarning"),
           "product.consoleBoardCommand": product("consoleBoardCommand"),
           "product.importStale": product("importStale"),
           "product.importNeedsReplace": product("importNeedsReplace"),
+          "product.quickLinkFailed": product("quickLinkFailed"),
           "LizzieFrame.setupEditRequiresRootOnly": t("LizzieFrame.setupEditRequiresRootOnly"),
           "LizzieFrame.setupModeRequiresRootOnly": t("LizzieFrame.setupModeRequiresRootOnly"),
           "LizzieFrame.setupModeEngineNotReady": t("LizzieFrame.setupModeEngineNotReady"),
@@ -118,6 +120,14 @@ export function run(command: Command): Promise<CommandResult | null> {
           "HumanSlGame.missingModelDownloadPrompt": t("HumanSlGame.missingModelDownloadPrompt"),
           // Engine-taking modes while a viewer's Web 试下 holds the engine.
           "AnalysisSettings.reuseStatus.application_exclusive_mode": t("AnalysisSettings.reuseStatus.application_exclusive_mode"),
+          // 激进度 / 广度 refusals: the engine is busy with something else.
+          "Fox.conflict": t("Fox.conflict"),
+          "AnalysisSettings.reuseStatus.engine_game": t("AnalysisSettings.reuseStatus.engine_game"),
+          "AnalysisSettings.reuseStatus.human_sl_game": t("AnalysisSettings.reuseStatus.human_sl_game"),
+          "AnalysisSettings.reuseStatus.engine_state_unrestored": t("AnalysisSettings.reuseStatus.engine_state_unrestored"),
+          "AnalysisSettings.reuseStatus.readboard_gma": t("AnalysisSettings.reuseStatus.readboard_gma"),
+          "AnalysisSettings.reuseStatus.missing_capability": t("AnalysisSettings.reuseStatus.missing_capability"),
+          "AnalysisSettings.reuseStatus.existing_lease": t("AnalysisSettings.reuseStatus.existing_lease"),
         };
         // 跑谱贡献 refusals: Java keys and the product's unsupported-package text.
         // A desktop move during Web 试下: LizzieFrame.showTrialBlockedHint, a 3 s message.

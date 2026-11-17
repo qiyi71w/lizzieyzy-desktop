@@ -7,8 +7,10 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use lizzie_core::api::{
-    ApiError, CommandResult, ContributionCommand, ContributionLink, ErrorKind, SshPasswordState,
+    ApiError, CommandResult, ContributionCommand, ContributionLink, ErrorKind, ImportItemView, ImportReason,
+    ImportReportView, ImportStatus, ImportTarget, SshPasswordState,
 };
+use lizzie_core::java_import::ContributionCredentials;
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 
@@ -103,6 +105,85 @@ impl Adapter {
             let _ = self.store.delete(COMMAND_KIND, COMMAND_ACCOUNT);
         } else if self.store.write(COMMAND_KIND, COMMAND_ACCOUNT, &command).is_err() {
             *session = Some(command);
+        }
+    }
+
+    /// Keeps `command` (the custom command as typed) or forgets the kept one; `true` when it is
+    /// kept for this run only.
+    fn set_command(&self, command: Option<&str>) -> bool {
+        let mut session = self.command_session.lock().unwrap();
+        *session = None;
+        match command {
+            None => {
+                let _ = self.store.delete(COMMAND_KIND, COMMAND_ACCOUNT);
+                false
+            }
+            Some(command) => {
+                let failed = self.store.write(COMMAND_KIND, COMMAND_ACCOUNT, command).is_err();
+                if failed {
+                    *session = Some(command.to_string());
+                }
+                failed
+            }
+        }
+    }
+
+    /// Keeps the confirmed Java 跑谱贡献 password and custom command before the import is
+    /// applied. Returns what to report once it succeeded and what to put back if it does not.
+    pub fn stage_import(&self, credentials: Option<ContributionCredentials>) -> StagedContribution {
+        let mut staged = StagedContribution::default();
+        let Some(c) = credentials else { return staged };
+        if !c.password.is_empty() {
+            let previous = self.password(&c.user_name);
+            let state = self.set_password(&c.user_name, &c.password);
+            staged.password = Some((c.user_name.clone(), previous, state));
+        }
+        if let Some(command) = &c.command {
+            let previous = self.kept_command();
+            let session = self.set_command(Some(command));
+            staged.command = Some((previous, session));
+        }
+        staged
+    }
+
+    /// The import was refused or failed: the password and the command kept before come back.
+    pub fn unstage_import(&self, staged: StagedContribution) {
+        if let Some((previous, _)) = staged.command {
+            self.set_command(previous.as_deref());
+        }
+        if let Some((user, previous, _)) = staged.password {
+            self.set_password(&user, previous.as_deref().unwrap_or(""));
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct StagedContribution {
+    /// The account, its password before, and where the imported one went.
+    password: Option<(String, Option<String>, SshPasswordState)>,
+    /// The command kept before, and whether the imported one is kept for this run only.
+    command: Option<(Option<String>, bool)>,
+}
+
+impl StagedContribution {
+    /// One report entry per credential kept: where it went, never its value.
+    pub fn report(&self, report: &mut ImportReportView) {
+        let mut entry = |key: &str, session: bool| {
+            report.items.push(ImportItemView {
+                key: key.into(),
+                status: ImportStatus::Imported,
+                target: Some(ImportTarget::Contribution),
+                value: None,
+                reason: session.then_some(ImportReason::SessionOnly),
+                detail: None,
+                credential: true,
+            });
+        };
+        if let Some((_, _, state)) = &self.password {
+            entry("credential:contribution-password", *state == SshPasswordState::Session);
+        }
+        if let Some((_, session)) = &self.command {
+            entry("credential:contribution-command", *session);
         }
     }
 }

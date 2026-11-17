@@ -79,6 +79,16 @@ prints "Cannot mount AppImage"; run it with `--appimage-extract-and-run` instead
 
 Packages are built on Ubuntu 24.04 and need at least its system libraries (glibc 2.39).
 
+## Updating
+
+*Help > 检查更新* updates every installation from within the program; a portable folder stays
+portable, and a deb is installed by the system package manager after the system's authorization
+prompt. This needs packages built with the project's update key; the current packages have none
+yet, so 检查更新 says that this version has no update signing key and does not go online. Until
+then, install a newer package by hand: run the newer installer, replace the portable folder's
+files, the app in *Applications* or the AppImage file, or install the newer `.deb` with `apt`.
+Your settings are kept either way. See [Updates](updates.md).
+
 ## Where your data is
 
 Settings (`config.json`, `persist.json`) and logs (`logs/app.log`, `logs/crash.log`) are kept per
@@ -100,3 +110,20 @@ does not delete them. Help > 诊断与日志 shows the log files of the running 
 Test builds named *LizzieYzy Tauri Acceptance* (`lizzieyzy-tauri-acceptance_…`) are for automated
 testing. They use the identifier `io.github.qiyi71w.lizzieyzy-tauri.acceptance`, their own
 install folder, package and data folders, and do not touch the normal program's data.
+
+## Moving over from LizzieYzy Next
+
+On first start the app offers to import the settings of LizzieYzy Next (the Java program) from its
+settings folder; *Help > Import settings from LizzieYzy Next…* runs it later. The preview lists every Java setting and
+what happens to it: imported, not compatible (for example Java window positions), not imported
+(with the reason: no longer used by LizzieYzy Next, LizzieYzy Next's own bookkeeping, or not yet
+available here), and which current settings it would replace. Nothing is written until you
+confirm, and a failed or cancelled import leaves the current settings as they were.
+
+Passwords and keys (analysis SSH, cloud engine, AI explanation, 跑谱贡献 account and command) are
+copied only when you tick them; they go to the system credential store, never into
+`config.json`, the report or the logs. Without a credential store they are kept until you quit.
+
+The import never writes the Java folder, its engines or its weights; LizzieYzy Next keeps working
+side by side. Settings of the earlier LizzieYzy Next Tauri preview are not imported; SGF files it
+saved open like any other SGF. This app does not register itself as the handler for `.sgf` files.

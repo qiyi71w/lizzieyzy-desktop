@@ -2,9 +2,9 @@
 // (createDisplaySection 2955-3356). Every setting row carries its ConfigSettingTargets id as
 // `data-setting-target`; edits stay a draft until 保存设置.
 import { run, state } from "../app";
-import type { AnalysisSettings, Command, ProxyMode } from "../contract/generated";
+import type { AnalysisSettings, Command, MoveRect, ProxyMode } from "../contract/generated";
 import { confirm, formPanel, message } from "../dialogs";
-import { product, t } from "../i18n";
+import { t } from "../i18n";
 import { actions, button, checkbox, field, input } from "./controls";
 import { resourceCommand, resourceView } from "../setup/dialog";
 import { buildDisplaySettings } from "../display/settingsPage";
@@ -27,7 +27,7 @@ export interface SettingsDialog {
   reopen: (section: SettingsSection) => Promise<void>;
 }
 
-/** Section pages registered by their owners; a section without a page stays unavailable. */
+/** Section pages registered by their owners (显示, 主题, 关于). */
 export const SETTINGS_PAGES: Partial<Record<SettingsSection, (host: HTMLElement, dialog: SettingsDialog) => SettingsPage>> = {};
 
 /** A row's description line, shown below it as in Java's design rows. */
@@ -49,8 +49,19 @@ function heading(host: ParentNode, title: string, subtitle: string): void {
 
 /** `onOpened` runs once the dialog and its 保存设置 / 取消 controls are in place, before the
  *  dialog closes; it may locate rows but must not change the draft. */
-export async function openAnalysisSettings(section: SettingsSection = "engine", onOpened?: (body: HTMLElement) => void): Promise<void> {
+export function openAnalysisSettings(section: SettingsSection = "engine", onOpened?: (body: HTMLElement) => void): Promise<void> {
+  return openSettings(section, onOpened, false);
+}
+
+/** LizzieFrame.openConfigDialog2 (LizzieFrame.java:3032-3048): no engine analyses while the
+ *  modal dialog is open, and everything goes on as before once it closes (HoldAnalysis; a game,
+ *  an engine match, 自动分析 and the user's pause are left as they are). A page reopening the
+ *  dialog hands the hold to the new dialog (`inherited`), as Java's nested openConfigDialog2
+ *  finds analysis already paused and the outer call resumes it after both. */
+async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElement) => void) | undefined, inherited: boolean): Promise<void> {
   if (!state.view) return;
+  if (!inherited) await run({ type: "HoldAnalysis", held: true });
+  let handedOver = false;
   const settings = { ...state.view.settings.engine.analysis };
   const network = { ...(resourceView()?.network ?? { proxyMode: "Direct" as const, proxyHost: "127.0.0.1", proxyPort: 7897 }) };
   const startupBenchmark = state.view.settings.engine.startup_benchmark;
@@ -65,13 +76,15 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   const registered: SettingsPage[] = [];
   const owner: SettingsDialog = {
     saveAndReopen: async (target) => {
-      if (!(await apply())) return false;
-      void openAnalysisSettings(target);
+      handedOver = true;
+      if (!(await apply())) { handedOver = false; return false; }
+      void openSettings(target, undefined, true);
       return true;
     },
     reopen: async (target) => {
+      handedOver = true;
       await dialog.close();
-      void openAnalysisSettings(target);
+      void openSettings(target, undefined, true);
     },
   };
   for (const [key, build] of Object.entries(SETTINGS_PAGES)) {
@@ -81,14 +94,10 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   const showPage = (key: string) => { for (const [id, page] of Object.entries(pages)) page.hidden = id !== key; };
   for (const [key, text] of [["display", t("ConfigDialog2.modern.nav.display")], ["kifu", t("ConfigDialog2.modern.nav.kifu")], ["engine", t("ConfigDialog2.modern.nav.engine")], ["play", t("ConfigDialog2.modern.nav.play")], ["theme", t("ConfigDialog2.modern.nav.theme")], ["advanced", t("ConfigDialog2.modern.nav.advanced")], ["about", t("ConfigDialog2.modern.nav.about")]]) {
     const item = document.createElement("button"); item.textContent = text; item.dataset.key = `settings.nav.${key}`;
-    item.disabled = !(key in pages);
-    if (item.disabled) { item.title = product("unavailable"); item.className = "unavailable"; }
-    else item.onclick = () => showPage(key);
+    item.onclick = () => showPage(key);
     nav.append(item);
   }
   body.append(nav);
-  const unavailable = document.createElement("small"); unavailable.className = "engine-unavailable-note";
-  unavailable.textContent = product("unavailable"); nav.append(unavailable);
   // Numeric analysis fields (addInputRow / addToggleInputRow): checked with 保存设置. A limit's
   // switch shares the row with its value, so locating the row reaches both.
   const inputs: HTMLInputElement[] = [];
@@ -118,18 +127,28 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   numberRow(analysisRows, "config.analysis.limit-time", "maxAnalyzeTimeSeconds", t("ConfigDialog2.modern.analysis.limitTime"), t("ConfigDialog2.modern.analysis.limitTimeSub"), t("ConfigDialog2.modern.unit.seconds"), time);
   const visits = input("", "checkbox"); visits.checked = settings.limitPlayout; visits.dataset.key = "settings.analysis.limitPlayout";
   numberRow(analysisRows, "config.analysis.limit-visits", "limitPlayouts", t("ConfigDialog2.modern.analysis.limitVisits"), t("ConfigDialog2.modern.analysis.limitVisitsSub"), t("ConfigDialog2.modern.unit.visits"), visits);
-  // 对局与操作 (3162-3191) and 鼠标交互与坐标格式 > 右键行为 (3215-3220, 1430-1496, 6650-6657, 6819-6826).
-  // The 点击复盘 / 落子矩形 rows are not part of this product's settings yet.
+  // 对局与操作 (3162-3203) and 鼠标交互与坐标格式 > 落子矩形, 右键行为 (3205-3220, 1194-1221, 1430-1496,
+  // 6650-6690, 6819-6826).
   const edit = state.view.settings.edit;
   const problems = state.view.settings.problems;
   const playRows = document.createDocumentFragment();
   const doubleClick = toggleRow(playRows, "config.play.double-click", "settings.edit.allowDoubleClick", t("ConfigDialog2.modern.play.doubleClick"), t("ConfigDialog2.modern.play.doubleClickSub"), edit.allowDoubleClick);
+  const clickReview = toggleRow(playRows, "config.play.click-review", "settings.edit.clickReview", t("ConfigDialog2.modern.play.clickReview"), t("ConfigDialog2.modern.play.clickReviewSub"), edit.clickReview);
   const drag = toggleRow(playRows, "config.play.drag-stone", "settings.edit.allowDrag", t("ConfigDialog2.modern.play.drag"), t("ConfigDialog2.modern.play.dragSub"), edit.allowDrag);
   // chkShowComment is disabled while the layout mode hides the panel (ConfigDialog2.java:4270-4283).
   panels.row(playRows, "showComment", "config.play.comment-panel", t("ConfigDialog2.modern.play.commentPanel"), t("ConfigDialog2.modern.play.commentPanelSub"), state.view.settings.comment_panel_auto_hidden);
   // Checked hides the control bar (chkHideCommentControlPane -> hide-blunder-table-control-pane).
   const hideControls = toggleRow(playRows, "config.play.hide-panel-controls", "settings.problems.hideControlPane", t("ConfigDialog2.modern.play.hidePanelControls"), t("ConfigDialog2.modern.play.hidePanelControlsSub"), problems.hideControlPane);
   const interactionRows = document.createElement("div");
+  // comboFromRadios(rdoShowMoveRect, rdoShowMoveRectOnPlay, rdoNoShowMoveRect).
+  const moveRect = document.createElement("select"); moveRect.dataset.key = "settings.edit.moveRect"; moveRect.title = t("ConfigDialog2.modern.interaction.moveRectSub");
+  for (const [value, text] of [["Always", t("LizzieConfig.rdoShowMoveRect")], ["OnPlay", t("LizzieConfig.rdoShowMoveRectOnPlay")], ["Never", t("LizzieConfig.rdoNoShowMoveRect")]]) {
+    const option = document.createElement("option"); option.value = value; option.textContent = text; moveRect.append(option);
+  }
+  moveRect.value = edit.moveRect;
+  field(interactionRows, t("ConfigDialog2.modern.interaction.moveRect"), moveRect);
+  (interactionRows.lastElementChild as HTMLElement).dataset.settingTarget = "config.interaction.move-rectangle";
+  interactionRows.append(hint(moveRect.title));
   const rightClick = document.createElement("select"); rightClick.dataset.key = "settings.edit.showRightMenu"; rightClick.title = t("ConfigDialog2.modern.interaction.rightClickSub");
   for (const [value, text] of [["menu", t("LizzieConfig.rdoRightClickMenu")], ["back", t("LizzieConfig.rdoRightClickBack")]]) {
     const option = document.createElement("option"); option.value = value; option.textContent = text; rightClick.append(option);
@@ -139,11 +158,14 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   (interactionRows.lastElementChild as HTMLElement).dataset.settingTarget = "config.interaction.right-click";
   const interaction = document.createDocumentFragment(); interaction.append(...interactionRows.childNodes, hint(rightClick.title));
   const displayRows = buildDisplaySettings(form, play, { analysis: analysisRows, play: playRows, interaction });
-  // 高级与性能 (3238-3278): Java order 对局时后台计算, 快速切换, 首次启动智能测速, 五子棋无提子规则, 网络代理.
+  // 高级与性能 (3238-3278): Java order 对局时后台计算, 快速切换, Lizzie 缓存, 空棋盘停止计算, 首次启动智能测速,
+  // 五子棋无提子规则, 网络代理.
   heading(advanced, t("ConfigDialog2.modern.advanced.title"), t("ConfigDialog2.modern.advanced.subtitle"));
   // chkPonder (leelaz.play-ponder, ConfigDialog2.java:1898-1901, 6674): the 修改AI用时 setting.
   const ponder = toggleRow(advanced, "config.advanced.ponder", "settings.game.playPonder", t("ConfigDialog2.modern.advanced.ponder"), t("ConfigDialog2.modern.advanced.ponderSub"), state.view.settings.game.playPonder);
   const fast = toggleRow(advanced, "config.advanced.fast-switch", "settings.analysis.fastEngineChange", t("ConfigDialog2.modern.advanced.fastSwitch"), t("ConfigDialog2.modern.advanced.fastSwitchSub"), settings.fastEngineChange);
+  const cache = toggleRow(advanced, "config.advanced.cache", "settings.analysis.enableLizzieCache", t("ConfigDialog2.modern.advanced.cache"), t("ConfigDialog2.modern.advanced.cacheSub"), settings.enableLizzieCache);
+  const stopEmpty = toggleRow(advanced, "config.advanced.stop-empty", "settings.analysis.stopAtEmptyBoard", t("ConfigDialog2.modern.advanced.stopEmpty"), t("ConfigDialog2.modern.advanced.stopEmptySub"), settings.stopAtEmptyBoard);
   const benchmark = toggleRow(advanced, "config.advanced.startup-benchmark", "settings.startupBenchmark", t("ConfigDialog2.modern.advanced.firstBenchmark"), t("ConfigDialog2.modern.advanced.firstBenchmarkSub"), startupBenchmark);
   // ConfigDialog2 高级与性能 (3271-3276): turning 五子棋无提子规则 on asks first; Cancel unchecks it.
   const noCapture = toggleRow(advanced, "config.advanced.no-capture", "settings.noCapture", t("ConfigDialog2.modern.advanced.noCapture"), t("ConfigDialog2.modern.advanced.noCaptureSub"), edit.noCapture);
@@ -173,8 +195,9 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   const manualRow = document.createElement("div"); manualRow.className = "engine-field"; manualRow.dataset.settingTarget = "config.proxy.manual-address";
   const manualTitle = document.createElement("span"); manualTitle.textContent = t("ConfigDialog2.modern.proxy.manual"); manualRow.append(manualTitle, address); advanced.append(manualRow);
   const toggleManual = () => { host.disabled = port.disabled = mode.value !== "Manual"; }; mode.onchange = toggleManual; toggleManual();
-  // 日志与分析刷新 (3279-3310): 自动检测引擎是否存活 and the two refresh intervals are settings of this product.
+  // 日志与分析刷新 (3279-3310): 控制台隐藏时仍记录 GTP, 自动检测引擎是否存活 and the two refresh intervals.
   heading(advanced, t("ConfigDialog2.modern.engineHealth.title"), t("ConfigDialog2.modern.engineHealth.subtitle"));
+  const alwaysGtp = toggleRow(advanced, "config.engine.always-gtp", "settings.analysis.alwaysGtp", t("ConfigDialog2.modern.engineHealth.alwaysGtp"), t("ConfigDialog2.modern.engineHealth.alwaysGtpSub"), settings.alwaysGtp);
   const checkAlive = toggleRow(advanced, "config.engine.check-alive", "settings.analysis.autoCheckEngineAlive", t("ConfigDialog2.modern.engineHealth.checkAlive"), t("ConfigDialog2.modern.engineHealth.checkAliveSub"), settings.autoCheckEngineAlive);
   numberRow(advanced, "config.engine.update-interval", "intervalCentisec", t("ConfigDialog2.modern.engineHealth.interval"), t("ConfigDialog2.modern.engineHealth.intervalSub"), t("LizzieConfig.title.centisecond"));
   numberRow(advanced, "config.engine.ssh-update-interval", "intervalCentisecSsh", t("ConfigDialog2.modern.engineHealth.intervalSsh"), t("ConfigDialog2.modern.engineHealth.intervalSshSub"), t("LizzieConfig.title.centisecond"));
@@ -194,6 +217,7 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
     }
     settings.limitTime = time.checked; settings.limitPlayout = visits.checked; settings.fastEngineChange = fast.checked;
     settings.autoCheckEngineAlive = checkAlive.checked;
+    settings.enableLizzieCache = cache.checked; settings.stopAtEmptyBoard = stopEmpty.checked; settings.alwaysGtp = alwaysGtp.checked;
     const proxy = { proxyMode, proxyHost: host.value.trim(), proxyPort: validPort ? Number(port.value) : 7897 };
     if (JSON.stringify(proxy) !== JSON.stringify(network)) {
       const result = await resourceCommand({ type: "SetNetworkProxy", settings: proxy }); if (!result || result.type === "Refused") return false;
@@ -208,7 +232,7 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
     }
     // The draft's rows over the currently committed settings; untouched fields keep their values.
     const committed = state.view?.settings ?? loading;
-    const nextEdit = { ...committed.edit, noCapture: noCapture.checked, allowDoubleClick: doubleClick.checked, allowDrag: drag.checked, showRightMenu: rightClick.value === "menu" };
+    const nextEdit = { ...committed.edit, noCapture: noCapture.checked, allowDoubleClick: doubleClick.checked, clickReview: clickReview.checked, allowDrag: drag.checked, showRightMenu: rightClick.value === "menu", moveRect: moveRect.value as MoveRect };
     if (JSON.stringify(nextEdit) !== JSON.stringify(committed.edit)) {
       const result = await run({ type: "SetEditSettings", settings: nextEdit }); if (!result || result.type === "Refused") return false;
     }
@@ -244,4 +268,5 @@ export async function openAnalysisSettings(section: SettingsSection = "engine", 
   actions(body, save, cancel);
   onOpened?.(body);
   await dialog.closed;
+  if (!handedOver) await run({ type: "HoldAnalysis", held: false });
 }

@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::runtime::LeelaOption;
+
 /// One configured engine (`EngineData`). Defaults are those of a new entry in Java.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
@@ -52,6 +54,12 @@ impl EngineProfile {
     /// (`EngineThreadPolicy.isRemoteManaged`).
     pub fn is_remote(&self) -> bool {
         self.ssh.is_some() || self.cloud.is_some()
+    }
+
+    /// Its process runs on another host (Java `EngineThreadPolicy.isRemoteManaged`): an SSH or
+    /// 远程算力 engine, or a command that starts `ssh` / `plink`.
+    pub fn is_remote_managed(&self) -> bool {
+        self.is_remote() || super::ssh::is_external_ssh(&self.command)
     }
 }
 
@@ -117,6 +125,15 @@ pub struct AnalysisSettings {
     /// `ui.auto-check-engine-alive` [true]: a foreground engine that ends unexpectedly is
     /// started again and brought back to the current position (`EngineManager.checkEngineAlive`).
     pub auto_check_engine_alive: bool,
+    /// `leelaz.enable-lizzie-cache` [true]: a node's stored result gives way only to a stronger
+    /// one (more visits, or marked to give way); off, every new result replaces it.
+    pub enable_lizzie_cache: bool,
+    /// `leelaz.stop-at-empty-board` [false]: an analysis of the empty board stops at its first
+    /// result, without the limit notice (`Leelaz.java:7458-7468`).
+    pub stop_at_empty_board: bool,
+    /// `ui.always-gtp` [true]: the GTP console records while it is hidden; off, a hidden console
+    /// records only engines that are still starting.
+    pub always_gtp: bool,
 }
 
 impl Default for AnalysisSettings {
@@ -133,6 +150,9 @@ impl Default for AnalysisSettings {
             fast_engine_change: true,
             show_ponder_limited_tips: true,
             auto_check_engine_alive: true,
+            enable_lizzie_cache: true,
+            stop_at_empty_board: false,
+            always_gtp: true,
         }
     }
 }
@@ -153,6 +173,12 @@ pub struct EngineSettings {
     pub kata_pda: Option<f64>,
     /// `ui.chk-kata-engine-pda` [false]; confirmed nonzero PDA enables it.
     pub kata_pda_enabled: bool,
+    /// 广度, the start-up values and the toolbar's two groups (引擎参数 window).
+    pub kata_params: KataParamSettings,
+    /// The Leela Zero / Sai 引擎参数 window (`SetLeelaEngines`).
+    pub leela_options: LeelaOptionSettings,
+    /// KataGoPda's dedicated dialog; never a stored raw GTP command.
+    pub custom_pda: CustomPdaSettings,
     /// `ui.enable-startup-benchmark` [false on a new profile, Config.applyFirstLaunchDefaults]:
     /// the user opted in to the official benchmark after start-up when the foreground KataGo has
     /// no stored result (Settings > Advanced).
@@ -187,6 +213,161 @@ impl EngineSettings {
 
     pub fn index_of(&self, id: &str) -> Option<usize> {
         self.engines.iter().position(|e| e.id == id)
+    }
+}
+
+/// KataGo parameters of the toolbar and the 引擎参数 window (`SetKataEngines`) besides the
+/// toolbar's PDA, which [`EngineSettings::kata_pda`] holds.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct KataParamSettings {
+    /// `ui.txt-kata-engine-wrn`: the last 广度 value; Java's empty default is none.
+    pub wrn: Option<f64>,
+    /// `ui.chk-kata-engine-wrn` [false].
+    pub wrn_enabled: bool,
+    /// `ui.autoload-kata-engine-pda` [false] with `ui.auto-load-txt-kata-engine-pda`: set on
+    /// every KataGo that starts, except a `KataGoPda` one.
+    pub auto_load_pda: bool,
+    pub auto_load_pda_value: Option<f64>,
+    /// `ui.autoload-kata-engine-wrn` [false] with `ui.auto-load-txt-kata-engine-wrn`.
+    pub auto_load_wrn: bool,
+    pub auto_load_wrn_value: Option<f64>,
+    /// `ui.show-pda-in-menu` / `ui.show-wrn-in-menu` [true]: the toolbar shows the group.
+    pub show_pda: bool,
+    pub show_wrn: bool,
+}
+
+impl Default for KataParamSettings {
+    fn default() -> Self {
+        KataParamSettings {
+            wrn: None,
+            wrn_enabled: false,
+            auto_load_pda: false,
+            auto_load_pda_value: None,
+            auto_load_wrn: false,
+            auto_load_wrn_value: None,
+            show_pda: true,
+            show_wrn: true,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum CustomPdaMode {
+    #[default]
+    Disabled,
+    Dynamic,
+    Fixed,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CustomPdaSettings {
+    pub mode: CustomPdaMode,
+    pub dynamic_cap: Option<f64>,
+    pub fixed_value: Option<f64>,
+    pub auto_apply: bool,
+}
+
+impl CustomPdaSettings {
+    /// Java's `SetKataPDA` mapping, in the order the dialog sends it: 不启用 `pda 0`; 动态
+    /// `pda 0` then `dympdacap <cap>`; 固定 `pda <value>`. A missing value sends nothing (the
+    /// dialog saves an empty field without a command), and a zero or non-finite 动态 系数 is
+    /// invalid (`SetKataPDA.wrongParameter`), so neither reaches an engine.
+    pub fn commands(&self) -> Vec<String> {
+        match self.mode {
+            CustomPdaMode::Disabled => vec!["pda 0".to_string()],
+            CustomPdaMode::Dynamic => self
+                .dynamic_cap
+                .filter(|cap| cap.is_finite() && *cap != 0.0)
+                .map(|cap| vec!["pda 0".to_string(), format!("dympdacap {}", java_double(cap))])
+                .unwrap_or_default(),
+            CustomPdaMode::Fixed => self
+                .fixed_value
+                .filter(|value| value.is_finite())
+                .map(|value| vec![format!("pda {}", java_double(value))])
+                .unwrap_or_default(),
+        }
+    }
+
+    /// The dialog's refusal (`SetKataPDA.wrongParameter`): a 动态 系数 that is zero or not a
+    /// finite number, or a 固定 value that is not finite.
+    pub fn invalid(&self) -> bool {
+        match self.mode {
+            CustomPdaMode::Disabled => false,
+            CustomPdaMode::Dynamic => self.dynamic_cap.is_some_and(|cap| !cap.is_finite() || cap == 0.0),
+            CustomPdaMode::Fixed => self.fixed_value.is_some_and(|value| !value.is_finite()),
+        }
+    }
+}
+
+/// `Double.toString` for the values a PDA takes (a whole number keeps `.0`).
+fn java_double(value: f64) -> String {
+    if value.fract() == 0.0 && value.abs() < 1e7 {
+        format!("{value:.1}")
+    } else {
+        format!("{value}")
+    }
+}
+
+/// One row of the Leela Zero / Sai 引擎参数 window: 修改 (`ui.chk-lzsai-engine<row>` [false]),
+/// 自动加载 (`ui.autoload-Lzsai-engine<row>` [false]) and the value as typed
+/// (`ui.txt-lzsai-engine<row>` [""]). 自动加载 keeps its tick while 修改 is off.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LeelaOptionSetting {
+    pub enabled: bool,
+    pub auto_load: bool,
+    pub value: String,
+}
+
+/// The four rows of the Leela Zero / Sai 引擎参数 window, global like Java's settings.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LeelaOptionSettings {
+    /// `mem`: `Maximum Memory Use (MiB)`.
+    pub memory: LeelaOptionSetting,
+    pub visits: LeelaOptionSetting,
+    pub lagbuffer: LeelaOptionSetting,
+    /// `resign`: `Resign Percentage`.
+    pub resign: LeelaOptionSetting,
+}
+
+impl LeelaOptionSettings {
+    pub fn get(&self, option: LeelaOption) -> &LeelaOptionSetting {
+        match option {
+            LeelaOption::Memory => &self.memory,
+            LeelaOption::Visits => &self.visits,
+            LeelaOption::Lagbuffer => &self.lagbuffer,
+            LeelaOption::Resign => &self.resign,
+        }
+    }
+
+    pub fn get_mut(&mut self, option: LeelaOption) -> &mut LeelaOptionSetting {
+        match option {
+            LeelaOption::Memory => &mut self.memory,
+            LeelaOption::Visits => &mut self.visits,
+            LeelaOption::Lagbuffer => &mut self.lagbuffer,
+            LeelaOption::Resign => &mut self.resign,
+        }
+    }
+
+    /// The rows whose value is sent now: 修改 checked (`SetLeelaEngines` 确定).
+    pub fn edited(&self) -> Vec<(LeelaOption, String)> {
+        self.rows(|r| r.enabled)
+    }
+
+    /// The rows every Leela Zero / Sai start gets: 修改 and 自动加载 checked.
+    pub fn auto_loaded(&self) -> Vec<(LeelaOption, String)> {
+        self.rows(|r| r.enabled && r.auto_load)
+    }
+
+    fn rows(&self, take: impl Fn(&LeelaOptionSetting) -> bool) -> Vec<(LeelaOption, String)> {
+        LeelaOption::ALL
+            .into_iter()
+            .filter(|&o| take(self.get(o)))
+            .map(|o| (o, self.get(o).value.clone()))
+            .collect()
     }
 }
 

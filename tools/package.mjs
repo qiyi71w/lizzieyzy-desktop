@@ -3,7 +3,7 @@
 // gives them stable asset names and records their source commit, toolchain and SHA-256.
 //
 //   node tools/package.mjs [--identity formal|acceptance] [--target <rust triple>]
-//                          [--out <dir>] [--allow-dirty]
+//                          [--out <dir>] [--update-pubkey <file>] [--allow-dirty]
 //
 // Windows x64: NSIS installer and portable zip, both carrying the board synchronization helper
 // (qiyi71w/readboard, pinned below) as `readboard/` next to the program. macOS arm64/x64: dmg
@@ -11,6 +11,12 @@
 // Ubuntu 24.04, see tools/packaging/build-linux.sh). The acceptance identity uses its own
 // application identifier, binary and package names and contains the acceptance channel; the
 // formal identity never does.
+//
+// Update signing (docs/updates.md): --update-pubkey builds the update public key into the
+// program. When the Tauri CLI's private key variables are set (TAURI_SIGNING_PRIVATE_KEY or
+// TAURI_SIGNING_PRIVATE_KEY_PATH, with TAURI_SIGNING_PRIVATE_KEY_PASSWORD), the packages the
+// program updates itself from (NSIS installer, portable zip, macOS `.app.tar.gz`, AppImage, deb)
+// are signed for this version and listed in `<prefix>.update.json` for tools/update-manifest.mjs.
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -51,13 +57,14 @@ function fail(message) {
 }
 
 function parseArgs(argv) {
-  const options = { identity: "formal", target: null, out: path.join(root, "target", "packages"), allowDirty: false };
+  const options = { identity: "formal", target: null, out: path.join(root, "target", "packages"), updatePubkey: null, allowDirty: false };
   for (let i = 0; i < argv.length; i++) {
     const value = () => argv[++i] ?? fail(`${argv[i - 1]} needs a value`);
     switch (argv[i]) {
       case "--identity": options.identity = value(); break;
       case "--target": options.target = value(); break;
       case "--out": options.out = path.resolve(value()); break;
+      case "--update-pubkey": options.updatePubkey = path.resolve(value()); break;
       case "--allow-dirty": options.allowDirty = true; break;
       default: fail(`unknown argument ${argv[i]}`);
     }
@@ -143,6 +150,13 @@ if (dirty && !options.allowDirty) fail("the working tree has changes; commit the
 const base = JSON.parse(fs.readFileSync(path.join(tauriDir, "tauri.conf.json"), "utf8"));
 const config = options.identity === "acceptance" ? { ...base, ...JSON.parse(fs.readFileSync(ACCEPTANCE_CONFIG, "utf8")) } : base;
 const assetPrefix = `${config.mainBinaryName}_${config.version}_${platform.os}-${platform.arch}`;
+const tauriCli = path.join(root, "node_modules", "@tauri-apps", "cli", "tauri.js");
+
+// The update key. The private key stays in the Tauri CLI's environment: it is never passed as an
+// argument or written out.
+const updatePubkey = options.updatePubkey ? fs.readFileSync(options.updatePubkey, "utf8").trim() : (config.plugins?.updater?.pubkey ?? "");
+const signing = Boolean(process.env.TAURI_SIGNING_PRIVATE_KEY || process.env.TAURI_SIGNING_PRIVATE_KEY_PATH);
+if (signing && !updatePubkey) fail("signing updates needs the update public key: pass --update-pubkey");
 
 const releaseDir = path.join(root, "target", options.target ?? "", "release");
 const bundleDir = path.join(releaseDir, "bundle");
@@ -152,14 +166,18 @@ for (const kind of [...platform.bundles, "macos"]) fs.rmSync(path.join(bundleDir
 // Windows packages carry the helper as a resource directory `readboard/` (next to the program).
 const readboardDir = platform.os === "windows" ? readboardDirectory(await readboardArchive()) : null;
 
-const tauriArgs = ["build", "--ci", "--bundles", platform.bundles.join(",")];
+// The macOS update package is made from the app bundle; without `app` among the requested
+// bundles the Tauri CLI deletes it once the dmg is made.
+const bundles = signing && platform.os === "macos" ? ["app", ...platform.bundles] : platform.bundles;
+const tauriArgs = ["build", "--ci", "--bundles", bundles.join(",")];
 if (options.target) tauriArgs.push("--target", options.target);
 if (options.identity === "acceptance") tauriArgs.push("--config", ACCEPTANCE_CONFIG, "--features", "acceptance");
 if (readboardDir) {
   const source = `${readboardDir.split(path.sep).join("/")}/`;
   tauriArgs.push("--config", JSON.stringify({ bundle: { resources: { [source]: "readboard/" } } }));
 }
-run(process.execPath, [path.join(root, "node_modules", "@tauri-apps", "cli", "tauri.js"), ...tauriArgs], { stdio: "inherit" });
+if (options.updatePubkey) tauriArgs.push("--config", JSON.stringify({ plugins: { updater: { pubkey: updatePubkey } } }));
+run(process.execPath, [tauriCli, ...tauriArgs], { stdio: "inherit" });
 
 fs.mkdirSync(options.out, { recursive: true });
 const assets = [];
@@ -195,10 +213,38 @@ if (platform.os === "windows") {
   assets.push({ file, form: "portable-zip" });
 }
 
+// The macOS update package: the app bundle as the `.app.tar.gz` the updater unpacks.
+// COPYFILE_DISABLE keeps macOS tar from adding `._` metadata entries.
+if (signing && platform.os === "macos") {
+  const file = `${assetPrefix}.app.tar.gz`;
+  run("tar", ["-czf", path.join(options.out, file), "-C", path.join(bundleDir, "macos"), `${config.productName}.app`], { env: { ...process.env, COPYFILE_DISABLE: "1" } });
+  assets.push({ file, form: "app" });
+}
+
 for (const asset of assets) {
   const file = path.join(options.out, asset.file);
   asset.size = fs.statSync(file).size;
   asset.sha256 = sha256(file);
+}
+
+// Update entries, keyed `{os}-{arch}-{form}` as the program asks for them. The dmg is not an
+// update package: a macOS app updates from its `.app.tar.gz`.
+const UPDATE_OS = { windows: "windows", macos: "darwin", linux: "linux" };
+const UPDATE_ARCH = { x64: "x86_64", arm64: "aarch64" };
+const UPDATE_FORM = { nsis: "nsis", app: "app", appimage: "appimage", "portable-zip": "zip", deb: "deb" };
+if (signing) {
+  const platforms = {};
+  for (const asset of assets.filter((a) => UPDATE_FORM[a.form])) {
+    const file = path.join(options.out, asset.file);
+    run(process.execPath, [tauriCli, "signer", "sign", "--app-version", config.version, file], { stdio: ["ignore", "ignore", "inherit"] });
+    asset.signature = `${asset.file}.sig`;
+    platforms[`${UPDATE_OS[platform.os]}-${UPDATE_ARCH[platform.arch]}-${UPDATE_FORM[asset.form]}`] = {
+      file: asset.file,
+      size: asset.size,
+      signature: fs.readFileSync(`${file}.sig`, "utf8").trim(),
+    };
+  }
+  fs.writeFileSync(path.join(options.out, `${assetPrefix}.update.json`), JSON.stringify({ version: config.version, platforms }, null, 2) + "\n");
 }
 
 const manifest = {
@@ -215,6 +261,7 @@ const manifest = {
     node: process.version,
     tauriCli: JSON.parse(fs.readFileSync(path.join(root, "node_modules", "@tauri-apps", "cli", "package.json"), "utf8")).version,
   },
+  update: { pubkey: updatePubkey || null, signed: signing },
   assets,
   bundled: readboardDir ? { readboard: { version: READBOARD.version, asset: READBOARD.asset, size: READBOARD.size, sha256: READBOARD.sha256 } } : {},
 };

@@ -107,6 +107,13 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   WinrateGraph: "Menu.winrateGraphSettings",
   KataEstimate: "Menu.kataEstimate",
   KataPda: "Menu.chkPDA.toolTopText",
+  KataWrn: "Menu.chkWRN.toolTopText",
+  // 设置KataGo引擎高级参数's 自动加载 and 在工具栏中控制 columns (SetKataEngines.java).
+  KataParamAutoLoad: "SetKataEngines.title",
+  KataParamToolbar: "SetKataEngines.title",
+  LeelaOptions: "SetLeelaEngines.title",
+  // KataGo 激进参数PDA设置 (SetKataPDA.java): mode, ratio / value and 自动加载.
+  CustomPda: "SetKataPDA.title",
   Scoring: "BottomToolbar.finalScore",
   SuggestionsFrame: "Menu.SuggestionList",
   ExtraMode: "Menu.layoutMode",
@@ -127,12 +134,19 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   HumanSlModel: "AutoSetup.humanSlModel",
   // AI 解说's teacher.properties (TeacherSettingsDialog title).
   Commentary: "Teacher.settings.title",
-  // 综合设置 > 高级 > 日志与分析刷新 (ConfigDialog2.java:3290-3295).
+  // 综合设置 > 高级 > 高级与性能 and 日志与分析刷新 (ConfigDialog2.java:3253-3264, 3284-3295).
+  LizzieCache: "ConfigDialog2.modern.advanced.cache",
+  StopAtEmptyBoard: "ConfigDialog2.modern.advanced.stopEmpty",
+  AlwaysGtp: "ConfigDialog2.modern.engineHealth.alwaysGtp",
   AutoCheckEngineAlive: "ConfigDialog2.modern.engineHealth.checkAlive",
   // 设置 > 同步时不播放落子声 and 同步 > 棋盘同步工具选项 (Menu.java:5547-5556, 4352-4392).
   NoSoundInSync: "Menu.notPlaySoundInSync",
   ReadBoardStatSync: "Menu.alwaysKeepBoardStatSync",
   ReadBoardGetFocus: "Menu.readBoardGetFocus",
+  // The 不再提示 of LizzieFrame.showReadBoardWebSocketPonderingNotice.
+  ReadBoardPonderingNotice: "ReadBoard.websocketPonderingNotice.title",
+  Diagnostics: "DiagnosticsDialog.title",
+  QuickLinks: "Menu.quickLinks",
   // 同步 > 野狐棋谱's account, 近期搜索 and 打开棋谱后此窗口.
   FoxKifu: "Menu.foxKifu",
   // 同步 > 腾讯棋谱's last query, 近期搜索 and 打开棋谱后此窗口.
@@ -140,6 +154,35 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   // 引擎 > 远程算力 and 同步 > Web 旁观 (Menu.java remote compute and web board menus).
   Cloud: "Menu.remoteCompute",
   WebBoard: "Menu.webBoard",
+  // 显示 menus and dialogs these settings belong to (Menu.java, ConfigDialog2, EnginePkConfig).
+  Coordinates: "Menu.coordsMenu",
+  NamesOnBoard: "Menu.showNameInBoard",
+  MoveNumbers: "Menu.moveMenu",
+  VariationTree: "Menu.variationPaneSettings",
+  MoveRank: "Menu.moveRankMenu",
+  Suggestions: "Menu.Suggestions",
+  NextMoves: "Menu.nextMoveHint",
+  SubBoard: "Menu.subBoardSettings",
+  AutoQuickAnalysis: "ConfigDialog2.modern.kifu.autoAnalyze",
+  AnalysisEngine: "Menu.flashAnalyzeSettings",
+  QuickModel: "AutoSetup.quickAnalysisModel",
+  StrengthBackground: "HumanSL40.backgroundToggle",
+  StrengthModels: "PlayerStrengthEstimate.model",
+  Tsumego: "TsumeGoFrame.title",
+  CaptureTsumego: "CaptureTsumeGoFrame.title",
+  TopToolbar: "Menu.topToolBar",
+  // Menu.java:4897 底部工具栏 > 自定义内容, 4606 设置模块顺序 (literal Chinese, Chinese interface only).
+  BottomButtons: "Menu.customToolbar",
+  DetailPanelOrder: "设置模块顺序",
+  ProblemList: "Menu.commitPane",
+  FlashRange: "Menu.flashAnalyzePartGame",
+  EngineMatch: "EnginePkConfig.title",
+  Contribution: "Menu.contributeMenu",
+  // 综合设置 > 对局与操作 > 显示落子矩形 / 启用点击复盘 (ConfigDialog2.java:3168-3214).
+  MoveRect: "ConfigDialog2.modern.interaction.moveRect",
+  ClickReview: "ConfigDialog2.modern.play.clickReview",
+  // The top toolbar's 自由涂鸦 button (Menu.java:8639-8643), whose layer opens with this pen.
+  PaintingColor: "Menu.drawPainting.toolTipText",
 };
 
 function targetLabel(target: ImportTarget): string {
@@ -272,6 +315,22 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
     cloudPassword = box.input;
     body.append(box.label);
   }
+  // 跑谱贡献's account, password, custom-command passwords and 远程SSH password: only when chosen.
+  let contribution: HTMLInputElement | null = null;
+  if (p.contribution_credential) {
+    const box = checkbox(product("importCopyContribution", t("Menu.contributeMenu")), false);
+    box.input.dataset.key = "import-contribution-credentials";
+    contribution = box.input;
+    body.append(box.label);
+  }
+  // 快速启动 commands carrying passwords or tokens: the program list comes over only when chosen.
+  let quickLinks: HTMLInputElement | null = null;
+  if (p.quick_link_credential) {
+    const box = checkbox(product("importCopyQuickLinks", t("Menu.quickLinks")), false);
+    box.input.dataset.key = "import-quick-link-credentials";
+    quickLinks = box.input;
+    body.append(box.label);
+  }
   if (p.engines.some((e) => e.problems.some((x) => x.type === "ProgramNotFound" || x.type === "FileNotFound")) || p.program_dir) {
     const row = document.createElement("div");
     row.className = "java-import-row";
@@ -292,7 +351,9 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
   if (p.replaces.length) {
     const box = document.createElement("div");
     box.className = "java-import-replaces";
-    box.append(text("p", product("importReplaces", p.replaces.map(targetLabel).join("、"))));
+    // The replaced themes are named: each is a whole folder of this product's own.
+    const label = (target: ImportTarget) => target === "Themes" ? `${targetLabel(target)}（${p.replaced_themes.join("、")}）` : targetLabel(target);
+    box.append(text("p", product("importReplaces", p.replaces.map(label).join("、"))));
     const confirm = checkbox(product("importReplaceConfirm"), false);
     confirm.input.dataset.key = "import-replace";
     replace = confirm.input;
@@ -319,6 +380,8 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
       copy_analysis_ssh_password: analysisSsh?.checked ?? false,
       copy_cloud_token: cloudToken?.checked ?? false,
       copy_cloud_password: cloudPassword?.checked ?? false,
+      copy_contribution_credentials: contribution?.checked ?? false,
+      copy_quick_link_credentials: quickLinks?.checked ?? false,
       replace: replace?.checked ?? false,
       recovery: recovery?.checked ? { auto_slot_name: t("LizzieFrame.saveAndLoad.exitRecord") } : null,
     });

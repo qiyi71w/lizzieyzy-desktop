@@ -108,8 +108,8 @@ fn failed_image_settings_commit_removes_its_uncommitted_copies() {
     std::fs::create_dir_all(&storage(dir.path()).config_file).unwrap();
     let settings=AppearanceSettings { custom_board_image:external.to_string_lossy().into_owned(), ..Default::default() };
     assert!(wb.set_appearance_settings(settings,ThemeSettings::default()).is_err());
-    let images=appearance::themes_dir(wb.storage()).join(".images");
-    assert_eq!(std::fs::read_dir(images).unwrap().count(),0);
+    // Neither the copy nor the folders made for it remain.
+    assert!(!appearance::themes_dir(wb.storage()).exists());
     assert!(external.is_file());
 }
 

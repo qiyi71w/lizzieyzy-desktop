@@ -761,7 +761,7 @@ fn remote_compute_and_a_settings_import_start_no_engine_while_contributing() {
     std::fs::create_dir_all(&java).unwrap();
     std::fs::write(java.join("config.txt"), r#"{"ui": {"play-sound": false}}"#).unwrap();
     let preview = fixture.wb.preview_java_import(java_import::read(&JavaSource::new(&java, None)).unwrap());
-    assert_eq!(fixture.wb.apply_java_import(preview.id, &[], true, None).unwrap(), Err(CONTRIBUTING));
+    assert_eq!(fixture.wb.apply_java_import(preview.id, &[], false, false, true, None).unwrap(), Err(CONTRIBUTING));
     assert!(fixture.wb.config().ui.play_sound, "nothing is imported");
     assert_eq!(fixture.world.launched(), launched, "only the contribution process runs");
 }

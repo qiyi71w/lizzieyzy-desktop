@@ -18,13 +18,14 @@ const targets = new Map<string, SettingsSection>([
     "config.pv.mode", "config.pv.visit-limit", "config.pv.remove-dead",
   ].map((id): [string, SettingsSection] => [id, "engine"]),
   ...[
-    "config.play.double-click", "config.play.drag-stone", "config.play.comment-panel", "config.play.hide-panel-controls",
-    "config.play.coordinates", "config.play.freeze-sub-board", "config.interaction.right-click",
-    "config.interaction.coordinates",
+    "config.play.double-click", "config.play.click-review", "config.play.drag-stone", "config.play.comment-panel",
+    "config.play.hide-panel-controls", "config.play.coordinates", "config.play.freeze-sub-board",
+    "config.interaction.move-rectangle", "config.interaction.right-click", "config.interaction.coordinates",
   ].map((id): [string, SettingsSection] => [id, "play"]),
   ...[
-    "config.advanced.ponder", "config.advanced.fast-switch", "config.advanced.startup-benchmark", "config.advanced.no-capture",
-    "config.proxy.mode", "config.proxy.manual-address", "config.engine.check-alive", "config.engine.update-interval", "config.engine.ssh-update-interval",
+    "config.advanced.ponder", "config.advanced.fast-switch", "config.advanced.cache", "config.advanced.stop-empty",
+    "config.advanced.startup-benchmark", "config.advanced.no-capture", "config.proxy.mode", "config.proxy.manual-address",
+    "config.engine.always-gtp", "config.engine.check-alive", "config.engine.update-interval", "config.engine.ssh-update-interval",
   ].map((id): [string, SettingsSection] => [id, "advanced"]),
 ]);
 

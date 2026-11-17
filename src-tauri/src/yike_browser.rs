@@ -409,6 +409,12 @@ pub async fn open_yike_browser(app: AppHandle, url: String, title: String) -> Re
     });
     window.show().map_err(failed)?;
     let _ = window.set_focus();
+    // Java's first focusable component, the address field (the back button is not focusable),
+    // takes the keys of a new window. Focusing a window of two child webviews does not focus
+    // either (macOS leaves the keys with the window), so the toolbar takes them explicitly.
+    if let Some(bar) = app.get_webview(BAR) {
+        let _ = bar.set_focus();
+    }
     Ok(())
 }
 

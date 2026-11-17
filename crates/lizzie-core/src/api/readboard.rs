@@ -22,6 +22,9 @@ pub enum ReadBoardCommand {
     /// The answer to `ReadBoard.updateInstallConfirmMessage` (the helper offered an update it
     /// downloaded): `true` installs it and starts the helper again.
     AnswerUpdate { accept: bool },
+    /// The answer to `ReadBoard.websocketPonderingNotice` shown for
+    /// [`ReadBoardView::pondering_notice`] `generation`.
+    AnswerPonderingNotice { generation: u64, decision: PonderingNoticeDecision },
     /// Float board: the wheel changed the preview depth over a candidate (`FloatBoard.doBranch`
     /// → `sendLossFocus`); the target window gets the focus back when `Menu.readBoardGetFocus`
     /// is on.
@@ -62,6 +65,10 @@ pub struct ReadBoardView {
     /// A helper update waits for the user's answer (`ReadBoard.updateInstallConfirmMessage`
     /// with this version tag).
     pub update_offer: Option<String>,
+    /// GMA waits for the answer to `ReadBoard.websocketPonderingNotice` (the helper asked for
+    /// background pondering, which the custom WebSocket engine cannot do); answer
+    /// `AnswerPonderingNotice` with this number.
+    pub pondering_notice: Option<u64>,
     /// The helper's log writers (诊断与日志 > ReadBoard), while a helper runs.
     pub logging: Option<HelperLoggingView>,
     /// 棋盘同步工具选项 > `Menu.alwaysKeepBoardStatSync` (Java `ui.always-sync-boardstat`).
@@ -72,6 +79,17 @@ pub struct ReadBoardView {
     pub no_sound_in_sync: bool,
     /// Messages to show once each, in order.
     pub notices: Vec<ReadBoardNotice>,
+}
+
+/// `LizzieFrame.ReadBoardWebSocketPonderingDecision`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum PonderingNoticeDecision {
+    /// 确定: GMA goes on without pondering.
+    Confirm,
+    /// 不再提示: as `Confirm`, and the notice is never shown again (saved).
+    Suppress,
+    /// The dialog was closed: GMA keeps waiting until it is armed again.
+    Dismiss,
 }
 
 /// The float board window (`FloatBoard`): screen rectangle in physical pixels as the helper

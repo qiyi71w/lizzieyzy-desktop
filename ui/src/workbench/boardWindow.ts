@@ -181,7 +181,7 @@ export function bootBoardWindow(): void {
       canvas.style.cursor = "default";
     }
     if (data.board === "Main" && geo) {
-      send({ type: "hover", fx: (e.clientX - geo.x - geo.margin) / geo.square, fy: (e.clientY - geo.y - geo.margin) / geo.square, reach: (geo.stoneRadius + 1) / geo.square });
+      send({ type: "hover", fx: (e.clientX - geo.x - geo.margin) / geo.square, fy: (e.clientY - geo.y - geo.margin) / geo.square, reach: (geo.stoneRadius + 1) / geo.square, pressed: e.buttons !== 0 });
     }
   });
   window.addEventListener("mouseup", (e) => {
@@ -213,7 +213,7 @@ export function bootBoardWindow(): void {
   onAppearanceChange(render);
   void self.listen<IndependentPayload>(INDEPENDENT_DATA_EVENT, (e) => {
     data = e.payload;
-    void syncAppearance(data.appearance, data.theme);
+    void syncAppearance(data.appearance, data.theme, data.themeFilesRevision);
     render();
   }).then(async () => {
     await Promise.all([
