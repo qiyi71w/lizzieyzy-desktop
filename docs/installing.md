@@ -83,7 +83,11 @@ Packages are built on Ubuntu 24.04 and need at least its system libraries (glibc
 
 *Help > 检查更新* updates every installation from within the program; a portable folder stays
 portable, and a deb is installed by the system package manager after the system's authorization
-prompt. Installing a newer package by hand also works. See [Updates](updates.md).
+prompt. This needs packages built with the project's update key; the current packages have none
+yet, so 检查更新 says that this version has no update signing key and does not go online. Until
+then, install a newer package by hand: run the newer installer, replace the portable folder's
+files, the app in *Applications* or the AppImage file, or install the newer `.deb` with `apt`.
+Your settings are kept either way. See [Updates](updates.md).
 
 ## Where your data is
 

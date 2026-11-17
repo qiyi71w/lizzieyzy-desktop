@@ -1369,27 +1369,39 @@ native Open/Save, record reopening and natural client/engine exit. The deb run c
 window sizes; a native Wayland regression also passed without selecting SHM. This is functional
 compatibility evidence, not a new performance pass or proof for other driver/WebKit versions.
 
-The package-only predecessor was verified separately as follows:
+The release-candidate packages (version 0.1.0, both identities, every platform below) were built
+from one commit and installed on real systems. A second set, identical apart from version 0.2.0,
+served as the newer version. The packages of the normal identity carry no update key yet, so their
+in-program update is not available; the in-program update routes were checked with
+acceptance-identity packages signed with a separate test key and a local release source.
 
-Packages of both identities (below) were built for Windows x64, macOS Apple Silicon and Intel,
-and Linux x64.
+- Windows 11 x64, on an isolated desktop next to an installed LizzieYzy Next, whose settings
+  stayed unchanged: the normal installer installed for the current user, opened a record, ran
+  next to the acceptance identity, was upgraded in place by the newer installer with settings
+  kept, and was uninstalled with settings kept; the normal portable zip was extracted and
+  started. The installer and the portable zip updated themselves from within
+  the program; a wrong signature, a cancelled download, an installer that would not start, an
+  unwritable or busy portable folder and an interrupted replacement each left the installation
+  as it was, with a message. The uninstaller keeps the installer's remembered install folder
+  (`HKCU\Software\qiyi71w\<product>`) as well as the settings.
+- macOS 27 on an Apple Silicon Mac: the normal app from the Apple Silicon dmg (ad-hoc signed;
+  Gatekeeper's assessment rejects it as not notarized) was copied to *Applications*, opened a
+  record, ran next to the acceptance app, was replaced by the newer app and removed, keeping its
+  settings both times. The Intel app was started only under Rosetta. The app updated itself in
+  place; a package with a wrong signature and one that could not be unpacked left it unchanged.
+  The Gatekeeper first-open steps in [docs/installing.md](docs/installing.md) were checked on an
+  earlier build with the same signing.
+- Ubuntu 24.04 GNOME, Wayland (and one X11 session): the normal deb was installed with `apt`,
+  started from the application menu and opened records, ran next to the acceptance deb, was
+  upgraded in place and removed, keeping its settings; the normal AppImage ran through FUSE and
+  was replaced by the newer file. The AppImage updated itself; the deb update went through GNOME
+  Shell's own authorization prompt, both dismissed (nothing installed) and authorized.
+- Ubuntu 26.04 in a container under a virtual X display (not a GNOME desktop): the debs of both
+  identities were installed side by side, the normal deb upgraded and removed with its settings
+  kept, the normal AppImage run; the deb update was checked with authorization, refusals,
+  package-manager failures and interruption.
 
-- Windows 11 x64: the acceptance-identity installer has been installed, upgraded in place and
-  uninstalled, and the acceptance-identity portable zip extracted and started. The
-  normal-identity installer has been installed next to the acceptance identity, both running at
-  the same time, and uninstalled; the normal-identity portable zip extracted and started. All of
-  them opened records from the command line, and both installed identities also through the
-  native Open dialog.
-- macOS 27 on an Apple Silicon Mac: the Apple Silicon apps of both identities started from their
-  dmg and opened records; the acceptance identity also through the native Open panel. The Intel
-  app has been started only under Rosetta. The Gatekeeper first-open steps in
-  [docs/installing.md](docs/installing.md) were followed for a quarantined copy of the normal
-  identity.
-- Ubuntu 24.04 and 26.04 containers under a virtual X display: the deb packages of both
-  identities have been installed side by side and removed; only the normal-identity deb was
-  upgraded in place, on 24.04. The normal-identity AppImage has been run on Ubuntu 24.04.
-
-Not verified yet: macOS 15, Intel Macs, Ubuntu 26.04 GNOME, Windows 10, the Windows SmartScreen
+Not verified yet: Windows 10, macOS 15, Intel Macs, Ubuntu 26.04 GNOME, the Windows SmartScreen
 prompt, and full input-method coverage on Windows and macOS.
 
 ## Layout
