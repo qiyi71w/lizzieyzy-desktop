@@ -1,0 +1,20 @@
+/* 弈客直播中心 (YikeLiveDialog.java, 920x420): BorderLayout of a left FlowLayout row (gaps 8/6, empty
+   border 4,6,0,6), the table's scroll pane and the status line (empty border 4,10,6,10). JTable's
+   columns share the width equally; 16px rows; the sort arrow sits in the sorted header. */
+html, body { margin: 0; height: 100%; overflow: hidden; background: #eee; font-size: 12px; user-select: none; }
+body { display: flex; flex-direction: column; }
+#yl-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 10px 6px 6px; }
+#yl-top select, #yl-top input, #yl-top button { font: inherit; height: 24px; box-sizing: border-box; }
+#yl-top input { width: 18em; padding: 0 3px; border: 1px solid rgb(160, 165, 170); background: #fff; }
+#yl-top button { padding: 0 12px; }
+#yl-scroll { flex: 1; min-height: 0; overflow: auto; margin: 0 1px; background: #fff; border: 1px solid rgb(128, 128, 128); }
+#yl-scroll table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; outline: none; }
+#yl-scroll th { position: sticky; top: 0; z-index: 1; height: 18px; padding: 0 4px; font-weight: normal; font-size: 12px; cursor: default;
+  background: rgb(238, 238, 238); border: solid rgb(128, 128, 128); border-width: 0 1px 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#yl-scroll th.asc::after { content: " \25B2"; font-size: 9px; }
+#yl-scroll th.desc::after { content: " \25BC"; font-size: 9px; }
+#yl-scroll td { height: 15px; padding: 0 2px; line-height: 15px; color: #000; background: #fff;
+  border: solid rgb(221, 221, 221); border-width: 0 1px 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+#yl-scroll tr.selected td { background: rgb(184, 207, 229); }
+#yl-bottom { padding: 4px 10px 6px; }
+#yl-status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 16px; line-height: 16px; }

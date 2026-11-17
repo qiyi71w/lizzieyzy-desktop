@@ -9,7 +9,7 @@ import { buildBottomBar, layoutBottomBar } from "./chrome/bottombar";
 import { buildMenubar, menuOpen, secondaryMenuTitle } from "./chrome/menubar";
 import { buildToolbar, renderToolbar } from "./chrome/toolbar";
 import { onUnavailable, onView, snapshot } from "./contract/client";
-import type { BoardOverlayView, HistoryPoint, Navigation, NodeAnalysisView, Point, SubBoardMode, WorkbenchView } from "./contract/generated";
+import type { BoardOverlayView, FloatSceneView, HistoryPoint, Navigation, NodeAnalysisView, Point, SubBoardMode, WorkbenchView } from "./contract/generated";
 import { dialogOpen, message } from "./dialogs";
 import { format, isChinese, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
@@ -40,6 +40,11 @@ import { frameReport, framesReport, handleTableKey, relayFrame, startFrame } fro
 import { handleHawkeyeKey, hawkeyeReport, relayHawkeye, startHawkeye } from "./hawkeye/commands";
 import { commentaryReport, relayCommentary, renderCommentPanel, startCommentary } from "./commentary/commands";
 import { batchReport, handleBatchKey, startBatchTable } from "./batch/commands";
+import { contributionReport } from "./contribution/window";
+import { foxKifuReport, startFoxKifu } from "./foxkifu/commands";
+import { startTencentKifu, tencentKifuReport } from "./tencentkifu/commands";
+import { handleOnlineKey, onlineReport, startOnline } from "./online/commands";
+import { onlineDialogReport } from "./online/dialog";
 import { bindCommentEditor, commentEditing } from "./editing/comment";
 import { contextMenuItems, contextMenuOpen } from "./editing/contextMenu";
 import { bindBoardInput, handleEditKey, pressBoard, releaseBoard } from "./editing/input";
@@ -50,6 +55,8 @@ import { startAutoSave } from "./recovery/commands";
 import { clockText, handleGameKey } from "./game/commands";
 import { handleMatchKey } from "./match/commands";
 import { handleTsumegoKey } from "./tsumego/commands";
+import { handleReadBoardKey } from "./readboard/commands";
+import { floatBoardReport, startFloatBoard } from "./readboard/floatBoard";
 import { recoveryReport } from "./recovery/panel";
 import { bindProblemPanel, problemsReport, renderProblemPanel } from "./quick/problems";
 import "./quick/analysisSettings";
@@ -59,6 +66,7 @@ import { bindFunctionSearch, functionSearchReport } from "./search/controller";
 import { strengthReport } from "./strength/dashboard";
 import { appearanceRevision, onAppearanceChange, startAppearance } from "./appearance/state";
 import "./appearance/commands";
+import "./webBoard";
 import { humanSlDisplay } from "./humansl/state";
 import {
   aiScoreText,
@@ -77,6 +85,7 @@ import {
   ARROW,
   SCROLLBAR,
   type BoardReport,
+  type OwnershipLayer,
   type BoardScene,
   type PreviewVariation,
   type StatReport,
@@ -220,8 +229,8 @@ function hoverNear(v: WorkbenchView, near: (p: Point) => boolean) {
 }
 
 /** Points ("x,y") of the candidates the core keeps beyond 最大候选点数 (MoveData.lastTimeUnlimited). */
-function keptPoints(v: WorkbenchView | null): Set<string> {
-  return new Set((v?.analysis?.candidates ?? []).flatMap((c) => (c.kept && c.point ? [`${c.point.x},${c.point.y}`] : [])));
+function keptPoints(analysis: NodeAnalysisView | null): Set<string> {
+  return new Set((analysis?.candidates ?? []).flatMap((c) => (c.kept && c.point ? [`${c.point.x},${c.point.y}`] : [])));
 }
 
 /** Cache line navigation only when the tree/position changes, not on engine frames. */
@@ -461,7 +470,7 @@ document.addEventListener("keydown", (e) => {
   if (appMenuKey(e) || dialogOpen() || flashWindowOpen() || menuOpen() || contextMenuOpen() || textTarget(e.target)) return;
   // The 存档与读档 controls keep their keys, like the Swing components holding the focus there.
   if (e.target instanceof Element && e.target.closest("#recovery")) return;
-  if (handleLayoutKey(e) || handlePanelKey(e) || handleEngineKey(e) || handleEditKey(e) || handleMatchKey(e) || handleTsumegoKey(e) || handleGameKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e)) {
+  if (handleLayoutKey(e) || handlePanelKey(e) || handleReadBoardKey(e) || handleEngineKey(e) || handleEditKey(e) || handleMatchKey(e) || handleTsumegoKey(e) || handleGameKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e) || handleOnlineKey(e)) {
     e.preventDefault();
     return;
   }
@@ -877,12 +886,16 @@ async function installBackground(size: string, w: number, h: number, glass: Rect
 
 /** LizzieFrame.drawPonderingState: only ambient status depends on active pondering. An engine left
  *  unrestored after a borrow shows its cause and the way back instead (loadingStatusLines,
- *  java:7871-7890); a retrying quick analysis replaces the shortcut hint (drawCommandString). */
+ *  java:7871-7890); a foreground engine still starting shows 引擎正在加载中 and one that failed
+ *  引擎未成功加载 (loadingTextResourceKey, 7894-7915); a retrying quick analysis replaces the
+ *  shortcut hint (drawCommandString). While 野狐 AI 直连 history is browsed, its two lines say so
+ *  and how to get back (java:8253-8256). */
 function statusLines(): string[] {
   const v = state.view;
   const hint = notice && notice.until > performance.now()
     ? notice.text
     : v?.quick.retrying ? t("LizzieFrame.quickAnalysis.retrying") : t("LizzieFrame.prompt.showControlsHint");
+  if (v?.fox.browsing) return [t(v.fox.browsing_status_key), t("Fox.returnLive"), hint];
   const unrestored = v?.engine.unrestored;
   if (unrestored) {
     const reason = unrestored === "Stop" ? t("LizzieFrame.foregroundUnrestored.reason.stop") : t("LizzieFrame.foregroundUnrestored.reason.restore");
@@ -892,11 +905,88 @@ function statusLines(): string[] {
       hint,
     ];
   }
+  if (v?.engine.down) return [t("LizzieFrame.display.down"), hint];
+  const fg = v?.engine.foreground;
+  if (fg && v?.engine.engines[fg.index]?.state === "Loading") return [t("LizzieFrame.display.loading"), hint];
+  // LizzieFrame.statusEngineName: a cloud engine shows only its provider (compactDisplayNameForCommand).
+  const cloud = fg ? v?.settings.engine.engines[fg.index]?.cloud?.provider : undefined;
   return [
-    v?.engine.foreground?.name ?? t("LizzieFrame.noEngineText"),
+    // weightText: 跑谱贡献中 while the contribution runs (LizzieFrame.java:7548-7553).
+    v?.contribution?.active
+      ? t("LizzieFrame.weightText.contributing")
+      : cloud === "Zhizi" ? t("RemoteCompute.zhizi") : cloud === "Custom" ? t("RemoteCompute.custom") : fg?.name ?? t("LizzieFrame.noEngineText"),
     `${t("LizzieFrame.display.pondering")} ${v?.engine.analysing ? t("LizzieFrame.display.on") : t("LizzieFrame.display.off")}${t("LizzieFrame.display.space")}`,
     hint,
   ];
+}
+
+/** The main board's scene for the view, with the hovered candidate (already gated by
+ *  hoverAllowed) and its variation; the ReadBoard float board takes it with its own hover and,
+ *  outside its edit mode, `at`: the main line's end the core projects (getCurOrMainEnd), whose
+ *  stones, candidates, marks and Kata形势 replace the current position's. */
+function boardScene(v: WorkbenchView, hovered: number | null, preview: PreviewVariation | null, at: FloatSceneView | null = null): BoardScene {
+  const pos = v.position;
+  const { width: cols, height: rows } = v.document.size;
+  const firstChildId = state.nodes.get(pos.node)?.children[0];
+  const firstChild = firstChildId === undefined ? undefined : state.nodes.get(firstChildId);
+  const suppress = humanSlDisplay(v) === "Suppress";
+  const toPlay = at ? at.to_play : pos.to_play;
+  const analysis = at ? at.analysis : v.analysis;
+  const board = at ? at.board : v.board;
+  return {
+    cols,
+    rows,
+    stones: at ? at.stones : pos.stones,
+    lastAction: at ? at.last_action : pos.last_action,
+    toPlay,
+    marks: pos.marks,
+    nextMoves: pos.next_moves,
+    nextMainMove: firstChild && !firstChild.pass && (firstChild.kind === "Black" || firstChild.kind === "White")
+      ? pos.next_moves[0] ?? null : null,
+    nextColor: pos.next_color,
+    black: v.document.info.black,
+    white: v.document.info.white,
+    names: namesUnderBoard(v),
+    snapshot: at ? at.snapshot : pos.snapshot,
+    // The main line's end is on the main trunk.
+    mainTrunk: at ? true : pos.main_trunk,
+    analysis,
+    // isInPlayMode hides the move rank marks (BoardRenderer.moveOverlayOrder).
+    overlay: v.game?.play_mode ? { ...board, ranks: [] } : board,
+    display: v.whole_game.show_results ? { ...v.settings.display, suggestionWinrate: true, suggestionPlayouts: true, suggestionVariations: true } : v.settings.display,
+    suggestionLimit: v.settings.engine.analysis.limitMaxSuggestion,
+    unlimited: keptPoints(analysis),
+    // 纯网络 in a 分析模式 game draws the candidates on the engine's turn (BoardRenderer.java:399-412).
+    candidatesShown: v.whole_game.show_results || candidatesShownFor(toPlay) || (v.game?.kind === "Analysis" && v.game.pure_net && toPlay !== v.game.human),
+    policy: boardUi.policy && !suppress,
+    rawNetOn: v.rawNet !== null && !suppress,
+    // A result for another position is never shown.
+    rawNet: v.rawNet?.node === pos.node && !suppress ? v.rawNet : null,
+    katago: !!v.engine.foreground?.katago,
+    engine: !!v.engine.foreground,
+    hovered,
+    preview,
+    ownership: suppress ? null : at ? endOwnership(v, at, hovered) : mainOwnership(v, hovered),
+    score: v.score,
+    mark: v.problems.mark,
+    region: v.region,
+    selecting: regionDrag(),
+    focus: v.focus,
+    tracking: v.settings.tracking,
+  };
+}
+
+/** mainOwnership for the float board's main-line end (FloatBoardRenderer.drawEstimate): 纯网络's
+ *  and scoring as the main board, else Kata形势 on the main board of that node (its parent's
+ *  until it has its own), the hovered candidate's own with 按选点显示评估. */
+function endOwnership(v: WorkbenchView, at: FloatSceneView, hovered: number | null): OwnershipLayer | null {
+  if (v.score || v.rawNet) return mainOwnership(v, null);
+  const k = v.kata_estimate;
+  if (!k.state.shown || !k.state.onMain) return null;
+  const style = v.settings.display.kataEstimateStyle;
+  const candidate = hovered !== null && hovered >= 0 ? at.analysis?.candidates.find((c) => c.order === hovered) : undefined;
+  if (v.settings.display.useMovesOwnership && candidate?.ownership) return { ownership: candidate.ownership, style, source: "candidate" };
+  return at.ownership ? { ownership: at.ownership, style, source: "estimate" } : null;
 }
 
 function render() {
@@ -946,52 +1036,10 @@ function render() {
   }
   placeHandles(P.handles);
 
-  const firstChildId = state.nodes.get(pos.node)?.children[0];
-  const firstChild = firstChildId === undefined ? undefined : state.nodes.get(firstChildId);
   // AI 陪练's 实战后复盘 (applyTrainingModeVisualState): no candidates, winrate in the suggestions,
   // Kata形势, policy or heat map for the game; the committed display settings stay as they are.
   const training = humanSlDisplay(v);
-  const suppress = training === "Suppress";
-  const scene: BoardScene = {
-    cols,
-    rows,
-    stones: pos.stones,
-    lastAction: pos.last_action,
-    toPlay: pos.to_play,
-    marks: pos.marks,
-    nextMoves: pos.next_moves,
-    nextMainMove: firstChild && !firstChild.pass && (firstChild.kind === "Black" || firstChild.kind === "White")
-      ? pos.next_moves[0] ?? null : null,
-    nextColor: pos.next_color,
-    black: v.document.info.black,
-    white: v.document.info.white,
-    names: namesUnderBoard(v),
-    snapshot: pos.snapshot,
-    mainTrunk: pos.main_trunk,
-    analysis: v.analysis,
-    // isInPlayMode hides the move rank marks (BoardRenderer.moveOverlayOrder).
-    overlay: v.game?.play_mode ? { ...v.board, ranks: [] } : v.board,
-    display: v.whole_game.show_results ? { ...v.settings.display, suggestionWinrate: true, suggestionPlayouts: true, suggestionVariations: true } : v.settings.display,
-    suggestionLimit: v.settings.engine.analysis.limitMaxSuggestion,
-    unlimited: keptPoints(v),
-    // 纯网络 in a 分析模式 game draws the candidates on the engine's turn (BoardRenderer.java:399-412).
-    candidatesShown: v.whole_game.show_results || candidatesShownFor(pos.to_play) || (v.game?.kind === "Analysis" && v.game.pure_net && pos.to_play !== v.game.human),
-    policy: boardUi.policy && !suppress,
-    rawNetOn: v.rawNet !== null && !suppress,
-    // A result for another position is never shown.
-    rawNet: v.rawNet?.node === pos.node && !suppress ? v.rawNet : null,
-    katago: !!v.engine.foreground?.katago,
-    engine: !!v.engine.foreground,
-    hovered: hoverAllowed(v) ? hoveredCandidate : null,
-    preview: hoveredVariation(v)?.preview ?? null,
-    ownership: suppress ? null : mainOwnership(v, hoverAllowed(v) ? hoveredCandidate : null),
-    score: v.score,
-    mark: v.problems.mark,
-    region: v.region,
-    selecting: regionDrag(),
-    focus: v.focus,
-    tracking: v.settings.tracking,
-  };
+  const scene = boardScene(v, hoverAllowed(v) ? hoveredCandidate : null, hoveredVariation(v)?.preview ?? null);
   const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}:${v.game?.id ?? ""}:${v.game?.play_mode ?? ""}:${training ?? ""}`;
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
   const scoreSig = v.score ? JSON.stringify(v.score) : "";
@@ -1309,7 +1357,9 @@ function uiReport() {
     menuOpen: menuOpen(),
     dialogs: [...document.querySelectorAll(".modal-box:not([hidden])")].map((box) => ({
       title: box.querySelector(".modal-title")?.textContent ?? "",
-      body: box.querySelector(".modal-body")?.textContent ?? "",
+      // Form dialogs put their content straight into the box, after the title.
+      body: box.querySelector(".modal-body")?.textContent
+        ?? [...box.children].filter((el) => !el.classList.contains("modal-title")).map((el) => el.textContent ?? "").join(""),
     })),
     status: statusLines(),
     candidateCount: boardReport?.candidates.length ?? 0,
@@ -1392,6 +1442,14 @@ function uiReport() {
     strength: strengthReport(),
     /** AI 解说 (T26): whether its window is open and what it shows, settings dialog included. */
     commentary: commentaryReport(),
+    /** 跑谱贡献 (T36): the KataGo分布式训练 window as drawn, or null when it is closed. */
+    contribution: contributionReport(),
+    /** 野狐棋谱 (T30): what its window last showed. */
+    foxKifu: foxKifuReport(),
+    /** 腾讯棋谱: what its window last showed. */
+    tencentKifu: tencentKifuReport(),
+    /** 弈客直播 / 打开在线链接 (T32): the link dialog, 弈客直播中心 as drawn and the web window's title. */
+    online: { dialog: onlineDialogReport(), ...onlineReport() },
     /** Visible menu, toolbar, bottom-bar and dialog controls with client-area centres, so
      *  automation clicks the real controls. */
     targets: [...document.querySelectorAll<HTMLElement>("[data-key], [data-name], #moveInput, .modal-box button")]
@@ -1428,7 +1486,7 @@ function uiReport() {
       /** The hovered variation is the 下一手 详细 one (actual move + next position's best PV). */
       nextMovePreview: boardReport?.preview?.order === -1,
       /** Candidates kept beyond 最大候选点数 by lastTimeUnlimited ("x,y"). */
-      keptBeyondLimit: [...keptPoints(state.view)],
+      keptBeyondLimit: [...keptPoints(state.view?.analysis ?? null)],
       tree: { numbers: state.view?.settings.display.treeMoveNumbers ?? false, drawn: treeNumbersDrawn },
       autoplay: autoplayReport(),
     },
@@ -1464,6 +1522,7 @@ function uiReport() {
       return {
         mode,
         independent: independentReport(),
+        readboardFloat: floatBoardReport(),
         floatSub: { candidateIndex: floatSub.candidate, length: floatSub.length, over: floatSub.over },
         rawBoard: s && mode === "Thinking" ? { rect: client(s.aux), drawn: rawReport } : null,
         quads: s && mode === "FourSub" ? quads.map((q, k) => ({ rect: client(s.quadrants[k]), candidateIndex: q.candidate, length: q.length, drawn: q.report })) : null,
@@ -1556,7 +1615,11 @@ async function boot() {
   await startHawkeye(schedule);
   await startCommentary();
   await startIndependent(independentInput, schedule);
+  await startFloatBoard(boardScene);
   await startBatchTable();
+  await startFoxKifu();
+  await startTencentKifu();
+  await startOnline();
   await getCurrentWindow().show();
   await getCurrentWindow().setFocus();
   schedule();

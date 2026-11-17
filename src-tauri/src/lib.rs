@@ -5,16 +5,30 @@
 mod acceptance;
 mod appearance;
 mod commentary;
+mod cloud;
+mod cloud_dispatch;
+mod cloud_import;
+mod contribution;
 mod diagnostics;
+mod floatboard;
+mod fox_kifu;
 mod independent;
+mod kifu_web;
 mod logging;
 mod matches;
+mod online;
 mod output;
+mod readboard;
 mod resources;
 mod screen;
+mod secrets;
+mod ssh;
 mod startup;
+mod tencent_kifu;
 mod tsumego_capture;
 mod tuning;
+mod web_board;
+mod yike_browser;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -23,8 +37,8 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use lizzie_core::api::{
-    ApiError, BatchCommand, BatchMode, Command, CommandResult, ConsoleLineView, ErrorKind, LogsStatus, OpenSource,
-    WorkbenchView,
+    ApiError, BatchCommand, BatchMode, Command, CommandResult, ConsoleLineView, ContributionCommand,
+    ErrorKind, LogsStatus, OpenSource, SshCredentialCommand, WebBoardCommand, WorkbenchView,
 };
 use lizzie_core::engine::process::{ProcessLauncher, ProcessWaiter};
 use lizzie_core::formats;
@@ -68,6 +82,8 @@ pub struct Shared {
     refresh: Mutex<(bool, bool, bool)>,
     refresh_cv: Condvar,
     processes: ProcessWaiter,
+    /// 棋盘同步工具 helpers being stopped.
+    helpers: readboard::HelperWaiter,
     /// The one serial writer of record files (Java `SgfSaveQueue`: a single worker thread).
     saves: Mutex<Sender<SaveJob>>,
     /// An exit was requested during a save; close the main window after all writes finish.
@@ -76,6 +92,8 @@ pub struct Shared {
     exit_save: Mutex<output::ExitSave>,
     views: Mutex<ViewSubscription>,
     tables: Mutex<TableLayout>,
+    /// Web 旁观's page and board stream while they run.
+    web_board: web_board::WebBoard,
 }
 
 /// Column widths and the 独立选点列表's bounds as the UI last laid them out; written on exit
@@ -175,10 +193,17 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
     let batch_reads = wb.take_batch_reads();
     let deferred = wb.take_human_sl_deferred();
     let commentary_jobs = wb.take_commentary_jobs();
+    let fox_kifu_jobs = wb.take_fox_kifu_jobs();
+    let tencent_kifu_jobs = wb.take_tencent_kifu_jobs();
+    let online_jobs = wb.take_online_jobs();
     drop(wb);
+    shared.web_board.changed();
     write_logs(shared, logs);
     run_launch_checks(app, checks);
     commentary::spawn_jobs(app, shared, commentary_jobs);
+    fox_kifu::spawn_jobs(app, fox_kifu_jobs);
+    tencent_kifu::spawn_jobs(app, tencent_kifu_jobs);
+    online::run_jobs(app, shared, online_jobs);
     for job in auto_saves {
         if let Err(mpsc::SendError(job)) = shared.saves.lock().unwrap().send(job) {
             finish_save(app, shared, job.ticket, Err("save worker stopped".into()));
@@ -515,6 +540,32 @@ pub async fn dispatch(app: AppHandle, shared: State, command: Command) -> Result
 
 async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<CommandResult, ApiError> {
     match command {
+        Command::CloudAccount { op, owner } => cloud_dispatch::account_scoped(app, shared, op, owner).await,
+        Command::CloudActivate { settings, confirmed } => cloud_dispatch::activate(app, shared, settings, confirmed).await,
+        Command::CloudLocal => {
+            let mut wb = shared.workbench.lock().unwrap();
+            let profile = wb.cloud_local()?;
+            // Read under the commit's lock: every later view shows the switch's outcome.
+            let after = wb.view_seq();
+            drop(wb);
+            publish(&app, &shared);
+            Ok(CommandResult::CloudSwitch { profile, after })
+        }
+        Command::CloudCancel => {
+            let applied = shared.workbench.lock().unwrap().cancel_cloud_start();
+            Ok(changed(&app, &shared, applied))
+        }
+        Command::CloudCancelRequest { owner } => {
+            cloud_dispatch::cancel_request(&app, owner);
+            Ok(CommandResult::Done)
+        }
+        Command::CloudImportQr => cloud_dispatch::import_qr(&app).await,
+        Command::OpenCloudLink { custom } => {
+            let url = if custom { "https://github.com/wimi321/katago-remote-one-click" } else { "http://www.zhizigo.cn/" };
+            app.opener().open_url(url, None::<&str>)
+                .map_err(|_| ApiError::new(ErrorKind::Unavailable, "RemoteCompute.error.browserUnsupported"))?;
+            Ok(CommandResult::Done)
+        }
         Command::ChooseAndOpenRecord => {
             let start_dir = shared.workbench.lock().unwrap().persisted().last_folder.clone();
             let dialog = app.dialog().clone();
@@ -841,44 +892,86 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             preview,
             copy_credentials,
             copy_commentary_key,
+            copy_analysis_ssh_password,
+            copy_cloud_token,
+            copy_cloud_password,
             replace,
             recovery,
         } => {
-            let (commentary_plan, previous_commentary) = {
+            let (commentary_plan, previous_commentary, ssh_passwords) = {
                 let wb = shared.workbench.lock().unwrap();
-                (wb.java_commentary_import(preview), wb.config().commentary.clone())
+                (
+                    wb.java_commentary_import(preview),
+                    wb.config().commentary.clone(),
+                    wb.java_ssh_passwords(preview, &copy_credentials, copy_analysis_ssh_password),
+                )
             };
-            let result = shared.workbench.lock().unwrap().apply_java_import(
-                preview,
-                &copy_credentials,
-                replace,
-                recovery.as_ref(),
-            );
-            let result = match result {
-                Ok(r) => r,
-                Err(e) => {
-                    shared.log.warn(&format!("java import failed: {}", e.message));
-                    return Err(e);
+            // Confirmed SSH passwords are in place before the imported engines start.
+            let ssh_adapter = app.state::<Arc<ssh::Adapter>>().inner().clone();
+            let staged = {
+                let adapter = ssh_adapter.clone();
+                tauri::async_runtime::spawn_blocking(move || adapter.stage_import(ssh_passwords))
+                    .await
+                    .map_err(|_| ApiError::new(ErrorKind::Unavailable, "Java credential import worker stopped."))?
+            };
+            let import_app = app.clone();
+            let import_shared = shared.clone();
+            let result = tauri::async_runtime::spawn_blocking(move || {
+                let plan = import_shared.workbench.lock().unwrap().java_cloud_import(preview);
+                let cloud_staged = cloud_import::stage(&import_app, plan, copy_cloud_token, copy_cloud_password)?;
+                let mut result = {
+                    let mut wb = import_shared.workbench.lock().unwrap();
+                    let previous_authenticated = cloud_staged.as_ref().map(|staged| {
+                        let s = staged.stage.settings();
+                        wb.stage_java_cloud_preferences(preview, s.remember_token, s.remember_password);
+                        wb.set_cloud_authenticated(staged.authenticated())
+                    });
+                    let result = wb.apply_java_import(preview, &copy_credentials, replace, recovery.as_ref());
+                    if !matches!(result, Ok(Ok(_))) {
+                        if let Some(previous) = previous_authenticated { wb.set_cloud_authenticated(previous); }
+                    }
+                    result
+                };
+                if let Some(staged) = cloud_staged {
+                    let adapter = import_app.state::<Arc<cloud::Adapter>>();
+                    match &mut result {
+                        Ok(Ok(report)) => cloud_import::settle(&adapter, staged, true, Some(report))?,
+                        _ => cloud_import::settle(&adapter, staged, false, None)?,
+                    }
                 }
-            };
-            let result = match result {
-                Ok(mut report) => {
-                    let commentary_changed = shared.workbench.lock().unwrap().config().commentary != previous_commentary;
-                    let import_app = app.clone(); let import_shared = shared.clone();
-                    report = tauri::async_runtime::spawn_blocking(move || {
-                        if commentary_changed || commentary_plan.is_some() { commentary::imported_settings(&import_app); }
-                        if copy_commentary_key {
-                            if let Some(plan) = commentary_plan { commentary::copy_java_credential(&import_app, &import_shared, &plan, &mut report); }
+                result
+            }).await.unwrap_or_else(|_| Err(ApiError::new(ErrorKind::Unavailable, "Java cloud import worker stopped.")));
+            let mut report = match result {
+                Ok(Ok(report)) => report,
+                failed => {
+                    let adapter = ssh_adapter.clone();
+                    let _ = tauri::async_runtime::spawn_blocking(move || adapter.unstage_import(staged)).await;
+                    return match failed {
+                        Err(e) => {
+                            shared.log.warn(&format!("java import failed: {}", e.message));
+                            Err(e)
                         }
-                        commentary::push_facts(&import_app, &import_shared);
-                        report
-                    }).await.map_err(|_| ApiError::new(ErrorKind::Unavailable, "Java credential import worker stopped."))?;
-                    CommandResult::JavaImported { report }
+                        Ok(Err(key)) => {
+                            publish(&app, &shared);
+                            Ok(CommandResult::Refused { message_key: key.to_string() })
+                        }
+                        Ok(Ok(_)) => unreachable!(),
+                    };
                 }
-                Err(key) => CommandResult::Refused { message_key: key.to_string() },
             };
+            staged.report(&mut report);
+            let commentary_changed = shared.workbench.lock().unwrap().config().commentary != previous_commentary;
+            let import_app = app.clone(); let import_shared = shared.clone();
+            report = tauri::async_runtime::spawn_blocking(move || {
+                if commentary_changed || commentary_plan.is_some() { commentary::imported_settings(&import_app); }
+                if copy_commentary_key {
+                    if let Some(plan) = commentary_plan { commentary::copy_java_credential(&import_app, &import_shared, &plan, &mut report); }
+                }
+                commentary::push_facts(&import_app, &import_shared);
+                report
+            }).await.map_err(|_| ApiError::new(ErrorKind::Unavailable, "Java credential import worker stopped."))?;
             publish(&app, &shared);
-            Ok(result)
+            Ok(CommandResult::JavaImported { report })
         }
         Command::DismissJavaImportOffer => {
             let done = shared.workbench.lock().unwrap().dismiss_java_import_offer()?;
@@ -888,6 +981,11 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         Command::Tuning { op } => tuning::dispatch(app, shared, op).await,
         Command::Edit { op } => {
             let result = shared.workbench.lock().unwrap().edit(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
+        Command::Fox { op } => {
+            let result = shared.workbench.lock().unwrap().fox(op)?;
             publish(&app, &shared);
             Ok(result)
         }
@@ -906,8 +1004,32 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             publish(&app, &shared);
             Ok(result)
         }
+        Command::ReadBoard { op } => {
+            let (result, install) = {
+                let mut wb = shared.workbench.lock().unwrap();
+                let result = wb.readboard(op)?;
+                (result, wb.take_readboard_install())
+            };
+            if let Some(install) = install {
+                readboard::install_update(app.clone(), shared.clone(), install);
+            }
+            publish(&app, &shared);
+            Ok(result)
+        }
         Command::Strength { op } => {
             let result = shared.workbench.lock().unwrap().strength(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
+        Command::WebBoard { op: WebBoardCommand::Start } => Ok(web_board::start(&app, &shared)),
+        Command::WebBoard { op: WebBoardCommand::Stop } => Ok(web_board::stop(&app, &shared)),
+        Command::WebBoard { op } => {
+            let result = shared.workbench.lock().unwrap().web_board(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
+        Command::Online { op } => {
+            let result = shared.workbench.lock().unwrap().online(op)?;
             publish(&app, &shared);
             Ok(result)
         }
@@ -923,9 +1045,59 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             }
             Ok(result)
         }
+        Command::FoxKifu { op } => {
+            let result = shared.workbench.lock().unwrap().fox_kifu(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
+        Command::TencentKifu { op } => {
+            let result = shared.workbench.lock().unwrap().tencent_kifu(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
         Command::CommentaryConnection { op } => {
             tauri::async_runtime::spawn_blocking(move || commentary::dispatch(&app, &shared, op))
                 .await.map_err(|_| ApiError::new(ErrorKind::Unavailable, "Teacher.error.generic"))?
+        }
+        Command::SshCredential { op: SshCredentialCommand::ChooseKeyFile { title } } => {
+            let dialog = app.dialog().clone();
+            let picked = tauri::async_runtime::spawn_blocking(move || dialog.file().set_title(title).blocking_pick_file())
+                .await
+                .map_err(|e| ApiError::new(ErrorKind::Unavailable, e.to_string()))?;
+            Ok(match picked.and_then(|p| p.into_path().ok()) {
+                Some(path) => CommandResult::FileChosen { path: path.to_string_lossy().into_owned() },
+                None => CommandResult::Unchanged,
+            })
+        }
+        Command::SshCredential { op } => {
+            let adapter = app.state::<Arc<ssh::Adapter>>().inner().clone();
+            tauri::async_runtime::spawn_blocking(move || ssh::dispatch(&adapter, op))
+                .await
+                .map_err(|_| ApiError::new(ErrorKind::Unavailable, "SSH credential worker stopped."))?
+        }
+        Command::Contribution { op: ContributionCommand::ChooseFile { title, .. } } => {
+            let dialog = app.dialog().clone();
+            let picked = tauri::async_runtime::spawn_blocking(move || {
+                dialog.file().set_title(title).blocking_pick_file()
+            })
+            .await
+            .map_err(|e| ApiError::new(ErrorKind::Unavailable, e.to_string()))?;
+            Ok(match picked.and_then(|p| p.into_path().ok()) {
+                Some(path) => CommandResult::FileChosen {
+                    path: path.to_string_lossy().into_owned(),
+                },
+                None => CommandResult::Unchanged,
+            })
+        }
+        Command::Contribution { op } => {
+            let adapter = app.state::<Arc<contribution::Adapter>>().inner().clone();
+            let app = app.clone();
+            let shared = shared.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                contribution::dispatch(&app, &shared, &adapter, op)
+            })
+            .await
+            .map_err(|_| ApiError::new(ErrorKind::Unavailable, "Contribution worker stopped."))?
         }
         Command::SetEditSettings { settings } => {
             let done = shared.workbench.lock().unwrap().set_edit_settings(settings)?;
@@ -1686,6 +1858,12 @@ fn main_list_columns(state: tauri::State<'_, State>) -> Option<Vec<u32>> {
     state.tables.lock().unwrap().main_list.clone()
 }
 
+/// The clipboard's text, empty without one (打开在线链接 prefill, OnlineDialog.java:402-419).
+#[tauri::command]
+fn read_clipboard_text(app: AppHandle) -> String {
+    app.clipboard().read_text().unwrap_or_default()
+}
+
 /// Cocoa's predefined Quit calls terminate: without Tauri's cancellable ExitRequested.
 /// Keep the default native menu, replacing only Quit with the shared exit request.
 #[cfg(target_os = "macos")]
@@ -1731,6 +1909,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(yike_browser::plugin())
         .setup(|app| {
             #[cfg(target_os = "macos")]
             install_macos_quit(app.handle())?;
@@ -1738,6 +1917,12 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             let storage = Storage::in_dirs(&config_dir, &data_dir);
             app.manage(commentary::Adapter::new(app.config().identifier.clone(), &config_dir, &data_dir));
+            let ssh_adapter = ssh::Adapter::new(app.config().identifier.clone(), &config_dir);
+            app.manage(ssh_adapter.clone());
+            app.manage(contribution::Adapter::new(app.config().identifier.clone(), &config_dir));
+            let cloud_adapter = Arc::new(cloud::Adapter::new(app.config().identifier.clone(), &config_dir));
+            app.manage(cloud_adapter.clone());
+            app.manage(cloud_dispatch::Requests::default());
             let log = logging::Log::start(&storage.logs_dir);
             log.info(&format!(
                 "start {} {} on {}/{}",
@@ -1751,6 +1936,25 @@ pub fn run() {
             // after the workbench: the sink looks it up once it is set.
             let cell: Arc<OnceLock<State>> = Arc::new(OnceLock::new());
             let sink_cell = cell.clone();
+            let token_adapter = cloud_adapter.clone();
+            let token_cell = cell.clone();
+            let network_cell = cell.clone();
+            let cloud_connector = lizzie_core::engine::cloud::CloudConnector::new(Arc::new(move |account, args| {
+                if let Some(shared) = token_cell.get() {
+                    let network = shared.workbench.lock().unwrap().config().network.clone();
+                    token_adapter.set_network(&network);
+                }
+                token_adapter.token(account, args)
+                    .map(|t| lizzie_core::engine::cloud::SocketCredentials { socket_url: t.socket_url, token: t.token })
+                    .map_err(|e| lizzie_core::engine::cloud::CloudConnectError {
+                        message: e.to_string(), fatal: !e.retryable,
+                    })
+            })).with_network(Arc::new(move || {
+                network_cell.get().map(|shared| shared.workbench.lock().unwrap().config().network.clone())
+                    .ok_or_else(|| lizzie_core::engine::cloud::CloudConnectError {
+                        message: "Cloud network settings unavailable".into(), fatal: true,
+                    })
+            }));
             let launcher = ProcessLauncher::new(Arc::new(move |instance, input| {
                 let Some(shared) = sink_cell.get() else { return };
                 let mut wb = shared.workbench.lock().unwrap();
@@ -1761,10 +1965,45 @@ pub fn run() {
                 if view || console {
                     shared.request_refresh(view, console);
                 }
-            }));
+            }))
+            .with_ssh(ssh_adapter.connector())
+            .with_cloud(cloud_connector);
             let processes = launcher.waiter();
             let mut workbench = Workbench::new(storage, locale.as_deref(), Box::new(launcher), engine_roots());
+            if let Ok(reply) = cloud_adapter.dispatch(&workbench.config().cloud, &workbench.config().network,
+                lizzie_core::cloud::CloudCommand::State) {
+                workbench.set_cloud_authenticated(reply.state.authenticated);
+            }
             workbench.set_java_import_locations(java_locations());
+            // 棋盘同步工具 is a Windows helper (acceptance builds also host it elsewhere, for
+            // scripted helpers); its output reaches the workbench like engine output, and so
+            // does a stopped helper's exit (a successor waits for it).
+            let helper_cell = cell.clone();
+            let exit_cell = cell.clone();
+            let helper_host = readboard::ProcessHelperHost::new(
+                Arc::new(move |helper, input| {
+                    #[cfg(feature = "acceptance")]
+                    acceptance::wire_input(helper, &input);
+                    let Some(shared) = helper_cell.get() else { return };
+                    if shared.workbench.lock().unwrap().readboard_input(helper, input) {
+                        shared.request_refresh(true, false);
+                    }
+                }),
+                Arc::new(move |helper| {
+                    #[cfg(feature = "acceptance")]
+                    acceptance::wire_exit(helper);
+                    let Some(shared) = exit_cell.get() else { return };
+                    if shared.workbench.lock().unwrap().readboard_exited(helper) {
+                        shared.request_refresh(true, false);
+                    }
+                }),
+            );
+            let helpers = helper_host.waiter();
+            #[cfg(feature = "acceptance")]
+            let helper_host = acceptance::WireHost(helper_host);
+            if cfg!(any(windows, feature = "acceptance")) {
+                workbench.set_readboard_host(Box::new(helper_host), readboard::base_dirs(app.handle()));
+            }
             let placement = workbench.persisted().window;
             let tables = TableLayout::new(workbench.persisted());
             let shared: State = Arc::new(Shared {
@@ -1773,15 +2012,19 @@ pub fn run() {
                 refresh: Mutex::new((false, false, false)),
                 refresh_cv: Condvar::new(),
                 processes,
+                helpers,
                 saves: Mutex::new(spawn_save_lane(app.handle().clone())),
                 close_after_saves: AtomicBool::new(false),
                 exit_save: Mutex::new(output::ExitSave::Idle),
                 views: Mutex::new(ViewSubscription::default()),
                 tables: Mutex::new(tables),
+                web_board: web_board::WebBoard::default(),
             });
             let _ = cell.set(shared.clone());
             app.manage(shared.clone());
             app.manage(tsumego_capture::Capture::default());
+            app.manage(fox_kifu::Adapter::default());
+            app.manage(tencent_kifu::Adapter::default());
             run_refresher(app.handle().clone(), shared.clone());
             shared.workbench.lock().unwrap().start_engines();
             publish(app.handle(), &shared);
@@ -1812,6 +2055,8 @@ pub fn run() {
                     read_record(app.handle(), &shared, ticket, path);
                 }
             }
+            // 启动Lizzie时预加载引擎 after start-up (Lizzie.java:1075-1077).
+            shared.workbench.lock().unwrap().preload_analysis_engine();
 
             #[cfg(feature = "acceptance")]
             acceptance::start(app.handle().clone(), shared.clone());
@@ -1874,7 +2119,24 @@ pub fn run() {
             WindowEvent::CloseRequested { .. } if window.label() == BATCH_WINDOW => {}
             // AI 解说 is a modeless dialog (TeacherDialog DISPOSE_ON_CLOSE): it closes alone; its
             // request is cancelled on Destroyed above.
+            // 野狐棋谱's and 腾讯棋谱's close boxes hide them (a JFrame's HIDE_ON_CLOSE): their
+            // searches stay for the next opening.
+            WindowEvent::CloseRequested { api, .. }
+                if window.label() == fox_kifu::WINDOW || window.label() == tencent_kifu::WINDOW =>
+            {
+                api.prevent_close();
+                let _ = window.hide();
+            }
             WindowEvent::CloseRequested { .. } if window.label() == "commentary" => {}
+            // 棋盘同步工具's float board has no close of its own: the helper shows and hides it,
+            // and Alt+F4 there must not take the main window's exit path.
+            WindowEvent::CloseRequested { api, .. } if window.label() == floatboard::LABEL => api.prevent_close(),
+            // 弈客直播中心 and the 弈客 web window hide (HIDE_ON_CLOSE; BrowserFrame windowClosing
+            // keeps its bounds first).
+            WindowEvent::CloseRequested { api, .. } if yike_browser::hides_on_close(window.label()) => {
+                api.prevent_close();
+                yike_browser::hide(window);
+            }
             WindowEvent::CloseRequested { api, .. } => {
                 let app = window.app_handle();
                 let shared = app.state::<State>();
@@ -1883,11 +2145,12 @@ pub fn run() {
                 } else {
                     // Java exits with the main window; the tool windows must not keep the
                     // application running.
-                    for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW, HAWKEYE_WINDOW, HAWKEYE_SUB_WINDOW, BATCH_WINDOW, independent::MAIN, independent::SUB] {
+                    for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW, HAWKEYE_WINDOW, HAWKEYE_SUB_WINDOW, BATCH_WINDOW, fox_kifu::WINDOW, tencent_kifu::WINDOW, independent::MAIN, independent::SUB, floatboard::LABEL] {
                         if let Some(frame) = app.get_webview_window(label) {
                             let _ = frame.destroy();
                         }
                     }
+                    yike_browser::destroy(app);
                 }
             }
             WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
@@ -1927,13 +2190,19 @@ pub fn run() {
                 // their processes, so none is left behind.
                 let shared = app.state::<State>().inner().clone();
                 shared.workbench.lock().unwrap().shutdown_strength();
+                // Only this run's own helper is asked to quit and stopped; the target window is
+                // left as it is.
+                shared.workbench.lock().unwrap().readboard_shutdown();
                 shared.workbench.lock().unwrap().end_engines();
+                web_board::stop(app, &shared);
                 shared.workbench.lock().unwrap().stop_benchmark();
                 shared.workbench.lock().unwrap().cancel_resource_tasks();
                 commentary::shutdown(app);
                 resources::shutdown();
                 tuning::shutdown();
+                online::shutdown();
                 shared.processes.wait(Duration::from_secs(4));
+                shared.helpers.wait(Duration::from_secs(2));
                 let logs = shared.workbench.lock().unwrap().take_logs();
                 write_logs(&shared, logs);
                 shared.log.info("engines ended");
@@ -1972,14 +2241,26 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         set_main_list_columns,
         set_suggestions_columns,
         main_list_columns,
+        read_clipboard_text,
+        yike_browser::open_yike_live,
+        yike_browser::open_yike_browser,
+        yike_browser::yike_browser_back,
+        yike_browser::yike_browser_navigate,
+        yike_browser::yike_browser_set_title,
         open_hawkeye,
         open_commentary,
+        fox_kifu::open_fox_kifu,
+        fox_kifu::fox_kifu_opened,
+        tencent_kifu::open_tencent_kifu,
+        tencent_kifu::tencent_kifu_opened,
         commentary::commentary_api_key_draft,
         close_hawkeye,
         close_hawkeye_sub,
         set_hawkeye_layout,
         independent::open_independent_board,
         independent::close_independent_board_window,
+        floatboard::show_float_board,
+        floatboard::hide_float_board,
         open_batch_table,
         tsumego_capture::start_tsumego_capture,
         tsumego_capture::tsumego_capture_picture,
@@ -2015,14 +2296,26 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         set_main_list_columns,
         set_suggestions_columns,
         main_list_columns,
+        read_clipboard_text,
+        yike_browser::open_yike_live,
+        yike_browser::open_yike_browser,
+        yike_browser::yike_browser_back,
+        yike_browser::yike_browser_navigate,
+        yike_browser::yike_browser_set_title,
         open_hawkeye,
         open_commentary,
+        fox_kifu::open_fox_kifu,
+        fox_kifu::fox_kifu_opened,
+        tencent_kifu::open_tencent_kifu,
+        tencent_kifu::tencent_kifu_opened,
         commentary::commentary_api_key_draft,
         close_hawkeye,
         close_hawkeye_sub,
         set_hawkeye_layout,
         independent::open_independent_board,
         independent::close_independent_board_window,
+        floatboard::show_float_board,
+        floatboard::hide_float_board,
         open_batch_table,
         tsumego_capture::start_tsumego_capture,
         tsumego_capture::tsumego_capture_picture,

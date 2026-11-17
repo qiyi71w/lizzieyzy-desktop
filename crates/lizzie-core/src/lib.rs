@@ -13,18 +13,27 @@
 //! - [`engine`]: engine settings, GTP protocol, running engine instances and processes.
 //! - [`resources`]: engine resources: trusted catalog, machine detection, recommendation,
 //!   acquisition and verification.
+//! - [`web_board`]: Web 旁观's viewer messages and board stream.
+//! - [`online`]: 在线棋谱 / 弈客直播 sources (link classification, 弈客 REST, live protocols).
 
 pub mod api;
 pub mod appearance;
 pub mod browse;
 pub mod commentary;
+pub mod cloud;
+pub mod contribution;
 pub mod display;
 pub mod engine;
 pub mod formats;
+pub mod fox;
+pub mod fox_kifu;
 pub mod function_search;
 pub mod humansl;
 pub mod java_import;
+pub mod kifu_web;
+pub mod online;
 pub mod play;
+pub mod readboard;
 pub mod record;
 pub mod recovery;
 pub mod resources;
@@ -32,6 +41,8 @@ pub mod sanitize;
 pub mod scoring;
 pub mod settings;
 pub mod strength;
+pub mod tencent_kifu;
 pub mod tsumego;
 pub mod viewpoint;
+pub mod web_board;
 pub mod workbench;

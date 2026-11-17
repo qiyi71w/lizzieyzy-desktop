@@ -26,6 +26,7 @@ use crate::api::{ApiError, FlashAnalysisView, FlashOutcome, FlashTarget};
 use crate::browse::Navigation;
 use crate::engine::kata_analysis::{self, Response};
 use crate::engine::runtime::{EngineFailure, InstanceId, LeaseAvailability, LeaseFailure, RuntimeEvent};
+use crate::engine::ssh::RemoteFailure;
 use crate::record::{GameRecord, NodeId, ROOT};
 use crate::settings::FlashRange;
 
@@ -92,7 +93,9 @@ pub(super) fn reuse_status_key(availability: LeaseAvailability) -> String {
         LeaseAvailability::ExistingLease => "existing_lease",
         LeaseAvailability::EngineStateUnrestored => "engine_state_unrestored",
         LeaseAvailability::PlayMode => "play_mode",
+        LeaseAvailability::ApplicationExclusive => "application_exclusive_mode",
         LeaseAvailability::HumanSlGame => "human_sl_game",
+        LeaseAvailability::ReadBoardGma => "readboard_gma",
     };
     format!("AnalysisSettings.reuseStatus.{name}")
 }
@@ -159,8 +162,9 @@ impl Workbench {
         if !borrow && self.analysis_command_base(false).trim().is_empty() {
             return Ok(Err(ANALYSIS_COMMAND_MISSING.to_string()));
         }
-        // `cancelPendingManualAutoAnalysisForExclusiveTask`.
+        // `cancelPendingManualAutoAnalysisForExclusiveTask`, `prepareForManualFlashAnalysis`.
         self.auto_analysis_cancel_pending();
+        self.warmup_stop();
         self.flash.recent = Some(target);
         self.flash_replace();
         // `MANUAL_FLASH`: an automatic quick analysis hands its engine over.
@@ -245,7 +249,7 @@ impl Workbench {
             let instance = match self.take_analysis_process(&command) {
                 Ok(instance) => instance,
                 Err(message) => {
-                    self.flash_engine_failed(id, &command, true, message, Vec::new());
+                    self.flash_engine_failed(id, &command, true, message, Vec::new(), None);
                     self.sync_engine();
                     return Ok(());
                 }
@@ -253,7 +257,7 @@ impl Workbench {
             let (queries, sent) = self.send_analysis_queries(instance, &nodes, &format!("flash{id}"));
             if !sent {
                 self.engines.terminate(instance);
-                self.flash_engine_failed(id, &command, true, "input closed".into(), Vec::new());
+                self.flash_engine_failed(id, &command, true, "input closed".into(), Vec::new(), None);
                 self.sync_engine();
                 return Ok(());
             }
@@ -374,6 +378,7 @@ impl Workbench {
         during_startup: bool,
         message: String,
         output: Vec<String>,
+        remote: Option<RemoteFailure>,
     ) {
         self.engine_failed(EngineFailure {
             instance: 0,
@@ -383,6 +388,11 @@ impl Workbench {
             during_startup,
             message,
             output,
+            remote,
+            foreground: false,
+            held: false,
+            reserved: false,
+            cloud_recovery: false,
         });
         self.flash.outcome = Some(FlashOutcome::EngineFailed { run });
     }
@@ -581,6 +591,7 @@ impl Workbench {
                 instance,
                 message,
                 output,
+                remote,
             } if process == Some(instance) => {
                 let run = self.flash.run.take().unwrap();
                 // `finishAbortedAnalysis` does not resume the foreground engine.
@@ -588,7 +599,7 @@ impl Workbench {
                     self.paused = true;
                 }
                 if let Engine::Process { command, .. } = &run.engine {
-                    self.flash_engine_failed(run.id, command, false, message, output);
+                    self.flash_engine_failed(run.id, command, false, message, output, remote);
                 }
                 self.sync_engine();
             }

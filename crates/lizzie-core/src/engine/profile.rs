@@ -36,6 +36,23 @@ pub struct EngineProfile {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub gtp_configuration: Option<crate::engine::tuning::GtpConfiguration>,
+    /// 远程引擎 (`useJavaSSH`): the command runs on this SSH host.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub ssh: Option<crate::engine::ssh::SshSettings>,
+    /// Cloud launch parameters selected in the remote compute center; credentials stay in the
+    /// account adapter. The command is only the provider marker, never a bearer token.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cloud: Option<crate::engine::cloud::CloudLaunch>,
+}
+
+impl EngineProfile {
+    /// Runs on an SSH host: its command, model and threads belong to that host
+    /// (`EngineThreadPolicy.isRemoteManaged`).
+    pub fn is_remote(&self) -> bool {
+        self.ssh.is_some() || self.cloud.is_some()
+    }
 }
 
 impl Default for EngineProfile {
@@ -53,6 +70,8 @@ impl Default for EngineProfile {
             managed: None,
             thread_policy: None,
             gtp_configuration: None,
+            ssh: None,
+            cloud: None,
         }
     }
 }
@@ -78,6 +97,9 @@ pub enum EngineStartup {
 pub struct AnalysisSettings {
     /// `analyze-update-interval-centisec` [10].
     pub interval_centisec: u32,
+    /// `analyze-update-interval-centisecssh` [10]: the interval of engines that run over SSH
+    /// (`Leelaz.getInterval`).
+    pub interval_centisec_ssh: u32,
     /// `limit-time` [true] with `max-analyze-time-seconds` [600].
     pub limit_time: bool,
     pub max_analyze_time_seconds: u32,
@@ -92,12 +114,16 @@ pub struct AnalysisSettings {
     pub fast_engine_change: bool,
     /// `show-ponder-limited-tips` [true]: explain once when a limit stops the analysis.
     pub show_ponder_limited_tips: bool,
+    /// `ui.auto-check-engine-alive` [true]: a foreground engine that ends unexpectedly is
+    /// started again and brought back to the current position (`EngineManager.checkEngineAlive`).
+    pub auto_check_engine_alive: bool,
 }
 
 impl Default for AnalysisSettings {
     fn default() -> Self {
         AnalysisSettings {
             interval_centisec: 10,
+            interval_centisec_ssh: 10,
             limit_time: true,
             max_analyze_time_seconds: 600,
             limit_playout: false,
@@ -106,6 +132,7 @@ impl Default for AnalysisSettings {
             limit_branch_length: 15,
             fast_engine_change: true,
             show_ponder_limited_tips: true,
+            auto_check_engine_alive: true,
         }
     }
 }
@@ -122,6 +149,10 @@ pub struct EngineSettings {
     pub kata_rules: String,
     /// `auto-load-kata-rules` [false]: apply `kata_rules` whenever KataGo starts.
     pub auto_load_kata_rules: bool,
+    /// `ui.txt-kata-engine-pda`: last confirmed PDA; Java's empty default is unconfirmed.
+    pub kata_pda: Option<f64>,
+    /// `ui.chk-kata-engine-pda` [false]; confirmed nonzero PDA enables it.
+    pub kata_pda_enabled: bool,
     /// `ui.enable-startup-benchmark` [false on a new profile, Config.applyFirstLaunchDefaults]:
     /// the user opted in to the official benchmark after start-up when the foreground KataGo has
     /// no stored result (Settings > Advanced).

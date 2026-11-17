@@ -1,7 +1,7 @@
 // In-window modal dialogs in the role of Java JOptionPane message / confirm dialogs. While one is
 // open the rest of the window is inert and Tab cycles inside the dialog, so neither the mouse nor
 // the keyboard reaches the workbench, like a Swing modal dialog.
-import { product } from "./i18n";
+import { product, t } from "./i18n";
 
 const host = () => document.getElementById("dialog")!;
 let open = 0;
@@ -10,6 +10,30 @@ let open = 0;
  *  asking about the others does not count itself. */
 export function dialogOpen(except?: HTMLElement): boolean {
   return open - (except && except.parentElement === host() ? 1 : 0) > 0;
+}
+
+let notices = 0;
+
+/** Utils.showMsgNoModalForTime: the Message window, not modal, closed after `seconds`; each
+ *  further one is offset so they stay readable. */
+export function timedMessage(text: string, seconds: number): void {
+  const box = document.createElement("div");
+  box.className = "modal-box timed-notice";
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-label", t("Message.title"));
+  box.dataset.freeWindow = "";
+  box.dataset.name = "timed.notice";
+  box.style.translate = `${(notices % 5) * 16}px ${(notices % 5) * 16}px`;
+  notices++;
+  const title = document.createElement("div");
+  title.className = "modal-title";
+  title.textContent = t("Message.title");
+  const body = document.createElement("div");
+  body.className = "modal-body";
+  body.textContent = text;
+  box.append(title, body);
+  document.body.append(box);
+  window.setTimeout(() => box.remove(), seconds * 1000);
 }
 
 /** A custom modal layer (the function search) under the same modal state as these dialogs: it
@@ -45,14 +69,18 @@ export function ownerIsDisabled(): boolean {
   return ownerDisabled;
 }
 
-interface Button {
+interface Button<T = boolean> {
   label: string;
-  value: boolean;
+  value: T;
   primary?: boolean;
+  /** Automation key (`data-key`). */
+  key?: string;
 }
 
-function show(title: string, body: HTMLElement | string, buttons: Button[], kind: "info" | "warning" | "error"): Promise<boolean> {
-  const { promise, resolve } = Promise.withResolvers<boolean>();
+/** `dismissed` is the answer of Escape (JOptionPane.CLOSED_OPTION's role); Enter outside a button
+ *  chooses the primary button, else the first. */
+function show<T>(title: string, body: HTMLElement | string, buttons: Button<T>[], kind: "info" | "warning" | "error", dismissed: T): Promise<T> {
+  const { promise, resolve } = Promise.withResolvers<T>();
   const previous = document.activeElement as HTMLElement | null;
   const overlay = document.createElement("div");
   overlay.className = "modal";
@@ -70,7 +98,7 @@ function show(title: string, body: HTMLElement | string, buttons: Button[], kind
   else content.append(body);
   const row = document.createElement("div");
   row.className = "modal-buttons";
-  const close = (value: boolean) => {
+  const close = (value: T) => {
     overlay.remove();
     open--;
     host().hidden = open === 0;
@@ -82,13 +110,14 @@ function show(title: string, body: HTMLElement | string, buttons: Button[], kind
     const el = document.createElement("button");
     el.textContent = b.label;
     if (b.primary) el.className = "primary";
+    if (b.key) el.dataset.key = b.key;
     el.onclick = () => close(b.value);
     row.append(el);
   }
   box.addEventListener("keydown", (e) => {
     e.stopPropagation();
-    if (e.key === "Escape") close(false);
-    if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) close(buttons.find((b) => b.primary)?.value ?? true);
+    if (e.key === "Escape") close(dismissed);
+    if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) close((buttons.find((b) => b.primary) ?? buttons[0]).value);
     if (e.key === "Tab") {
       // Focus cycles through the dialog's own controls.
       const items = [...box.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)")];
@@ -120,7 +149,7 @@ function setModal() {
 
 /** JOptionPane.showMessageDialog. */
 export function message(title: string, text: string, kind: "info" | "warning" | "error" = "info"): Promise<void> {
-  return show(title, text, [{ label: product("ok"), value: true, primary: true }], kind).then(() => undefined);
+  return show(title, text, [{ label: product("ok"), value: true, primary: true }], kind, false).then(() => undefined);
 }
 
 /** JOptionPane.showConfirmDialog with OK_CANCEL_OPTION. */
@@ -128,7 +157,7 @@ export function confirm(title: string, text: string, kind: "info" | "warning" = 
   return show(title, text, [
     { label: product("ok"), value: true, primary: true },
     { label: product("cancel"), value: false },
-  ], kind);
+  ], kind, false);
 }
 
 /** JOptionPane with custom content and two options. With `defaultCancel` the second option is
@@ -137,12 +166,19 @@ export function ask(title: string, body: HTMLElement, ok: string, cancel: string
   return show(title, body, [
     { label: ok, value: true, primary: !defaultCancel },
     { label: cancel, value: false, primary: defaultCancel },
-  ], "warning");
+  ], "warning", false);
+}
+
+/** JOptionPane.showOptionDialog: one button per option, `initial` the default option (it has the
+ *  focus and Enter chooses it). Each option is its text and automation key. Resolves to the chosen
+ *  index, or -1 when the dialog is dismissed. */
+export function options(title: string, text: string, choices: [label: string, key: string][], initial: number, kind: "info" | "warning" = "warning"): Promise<number> {
+  return show(title, text, choices.map(([label, key], value) => ({ label, key, value, primary: value === initial })), kind, -1);
 }
 
 /** A dialog with custom content and a close button (diagnostics). */
 export function panel(title: string, body: HTMLElement): Promise<void> {
-  return show(title, body, [{ label: product("close"), value: true, primary: true }], "info").then(() => undefined);
+  return show(title, body, [{ label: product("close"), value: true, primary: true }], "info", false).then(() => undefined);
 }
 
 /** Form dialogs own validation and close timing; Enter inside a form must not discard a draft. */
@@ -196,5 +232,5 @@ export function formPanel(title: string, body: HTMLElement, beforeClose: () => P
 }
 
 export function chooseSave(title: string, text: string, save: string, discard: string): Promise<boolean> {
-  return show(title, text, [{ label: save, value: true, primary: true }, { label: discard, value: false }], "warning");
+  return show(title, text, [{ label: save, value: true, primary: true }, { label: discard, value: false }], "warning", false);
 }

@@ -19,24 +19,33 @@ mod appearance;
 mod auto_analysis;
 mod batch;
 mod commentary;
+mod cloud;
+mod contribution;
 mod editing;
 mod exporting;
 mod flash;
+mod fox;
+mod fox_kifu;
 mod hawkeye;
 mod importing;
 mod information;
 mod humansl;
 mod humansl_model;
 mod strength;
+mod online;
 mod matches;
 mod panels;
 mod play;
 mod quick;
+mod readboard;
 mod recovery;
 mod resources;
+mod restart;
 mod search;
+mod tencent_kifu;
 mod tsumego;
 mod tuning;
+mod web_board;
 mod whole_game;
 
 use std::path::{Path, PathBuf};
@@ -46,6 +55,9 @@ use analysis::AnalysisStore;
 pub use analysis::LogLine;
 pub use editing::{NOT_SQUARE, SETUP_ENGINE_RUNNING, SETUP_MODE_ROOT_ONLY, SETUP_ROOT_ONLY};
 pub use flash::ANALYSIS_COMMAND_MISSING;
+pub use readboard::ReadBoardInstall;
+pub use fox_kifu::FoxKifuJob;
+pub use tencent_kifu::TencentKifuJob;
 pub use importing::{IMPORT_NEEDS_REPLACE, IMPORT_STALE};
 pub use recovery::RecoveryStep;
 pub use resources::{prepare_resource_setup, run_resource_job, ResourceCompletion, ResourceJob};
@@ -58,7 +70,7 @@ use crate::api::{
 use crate::browse::{self, Navigation};
 use crate::engine::runtime::{Engines, InstanceId, Launcher};
 use crate::formats::{self, saved_analysis, ReadError};
-use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, RecordFormat, Stone, ROOT};
+use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, Point, RecordFormat, Stone, ROOT};
 use crate::settings::{
     self, Config, DisplaySettings, ExtraMode, FramePlacement, Language, Persisted, PvVisitsMode, Storage,
     WindowPlacement,
@@ -143,6 +155,8 @@ pub enum OpenOrigin {
         source: OpenSource,
     },
     Clipboard,
+    /// A record downloaded by 野狐棋谱 or 腾讯棋谱 (`loadDownloadedSgfString`): no file of its own.
+    Downloaded(KifuSource),
     /// A 存档与读档 slot (`loadFile(file, fromTemp = true)`): the record gets no file of its own and
     /// the recent list and last folder stay; `name` is the slot file shown in the title.
     Recovery {
@@ -150,6 +164,16 @@ pub enum OpenOrigin {
         name: String,
         position: SlotPosition,
     },
+    /// A record read from an online link (打开在线链接, 弈客直播): no file of its own. A followed
+    /// live game (`follow`) starts at the end of its main line (`syncLiveBoardStat` first sync).
+    Online { follow: bool },
+}
+
+/// The kifu window a downloaded record came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KifuSource {
+    Fox,
+    Tencent,
 }
 
 /// Where browsing starts after a slot is loaded.
@@ -276,10 +300,25 @@ pub struct Workbench {
     hawkeye_session: hawkeye::HawkeyeSession,
     /// 人机对弈 and the bottom toolbar's 自动落子.
     play: play::PlayFlow,
+    fox: fox::FoxFlow,
     matches: matches::MatchFlow,
+    /// Engines that ended unexpectedly and start again (自动检测引擎是否存活).
+    restart: restart::RestartFlow,
     human_sl: humansl::HumanSlFlow,
     strength: strength::StrengthFlow,
+    online: online::OnlineFlow,
     commentary: commentary::CommentaryFlow,
+    /// 跑谱贡献: the KataGo distributed-training session.
+    contribution: contribution::ContributionFlow,
+    cloud_activation: Option<String>,
+    /// Session credential availability; never persisted with cloud settings.
+    cloud_authenticated: bool,
+    /// 棋盘同步工具 and its GMA auto-play.
+    readboard: readboard::ReadBoardState,
+    fox_kifu: fox_kifu::FoxKifuFlow,
+    tencent_kifu: tencent_kifu::TencentKifuFlow,
+    /// Web 旁观's running session and a viewer's 试下.
+    web_board: web_board::WebBoardFlow,
 }
 
 impl Workbench {
@@ -319,7 +358,7 @@ impl Workbench {
         if runtime.is_dir() {
             engines.set_library_dirs(vec![runtime]);
         }
-        engines.set_interval(config.engine.analysis.interval_centisec);
+        engines.set_interval(config.engine.analysis.interval_centisec, config.engine.analysis.interval_centisec_ssh);
         engines.set_pv_visits(config.display.pv_visits != PvVisitsMode::Off);
         let estimate = information::EstimateSession::starting(config.display.kata_estimate);
         engines.set_ownership(estimate.state.shown, config.display.use_moves_ownership);
@@ -397,10 +436,20 @@ impl Workbench {
             problem_mark: None,
             hawkeye_session: hawkeye::HawkeyeSession::default(),
             play: play::PlayFlow::default(),
+            fox: fox::FoxFlow::default(),
             matches: matches::MatchFlow::default(),
+            restart: restart::RestartFlow::default(),
             human_sl: humansl::HumanSlFlow::default(),
             strength: strength::StrengthFlow::default(),
+            online: online::OnlineFlow::default(),
             commentary: commentary::CommentaryFlow::default(),
+            contribution: contribution::ContributionFlow::default(),
+            cloud_activation: None,
+            cloud_authenticated: false,
+            readboard: readboard::ReadBoardState::default(),
+            fox_kifu: fox_kifu::FoxKifuFlow::default(),
+            tencent_kifu: tencent_kifu::TencentKifuFlow::default(),
+            web_board: web_board::WebBoardFlow::default(),
         }
     }
 
@@ -461,13 +510,44 @@ impl Workbench {
     pub fn begin_open(&mut self, origin: OpenOrigin) -> u64 {
         let ticket = self.next_ticket;
         self.next_ticket += 1;
-        self.pending = Some(Pending { ticket, origin });
+        // A read still waiting is replaced; a kifu download that started it ends unopened.
+        if let Some(replaced) = self.pending.replace(Pending { ticket, origin }) {
+            self.download_open_ended(&replaced.origin, replaced.ticket, false);
+        }
         ticket
     }
 
     /// Whether `ticket` is still the request the user is waiting for.
     pub fn is_current_open(&self, ticket: u64) -> bool {
         self.pending.as_ref().is_some_and(|p| p.ticket == ticket)
+    }
+
+    /// Ends an open request whose source produced no record (a failed kifu download, reported by
+    /// its own window): nothing is published and the current document stays.
+    fn abandon_open(&mut self, ticket: u64) {
+        if let Some(abandoned) = self.pending.take_if(|p| p.ticket == ticket) {
+            self.download_open_ended(&abandoned.origin, ticket, false);
+            // A preload waiting for this read decides now.
+            self.warmup_review();
+        }
+    }
+
+    /// Tells the kifu window whose download started an open request that it ended (`adopted`:
+    /// the record became the document).
+    fn download_open_ended(&mut self, origin: &OpenOrigin, ticket: u64, adopted: bool) {
+        match origin {
+            OpenOrigin::Downloaded(KifuSource::Fox) => self.fox_kifu_open_ended(ticket, adopted),
+            OpenOrigin::Downloaded(KifuSource::Tencent) => self.tencent_kifu_open_ended(ticket, adopted),
+            _ => {}
+        }
+    }
+
+    /// Withdraws the open `ticket`, a read waiting for a borrowed engine included: it is never
+    /// adopted.
+    pub(super) fn withdraw_open(&mut self, ticket: u64) {
+        if self.pending.take_if(|p| p.ticket == ticket).is_some() {
+            self.quick_drop_deferred_open(ticket);
+        }
     }
 
     /// Hands back a finished read. Returns `false` (and changes nothing) for a superseded ticket.
@@ -480,21 +560,23 @@ impl Workbench {
             Err(e) => {
                 let message_key = match pending.origin {
                     OpenOrigin::File { .. } | OpenOrigin::Recovery { .. } => FAILED_TO_OPEN_FILE,
-                    OpenOrigin::Clipboard => KIFU_LOAD_FAILED,
+                    OpenOrigin::Clipboard | OpenOrigin::Downloaded(_) | OpenOrigin::Online { .. } => KIFU_LOAD_FAILED,
                 };
                 self.outcome = Some(OpenOutcome::Failed {
                     ticket,
                     message_key: message_key.to_string(),
                     detail: e.to_string(),
                 });
+                self.online_open_failed(ticket);
             }
-            Ok(_) if self.game_active() || self.match_active() => {
+            Ok(_) if self.game_active() || self.match_active() || self.fox_owns_board() => {
                 // A read started before the game began is not adopted into it.
                 self.outcome = Some(OpenOutcome::Failed {
                     ticket,
                     message_key: play::OPEN_IN_GAME.to_string(),
                     detail: String::new(),
                 });
+                self.online_open_failed(ticket);
             }
             Ok(read) => {
                 self.auto_analysis_document_replaced();
@@ -504,9 +586,13 @@ impl Workbench {
                     return true;
                 };
                 // Java applies a record komi when automatic loading is on or the game starts
-                // from setup/handicap; otherwise the session komi stays (`resetAllNoKomi`).
-                let use_record_komi =
-                    record.komi_declared && (self.config.record.read_komi || record.has_setup_or_handicap);
+                // from setup/handicap; otherwise the session komi stays (`resetAllNoKomi`). A
+                // 腾讯棋谱 record is read with automatic loading off (its KM is komi × 100).
+                let read_komi = match pending.origin {
+                    OpenOrigin::Downloaded(KifuSource::Tencent) => false,
+                    _ => self.config.record.read_komi,
+                };
+                let use_record_komi = record.komi_declared && (read_komi || record.has_setup_or_handicap);
                 if use_record_komi {
                     self.komi = record.info.komi;
                 } else {
@@ -521,12 +607,13 @@ impl Workbench {
                         SlotPosition::Path(path) => crate::recovery::follow(&record, path),
                         SlotPosition::LineEnd => browse::navigate(&record, ROOT, Navigation::Last),
                     },
+                    OpenOrigin::Online { follow: true } => browse::navigate(&record, ROOT, Navigation::Last),
                     _ if self.config.record.load_sgf_last => browse::navigate(&record, ROOT, Navigation::Last),
                     _ => ROOT,
                 };
                 let (path, origin_name) = match &pending.origin {
                     OpenOrigin::File { path, .. } => (Some(path.clone()), None),
-                    OpenOrigin::Clipboard => (None, None),
+                    OpenOrigin::Clipboard | OpenOrigin::Downloaded(_) | OpenOrigin::Online { .. } => (None, None),
                     OpenOrigin::Recovery { name, .. } => (None, Some(name.clone())),
                 };
                 if let OpenOrigin::File {
@@ -556,6 +643,7 @@ impl Workbench {
                 };
                 // Loading is silent (Java turns sound off while it builds the history).
                 self.sounds.clear();
+                self.readboard_history_overwritten();
                 self.reset_analysis();
                 let (settings, no_circle) = (&self.config.engine.analysis, self.config.display.no_sugg_circle);
                 self.store
@@ -586,8 +674,13 @@ impl Workbench {
                 self.publish_record_rules(declared.as_deref());
                 self.sync_engine();
                 self.quick_after_load();
+                self.online_adopted(ticket);
             }
         }
+        let adopted = matches!(self.outcome, Some(OpenOutcome::Adopted { ticket: t, .. }) if t == ticket);
+        self.download_open_ended(&pending.origin, ticket, adopted);
+        // A preload waiting for this read decides now (also after a failed read).
+        self.warmup_review();
         true
     }
 
@@ -664,7 +757,11 @@ impl Workbench {
             return false;
         };
         let save = self.saves.remove(at);
-        if self.batch_save_finished(ticket, &result) || self.play_save_finished(ticket, &result) || self.match_save_finished(ticket, &result) {
+        if self.batch_save_finished(ticket, &result)
+            || self.play_save_finished(ticket, &result)
+            || self.match_save_finished(ticket, &result)
+            || self.contribution_save_finished(ticket, &result)
+        {
             return true;
         }
         let automatic = self.auto_analysis_save_finished(ticket, result.is_ok());
@@ -732,7 +829,7 @@ impl Workbench {
         let from = rec.path_to(self.cursor);
         let to = rec.path_to(target);
         let shared = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
-        self.sounds = if self.config.ui.play_sound {
+        self.sounds = if self.sounds_on() {
             to[shared..].iter().map(|&n| step_sound(rec, n)).collect()
         } else {
             Vec::new()
@@ -744,31 +841,46 @@ impl Workbench {
         true
     }
 
+    /// Stone sounds play (`ui.play-sound`), except while the board is synced with
+    /// 同步时不播放落子声 on (`Utils.playVoiceFile`).
+    fn sounds_on(&self) -> bool {
+        self.config.ui.play_sound && !(self.config.read_board.no_sound_in_sync && self.readboard_syncing())
+    }
+
     pub fn navigate(&mut self, nav: Navigation) -> bool {
-        if self.match_active() { return false; }
+        if self.match_active() || !self.fox_can_browse() { return false; }
         let target = browse::navigate(&self.doc.record, self.cursor, nav);
-        self.move_to(target)
+        self.browse_to(target)
     }
 
     pub fn goto_node(&mut self, node: NodeId) -> Result<bool, ApiError> {
-        if self.match_active() { return Ok(false); }
+        if self.match_active() || !self.fox_can_browse() { return Ok(false); }
         if !browse::is_browsable(&self.doc.record, node) {
             return Err(ApiError::new(
                 ErrorKind::InvalidArgument,
                 format!("no node {node} in this document"),
             ));
         }
-        Ok(self.move_to(node))
+        Ok(self.browse_to(node))
     }
 
     /// A number of 0 is ignored like Java's empty/invalid move field.
     pub fn goto_move_number(&mut self, number: u32) -> bool {
-        if self.match_active() { return false; }
+        if self.match_active() || !self.fox_can_browse() { return false; }
         if number == 0 {
             return false;
         }
         let target = browse::goto_move_number(&self.doc.record, self.cursor, number);
-        self.move_to(target)
+        self.browse_to(target)
+    }
+
+    /// The user moves the view (a synced board then no longer resumes analysis by itself).
+    fn browse_to(&mut self, target: NodeId) -> bool {
+        let moved = self.move_to(target);
+        if moved {
+            self.readboard_navigated();
+        }
+        moved
     }
 
     // ---------------------------------------------------------------- settings and data
@@ -854,13 +966,16 @@ impl Workbench {
     }
 
     /// Help > "清除所有个人数据": the personal data this product stores so far is the recent
-    /// record list. (Java removed a mistyped `recent-files` key and left the list in place; the
-    /// list is actually cleared here.)
+    /// record list and 野狐棋谱's 近期搜索 (`fox-recent-searches`). (Java removed a mistyped
+    /// `recent-files` key and left the record list in place; the list is actually cleared here.)
     pub fn clear_personal_data(&mut self) -> Result<bool, ApiError> {
-        if self.config.recent_files.is_empty() {
+        if self.config.recent_files.is_empty() && self.config.fox_kifu.recent.is_empty() {
             return Ok(false);
         }
-        self.commit_config(|c| c.recent_files.clear())?;
+        self.commit_config(|c| {
+            c.recent_files.clear();
+            c.fox_kifu.recent.clear();
+        })?;
         Ok(true)
     }
 
@@ -915,6 +1030,11 @@ impl Workbench {
         self.save_persisted()
     }
 
+    /// `seq` of the last built view: a view with a greater `seq` is built after this call.
+    pub fn view_seq(&self) -> u64 {
+        self.seq
+    }
+
     // ---------------------------------------------------------------- projection
 
     /// Builds the next view for the UI. `full` always includes the tree (initial load, reload);
@@ -946,8 +1066,10 @@ impl Workbench {
         (v.game_outcome, v.game_notices, v.byoyomi_voices) = self.take_play_outcome();
         (v.match_outcome, v.match_notices, v.match_winrate_image) = self.take_match_outcome();
         v.human_sl_notices = self.take_human_sl_notices();
+        v.contribution_notices = self.take_contribution_notices();
         v.human_sl_continuation = self.take_human_sl_continuation();
         v.commentary.restore_question = self.take_commentary_restore();
+        v.readboard.notices = self.take_readboard_notices();
         v
     }
 
@@ -970,6 +1092,7 @@ impl Workbench {
         (v.game_outcome, v.game_notices, v.byoyomi_voices) = self.play_outcome_copy();
         (v.match_outcome, v.match_notices, v.match_winrate_image) = self.match_outcome_copy();
         v.human_sl_notices = self.human_sl_notices();
+        v.contribution_notices = self.contribution_notices();
         v.human_sl_continuation = self.human_sl_continuation();
         v
     }
@@ -986,13 +1109,14 @@ impl Workbench {
                 ticket: p.ticket,
                 path: match &p.origin {
                     OpenOrigin::File { path, .. } | OpenOrigin::Recovery { path, .. } => Some(path.clone()),
-                    OpenOrigin::Clipboard => None,
+                    OpenOrigin::Clipboard | OpenOrigin::Downloaded(_) | OpenOrigin::Online { .. } => None,
                 },
             }),
             open_outcome: None,
             save_outcome: None,
             sounds: Vec::new(),
             settings: SettingsView {
+                cloud: self.config.cloud.clone(),
                 language: self.config.ui.language,
                 active_language: self.active_language,
                 restart_required: self.config.ui.language.resolve(self.system_locale.as_deref()) != self.active_language
@@ -1034,10 +1158,12 @@ impl Workbench {
                 },
                 matches: self.match_settings_view(),
                 tsumego: self.config.tsumego,
+                contribution: self.config.contribution.clone(),
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
             engine: self.engine_view(),
+            fox: self.fox_view(),
             quick: self.quick_view(),
             flash: self.flash_view(),
             auto_analysis: self.auto_analysis_view(),
@@ -1066,6 +1192,7 @@ impl Workbench {
             tuning: None,
             editing: self.editing_view(),
             recovery: self.recovery_view(),
+            readboard: self.readboard_view(),
             game: self.play_view(),
             game_outcome: None,
             game_notices: Vec::new(),
@@ -1075,8 +1202,14 @@ impl Workbench {
             match_winrate_image: None,
             human_sl: self.human_sl_view(),
             strength: self.strength_view(),
+            online: self.online_view(),
             commentary: self.commentary_view(),
+            fox_kifu: self.fox_kifu_view(),
+            tencent_kifu: self.tencent_kifu_view(),
+            web_board: self.web_board_view(),
             human_sl_notices: Vec::new(),
+            contribution: self.contribution_view(),
+            contribution_notices: Vec::new(),
             human_sl_continuation: None,
             byoyomi_voices: Vec::new(),
         }
@@ -1117,14 +1250,7 @@ impl Workbench {
         let rec = &self.doc.record;
         let node = rec.node(self.cursor);
         let pos = rec.position(self.cursor);
-        let last_action = match node.kind {
-            NodeKind::Move { color, point } => Some(LastAction {
-                color,
-                point: Some(point),
-            }),
-            NodeKind::Pass { color } => Some(LastAction { color, point: None }),
-            NodeKind::Snapshot | NodeKind::DummyPass => None,
-        };
+        let last_action = last_action(node.kind);
         PositionView {
             document: self.doc.id,
             node: self.cursor,
@@ -1142,20 +1268,38 @@ impl Workbench {
             path: rec.path_to(self.cursor),
             line_end: browse::navigate(rec, self.cursor, Navigation::Last),
             main_trunk: rec.is_main_trunk(self.cursor),
-            next_moves: node
-                .children
-                .iter()
-                .filter_map(|&c| match rec.node(c).kind {
-                    NodeKind::Move { point, .. } => Some(point),
-                    _ => None,
-                })
-                .collect(),
+            next_moves: next_moves(rec, self.cursor),
             next_color: node.children.iter().find_map(|&c| match rec.node(c).kind {
                 NodeKind::Move { color, .. } => Some(color),
                 _ => None,
             }),
         }
     }
+}
+
+/// The stone or pass that leads to a node of `kind`.
+fn last_action(kind: NodeKind) -> Option<LastAction> {
+    match kind {
+        NodeKind::Move { color, point } => Some(LastAction {
+            color,
+            point: Some(point),
+        }),
+        NodeKind::Pass { color } => Some(LastAction { color, point: None }),
+        NodeKind::Snapshot | NodeKind::DummyPass => None,
+    }
+}
+
+/// Points of `node`'s move children, first child first (Java `drawNextMoves`: passes and dummies
+/// are not shown).
+fn next_moves(rec: &GameRecord, node: NodeId) -> Vec<Point> {
+    rec.node(node)
+        .children
+        .iter()
+        .filter_map(|&c| match rec.node(c).kind {
+            NodeKind::Move { point, .. } => Some(point),
+            _ => None,
+        })
+        .collect()
 }
 
 /// `Utils.playVoiceFile(node)`: compares the captures at `node` with its parent's.

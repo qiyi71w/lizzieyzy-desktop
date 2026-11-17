@@ -17,6 +17,9 @@ fancy-regex = "0.16"
 unicode-normalization = "0.1"
 unicode-general-category = "1"
 sha2 = "0.10"
+# 弈客 request signing (`YikeApiClient.buildHeaders`: SHA-1 CheckSum, MD5 accesstoken).
+sha1 = "0.10"
+md-5 = "0.10"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = "1"
 # Image export formats of Java's chooser (PNG, JPG, GIF, BMP) and Java BMP thumbnails.
@@ -24,6 +27,14 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 base64 = "0.22"
 # Local wall-clock times of recovery slots (Java `yyyy-MM-dd HH:mm:ss`).
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+russh = { version = "0.65", default-features = false, features = ["ring", "rsa"] }
+tokio = { version = "1", features = ["rt", "net", "time", "sync", "macros", "io-util"] }
+aes = "0.9"
+cbc = "0.2"
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+futures-util = { version = "0.3", features = ["sink"] }
+url = "2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "system-proxy"] }
 
 [dev-dependencies]
 tempfile = "3"

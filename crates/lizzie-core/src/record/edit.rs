@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::{
-    DocumentEdit, GameInfo, GameRecord, Mark, MarkKind, NodeId, NodeKind, Point, Position, Property, Setup, Stone,
-    ROOT,
+    DocumentEdit, GameInfo, GameRecord, Mark, MarkKind, NodeId, NodeKind, Point, Position, Property, RootCarry, Setup,
+    Stone, ROOT,
 };
 
 /// What the rules allow when a stone is placed.
@@ -242,6 +242,22 @@ impl GameRecord {
                 known(self, *at)?;
                 Ok(self.add_branch(*at, moves, *rules))
             }
+            DocumentEdit::EndPlaceholder { at, present } => {
+                known(self, *at)?;
+                let children = self.node(*at).children.clone();
+                let changed = match (*present, &children[..]) {
+                    (true, []) => {
+                        self.push_child(*at, NodeKind::DummyPass);
+                        true
+                    }
+                    (false, &[only]) if self.is_end_dummy(only) => {
+                        self.detach(only);
+                        true
+                    }
+                    _ => false,
+                };
+                Ok(Applied { changed, content: false, node: None })
+            }
             DocumentEdit::Insert {
                 at,
                 color,
@@ -299,6 +315,7 @@ impl GameRecord {
                     return Ok(Applied::unchanged(None));
                 }
                 root.setup = Setup::default();
+                self.root_carry.move_numbers.clear();
                 self.restamp_position(ROOT);
                 Ok(Applied::content(None))
             }
@@ -311,6 +328,34 @@ impl GameRecord {
                 Ok(self.convert_to_start(*node))
             }
             DocumentEdit::ReplaceWithPosition { stones, to_play } => Ok(self.replace_with_position(stones, *to_play)),
+            DocumentEdit::SyncSnapshot {
+                stones,
+                to_play,
+                explicit_to_play,
+                move_number,
+                black_captures,
+                white_captures,
+                move_numbers,
+                comment,
+                properties,
+            } => {
+                let (info, komi_declared) = (std::mem::take(&mut self.info), self.komi_declared);
+                self.replace_with_position(stones, *to_play);
+                self.info = info;
+                self.komi_declared = komi_declared;
+                let area = self.size.area();
+                self.root_carry = RootCarry {
+                    black_captures: *black_captures,
+                    white_captures: *white_captures,
+                    move_numbers: if move_numbers.len() == area { move_numbers.clone() } else { Vec::new() },
+                };
+                let root = self.node_mut(ROOT);
+                root.explicit_to_play = *explicit_to_play;
+                root.move_number = *move_number;
+                root.comment = comment.clone();
+                root.properties = without_analysis(properties.clone());
+                Ok(Applied::content(Some(ROOT)))
+            }
             DocumentEdit::Transform(t) => self.transform(*t),
             DocumentEdit::ToggleMark { node, point, tool } => {
                 known(self, *node)?;
@@ -325,7 +370,59 @@ impl GameRecord {
                 marks.clear();
                 Ok(Applied::content(None))
             }
+            DocumentEdit::SyncMainline { line, retractable, rules } => Ok(self.sync_mainline(line, retractable, *rules)),
+            DocumentEdit::AddSourceBranch { at, line, rules } => {
+                known(self, *at)?;
+                Ok(self.add_source_branch(*at, line, *rules))
+            }
         }
+    }
+
+    /// See [`DocumentEdit::SyncMainline`].
+    fn sync_mainline(&mut self, line: &[super::SourceAction], retractable: &[NodeId], rules: PlayRules) -> Applied {
+        let mut at = ROOT;
+        let mut changed = false;
+        for action in line {
+            let same = self.node(at).children.iter().copied().find(|&c| self.node(c).kind == action.kind);
+            let next = match same {
+                Some(child) => child,
+                None => {
+                    let legal = match action.kind {
+                        NodeKind::Move { color, point } => self.is_legal(at, color, point, rules),
+                        NodeKind::Pass { .. } => true,
+                        NodeKind::Snapshot | NodeKind::DummyPass => false,
+                    };
+                    if !legal {
+                        break;
+                    }
+                    let id = self.add_action(at, action.kind, rules);
+                    action.comment.clone_into(&mut self.node_mut(id).comment);
+                    changed = true;
+                    id
+                }
+            };
+            if self.main_child(at) != Some(next) {
+                self.reorder(at, next, 0);
+                changed = true;
+            }
+            at = next;
+        }
+        if let Some(rest) = self.main_child(at) {
+            let mut stack = vec![rest];
+            let mut all = true;
+            while let Some(n) = stack.pop() {
+                if !retractable.contains(&n) {
+                    all = false;
+                    break;
+                }
+                stack.extend(self.node(n).children.iter().copied());
+            }
+            if all {
+                self.detach(rest);
+                changed = true;
+            }
+        }
+        Applied { changed, content: changed, node: Some(at) }
     }
 
     // ------------------------------------------------------------------------ placing
@@ -444,6 +541,37 @@ impl GameRecord {
                 Some((next, _)) => cur = next,
                 None => break,
             }
+        }
+        Applied::content(None)
+    }
+
+    fn add_source_branch(&mut self, at: NodeId, line: &[super::SourceAction], rules: PlayRules) -> Applied {
+        let Some((first, rest)) = line.split_first() else {
+            return Applied::unchanged(None);
+        };
+        let legal = |rec: &Self, at: NodeId, kind: NodeKind| match kind {
+            NodeKind::Move { color, point } => rec.is_legal(at, color, point, rules),
+            NodeKind::Pass { .. } => true,
+            NodeKind::Snapshot | NodeKind::DummyPass => false,
+        };
+        if !legal(self, at, first.kind) {
+            return Applied::unchanged(None);
+        }
+        if self.node(at).children.is_empty() {
+            self.push_child(at, NodeKind::DummyPass);
+        }
+        let mut cur = self.push_move(at, first.kind, rules);
+        first.comment.clone_into(&mut self.node_mut(cur).comment);
+        for action in rest {
+            if let Some(same) = self.node(cur).children.iter().copied().find(|&c| self.node(c).kind == action.kind) {
+                cur = same;
+                continue;
+            }
+            if !legal(self, cur, action.kind) {
+                break;
+            }
+            cur = self.add_action(cur, action.kind, rules);
+            action.comment.clone_into(&mut self.node_mut(cur).comment);
         }
         Applied::content(None)
     }
@@ -652,6 +780,10 @@ impl GameRecord {
                     Stone::White => setup.add_white.push(stays_at),
                 }
             }
+            if anchor == ROOT {
+                self.clear_root_number(point);
+                self.clear_root_number(stays_at);
+            }
             self.restamp_position(anchor);
             map.insert(anchor, anchor);
             let children = std::mem::take(&mut self.node_mut(anchor).children);
@@ -769,7 +901,7 @@ impl GameRecord {
     /// Every live node's position and side to play, from one walk of the tree.
     fn positions(&self) -> HashMap<NodeId, (Position, Stone)> {
         let mut out = HashMap::new();
-        let mut stack = vec![(ROOT, Position::new(self.size))];
+        let mut stack = vec![(ROOT, self.start_position())];
         while let Some((id, mut pos)) = stack.pop() {
             let node = self.node(id);
             pos.enter(node);
@@ -777,6 +909,14 @@ impl GameRecord {
             out.insert(id, (pos, node.to_play));
         }
         out
+    }
+
+    /// A root setup edit changed the stone at `p`: the number carried for the old stone goes.
+    fn clear_root_number(&mut self, p: Point) {
+        let i = self.size.index(p);
+        if let Some(n) = self.root_carry.move_numbers.get_mut(i) {
+            *n = 0;
+        }
     }
 
     // ------------------------------------------------------------------------ setup
@@ -805,6 +945,7 @@ impl GameRecord {
             Some(Stone::White) => setup.add_white.push(point),
             None => {}
         }
+        self.clear_root_number(point);
         self.restamp_position(ROOT);
         Applied::content(None)
     }
@@ -837,7 +978,9 @@ impl GameRecord {
         };
         root.to_play = to_play;
         root.explicit_to_play = Some(to_play);
+        root.move_number = 0;
         root.properties = without_analysis(std::mem::take(&mut root.properties));
+        self.root_carry = RootCarry::default();
         self.has_setup_or_handicap = !self.node(ROOT).setup.is_empty();
         self.restamp(ROOT);
         Applied::content(Some(ROOT))
@@ -873,9 +1016,11 @@ impl GameRecord {
         };
         root.to_play = to_play;
         root.explicit_to_play = Some(to_play);
+        root.move_number = 0;
         root.comment.clear();
         root.marks.clear();
         root.properties.clear();
+        self.root_carry = RootCarry::default();
         self.has_setup_or_handicap = !self.node(ROOT).setup.is_empty();
         self.restamp(ROOT);
         Applied::content(Some(ROOT))
@@ -934,6 +1079,18 @@ impl GameRecord {
             for m in &mut n.marks {
                 m.point = map(m.point);
             }
+        }
+        let carry = &mut self.root_carry;
+        if !carry.move_numbers.is_empty() {
+            let mut moved = vec![0; carry.move_numbers.len()];
+            for (i, &n) in carry.move_numbers.iter().enumerate() {
+                let p = Point { x: (i % w as usize) as u16, y: (i / w as usize) as u16 };
+                moved[self.size.index(map(p))] = n;
+            }
+            carry.move_numbers = moved;
+        }
+        if t == Transform::ExchangeColors {
+            std::mem::swap(&mut carry.black_captures, &mut carry.white_captures);
         }
         let after = self.positions();
         for id in live {

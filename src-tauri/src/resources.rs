@@ -51,38 +51,47 @@ pub fn shutdown() {
     }
 }
 
+/// Java `NetworkProxy` for a blocking client: no proxy, the system's, or the manual HTTP proxy;
+/// `Err` for an unusable manual proxy.
+pub fn with_proxy(
+    b: reqwest::blocking::ClientBuilder,
+    settings: &NetworkSettings,
+) -> Result<reqwest::blocking::ClientBuilder, String> {
+    match settings.proxy_mode {
+        ProxyMode::Direct => Ok(b.no_proxy()),
+        ProxyMode::System => Ok(b),
+        ProxyMode::Manual => {
+            let host = settings.proxy_host.trim();
+            if host.is_empty() || settings.proxy_port == 0 {
+                return Err("Invalid manual proxy".into());
+            }
+            let host = if host.contains(':') && !host.starts_with('[') {
+                format!("[{host}]")
+            } else {
+                host.into()
+            };
+            let proxy = format!("http://{host}:{}", settings.proxy_port);
+            let text = |e: reqwest::Error| e.without_url().to_string();
+            Ok(b
+                .no_proxy()
+                .proxy(reqwest::Proxy::http(&proxy).map_err(text)?)
+                .proxy(reqwest::Proxy::https(&proxy).map_err(text)?))
+        }
+    }
+}
+
 /// Redirecting HTTP client with one captured proxy setting for the whole task.
 pub struct HttpFetch {
     client: reqwest::blocking::Client,
 }
 impl HttpFetch {
     pub fn new(settings: &NetworkSettings) -> r::ResourceResult<Self> {
-        let mut b = reqwest::blocking::Client::builder()
+        let b = reqwest::blocking::Client::builder()
             .user_agent(concat!("LizzieYzy-Tauri/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(15))
             .timeout(Duration::from_secs(120))
             .redirect(reqwest::redirect::Policy::limited(10));
-        match settings.proxy_mode {
-            ProxyMode::Direct => b = b.no_proxy(),
-            ProxyMode::System => {}
-            ProxyMode::Manual => {
-                let host = settings.proxy_host.trim();
-                if host.is_empty() || settings.proxy_port == 0 {
-                    return Err(r::ResourceError::Invalid("Invalid manual proxy".into()));
-                }
-                let host = if host.contains(':') && !host.starts_with('[') {
-                    format!("[{host}]")
-                } else {
-                    host.into()
-                };
-                b = b
-                    .no_proxy()
-                    .proxy(reqwest::Proxy::http(format!("http://{host}:{}", settings.proxy_port)).map_err(http_error)?)
-                    .proxy(
-                        reqwest::Proxy::https(format!("http://{host}:{}", settings.proxy_port)).map_err(http_error)?,
-                    );
-            }
-        }
+        let b = with_proxy(b, settings).map_err(r::ResourceError::Invalid)?;
         Ok(Self {
             client: b.build().map_err(http_error)?,
         })

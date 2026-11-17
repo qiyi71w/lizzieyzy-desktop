@@ -90,14 +90,28 @@ pub(crate) const FILE_PATH_OPTIONS: [&str; 12] = [
     "--cacerts",
 ];
 
-/// The program, its arguments and working directory for one engine command line.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// The program, its arguments and working directory for one engine command line, or the remote
+/// command an SSH engine runs (`remote`; the local fields are then unused).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LaunchSpec {
     pub program: String,
     pub args: Vec<String>,
     pub working_dir: Option<PathBuf>,
     /// Java NVIDIA runtime directories, prepended to PATH on Windows only.
     pub library_dirs: Vec<PathBuf>,
+    pub remote: Option<super::ssh::RemoteLaunch>,
+    pub cloud: Option<super::cloud::CloudLaunch>,
+}
+
+impl LaunchSpec {
+    /// The launch of `command` on the SSH host `ssh` (Java `session.execCommand(engineCommand)`:
+    /// the command line goes to the remote shell unchanged).
+    pub fn remote(command: &str, ssh: &super::ssh::SshSettings) -> LaunchSpec {
+        LaunchSpec {
+            remote: Some(ssh.launch(command)),
+            ..LaunchSpec::default()
+        }
+    }
 }
 
 /// `CommandLaunchHelper.looksLikeRelativeFileToken`: a relative token that names a file — it holds
@@ -184,7 +198,7 @@ pub fn prepare_launch(command: &str, roots: &[PathBuf]) -> Option<LaunchSpec> {
         program,
         args: parts,
         working_dir,
-        library_dirs: Vec::new(),
+        ..LaunchSpec::default()
     })
 }
 

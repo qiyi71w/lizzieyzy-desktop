@@ -3,7 +3,10 @@
 //! this implementation's output.
 
 use lizzie_core::formats::{self, sgf};
-use lizzie_core::record::{BoardSize, GameRecord, MarkKind, NodeId, NodeKind, Point, RecordFormat, Stone, ROOT};
+use lizzie_core::record::{
+    BoardSize, DocumentEdit, GameRecord, MarkKind, NodeId, NodeKind, PlayRules, Point, RecordFormat, RootCarry, Stone,
+    Transform, ROOT,
+};
 
 fn fixture(name: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -506,4 +509,83 @@ fn escaped_structural_newlines_are_accepted_only_between_tokens_of_a_complete_tr
         "keep unescaped truncation tolerance"
     );
     assert!(sgf::read("(;SZ[9](;B[ee])").is_ok(), "keep unescaped depth tolerance");
+}
+
+/// A 9×9 棋盘同步 snapshot of move 7: Black `aa` (the marked move 7) and White `ca` (move 6),
+/// Black has taken 2 stones, White 1.
+fn synced() -> GameRecord {
+    let mut rec = GameRecord::empty(BoardSize { width: 9, height: 9 }, 7.5);
+    let (mut stones, mut move_numbers) = (vec![None; 81], vec![0; 81]);
+    (stones[0], move_numbers[0]) = (Some(Stone::Black), 7);
+    (stones[2], move_numbers[2]) = (Some(Stone::White), 6);
+    rec.apply(&DocumentEdit::SyncSnapshot {
+        stones,
+        to_play: Stone::White,
+        explicit_to_play: None,
+        move_number: 7,
+        black_captures: 2,
+        white_captures: 1,
+        move_numbers,
+        comment: String::new(),
+        properties: Vec::new(),
+    })
+    .unwrap();
+    rec
+}
+
+fn numbers_at(rec: &GameRecord, at: NodeId, points: &[&str]) -> Vec<u32> {
+    let list = lizzie_core::display::numbering(rec, &rec.path_to(at)).list;
+    points.iter().map(|s| list[rec.size.index(p(s))]).collect()
+}
+
+#[test]
+fn a_sync_snapshot_root_carries_captures_and_numbers_to_later_moves() {
+    let mut rec = synced();
+    let pos = rec.position(ROOT);
+    assert_eq!((pos.black_captures, pos.white_captures), (2, 1));
+    let play = |rec: &mut GameRecord, at, color, s: &str| {
+        let edit = DocumentEdit::Play { at, color, point: p(s), alternate: false, rules: PlayRules::default() };
+        rec.apply(&edit).unwrap().node.expect("a legal move")
+    };
+    // Black surrounds the carried White stone at ca (da, cb, ba) while White plays elsewhere.
+    let w = play(&mut rec, ROOT, Stone::White, "ee");
+    let b = play(&mut rec, w, Stone::Black, "da");
+    let w = play(&mut rec, b, Stone::White, "ff");
+    let b = play(&mut rec, w, Stone::Black, "cb");
+    let w = play(&mut rec, b, Stone::White, "gg");
+    let b = play(&mut rec, w, Stone::Black, "ba");
+    let pos = rec.position(b);
+    assert_eq!(pos.at(p("ca")), None, "ca was taken");
+    assert_eq!((pos.black_captures, pos.white_captures), (3, 1), "the carried captures count on");
+    assert_eq!(numbers_at(&rec, b, &["aa", "ca", "ee", "ba"]), [7, 0, 8, 13], "numbers continue from move 7");
+}
+
+#[test]
+fn root_edits_keep_the_carried_captures_and_numbers_consistent() {
+    let mut rec = synced();
+    rec.apply(&DocumentEdit::Transform(Transform::MirrorVertical)).unwrap();
+    let mut moved = vec![0; 81];
+    (moved[8], moved[6]) = (7, 6);
+    assert_eq!(rec.root_carry(), &RootCarry { black_captures: 2, white_captures: 1, move_numbers: moved.clone() });
+    rec.apply(&DocumentEdit::Transform(Transform::ExchangeColors)).unwrap();
+    assert_eq!(rec.root_carry(), &RootCarry { black_captures: 1, white_captures: 2, move_numbers: moved.clone() });
+
+    // A setup edit on the root changes the stone: its number goes, the other stays.
+    rec.apply(&DocumentEdit::SetupStone { point: p("ia"), stone: Some(Stone::Black) }).unwrap();
+    moved[8] = 0;
+    assert_eq!(rec.root_carry().move_numbers, moved);
+    rec.apply(&DocumentEdit::SetupClearAll).unwrap();
+    assert!(rec.root_carry().move_numbers.is_empty());
+    assert_eq!(rec.position(ROOT).black_captures, 1, "clearing the stones keeps the captures");
+
+    // A new position or a converted start is a fresh game: nothing is carried.
+    let mut rec = synced();
+    let stones = rec.position(ROOT).stones;
+    rec.apply(&DocumentEdit::ReplaceWithPosition { stones, to_play: Stone::Black }).unwrap();
+    assert_eq!(rec.root_carry(), &RootCarry::default());
+    assert_eq!(rec.node(ROOT).move_number, 0);
+    let mut rec = synced();
+    rec.apply(&DocumentEdit::ConvertToStartingPosition { node: ROOT }).unwrap();
+    assert_eq!(rec.root_carry(), &RootCarry::default());
+    assert_eq!(rec.node(ROOT).move_number, 0);
 }

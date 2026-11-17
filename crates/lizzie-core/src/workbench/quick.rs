@@ -28,10 +28,13 @@ use crate::engine::analysis_command::{self, recommended_threads};
 use crate::engine::gtp::{join_command, prepare_launch, InfoLine};
 use crate::engine::kata_analysis::{self, QueryOptions, Response};
 use crate::engine::runtime::{InstanceId, LeaseAvailability, LeaseFailure, Phase, RulesOutcome, RuntimeEvent};
+use crate::engine::ssh::SshSettings;
 use crate::formats::ReadError;
 use crate::record::{GameRecord, NodeId, RecordFormat, Stone, ROOT};
 use crate::resources as r;
 use crate::settings::{AnalysisEngineSettings, PvVisitsMode};
+
+mod preload;
 
 /// Java `RETRY_MILLIS`, `MAX_RETRY_MILLIS`, `WATCHDOG_MILLIS`, `NAVIGATION_MILLIS`.
 const RETRY: Duration = Duration::from_millis(1800);
@@ -64,6 +67,8 @@ pub(super) struct QuickFlow {
     start_at: Option<Instant>,
     /// A preloaded analysis process and its command (`analysis-engine-preload`).
     warm: Option<(InstanceId, String)>,
+    /// 启动Lizzie时预加载引擎 waiting for its conditions.
+    warmup: Option<preload::Warmup>,
     /// Lightweight model files checked against the catalog digest, by path
     /// (`isValidQuickAnalysisModelFile`); a changed size or time is checked again.
     verified: Mutex<HashMap<PathBuf, Verified>>,
@@ -177,7 +182,7 @@ impl Workbench {
     }
 
     /// Main-trunk moves and passes (not placeholders) without analysis (`hasMissingMainlineAnalysis`).
-    fn quick_missing(&self) -> Vec<NodeId> {
+    pub(super) fn quick_missing(&self) -> Vec<NodeId> {
         let rec = &self.doc.record;
         rec.path_to(rec.line_end(ROOT))
             .into_iter()
@@ -188,7 +193,7 @@ impl Workbench {
 
     /// `canContinueQuickAnalysisAfterHistoryNavigation`, the user's cancellation, and no manual
     /// flash analysis using the analysis engine.
-    fn quick_allowed(&self) -> bool {
+    pub(super) fn quick_allowed(&self) -> bool {
         self.config.record.auto_quick_analyze_on_load
             && !self.paused
             && self.quick.cancelled_doc != Some(self.doc.id)
@@ -207,13 +212,8 @@ impl Workbench {
         if foreground.is_some_and(|f| self.engines.phase(f) == Some(Phase::Starting)) {
             return Readiness::Wait;
         }
-        // The record's declared rules reach the engine first (`kifuEngineSyncPending`).
-        if let (Some(f), Some(rules)) = (foreground, self.target_rules()) {
-            if self.engines.phase(f) == Some(Phase::Ready)
-                && self.engines.rules_outcome(f, rules) == RulesOutcome::Pending
-            {
-                return Readiness::Wait;
-            }
+        if self.kifu_sync_pending() {
+            return Readiness::Wait;
         }
         if !borrow {
             return Readiness::Ready;
@@ -222,6 +222,15 @@ impl Workbench {
             LeaseAvailability::Available => Readiness::Ready,
             LeaseAvailability::EngineNotReady | LeaseAvailability::ExistingLease => Readiness::Wait,
             _ => Readiness::Stop,
+        }
+    }
+
+    /// The record's declared rules have not reached the foreground engine yet
+    /// (`kifuEngineSyncPending`).
+    fn kifu_sync_pending(&self) -> bool {
+        match (self.engines.foreground(), self.target_rules()) {
+            (Some(f), Some(rules)) => self.engines.rules_outcome(f, rules) == RulesOutcome::Pending,
+            _ => false,
         }
     }
 
@@ -305,21 +314,40 @@ impl Workbench {
     }
 
     /// The local KataGo and the model a lightweight quick analysis runs, when it is wanted and
-    /// possible (`resolveQuickAnalysisEngineCommand`).
+    /// possible (`resolveQuickAnalysisEngineCommand`). A remote foreground engine has no local
+    /// KataGo.
     fn quick_light_parts(&self) -> Option<(String, PathBuf)> {
         if !self.config.quick_model.enabled || self.foreground_katago_version_ok() != Some(true) {
             return None;
         }
         let model = self.quick_model_path()?;
         let profile = self.engines.profile_of(self.engines.foreground()?)?;
+        if profile.is_remote() {
+            return None;
+        }
         let exe = prepare_launch(&profile.command, self.engines.roots())?.program;
         Some((exe, model))
+    }
+
+    /// 精析设置's 远程引擎 when it is on (`analysis-engine-ssh-info.useJavaSSH`).
+    pub(super) fn analysis_ssh(&self) -> Option<&SshSettings> {
+        let a = &self.config.analysis_engine;
+        a.use_ssh.then_some(&a.ssh)
+    }
+
+    /// Starts the analysis engine process for `command`, on the SSH host when 远程引擎 is on.
+    fn start_analysis_worker(&mut self, command: &str) -> Result<InstanceId, String> {
+        let ssh = self.analysis_ssh().cloned();
+        self.engines.start_worker_on(command, "AnalysisEngine", ssh.as_ref())
     }
 
     /// Borrow the foreground engine instead of starting an analysis process
     /// (`analysis-reuse-current-engine`, `automaticallyReusesPrimaryForeground`).
     fn quick_borrows(&self) -> bool {
         if self.config.analysis_engine.reuse_current_engine {
+            return true;
+        }
+        if self.engines.foreground().and_then(|f| self.engines.profile_of(f)).is_some_and(|p| p.cloud.is_some()) {
             return true;
         }
         let Some(marker) = self
@@ -352,6 +380,9 @@ impl Workbench {
                 .or_else(|| engines.default_index().and_then(|i| engines.engines.get(i)))
                 .ok_or("AnalysisEngineCommandHelper.noDefaultEngine")?,
         };
+        if profile.is_remote() {
+            return Err("AnalysisEngineCommandHelper.remoteUnsupported");
+        }
         let generated = analysis_command::from_engine_command(&profile.command, self.engines.roots())?;
         let created = match generated.config {
             Some(path) if !path.exists() => {
@@ -371,9 +402,11 @@ impl Workbench {
 
     /// The analysis engine command before tuning: the lightweight model (when `light` and it is
     /// wanted), the customized command, or one made from the current engine (else the saved one).
+    /// The lightweight model is a file of this machine: with 精析设置's 远程引擎 the configured
+    /// remote command runs instead (Java sent the local paths to the SSH host).
     pub(super) fn analysis_command_base(&self, light: bool) -> String {
         let a = &self.config.analysis_engine;
-        let light = light
+        let light = (light && self.analysis_ssh().is_none())
             .then(|| self.quick_light_parts())
             .flatten()
             .and_then(|(exe, model)| {
@@ -408,7 +441,8 @@ impl Workbench {
     /// [`Self::tuned_analysis_command`] for requests of `visits` (批量精析's
     /// `max(2, batch-analysis-playouts)`).
     pub(super) fn tuned_command_for(&self, base: &str, visits: u32) -> String {
-        // Apple Silicon runs this application's KataGo with its own thread profile.
+        // Apple Silicon runs this application's KataGo with its own thread profile; like Java's
+        // `optimizeAnalysisEngineCommand`, also for 远程引擎's command naming that program.
         let apple = (cfg!(target_os = "macos") && cfg!(target_arch = "aarch64"))
             .then(|| prepare_launch(base, self.engines.roots()))
             .flatten()
@@ -465,9 +499,14 @@ impl Workbench {
 
     // -------------------------------------------------------------------- lifecycle
 
+    /// A quick analysis task runs (or waits to start).
+    pub(super) fn quick_busy(&self) -> bool {
+        self.quick.task.is_some()
+    }
+
     /// Starts a task for the open record when the settings allow and a main-trunk move lacks
     /// analysis.
-    fn quick_start(&mut self) {
+    pub(super) fn quick_start(&mut self) {
         if self.quick.task.is_none() && self.quick_allowed() && !self.quick_missing().is_empty() {
             self.quick.next_task += 1;
             self.quick.task = Some(new_task(self.doc.id));
@@ -547,16 +586,22 @@ impl Workbench {
         if let Some((instance, _)) = self.quick.warm.take() { self.engines.terminate(instance); }
     }
 
-    /// An analysis process running `command`: the idle one when it matches (`isAnalysisEngineReusable`),
-    /// else a new one (an idle one with another command ends).
+    /// An analysis process running `command`: the idle one when it matches (`isAnalysisEngineReusable`)
+    /// and runs where 远程引擎 says, else a new one (an idle one with another command ends).
     pub(super) fn take_analysis_process(&mut self, command: &str) -> Result<InstanceId, String> {
         match self.quick.warm.take() {
-            Some((id, warm)) if warm == command && self.engines.worker_alive(id) => Ok(id),
+            Some((id, warm))
+                if warm == command
+                    && self.engines.worker_alive(id)
+                    && self.engines.worker_remote(id) == self.analysis_ssh() =>
+            {
+                Ok(id)
+            }
             Some((id, _)) => {
                 self.engines.terminate(id);
-                self.engines.start_worker(command, "AnalysisEngine")
+                self.start_analysis_worker(command)
             }
-            None => self.engines.start_worker(command, "AnalysisEngine"),
+            None => self.start_analysis_worker(command),
         }
     }
 
@@ -578,8 +623,10 @@ impl Workbench {
     }
 
     /// The engine was switched, restarted or closed: the quick analysis ends (`ENGINE_SWITCH`),
-    /// as do flash and whole-game analyses borrowing it.
+    /// as do flash and whole-game analyses borrowing it, and a waiting warm-up
+    /// (`runAfterAutomaticQuickAnalysisReleased`).
     pub(super) fn quick_engine_changed(&mut self) {
+        self.warmup_stop();
         self.quick_cancel();
         self.flash_engine_changed();
         self.whole_game_engine_changed();
@@ -619,6 +666,11 @@ impl Workbench {
                 self.complete_open(ticket, result);
             }
         }
+    }
+
+    /// The read waiting as `ticket` was withdrawn.
+    pub(super) fn quick_drop_deferred_open(&mut self, ticket: u64) {
+        self.quick.deferred_open.take_if(|(t, _)| *t == ticket);
     }
 
     fn quick_settle(&mut self) {
@@ -662,6 +714,9 @@ impl Workbench {
         t.foreground_resumed = false;
         t.rules = rules;
         if borrow {
+            // `shouldReplaceAutomaticQuickAnalysisEngine`: borrowing the foreground ends the idle
+            // analysis process.
+            self.quick_drop_warm();
             match self.engines.begin_lease() {
                 Ok(lease) => {
                     self.quick.task.as_mut().unwrap().attempt = Some(Attempt::Lease {
@@ -991,11 +1046,13 @@ impl Workbench {
                 instance,
                 message,
                 output,
+                ..
             } if current_process == Some(instance)
                 || self.quick.warm.as_ref().is_some_and(|(id, _)| *id == instance) =>
             {
-                if self.quick.warm.as_ref().is_some_and(|(id, _)| *id == instance) {
-                    self.quick.warm = None;
+                if self.quick.warm.take_if(|(id, _)| *id == instance).is_some() {
+                    // An idle (preloaded) process that ends is only logged (`isPreLoad`).
+                    self.log(true, format!("idle analysis engine exited: {message}"));
                 }
                 if current_process == Some(instance) {
                     let tail = output
@@ -1069,21 +1126,21 @@ impl Workbench {
         }
     }
 
-    /// The foreground engine became ready: a preloaded analysis process starts
-    /// (`preloadConfiguredAnalysisEngineAfterStartup`), unless an analysis already has one.
-    pub(super) fn quick_preload(&mut self) {
-        if !self.config.analysis_engine.preload
+    /// `AutomaticQuickAnalysisEngineAdapter.preload` (a `PRELOADED_QUICK_ANALYSIS` engine): the
+    /// idle analysis process starts with the configured command, unless one is idle already or
+    /// an analysis holds one; with 复用当前前台引擎 none starts. A failure is only logged.
+    fn quick_preload(&mut self) {
+        if self.config.analysis_engine.reuse_current_engine
             || self.quick.warm.is_some()
             || self.quick.task.is_some()
-            || self.quick_borrows()
             || self.flash_active()
             || self.whole_game_active()
             || self.batch_flash_engaged()
         {
             return;
         }
-        let command = self.quick_command();
-        match self.engines.start_worker(&command, "AnalysisEngine") {
+        let command = self.tuned_analysis_command(&self.analysis_command_base(false));
+        match self.start_analysis_worker(&command) {
             Ok(id) => self.quick.warm = Some((id, command)),
             Err(message) => self.log(true, format!("analysis engine preload failed: {message}")),
         }
@@ -1185,11 +1242,18 @@ impl Workbench {
         if *previous == settings {
             return Ok(Ok(false));
         }
-        let restart =
-            previous.command != settings.command || previous.reuse_current_engine != settings.reuse_current_engine;
+        let restart = previous.command != settings.command
+            || previous.reuse_current_engine != settings.reuse_current_engine
+            || previous.use_ssh != settings.use_ssh
+            || (settings.use_ssh && previous.ssh != settings.ssh);
+        let preload = settings.preload;
         self.commit_config(|c| c.analysis_engine = settings)?;
         if restart {
             self.quick_drop_warm();
+        }
+        // Unticked 启动Lizzie时预加载引擎 ends a waiting preload; saving never asks for one.
+        if !preload {
+            self.warmup_stop();
         }
         Ok(Ok(true))
     }
@@ -1199,6 +1263,8 @@ impl Workbench {
             return Ok(false);
         }
         self.commit_config(|c| c.quick_model.enabled = enabled)?;
+        // `refreshAutomaticQuickAnalysisModelSelection`.
+        self.warmup_stop();
         self.quick_drop_warm();
         Ok(true)
     }
@@ -1245,7 +1311,9 @@ impl Workbench {
             LeaseAvailability::ExistingLease => LeaseAvailabilityView::ExistingLease,
             LeaseAvailability::EngineStateUnrestored => LeaseAvailabilityView::EngineStateUnrestored,
             LeaseAvailability::PlayMode => LeaseAvailabilityView::PlayMode,
+            LeaseAvailability::ApplicationExclusive => LeaseAvailabilityView::ApplicationExclusive,
             LeaseAvailability::HumanSlGame => LeaseAvailabilityView::HumanSlGame,
+            LeaseAvailability::ReadBoardGma => LeaseAvailabilityView::ReadBoardGma,
         };
         let unrestored = self
             .engines

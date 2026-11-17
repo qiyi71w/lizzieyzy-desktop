@@ -1,7 +1,8 @@
 //! OS process adapter for engines: spawns the command, writes from its own thread (a slow engine
 //! never blocks the caller) and reports stdout, stderr and the exit through a sink with the
 //! instance id. Ending a process sends `quit`, waits up to three seconds and then kills it
-//! (Java `Leelaz.normalQuit`: quit, destroy, destroyForcibly).
+//! (Java `Leelaz.normalQuit`: quit, destroy, destroyForcibly). A launch with a remote command
+//! goes to the SSH connector instead.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
@@ -12,6 +13,8 @@ use std::time::{Duration, Instant};
 
 use super::gtp::LaunchSpec;
 use super::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
+use super::ssh::SshConnector;
+use super::cloud::CloudConnector;
 
 pub type Sink = Arc<dyn Fn(InstanceId, EngineInput) + Send + Sync>;
 
@@ -20,6 +23,8 @@ const QUIT_GRACE: Duration = Duration::from_secs(3);
 pub struct ProcessLauncher {
     sink: Sink,
     endings: Arc<Mutex<Vec<JoinHandle<()>>>>,
+    ssh: Option<SshConnector>,
+    cloud: Option<CloudConnector>,
 }
 
 /// Waits for the processes a [`ProcessLauncher`] is ending (application exit), without access to
@@ -34,7 +39,20 @@ impl ProcessLauncher {
         ProcessLauncher {
             sink,
             endings: Arc::new(Mutex::new(Vec::new())),
+            ssh: None,
+            cloud: None,
         }
+    }
+
+    /// Remote engine commands run through `ssh`; without it they fail to start.
+    pub fn with_ssh(mut self, ssh: SshConnector) -> ProcessLauncher {
+        self.ssh = Some(ssh);
+        self
+    }
+
+    pub fn with_cloud(mut self, cloud: CloudConnector) -> ProcessLauncher {
+        self.cloud = Some(cloud);
+        self
     }
 
     pub fn waiter(&self) -> ProcessWaiter {
@@ -91,6 +109,18 @@ fn read_lines(stream: impl Read, mut each: impl FnMut(String)) {
 
 impl Launcher for ProcessLauncher {
     fn launch(&self, instance: InstanceId, spec: &LaunchSpec) -> std::io::Result<Box<dyn EngineIo>> {
+        if let Some(launch) = &spec.cloud {
+            return match &self.cloud {
+                Some(cloud) => cloud.launch(instance, launch, self.sink.clone(), self.endings.clone()),
+                None => Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "cloud engines are not available")),
+            };
+        }
+        if let Some(remote) = &spec.remote {
+            return match &self.ssh {
+                Some(ssh) => ssh.launch(instance, remote, self.sink.clone(), self.endings.clone()),
+                None => Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "remote engines are not available")),
+            };
+        }
         let mut cmd = Command::new(&spec.program);
         cmd.args(&spec.args)
             .stdin(Stdio::piped())
@@ -134,15 +164,22 @@ impl Launcher for ProcessLauncher {
                 }
             })?;
         let sink = self.sink.clone();
+        // The exit is reported after the error output too, so its last lines (the reason a process
+        // stopped) precede it; a descendant still holding the stream only delays it by the grace.
+        let (drained, stderr_done) = mpsc::channel::<()>();
         std::thread::Builder::new()
             .name(format!("engine-{instance}-err"))
-            .spawn(move || read_lines(stderr, |l| sink(instance, EngineInput::Stderr(l))))?;
+            .spawn(move || {
+                read_lines(stderr, |l| sink(instance, EngineInput::Stderr(l)));
+                drop(drained);
+            })?;
         let sink = self.sink.clone();
         let waiter = child.clone();
         std::thread::Builder::new()
             .name(format!("engine-{instance}-out"))
             .spawn(move || {
                 read_lines(stdout, |l| sink(instance, EngineInput::Stdout(l)));
+                let _ = stderr_done.recv_timeout(QUIT_GRACE);
                 // Output closed: report the exit once the process is gone.
                 let deadline = Instant::now() + QUIT_GRACE;
                 loop {
@@ -210,5 +247,36 @@ impl EngineIo for ProcessIo {
 impl Drop for ProcessIo {
     fn drop(&mut self) {
         self.end();
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    /// The reason a process stopped is often its last error line; it must reach the consumer
+    /// before the exit, even when it is written after standard output closed.
+    #[test]
+    fn the_exit_follows_the_last_error_line() {
+        let (tx, rx) = mpsc::channel::<String>();
+        let tx = Mutex::new(tx);
+        let launcher = ProcessLauncher::new(Arc::new(move |_, input| {
+            let text = match input {
+                EngineInput::Stderr(line) => format!("err {line}"),
+                EngineInput::Exited(_) => "exited".to_string(),
+                _ => return,
+            };
+            let _ = tx.lock().unwrap().send(text);
+        }));
+        let spec = LaunchSpec {
+            program: "sh".into(),
+            args: vec!["-c".into(), "exec 1>&-; (sleep 0.3; echo reason >&2) & exit 0".into()],
+            ..LaunchSpec::default()
+        };
+        let io = launcher.launch(1, &spec).unwrap();
+        let first = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let second = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!((first.as_str(), second.as_str()), ("err reason", "exited"));
+        drop(io);
     }
 }

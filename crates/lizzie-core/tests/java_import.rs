@@ -59,6 +59,8 @@ fn java_dir(root: &Path) -> PathBuf {
             "append-winrate-to-comment": false,
             "play-sound": false,
             "allow-double-click": false,
+            "always-gotolast-onlive": true,
+            "open-html-onlive": false,
             "allow-drag": true,
             "show-right-menu": false,
             "show-new-board-hint": false,
@@ -71,8 +73,11 @@ fn java_dir(root: &Path) -> PathBuf {
             "limit-playout": "true",
             "limit-playouts": 5000,
             "show-ponder-limited-tips": false,
+            "auto-check-engine-alive": false,
             "kata-rules": "japanese",
             "auto-load-kata-rules": true,
+            "txt-kata-engine-pda": "0.5",
+            "chk-kata-engine-pda": true,
             "recent-file-paths": recent,
             "autoload-default": false,
             "autoload-last": true,
@@ -238,7 +243,7 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
     assert!(p.recovery.is_empty());
 
     // Engines: Java-relative paths resolved against the Java folder; problems found without
-    // starting anything; the remote engine left out; the one with a token needs confirmation.
+    // starting anything; the remote engine and the one with a token need confirmation.
     let local = &p.engines[0];
     let tokens = split_command(&local.command);
     assert_eq!(tokens[0], java.join("engines/fake-katago").to_string_lossy());
@@ -267,18 +272,23 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
     assert!(p.engines[1]
         .problems
         .contains(&EngineProblem::InvalidValue { field: "height".into() }));
+    // The remote engine's command runs on its SSH host as written; its password needs consent.
+    let remote = &p.engines[2];
     assert_eq!(
-        (p.engines[2].status, p.engines[2].reason),
-        (ImportStatus::NotMigrated, Some(ImportReason::RemoteEngine))
+        (remote.status, remote.reason, remote.command.as_str()),
+        (ImportStatus::Imported, None, "katago gtp")
     );
+    assert!(remote.credential && remote.problems.is_empty());
     assert!(p.engines[3].credential);
 
     let report = wb.apply_java_import(p.id, &[], false, None).unwrap().unwrap();
     assert!(report.restart_required, "English applies after a restart");
-    assert_eq!(
-        (report.engines[3].status, report.engines[3].reason),
-        (ImportStatus::NotMigrated, Some(ImportReason::CredentialNotConfirmed))
-    );
+    for left_out in [2, 3] {
+        assert_eq!(
+            (report.engines[left_out].status, report.engines[left_out].reason),
+            (ImportStatus::NotMigrated, Some(ImportReason::CredentialNotConfirmed))
+        );
+    }
     let shown = serde_json::to_string(&report).unwrap();
     assert!(SECRETS.iter().all(|s| !shown.contains(s)));
 
@@ -318,7 +328,7 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
         (a.limit_max_suggestion, a.limit_branch_length, a.interval_centisec),
         (10, 8, 20)
     );
-    assert!(!a.fast_engine_change && !a.show_ponder_limited_tips);
+    assert!(!a.fast_engine_change && !a.show_ponder_limited_tips && !a.auto_check_engine_alive);
     assert_eq!(
         c.display,
         DisplaySettings {
@@ -331,6 +341,7 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
         (c.engine.kata_rules.as_str(), c.engine.auto_load_kata_rules),
         ("japanese", true)
     );
+    assert_eq!((c.engine.kata_pda, c.engine.kata_pda_enabled), (Some(0.5), true));
     let names: Vec<&str> = c.engine.engines.iter().map(|e| e.name.as_str()).collect();
     assert_eq!(names, ["Local", "Broken"]);
     let local = &c.engine.engines[0];
@@ -373,6 +384,11 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
             e.no_capture
         ),
         (false, true, false, false, true, true)
+    );
+    assert_eq!(
+        (c.live.always_goto_last, c.live.open_html_on_live),
+        (true, false),
+        "both differ from the defaults"
     );
     assert_eq!(
         (e.other_size_width, e.other_size_height),
@@ -625,7 +641,7 @@ fn a_different_last_engine_choice_needs_confirmation() {
     let product = tmp.path().join("product");
     let mut wb = workbench(&product, Recorder::default());
     let p = preview(&mut wb, &java);
-    wb.apply_java_import(p.id, &[3], false, None).unwrap().unwrap();
+    wb.apply_java_import(p.id, &[2, 3], false, None).unwrap().unwrap();
     // The same Java settings, except the engine used last.
     let config = std::fs::read_to_string(java.join("config.txt")).unwrap();
     std::fs::write(
@@ -651,25 +667,84 @@ fn startup_choices_of_left_out_engines_are_reported_as_left_out() {
         "ui": { "autoload-last": true, "last-engine": 1, "default-engine": 0 },
         "leelaz": { "engine-settings-list": [
             { "name": "Proxy", "command": "katago gtp --token TOKEN-SECRET", "isDefault": true },
-            { "name": "Remote", "command": "katago gtp", "useJavaSSH": true },
+            { "name": "Remote", "command": "katago gtp", "useJavaSSH": true, "ip": "h", "userName": "u", "password": "SSH-SECRET" },
         ] },
     });
     std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
     let product = tmp.path().join("product");
     let mut wb = workbench(&product, Recorder::default());
     let p = preview(&mut wb, &java);
-    let last = item(&p.items, "ui.last-engine");
-    assert_eq!(
-        (last.status, last.reason),
-        (ImportStatus::NotMigrated, Some(ImportReason::RemoteEngine))
-    );
+    assert_eq!(item(&p.items, "ui.last-engine").status, ImportStatus::Imported);
     let report = wb.apply_java_import(p.id, &[], false, None).unwrap().unwrap();
-    let default = item(&report.items, "ui.default-engine");
-    assert_eq!(
-        (default.status, default.reason),
-        (ImportStatus::NotMigrated, Some(ImportReason::CredentialNotConfirmed))
-    );
+    for key in ["ui.default-engine", "ui.last-engine"] {
+        let choice = item(&report.items, key);
+        assert_eq!(
+            (choice.status, choice.reason),
+            (ImportStatus::NotMigrated, Some(ImportReason::CredentialNotConfirmed)),
+            "{key}"
+        );
+    }
     assert!(wb.config().engine.engines.is_empty() && wb.config().engine.last_engine.is_none());
+}
+
+/// `Utils.doEncrypt("p@ss w0rd/围棋")` as the fixed Java writes it (run against its
+/// `Base64AesEncrypt`, trailing CRLF included).
+const JAVA_ENCRYPTED: &str = "S2rB+6fIpljxobY0+9mBZ0zHZ66UlgIBYUIOewQf49Q=\r\n";
+
+#[test]
+fn remote_engines_and_their_passwords_come_over_only_when_confirmed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let config = json!({
+        "ui": { "analysis-engine-command": "katago analysis -model /remote/m.bin.gz -config /remote/a.cfg" },
+        "leelaz": {
+            "analyze-update-interval-centisecssh": 25,
+            "analysis-engine-ssh-info": {
+                "useJavaSSH": true, "ip": "10.0.0.9", "port": "2222", "userName": "go",
+                "password": JAVA_ENCRYPTED, "useKeyGen": false, "keyGenPath": "",
+            },
+            "engine-settings-list": [
+                { "name": "Password", "command": "/remote/katago gtp -model /remote/m.bin.gz", "useJavaSSH": true,
+                  "ip": "10.0.0.1", "port": "x", "userName": "go", "password": JAVA_ENCRYPTED },
+                { "name": "Key", "command": "katago gtp", "useJavaSSH": true, "ip": "10.0.0.2", "port": "22",
+                  "userName": "go", "useKeyGen": true, "keyGenPath": "/nonexistent/id_ed25519", "password": JAVA_ENCRYPTED },
+            ],
+        },
+    });
+    std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    assert!(!serde_json::to_string(&p).unwrap().contains("p@ss"));
+    // Remote paths are the host's: not resolved or checked here. A key login needs no password,
+    // but its key file must exist on this machine.
+    assert!(p.engines[0].credential && p.engines[0].problems.is_empty());
+    assert_eq!(p.engines[0].command, "/remote/katago gtp -model /remote/m.bin.gz");
+    assert!(!p.engines[1].credential);
+    assert!(matches!(&p.engines[1].problems[..], [EngineProblem::FileNotFound { path, .. }] if path == "/nonexistent/id_ed25519"));
+    assert_eq!(p.analysis_ssh_credential.as_deref(), Some("go@10.0.0.9:2222"));
+
+    // Only the confirmed passwords are handed to the credential store, decrypted like Java.
+    assert!(wb.java_ssh_passwords(p.id, &[], false).is_empty());
+    assert_eq!(
+        wb.java_ssh_passwords(p.id, &[0, 1], true),
+        [
+            ("go@10.0.0.1:22".to_string(), "p@ss w0rd/围棋".to_string()),
+            ("go@10.0.0.9:2222".to_string(), "p@ss w0rd/围棋".to_string()),
+        ]
+    );
+    let report = wb.apply_java_import(p.id, &[0], false, None).unwrap().unwrap();
+    assert_eq!(report.engines[0].status, ImportStatus::Imported);
+    let c = wb.config();
+    let ssh = c.engine.engines[0].ssh.as_ref().expect("remote engine");
+    assert_eq!((ssh.host.as_str(), ssh.port.as_str(), ssh.user.as_str(), ssh.use_key), ("10.0.0.1", "x", "go", false));
+    assert_eq!(c.engine.engines[0].command, "/remote/katago gtp -model /remote/m.bin.gz");
+    assert!(c.analysis_engine.use_ssh && c.analysis_engine.ssh.account() == "go@10.0.0.9:2222");
+    assert_eq!(c.analysis_engine.command, "katago analysis -model /remote/m.bin.gz -config /remote/a.cfg");
+    assert_eq!(c.engine.analysis.interval_centisec_ssh, 25);
+    let saved = std::fs::read_to_string(storage(&product).config_file).unwrap();
+    assert!(!saved.contains("p@ss") && !saved.contains(JAVA_ENCRYPTED.trim()));
 }
 
 #[test]
@@ -882,6 +957,7 @@ fn board_display_settings_are_read_like_java_including_older_keys() {
                 "show-coordinates": false,
                 "move-rank-mark-last-move": 0,
                 "txt-move-rank-mark-last-move": 4,
+                "disable-move-rank-in-origin": true,
                 "suggestion-info-winrate": 3,
                 "suggestion-info-playouts": 1,
                 "suggestion-info-scorelead": 2,
@@ -892,6 +968,7 @@ fn board_display_settings_are_read_like_java_including_older_keys() {
                 coordinates: false,
                 move_rank: 0,
                 move_rank_custom: 4,
+                disable_move_rank_in_origin: true,
                 suggestion_info_order: [3, 1, 2],
                 replay_interval_seconds: 0.4,
                 next_move_min_playouts: 50,
@@ -1374,6 +1451,30 @@ fn whole_game_visits_imports_with_java_from_stored_validation() {
         assert_eq!(wb.config().whole_game.deep_visits, expected);
         assert_eq!(saved_config(&product).whole_game.deep_visits, expected);
     }
+}
+
+#[test]
+fn web_board_ports_and_viewer_limit_import_like_java_starts_with_them() {
+    // WebBoardManager.start: top-level `web-board`, optInt with 9998 / 9999 / 20.
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let source = json!({"ui": {}, "web-board": {"http-port": "8080", "ws-port": 70000, "max-connections": 3}});
+    std::fs::write(java.join("config.txt"), source.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    for (key, status) in [
+        ("web-board.http-port", ImportStatus::Imported),
+        ("web-board.ws-port", ImportStatus::Incompatible),
+        ("web-board.max-connections", ImportStatus::Imported),
+    ] {
+        let row = item(&p.items, key);
+        assert_eq!((row.status, row.target), (status, Some(ImportTarget::WebBoard)), "{key}");
+    }
+    wb.apply_java_import(p.id, &[], true, None).unwrap().unwrap();
+    let w = saved_config(&product).web_board;
+    assert_eq!((w.http_port, w.ws_port, w.max_connections), (8080, 9999, 3));
 }
 
 #[test]
@@ -2082,4 +2183,204 @@ fn imported_commentary_settings_remember_nothing_until_a_key_is_copied() {
     assert_eq!((settings.base_url.as_str(), settings.model.as_str()), ("https://provider.example/v1", "example"));
     // Only a confirmed, successful copy into this client's credential store turns remembering on.
     assert!(!settings.remember_api_key);
+}
+
+fn cloud_java(root: &Path, remote: serde_json::Value) -> PathBuf {
+    let java = root.join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("local-engine"), "fixture").unwrap();
+    std::fs::write(java.join("config.txt"), json!({
+        "ui": { "autoload-empty": true, "last-engine": 2, "default-engine": 2 },
+        "leelaz": {
+            "remote-compute": remote,
+            "engine-settings-list": [
+                { "id": "local", "name": "Local", "command": "./local-engine gtp" },
+                { "id": "zhizi", "name": "Cloud", "command": "remote-compute://zhizi", "useJavaSSH": true },
+                { "id": "custom", "name": "Custom", "command": "remote-compute://custom-websocket", "isDefault": true },
+            ],
+        },
+    }).to_string()).unwrap();
+    java
+}
+
+#[test]
+fn cloud_markers_map_before_local_or_ssh_launch_and_keep_engine_selection() {
+    use lizzie_core::cloud::{DiscoverySource, Provider};
+    use lizzie_core::engine::cloud::CloudProvider;
+    let temp = tempfile::tempdir().unwrap();
+    let java = cloud_java(temp.path(), json!({
+        "provider": "custom", "zhizi-identifier": "account@example.invalid",
+        "zhizi-args": "--gpu-type 3x --kata-weight 10b512t",
+        "custom-remote-code": "复制 ＷＳＳ：／／example.invalid／analysis 更多文字",
+        "zhizi-catalog-updated-at": 1234,
+        "zhizi-engine-catalog": {
+            "serverVersion": "java-cache", "defaultKataWeight": "10b512t",
+            "supportKataWeights": [{ "name": "test-weight", "description": "saved weight", "source": "CACHED_LEGACY" }],
+        },
+    }));
+    let before = snapshot(&java);
+    let mut wb = workbench(&temp.path().join("product"), Recorder::default());
+    let p = preview(&mut wb, &java);
+    assert!(p.engines.iter().all(|engine| engine.problems.is_empty()));
+    assert!(p.engines.iter().all(|engine| !engine.credential));
+    wb.apply_java_import(p.id, &[], false, None).unwrap().unwrap();
+    let config = wb.config();
+    assert_eq!(config.cloud.provider, Provider::Custom);
+    assert_eq!(config.cloud.custom_url, "WSS://example.invalid/analysis");
+    assert_eq!(config.cloud.catalog_updated_at, 1234);
+    assert!(config.cloud.catalog.weights.iter().any(|weight| weight.name == "test-weight" && weight.source == DiscoverySource::CachedLegacy));
+    assert_eq!(config.engine.last_engine.as_deref(), Some("custom"));
+    assert!(config.engine.engines[2].is_default);
+    assert!(config.engine.engines[0].cloud.is_none());
+    let cloud = &config.engine.engines[1];
+    assert!(cloud.ssh.is_none());
+    assert_eq!(cloud.command, "remote-compute://zhizi");
+    assert_eq!(cloud.cloud.as_ref().unwrap().provider, CloudProvider::Zhizi);
+    assert_eq!(cloud.cloud.as_ref().unwrap().args, config.cloud.args);
+    assert_eq!(config.engine.engines[2].cloud.as_ref().unwrap().url, config.cloud.custom_url);
+    assert_eq!(snapshot(&java), before);
+}
+
+#[test]
+fn cloud_secrets_have_independent_availability_and_never_enter_preview_or_core_state() {
+    const TOKEN: &str = "CLOUD-TOKEN-SECRET";
+    const PASSWORD: &str = "päss";
+    const ENCODED: &str = "cMOkc3M=";
+    let temp = tempfile::tempdir().unwrap();
+    let java = cloud_java(temp.path(), json!({
+        "provider": "zhizi", "zhizi-identifier": "user@example.invalid",
+        "zhizi-account-token": TOKEN, "zhizi-password-v1": ENCODED,
+        "remember-zhizi-token": true, "remember-zhizi-password": true,
+    }));
+    let before = snapshot(&java);
+    let candidate = java_import::read(&JavaSource::new(&java, None)).unwrap();
+    let debug = format!("{candidate:?}");
+    let choices = candidate.cloud_credentials.as_ref().unwrap();
+    assert!(choices.token && choices.password);
+    let mut wb = workbench(&temp.path().join("product"), Recorder::default());
+    let p = wb.preview_java_import(candidate);
+    assert!(wb.java_cloud_import(p.id + 1).is_none());
+    let (_, settings, availability) = wb.java_cloud_import(p.id).unwrap();
+    assert_eq!(availability.identifier, settings.identifier);
+    // These source reads correspond to independent shell checkboxes, not per-engine consent.
+    assert_eq!(java_import::read_java_cloud_secret(&java, false).as_deref(), Some(TOKEN));
+    assert_eq!(java_import::read_java_cloud_secret(&java, true).as_deref(), Some(PASSWORD));
+    let report = wb.apply_java_import(p.id, &[0, 1, 2], false, None).unwrap().unwrap();
+    assert!(!wb.config().cloud.remember_token && !wb.config().cloud.remember_password);
+    for key in ["credential:cloud-token", "credential:cloud-password"] {
+        assert_eq!(item(&report.items, key).reason, Some(ImportReason::CredentialNotConfirmed));
+    }
+    for text in [debug, serde_json::to_string(&p).unwrap(), serde_json::to_string(&report).unwrap(), serde_json::to_string(wb.config()).unwrap()] {
+        for secret in [TOKEN, PASSWORD, ENCODED] { assert!(!text.contains(secret)); }
+    }
+    assert!(wb.java_cloud_import(p.id).is_none());
+    assert_eq!(snapshot(&java), before);
+}
+
+#[test]
+fn custom_cloud_url_requires_engine_consent_including_top_level_settings() {
+    let temp = tempfile::tempdir().unwrap();
+    let url = "wss://example.invalid/analysis?accessCode=CUSTOM-URL-SECRET";
+    let java = cloud_java(temp.path(), json!({ "provider": "custom", "custom-remote-code": url }));
+    let candidate = java_import::read(&JavaSource::new(&java, None)).unwrap();
+    assert!(!format!("{candidate:?}").contains("CUSTOM-URL-SECRET"));
+    assert_eq!(candidate.credential_engines(), vec![2]);
+    let mut wb = workbench(&temp.path().join("product"), Recorder::default());
+    let p = wb.preview_java_import(candidate);
+    assert!(!serde_json::to_string(&p).unwrap().contains("CUSTOM-URL-SECRET"));
+    let report = wb.apply_java_import(p.id, &[1], false, None).unwrap().unwrap();
+    assert_eq!(wb.config().engine.engines.len(), 2);
+    assert!(wb.config().cloud.custom_url.is_empty());
+    assert!(wb.config().engine.last_engine.is_none());
+    assert_eq!(item(&report.items, "leelaz.remote-compute.custom-remote-code").reason, Some(ImportReason::CredentialNotConfirmed));
+    assert!(!serde_json::to_string(&report).unwrap().contains("CUSTOM-URL-SECRET"));
+    let p = preview(&mut wb, &java);
+    let report = wb.apply_java_import(p.id, &[2], true, None).unwrap().unwrap();
+    assert_eq!(wb.config().cloud.custom_url, url);
+    assert_eq!(wb.config().engine.engines[2].cloud.as_ref().unwrap().url, url);
+    assert_eq!(wb.config().engine.last_engine.as_deref(), Some("custom"));
+    assert!(!serde_json::to_string(&report).unwrap().contains("CUSTOM-URL-SECRET"));
+}
+
+#[test]
+fn native_cloud_availability_does_not_select_the_other_secret_and_defaults_are_java_defaults() {
+    let temp = tempfile::tempdir().unwrap();
+    let java = cloud_java(temp.path(), json!({ "zhizi-identifier": "user@example.invalid", "zhizi-catalog-updated-at": -9 }));
+    let mut candidate = java_import::read(&JavaSource::new(&java, None)).unwrap();
+    candidate.set_cloud_credential_available(true);
+    candidate.set_cloud_credential_available(true);
+    assert_eq!(candidate.items.iter().filter(|item| item.key == "credential:cloud-password").count(), 1);
+    assert!(!candidate.cloud_credentials.as_ref().unwrap().token);
+    assert!(candidate.cloud_credentials.as_ref().unwrap().password);
+    let (config, _) = candidate.mapped.apply(&Config::default(), &Persisted::default(), &[]);
+    assert_eq!(config.cloud.provider, lizzie_core::cloud::Provider::Local);
+    assert_eq!(config.cloud.args, lizzie_core::cloud::VIP_ARGS);
+    assert_eq!(config.cloud.catalog_updated_at, 0);
+    assert_eq!(config.cloud.catalog, lizzie_core::cloud::Catalog::default());
+    std::fs::write(java.join("config.txt"), json!({"leelaz":{"remote-compute":{"zhizi-password-v1":"%%%invalid"}}}).to_string()).unwrap();
+    assert!(java_import::read_java_cloud_secret(&java, true).is_none());
+}
+
+#[test]
+fn rejected_cloud_replacement_and_failed_transaction_leave_java_and_current_state_unchanged() {
+    let temp = tempfile::tempdir().unwrap();
+    let java = cloud_java(temp.path(), json!({ "provider": "zhizi", "zhizi-identifier": "new-account" }));
+    std::fs::write(java.join("persist"), json!({"filesystem":{"last-folder":"/imported-games"}}).to_string()).unwrap();
+    let before_java = snapshot(&java);
+    let product = temp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    wb.set_play_sound(false).unwrap();
+    let before = wb.config().clone();
+    let before_disk = std::fs::read(storage(&product).config_file).unwrap();
+    let p = preview(&mut wb, &java);
+    assert!(p.replaces.contains(&ImportTarget::Cloud));
+    assert_eq!(wb.apply_java_import(p.id, &[], false, None).unwrap(), Err(IMPORT_NEEDS_REPLACE));
+    assert_eq!(wb.config(), &before);
+    std::fs::create_dir_all(storage(&product).persist_file.join("blocker")).unwrap();
+    assert!(wb.apply_java_import(p.id, &[], true, None).is_err());
+    assert_eq!(wb.config(), &before);
+    assert_eq!(std::fs::read(storage(&product).config_file).unwrap(), before_disk);
+    assert!(wb.java_cloud_import(p.id).is_some());
+    assert_eq!(snapshot(&java), before_java);
+}
+
+#[test]
+fn remembered_cloud_choices_are_metadata_only_and_shell_staging_is_preview_scoped() {
+    let temp = tempfile::tempdir().unwrap();
+    let java = cloud_java(temp.path(), json!({
+        "zhizi-identifier": "native-account", "remember-zhizi-token": true, "remember-zhizi-password": false,
+    }));
+    let candidate = java_import::read(&JavaSource::new(&java, None)).unwrap();
+    let availability = candidate.cloud_credentials.as_ref().unwrap();
+    assert!(availability.token && !availability.password);
+    assert!(java_import::read_java_cloud_secret(&java, false).is_none());
+    let mut wb = workbench(&temp.path().join("product"), Recorder::default());
+    let p = wb.preview_java_import(candidate);
+    assert!(!wb.stage_java_cloud_preferences(p.id + 1, true, true));
+    assert!(!wb.config().cloud.remember_token);
+    assert!(wb.stage_java_cloud_preferences(p.id, true, false));
+    assert!(!wb.config().cloud.remember_token, "staging never changes live settings");
+    wb.apply_java_import(p.id, &[], false, None).unwrap().unwrap();
+    assert!(wb.config().cloud.remember_token && !wb.config().cloud.remember_password);
+    assert!(!wb.stage_java_cloud_preferences(p.id, false, false));
+}
+
+#[test]
+fn cloud_marker_without_remote_settings_uses_fixed_java_defaults() {
+    let temp = tempfile::tempdir().unwrap();
+    let java = temp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), json!({
+        "ui": { "autoload-last": true, "last-engine": 0 },
+        "leelaz": { "engine-settings-list": [{"id":"cloud-only","command":"remote-compute://zhizi","isDefault":true}] },
+    }).to_string()).unwrap();
+    let candidate = java_import::read(&JavaSource::new(&java, None)).unwrap();
+    assert!(candidate.engines[0].problems.is_empty());
+    assert!(!candidate.cloud_credentials.as_ref().unwrap().token);
+    let (config, _) = candidate.mapped.apply(&Config::default(), &Persisted::default(), &[]);
+    assert_eq!(config.cloud, lizzie_core::cloud::CloudSettings::default());
+    assert_eq!(config.engine.startup, EngineStartup::Last);
+    assert_eq!(config.engine.last_engine.as_deref(), Some("cloud-only"));
+    assert!(config.engine.engines[0].is_default);
+    assert_eq!(config.engine.engines[0].cloud.as_ref().unwrap().args, lizzie_core::cloud::VIP_ARGS);
 }

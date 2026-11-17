@@ -26,9 +26,11 @@ use super::gtp::{self, Dialect, Frame, Framer, InfoLine, LaunchSpec};
 use super::profile::EngineProfile;
 use super::raw_net::{self, RawNetMode, RawNetView};
 use super::rules::KataRules;
+use super::ssh::{RemoteFailure, SshSettings};
 use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, Point, Stone, ROOT};
 
 mod game;
+mod fox;
 pub use game::GenmoveReply;
 
 pub type InstanceId = u64;
@@ -40,12 +42,19 @@ pub enum EngineInput {
     Stderr(String),
     /// The process ended (exit code if known).
     Exited(Option<i32>),
+    /// A remote engine could not start, its command ended or its connection was lost; the
+    /// instance is gone.
+    Remote(super::ssh::RemoteFailure),
+    /// This cloud transport has retired itself; rebuild a session and replay the current board.
+    CloudRecovery { message: String },
 }
 
 /// Writing side of a running engine process.
 pub trait EngineIo: Send {
     /// Writes one line; must not block on a slow reader.
     fn send(&mut self, line: &str) -> std::io::Result<()>;
+    /// Only a result admitted by its consumer proves progress (not merely received output).
+    fn analysis_progress_accepted(&mut self, _total: u64) {}
     /// Ends the process: `quit`, then a forced kill if it has not exited in time. Returns at
     /// once.
     fn terminate(self: Box<Self>);
@@ -126,6 +135,23 @@ pub struct EngineFailure {
     pub message: String,
     /// Last lines the engine printed (stderr and non-analysis stdout).
     pub output: Vec<String>,
+    /// A remote engine's connection failure or end.
+    pub remote: Option<super::ssh::RemoteFailure>,
+    /// It held the foreground seat when it ended.
+    pub foreground: bool,
+    /// When it ended, its state belonged to a holder other than the seat's wish: lent to a
+    /// background task (the lease, its restore included), being given back by a play mode or
+    /// HumanSL, reserved by a ReadBoard GMA hand or its restore, or left unrestored by such a
+    /// return (Java's exclusive GTP session, foreground restore, `readBoardGmaReservation` /
+    /// restore barrier and `engineStateUnrestored`).
+    pub held: bool,
+    /// Within `held`: reserved by a ReadBoard GMA hand or its restore or by Web 试下, or left
+    /// unrestored. No automatic restart takes such an engine, the cloud transport recovery
+    /// included (Java `beginAutomaticRestartAttempt(false)`, Leelaz.java:2121-2146, whose
+    /// lifecycle reservation Web 试下 refuses, 15190-15198; `restartRemoteEngineInBackground`
+    /// goes through it too).
+    pub reserved: bool,
+    pub cloud_recovery: bool,
 }
 
 /// Something the application flow must act on.
@@ -155,6 +181,9 @@ pub enum RuntimeEvent {
     RawNet { instance: InstanceId },
     /// The process failed to start or ended unexpectedly; the instance is gone.
     Failed(EngineFailure),
+    /// The foreground engine was asked to search a position (Java `Leelaz.ponder` of the
+    /// primary engine, which calls `onMainEnginePonder`).
+    Pondering { instance: InstanceId },
     /// The borrowed foreground engine stopped and its rules were captured: searches may start.
     LeaseReady { lease: u64 },
     /// A finite search of the borrowed engine reached its visits, for the position it was made
@@ -175,6 +204,9 @@ pub enum RuntimeEvent {
     LeaseEnded { lease: u64, failure: Option<LeaseFailure> },
     /// One stdout line of an analysis process.
     WorkerLine { instance: InstanceId, line: String },
+    /// One stderr line of an analysis process whose consumer asked for stderr separately
+    /// ([`Engines::report_worker_stderr`]).
+    WorkerErrorLine { instance: InstanceId, line: String },
     /// A deferred analysis worker's fingerprint check and process launch completed.
     WorkerReady { instance: InstanceId },
     WorkerLaunchFailed { instance: InstanceId, message: String },
@@ -183,6 +215,8 @@ pub enum RuntimeEvent {
         instance: InstanceId,
         message: String,
         output: Vec<String>,
+        /// A remote process's connection failure or end.
+        remote: Option<RemoteFailure>,
     },
     /// The focus points an instance's analysis stream searches changed: a stream with them was
     /// accepted, or the stream that searched them ended.
@@ -216,7 +250,13 @@ pub enum LeaseAvailability {
     EngineStateUnrestored,
     /// A play mode holds the engine (Java `PLAY_MODE`).
     PlayMode,
+    /// An application mode follows the foreground engine itself (Java
+    /// `APPLICATION_EXCLUSIVE_MODE`: Web 试下).
+    ApplicationExclusive,
     HumanSlGame,
+    /// ReadBoard's GMA auto-play holds the engine (Java `READBOARD_GMA`, returned while
+    /// `ReadBoard.isReadBoardGmaEngineBusy()`).
+    ReadBoardGma,
 }
 
 /// How borrowing or giving back the foreground engine failed (Java
@@ -306,6 +346,10 @@ struct Worker {
     tail: VecDeque<String>,
     queued: Option<Vec<String>>,
     report_diagnostics: bool,
+    /// Report stderr as its own event (stdout and stderr stay distinguishable).
+    separate_stderr: bool,
+    /// The SSH host it runs on (精析设置's 远程引擎).
+    remote: Option<SshSettings>,
 }
 
 /// A console entry (GtpConsolePane): sent commands, engine output and errors.
@@ -396,6 +440,7 @@ struct Instance {
     id: InstanceId,
     profile: EngineProfile,
     launch_threads: u32,
+    fox_pda_compatibility: &'static str,
     io: Option<Box<dyn EngineIo>>,
     /// Lines written before the process exists (its launch waits for a [`LaunchCheck`]).
     queued: Option<Vec<String>>,
@@ -623,6 +668,9 @@ pub struct Engines {
     checks: Vec<LaunchCheck>,
     next_instance: InstanceId,
     foreground: Option<InstanceId>,
+    /// The foreground engine that failed, while nothing took its seat since (Java's primary
+    /// engine `isDownWithError && !isStarted()`).
+    failed_foreground: Option<EngineProfile>,
     wish: Option<(Target, bool)>,
     /// 双引擎模式's secondary engine (Java `Lizzie.leelaz2`): never the foreground engine. It
     /// holds the position of its own wish; results name their instance, so they are never taken
@@ -630,6 +678,7 @@ pub struct Engines {
     secondary: Option<InstanceId>,
     secondary_wish: Option<(Target, bool)>,
     interval_centisec: u32,
+    interval_centisec_ssh: u32,
     /// What KataGo analysis also reports: `show-pv-visits` (each variation move's visits) and
     /// Kata形势 (`ownership`, with 按选点显示评估 `movesOwnership`).
     options: StreamOptions,
@@ -648,6 +697,12 @@ pub struct Engines {
     games: Vec<game::GameSeat>,
     human_sl: bool,
     human_sl_restore: Option<u64>,
+    /// ReadBoard GMA is armed or busy (Java `isReadBoardGmaEngineBusy`): the foreground engine is
+    /// not lent and no other mode reserves it; GMA's own hands reserve it through
+    /// [`reserve_readboard_gma`](Self::reserve_readboard_gma).
+    readboard_gma: bool,
+    /// Web 试下 drives the foreground engine (`isWebTrialEngineBusy`).
+    application_exclusive: bool,
 }
 
 impl Instance {
@@ -719,6 +774,12 @@ impl Instance {
             during_startup: self.phase == Phase::Starting,
             message,
             output: self.output_tail.iter().cloned().collect(),
+            remote: None,
+            // Filled in by `Engines::fail`, which knows the seats.
+            foreground: false,
+            held: false,
+            reserved: false,
+            cloud_recovery: false,
         }
     }
 }
@@ -736,10 +797,12 @@ impl Engines {
             checks: Vec::new(),
             next_instance: 1,
             foreground: None,
+            failed_foreground: None,
             wish: None,
             secondary: None,
             secondary_wish: None,
             interval_centisec: 10,
+            interval_centisec_ssh: 10,
             options: StreamOptions::default(),
             console: VecDeque::new(),
             console_seq: 0,
@@ -753,6 +816,8 @@ impl Engines {
             games: Vec::new(),
             human_sl: false,
             human_sl_restore: None,
+            readboard_gma: false,
+            application_exclusive: false,
         }
     }
 
@@ -768,6 +833,25 @@ impl Engines {
 
     pub fn foreground(&self) -> Option<InstanceId> {
         self.foreground
+    }
+
+    /// The profile of the foreground engine that failed, while no engine took its seat since.
+    pub fn foreground_failure(&self) -> Option<&EngineProfile> {
+        self.failed_foreground.as_ref()
+    }
+
+    /// The engine chosen as the foreground engine could not even be launched: like one that
+    /// failed in its seat, it is the failed primary until an engine takes the seat.
+    pub fn foreground_launch_failed(&mut self, profile: &EngineProfile) {
+        self.failed_foreground = Some(profile.clone());
+    }
+
+    pub fn fox_pda_unavailable(&self, id: InstanceId) -> &'static str {
+        let Some(inst) = self.get(id) else { return "Fox.pdaUnknown"; };
+        let name = inst.gtp_name.to_ascii_lowercase();
+        if name.contains("dym") || name.contains("katagopda") { "Fox.pdaDynamic" }
+        else if name.contains("custom") { "Fox.pdaUnknown" }
+        else { inst.fox_pda_compatibility }
     }
 
     pub fn secondary(&self) -> Option<InstanceId> {
@@ -951,9 +1035,20 @@ impl Engines {
         }
     }
 
-    /// `analyze-update-interval-centisec`; 0 means the default 10.
-    pub fn set_interval(&mut self, centisec: u32) {
+    /// The analysis update intervals of local engines and of engines that run over SSH (a
+    /// remote engine or an `ssh` / `plink` command); 0 means 10 (`ConfigDialog2`).
+    pub fn set_interval(&mut self, centisec: u32, ssh: u32) {
         self.interval_centisec = if centisec == 0 { 10 } else { centisec };
+        self.interval_centisec_ssh = if ssh == 0 { 10 } else { ssh };
+    }
+
+    /// `Leelaz.getInterval`: `isSSH || useJavaSSH` use the SSH interval.
+    fn interval_of(&self, inst: &Instance) -> u32 {
+        if inst.profile.is_remote() || super::ssh::is_external_ssh(&inst.profile.command) {
+            self.interval_centisec_ssh
+        } else {
+            self.interval_centisec
+        }
     }
 
     /// `show-pv-visits` (`Leelaz` adds ` pvVisits true` to `kata-analyze`); a KataGo stream asked
@@ -1083,40 +1178,63 @@ impl Engines {
             during_startup: true,
             message,
             output: Vec::new(),
+            remote: None,
+            foreground: false,
+            held: false,
+            reserved: false,
+            cloud_recovery: false,
         };
-        let mut spec =
-            gtp::prepare_launch(&profile.command, &self.roots).ok_or_else(|| fail("empty command".into()))?;
-        // `EngineThreadPolicy.invalidRecommendation`: a Benchmark source without a recommendation.
-        if profile
-            .thread_policy
-            .as_ref()
-            .is_some_and(|p| p.source == super::tuning::ThreadSource::BENCHMARK && p.threads == 0)
-            && super::tuning::is_local_katago(&profile.command)
-            && !super::tuning::has_search_threads(&profile.command)
-        {
-            return Err(Box::new(fail("EngineThreadPolicy.invalidRecommendation".into())));
-        }
-        spec.library_dirs = self.library_dirs.clone();
-        super::tuning::apply_launch_policy(&profile.command, profile.thread_policy.as_ref(), &mut spec);
-        // Overlays that need artifact fingerprints wait for an off-workbench check; commands
-        // queue until the process exists.
-        let check = profile.thread_policy.as_ref().and_then(|policy| {
-            let apple = self.apple_hardware.clone().filter(|_| policy.tuning_profiles.is_some());
-            let measured = self
-                .measured_hardware
-                .clone()
-                .filter(|_| policy.measured_scenes.as_ref().is_some_and(|s| s.get("live").is_some()));
-            (apple.is_some() || measured.is_some()).then(|| LaunchCheck {
-                instance: id,
-                command: profile.command.clone(),
-                policy: policy.clone(),
-                roots: self.roots.clone(),
-                spec: spec.clone(),
-                apple,
-                measured,
-                whole_game: None,
-            })
-        });
+        // A remote engine's command runs on its host as written: no local paths, thread policy
+        // or launch overlays apply (Java `EngineThreadPolicy.isRemoteManaged`).
+        let (spec, check) = if let Some(cloud) = &profile.cloud {
+            (LaunchSpec { cloud: Some(cloud.clone()), ..LaunchSpec::default() }, None)
+        } else if let Some(ssh) = &profile.ssh {
+            if profile.command.trim().is_empty() {
+                return Err(Box::new(fail("empty command".into())));
+            }
+            (gtp::LaunchSpec::remote(&profile.command, ssh), None)
+        } else {
+            let mut spec =
+                gtp::prepare_launch(&profile.command, &self.roots).ok_or_else(|| fail("empty command".into()))?;
+            // `EngineThreadPolicy.invalidRecommendation`: a Benchmark source without a recommendation.
+            if profile
+                .thread_policy
+                .as_ref()
+                .is_some_and(|p| p.source == super::tuning::ThreadSource::BENCHMARK && p.threads == 0)
+                && super::tuning::is_local_katago(&profile.command)
+                && !super::tuning::has_search_threads(&profile.command)
+            {
+                return Err(Box::new(fail("EngineThreadPolicy.invalidRecommendation".into())));
+            }
+            spec.library_dirs = self.library_dirs.clone();
+            super::tuning::apply_launch_policy(&profile.command, profile.thread_policy.as_ref(), &mut spec);
+            // Overlays that need artifact fingerprints wait for an off-workbench check; commands
+            // queue until the process exists.
+            let check = profile.thread_policy.as_ref().and_then(|policy| {
+                let apple = self.apple_hardware.clone().filter(|_| policy.tuning_profiles.is_some());
+                let measured = self
+                    .measured_hardware
+                    .clone()
+                    .filter(|_| policy.measured_scenes.as_ref().is_some_and(|s| s.get("live").is_some()));
+                (apple.is_some() || measured.is_some()).then(|| LaunchCheck {
+                    instance: id,
+                    command: profile.command.clone(),
+                    policy: policy.clone(),
+                    roots: self.roots.clone(),
+                    spec: spec.clone(),
+                    apple,
+                    measured,
+                    whole_game: None,
+                })
+            });
+            (spec, check)
+        };
+        // Java FoxPdaCompatibility: only a physical local launch is inspected (Leelaz.java:1333, 1529).
+        let fox_pda_compatibility = if profile.cloud.is_none() && profile.ssh.is_none() && check.is_none() {
+            fox::inspect(&spec)
+        } else {
+            "Fox.pdaUnknown"
+        };
         let (io, queued) = match check {
             Some(check) => {
                 self.checks.push(check);
@@ -1131,6 +1249,7 @@ impl Engines {
             id,
             profile: profile.clone(),
             launch_threads: launch_threads(&profile.command, &spec),
+            fox_pda_compatibility,
             io,
             queued,
             phase: Phase::Starting,
@@ -1196,7 +1315,7 @@ impl Engines {
                     for line in self.workers[index].queued.take().unwrap_or_default() {
                         if let Err(e) = io.send(&line) {
                             io.terminate(); self.terminate(id);
-                            return vec![RuntimeEvent::WorkerExited { instance: id, message: e.to_string(), output: vec![] }];
+                            return vec![RuntimeEvent::WorkerExited { instance: id, message: e.to_string(), output: vec![], remote: None }];
                         }
                     }
                     self.workers[index].io = Some(io);
@@ -1211,6 +1330,7 @@ impl Engines {
         let Some(name) = self.get(id).filter(|i| i.queued.is_some()).map(Instance::display_name) else {
             return Vec::new();
         };
+        let fox_pda_compatibility = fox::inspect(&checked.spec);
         let launched = self.launcher.launch(id, &checked.spec);
         let Some(inst) = self.get_mut(id) else {
             return Vec::new();
@@ -1219,11 +1339,11 @@ impl Engines {
             Err(e) => {
                 let failure = inst.failure(e.to_string());
                 self.trace(&name, "--", &format!("launch failed: {e}"));
-                self.terminate(id);
-                vec![RuntimeEvent::Failed(failure)]
+                vec![self.fail(id, failure)]
             }
             Ok(mut io) => {
                 inst.launch_threads = launch_threads(&inst.profile.command, &checked.spec);
+                inst.fox_pda_compatibility = fox_pda_compatibility;
                 for line in inst.queued.take().unwrap_or_default() {
                     if io.send(&line).is_err() {
                         break;
@@ -1248,6 +1368,9 @@ impl Engines {
             self.secondary_wish = None;
         }
         self.foreground = id;
+        if id.is_some() {
+            self.failed_foreground = None;
+        }
         self.seat(previous, id, keep_previous);
     }
 
@@ -1279,6 +1402,22 @@ impl Engines {
             i.rejected = None;
         }
         self.pump();
+    }
+
+    /// Ends instance `id` that failed: a foreground engine's failure is remembered. The failure
+    /// says which seat the instance held and whether a holder owned its state at that moment.
+    fn fail(&mut self, id: InstanceId, mut failure: EngineFailure) -> RuntimeEvent {
+        failure.foreground = self.foreground == Some(id);
+        failure.reserved = self.get(id).is_some_and(|i| i.unrestored.is_some())
+            || self.readboard_gma_holds(id)
+            || self.exclusive_session_holds(id)
+            || (failure.foreground && self.application_exclusive);
+        failure.held = failure.reserved || self.leased(id) || self.game_restoring(id);
+        if failure.foreground {
+            self.failed_foreground = self.get(id).map(|i| i.profile.clone());
+        }
+        self.terminate(id);
+        RuntimeEvent::Failed(failure)
     }
 
     /// Ends one instance (an engine or an analysis process). Its later output is ignored; a seat
@@ -1520,8 +1659,8 @@ impl Engines {
     /// Sends the next batch of a seated instance (the foreground or the secondary engine) for
     /// its wish when nothing is in flight.
     fn pump_seat(&mut self, id: InstanceId) {
-        let interval = self.interval_centisec;
         let Some(inst) = self.get(id) else { return };
+        let interval = self.interval_of(inst);
         if inst.phase != Phase::Ready || inst.fence.is_some() || inst.unrestored.is_some() || self.leased(id) {
             return;
         }
@@ -1644,6 +1783,10 @@ impl Engines {
                                 }
                                 while i.requests.len() > REQUEST_MEMORY {
                                     i.requests.pop_front();
+                                }
+                                // Java's Leela 0.11 cycle returns before `onMainEnginePonder`.
+                                if self.foreground == Some(id) && d != Dialect::Leela011 {
+                                    self.pending.push(RuntimeEvent::Pondering { instance: id });
                                 }
                             }
                         }
@@ -1840,8 +1983,19 @@ impl Engines {
                 };
                 let failure = inst.failure(message.clone());
                 self.trace(&name, "--", &format!("exited: {message}"));
-                self.terminate(id);
-                events.push(RuntimeEvent::Failed(failure));
+                events.push(self.fail(id, failure));
+            }
+            EngineInput::Remote(remote) => {
+                let message = remote.to_string();
+                let mut failure = inst.failure(message.clone());
+                failure.remote = Some(remote);
+                self.trace(&name, "--", &message);
+                events.push(self.fail(id, failure));
+            }
+            EngineInput::CloudRecovery { message } => {
+                let mut failure = inst.failure(message);
+                failure.cloud_recovery = true;
+                events.push(self.fail(id, failure));
             }
             EngineInput::Stdout(line) => {
                 let mut frames = Vec::new();
@@ -1984,8 +2138,7 @@ impl Engines {
                     Some(Purpose::Name) => {
                         if !ok {
                             let failure = inst.failure(format!("name: {text}"));
-                            self.terminate(id);
-                            events.push(RuntimeEvent::Failed(failure));
+                            events.push(self.fail(id, failure));
                             return;
                         }
                         (inst.kind, inst.no_analyze) = classify(&text);
@@ -2137,7 +2290,8 @@ impl Engines {
         // a zero-probability focus, stopped at once. Its lines are attributed to no request.
         let probe = katago && self.get(id).is_some_and(|i| !i.no_analyze && i.has("kata-analyze"));
         if probe {
-            let args = format!("{} rootInfo true focus pass 0", self.interval_centisec);
+            let interval = self.get(id).map_or(self.interval_centisec, |i| self.interval_of(i));
+            let args = format!("{interval} rootInfo true focus pass 0");
             if let Some(n) = self.send(id, &format!("kata-analyze {args}"), Purpose::FocusProbe) {
                 self.get_mut(id).unwrap().focus_probe = Some((n, args));
             }
@@ -2157,15 +2311,20 @@ impl Engines {
     /// Whether the foreground engine can be borrowed now (`previewForegroundAnalysisLeaseAvailability`).
     pub fn lease_availability(&self) -> LeaseAvailability {
         // Java's mode order is play, HumanSL, then ordinary foreground availability.
-        if self.games.iter().any(|g| Some(g.id) != self.human_sl_restore) {
+        if self.games.iter().any(|g| Some(g.id) != self.human_sl_restore && !g.readboard_gma()) {
             return LeaseAvailability::PlayMode;
         }
         if self.human_sl { return LeaseAvailability::HumanSlGame; }
         let Some(inst) = self.foreground.and_then(|id| self.get(id)) else {
             return LeaseAvailability::NoForegroundEngine;
         };
+        if self.application_exclusive {
+            return LeaseAvailability::ApplicationExclusive;
+        }
         if inst.unrestored.is_some() {
             LeaseAvailability::EngineStateUnrestored
+        } else if self.readboard_gma || self.games.iter().any(|g| g.readboard_gma()) {
+            LeaseAvailability::ReadBoardGma
         } else if inst.phase != Phase::Ready {
             LeaseAvailability::EngineNotReady
         } else if inst.kind != EngineKind::KataGo {
@@ -2182,6 +2341,37 @@ impl Engines {
     /// How giving instance `id` back failed, while it stays unrestored.
     pub fn unrestored(&self, id: InstanceId) -> Option<LeaseFailure> {
         self.get(id)?.unrestored
+    }
+
+    pub fn analysis_progress_accepted(&mut self, id: InstanceId, total: u64) {
+        if let Some(io) = self.get_mut(id).and_then(|i| i.io.as_mut()) {
+            io.analysis_progress_accepted(total);
+        }
+    }
+
+    /// Whether instance `id` holds the position wished for its seat now: ready, no sync in
+    /// flight, its board known and nothing left to send for the wish.
+    pub fn holds_wish(&self, id: InstanceId) -> bool {
+        let Some(inst) = self.get(id) else { return false };
+        if inst.phase != Phase::Ready || inst.fence.is_some() || inst.board.is_none() {
+            return false;
+        }
+        self.wish_of(id).is_none_or(|(target, _)| sync_commands(inst, target).0.is_empty())
+    }
+
+    /// Whether instance `id` refused the position wished for its seat now.
+    pub fn sync_refused(&self, id: InstanceId) -> bool {
+        let Some(inst) = self.get(id) else { return false };
+        inst.rejected.is_some() && self.wish_of(id).is_some_and(|(target, _)| inst.rejected == Some(target.key()))
+    }
+
+    /// Instance `id` refused the position it was being restored to after an automatic restart
+    /// (Java's failed restore round): it is left unrestored and follows no wish until restarted.
+    pub fn restore_failed(&mut self, id: InstanceId) {
+        self.stop_stream(id);
+        if let Some(inst) = self.get_mut(id) {
+            inst.unrestored = Some(LeaseFailure::RestoreFailed);
+        }
     }
 
     /// Takes the foreground engine over (`acquireForegroundAnalysisLease`): `stop`, then its rules
@@ -2424,10 +2614,15 @@ impl Engines {
                 let total = info
                     .root_visits
                     .unwrap_or_else(|| info.candidates.iter().map(|c| c.visits).sum());
-                if !info.candidates.is_empty() {
+                let accepted = !s.failed && !info.candidates.is_empty();
+                if accepted {
                     s.best = Some(info);
                 }
-                if total >= s.target_visits && step == LeaseStep::Search {
+                let complete = total >= s.target_visits && step == LeaseStep::Search;
+                if accepted {
+                    self.analysis_progress_accepted(id, total);
+                }
+                if complete {
                     self.lease_stop_search();
                 }
                 true
@@ -2572,6 +2767,12 @@ impl Engines {
         if !active { self.human_sl_restore = None; }
     }
 
+    /// Web 试下 holds the foreground engine: borrowing it and play-mode reservations are refused
+    /// as application-exclusive until it ends (`isWebTrialEngineBusy`).
+    pub fn set_application_exclusive(&mut self, active: bool) {
+        self.application_exclusive = active;
+    }
+
     /// Confirm foreground recovery with the same fenced handback used by play modes. No
     /// engine parameters were changed by the companion; only board synchronization remains.
     pub fn restore_human_sl(&mut self, target: &Target) -> Result<Option<u64>, LeaseAvailability> {
@@ -2590,11 +2791,41 @@ impl Engines {
     /// Starts a KataGo analysis process for `command` (`AnalysisEngine.startEngine`); relative
     /// paths resolve like an engine's. Its stdout lines arrive as [`RuntimeEvent::WorkerLine`].
     pub fn start_worker(&mut self, command: &str, name: &str) -> Result<InstanceId, String> {
-        let mut spec = gtp::prepare_launch(command, &self.roots).ok_or_else(|| "empty command".to_string())?;
-        spec.library_dirs = self.library_dirs.clone();
+        self.start_worker_on(command, name, None)
+    }
+
+    /// [`Self::start_worker`] on the SSH host `ssh` when given (精析设置's 远程引擎,
+    /// `AnalysisEngineSSHController`): the command runs there as written.
+    pub fn start_worker_on(&mut self, command: &str, name: &str, ssh: Option<&SshSettings>) -> Result<InstanceId, String> {
+        self.start_worker_in_dir(command, command, name, ssh, None)
+    }
+
+    /// [`Self::start_worker_on`] in the explicit working directory `working_dir` (a local
+    /// analysis process); a remote command runs there as written. The trace records `shown`,
+    /// the command as the caller lets it be seen (a secret already replaced).
+    pub fn start_worker_in_dir(
+        &mut self,
+        command: &str,
+        shown: &str,
+        name: &str,
+        ssh: Option<&SshSettings>,
+        working_dir: Option<&std::path::Path>,
+    ) -> Result<InstanceId, String> {
+        let spec = match ssh {
+            Some(_) if command.trim().is_empty() => return Err("empty command".to_string()),
+            Some(ssh) => gtp::LaunchSpec::remote(command, ssh),
+            None => {
+                let mut spec = gtp::prepare_launch(command, &self.roots).ok_or_else(|| "empty command".to_string())?;
+                spec.library_dirs = self.library_dirs.clone();
+                if let Some(directory) = working_dir {
+                    spec.working_dir = Some(directory.to_path_buf());
+                }
+                spec
+            }
+        };
         let id = self.next_instance;
         self.next_instance += 1;
-        self.trace(name, "--", &format!("start {command}"));
+        self.trace(name, "--", &format!("start {shown}"));
         let io = self.launcher.launch(id, &spec).map_err(|e| e.to_string())?;
         self.workers.push(Worker {
             id,
@@ -2603,13 +2834,46 @@ impl Engines {
             tail: VecDeque::new(),
             queued: None,
             report_diagnostics: false,
+            separate_stderr: false,
+            remote: ssh.cloned(),
         });
         Ok(id)
+    }
+
+    /// The SSH host analysis process `id` runs on, if any.
+    pub fn worker_remote(&self, id: InstanceId) -> Option<&SshSettings> {
+        self.workers.iter().find(|w| w.id == id).and_then(|w| w.remote.as_ref())
     }
 
     /// Forward stderr startup stages only for a consumer that explicitly requests them.
     pub fn report_worker_diagnostics(&mut self, id: InstanceId) {
         if let Some(worker) = self.workers.iter_mut().find(|w| w.id == id) { worker.report_diagnostics = true; }
+    }
+
+    /// Report `id`'s stderr as [`RuntimeEvent::WorkerErrorLine`] instead of folding it into the
+    /// diagnostics tail: a consumer that must tell the two streams apart.
+    pub fn report_worker_stderr(&mut self, id: InstanceId) {
+        if let Some(worker) = self.workers.iter_mut().find(|w| w.id == id) { worker.separate_stderr = true; }
+    }
+
+    /// Adds one console line under `engine` (a process that is not a GTP engine, e.g. 跑谱贡献).
+    pub fn push_console(&mut self, engine: &str, kind: ConsoleKind, text: String) {
+        self.console_push(engine.to_string(), kind, text);
+    }
+
+    /// Writes `line` to worker `id` and ends it through the ordinary terminate path (quit, the
+    /// grace period, then a kill); 跑谱贡献's 强制结束 sends `forcequit` this way.
+    pub fn send_line_then_terminate(&mut self, id: InstanceId, line: &str) {
+        let name = self.workers.iter_mut().find(|w| w.id == id).map(|worker| {
+            if let Some(io) = worker.io.as_mut() {
+                let _ = io.send(line);
+            }
+            worker.name.clone()
+        });
+        if let Some(name) = name {
+            self.trace(&name, ">>", line);
+        }
+        self.terminate(id);
     }
 
     /// A whole-game process can defer its launch for an accepted measured-scene fingerprint
@@ -2623,7 +2887,7 @@ impl Engines {
         self.checks.push(LaunchCheck { instance: id, command: configured.into(), policy: policy.clone(),
             roots: self.roots.clone(), spec, apple: None, measured: Some(hardware.clone()),
             whole_game: saved.map(|p| p.command.clone()) });
-        self.workers.push(Worker { id, name: "整盘精析".into(), io: None, tail: VecDeque::new(), queued: Some(Vec::new()), report_diagnostics: false });
+        self.workers.push(Worker { id, name: "整盘精析".into(), io: None, tail: VecDeque::new(), queued: Some(Vec::new()), report_diagnostics: false, separate_stderr: false, remote: None });
         Ok(id)
     }
 
@@ -2658,8 +2922,13 @@ impl Engines {
             EngineInput::Stderr(line) => {
                 push_tail(&mut w.tail, &line);
                 let report = w.report_diagnostics;
+                let separate = w.separate_stderr;
                 self.trace(&name, "!!", &line);
-                if report { events.push(RuntimeEvent::WorkerLine { instance: id, line }); }
+                if separate {
+                    events.push(RuntimeEvent::WorkerErrorLine { instance: id, line });
+                } else if report {
+                    events.push(RuntimeEvent::WorkerLine { instance: id, line });
+                }
             }
             EngineInput::Exited(code) => {
                 let message = match code {
@@ -2673,7 +2942,25 @@ impl Engines {
                     instance: id,
                     message,
                     output,
+                    remote: None,
                 });
+            }
+            EngineInput::Remote(remote) => {
+                let message = remote.to_string();
+                let output = w.tail.iter().cloned().collect();
+                self.trace(&name, "--", &message);
+                self.terminate(id);
+                events.push(RuntimeEvent::WorkerExited {
+                    instance: id,
+                    message,
+                    output,
+                    remote: Some(remote),
+                });
+            }
+            EngineInput::CloudRecovery { message } => {
+                let output = w.tail.iter().cloned().collect();
+                self.terminate(id);
+                events.push(RuntimeEvent::WorkerExited { instance: id, message, output, remote: None });
             }
         }
     }

@@ -1,0 +1,57 @@
+/* KataGo跑谱贡献设置 (ContributeSettings.java): GridBagLayout of two 217px columns, labels centered
+   in the left one, fields filling the right one; 保存设置 / 开始跑谱贡献! centered below. */
+.contribution-settings-body { padding: 8px 10px 0; }
+.contribution-settings { display: grid; grid-template-columns: 217px minmax(217px, 1fr); gap: 6px 5px; align-items: center; }
+.contribution-settings > span, .contribution-settings > label { justify-self: center; text-align: center; }
+.contribution-settings > .contribution-cell:nth-child(odd) { justify-content: center; }
+.contribution-cell { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.contribution-stack { flex-direction: column; align-items: stretch; gap: 2px; }
+.contribution-stack .contribution-cell button { align-self: flex-start; }
+.contribution-settings input[type=text], .contribution-settings input[type=password] { min-width: 0; width: 100%; box-sizing: border-box; height: 32px; }
+.contribution-settings label:has(input:disabled) { color: #888; }
+.contribution-qualification { max-width: 440px; margin: 8px 0 0; color: #555; white-space: pre-line; }
+.contribution-qualification:empty { display: none; }
+.contribution-settings-body > .engine-actions { justify-content: center; }
+/* 选择已配置引擎 (SavedEnginePathChooser.java): table 716 wide, 3-8 rows, a 3-row detail area. */
+.contribution-saved { padding: 10px 10px 0; width: min(736px, 90vw); }
+.contribution-saved > p { margin: 0 0 6px; white-space: pre-wrap; }
+.contribution-saved-table { height: auto; max-height: 220px; min-height: 90px; }
+.contribution-saved-table th:nth-child(1) { width: 36px; }
+.contribution-saved-table th:nth-child(2) { width: 150px; }
+.contribution-saved-table th:nth-child(3) { width: 110px; }
+.contribution-saved-table th:nth-child(4) { width: auto; }
+.contribution-saved-table tr.contribution-unavailable:not(.selected) { color: #888; }
+.contribution-saved-table:focus { outline: 1px dotted #333; }
+.contribution-saved-detail { display: block; box-sizing: border-box; width: 100%; margin-top: 6px; resize: none; }
+.contribution-saved > .engine-actions { justify-content: flex-end; }
+
+/* KataGo分布式训练 (ContributeView.java): a fixed-size window beside the board — console on top
+   (black, stdout green, stderr red) with the tip under it, then the bevelled control rows. */
+.contribution-window { position: fixed; z-index: 29; right: 12px; top: max(40px, calc(50% - 300px)); width: 439px; max-height: calc(100vh - 50px); overflow: auto;
+  display: flex; flex-direction: column; background: #eee; color: #111; border: 1px solid #666; box-shadow: 0 3px 16px #0007; font-size: 12px; }
+/* 总在最前: above the other tool windows (GTP console, engine notices) — but under an open
+   message, which Java shows always on top (Message.setAlwaysOnTop). */
+.contribution-window.contribution-top { z-index: 47; }
+body:has(.modal) .contribution-window.contribution-top { z-index: 29; }
+.contribution-window button { font: inherit; padding: 1px 7px; }
+.contribution-window input[type=text] { font: inherit; color: #111; background: #fff; border: 1px solid #777; border-radius: 0; padding: 1px 3px; }
+.contribution-header { display: flex; justify-content: space-between; align-items: center; padding: 3px 6px; font-weight: bold; }
+.contribution-console { height: 140px; margin: 0; padding: 4px; overflow: auto; background: #000; color: #ccc; font: 12px "Source Code Pro", monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.contribution-console[hidden] { display: none; }
+.contribution-out { color: #0f0; }
+.contribution-err { color: #f00; }
+.contribution-tip { padding: 0 0 2px 4px; min-height: 1.3em; }
+.contribution-console-buttons { display: flex; align-items: center; }
+.contribution-console-buttons > button:first-child { flex: 1; }
+.contribution-count { color: #00f; }
+.contribution-console-buttons label, .contribution-row label { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+.contribution-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px; padding: 3px 2px; border: 1px solid; border-color: #999 #fff #fff #999; }
+.contribution-game { gap: 10px; }
+.contribution-number { width: 38px; }
+.contribution-rules { margin: 0; padding: 2px 4px; background: #fff; font: inherit; white-space: pre-line; user-select: text; }
+.contribution-rules[hidden] { display: none; }
+.contribution-wide { width: 100%; }
+.contribution-buttons { display: flex; justify-content: center; gap: 4px; padding: 3px; }
+.contribution-buttons button[hidden] { display: none; }
+.contribution-notice { margin: 0 0 8px; white-space: pre-wrap; }
+.contribution-link { border: 0; background: none; padding: 0; color: #00e; text-decoration: underline; cursor: pointer; font: inherit; }

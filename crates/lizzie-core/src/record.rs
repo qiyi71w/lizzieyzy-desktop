@@ -192,6 +192,19 @@ pub enum RecordFormat {
     Gib,
 }
 
+/// What the root position took over from the game it replaced: the stones each side had
+/// captured and the move numbers of the stones still standing (Java keeps both in the snapshot
+/// `BoardData` a 棋盘同步 rebuild makes, `ReadBoard.buildSnapshotBoardData`). Every other root
+/// starts from nothing. Later moves add their captures to these, and a number stays on its stone
+/// until the stone changes; the root itself shows no numbers.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RootCarry {
+    pub black_captures: u32,
+    pub white_captures: u32,
+    /// Row-major move numbers (0: none); empty when the root carries none.
+    pub move_numbers: Vec<u32>,
+}
+
 #[derive(Clone, Debug)]
 pub struct GameRecord {
     pub size: BoardSize,
@@ -206,6 +219,7 @@ pub struct GameRecord {
     next_stamp: u64,
     /// [`Node::branch_numbers_from_one`] of the nodes created from now on.
     branch_numbers_from_one: bool,
+    root_carry: RootCarry,
 }
 
 pub const ROOT: NodeId = 0;
@@ -239,6 +253,7 @@ impl GameRecord {
             }],
             next_stamp: 1,
             branch_numbers_from_one: true,
+            root_carry: RootCarry::default(),
         }
     }
 
@@ -268,6 +283,21 @@ impl GameRecord {
     /// Whether the record holds anything after its root (Java "has previous or next").
     pub fn has_children_of_root(&self) -> bool {
         !self.node(ROOT).children.is_empty()
+    }
+
+    /// What the root position took over from the game before it.
+    pub fn root_carry(&self) -> &RootCarry {
+        &self.root_carry
+    }
+
+    /// The position every replay starts from: an empty board holding the root's carried
+    /// captures.
+    pub(crate) fn start_position(&self) -> Position {
+        Position {
+            black_captures: self.root_carry.black_captures,
+            white_captures: self.root_carry.white_captures,
+            ..Position::new(self.size)
+        }
     }
 
     /// `Board.hasRealMoveOrPassHistory`: any real move or pass anywhere in the tree.
@@ -411,7 +441,7 @@ impl GameRecord {
 
     /// Replays the static setup and real moves from the root to `id`.
     pub fn position(&self, id: NodeId) -> Position {
-        let mut pos = Position::new(self.size);
+        let mut pos = self.start_position();
         for n in self.path_to(id) {
             pos.enter(self.node(n));
         }
@@ -475,6 +505,14 @@ pub enum DocumentEdit {
         moves: Vec<Point>,
         rules: PlayRules,
     },
+    /// The end placeholder (`DD[true]`) that keeps moves added under `at` side branches: with
+    /// `present` one is added when `at` has no continuation; without, the placeholder is taken
+    /// out again while it is still `at`'s only child. The placeholder is not record content: the
+    /// revision does not move either way (`WebBoardManager` enter/`cleanupMainlineDummy`).
+    EndPlaceholder {
+        at: NodeId,
+        present: bool,
+    },
     /// A move between `at` and its continuation, which is played again after it
     /// (`LizzieFrame.insertMove`).
     Insert {
@@ -532,6 +570,23 @@ pub enum DocumentEdit {
         stones: Vec<Option<Stone>>,
         to_play: Stone,
     },
+    /// 棋盘同步 rebuilt the board from a frame (Java `buildSnapshotHistory` + `Board.setHistory`):
+    /// the record becomes one root snapshot holding `stones` (row-major) with `to_play`, the `PL`
+    /// `explicit_to_play`, Java's `moveNumber` and the comment and properties taken over from the
+    /// snapshot it replaces; the root carries the captures and `moveNumberList` (row-major) of
+    /// the rebuilt snapshot ([`RootCarry`]). Moves, variations and marks go; the game information
+    /// stays.
+    SyncSnapshot {
+        stones: Vec<Option<Stone>>,
+        to_play: Stone,
+        explicit_to_play: Option<Stone>,
+        move_number: u32,
+        black_captures: u32,
+        white_captures: u32,
+        move_numbers: Vec<u32>,
+        comment: String,
+        properties: Vec<Property>,
+    },
     Transform(Transform),
     /// Markup tool click on `point` of `node`.
     ToggleMark {
@@ -543,6 +598,34 @@ pub enum DocumentEdit {
     ClearMarks {
         node: NodeId,
     },
+    /// A followed live source's main line (打开在线链接, 弈客直播): the source owns the main line
+    /// only. From the root, each action of `line` follows an equal child, which becomes the first
+    /// child, or is added as a new first child, so a different continuation made there stays as a
+    /// variation. A move the position refuses ends the sync there. After the last action, the
+    /// first continuation is removed when every node of it is in `retractable` (source moves the
+    /// source no longer has); anything else stays. `Applied::node` is the node of the last
+    /// synced action (the root for an empty line).
+    SyncMainline {
+        line: Vec<SourceAction>,
+        retractable: Vec<NodeId>,
+        rules: PlayRules,
+    },
+    /// A followed source's commentator variation at `at` (`SGFParser.parseBranch` after
+    /// `addBranch`): as [`DocumentEdit::AddBranch`], but each action keeps its own colour, a
+    /// pass is a pass, and a created node takes the action's comment.
+    AddSourceBranch {
+        at: NodeId,
+        line: Vec<SourceAction>,
+        rules: PlayRules,
+    },
+}
+
+/// One action of a followed source's main line ([`DocumentEdit::SyncMainline`]); `comment` is
+/// written only when the node is created.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SourceAction {
+    pub kind: NodeKind,
+    pub comment: String,
 }
 
 /// Stones on the board after replaying a path, with capture counts.

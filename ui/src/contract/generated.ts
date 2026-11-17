@@ -61,7 +61,16 @@ threadPolicy?: ThreadPolicy,
  * Settings chosen through the engine's GTP configuration protocol (Java
  * `gtpConfigurationProtocol` / `gtpConfigurationProfile`).
  */
-gtpConfiguration?: GtpConfiguration, };
+gtpConfiguration?: GtpConfiguration, 
+/**
+ * 远程引擎 (`useJavaSSH`): the command runs on this SSH host.
+ */
+ssh?: SshSettings, 
+/**
+ * Cloud launch parameters selected in the remote compute center; credentials stay in the
+ * account adapter. The command is only the provider marker, never a bearer token.
+ */
+cloud?: CloudLaunch, };
 
 export type EngineStartup = "Default" | "Last" | "Empty" | "Manual";
 
@@ -70,6 +79,11 @@ export type AnalysisSettings = {
  * `analyze-update-interval-centisec` [10].
  */
 intervalCentisec: number, 
+/**
+ * `analyze-update-interval-centisecssh` [10]: the interval of engines that run over SSH
+ * (`Leelaz.getInterval`).
+ */
+intervalCentisecSsh: number, 
 /**
  * `limit-time` [true] with `max-analyze-time-seconds` [600].
  */
@@ -93,17 +107,30 @@ fastEngineChange: boolean,
 /**
  * `show-ponder-limited-tips` [true]: explain once when a limit stops the analysis.
  */
-showPonderLimitedTips: boolean, };
+showPonderLimitedTips: boolean, 
+/**
+ * `ui.auto-check-engine-alive` [true]: a foreground engine that ends unexpectedly is
+ * started again and brought back to the current position (`EngineManager.checkEngineAlive`).
+ */
+autoCheckEngineAlive: boolean, };
 
 export type EngineScope = "Current" | "Others" | "All";
 
-export type Command = { "type": "Strength", op: StrengthCommand, } | { "type": "Commentary", op: CommentaryCommand, } | { "type": "CommentaryConnection", op: ConnectionCommand, } | { "type": "SetAppearanceSettings", settings: AppearanceSettings, theme: ThemeSettings, } | { "type": "SetFrameFontSize", size: number, } | { "type": "AddTheme", name: string, } | { "type": "DeleteTheme", name: string, } | { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SetExtraMode", mode: ExtraMode, } | { "type": "SetClassicMode" } | { "type": "ToggleIndependentBoard", board: IndependentBoard, } | { "type": "CloseIndependentBoard", board: IndependentBoard, } | { "type": "CommitLayout", mode: ExtraMode, panels: PanelSettings, board_position_proportion: number, save_slot: number | null, window: WindowPlacement | null, } | { "type": "ApplyCustomLayout", slot: number, } | { "type": "SwitchSecondaryEngine", index: number, } | { "type": "RestartSecondaryEngine" } | { "type": "ShutdownSecondaryEngine" } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, 
+export type Command = { "type": "CloudAccount", op: CloudCommand, owner: number, } | { "type": "CloudActivate", settings: CloudSettings, confirmed: boolean, } | { "type": "CloudLocal" } | { "type": "CloudCancel" } | { "type": "CloudCancelRequest", owner: number, } | { "type": "CloudImportQr" } | { "type": "OpenCloudLink", custom: boolean, } | { "type": "Fox", op: FoxCommand, } | { "type": "Online", op: OnlineCommand, } | { "type": "Strength", op: StrengthCommand, } | { "type": "Commentary", op: CommentaryCommand, } | { "type": "ReadBoard", op: ReadBoardCommand, } | { "type": "CommentaryConnection", op: ConnectionCommand, } | { "type": "FoxKifu", op: FoxKifuCommand, } | { "type": "TencentKifu", op: TencentKifuCommand, } | { "type": "WebBoard", op: WebBoardCommand, } | { "type": "SshCredential", op: SshCredentialCommand, } | { "type": "Contribution", op: ContributionCommand, } | { "type": "SetAppearanceSettings", settings: AppearanceSettings, theme: ThemeSettings, } | { "type": "SetFrameFontSize", size: number, } | { "type": "AddTheme", name: string, } | { "type": "DeleteTheme", name: string, } | { "type": "ChooseAndOpenRecord" } | { "type": "OpenRecord", path: string, source: OpenSource, } | { "type": "PasteRecord", confirmed: boolean, } | { "type": "SaveRecord", confirmed: number | null, suggested_name: string, } | { "type": "ChooseAndSaveRecord", suggested_name: string, } | { "type": "SaveRecordTo", path: string, } | { "type": "SetReplaceFileHint", enabled: boolean, } | { "type": "ExportRecord", kind: ExportKind, suggested_name: string, labels: CommentLabels, } | { "type": "ExportRecordTo", kind: ExportKind, path: string, labels: CommentLabels, } | { "type": "CopyRecord" } | { "type": "ExportImage", png: string, } | { "type": "ExportImageTo", path: string, png: string, } | { "type": "CopyImage", png: string, } | { "type": "Recovery", op: RecoveryCommand, } | { "type": "Navigate", nav: Navigation, } | { "type": "GotoNode", node: number, } | { "type": "GotoMoveNumber", number: number, } | { "type": "SetReadKomi", enabled: boolean, } | { "type": "SetAppendWinrateToComment", enabled: boolean, } | { "type": "SetLanguage", language: Language, } | { "type": "SetPlaySound", enabled: boolean, } | { "type": "ClearPersonalData" } | { "type": "ResetUiPosition" } | { "type": "OpenLogFolder" } | { "type": "ExportDiagnostics" } | { "type": "ToggleAnalysis" } | { "type": "SwitchEngine", index: number, } | { "type": "RestartEngine" } | { "type": "ShutdownEngines", scope: EngineScope, } | { "type": "SetExtraMode", mode: ExtraMode, } | { "type": "SetClassicMode" } | { "type": "ToggleIndependentBoard", board: IndependentBoard, } | { "type": "CloseIndependentBoard", board: IndependentBoard, } | { "type": "CommitLayout", mode: ExtraMode, panels: PanelSettings, board_position_proportion: number, save_slot: number | null, window: WindowPlacement | null, } | { "type": "ApplyCustomLayout", slot: number, } | { "type": "SwitchSecondaryEngine", index: number, } | { "type": "RestartSecondaryEngine" } | { "type": "ShutdownSecondaryEngine" } | { "type": "SaveEngineSettings", engines: Array<EngineProfile>, startup: EngineStartup, } | { "type": "SetAnalysisSettings", settings: AnalysisSettings, } | { "type": "SetKomi", komi: number, } | { "type": "SetKataRules", rules: string, auto_load: boolean, } | { "type": "SendGtpCommand", command: string, } | { "type": "SetFullTrace", enabled: boolean, } | { "type": "SetPonderLimitTips", enabled: boolean, } | { "type": "AnswerRulesPrompt", prompt: number, accept: boolean, } | { "type": "ChooseJavaFolder", program: boolean, } | { "type": "PreviewJavaImport", config_dir: string, program_dir: string | null, } | { "type": "ApplyJavaImport", preview: number, copy_credentials: Array<number>, 
 /**
  * Separate, unchecked-by-default consent for Java's commentary API key.
  */
-copy_commentary_key: boolean, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "SetDisplaySettings", settings: DisplaySettings, } | { "type": "TogglePanel", panel: WorkbenchPanel, } | { "type": "SetPanelSettings", settings: PanelSettings, } | { "type": "SetPanelSizes", sizes: PanelSizes, } | { "type": "NudgeBoardPosition", delta: number, } | { "type": "RestoreDefaultPanelSizes" } | { "type": "SetBottomToolbar", mode: BottomToolbar, } | { "type": "ToggleRawNet" } | { "type": "StopRawNet" } | { "type": "SetKataEstimate", mode: KataEstimateMode, } | { "type": "ToggleKataEstimate" } | { "type": "Score", op: ScoreCommand, } | { "type": "SetAutoQuickAnalyze", enabled: boolean, } | { "type": "SetLoadSgfLast", enabled: boolean, } | { "type": "SaveAnalysisEngineSettings", settings: AnalysisEngineSettings, shown_command: string, edited: boolean, } | { "type": "GenerateAnalysisCommand", index: number | null, } | { "type": "SetQuickModelEnabled", enabled: boolean, } | { "type": "SetProblemList", settings: ProblemListSettings, } | { "type": "JumpToProblemMove", node: number, } | { "type": "StartFlashAnalysis", target: FlashTarget, } | { "type": "CancelFlashAnalysis" } | { "type": "RedoFlashAnalysis" } | { "type": "Region", op: RegionCommand, } | { "type": "SetRegionSettings", settings: RegionSettings, } | { "type": "Tracking", op: TrackingCommand, } | { "type": "SetTrackingSettings", settings: TrackingSettings, } | { "type": "StartAutoAnalysis", settings: AutoAnalysisSettings, } | { "type": "StopAutoAnalysis" } | { "type": "AnswerAutoAnalysisDiff", accept: boolean, } | { "type": "SaveAutoAnalysisSettings", settings: AutoAnalysisSettings, } | { "type": "DismissAutoAnalysisTip", never_again: boolean, } | { "type": "StartWholeGameAnalysis", visits: number, } | { "type": "PauseWholeGameAnalysis" } | { "type": "ResumeWholeGameAnalysis" } | { "type": "StopWholeGameAnalysis" } | { "type": "EstimateWholeGameAnalysis", visits: number, } | { "type": "Hawkeye", op: HawkeyeCommand, } | { "type": "SetHawkeyeSettings", settings: HawkeyeSettings, } | { "type": "ExportTable", rows: Array<Array<string>>, } | { "type": "Batch", op: BatchCommand, } | { "type": "Game", op: GameCommand, } | { "type": "Match", op: MatchCommand, } | { "type": "HumanSl", op: HumanSlCommand, } | { "type": "SetCaptureSettings", settings: CaptureSettings, } | { "type": "SetTsumegoButtonShown", shown: boolean, };
+copy_commentary_key: boolean, 
+/**
+ * Separate, unchecked-by-default consent for the password of 精析设置's 远程引擎.
+ */
+copy_analysis_ssh_password: boolean, 
+/**
+ * Independent consent; neither account secret follows engine selection.
+ */
+copy_cloud_token: boolean, copy_cloud_password: boolean, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "SetDisplaySettings", settings: DisplaySettings, } | { "type": "TogglePanel", panel: WorkbenchPanel, } | { "type": "SetPanelSettings", settings: PanelSettings, } | { "type": "SetPanelSizes", sizes: PanelSizes, } | { "type": "NudgeBoardPosition", delta: number, } | { "type": "RestoreDefaultPanelSizes" } | { "type": "SetBottomToolbar", mode: BottomToolbar, } | { "type": "ToggleRawNet" } | { "type": "StopRawNet" } | { "type": "SetKataEstimate", mode: KataEstimateMode, } | { "type": "ToggleKataEstimate" } | { "type": "Score", op: ScoreCommand, } | { "type": "SetAutoQuickAnalyze", enabled: boolean, } | { "type": "SetLoadSgfLast", enabled: boolean, } | { "type": "SaveAnalysisEngineSettings", settings: AnalysisEngineSettings, shown_command: string, edited: boolean, } | { "type": "GenerateAnalysisCommand", index: number | null, } | { "type": "SetQuickModelEnabled", enabled: boolean, } | { "type": "SetProblemList", settings: ProblemListSettings, } | { "type": "JumpToProblemMove", node: number, } | { "type": "StartFlashAnalysis", target: FlashTarget, } | { "type": "CancelFlashAnalysis" } | { "type": "RedoFlashAnalysis" } | { "type": "Region", op: RegionCommand, } | { "type": "SetRegionSettings", settings: RegionSettings, } | { "type": "Tracking", op: TrackingCommand, } | { "type": "SetTrackingSettings", settings: TrackingSettings, } | { "type": "StartAutoAnalysis", settings: AutoAnalysisSettings, } | { "type": "StopAutoAnalysis" } | { "type": "AnswerAutoAnalysisDiff", accept: boolean, } | { "type": "SaveAutoAnalysisSettings", settings: AutoAnalysisSettings, } | { "type": "DismissAutoAnalysisTip", never_again: boolean, } | { "type": "StartWholeGameAnalysis", visits: number, } | { "type": "PauseWholeGameAnalysis" } | { "type": "ResumeWholeGameAnalysis" } | { "type": "StopWholeGameAnalysis" } | { "type": "EstimateWholeGameAnalysis", visits: number, } | { "type": "Hawkeye", op: HawkeyeCommand, } | { "type": "SetHawkeyeSettings", settings: HawkeyeSettings, } | { "type": "ExportTable", rows: Array<Array<string>>, } | { "type": "Batch", op: BatchCommand, } | { "type": "Game", op: GameCommand, } | { "type": "Match", op: MatchCommand, } | { "type": "HumanSl", op: HumanSlCommand, } | { "type": "SetCaptureSettings", settings: CaptureSettings, } | { "type": "SetTsumegoButtonShown", shown: boolean, };
 
-export type CommandResult = { "type": "Done" } | { "type": "Strength", report: StrengthReport, } | { "type": "CommentaryModels", models: Array<string>, } | { "type": "StrengthImportFailed", detail: string, } | { "type": "WholeGameEstimate", millis: number | null, } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "NeedsEditConfirmation", target: EditTarget, } | { "type": "NeedsBatchStop" } | { "type": "Exported", path: string, } | { "type": "ExportFailed", path: string, detail: string, } | { "type": "Refused", message_key: string, } | { "type": "SaveStarted", ticket: number, } | { "type": "NeedsReplaceConfirmation", document: number, file_name: string, } | { "type": "NeedsOverwriteConfirmation", path: string, } | { "type": "NeedsExportOverwriteConfirmation", kind: ExportKind, path: string, } | { "type": "NeedsImageOverwriteConfirmation", path: string, } | { "type": "FolderChosen", path: string, } | { "type": "JavaImportPreview", preview: ImportPreviewView, } | { "type": "JavaImportFailed", failure: ImportFailure, } | { "type": "JavaImported", report: ImportReportView, } | { "type": "Resource", result: ResourceResult, } | { "type": "Tuning", result: TuningResult, } | { "type": "AnalysisCommand", command: string, generated_config: string | null, } | { "type": "TsumegoFramed", no_room: Array<Stone>, };
+export type CommandResult = { "type": "Done" } | { "type": "Cloud", reply: CloudReply, } | { "type": "CloudError", failure: CloudFailure, } | { "type": "CloudUrl", url: string, } | { "type": "CloudSwitch", profile: string, after: number, } | { "type": "Strength", report: StrengthReport, } | { "type": "CommentaryModels", models: Array<string>, } | { "type": "SshPassword", state: SshPasswordState, } | { "type": "ContributionPassword", state: SshPasswordState, } | { "type": "ContributionSavedEngines", candidates: Array<SavedEngineCandidate>, } | { "type": "ContributionQualification", qualification: ContributionQualification, } | { "type": "StrengthImportFailed", detail: string, } | { "type": "WholeGameEstimate", millis: number | null, } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "NeedsEditConfirmation", target: EditTarget, } | { "type": "NeedsBatchStop" } | { "type": "Exported", path: string, } | { "type": "ExportFailed", path: string, detail: string, } | { "type": "Refused", message_key: string, } | { "type": "SaveStarted", ticket: number, } | { "type": "NeedsReplaceConfirmation", document: number, file_name: string, } | { "type": "NeedsOverwriteConfirmation", path: string, } | { "type": "NeedsExportOverwriteConfirmation", kind: ExportKind, path: string, } | { "type": "NeedsImageOverwriteConfirmation", path: string, } | { "type": "FolderChosen", path: string, } | { "type": "FileChosen", path: string, } | { "type": "JavaImportPreview", preview: ImportPreviewView, } | { "type": "JavaImportFailed", failure: ImportFailure, } | { "type": "JavaImported", report: ImportReportView, } | { "type": "Resource", result: ResourceResult, } | { "type": "Tuning", result: TuningResult, } | { "type": "AnalysisCommand", command: string, generated_config: string | null, } | { "type": "TsumegoFramed", no_room: Array<Stone>, };
 
 export type ErrorKind = "InvalidArgument" | "Io" | "Unavailable";
 
@@ -205,7 +232,7 @@ kata_rules: string, auto_load_kata_rules: boolean,
  */
 startup_benchmark: boolean, };
 
-export type SettingsView = { language: Language, 
+export type SettingsView = { cloud: CloudSettings, language: Language, 
 /**
  * Language the UI is displaying in this session (resolved at start).
  */
@@ -277,7 +304,11 @@ autoplay: AutoPlayView, matches: MatchSettingsView,
 /**
  * 死活题 dialog choices, 抓取死活题 参数设置 and the 死活 toolbar button.
  */
-tsumego: TsumegoSettings, };
+tsumego: TsumegoSettings, 
+/**
+ * 跑谱贡献 settings and the contribution window's choices.
+ */
+contribution: ContributionSettings, };
 
 export type StoneSound = "Stone" | "DeadStone" | "DeadStoneMore";
 
@@ -352,7 +383,12 @@ lease: LeaseAvailabilityView,
  * The foreground engine was not given back after it was borrowed: it does not analyse until
  * it is restarted (`LizzieFrame.display.foregroundUnrestored`).
  */
-unrestored: UnrestoredReason | null, };
+unrestored: UnrestoredReason | null, 
+/**
+ * The foreground engine failed and nothing took its seat since (`LizzieFrame.display.down`,
+ * Java `isDownWithError`).
+ */
+down: boolean, };
 
 export type CandidateView = { 
 /**
@@ -451,7 +487,16 @@ output: Array<string>,
 /**
  * Missing store-owned NVIDIA runtime components, if this managed profile can be repaired.
  */
-repair?: ResourceRepairView, };
+repair?: ResourceRepairView, 
+/**
+ * A remote engine's connection failure or end (`SSHController` messages).
+ */
+remote?: RemoteFailure, 
+/**
+ * The configured engine that failed (empty for the analysis engine), so the dialog can
+ * start it again (Java opens 更多引擎 after a remote login failure).
+ */
+profile_id: string, };
 
 export type EngineNotice = "StoppedByLimit" | "SetupModeActive" | "SameEngine";
 
@@ -600,7 +645,7 @@ engine_notice: EngineNotice | null,
 /**
  * The running 人机对弈 (also while it gives the engine back).
  */
-game: GameView | null, 
+game: GameView | null, fox: FoxView, 
 /**
  * How the last game ended, once.
  */
@@ -608,7 +653,31 @@ game_outcome: GameOutcomeView | null,
 /**
  * 人机对弈 messages, once each, in order.
  */
-game_notices: Array<GameNotice>, engine_match: MatchView | null, match_outcome: MatchOutcomeView | null, match_notices: Array<MatchNotice>, match_winrate_image: MatchWinrateImageRequest | null, human_sl: HumanSlView | null, strength: StrengthView, commentary: CommentaryView, human_sl_notices: Array<HumanSlNotice>, human_sl_continuation: HumanSlContinuation | null, 
+game_notices: Array<GameNotice>, engine_match: MatchView | null, match_outcome: MatchOutcomeView | null, match_notices: Array<MatchNotice>, match_winrate_image: MatchWinrateImageRequest | null, human_sl: HumanSlView | null, strength: StrengthView, 
+/**
+ * 在线棋谱 / 弈客直播.
+ */
+online: OnlineView, commentary: CommentaryView, 
+/**
+ * 野狐棋谱 window.
+ */
+fox_kifu: FoxKifuView, 
+/**
+ * 腾讯棋谱 window.
+ */
+tencent_kifu: TencentKifuView, 
+/**
+ * Web 旁观 and a viewer's 试下.
+ */
+web_board: WebBoardView, human_sl_notices: Array<HumanSlNotice>, 
+/**
+ * 跑谱贡献 session, until its window is closed after it ended.
+ */
+contribution: ContributionView | null, 
+/**
+ * 跑谱贡献 messages, once each, in order.
+ */
+contribution_notices: Array<ContributionNotice>, human_sl_continuation: HumanSlContinuation | null, 
 /**
  * 读秒 countdown voices to play (`sound/<n>.wav`), once each.
  */
@@ -631,7 +700,11 @@ tuning: TuningView | null, editing: EditingView,
 /**
  * 存档与读档.
  */
-recovery: RecoveryView, };
+recovery: RecoveryView, 
+/**
+ * 棋盘同步工具.
+ */
+readboard: ReadBoardView, };
 
 export type LogsStatus = { directory: string, app_log_bytes: number | null, crash_log_bytes: number | null, };
 
@@ -647,9 +720,9 @@ candidates: Array<string>, };
 
 export type ImportStatus = "Imported" | "Incompatible" | "NotMigrated";
 
-export type ImportReason = "NotYetAvailable" | "Credential" | "InvalidValue" | "WindowCoordinates" | "RemoteEngine" | "CredentialNotConfirmed" | "Unreadable" | "NotChosen" | "Obsolete";
+export type ImportReason = "NotYetAvailable" | "Credential" | "InvalidValue" | "WindowCoordinates" | "CredentialNotConfirmed" | "SessionOnly" | "Unreadable" | "NotChosen" | "Obsolete";
 
-export type ImportTarget = "Appearance" | "Commentary" | "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "KataRules" | "AutoLoadKataRules" | "StartupBenchmark" | "NetworkProxy" | "AllowDoubleClick" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode" | "WorkbenchPanels" | "PanelSizes" | "BottomToolbar" | "AutoQuickAnalysis" | "AnalysisEngine" | "QuickModel" | "HumanSlTraining" | "HumanSlModel" | "StrengthBackground" | "StrengthModels" | "Tsumego" | "CaptureTsumego" | "ProblemList" | "FlashRange" | "AutoAnalysis" | "HumanEngineGame" | "GameAiTime" | "GameRandomStart" | "AutoPlay" | "EngineMatch" | "WholeGameVisits" | "AnalysisRegion" | "Tracking" | "Hawkeye";
+export type ImportTarget = "Appearance" | "Commentary" | "Cloud" | "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "NoSoundInSync" | "ReadBoardStatSync" | "ReadBoardGetFocus" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "AutoCheckEngineAlive" | "KataRules" | "AutoLoadKataRules" | "KataPda" | "StartupBenchmark" | "NetworkProxy" | "WebBoard" | "AllowDoubleClick" | "LiveAlwaysGotoLast" | "LiveOpenHtml" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode" | "WorkbenchPanels" | "PanelSizes" | "BottomToolbar" | "AutoQuickAnalysis" | "AnalysisEngine" | "QuickModel" | "HumanSlTraining" | "HumanSlModel" | "StrengthBackground" | "StrengthModels" | "Tsumego" | "CaptureTsumego" | "ProblemList" | "FlashRange" | "AutoAnalysis" | "HumanEngineGame" | "GameAiTime" | "GameRandomStart" | "AutoPlay" | "EngineMatch" | "WholeGameVisits" | "AnalysisRegion" | "Tracking" | "Hawkeye" | "FoxKifu" | "TencentKifu";
 
 export type ImportItemView = { 
 /**
@@ -696,7 +769,12 @@ export type ImportPreviewView = {
 /**
  * Answer with [`Command::ApplyJavaImport`].
  */
-id: number, config_file: string, persist_file: string | null, program_dir: string | null, items: Array<ImportItemView>, engines: Array<ImportEngineView>, commentary_credential: ImportCommentaryCredential | null, 
+id: number, config_file: string, persist_file: string | null, program_dir: string | null, items: Array<ImportItemView>, engines: Array<ImportEngineView>, commentary_credential: ImportCommentaryCredential | null, cloud_credentials: CloudImportCredentials | null, 
+/**
+ * The SSH account (`user@host:port`) whose Java password 精析设置's 远程引擎 would copy
+ * when confirmed.
+ */
+analysis_ssh_credential: string | null, 
 /**
  * Settings already chosen in this product that the import would replace.
  */
@@ -715,6 +793,64 @@ restart_required: boolean, recovery: Array<ImportSlotView>, };
 export type ImportFailure = { "type": "NoConfig", path: string, } | { "type": "Unreadable", path: string, detail: string, } | { "type": "Invalid", path: string, detail: string, };
 
 export type ImportCommentaryCredential = { source: string, base_url: string, };
+
+export type CloudImportCredentials = { identifier: string, token: boolean, password: boolean, };
+
+export type CloudLaunch = { provider: CloudProvider, identifier: string, args: string, url: string, };
+
+export type CloudProvider = "Zhizi" | "Custom";
+
+export type CloudSettings = { provider: CloudAccountProvider, identifier: string, rememberToken: boolean, rememberPassword: boolean, args: string, 
+/**
+ * Java's persistent custom websocket URL may itself contain authentication material.
+ */
+customUrl: string, catalog: CloudCatalog, catalogUpdatedAt: number, };
+
+export type CloudAccountProvider = "local" | "zhizi" | "custom";
+
+export type CloudCommand = { "type": "State" } | { "type": "PasswordLogin", identifier: string, password: string, remember_token: boolean, remember_password: boolean, } | { "type": "CodeLogin", identifier: string, code: string, remember_token: boolean, } | { "type": "SendCode", identifier: string, purpose: CodePurpose, } | { "type": "ResetPassword", identifier: string, code: string, password: string, remember_token: boolean, remember_password: boolean, } | { "type": "Remember", token: boolean, password: boolean, } | { "type": "Logout" } | { "type": "Overview", force: boolean, } | { "type": "Usages", page: number, page_size: number, finished: boolean | null, } | { "type": "Credits", page: number, page_size: number, credit_type: string | null, } | { "type": "RefreshCatalog", args: string, } | { "type": "Products" } | { "type": "CreateOrder", purchase: Purchase, confirmed: boolean, } | { "type": "ReadOrder", id: string, } | { "type": "VerifyPayment", id: string, };
+
+export type CloudReply = { settings: CloudSettings, state: CloudState, result: CloudResult, };
+
+export type CloudState = { authenticated: boolean, hasPassword: boolean, credentialBackend: string, credentialAvailable: boolean, tokenStoredSecurely: boolean, passwordStoredSecurely: boolean, storageWarning: boolean, generation: number, };
+
+export type CloudResult = { "type": "State" } | { "type": "LoggedIn" } | { "type": "CodeSent", retry_after_seconds: number, } | { "type": "PasswordReset" } | { "type": "LoggedOut" } | { "type": "Overview", overview: Overview, } | { "type": "Usages", page: UsagePage, } | { "type": "Credits", page: CreditPage, } | { "type": "Catalog", catalog: CloudCatalog, } | { "type": "Products", products: Array<MembershipProduct>, top_up_presets_fen: Array<number>, } | { "type": "Order", order: PaymentOrder, } | { "type": "PaymentVerification", order: PaymentOrder, verification: PaymentVerification, };
+
+export type CloudFailure = { key: string, status: number, retryAfterSeconds: number, retryable: boolean, uncertain: boolean, cancelled: boolean, authenticationInvalidated: boolean, };
+
+export type CodePurpose = "fast_login" | "reset_password";
+
+export type Purchase = { "type": "TopUp", amount_fen: number, } | { "type": "Membership", product_name: string, auto_renew: boolean, };
+
+export type CloudCatalog = { serverVersion: string, defaultWeight: string, weights: Array<Weight>, };
+
+export type Weight = { name: string, description: string, source: DiscoverySource, };
+
+export type DiscoverySource = "OFFICIAL_DOCUMENTED" | "BUILT_IN_CURRENT" | "SERVER_CAPABILITIES" | "CACHED_LEGACY" | "USER_PRESERVED";
+
+export type AccountProfile = { phone: string, email: string, membership: boolean, membershipExpiresAt: string | null, membershipAutoRenew: boolean | null, };
+
+export type BalanceInfo = { remainingBalanceYuan: string, totalCashAmountYuan: string, yesterdayConsumptionYuan: string, totalConsumptionYuan: string, totalDurationSeconds: number, last24HoursShareDurationSeconds: number, last24HoursVipDurationSeconds: number, currentConnections: number, currentNodes: number, };
+
+export type UsageRecord = { startedAt: string | null, endedAt: string | null, finished: boolean, ready: boolean, durationSeconds: number, totalCostYuan: string, gpuType: string, engineType: string, vip: boolean, shared: boolean, };
+
+export type UsagePage = { total: number, page: number, pageSize: number, items: Array<UsageRecord>, };
+
+export type CreditRecord = { creditType: string, amountYuan: string, source: string, productName: string, createdAt: string | null, };
+
+export type CreditPage = { total: number, page: number, pageSize: number, items: Array<CreditRecord>, };
+
+export type Overview = { account: AccountProfile, balance: BalanceInfo, recentUsage: UsagePage, loadedAt: number, };
+
+export type MembershipProduct = { name: string, priceFen: number, durationMonths: number, };
+
+export type PaymentStatus = "Pending" | "Success" | "Fail";
+
+export type PaymentPurpose = "BalanceTopUp" | "VipMembership";
+
+export type PaymentOrder = { id: string, amountFen: number, productName: string, purpose: PaymentPurpose, status: PaymentStatus, codeUrl: string, paidAt: string | null, updatedAt: string | null, };
+
+export type PaymentVerification = { settled: boolean, remainingBalanceChanged: boolean, cashCreditFound: boolean, membershipAdvanced: boolean, };
 
 export type EditCommand = { "op": "Play", point: Point, color: Stone | null, } | { "op": "Pass" } | { "op": "Insert", point: Point, color: Stone, } | { "op": "EditStone", point: Point, change: StoneChange, } | { "op": "DeleteMove", confirmed: EditTarget | null, } | { "op": "DeleteMoveNoHint" } | { "op": "DeleteBranch", confirmed: EditTarget | null, } | { "op": "MoveBranch", up: boolean, } | { "op": "SetAsMain" } | { "op": "UndoEdit" } | { "op": "RedoEdit" } | { "op": "ClearEditCache" } | { "op": "ChangeTurn" } | { "op": "PlayBestMove" } | { "op": "PlayVariation", moves: Array<Point>, } | { "op": "AddVariationAsBranch", moves: Array<Point>, } | { "op": "ContinueLadder" } | { "op": "FindMove", point: Point, any_branch: boolean, } | { "op": "SetComment", node: number, comment: string, } | { "op": "ToggleMark", point: Point, tool: MarkTool, } | { "op": "ClearMarks" } | { "op": "SetGameInfo", black: string, white: string, komi: number, } | { "op": "NewBoard", confirmed: EditTarget | null, } | { "op": "ClearBoard" } | { "op": "SetBoardSize", width: number, height: number, } | { "op": "Transform", transform: Transform, } | { "op": "SetSetupMode", enabled: boolean, confirmed: EditTarget | null, } | { "op": "SetupStone", point: Point, stone: Stone | null, } | { "op": "SetupClearAll" } | { "op": "SetupSideToPlay", color: Stone, } | { "op": "ConvertToStartingPosition", confirmed: EditTarget | null, } | { "op": "TryPlay" } | { "op": "FrameTsumego", settings: TsumegoFrameSettings, } | { "op": "LoadCapturedProblem", problem: CapturedProblem, };
 
@@ -903,6 +1039,12 @@ moveRankCustom: number,
  * 判定依据 (`move-rank-evaluation-mode`).
  */
 moveRankMode: MoveRankMode, 
+/**
+ * 落子评价 > 原棋盘不显示评价标记(棋盘同步时) (`disable-move-rank-in-origin`, off): the
+ * 棋盘同步工具 float board draws no rank marks (`FloatBoardRenderer.java:152-157`); the main
+ * board is unaffected.
+ */
+disableMoveRankInOrigin: boolean, 
 /**
  * Win rate loss of rank levels 1–5 (`win-loss-threshold-1..5`), percentage points.
  */
@@ -1420,7 +1562,12 @@ reuseCurrentEngine: boolean,
  * 批量精析's 每手总计算量 (`batch-analysis-playouts`, default 100): a batch request searches
  * at least 2 visits (`AnalysisEngine.targetAnalysisVisits`).
  */
-batchVisits: number, };
+batchVisits: number, 
+/**
+ * 远程引擎 (`analysis-engine-ssh-info.useJavaSSH`): the analysis command runs on the SSH
+ * host `ssh`. Turning it off keeps the connection settings, like Java.
+ */
+useSsh: boolean, ssh: SshSettings, };
 
 export type QuickModelView = { status: QuickModelStatus, 
 /**
@@ -1535,7 +1682,7 @@ tier: number,
  */
 current: boolean, };
 
-export type LeaseAvailabilityView = "Available" | "NoForegroundEngine" | "EngineNotReady" | "NotKatago" | "MissingCapability" | "ExistingLease" | "EngineStateUnrestored" | "PlayMode" | "HumanSlGame";
+export type LeaseAvailabilityView = "Available" | "NoForegroundEngine" | "EngineNotReady" | "NotKatago" | "MissingCapability" | "ExistingLease" | "EngineStateUnrestored" | "PlayMode" | "ApplicationExclusive" | "HumanSlGame" | "ReadBoardGma";
 
 export type UnrestoredReason = "Stop" | "Restore";
 
@@ -1876,6 +2023,18 @@ loading: BatchMode | null, running: BatchRunView | null,
  */
 open_table: number, notice: BatchNotice | null, };
 
+export type FoxCommand = { "type": "Prepare" } | { "type": "Start", port: number, max_time: number, max_visits: number, warning_confirmed: boolean, replace: FoxReplaceChoice, document: number, revision: number, } | { "type": "Stop" } | { "type": "ReturnLive" } | { "type": "SetPda", value: number, };
+
+export type FoxReplaceChoice = "Ask" | "Save" | "Replace" | "Cancel";
+
+export type FoxView = { status_key: string, listening: boolean, port: number, owns_board: boolean, preparing: boolean, restoring: boolean, ready: boolean, can_start: boolean, can_stop: boolean, rules: string | null, max_time: number | null, max_visits: number | null, connection: number, game: number, revision: number, live_node: number | null, browsing: boolean, browsing_status_key: string, clock: FoxClockView | null, pending: FoxSubmissionView | null, submissions: Array<FoxSubmissionView>, desired_pda: number | null, confirmed_pda: number | null, pda_status_key: string, transcript: Array<string>, outcome: FoxStartOutcome | null, };
+
+export type FoxClockView = { main_seconds: number, byo_seconds: number, periods: number, remaining_seconds: number, };
+
+export type FoxSubmissionView = { connection: number, game: number, revision: number, search: number, vertex: string, outcome: string, written: boolean, reason: string, };
+
+export type FoxStartOutcome = { "type": "NeedsWarning" } | { "type": "NeedsReplacement", document: number, revision: number, } | { "type": "SaveRequested" } | { "type": "Cancelled" } | { "type": "Listening" } | { "type": "Failed", message_key: string, };
+
 export type GameCommand = { "type": "Start", kind: GameKind, settings: GameSettings, autoplay: AutoPlaySettings | null, engine: number | null, } | { "type": "Continue", kind: GameKind, human: Stone | null, } | { "type": "Pause" } | { "type": "Resign" } | { "type": "End" } | { "type": "Regret" } | { "type": "SetAiTime", time: AiTimeSettings, ponder: boolean, autoplay: AutoPlaySettings, } | { "type": "SetRandomStart", settings: RandomStartSettings, } | { "type": "EngineMove" } | { "type": "SetAutoPlay", enabled: boolean, settings: AutoPlaySettings, };
 
 export type GameKind = "Genmove" | "Analysis";
@@ -2153,6 +2312,18 @@ export type Mode = "Next" | "Range" | "Whole";
 
 export type Provider = "unselected" | "chatGpt" | "apiKey";
 
+export type WebBoardCommand = { "type": "Start" } | { "type": "Stop" } | { "type": "ForceExitTrial" };
+
+export type WebBoardView = { 
+/**
+ * The access address while Web 旁观 runs (`WebBoardManager.getAccessUrl`).
+ */
+url: string | null, 
+/**
+ * A viewer's 试下 drives the board (`LizzieFrame.isTrialActive`).
+ */
+trial_active: boolean, };
+
 export type Preferences = { rankMode: string, rankNum: number, styleIndex: number, densityIndex: number, paceIndex: number, variationIndex: number, };
 
 export type CommentarySettings = { provider: Provider, baseUrl: string, model: string, rememberApiKey: boolean, rankMode: string, rankNum: number, styleIndex: number, densityIndex: number, paceIndex: number, variationIndex: number, };
@@ -2174,6 +2345,138 @@ export type CommentaryStatus = { key: string, args: Array<string>, tone: Comment
 export type CommentaryTone = "Neutral" | "Running" | "Success" | "Warning" | "Error";
 
 export type CommentaryOutputState = "Empty" | "Loading" | "Output";
+
+export type FoxKifuCommand = { "type": "Open" } | { "type": "Search", text: string, by_uid: boolean, nickname_hint: string, } | { "type": "Page", to: KifuPage, } | { "type": "OpenGame", chessid: string, } | { "type": "SetAfterGet", action: KifuAfterGet, } | { "type": "ClearRecent" };
+
+export type KifuPage = "First" | "Previous" | "Next" | "Last";
+
+export type FoxKifuView = { 
+/**
+ * Starts each search (and the window's first state): the account field and 查询方式 show
+ * `last_name` / `last_query_by_uid` again then.
+ */
+search: number, last_name: string, last_query_by_uid: boolean, after_get: KifuAfterGet, 
+/**
+ * 近期搜索, newest first.
+ */
+recent: Array<FoxRecentSearch>, 
+/**
+ * 当前野狐账号; both empty: 等待搜索.
+ */
+nickname: string, uid: string, 
+/**
+ * The table's rows (the shown page). A new search keeps the previous rows until its games
+ * arrive.
+ */
+rows: Array<FoxKifuRow>, 
+/**
+ * A list exists: the page buttons work.
+ */
+listed: boolean, 
+/**
+ * The page label `page/pages`, with `...` while more games may exist.
+ */
+page: number, pages: number, complete: boolean, 
+/**
+ * The progress overlay over the window (blocks the window's mouse input).
+ */
+busy: FoxKifuBusy | null, 
+/**
+ * The table is disabled while a record downloads and opens.
+ */
+loading: boolean, 
+/**
+ * The latest message box, by increasing id.
+ */
+notice: KifuNotice | null, 
+/**
+ * Counts records opened from this window: after each, 打开棋谱后此窗口 applies and the main
+ * window comes forward.
+ */
+opened: number, };
+
+export type FoxKifuRow = { index: number, time: string, black_name: string | null, black_uid: string, black_rank: number, white_name: string | null, white_uid: string, white_rank: number, winner: number, point: number, rule: number, moves: number, 
+/**
+ * The searched account won (red text).
+ */
+won: boolean, chessid: string, };
+
+export type FoxKifuBusy = { "type": "Searching", text: string, } | { "type": "Downloading" } | { "type": "Opening" };
+
+export type KifuNotice = { id: number, 
+/**
+ * The Java message key; a `getKifuFailed` key is followed by `detail`.
+ */
+message_key: string, detail: string, };
+
+export type KifuAfterGet = "Minimize" | "Close" | "Keep";
+
+export type FoxRecentSearch = { uid: string, nickname: string, };
+
+export type TencentKifuCommand = { "type": "Open" } | { "type": "Search", text: string, } | { "type": "Page", to: KifuPage, } | { "type": "OpenGame", chessid: string, } | { "type": "SetAfterGet", action: KifuAfterGet, } | { "type": "ClearRecent" };
+
+export type TencentKifuView = { 
+/**
+ * Starts each search (and the window's first state): the nickname / UID field shows
+ * `last_name` again then.
+ */
+search: number, last_name: string, 
+/**
+ * 打开棋谱后此窗口: the window's own choice, else 野狐棋谱's.
+ */
+after_get: KifuAfterGet, 
+/**
+ * 近期搜索, newest first.
+ */
+recent: Array<TencentRecentSearch>, 
+/**
+ * 当前腾讯查询; empty: 等待搜索.
+ */
+query: string, 
+/**
+ * The table's rows (the shown page). A new search keeps the previous rows until its games
+ * arrive.
+ */
+rows: Array<TencentKifuRow>, 
+/**
+ * A list exists: the page buttons work.
+ */
+listed: boolean, 
+/**
+ * The page label `page/pages`, with `...` while more games may exist.
+ */
+page: number, pages: number, complete: boolean, 
+/**
+ * The progress overlay over the window (blocks the window's mouse input).
+ */
+busy: TencentKifuBusy | null, 
+/**
+ * The table is disabled while a record downloads and opens.
+ */
+loading: boolean, 
+/**
+ * The latest message box, by increasing id.
+ */
+notice: KifuNotice | null, 
+/**
+ * Counts records opened from this window: after each, 打开棋谱后此窗口 applies and the main
+ * window comes forward.
+ */
+opened: number, };
+
+export type TencentKifuRow = { index: number, 
+/**
+ * `starttime`; when empty, `start_seconds` (Unix seconds, 0 none) in local time.
+ */
+time: string, start_seconds: number, black_name: string | null, black_uid: string, black_rank: number, white_name: string | null, white_uid: string, white_rank: number, winner: number, point: number, rule: number, moves: number, 
+/**
+ * The searched player won (red text).
+ */
+won: boolean, chessid: string, };
+
+export type TencentKifuBusy = { "type": "Searching", text: string, } | { "type": "LoadingMore" } | { "type": "Downloading" } | { "type": "Opening" };
+
+export type TencentRecentSearch = { uid: string, query: string, };
 
 export type FunctionMatch = { id: string, level: MatchLevel, title: string, description: string, category: string, target: FunctionTarget, path: Array<string>, shortcut: string, section: SettingsSection | null, };
 
@@ -2370,6 +2673,304 @@ columns: number, rows: number,
  * Row-major over `(columns + 1) * (rows + 1)` intersections: 0 empty, 1 black, 2 white.
  */
 stones: Array<number>, };
+
+export type SshSettings = { host: string, 
+/**
+ * As entered; a value that is not a port number means 22 (`RemoteConnect.setPort`).
+ */
+port: string, user: string, 
+/**
+ * 密钥 (key file) rather than 密码.
+ */
+useKey: boolean, keyPath: string, };
+
+export type RemoteFailure = { "type": "Connect", detail: string, } | { "type": "Authentication" } | { "type": "PasswordMissing", account: string, } | { "type": "HostKeyChanged", host: string, port: number, trusted: string, offered: string, } | { "type": "Ended", status: number | null, signal: string | null, } | { "type": "Lost", detail: string, };
+
+export type SshCredentialCommand = { "type": "PasswordState", ssh: SshSettings, } | { "type": "StagePassword", ssh: SshSettings, password: string, } | { "type": "SettlePassword", ssh: SshSettings, keep: boolean, } | { "type": "TrustHostKey", host: string, port: number, offered: string, } | { "type": "ChooseKeyFile", title: string, };
+
+export type SshPasswordState = "None" | "Stored" | "Session";
+
+export type ContributionCommand = { "type": "SaveSettings", settings: ContributionSettings, } | { "type": "SetPassword", user: string, password: string, } | { "type": "PasswordState", user: string, } | { "type": "Start" } | { "type": "PauseResume" } | { "type": "SlowQuit" } | { "type": "ForceQuit" } | { "type": "CloseView" } | { "type": "WatchGame", index: number, } | { "type": "SaveAllGames" } | { "type": "SetWatchSettings", settings: ContributionWatchSettings, } | { "type": "ToggleResultHidden" } | { "type": "SetShowMenu", enabled: boolean, } | { "type": "SavedEngines" } | { "type": "Qualify", engine_path: string, } | { "type": "ChooseFile", kind: ContributionFile, title: string, } | { "type": "OpenLink", link: ContributionLink, };
+
+export type ContributionFile = "Engine" | "Config";
+
+export type ContributionLink = "SignUp" | "OfficialWebsite";
+
+export type ContributionPhase = "Starting" | "Running" | "Exited";
+
+export type ContributionTip = { key: string, 
+/**
+ * `Signal to stop` was seen: only pause/resume tips replace it (`setEternalTip`).
+ */
+eternal: boolean, };
+
+export type ContributionGameView = { game_id: string, 
+/**
+ * 评分对局 (the players differ) versus 自对弈训练.
+ */
+rating: boolean, black: string, white: string, width: number, height: number, komi: number, 
+/**
+ * `Utils.getRuleString` in the session language, lines separated by `\r\n`.
+ */
+rules_text: string, complete: boolean, 
+/**
+ * Empty until the game is complete and its result was read.
+ */
+result: string, };
+
+export type ContributionView = { 
+/**
+ * Session identity; a new start gets a new one.
+ */
+id: number, phase: ContributionPhase, paused: boolean, 
+/**
+ * Java `isContributing`: starting or running and not paused. Gates the board, new games,
+ * other engine modes and engine switching.
+ */
+active: boolean, 
+/**
+ * 顺序结束 was sent.
+ */
+slow_quitting: boolean, tip: ContributionTip, 
+/**
+ * The watched game, 1-based; 0 before the first game.
+ */
+watching: number, total: number, finished: number, game: ContributionGameView | null, result_hidden: boolean, 
+/**
+ * The `engine` name of this session's console lines (`engine-console` events).
+ */
+console_engine: string, };
+
+export type ContributionNotice = { "type": "Message", key: string, } | { "type": "OutOfDate", version: string, } | { "type": "OpenSettings", key: string, } | { "type": "Saved", folder: string, } | { "type": "Failed", failure: EngineFailureView, };
+
+export type SavedEngineKind = "Local" | "Remote" | "Indirect" | "Unknown";
+
+export type SavedEngineReason = "EmptyCommand" | "UnparseableCommand" | "MissingFile" | "RemoteTransport" | "IndirectLauncher";
+
+export type SavedEngineCandidate = { 
+/**
+ * Position in the engine list, from 1.
+ */
+index: number, name: string, kind: SavedEngineKind, 
+/**
+ * The normalized absolute executable when it can be filled in.
+ */
+executable: string | null, 
+/**
+ * The engine path field text for `executable` (quoted when needed).
+ */
+field_text: string | null, reason: SavedEngineReason | null, };
+
+export type ContributionQualification = { "type": "Managed", asset_id: string, version: string, backend: string, status: CapabilityStatus, } | { "type": "Unknown" };
+
+export type ContributionSettings = { 
+/**
+ * KataGo引擎路径 (`contribute-engine-path`).
+ */
+enginePath: string, 
+/**
+ * 配置文件路径(可选) (`contribute-config-path`).
+ */
+configPath: string, 
+/**
+ * 用户名 (`contribute-user-name`).
+ */
+userName: string, 
+/**
+ * 同时对局数 (`contribute-batch-games`, text "6").
+ */
+batchGames: string, 
+/**
+ * 启用领地 (`contribute-show-estimate`): `includeOwnership`, and Kata形势 shown while it runs.
+ */
+showEstimate: boolean, 
+/**
+ * 不进行评分对局 (`contribute-disable-rating-matches`): `maxRatingMatches=0`.
+ */
+disableRatingMatches: boolean, 
+/**
+ * 自定义命令行 (`contribute-use-command`) and its text (`contribute-command`).
+ */
+useCommand: boolean, command: string, 
+/**
+ * 完全遵循自定义命令行,无视后续设置 (`contribute-use-pure-command`).
+ */
+usePureCommand: boolean, 
+/**
+ * 自动保存完成的棋谱 (`contribute-auto-save`).
+ */
+autoSave: boolean, 
+/**
+ * 远程SSH (`contribute-engine-ssh-info.useJavaSSH`), used only with the custom command.
+ */
+remote: boolean, ssh: SshSettings, 
+/**
+ * Settings > 显示跑谱贡献菜单 (`show-Contribute`).
+ */
+showMenu: boolean, 
+/**
+ * The contribution window's own choices.
+ */
+watch: ContributionWatchSettings, };
+
+export type ContributionWatchSettings = { 
+/**
+ * 总是跳转最新一手 (`contribute-watch-always-last-move`).
+ */
+alwaysLastMove: boolean, 
+/**
+ * 自动播放 (`contribute-watch-auto-play`).
+ */
+autoPlay: boolean, 
+/**
+ * 每手时间(秒) (`contribute-watch-auto-play-interval`, 2.0; only positive values apply).
+ */
+autoPlayInterval: number, 
+/**
+ * 自动播放下一局 (`contribute-watch-auto-play-next-game`).
+ */
+autoPlayNextGame: boolean, 
+/**
+ * 跳过非19x19 (`contribute-watch-skip-none-19`).
+ */
+skipNon19: boolean, 
+/**
+ * 隐藏控制台 (`contribute-hide-console`).
+ */
+hideConsole: boolean, 
+/**
+ * 隐藏规则 (`contribute-hide-rules`).
+ */
+hideRules: boolean, 
+/**
+ * 总在最前 (`contribute-always-top`).
+ */
+alwaysTop: boolean, };
+
+export type ReadBoardCommand = { "type": "Open" } | { "type": "SetAlwaysSyncBoardStat", enabled: boolean, } | { "type": "SetGetFocus", enabled: boolean, } | { "type": "SetNoSoundInSync", enabled: boolean, } | { "type": "AnswerUpdate", accept: boolean, } | { "type": "ReturnFocus" } | { "type": "SetFloatEditMode", enabled: boolean, } | { "type": "SetFloatSuggestionsHidden", hidden: boolean, } | { "type": "FloatBoardHidden", request: number, } | { "type": "SetHelperLogging", diagnostics: boolean, capture: boolean, trace: boolean, };
+
+export type ReadBoardView = { 
+/**
+ * `readboard.exe` was found next to the program (the menu entry works; Windows only).
+ */
+available: boolean, 
+/**
+ * A helper process runs.
+ */
+running: boolean, 
+/**
+ * The helper syncs a board (`sync` … `endsync`/`stopsync`).
+ */
+syncing: boolean, 
+/**
+ * Moves played here are clicked on the target window (`bothSync`).
+ */
+both_sync: boolean, 
+/**
+ * GMA auto-play is armed for this colour (the helper's `play>…gma`).
+ */
+gma: Stone | null, 
+/**
+ * The float board over the target window, while shown.
+ */
+float_board: FloatBoardView | null, 
+/**
+ * The float board was hidden because a `place` is about to be sent (`foreFoxWithInBoard`)
+ * and that `place` waits until the window is off the screen: once it is, answer
+ * `FloatBoardHidden` with this number. Without the answer the `place` is never written; the
+ * local move fails at its confirmation timeout.
+ */
+float_hide_request: number | null, 
+/**
+ * A helper update waits for the user's answer (`ReadBoard.updateInstallConfirmMessage`
+ * with this version tag).
+ */
+update_offer: string | null, 
+/**
+ * The helper's log writers (诊断与日志 > ReadBoard), while a helper runs.
+ */
+logging: HelperLoggingView | null, 
+/**
+ * 棋盘同步工具选项 > `Menu.alwaysKeepBoardStatSync` (Java `ui.always-sync-boardstat`).
+ */
+always_sync_board_stat: boolean, 
+/**
+ * 棋盘同步工具选项 > `Menu.readBoardGetFocus` (Java `ui.read-board-get-focus`).
+ */
+get_focus: boolean, 
+/**
+ * 设置 > `Menu.notPlaySoundInSync` (Java `ui.not-play-sound-insync`).
+ */
+no_sound_in_sync: boolean, 
+/**
+ * Messages to show once each, in order.
+ */
+notices: Array<ReadBoardNotice>, };
+
+export type FloatBoardView = { x: number, y: number, width: number, height: number, 
+/**
+ * `0` Fox, `1` Tygem, `2` Sina, other values a generic client.
+ */
+board_type: number, 
+/**
+ * The DPI factor of the helper's scaled form, if it sent one.
+ */
+scale: number | null, edit_mode: boolean, suggestions_hidden: boolean, 
+/**
+ * The edit button is shown (not while both boards are synced).
+ */
+edit_button: boolean, 
+/**
+ * A click places a move (both boards synced, or edit mode; `FloatBoard.onClicked`).
+ */
+clicks_play: boolean, 
+/**
+ * What the overlay draws outside the edit mode: the main line's end
+ * (`getCurOrMainEnd(false)`), whatever node the main window shows. Absent in the edit mode,
+ * which draws the current position like the main board.
+ */
+scene: FloatSceneView | null, };
+
+export type FloatSceneView = { node: number, 
+/**
+ * Row-major, `size.width * size.height`.
+ */
+stones: Array<Stone | null>, last_action: LastAction | null, to_play: Stone, snapshot: boolean, 
+/**
+ * Points of the move children (variations behind an end placeholder), first child first.
+ */
+next_moves: Array<Point>, 
+/**
+ * Stored analysis of that node, as the main board's `analysis`.
+ */
+analysis: NodeAnalysisView | null, 
+/**
+ * Move numbers and 落子评价 of that node, as the main board's `board`.
+ */
+board: BoardOverlayView, 
+/**
+ * Kata形势 of that node, else of its parent (`preEstimateArray`); absent while Kata形势 is
+ * off or nothing was reported.
+ */
+ownership: Array<number> | null, };
+
+export type ReadBoardNotice = { "type": "Message", key: string, args: Array<string>, } | { "type": "GmaUnsupported" };
+
+export type HelperLoggingView = { status: LoggingStatus, 
+/**
+ * The helper process's log session (`DiagnosticsDialog.helperCapability`), empty while unknown.
+ */
+process_session_id: string, persistence: Persistence | null, drop_count: number | null, desired_diagnostics: boolean, desired_capture: boolean, desired_trace: boolean, diagnostics: Presentation, capture: Presentation, trace: Presentation, 
+/**
+ * `DiagnosticsDialog.captureSummary`.
+ */
+capture_summary: string, };
+
+export type LoggingStatus = "Starting" | "CapabilityReady" | "Applying" | "Observed" | "Unknown" | "LegacyUnconfirmed";
+
+export type Persistence = "Healthy" | "Degraded" | "Unavailable";
+
+export type Presentation = "Off" | "On" | "OnStorageDegraded" | "OnStorageUnavailable" | "NotApplied" | "Unknown" | "LegacyUnconfirmed";
 
 export type ManagedProfile = { command: string, assetId: string, weightPath: string, configPath: string, };
 
@@ -2986,3 +3587,86 @@ outcome: TuningOutcome | null,
  * Enables the experimental button only on native macOS arm64.
  */
 appleSilicon: boolean, };
+
+export type OnlineCommand = { "type": "Open", url: string, refresh_seconds: number, } | { "type": "Stop" } | { "type": "FollowLive", url: string, } | { "type": "LoadLiveList", category: LiveCategory, more: boolean, } | { "type": "SetAlwaysGotoLast", enabled: boolean, } | { "type": "SetOpenHtmlOnLive", enabled: boolean, } | { "type": "BrowserLoad", url: string, } | { "type": "BrowserStopSync" };
+
+export type LiveCategory = "Recommend" | "Local" | "Personal";
+
+export type OnlineText = { key: string, args: Array<string>, };
+
+export type LiveGameView = { 
+/**
+ * 状态: `*` for a pinned game, then 直播预告 / 正在直播 / the result or 已结束 / 未知.
+ */
+status: string, 
+/**
+ * 时间.
+ */
+time: string, 
+/**
+ * 棋局.
+ */
+game: string, 
+/**
+ * 黑方 / 白方: the name and ` [county]`.
+ */
+black: string, white: string, 
+/**
+ * 手数.
+ */
+hands: number, 
+/**
+ * 胜率: empty without realtime analysis.
+ */
+rate: string, 
+/**
+ * 关注.
+ */
+attention: string, 
+/**
+ * The room the 同步 button follows (`toRoomUrl`); `None` for a preview without moves
+ * (`isPreviewWithoutMoves`), which 同步 refuses with 这局暂时还没有可用棋谱。.
+ */
+room_url: string | null, };
+
+export type LiveListView = { category: LiveCategory, loading: boolean, games: Array<LiveGameView>, 
+/**
+ * 正在加载弈客直播... / 已加载 N 局 / 加载弈客直播失败: …
+ */
+status: OnlineText | null, 
+/**
+ * Moves on with every loaded list.
+ */
+generation: number, };
+
+export type OnlineFollowView = { url: string, 
+/**
+ * Java type: 1, 2, 5, 6, 7 弈客; 3, 4 huanle.
+ */
+kind: number, yike: boolean, };
+
+export type OnlineStatusView = { seq: number, url: string, text: OnlineText, };
+
+export type ProxyWarningView = { seq: number, message: string, };
+
+export type OnlineView = { following: OnlineFollowView | null, status: OnlineStatusView | null, 
+/**
+ * `revealYikeLiveSyncStatus`: brings 弈客直播中心 to the front when it moves on.
+ */
+reveal: number, 
+/**
+ * `error(true)` for a link started from 打开在线链接: show 无效的链接 and the dialog again.
+ */
+dialog_error: number, 
+/**
+ * The 网络代理设置 warning: `message` is Java's text; a new `seq` shows it again.
+ */
+proxy_warning: ProxyWarningView | null, 
+/**
+ * The web window follows page addresses (`yikeBrowserSyncEnabled`).
+ */
+browser_sync: boolean, 
+/**
+ * The web window title's status (`reportSyncStatus`).
+ */
+browser_status: OnlineText | null, live: LiveListView, always_goto_last: boolean, open_html_on_live: boolean, };

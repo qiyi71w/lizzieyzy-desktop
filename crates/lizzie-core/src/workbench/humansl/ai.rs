@@ -425,6 +425,7 @@ impl Workbench {
                 instance,
                 message,
                 output,
+                ..
             } if Some(instance) == worker => {
                 if s.phase == HumanSlPhase::Preparing {
                     self.human_sl_start_failed(format!(

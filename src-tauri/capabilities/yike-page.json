@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "yike-page",
+  "description": "The remote 弈客 page may only report its address and 对局室 replies through the yike-page bridge",
+  "local": false,
+  "webviews": ["yike-page"],
+  "remote": { "urls": ["https://*.yikeweiqi.com/*", "https://yikeweiqi.com/*"] },
+  "permissions": ["yike-page:allow-report"]
+}

@@ -25,6 +25,7 @@ use crate::display::{self, BoardOverlayView};
 use crate::engine::gtp::InfoLine;
 use crate::engine::profile::{new_profile_id, AnalysisSettings, EngineProfile, EngineStartup};
 use crate::engine::rules::KataRules;
+use crate::engine::ssh::RemoteFailure;
 use crate::engine::runtime::{
     Bootstrap, CheckedLaunch, ConsoleKind, EngineFailure, EngineInput, InstanceId, LaunchCheck, Phase, RulesOutcome,
     RuntimeEvent, Target, UserCommandError,
@@ -363,8 +364,15 @@ impl Workbench {
 
     /// Starts the engine chosen for start-up (`autoload-*`) and the preloaded engines.
     pub fn start_engines(&mut self) {
+        let requested = self.config.engine.startup_index();
+        // Java resolveStartupSelection: a forgotten login changes this launch only, not the
+        // saved provider/default/last selection. Custom WebSocket profiles need no account login.
+        let fallback = requested.filter(|&index| {
+            !self.cloud_authenticated && self.config.engine.engines[index].cloud.as_ref()
+                .is_some_and(|launch| launch.provider == crate::engine::cloud::CloudProvider::Zhizi)
+        }).and_then(|_| self.first_usable_local_engine());
+        let startup = fallback.or(requested);
         let settings = &self.config.engine;
-        let startup = settings.startup_index();
         let preload: Vec<usize> = settings
             .engines
             .iter()
@@ -373,7 +381,7 @@ impl Workbench {
             .map(|(i, _)| i)
             .collect();
         if let Some(i) = startup {
-            let _ = self.switch_engine(i as u32);
+            let _ = self.switch_engine_inner(i as u32, fallback.is_none());
         }
         for i in preload {
             let profile = self.config.engine.engines[i].clone();
@@ -387,6 +395,8 @@ impl Workbench {
     /// them, so a read still in flight starts nothing. The platform adapter waits for the
     /// processes outside the workbench lock.
     pub fn end_engines(&mut self) {
+        self.contribution_end_for_exit();
+        self.fox_stop();
         self.batch_shutdown();
         self.shutdown_strength();
         self.engines.terminate_all();
@@ -553,8 +563,15 @@ impl Workbench {
     /// Tells the runtime what the foreground and the secondary engine should do now. Both hold
     /// the browsing position; the secondary engine analyses only in 双引擎模式 and only while the
     /// foreground engine may (the user's pause and a foreground limit stop it too, as Java
-    /// mirrors the primary engine's commands), and stops alone at its own limit.
+    /// mirrors the primary engine's commands), and stops alone at its own limit. A waiting
+    /// analysis engine warm-up decides again on the changed state.
     pub(super) fn sync_engine(&mut self) {
+        self.warmup_review();
+        if self.fox_holds_engine() || self.fox_owns_board() {
+            self.engines.want_secondary(None, false);
+            self.engines.want(None, false);
+            return;
+        }
         if let Some(analyse) = self.human_sl_analyse() {
             self.engines.want_secondary(None, false);
             if analyse { self.engines.want(Some(self.analysis_target()), true); }
@@ -594,7 +611,9 @@ impl Workbench {
             self.check_rules_prompt();
             return;
         }
-        // A running quick analysis leaves the foreground engine idle until it ends.
+        // A running quick analysis leaves the foreground engine idle until it ends; ReadBoard GMA
+        // keeps it following the position without analysing (its moves come from
+        // `kata-genmove_analyze`).
         let analyse = !self.paused
             && !self.benchmark_running()
             && self.limit_stop.is_none()
@@ -602,6 +621,7 @@ impl Workbench {
             && !self.flash_holds_foreground()
             && !self.whole_game_holds_foreground()
             && !self.batch_holds_foreground()
+            && !self.readboard_gma_busy()
             && self.rules_permit_analysis();
         let target = self.analysis_target();
         self.sync_search(analyse);
@@ -634,9 +654,14 @@ impl Workbench {
     }
 
     /// `Board.reopenOnlyBoard` / `clear`: a new empty game of `size` replaces the open one; a
-    /// running game ends first.
-    pub(super) fn reopen_empty_board(&mut self, size: BoardSize) {
+    /// running game ends first. A clear that is not an engine game's own also ends a 在线同步
+    /// follow, its first game included (`clearBoardState(false)` → `urlSgfStopSyncAction`,
+    /// Board.java:5493-5525).
+    pub(super) fn reopen_empty_board(&mut self, size: BoardSize, engine_game: bool) {
         self.play_document_closing();
+        if !engine_game {
+            self.online_stop();
+        }
         let id = self.next_doc;
         self.next_doc += 1;
         self.doc = super::Document {
@@ -657,6 +682,7 @@ impl Workbench {
         self.reset_analysis();
         self.reset_editing();
         self.publish_record_rules(None);
+        self.readboard_history_overwritten();
     }
 
     // -------------------------------------------------------------------- engine operations
@@ -666,6 +692,30 @@ impl Workbench {
     /// foreground start goes through here, so none starts during setup mode
     /// (`EngineManager.setupModeActive`).
     pub fn switch_engine(&mut self, index: u32) -> Result<bool, ApiError> {
+        if self.fox_owns_board() || self.fox_holds_engine() { return Err(ApiError::new(ErrorKind::Unavailable, "Fox.conflict")); }
+        if let Some(key) = self.foreground_lifecycle_held() { return Err(ApiError::new(ErrorKind::Unavailable, key)); }
+        self.switch_engine_inner(index, true)
+    }
+
+    /// What keeps the foreground engine from a switch, restart or restart of all engines, also one
+    /// that does not come through `game_gate` (远程算力, resource setup, tuning, settings import):
+    /// Java's switch first takes `reserveEngineLifecycle` (EngineManager.java:12232-12235,
+    /// 14386-14426), which Web 试下 and a GMA hand or its restore refuse
+    /// (Leelaz.java:15156-15160), as does a running contribution (EngineManager.java:11524-11527).
+    /// Returns the refusal's message key.
+    pub(super) fn foreground_lifecycle_held(&self) -> Option<&'static str> {
+        if self.web_trial_active() {
+            Some("AnalysisSettings.reuseStatus.application_exclusive_mode")
+        } else if self.readboard.gma.reserved() {
+            Some("AnalysisSettings.reuseStatus.existing_lease")
+        } else if self.contribution_active() {
+            Some(super::contribution::CONTRIBUTING)
+        } else {
+            None
+        }
+    }
+
+    fn switch_engine_inner(&mut self, index: u32, remember_selection: bool) -> Result<bool, ApiError> {
         let Some(profile) = self.config.engine.engines.get(index as usize).cloned() else {
             return Err(ApiError::new(ErrorKind::InvalidArgument, format!("no engine {index}")));
         };
@@ -693,7 +743,7 @@ impl Workbench {
             height: profile.height,
         };
         if self.game_is_empty() && size != self.doc.record.size {
-            self.reopen_empty_board(size);
+            self.reopen_empty_board(size, false);
         }
         // The engine's komi becomes the game komi unless the user chose it (`targetKomi`): at
         // once for a running engine, for a new one when it is ready and the game still empty.
@@ -716,6 +766,7 @@ impl Workbench {
                     i
                 }
                 Err(f) => {
+                    self.engines.foreground_launch_failed(&profile);
                     self.engine_failed(*f);
                     return Ok(true);
                 }
@@ -725,7 +776,7 @@ impl Workbench {
         self.limit_stop = None;
         self.limit_tip_shown = false;
         self.engines.set_foreground(Some(instance), keep);
-        if self.config.engine.startup == EngineStartup::Last {
+        if remember_selection && self.config.engine.startup == EngineStartup::Last {
             let id = profile.id.clone();
             let _ = self.commit_config(|c| c.engine.last_engine = Some(id));
         }
@@ -734,17 +785,24 @@ impl Workbench {
         Ok(true)
     }
 
-    /// "重启当前引擎".
+    /// "重启当前引擎". An engine that ended and was not started again is still the current engine
+    /// (Java keeps `Lizzie.leelaz` and restarts `currentEngineNo`).
     pub fn restart_engine(&mut self) -> Result<bool, ApiError> {
-        let Some(fg) = self.engines.foreground() else {
-            return Ok(false);
+        if self.fox_owns_board() || self.fox_holds_engine() { return Err(ApiError::new(ErrorKind::Unavailable, "Fox.conflict")); }
+        if let Some(key) = self.foreground_lifecycle_held() { return Err(ApiError::new(ErrorKind::Unavailable, key)); }
+        let fg = self.engines.foreground();
+        let id = match fg {
+            Some(fg) => self.engines.profile_of(fg).map(|p| p.id.clone()),
+            None => self.engines.foreground_failure().map(|p| p.id.clone()),
         };
-        let Some(id) = self.engines.profile_of(fg).map(|p| p.id.clone()) else {
+        let Some(id) = id else {
             return Ok(false);
         };
         self.quick_engine_changed();
         self.auto_analysis_abandon();
-        self.engines.terminate(fg);
+        if let Some(fg) = fg {
+            self.engines.terminate(fg);
+        }
         let Some(index) = self.config.engine.index_of(&id) else {
             return Ok(true);
         };
@@ -753,6 +811,7 @@ impl Workbench {
 
     /// "关闭当前引擎" / "关闭当前以外引擎" / "关闭所有引擎".
     pub fn shutdown_engines(&mut self, scope: EngineScope) -> bool {
+        if self.fox_owns_board() || self.fox_holds_engine() { return false; }
         let fg = self.engines.foreground();
         let targets: Vec<InstanceId> = self
             .engines
@@ -883,8 +942,19 @@ impl Workbench {
     }
 
     /// User pause / resume (`togglePonderMannul`). Resuming also restarts an analysis a limit
-    /// stopped. Never written to disk.
+    /// stopped. Never written to disk. A pause stops a waiting analysis engine warm-up
+    /// (`cancelLoadedGameQuickAnalysisForUserPause`).
     pub fn toggle_analysis(&mut self) -> Result<bool, ApiError> {
+        if self.fox_owns_board() || self.fox_holds_engine() { return Err(ApiError::new(ErrorKind::Unavailable, "Fox.conflict")); }
+        self.readboard_user_toggled_analysis();
+        let toggled = self.toggle_pause_state();
+        if self.paused {
+            self.warmup_stop();
+        }
+        toggled
+    }
+
+    fn toggle_pause_state(&mut self) -> Result<bool, ApiError> {
         // Space during a game ends it (`togglePonderMannul` → `stopAiPlayingAndPolicy`).
         if self.game_active() {
             return Ok(self.game(crate::api::GameCommand::End)? == crate::api::CommandResult::Done);
@@ -970,6 +1040,7 @@ impl Workbench {
     /// sent to the engine, and engine profiles no longer change it (`GameInfo.changeKomi`) — not
     /// even a starting engine's, which Java would still apply once it is ready.
     pub fn set_komi(&mut self, komi: f64) -> Result<bool, ApiError> {
+        if self.fox_owns_board() || self.fox_holds_engine() { return Err(ApiError::new(ErrorKind::Unavailable, "Fox.conflict")); }
         if self.whole_game_active() {
             return Err(ApiError::new(ErrorKind::InvalidArgument, "WholeGameAnalysis.conflict.analysis"));
         }
@@ -1002,6 +1073,7 @@ impl Workbench {
     /// 引擎规则 (`LizzieFrame.setRules`): needs a ready KataGo; the chosen rules become the
     /// session rules (`publishManualRules`) and are remembered for auto-loading.
     pub fn set_kata_rules(&mut self, rules: &str, auto_load: bool) -> Result<Option<&'static str>, ApiError> {
+        if self.fox_owns_board() || self.fox_holds_engine() { return Ok(Some("Fox.conflict")); }
         let Some(fg) = self
             .engines
             .foreground()
@@ -1035,6 +1107,13 @@ impl Workbench {
     /// GtpConsolePane send. Like Java, `komi <v>` sets the game komi and `undo` steps back in
     /// the record; other board-changing commands are refused.
     pub fn send_gtp(&mut self, command: &str) -> Result<Option<&'static str>, ApiError> {
+        if self.fox_owns_board() || self.fox_holds_engine() {
+            let words: Vec<_> = command.split_whitespace().collect();
+            if let ["kata-set-param", "playoutDoublingAdvantage", value] = words.as_slice() {
+                if let Ok(value) = value.parse() { self.fox_set_pda(value)?; return Ok(None); }
+            }
+            return Ok(Some("Fox.conflict"));
+        }
         let mut words = command.split_whitespace();
         match (words.next(), words.next()) {
             (Some("komi"), Some(v)) => {
@@ -1126,7 +1205,7 @@ impl Workbench {
     /// variation length, the previews of stored analysis.
     pub(super) fn analysis_settings_changed(&mut self, previous: &AnalysisSettings) {
         let settings = &self.config.engine.analysis;
-        self.engines.set_interval(settings.interval_centisec);
+        self.engines.set_interval(settings.interval_centisec, settings.interval_centisec_ssh);
         if settings.limit_branch_length != previous.limit_branch_length {
             self.refresh_pv_captures();
         }
@@ -1147,8 +1226,17 @@ impl Workbench {
     /// and the secondary engine come back in their seats (`updateEnginesWhileMarkedUpdating`).
     pub fn save_engine_settings(
         &mut self,
+        engines: Vec<EngineProfile>,
+        startup: EngineStartup,
+    ) -> Result<bool, ApiError> {
+        self.save_engine_settings_with_cloud(engines, startup, None)
+    }
+
+    pub(super) fn save_engine_settings_with_cloud(
+        &mut self,
         mut engines: Vec<EngineProfile>,
         startup: EngineStartup,
+        cloud: Option<crate::cloud::CloudSettings>,
     ) -> Result<bool, ApiError> {
         for i in 0..engines.len() {
             if engines[i].id.is_empty() {
@@ -1162,13 +1250,17 @@ impl Workbench {
             seen_default |= e.is_default;
         }
         let old = self.config.engine.engines.clone();
-        if old == engines && self.config.engine.startup == startup {
+        if old == engines && self.config.engine.startup == startup && cloud.is_none() {
             return Ok(false);
         }
         let list = engines.clone();
         self.commit_config(|c| {
             c.engine.engines = list;
             c.engine.startup = startup;
+            if let Some(cloud) = cloud {
+                c.cloud = cloud;
+                c.engine.last_engine = c.engine.engines.iter().find(|p| p.is_default).map(|p| p.id.clone());
+            }
         })?;
         let fg_profile = self
             .engines
@@ -1178,7 +1270,8 @@ impl Workbench {
         let secondary_profile = self.secondary_profile();
         let (mut restart_fg, mut restart_secondary) = (None, None);
         for (instance, id, _) in self.engines.running() {
-            let launch = |p: &EngineProfile| (p.command.clone(), p.initial_command.clone(), p.width, p.height);
+            // `EngineManager.isSameEngine` also compares the SSH connection.
+            let launch = |p: &EngineProfile| (p.command.clone(), p.initial_command.clone(), p.width, p.height, p.ssh.clone(), p.cloud.clone());
             let before = old.iter().find(|p| p.id == id).map(launch);
             let after = engines.iter().position(|p| p.id == id);
             let changed = after.is_none() || before != after.map(|a| launch(&engines[a]));
@@ -1228,6 +1321,7 @@ impl Workbench {
     pub fn engine_timer(&self) -> Option<std::time::Instant> {
         [
             self.engines.next_tick(),
+            self.fox_deadline(),
             self.quick_deadline(),
             self.whole_game_deadline(),
             self.tracking_deadline(),
@@ -1235,6 +1329,10 @@ impl Workbench {
             self.match_deadline(),
             self.human_sl_deadline(),
             self.strength_deadline(),
+            self.contribution_deadline(),
+            self.readboard_deadline(),
+            self.web_trial_deadline(),
+            self.online_deadline(),
         ]
             .into_iter()
             .flatten()
@@ -1253,7 +1351,12 @@ impl Workbench {
         let matches = self.match_tick(now);
         let human_sl = self.human_sl_tick(now);
         let strength = self.strength_tick(now);
-        engines | quick | whole | tracking | play | matches | human_sl | strength
+        let contribution = self.contribution_tick(now);
+        let readboard = self.readboard_tick(now);
+        let web_trial = self.web_trial_tick(now);
+        let fox = self.fox_tick(now);
+        let online = self.online_tick(now);
+        engines | quick | whole | tracking | play | matches | human_sl | strength | contribution | readboard | web_trial | fox | online
     }
 
     /// Handles runtime events produced by operations outside engine output.
@@ -1267,7 +1370,10 @@ impl Workbench {
         for ev in events {
             changed = true;
             let Some(ev) = self
-                .match_event(ev)
+                .contribution_event(ev)
+                .and_then(|ev| self.gma_event(ev))
+                .and_then(|ev| self.fox_event(ev))
+                .and_then(|ev| self.match_event(ev))
                 .and_then(|ev| self.play_event(ev))
                 .and_then(|ev| self.human_sl_event(ev))
                 .and_then(|ev| self.strength_event(ev))
@@ -1280,20 +1386,20 @@ impl Workbench {
             };
             match ev {
                 RuntimeEvent::Ready { instance } => {
+                    self.restart_ready(instance);
                     if let Some((name, version, _)) = self.engines.identity(instance) {
                         self.log(false, format!("engine ready: {name} {version}"));
-                    }
-                    if Some(instance) == self.engines.foreground() {
-                        self.quick_preload();
                     }
                     if let Some((_, komi)) = self.start_komi.take_if(|(i, _)| *i == instance) {
                         if self.game_is_empty() {
                             self.apply_komi(komi);
                         }
                     }
+                    self.readboard_engine_ready(instance);
                 }
                 RuntimeEvent::Rules { .. } => {}
                 RuntimeEvent::RawNet { .. } => {}
+                RuntimeEvent::Pondering { .. } => self.foreground_pondered(),
                 RuntimeEvent::Failed(f) => {
                     // A secondary engine that fails while starting gives its seat back to the
                     // one it replaced, when that one still runs.
@@ -1305,7 +1411,9 @@ impl Workbench {
                             self.engines.set_secondary(Some(previous), true);
                         }
                     }
-                    self.engine_failed(f);
+                    if self.restart_on_failure(&f) {
+                        self.engine_failed(f);
+                    }
                 }
                 RuntimeEvent::Analysis {
                     instance,
@@ -1328,7 +1436,11 @@ impl Workbench {
                     }
                     // 批量分析's record has its own store and run.
                     if !secondary && Some(doc) == self.batch_doc_id() {
-                        self.batch_foreground_result(doc, node, stamp, komi, to_play, engine_name, line, elapsed);
+                        let progress = line.candidates.iter().map(|c| c.visits).sum();
+                        if self.batch_foreground_result(doc, node, stamp, komi, to_play, engine_name, line, elapsed) {
+                            self.restart_proven(instance);
+                            self.engines.analysis_progress_accepted(instance, progress);
+                        }
                         continue;
                     }
                     if doc != self.doc.id
@@ -1344,7 +1456,9 @@ impl Workbench {
                     let Some((result, ownership)) = node_analysis(node, to_play, komi, engine_name, line) else {
                         continue;
                     };
+                    self.restart_proven(instance);
                     let visits = result.visits;
+                    self.engines.analysis_progress_accepted(instance, visits);
                     let played = (!secondary && self.play_wants_analysis(node)).then(|| result.clone());
                     let matched = (!secondary && self.match_wants_analysis(node)).then(|| result.clone());
                     let first_visits = result.candidates.first().map_or(0, |c| c.visits);
@@ -1395,9 +1509,19 @@ impl Workbench {
             }
         }
         self.auto_analysis_poll();
+        // A foreground engine that ended starts again once the other consequences of its end
+        // (a game retired, a lease ended) are applied.
+        self.restart_due();
+        let changed = self.restart_settle() || changed;
+        // A settling GMA hand ends once its engine holds the record's position; the reply that
+        // completes that sync need not be an event.
+        let changed = self.gma_settle() || changed;
         if changed {
             // Readiness, rules answers and failures can change what the engine should do.
             self.sync_engine();
+            self.cloud_activation_settle();
+            // GMA's notices, and an auto-play line waiting for GMA to give the engine back.
+            self.readboard_after_engine();
         }
         changed
     }
@@ -1446,29 +1570,31 @@ impl Workbench {
     /// A failed engine: logged, and reported with the launch command, message and output passed
     /// through the credential sanitizer like Java's failure dialog and copy (`redactSensitiveText`).
     pub(super) fn engine_failed(&mut self, f: EngineFailure) {
-        let command = sanitize(&f.command);
-        let message = sanitize(&f.message);
-        let output: Vec<String> = f.output.iter().map(|l| sanitize(l)).collect();
-        let tail = output
-            .iter()
-            .rev()
-            .take(5)
-            .rev()
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(" / ");
-        self.log(
-            true,
-            format!("engine failed [{}] {command}: {message} | {tail}", f.engine_name),
-        );
+        self.log_engine_failure(&f);
+        let remote = f.remote.map(|r| match r {
+            RemoteFailure::Connect { detail } => RemoteFailure::Connect { detail: sanitize(&detail) },
+            RemoteFailure::Lost { detail } => RemoteFailure::Lost { detail: sanitize(&detail) },
+            other => other,
+        });
         self.engine_failure = Some(EngineFailureView {
             engine_name: f.engine_name,
-            command,
+            command: sanitize(&f.command),
             during_startup: f.during_startup,
-            message,
-            output,
+            message: sanitize(&f.message),
+            output: f.output.iter().map(|l| sanitize(l)).collect(),
             repair: None,
+            remote,
+            profile_id: f.profile_id,
         });
+    }
+
+    /// The failure's log line: command, message and the last output lines, sanitized.
+    pub(super) fn log_engine_failure(&mut self, f: &EngineFailure) {
+        let tail = f.output.iter().rev().take(5).rev().map(|l| sanitize(l)).collect::<Vec<_>>().join(" / ");
+        self.log(
+            true,
+            format!("engine failed [{}] {}: {} | {tail}", f.engine_name, sanitize(&f.command), sanitize(&f.message)),
+        );
     }
 
     // -------------------------------------------------------------------- projection
@@ -1536,6 +1662,7 @@ impl Workbench {
             full_trace: self.engines.tracing(),
             lease,
             unrestored,
+            down: fg.is_none() && self.engines.foreground_failure().is_some(),
         }
     }
 
@@ -1557,6 +1684,7 @@ impl Workbench {
     }
 
     pub(super) fn current_analysis(&self) -> Option<NodeAnalysisView> {
+        if self.fox_owns_board() { return self.fox_display_analysis(); }
         if self.match_active() && self.config.matches.show_previous_bestmoves {
             let node = self.doc.record.parent(self.cursor)?;
             let mut result = self.shown_analysis_at(&self.store, node)?;
@@ -1582,8 +1710,12 @@ impl Workbench {
         self.shown_analysis_at(store, self.cursor)
     }
 
-    fn shown_analysis_at(&self, store: &AnalysisStore, node: NodeId) -> Option<NodeAnalysisView> {
+    pub(super) fn shown_analysis_at(&self, store: &AnalysisStore, node: NodeId) -> Option<NodeAnalysisView> {
         let s = store.get(&self.doc.record, node)?;
+        Some(self.shown_analysis_value(s))
+    }
+
+    pub(super) fn shown_analysis_value(&self, s: &NodeAnalysisView) -> NodeAnalysisView {
         // Stored results keep the engine's numbers; what is shown follows the settings now. The
         // komi is the one the result was analysed with (results of another komi are dropped).
         let vp = self.viewpoint();
@@ -1612,7 +1744,7 @@ impl Workbench {
                 kept: c.kept,
             })
             .collect();
-        Some(NodeAnalysisView {
+        NodeAnalysisView {
             node: s.node,
             engine: s.engine.clone(),
             to_play: s.to_play,
@@ -1624,7 +1756,7 @@ impl Workbench {
             komi: s.komi,
             candidates,
             black: vp.black(s.winrate, s.score_lead, s.to_play, s.komi),
-        })
+        }
     }
 
     /// 双引擎模式's right board (`boardRenderer2`): the secondary engine's results of the current
@@ -1709,14 +1841,19 @@ impl Workbench {
 
     /// The board marks of the current position, the analysis-based ones from `store`.
     fn overlay(&self, store: &AnalysisStore) -> BoardOverlayView {
+        self.overlay_at(store, self.cursor)
+    }
+
+    /// The board marks of `node`'s position (the ReadBoard float board shows the main line's end).
+    pub(super) fn overlay_at(&self, store: &AnalysisStore, node: NodeId) -> BoardOverlayView {
         let rec = &self.doc.record;
         let s = &self.config.display;
-        let path = rec.path_to(self.cursor);
+        let path = rec.path_to(node);
         let numbering = display::numbering(rec, &path);
         let analysis = |n: NodeId| store.get(rec, n);
         let rank_override = self.whole_game_results_for_current()
             && std::ptr::eq(store, &self.store)
-            && rec.node(self.cursor).parent.is_some_and(|n| store.get(rec, n).is_some_and(|a| a.visits > 0));
+            && rec.node(node).parent.is_some_and(|n| store.get(rec, n).is_some_and(|a| a.visits > 0));
         let ranks = if rank_override {
             let mut effective = s.clone();
             effective.move_numbers = 0;
@@ -1730,9 +1867,9 @@ impl Workbench {
             ranks,
             rank_corner: display::shows_ranks(s) && (s.move_rank == 0 || s.move_rank > 1),
             ranks_after_numbers: rank_override,
-            next_move: display::next_move_info(rec, self.cursor, s, self.config.edit.no_capture,
+            next_move: display::next_move_info(rec, node, s, self.config.edit.no_capture,
                 self.config.engine.analysis.limit_branch_length, analysis),
-            info_order_sample: display::info_order_sample(s, rec.node(self.cursor).to_play, self.komi),
+            info_order_sample: display::info_order_sample(s, rec.node(node).to_play, self.komi),
         }
     }
 }

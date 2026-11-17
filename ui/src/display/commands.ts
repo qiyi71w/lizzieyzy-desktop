@@ -196,6 +196,9 @@ Object.assign(COMMANDS, {
   },
   "Menu.rankMenu.setCustomMoves": { run: chooseRankCustom, checked: rankShown((s) => s.moveRank > 1 && s.moveRank === s.moveRankCustom) },
   "Menu.rankMenu.rankAllMove": { run: () => setDisplay({ moveNumbers: 0, moveRank: 0 }), checked: rankShown((s) => s.moveRank === 0) },
+  // 原棋盘不显示评价标记(棋盘同步时) (Menu.java:9404-9412, check 9520-9524): checked while the
+  // float board hides its 落子评价 (Config.toggleDisableMoveRankInOrigin).
+  "Menu.showMoveRankInOrigin": flag("disableMoveRankInOrigin"),
   "Menu.rankMenu.evaluationMode.auto": rankMode("Auto"),
   "Menu.rankMenu.evaluationMode.score": rankMode("Score"),
   "Menu.rankMenu.evaluationMode.winrate": rankMode("Winrate"),

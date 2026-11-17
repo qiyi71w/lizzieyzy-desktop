@@ -24,7 +24,7 @@
 .setup-nav { width: 296px; flex-shrink: 0; padding: 20px 13px; border-right: 1px solid #d4d7d9; }
 .setup-nav button { display: flex; align-items: center; text-align: left; gap: 16px; width: 100%; margin: 3px 0 9px; min-height: 39px; border-color: transparent; border-radius: 6px; background: transparent; }
 .setup-nav button.selected { box-shadow: inset 4px 0 #087a6e; font-weight: 600; }
-.setup-nav .unavailable { margin-top: 20px; }
+.setup-nav .setup-nav-remote { margin-top: 20px; }
 .setup-nav-icon { width: 24px; height: 24px; color: #596864; flex-shrink: 0; }
 .setup-nav-icon svg { display: block; width: 24px; height: 24px; fill: currentColor; }
 .setup-nav .selected .setup-nav-icon { color: #147a6e; }

@@ -573,8 +573,7 @@ fn gpu_identity() -> Result<(String, String, u64), String> {
             "--query-gpu=name,driver_version,memory.total".into(),
             "--format=csv,noheader,nounits".into(),
         ],
-        working_dir: None,
-        library_dirs: Vec::new(),
+        ..LaunchSpec::default()
     };
     let output = collect(&spec, &AtomicBool::new(false), Duration::from_secs(8), |_| {})?;
     let mut rows = output.lines().filter(|s| !s.trim().is_empty());
@@ -608,8 +607,7 @@ fn run_experimental(app: &AppHandle, shared: &State, job: &BenchmarkJob) -> Resu
         &LaunchSpec {
             program: "/usr/sbin/sysctl".into(),
             args: vec!["-n".into(), "hw.memsize".into()],
-            working_dir: None,
-            library_dirs: Vec::new(),
+            ..LaunchSpec::default()
         },
         &job.cancel,
         Duration::from_secs(3),
@@ -709,8 +707,7 @@ fn apple_identity(cancel: &AtomicBool) -> Result<serde_json::Value, String> {
         let spec = LaunchSpec {
             program: program.into(),
             args: args.into_iter().map(String::from).collect(),
-            working_dir: None,
-            library_dirs: Vec::new(),
+            ..LaunchSpec::default()
         };
         let value = collect(&spec, cancel, Duration::from_secs(3), |_| {});
         let value = if key == "rosetta" {

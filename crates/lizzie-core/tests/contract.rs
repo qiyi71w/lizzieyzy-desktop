@@ -2,8 +2,12 @@
 //! `ui/src/contract/generated.ts` no longer matches them; regenerate with
 //! `UPDATE_CONTRACT=1 cargo test -p lizzie-core --test contract`.
 
+#[path = "contract/readboard.rs"]
+mod readboard;
 #[path = "contract/resources.rs"]
 mod resources;
+#[path = "contract/online.rs"]
+mod online;
 #[path = "contract/tuning.rs"]
 mod tuning;
 
@@ -45,6 +49,18 @@ fn generate() -> String {
         WorkbenchView, LogsStatus, JavaImportView, ImportStatus, ImportReason, ImportTarget, ImportItemView,
         EngineProblem, ImportEngineView, ImportPreviewView, ImportReportView, ImportFailure,
         ImportCommentaryCredential,
+        lizzie_core::java_import::CloudImportCredentials,
+        lizzie_core::engine::cloud::CloudLaunch, lizzie_core::engine::cloud::CloudProvider,
+        lizzie_core::cloud::CloudSettings, lizzie_core::cloud::Provider,
+        lizzie_core::cloud::CloudCommand, lizzie_core::cloud::CloudReply,
+        lizzie_core::cloud::CloudState, lizzie_core::cloud::CloudResult, lizzie_core::cloud::CloudFailure,
+        lizzie_core::cloud::CodePurpose, lizzie_core::cloud::Purchase,
+        lizzie_core::cloud::Catalog, lizzie_core::cloud::Weight, lizzie_core::cloud::DiscoverySource,
+        lizzie_core::cloud::AccountProfile, lizzie_core::cloud::BalanceInfo,
+        lizzie_core::cloud::UsageRecord, lizzie_core::cloud::UsagePage,
+        lizzie_core::cloud::CreditRecord, lizzie_core::cloud::CreditPage, lizzie_core::cloud::Overview,
+        lizzie_core::cloud::MembershipProduct, lizzie_core::cloud::PaymentStatus,
+        lizzie_core::cloud::PaymentPurpose, lizzie_core::cloud::PaymentOrder, lizzie_core::cloud::PaymentVerification,
         EditCommand, EditTarget, EditingView, EditSettings, MarkTool, StoneChange, Transform,
         ExportKind, CommentLabels, SlotRef, RecoveryCommand, SlotView, RecoveryView, RecoverySettings,
         ImportSlotView, RecoveryImport, DisplaySettings, ShownValues, AsCandidate,
@@ -67,6 +83,7 @@ fn generate() -> String {
         HawkeyeCommand, HawkeyeSide, HawkeyeBand, HawkeyeSpread, HawkeyeStage, HawkeyeMistake, HawkeyeRunning,
         HawkeyePane, HawkeyeView, HawkeyeSettings, HawkeyeBranch, HawkeyePeriod, HawkeyePlacement,
         BatchMode, BatchMove, BatchCommand, BatchItemView, BatchRunView, BatchFailure, BatchNotice, BatchView,
+        FoxCommand, FoxReplaceChoice, FoxView, FoxClockView, FoxSubmissionView, FoxStartOutcome,
         lizzie_core::api::GameCommand, lizzie_core::api::GameKind, lizzie_core::api::GamePhase,
         lizzie_core::api::GameClockView, lizzie_core::api::GameView, lizzie_core::api::GameEnd,
         lizzie_core::api::GameOutcomeView, lizzie_core::api::GameNotice, lizzie_core::api::AutoPlayView,
@@ -88,9 +105,14 @@ fn generate() -> String {
         StrengthModelView, StrengthReport, StrengthSideReport, StrengthSegment, StrengthSummary,
         StrengthSample, StrengthConfidence, StrengthMoveCategory,
         CommentaryCommand, ConnectionCommand, CommentaryView, CommentaryMode, CommentaryProvider,
+        WebBoardCommand, WebBoardView,
         CommentaryPreferences, CommentarySettings, CommentaryConnectionFacts, CommentaryAccount,
         CommentaryModel, CommentarySecureStorage, CommentaryChatGptFacts, CommentaryText,
         CommentaryStatus, CommentaryTone, CommentaryOutputState,
+        FoxKifuCommand, KifuPage, FoxKifuView, FoxKifuRow, FoxKifuBusy, KifuNotice,
+        lizzie_core::settings::KifuAfterGet, lizzie_core::settings::FoxRecentSearch,
+        TencentKifuCommand, TencentKifuView, TencentKifuRow, TencentKifuBusy,
+        lizzie_core::settings::TencentRecentSearch,
         FunctionMatch, FunctionTarget, MatchLevel, SettingsSection,
         lizzie_core::settings::PanelSettings, lizzie_core::settings::PanelSizes,
         lizzie_core::settings::BottomToolbar, lizzie_core::settings::WorkbenchPanel,
@@ -107,10 +129,18 @@ fn generate() -> String {
         lizzie_core::settings::CaptureSettings, lizzie_core::tsumego::TsumegoToPlay,
         lizzie_core::tsumego::TsumegoAttacker, lizzie_core::tsumego::TsumegoKoThreat,
         lizzie_core::tsumego::capture::CapturedProblem, lizzie_core::tsumego::capture::CapturePreview,
+        lizzie_core::engine::ssh::SshSettings, lizzie_core::engine::ssh::RemoteFailure,
+        SshCredentialCommand, SshPasswordState,
+        ContributionCommand, ContributionFile, ContributionLink, ContributionPhase, ContributionTip,
+        ContributionGameView, ContributionView, ContributionNotice, SavedEngineKind, SavedEngineReason,
+        SavedEngineCandidate, ContributionQualification,
+        lizzie_core::settings::ContributionSettings, lizzie_core::settings::ContributionWatchSettings,
     ];
-    // Engine resources and engine performance keep their own lists.
+    // 棋盘同步工具, engine resources and engine performance keep their own lists.
+    decls.extend(readboard::decls(&cfg));
     decls.extend(resources::decls(&cfg));
     decls.extend(tuning::decls(&cfg));
+    decls.extend(online::decls(&cfg));
     let mut out = String::from(
         "// Generated from crates/lizzie-core (api, record, browse, settings). Do not edit.\n\
          // Regenerate: UPDATE_CONTRACT=1 cargo test -p lizzie-core --test contract\n\n",

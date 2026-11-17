@@ -305,6 +305,7 @@ impl Workbench {
         }
         // KataGoAutoSetupHelper.discoverFromCommand: a KataGo-named program in gtp/analysis mode.
         let saved = profile
+            .filter(|p| !p.is_remote())
             .and_then(|p| gtp::prepare_launch(&p.command, self.engines.roots()))
             .filter(|spec| {
                 Path::new(&spec.program)

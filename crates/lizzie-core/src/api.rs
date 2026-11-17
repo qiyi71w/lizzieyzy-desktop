@@ -5,29 +5,45 @@
 //! same [`Command`] values and read the same [`WorkbenchView`].
 
 mod batch;
+mod contribution;
 mod editing;
 mod export;
+mod fox_kifu;
 mod hawkeye;
+mod fox;
 mod humansl;
 mod humansl_settings;
+mod kifu_list;
 mod matches;
+mod readboard;
+mod online;
 mod recovery;
 mod resources;
+mod tencent_kifu;
 mod tuning;
+mod web_board;
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+pub use contribution::*;
 pub use batch::*;
 pub use editing::*;
 pub use export::*;
+pub use fox_kifu::*;
 pub use hawkeye::*;
+pub use fox::*;
 pub use humansl::*;
 pub use humansl_settings::*;
+pub use kifu_list::*;
 pub use matches::*;
+pub use readboard::*;
+pub use online::*;
 pub use recovery::*;
 pub use resources::*;
+pub use tencent_kifu::*;
 pub use tuning::*;
+pub use web_board::*;
 pub use crate::strength::{StrengthModelView, StrengthReport, StrengthSideReport, StrengthSegment, StrengthSummary, StrengthSample, StrengthConfidence, StrengthMoveCategory};
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
@@ -94,9 +110,32 @@ pub enum OpenSource {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
 #[serde(tag = "type")]
 pub enum Command {
+    CloudAccount { op: crate::cloud::CloudCommand, owner: u64 },
+    CloudActivate { settings: crate::cloud::CloudSettings, confirmed: bool },
+    CloudLocal,
+    CloudCancel,
+    CloudCancelRequest { owner: u64 },
+    CloudImportQr,
+    OpenCloudLink { custom: bool },
+    Fox { op: FoxCommand },
+    /// 在线棋谱 / 弈客直播 (打开在线链接, 弈客直播中心, the 弈客 web window, 同步 options).
+    Online { op: OnlineCommand },
     Strength { op: StrengthCommand },
     Commentary { op: CommentaryCommand },
+    /// 棋盘同步工具 (Windows).
+    ReadBoard { op: ReadBoardCommand },
     CommentaryConnection { op: ConnectionCommand },
+    /// 野狐棋谱 window.
+    FoxKifu { op: FoxKifuCommand },
+    /// 腾讯棋谱 window.
+    TencentKifu { op: TencentKifuCommand },
+    /// Web 旁观: start, stop, 强制结束试下.
+    WebBoard { op: WebBoardCommand },
+    /// SSH passwords and trusted host keys of remote engines: kept by the platform adapter, never
+    /// in the settings.
+    SshCredential { op: SshCredentialCommand },
+    /// 跑谱贡献 (KataGo distributed training).
+    Contribution { op: ContributionCommand },
     /// 主题 drafts apply together only on 保存设置 (ConfigDialog2.java:6191-6286).
     SetAppearanceSettings {
         settings: crate::appearance::AppearanceSettings,
@@ -309,6 +348,14 @@ pub enum Command {
         /// Separate, unchecked-by-default consent for Java's commentary API key.
         #[serde(default)]
         copy_commentary_key: bool,
+        /// Separate, unchecked-by-default consent for the password of 精析设置's 远程引擎.
+        #[serde(default)]
+        copy_analysis_ssh_password: bool,
+        /// Independent consent; neither account secret follows engine selection.
+        #[serde(default)]
+        copy_cloud_token: bool,
+        #[serde(default)]
+        copy_cloud_password: bool,
         replace: bool,
         recovery: Option<RecoveryImport>,
     },
@@ -793,8 +840,23 @@ pub enum EngineScope {
 pub enum CommandResult {
     /// Applied; the new state arrives as a [`WorkbenchView`].
     Done,
+    Cloud { reply: Box<crate::cloud::CloudReply> },
+    CloudError { failure: crate::cloud::CloudFailure },
+    CloudUrl { url: String },
+    /// `CloudActivate` / `CloudLocal` committed: the foreground seat was given to the engine
+    /// profile `profile`. Every view with `seq > after` was built after the commit and shows the
+    /// switch's outcome; earlier views, an old failure included, do not.
+    CloudSwitch { profile: String, after: u64 },
     Strength { report: Box<StrengthReport> },
     CommentaryModels { models: Vec<String> },
+    /// Where the password of an SSH account is kept ([`SshCredentialCommand`]).
+    SshPassword { state: SshPasswordState },
+    /// Where the training password of a 跑谱贡献 user is kept.
+    ContributionPassword { state: SshPasswordState },
+    /// 已配置引擎… candidates ([`ContributionCommand::SavedEngines`]).
+    ContributionSavedEngines { candidates: Vec<SavedEngineCandidate> },
+    /// [`ContributionCommand::Qualify`].
+    ContributionQualification { qualification: ContributionQualification },
     StrengthImportFailed { detail: String },
     WholeGameEstimate { millis: Option<u64> },
     /// Nothing to do (no movement, chooser or prompt cancelled, clipboard without SGF).
@@ -831,6 +893,8 @@ pub enum CommandResult {
     NeedsImageOverwriteConfirmation { path: String },
     /// A folder was chosen ([`Command::ChooseJavaFolder`]).
     FolderChosen { path: String },
+    /// A file was chosen ([`SshCredentialCommand::ChooseKeyFile`]).
+    FileChosen { path: String },
     /// What an import would do; nothing has changed yet.
     JavaImportPreview { preview: ImportPreviewView },
     /// The Java configuration could not be read; nothing has changed.
@@ -1011,6 +1075,7 @@ pub struct PendingOpen {
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 pub struct SettingsView {
+    pub cloud: crate::cloud::CloudSettings,
     pub language: Language,
     /// Language the UI is displaying in this session (resolved at start).
     pub active_language: Language,
@@ -1066,6 +1131,8 @@ pub struct SettingsView {
     pub matches: MatchSettingsView,
     /// 死活题 dialog choices, 抓取死活题 参数设置 and the 死活 toolbar button.
     pub tsumego: crate::settings::TsumegoSettings,
+    /// 跑谱贡献 settings and the contribution window's choices.
+    pub contribution: crate::settings::ContributionSettings,
 }
 
 /// 快速曲线轻量模型 card (`KataGoAutoSetupDialog`, `QuickAnalysisModelStatus`).
@@ -1177,7 +1244,11 @@ pub enum LeaseAvailabilityView {
     EngineStateUnrestored,
     /// 人机对弈 holds the engine (`AnalysisSettings.reuseStatus.play_mode`).
     PlayMode,
+    /// Web 试下 follows the engine (`AnalysisSettings.reuseStatus.application_exclusive_mode`).
+    ApplicationExclusive,
     HumanSlGame,
+    /// ReadBoard GMA holds the engine (`AnalysisSettings.reuseStatus.readboard_gma`).
+    ReadBoardGma,
 }
 
 /// Why the foreground engine was not given back (`LizzieFrame.foregroundUnrestored.reason.*`).
@@ -1285,6 +1356,7 @@ pub struct WorkbenchView {
     pub engine_notice: Option<EngineNotice>,
     /// The running 人机对弈 (also while it gives the engine back).
     pub game: Option<GameView>,
+    pub fox: FoxView,
     /// How the last game ended, once.
     pub game_outcome: Option<GameOutcomeView>,
     /// 人机对弈 messages, once each, in order.
@@ -1295,8 +1367,20 @@ pub struct WorkbenchView {
     pub match_winrate_image: Option<MatchWinrateImageRequest>,
     pub human_sl: Option<HumanSlView>,
     pub strength: StrengthView,
+    /// 在线棋谱 / 弈客直播.
+    pub online: OnlineView,
     pub commentary: CommentaryView,
+    /// 野狐棋谱 window.
+    pub fox_kifu: FoxKifuView,
+    /// 腾讯棋谱 window.
+    pub tencent_kifu: TencentKifuView,
+    /// Web 旁观 and a viewer's 试下.
+    pub web_board: WebBoardView,
     pub human_sl_notices: Vec<HumanSlNotice>,
+    /// 跑谱贡献 session, until its window is closed after it ended.
+    pub contribution: Option<ContributionView>,
+    /// 跑谱贡献 messages, once each, in order.
+    pub contribution_notices: Vec<ContributionNotice>,
     pub human_sl_continuation: Option<HumanSlContinuation>,
     /// 读秒 countdown voices to play (`sound/<n>.wav`), once each.
     pub byoyomi_voices: Vec<u8>,
@@ -1313,6 +1397,8 @@ pub struct WorkbenchView {
     pub editing: EditingView,
     /// 存档与读档.
     pub recovery: RecoveryView,
+    /// 棋盘同步工具.
+    pub readboard: ReadBoardView,
 }
 
 /// Java import availability.
@@ -1345,10 +1431,10 @@ pub enum ImportReason {
     InvalidValue,
     /// Java window coordinates use Java's own scaling and layout, not this window's.
     WindowCoordinates,
-    /// A remote (SSH) engine; remote engines are not available yet.
-    RemoteEngine,
-    /// The engine command holds credentials and copying them was not confirmed.
+    /// The credentials (in the command, or an SSH password) were not confirmed for copying.
     CredentialNotConfirmed,
+    /// The system credential storage is unavailable: the password is kept for this run only.
+    SessionOnly,
     /// The file could not be read as Java writes it.
     Unreadable,
     /// The user did not choose to import it.
@@ -1378,12 +1464,19 @@ pub struct ImportItemView {
 pub enum ImportTarget {
     Appearance,
     Commentary,
+    Cloud,
     ReadKomi,
     LoadSgfLast,
     ReplaceFileHint,
     AppendWinrateToComment,
     Language,
     PlaySound,
+    /// `ui.not-play-sound-insync`.
+    NoSoundInSync,
+    /// `ui.always-sync-boardstat`.
+    ReadBoardStatSync,
+    /// `ui.read-board-get-focus`.
+    ReadBoardGetFocus,
     RecentFiles,
     LastFolder,
     Engines,
@@ -1398,14 +1491,24 @@ pub enum ImportTarget {
     LimitBranchLength,
     FastEngineChange,
     PonderLimitTips,
+    /// `ui.auto-check-engine-alive`.
+    AutoCheckEngineAlive,
     KataRules,
     AutoLoadKataRules,
+    /// `ui.txt-kata-engine-pda` / `ui.chk-kata-engine-pda`.
+    KataPda,
     /// `ui.enable-startup-benchmark`.
     StartupBenchmark,
     /// `ui.network-proxy-mode` / `-host` / `-port`.
     NetworkProxy,
+    /// `web-board.http-port` / `ws-port` / `max-connections` (Web 旁观).
+    WebBoard,
     /// `ui.allow-double-click`.
     AllowDoubleClick,
+    /// `ui.always-gotolast-onlive`.
+    LiveAlwaysGotoLast,
+    /// `ui.open-html-onlive`.
+    LiveOpenHtml,
     /// `ui.allow-drag`.
     AllowDrag,
     /// `ui.show-right-menu`.
@@ -1537,6 +1640,11 @@ pub enum ImportTarget {
     /// `game-statistics-custom-start`, `game-statistics-custom-end`, `winrate-diff-range1/2`,
     /// `score-diff-range1/2`, `loss-panel-select-winrate`.
     Hawkeye,
+    /// 野狐棋谱: `ui.last-fox-name`, `last-fox-query-by-uid`, `fox-after-get`,
+    /// `fox-recent-searches`.
+    FoxKifu,
+    /// 腾讯棋谱: `ui.last-tencent-name`, `tencent-after-get`, `tencent-recent-searches`.
+    TencentKifu,
 }
 
 /// A problem found with an imported engine without starting it.
@@ -1591,6 +1699,10 @@ pub struct ImportPreviewView {
     pub items: Vec<ImportItemView>,
     pub engines: Vec<ImportEngineView>,
     pub commentary_credential: Option<ImportCommentaryCredential>,
+    pub cloud_credentials: Option<crate::java_import::CloudImportCredentials>,
+    /// The SSH account (`user@host:port`) whose Java password 精析设置's 远程引擎 would copy
+    /// when confirmed.
+    pub analysis_ssh_credential: Option<String>,
     /// Settings already chosen in this product that the import would replace.
     pub replaces: Vec<ImportTarget>,
     /// Java 存档与读档 slots; imported only when the user chooses to.
@@ -1736,6 +1848,9 @@ pub struct EngineView {
     /// The foreground engine was not given back after it was borrowed: it does not analyse until
     /// it is restarted (`LizzieFrame.display.foregroundUnrestored`).
     pub unrestored: Option<UnrestoredReason>,
+    /// The foreground engine failed and nothing took its seat since (`LizzieFrame.display.down`,
+    /// Java `isDownWithError`).
+    pub down: bool,
 }
 
 /// One candidate (`MoveData`). Percentages 0–100 from the side to move.
@@ -1937,6 +2052,13 @@ pub struct EngineFailureView {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub repair: Option<ResourceRepairView>,
+    /// A remote engine's connection failure or end (`SSHController` messages).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub remote: Option<crate::engine::ssh::RemoteFailure>,
+    /// The configured engine that failed (empty for the analysis engine), so the dialog can
+    /// start it again (Java opens 更多引擎 after a remote login failure).
+    pub profile_id: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -1996,6 +2118,37 @@ pub enum ConnectionCommand {
     ChatGptSelectAccount { account: String }, ChatGptSignOut { account: String }, ChatGptRefreshModels,
     SaveChatGptConnection { account: String, model: String, effort: Option<String> },
     SelectProvider { provider: CommentaryProvider }, OpenUsage,
+}
+
+/// Adapter-only operations on SSH credentials. Never log this command: passwords are transient
+/// input, not state.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum SshCredentialCommand {
+    /// Where the password of `ssh`'s account is kept.
+    PasswordState { ssh: crate::engine::ssh::SshSettings },
+    /// Remembers `password` for `ssh`'s account while the settings that use it are saved (in
+    /// the system credential storage, else for this run only), so an engine the save starts
+    /// finds it. The previous password is kept until [`SshCredentialCommand::SettlePassword`].
+    StagePassword { ssh: crate::engine::ssh::SshSettings, password: String },
+    /// Ends a [`SshCredentialCommand::StagePassword`]: `keep` once the settings were saved,
+    /// otherwise the account gets its previous password back.
+    SettlePassword { ssh: crate::engine::ssh::SshSettings, keep: bool },
+    /// Trusts the key `host:port` offered when its connection was refused for a changed key,
+    /// if it is still the key with the fingerprint `offered` the user was shown.
+    TrustHostKey { host: String, port: u16, offered: String },
+    /// 浏览: the key file chooser (`MoreEngines.chooseKeygen`), titled `title`.
+    ChooseKeyFile { title: String },
+}
+
+/// Where an SSH account's password is kept.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum SshPasswordState {
+    None,
+    /// In the system credential storage.
+    Stored,
+    /// For this run only (the system credential storage is unavailable).
+    Session,
 }
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
 pub struct CommentaryAccount { pub id: String, pub email: String, pub signed_in: bool, pub authorized: bool, pub model: String, pub effort: Option<String>, pub credentials_unavailable: bool, pub session_only: bool }

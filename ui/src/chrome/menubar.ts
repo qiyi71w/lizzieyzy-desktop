@@ -11,8 +11,9 @@ import { highlight } from "../search/highlight";
 import { buildAiCoachButton } from "../humansl/commands";
 import { buildCommentaryButton } from "../commentary/commands";
 
-/** Java defaults for conditional menus (Config.java: show-quick-links false, show-Contribute true;
- *  the secondary engine menu needs double-engine mode; ReadBoard is Windows only). */
+/** Java defaults for conditional menus (Config.java: show-quick-links false; show-Contribute is
+ *  settings.contribution.showMenu, true by default; the secondary engine menu needs double-engine
+ *  mode; ReadBoard is Windows only). */
 function visible(when: string | undefined): boolean {
   switch (when) {
     case undefined:
@@ -25,7 +26,7 @@ function visible(when: string | undefined): boolean {
     case "javaLooks":
       return !navigator.userAgent.includes("Windows");
     case "contribute":
-      return true;
+      return state.view?.settings.contribution.showMenu ?? true;
     // Menu.setEngineMenuone2status: the secondary engine menu shows in 双引擎模式 only.
     case "doubleEngine":
       return state.view?.settings.extra_mode === "DoubleEngine";
@@ -195,6 +196,7 @@ function dropdown(items: MenuNode[]): HTMLElement {
         ? { run: () => run({ type: "OpenRecord", path: recent, source: "Recent" }) }
         : (COMMANDS[node.id ?? ""] ?? COMMANDS[node.key]);
       if (entry?.visible && !entry.visible()) continue;
+      if (entry?.label) text.textContent = entry.label();
       if (node.t === "check" || node.t === "radio") {
         mark.textContent = entry?.checked?.() ? "✓" : "";
         row.classList.add("checkable");
@@ -246,8 +248,9 @@ const tops = new Map<TopMenu, { top: HTMLElement; open: () => void }>();
 export function buildMenubar(host: HTMLElement): void {
   const measure = document.createElement("canvas").getContext("2d")!;
   for (const menu of JAVA_MENUS) {
-    // The secondary engine menu follows the layout mode; it is built hidden.
-    if (menu.when !== "doubleEngine" && !visible(menu.when)) continue;
+    // The secondary engine menu follows the layout mode and 跑谱贡献 设置 > 显示跑谱贡献菜单; both are
+    // built and shown or hidden as the view changes (contributeMenu.setVisible).
+    if (menu.when !== "doubleEngine" && menu.when !== "contribute" && !visible(menu.when)) continue;
     if (menu.key === "Menu.aiCoach") {
       // AI 陪练 is a button on the menu bar (Menu.java:5699-5732), its label following the session.
       host.append(buildAiCoachButton());
@@ -266,6 +269,14 @@ export function buildMenubar(host: HTMLElement): void {
     // MenuButton: text width plus EmptyBorder(5, 10, 5, 10) (WindowMenuStrip.java:295)
     measure.font = getComputedStyle(top).font;
     top.style.width = `${Math.ceil(measure.measureText(top.textContent).width) + 20}px`;
+    if (menu.when === "contribute") {
+      const update = () => {
+        const shown = visible(menu.when);
+        top.style.display = shown ? "" : "none";
+        if (!shown && openMenu === top) closeMenus();
+      };
+      subscribe(update); update();
+    }
     if (menu.key === "Menu.noEngine") {
       // The engine menus' titles (Menu.java:10419, EngineManager.reStartEngine2): "[n]: name" of the
       // foreground engine, or of the secondary engine on 双引擎模式's menu, else Menu.noEngine.
@@ -282,7 +293,9 @@ export function buildMenubar(host: HTMLElement): void {
         // menu icons, so Playing2 / ready2 are not visible there; java-ref-ui j08a, j09a).
         const match = secondary ? null : state.view?.engine_match;
         top.classList.toggle("match-off", !!match);
-        const text = match ? t("EngineManager.engineGamePlaying") : engine ? `[${engine.index + 1}]: ${engine.name}` : t("Menu.noEngine");
+        // 跑谱贡献中 while the contribution runs (ContributeEngine.java:175, 716).
+        const contributing = !secondary && !!state.view?.contribution?.active;
+        const text = match ? t("EngineManager.engineGamePlaying") : contributing ? t("Contribute.engineMenu.contributing") : engine ? `[${engine.index + 1}]: ${engine.name}` : t("Menu.noEngine");
         if (top.firstChild?.textContent === text) return;
         if (top.firstChild?.nodeType === Node.TEXT_NODE) top.firstChild.textContent = text;
         else top.prepend(document.createTextNode(text));
@@ -389,19 +402,37 @@ export function locateMenuItem(id: string): boolean {
     if (!row) return false;
     if (depth < path.nodes.length - 1) list = expand(row, list, node.t === "sep" ? [] : (node.items ?? []));
   }
-  if (!row) return false;
+  if (!row || !list) return false;
   const located = row;
+  const parent = list;
   const leaf = path.nodes[path.nodes.length - 1];
-  located.tabIndex = -1;
-  located.classList.add("located-item");
-  located.addEventListener("keydown", (e) => {
+  selectLocated(located, () => (leaf.t === "submenu" ? void expand(located, parent, leaf.items ?? []) : located.click()));
+  return true;
+}
+
+/** A toolbar popup's item located like a menu item (BottomToolbar.locateFunction's JMenuItem
+ *  branch, BottomToolbar.java:645-649): the popup opens above `anchor` with the item selected. */
+export function locatePopupItem(anchor: HTMLElement, items: MenuNode[], id: string): boolean {
+  openPopupMenu(anchor, items, true);
+  const row = [...(openMenu?.querySelectorAll<HTMLElement>(".mi") ?? [])].find((r) => {
+    const node = rowNodes.get(r);
+    return node !== undefined && node.t !== "sep" && node.id === id;
+  });
+  if (!row) return false;
+  selectLocated(row, () => row.click());
+  return true;
+}
+
+/** Focus and the gold line on a located row; Enter then acts on it like the selected Swing item. */
+function selectLocated(row: HTMLElement, activate: () => void): void {
+  row.tabIndex = -1;
+  row.classList.add("located-item");
+  row.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
     e.preventDefault();
-    if (leaf.t === "submenu" && list) expand(located, list, leaf.items ?? []);
-    else located.click();
+    activate();
   });
-  located.scrollIntoView({ block: "nearest", inline: "nearest" });
-  located.focus({ preventScroll: true });
-  highlight(located);
-  return true;
+  row.scrollIntoView({ block: "nearest", inline: "nearest" });
+  row.focus({ preventScroll: true });
+  highlight(row);
 }

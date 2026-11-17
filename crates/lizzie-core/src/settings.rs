@@ -91,7 +91,7 @@ pub const DEFAULT_ANALYSIS_COMMAND: &str =
     "katago analysis -model model.bin.gz -config analysis.cfg -quit-without-waiting";
 
 /// 精析设置 (Java `AnalysisSettings`, `ui.analysis-*`): the KataGo analysis engine used by automatic
-/// quick analysis and flash analysis. The SSH fields of the dialog belong to remote engines.
+/// quick analysis and flash analysis.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AnalysisEngineSettings {
@@ -117,6 +117,10 @@ pub struct AnalysisEngineSettings {
     /// 批量精析's 每手总计算量 (`batch-analysis-playouts`, default 100): a batch request searches
     /// at least 2 visits (`AnalysisEngine.targetAnalysisVisits`).
     pub batch_visits: u32,
+    /// 远程引擎 (`analysis-engine-ssh-info.useJavaSSH`): the analysis command runs on the SSH
+    /// host `ssh`. Turning it off keeps the connection settings, like Java.
+    pub use_ssh: bool,
+    pub ssh: crate::engine::ssh::SshSettings,
 }
 
 impl Default for AnalysisEngineSettings {
@@ -132,6 +136,101 @@ impl Default for AnalysisEngineSettings {
             auto_quit: true,
             reuse_current_engine: false,
             batch_visits: 100,
+            use_ssh: false,
+            ssh: Default::default(),
+        }
+    }
+}
+
+/// 跑谱贡献 settings (Java `Config.contribute*`, `ui.contribute-*`, `ui.show-Contribute`,
+/// `leelaz.contribute-engine-ssh-info`). The training password is not here: it is kept by the
+/// platform credential storage.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ContributionSettings {
+    /// KataGo引擎路径 (`contribute-engine-path`).
+    pub engine_path: String,
+    /// 配置文件路径(可选) (`contribute-config-path`).
+    pub config_path: String,
+    /// 用户名 (`contribute-user-name`).
+    pub user_name: String,
+    /// 同时对局数 (`contribute-batch-games`, text "6").
+    pub batch_games: String,
+    /// 启用领地 (`contribute-show-estimate`): `includeOwnership`, and Kata形势 shown while it runs.
+    pub show_estimate: bool,
+    /// 不进行评分对局 (`contribute-disable-rating-matches`): `maxRatingMatches=0`.
+    pub disable_rating_matches: bool,
+    /// 自定义命令行 (`contribute-use-command`) and its text (`contribute-command`).
+    pub use_command: bool,
+    pub command: String,
+    /// 完全遵循自定义命令行,无视后续设置 (`contribute-use-pure-command`).
+    pub use_pure_command: bool,
+    /// 自动保存完成的棋谱 (`contribute-auto-save`).
+    pub auto_save: bool,
+    /// 远程SSH (`contribute-engine-ssh-info.useJavaSSH`), used only with the custom command.
+    pub remote: bool,
+    pub ssh: crate::engine::ssh::SshSettings,
+    /// Settings > 显示跑谱贡献菜单 (`show-Contribute`).
+    pub show_menu: bool,
+    /// The contribution window's own choices.
+    pub watch: ContributionWatchSettings,
+}
+
+impl Default for ContributionSettings {
+    fn default() -> Self {
+        ContributionSettings {
+            engine_path: String::new(),
+            config_path: String::new(),
+            user_name: String::new(),
+            batch_games: "6".into(),
+            show_estimate: false,
+            disable_rating_matches: false,
+            use_command: false,
+            command: String::new(),
+            use_pure_command: false,
+            auto_save: false,
+            remote: false,
+            ssh: Default::default(),
+            show_menu: true,
+            watch: ContributionWatchSettings::default(),
+        }
+    }
+}
+
+/// The contribution window's check boxes and fields (`ui.contribute-watch-*`,
+/// `contribute-hide-console`, `contribute-hide-rules`, `contribute-always-top`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ContributionWatchSettings {
+    /// 总是跳转最新一手 (`contribute-watch-always-last-move`).
+    pub always_last_move: bool,
+    /// 自动播放 (`contribute-watch-auto-play`).
+    pub auto_play: bool,
+    /// 每手时间(秒) (`contribute-watch-auto-play-interval`, 2.0; only positive values apply).
+    pub auto_play_interval: f64,
+    /// 自动播放下一局 (`contribute-watch-auto-play-next-game`).
+    pub auto_play_next_game: bool,
+    /// 跳过非19x19 (`contribute-watch-skip-none-19`).
+    pub skip_non19: bool,
+    /// 隐藏控制台 (`contribute-hide-console`).
+    pub hide_console: bool,
+    /// 隐藏规则 (`contribute-hide-rules`).
+    pub hide_rules: bool,
+    /// 总在最前 (`contribute-always-top`).
+    pub always_top: bool,
+}
+
+impl Default for ContributionWatchSettings {
+    fn default() -> Self {
+        ContributionWatchSettings {
+            always_last_move: false,
+            auto_play: true,
+            auto_play_interval: 2.0,
+            auto_play_next_game: true,
+            skip_non19: false,
+            hide_console: false,
+            hide_rules: false,
+            always_top: true,
         }
     }
 }
@@ -1177,6 +1276,10 @@ pub struct DisplaySettings {
     pub move_rank_custom: u32,
     /// 判定依据 (`move-rank-evaluation-mode`).
     pub move_rank_mode: MoveRankMode,
+    /// 落子评价 > 原棋盘不显示评价标记(棋盘同步时) (`disable-move-rank-in-origin`, off): the
+    /// 棋盘同步工具 float board draws no rank marks (`FloatBoardRenderer.java:152-157`); the main
+    /// board is unaffected.
+    pub disable_move_rank_in_origin: bool,
     /// Win rate loss of rank levels 1–5 (`win-loss-threshold-1..5`), percentage points.
     pub win_loss_thresholds: [f64; 5],
     /// Score loss of rank levels 1–5 (`score-loss-threshold-1..5`), points.
@@ -1297,6 +1400,7 @@ impl Default for DisplaySettings {
             move_rank: 1,
             move_rank_custom: 3,
             move_rank_mode: MoveRankMode::Auto,
+            disable_move_rank_in_origin: false,
             win_loss_thresholds: [-1.0, -3.0, -6.0, -12.0, -24.0],
             score_loss_thresholds: [-0.5, -1.5, -3.0, -6.0, -12.0],
             suggestion_winrate: true,
@@ -1452,6 +1556,27 @@ pub struct StrengthSettings {
     pub humansl_background: bool,
 }
 
+/// 棋盘同步工具 (ReadBoard) options (Java `ui.*` keys; defaults from `Config.java`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ReadBoardSettings {
+    /// `Menu.alwaysKeepBoardStatSync` (`always-sync-boardstat`, default on): every sync shows
+    /// the newest move instead of the node the user browsed to meanwhile.
+    pub always_sync_board_stat: bool,
+    /// `Menu.readBoardGetFocus` (`read-board-get-focus`, default on): the helper is sent `loss`
+    /// after the floating board took the focus.
+    pub get_focus: bool,
+    /// `Menu.notPlaySoundInSync` (`not-play-sound-insync`, default on): no stone sounds while
+    /// the board is synced.
+    pub no_sound_in_sync: bool,
+}
+
+impl Default for ReadBoardSettings {
+    fn default() -> Self {
+        ReadBoardSettings { always_sync_board_stat: true, get_focus: true, no_sound_in_sync: true }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Config {
@@ -1465,6 +1590,8 @@ pub struct Config {
     pub edit: EditSettings,
     /// Network access (Java `ui.network-proxy-*`).
     pub network: NetworkSettings,
+    /// Web 旁观 (Java `web-board`).
+    pub web_board: WebBoardSettings,
     /// 存档与读档 (Java `ui.auto-save-exit`, `resume-previous-game`, `load-save-zoom`).
     pub recovery: RecoverySettings,
     /// Analysis numbers (Java `ui.win-rate-always-black`, `show-katago-score-lead-with-komi`).
@@ -1477,6 +1604,7 @@ pub struct Config {
     pub human_sl: HumanSlSettings,
     pub strength: StrengthSettings,
     pub commentary: crate::commentary::settings::CommentarySettings,
+    pub cloud: crate::cloud::CloudSettings,
     /// 评论/问题手 panel.
     pub problems: ProblemListSettings,
     /// 局部精析's move range.
@@ -1501,6 +1629,32 @@ pub struct Config {
     pub matches: MatchSettings,
     /// 死活题.
     pub tsumego: TsumegoSettings,
+    /// 跑谱贡献.
+    pub contribution: ContributionSettings,
+    /// 棋盘同步工具.
+    pub read_board: ReadBoardSettings,
+    /// 野狐棋谱 window.
+    pub fox_kifu: FoxKifuSettings,
+    /// 腾讯棋谱 window.
+    pub tencent_kifu: TencentKifuSettings,
+    /// 同步 menu's live options.
+    pub live: LiveSettings,
+}
+
+/// 同步 menu's live options (Java `ui.always-gotolast-onlive`, `ui.open-html-onlive`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LiveSettings {
+    /// 有新的一手时总是跳转到最新一手, default false.
+    pub always_goto_last: bool,
+    /// 允许弈客直播/大厅进入对局室, default true. Java stores and toggles it without reading it.
+    pub open_html_on_live: bool,
+}
+
+impl Default for LiveSettings {
+    fn default() -> Self {
+        LiveSettings { always_goto_last: false, open_html_on_live: true }
+    }
 }
 
 /// How this client reaches the network (Java `NetworkProxy`, `ui.network-proxy-mode`).
@@ -1523,6 +1677,79 @@ pub struct NetworkSettings {
     pub proxy_host: String,
     /// `network-proxy-port` (manual mode; 1–65535 when manual).
     pub proxy_port: u16,
+}
+
+/// 野狐棋谱 (`ui.last-fox-name`, `last-fox-query-by-uid`, `fox-after-get`,
+/// `fox-recent-searches`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct FoxKifuSettings {
+    /// The last searched account text and whether it was searched as a UID.
+    pub last_name: String,
+    pub last_query_by_uid: bool,
+    pub after_get: KifuAfterGet,
+    /// 近期搜索, newest first, at most [`KIFU_RECENT_LIMIT`].
+    pub recent: Vec<FoxRecentSearch>,
+}
+
+/// The 近期搜索 buttons each kifu window keeps (`saveRecentSearches`).
+pub const KIFU_RECENT_LIMIT: usize = 8;
+
+/// 打开棋谱后此窗口 (`fox-after-get`, `tencent-after-get`: 0, 1, 2).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum KifuAfterGet {
+    #[default]
+    Minimize,
+    Close,
+    Keep,
+}
+
+/// A 近期搜索 button: a saved UID pins the account; a record without one searches its nickname.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default)]
+pub struct FoxRecentSearch {
+    pub uid: String,
+    pub nickname: String,
+}
+
+/// 腾讯棋谱 (`ui.last-tencent-name`, `tencent-after-get`, `tencent-recent-searches`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TencentKifuSettings {
+    /// The last searched nickname or UID.
+    pub last_name: String,
+    /// 打开棋谱后此窗口; until chosen here, 野狐棋谱's choice applies
+    /// (`optInt("tencent-after-get", foxAfterGet)`).
+    pub after_get: Option<KifuAfterGet>,
+    /// 近期搜索, newest first, at most [`KIFU_RECENT_LIMIT`].
+    pub recent: Vec<TencentRecentSearch>,
+}
+
+/// A 腾讯棋谱 近期搜索 button: searches `query` (its UID when the query is empty).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default)]
+pub struct TencentRecentSearch {
+    pub uid: String,
+    pub query: String,
+}
+
+/// Web 旁观 (Java `config.txt` `web-board`, read by `WebBoardManager.start`; Java has no dialog
+/// for it). Each port is the first one tried; the next nine are tried when it is taken.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct WebBoardSettings {
+    /// `http-port` (9998): the page.
+    pub http_port: u16,
+    /// `ws-port` (9999): the board stream.
+    pub ws_port: u16,
+    /// `max-connections` (20): viewers beyond it are closed when they connect.
+    pub max_connections: u32,
+}
+
+impl Default for WebBoardSettings {
+    fn default() -> Self {
+        WebBoardSettings { http_port: 9998, ws_port: 9999, max_connections: 20 }
+    }
 }
 
 impl Config {
@@ -1582,6 +1809,8 @@ pub struct Persisted {
     /// Java toolbar-parameter's engine-match values (not the folder/start-number session fields).
     #[serde(serialize_with = "matches::serialize_toolbar", deserialize_with = "matches::deserialize_toolbar")]
     pub matches: crate::api::MatchSessionSettings,
+    /// The 弈客 web window (`persistedUi.main-window-other` 1–4, default −5, 0, 1240×750).
+    pub yike_browser: Option<WindowPlacement>,
 }
 
 /// File locations inside the product's per-user data directories.

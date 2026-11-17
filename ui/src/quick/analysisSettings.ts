@@ -1,6 +1,5 @@
 // 分析 > 精析设置 (AnalysisSettings.java, frame 592x481, null layout at the small-font bounds). The
-// dialog edits a draft of `settings.analysis_engine`; 确定 saves it, Escape discards it. The
-// remote-engine row belongs to the SSH ticket and stays disabled here.
+// dialog edits a draft of `settings.analysis_engine`; 确定 saves it, Escape discards it.
 import { run, state, unavailable } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
 import { dispatch, isApiError } from "../contract/client";
@@ -8,6 +7,7 @@ import type { AnalysisEngineSettings, LeaseAvailabilityView } from "../contract/
 import { ask, formPanel, message } from "../dialogs";
 import { absolute, parseJavaInt, place } from "../display/dialogs";
 import { editAnalysisRules } from "../engine/rules";
+import { editRemoteEngine, stagePassword } from "../engine/remote";
 import { format, product, t } from "../i18n";
 import "./quick.css";
 
@@ -39,7 +39,9 @@ function availabilityText(lease: LeaseAvailabilityView): string {
     case "ExistingLease": return t("AnalysisSettings.reuseStatus.existing_lease");
     case "EngineStateUnrestored": return t("AnalysisSettings.reuseStatus.engine_state_unrestored");
     case "PlayMode": return t("AnalysisSettings.reuseStatus.play_mode");
+    case "ApplicationExclusive": return t("AnalysisSettings.reuseStatus.application_exclusive_mode");
     case "HumanSlGame": return t("AnalysisSettings.reuseStatus.human_sl_game");
+    case "ReadBoardGma": return t("AnalysisSettings.reuseStatus.readboard_gma");
   }
 }
 
@@ -218,15 +220,14 @@ export async function openAnalysisEngineSettings(options: AnalysisSettingsOption
     if (index !== null) take(await generate(index, false));
   });
   toolbar.append(generateButton, engineButton);
-  // 远程引擎 / 设置: the SSH analysis engine is not migrated yet.
-  const remote = choice("checkbox", t("MoreEngines.chkRemoteEngine"), "remoteEngine", false);
-  remote.input.disabled = true;
-  remote.label.classList.add("unavailable");
-  remote.label.title = product("unavailable");
-  const remoteSettings = jbutton(t("Menu.settings"), "remoteSettings", () => {});
-  remoteSettings.disabled = true;
-  remoteSettings.classList.add("unavailable");
-  remoteSettings.title = product("unavailable");
+  // 远程引擎 / 设置 (java:354-377): 设置 edits pending data that 确定 keeps with the rest.
+  const remote = choice("checkbox", t("MoreEngines.chkRemoteEngine"), "remoteEngine", saved.useSsh);
+  let ssh = saved.ssh;
+  let sshPassword: string | null = null;
+  const remoteSettings = jbutton(t("Menu.settings"), "remoteSettings", async () => {
+    const next = await editRemoteEngine(ssh, sshPassword);
+    if (next) { ssh = next.ssh; sshPassword = next.password; }
+  });
   remoteRow.append(remote.label, remoteSettings);
   place(panel, text(t("AnalysisSettings.example")), 10, 184, 567, 20);
   place(panel, hintLabel(), 7, 203, 572, 20);
@@ -262,11 +263,14 @@ export async function openAnalysisEngineSettings(options: AnalysisSettingsOption
     command.disabled = !own;
     generateButton.disabled = !own;
     engineButton.disabled = !own;
+    remote.input.disabled = !own;
+    remoteSettings.disabled = !own || !remote.input.checked;
     preload.input.disabled = !own;
     autoQuit.input.disabled = !own;
     target.textContent = reuseTargetText();
   };
   reuse.input.onchange = updateReuse;
+  remote.input.onchange = updateReuse;
   updateReuse();
   const confirm = place(panel, jbutton(t("AnalysisSettings.btnConfirm"), "confirm", () => {}), 484, 427, 93, 31);
   const redo = place(panel, jbutton(t("AnalysisSettings.btnConfirmAndRedo"), "confirmAndRedo", () => {}), 375, 427, 99, 31);
@@ -283,6 +287,8 @@ export async function openAnalysisEngineSettings(options: AnalysisSettingsOption
       // saveConfig (java:660-668): BATCH keeps the typed number as it is; otherwise at least 1.
       const settings: AnalysisEngineSettings = {
         ...saved,
+        useSsh: remote.input.checked,
+        ssh,
         command: command.value.trim(),
         maxVisits: batch ? saved.maxVisits : Math.max(1, typed ?? saved.maxVisits),
         batchVisits: batch ? (typed ?? saved.batchVisits) : saved.batchVisits,
@@ -294,8 +300,15 @@ export async function openAnalysisEngineSettings(options: AnalysisSettingsOption
         reuseCurrentEngine: reuse.input.checked,
       };
       // A refusal (AnalysisSettings.commandRequired) is shown by run and keeps the dialog open.
+      // A typed password is staged first, as an analysis this save starts looks it up when
+      // connecting; a refused or failed save puts the previous one back.
+      const settle = await stagePassword(ssh, sshPassword);
+      if (!settle) return;
       const result = await run({ type: "SaveAnalysisEngineSettings", settings, shown_command: shown, edited });
-      if (!result || result.type === "Refused") return;
+      const keep = result !== null && result.type !== "Refused";
+      await settle(keep);
+      if (!keep) return;
+      sshPassword = null;
       kept = settings;
       await dialog.close();
       await then();

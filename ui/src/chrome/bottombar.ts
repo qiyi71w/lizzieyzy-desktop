@@ -10,10 +10,12 @@ import { toggleRawNet } from "../display/state";
 import "../editing/commands";
 import { product, t } from "../i18n";
 import { openAutoSetup } from "../setup/dialog";
+import { openRemoteCompute } from "../cloud/center";
 import { toggleKataEstimate } from "../analysis/infoCommands";
 import { toggleScore } from "../analysis/scoreDialog";
 import { AUTO_ANALYSIS_MENU } from "../quick/autoAnalysis";
-import { openPopupMenu } from "./menubar";
+import { LIVE_MENU } from "../online/commands";
+import { locatePopupItem, openPopupMenu } from "./menubar";
 import { buildBottomDetail, layoutBottomDetail } from "./bottomDetail";
 
 interface Item {
@@ -59,7 +61,7 @@ const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" 
     { name: "batchOpen", key: "BottomToolbar.batchOpen", cls: "primary" },
   ],
   leftOptional: [
-    { name: "remoteComputeButton", key: "Menu.remoteCompute", cls: "primary" },
+    { name: "remoteComputeButton", key: "Menu.remoteCompute", cls: "primary", run: openRemoteCompute },
     { name: "downloadWeightButton", key: "BottomToolbar.downloadWeight", run: () => openAutoSetup("weights") },
     // toggleShowKataEstimate, shown only for a KataGo engine (BottomToolbar.java:1519-1524, 5192-5196)
     { name: "kataEstimate", key: "BottomToolbar.kataEstimate", run: toggleKataEstimate, shown: () => !!state.view?.engine.foreground?.katago },
@@ -101,6 +103,18 @@ const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" 
   ],
 };
 const MORE: Item = { name: "moreActionsButton", key: "BottomToolbar.moreActions" };
+
+/** The 同步 button when `id` is one of its popup's items (BottomToolbar.functionTarget's yike
+ *  entries), the control function search reveals before locating the item. */
+export function livePopupAnchor(id: string): HTMLElement | null {
+  if (!LIVE_MENU.some((node) => node.t !== "sep" && node.id === id)) return null;
+  return document.querySelector<HTMLElement>('#bottombar [data-name="liveButton"]');
+}
+
+export function locateLivePopupItem(id: string): boolean {
+  const anchor = livePopupAnchor(id);
+  return !!anchor && locatePopupItem(anchor, LIVE_MENU, id);
+}
 
 /** Config.badMoves's default, from the toolbar flags the program started with. */
 let badMovesShown = false;
@@ -159,10 +173,13 @@ export function buildBottomBar(host: HTMLElement): void {
       b.append(analyseIcon, analyseLabel);
       showAnalysis(false);
     } else b.textContent = t(item.key);
-    if (item.name === "batchOpen") {
-      b.dataset.key = "autoAnalysis.popup";
+    // batchOpen's autoAnalyzePopup (above the button) and liveButton's `yike` popup
+    // (BottomToolbar.java:1452-1457): JPopupMenus shown over the bar.
+    const popup = item.name === "batchOpen" ? AUTO_ANALYSIS_MENU : item.name === "liveButton" ? LIVE_MENU : null;
+    if (popup) {
+      b.dataset.key = item.name === "batchOpen" ? "autoAnalysis.popup" : "liveButton.popup";
       b.setAttribute("role", "button"); b.tabIndex = 0;
-      b.onclick = () => openPopupMenu(b, AUTO_ANALYSIS_MENU, true);
+      b.onclick = () => openPopupMenu(b, popup, true);
       b.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); b.click(); } };
       elements.set(item, b); host.append(b); continue;
     }

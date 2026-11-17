@@ -20,6 +20,8 @@
 pub mod slots;
 mod appearance;
 mod matches;
+mod cloud;
+pub use cloud::{CloudImportCredentials, read_java_cloud_secret};
 
 use std::path::{Path, PathBuf};
 
@@ -30,6 +32,7 @@ use crate::api::{
 };
 use crate::engine::gtp::{join_command, prepare_launch, split_command, FILE_PATH_OPTIONS};
 use crate::engine::profile::{new_profile_id, EngineProfile, EngineStartup};
+use crate::engine::ssh::SshSettings;
 use crate::engine::tuning::{GtpConfiguration, ThreadPolicy};
 use crate::sanitize::sanitize;
 use crate::settings::{
@@ -104,11 +107,25 @@ pub struct Mapped {
     pub append_winrate_to_comment: Option<bool>,
     pub language: Option<Language>,
     pub play_sound: Option<bool>,
+    /// `ui.not-play-sound-insync`, `ui.always-sync-boardstat`, `ui.read-board-get-focus`.
+    pub no_sound_in_sync: Option<bool>,
+    pub read_board_stat_sync: Option<bool>,
+    pub read_board_get_focus: Option<bool>,
     /// 布局模式 (`ui.extra-mode`).
     pub extra_mode: Option<ExtraMode>,
     pub recent_files: Option<Vec<String>>,
     pub last_folder: Option<String>,
-    /// Local engines in Java order (remote ones are not included).
+    /// 野狐棋谱: `ui.last-fox-name`, `last-fox-query-by-uid`, `fox-after-get`,
+    /// `fox-recent-searches`.
+    pub fox_last_name: Option<String>,
+    pub fox_query_by_uid: Option<bool>,
+    pub fox_after_get: Option<crate::settings::KifuAfterGet>,
+    pub fox_recent: Option<Vec<crate::settings::FoxRecentSearch>>,
+    /// 腾讯棋谱: `ui.last-tencent-name`, `tencent-after-get`, `tencent-recent-searches`.
+    pub tencent_last_name: Option<String>,
+    pub tencent_after_get: Option<crate::settings::KifuAfterGet>,
+    pub tencent_recent: Option<Vec<crate::settings::TencentRecentSearch>>,
+    /// Engines in Java order (an SSH engine keeps its command as written: it runs on its host).
     pub engines: Option<Vec<MappedEngine>>,
     pub startup: Option<EngineStartup>,
     /// Java index of the engine used last.
@@ -116,6 +133,8 @@ pub struct Mapped {
     /// Java index of the default engine (`Utils.normalizeDefaultEngineFlags`).
     pub default_engine: Option<usize>,
     pub interval_centisec: Option<u32>,
+    /// `analyze-update-interval-centisecssh`.
+    pub interval_centisec_ssh: Option<u32>,
     pub limit_time: Option<bool>,
     pub max_analyze_time_seconds: Option<u32>,
     pub limit_playout: Option<bool>,
@@ -124,16 +143,26 @@ pub struct Mapped {
     pub limit_branch_length: Option<u32>,
     pub fast_engine_change: Option<bool>,
     pub show_ponder_limited_tips: Option<bool>,
+    pub auto_check_engine_alive: Option<bool>,
     pub kata_rules: Option<String>,
     pub auto_load_kata_rules: Option<bool>,
+    /// Outer None means absent/invalid; inner None preserves Java's empty PDA text.
+    pub kata_pda: Option<Option<f64>>,
+    pub kata_pda_enabled: Option<bool>,
     pub startup_benchmark: Option<bool>,
     /// The start-up benchmark the user dismissed (signature, version).
     pub startup_benchmark_dismissed_signature: Option<String>,
     pub startup_benchmark_dismissed_version: Option<u32>,
     /// `ui.network-proxy-*` as Java `NetworkProxy.settings` would accept them.
     pub network: Option<NetworkSettings>,
+    /// `web-board.http-port` / `ws-port` / `max-connections` (`WebBoardManager.start`).
+    pub web_board: Option<crate::settings::WebBoardSettings>,
     pub commentary: Option<crate::commentary::settings::CommentarySettings>,
+    /// Cloud settings; custom URL credentials follow engine consent, account secrets are separate.
+    pub cloud: Option<crate::cloud::CloudSettings>,
     pub allow_double_click: Option<bool>,
+    pub live_always_goto_last: Option<bool>,
+    pub live_open_html: Option<bool>,
     pub allow_drag: Option<bool>,
     pub show_right_menu: Option<bool>,
     pub show_new_board_hint: Option<bool>,
@@ -173,6 +202,10 @@ pub struct Mapped {
     pub analysis_reuse_current_engine: Option<bool>,
     /// 批量精析 visits (`ui.batch-analysis-playouts`).
     pub analysis_batch_visits: Option<u32>,
+    /// 精析设置's 远程引擎 (`leelaz.analysis-engine-ssh-info`): on or off, and the connection.
+    pub analysis_ssh: Option<(bool, SshSettings)>,
+    /// Its password as Java stores it; copied only when confirmed.
+    pub analysis_ssh_password: Option<JavaSecret>,
     /// 局部精析's move range (`ui.analysis-start-move`, `analysis-end-move`).
     pub flash_start_move: Option<i32>,
     pub flash_end_move: Option<i32>,
@@ -312,8 +345,47 @@ fn with_display(current: &DisplaySettings, values: &[DisplayValue]) -> DisplaySe
 pub struct MappedEngine {
     pub java_index: usize,
     pub profile: EngineProfile,
-    /// The command or initial commands hold credentials: imported only when confirmed.
+    /// The command or initial commands hold credentials, or its SSH password is set: imported
+    /// only when confirmed.
     pub credential: bool,
+    /// The SSH password as Java stores it (`EngineData.password`).
+    pub ssh_password: Option<JavaSecret>,
+}
+
+/// A secret as Java writes it to `config.txt` (`Utils.doEncrypt`: Base64 of AES-128-CBC of the
+/// Base64 of the text, with Java's fixed key). Kept as read and never shown or logged.
+#[derive(Clone, PartialEq)]
+pub struct JavaSecret(String);
+
+impl std::fmt::Debug for JavaSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("JavaSecret(..)")
+    }
+}
+
+impl JavaSecret {
+    /// A non-empty stored value.
+    fn read(v: Option<&Value>) -> Option<JavaSecret> {
+        v.and_then(Value::as_str).filter(|s| !s.trim().is_empty()).map(|s| JavaSecret(s.to_string()))
+    }
+
+    /// `Utils.doDecrypt`; `None` when the value is not one Java wrote.
+    pub fn decrypt(&self) -> Option<String> {
+        use aes::cipher::{block_padding::Pkcs7, BlockModeDecrypt, KeyIvInit};
+        use base64::Engine;
+        // `Base64.getMimeDecoder` skips line breaks and other characters outside the alphabet.
+        let mime = |s: &str| {
+            let clean: String = s.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=')).collect();
+            base64::engine::general_purpose::STANDARD.decode(clean).ok()
+        };
+        let key: [u8; 16] = *b"iyekeeaysueeaesk";
+        let iv: [u8; 16] = *b"s6st73f41adc4c5d";
+        let mut buffer = mime(&self.0)?;
+        let plain = cbc::Decryptor::<aes::Aes128>::new(&key.into(), &iv.into())
+            .decrypt_padded::<Pkcs7>(&mut buffer)
+            .ok()?;
+        String::from_utf8(mime(std::str::from_utf8(plain).ok()?)?).ok()
+    }
 }
 
 /// The Java configuration as read, before anything is written.
@@ -330,6 +402,8 @@ pub struct Candidate {
     pub slots: Vec<slots::JavaSlot>,
     /// Non-secret API-key choice; the adapter reads its secret only after explicit consent.
     pub commentary_credential: Option<crate::api::ImportCommentaryCredential>,
+    /// Independent cloud account token/password availability, never the secret values.
+    pub cloud_credentials: Option<CloudImportCredentials>,
 }
 
 impl Candidate {
@@ -382,6 +456,17 @@ impl Candidate {
                     i.reason = engine.reason;
                     i.detail = Some(engine.name.clone());
                 }
+                if i.key == "leelaz.remote-compute.custom-remote-code" && i.credential
+                    && self.mapped.cloud_after(copy_credentials).is_some_and(|settings| settings.custom_url.is_empty()) {
+                    i.status = ImportStatus::NotMigrated;
+                    i.reason = Some(ImportReason::CredentialNotConfirmed);
+                }
+                if i.key == "leelaz.remote-compute.zhizi-args" && i.credential
+                    && self.mapped.cloud_after(copy_credentials).zip(self.mapped.cloud.as_ref())
+                        .is_some_and(|(after, before)| after.args != before.args) {
+                    i.status = ImportStatus::NotMigrated;
+                    i.reason = Some(ImportReason::CredentialNotConfirmed);
+                }
                 i
             })
             .collect()
@@ -395,6 +480,36 @@ impl Candidate {
             .filter(|e| e.credential && e.status == ImportStatus::Imported)
             .map(|e| e.index)
             .collect()
+    }
+
+    /// The SSH account 精析设置's 远程引擎 has a Java password for, if any.
+    pub fn analysis_ssh_credential(&self) -> Option<String> {
+        let (_, ssh) = self.mapped.analysis_ssh.as_ref()?;
+        (!ssh.use_key && self.mapped.analysis_ssh_password.is_some()).then(|| ssh.account())
+    }
+
+    /// The SSH passwords to remember once imported, by account: those of engines whose
+    /// credentials the user agreed to copy, and the analysis engine's when `analysis` is chosen.
+    /// A value that is not one Java wrote is left out.
+    pub fn ssh_passwords(&self, copy_credentials: &[u32], analysis: bool) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = Vec::new();
+        for m in self.mapped.engines.iter().flatten() {
+            let (Some(ssh), Some(secret)) = (&m.profile.ssh, &m.ssh_password) else { continue };
+            if ssh.use_key || !copy_credentials.contains(&(m.java_index as u32)) {
+                continue;
+            }
+            if let Some(password) = secret.decrypt() {
+                out.push((ssh.account(), password));
+            }
+        }
+        if analysis {
+            if let (Some(account), Some(secret)) = (self.analysis_ssh_credential(), &self.mapped.analysis_ssh_password) {
+                if let Some(password) = secret.decrypt() {
+                    out.push((account, password));
+                }
+            }
+        }
+        out
     }
 }
 
@@ -447,6 +562,9 @@ pub fn read(source: &JavaSource) -> Result<Candidate, ImportFailure> {
     r.other_files();
     let legacy_key = r.teacher_settings();
     let slots = slots::read(source, &mut r);
+    let cloud_credentials = cloud::credentials(&config).or_else(|| r.mapped.cloud.as_ref().map(|settings| CloudImportCredentials {
+        identifier: settings.identifier.clone(), token: false, password: false,
+    }));
     let mut candidate = Candidate {
         source: source.clone(),
         config_file,
@@ -456,8 +574,13 @@ pub fn read(source: &JavaSource) -> Result<Candidate, ImportFailure> {
         engines: r.engines,
         slots,
         commentary_credential: None,
+        cloud_credentials,
     };
     if legacy_key { candidate.set_commentary_credential("teacher.properties"); }
+    if let Some(choices) = candidate.cloud_credentials.clone() {
+        if choices.token { candidate.set_cloud_credential_available(false); }
+        if choices.password { candidate.set_cloud_credential_available(true); }
+    }
     Ok(candidate)
 }
 
@@ -604,6 +727,18 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
     ),
     (
         "ui",
+        "always-gotolast-onlive",
+        ImportTarget::LiveAlwaysGotoLast,
+        Kind::Bool(|m, v| m.live_always_goto_last = Some(v)),
+    ),
+    (
+        "ui",
+        "open-html-onlive",
+        ImportTarget::LiveOpenHtml,
+        Kind::Bool(|m, v| m.live_open_html = Some(v)),
+    ),
+    (
+        "ui",
         "allow-drag",
         ImportTarget::AllowDrag,
         Kind::Bool(|m, v| m.allow_drag = Some(v)),
@@ -664,6 +799,24 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
     ),
     (
         "ui",
+        "not-play-sound-insync",
+        ImportTarget::NoSoundInSync,
+        Kind::Bool(|m, v| m.no_sound_in_sync = Some(v)),
+    ),
+    (
+        "ui",
+        "always-sync-boardstat",
+        ImportTarget::ReadBoardStatSync,
+        Kind::Bool(|m, v| m.read_board_stat_sync = Some(v)),
+    ),
+    (
+        "ui",
+        "read-board-get-focus",
+        ImportTarget::ReadBoardGetFocus,
+        Kind::Bool(|m, v| m.read_board_get_focus = Some(v)),
+    ),
+    (
+        "ui",
         "limit-time",
         ImportTarget::LimitTime,
         Kind::Bool(|m, v| m.limit_time = Some(v)),
@@ -688,6 +841,12 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
     ),
     (
         "ui",
+        "auto-check-engine-alive",
+        ImportTarget::AutoCheckEngineAlive,
+        Kind::Bool(|m, v| m.auto_check_engine_alive = Some(v)),
+    ),
+    (
+        "ui",
         "kata-rules",
         ImportTarget::KataRules,
         Kind::Str(|m, v| m.kata_rules = Some(v)),
@@ -697,6 +856,12 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "auto-load-kata-rules",
         ImportTarget::AutoLoadKataRules,
         Kind::Bool(|m, v| m.auto_load_kata_rules = Some(v)),
+    ),
+    (
+        "ui",
+        "chk-kata-engine-pda",
+        ImportTarget::KataPda,
+        Kind::Bool(|m, v| m.kata_pda_enabled = Some(v)),
     ),
     (
         "ui",
@@ -739,6 +904,12 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "analyze-update-interval-centisec",
         ImportTarget::AnalysisInterval,
         Kind::U32(|m, v| m.interval_centisec = Some(v)),
+    ),
+    (
+        "leelaz",
+        "analyze-update-interval-centisecssh",
+        ImportTarget::AnalysisInterval,
+        Kind::U32(|m, v| m.interval_centisec_ssh = Some(v)),
     ),
     (
         "leelaz",
@@ -1019,6 +1190,7 @@ const DISPLAY: &[(&str, ImportTarget, &str, DisplayKind)] = &[
     ("show-var-move", ImportTarget::MoveNumbers, "treeMoveNumbers", DisplayKind::Bool),
     ("move-rank-mark-last-move", ImportTarget::MoveRank, "moveRank", DisplayKind::Int(-1, i32::MAX as i64)),
     ("txt-move-rank-mark-last-move", ImportTarget::MoveRank, "moveRankCustom", DisplayKind::Int(1, i32::MAX as i64)),
+    ("disable-move-rank-in-origin", ImportTarget::MoveRank, "disableMoveRankInOrigin", DisplayKind::Bool),
     ("win-loss-threshold-1", ImportTarget::MoveRank, "winLossThresholds.0", DisplayKind::Num),
     ("win-loss-threshold-2", ImportTarget::MoveRank, "winLossThresholds.1", DisplayKind::Num),
     ("win-loss-threshold-3", ImportTarget::MoveRank, "winLossThresholds.2", DisplayKind::Num),
@@ -1267,6 +1439,22 @@ impl Reader<'_> {
                 None => self.invalid(format!("ui.{key}"), ImportTarget::WorkbenchPanels, raw),
             }
         }
+        // Config.java:1999-2000 stores PDA as text; empty means no confirmed preference.
+        if let Some(raw) = ui.get("txt-kata-engine-pda") {
+            handled.push(("ui", "txt-kata-engine-pda"));
+            let value = if raw.as_str().is_some_and(|s| s.trim().is_empty()) {
+                Some(None)
+            } else {
+                as_f64(raw).map(Some)
+            };
+            match value {
+                Some(value) => {
+                    self.mapped.kata_pda = Some(value);
+                    self.imported("ui.txt-kata-engine-pda".into(), ImportTarget::KataPda, shown(raw));
+                }
+                None => self.invalid("ui.txt-kata-engine-pda".into(), ImportTarget::KataPda, raw),
+            }
+        }
         for (section, key, target, kind) in SIMPLE {
             let map = if *section == "ui" { ui } else { leelaz };
             let Some(v) = map.get(*key) else { continue };
@@ -1313,9 +1501,33 @@ impl Reader<'_> {
                     Some(!command.is_empty() && command != normalized(DEFAULT_ANALYSIS_COMMAND));
             }
         }
-        // The analysis command's relative files resolve like an engine command's.
+        // 精析设置's 远程引擎 (`Utils.getAnalysisEngineRemoteEngineData`); its password comes
+        // over only when confirmed and is never shown.
+        if let Some(raw) = leelaz.get("analysis-engine-ssh-info") {
+            handled.push(("leelaz", "analysis-engine-ssh-info"));
+            match raw.as_object() {
+                Some(info) => {
+                    let ssh = ssh_settings(info);
+                    let on = info.get("useJavaSSH").and_then(as_bool).unwrap_or(false);
+                    let password = (!ssh.use_key).then(|| JavaSecret::read(info.get("password"))).flatten();
+                    let shown = format!("{} {}:{}", if on { "on" } else { "off" }, ssh.host.trim(), ssh.port_number());
+                    self.imported("leelaz.analysis-engine-ssh-info".into(), ImportTarget::AnalysisEngine, shown);
+                    self.items.last_mut().unwrap().credential = password.is_some();
+                    self.mapped.analysis_ssh_password = password;
+                    self.mapped.analysis_ssh = Some((on, ssh));
+                }
+                None => self.invalid("leelaz.analysis-engine-ssh-info".into(), ImportTarget::AnalysisEngine, raw),
+            }
+        }
+        // The analysis command's relative files resolve like an engine command's, unless it runs
+        // on the SSH host.
+        let remote_analysis = self.mapped.analysis_ssh.as_ref().is_some_and(|(on, _)| *on);
         if let Some(command) = self.mapped.analysis_command.take() {
-            self.mapped.analysis_command = Some(resolve_command(&command, &self.source.roots(), &mut Vec::new()));
+            self.mapped.analysis_command = Some(if remote_analysis {
+                command
+            } else {
+                resolve_command(&command, &self.source.roots(), &mut Vec::new())
+            });
         }
         // `resolveConfiguredPath`: a relative model path is found under the Java folders.
         if let Some(path) = self.mapped.quick_model_path.take() {
@@ -1421,13 +1633,17 @@ impl Reader<'_> {
                 None => self.invalid("ui.recent-file-paths".into(), ImportTarget::RecentFiles, v),
             }
         }
+        self.fox_kifu(ui, &mut handled);
+        self.tencent_kifu(ui, &mut handled);
 
         self.appearance(ui, &mut handled);
         self.hawkeye(ui, &mut handled);
         self.network(ui, &mut handled);
+        self.web_board(root, &mut handled);
         self.display(ui, leelaz, &mut handled);
         self.game(ui, leelaz, &mut handled);
         self.matches(ui, &mut handled);
+        self.cloud(leelaz, &mut handled);
         self.engines(ui, leelaz, &mut handled);
 
         for (section, value) in root {
@@ -1909,6 +2125,183 @@ impl Reader<'_> {
         self.mapped.network = Some(settings);
     }
 
+    /// 野狐棋谱 (`Config.java:2056-2058`, `FoxKifuDownload.loadRecentSearches`).
+    fn fox_kifu(&mut self, ui: &Map<String, Value>, handled: &mut Handled) {
+        use crate::settings::{FoxRecentSearch, KifuAfterGet, KIFU_RECENT_LIMIT};
+        let target = ImportTarget::FoxKifu;
+        if let Some(v) = ui.get("last-fox-name") {
+            handled.push(("ui", "last-fox-name"));
+            match v {
+                Value::String(s) => {
+                    self.imported("ui.last-fox-name".into(), target, s.clone());
+                    self.mapped.fox_last_name = Some(s.clone());
+                }
+                _ => self.invalid("ui.last-fox-name".into(), target, v),
+            }
+        }
+        if let Some(v) = ui.get("last-fox-query-by-uid") {
+            handled.push(("ui", "last-fox-query-by-uid"));
+            match as_bool(v) {
+                Some(b) => {
+                    self.imported("ui.last-fox-query-by-uid".into(), target, b.to_string());
+                    self.mapped.fox_query_by_uid = Some(b);
+                }
+                None => self.invalid("ui.last-fox-query-by-uid".into(), target, v),
+            }
+        }
+        if let Some(v) = ui.get("fox-after-get") {
+            handled.push(("ui", "fox-after-get"));
+            // The combo's three entries (最小化, 关闭, 无动作); another index fails in Java.
+            let action = match as_i64(v) {
+                Some(0) => Some(KifuAfterGet::Minimize),
+                Some(1) => Some(KifuAfterGet::Close),
+                Some(2) => Some(KifuAfterGet::Keep),
+                _ => None,
+            };
+            match action {
+                Some(a) => {
+                    self.imported("ui.fox-after-get".into(), target, shown(v));
+                    self.mapped.fox_after_get = Some(a);
+                }
+                None => self.invalid("ui.fox-after-get".into(), target, v),
+            }
+        }
+        if let Some(v) = ui.get("fox-recent-searches") {
+            handled.push(("ui", "fox-recent-searches"));
+            match v.as_array() {
+                Some(list) => {
+                    // Fields stay apart: a UID-only entry stays a UID search.
+                    let text = |o: &Map<String, Value>, k: &str| o.get(k).map(shown).unwrap_or_default().trim().to_string();
+                    let recent: Vec<FoxRecentSearch> = list
+                        .iter()
+                        .filter_map(Value::as_object)
+                        .map(|o| FoxRecentSearch {
+                            uid: text(o, "uid"),
+                            nickname: text(o, "nickname"),
+                        })
+                        .filter(|r| !r.uid.is_empty() || !r.nickname.is_empty())
+                        .take(KIFU_RECENT_LIMIT)
+                        .collect();
+                    let listed = recent
+                        .iter()
+                        .map(|r| match (r.nickname.is_empty(), r.uid.is_empty()) {
+                            (false, false) => format!("{} ({})", r.nickname, r.uid),
+                            (true, _) => r.uid.clone(),
+                            (_, true) => r.nickname.clone(),
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    self.imported("ui.fox-recent-searches".into(), target, listed);
+                    self.mapped.fox_recent = Some(recent);
+                }
+                None => self.invalid("ui.fox-recent-searches".into(), target, v),
+            }
+        }
+    }
+
+    /// 腾讯棋谱 (`TencentKifuDownload`: its constructor, `buildUi`, `loadRecentSearches`).
+    fn tencent_kifu(&mut self, ui: &Map<String, Value>, handled: &mut Handled) {
+        use crate::settings::{KifuAfterGet, TencentRecentSearch, KIFU_RECENT_LIMIT};
+        let target = ImportTarget::TencentKifu;
+        if let Some(v) = ui.get("last-tencent-name") {
+            handled.push(("ui", "last-tencent-name"));
+            match v {
+                Value::String(s) => {
+                    self.imported("ui.last-tencent-name".into(), target, s.clone());
+                    self.mapped.tencent_last_name = Some(s.clone());
+                }
+                _ => self.invalid("ui.last-tencent-name".into(), target, v),
+            }
+        }
+        if let Some(v) = ui.get("tencent-after-get") {
+            handled.push(("ui", "tencent-after-get"));
+            // The combo takes the index clamped to its three entries; a non-number falls back
+            // to 野狐棋谱's choice.
+            match as_i64(v) {
+                Some(i) => {
+                    let action = match i.clamp(0, 2) {
+                        0 => KifuAfterGet::Minimize,
+                        1 => KifuAfterGet::Close,
+                        _ => KifuAfterGet::Keep,
+                    };
+                    self.imported("ui.tencent-after-get".into(), target, shown(v));
+                    self.mapped.tencent_after_get = Some(action);
+                }
+                None => self.invalid("ui.tencent-after-get".into(), target, v),
+            }
+        }
+        if let Some(v) = ui.get("tencent-recent-searches") {
+            handled.push(("ui", "tencent-recent-searches"));
+            match v.as_array() {
+                Some(list) => {
+                    let text = |o: &Map<String, Value>, k: &str| o.get(k).map(shown).unwrap_or_default().trim().to_string();
+                    let recent: Vec<TencentRecentSearch> = list
+                        .iter()
+                        .filter_map(Value::as_object)
+                        .map(|o| {
+                            let uid = text(o, "uid");
+                            // A UID-only entry searches its UID.
+                            let query = match text(o, "query") {
+                                q if q.is_empty() => uid.clone(),
+                                q => q,
+                            };
+                            TencentRecentSearch { uid, query }
+                        })
+                        .filter(|r| !r.query.is_empty())
+                        .take(KIFU_RECENT_LIMIT)
+                        .collect();
+                    let listed = recent
+                        .iter()
+                        .map(|r| {
+                            if r.uid.is_empty() || r.uid == r.query {
+                                r.query.clone()
+                            } else {
+                                format!("{} ({})", r.query, r.uid)
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    self.imported("ui.tencent-recent-searches".into(), target, listed);
+                    self.mapped.tencent_recent = Some(recent);
+                }
+                None => self.invalid("ui.tencent-recent-searches".into(), target, v),
+            }
+        }
+    }
+
+    /// `web-board.http-port` / `ws-port` / `max-connections` (`WebBoardManager.start`, `optInt`
+    /// with 9998 / 9999 / 20 for a missing or unreadable value). A port outside 1–65535 or a
+    /// negative limit, which Java could not start with, is reported and its default used.
+    fn web_board(&mut self, root: &Map<String, Value>, handled: &mut Handled) {
+        const SECTION: &str = "web-board";
+        let Some(section) = root.get(SECTION).and_then(Value::as_object) else { return };
+        let mut settings = crate::settings::WebBoardSettings::default();
+        let number = |v: &Value| match v {
+            Value::Number(_) | Value::String(_) => shown(v).trim().parse::<i64>().ok(),
+            _ => None,
+        };
+        let mut any = false;
+        for key in ["http-port", "ws-port", "max-connections"] {
+            let Some(v) = section.get(key) else { continue };
+            handled.push((SECTION, key));
+            let n = number(v);
+            let accepted = match key {
+                "http-port" => n.and_then(|n| u16::try_from(n).ok()).filter(|&p| p > 0).map(|p| settings.http_port = p),
+                "ws-port" => n.and_then(|n| u16::try_from(n).ok()).filter(|&p| p > 0).map(|p| settings.ws_port = p),
+                _ => n.and_then(|n| u32::try_from(n).ok()).map(|m| settings.max_connections = m),
+            };
+            if accepted.is_some() {
+                self.imported(format!("{SECTION}.{key}"), ImportTarget::WebBoard, shown(v));
+            } else {
+                self.invalid(format!("{SECTION}.{key}"), ImportTarget::WebBoard, v);
+            }
+            any = true;
+        }
+        if any {
+            self.mapped.web_board = Some(settings);
+        }
+    }
+
     /// The engine list and the start-up choice.
     fn engines(&mut self, ui: &Map<String, Value>, leelaz: &Map<String, Value>, handled: &mut Handled) {
         let flag = |key: &str| ui.get(key).and_then(as_bool).unwrap_or(false);
@@ -1967,8 +2360,11 @@ impl Reader<'_> {
         let roots = self.source.roots();
         let mut mapped: Vec<MappedEngine> = Vec::new();
         for (index, entry) in entries.iter().enumerate() {
-            let (view, profile) = engine(index, entry, default == Some(index), &roots);
-            if let Some(mut profile) = profile {
+            let (view, profile) = engine(index, entry, default == Some(index), &roots, self.mapped.cloud.as_ref());
+            if let Some((mut profile, ssh_password)) = profile {
+                if profile.cloud.is_some() && self.mapped.cloud.is_none() {
+                    self.mapped.cloud = Some(crate::cloud::CloudSettings::default());
+                }
                 if profile.id.is_empty() || mapped.iter().any(|m| m.profile.id == profile.id) {
                     let existing: Vec<EngineProfile> = mapped.iter().map(|m| m.profile.clone()).collect();
                     profile.id = new_profile_id(&existing);
@@ -1977,6 +2373,7 @@ impl Reader<'_> {
                     java_index: index,
                     credential: view.credential,
                     profile,
+                    ssh_password,
                 });
             }
             self.engines.push(view);
@@ -2264,15 +2661,29 @@ const ENGINE_FIELDS: [&str; 13] = [
 ];
 /// Fields of Java's management of its own bundled KataGo package: they do not apply here.
 const JAVA_PACKAGE_FIELDS: [&str; 2] = ["managedProfileType", "managedProfileCommand"];
-/// SSH connection fields: never read for the report.
+/// SSH connection fields: read into the profile's connection, the password only as a secret.
 const SSH_FIELDS: [&str; 6] = ["ip", "port", "userName", "password", "useKeyGen", "keyGenPath"];
-/// One Java engine entry (`Utils.engineDataFromJson` defaults).
+
+/// An `EngineData` / `RemoteEngineData` connection (`Utils.engineDataFromJson` defaults).
+fn ssh_settings(e: &Map<String, Value>) -> SshSettings {
+    let text = |k: &str| e.get(k).map(shown).unwrap_or_default();
+    SshSettings {
+        host: text("ip"),
+        port: text("port"),
+        user: text("userName"),
+        use_key: e.get("useKeyGen").and_then(as_bool).unwrap_or(false),
+        key_path: text("keyGenPath"),
+    }
+}
+
+/// One Java engine entry (`Utils.engineDataFromJson` defaults), with its SSH password as stored.
 fn engine(
     index: usize,
     e: &Map<String, Value>,
     is_default: bool,
     roots: &[PathBuf],
-) -> (ImportEngineView, Option<EngineProfile>) {
+    cloud_settings: Option<&crate::cloud::CloudSettings>,
+) -> (ImportEngineView, Option<(EngineProfile, Option<JavaSecret>)>) {
     let text = |k: &str| e.get(k).map(shown).unwrap_or_default();
     let name = text("name");
     let original = text("command");
@@ -2302,14 +2713,19 @@ fn engine(
         unmigrated_fields,
         incompatible_fields,
     };
-    if e.get("useJavaSSH").and_then(as_bool).unwrap_or(false) {
-        view.status = ImportStatus::NotMigrated;
-        view.reason = Some(ImportReason::RemoteEngine);
-        view.credential = ["userName", "password", "keyGenPath"]
-            .iter()
-            .any(|f| e.get(*f).and_then(Value::as_str).is_some_and(|s| !s.is_empty()));
-        return (view, None);
-    }
+    // Java recognizes cloud markers before process/SSH path preparation.
+    let cloud_launch = cloud::launch(&original, cloud_settings);
+    // 远程引擎: the command runs on the SSH host as written; only its key file is on this
+    // machine. Its password (password login) needs the same confirmation as other credentials.
+    let remote = e
+        .get("useJavaSSH")
+        .and_then(as_bool)
+        .is_some_and(|value| value && cloud_launch.is_none())
+        .then(|| ssh_settings(e));
+    let ssh_password = remote
+        .as_ref()
+        .filter(|ssh| !ssh.use_key)
+        .and_then(|_| JavaSecret::read(e.get("password")));
 
     let mut problems = Vec::new();
     let size = |field: &str, problems: &mut Vec<EngineProblem>| match e.get(field) {
@@ -2356,9 +2772,29 @@ fn engine(
         _ => None,
     };
 
-    let command = resolve_command(&original, roots, &mut problems);
+    let command = if let Some(launch) = &cloud_launch {
+        cloud::marker(launch).to_owned()
+    } else {
+        match &remote {
+            Some(ssh) => {
+                if original.trim().is_empty() {
+                    problems.push(EngineProblem::EmptyCommand);
+                }
+                if ssh.use_key && !Path::new(ssh.key_path.trim()).is_file() {
+                    problems.push(EngineProblem::FileNotFound {
+                        option: "keyGenPath".into(),
+                        path: sanitize(&ssh.key_path),
+                    });
+                }
+                original.clone()
+            }
+            None => resolve_command(&original, roots, &mut problems),
+        }
+    };
     view.command = sanitize(&command);
-    view.credential = sanitize(&original) != original || sanitize(&initial) != initial;
+    view.credential = sanitize(&original) != original || sanitize(&initial) != initial || ssh_password.is_some();
+    view.credential |= cloud_launch.as_ref().is_some_and(|launch|
+        cloud::url_has_credentials(&launch.url) || sanitize(&launch.args) != launch.args);
     view.problems = problems;
     let profile = EngineProfile {
         id: text("id"),
@@ -2372,9 +2808,11 @@ fn engine(
         is_default,
         thread_policy,
         gtp_configuration,
+        ssh: remote,
+        cloud: cloud_launch,
         ..EngineProfile::default()
     };
-    (view, Some(profile))
+    (view, Some((profile, ssh_password)))
 }
 
 /// The command with paths relative to the Java folders made absolute (as Java would launch it),
@@ -2449,6 +2887,9 @@ impl Mapped {
         set!(c.record.append_winrate_to_comment, self.append_winrate_to_comment);
         set!(c.ui.language, self.language);
         set!(c.ui.play_sound, self.play_sound);
+        set!(c.read_board.no_sound_in_sync, self.no_sound_in_sync);
+        set!(c.read_board.always_sync_board_stat, self.read_board_stat_sync);
+        set!(c.read_board.get_focus, self.read_board_get_focus);
         set!(c.ui.extra_mode, self.extra_mode);
         if let Ok(mut values) = serde_json::to_value(&c.panels) {
             for value in &self.panels { value.set(&mut values); }
@@ -2479,6 +2920,15 @@ impl Mapped {
         for value in &self.match_toolbar { value.set(&mut toolbar); }
         p.matches = serde_json::from_value(toolbar).expect("typed imported match toolbar values");
         set!(c.recent_files, self.recent_files);
+        set!(c.fox_kifu.last_name, self.fox_last_name);
+        set!(c.fox_kifu.last_query_by_uid, self.fox_query_by_uid);
+        set!(c.fox_kifu.after_get, self.fox_after_get);
+        set!(c.fox_kifu.recent, self.fox_recent);
+        set!(c.tencent_kifu.last_name, self.tencent_last_name);
+        if let Some(action) = self.tencent_after_get {
+            c.tencent_kifu.after_get = Some(action);
+        }
+        set!(c.tencent_kifu.recent, self.tencent_recent);
         if let Some(folder) = &self.last_folder {
             p.last_folder = Some(folder.clone());
         }
@@ -2489,6 +2939,7 @@ impl Mapped {
         set!(c.recovery.resume_previous_game, self.resume_previous_game);
         set!(c.recovery.zoom_thumbnails, self.zoom_thumbnails);
         set!(c.engine.analysis.interval_centisec, self.interval_centisec);
+        set!(c.engine.analysis.interval_centisec_ssh, self.interval_centisec_ssh);
         set!(c.engine.analysis.limit_time, self.limit_time);
         set!(
             c.engine.analysis.max_analyze_time_seconds,
@@ -2503,7 +2954,13 @@ impl Mapped {
             c.engine.analysis.show_ponder_limited_tips,
             self.show_ponder_limited_tips
         );
+        set!(
+            c.engine.analysis.auto_check_engine_alive,
+            self.auto_check_engine_alive
+        );
         set!(c.engine.kata_rules, self.kata_rules);
+        set!(c.engine.kata_pda, self.kata_pda);
+        set!(c.engine.kata_pda_enabled, self.kata_pda_enabled);
         set!(
             c.engine.startup_benchmark_dismissed_signature,
             self.startup_benchmark_dismissed_signature
@@ -2515,8 +2972,12 @@ impl Mapped {
         set!(c.engine.auto_load_kata_rules, self.auto_load_kata_rules);
         set!(c.engine.startup_benchmark, self.startup_benchmark);
         set!(c.network, self.network);
+        set!(c.web_board, self.web_board);
         set!(c.commentary, self.commentary);
+        set!(c.cloud, self.cloud_after(copy_credentials));
         set!(c.edit.allow_double_click, self.allow_double_click);
+        set!(c.live.always_goto_last, self.live_always_goto_last);
+        set!(c.live.open_html_on_live, self.live_open_html);
         set!(c.edit.allow_drag, self.allow_drag);
         set!(c.edit.show_right_menu, self.show_right_menu);
         set!(c.edit.show_new_board_hint, self.show_new_board_hint);
@@ -2539,6 +3000,10 @@ impl Mapped {
         set!(ae.auto_quit, self.analysis_auto_quit);
         set!(ae.reuse_current_engine, self.analysis_reuse_current_engine);
         set!(ae.batch_visits, self.analysis_batch_visits);
+        if let Some((on, ssh)) = &self.analysis_ssh {
+            ae.use_ssh = *on;
+            ae.ssh = ssh.clone();
+        }
         set!(c.flash_range.start_move, self.flash_start_move);
         set!(c.flash_range.end_move, self.flash_end_move);
         let mut auto = serde_json::to_value(&c.auto_analysis).expect("settings serialize");
@@ -2668,6 +3133,12 @@ impl Mapped {
             e.allow_double_click,
             self.allow_double_click
         );
+        cmp!(
+            ImportTarget::LiveAlwaysGotoLast,
+            config.live.always_goto_last,
+            self.live_always_goto_last
+        );
+        cmp!(ImportTarget::LiveOpenHtml, config.live.open_html_on_live, self.live_open_html);
         cmp!(ImportTarget::AllowDrag, e.allow_drag, self.allow_drag);
         cmp!(ImportTarget::RightClickMenu, e.show_right_menu, self.show_right_menu);
         cmp!(
@@ -2741,13 +3212,31 @@ impl Mapped {
         );
         cmp!(ImportTarget::Language, config.ui.language, self.language);
         cmp!(ImportTarget::PlaySound, config.ui.play_sound, self.play_sound);
+        cmp!(ImportTarget::NoSoundInSync, config.read_board.no_sound_in_sync, self.no_sound_in_sync);
+        cmp!(ImportTarget::ReadBoardStatSync, config.read_board.always_sync_board_stat, self.read_board_stat_sync);
+        cmp!(ImportTarget::ReadBoardGetFocus, config.read_board.get_focus, self.read_board_get_focus);
         cmp!(ImportTarget::ExtraMode, config.ui.extra_mode, self.extra_mode);
         cmp!(ImportTarget::RecentFiles, config.recent_files, self.recent_files);
-        cmp!(
-            ImportTarget::AnalysisInterval,
-            a.interval_centisec,
-            self.interval_centisec
-        );
+        let fox = &config.fox_kifu;
+        if self.fox_last_name.as_ref().is_some_and(|v| *v != fox.last_name)
+            || self.fox_query_by_uid.is_some_and(|v| v != fox.last_query_by_uid)
+            || self.fox_after_get.is_some_and(|v| v != fox.after_get)
+            || self.fox_recent.as_ref().is_some_and(|v| *v != fox.recent)
+        {
+            out.push(ImportTarget::FoxKifu);
+        }
+        let tencent = &config.tencent_kifu;
+        if self.tencent_last_name.as_ref().is_some_and(|v| *v != tencent.last_name)
+            || self.tencent_after_get.is_some_and(|v| Some(v) != tencent.after_get)
+            || self.tencent_recent.as_ref().is_some_and(|v| *v != tencent.recent)
+        {
+            out.push(ImportTarget::TencentKifu);
+        }
+        if self.interval_centisec.is_some_and(|v| v != a.interval_centisec)
+            || self.interval_centisec_ssh.is_some_and(|v| v != a.interval_centisec_ssh)
+        {
+            out.push(ImportTarget::AnalysisInterval);
+        }
         cmp!(ImportTarget::LimitTime, a.limit_time, self.limit_time);
         cmp!(
             ImportTarget::MaxAnalyzeTime,
@@ -2776,19 +3265,30 @@ impl Mapped {
             a.show_ponder_limited_tips,
             self.show_ponder_limited_tips
         );
+        cmp!(
+            ImportTarget::AutoCheckEngineAlive,
+            a.auto_check_engine_alive,
+            self.auto_check_engine_alive
+        );
         cmp!(ImportTarget::KataRules, config.engine.kata_rules, self.kata_rules);
         cmp!(
             ImportTarget::AutoLoadKataRules,
             config.engine.auto_load_kata_rules,
             self.auto_load_kata_rules
         );
+        if self.kata_pda.is_some_and(|v| v != config.engine.kata_pda)
+            || self.kata_pda_enabled.is_some_and(|v| v != config.engine.kata_pda_enabled) {
+            out.push(ImportTarget::KataPda);
+        }
         cmp!(
             ImportTarget::StartupBenchmark,
             config.engine.startup_benchmark,
             self.startup_benchmark
         );
         cmp!(ImportTarget::NetworkProxy, config.network, self.network);
+        cmp!(ImportTarget::WebBoard, config.web_board, self.web_board);
         cmp!(ImportTarget::Commentary, config.commentary, self.commentary);
+        cmp!(ImportTarget::Cloud, config.cloud, self.cloud);
         cmp!(
             ImportTarget::AutoQuickAnalysis,
             config.record.auto_quick_analyze_on_load,
@@ -2811,6 +3311,7 @@ impl Mapped {
             self.analysis_reuse_current_engine
                 .is_some_and(|v| v != ae.reuse_current_engine),
             self.analysis_batch_visits.is_some_and(|v| v != ae.batch_visits),
+            self.analysis_ssh.as_ref().is_some_and(|(on, ssh)| *on != ae.use_ssh || *ssh != ae.ssh),
         ];
         if analysis_engine.contains(&true) {
             out.push(ImportTarget::AnalysisEngine);

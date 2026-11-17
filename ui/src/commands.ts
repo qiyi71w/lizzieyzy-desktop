@@ -14,7 +14,10 @@ import { consoleVisible, toggleConsole } from "./engine/console";
 import { openRules } from "./engine/rules";
 import { openAnalysisSettings } from "./engine/settings";
 import { openAutoSetup } from "./setup/dialog";
+import { openRemoteCompute } from "./cloud/center";
 import "./engine/events";
+import { openContributionSettings } from "./contribution/settings";
+import "./contribution/window";
 
 export interface CommandEntry {
   run: () => void;
@@ -23,6 +26,8 @@ export interface CommandEntry {
   enabled?: () => boolean;
   /** Java items hidden by a menu-open listener (setVisible(false)) while this is false. */
   visible?: () => boolean;
+  /** Java items whose text a menu-open listener sets (启动/停止 Web 旁观, Menu.java:4301-4309). */
+  label?: () => string;
   /** A button inside the menu item, beside its label (自定义布局's 设置, Menu.java:1985-2050). */
   button?: { label: () => string; run: () => void };
 }
@@ -51,10 +56,13 @@ export const COMMANDS: Record<string, CommandEntry> = {
   "weights.download": { run: () => openAutoSetup("weights") },
   "engine.acceleration": { run: () => openAutoSetup("acceleration") },
   "engine.rules": { run: openRules },
+  // 设置 > 远程算力 (Menu.java:5334-5342).
+  "engine.remote": { run: openRemoteCompute },
   // 综合设置 opens at its first page, 棋盘与显示 (Menu.java:5395-5399, ConfigDialog2.java:4168-4171).
   "settings.general": { run: () => void openAnalysisSettings("display") },
   "menu.gtpPanel": { run: toggleConsole, checked: consoleVisible },
-  "menu.restartCurrentEngine": { run: () => run({ type: "RestartEngine" }), enabled: () => !!state.view?.engine.foreground },
+  // An engine that ended and was not started again is still the current engine (Java `reStartEngine`).
+  "menu.restartCurrentEngine": { run: () => run({ type: "RestartEngine" }), enabled: () => !!state.view?.engine.foreground || !!state.view?.engine.down },
   "menu.shutdownCurrentEngine": { run: () => run({ type: "ShutdownEngines", scope: "Current" }), enabled: () => !!state.view?.engine.foreground },
   // 双引擎模式's engine menu (Menu.java:5857-5876): restartEngine2 / killThisEngines2.
   "menu.restartCurrentEngine2": { run: () => run({ type: "RestartSecondaryEngine" }), enabled: () => !!state.view?.engine.secondary },
@@ -116,6 +124,14 @@ export const COMMANDS: Record<string, CommandEntry> = {
     },
   },
   "product.javaImport": { run: () => openJavaImport() },
+  // 设置 > 显示跑谱贡献菜单 and the 跑谱贡献 menu (Menu.java:5558-5575, 5636-5680).
+  "menu.showContribute": {
+    run: () => run({ type: "Contribution", op: { type: "SetShowMenu", enabled: !(state.view?.settings.contribution.showMenu ?? true) } }),
+    checked: () => state.view?.settings.contribution.showMenu ?? true,
+  },
+  "menu.kataGoDistributedTraining": { run: () => run({ type: "Contribution", op: { type: "Start" } }) },
+  "menu.kataGoTrainingSettings": { run: () => void openContributionSettings() },
+  "menu.kataGoOfficialWebsite": { run: () => run({ type: "Contribution", op: { type: "OpenLink", link: "OfficialWebsite" } }) },
   "menu.language.default": language("System"),
   简体中文: language("ZhCn"),
   繁體中文: language("ZhTw"),

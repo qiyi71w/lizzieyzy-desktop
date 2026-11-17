@@ -102,8 +102,11 @@ function count(items: ImportItemView[], status: ImportStatus): number {
 const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   PureNetwork: "Menu.showHeatmap",
   AppendWinrateToComment: "Menu.appendWinrateToComment",
+  LiveAlwaysGotoLast: "Menu.alwaysGoToLastMove",
+  LiveOpenHtml: "Menu.EnableEnterYikeGame",
   WinrateGraph: "Menu.winrateGraphSettings",
   KataEstimate: "Menu.kataEstimate",
+  KataPda: "Menu.chkPDA.toolTopText",
   Scoring: "BottomToolbar.finalScore",
   SuggestionsFrame: "Menu.SuggestionList",
   ExtraMode: "Menu.layoutMode",
@@ -124,6 +127,19 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   HumanSlModel: "AutoSetup.humanSlModel",
   // AI 解说's teacher.properties (TeacherSettingsDialog title).
   Commentary: "Teacher.settings.title",
+  // 综合设置 > 高级 > 日志与分析刷新 (ConfigDialog2.java:3290-3295).
+  AutoCheckEngineAlive: "ConfigDialog2.modern.engineHealth.checkAlive",
+  // 设置 > 同步时不播放落子声 and 同步 > 棋盘同步工具选项 (Menu.java:5547-5556, 4352-4392).
+  NoSoundInSync: "Menu.notPlaySoundInSync",
+  ReadBoardStatSync: "Menu.alwaysKeepBoardStatSync",
+  ReadBoardGetFocus: "Menu.readBoardGetFocus",
+  // 同步 > 野狐棋谱's account, 近期搜索 and 打开棋谱后此窗口.
+  FoxKifu: "Menu.foxKifu",
+  // 同步 > 腾讯棋谱's last query, 近期搜索 and 打开棋谱后此窗口.
+  TencentKifu: "Menu.tencentKifu",
+  // 引擎 > 远程算力 and 同步 > Web 旁观 (Menu.java remote compute and web board menus).
+  Cloud: "Menu.remoteCompute",
+  WebBoard: "Menu.webBoard",
 };
 
 function targetLabel(target: ImportTarget): string {
@@ -233,6 +249,29 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
     commentaryKey = box.input;
     body.append(box.label);
   }
+  // The 精析设置 remote engine's password, likewise only when chosen.
+  let analysisSsh: HTMLInputElement | null = null;
+  if (p.analysis_ssh_credential) {
+    const box = checkbox(product("importCopyAnalysisSshPassword", p.analysis_ssh_credential), false);
+    box.input.dataset.key = "import-analysis-ssh-password";
+    analysisSsh = box.input;
+    body.append(box.label);
+  }
+  // The Zhizi account's remembered sign-in token and password: each only when chosen on its own.
+  let cloudToken: HTMLInputElement | null = null;
+  let cloudPassword: HTMLInputElement | null = null;
+  if (p.cloud_credentials?.token) {
+    const box = checkbox(product("importCopyCloudToken", p.cloud_credentials.identifier, t("RemoteCompute.zhizi")), false);
+    box.input.dataset.key = "import-cloud-token";
+    cloudToken = box.input;
+    body.append(box.label);
+  }
+  if (p.cloud_credentials?.password) {
+    const box = checkbox(product("importCopyCloudPassword", p.cloud_credentials.identifier, t("RemoteCompute.zhizi")), false);
+    box.input.dataset.key = "import-cloud-password";
+    cloudPassword = box.input;
+    body.append(box.label);
+  }
   if (p.engines.some((e) => e.problems.some((x) => x.type === "ProgramNotFound" || x.type === "FileNotFound")) || p.program_dir) {
     const row = document.createElement("div");
     row.className = "java-import-row";
@@ -277,6 +316,9 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
       preview: p.id,
       copy_credentials: copy,
       copy_commentary_key: commentaryKey?.checked ?? false,
+      copy_analysis_ssh_password: analysisSsh?.checked ?? false,
+      copy_cloud_token: cloudToken?.checked ?? false,
+      copy_cloud_password: cloudPassword?.checked ?? false,
       replace: replace?.checked ?? false,
       recovery: recovery?.checked ? { auto_slot_name: t("LizzieFrame.saveAndLoad.exitRecord") } : null,
     });
