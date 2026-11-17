@@ -13,25 +13,27 @@
 //! so quick navigation does not queue a command batch per step.
 
 use std::collections::{HashMap, VecDeque};
-use std::io::Write;
 use std::hash::BuildHasher;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::gtp::{self, Dialect, Frame, Framer, InfoLine, LaunchSpec};
-use super::profile::EngineProfile;
+use super::profile::{CustomPdaMode, CustomPdaSettings, EngineProfile};
 use super::raw_net::{self, RawNetMode, RawNetView};
 use super::rules::KataRules;
 use super::ssh::{RemoteFailure, SshSettings};
+use crate::diagnostics::{DiagnosticModule, Diagnostics, TraceScope};
 use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, Point, Stone, ROOT};
 
 mod game;
 mod fox;
+mod speed_model;
 pub use game::GenmoveReply;
+pub use speed_model::{ModelIdentity, ModelLookup};
 
 pub type InstanceId = u64;
 
@@ -75,6 +77,112 @@ pub enum EngineKind {
     Leela011,
     Other,
 }
+
+/// A Leela Zero / Sai option of the 引擎参数 window (`SetLeelaEngines`, `lz-setoption`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LeelaOption {
+    Memory,
+    Visits,
+    Lagbuffer,
+    Resign,
+}
+
+impl LeelaOption {
+    pub const ALL: [LeelaOption; 4] = [LeelaOption::Memory, LeelaOption::Visits, LeelaOption::Lagbuffer, LeelaOption::Resign];
+
+    pub fn gtp_name(self) -> &'static str {
+        match self {
+            LeelaOption::Memory => "Maximum Memory Use (MiB)",
+            LeelaOption::Visits => "Visits",
+            LeelaOption::Lagbuffer => "Lagbuffer",
+            LeelaOption::Resign => "Resign Percentage",
+        }
+    }
+
+    /// `lz-setoption name <option> value <value>` with the value as typed: Java checks no range
+    /// (`SetLeelaEngines.java:76-92`). `None` for an empty value, which sends nothing, or one
+    /// with a line break, which would end the command early.
+    pub fn command(self, value: &str) -> Option<String> {
+        let value = value.trim();
+        (!value.is_empty() && !value.chars().any(char::is_control))
+            .then(|| format!("lz-setoption name {} value {value}", self.gtp_name()))
+    }
+}
+
+/// A KataGo search parameter of the toolbar and the 引擎参数 window (`kata-set-param`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
+pub enum KataParam {
+    /// `playoutDoublingAdvantage` (激进度).
+    Pda,
+    /// `analysisWideRootNoise` (广度).
+    Wrn,
+}
+
+impl KataParam {
+    pub fn gtp_name(self) -> &'static str {
+        match self {
+            KataParam::Pda => "playoutDoublingAdvantage",
+            KataParam::Wrn => "analysisWideRootNoise",
+        }
+    }
+
+    fn named(name: &str) -> Option<KataParam> {
+        [KataParam::Pda, KataParam::Wrn].into_iter().find(|p| p.gtp_name() == name)
+    }
+}
+
+/// The values an engine last confirmed for the [`KataParam`]s: an accepted `kata-set-param` or
+/// a `kata-get-param` answer, whoever sent it. `None` until one is known.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct KataParams {
+    pub pda: Option<f64>,
+    pub wrn: Option<f64>,
+    /// Start-up `kata-get-param` answers taken so far: a read-back (`readKataParameters`), which
+    /// the toolbar shows, as opposed to a confirmed set or another reader's answer (a game's,
+    /// the console's), which only record what the engine holds.
+    pub reads: u32,
+}
+
+impl KataParams {
+    pub fn get(&self, param: KataParam) -> Option<f64> {
+        match param {
+            KataParam::Pda => self.pda,
+            KataParam::Wrn => self.wrn,
+        }
+    }
+
+    fn set(&mut self, param: KataParam, value: f64) -> bool {
+        let slot = match param {
+            KataParam::Pda => &mut self.pda,
+            KataParam::Wrn => &mut self.wrn,
+        };
+        let changed = *slot != Some(value);
+        *slot = Some(value);
+        changed
+    }
+}
+
+/// Whether a process's `numSearchThreads` was changed from the 引擎参数 window (Java
+/// `RuntimeThreadOverrideState`). It belongs to one process: a restarted or another engine
+/// starts `Off`, and a remote-managed one `Unknown` (its host may have changed it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum ThreadOverride {
+    Off,
+    On,
+    Unknown,
+}
+
+/// A `kata-get-param` / `kata-set-param numSearchThreads` in flight: the value set (`None` for a
+/// read), the caller's ticket and when the caller stops waiting.
+#[derive(Clone, Copy, Debug)]
+struct ThreadRequest {
+    set: Option<u32>,
+    ticket: u64,
+    deadline: Instant,
+}
+
+/// Java `runtimeSearchThreadsTimeoutMillis`.
+const THREAD_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// The position an engine should hold: one node of one document at a komi, and the rules the
 /// session requires (`None`: whatever the engine has). The node's [`stamp`](crate::record::Node::stamp)
@@ -177,10 +285,19 @@ pub enum RuntimeEvent {
     /// The engine answered `kata-get-rules` or refused session rules: whether analysis may run
     /// can have changed.
     Rules { instance: InstanceId },
+    /// The engine confirmed a new value of a [`KataParam`].
+    KataParams { instance: InstanceId },
+    /// The foreground KataGo answered a numSearchThreads request
+    /// ([`Engines::request_search_threads`]), or it timed out: the value it confirmed, or why
+    /// not.
+    SearchThreads { instance: InstanceId, ticket: u64, result: Result<u32, String> },
     /// A complete pure-network answer became available for the current foreground target.
     RawNet { instance: InstanceId },
     /// The process failed to start or ended unexpectedly; the instance is gone.
     Failed(EngineFailure),
+    /// A `KataGoPda` engine reported its PDA or cap (`getpda` / `getdympdacap` answer, or an
+    /// unsolicited `pda:` / `PDACap:` line).
+    CustomPda { instance: InstanceId },
     /// The foreground engine was asked to search a position (Java `Leelaz.ponder` of the
     /// primary engine, which calls `onMainEnginePonder`).
     Pondering { instance: InstanceId },
@@ -381,6 +498,9 @@ enum Purpose {
     Version,
     ListCommands,
     Setup,
+    /// KataGoPda `getpda` / `getdympdacap`.
+    GetPda,
+    GetPdaCap,
     GetRules,
     SetRules,
     Sync,
@@ -441,6 +561,9 @@ struct Instance {
     profile: EngineProfile,
     launch_threads: u32,
     fox_pda_compatibility: &'static str,
+    /// This incarnation loads an official B11 model (`Leelaz.usesB11ForSpeedNotice`); false
+    /// while its [`ModelLookup`] is outstanding.
+    b11: bool,
     io: Option<Box<dyn EngineIo>>,
     /// Lines written before the process exists (its launch waits for a [`LaunchCheck`]).
     queued: Option<Vec<String>>,
@@ -452,6 +575,8 @@ struct Instance {
     commands: Vec<String>,
     next_id: u64,
     waiting: HashMap<u64, Purpose>,
+    /// GTP 摘要: the name of each numbered command and when it was written, while it waits.
+    sent: HashMap<u64, (String, Instant)>,
     framer: Framer,
     boot: Option<Bootstrap>,
     ready_fence: Option<u64>,
@@ -499,6 +624,26 @@ struct Instance {
     /// and the request that asked for them; empty once that stream ended.
     installed_focus: Vec<Point>,
     installed_from: Option<u64>,
+    /// PDA and WRN as the engine last confirmed them.
+    kata_params: KataParams,
+    /// `kata-set-param` / `kata-get-param` of a [`KataParam`] in flight, by GTP id.
+    param_writes: HashMap<u64, (KataParam, f64)>,
+    param_reads: HashMap<u64, KataParam>,
+    /// KataGoPda's dedicated settings and what its private answers last reported.
+    custom_pda: CustomPdaSettings,
+    pda: Option<f64>,
+    pda_cap: Option<f64>,
+    pda_mode: Option<CustomPdaMode>,
+    /// Start-up `getpda` / `getdympdacap` answers still expected.
+    pda_queries: u8,
+    /// The start-up answers were followed by the 自动套用 commands.
+    pda_autoloaded: bool,
+    /// `numSearchThreads` this process confirmed to the 引擎参数 window, and whether that window
+    /// changed it (Java `RuntimeSearchThreads`, bound to the process).
+    threads_overridden: bool,
+    threads_confirmed: Option<u32>,
+    /// Those requests in flight, by GTP id.
+    thread_requests: HashMap<u64, ThreadRequest>,
 }
 
 const OUTPUT_TAIL: usize = 40;
@@ -532,6 +677,16 @@ pub struct Bootstrap {
     pub komi: f64,
     /// Rules applied to KataGo at start-up (`auto-load-kata-rules`).
     pub rules: Option<KataRules>,
+    /// PDA and WRN set on KataGo after start-up (`autoload-kata-engine-pda` / `-wrn`); the PDA
+    /// is not sent to a `KataGoPda` engine (`Leelaz.setKataEnginePara`).
+    pub pda: Option<f64>,
+    pub wrn: Option<f64>,
+    /// Options set on Leela Zero / Sai after start-up (`setLeelaSaiEnginePara`: 修改 and
+    /// 自动加载 both checked).
+    pub leela_options: Vec<(LeelaOption, String)>,
+    /// KataGoPda 激进参数PDA设置, applied after the start-up `getpda` / `getdympdacap` answers
+    /// when 自动套用 is checked, and on a handicap game's first White move.
+    pub custom_pda: CustomPdaSettings,
 }
 
 /// A start whose launch overlays depend on artifact content (measured or Apple tuning). Java
@@ -666,6 +821,7 @@ pub struct Engines {
     apple_hardware: Option<serde_json::Value>,
     instances: Vec<Instance>,
     checks: Vec<LaunchCheck>,
+    model_lookups: Vec<ModelLookup>,
     next_instance: InstanceId,
     foreground: Option<InstanceId>,
     /// The foreground engine that failed, while nothing took its seat since (Java's primary
@@ -684,7 +840,12 @@ pub struct Engines {
     options: StreamOptions,
     console: VecDeque<ConsoleLine>,
     console_seq: u64,
-    trace: Option<Box<dyn Write + Send>>,
+    /// `ui.always-gtp`: the console records while it is hidden.
+    always_gtp: bool,
+    /// The GTP console is shown (`gtpConsole.isVisible()`).
+    console_visible: bool,
+    /// 诊断与日志: the 引擎 and GTP 摘要 records and the 引擎/GTP full log.
+    diagnostics: Diagnostics,
     lease: Option<Lease>,
     next_lease: u64,
     workers: Vec<Worker>,
@@ -716,6 +877,23 @@ impl Instance {
 
     fn has(&self, command: &str) -> bool {
         self.commands.iter().any(|c| c == command)
+    }
+
+    /// Leela Zero and Sai take `lz-setoption` (the Leela 引擎参数 window, `SetLeelaEngines`).
+    /// Pachi, which Java counts as Leela for analysis, is not one of them.
+    fn takes_lz_options(&self) -> bool {
+        matches!(self.kind, EngineKind::LeelaZero | EngineKind::Sai) && !self.gtp_name.to_lowercase().starts_with("pachi")
+    }
+
+    /// Reads a `pda:` / `PDACap:` line, as a `getpda` / `getdympdacap` answer body or an
+    /// unsolicited line of a private setter (`Leelaz` parses both while `isCheckingPda`).
+    /// Returns whether a value changed.
+    fn note_pda_text(&mut self, text: &str) -> bool {
+        match parse_pda_label(text) {
+            Some(PdaLabel::Pda(value)) => std::mem::replace(&mut self.pda, Some(value)) != Some(value),
+            Some(PdaLabel::Cap(value)) => std::mem::replace(&mut self.pda_cap, Some(value)) != Some(value),
+            None => false,
+        }
     }
 
     fn dialect(&self) -> Option<Dialect> {
@@ -795,6 +973,7 @@ impl Engines {
             apple_hardware: None,
             instances: Vec::new(),
             checks: Vec::new(),
+            model_lookups: Vec::new(),
             next_instance: 1,
             foreground: None,
             failed_foreground: None,
@@ -806,7 +985,9 @@ impl Engines {
             options: StreamOptions::default(),
             console: VecDeque::new(),
             console_seq: 0,
-            trace: None,
+            always_gtp: true,
+            console_visible: false,
+            diagnostics: Diagnostics::default(),
             lease: None,
             next_lease: 1,
             workers: Vec::new(),
@@ -938,6 +1119,19 @@ impl Engines {
         self.get(id).is_some_and(|i| i.kind == EngineKind::KataGo)
     }
 
+    /// The 自建算力 engine (Java `RemoteComputeConfig.isCustomWebSocketEngineCommand`): its
+    /// WebSocket analysis service has no background pondering.
+    pub fn is_custom_websocket(&self, id: InstanceId) -> bool {
+        self.get(id).is_some_and(|i| {
+            i.profile.cloud.as_ref().is_some_and(|c| c.provider == super::cloud::CloudProvider::Custom)
+        })
+    }
+
+    /// Leela Zero or Sai, which take `lz-setoption`.
+    pub fn takes_lz_options(&self, id: InstanceId) -> bool {
+        self.get(id).is_some_and(Instance::takes_lz_options)
+    }
+
     pub fn supports(&self, id: InstanceId, command: &str) -> bool {
         self.get(id).is_some_and(|i| i.has(command))
     }
@@ -1044,7 +1238,7 @@ impl Engines {
 
     /// `Leelaz.getInterval`: `isSSH || useJavaSSH` use the SSH interval.
     fn interval_of(&self, inst: &Instance) -> u32 {
-        if inst.profile.is_remote() || super::ssh::is_external_ssh(&inst.profile.command) {
+        if inst.profile.is_remote_managed() {
             self.interval_centisec_ssh
         } else {
             self.interval_centisec
@@ -1131,22 +1325,54 @@ impl Engines {
         StreamOptions { moves_ownership: self.options.moves_ownership && inst.supports_moves_ownership(), ..self.options }
     }
 
-    /// Full trace (诊断与日志 > 完整日志, engine GTP scope): every line to and from engines.
-    pub fn set_trace(&mut self, sink: Option<Box<dyn Write + Send>>) {
-        self.trace = sink;
+    /// Where the engines' diagnostic records and full log go.
+    pub fn set_diagnostics(&mut self, diagnostics: Diagnostics) {
+        self.diagnostics = diagnostics;
     }
 
-    pub fn tracing(&self) -> bool {
-        self.trace.is_some()
+    /// 完整日志 (engine GTP scope): every line to and from engines.
+    fn trace(&self, engine: &str, dir: &str, text: &str) {
+        self.diagnostics.trace(TraceScope::EngineGtp, || format!("[{engine}] {dir} {text}"));
     }
 
-    fn trace(&mut self, engine: &str, dir: &str, text: &str) {
-        if let Some(t) = self.trace.as_mut() {
-            let ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_millis());
-            let _ = writeln!(t, "{ms} [{engine}] {dir} {}", crate::sanitize::sanitize(text));
-            let _ = t.flush();
+    /// Java `EngineObservation.recordRecentStderr` when an engine ends: its last output lines.
+    fn record_recent_output(&self, engine: &str, tail: &VecDeque<String>) {
+        if tail.is_empty() {
+            return;
+        }
+        self.diagnostics.debug(DiagnosticModule::Engine, || {
+            let facts: Vec<&str> = tail.iter().map(String::as_str).collect();
+            format!("engine event=stderr engine={engine} facts={}", facts.join(" / "))
+        });
+    }
+
+    /// Java `EngineObservation.recordCommandOutcome` (GTP 摘要) for a numbered answer.
+    fn record_answer(&mut self, id: InstanceId, n: u64, ok: bool) {
+        let Some(inst) = self.get_mut(id) else { return };
+        let Some((command, sent)) = inst.sent.remove(&n) else { return };
+        let name = inst.display_name();
+        let latency = sent.elapsed().as_millis();
+        let outcome = if ok { "ok" } else { "error" };
+        self.diagnostics.debug(DiagnosticModule::GtpSummary, || {
+            format!("gtp command={command} outcome={outcome} latencyMs={latency} engine={name}")
+        });
+    }
+
+    /// `ui.always-gtp` (控制台隐藏时仍记录 GTP).
+    pub fn set_always_gtp(&mut self, always: bool) {
+        self.always_gtp = always;
+    }
+
+    /// Whether the GTP console is shown.
+    pub fn set_console_visible(&mut self, visible: bool) {
+        self.console_visible = visible;
+    }
+
+    /// A GTP engine's command or output line: with `always-gtp` off a hidden console records
+    /// only an engine that is still starting (`Leelaz.isLoaded` false).
+    fn console_record(&mut self, engine: String, phase: Phase, kind: ConsoleKind, text: String) {
+        if self.always_gtp || self.console_visible || phase != Phase::Ready {
+            self.console_push(engine, kind, text);
         }
     }
 
@@ -1229,6 +1455,7 @@ impl Engines {
             });
             (spec, check)
         };
+        let speed = speed_model::identify(id, profile, &spec);
         // Java FoxPdaCompatibility: only a physical local launch is inspected (Leelaz.java:1333, 1529).
         let fox_pda_compatibility = if profile.cloud.is_none() && profile.ssh.is_none() && check.is_none() {
             fox::inspect(&spec)
@@ -1250,6 +1477,7 @@ impl Engines {
             profile: profile.clone(),
             launch_threads: launch_threads(&profile.command, &spec),
             fox_pda_compatibility,
+            b11: matches!(speed, speed_model::SpeedModel::Known(true)),
             io,
             queued,
             phase: Phase::Starting,
@@ -1273,6 +1501,7 @@ impl Engines {
             syncing: None,
             synced: false,
             output_tail: VecDeque::new(),
+            sent: HashMap::new(),
             confirmed_rules: None,
             rules_request: None,
             raw_mode: RawNetMode::Off,
@@ -1289,7 +1518,22 @@ impl Engines {
             stream_focus: Vec::new(),
             installed_focus: Vec::new(),
             installed_from: None,
+            kata_params: KataParams::default(),
+            param_writes: HashMap::new(),
+            param_reads: HashMap::new(),
+            custom_pda: CustomPdaSettings::default(),
+            pda: None,
+            pda_cap: None,
+            pda_mode: None,
+            pda_queries: 0,
+            pda_autoloaded: false,
+            threads_overridden: false,
+            threads_confirmed: None,
+            thread_requests: HashMap::new(),
         });
+        if let speed_model::SpeedModel::Lookup(lookup) = speed {
+            self.model_lookups.push(lookup);
+        }
         let name = profile.name.clone();
         self.trace(&name, "--", &format!("start {}", profile.command));
         self.send(id, "name", Purpose::Name);
@@ -1301,6 +1545,28 @@ impl Engines {
     /// Hands out the pending launch checks once each; the caller runs them off the workbench.
     pub fn take_launch_checks(&mut self) -> Vec<LaunchCheck> {
         std::mem::take(&mut self.checks)
+    }
+
+    /// Hands out the pending model header reads once each; the caller runs them off the workbench.
+    pub fn take_model_lookups(&mut self) -> Vec<ModelLookup> {
+        std::mem::take(&mut self.model_lookups)
+    }
+
+    /// Records what a [`ModelLookup`] found; a retired instance's late answer is ignored.
+    /// Returns whether the instance's identity changed.
+    pub fn finish_model_lookup(&mut self, found: ModelIdentity) -> bool {
+        match self.instances.iter_mut().find(|i| i.id == found.instance) {
+            Some(instance) if instance.b11 != found.b11 => {
+                instance.b11 = found.b11;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The engine runs an official B11 model, for the title's speed notice.
+    pub fn uses_b11(&self, id: InstanceId) -> bool {
+        self.get(id).is_some_and(|i| i.b11)
     }
 
     /// Starts the instance a check was made for and writes the commands queued meanwhile. A
@@ -1428,6 +1694,11 @@ impl Engines {
         if let Some(at) = self.workers.iter().position(|w| w.id == id) {
             let mut w = self.workers.remove(at);
             self.trace(&w.name, "--", "terminate");
+            // Java `AnalysisResourceCoordinator` `process-stopped`.
+            self.diagnostics.debug(DiagnosticModule::Engine, || {
+                format!("engine event=process-stopped purpose={} pid=-1 command=", w.name)
+            });
+            self.record_recent_output(&w.name, &w.tail);
             if let Some(io) = w.io.take() {
                 io.terminate();
             }
@@ -1451,7 +1722,9 @@ impl Engines {
                 failure: Some(LeaseFailure::TransportClosed),
             });
         }
-        self.trace(&inst.display_name(), "--", "terminate");
+        let name = inst.display_name();
+        self.trace(&name, "--", "terminate");
+        self.record_recent_output(&name, &inst.output_tail);
         if let Some(io) = inst.io.take() {
             io.terminate();
         }
@@ -1609,6 +1882,7 @@ impl Engines {
             self.due(self.secondary),
             self.lease.as_ref().and_then(|l| l.deadline),
             self.game_deadline(),
+            self.instances.iter().flat_map(|i| i.thread_requests.values().map(|r| r.deadline)).min(),
         ]
         .into_iter()
         .flatten()
@@ -1626,6 +1900,18 @@ impl Engines {
             }
         }
         let mut events = Vec::new();
+        // A numSearchThreads request that timed out fails; its late answer is ignored.
+        for inst in &mut self.instances {
+            let expired: Vec<u64> = inst.thread_requests.iter().filter(|(_, r)| now >= r.deadline).map(|(n, _)| *n).collect();
+            for n in expired {
+                let request = inst.thread_requests.remove(&n).unwrap();
+                events.push(RuntimeEvent::SearchThreads {
+                    instance: inst.id,
+                    ticket: request.ticket,
+                    result: Err("Timed out waiting for KataGo thread response".to_string()),
+                });
+            }
+        }
         if self.lease.as_ref().and_then(|l| l.deadline).is_some_and(|d| now >= d) {
             self.lease_timeout(&mut events);
         }
@@ -1821,6 +2107,7 @@ impl Engines {
     /// Writes a numbered command. A non-analysis command ends the current stream, except
     /// Leela 0.11 cycle commands, whose table retains the original request owner.
     fn send(&mut self, id: InstanceId, command: &str, purpose: Purpose) -> Option<u64> {
+        let summary = self.diagnostics.records(DiagnosticModule::GtpSummary);
         let inst = self.get_mut(id)?;
         let n = inst.next_id;
         inst.next_id += 1;
@@ -1838,9 +2125,28 @@ impl Engines {
             (None, None) => false,
         };
         inst.waiting.insert(n, purpose);
-        let name = inst.display_name();
+        let command_name = command.split_whitespace().next().unwrap_or_default().to_string();
+        if summary {
+            inst.sent.insert(n, (command_name.clone(), Instant::now()));
+        }
+        // Whoever sets or reads PDA / WRN, the answer tells what the engine holds.
+        let mut words = command.split_whitespace();
+        match (words.next(), words.next().and_then(KataParam::named), words.next(), words.next()) {
+            (Some("kata-set-param"), Some(param), Some(value), None) => {
+                if let Ok(value) = value.parse::<f64>() {
+                    inst.param_writes.insert(n, (param, value));
+                }
+            }
+            (Some("kata-get-param"), Some(param), None, None) => {
+                inst.param_reads.insert(n, param);
+            }
+            _ => {}
+        }
+        let (name, phase) = (inst.display_name(), inst.phase);
         self.trace(&name, ">>", &line);
-        self.console_push(name, ConsoleKind::Sent, command.to_string());
+        // Java `EngineObservation.recordCommandSent` (GTP 摘要).
+        self.diagnostics.debug(DiagnosticModule::GtpSummary, || format!("gtp command={command_name} outcome=sent engine={name}"));
+        self.console_record(name, phase, ConsoleKind::Sent, command.to_string());
         ok.then_some(n)
     }
 
@@ -1875,6 +2181,253 @@ impl Engines {
             self.fence_last(id);
         }
         Ok(())
+    }
+
+    /// PDA and WRN as instance `id` last confirmed them.
+    pub fn kata_params(&self, id: InstanceId) -> KataParams {
+        self.get(id).map_or_else(KataParams::default, |i| i.kata_params)
+    }
+
+    /// The foreground `KataGoPda`'s current PDA and cap (`getpda` / `getdympdacap` answers or
+    /// the private setters' own `pda:` / `PDACap:` lines), `None` before one.
+    pub fn custom_pda(&self, id: InstanceId) -> (Option<f64>, Option<f64>, Option<CustomPdaMode>) {
+        self.get(id).map_or((None, None, None), |i| (i.pda, i.pda_cap, i.pda_mode))
+    }
+
+    /// The GTP `name` starts with `KataGoPda` (`Leelaz.isKataGoPda`): the only engines that
+    /// speak `pda`, `dympdacap`, `getpda` and `getdympdacap`.
+    pub fn is_kata_go_pda(&self, id: InstanceId) -> bool {
+        self.get(id).is_some_and(|i| i.gtp_name.starts_with("KataGoPda"))
+    }
+
+    /// `KataGoCustom` or `KataGoPda` (`Leelaz.isKatagoCustom`, which `KataGoPda` also sets):
+    /// the engines whose right-click menu shows 优先分析此点.
+    pub fn supports_custom_policy(&self, id: InstanceId) -> bool {
+        self.get(id).is_some_and(|i| i.gtp_name.starts_with("KataGoCustom") || i.gtp_name.starts_with("KataGoPda"))
+    }
+
+    /// Sends a `KataGoPda`'s private settings to the foreground engine: the dialog's 确定 and a
+    /// handicap game's re-apply. Commands go only to a ready, unrestored `KataGoPda`; a missing
+    /// numeric value sends nothing. Returns whether anything was sent.
+    pub fn apply_custom_pda(&mut self, settings: &CustomPdaSettings) -> bool {
+        let Some(id) = self.foreground else { return false };
+        let Some(inst) = self.get(id) else { return false };
+        if !inst.gtp_name.starts_with("KataGoPda")
+            || inst.phase != Phase::Ready
+            || inst.unrestored.is_some()
+            || self.leased(id)
+        {
+            return false;
+        }
+        let commands = settings.commands();
+        if commands.is_empty() {
+            return false;
+        }
+        for command in &commands {
+            self.send(id, command, Purpose::Setup);
+        }
+        self.fence_last(id);
+        let inst = self.get_mut(id).unwrap();
+        inst.pda_mode = Some(settings.mode);
+        match settings.mode {
+            super::profile::CustomPdaMode::Disabled => inst.pda = Some(0.0),
+            super::profile::CustomPdaMode::Dynamic => inst.pda = Some(0.0),
+            super::profile::CustomPdaMode::Fixed => inst.pda = settings.fixed_value,
+        }
+        if settings.mode == super::profile::CustomPdaMode::Dynamic {
+            if let Some(cap) = settings.dynamic_cap.filter(|cap| cap.is_finite() && *cap != 0.0) {
+                inst.pda_cap = Some(cap);
+            }
+        }
+        self.pending.push(RuntimeEvent::CustomPda { instance: id });
+        true
+    }
+
+    /// `setmaxpolicy <vertex> 1.1` for 优先分析此点, to a ready `KataGoCustom` / `KataGoPda`
+    /// foreground engine. Returns whether the command was sent.
+    pub fn set_priority_point(&mut self, point: Point, size: BoardSize) -> bool {
+        let Some(id) = self.foreground else { return false };
+        let Some(inst) = self.get(id) else { return false };
+        if !self.supports_custom_policy(id)
+            || inst.phase != Phase::Ready
+            || inst.unrestored.is_some()
+            || self.leased(id)
+        {
+            return false;
+        }
+        self.send(id, &format!("setmaxpolicy {} 1.1", gtp::vertex(size, point)), Purpose::Setup);
+        self.fence_last(id);
+        true
+    }
+
+    /// `clearpolicy` for 清除优先分析, to the same engines. Returns whether it was sent.
+    pub fn clear_priority_points(&mut self) -> bool {
+        let Some(id) = self.foreground else { return false };
+        let Some(inst) = self.get(id) else { return false };
+        if !self.supports_custom_policy(id)
+            || inst.phase != Phase::Ready
+            || inst.unrestored.is_some()
+            || self.leased(id)
+        {
+            return false;
+        }
+        self.send(id, "clearpolicy", Purpose::Setup);
+        self.fence_last(id);
+        true
+    }
+
+    /// 自动套用 after both start-up answers (`Leelaz` sends the stored command once `pda:` and
+    /// `PDACap:` arrived). The commands go after the queries, before the start-up fence closes.
+    fn custom_pda_after_startup(&mut self, id: InstanceId, events: &mut Vec<RuntimeEvent>) {
+        let commands = {
+            let Some(inst) = self.get_mut(id) else { return };
+            if inst.pda_queries != 0 || inst.pda_autoloaded || !inst.gtp_name.starts_with("KataGoPda") {
+                return;
+            }
+            inst.pda_autoloaded = true;
+            inst.pda_mode = if inst.pda_cap.is_some_and(|cap| cap != 0.0) {
+                Some(CustomPdaMode::Dynamic)
+            } else {
+                inst.pda.map(|pda| if pda == 0.0 { CustomPdaMode::Disabled } else { CustomPdaMode::Fixed })
+            };
+            if inst.custom_pda.auto_apply { inst.custom_pda.commands() } else { Vec::new() }
+        };
+        for command in &commands {
+            self.send(id, command, Purpose::Setup);
+        }
+        let inst = self.get_mut(id).unwrap();
+        if !commands.is_empty() {
+            inst.pda_mode = Some(inst.custom_pda.mode);
+            inst.ready_fence = inst.next_id.checked_sub(1);
+            match inst.custom_pda.mode {
+                super::profile::CustomPdaMode::Disabled => inst.pda = Some(0.0),
+                super::profile::CustomPdaMode::Dynamic => {
+                    inst.pda = Some(0.0);
+                    if let Some(cap) = inst.custom_pda.dynamic_cap.filter(|cap| cap.is_finite() && *cap != 0.0) {
+                        inst.pda_cap = Some(cap);
+                    }
+                }
+                super::profile::CustomPdaMode::Fixed => inst.pda = inst.custom_pda.fixed_value,
+            }
+            events.push(RuntimeEvent::CustomPda { instance: id });
+        }
+    }
+
+    /// The toolbar's and the 引擎参数 window's `kata-set-param` to the foreground engine, when it
+    /// is free for it ([`Self::exclusive_gtp_availability`]; the 激进度 does not need the borrowing
+    /// commands, as Java's `setPda` is not admitted like 广度). A search it is running stops and,
+    /// once the engine answered, the seat's wish searches again with the new value; the stopped
+    /// search's late lines are not published. Returns whether the command was sent.
+    pub fn set_kata_param(&mut self, param: KataParam, value: f64) -> bool {
+        let Some(id) = self.foreground else { return false };
+        let free = match self.exclusive_gtp_availability() {
+            LeaseAvailability::Available => true,
+            LeaseAvailability::MissingCapability => param == KataParam::Pda,
+            _ => false,
+        };
+        if !free || !value.is_finite() {
+            return false;
+        }
+        let inst = self.get_mut(id).unwrap();
+        if let Some(old) = inst.stream {
+            inst.requests.retain(|(r, _)| *r != old);
+        }
+        self.send(id, &format!("kata-set-param {} {value}", param.gtp_name()), Purpose::Setup);
+        self.fence_last(id);
+        true
+    }
+
+    /// Instance `id`'s numSearchThreads override and the value it last confirmed to the 引擎参数
+    /// window; `None` unless it is a KataGo.
+    pub fn search_threads(&self, id: InstanceId) -> Option<(ThreadOverride, Option<u32>)> {
+        let inst = self.get(id).filter(|i| i.kind == EngineKind::KataGo)?;
+        let state = if inst.threads_overridden {
+            ThreadOverride::On
+        } else if inst.profile.is_remote_managed() {
+            ThreadOverride::Unknown
+        } else {
+            ThreadOverride::Off
+        };
+        Some((state, inst.threads_confirmed))
+    }
+
+    /// Reads (`set: None`) or sets the numSearchThreads of `id`, a ready foreground KataGo (Java
+    /// `requestRuntimeSearchThreads`); the caller decides whether the engine is free for it. The
+    /// answer, or a timeout after 8 s, arrives as [`RuntimeEvent::SearchThreads`]
+    /// with `ticket`; a later answer is ignored. A search it is running stops and the seat's wish
+    /// searches again once the engine answered. Returns whether the command was sent.
+    pub fn request_search_threads(&mut self, id: InstanceId, set: Option<u32>, ticket: u64) -> bool {
+        if self.foreground != Some(id)
+            || !self.get(id).is_some_and(|i| i.phase == Phase::Ready && i.kind == EngineKind::KataGo)
+        {
+            return false;
+        }
+        let inst = self.get_mut(id).unwrap();
+        if let Some(old) = inst.stream {
+            inst.requests.retain(|(r, _)| *r != old);
+        }
+        let command = match set {
+            Some(threads) => format!("kata-set-param numSearchThreads {threads}"),
+            None => "kata-get-param numSearchThreads".to_string(),
+        };
+        let Some(n) = self.send(id, &command, Purpose::Setup) else { return false };
+        self.fence_last(id);
+        let request = ThreadRequest { set, ticket, deadline: Instant::now() + THREAD_TIMEOUT };
+        self.get_mut(id).unwrap().thread_requests.insert(n, request);
+        true
+    }
+
+    /// The Leela 引擎参数 window's `lz-setoption`s to the foreground engine, when it is a ready
+    /// Leela Zero / Sai that nothing else holds (not unrestored, not held by GMA). A search it is
+    /// running stops and, once the engine answered, the seat's wish searches again
+    /// (`SetLeelaEngines`: `isPondering` → `ponder`). Returns whether anything was sent.
+    pub fn set_leela_options(&mut self, options: &[(LeelaOption, String)]) -> bool {
+        let Some(id) = self.foreground else { return false };
+        // A free, ready engine that is not KataGo gets no further than `NotKatago`.
+        if !self.takes_lz_options(id) || self.exclusive_gtp_availability() != LeaseAvailability::NotKatago {
+            return false;
+        }
+        let commands: Vec<String> = options.iter().filter_map(|(o, v)| o.command(v)).collect();
+        if commands.is_empty() {
+            return false;
+        }
+        let inst = self.get_mut(id).unwrap();
+        if let Some(old) = inst.stream {
+            inst.requests.retain(|(r, _)| *r != old);
+        }
+        for c in commands {
+            self.send(id, &c, Purpose::Setup);
+        }
+        self.fence_last(id);
+        true
+    }
+
+    /// `refreshCurrentMove` for seat `id`: the engine drops its search cache (`clear_cache`,
+    /// only when it lists the command), and an analysis it is running starts again
+    /// (`ponder`). Nothing goes to an engine that is starting, lent out, unrestored or playing.
+    pub fn refresh_analysis(&mut self, id: InstanceId) {
+        let Some(inst) = self.get(id) else { return };
+        if inst.phase != Phase::Ready
+            || inst.unrestored.is_some()
+            || self.leased(id)
+            || self.in_game(id)
+        {
+            return;
+        }
+        let clear_cache = inst.has("clear_cache");
+        // The new search is another search of the same position: the stopped stream's late
+        // lines, written before the engine reads the next command, are not published.
+        let inst = self.get_mut(id).unwrap();
+        if let Some(old) = inst.stream {
+            inst.requests.retain(|(r, _)| *r != old);
+        }
+        if clear_cache {
+            self.send(id, "clear_cache", Purpose::Setup);
+        } else if !self.stop_stream(id) {
+            return;
+        }
+        // Its answer lets the wish be sent again: a new search when the seat analyses.
+        self.fence_last(id);
     }
 
     /// Sends `kata-set-rules` and the confirming `kata-get-rules` once per requested rules value;
@@ -1954,7 +2507,7 @@ impl Engines {
         let Some(inst) = self.get_mut(id) else {
             return events; // a retired instance
         };
-        let name = inst.display_name();
+        let (name, phase) = (inst.display_name(), inst.phase);
         match input {
             EngineInput::Stderr(line) => {
                 push_tail(&mut inst.output_tail, &line);
@@ -1974,7 +2527,7 @@ impl Engines {
                 self.finish_raw(id, &mut events);
                 self.summary(id, &line, &mut events);
                 self.trace(&name, "!!", &line);
-                self.console_push(name, ConsoleKind::Error, line);
+                self.console_record(name, phase, ConsoleKind::Error, line);
             }
             EngineInput::Exited(code) => {
                 let message = match code {
@@ -1999,6 +2552,11 @@ impl Engines {
             }
             EngineInput::Stdout(line) => {
                 let mut frames = Vec::new();
+                // A private setter echoes `pda:` / `PDACap:` outside a response frame; the
+                // answer body itself is read in `Frame::Response`.
+                if inst.note_pda_text(&line) {
+                    events.push(RuntimeEvent::CustomPda { instance: id });
+                }
                 inst.framer.feed(&line, &mut frames);
                 let is_info = line.starts_with("info ");
                 if !is_info {
@@ -2006,9 +2564,12 @@ impl Engines {
                 }
                 self.trace(&name, "<<", &line);
                 if !is_info && !line.trim().is_empty() {
-                    self.console_push(name, ConsoleKind::Output, line);
+                    self.console_record(name, phase, ConsoleKind::Output, line);
                 }
                 for f in frames {
+                    if let Frame::Response { id: n, ok, .. } = &f {
+                        self.record_answer(id, *n, *ok);
+                    }
                     self.frame(id, f, &mut events);
                 }
             }
@@ -2088,6 +2649,8 @@ impl Engines {
         if self.lease.as_ref().is_some_and(|l| l.instance == id) && self.lease_frame(&frame, events) {
             return;
         }
+        // Only the foreground process takes a numSearchThreads answer (Java `target.isCurrent()`).
+        let foreground = self.foreground == Some(id);
         let Some(inst) = self.get_mut(id) else { return };
         match frame {
             Frame::Header { id: n } => {
@@ -2123,6 +2686,9 @@ impl Engines {
                 });
             }
             Frame::Response { id: n, ok, text } => {
+                if inst.note_pda_text(&text) {
+                    events.push(RuntimeEvent::CustomPda { instance: id });
+                }
                 if inst.stream == Some(n) && !matches!(inst.waiting.get(&n), Some(Purpose::Ponder)) {
                     inst.stream = None;
                 }
@@ -2134,6 +2700,41 @@ impl Engines {
                         events.push(RuntimeEvent::FocusConfirmed { instance: id });
                     }
                 }
+                if let Some((param, value)) = inst.param_writes.remove(&n).filter(|_| ok) {
+                    if inst.kata_params.set(param, value) {
+                        events.push(RuntimeEvent::KataParams { instance: id });
+                    }
+                }
+                let read = inst.param_reads.remove(&n).filter(|_| ok);
+                if let Some((param, value)) = read.zip(text.trim().parse::<f64>().ok().filter(|v| v.is_finite())) {
+                    inst.kata_params.set(param, value);
+                    if matches!(inst.waiting.get(&n), Some(Purpose::Setup)) {
+                        inst.kata_params.reads += 1;
+                    }
+                    events.push(RuntimeEvent::KataParams { instance: id });
+                }
+                if let Some(request) = inst.thread_requests.remove(&n) {
+                    let payload = text.trim();
+                    let result = if !foreground {
+                        Err("KataGo process or foreground selection changed".to_string())
+                    } else if !ok {
+                        Err(format!("KataGo rejected numSearchThreads: {payload}"))
+                    } else if let Some(threads) = request.set {
+                        inst.threads_overridden = true;
+                        Ok(threads)
+                    } else {
+                        payload
+                            .parse::<u32>()
+                            .ok()
+                            .filter(|v| (1..=1024).contains(v))
+                            .ok_or_else(|| format!("Invalid KataGo numSearchThreads response: {payload}"))
+                    };
+                    if let Ok(threads) = result {
+                        inst.threads_confirmed = Some(threads);
+                    }
+                    events.push(RuntimeEvent::SearchThreads { instance: id, ticket: request.ticket, result });
+                }
+                let mut pda_answer = false;
                 match inst.waiting.remove(&n) {
                     Some(Purpose::Name) => {
                         if !ok {
@@ -2209,7 +2810,16 @@ impl Engines {
                     Some(purpose @ (Purpose::Game | Purpose::Genmove)) => {
                         self.game_answer(id, n, matches!(purpose, Purpose::Genmove), ok, text, events);
                     }
+                    // The two queries count even when refused, so the engine still becomes
+                    // ready; their bodies were read above.
+                    Some(Purpose::GetPda) | Some(Purpose::GetPdaCap) => {
+                        inst.pda_queries = inst.pda_queries.saturating_sub(1);
+                        pda_answer = true;
+                    }
                     _ => {}
+                }
+                if pda_answer {
+                    self.custom_pda_after_startup(id, events);
                 }
                 let Some(inst) = self.get_mut(id) else { return };
                 if inst.ready_fence == Some(n) {
@@ -2243,7 +2853,15 @@ impl Engines {
     /// and the rules query; the answer to the last of them marks the engine ready.
     fn boot_setup(&mut self, id: InstanceId) {
         let Some(inst) = self.get_mut(id) else { return };
-        let boot = inst.boot.take().unwrap_or(Bootstrap { komi: 7.5, rules: None });
+        let boot = inst.boot.take().unwrap_or(Bootstrap {
+            komi: 7.5,
+            rules: None,
+            pda: None,
+            wrn: None,
+            leela_options: Vec::new(),
+            custom_pda: CustomPdaSettings::default(),
+        });
+        inst.custom_pda = boot.custom_pda.clone();
         let (w, h) = (inst.profile.width.max(1), inst.profile.height.max(1));
         let mut cmds = vec![format!("komi {}", komi_text(boot.komi))];
         cmds.push(if w == h || !inst.has("rectangular_boardsize") {
@@ -2259,12 +2877,25 @@ impl Engines {
                 .filter(|c| !c.is_empty())
                 .map(str::to_string),
         );
+        // `setLeelaSaiEnginePara`, once the engine is known not to be KataGo.
+        if inst.takes_lz_options() {
+            cmds.extend(boot.leela_options.iter().filter_map(|(o, v)| o.command(v)));
+        }
         let katago = inst.kind == EngineKind::KataGo;
+        // `setKataEnginePara`: the auto-loaded PDA, the launch threads, then the auto-loaded WRN.
+        let set_param = katago && inst.has("kata-set-param");
+        let pda_engine = inst.gtp_name.starts_with("KataGoPda");
+        if let Some(pda) = boot.pda.filter(|_| set_param && !pda_engine) {
+            cmds.push(format!("kata-set-param {} {pda}", KataParam::Pda.gtp_name()));
+        }
         if katago {
             let threads = inst.launch_threads;
             if threads > 0 {
                 cmds.push(format!("kata-set-param numSearchThreads {threads}"));
             }
+        }
+        if let Some(wrn) = boot.wrn.filter(|_| set_param) {
+            cmds.push(format!("kata-set-param {} {wrn}", KataParam::Wrn.gtp_name()));
         }
         if let Some(configuration) = &inst.profile.gtp_configuration {
             if configuration.protocol == "zengtp-config" && !configuration.profile.is_empty() {
@@ -2279,11 +2910,25 @@ impl Engines {
             }
         }
         let get_rules = katago && inst.has("kata-get-rules");
+        let get_params = katago && inst.has("kata-get-param");
         for c in cmds {
             self.send(id, &c, Purpose::Setup);
         }
         if get_rules {
             self.send(id, "kata-get-rules", Purpose::GetRules);
+        }
+        // `readKataParameters`: the toolbar shows what the engine holds once it is ready.
+        if get_params {
+            for param in [KataParam::Pda, KataParam::Wrn] {
+                self.send(id, &format!("kata-get-param {}", param.gtp_name()), Purpose::Setup);
+            }
+        }
+        // `getpda` / `getdympdacap`: only a `KataGoPda` engine speaks them (`Leelaz.isCheckingPda`).
+        // 自动套用 follows their answers, not the check box's literal claim.
+        if pda_engine {
+            self.send(id, "getpda", Purpose::GetPda);
+            self.send(id, "getdympdacap", Purpose::GetPdaCap);
+            self.get_mut(id).unwrap().pda_queries = 2;
         }
         // 选点重点研究's capability probe (`Leelaz.startMoveFocusProbe…`), part of every start-up
         // so neither a paused start nor an engine switch skips it: an empty-board analysis with
@@ -2315,12 +2960,21 @@ impl Engines {
             return LeaseAvailability::PlayMode;
         }
         if self.human_sl { return LeaseAvailability::HumanSlGame; }
-        let Some(inst) = self.foreground.and_then(|id| self.get(id)) else {
+        if self.foreground.and_then(|id| self.get(id)).is_none() {
             return LeaseAvailability::NoForegroundEngine;
-        };
+        }
         if self.application_exclusive {
             return LeaseAvailability::ApplicationExclusive;
         }
+        self.exclusive_gtp_availability()
+    }
+
+    /// The foreground engine's own state for a direct GTP use, whatever mode runs
+    /// (`previewExclusiveGtpLeaseAvailability`, which the toolbar's 广度 follows).
+    pub fn exclusive_gtp_availability(&self) -> LeaseAvailability {
+        let Some(inst) = self.foreground.and_then(|id| self.get(id)) else {
+            return LeaseAvailability::NoForegroundEngine;
+        };
         if inst.unrestored.is_some() {
             LeaseAvailability::EngineStateUnrestored
         } else if self.readboard_gma || self.games.iter().any(|g| g.readboard_gma()) {
@@ -2827,6 +3481,10 @@ impl Engines {
         self.next_instance += 1;
         self.trace(name, "--", &format!("start {shown}"));
         let io = self.launcher.launch(id, &spec).map_err(|e| e.to_string())?;
+        // Java `AnalysisResourceCoordinator` `process-started` (the sanitizer removes secrets).
+        self.diagnostics.debug(DiagnosticModule::Engine, || {
+            format!("engine event=process-started purpose={name} pid=-1 command={shown}")
+        });
         self.workers.push(Worker {
             id,
             name: name.to_string(),
@@ -3090,4 +3748,29 @@ fn sync_commands(inst: &Instance, target: &Target) -> (Vec<String>, EngineBoard)
     }
     cmds.extend(action_nodes.iter().map(|&n| play(n)));
     (cmds, want)
+}
+
+/// One value of a `KataGoPda` private answer (`Leelaz` `pda :` / `PDACap:` handling).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PdaLabel {
+    Pda(f64),
+    Cap(f64),
+}
+
+/// `pda: <value>` or `PDACap: <value>` at the start of a line, as the response body or an
+/// unsolicited private setter echo. Any other text is none.
+fn parse_pda_label(text: &str) -> Option<PdaLabel> {
+    let text = text.trim();
+    let (rest, cap) = if let Some(rest) = text.strip_prefix("pda:") {
+        (rest, false)
+    } else if let Some(rest) = text.strip_prefix("PDA:") {
+        // `Leelaz.parsePDALine`: the analysis line's `PDA: <value>`.
+        (rest, false)
+    } else if let Some(rest) = text.strip_prefix("PDACap:") {
+        (rest, true)
+    } else {
+        return None;
+    };
+    let value = rest.split_whitespace().next()?.parse::<f64>().ok().filter(|v| v.is_finite())?;
+    Some(if cap { PdaLabel::Cap(value) } else { PdaLabel::Pda(value) })
 }

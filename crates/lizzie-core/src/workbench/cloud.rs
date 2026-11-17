@@ -174,7 +174,7 @@ fn cloud_display_name(language: crate::settings::Language, settings: &CloudSetti
         "24x" => java_text(language, "RemoteCompute.plan.24x"),
         other => format!("On-demand {other}"),
     };
-    let weight = option("--kata-weight", "10b512t");
+    let weight = crate::cloud::kata_weight(args);
     let model = match weight.to_ascii_lowercase().as_str() {
         "28bnbt" => "28B NBT".to_owned(),
         "18bnbt" => "18B NBT".to_owned(),
@@ -183,7 +183,7 @@ fn cloud_display_name(language: crate::settings::Language, settings: &CloudSetti
         "10b512t" => java_text(language, "RemoteCompute.weightName.10b512t"),
         "11b768t" => java_text(language, "RemoteCompute.weightName.11b768t"),
         lower if lower.len() > 1 && lower.ends_with('b') && lower[..lower.len() - 1].bytes().all(|b| b.is_ascii_digit()) => weight.to_ascii_uppercase(),
-        _ => weight.clone(),
+        _ => weight.to_owned(),
     };
     format!("{} {plan} · {model} · {backend}", java_text(language, "RemoteCompute.zhizi"))
 }

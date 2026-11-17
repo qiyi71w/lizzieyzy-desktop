@@ -102,6 +102,39 @@ fn advances_on_elapsed_time_only_after_foreground_packet() {
 }
 
 #[test]
+fn stop_at_empty_board_does_not_stop_automatic_analysis_at_the_root() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, id) = setup(dir.path(), LINE);
+    let mut analysis = wb.config().engine.analysis.clone();
+    analysis.stop_at_empty_board = true;
+    wb.set_analysis_settings(analysis).unwrap();
+    wb.start_auto_analysis(settings()).unwrap().unwrap();
+    serve(&mut wb, &world, id);
+    info(&mut wb, id, 6, 3, 0.5);
+    let v = wb.view(true);
+    assert!(v.position.node == 0 && !v.engine.stopped_by_limit);
+    info(&mut wb, id, 6, 4, 0.5);
+    assert_eq!(wb.view(true).position.node, 1);
+}
+
+#[test]
+fn analyze_sides_do_not_hold_automatic_analysis() {
+    // Leelaz.playMove / undo skip the 分析 黑 / 白 check while `isAutoAna` (Leelaz.java:19895, 22929).
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, id) = setup(dir.path(), LINE);
+    wb.set_analyze_sides(false, true); // ordinary analysis waits at the root, Black to play
+    wb.start_auto_analysis(settings()).unwrap().unwrap();
+    serve(&mut wb, &world, id);
+    info(&mut wb, id, 6, 4, 0.5);
+    assert_eq!(wb.view(true).position.node, 1, "a run started where the choice held analysis");
+    serve(&mut wb, &world, id);
+    wb.set_analyze_sides(false, false); // White to play now
+    serve(&mut wb, &world, id);
+    info(&mut wb, id, 6, 4, 0.5);
+    assert_eq!(wb.view(true).position.node, 2, "unticking the side to move during a run");
+}
+
+#[test]
 fn auto_analysis_excludes_whole_game_and_hawkeye_list_navigation() {
     use lizzie_core::api::HawkeyeCommand;
     let dir = tempfile::tempdir().unwrap();
@@ -208,6 +241,26 @@ fn forced_stop_keeps_position_and_pause_exit_respects_setting() {
         assert_eq!(wb.view(true).position.node, at);
         wb.goto_node(0).unwrap(); assert!(wb.view(true).analysis.is_some());
     }
+}
+
+#[test]
+fn the_settings_hold_stops_analysis_without_ending_the_run() {
+    let dir = tempfile::tempdir().unwrap(); let (mut wb, world, id) = setup(dir.path(), LINE);
+    let mut s = settings(); s.exit_by_pause = true;
+    wb.start_auto_analysis(s).unwrap().unwrap(); serve(&mut wb, &world, id);
+    info(&mut wb, id, 3, 0, 0.5);
+    assert!(wb.view(true).engine.analysing);
+    assert!(wb.hold_analysis(true));
+    let view = wb.view(true);
+    assert!(view.auto_analysis.active && !view.auto_analysis.pause_tip);
+    assert!(!view.engine.analysing && !view.engine.paused);
+    // Results arriving meanwhile do not move the run on.
+    info(&mut wb, id, 1_000_000, 0, 0.5);
+    assert_eq!(wb.view(true).position.node, 0);
+    assert!(wb.hold_analysis(false));
+    serve(&mut wb, &world, id);
+    let view = wb.view(true);
+    assert!(view.auto_analysis.active && view.engine.analysing && !view.engine.paused);
 }
 
 #[test]

@@ -177,6 +177,24 @@ fn non_chinese_startup_restores_the_simple_toolbar_instead_of_obsolete_details()
 }
 
 #[test]
+fn bottom_buttons_and_detail_panel_order_survive_restart() {
+    use lizzie_core::settings::{BottomButtonSettings, DetailPanelOrder};
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    let s = wb.view(false).settings;
+    assert_eq!((s.bottom_buttons, s.detail_panel_order), (BottomButtonSettings::default(), DetailPanelOrder::default()));
+    let buttons = BottomButtonSettings { refresh: true, try_play: true, bad_moves: Some(false), detail_button: true, ..Default::default() };
+    let order = DetailPanelOrder { auto_analysis: 2, engine_match: 2, auto_play: 0 };
+    assert!(wb.set_bottom_buttons(buttons).unwrap());
+    assert!(wb.set_detail_panel_order(order).unwrap());
+    // ToolbarPositionConfig offers places 1–3 only.
+    assert!(wb.set_detail_panel_order(DetailPanelOrder { auto_play: 3, ..order }).is_err());
+    drop(wb);
+    let s = workbench(dir.path()).view(false).settings;
+    assert_eq!((s.bottom_buttons, s.detail_panel_order), (buttons, order));
+}
+
+#[test]
 fn fixed_modes_apply_java_panel_policies_and_survive_restart() {
     let dir = tempfile::tempdir().unwrap();
     let mut wb = workbench(dir.path());

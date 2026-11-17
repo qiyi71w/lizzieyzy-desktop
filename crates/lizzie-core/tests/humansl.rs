@@ -4,7 +4,7 @@ use lizzie_core::browse::Navigation;
 use lizzie_core::engine::{
     gtp::LaunchSpec,
     profile::{EngineProfile, EngineStartup},
-    runtime::{EngineInput, EngineIo, InstanceId, Launcher},
+    runtime::{EngineInput, EngineIo, InstanceId, KataParam, Launcher},
 };
 use lizzie_core::record::{Point, Stone, ROOT};
 use lizzie_core::settings::{self, Config, HumanSlTrainingSettings, PlayerColor, Storage, TrainingMode};
@@ -433,6 +433,25 @@ fn live_analysis_keeps_foreground_running_and_does_not_mutate_display_preference
     f.wb.human_sl(HumanSlCommand::Finish).unwrap();
     serve(&mut f, fg, false);
     assert!(f.wb.inspect().human_sl.is_none());
+}
+/// The toolbar 激进度 / 广度 still set the paused foreground KataGo during AI 陪练, as Java's
+/// toolbar does (`Menu.breadthAdmissionAvailable` follows the engine's own state only).
+#[test]
+fn toolbar_search_parameters_still_reach_the_foreground_engine_during_training() {
+    let mut f = fixture(true);
+    let fg = foreground(&mut f);
+    let id = start(&mut f, settings(PlayerColor::Black), false);
+    ready(&mut f, id);
+    serve(&mut f, fg, false);
+    let set = Command::SetKataParam { param: KataParam::Wrn, enabled: true, value: 0.3 };
+    assert_eq!(f.wb.game_gate(&set), None);
+    assert_eq!(f.wb.set_kata_param(KataParam::Pda, true, 0.5).unwrap(), None);
+    assert_eq!(f.wb.set_kata_param(KataParam::Wrn, true, 0.3).unwrap(), None);
+    let sent = f.world.take(fg);
+    for c in ["kata-set-param playoutDoublingAdvantage 0.5", "kata-set-param analysisWideRootNoise 0.3"] {
+        assert!(sent.iter().any(|s| s.ends_with(c)), "{sent:?}");
+    }
+    assert!(f.wb.inspect().human_sl.is_some(), "the session goes on");
 }
 #[test]
 fn deferred_open_is_released_only_after_exit_and_first_request_wins() {

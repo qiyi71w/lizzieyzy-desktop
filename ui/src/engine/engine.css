@@ -37,6 +37,33 @@
 .engine-rule-row { display: grid; grid-template-columns: minmax(190px, 1.3fr) repeat(3, minmax(90px, 1fr)); align-items: center; gap: 14px; margin: 12px 0; }
 .engine-rule-row label { white-space: nowrap; }
 .engine-hint { margin-top: 10px; }
+/* 设置KataGo引擎高级参数 (SetKataEngines.java, middle font: label, 修改 at 560, value 133 wide at
+   591, 自动加载 at 756, 在工具栏中控制 at 854; hint rows below). */
+.kata-params { padding: 4px 10px 10px; }
+.kata-params-grid { display: grid; grid-template-columns: minmax(420px, auto) 25px 133px 110px 140px; align-items: center; column-gap: 6px; row-gap: 8px; }
+.kata-params-grid input[type=checkbox] { justify-self: center; }
+.kata-params-grid input:not([type=checkbox]) { height: 24px; box-sizing: border-box; }
+.kata-params-grid input.invalid { background: red; }
+.kata-params-head { text-align: center; white-space: nowrap; }
+.kata-params-pda-engine { grid-column: span 4; }
+/* 搜索线程数's read status (lblThreadReadStatus, 150 wide right of the value). */
+.kata-params-thread-status { grid-column: span 2; white-space: nowrap; }
+/* 设置Leela(Sai)引擎高级参数 (SetLeelaEngines.java, middle font: label, 修改 at 560, value 133
+   wide at 591, 自动加载 at 763; the hint below). */
+.leela-params-grid { grid-template-columns: minmax(420px, auto) 25px 133px 110px; }
+.kata-params > div:not(.kata-params-grid) { margin-top: 8px; }
+.kata-params-link { cursor: pointer; text-decoration: underline; }
+.kata-params .engine-actions { justify-content: center; }
+/* KataGo 激进参数PDA设置 (SetKataPDA.java, middle font 680 wide: 当前PDA row, the three choices
+   with 动态系数 and the two 66 x 24 fields, the tip, 自动加载, the red notes, 确定 / 取消). */
+.kata-params.custom-pda { min-width: 640px; }
+.custom-pda-current { display: flex; align-items: baseline; gap: 8px; font-size: 14px; }
+.custom-pda-current-value { font-size: 15px; }
+.custom-pda-modes { display: flex; flex-wrap: wrap; align-items: center; column-gap: 14px; row-gap: 6px; }
+.custom-pda-check, .custom-pda-ratio { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.custom-pda-value { width: 66px; height: 24px; box-sizing: border-box; }
+.kata-params > .custom-pda-check { display: flex; margin-top: 8px; }
+.kata-params > .custom-pda-warning { color: red; margin-top: 4px; }
 .engine-settings { display: grid; grid-template-columns: 150px minmax(360px, 1fr); padding: 12px; gap: 20px; }
 .engine-settings nav { display: flex; flex-direction: column; gap: 6px; }
 .engine-settings-form { display: grid; gap: 10px; }

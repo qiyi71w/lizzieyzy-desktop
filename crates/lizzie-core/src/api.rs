@@ -21,6 +21,7 @@ mod recovery;
 mod resources;
 mod tencent_kifu;
 mod tuning;
+mod update;
 mod web_board;
 
 use serde::{Deserialize, Serialize};
@@ -43,6 +44,7 @@ pub use recovery::*;
 pub use resources::*;
 pub use tencent_kifu::*;
 pub use tuning::*;
+pub use update::*;
 pub use web_board::*;
 pub use crate::strength::{StrengthModelView, StrengthReport, StrengthSideReport, StrengthSegment, StrengthSummary, StrengthSample, StrengthConfidence, StrengthMoveCategory};
 
@@ -92,7 +94,11 @@ pub enum StrengthManualOutcome {
 }
 
 use crate::browse::Navigation;
-use crate::engine::profile::{AnalysisSettings, EngineProfile, EngineStartup};
+use crate::engine::profile::{
+    AnalysisSettings, CustomPdaMode, CustomPdaSettings, EngineProfile, EngineStartup, KataParamSettings,
+    LeelaOptionSettings,
+};
+use crate::engine::runtime::{KataParam, ThreadOverride};
 use crate::record::{BoardSize, GameInfo, Mark, NodeId, Point, RecordFormat, Stone};
 use crate::settings::{EditSettings, Language};
 
@@ -131,6 +137,8 @@ pub enum Command {
     TencentKifu { op: TencentKifuCommand },
     /// Web 旁观: start, stop, 强制结束试下.
     WebBoard { op: WebBoardCommand },
+    /// 检查更新: settings, checking, preparing and installing an update.
+    Update { op: UpdateCommand },
     /// SSH passwords and trusted host keys of remote engines: kept by the platform adapter, never
     /// in the settings.
     SshCredential { op: SshCredentialCommand },
@@ -252,6 +260,25 @@ pub enum Command {
     /// "开始/停止 分析(空格)", the bottom bar 分析 / 暂停分析 button, Space
     /// (`LizzieFrame.togglePonderMannul`). Not remembered across restarts.
     ToggleAnalysis,
+    /// 综合设置 is open (`LizzieFrame.openConfigDialog2`'s `togglePonder` around the modal
+    /// dialog): while `held` no engine analyses; a game, an engine match or 自动分析 stays on
+    /// and goes on once released. Not the user's pause, never remembered.
+    HoldAnalysis {
+        held: bool,
+    },
+    /// 分析 > 清除Lizzie缓存(全局) (Shift+A) / (此手): the stored analysis stays shown and saved
+    /// but gives way to the next live result, even a weaker one.
+    ClearAnalysisCache {
+        scope: AnalysisScope,
+    },
+    /// 分析 > 清除分析信息(全局) / (此手): the analysis is gone from the board and the saved
+    /// record; then the current move is analysed afresh (`refreshCurrentMove`).
+    ClearAnalysisInfo {
+        scope: AnalysisScope,
+    },
+    /// The bottom bar's 刷新 (`LizzieFrame.refreshCurrentMove`): the current move's stored result
+    /// gives way to the next live one and an analysing engine searches this move again.
+    RefreshCurrentMove,
     /// Engine menu `[n] name`, Ctrl+1..9 / Ctrl+0: make engine `index` the foreground engine.
     SwitchEngine {
         index: u32,
@@ -309,17 +336,92 @@ pub enum Command {
         rules: String,
         auto_load: bool,
     },
+    /// Toolbar 激进度 / 广度 (`chkPDA` / `txtGfPDA`, `chkWRN` / `txtWRN`): the foreground KataGo
+    /// uses `value` when `enabled`, else 0, and searches again; the check and the value are
+    /// remembered (the value only while checked). A new 广度 lets every stored result give way.
+    SetKataParam {
+        param: KataParam,
+        enabled: bool,
+        value: f64,
+    },
+    /// 引擎参数 window (`SetKataEngines`) 确定: the settings are saved, then the foreground
+    /// KataGo gets each parameter's value (0 when unchecked).
+    SaveKataEngineParams {
+        params: KataEngineParamsEdit,
+    },
+    /// 引擎参数 window's 搜索线程数（本次运行） (`SetKataEngines`, Java `RuntimeSearchThreads`):
+    /// each step answers [`CommandResult::SearchThreads`]; its progress and end arrive as
+    /// [`EngineView::search_threads_operation`].
+    SearchThreads {
+        op: SearchThreadsCommand,
+    },
+    /// Leela Zero / Sai 引擎参数 window (`SetLeelaEngines`) 确定: the four rows are saved as they
+    /// are, then each row with 修改 checked and a value goes to the foreground engine
+    /// (`lz-setoption`), which searches again.
+    SaveLeelaEngineOptions {
+        options: LeelaOptionSettings,
+    },
+    /// KataGoPda 激进参数PDA设置 (`SetKataPDA`) 确定: the mode, its value and 自动套用 are saved
+    /// (an empty value is kept and sends nothing); only a `KataGoPda` engine receives the
+    /// private `pda` / `dympdacap` commands.
+    SaveCustomPda {
+        settings: CustomPdaSettings,
+    },
+    /// 优先分析此点 (`RightClickMenu.priority`): an empty point of the current position is
+    /// recorded and the foreground `KataGoCustom` / `KataGoPda` engine gets
+    /// `setmaxpolicy <vertex> 1.1`, its analysis started first if it was paused.
+    SetPriorityPoint {
+        point: Point,
+    },
+    /// 清除优先分析 (`RightClickMenu.clearPriority`): `clearpolicy` and the recorded points.
+    ClearPriorityPoints,
     /// GtpConsolePane: send a raw command to the foreground engine.
     SendGtpCommand {
         command: String,
     },
-    /// 诊断与日志 > 完整日志 (engine GTP scope) on or off; "停止完整日志" turns it off.
+    /// The GTP console was shown or hidden: with `always-gtp` off, a hidden console does not
+    /// record ready engines.
+    SetConsoleVisible {
+        visible: bool,
+    },
+    /// 诊断与日志 > 完整日志 on or off; "停止完整日志" turns it off. On starts a session for
+    /// `scopes` (saved as the preference; none chosen means all), or for the saved preference
+    /// without them; a running session keeps its scopes.
     SetFullTrace {
         enabled: bool,
+        #[serde(default)]
+        #[ts(optional)]
+        scopes: Option<Vec<crate::diagnostics::TraceScope>>,
+    },
+    /// 诊断与日志 > 应用: 诊断记录, its modules and the 完整日志 scope preference, saved and in
+    /// effect at once.
+    SetLogging {
+        settings: crate::diagnostics::LoggingSettings,
+    },
+    /// 显示快速启动 (综合设置 > 棋盘与显示) and the 快速启动设置 program list, saved together.
+    SetQuickLinks {
+        settings: crate::quick_links::QuickLinkSettings,
+    },
+    /// A 快速启动 menu item: starts the saved program at `index` without waiting for it.
+    /// Answers `Refused` with `product.quickLinkFailed` when it cannot be started.
+    LaunchQuickLink {
+        index: u32,
+    },
+    /// 快速启动设置 > 浏览 (`OtherPrograms.getEngineLine`): the system file chooser titled `title`,
+    /// on Windows limited to `filter_name` (`*.jar`, `*.exe`, `*.bat`). Answers `FileChosen`.
+    ChooseQuickLinkProgram {
+        title: String,
+        filter_name: String,
     },
     /// The "不再提示" box of the analysis-limit notice (`show-ponder-limited-tips`).
     SetPonderLimitTips {
         enabled: bool,
+    },
+    /// 分析 黑 / 白 on the top toolbar: which sides ordinary analysis goes on for after the
+    /// user's moves and browsing. Session only.
+    SetAnalyzeSides {
+        black: bool,
+        white: bool,
     },
     /// Answer to a rules prompt: continue with the engine's current rules, or pause analysis.
     AnswerRulesPrompt {
@@ -356,6 +458,13 @@ pub enum Command {
         copy_cloud_token: bool,
         #[serde(default)]
         copy_cloud_password: bool,
+        /// Separate, unchecked-by-default consent for the 跑谱贡献 account, its password, a custom
+        /// command's passwords and its 远程SSH password.
+        #[serde(default)]
+        copy_contribution_credentials: bool,
+        /// Separate, unchecked-by-default consent for 快速启动 commands that carry credentials.
+        #[serde(default)]
+        copy_quick_link_credentials: bool,
         replace: bool,
         recovery: Option<RecoveryImport>,
     },
@@ -378,6 +487,12 @@ pub enum Command {
     /// 标记工具, right-click menu, other board size).
     SetEditSettings {
         settings: EditSettings,
+    },
+    /// 点击棋子回看 / 右键 回看 (`Board.setPressStoneInfo`): what the board shows while a stone at
+    /// `point` is reviewed. Reads only; the current node, the record and the analysis stay as
+    /// they are.
+    ClickReview {
+        point: Point,
     },
     /// 显示 > 总是显示黑胜率 and 目差显示 (盘面 / 目差).
     SetDisplaySettings {
@@ -530,6 +645,18 @@ pub enum Command {
     /// 自定义工具栏 > 死活 (`show-tsume-go-menu`).
     SetTsumegoButtonShown {
         shown: bool,
+    },
+    /// 自定义内容 of the top toolbar (its groups) and its 自动换行.
+    SetTopToolbarSettings {
+        settings: crate::settings::TopToolbarSettings,
+    },
+    /// 自定义内容 of the bottom toolbar (its buttons) and the 详细工具栏 button.
+    SetBottomButtons {
+        settings: crate::settings::BottomButtonSettings,
+    },
+    /// 详细工具栏 > 设置模块顺序 确认.
+    SetDetailPanelOrder {
+        order: crate::settings::DetailPanelOrder,
     },
 }
 
@@ -835,6 +962,14 @@ pub enum EngineScope {
     All,
 }
 
+/// Which stored analysis a 清除 menu item applies to: every node of the game (全局) or the
+/// current move (此手).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
+pub enum AnalysisScope {
+    All,
+    Current,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 #[serde(tag = "type")]
 pub enum CommandResult {
@@ -879,6 +1014,9 @@ pub enum CommandResult {
     /// The record content was captured and is being written; the result arrives as
     /// [`SaveOutcome`] in a later view.
     SaveStarted { ticket: u64 },
+    /// A [`Command::SearchThreads`] step was taken as operation `ticket`; its progress and end
+    /// arrive as [`EngineView::search_threads_operation`].
+    SearchThreads { ticket: u64 },
     /// "保存" would overwrite the record's own file; ask (`LizzieFrame.replaceFileTitle`), then
     /// resend `SaveRecord` with `confirmed: Some(document)`.
     NeedsReplaceConfirmation { document: u64, file_name: String },
@@ -914,6 +1052,9 @@ pub enum CommandResult {
     /// 死活题 framed the position; each colour in `no_room` is one "没有布置 [x方] 劫材的空间"
     /// message, in order.
     TsumegoFramed { no_room: Vec<Stone> },
+    /// Answer to [`Command::ClickReview`]; `None` when no move on the current line, the current
+    /// node included, was played at the point.
+    ClickReview { review: Option<ClickReviewView> },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -1024,6 +1165,29 @@ pub struct PositionView {
     pub next_color: Option<Stone>,
 }
 
+/// The position a click review shows (`Board.mouseOnNode`, drawn by `BoardRenderer.java:313-326`):
+/// the parent of the latest move at the point on the current line, with its first candidate's
+/// variation replayed over it.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct ClickReviewView {
+    pub document: u64,
+    pub revision: u64,
+    /// The current node the move was looked up from.
+    pub from: NodeId,
+    /// The node shown: the position before that move.
+    pub node: NodeId,
+    /// Row-major, `size.width * size.height`.
+    pub stones: Vec<Option<Stone>>,
+    pub last_action: Option<LastAction>,
+    pub snapshot: bool,
+    pub to_play: Stone,
+    /// Its stored analysis, as the displays show it.
+    pub analysis: Option<NodeAnalysisView>,
+    /// 落子评价 marks of that position (`drawMoveRankMark`, move numbers ignored), or `None`
+    /// while 落子评价 is off and only its last move is marked (`drawLastMoveMark`).
+    pub ranks: Option<Vec<crate::display::RankMark>>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 #[serde(tag = "type")]
 pub enum OpenOutcome {
@@ -1094,13 +1258,23 @@ pub struct SettingsView {
     /// 布局模式 (Java `ui.extra-mode`).
     pub extra_mode: crate::settings::ExtraMode,
     pub panels: crate::settings::PanelSettings,
+    /// The top toolbar's groups (自定义内容) and 自动换行.
+    pub top_toolbar: crate::settings::TopToolbarSettings,
     pub panel_sizes: crate::settings::PanelSizes,
     pub bottom_toolbar: crate::settings::BottomToolbar,
+    /// The bottom toolbar's buttons (自定义内容) and 详细工具栏 button.
+    pub bottom_buttons: crate::settings::BottomButtonSettings,
+    /// The 详细工具栏 panels' places (设置模块顺序).
+    pub detail_panel_order: crate::settings::DetailPanelOrder,
     pub comment_panel_auto_hidden: bool,
     pub custom_layouts: [Option<crate::settings::CustomLayout>; 2],
     pub independent_main_board: Option<crate::settings::WindowPlacement>,
     pub independent_sub_board: Option<crate::settings::WindowPlacement>,
     pub engine: EngineSettingsView,
+    /// 诊断与日志's saved switches and 完整日志 scope preference.
+    pub logging: crate::diagnostics::LoggingSettings,
+    /// 显示快速启动 and the 快速启动 program list.
+    pub quick_links: crate::quick_links::QuickLinkSettings,
     pub edit: EditSettings,
     pub display: crate::settings::DisplaySettings,
     /// 精析设置 as saved.
@@ -1118,6 +1292,9 @@ pub struct SettingsView {
     pub hawkeye: crate::settings::HawkeyeSettings,
     pub appearance: crate::appearance::AppearanceSettings,
     pub theme: crate::appearance::ThemeSettings,
+    /// Increases whenever theme folders are rewritten in place (a Java import replacing them):
+    /// the same theme values may then name different image files' contents.
+    pub theme_files_revision: u32,
     /// Frame size in use until the next start (LizzieFrame.java:20766-20768).
     pub active_frame_font_size: i32,
     /// 强制计算区域's depth choices.
@@ -1271,6 +1448,130 @@ pub struct EngineSettingsView {
     pub auto_load_kata_rules: bool,
     /// Settings > Advanced: run the official benchmark after start-up (`ui.enable-startup-benchmark`).
     pub startup_benchmark: bool,
+    /// The toolbar's 激进度 (`ui.txt-kata-engine-pda`, `ui.chk-kata-engine-pda`).
+    pub kata_pda: Option<f64>,
+    pub kata_pda_enabled: bool,
+    pub kata_params: KataParamSettings,
+    /// The Leela Zero / Sai 引擎参数 window's rows.
+    pub leela_options: LeelaOptionSettings,
+    /// KataGoPda 激进参数PDA设置 (`SetKataPDA`): mode, value and 自动套用.
+    pub custom_pda: CustomPdaSettings,
+}
+
+/// One parameter row of the 引擎参数 window: 修改, the value field (`None` when it is not a
+/// number) and 自动加载.
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, TS)]
+pub struct KataParamEdit {
+    pub enabled: bool,
+    pub value: Option<f64>,
+    pub auto_load: bool,
+}
+
+/// The 引擎参数 window's choices. `pda` is `None` for a `KataGoPda` engine, whose PDA row is
+/// replaced by a hint (`SetKataEngines.lblPdaEngineUseMenu`).
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, TS)]
+pub struct KataEngineParamsEdit {
+    pub pda: Option<KataParamEdit>,
+    pub wrn: KataParamEdit,
+    /// 在工具栏中控制 (`show-pda-in-menu`, `show-wrn-in-menu`).
+    pub show_pda: bool,
+    pub show_wrn: bool,
+}
+
+/// The foreground KataGo's PDA and WRN for the toolbar.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct KataParamsView {
+    /// What the engine last confirmed (read after start-up, or a set it accepted).
+    pub pda: Option<f64>,
+    pub wrn: Option<f64>,
+    /// Why the toolbar cannot change each now (a Java message key), `None` when it can.
+    pub pda_unavailable: Option<String>,
+    pub wrn_unavailable: Option<String>,
+    /// Change with every start-up read-back of the foreground engine (`readKataParameters`)
+    /// and with another foreground engine; the toolbar shows each value then
+    /// (`LizzieFrame.setPdaAndWrn`), not after each set it made itself. 广度's also changes when
+    /// a game gives back a 广度 the user changed during it (`restoreWRN`). `None` before any.
+    pub pda_read_back: Option<String>,
+    pub wrn_read_back: Option<String>,
+}
+
+/// The 引擎参数 window's 搜索线程数 row of one foreground KataGo process (`process`). Every step
+/// names the process the window was opened for; another process (a restart, another engine)
+/// makes the step stale (`SetKataEngines.threadStale`).
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum SearchThreadsCommand {
+    /// The window opened: read the process's `numSearchThreads` (`kata-get-param`).
+    Read { process: u64 },
+    /// 确定 (`confirmSettings`). Checked: `text` must be a whole number 1–1024
+    /// (`threadInvalid`); unless the process already holds that override and the field was not
+    /// `edited`, it is set (`kata-set-param`), and once the engine confirmed it the other rows
+    /// (`params`) are saved as [`Command::SaveKataEngineParams`]. Unchecked while the process's
+    /// override is on: a local engine's restore asks for confirmation
+    /// ([`SearchThreadsStatus::ConfirmRestore`]), a remote one is refused
+    /// (`threadRemoteRestoreUnsupported`). Otherwise only the other rows are saved.
+    Confirm {
+        process: u64,
+        enabled: bool,
+        text: String,
+        edited: bool,
+        params: KataEngineParamsEdit,
+    },
+    /// The user confirmed restore operation `ticket`: the engine restarts from its saved launch
+    /// source through the restart of a failed foreground engine (position, komi, rules, analysis
+    /// unless paused), the new process's value is read, then the other rows are saved.
+    Restore { ticket: u64 },
+}
+
+/// Where a restarted KataGo takes its search threads from (`SetKataEngines.threadSource*`):
+/// its configuration file, the saved benchmark recommendation or its launch command.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum ThreadRestoreSource {
+    CFG,
+    BENCHMARK,
+    COMMAND,
+}
+
+/// The foreground KataGo process's 搜索线程数 (Java `RuntimeSearchThreads`).
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct SearchThreadsView {
+    /// The process; another value is another process.
+    pub process: u64,
+    pub state: ThreadOverride,
+    /// What the process last confirmed to this row (a read or a set), `None` before that.
+    pub confirmed: Option<u32>,
+    /// It runs on another host (SSH, 远程算力): its source cannot be restored from here.
+    pub remote: bool,
+}
+
+/// The latest [`Command::SearchThreads`] operation.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct SearchThreadsOperationView {
+    pub ticket: u64,
+    pub status: SearchThreadsStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum SearchThreadsStatus {
+    /// Waiting for the engine (or its restart); the window takes no other action meanwhile.
+    Running,
+    /// Restoring needs the user's confirmation (`SetKataEngines.threadRestoreConfirm`); send
+    /// [`SearchThreadsCommand::Restore`] to go on. `recommended` is the benchmark's threads.
+    ConfirmRestore { source: ThreadRestoreSource, recommended: Option<u32> },
+    /// Done; `threads` is the value the engine confirmed, if it was asked.
+    Done { threads: Option<u32> },
+    /// Not done: a Java message key and the engine's or runtime's reason.
+    Failed { message_key: String, detail: Option<String> },
+}
+
+/// The foreground KataGoPda's PDA as its private `getpda` / `getdympdacap` answers (or its
+/// unsolicited `pda:` / `PDACap:` lines) last reported, with the saved dialog mode.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, TS)]
+pub struct CustomPdaView {
+    pub pda: Option<f64>,
+    pub cap: Option<f64>,
+    pub mode: CustomPdaMode,
 }
 
 /// Stone sound for a forward step onto a node (`Utils.playVoiceFile`): a capture of three or more
@@ -1304,6 +1605,8 @@ pub struct WorkbenchView {
     /// Current session komi (toolbar komi field).
     pub komi: f64,
     pub engine: EngineView,
+    /// The scopes of the running 完整日志 session; empty while none runs.
+    pub full_trace: Vec<crate::diagnostics::TraceScope>,
     /// Automatic quick analysis of the open record.
     pub quick: QuickAnalysisView,
     /// Manual flash analysis in progress.
@@ -1376,6 +1679,8 @@ pub struct WorkbenchView {
     pub tencent_kifu: TencentKifuView,
     /// Web 旁观 and a viewer's 试下.
     pub web_board: WebBoardView,
+    /// 检查更新.
+    pub update: UpdateView,
     pub human_sl_notices: Vec<HumanSlNotice>,
     /// 跑谱贡献 session, until its window is closed after it ended.
     pub contribution: Option<ContributionView>,
@@ -1441,6 +1746,9 @@ pub enum ImportReason {
     NotChosen,
     /// Java keeps the key but no longer uses it.
     Obsolete,
+    /// Java's own bookkeeping (a one-time migration marker, first-start or machine marker, a window
+    /// left open), not a setting.
+    JavaState,
 }
 
 /// One Java setting in the import preview / report. Credential values are never included.
@@ -1463,6 +1771,8 @@ pub struct ImportItemView {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, TS)]
 pub enum ImportTarget {
     Appearance,
+    /// Java's theme folders (`theme/<name>/`), each one this product's theme.
+    Themes,
     Commentary,
     Cloud,
     ReadKomi,
@@ -1477,6 +1787,11 @@ pub enum ImportTarget {
     ReadBoardStatSync,
     /// `ui.read-board-get-focus`.
     ReadBoardGetFocus,
+    /// `ui.suppress-readboard-websocket-pondering-notice`.
+    ReadBoardPonderingNotice,
+    /// 诊断与日志 (`logging.diagnostics-enabled`, `diagnostic-modules`,
+    /// `preferred-full-trace-scopes`).
+    Diagnostics,
     RecentFiles,
     LastFolder,
     Engines,
@@ -1493,10 +1808,27 @@ pub enum ImportTarget {
     PonderLimitTips,
     /// `ui.auto-check-engine-alive`.
     AutoCheckEngineAlive,
+    /// `leelaz.enable-lizzie-cache`.
+    LizzieCache,
+    /// `leelaz.stop-at-empty-board`.
+    StopAtEmptyBoard,
+    /// `ui.always-gtp`.
+    AlwaysGtp,
     KataRules,
     AutoLoadKataRules,
     /// `ui.txt-kata-engine-pda` / `ui.chk-kata-engine-pda`.
     KataPda,
+    /// `ui.txt-kata-engine-wrn` / `ui.chk-kata-engine-wrn`.
+    KataWrn,
+    /// `ui.autoload-kata-engine-pda` / `-wrn` and `ui.auto-load-txt-kata-engine-pda` / `-wrn`.
+    KataParamAutoLoad,
+    /// `ui.show-pda-in-menu` / `ui.show-wrn-in-menu`.
+    KataParamToolbar,
+    /// `ui.chk-lzsai-engine*`, `ui.autoload-Lzsai-engine*` and `ui.txt-lzsai-engine*`.
+    LeelaOptions,
+    /// `ui.chk-dym-pda`, `ui.chk-static-pda`, `ui.chk-auto-pda`, `ui.dym-pda-cap`,
+    /// `ui.static-pda-cur` and `ui.auto-pda` (KataGoPda 激进参数PDA设置).
+    CustomPda,
     /// `ui.enable-startup-benchmark`.
     StartupBenchmark,
     /// `ui.network-proxy-mode` / `-host` / `-port`.
@@ -1521,6 +1853,12 @@ pub enum ImportTarget {
     OtherBoardSize,
     /// `ui.no-capture`.
     NoCapture,
+    /// `ui.show-move-rect`.
+    MoveRect,
+    /// `ui.enable-click-review`.
+    ClickReview,
+    /// `ui.last-painting-color`.
+    PaintingColor,
     /// `ui.auto-save-exit`.
     AutoSaveOnExit,
     /// `ui.resume-previous-game`.
@@ -1541,6 +1879,8 @@ pub enum ImportTarget {
     /// `movenumber-from-one`, `new-move-number-in-branch`, `show-moveall-inbranch`,
     /// `show-var-move`.
     MoveNumbers,
+    /// 分支面板设置: `ui.show-scroll-variation`, `max-tree-width`, `ignore-out-of-width`.
+    VariationTree,
     /// 落子评价: `ui.move-rank-mark-last-move`, `txt-move-rank-mark-last-move`,
     /// `move-rank-evaluation-mode` (or the older `use-win-loss-in-move-rank` /
     /// `use-score-loss-in-move-rank`), `win-loss-threshold-1..5`, `score-loss-threshold-1..5`.
@@ -1577,6 +1917,11 @@ pub enum ImportTarget {
     WorkbenchPanels,
     PanelSizes,
     BottomToolbar,
+    /// 快速启动: `ui.show-quick-links`, `leelaz.program-name-list`, `program-command-list`.
+    QuickLinks,
+    /// 检查更新: `ui.auto-check-update`, `ui.auto-download-update`, `ui.update-channel`,
+    /// `ui.update-source`.
+    Update,
     /// 加载棋谱后快速刷新胜率曲线: `ui.auto-quick-analyze-on-load`.
     AutoQuickAnalysis,
     /// 精析设置: `ui.analysis-engine-command`, `-command-customized`, `analysis-max-visits`,
@@ -1597,6 +1942,19 @@ pub enum ImportTarget {
     /// 抓取死活题 参数设置: `ui.capture-black-offset`, `capture-black-percent`,
     /// `capture-white-offset`, `capture-white-percent`, `capture-gray-percent`.
     CaptureTsumego,
+    /// 顶部工具栏 自定义内容 and 自动换行: `ui.show-double-menu-btn`, `show-basic-btn`,
+    /// `show-edit-bar`, `show-force-menu`, `show-double-menu-game-control`,
+    /// `show-time-control-in-menu`, `show-playout-control-in-menu`, `show-analyze-controller`,
+    /// `show-double-menu-var`, `show-double-menu-moveinfo`, `show-rule-menu`, `show-param-menu`,
+    /// `show-goban-menu`, `show-saveload-menu`, `auto-wrap-tool-bar`.
+    TopToolbar,
+    /// 底部工具栏 自定义内容: `ui.liveButton`, `kataEstimate`, `batchOpen`, `openfile`, `savefile`,
+    /// `finalScore`, `heatMap`, `badMoves`, `analyze-list`, `refresh`, `analyse`, `tryPlay`,
+    /// `setMain`, `backMain`, `clearButton`, `deleteMove`, `move-rank`, `move`, `coords`,
+    /// `autoPlay`, `show-detailed-toolbar-menu`.
+    BottomButtons,
+    /// 详细工具栏 设置模块顺序: `persist:ui-persist.toolbar-parameter` slots 32–34.
+    DetailPanelOrder,
     /// 问题手: `ui.is-showing-blunder-table`, `problem-list-side-filter`, `problem-list-sort`,
     /// `problem-list-winrate-threshold`, `blunder-playouts-threshold`,
     /// `hide-blunder-table-control-pane`.
@@ -1645,6 +2003,8 @@ pub enum ImportTarget {
     FoxKifu,
     /// 腾讯棋谱: `ui.last-tencent-name`, `tencent-after-get`, `tencent-recent-searches`.
     TencentKifu,
+    /// 跑谱贡献: `ui.contribute-*`, `ui.show-Contribute`, `leelaz.contribute-engine-ssh-info`.
+    Contribution,
 }
 
 /// A problem found with an imported engine without starting it.
@@ -1703,8 +2063,15 @@ pub struct ImportPreviewView {
     /// The SSH account (`user@host:port`) whose Java password 精析设置's 远程引擎 would copy
     /// when confirmed.
     pub analysis_ssh_credential: Option<String>,
+    /// Java has a 跑谱贡献 account, password or SSH password to copy when confirmed.
+    pub contribution_credential: bool,
+    /// A Java 快速启动 command carries credentials: the program list comes over only when confirmed.
+    pub quick_link_credential: bool,
     /// Settings already chosen in this product that the import would replace.
     pub replaces: Vec<ImportTarget>,
+    /// This product's themes that the Java theme folders of the same name would replace
+    /// (listed under [`ImportTarget::Themes`] in `replaces`).
+    pub replaced_themes: Vec<String>,
     /// Java 存档与读档 slots; imported only when the user chooses to.
     pub recovery: Vec<ImportSlotView>,
 }
@@ -1775,12 +2142,17 @@ pub struct ForegroundEngineView {
     pub gtp_name: String,
     pub version: String,
     pub katago: bool,
+    /// Leela Zero or Sai: its 引擎参数 window is the Leela one (`lz-setoption`).
+    pub leela_sai: bool,
     /// Speaks `kata-analyze` / `lz-analyze`.
     pub can_analyse: bool,
     /// Identified and synced to the current position: the switch is complete.
     pub ready: bool,
     /// `list_commands` (GtpConsolePane 常用命令).
     pub commands: Vec<String>,
+    /// This engine process loads an official B11 model (Java `Leelaz.usesB11ForSpeedNotice`):
+    /// the title adds `B11SpeedNotice.title` after the speed. False until its model is known.
+    pub b11: bool,
 }
 
 /// The secondary engine (副引擎, Java `Lizzie.leelaz2`) of 双引擎模式: it analyses the same
@@ -1835,14 +2207,15 @@ pub struct EngineView {
     pub analysing: bool,
     /// An analysis limit stopped the analysis of the current node.
     pub stopped_by_limit: bool,
+    /// 分析 黑 / 白: ordinary analysis goes on for these sides (session only, both at start).
+    pub analyze_black: bool,
+    pub analyze_white: bool,
     /// Captured-panel rules caption key (`KataGoRules.Summary`), when KataGo reported its rules.
     pub rules_key: Option<String>,
     /// Rules the foreground KataGo reported (JSON), for the rules dialog.
     pub rules: Option<String>,
     /// Last console line; the console fetches newer lines.
     pub console_seq: u64,
-    /// Full trace of engine GTP traffic is being written.
-    pub full_trace: bool,
     /// 复用当前前台引擎 target status (`AnalysisSettings.reuseStatus`).
     pub lease: LeaseAvailabilityView,
     /// The foreground engine was not given back after it was borrowed: it does not analyse until
@@ -1851,6 +2224,17 @@ pub struct EngineView {
     /// The foreground engine failed and nothing took its seat since (`LizzieFrame.display.down`,
     /// Java `isDownWithError`).
     pub down: bool,
+    /// The foreground KataGo's PDA and WRN (toolbar 激进度 / 广度).
+    pub kata_params: KataParamsView,
+    /// The foreground KataGo process's 搜索线程数, while one is ready.
+    pub search_threads: Option<SearchThreadsView>,
+    /// The latest 搜索线程数 operation (it outlives the process a restore replaces).
+    pub search_threads_operation: Option<SearchThreadsOperationView>,
+    /// The foreground KataGoPda's current PDA and cap and the saved dialog mode.
+    pub custom_pda: CustomPdaView,
+    /// Points recorded with 优先分析此点 for the current position; a recorded point stays
+    /// visible beyond 最大候选点数. Session only.
+    pub priority_points: Vec<Point>,
 }
 
 /// One candidate (`MoveData`). Percentages 0–100 from the side to move.

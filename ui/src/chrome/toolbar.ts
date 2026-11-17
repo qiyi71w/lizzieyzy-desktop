@@ -1,7 +1,7 @@
-// Java double-menu top toolbar (Menu.doubleMenu / TopHeaderPanel) with the default item set of
-// the fixed Java build (Config.java defaults; Menu.java:8189-8230, 9633-9931). Items this client
-// implements run their catalog command; the others keep their Java look and report that the
-// capability is not available yet.
+// Java double-menu top toolbar (Menu.doubleMenu / TopHeaderPanel) with the groups 自定义内容
+// chooses (chrome/topGroups.ts; Menu.java:8251-9931). Items this client implements run their
+// catalog command; the others keep their Java look and report that the capability is not
+// available yet.
 import { run, state, unavailable } from "../app";
 import { COMMANDS } from "../commands";
 import { rankMarkLit, setCandidateSide } from "../display/commands";
@@ -9,7 +9,7 @@ import { boardUi, onBoardUiChange } from "../display/state";
 import { choosePlacement, placementLit } from "../editing/commands";
 import { editing, markupToolsShown, onEditingChange } from "../editing/state";
 import { product, t } from "../i18n";
-import { javaDouble } from "../workbench/paint";
+import { javaDouble, parseJavaDouble } from "../workbench/paint";
 import type { MenuNode } from "./javaMenus";
 import { openPopupMenu } from "./menubar";
 import { FLASH_MENU } from "../quick/flash";
@@ -18,8 +18,14 @@ import { limitPopup } from "../analysis/region";
 import { clockText } from "../game/commands";
 import { matchPlaying } from "../match/state";
 import { foxOwnsEngine, submitFoxPda } from "../fox/dialog";
+import type { AnalysisSettings, KataParam } from "../contract/generated";
+import { kataGoPda, kataRevealed, kataToolbarState, kataToolbarUse, kataValueInvalid } from "../engine/kataParams";
+import { openCustomPda } from "../engine/customPda";
 import "../editing/chrome.css";
 import "../strength/commands";
+import { topGroupShown, topToolbarWraps, type TopGroup } from "./topGroups";
+import { toggleDoubleMenu } from "../workbench/panels";
+import "../display/painting";
 
 const updaters: (() => void)[] = [];
 
@@ -56,8 +62,8 @@ function at(id: string, control: HTMLElement): HTMLElement {
   return control;
 }
 
-/** btnMarkup and, while show-markup-tools is on, the markup buttons after it in Java's rightArea
- *  order (Menu.java:8694-8703; the circle button is created but never added). */
+/** btnMarkup and, while show-markup-tools is on, the markup buttons and 自由涂鸦 after it in Java's
+ *  rightArea order (Menu.java:8694-8703; the circle button is created but never added). */
 function markupTools(): HTMLElement[] {
   const tools = document.createElement("span");
   tools.className = "tb-markup";
@@ -69,6 +75,7 @@ function markupTools(): HTMLElement[] {
     at("toolbar.markup-triangle", commandIcon("sanjiao.png", "sanjiao2.png", t("Accessibility.markupTriangle"), "toolbar.markup-triangle")),
     at("toolbar.markup-eraser", commandIcon("eraser.png", "eraser2.png", t("Accessibility.markupEraser"), "toolbar.markup-eraser")),
     at("toolbar.markup-clear", icon("clear.png", t("Menu.btnMarkupClear.toolTipText"), "toolbar.markup-clear")),
+    at("toolbar.painting", icon("paint.png", t("Menu.drawPainting.toolTipText"), "toolbar.painting")),
   );
   updaters.push(() => {
     const display = markupToolsShown() ? "" : "none";
@@ -217,21 +224,6 @@ function withColon(text: string): string {
   return text.endsWith(":") || text.endsWith("：") ? text : `${text}:`;
 }
 
-/** A Java check box whose setting belongs to a later slice: shown, not changeable. */
-function check(checked: boolean): HTMLElement {
-  const c = document.createElement("input");
-  c.type = "checkbox";
-  c.className = "tb-check unavailable";
-  c.checked = checked;
-  c.tabIndex = -1;
-  c.title = product("unavailable");
-  c.onclick = (e) => {
-    e.preventDefault();
-    unavailable();
-  };
-  return c;
-}
-
 /** 选点 黑 / 白 (chkShowBlack / chkShowWhite, Menu.java:9714-9753): one colour's candidates. */
 function candidateCheck(text: string, black: boolean): HTMLElement {
   const c = document.createElement("input");
@@ -247,85 +239,317 @@ function candidateCheck(text: string, black: boolean): HTMLElement {
   return l;
 }
 
-function field(id?: string): HTMLInputElement {
-  const c = document.createElement("input");
-  c.className = "tb-input unavailable";
-  c.readOnly = true;
-  c.tabIndex = -1;
-  c.title = product("unavailable");
-  if (id) c.id = id;
-  return c;
+/** A check box with its text after it (JFontCheckBox). */
+function checkLabel(text: string, key: string): { box: HTMLInputElement; label: HTMLElement } {
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.className = "tb-check";
+  box.tabIndex = -1;
+  box.dataset.key = key;
+  const label = document.createElement("label");
+  label.className = "tb-checklabel";
+  label.append(box, document.createTextNode(text));
+  return { box, label };
+}
+
+/** A run of top-toolbar items shown while its 自定义内容 choice is on (or function search revealed
+ *  it); the items wrap one by one like Java's. */
+function optional(shown: () => boolean, ...items: HTMLElement[]): HTMLElement {
+  const run = document.createElement("span");
+  run.className = "tb-run";
+  run.append(...items);
+  updaters.push(() => {
+    const display = shown() ? "" : "none";
+    if (run.style.display !== display) run.style.display = display;
+  });
+  return run;
+}
+
+function shownGroup(group: TopGroup): () => boolean {
+  return () => topGroupShown(group);
+}
+
+function saveAnalysis(change: Partial<AnalysisSettings>): void {
+  const settings = state.view?.settings.engine.analysis;
+  if (settings) void run({ type: "SetAnalysisSettings", settings: { ...settings, ...change } });
+}
+
+/** IntDocument (IntDocument.java:25-50): an edit is taken only when the whole text is still an
+ *  int; deleting is always taken. Negative numbers have no meaning as a limit here. */
+function intText(text: string): boolean {
+  return text === "" || (/^\d+$/.test(text) && Number(text) <= 2147483647);
+}
+
+/** 时间 chkTime + txtTimeLimit and 计算 chkPlayOut + txtPlayOutsLimit (Menu.java:6502-6587,
+ *  7124-7137): the check writes limit-time / limit-playout and enables the field; every edit of
+ *  the field writes its number (an empty field keeps the value, Utils.parseTextToLong). Each
+ *  change lets an analysis a limit stopped go on when it is within the new limits. Both are
+ *  separate toolbar items, so the field may wrap away from its check box as in Java. */
+function limitControl(time: boolean): HTMLElement[] {
+  const { box, label } = checkLabel(t(time ? "Menu.chkTime" : "Menu.chkPlayOut"), time ? "toolbar.limit-time" : "toolbar.limit-visits");
+  label.classList.add("fit");
+  const field = document.createElement("input");
+  field.className = `tb-input ${time ? "time-limit" : "visit-limit"}`;
+  field.inputMode = "numeric";
+  field.dataset.key = time ? "toolbar.limit-time-value" : "toolbar.limit-visits-value";
+  field.setAttribute("aria-label", t(time ? "Menu.chkTime" : "Menu.chkPlayOut"));
+  let taken = "";
+  box.onchange = () => {
+    field.disabled = !box.checked;
+    saveAnalysis(time ? { limitTime: box.checked } : { limitPlayout: box.checked });
+  };
+  field.addEventListener("input", () => {
+    if (!intText(field.value)) {
+      field.value = taken;
+      return;
+    }
+    taken = field.value;
+    if (taken === "") return;
+    saveAnalysis(time ? { maxAnalyzeTimeSeconds: Number(taken) } : { limitPlayouts: Number(taken) });
+  });
+  updaters.push(() => {
+    const s = state.view?.settings.engine.analysis;
+    if (!s) return;
+    box.checked = time ? s.limitTime : s.limitPlayout;
+    field.disabled = !box.checked;
+    if (document.activeElement === field) return;
+    const value = String(time ? s.maxAnalyzeTimeSeconds : s.limitPlayouts);
+    if (field.value !== value) field.value = taken = value;
+  });
+  at(time ? "toolbar.time-limit" : "toolbar.visit-limit", box);
+  return [label, field];
+}
+
+/** 限制: (Menu.lblLimit, Menu.java:9698-9712): shown while either limit is. */
+function limitGroup(): HTMLElement {
+  const time = shownGroup("showTimeLimit");
+  const visits = shownGroup("showVisitLimit");
+  return optional(
+    () => time() || visits(),
+    sep(),
+    label(t("Menu.lblLimit")),
+    optional(time, ...limitControl(true)),
+    optional(visits, ...limitControl(false)),
+    sep("gap"),
+  );
+}
+
+/** 分析 黑 / 白 (chkAnalyzeBlack / chkAnalyzeWhite, Menu.java:9754-9793, 9864-9872): the session's
+ *  choice of the sides analysis goes on for after moves and browsing. */
+function analyzeCheck(black: boolean): HTMLElement {
+  const { box, label } = checkLabel(t(black ? "Menu.Black" : "Menu.White"), black ? "toolbar.analyze-black" : "toolbar.analyze-white");
+  box.onchange = () => {
+    const e = state.view?.engine;
+    if (!e) return;
+    void run({ type: "SetAnalyzeSides", black: black ? box.checked : e.analyze_black, white: black ? e.analyze_white : box.checked });
+  };
+  updaters.push(() => {
+    const e = state.view?.engine;
+    if (e) box.checked = black ? e.analyze_black : e.analyze_white;
+  });
+  if (black) at("toolbar.analyze-sides", box);
+  return label;
+}
+
+/** 选点 胜率 / 计算量 / 目数 (chkShowWinrate / chkShowPlayouts / chkShowScore, Menu.java:9804-9899):
+ *  the same choices as 显示 > 推荐点's items, redrawn at once. */
+function candidateInfoCheck(text: string, command: string, key: string): HTMLElement {
+  const entry = COMMANDS[command];
+  const { box, label } = checkLabel(text, key);
+  label.classList.add("fit");
+  box.onchange = () => entry.run();
+  updaters.push(() => (box.checked = entry.checked?.() ?? false));
+  return label;
 }
 
 /** The PDA statuses on which FoxLiveSession republishes the confirmed value (publishConfirmedPda):
  *  a dynamic / unverified refusal and a failed update. */
 const PDA_REPUBLISH: Record<string, true> = { "Fox.pdaDynamic": true, "Fox.pdaUnknown": true, "Fox.pdaFailed": true };
 
-/** chkPDA / txtGfPDA (Menu.java:6315-6447, setUseGfPda 11124-11131). While 野狐 AI 直连 holds the
- *  engine every check and every text edit is the session's PDA intent (FoxLiveSession.submitPda)
- *  and the controls show its confirmed value whenever that changes, and again after an intent is
- *  refused or an update fails; otherwise they keep the ordinary look of a parameter not migrated
- *  yet. */
-function pdaGroup(): HTMLElement {
-  const box = check(false) as HTMLInputElement;
-  const value = field();
-  box.dataset.key = "toolbar.pda";
-  value.dataset.key = "toolbar.pda-value";
-  let shown: number | null = null;
-  let shownStatus = "";
-  let edits = 0;
+/** Menu.setPdaAndWrnByEngineForDouble (Menu.java:9970-10030): a group shows while the foreground
+ *  engine is KataGo, no engine game is starting or playing, and its show-*-in-menu is on (or
+ *  function search revealed it for this run). A KataGoPda engine has its own PDA panel instead.
+ *  While 野狐 AI 直连 holds the engine its 激进度 stays shown, as it was before these settings. */
+function kataGroupShown(param: KataParam): boolean {
+  const v = state.view;
+  if (param === "Pda" && foxOwnsEngine()) return true;
+  if (!v?.engine.foreground?.katago || v.engine_match?.phase === "Starting" || matchPlaying(v)) return false;
+  if (param === "Pda" && kataGoPda()) return false;
+  const saved = v.settings.engine.kata_params;
+  return kataRevealed[param] || (param === "Pda" ? saved.showPda : saved.showWrn);
+}
+
+/** 激进度 chkPDA / txtGfPDA and 广度 chkWRN / txtWRN (Menu.java:6174-6447). The check box or each
+ *  edit of the value sends the value (0 when unchecked or not a number) to the foreground KataGo at
+ *  once; a value outside -3..3 / 0..2 only turns the field red. The group shows the values the
+ *  engine reports when it starts (Menu.setPdaAndWrn), not the answers to its own sets, and is
+ *  disabled while the engine is not free for it (refreshBreadthAdmission).
+ *
+ *  While 野狐 AI 直连 holds the engine every PDA check and text edit is the session's PDA intent
+ *  (FoxLiveSession.submitPda) and the PDA controls show its confirmed value whenever that changes,
+ *  and again after an intent is refused or an update fails (setUseGfPda, Menu.java:11124-11131). */
+function kataGroup(param: KataParam): HTMLElement {
+  const pda = param === "Pda";
+  const tip = pda ? t("Menu.chkPDA.toolTopText") : t("Menu.chkWRN.toolTopText");
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.className = "tb-check";
+  box.tabIndex = -1;
+  box.title = tip;
+  const value = document.createElement("input");
+  value.className = "tb-input";
+  value.title = tip;
+  box.dataset.key = pda ? "toolbar.pda" : "toolbar.wrn";
+  value.dataset.key = pda ? "toolbar.pda-value" : "toolbar.wrn-value";
+  const foxLive = () => pda && foxOwnsEngine();
+  // The foreground engine's read-back last shown; `undefined` shows the next one in any case.
+  let shownReadBack: string | null | undefined = undefined;
+  let wasFox = false;
+  const use = (enabled: boolean, text: string) => {
+    box.checked = enabled;
+    value.value = text;
+    value.disabled = box.disabled || !enabled;
+    value.classList.toggle("invalid", kataValueInvalid(param, text));
+  };
+  kataToolbarUse[param] = use;
+  kataToolbarState[param] = () => ({ enabled: box.checked, text: value.value });
+  const send = (enabled: boolean) => {
+    const v = enabled ? (parseJavaDouble(value.value) ?? 0) : 0;
+    void run({ type: "SetKataParam", param, enabled, value: v });
+  };
+
+  let foxShown: number | null = null;
+  let foxStatus = "";
+  let foxEdits = 0;
   // Assigning the controls fires neither click nor input, so showing sends no new intent.
-  const show = (confirmed: number | null) => {
-    shown = confirmed;
+  const foxShow = (confirmed: number | null) => {
+    foxShown = confirmed;
     box.checked = confirmed !== null && confirmed !== 0;
     value.value = confirmed === null ? "" : javaDouble(confirmed);
     value.disabled = confirmed !== null && confirmed === 0;
   };
   // A refusal leaves the status as it was when the same draft is refused again, so the view
   // after each intent decides; only the latest edit may reset the controls it was typed into.
-  const submit = (draft: string) => {
-    const edit = ++edits;
+  const foxSubmit = (draft: string) => {
+    const edit = ++foxEdits;
     void submitFoxPda(draft).then((fox) => {
-      if (fox && edit === edits && foxOwnsEngine() && PDA_REPUBLISH[fox.pda_status_key] === true) show(fox.confirmed_pda);
+      if (fox && edit === foxEdits && foxOwnsEngine() && PDA_REPUBLISH[fox.pda_status_key] === true) foxShow(fox.confirmed_pda);
     });
   };
-  box.onclick = (e) => {
-    if (!foxOwnsEngine()) {
-      e.preventDefault();
-      unavailable();
+
+  box.onclick = () => {
+    value.disabled = !box.checked;
+    if (foxLive()) {
+      foxSubmit(box.checked ? value.value : "0");
       return;
     }
-    submit(box.checked ? value.value : "0");
-    value.disabled = !box.checked;
+    if (!box.checked && value.classList.contains("invalid")) {
+      value.value = "";
+      value.classList.remove("invalid");
+    }
+    send(box.checked);
   };
   value.addEventListener("input", () => {
-    if (foxOwnsEngine()) submit(value.value);
-  });
-  updaters.push(() => {
-    const live = foxOwnsEngine();
-    for (const control of [box, value]) {
-      control.classList.toggle("unavailable", !live);
-      control.tabIndex = live ? 0 : -1;
-      control.title = live ? t("Menu.chkPDA.toolTopText") : product("unavailable");
+    if (foxLive()) {
+      foxSubmit(value.value);
+      return;
     }
-    value.readOnly = !live;
-    const confirmed = live ? (state.view?.fox.confirmed_pda ?? null) : null;
-    const status = live ? (state.view?.fox.pda_status_key ?? "") : "";
-    const republish = status !== shownStatus && PDA_REPUBLISH[status] === true;
-    shownStatus = status;
-    if (confirmed === shown && !republish) return;
-    show(confirmed);
+    value.classList.toggle("invalid", kataValueInvalid(param, value.value));
+    send(box.checked);
   });
-  return group("pda", box, label(withColon(t("Menu.separateLblPda"))), value);
+  const name = pda ? t("Menu.separateLblPda") : t("Menu.separateLblWrn");
+  const g = group(pda ? "pda" : "wrn", at(pda ? "engine.pda" : "toolbar.wrn", box), label(withColon(name)), value);
+  updaters.push(() => {
+    const display = kataGroupShown(param) ? "" : "none";
+    if (g.style.display !== display) g.style.display = display;
+    if (foxLive()) {
+      box.disabled = false;
+      const confirmed = state.view?.fox.confirmed_pda ?? null;
+      const status = state.view?.fox.pda_status_key ?? "";
+      const republish = status !== foxStatus && PDA_REPUBLISH[status] === true;
+      foxStatus = status;
+      if (!wasFox || confirmed !== foxShown || republish) foxShow(confirmed);
+      wasFox = true;
+      return;
+    }
+    if (wasFox) {
+      // The session gave the engine back: show the engine's own value again.
+      wasFox = false;
+      foxStatus = "";
+      shownReadBack = undefined;
+    }
+    const params = state.view?.engine.kata_params;
+    box.disabled = ((pda ? params?.pda_unavailable : params?.wrn_unavailable) ?? null) !== null;
+    value.disabled = box.disabled || !box.checked;
+    const readBack = (pda ? params?.pda_read_back : params?.wrn_read_back) ?? null;
+    if (readBack === shownReadBack || document.activeElement === value) return;
+    shownReadBack = readBack;
+    const reported = (pda ? params?.pda : params?.wrn) ?? null;
+    if (reported !== null) use(reported !== 0, reported === 0 ? "0" : javaDouble(reported));
+  });
+  return g;
 }
 
-/** chkWRN: 广度 is disabled while 野狐 AI 直连 holds the engine (Menu.refreshBreadthAdmission). */
-function breadthCheck(): HTMLElement {
-  const c = check(false) as HTMLInputElement;
-  updaters.push(() => {
-    c.disabled = foxOwnsEngine();
+/** more2 "..." (Menu.java:6101-6116) opens KataGo 激进参数PDA设置. Java shows it only in a
+ *  KataGoPda engine's own PDA panel; here it follows every foreground KataGo outside engine games
+ *  (approved: the window can be opened and saved with any KataGo). */
+function pdaMoreShown(): boolean {
+  const v = state.view;
+  return !!v?.engine.foreground?.katago && v.engine_match?.phase !== "Starting" && !matchPlaying(v);
+}
+
+/** A KataGoPda engine's own PDA panel, lblCustomPda and txtPDA (Menu.java:5943-5965, 9658-9661,
+ *  9970-9986): the label without a colon and the engine's PDA as it reports it ("%.3f"), shown
+ *  until the field is being edited. Each key release with a number sets it on the engine
+ *  (`kata-set-param playoutDoublingAdvantage`); empty, "-" or "." send nothing. While 野狐 AI 直连
+ *  holds the engine its own 激进度 group shows instead. */
+function customPdaGroup(): HTMLElement {
+  const value = document.createElement("input");
+  value.className = "tb-input custom-pda";
+  value.dataset.key = "toolbar.customPda";
+  value.setAttribute("aria-label", t("Menu.chkPDA.toolTopText"));
+  value.addEventListener("keyup", () => {
+    const pda = parseJavaDouble(value.value);
+    if (pda !== null) void run({ type: "SetKataParam", param: "Pda", enabled: true, value: pda });
   });
-  return c;
+  const g = group("custom-pda", label(t("Menu.separateLblPda")), value);
+  let shown: number | null | undefined = undefined;
+  updaters.push(() => {
+    const display = kataGoPda() && !foxOwnsEngine() && pdaMoreShown() ? "" : "none";
+    if (g.style.display !== display) g.style.display = display;
+    const pda = state.view?.engine.custom_pda.pda ?? null;
+    if (pda === shown || document.activeElement === value) return;
+    shown = pda;
+    value.value = pda === null ? "" : pda.toFixed(3);
+  });
+  return g;
+}
+
+function pdaMoreButton(): HTMLElement {
+  const b = pill("...", "small pda-more");
+  b.classList.remove("unavailable");
+  b.title = t("Accessibility.pdaOptions");
+  b.setAttribute("role", "button");
+  b.setAttribute("aria-label", t("Accessibility.pdaOptions"));
+  b.dataset.key = "toolbar.pdaMore";
+  // Function search's engine.pda with a KataGoPda engine (search/targets.ts toolbarControl).
+  at("engine.pda", b);
+  b.onclick = () => void openCustomPda();
+  updaters.push(() => {
+    const display = pdaMoreShown() ? "" : "none";
+    if (b.style.display !== display) b.style.display = display;
+  });
+  return b;
+}
+
+/** sepForPdaWrn: the separator after the komi panel goes with the last PDA / WRN group. */
+function kataSeparator(): HTMLElement {
+  const s = sep("dash");
+  updaters.push(() => {
+    const display = kataGroupShown("Pda") || kataGroupShown("Wrn") || pdaMoreShown() ? "" : "none";
+    if (s.style.display !== display) s.style.display = display;
+  });
+  return s;
 }
 
 function komiSpinner(): HTMLElement {
@@ -468,59 +692,110 @@ function tencentKifuButton(): HTMLElement {
   return b;
 }
 
+/** btnDoubleMenu (Menu.java:7534-7550, 8259): first in the row while its 自定义内容 choice is on.
+ *  The row shows only 分开, so the button shows ▲, which turns the row to 合并. */
+function doubleMenuButton(): HTMLElement {
+  const b = document.createElement("span");
+  b.className = "tb-icon";
+  b.dataset.key = "toolbar.double-menu";
+  b.title = t("Accessibility.toolbarDetailsDescription");
+  const image = document.createElement("img");
+  image.src = "/assets/up.png";
+  image.alt = "";
+  b.append(image);
+  b.onclick = toggleDoubleMenu;
+  return b;
+}
+
+/** 选点: (lblShowCandidate, Menu.java:9874-9899): shown with either 黑 / 白 or 胜率 / 计算量 / 目数,
+ *  with a separator between the two while both are. */
+function candidateGroup(): HTMLElement {
+  const sides = shownGroup("showCandidateSides");
+  const info = shownGroup("showCandidateInfo");
+  const caption = label(t("Menu.lblShowCandidate"));
+  caption.classList.add("candidate");
+  return optional(
+    () => sides() || info(),
+    sep(),
+    caption,
+    optional(sides, at("toolbar.candidate-sides", candidateCheck(t("Menu.Black"), true)), candidateCheck(t("Menu.White"), false)),
+    optional(
+      info,
+      optional(sides, sep()),
+      at("toolbar.candidate-info", candidateInfoCheck(t("Menu.winrate"), "menu.suggestion1", "toolbar.candidate-winrate")),
+      candidateInfoCheck(t("Menu.visits"), "menu.suggestion2", "toolbar.candidate-visits"),
+      candidateInfoCheck(t("Menu.score"), "menu.suggestion3", "toolbar.candidate-score"),
+    ),
+  );
+}
+
+/** Menu.doubleMenu / setKomiPanelInDoubleMenu (Menu.java:8251-9931): each 自定义内容 group with
+ *  the separator after it; 自动换行 off keeps one row (LizzieFrame.java:14503-14507). */
 export function buildToolbar(host: HTMLElement): void {
   const search = searchButton();
   const setup = pill(t("Menu.autoSetupButton"), "wide w80", "engine.setup");
   setup.dataset.key = "engine.setup"; setup.title = t("Menu.autoSetup"); setup.setAttribute("role", "button"); setup.tabIndex = 0;
   setup.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); COMMANDS["engine.setup"].run(); } };
+  const rules = shownGroup("showRules");
+  const parameters = shownGroup("showParameters");
+  const boardSize = shownGroup("showBoardSize");
+  const saveLoad = shownGroup("showSaveLoad");
   host.append(
-    sep("lead"),
-    buttons(
-      icon("newFile.png", t("Menu.btnNewFile.toolTipText"), "files.new"),
-      icon("open.png", t("Menu.btnOpen.toolTipText"), "files.open"),
-      icon("save.png", t("Menu.btnSave.toolTipText"), "files.save"),
-      foxKifuButton(),
-      tencentKifuButton(),
-      strengthButton(),
+    optional(shownGroup("showDoubleMenuButton"), doubleMenuButton()),
+    optional(
+      shownGroup("showBasicButtons"),
+      sep("lead"),
+      buttons(
+        icon("newFile.png", t("Menu.btnNewFile.toolTipText"), "files.new"),
+        icon("open.png", t("Menu.btnOpen.toolTipText"), "files.open"),
+        icon("save.png", t("Menu.btnSave.toolTipText"), "files.save"),
+        foxKifuButton(),
+        tencentKifuButton(),
+        strengthButton(),
+      ),
+      buttons(setup, flashButton(), search),
+      buttons(
+        icon("hawkeye2.png", t("Menu.btnHawkeye.toolTipText"), "analysis.bad-moves"),
+        rankMarkButton(),
+        at("toolbar.change-turn", icon("pass.png", t("Menu.btnChangeTurn.toolTipText"), "toolbar.change-turn")),
+        icon("setmain.png", t("Menu.btnSetMain.toolTipText"), "menu.setAsMain"),
+        icon("backmain.png", t("Menu.btnBackMain.toolTipText"), "menu.backToMainBranch"),
+        icon("control.png", t("Menu.btnContrlPanel.toolTipText"), "menu.ctrlPanel"),
+        ...markupTools(),
+      ),
+      sep(),
     ),
-    buttons(setup, flashButton(), search),
-    buttons(
-      icon("hawkeye2.png", t("Menu.btnHawkeye.toolTipText"), "analysis.bad-moves"),
-      rankMarkButton(),
-      at("toolbar.change-turn", icon("pass.png", t("Menu.btnChangeTurn.toolTipText"), "toolbar.change-turn")),
-      icon("setmain.png", t("Menu.btnSetMain.toolTipText"), "menu.setAsMain"),
-      icon("backmain.png", t("Menu.btnBackMain.toolTipText"), "menu.backToMainBranch"),
-      icon("control.png", t("Menu.btnContrlPanel.toolTipText")),
-      ...markupTools(),
+    optional(shownGroup("showEditBar"), ...editBar(), sep()),
+    optional(
+      shownGroup("showForce"),
+      at("toolbar.force-allow", commandIcon("blueallow.png", "blueallow2.png", t("Menu.selectAllowToolTipText"), "toolbar.force-allow", "force")),
+      at("toolbar.force-allow-options", limitButton(true, t("Accessibility.allowMoveOptions"))),
+      at("toolbar.force-avoid", commandIcon("redavoid.png", "redavoid2.png", t("Menu.selectAvoidToolTipText"), "toolbar.force-avoid", "force")),
+      at("toolbar.force-avoid-options", limitButton(false, t("Accessibility.avoidMoveOptions"))),
+      at("toolbar.force-clear", icon("clear.png", t("Menu.clearSelectToolTipText"), "toolbar.force-clear", "force")),
+      sep(),
     ),
-    sep(),
-    ...editBar(),
-    sep(),
-    at("toolbar.force-allow", commandIcon("blueallow.png", "blueallow2.png", t("Menu.selectAllowToolTipText"), "toolbar.force-allow", "force")),
-    at("toolbar.force-allow-options", limitButton(true, t("Accessibility.allowMoveOptions"))),
-    at("toolbar.force-avoid", commandIcon("redavoid.png", "redavoid2.png", t("Menu.selectAvoidToolTipText"), "toolbar.force-avoid", "force")),
-    at("toolbar.force-avoid-options", limitButton(false, t("Accessibility.avoidMoveOptions"))),
-    at("toolbar.force-clear", icon("clear.png", t("Menu.clearSelectToolTipText"), "toolbar.force-clear", "force")),
-    sep(),
-    ...gameControls(),
-    sep(),
+    optional(shownGroup("showGameControls"), ...gameControls(), sep()),
     group("komi", label(t("Menu.komi")), komiField(), komiSpinner()),
-    sep("dash"),
-    // KataGo parameter fields stay empty and unchecked without an engine
-    pdaGroup(),
-    group("wrn", at("toolbar.wrn", breadthCheck()), label(withColon(t("Menu.separateLblWrn"))), field()),
-    sep(),
-    label(t("Menu.lblShowCandidate")),
-    at("toolbar.candidate-sides", candidateCheck(t("Menu.Black"), true)),
-    candidateCheck(t("Menu.White"), false),
-    sep(),
-    pill(t("Menu.rulesBtn"), "small", "engine.rules"),
+    kataSeparator(),
+    kataGroup("Pda"),
+    customPdaGroup(),
+    pdaMoreButton(),
+    kataGroup("Wrn"),
+    limitGroup(),
+    optional(shownGroup("showAnalyzeSides"), sep(), label(t("Menu.lblShowAnalyze")), analyzeCheck(true), analyzeCheck(false)),
+    candidateGroup(),
+    // 死活题 alone brings no separator (Menu.java:9905-9909).
+    optional(() => rules() || parameters() || boardSize() || saveLoad(), sep()),
+    optional(rules, pill(t("Menu.rulesBtn"), "small", "engine.rules")),
     tsumegoButton(),
-    pill(t("Menu.paramsBtn"), "small"),
-    pill(t("Menu.gobanBtn"), "small"),
-    pill(t("Menu.saveBtn"), "small", "menu.saveAndLoad"),
+    optional(parameters, pill(t("Menu.paramsBtn"), "small", "engine.parameters")),
+    // setBoardSize opens 设置棋盘大小 (Menu.java:6145-6153).
+    optional(boardSize, pill(t("Menu.gobanBtn"), "small", "menu.setBoard")),
+    optional(saveLoad, pill(t("Menu.saveBtn"), "small", "menu.saveAndLoad")),
     clockLabel(),
   );
+  updaters.push(() => host.classList.toggle("nowrap", !topToolbarWraps()));
 }
 
 /** btnPlayerStrengthEstimate (Menu.java:8386-8404): 棋力评估 with the menu item's text as its tip. */

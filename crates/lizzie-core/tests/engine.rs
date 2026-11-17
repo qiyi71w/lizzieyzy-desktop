@@ -4,13 +4,16 @@
 
 use std::sync::{Arc, Mutex};
 
-use lizzie_core::api::{EngineNotice, EngineScope};
+use lizzie_core::api::{AnalysisScope, EditCommand, EngineNotice, EngineScope, KataEngineParamsEdit, KataParamEdit};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
-use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
-use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
+use lizzie_core::engine::profile::{
+    AnalysisSettings, CustomPdaMode, CustomPdaSettings, EngineProfile, EngineStartup, LeelaOptionSetting,
+    LeelaOptionSettings,
+};
+use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, KataParam, Launcher};
 use lizzie_core::formats::sgf;
-use lizzie_core::record::RecordFormat;
+use lizzie_core::record::{Point, RecordFormat, Stone};
 use lizzie_core::settings::Storage;
 use lizzie_core::workbench::{OpenOrigin, Workbench};
 
@@ -176,13 +179,24 @@ fn info(mv: &str, visits: u64) -> String {
 
 /// A configured KataGo, started as the foreground engine and answered through start-up.
 fn started(dir: &std::path::Path, world: &World) -> (Workbench, InstanceId) {
+    started_listing(dir, world, KATA)
+}
+
+/// The same with `list` as its `list_commands` answer.
+fn started_listing(dir: &std::path::Path, world: &World, list: &str) -> (Workbench, InstanceId) {
     let mut wb = workbench(dir, world);
     wb.save_engine_settings(vec![profile("KataGo", "/opt/katago")], EngineStartup::Default)
         .unwrap();
     wb.start_engines();
     let id = world.launched()[0].0;
-    answer_all(&mut wb, world, id, KATA);
+    answer_all(&mut wb, world, id, list);
     (wb, id)
+}
+
+fn analysis_settings(wb: &mut Workbench, change: impl FnOnce(&mut AnalysisSettings)) {
+    let mut settings = wb.config().engine.analysis.clone();
+    change(&mut settings);
+    wb.set_analysis_settings(settings).unwrap();
 }
 
 #[test]
@@ -401,6 +415,164 @@ fn an_analysis_limit_stops_this_position_once_and_navigation_resumes() {
         None,
         "the notice is shown once per engine start"
     );
+}
+
+fn analyses(sent: &[String]) -> bool {
+    sent.iter().any(|c| c.starts_with("kata-analyze"))
+}
+
+#[test]
+fn a_raised_or_lifted_limit_resumes_the_analysis_it_stopped() {
+    // Menu.reCalculateLeelazPonderingIfOutOfLimit (Menu.java:10385-10398).
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    analysis_settings(&mut wb, |s| {
+        s.limit_playout = true;
+        s.limit_playouts = 6;
+    });
+    open(&mut wb, "(;B[pd];W[dd])");
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("Q16", 7));
+    assert!(wb.view(false).engine.stopped_by_limit);
+    assert_eq!(answer_all(&mut wb, &world, id, KATA), ["stop"]);
+    // A change that leaves the search past its limits keeps it stopped.
+    analysis_settings(&mut wb, |s| s.max_analyze_time_seconds = 300);
+    assert!(wb.view(false).engine.stopped_by_limit);
+    assert_eq!(answer_all(&mut wb, &world, id, KATA), Vec::<String>::new());
+    // A higher visit limit: it goes on here, and stops at the new limit.
+    analysis_settings(&mut wb, |s| s.limit_playouts = 10);
+    let v = wb.view(false);
+    assert!(!v.engine.stopped_by_limit && !v.engine.paused);
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+    out(&mut wb, id, &info("Q16", 11));
+    assert!(wb.view(false).engine.stopped_by_limit);
+    assert_eq!(answer_all(&mut wb, &world, id, KATA), ["stop"]);
+    // No visit limit at all.
+    analysis_settings(&mut wb, |s| s.limit_playout = false);
+    assert!(!wb.view(false).engine.stopped_by_limit);
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+    out(&mut wb, id, &info("Q16", 500));
+    assert!(!wb.view(false).engine.stopped_by_limit);
+
+    // 空棋盘停止计算 is no limit a new limit lifts.
+    analysis_settings(&mut wb, |s| s.stop_at_empty_board = true);
+    open(&mut wb, "(;SZ[19])");
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("Q16", 5));
+    assert!(wb.view(false).engine.stopped_by_limit);
+    answer_all(&mut wb, &world, id, KATA);
+    analysis_settings(&mut wb, |s| s.limit_playouts = 1000);
+    assert!(wb.view(false).engine.stopped_by_limit);
+    assert_eq!(answer_all(&mut wb, &world, id, KATA), Vec::<String>::new());
+}
+
+#[test]
+fn a_time_limit_counts_from_when_the_stopped_search_began() {
+    // `System.currentTimeMillis() - getStartPonderTime()`: the stopped time counts too.
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    analysis_settings(&mut wb, |s| {
+        s.limit_time = true;
+        s.max_analyze_time_seconds = 1;
+    });
+    open(&mut wb, "(;B[pd];W[dd])");
+    answer_all(&mut wb, &world, id, KATA);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    out(&mut wb, id, &info("Q16", 5));
+    assert!(wb.view(false).engine.stopped_by_limit);
+    answer_all(&mut wb, &world, id, KATA);
+    analysis_settings(&mut wb, |s| s.limit_playouts = 50);
+    assert!(wb.view(false).engine.stopped_by_limit, "still past one second");
+    analysis_settings(&mut wb, |s| s.max_analyze_time_seconds = 600);
+    assert!(!wb.view(false).engine.stopped_by_limit);
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+    // Unchecking the time limit resumes as well.
+    analysis_settings(&mut wb, |s| s.max_analyze_time_seconds = 1);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    out(&mut wb, id, &info("Q16", 9));
+    assert!(wb.view(false).engine.stopped_by_limit);
+    answer_all(&mut wb, &world, id, KATA);
+    analysis_settings(&mut wb, |s| s.limit_time = false);
+    assert!(!wb.view(false).engine.stopped_by_limit);
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+}
+
+#[test]
+fn analyze_sides_judge_the_users_moves_and_browsing_but_not_opening() {
+    // Leelaz.playMove / undo (Leelaz.java:19891-19911, 22923-22936) behind every move and
+    // browsing step; Menu.java:9754-9793 for the check boxes.
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    open(&mut wb, "(;B[pd];W[dd];B[pp])");
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+    let held = |wb: &Workbench| {
+        let e = wb.inspect().engine;
+        !e.analysing && !e.paused && !e.stopped_by_limit
+    };
+
+    // Black is to move: unchecking White changes nothing now.
+    assert!(wb.set_analyze_sides(true, false));
+    let v = wb.view(false).engine;
+    assert!(v.analyze_black && !v.analyze_white && v.analysing);
+    assert_eq!(answer_all(&mut wb, &world, id, KATA), Vec::<String>::new());
+
+    // A step forward to White's turn waits there; the next one resumes.
+    wb.navigate(Navigation::Forward(1));
+    assert!(!analyses(&answer_all(&mut wb, &world, id, KATA)));
+    assert!(held(&wb));
+    wb.navigate(Navigation::Forward(1));
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+    // 悔棋 back to White's turn waits; Space resumes it.
+    wb.navigate(Navigation::Back(1));
+    assert!(!analyses(&answer_all(&mut wb, &world, id, KATA)));
+    assert!(held(&wb));
+    wb.toggle_analysis().unwrap();
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+    assert!(!wb.view(false).engine.paused);
+
+    // Black's new move leaves White to move.
+    wb.navigate(Navigation::First);
+    answer_all(&mut wb, &world, id, KATA);
+    wb.edit(EditCommand::Play { point: Point { x: 2, y: 2 }, color: None }).unwrap();
+    assert!(!analyses(&answer_all(&mut wb, &world, id, KATA)));
+    assert!(held(&wb));
+    // Checking White again resumes at once; unchecking it stops at once.
+    wb.set_analyze_sides(true, true);
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+    wb.set_analyze_sides(true, false);
+    assert!(answer_all(&mut wb, &world, id, KATA).iter().any(|c| c == "stop"));
+    assert!(held(&wb));
+    // Any browsing judges, a jump in the tree as well.
+    wb.goto_node(lizzie_core::record::ROOT).unwrap();
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+    wb.goto_move_number(1);
+    assert!(!analyses(&answer_all(&mut wb, &world, id, KATA)));
+    assert!(held(&wb));
+
+    // A paused analysis stays paused, and Space then analyses this side anyway.
+    wb.navigate(Navigation::First);
+    answer_all(&mut wb, &world, id, KATA);
+    wb.toggle_analysis().unwrap();
+    answer_all(&mut wb, &world, id, KATA);
+    wb.navigate(Navigation::Forward(1));
+    answer_all(&mut wb, &world, id, KATA);
+    assert!(wb.view(false).engine.paused);
+    wb.toggle_analysis().unwrap();
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+
+    // Opening a record is no step: its White to move is analysed.
+    open(&mut wb, "(;PL[W])");
+    assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
+    assert!(wb.view(false).engine.analysing);
+
+    // A new session analyses both sides.
+    wb.end_engines();
+    let mut fresh = workbench(dir.path(), &world);
+    let v = fresh.view(false).engine;
+    assert!(v.analyze_black && v.analyze_white);
 }
 
 #[test]
@@ -1453,4 +1625,832 @@ fn stronger_live_analysis_replaces_loaded_results_and_is_saved_for_every_node() 
     let next = reopened.view(false).analysis.unwrap();
     assert_eq!((next.visits, next.root_visits, next.winrate, next.score_lead), (400, Some(400), 60.0, Some(1.5)));
     assert_eq!(next.candidates[0].visits, 400);
+}
+
+/// A 9x9 record whose root (`LZOP`) and first move (`LZ`) carry saved 200-visit analysis.
+const ANALYSED: &str = "(;SZ[9]KM[7.5]LZOP[old 48.0 200 0.5 1 0 rootVisits=200\nmove E5 visits 200 winrate 5200 scoreMean 0.5 pv E5]\
+    ;B[ee]LZ[old 47.0 200 0.8 1 0 rootVisits=200\nmove C3 visits 200 winrate 5300 scoreMean 0.8 pv C3])";
+
+#[test]
+fn clearing_the_cache_keeps_the_analysis_but_lets_the_next_weaker_result_replace_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    open(&mut wb, ANALYSED);
+    wb.set_append_winrate_to_comment(false).unwrap();
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("D4", 50));
+    assert_eq!(wb.view(false).analysis.unwrap().engine, "old", "the cache keeps the stronger result");
+
+    // 此手 marks the current move only.
+    wb.navigate(Navigation::Forward(1));
+    answer_all(&mut wb, &world, id, KATA);
+    wb.clear_analysis_cache(AnalysisScope::Current);
+    wb.navigate(Navigation::Back(1));
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("D4", 50));
+    assert_eq!(wb.view(false).analysis.unwrap().engine, "old", "the root was not marked");
+
+    // 全局 (Shift+A): nothing is sent and the shown and saved analysis stay as they were.
+    wb.clear_analysis_cache(AnalysisScope::All);
+    assert!(world.take(id).is_empty());
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 200);
+    let text = wb.begin_save("cached.sgf", "interop:test").text;
+    assert!(text.contains("LZOP[old") && text.contains("LZ[old"), "{text}");
+    // The next result replaces the marked one even when weaker; after that the cache holds again.
+    out(&mut wb, id, &info("D4", 50));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 50);
+    out(&mut wb, id, &info("D4", 20));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 50);
+    wb.navigate(Navigation::Forward(1));
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("C3", 30));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 30, "the first move was marked too");
+}
+
+#[test]
+fn without_the_lizzie_cache_every_result_replaces_the_stored_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    analysis_settings(&mut wb, |s| s.enable_lizzie_cache = false);
+    out(&mut wb, id, &info("Q16", 200));
+    out(&mut wb, id, &info("D4", 20));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 20);
+}
+
+/// A stored result made with another PDA (`BoardData.pda`, the sixth header field) gives way to
+/// the live search, whose PDA is 0 (`cachedPda != engine.pda`), even when the new one is weaker.
+#[test]
+fn a_result_saved_with_another_pda_gives_way_to_a_weaker_live_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    open(&mut wb, "(;SZ[9]KM[7.5]LZOP[old 48.0 200 0.5 1 1.5 rootVisits=200\nmove E5 visits 200 winrate 5200 scoreMean 0.5 pv E5])");
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("D4", 50));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 50);
+    out(&mut wb, id, &info("D4", 20));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 50, "the live result is cached again");
+}
+
+#[test]
+fn clearing_analysis_information_erases_it_from_the_board_and_the_saved_record() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    open(&mut wb, ANALYSED);
+    wb.set_append_winrate_to_comment(false).unwrap();
+    wb.navigate(Navigation::Forward(1));
+    answer_all(&mut wb, &world, id, KATA);
+    wb.clear_analysis_info(AnalysisScope::Current);
+    let v = wb.view(false);
+    assert!(v.analysis.is_none());
+    assert!(!v.history.iter().any(|p| p.node == 1 && p.visits > 0), "{:?}", v.history);
+    let text = wb.begin_save("cleared.sgf", "interop:test").text;
+    assert!(text.contains("LZOP[old") && !text.contains("LZ[old"), "this move only: {text}");
+    // This engine does not list `clear_cache`: the running search only starts again.
+    assert_eq!(answer_all(&mut wb, &world, id, KATA), ["stop", "kata-analyze W 10 rootInfo true"]);
+
+    wb.clear_analysis_info(AnalysisScope::All);
+    let text = wb.begin_save("cleared.sgf", "interop:test").text;
+    assert!(!text.contains("LZOP[") && !text.contains("LZ["), "{text}");
+    let mut reopened = workbench(dir.path(), &world);
+    open(&mut reopened, &text);
+    assert!(reopened.view(false).analysis.is_none());
+    reopened.navigate(Navigation::Forward(1));
+    assert!(reopened.view(false).analysis.is_none());
+}
+
+#[test]
+fn refreshing_sends_clear_cache_only_to_an_engine_that_lists_it_and_restarts_only_a_running_search() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let list = format!("{KATA}\nclear_cache");
+    let (mut wb, id) = started_listing(dir.path(), &world, &list);
+    out(&mut wb, id, &info("Q16", 40));
+    wb.clear_analysis_info(AnalysisScope::Current);
+    // The stopped search's last line, written before the engine read `clear_cache`, is not shown.
+    out(&mut wb, id, &info("Q16", 45));
+    assert!(wb.view(false).analysis.is_none());
+    assert_eq!(answer_all(&mut wb, &world, id, &list), ["clear_cache", "kata-analyze B 10 rootInfo true"]);
+    out(&mut wb, id, &info("Q16", 5));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 5, "the new search is shown from its start");
+    wb.toggle_analysis().unwrap();
+    answer_all(&mut wb, &world, id, &list);
+    wb.clear_analysis_info(AnalysisScope::Current);
+    assert_eq!(answer_all(&mut wb, &world, id, &list), ["clear_cache"], "a paused engine stays paused");
+}
+
+#[test]
+fn the_empty_board_stops_its_analysis_silently_until_the_user_resumes_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    analysis_settings(&mut wb, |s| s.stop_at_empty_board = true);
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("Q16", 5));
+    let v = wb.view(false);
+    assert!(v.engine.stopped_by_limit && !v.engine.paused);
+    assert_eq!(v.engine_notice, None, "no limit notice for the empty board");
+    assert_eq!(answer_all(&mut wb, &world, id, KATA), ["stop"]);
+    // Resumed by the user, the empty board is searched on (`outOfPlayoutsLimit`).
+    wb.toggle_analysis().unwrap();
+    assert_eq!(answer_all(&mut wb, &world, id, KATA), ["kata-analyze B 10 rootInfo true"]);
+    out(&mut wb, id, &info("Q16", 50));
+    assert!(!wb.view(false).engine.stopped_by_limit);
+
+    // Another empty board stops again; a position with stones does not.
+    open(&mut wb, "(;SZ[19];B[pd])");
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("Q16", 5));
+    assert!(wb.view(false).engine.stopped_by_limit);
+    wb.navigate(Navigation::Forward(1));
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("D4", 5));
+    assert!(!wb.view(false).engine.stopped_by_limit);
+    open(&mut wb, "(;SZ[19]AB[pd])");
+    answer_all(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("D4", 5));
+    assert!(!wb.view(false).engine.stopped_by_limit, "setup stones are not the empty board");
+}
+
+#[test]
+fn a_hidden_console_without_always_gtp_records_only_a_starting_engine() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    analysis_settings(&mut wb, |s| s.always_gtp = false);
+    wb.save_engine_settings(vec![profile("KataGo", "/opt/katago")], EngineStartup::Default)
+        .unwrap();
+    wb.start_engines();
+    let id = world.launched()[0].0;
+    answer_all(&mut wb, &world, id, KATA);
+    let start_up: Vec<String> = wb.console_since(0).into_iter().map(|l| l.text).collect();
+    assert!(start_up.iter().any(|t| t == "list_commands"), "{start_up:?}");
+    let seq = wb.console_seq();
+    wb.toggle_analysis().unwrap();
+    answer_all(&mut wb, &world, id, KATA);
+    assert!(wb.console_since(seq).is_empty(), "{:?}", wb.console_since(seq));
+    wb.set_console_visible(true);
+    wb.toggle_analysis().unwrap();
+    answer_all(&mut wb, &world, id, KATA);
+    assert!(wb.console_since(seq).iter().any(|l| l.text.starts_with("kata-analyze")));
+}
+
+const KATA_PARAMS: &str = "name\nversion\nlist_commands\nkomi\nboardsize\nclear_board\nplay\nundo\nset_position\nkata-analyze\nkata-set-rules\nkata-get-rules\nkata-set-param\nkata-get-param\nstop";
+
+/// `answer_all` for an engine named `name` whose PDA / WRN are `pda` / `wrn`: `kata-set-param`
+/// of either changes them, `kata-get-param` reads them.
+fn answer_params(wb: &mut Workbench, world: &World, id: InstanceId, name: &str, params: &mut [(&str, String); 2]) -> Vec<String> {
+    let mut done = Vec::new();
+    loop {
+        let pending = world.take(id);
+        if pending.is_empty() {
+            return done;
+        }
+        for line in pending {
+            out(wb, id, "");
+            let n = number(&line);
+            let cmd = line.split_once(' ').unwrap().1.to_string();
+            let words: Vec<&str> = cmd.split(' ').collect();
+            let slot = words.get(1).and_then(|p| params.iter().position(|(k, _)| k == p));
+            match (words[0], slot) {
+                ("name", _) => answer(wb, id, n, name),
+                ("version", _) => answer(wb, id, n, "1.16.4"),
+                ("list_commands", _) => answer(wb, id, n, KATA_PARAMS),
+                ("kata-analyze" | "lz-analyze", _) => out(wb, id, &format!("={n}")),
+                ("kata-get-param", Some(slot)) => {
+                    let value = params[slot].1.clone();
+                    answer(wb, id, n, &value);
+                }
+                ("kata-set-param", Some(slot)) => {
+                    params[slot].1 = words[2].to_string();
+                    answer(wb, id, n, "");
+                }
+                _ => answer(wb, id, n, ""),
+            }
+            done.push(cmd);
+        }
+    }
+}
+
+fn engine_params(pda: &str, wrn: &str) -> [(&'static str, String); 2] {
+    [("playoutDoublingAdvantage", pda.into()), ("analysisWideRootNoise", wrn.into())]
+}
+
+fn row(enabled: bool, value: Option<f64>, auto_load: bool) -> KataParamEdit {
+    KataParamEdit { enabled, value, auto_load }
+}
+
+/// Without 自动加载 the engine keeps its own values; the toolbar shows what it reports.
+#[test]
+fn a_starting_katago_without_auto_load_gets_no_parameter_and_shows_its_own_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    wb.save_engine_settings(vec![profile("KataGo", "/opt/katago")], EngineStartup::Default).unwrap();
+    wb.start_engines();
+    let id = world.launched()[0].0;
+    let mut params = engine_params("0.25", "0.04");
+    let start = answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    assert!(!start.iter().any(|c| c.starts_with("kata-set-param playout") || c.starts_with("kata-set-param analysisWide")), "{start:?}");
+    let reads: Vec<&String> = start.iter().filter(|c| c.starts_with("kata-get-param")).collect();
+    assert_eq!(reads, ["kata-get-param playoutDoublingAdvantage", "kata-get-param analysisWideRootNoise"]);
+    let v = wb.view(false).engine.kata_params;
+    assert_eq!((v.pda, v.wrn, v.pda_unavailable, v.wrn_unavailable), (Some(0.25), Some(0.04), None, None));
+    assert!(v.pda_read_back.is_some() && v.wrn_read_back.is_some(), "the start-up read-back is one the toolbar shows");
+}
+
+/// 引擎参数 window: 确定 sends each row's value at once and remembers the checked 自动加载
+/// values, which every KataGo start applies before reading the values back. The toolbar takes
+/// the read-backs of each start, even of the same values, and not the answers to the sets.
+#[test]
+fn the_parameter_window_applies_values_now_and_its_auto_load_on_every_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    wb.save_engine_settings(vec![profile("KataGo", "/opt/katago")], EngineStartup::Default).unwrap();
+    wb.start_engines();
+    let id = world.launched()[0].0;
+    let mut params = engine_params("0", "0");
+    answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    let first = wb.view(false).engine.kata_params;
+    let first = (first.pda_read_back, first.wrn_read_back);
+    let edit = KataEngineParamsEdit {
+        pda: Some(row(true, Some(0.5), true)),
+        wrn: row(true, Some(0.3), true),
+        show_pda: false,
+        show_wrn: true,
+    };
+    assert_eq!(wb.save_kata_engine_params(edit).unwrap(), None);
+    let sent = answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    assert_eq!(&sent[..2], ["kata-set-param playoutDoublingAdvantage 0.5", "kata-set-param analysisWideRootNoise 0.3"]);
+    let v = wb.view(false).engine.kata_params;
+    assert_eq!((v.pda, v.wrn, (v.pda_read_back, v.wrn_read_back)), (Some(0.5), Some(0.3), first.clone()), "a confirmed set is no read-back");
+    let s = &wb.config().engine.kata_params;
+    assert_eq!((s.auto_load_pda, s.auto_load_pda_value, s.auto_load_wrn, s.auto_load_wrn_value), (true, Some(0.5), true, Some(0.3)));
+    assert_eq!((s.show_pda, s.show_wrn), (false, true));
+
+    // A restarted process starts with the engine's own values and gets the saved ones.
+    wb.restart_engine().unwrap();
+    let id = world.launched().last().unwrap().0;
+    let mut fresh = engine_params("0", "0");
+    let start = answer_params(&mut wb, &world, id, "KataGo", &mut fresh);
+    let pda = start.iter().position(|c| c == "kata-set-param playoutDoublingAdvantage 0.5").expect("PDA");
+    let wrn = start.iter().position(|c| c == "kata-set-param analysisWideRootNoise 0.3").expect("WRN");
+    let read = start.iter().position(|c| c == "kata-get-param playoutDoublingAdvantage").expect("read");
+    assert!(pda < wrn && wrn < read, "{start:?}");
+    let v = wb.view(false).engine.kata_params;
+    assert_eq!((v.pda, v.wrn), (Some(0.5), Some(0.3)));
+    assert!(v.pda_read_back.is_some() && v.pda_read_back != first.0, "a new engine's read-back of the same values is shown");
+    assert!(v.wrn_read_back.is_some() && v.wrn_read_back != first.1);
+
+    // A `KataGoPda` engine keeps its own PDA (its 激进度 belongs to the PDA dialog).
+    wb.restart_engine().unwrap();
+    let id = world.launched().last().unwrap().0;
+    let mut pda_engine = engine_params("1.2", "0");
+    let start = answer_params(&mut wb, &world, id, "KataGoPda-1.0", &mut pda_engine);
+    assert!(!start.iter().any(|c| c.starts_with("kata-set-param playoutDoublingAdvantage")), "{start:?}");
+    assert!(start.iter().any(|c| c == "kata-set-param analysisWideRootNoise 0.3"), "{start:?}");
+    assert_eq!(wb.view(false).engine.kata_params.pda, Some(1.2));
+}
+
+/// Toolbar 广度: a check or a value goes to the engine, which searches again; every stored
+/// result gives way to the next live one. Unchecking sends 0. Out-of-range values are sent.
+#[test]
+fn the_toolbar_breadth_reaches_the_engine_and_lets_stored_results_give_way() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    wb.save_engine_settings(vec![profile("KataGo", "/opt/katago")], EngineStartup::Default).unwrap();
+    wb.start_engines();
+    let id = world.launched()[0].0;
+    let mut params = engine_params("0", "0");
+    answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    open(&mut wb, ANALYSED);
+    answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    out(&mut wb, id, &info("D4", 50));
+    assert_eq!(wb.view(false).analysis.unwrap().engine, "old", "the cache holds the stronger result");
+
+    assert_eq!(wb.set_kata_param(KataParam::Wrn, true, 2.5).unwrap(), None);
+    // The stopped search's late line is not shown.
+    out(&mut wb, id, &info("D4", 60));
+    assert_eq!(wb.view(false).analysis.unwrap().engine, "old");
+    let sent = answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    assert_eq!(sent, ["kata-set-param analysisWideRootNoise 2.5", "kata-analyze B 10 rootInfo true"]);
+    assert_eq!(wb.view(false).engine.kata_params.wrn, Some(2.5));
+    out(&mut wb, id, &info("D4", 5));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 5, "the weaker new result replaces the stored one");
+    let s = &wb.config().engine.kata_params;
+    assert_eq!((s.wrn_enabled, s.wrn), (true, Some(2.5)));
+
+    wb.set_kata_param(KataParam::Wrn, false, 2.5).unwrap();
+    let sent = answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    assert_eq!(sent[0], "kata-set-param analysisWideRootNoise 0");
+    assert_eq!(wb.view(false).engine.kata_params.wrn, Some(0.0));
+    let s = &wb.config().engine.kata_params;
+    assert_eq!((s.wrn_enabled, s.wrn), (false, Some(2.5)), "the unchecked value is kept");
+}
+
+/// Toolbar 激进度: live results are made and saved with the engine's PDA (the sixth header
+/// field), and a stored result made with another PDA gives way.
+#[test]
+fn live_results_carry_the_engine_pda_into_the_saved_record() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    wb.save_engine_settings(vec![profile("KataGo", "/opt/katago")], EngineStartup::Default).unwrap();
+    wb.start_engines();
+    let id = world.launched()[0].0;
+    let mut params = engine_params("0", "0");
+    answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    wb.set_append_winrate_to_comment(false).unwrap();
+    out(&mut wb, id, &info("Q16", 200));
+    assert_eq!(wb.set_kata_param(KataParam::Pda, true, 0.5).unwrap(), None);
+    let sent = answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    assert_eq!(sent[0], "kata-set-param playoutDoublingAdvantage 0.5");
+    out(&mut wb, id, &info("Q16", 20));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 20, "made with PDA 0, the stored result gives way");
+    let text = wb.begin_save("pda.sgf", "interop:test").text;
+    let header = text.split("LZOP[").nth(1).and_then(|t| t.lines().next()).unwrap_or_default();
+    assert!(header.ends_with(" 0.5 rootVisits=20"), "the PDA is the sixth header field: {text}");
+    out(&mut wb, id, &info("Q16", 10));
+    assert_eq!(wb.view(false).analysis.unwrap().visits, 20, "same PDA: the cache holds");
+    let c = wb.config();
+    assert_eq!((c.engine.kata_pda_enabled, c.engine.kata_pda), (true, Some(0.5)));
+}
+
+#[test]
+fn kata_parameters_need_a_ready_katago_in_the_foreground() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    assert_eq!(wb.set_kata_param(KataParam::Wrn, true, 0.5).unwrap(), Some("LizzieFrame.setParamNoEngineHint"));
+    wb.save_engine_settings(vec![profile("Leela", "/opt/leelaz")], EngineStartup::Default).unwrap();
+    wb.start_engines();
+    let id = world.launched()[0].0;
+    let mut params = engine_params("0", "0");
+    answer_params(&mut wb, &world, id, "Leela Zero", &mut params);
+    let v = wb.view(false).engine.kata_params;
+    assert_eq!((v.pda_unavailable.as_deref(), v.wrn_unavailable.as_deref()), (Some("SetKataRules.notKataGoHint"), Some("SetKataRules.notKataGoHint")));
+    let edit = KataEngineParamsEdit { pda: None, wrn: row(true, Some(0.5), true), show_pda: true, show_wrn: true };
+    assert_eq!(wb.save_kata_engine_params(edit).unwrap(), Some("SetKataRules.notKataGoHint"));
+    assert!(world.take(id).is_empty());
+    assert!(!wb.config().engine.kata_params.auto_load_wrn, "a refused window saves nothing");
+}
+
+const LEELA: &str = "name\nversion\nlist_commands\nkomi\nboardsize\nclear_board\nplay\nundo\nlz-analyze\nlz-setoption\nclear_cache";
+
+fn option(enabled: bool, auto_load: bool, value: &str) -> LeelaOptionSetting {
+    LeelaOptionSetting { enabled, auto_load, value: value.into() }
+}
+
+/// SetLeelaEngines 确定 sends each row with 修改 checked at once (an empty value sends nothing)
+/// and the engine searches again; Leelaz.setLeelaSaiEnginePara sends the rows with 修改 and
+/// 自动加载 on every Leela Zero / Sai start. 自动加载 keeps its tick while 修改 is off.
+#[test]
+fn the_leela_window_sends_checked_options_now_and_auto_loaded_ones_on_every_start() {
+    for name in ["Leela Zero", "sai 0.18"] {
+        let dir = tempfile::tempdir().unwrap();
+        let world = World::default();
+        let (mut wb, id, start) = start_family(dir.path(), &world, name, LEELA);
+        assert!(!start.iter().any(|c| c.starts_with("lz-setoption")), "nothing is auto-loaded yet: {start:?}");
+        let options = LeelaOptionSettings {
+            memory: option(true, true, "4096"),
+            visits: option(true, false, "800"),
+            lagbuffer: option(false, true, "5"),
+            resign: option(true, true, " "),
+        };
+        assert_eq!(wb.save_leela_engine_options(options.clone()).unwrap(), None);
+        let sent = answer_family(&mut wb, &world, id, name, LEELA);
+        assert_eq!(
+            sent,
+            [
+                "lz-setoption name Maximum Memory Use (MiB) value 4096",
+                "lz-setoption name Visits value 800",
+                "lz-analyze B 10",
+            ],
+            "{name}: the analysis searches again after the options"
+        );
+        assert_eq!(wb.config().engine.leela_options, options, "{name}: the rows are saved as they are");
+
+        wb.restart_engine().unwrap();
+        let id = world.launched().last().unwrap().0;
+        let start = answer_family(&mut wb, &world, id, name, LEELA);
+        let set: Vec<&String> = start.iter().filter(|c| c.starts_with("lz-setoption")).collect();
+        assert_eq!(set, ["lz-setoption name Maximum Memory Use (MiB) value 4096"], "{name}: {start:?}");
+        let analyse = start.iter().position(|c| c.starts_with("lz-analyze")).unwrap();
+        assert!(start.iter().position(|c| c.starts_with("lz-setoption")).unwrap() < analyse);
+    }
+}
+
+/// Only Leela Zero and Sai take `lz-setoption`: KataGo has its own window, and any other engine
+/// (Sayuri; Pachi, which Java counts as Leela for analysis) gets Java's not-Leela/Sai notice
+/// instead of options it would refuse; none gets the auto-loaded options at start-up.
+#[test]
+fn leela_options_reach_only_leela_zero_and_sai() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    let options = LeelaOptionSettings { visits: option(true, true, "800"), ..LeelaOptionSettings::default() };
+    assert_eq!(wb.save_leela_engine_options(options.clone()).unwrap(), Some("LizzieFrame.setParamNoEngineHint"));
+    wb.save_engine_settings(
+        vec![
+            profile("Leela", "/opt/leelaz"),
+            profile("KataGo", "/opt/katago"),
+            profile("Sayuri", "/opt/sayuri"),
+            profile("Pachi", "/opt/pachi"),
+        ],
+        EngineStartup::Default,
+    )
+    .unwrap();
+    wb.start_engines();
+    let leela = world.launched()[0].0;
+    answer_family(&mut wb, &world, leela, "Leela Zero", LEELA);
+    assert!(wb.view(false).engine.foreground.unwrap().leela_sai);
+    assert_eq!(wb.save_leela_engine_options(options.clone()).unwrap(), None);
+    answer_family(&mut wb, &world, leela, "Leela Zero", LEELA);
+
+    for (index, name) in [(1, "KataGo"), (2, "Sayuri"), (3, "Pachi 12.84")] {
+        assert!(wb.switch_engine(index).unwrap());
+        let id = world.launched().last().unwrap().0;
+        let start = answer_family(&mut wb, &world, id, name, &format!("{LEELA}\nkata-analyze"));
+        assert!(!start.iter().any(|c| c.starts_with("lz-setoption")), "{name}: {start:?}");
+        assert!(!wb.view(false).engine.foreground.unwrap().leela_sai, "{name}");
+        let other = LeelaOptionSettings::default();
+        assert_eq!(wb.save_leela_engine_options(other).unwrap(), Some("LizzieFrame.setParamsWarning"), "{name}");
+        assert!(world.take(id).is_empty(), "{name}");
+        assert_eq!(wb.config().engine.leela_options, options, "{name}: a refused window saves nothing");
+    }
+}
+
+/// Answers the start-up of a `KataGoPda` engine: its name, the two private queries with their
+/// labelled bodies, and every other command as the ordinary helper does.
+fn answer_all_pda(wb: &mut Workbench, world: &World, id: InstanceId, list: &str) -> Vec<String> {
+    let mut done = Vec::new();
+    loop {
+        let pending = world.take(id);
+        if pending.is_empty() {
+            return done;
+        }
+        for line in pending {
+            out(wb, id, "");
+            let n = number(&line);
+            let cmd = line.split_once(' ').unwrap().1.to_string();
+            match cmd.split(' ').next().unwrap() {
+                "name" => answer(wb, id, n, "KataGoPda 1.16.4"),
+                "version" => answer(wb, id, n, "1.16.4"),
+                "list_commands" => answer(wb, id, n, list),
+                "kata-get-rules" => answer(
+                    wb,
+                    id,
+                    n,
+                    r#"{"friendlyPassOk":true,"hasButton":false,"ko":"SIMPLE","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N"}"#,
+                ),
+                "getpda" => answer(wb, id, n, "pda: 0.25"),
+                "getdympdacap" => answer(wb, id, n, "PDACap: 0.5"),
+                "kata-analyze" | "lz-analyze" => out(wb, id, &format!("={n}")),
+                _ => answer(wb, id, n, ""),
+            }
+            done.push(cmd);
+        }
+    }
+}
+
+fn started_pda_with(
+    dir: &std::path::Path,
+    world: &World,
+    settings: CustomPdaSettings,
+) -> (Workbench, InstanceId, Vec<String>) {
+    let mut wb = workbench(dir, world);
+    if settings != CustomPdaSettings::default() {
+        let _ = wb.save_custom_pda(settings).unwrap();
+    }
+    wb.save_engine_settings(vec![profile("KataGoPda", "/opt/katago")], EngineStartup::Default)
+        .unwrap();
+    wb.start_engines();
+    let id = world.launched()[0].0;
+    let sent = answer_all_pda(&mut wb, world, id, KATA);
+    (wb, id, sent)
+}
+
+fn started_pda(dir: &std::path::Path, world: &World) -> (Workbench, InstanceId) {
+    let (wb, id, _) = started_pda_with(dir, world, CustomPdaSettings::default());
+    (wb, id)
+}
+
+fn commands(sent: &[String]) -> Vec<String> {
+    sent.iter().map(|line| line.split_once(' ').unwrap().1.to_string()).collect()
+}
+
+fn dynamic(cap: f64, auto_apply: bool) -> CustomPdaSettings {
+    CustomPdaSettings {
+        mode: CustomPdaMode::Dynamic,
+        dynamic_cap: Some(cap),
+        fixed_value: None,
+        auto_apply,
+    }
+}
+
+fn pda_candidates() -> String {
+    [
+        "info move D4 visits 50 winrate 0.6 scoreLead 1.5 prior 0.2 order 0 pv D4",
+        "info move Q16 visits 40 winrate 0.55 scoreLead 0.5 prior 0.2 order 1 pv Q16",
+        "info move C3 visits 10 winrate 0.5 scoreLead -0.5 prior 0.2 order 2 pv C3 rootInfo visits 50",
+    ]
+    .join(" ")
+}
+
+#[test]
+fn kata_go_pda_start_up_queries_its_private_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, _, sent) = started_pda_with(dir.path(), &world, CustomPdaSettings::default());
+    assert!(sent.contains(&"getpda".to_string()), "{sent:?}");
+    assert!(sent.contains(&"getdympdacap".to_string()), "{sent:?}");
+    assert!(!sent.iter().any(|c| c == "pda 0"), "自动套用 is off: {sent:?}");
+    let pda = wb.view(false).engine.custom_pda;
+    assert_eq!(pda.pda, Some(0.25));
+    assert_eq!(pda.cap, Some(0.5));
+    assert_eq!(pda.mode, CustomPdaMode::Dynamic);
+}
+
+#[test]
+fn a_standard_katago_never_receives_the_private_queries_or_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    world.take(id);
+    assert_eq!(wb.save_custom_pda(dynamic(0.5, false)).unwrap(), None);
+    assert!(world.sent(id).is_empty(), "a standard KataGo gets no pda command");
+    assert_eq!(wb.config().engine.custom_pda, dynamic(0.5, false));
+    assert_eq!(wb.view(false).engine.custom_pda.mode, CustomPdaMode::Dynamic);
+}
+
+#[test]
+fn the_dialog_sends_only_a_kata_go_pda_engine_its_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started_pda(dir.path(), &world);
+    world.take(id);
+
+    let fixed = CustomPdaSettings {
+        mode: CustomPdaMode::Fixed,
+        dynamic_cap: None,
+        fixed_value: Some(2.0),
+        auto_apply: false,
+    };
+    assert_eq!(wb.save_custom_pda(fixed.clone()).unwrap(), None);
+    assert_eq!(commands(&world.take(id)), ["pda 2.0"]);
+    assert_eq!(wb.config().engine.custom_pda, fixed);
+    assert_eq!(wb.view(false).engine.custom_pda.pda, Some(2.0));
+
+    // An empty value is saved but sends nothing.
+    let empty = CustomPdaSettings {
+        mode: CustomPdaMode::Dynamic,
+        dynamic_cap: None,
+        fixed_value: None,
+        auto_apply: false,
+    };
+    assert_eq!(wb.save_custom_pda(empty.clone()).unwrap(), None);
+    assert!(world.sent(id).is_empty());
+    assert_eq!(wb.config().engine.custom_pda, empty);
+
+    // A zero 系数 is the dialog's wrongParameter and changes nothing.
+    assert_eq!(
+        wb.save_custom_pda(dynamic(0.0, false)).unwrap(),
+        Some("SetKataPDA.wrongParameter")
+    );
+    assert_eq!(wb.config().engine.custom_pda, empty);
+}
+
+#[test]
+fn auto_apply_follows_the_two_start_up_answers_in_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, _, sent) = started_pda_with(dir.path(), &world, dynamic(0.5, true));
+    let at = |needle: &str| sent.iter().position(|c| c == needle).unwrap_or_else(|| panic!("{needle}: {sent:?}"));
+    assert!(at("getpda") < at("getdympdacap"));
+    assert!(at("getdympdacap") < at("pda 0"));
+    assert!(at("pda 0") < at("dympdacap 0.5"));
+    let pda = wb.view(false).engine.custom_pda;
+    assert_eq!((pda.pda, pda.cap), (Some(0.0), Some(0.5)));
+}
+
+#[test]
+fn unsolicited_private_labels_update_the_current_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started_pda(dir.path(), &world);
+    out(&mut wb, id, "pda: 0.75");
+    out(&mut wb, id, "PDACap: 0.25");
+    out(&mut wb, id, "");
+    let pda = wb.view(false).engine.custom_pda;
+    assert_eq!((pda.pda, pda.cap), (Some(0.75), Some(0.25)));
+}
+
+#[test]
+fn priority_points_reach_a_custom_engine_and_are_kept_beyond_the_candidate_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started_pda(dir.path(), &world);
+    analysis_settings(&mut wb, |s| s.limit_max_suggestion = 2);
+    let _ = answer_all_pda(&mut wb, &world, id, KATA);
+    world.take(id);
+    out(&mut wb, id, &pda_candidates());
+    let c3 = Point { x: 2, y: 16 };
+    assert!(wb.set_priority_point(c3).unwrap());
+    assert_eq!(commands(&world.take(id)), ["setmaxpolicy C3 1.1"]);
+    let view = wb.view(false);
+    assert_eq!(view.engine.priority_points, [c3]);
+    assert!(
+        view.analysis.unwrap().candidates.iter().any(|c| c.point == Some(c3)),
+        "the priority point stays in the stored candidates beyond 最大候选点数"
+    );
+}
+
+#[test]
+fn clear_priority_sends_clearpolicy_and_leaving_the_position_does_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started_pda(dir.path(), &world);
+    world.take(id);
+    let point = Point { x: 15, y: 3 };
+    assert!(wb.set_priority_point(point).unwrap());
+    world.take(id);
+    assert!(wb.clear_priority_points().unwrap());
+    assert_eq!(commands(&world.take(id)), ["clearpolicy"]);
+    assert!(wb.view(false).engine.priority_points.is_empty());
+
+    // A move clears the record without a command.
+    let _ = wb.set_priority_point(point).unwrap();
+    world.take(id);
+    wb.edit(EditCommand::Play { point: Point { x: 3, y: 15 }, color: Some(Stone::Black) })
+        .unwrap();
+    assert!(wb.view(false).engine.priority_points.is_empty());
+    assert!(!commands(&world.sent(id)).iter().any(|c| c == "clearpolicy"));
+}
+
+#[test]
+fn priority_is_refused_for_a_standard_katago() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    world.take(id);
+    assert!(!wb.set_priority_point(Point { x: 3, y: 15 }).unwrap());
+    assert!(!wb.clear_priority_points().unwrap());
+    assert!(world.sent(id).is_empty());
+}
+
+#[test]
+fn setting_priority_resumes_a_paused_analysis() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started_pda(dir.path(), &world);
+    assert!(wb.toggle_analysis().unwrap());
+    let _ = answer_all_pda(&mut wb, &world, id, KATA);
+    world.take(id);
+    assert!(wb.set_priority_point(Point { x: 3, y: 15 }).unwrap());
+    let sent = commands(&world.take(id));
+    assert!(sent.iter().any(|c| c.starts_with("kata-analyze")), "{sent:?}");
+    assert!(sent.iter().any(|c| c == "setmaxpolicy D4 1.1"), "{sent:?}");
+}
+
+#[test]
+fn auto_apply_runs_on_a_handicap_games_first_white_move_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id, _) = started_pda_with(dir.path(), &world, dynamic(0.5, true));
+    world.take(id);
+
+    // A move on an ordinary empty board is not a handicap game's first White move.
+    wb.edit(EditCommand::Play { point: Point { x: 3, y: 15 }, color: Some(Stone::Black) })
+        .unwrap();
+    assert!(!commands(&world.sent(id)).iter().any(|c| c == "dympdacap 0.5"));
+
+    // Handicap stones as root setup (this product's form) and White to play.
+    open(&mut wb, "(;SZ[19]HA[2]AB[dd][pp]PL[W])");
+    world.take(id);
+    wb.edit(EditCommand::Play { point: Point { x: 15, y: 3 }, color: Some(Stone::White) })
+        .unwrap();
+    let sent = commands(&world.take(id));
+    assert!(sent.contains(&"pda 0".to_string()), "{sent:?}");
+    assert!(sent.contains(&"dympdacap 0.5".to_string()), "{sent:?}");
+}
+
+#[test]
+fn a_custom_toolbar_pda_edit_leaves_the_standard_preferences_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started_pda(dir.path(), &world);
+    world.take(id);
+    let before = (wb.config().engine.kata_pda, wb.config().engine.kata_pda_enabled);
+    assert_eq!(wb.set_kata_param(KataParam::Pda, true, 1.5).unwrap(), None);
+    assert_eq!(commands(&world.take(id)), ["kata-set-param playoutDoublingAdvantage 1.5"]);
+    assert_eq!((wb.config().engine.kata_pda, wb.config().engine.kata_pda_enabled), before);
+}
+
+#[test]
+fn priority_resumes_automatically_stopped_analysis() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started_pda(dir.path(), &world);
+    analysis_settings(&mut wb, |s| s.stop_at_empty_board = true);
+    answer_all_pda(&mut wb, &world, id, KATA);
+    out(&mut wb, id, &info("Q16", 5));
+    assert!(wb.view(false).engine.stopped_by_limit);
+    answer_all_pda(&mut wb, &world, id, KATA);
+    wb.set_priority_point(Point { x: 3, y: 15 }).unwrap();
+    let sent = answer_all_pda(&mut wb, &world, id, KATA);
+    assert!(sent.iter().any(|c| c.starts_with("kata-analyze")), "{sent:?}");
+    out(&mut wb, id, &info("D4", 50));
+    assert!(!wb.view(false).engine.stopped_by_limit);
+}
+
+#[test]
+fn handicap_first_white_pass_applies_pda_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id, _) = started_pda_with(dir.path(), &world, dynamic(0.5, true));
+    open(&mut wb, "(;SZ[19]HA[2]AB[dd][pp]PL[W])");
+    answer_all_pda(&mut wb, &world, id, KATA);
+    wb.edit(EditCommand::Pass).unwrap();
+    let sent = answer_all_pda(&mut wb, &world, id, KATA);
+    assert!(sent.iter().any(|c| c == "dympdacap 0.5"), "{sent:?}");
+    wb.edit(EditCommand::Pass).unwrap();
+    wb.edit(EditCommand::Pass).unwrap();
+    assert!(!commands(&world.take(id)).iter().any(|c| c == "dympdacap 0.5"));
+}
+
+/// Java `B11ModelNotice`: the title's B11 speed notice follows the model this engine process
+/// loads. A local model is known from its header (a renamed B11 counts, a B11 file name with
+/// another header or an unreadable model does not), read off the workbench; a replaced
+/// process's late answer never reaches its successor. A Zhizi connection is known from the
+/// model it selected; an indirect launcher's or SSH host's model paths are not this host's and
+/// never show it.
+#[test]
+fn the_b11_speed_notice_follows_the_model_the_engine_loads() {
+    use lizzie_core::engine::cloud::{CloudLaunch, CloudProvider};
+    let dir = tempfile::tempdir().unwrap();
+    let renamed = dir.path().join("renamed.bin");
+    std::fs::write(&renamed, "kata1-tf3-b11c768-s12002M-d6304M\n16\n19\n19\nrest").unwrap();
+    let misnamed = dir.path().join("kata1-tf3-b11c768-s1M-d1M.bin");
+    std::fs::write(&misnamed, "kata1-b6c96-s175395328-d26788732\n16\n19\n19\nrest").unwrap();
+    let local = |name: &str, command: String| EngineProfile { name: name.into(), command, ..EngineProfile::default() };
+    let zhizi = |name: &str, args: &str| EngineProfile {
+        name: name.into(),
+        command: "remote-compute://zhizi".into(),
+        cloud: Some(CloudLaunch { provider: CloudProvider::Zhizi, identifier: String::new(), args: args.into(), url: String::new() }),
+        ..EngineProfile::default()
+    };
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    wb.save_engine_settings(
+        vec![
+            local("Renamed", format!("/opt/katago gtp -model {}", renamed.display())),
+            local("Misnamed", format!("/opt/katago gtp -model {}", misnamed.display())),
+            local("Equals", format!("/opt/katago gtp --model={}", renamed.display())),
+            local("Script", format!("{}/katago.sh gtp -model {}", dir.path().display(), renamed.display())),
+            zhizi("Zhizi B11", "--gpu-type 1x --kata-weight 11B768T"),
+            zhizi("Zhizi default", "--gpu-type 1x"),
+            EngineProfile {
+                ssh: Some(lizzie_core::engine::ssh::SshSettings::default()),
+                ..local("SSH", format!("/opt/katago gtp -model {}", renamed.display()))
+            },
+            local("Missing", format!("/opt/katago gtp -model {}", dir.path().join("missing.bin.gz").display())),
+        ],
+        EngineStartup::Default,
+    )
+    .unwrap();
+    let b11 = |wb: &mut Workbench| wb.view(false).engine.foreground.unwrap().b11;
+    wb.start_engines();
+    answer_all(&mut wb, &world, world.launched()[0].0, KATA);
+    assert!(!b11(&mut wb), "unknown until the header is read");
+    let stale = wb.take_model_lookups();
+    assert_eq!(stale.len(), 1);
+    assert!(wb.take_model_lookups().is_empty(), "each lookup is handed out once");
+
+    wb.restart_engine().unwrap();
+    answer_all(&mut wb, &world, world.launched().last().unwrap().0, KATA);
+    let current = wb.take_model_lookups();
+    for found in stale {
+        wb.finish_model_lookup(found.run());
+    }
+    assert!(!b11(&mut wb), "the replaced process's answer is not the new one's");
+    for found in current {
+        assert!(wb.finish_model_lookup(found.run()));
+    }
+    assert!(b11(&mut wb), "a renamed B11 is known by its header");
+
+    for (index, expected) in [(1, false), (2, true), (3, false), (4, true), (5, false), (6, false), (7, false)] {
+        assert!(wb.switch_engine(index).unwrap());
+        answer_all(&mut wb, &world, world.launched().last().unwrap().0, KATA);
+        for found in wb.take_model_lookups() {
+            wb.finish_model_lookup(found.run());
+        }
+        assert_eq!(b11(&mut wb), expected, "engine {index}");
+    }
+    assert!(wb.switch_engine(0).unwrap());
+    assert!(b11(&mut wb), "a reused process keeps its model");
 }

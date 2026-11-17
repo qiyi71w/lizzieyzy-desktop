@@ -35,12 +35,17 @@ fn browse_preserves_java_id_order_and_unique_words_results() {
     assert_eq!(catalog.bundles.len(), 8);
     assert_eq!(function_search::categories().len(), 6);
     assert!(catalog.entries.iter().all(|e| function_search::categories().contains(&e.category.as_str())));
-    let mut ids: Vec<_> = catalog.entries.iter().map(|e| e.id.as_str()).collect();
+    // Approved exceptions the product does not offer are never listed.
+    let withdrawn = ["share.private-history", "share.public-history", "menu.frameLooks"];
+    let mut ids: Vec<_> = catalog.entries.iter().map(|e| e.id.as_str()).filter(|id| !withdrawn.contains(id)).collect();
     ids.sort();
     ids.dedup();
     let browse = function_search::search("", Language::EnUs);
-    assert_eq!(browse.len(), 360);
+    assert_eq!(browse.len(), 357);
     assert_eq!(browse.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ids);
+    for id in withdrawn {
+        assert!(function_search::search(id, Language::EnUs).iter().all(|m| m.id != id), "{id}");
+    }
     assert!(browse.iter().all(|m| m.level == MatchLevel::Words));
     for whitespace in ["\u{2003}", "\u{00a0}\u{0085}\u{202f}\u{3000}\t\r\n", "\u{001c}\u{001f}"] {
         assert_eq!(function_search::search(whitespace, Language::EnUs), browse);

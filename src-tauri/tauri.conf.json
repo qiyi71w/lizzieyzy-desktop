@@ -41,5 +41,8 @@
       "nsis": { "installMode": "currentUser" }
     },
     "macOS": { "signingIdentity": "-" }
+  },
+  "plugins": {
+    "updater": { "pubkey": "", "requireSignedVersion": true }
   }
 }

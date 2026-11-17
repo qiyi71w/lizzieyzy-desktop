@@ -1,0 +1,35 @@
+/* 自由涂鸦 (DrawPainting.java): the workbench-sized layer with the paint2 pen cursor (hot spot at
+   its top left); the lines' canvas lies over the buttons and lets the pointer through. */
+#painting {
+  inset: 0;
+  z-index: 8;
+  outline: none;
+  cursor: url("/assets/paint2.png") 0 0, crosshair;
+  touch-action: none;
+  user-select: none;
+}
+#painting > canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+/* btnPanel: FlowLayout(RIGHT, 0, 0) at the top; each button an icon of menuIconSize * 2 inside an
+   EmptyBorder(5, 5, 5, 5), filled with the button colour (the panel itself is transparent). */
+#painting .paint-buttons {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+}
+#painting .paint-btn {
+  display: block;
+  padding: 5px;
+  line-height: 0;
+  background: rgb(238, 238, 238);
+}
+#painting .paint-btn img {
+  width: calc(var(--menu-icon-size, 16px) * 2);
+  height: calc(var(--menu-icon-size, 16px) * 2);
+}

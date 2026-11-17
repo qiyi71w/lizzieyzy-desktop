@@ -111,7 +111,7 @@ fn summarize_line(line: &str) -> String {
 }
 
 /// Java `CompleteSnapshotRecoveryOutcome.name()`.
-fn outcome_name(outcome: RecoveryOutcome) -> &'static str {
+pub(crate) fn outcome_name(outcome: RecoveryOutcome) -> &'static str {
     match outcome {
         RecoveryOutcome::NoChange => "NO_CHANGE",
         RecoveryOutcome::SingleMoveRecovery => "SINGLE_MOVE_RECOVERY",
@@ -121,13 +121,15 @@ fn outcome_name(outcome: RecoveryOutcome) -> &'static str {
 }
 
 impl SyncDiagnostics {
-    /// A line of the current helper (Java `recordProtocolLine`, every line `parseLine` sees).
-    pub fn record_line(&mut self, line: &str, at: SystemTime) {
+    /// A line of the current helper (Java `recordProtocolLine`, every line `parseLine` sees);
+    /// returns its recorded summary (sensitive and long lines redacted).
+    pub fn record_line(&mut self, line: &str, at: SystemTime) -> &str {
         // The version the session reads (`version: 220430` or `version 220430`).
         if let Inbound::Version { number: Some(version) } = parse_line(line) {
             self.helper_version = Some(version.to_string());
         }
         push(&mut self.protocol, PROTOCOL_CAPACITY, ProtocolEvent { at_millis: millis(at), summary: summarize_line(line) });
+        &self.protocol.back().expect("just recorded").summary
     }
 
     /// A recovery decision of the session (Java `publishCompleteSnapshotRecoveryDiagnostics`).

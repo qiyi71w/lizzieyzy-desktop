@@ -20,6 +20,7 @@
 
 use std::time::{Duration, Instant};
 
+use crate::api::{ApiError, PonderingNoticeDecision};
 use crate::engine::runtime::{GenmoveReply, InstanceId, LeaseAvailability, LeaseFailure, RuntimeEvent};
 use crate::record::{DocumentEdit, NodeId, Stone};
 use crate::workbench::Workbench;
@@ -160,6 +161,19 @@ pub(in crate::workbench) struct GmaFlow {
     unsupported_shown: Option<InstanceId>,
     next_request: u64,
     notices: Vec<GmaNotice>,
+    ponder_notice: PonderNotice,
+}
+
+/// Java `readBoardWebSocketPonderingNotice{Pending,Acknowledged}`: the helper asked for pondering
+/// the custom WebSocket engine cannot do. Every arming and clearing starts afresh.
+#[derive(Debug, Default)]
+struct PonderNotice {
+    /// Answered with 确定 or 不再提示 for this arming: GMA plays without pondering.
+    acknowledged: bool,
+    /// Asked for this arming (its generation); GMA waits. A dismissed notice still waits.
+    pending: Option<u64>,
+    /// The notice is on the screen.
+    shown: bool,
 }
 
 /// What the ReadBoard session knows that GMA's schedule needs.
@@ -207,6 +221,11 @@ impl GmaFlow {
         std::mem::take(&mut self.notices)
     }
 
+    /// The arming whose pondering notice is on the screen.
+    pub(in crate::workbench) fn pondering_notice(&self) -> Option<u64> {
+        self.ponder_notice.pending.filter(|_| self.ponder_notice.shown)
+    }
+
     pub(in crate::workbench) fn deadline(&self) -> Option<Instant> {
         match self.hand.as_ref().map(|h| &h.step) {
             Some(Step::Prepare { sent: Some(s), .. }) => Some(s.deadline),
@@ -243,6 +262,7 @@ impl Workbench {
         }
         let gma = &mut self.readboard.gma;
         gma.generation += 1;
+        gma.ponder_notice = PonderNotice::default();
         gma.armed = Some(Armed { color, time: time.max(0), visits: visits.max(0) });
         gma.awaiting_synced_board = true;
         self.gma_hold();
@@ -285,6 +305,7 @@ impl Workbench {
         let gma = &mut self.readboard.gma;
         let was = gma.armed.take().is_some() || gma.hand.is_some();
         gma.generation += 1;
+        gma.ponder_notice = PonderNotice::default();
         gma.awaiting_synced_board = false;
         if was {
             self.gma_retire_hand();
@@ -350,10 +371,23 @@ impl Workbench {
             self.gma_unsupported_once();
             return;
         }
+        // `supportsReadBoardGmaPondering`: the custom WebSocket engine cannot ponder. The helper's
+        // wish for it is explained once per arming (unless 不再提示 was chosen); GMA waits for
+        // the answer, then plays without pondering.
+        let websocket = self.engines.is_custom_websocket(fg);
+        let generation = self.readboard.gma.generation;
+        if facts.ponder && websocket && !self.config.read_board.suppress_websocket_pondering_notice {
+            let notice = &mut self.readboard.gma.ponder_notice;
+            if !notice.acknowledged {
+                if notice.pending.is_none() {
+                    *notice = PonderNotice { acknowledged: false, pending: Some(generation), shown: true };
+                }
+                return;
+            }
+        }
         if self.readboard.gma.overrides.as_ref().is_some_and(|o| o.instance != fg) {
             self.readboard.gma.overrides = None;
         }
-        let generation = self.readboard.gma.generation;
         let game = match self.engines.reserve_readboard_gma() {
             Ok(game) => game,
             Err(a) => {
@@ -372,9 +406,11 @@ impl Workbench {
             color: armed.color,
             time: armed.time,
             visits: armed.visits,
-            ponder: facts.ponder,
+            ponder: facts.ponder && !websocket,
             retired: false,
-            step: Step::Prepare { index: 0, sent: None },
+            // `ReadBoardGmaPreparation.start`: the WebSocket engine has no `ponderingEnabled`, so
+            // its preparation begins with `maxTime` (`PARAMS[1]`).
+            step: Step::Prepare { index: usize::from(websocket), sent: None },
         });
         self.gma_prepare();
     }
@@ -396,6 +432,36 @@ impl Workbench {
             gma.unsupported_shown = fg;
             gma.notices.push(GmaNotice::Unsupported);
         }
+    }
+
+    /// The answer to the pondering notice of arming `generation` (Java's decision callback):
+    /// 不再提示 is saved whatever arming it belonged to; 确定 and 不再提示 let the current arming
+    /// play without pondering. A closed notice leaves GMA waiting until it is armed again.
+    pub(in crate::workbench) fn gma_pondering_notice_answered(
+        &mut self,
+        generation: u64,
+        decision: PonderingNoticeDecision,
+    ) -> Result<(), ApiError> {
+        let notice = &mut self.readboard.gma.ponder_notice;
+        if notice.pending == Some(generation) {
+            notice.shown = false;
+        }
+        if decision == PonderingNoticeDecision::Dismiss {
+            return Ok(());
+        }
+        let saved = match decision {
+            PonderingNoticeDecision::Suppress => {
+                self.commit_config(|c| c.read_board.suppress_websocket_pondering_notice = true)
+            }
+            _ => Ok(()),
+        };
+        let gma = &mut self.readboard.gma;
+        if gma.armed.is_some() && gma.generation == generation && gma.ponder_notice.pending == Some(generation) {
+            gma.ponder_notice = PonderNotice { acknowledged: true, pending: None, shown: false };
+            let facts = self.gma_facts();
+            self.gma_schedule(facts);
+        }
+        saved
     }
 
     /// `ReadBoardGmaPreparation`: the next parameter command, or the move request once all are

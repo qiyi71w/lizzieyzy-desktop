@@ -291,47 +291,58 @@ export const JAVA_MENUS: TopMenu[] = [
         "items": [
          {
           "t": "check",
-          "key": "Menu.showDoubleMenuBtn"
+          "key": "Menu.showDoubleMenuBtn",
+          "id": "menu.showDoubleMenuBtn"
          },
          {
           "t": "check",
-          "key": "Menu.showBasicBtn"
+          "key": "Menu.showBasicBtn",
+          "id": "menu.showBasicBtn"
          },
          {
           "t": "check",
-          "key": "Menu.playMoveTools"
+          "key": "Menu.playMoveTools",
+          "id": "menu.playMoveTools"
          },
          {
           "t": "check",
-          "key": "Menu.allowAvoidTools"
+          "key": "Menu.allowAvoidTools",
+          "id": "menu.allowAvoidTools"
          },
          {
           "t": "check",
-          "key": "Menu.showGameController"
+          "key": "Menu.showGameController",
+          "id": "menu.showGameController"
          },
          {
           "t": "check",
-          "key": "Menu.showTimeLimitController"
+          "key": "Menu.showTimeLimitController",
+          "id": "menu.showTimeLimitController"
          },
          {
           "t": "check",
-          "key": "Menu.showPlayoutLimitController"
+          "key": "Menu.showPlayoutLimitController",
+          "id": "menu.showPlayoutLimitController"
          },
          {
           "t": "check",
-          "key": "Menu.showAnalyzeController"
+          "key": "Menu.showAnalyzeController",
+          "id": "menu.showAnalyzeController"
          },
          {
           "t": "check",
-          "key": "Menu.showCandidateController"
+          "key": "Menu.showCandidateController",
+          "id": "menu.showCandidateController"
          },
          {
           "t": "check",
-          "key": "Menu.showCandidateInfoController"
+          "key": "Menu.showCandidateInfoController",
+          "id": "menu.showCandidateInfoController"
          },
          {
           "t": "check",
-          "key": "Menu.showRuleMenu"
+          "key": "Menu.showRuleMenu",
+          "id": "menu.showRuleMenu"
          },
          {
           "t": "check",
@@ -340,15 +351,18 @@ export const JAVA_MENUS: TopMenu[] = [
          },
          {
           "t": "check",
-          "key": "Menu.showParamMenu"
+          "key": "Menu.showParamMenu",
+          "id": "menu.showParamMenu"
          },
          {
           "t": "check",
-          "key": "Menu.showGobanMenu"
+          "key": "Menu.showGobanMenu",
+          "id": "menu.showGobanMenu"
          },
          {
           "t": "check",
-          "key": "Menu.showSaveLoadMenu"
+          "key": "Menu.showSaveLoadMenu",
+          "id": "menu.showSaveLoadMenu"
          }
         ]
        }
@@ -381,11 +395,13 @@ export const JAVA_MENUS: TopMenu[] = [
          },
          {
           "t": "check",
-          "key": "显示拓展/隐藏详细工具栏按钮"
+          "key": "显示拓展/隐藏详细工具栏按钮",
+          "id": "menu.showDetailedToolbarMenu"
          },
          {
           "t": "item",
-          "key": "设置模块顺序"
+          "key": "设置模块顺序",
+          "id": "menu.detailedToolbarOrder"
          }
         ]
        },
@@ -399,83 +415,103 @@ export const JAVA_MENUS: TopMenu[] = [
         "items": [
          {
           "t": "check",
-          "key": "BottomToolbar.liveButton"
+          "key": "BottomToolbar.liveButton",
+          "id": "menu.customToolbar.liveButton"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.kataEstimate"
+          "key": "BottomToolbar.kataEstimate",
+          "id": "menu.customToolbar.kataEstimate"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.batchOpen"
+          "key": "BottomToolbar.batchOpen",
+          "id": "menu.customToolbar.batchOpen"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.openfile"
+          "key": "BottomToolbar.openfile",
+          "id": "menu.customToolbar.openfile"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.savefile"
+          "key": "BottomToolbar.savefile",
+          "id": "menu.customToolbar.savefile"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.finalScore"
+          "key": "BottomToolbar.finalScore",
+          "id": "menu.customToolbar.finalScore"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.heatMap"
+          "key": "BottomToolbar.heatMap",
+          "id": "menu.customToolbar.heatMap"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.badMoves"
+          "key": "BottomToolbar.badMoves",
+          "id": "menu.customToolbar.badMoves"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.analyzeList"
+          "key": "BottomToolbar.analyzeList",
+          "id": "menu.customToolbar.analyzeList"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.refresh"
+          "key": "BottomToolbar.refresh",
+          "id": "menu.customToolbar.refresh"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.analyse"
+          "key": "BottomToolbar.analyse",
+          "id": "menu.customToolbar.analyse"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.tryPlay"
+          "key": "BottomToolbar.tryPlay",
+          "id": "menu.customToolbar.tryPlay"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.setMain"
+          "key": "BottomToolbar.setMain",
+          "id": "menu.customToolbar.setMain"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.backMain"
+          "key": "BottomToolbar.backMain",
+          "id": "menu.customToolbar.backMain"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.clearButton"
+          "key": "BottomToolbar.clearButton",
+          "id": "menu.customToolbar.clearButton"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.deleteMove"
+          "key": "BottomToolbar.deleteMove",
+          "id": "menu.customToolbar.deleteMove"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.moveRank"
+          "key": "BottomToolbar.moveRank",
+          "id": "menu.customToolbar.moveRank"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.move"
+          "key": "BottomToolbar.move",
+          "id": "menu.customToolbar.move"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.coords"
+          "key": "BottomToolbar.coords",
+          "id": "menu.customToolbar.coords"
          },
          {
           "t": "check",
-          "key": "BottomToolbar.autoPlay"
+          "key": "BottomToolbar.autoPlay",
+          "id": "menu.customToolbar.autoPlay"
          }
         ]
        }
@@ -1840,21 +1876,6 @@ export const JAVA_MENUS: TopMenu[] = [
      {
       "t": "check",
       "key": "menu.frameFontSizeOther"
-     }
-    ]
-   },
-   {
-    "t": "submenu",
-    "key": "menu.frameLooks",
-    "id": "menu.frameLooks",
-    "items": [
-     {
-      "t": "check",
-      "key": "menu.frameLooksSystem"
-     },
-     {
-      "t": "check",
-      "key": "menu.frameLooksJava"
      }
     ]
    },

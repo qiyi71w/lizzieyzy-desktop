@@ -8,7 +8,7 @@ import { isApiError, snapshot } from "../contract/client";
 import type { FoxCommand, FoxReplaceChoice, FoxStartOutcome, FoxView } from "../contract/generated";
 import { message, options } from "../dialogs";
 import { format, product, t } from "../i18n";
-import { javaDouble } from "../workbench/paint";
+import { javaDouble, parseJavaDouble } from "../workbench/paint";
 import "./fox.css";
 
 /** FoxLiveSession.ATTENTION_STATUS: statuses that stop automation or need the user's hand. */
@@ -56,15 +56,6 @@ export async function submitFoxPda(draft: string): Promise<FoxView | null> {
     await message("Error", isApiError(e) ? e.message : String(e), "error");
     return null;
   }
-}
-
-/** Double.parseDouble: surrounding blanks allowed, a signed decimal with an optional exponent and
- *  float / double suffix; NaN and Infinity are refused (Java's limits reject them too). */
-function parseJavaDouble(text: string): number | null {
-  const s = text.trim();
-  if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?[fFdD]?$/.test(s)) return null;
-  const v = Number(s.replace(/[fFdD]$/, ""));
-  return Number.isFinite(v) ? v : null;
 }
 
 /** FoxEngineSession.Limits.parse + its constructor: 0 means unlimited; otherwise a positive time

@@ -354,6 +354,7 @@ impl Workbench {
         if !self.foreground_borrowed() {
             self.paused = false;
             self.limit_stop = None;
+            self.side_hold = None;
         }
     }
 

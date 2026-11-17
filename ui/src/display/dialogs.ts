@@ -3,6 +3,7 @@
 // (SetDelayShowCandidates.java) and 自定义信息顺序 (SuggestionInfoOrderSettings.java). Each applies
 // through SetDisplaySettings and closes; validation follows the Java dialog.
 import { state } from "../app";
+import type { DisplaySettings } from "../contract/generated";
 import { setDisplay } from "../commands";
 import { ask, formPanel, message } from "../dialogs";
 import { isChinese, product, registerProduct, t } from "../i18n";
@@ -78,7 +79,7 @@ export function place<T extends HTMLElement>(panel: HTMLElement, el: T, x: numbe
   return el;
 }
 
-function labelEl(text: string): HTMLSpanElement {
+export function labelEl(text: string): HTMLSpanElement {
   const l = document.createElement("span");
   l.className = "display-label";
   l.textContent = text;
@@ -397,8 +398,9 @@ function paintPreview(canvas: HTMLCanvasElement, order: [number, number, number]
 /** 推荐点 > 自定义信息顺序 (SuggestionInfoOrderSettings, frame 480x366, not resizable): a live
  *  preview, the three shown-item check boxes and one radio per row and item. 确定 saves the check
  *  boxes, then the order only when every row has a different item (otherwise wrongSettingsHint and
- *  the dialog stays). The preview keeps the last valid order. */
-export function openInfoOrderDialog(): void {
+ *  the dialog stays). The preview keeps the last valid order. `saved` gets the saved check boxes
+ *  after either 确定 (setChkSuggestionInfo of the dialog that opened it). */
+export function openInfoOrderDialog(saved?: (shows: Pick<DisplaySettings, "suggestionWinrate" | "suggestionPlayouts" | "suggestionScore">) => void): void {
   const s = state.view?.settings.display;
   if (!s) return;
   const panel = absolute(480, 327);
@@ -450,10 +452,12 @@ export function openInfoOrderDialog(): void {
     const order = chosen();
     if (!valid(order)) {
       setDisplay(shows);
+      saved?.(shows);
       await message(t("Message.title"), t("SuggestionInfoOrderSettings.wrongSettingsHint"));
       return;
     }
     await dialog.close();
     setDisplay({ ...shows, suggestionInfoOrder: order });
+    saved?.(shows);
   };
 }

@@ -15,6 +15,7 @@
 //!   acquisition and verification.
 //! - [`web_board`]: Web 旁观's viewer messages and board stream.
 //! - [`online`]: 在线棋谱 / 弈客直播 sources (link classification, 弈客 REST, live protocols).
+//! - [`diagnostics`]: 诊断与日志's switches and the 完整日志 session.
 
 pub mod api;
 pub mod appearance;
@@ -23,6 +24,7 @@ pub mod commentary;
 pub mod cloud;
 pub mod contribution;
 pub mod display;
+pub mod diagnostics;
 pub mod engine;
 pub mod formats;
 pub mod fox;
@@ -33,6 +35,7 @@ pub mod java_import;
 pub mod kifu_web;
 pub mod online;
 pub mod play;
+pub mod quick_links;
 pub mod readboard;
 pub mod record;
 pub mod recovery;
@@ -43,6 +46,7 @@ pub mod settings;
 pub mod strength;
 pub mod tencent_kifu;
 pub mod tsumego;
+pub mod update;
 pub mod viewpoint;
 pub mod web_board;
 pub mod workbench;

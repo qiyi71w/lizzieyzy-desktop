@@ -10,6 +10,9 @@
 //! Java 存档与读档 slots the user chose are added after this product's own slots in the same
 //! change: they are written first and taken back if the settings cannot be written. This
 //! product's automatic slot and the open record are never touched.
+//!
+//! Java's theme folders are written into this product's themes folder in the same change: each
+//! is staged aside and moved in, and on failure the replaced folders are moved back.
 
 use super::Workbench;
 use crate::api::{
@@ -63,12 +66,15 @@ impl Workbench {
                 .as_ref()
                 .map(|p| p.to_string_lossy().into_owned()),
             // As confirming every credential would import them; the report shows the choice made.
-            items: candidate.items_after(&candidate.credential_engines()),
+            items: candidate.items_after(&candidate.credential_engines(), true, true),
             engines: candidate.engines.clone(),
             commentary_credential: candidate.commentary_credential.clone(),
             analysis_ssh_credential: candidate.analysis_ssh_credential(),
+            contribution_credential: candidate.contribution_credential(),
+            quick_link_credential: candidate.mapped.quick_link_credential,
             cloud_credentials: candidate.cloud_credentials.clone(),
             replaces: self.java_import_replaces(&candidate),
+            replaced_themes: crate::appearance::replaced_themes(&self.storage, &candidate.mapped.themes),
             // As choosing the slots would import them; the report shows the choice made.
             recovery: slots::after(&candidate.slots, true),
         };
@@ -104,12 +110,23 @@ impl Workbench {
     }
 
     /// The SSH passwords preview `preview` would bring over, by account, for the adapter to
-    /// remember once the import is applied: those of the engines in `copy_credentials` and, when
-    /// `analysis`, 精析设置's 远程引擎. A stale preview gives nothing.
-    pub fn java_ssh_passwords(&self, preview: u64, copy_credentials: &[u32], analysis: bool) -> Vec<(String, String)> {
+    /// remember once the import is applied: those of the engines in `copy_credentials`, 精析设置's
+    /// 远程引擎 when `analysis` and 跑谱贡献's 远程SSH when `contribution`. A stale preview gives
+    /// nothing.
+    pub fn java_ssh_passwords(&self, preview: u64, copy_credentials: &[u32], analysis: bool, contribution: bool) -> Vec<(String, String)> {
         match &self.java_preview {
-            Some((id, candidate)) if *id == preview => candidate.ssh_passwords(copy_credentials, analysis),
+            Some((id, candidate)) if *id == preview => candidate.ssh_passwords(copy_credentials, analysis, contribution),
             _ => Vec::new(),
+        }
+    }
+
+    /// The 跑谱贡献 account, password and custom command preview `preview` would bring over when
+    /// `copy` is confirmed, for the adapter to keep in the credential storage. A stale preview
+    /// gives nothing.
+    pub fn java_contribution_credentials(&self, preview: u64, copy: bool) -> Option<crate::java_import::ContributionCredentials> {
+        match &self.java_preview {
+            Some((id, candidate)) if *id == preview => candidate.contribution_credentials(copy),
+            _ => None,
         }
     }
 
@@ -120,13 +137,17 @@ impl Workbench {
     }
 
     /// Imports preview `preview`. `copy_credentials` are the Java engine indexes whose credentials
-    /// the user agreed to copy; `replace` confirms replacing settings chosen in this product;
-    /// `recovery` is the choice to import the Java slots.
+    /// the user agreed to copy, `copy_contribution` the choice to copy the 跑谱贡献 account and
+    /// `copy_quick_links` the choice to copy 快速启动 commands carrying credentials; `replace`
+    /// confirms replacing settings chosen in this product; `recovery` is the choice to import the
+    /// Java slots.
     /// `Ok(Err(key))` is a refusal with nothing changed; `Err` a failed write with nothing changed.
     pub fn apply_java_import(
         &mut self,
         preview: u64,
         copy_credentials: &[u32],
+        copy_contribution: bool,
+        copy_quick_links: bool,
         replace: bool,
         recovery: Option<&RecoveryImport>,
     ) -> Result<Result<ImportReportView, &'static str>, ApiError> {
@@ -147,7 +168,8 @@ impl Workbench {
             self.java_preview = Some((id, candidate));
             return Ok(Err(IMPORT_NEEDS_REPLACE));
         }
-        let (mut config, persisted) = candidate.mapped.apply(&self.config, &self.persisted, copy_credentials);
+        let (mut config, persisted) =
+            candidate.mapped.apply(&self.config, &self.persisted, copy_credentials, copy_contribution, copy_quick_links);
         let images = match crate::appearance::capture_external_images(&self.storage, &mut config.appearance, &mut config.appearance_defaults) {
             Ok(images) => images,
             Err(e) => {
@@ -163,6 +185,13 @@ impl Workbench {
             Err(e) => {
                 self.java_preview = Some((id, candidate));
                 return Err(ApiError::new(ErrorKind::Io, format!("importing the strength models failed: {e}")));
+            }
+        };
+        let themes = match crate::appearance::install_themes(&self.storage, &candidate.mapped.themes) {
+            Ok(themes) => themes,
+            Err(e) => {
+                self.java_preview = Some((id, candidate));
+                return Err(ApiError::new(ErrorKind::Io, format!("importing the theme folders failed: {e}")));
             }
         };
         // After "重置界面位置" the persist file stays deleted until the next start
@@ -214,12 +243,18 @@ impl Workbench {
         }
         images.keep();
         models.keep();
+        if themes.keep() {
+            self.theme_files_revision = self.theme_files_revision.wrapping_add(1);
+        }
         self.strength_reload_models();
 
         let previous_analysis = self.config.engine.analysis.clone();
+        let previous_update = self.config.update;
         let captures_changed = self.config.edit.no_capture != config.edit.no_capture;
         self.config = config;
         self.reload_appearance_theme();
+        self.logging_replaced();
+        self.update_settings_replaced(previous_update);
         self.persisted = persisted;
         self.new_profile = false;
         self.analysis_settings_changed(&previous_analysis);
@@ -234,7 +269,7 @@ impl Workbench {
         self.start_engines();
 
         let engines = candidate.engines_after(copy_credentials);
-        let items = candidate.items_after(copy_credentials);
+        let items = candidate.items_after(copy_credentials, copy_contribution, copy_quick_links);
         let recovery = slots::after(&candidate.slots, recovery.is_some());
         let count = |s: ImportStatus| items.iter().filter(|i| i.status == s).count();
         self.log(
@@ -261,10 +296,15 @@ impl Workbench {
         }))
     }
 
-    /// Settings of this product the candidate would change (see [`crate::java_import::Mapped::replaces`]).
+    /// Settings of this product the candidate would change (see [`crate::java_import::Mapped::replaces`]),
+    /// and this product's themes its theme folders would replace.
     fn java_import_replaces(&self, candidate: &Candidate) -> Vec<crate::api::ImportTarget> {
         let has_settings = self.storage.config_file.exists();
-        candidate.mapped.replaces(&self.config, &self.persisted, has_settings)
+        let mut out = candidate.mapped.replaces(&self.config, &self.persisted, has_settings);
+        if !crate::appearance::replaced_themes(&self.storage, &candidate.mapped.themes).is_empty() {
+            out.push(crate::api::ImportTarget::Themes);
+        }
+        out
     }
 
     /// The first-use offer was declined: this product's settings file is written (with the

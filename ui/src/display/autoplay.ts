@@ -87,6 +87,21 @@ export function autoReplayLength(key: string, steps: number): number | null {
   return branch.length;
 }
 
+/** The displayed length of variation `key` while auto-replay shows it (null: the whole
+ *  variation), `undefined` when it does not. Java keeps one displayedBranchLength that the replay
+ *  timer and doBranch both step (LizzieFrame.java:11585-11594, 12036-12073). */
+export function autoReplayed(key: string): number | null | undefined {
+  return state.view?.settings.display.autoReplayBranch && branch.key === key ? branch.length : undefined;
+}
+
+/** Sets the auto-replayed variation `key`'s displayed length, which the replay grows on from.
+ *  Returns false when auto-replay does not show `key`. */
+export function setAutoReplayed(key: string, length: number): boolean {
+  if (autoReplayed(key) === undefined) return false;
+  branch.length = length;
+  return true;
+}
+
 /** The 20 ms Swing timer (LizzieFrame.java:11553-11612): one wait for the main board's and the
  *  float board's variations; when it is over both step and the next wait is the interval. */
 function branchTick(): void {

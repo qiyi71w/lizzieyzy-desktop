@@ -5,11 +5,12 @@ import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { apply, copyRecord, exportRecord, navigate, pasteRecord, run, saveRecord, saveRecordAs, state, subscribe, unavailable } from "./app";
+import { COMMANDS } from "./commands";
 import { buildBottomBar, layoutBottomBar } from "./chrome/bottombar";
 import { buildMenubar, menuOpen, secondaryMenuTitle } from "./chrome/menubar";
 import { buildToolbar, renderToolbar } from "./chrome/toolbar";
 import { onUnavailable, onView, snapshot } from "./contract/client";
-import type { BoardOverlayView, FloatSceneView, HistoryPoint, Navigation, NodeAnalysisView, Point, SubBoardMode, WorkbenchView } from "./contract/generated";
+import type { BoardOverlayView, FloatSceneView, HistoryPoint, NodeAnalysisView, Point, SubBoardMode, WorkbenchView } from "./contract/generated";
 import { dialogOpen, message } from "./dialogs";
 import { format, isChinese, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
@@ -20,10 +21,18 @@ import { onPresentationChange, presentation } from "./workbench/presentation";
 import { independentReport, relayIndependent, startIndependent } from "./workbench/independent";
 import type { IndependentInput } from "./workbench/independentModel";
 import "./workbench/displayPage";
+import "./about";
+import "./update";
+import "./initSettings";
+import "./quickLinks";
 import { boardUi, candidatesShownFor, onBoardUiChange } from "./display/state";
+import { markTreeTooWide, onTreeTooWideCleared, treeFit } from "./display/variationTree";
 import { onRegionUiChange, regionDrag, selectionClicked, selectionDragged, selectionReleased } from "./analysis/region";
 import { bindReplayHost, finishReplayBranch, replayLength, replaying, type ReplayTarget } from "./display/replay";
 import { autoplayReport, autoReplayLength, bindAutoplayHost, subAutoplayLength, subWheeled } from "./display/autoplay";
+import { bindClickReview, clickReviewReport, pointerAt, reviewScene } from "./display/clickReview";
+import { moveRect, rectPointer } from "./display/moveRect";
+import { paintingKey, paintingOpen, paintingReport } from "./display/painting";
 import { sameAnalysis, sameHistory } from "./workbench/viewEquality";
 import { handleEngineKey } from "./engine/keys";
 import { handleDisplayKey } from "./display/keys";
@@ -35,11 +44,12 @@ import { mountSetupBanner } from "./setup/banner";
 import "./editing/commands";
 import "./analysis/graphCommands";
 import { graphDestination, graphTarget, paintGraph, type GraphHits, type GraphReport } from "./analysis/graph";
-import { bindTables, boardPointerMoved, boardWheel, clearTableSelection, mainTableSignature, renderMainTable, resetTables, tableBranchLength, tablesReport } from "./analysis/table";
+import { bindTables, boardPointerMoved, boardWheel, clearTableSelection, mainTableSignature, pageStep, redo, renderMainTable, resetTables, stepVariationOrMove, tableBranchLength, tablesReport, undo } from "./analysis/table";
 import { frameReport, framesReport, handleTableKey, relayFrame, startFrame } from "./analysis/tableCommands";
 import { handleHawkeyeKey, hawkeyeReport, relayHawkeye, startHawkeye } from "./hawkeye/commands";
 import { commentaryReport, relayCommentary, renderCommentPanel, startCommentary } from "./commentary/commands";
 import { batchReport, handleBatchKey, startBatchTable } from "./batch/commands";
+import { controlPanelReport, startControlPanel } from "./control/commands";
 import { contributionReport } from "./contribution/window";
 import { foxKifuReport, startFoxKifu } from "./foxkifu/commands";
 import { startTencentKifu, tencentKifuReport } from "./tencentkifu/commands";
@@ -81,6 +91,7 @@ import {
   playouts,
   paintSubBoard,
   paintTree,
+  paintTreeFit,
   prepare,
   ARROW,
   SCROLLBAR,
@@ -108,6 +119,8 @@ document.documentElement.dataset.os = navigator.userAgent.includes("Windows")
 let panels: Panels | null = null;
 let treeHits = new Map<string, number>();
 let treeView: TreeViewport | null = null;
+/** The tree panel shows the whole tree without scroll bars (shouldShowSimpleVariation). */
+let treeFitShown = false;
 /** The tree the panel last drew (state.nodes is replaced with every tree update). */
 let treeSource = state.nodes;
 let treeRevision = 0;
@@ -214,7 +227,8 @@ const NEXT_MOVE = "next";
 
 /** BoardRenderer.mouseOveredMove for a pointer: `near` tells whether an intersection is under it
  *  (within a stone radius + 1 px). The 下一手 详细 point comes first; beyond 最大候选点数 the
- *  candidates exist only with show-nosugg-circle (BoardData.tryToLimitMoves). */
+ *  candidates exist only with show-nosugg-circle (BoardData.tryToLimitMoves), except a 优先分析此点
+ *  point of the foreground engine (BoardData.java:619-628). */
 function hoverNear(v: WorkbenchView, near: (p: Point) => boolean) {
   if (!hoverAllowed(v)) return hover(null);
   const doubleEngine = dual !== null;
@@ -222,7 +236,8 @@ function hoverNear(v: WorkbenchView, near: (p: Point) => boolean) {
   if (next && near(next)) return hover(NEXT_MOVE);
   const limit = v.settings.engine.analysis.limitMaxSuggestion;
   const candidate = v.analysis?.candidates.find((c) => c.point && c.visits > 0 && near(c.point) &&
-    (limit === 0 || c.order < limit || v.settings.display.noSuggCircle || c.kept))
+    (limit === 0 || c.order < limit || v.settings.display.noSuggCircle || c.kept ||
+      v.engine.priority_points.some((p) => p.x === c.point!.x && p.y === c.point!.y)))
     ?? (doubleEngine ? v.secondary?.analysis?.candidates.find((c) => c.point && c.visits > 0 && near(c.point) &&
       (limit === 0 || c.order < limit || v.settings.display.noSuggCircle)) : undefined);
   hover(candidate?.point ? `${candidate.point.x},${candidate.point.y}` : null);
@@ -348,8 +363,10 @@ function hoveredVariation(v: WorkbenchView, right = false): { target: ReplayTarg
   const replayed = replayLength(key) ?? tableBranchLength(key) ?? autoReplayLength(key, steps);
   const order = nextPoint ? -1 : c!.order;
   if (c && replayed === null && !v.settings.display.autoReplayBranch) {
+    // BoardRenderer.java:1669-1677: the actual next move and a 优先分析此点 point always preview.
     const next = v.position.next_moves[0];
-    const needShow = !!next && next.x === point.x && next.y === point.y;
+    const priority = !right && v.engine.priority_points.some((p) => p.x === point.x && p.y === point.y);
+    const needShow = (!!next && next.x === point.x && next.y === point.y) || priority;
     const ratio = c.allocation_visits / Math.max(1, ...candidates.map((x) => x.allocation_visits));
     const maxSuggestion = v.settings.engine.analysis.limitMaxSuggestion;
     // lastTimeUnlimited is kept for the main board's candidates only.
@@ -435,29 +452,47 @@ function textTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLInputElement && target.type !== "checkbox";
 }
 
-/** Browsing keys of Input.keyPressed. Returns null for keys Java does not bind. */
-function navigationFor(e: KeyboardEvent): Navigation | null {
+/** Moves from the current node to the next (or previous) node with a comment, or to the line's
+ *  end (root) without one (BoardHistoryNode.goToNextNodeWithComment / goToPreviousNodeWithComment). */
+function commentDistance(forward: boolean): number {
+  let node = state.view ? state.nodes.get(state.view.position.node) : undefined;
+  let moves = 0;
+  while (node) {
+    const id = forward ? node.children[0] : node.parent;
+    const step = id === undefined || id === null ? undefined : state.nodes.get(id);
+    if (!step) break;
+    moves++;
+    if (step.has_comment) break;
+    node = step;
+  }
+  return moves;
+}
+
+/** Browsing keys of Input.keyPressed. Returns null for keys Java does not bind. Up / Down and
+ *  PageUp / PageDown step a shown variation first; Ctrl+Up / Ctrl+Down and the comment keys are
+ *  LizzieFrame.undo / redo (table.ts). */
+function navigationFor(e: KeyboardEvent): (() => void) | null {
   const ctrl = e.ctrlKey || e.metaKey;
   switch (e.key) {
     case "ArrowUp":
-      if (ctrl && e.shiftKey) return { op: "PreviousComment" };
-      if (e.shiftKey) return { op: "BranchStart" };
-      return ctrl ? { op: "Back", count: 10 } : { op: "Back", count: 1 };
+      if (ctrl && e.shiftKey) return () => undo(commentDistance(false), { op: "PreviousComment" });
+      if (e.shiftKey) return () => navigate({ op: "BranchStart" });
+      return ctrl ? () => undo(10) : () => stepVariationOrMove(false);
     case "ArrowDown":
-      if (ctrl && e.shiftKey) return { op: "NextComment" };
-      return ctrl ? { op: "Forward", count: 10 } : { op: "Forward", count: 1 };
+      if (ctrl && e.shiftKey) return () => redo(commentDistance(true), { op: "NextComment" });
+      return ctrl ? () => redo(10) : () => stepVariationOrMove(true);
     case "ArrowLeft":
-      return ctrl && !e.shiftKey ? { op: "BranchPoint" } : { op: "PreviousBranch" };
+      return () => navigate(ctrl && !e.shiftKey ? { op: "BranchPoint" } : { op: "PreviousBranch" });
     case "ArrowRight":
-      return { op: "NextBranch" };
+      return () => navigate({ op: "NextBranch" });
     case "PageUp":
-      return { op: "Back", count: 10 };
+      return () => pageStep(false);
     case "PageDown":
-      return { op: "Forward", count: 10 };
+      return () => pageStep(true);
     case "Home":
-      return { op: "First" };
+      return () => navigate({ op: "First" });
     case "End":
-      return { op: "Last" };
+      return () => navigate({ op: "Last" });
     default:
       return null;
   }
@@ -468,6 +503,11 @@ const JAVA_BOUND = new Set([..."ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", " ", ",",
 
 document.addEventListener("keydown", (e) => {
   if (appMenuKey(e) || dialogOpen() || flashWindowOpen() || menuOpen() || contextMenuOpen() || textTarget(e.target)) return;
+  // 自由涂鸦 holds the keys while it is open; ESC closes it.
+  if (paintingKey(e)) {
+    e.preventDefault();
+    return;
+  }
   // The 存档与读档 controls keep their keys, like the Swing components holding the focus there.
   if (e.target instanceof Element && e.target.closest("#recovery")) return;
   if (handleLayoutKey(e) || handlePanelKey(e) || handleReadBoardKey(e) || handleEngineKey(e) || handleEditKey(e) || handleMatchKey(e) || handleTsumegoKey(e) || handleGameKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e) || handleOnlineKey(e)) {
@@ -478,7 +518,7 @@ document.addEventListener("keydown", (e) => {
   const nav = navigationFor(e);
   if (nav) {
     e.preventDefault();
-    navigate(nav);
+    nav();
     return;
   }
   // macOS turns Option+letter into another character; Java's VK code is the letter key itself.
@@ -489,6 +529,10 @@ document.addEventListener("keydown", (e) => {
   } else if (key === "A" && !ctrl && !e.altKey && !e.shiftKey) {
     e.preventDefault();
     void openAutoAnalysis();
+  } else if (key === "A" && e.shiftKey && !ctrl && !e.altKey) {
+    // Input.java:732-734: Shift+A is 清除Lizzie缓存(全局) (clearBoardStat).
+    e.preventDefault();
+    COMMANDS["menu.clearAllLizzieCache"].run();
   } else if (key === "V" && ctrl && !e.altKey) {
     e.preventDefault();
     pasteRecord();
@@ -526,7 +570,8 @@ document.addEventListener("keydown", (e) => {
 
 // 搜索功能 (toolbar button, Ctrl+K / Cmd+K) is refused where workbench shortcuts are: in text controls
 // (their own editing and the input method keep the key), menus, the context menu and progress windows.
-bindFunctionSearch((target) => textTarget(target) || dialogOpen() || flashWindowOpen() || menuOpen() || contextMenuOpen());
+// 自由涂鸦's layer holds the keys like Java's dialog, so the shortcut alone waits for it to close.
+bindFunctionSearch((target) => textTarget(target) || dialogOpen() || flashWindowOpen() || menuOpen() || contextMenuOpen(), paintingOpen);
 
 // ------------------------------------------------------------------ pointer
 
@@ -546,11 +591,12 @@ function bindPointer() {
     }, true);
   }
   // Input.mouseWheelMoved: one move per notch over the workbench. Scroll panes take their own
-  // wheel: the comment, the candidate list and the variation tree (a JScrollPane, scrolled below).
+  // wheel: the comment, the candidate list and the variation tree while it is a JScrollPane
+  // (scrolled below); the whole-tree view has no scroll pane and the workbench takes it.
   main.addEventListener(
     "wheel",
     (ev) => {
-      if ((ev.target as HTMLElement).closest("#comment, #table, #tree, #sub, .quad, #recovery")) return;
+      if ((ev.target as HTMLElement).closest(`#comment, #table, ${treeFitShown ? "" : "#tree, "}#sub, .quad, #recovery`)) return;
       ev.preventDefault();
       if (ev.deltaY !== 0 && !boardWheel(ev.deltaY > 0)) navigate(ev.deltaY > 0 ? { op: "Forward", count: 1 } : { op: "Back", count: 1 });
     },
@@ -590,7 +636,12 @@ function bindPointer() {
   const pointerMoved = (ev: MouseEvent, right: boolean) => {
     const v = state.view;
     if (!v || !panels) return;
-    if (!boardPointerMoved(boardPointAt(ev.clientX, ev.clientY) !== null)) return;
+    const point = boardPointAt(ev.clientX, ev.clientY);
+    // Input.mouseMoved only: a drag with a button held keeps the review (mouseDragged).
+    if (ev.buttons === 0) pointerAt(point);
+    // The right board's square is removed as soon as it is drawn (LizzieFrame.java:10147-10162).
+    if (rectPointer("main", right ? null : point)) schedule();
+    if (!boardPointerMoved(point !== null)) return;
     if (right && !dual) return hover(null);
     const geo = mainGeom(v, right && dual ? dual.right : panels.board);
     const rect = $("main").getBoundingClientRect();
@@ -605,6 +656,9 @@ function bindPointer() {
     $(id).addEventListener("mouseleave", () => {
       finishReplayBranch();
       if (!contextMenuOpen()) hover(null);
+      // onMouseExited: removeblock and clearPressStoneInfo(null).
+      if (rectPointer("main", null)) schedule();
+      pointerAt(null);
     });
   }
   // The replay ends when the window is no longer the active one (LizzieFrame.java:11650).
@@ -730,7 +784,7 @@ function bindPointer() {
     if (ev.button === 2) {
       // Off the board: openRightClickMenu clears the table selection, else undoForRightClick.
       ev.preventDefault();
-      if (!clearTableSelection()) navigate({ op: "Back", count: 1 });
+      if (!clearTableSelection()) undo(1);
       return;
     }
     if (ev.button !== 0) return;
@@ -753,6 +807,7 @@ function bindPointer() {
   tree.addEventListener(
     "wheel",
     (ev) => {
+      if (treeFitShown) return;
       ev.preventDefault();
       const step = Math.sign(ev.deltaY || ev.deltaX) * TREE_UNIT * 3;
       if (treeView?.vertical && !ev.shiftKey) scrollTree(step, 0);
@@ -973,6 +1028,10 @@ function boardScene(v: WorkbenchView, hovered: number | null, preview: PreviewVa
     selecting: regionDrag(),
     focus: v.focus,
     tracking: v.settings.tracking,
+    // 优先分析此点 (LizzieFrame.priorityMoveCoords) belongs to the current position only.
+    priority: at ? [] : v.engine.priority_points,
+    moveRect: null,
+    review: null,
   };
 }
 
@@ -1039,20 +1098,23 @@ function render() {
   // AI 陪练's 实战后复盘 (applyTrainingModeVisualState): no candidates, winrate in the suggestions,
   // Kata形势, policy or heat map for the game; the committed display settings stay as they are.
   const training = humanSlDisplay(v);
-  const scene = boardScene(v, hoverAllowed(v) ? hoveredCandidate : null, hoveredVariation(v)?.preview ?? null);
+  const base = boardScene(v, hoverAllowed(v) ? hoveredCandidate : null, hoveredVariation(v)?.preview ?? null);
+  const scene = reviewScene(base) ?? { ...base, moveRect: moveRect(v, "main") };
+  const reviewSig = JSON.stringify(clickReviewReport());
   const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}:${v.game?.id ?? ""}:${v.game?.play_mode ?? ""}:${training ?? ""}`;
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
   const scoreSig = v.score ? JSON.stringify(v.score) : "";
-  const searchSig = JSON.stringify([v.region, scene.selecting, v.focus, v.settings.tracking]);
-  if (!floating && changed("board", `${background}:${P.board.x},${P.board.y},${P.board.w}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}:${searchSig}`))
+  const searchSig = JSON.stringify([v.region, scene.selecting, v.focus, v.settings.tracking, scene.priority]);
+  if (!floating && changed("board", `${background}:${P.board.x},${P.board.y},${P.board.w}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}:${searchSig}:${JSON.stringify(scene.moveRect)}:${reviewSig}`))
     boardReport = paintBoard(prepare($("board"), P.board), mainGeom(v, P.board), P.board, scene);
   if (dual) renderDual(v, dual, W, H, size, docSig, ui, scoreSig, scene);
-  else renderPanels(v, P, H, size, docSig, ui, scene);
+  // The sub boards and panels follow the current position, never a review.
+  else renderPanels(v, P, H, size, docSig, ui, base);
   if (side && mode === "Thinking") renderRawBoard(v, side.aux, size, docSig, scene);
-  if (side && mode === "FourSub") renderQuads(v, side, size, docSig, ui, scene);
+  if (side && mode === "FourSub") renderQuads(v, side, size, docSig, ui, base);
   relayIndependent(v, {
-    main: presentation(v).panels.showingIndependentMain ? { scene: { ...scene, unlimited: [...scene.unlimited] }, bigMargin: bigMargin(v) } : null,
-    sub: floatSubScene(v, scene),
+    main: presentation(v).panels.showingIndependentMain ? { scene: { ...scene, unlimited: [...scene.unlimited], moveRect: scene.review ? null : moveRect(v, "independent") }, bigMargin: bigMargin(v) } : null,
+    sub: floatSubScene(v, base),
   });
   relayFrame(v);
   relayHawkeye(v);
@@ -1136,8 +1198,18 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
   const treeNumbers = v.settings.display.treeMoveNumbers;
   // The core's 错误节点 colours of every node (white ones omitted); they change with the analysis.
   const nodeColors = JSON.stringify(v.theme_nodes);
-  if (P.shown.tree && changed("tree", `${at(P.tree)}:${docSig}:${treeRevision}:${nodeColors}:${treeNumbers}:${treeScroll?.top}:${treeScroll?.left}`)) {
-    const painted = paintTree(prepare($("tree"), P.tree), P.tree, state.nodes, state.root, pos.node, state.line, treeScroll, treeNumbers, new Map(v.theme_nodes.map((n) => [n.node, n.color] as const)));
+  const treeDisplay = v.settings.display;
+  const fitBefore = treeFit(treeDisplay, v.document.id);
+  const treeSettings = `${treeDisplay.scrollVariation}:${treeDisplay.maxTreeWidth}:${treeDisplay.ignoreOutOfWidth}:${fitBefore}`;
+  if (P.shown.tree && changed("tree", `${at(P.tree)}:${docSig}:${treeRevision}:${nodeColors}:${treeNumbers}:${treeSettings}:${treeScroll?.top}:${treeScroll?.left}`)) {
+    const colors = new Map(v.theme_nodes.map((n) => [n.node, n.color] as const));
+    const scrolled = fitBefore ? null : paintTree(prepare($("tree"), P.tree), P.tree, state.nodes, state.root, pos.node, state.line, treeScroll, treeNumbers, colors, treeDisplay.maxTreeWidth);
+    // setTreeMaxLimit marks the tree too wide; without 超过宽度依然使用滚动条 the whole tree is
+    // then laid out in the panel instead.
+    if (scrolled?.tooWide) markTreeTooWide(v.document.id, treeDisplay.maxTreeWidth);
+    treeFitShown = treeFit(treeDisplay, v.document.id);
+    // Not fitted now means not fitted before either: the scroll pane was drawn.
+    const painted = treeFitShown ? paintTreeFit(prepare($("tree"), P.tree), P.tree, state.nodes, pos.node, state.line, treeNumbers, colors) : scrolled!;
     treeHits = painted.hits;
     treeView = painted.viewport;
     treeNumbersDrawn = painted.numbers;
@@ -1159,7 +1231,8 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
  *  marks; no candidates, next moves or variation, and the bottom coordinates instead of the names
  *  or the pure network line. */
 function renderRawBoard(v: WorkbenchView, r: Rect, size: string, docSig: string, scene: BoardScene) {
-  const raw: BoardScene = {
+  // A review shows on this board too (BoardRenderer.draw has no board check there).
+  const raw: BoardScene = scene.review ? { ...scene, names: false } : {
     ...scene,
     names: false,
     candidatesShown: false,
@@ -1170,8 +1243,9 @@ function renderRawBoard(v: WorkbenchView, r: Rect, size: string, docSig: string,
     hovered: null,
     preview: null,
     ownership: mainOwnership(v, null),
+    moveRect: null,
   };
-  if (changed("raw", `${size}:${r.x},${r.y},${r.w}:${docSig}:${analysisRevision}:${displaySig}:${layerSignature("raw", raw.ownership)}:${JSON.stringify(v.score)}:${raw.mark?.x},${raw.mark?.y}`))
+  if (changed("raw", `${size}:${r.x},${r.y},${r.w}:${docSig}:${analysisRevision}:${displaySig}:${layerSignature("raw", raw.ownership)}:${JSON.stringify(v.score)}:${raw.mark?.x},${raw.mark?.y}:${JSON.stringify(clickReviewReport())}`))
     rawReport = paintBoard(prepare($<HTMLCanvasElement>("board2"), r), mainGeom(v, r), r, raw);
 }
 
@@ -1255,13 +1329,19 @@ function independentInput(input: IndependentInput): void {
     case "hover": {
       const { width, height } = v.document.size;
       const x = Math.floor(input.fx + 0.5), y = Math.floor(input.fy + 0.5);
-      if (!boardPointerMoved(x >= 0 && y >= 0 && x < width && y < height)) return;
+      const point = x >= 0 && y >= 0 && x < width && y < height ? { x, y } : null;
+      // IndependentMainBoard.java:584-607: its own square, and the review ends off the point.
+      if (!input.pressed) pointerAt(point);
+      if (rectPointer("independent", point)) schedule();
+      if (!boardPointerMoved(point !== null)) return;
       hoverNear(v, (p) => Math.hypot(input.fx - p.x, input.fy - p.y) <= input.reach);
       break;
     }
     case "leave":
       finishReplayBranch();
       if (!contextMenuOpen()) hover(null);
+      if (rectPointer("independent", null)) schedule();
+      pointerAt(null);
       break;
     case "press":
       // leftClickInScoreMode: while scoring a left press marks the point and nothing else runs.
@@ -1296,7 +1376,8 @@ function independentInput(input: IndependentInput): void {
 function renderDual(v: WorkbenchView, d: DualPanels, W: number, H: number, size: string, docSig: string, ui: string, scoreSig: string, left: BoardScene) {
   const s = v.secondary;
   const allowed = hoverAllowed(v);
-  const scene: BoardScene = {
+  // A review shows on both boards (Lizzie.board.isMouseOnStone is the boards' common state).
+  const scene: BoardScene = left.review ? left : {
     ...left,
     display: v.settings.display,
     candidatesShown: candidatesShownFor(v.position.to_play),
@@ -1315,9 +1396,12 @@ function renderDual(v: WorkbenchView, d: DualPanels, W: number, H: number, size:
     region: null,
     selecting: null,
     focus: null,
+    priority: [],
+    // LizzieFrame.java:10160-10162: the right board's square is removed as soon as it is drawn.
+    moveRect: null,
   };
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
-  if (changed("board2", `${size}:${docSig}:${secondaryRevision}:${displaySig2}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("right", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}`))
+  if (changed("board2", `${size}:${docSig}:${secondaryRevision}:${displaySig2}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("right", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}:${JSON.stringify(clickReviewReport())}`))
     rightReport = paintBoard(prepare($("board2"), d.right), mainGeom(v, d.right), d.right, scene);
   // drawPonderingStateForExtraMode2 (LizzieFrame.java:6663-6719): each engine's name and 思考
   // state, then its visits and side-to-move win rate for this node when it has a result. The
@@ -1438,6 +1522,8 @@ function uiReport() {
     hawkeye: hawkeyeReport(),
     /** 批量分析 (T17): whether its settings dialog is shown and what the 进度表 window last drew. */
     batch: batchReport(),
+    /** 独立棋局控制面板: whether it is shown and its buttons as the window last drew them. */
+    controlPanel: controlPanelReport(),
     /** 棋力评估 (T25): the dashboard, 详细数据 and HumanSL 40 progress dialogs as shown. */
     strength: strengthReport(),
     /** AI 解说 (T26): whether its window is open and what it shows, settings dialog included. */
@@ -1458,9 +1544,10 @@ function uiReport() {
       .map(({ el, r }) => ({
         key: el.dataset.key ?? el.dataset.name ?? el.id ?? "",
         text: el.textContent ?? "",
-        checked: el instanceof HTMLInputElement && el.type === "checkbox" ? el.checked : undefined,
-        value: el instanceof HTMLInputElement && el.type === "text" ? el.value : undefined,
-        disabled: el.classList.contains("disabled") || undefined,
+        checked: el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio") ? el.checked : undefined,
+        value: (el instanceof HTMLInputElement && (el.type === "text" || el.type === "number")) || el instanceof HTMLSelectElement ? el.value : undefined,
+        disabled: el.classList.contains("disabled") || (el instanceof HTMLInputElement && el.disabled) || undefined,
+        invalid: el.classList.contains("invalid") || undefined,
         title: el.title || undefined,
         x: Math.round(r.left + r.width / 2),
         y: Math.round(r.top + r.height / 2),
@@ -1487,8 +1574,19 @@ function uiReport() {
       nextMovePreview: boardReport?.preview?.order === -1,
       /** Candidates kept beyond 最大候选点数 by lastTimeUnlimited ("x,y"). */
       keptBeyondLimit: [...keptPoints(state.view?.analysis ?? null)],
-      tree: { numbers: state.view?.settings.display.treeMoveNumbers ?? false, drawn: treeNumbersDrawn },
+      tree: {
+        numbers: state.view?.settings.display.treeMoveNumbers ?? false,
+        drawn: treeNumbersDrawn,
+        /** The whole tree in the panel; the node centres a click goes to (panel coordinates). */
+        fit: treeFitShown,
+        viewport: treeView,
+        hits: [...treeHits].map(([k, node]) => ({ at: k, node })),
+      },
       autoplay: autoplayReport(),
+      /** 点击棋子回看: the pressed point, the shown node once looked up and the variation length. */
+      clickReview: clickReviewReport(),
+      /** 自由涂鸦: the open layer's pen, lines and place, or null. */
+      painting: paintingReport(),
     },
     /** 双引擎模式 (T12): the mode, the right board's drawing, both boards' client geometry, the
      *  status strips as drawn, the secondary engine menu's title and the candidate windows. */
@@ -1563,10 +1661,13 @@ async function boot() {
   startTitleUpdates(schedule);
   // F, holding Z, 延迟显示候选点 and T repaint both boards at once.
   onBoardUiChange(schedule);
+  // 设置最大宽度 confirmed: the tree is laid out again even with the same width.
+  onTreeTooWideCleared(schedule);
   // An open 自定义布局 设置 dialog's draft relays out the workbench and the floating boards.
   onPresentationChange(schedule);
   // A region selection being dragged, and the lit region buttons.
   onRegionUiChange(schedule);
+  bindClickReview(schedule);
   bindAutoplayHost({
     target: () => (state.view ? hoveredVariation(state.view)?.target ?? null : null),
     repaint: schedule,
@@ -1621,6 +1722,8 @@ async function boot() {
   await startTencentKifu();
   await startOnline();
   await getCurrentWindow().show();
+  // Lizzie.java:1029: the control panel shown at the last exit opens over the shown workbench.
+  await startControlPanel();
   await getCurrentWindow().setFocus();
   schedule();
   // First use (no settings of this product yet): offer the LizzieYzy Next import.

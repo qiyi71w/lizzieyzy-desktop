@@ -148,6 +148,11 @@ impl Engines {
         self.games.iter().any(|g| g.instance == id && g.raw)
     }
 
+    /// Whether a play mode, a match, HumanSL or ReadBoard GMA holds instance `id`.
+    pub(super) fn in_game(&self, id: InstanceId) -> bool {
+        self.games.iter().any(|g| g.instance == id)
+    }
+
     /// The instance `game` holds, while it holds one.
     pub fn game_instance(&self, game: u64) -> Option<InstanceId> {
         self.games.iter().find(|g| g.id == game).map(|g| g.instance)

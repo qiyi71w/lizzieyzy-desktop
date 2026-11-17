@@ -4,7 +4,7 @@
 // opens a menu or runs a command. Only an ACTION destination runs its catalog command; settings,
 // menus, toolbar controls and windows other than the Java openers are located, never clicked.
 import { state } from "../app";
-import { livePopupAnchor, locateLivePopupItem } from "../chrome/bottombar";
+import { livePopupAnchor, locateHiddenButton, locateLivePopupItem } from "../chrome/bottombar";
 import { locateMenuItem, menuItemState } from "../chrome/menubar";
 import { COMMANDS } from "../commands";
 import type { FunctionMatch } from "../contract/generated";
@@ -16,6 +16,11 @@ import { markupToolsShown, setEditing } from "../editing/state";
 import { revealToolbar } from "../workbench/panels";
 import { matchPlaying } from "../match/state";
 import { aiCoachBlockedByGame } from "../humansl/state";
+import { renderToolbar } from "../chrome/toolbar";
+import type { KataParam } from "../contract/generated";
+import { kataGoPda, kataRevealed } from "../engine/kataParams";
+import { revealTopGroup, TOP_GROUP_OF } from "../chrome/topGroups";
+import { kataGoCustom } from "../engine/customPda";
 import { clearHighlight, highlight } from "./highlight";
 
 export type DestinationKind = "action" | "menu" | "toolbar" | "setting" | "window" | "context";
@@ -62,8 +67,6 @@ const OPENERS: Record<string, true> = {
   "game.komi": true, // editGameKomi
   "engine.rules": true, // setRulesAtEditor
   "game.ai-coach": true, // handleAiCoachToolbarAction
-  "share.private-history": true, // openPrivateKifuSearch
-  "share.public-history": true, // openPublicKifuSearch
 };
 
 /** Board context-menu items (editing/input.ts pointMenu / stoneMenu, analysis/region.ts
@@ -82,19 +85,31 @@ const CONTEXT_ITEMS: Record<string, true> = {
   "RightClickMenu.trackPoint": true,
   "RightClickMenu.untrackPoint": true,
   "RightClickMenu.clearAllTracked": true,
+  "RightClickMenu.priority": true,
+  "RightClickMenu.clearPriority": true,
   "RightClickMenu.addSuggestionAsBranch": true,
   "RightClickMenu.previousMove": true,
   "RightClickMenu2.findStone": true,
   "RightClickMenu2.moveStone": true,
   "RightClickMenu2.switchone": true,
   "RightClickMenu2.deleteone": true,
+  "RightClickMenu2.review": true,
 };
 
 /** The located control of a toolbar destination (`data-function` = Java action id), or the 同步
- *  button holding a popup item. */
+ *  button holding a popup item. `engine.pda` is the 激进度 check box, except with a KataGoPda engine,
+ *  whose 激进度 group is hidden: then its "..." (Menu.topFunctionTarget → more2). */
 function toolbarControl(id: string): HTMLElement | null {
-  return document.querySelector<HTMLElement>(`#toolbar [data-function="${CSS.escape(id)}"], #bottombar [data-function="${CSS.escape(id)}"]`) ?? livePopupAnchor(id);
+  const only = id === "engine.pda" ? (kataGoPda() ? ".pda-more" : ":not(.pda-more)") : "";
+  const selector = `[data-function="${CSS.escape(id)}"]${only}`;
+  return document.querySelector<HTMLElement>(`#toolbar ${selector}, #bottombar ${selector}`) ?? livePopupAnchor(id);
 }
+
+/** The 激进度 / 广度 groups (Menu.locateTopFunction sets showPDAInMenu / showWRNInMenu) and the
+ *  自定义内容 groups of chrome/topGroups.ts: locating shows the group for this run, so a group its
+ *  setting hides is not a reason; the engine-state reasons are
+ *  LizzieFrame.functionEntryUnavailableReason's. */
+const KATA_GROUPS: Record<string, KataParam> = { "engine.pda": "Pda", "toolbar.wrn": "Wrn" };
 
 function kindOf(m: FunctionMatch): DestinationKind | null {
   if (m.target === "Context") return "context";
@@ -121,7 +136,7 @@ function missing(m: FunctionMatch, kind: DestinationKind | null): boolean {
       return menuItemState(m.id) === "missing";
     case "toolbar": {
       const control = toolbarControl(m.id);
-      return !control || control.classList.contains("unavailable") || control.matches(":disabled");
+      return !control || control.classList.contains("unavailable");
     }
   }
 }
@@ -178,6 +193,10 @@ function entryReason(id: string): Reason | null {
       if (view.engine_match?.phase === "Starting" || matchPlaying(view)) return ENGINE_GAME;
       if (!engine) return NO_ENGINE;
       return engine.katago ? null : NOT_KATAGO;
+    // RightClickMenu.java:124-156: shown only outside games with a KataGoCustom / KataGoPda engine.
+    case "board.priority-point":
+    case "board.clear-priority":
+      return kataGoCustom() && !view.game ? null : CONTEXT;
     case "toolbar.force-allow":
     case "toolbar.force-avoid":
     case "toolbar.force-clear":
@@ -214,7 +233,7 @@ function entryReason(id: string): Reason | null {
     case "engine.select-secondary":
       return view.settings.extra_mode === "DoubleEngine" ? null : { key: "FunctionSearch.unavailable.secondary" };
     case "menu.stopFullTrace":
-      return view.engine.full_trace ? null : { key: "FunctionSearch.unavailable.fullTrace" };
+      return view.full_trace.length ? null : { key: "FunctionSearch.unavailable.fullTrace" };
     case "menu.undoDelete":
       return view.editing.can_undo ? null : { key: "FunctionSearch.unavailable.undoEdit" };
     case "menu.redoDelete":
@@ -250,7 +269,8 @@ function dependencyReason(id: string): Reason | null {
 }
 
 /** A toolbar control inside a tool group its own setting switched off. The whole toolbar being
- *  hidden does not count (locating shows it), nor the markup buttons, which locating shows too. */
+ *  hidden does not count (locating shows it), nor the markup buttons, which locating shows too, nor
+ *  the 详细工具栏's controls, which locating expands. */
 function groupHidden(control: HTMLElement): boolean {
   for (let el = control.parentElement; el && el.id !== "toolbar" && el.id !== "bottombar"; el = el.parentElement) {
     if (getComputedStyle(el).display === "none") return true;
@@ -263,9 +283,11 @@ function unavailableReason(m: FunctionMatch, kind: DestinationKind | null, absen
   if (dialogOpen(search ?? undefined)) return { key: "FunctionSearch.unavailable.modal" };
   if (absent) return UNAVAILABLE;
   if (kind === "context") return state.view.settings.edit.showRightMenu ? null : CONTEXT;
-  if (kind === "toolbar" && !revealsMarkup(m.id) && groupHidden(toolbarControl(m.id)!)) return TOOLBAR;
+  if (kind === "toolbar" && !revealsMarkup(m.id) && !KATA_GROUPS[m.id] && !TOP_GROUP_OF[m.id] && !m.id.startsWith("legacy.") && groupHidden(toolbarControl(m.id)!)) return TOOLBAR;
   const reason = entryReason(m.id);
   if (reason) return reason;
+  // A real toolbar control disabled for now (广度 while the engine is not free for it).
+  if (kind === "toolbar" && toolbarControl(m.id)?.matches(":disabled")) return CONTEXT;
   if (kind === "menu" && menuItemState(m.id) === "hidden") return CONTEXT;
   // A registered command its owner reports disabled or hidden, whatever the destination.
   const entry = COMMANDS[m.id];
@@ -299,20 +321,30 @@ async function navigateBoard(m: FunctionMatch): Promise<null> {
   return null;
 }
 
-/** Menu.locateTopFunction (Menu.java:6997-7001): locating a markup button shows the markup tools
- *  for this session (Config.isShowingMarkupTools, not saved); btnMarkup itself does not. */
+/** Menu.locateTopFunction (Menu.java:6997-7001): locating a markup button or 自由涂鸦 shows the
+ *  markup tools for this session (Config.isShowingMarkupTools, not saved); btnMarkup itself does
+ *  not. */
 function revealsMarkup(id: string): boolean {
-  return id.startsWith("toolbar.markup-") && id !== "toolbar.markup-tools";
+  return (id.startsWith("toolbar.markup-") && id !== "toolbar.markup-tools") || id === "toolbar.painting";
 }
 
 /** BottomToolbar.locateFunction / Menu.locateTopFunction: shows the toolbar (and the markup tools
- *  for a markup button), then scrolls to and focuses the control with the gold line. The control
- *  is not clicked and no saved setting changes. */
+ *  for a markup button, the 详细工具栏 for its controls), then scrolls to and focuses the control
+ *  with the gold line. A bottom button not on the bar is located in 更多. The control is not
+ *  clicked and no saved setting changes. */
 async function locateToolbarControl(id: string): Promise<Reason | null> {
   const control = toolbarControl(id);
   if (!control) return TOOLBAR;
+  const kata = KATA_GROUPS[id];
+  const top = TOP_GROUP_OF[id];
+  if (kata && !kataRevealed[kata]) {
+    kataRevealed[kata] = true;
+    renderToolbar();
+  } else if (top && revealTopGroup(top)) renderToolbar();
   if (revealsMarkup(id) && !markupToolsShown()) setEditing({ markupRevealed: true });
-  await revealToolbar(control.closest("#bottombar") ? "bottom" : "top");
+  const bottom = !!control.closest("#bottombar");
+  await revealToolbar(!bottom ? "top" : id.startsWith("legacy.") ? "detail" : "bottom");
+  if (bottom && control.isConnected && control.getClientRects().length === 0 && locateHiddenButton(id)) return null;
   if (!control.isConnected || control.getClientRects().length === 0) return TOOLBAR;
   if (control.dataset.function !== id) return locateLivePopupItem(id) ? null : TARGET_MISSING;
   control.scrollIntoView({ block: "nearest", inline: "nearest" });

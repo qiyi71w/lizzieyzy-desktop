@@ -9,6 +9,7 @@ mod cloud;
 mod cloud_dispatch;
 mod cloud_import;
 mod contribution;
+mod control_panel;
 mod diagnostics;
 mod floatboard;
 mod fox_kifu;
@@ -27,6 +28,7 @@ mod startup;
 mod tencent_kifu;
 mod tsumego_capture;
 mod tuning;
+mod update;
 mod web_board;
 mod yike_browser;
 
@@ -77,7 +79,7 @@ pub const HAWKEYE_CLOSED_EVENT: &str = "hawkeye-closed";
 
 pub struct Shared {
     pub workbench: Mutex<Workbench>,
-    pub log: logging::Log,
+    pub log: Arc<logging::Log>,
     /// Engine-caused view change, console lines, and a timer the refresher must re-read.
     refresh: Mutex<(bool, bool, bool)>,
     refresh_cv: Condvar,
@@ -160,7 +162,49 @@ fn frame_placement(window: &tauri::WebviewWindow, columns: &[u32]) -> Option<Fra
 #[derive(Default)]
 struct ViewSubscription {
     generation: u64,
-    channel: Option<Channel<WorkbenchView>>,
+    sink: Option<ViewSink>,
+}
+
+/// Where workbench views go. A `Channel` fetches every message over 8 KiB back over the IPC
+/// protocol, which WebView2 serves through resource interception on its browser thread, ten
+/// times a second while an engine analyses; there the view's JSON is posted to the page as a
+/// web message instead, which the page parses like the fetched one. Elsewhere the channel
+/// carries it.
+struct ViewSink {
+    #[cfg(windows)]
+    webview: tauri::Webview,
+    #[cfg(not(windows))]
+    channel: Channel<WorkbenchView>,
+}
+
+impl ViewSink {
+    #[cfg(windows)]
+    fn new(webview: tauri::Webview, _channel: Channel<WorkbenchView>) -> ViewSink {
+        ViewSink { webview }
+    }
+
+    #[cfg(not(windows))]
+    fn new(_webview: tauri::Webview, channel: Channel<WorkbenchView>) -> ViewSink {
+        ViewSink { channel }
+    }
+
+    #[cfg(windows)]
+    fn send(&self, view: WorkbenchView) -> tauri::Result<()> {
+        let message = windows::core::HSTRING::from(serde_json::to_string(&view)?);
+        let app = self.webview.app_handle().clone();
+        self.webview.with_webview(move |platform| {
+            let posted = unsafe { platform.controller().CoreWebView2().and_then(|core| core.PostWebMessageAsString(&message)) };
+            // The view is lost (with any tree or one-shot part it carried); the log says so.
+            if let Err(e) = posted {
+                app.state::<State>().log.warn(&format!("workbench view not delivered: {e}"));
+            }
+        })
+    }
+
+    #[cfg(not(windows))]
+    fn send(&self, view: WorkbenchView) -> tauri::Result<()> {
+        self.channel.send(view)
+    }
 }
 
 pub type State = Arc<Shared>;
@@ -181,14 +225,15 @@ fn write_logs(shared: &Shared, logs: Vec<lizzie_core::workbench::LogLine>) {
 pub fn publish(app: &AppHandle, shared: &Shared) {
     let mut wb = shared.workbench.lock().unwrap();
     let mut views = shared.views.lock().unwrap();
-    if let Some(channel) = &views.channel {
-        if channel.send(wb.view(false)).is_err() {
-            views.channel = None;
+    if let Some(sink) = &views.sink {
+        if sink.send(wb.view(false)).is_err() {
+            views.sink = None;
         }
     }
     drop(views);
     let logs = wb.take_logs();
     let checks = wb.take_launch_checks();
+    let lookups = wb.take_model_lookups();
     let auto_saves = wb.take_background_saves();
     let batch_reads = wb.take_batch_reads();
     let deferred = wb.take_human_sl_deferred();
@@ -200,6 +245,7 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
     shared.web_board.changed();
     write_logs(shared, logs);
     run_launch_checks(app, checks);
+    run_model_lookups(app, lookups);
     commentary::spawn_jobs(app, shared, commentary_jobs);
     fox_kifu::spawn_jobs(app, fox_kifu_jobs);
     tencent_kifu::spawn_jobs(app, tencent_kifu_jobs);
@@ -228,8 +274,12 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
 /// Engine starts whose overlays need artifact fingerprints (measured or Apple tuning) are hashed
 /// on their own thread, never under the workbench lock (Java `requireWorker`).
 pub fn check_launches(app: &AppHandle, shared: &Shared) {
-    let checks = shared.workbench.lock().unwrap().take_launch_checks();
+    let mut wb = shared.workbench.lock().unwrap();
+    let checks = wb.take_launch_checks();
+    let lookups = wb.take_model_lookups();
+    drop(wb);
     run_launch_checks(app, checks);
+    run_model_lookups(app, lookups);
 }
 
 fn run_launch_checks(app: &AppHandle, checks: Vec<lizzie_core::engine::runtime::LaunchCheck>) {
@@ -242,6 +292,24 @@ fn run_launch_checks(app: &AppHandle, checks: Vec<lizzie_core::engine::runtime::
             publish(&app, &shared);
         });
     }
+}
+
+/// Reads started engines' model headers for the title's B11 speed notice off the workbench
+/// (Java's `model-speed-notice` reader); the title updates once a model is known.
+fn run_model_lookups(app: &AppHandle, lookups: Vec<lizzie_core::engine::runtime::ModelLookup>) {
+    if lookups.is_empty() {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let shared = app.state::<State>().inner().clone();
+        for lookup in lookups {
+            let found = lookup.run();
+            if shared.workbench.lock().unwrap().finish_model_lookup(found) {
+                publish(&app, &shared);
+            }
+        }
+    });
 }
 
 impl Shared {
@@ -727,6 +795,22 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().toggle_analysis()?;
             Ok(changed(&app, &shared, done))
         }
+        Command::HoldAnalysis { held } => {
+            let done = shared.workbench.lock().unwrap().hold_analysis(held);
+            Ok(changed(&app, &shared, done))
+        }
+        Command::ClearAnalysisCache { scope } => {
+            shared.workbench.lock().unwrap().clear_analysis_cache(scope);
+            Ok(changed(&app, &shared, true))
+        }
+        Command::ClearAnalysisInfo { scope } => {
+            shared.workbench.lock().unwrap().clear_analysis_info(scope);
+            Ok(changed(&app, &shared, true))
+        }
+        Command::RefreshCurrentMove => {
+            shared.workbench.lock().unwrap().refresh_current_move();
+            Ok(changed(&app, &shared, true))
+        }
         Command::SwitchEngine { index } => {
             let done = shared.workbench.lock().unwrap().switch_engine(index)?;
             Ok(changed(&app, &shared, done))
@@ -815,6 +899,39 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
                 },
             })
         }
+        Command::SetKataParam { param, enabled, value } => {
+            let refused = shared.workbench.lock().unwrap().set_kata_param(param, enabled, value)?;
+            publish(&app, &shared);
+            Ok(refused.map_or(CommandResult::Done, |key| CommandResult::Refused { message_key: key.to_string() }))
+        }
+        Command::SaveKataEngineParams { params } => {
+            let refused = shared.workbench.lock().unwrap().save_kata_engine_params(params)?;
+            publish(&app, &shared);
+            Ok(refused.map_or(CommandResult::Done, |key| CommandResult::Refused { message_key: key.to_string() }))
+        }
+        Command::SearchThreads { op } => {
+            let result = shared.workbench.lock().unwrap().search_threads(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
+        Command::SaveLeelaEngineOptions { options } => {
+            let refused = shared.workbench.lock().unwrap().save_leela_engine_options(options)?;
+            publish(&app, &shared);
+            Ok(refused.map_or(CommandResult::Done, |key| CommandResult::Refused { message_key: key.to_string() }))
+        }
+        Command::SaveCustomPda { settings } => {
+            let refused = shared.workbench.lock().unwrap().save_custom_pda(settings)?;
+            publish(&app, &shared);
+            Ok(refused.map_or(CommandResult::Done, |key| CommandResult::Refused { message_key: key.to_string() }))
+        }
+        Command::SetPriorityPoint { point } => {
+            let done = shared.workbench.lock().unwrap().set_priority_point(point)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::ClearPriorityPoints => {
+            let done = shared.workbench.lock().unwrap().clear_priority_points()?;
+            Ok(changed(&app, &shared, done))
+        }
         Command::SendGtpCommand { command } => {
             let refused = shared.workbench.lock().unwrap().send_gtp(&command)?;
             publish(&app, &shared);
@@ -826,12 +943,48 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
                 },
             })
         }
-        Command::SetFullTrace { enabled } => {
-            let done = shared.workbench.lock().unwrap().set_full_trace(enabled)?;
+        Command::SetConsoleVisible { visible } => {
+            shared.workbench.lock().unwrap().set_console_visible(visible);
+            Ok(CommandResult::Done)
+        }
+        Command::SetFullTrace { enabled, scopes } => {
+            let done = shared.workbench.lock().unwrap().set_full_trace(enabled, scopes)?;
             Ok(changed(&app, &shared, done))
+        }
+        Command::SetLogging { settings } => {
+            let done = shared.workbench.lock().unwrap().set_logging(settings)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetQuickLinks { settings } => {
+            let done = shared.workbench.lock().unwrap().set_quick_links(settings)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::LaunchQuickLink { index } => {
+            let result = shared.workbench.lock().unwrap().launch_quick_link(index as usize);
+            publish(&app, &shared);
+            Ok(result)
+        }
+        Command::ChooseQuickLinkProgram { title, filter_name } => {
+            let dialog = app.dialog().clone();
+            let picked = tauri::async_runtime::spawn_blocking(move || {
+                let builder = dialog.file().set_title(title);
+                // OtherPrograms.getEngineLine: Windows lists programs only; elsewhere any file.
+                let builder = if cfg!(windows) { builder.add_filter(filter_name, &["jar", "exe", "bat"]) } else { builder };
+                builder.blocking_pick_file()
+            })
+            .await
+            .map_err(|e| ApiError::new(ErrorKind::Unavailable, e.to_string()))?;
+            Ok(match picked.and_then(|p| p.into_path().ok()) {
+                Some(path) => CommandResult::FileChosen { path: path.to_string_lossy().into_owned() },
+                None => CommandResult::Unchanged,
+            })
         }
         Command::SetPonderLimitTips { enabled } => {
             let done = shared.workbench.lock().unwrap().set_ponder_limit_tips(enabled)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetAnalyzeSides { black, white } => {
+            let done = shared.workbench.lock().unwrap().set_analyze_sides(black, white);
             Ok(changed(&app, &shared, done))
         }
         Command::AnswerRulesPrompt { prompt, accept } => {
@@ -895,24 +1048,30 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             copy_analysis_ssh_password,
             copy_cloud_token,
             copy_cloud_password,
+            copy_contribution_credentials,
+            copy_quick_link_credentials,
             replace,
             recovery,
         } => {
-            let (commentary_plan, previous_commentary, ssh_passwords) = {
+            let (commentary_plan, previous_commentary, ssh_passwords, contribution_credentials) = {
                 let wb = shared.workbench.lock().unwrap();
                 (
                     wb.java_commentary_import(preview),
                     wb.config().commentary.clone(),
-                    wb.java_ssh_passwords(preview, &copy_credentials, copy_analysis_ssh_password),
+                    wb.java_ssh_passwords(preview, &copy_credentials, copy_analysis_ssh_password, copy_contribution_credentials),
+                    wb.java_contribution_credentials(preview, copy_contribution_credentials),
                 )
             };
-            // Confirmed SSH passwords are in place before the imported engines start.
+            // Confirmed SSH and 跑谱贡献 passwords are in place before the imported engines start.
             let ssh_adapter = app.state::<Arc<ssh::Adapter>>().inner().clone();
-            let staged = {
-                let adapter = ssh_adapter.clone();
-                tauri::async_runtime::spawn_blocking(move || adapter.stage_import(ssh_passwords))
-                    .await
-                    .map_err(|_| ApiError::new(ErrorKind::Unavailable, "Java credential import worker stopped."))?
+            let contribution_adapter = app.state::<Arc<contribution::Adapter>>().inner().clone();
+            let (staged, contribution_staged) = {
+                let (ssh, contribution) = (ssh_adapter.clone(), contribution_adapter.clone());
+                tauri::async_runtime::spawn_blocking(move || {
+                    (ssh.stage_import(ssh_passwords), contribution.stage_import(contribution_credentials))
+                })
+                .await
+                .map_err(|_| ApiError::new(ErrorKind::Unavailable, "Java credential import worker stopped."))?
             };
             let import_app = app.clone();
             let import_shared = shared.clone();
@@ -926,7 +1085,14 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
                         wb.stage_java_cloud_preferences(preview, s.remember_token, s.remember_password);
                         wb.set_cloud_authenticated(staged.authenticated())
                     });
-                    let result = wb.apply_java_import(preview, &copy_credentials, replace, recovery.as_ref());
+                    let result = wb.apply_java_import(
+                        preview,
+                        &copy_credentials,
+                        copy_contribution_credentials,
+                        copy_quick_link_credentials,
+                        replace,
+                        recovery.as_ref(),
+                    );
                     if !matches!(result, Ok(Ok(_))) {
                         if let Some(previous) = previous_authenticated { wb.set_cloud_authenticated(previous); }
                     }
@@ -944,8 +1110,12 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let mut report = match result {
                 Ok(Ok(report)) => report,
                 failed => {
-                    let adapter = ssh_adapter.clone();
-                    let _ = tauri::async_runtime::spawn_blocking(move || adapter.unstage_import(staged)).await;
+                    let (ssh, contribution) = (ssh_adapter.clone(), contribution_adapter.clone());
+                    let _ = tauri::async_runtime::spawn_blocking(move || {
+                        contribution.unstage_import(contribution_staged);
+                        ssh.unstage_import(staged);
+                    })
+                    .await;
                     return match failed {
                         Err(e) => {
                             shared.log.warn(&format!("java import failed: {}", e.message));
@@ -960,6 +1130,7 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
                 }
             };
             staged.report(&mut report);
+            contribution_staged.report(&mut report);
             let commentary_changed = shared.workbench.lock().unwrap().config().commentary != previous_commentary;
             let import_app = app.clone(); let import_shared = shared.clone();
             report = tauri::async_runtime::spawn_blocking(move || {
@@ -1023,6 +1194,7 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         }
         Command::WebBoard { op: WebBoardCommand::Start } => Ok(web_board::start(&app, &shared)),
         Command::WebBoard { op: WebBoardCommand::Stop } => Ok(web_board::stop(&app, &shared)),
+        Command::Update { op } => update::dispatch(&app, &shared, op),
         Command::WebBoard { op } => {
             let result = shared.workbench.lock().unwrap().web_board(op)?;
             publish(&app, &shared);
@@ -1103,6 +1275,9 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().set_edit_settings(settings)?;
             Ok(changed(&app, &shared, done))
         }
+        Command::ClickReview { point } => Ok(CommandResult::ClickReview {
+            review: shared.workbench.lock().unwrap().click_review(point),
+        }),
         Command::SetAppearanceSettings { settings, theme } => {
             let done = shared.workbench.lock().unwrap().set_appearance_settings(settings, *theme)?;
             Ok(changed(&app, &shared, done))
@@ -1336,6 +1511,18 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().set_tsumego_button_shown(shown)?;
             Ok(changed(&app, &shared, done))
         }
+        Command::SetTopToolbarSettings { settings } => {
+            let done = shared.workbench.lock().unwrap().set_top_toolbar_settings(settings)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetBottomButtons { settings } => {
+            let done = shared.workbench.lock().unwrap().set_bottom_buttons(settings)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetDetailPanelOrder { order } => {
+            let done = shared.workbench.lock().unwrap().set_detail_panel_order(order)?;
+            Ok(changed(&app, &shared, done))
+        }
         Command::ExportTable { rows } => export_table(&app, rows).await,
     }
 }
@@ -1432,12 +1619,11 @@ fn search_functions(query: String, language: lizzie_core::settings::Language) ->
     lizzie_core::function_search::search(&query, language)
 }
 
-/// Channels transfer large views as IPC data instead of compiling a new JS object literal.
 #[tauri::command]
-fn subscribe_workbench(state: tauri::State<'_, State>, channel: Channel<WorkbenchView>) -> u64 {
+fn subscribe_workbench(state: tauri::State<'_, State>, webview: tauri::Webview, channel: Channel<WorkbenchView>) -> u64 {
     let mut views = state.views.lock().unwrap();
     views.generation += 1;
-    views.channel = Some(channel);
+    views.sink = Some(ViewSink::new(webview, channel));
     views.generation
 }
 
@@ -1445,7 +1631,7 @@ fn subscribe_workbench(state: tauri::State<'_, State>, channel: Channel<Workbenc
 fn unsubscribe_workbench(state: tauri::State<'_, State>, generation: u64) {
     let mut views = state.views.lock().unwrap();
     if views.generation == generation {
-        views.channel = None;
+        views.sink = None;
     }
 }
 
@@ -1459,6 +1645,41 @@ fn logs_directory(state: tauri::State<'_, State>) -> LogsStatus {
 fn open_katago_releases(app: AppHandle) -> Result<(), ApiError> {
     app.opener()
         .open_url("https://github.com/lightvector/KataGo/releases", None::<&str>)
+        .map_err(|_| ApiError::new(ErrorKind::Unavailable, "AutoSetup.openBrowserUnsupported"))
+}
+
+/// 引擎参数 window's 这里 link (`SetKataEngines.Hint2`): the parameter notes of KataGo's example
+/// GTP configuration, at the revision Java links.
+#[tauri::command]
+fn open_katago_parameter_help(app: AppHandle) -> Result<(), ApiError> {
+    app.opener()
+        .open_url(
+            "https://github.com/lightvector/KataGo/blob/20d34784703c5b4000643d3ccc43bb37d418f3b5/cpp/configs/gtp_example.cfg#L76",
+            None::<&str>,
+        )
+        .map_err(|_| ApiError::new(ErrorKind::Unavailable, "AutoSetup.openBrowserUnsupported"))
+}
+
+/// The pages 关于's link buttons open (`ConfigDialog2.createUnifiedAboutHero`), on this product's
+/// repository instead of Java's.
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum ProjectPage {
+    Home,
+    Releases,
+    Issues,
+}
+
+/// 关于's 项目主页 / 发布下载 / 问题反馈 in the system browser; no caller-provided URL is accepted.
+#[tauri::command]
+fn open_project_page(app: AppHandle, page: ProjectPage) -> Result<(), ApiError> {
+    let url = match page {
+        ProjectPage::Home => "https://github.com/qiyi71w/lizzieyzy-desktop",
+        ProjectPage::Releases => "https://github.com/qiyi71w/lizzieyzy-desktop/releases",
+        ProjectPage::Issues => "https://github.com/qiyi71w/lizzieyzy-desktop/issues",
+    };
+    app.opener()
+        .open_url(url, None::<&str>)
         .map_err(|_| ApiError::new(ErrorKind::Unavailable, "AutoSetup.openBrowserUnsupported"))
 }
 
@@ -1515,6 +1736,7 @@ fn prepare_exit(app: &AppHandle, shared: &Shared) -> bool {
         record_hawkeye(shared, &mut wb, &hawkeye);
     }
     if let Err(error) = independent::capture(app, &mut wb) { shared.log.warn(&error.message); }
+    control_panel::capture(app, shared, &mut wb);
     persist_ui(app, shared, &mut wb);
     wb.shutdown_strength();
     true
@@ -1893,6 +2115,12 @@ fn install_macos_quit(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>>
     Err(std::io::Error::other("Default macOS menu has no Quit item").into())
 }
 
+/// When this process was started as the portable update's helper, applies the update and
+/// returns the exit code; the program does not start.
+pub fn update_helper() -> Option<i32> {
+    update::helper()
+}
+
 pub fn run() {
     let context = tauri::generate_context!();
     let logs = startup::logs_dir(&context.config().identifier);
@@ -1909,6 +2137,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        // 检查更新's signature check and installation; the page uses the core's commands, so no
+        // capability grants the plugin's own JavaScript commands.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(yike_browser::plugin())
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -1923,7 +2154,7 @@ pub fn run() {
             let cloud_adapter = Arc::new(cloud::Adapter::new(app.config().identifier.clone(), &config_dir));
             app.manage(cloud_adapter.clone());
             app.manage(cloud_dispatch::Requests::default());
-            let log = logging::Log::start(&storage.logs_dir);
+            let log = Arc::new(logging::Log::start(&storage.logs_dir));
             log.info(&format!(
                 "start {} {} on {}/{}",
                 app.package_info().name,
@@ -1931,6 +2162,15 @@ pub fn run() {
                 std::env::consts::OS,
                 std::env::consts::ARCH
             ));
+            // 诊断与日志: one recorder for the workbench, the engines and the network adapters;
+            // its records go to app.log.
+            let diagnostics = lizzie_core::diagnostics::Diagnostics::new(storage.logs_dir.clone());
+            let diagnostics_log = log.clone();
+            diagnostics.set_sink(Arc::new(move |level, text| match level {
+                lizzie_core::diagnostics::LogLevel::Debug => diagnostics_log.debug(text),
+                lizzie_core::diagnostics::LogLevel::Warn => diagnostics_log.warn(text),
+            }));
+            logging::install_diagnostics(diagnostics.clone());
             let locale = sys_locale::get_locale();
             // Engine output reaches the workbench through the shared state, which exists only
             // after the workbench: the sink looks it up once it is set.
@@ -1967,9 +2207,10 @@ pub fn run() {
                 }
             }))
             .with_ssh(ssh_adapter.connector())
-            .with_cloud(cloud_connector);
+            .with_cloud(cloud_connector.with_diagnostics(diagnostics.clone()));
             let processes = launcher.waiter();
             let mut workbench = Workbench::new(storage, locale.as_deref(), Box::new(launcher), engine_roots());
+            workbench.set_diagnostics(diagnostics);
             if let Ok(reply) = cloud_adapter.dispatch(&workbench.config().cloud, &workbench.config().network,
                 lizzie_core::cloud::CloudCommand::State) {
                 workbench.set_cloud_authenticated(reply.state.authenticated);
@@ -2027,6 +2268,7 @@ pub fn run() {
             app.manage(tencent_kifu::Adapter::default());
             run_refresher(app.handle().clone(), shared.clone());
             shared.workbench.lock().unwrap().start_engines();
+            update::setup(app.handle(), &shared);
             publish(app.handle(), &shared);
             resources::startup(app.handle().clone(), shared.clone());
             tuning::startup(app.handle().clone(), shared.clone());
@@ -2057,6 +2299,8 @@ pub fn run() {
             }
             // 启动Lizzie时预加载引擎 after start-up (Lizzie.java:1075-1077).
             shared.workbench.lock().unwrap().preload_analysis_engine();
+            // 启动时自动检查更新 once the program is ready (`WindowsUpdateController.applicationReady`).
+            update::application_ready(app.handle(), &shared);
 
             #[cfg(feature = "acceptance")]
             acceptance::start(app.handle().clone(), shared.clone());
@@ -2127,6 +2371,11 @@ pub fn run() {
                 api.prevent_close();
                 let _ = window.hide();
             }
+            // 独立棋局控制面板's close box hides it (a JDialog's HIDE_ON_CLOSE).
+            WindowEvent::CloseRequested { api, .. } if window.label() == control_panel::LABEL => {
+                api.prevent_close();
+                control_panel::closing(window.app_handle());
+            }
             WindowEvent::CloseRequested { .. } if window.label() == "commentary" => {}
             // 棋盘同步工具's float board has no close of its own: the helper shows and hides it,
             // and Alt+F4 there must not take the main window's exit path.
@@ -2145,7 +2394,7 @@ pub fn run() {
                 } else {
                     // Java exits with the main window; the tool windows must not keep the
                     // application running.
-                    for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW, HAWKEYE_WINDOW, HAWKEYE_SUB_WINDOW, BATCH_WINDOW, fox_kifu::WINDOW, tencent_kifu::WINDOW, independent::MAIN, independent::SUB, floatboard::LABEL] {
+                    for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW, HAWKEYE_WINDOW, HAWKEYE_SUB_WINDOW, BATCH_WINDOW, fox_kifu::WINDOW, tencent_kifu::WINDOW, independent::MAIN, independent::SUB, floatboard::LABEL, control_panel::LABEL] {
                         if let Some(frame) = app.get_webview_window(label) {
                             let _ = frame.destroy();
                         }
@@ -2172,6 +2421,16 @@ pub fn run() {
                         drop(wb);
                         publish(app, &shared);
                     }
+                }
+            }
+            // Tauri's `unstable` feature (the 弈客 web window's child webviews) makes every
+            // window's page a child view: macOS then gives a focused window's keys to the window
+            // itself, not its page, until a click. A one-page window hands them to its page, as
+            // Java's frames take the keys once active.
+            #[cfg(target_os = "macos")]
+            WindowEvent::Focused(true) => {
+                if let [page] = window.webviews().as_slice() {
+                    let _ = page.set_focus();
                 }
             }
             _ => {}
@@ -2207,6 +2466,8 @@ pub fn run() {
                 write_logs(&shared, logs);
                 shared.log.info("engines ended");
                 shared.log.info("exit");
+                // A Windows update installs once the program has ended its work.
+                update::finish_on_exit(app, &shared);
             }
         }),
         Err(e) => {
@@ -2233,6 +2494,9 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         logs_directory,
         engine_console,
         open_katago_releases,
+        open_katago_parameter_help,
+        open_project_page,
+        update::open_update_release,
         output::recovery_thumbnail,
         open_suggestions_frame,
         close_suggestions_frame,
@@ -2262,6 +2526,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         floatboard::show_float_board,
         floatboard::hide_float_board,
         open_batch_table,
+        control_panel::toggle_control_panel,
+        control_panel::reopen_control_panel,
         tsumego_capture::start_tsumego_capture,
         tsumego_capture::tsumego_capture_picture,
         tsumego_capture::tsumego_capture_preview,
@@ -2288,6 +2554,9 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         logs_directory,
         engine_console,
         open_katago_releases,
+        open_katago_parameter_help,
+        open_project_page,
+        update::open_update_release,
         output::recovery_thumbnail,
         open_suggestions_frame,
         close_suggestions_frame,
@@ -2317,6 +2586,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         floatboard::show_float_board,
         floatboard::hide_float_board,
         open_batch_table,
+        control_panel::toggle_control_panel,
+        control_panel::reopen_control_panel,
         tsumego_capture::start_tsumego_capture,
         tsumego_capture::tsumego_capture_picture,
         tsumego_capture::tsumego_capture_preview,

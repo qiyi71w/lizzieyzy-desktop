@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 mod catalog;
-pub use catalog::{Catalog, DiscoverySource, Weight};
+pub use catalog::{kata_weight, Catalog, DiscoverySource, Weight};
 
 pub const VIP_ARGS: &str = "--platform all --engine-type go --gpu-type vip-share --kata-name katago-TENSORRT --kata-weight 10b512t";
 pub const TOP_UP_PRESETS_FEN: [u32; 4] = [1000, 3000, 5000, 10000];

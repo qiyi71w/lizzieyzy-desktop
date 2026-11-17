@@ -35,13 +35,21 @@ function append(lines: ConsoleLineView[]): void {
   output.scrollTop = output.scrollHeight;
 }
 
+/** Shows or hides the console; the core records what a hidden one misses by `always-gtp`. */
+function show(visible: boolean): void {
+  if (!pane) return;
+  pane.hidden = !visible;
+  void run({ type: "SetConsoleVisible", visible });
+}
+
 export async function toggleConsole(): Promise<void> {
-  if (pane) { pane.hidden = !pane.hidden; if (!pane.hidden) pane.querySelector<HTMLInputElement>("input")?.focus(); return; }
+  if (pane) { show(pane.hidden); if (!pane.hidden) pane.querySelector<HTMLInputElement>("input")?.focus(); return; }
+  void run({ type: "SetConsoleVisible", visible: true });
   pane = document.createElement("section"); pane.className = "gtp-console"; pane.setAttribute("aria-label", t("GtpConsolePane.title"));
   // A window of its own in Java: usable while WaitForAnalysis disables the main window.
   pane.dataset.freeWindow = "";
   const header = document.createElement("div"); header.className = "gtp-header";
-  header.append(t("GtpConsolePane.title"), button(product("close"), () => { if (pane) pane.hidden = true; }));
+  header.append(t("GtpConsolePane.title"), button(product("close"), () => show(false)));
   output = document.createElement("pre"); output.className = "gtp-output"; output.tabIndex = 0;
   const command = input(""); command.setAttribute("aria-label", "GTP>");
   const send = async () => { const text = command.value.trim(); if (!text) return; command.value = ""; await run({ type: "SendGtpCommand", command: text }); command.focus(); };

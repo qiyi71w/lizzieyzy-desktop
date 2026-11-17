@@ -449,7 +449,7 @@ fn java_tencent_settings_are_imported_through_the_import_transaction() {
         assert_eq!(item.status, ImportStatus::Imported, "{key}");
         assert_eq!(item.target, Some(ImportTarget::TencentKifu), "{key}");
     }
-    wb.apply_java_import(preview.id, &[], false, None).unwrap().unwrap();
+    wb.apply_java_import(preview.id, &[], false, false, false, None).unwrap().unwrap();
     let reloaded = workbench(&product);
     let c = &reloaded.config().tencent_kifu;
     assert_eq!(c.last_name, "KeJie");
@@ -468,7 +468,7 @@ fn java_tencent_settings_are_imported_through_the_import_transaction() {
     let product = dir.path().join("product2");
     let mut wb = workbench(&product);
     let preview = wb.preview_java_import(java_import::read(&JavaSource::new(&java, None)).unwrap());
-    wb.apply_java_import(preview.id, &[], false, None).unwrap().unwrap();
+    wb.apply_java_import(preview.id, &[], false, false, false, None).unwrap().unwrap();
     let mut reloaded = workbench(&product);
     assert_eq!(reloaded.config().tencent_kifu.after_get, None);
     op(&mut reloaded, TencentKifuCommand::Open);

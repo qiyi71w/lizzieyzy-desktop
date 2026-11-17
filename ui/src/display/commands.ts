@@ -10,6 +10,7 @@ import { t } from "../i18n";
 import { openAutoPlayDialog } from "./autoplay";
 import { inputDialog, openCandidatesDelayDialog, openInfoOrderDialog, openMoveNumberDialog, openReplayIntervalDialog, parseJavaInt } from "./dialogs";
 import { boardUi, setCandidates, togglePolicy, toggleRawNet } from "./state";
+import { chooseMaxTreeWidth } from "./variationTree";
 
 const display = (): DisplaySettings | undefined => state.view?.settings.display;
 
@@ -181,6 +182,10 @@ Object.assign(COMMANDS, {
     enabled: () => display()?.moveNumbers !== -1,
   },
   "menu.showMoveNumberOnVariationPane": flag("treeMoveNumbers"),
+  // 分支面板设置 (Menu.java:1211-1293): the width items only apply to the scroll pane (2601-2612).
+  "menu.showScrollVariation": flag("scrollVariation"),
+  "menu.maxTreeWidth": { run: chooseMaxTreeWidth, enabled: () => display()?.scrollVariation ?? true },
+  "menu.ignoreOutOfWidth": { ...flag("ignoreOutOfWidth"), enabled: () => display()?.scrollVariation ?? true },
   // 落子评价标记 (addRankMarkMenu, Menu.java:9233-9562)
   "Menu.rankMenu.rankNoneMove": {
     run: () => setDisplay({ moveRank: -1 }),
@@ -208,7 +213,7 @@ Object.assign(COMMANDS, {
   "menu.suggestion2": flag("suggestionPlayouts"),
   "menu.suggestion3": flag("suggestionScore"),
   "menu.showScoreAsDiff": flag("scoreAsDiff"),
-  "menu.customInfoOrdr": { run: openInfoOrderDialog },
+  "menu.customInfoOrdr": { run: () => openInfoOrderDialog() },
   "menu.setCandidatesDelay": { run: openCandidatesDelayDialog, checked: () => display()?.delayCandidates ?? false },
   "menu.showSuggestionOrder": flag("suggestionOrder"),
   "menu.showMaxValueReverse": flag("suggestionMaxRed"),

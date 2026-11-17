@@ -99,8 +99,10 @@ function shortcut(e: KeyboardEvent): boolean {
 
 /** dispatchKeyEvent, ahead of every workbench key handler. `refuse` is the workbench's own
  *  refusal for a key target or focus owner: a text control (native editing and the input method
- *  keep the key), an open menu, context menu or progress window. Every entry uses it. */
-export function bindFunctionSearch(refuse: (target: EventTarget | null) => boolean): void {
+ *  keep the key), an open menu, context menu or progress window. Every entry uses it.
+ *  `shortcutHeld` refuses the shortcut alone while a window other than the main one holds the
+ *  keys (Java takes it only from the main window or 浮动主棋盘); the toolbar button stays usable. */
+export function bindFunctionSearch(refuse: (target: EventTarget | null) => boolean, shortcutHeld: () => boolean): void {
   workbenchRefuses = refuse;
   window.addEventListener("keydown", (e) => {
     if (!dialog) cancelFocusRestore();
@@ -113,7 +115,7 @@ export function bindFunctionSearch(refuse: (target: EventTarget | null) => boole
       e.stopImmediatePropagation();
       return;
     }
-    if (!shortcut(e) || functionSearchRefused(e.target)) return;
+    if (!shortcut(e) || shortcutHeld() || functionSearchRefused(e.target)) return;
     swallowedKeys.add(e.code);
     e.preventDefault();
     e.stopImmediatePropagation();

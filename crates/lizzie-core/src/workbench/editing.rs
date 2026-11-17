@@ -62,6 +62,13 @@ impl Workbench {
     /// stone counts as the foreground engine's search (`Board.place` → `onMainEnginePonder`), and
     /// while 棋盘同步工具 syncs, it goes through ReadBoard's checks and is sent to the helper.
     pub(super) fn apply_edit(&mut self, edit: DocumentEdit) -> Result<Applied, EditError> {
+        let move_played = matches!(
+            &edit,
+            DocumentEdit::Play { .. }
+                | DocumentEdit::Pass { .. }
+                | DocumentEdit::PlayBranch { .. }
+                | DocumentEdit::Insert { .. }
+        );
         let placed = match edit {
             DocumentEdit::Play { at, color, point, .. } => Some((at, color, point)),
             _ => None,
@@ -74,6 +81,13 @@ impl Workbench {
         let record = Arc::make_mut(&mut self.doc.record);
         record.set_branch_numbering(self.config.display.branch_numbers_from_one);
         let applied = record.apply(&edit)?;
+        if move_played {
+            // `Board.clearAfterMove`: the recorded priority points belong to the position
+            // before the move; no command is sent.
+            self.priority_points.clear();
+            self.priority_engine = None;
+            self.priority_at = None;
+        }
         if applied.content {
             self.doc.revision += 1;
         }
@@ -84,6 +98,11 @@ impl Workbench {
             self.foreground_pondered();
             if applied.content && applied.node.is_some() {
                 self.readboard_after_play(point);
+            }
+        }
+        if applied.content && matches!(edit, DocumentEdit::Play { .. } | DocumentEdit::Pass { .. }) {
+            if let Some(node) = applied.node {
+                self.custom_pda_after_move(node);
             }
         }
         Ok(applied)
@@ -104,6 +123,9 @@ impl Workbench {
         self.commentary_document_changed();
         self.web_board_document_replaced();
         self.editing = Editing::default();
+        self.priority_points.clear();
+        self.priority_engine = None;
+        self.priority_at = None;
     }
 
     pub fn setup_mode(&self) -> bool {
@@ -345,6 +367,7 @@ impl Workbench {
             }
             EditCommand::FindMove { point, any_branch } => match self.find_move(point, any_branch) {
                 Some(node) if node != self.cursor => {
+                    self.hold_for_side(node);
                     self.cursor = node;
                     self.sync_engine();
                     done(true)
@@ -443,11 +466,12 @@ impl Workbench {
             .map_err(|e| ApiError::new(ErrorKind::InvalidArgument, e.to_string()))
     }
 
-    /// A placed or followed move becomes the current node with its stone sound.
+    /// A placed or followed move becomes the current node with its stone sound; 分析 黑 / 白 judge
+    /// whether analysis goes on there (`Leelaz.playMove`).
     fn follow(&mut self, applied: Applied) -> CommandResult {
         match applied.node {
             Some(node) => {
-                self.move_to(node);
+                self.step_to(node);
                 CommandResult::Done
             }
             None => CommandResult::Unchanged,
