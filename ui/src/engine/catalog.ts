@@ -189,21 +189,31 @@ export async function openMoreEngines(): Promise<void> {
         row.onkeydown = (event) => { if (event.key === "Enter") row.click(); };
       });
     };
+    // A catalog edit the core refuses (an active engine game) leaves the table on the catalog the
+    // core keeps, as MoreEngines returns on a failed save.
+    const edit = async (change: () => void) => {
+      const previous = engines, previousSelected = selected;
+      engines = engines.map((entry) => ({ ...entry }));
+      change();
+      if (!(await persist())) { engines = previous; selected = previousSelected; }
+      load();
+    };
     const reorder = async (target: number) => {
       if (selected < 0 || !(await dirty())) return;
       const next = Math.max(0, Math.min(engines.length - 1, target));
-      engines.splice(next, 0, engines.splice(selected, 1)[0]); selected = next;
-      await persist(); load();
+      await edit(() => { engines.splice(next, 0, engines.splice(selected, 1)[0]); selected = next; });
     };
     actions(body,
       button(t("MoreEngines.add"), async () => {
         if (!(await dirty())) return;
-        engines.unshift({ id: "", name: t("MoreEngines.newEngine"), command: "", initialCommand: "", preload: false, isDefault: engines.length === 0, width: 19, height: 19, komi: 7.5 });
-        selected = 0; await persist(); load();
+        await edit(() => {
+          engines.unshift({ id: "", name: t("MoreEngines.newEngine"), command: "", initialCommand: "", preload: false, isDefault: engines.length === 0, width: 19, height: 19, komi: 7.5 });
+          selected = 0;
+        });
       }),
       button(t("MoreEngines.delete"), async () => {
         if (selected < 0 || !(await confirm(t("MoreEngines.deleteHint6"), t("MoreEngines.deleteHint5")))) return;
-        engines.splice(selected, 1); selected = Math.min(selected, engines.length - 1); await persist(); load();
+        await edit(() => { engines.splice(selected, 1); selected = Math.min(selected, engines.length - 1); });
       }),
       button(t("MoreEngines.moveFirst"), () => reorder(0)), button(t("MoreEngines.moveLast"), () => reorder(engines.length - 1)),
       button(t("MoreEngines.moveUp"), () => reorder(selected - 1)), button(t("MoreEngines.moveDown"), () => reorder(selected + 1)),
@@ -211,9 +221,17 @@ export async function openMoreEngines(): Promise<void> {
       button(t("MoreEngines.save"), async () => { if (await save()) load(); }));
     body.append(tableWrap);
     const radios = document.createElement("div"); radios.className = "engine-actions"; radios.append(t("ChooseMoreEngine.lblchooseStart"));
+    const startupRadios: HTMLInputElement[] = [];
     for (const [value, text] of [["Default", t("MoreEngines.lblrdoDefault")], ["Last", t("ChooseMoreEngine.lblrdoLast")], ["Empty", t("ChooseMoreEngine.lblrdoNone")], ["Manual", t("ChooseMoreEngine.lblrdoMannul")]] as const) {
       const radio = input(value, "radio"); radio.name = "engine-startup"; radio.checked = startup === value;
-      radio.onchange = async () => { startup = value satisfies EngineStartup; await persist(); };
+      radio.onchange = async () => {
+        const previous = startup;
+        startup = value satisfies EngineStartup;
+        if (await persist()) return;
+        startup = previous;
+        for (const other of startupRadios) other.checked = other.value === previous;
+      };
+      startupRadios.push(radio);
       const label = document.createElement("label"); label.append(radio, text); radios.append(label);
     }
     body.append(radios);

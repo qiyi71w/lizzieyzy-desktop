@@ -89,9 +89,17 @@ function diffColor(text: string, gain: number, thresholds: number[]): string {
   return "rgb(0,150,0)";
 }
 
-/** The raw change Java keeps in `NodeInfo.diffWinrate` / `scoreMeanDiff` (0 before it is known). */
+/** The raw change Java keeps in `NodeInfo.diffWinrate` / `scoreMeanDiff` (0 before it is known);
+ *  the sort keys only. */
 const winDiff = (e: MoveEvaluation) => e.winrate_change ?? 0;
 const scoreDiff = (e: MoveEvaluation) => e.score_change ?? 0;
+
+/** A value the analysis does not have is an empty cell, as MoveListFrame leaves 一选胜率 empty
+ *  without the previous position's analysis (java:7589-7593); never drawn as a measured 0. */
+function known(v: number | null, text: (v: number) => string): string {
+  return v === null ? "" : text(v);
+}
+const two = (v: number) => fixed(v, 2);
 
 /** The 详细列表 comparator (MoveListFrame.java:7267-7484): a key per column, larger first unless
  *  sorted; the change columns go through |Δ| ↓, Δ ↓, Δ ↑. Java's ascending 一选目数 compared
@@ -149,20 +157,20 @@ function sorted(moves: MoveEvaluation[], key: ((e: MoveEvaluation) => number) | 
 function detailCells(e: MoveEvaluation, p: HawkeyePayload): string[] {
   const coord = frameCoordinate(e.point, p.coordinateStyle, p.width, p.height);
   const colour = e.mover === "Black" ? t("Movelistframe.black") : t("Movelistframe.white");
-  const winrate = fixed(e.winrate ?? 0, 2);
+  const winrate = known(e.winrate, two);
   const best = fixed(e.best_winrate, 2);
   if (p.pane.katago) {
-    return [colour, String(e.move_number), coord, diffText(winDiff(e)), diffText(scoreDiff(e)), winrate, best,
-      fixed(e.score ?? 0, 2), fixed(e.best_score ?? 0, 2), playouts(e.visits_before), playouts(e.visits_after), fixed(e.share * 100, 1)];
+    return [colour, String(e.move_number), coord, known(e.winrate_change, diffText), known(e.score_change, diffText), winrate, best,
+      known(e.score, two), known(e.best_score, two), playouts(e.visits_before), playouts(e.visits_after), fixed(e.share * 100, 1)];
   }
-  return [colour, String(e.move_number), coord, diffText(winDiff(e)), winrate, best,
+  return [colour, String(e.move_number), coord, known(e.winrate_change, diffText), winrate, best,
     playouts(e.visits_before), playouts(e.visits_after), fixed(e.share * 100, 1)];
 }
 
 function minCells(e: MoveEvaluation, p: HawkeyePayload): string[] {
   const coord = frameCoordinate(e.point, p.coordinateStyle, p.width, p.height);
-  const head = [String(e.move_number), coord, diffText(winDiff(e))];
-  return p.pane.katago ? [...head, diffText(scoreDiff(e)), fixed(e.share * 100, 1)] : [...head, fixed(e.share * 100, 1)];
+  const head = [String(e.move_number), coord, known(e.winrate_change, diffText)];
+  return p.pane.katago ? [...head, known(e.score_change, diffText), fixed(e.share * 100, 1)] : [...head, fixed(e.share * 100, 1)];
 }
 
 function detailHeaders(katago: boolean): string[] {
