@@ -1081,7 +1081,11 @@ importing the matching LizzieYzy Next settings.
   设置 > 连接服务 offers Java's two connections. **API Key** works with any OpenAI-compatible
   service: service address (`/v1` is added to an address without a path), key and model; 获取模型
   lists `/models`; requests stream from `/chat/completions` and fall back to `/responses` only when
-  the service answers 404 or 405; HTTPS is required except for a service on this computer.
+  the service answers 404 or 405; HTTPS is required except for a service on this computer. The
+  key filled in from this session belongs to the saved address: changing the address empties the
+  field, so 获取模型 never sends it to another service, and a model list still loading when the
+  address or key changes is dropped (Java sent the filled key to the new address and offered the
+  old address's models for it).
   **ChatGPT 登录** is OpenAI's Sign in with ChatGPT in the browser and uses your ChatGPT plan
   (管理用量 opens its usage page); several accounts can be added and switched. 记住密钥 keeps the key
   in the system credential store (Windows DPAPI, macOS Keychain, Linux Secret Service through
@@ -1411,6 +1415,11 @@ importing the matching LizzieYzy Next settings.
   - Reads use Settings > 网络代理 like Java; the 弈客 Socket.IO room connects directly, as in
     Java. An unusable manual proxy shows Java's 网络代理设置 warning and stops the polling or the
     broadcast connection.
+  - When the 弈客 Socket.IO server disconnects or refuses the room, the follow stops as it does
+    when the server ends the room, and the record is kept (Java kept showing the room as followed
+    with no more updates); a dropped connection still reconnects. A 腾讯欢乐 broadcast or record
+    read that the server answers with an HTTP error status fails even when its body could be read
+    (Java took the error body as the broadcast or the record).
   - Commentator variations are added as side branches with their own colours, passes and
     comments. A game that arrives while a borrowed engine is being given back waits for it; 中断
     meanwhile drops it.

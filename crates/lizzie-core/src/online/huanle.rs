@@ -265,15 +265,16 @@ impl Session {
     }
 
     /// `req0` (OD 1686-1736): the JSONP reply names the broadcast, then `req(true)`. Java ignores
-    /// a reply it cannot read; here the follow stops with the dialog's invalid-link text.
+    /// a reply it cannot read; here the follow stops with the dialog's invalid-link text. A failed
+    /// request, a failed HTTP status included, stops it whatever its body says (Java read the
+    /// error body as the broadcast) with Java's hard-coded pull-failure status (`"拉取异常: " +
+    /// detail`, OD 4160), shown as it is in every language.
     fn on_request(&mut self, reply: &HttpReply) -> Step {
-        let body = match reply {
-            HttpReply::Ok { body, .. } => body,
-            HttpReply::Failed { message, .. } => {
-                return Step::update(SourceUpdate::Stopped(OnlineText::with(
-                    "Online.status.pullError",
-                    [message.clone()],
-                )));
+        let body = match reply_body(reply) {
+            Ok(body) => body,
+            Err(message) => {
+                let text = OnlineText::with("Online.text", [format!("拉取异常: {message}")]);
+                return Step::update(SourceUpdate::Stopped(text));
             }
         };
         let Some(o) = jsonp_object(body) else {
@@ -291,15 +292,13 @@ impl Session {
 
     /// `getSgf` → `refresh` → `parseSgf` (OD 1674-1684, 1117-1126): `jQuery1("<url-encoded
     /// SGF>"...`, read like a first sync (players and komi from the record, OD 1157-1160,
-    /// 1218-1224). A failure shows `YikeLiveDialog.syncFailed` like `parseSgf` (OD 1250-1261).
+    /// 1218-1224). A failure, a failed HTTP status included, shows `YikeLiveDialog.syncFailed`
+    /// like `parseSgf` (OD 1250-1261).
     fn on_record(&mut self, reply: &HttpReply) -> Step {
-        let text = match reply {
-            HttpReply::Ok { body, .. } => record_sgf(body),
-            HttpReply::Failed { message, .. } => {
-                return Step::update(SourceUpdate::Status(OnlineText::with(
-                    "YikeLiveDialog.syncFailed",
-                    [message.clone()],
-                )));
+        let text = match reply_body(reply) {
+            Ok(body) => record_sgf(body),
+            Err(message) => {
+                return Step::update(SourceUpdate::Status(OnlineText::with("YikeLiveDialog.syncFailed", [message])));
             }
         };
         let Some(record) = text.and_then(|t| formats::parse(RecordFormat::Sgf, &t, false).ok()) else {
@@ -723,6 +722,16 @@ fn java_double(v: f64) -> String {
         format!("{v:.1}")
     } else {
         format!("{v}")
+    }
+}
+
+/// The body of a successful reply, or the failure text: the transport's message or, for a
+/// status of 400 or more (`AjaxHttpRequest.observeAjax`'s failure), `HTTP <status>`.
+fn reply_body(reply: &HttpReply) -> Result<&str, String> {
+    match reply {
+        HttpReply::Ok { status, body } if *status < 400 => Ok(body),
+        HttpReply::Ok { status, .. } => Err(format!("HTTP {status}")),
+        HttpReply::Failed { message, .. } => Err(message.clone()),
     }
 }
 
