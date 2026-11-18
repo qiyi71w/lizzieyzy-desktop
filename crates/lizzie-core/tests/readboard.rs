@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use lizzie_core::api::{
-    Command, CommandResult, GameCommand, GameKind, ImportStatus, ImportTarget, LeaseAvailabilityView, PonderingNoticeDecision,
-    ReadBoardCommand, ReadBoardNotice,
+    Command, CommandResult, GameCommand, GameKind, ImportStatus, ImportTarget, LeaseAvailabilityView, OnlineJob, PageReport,
+    PonderingNoticeDecision, ReadBoardCommand, ReadBoardNotice,
 };
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::cloud::{CloudLaunch, CloudProvider};
@@ -761,6 +761,56 @@ fn a_position_refused_after_the_gma_parameter_restore_leaves_the_engine_unrestor
     assert_eq!(r.lease(), LeaseAvailabilityView::EngineStateUnrestored);
 }
 
+/// GMA armed for Black (5 s, 100 visits) on an empty board, the helper having asked for
+/// pondering or not, its first hand played (Q16). The engine's own `ponderingEnabled` is
+/// `ponder_original`.
+fn first_gma_hand_played(ponder: bool, ponder_original: &'static str) -> (Rig, HelperId) {
+    let mut r = Rig::new();
+    let h = arm_gma(&mut r, ponder);
+    let sent = r.serve(&move |c| (c == "kata-get-param ponderingEnabled").then(|| ponder_original.to_string()));
+    assert!(sent.iter().any(|c| c == "kata-set-param maxTime 5"), "{sent:?}");
+    r.answer_genmove("Q16");
+    r.serve(&|_| None);
+    assert_eq!(r.main_line(), [(Stone::Black, p(15, 3))]);
+    assert!(r.held.is_empty(), "between hands: {:?}", r.held);
+    (r, h)
+}
+
+/// GMA cleared (`stopsync`) between two hands while a viewer's Web 试下 holds the engine: its
+/// parameters cannot be given back during the 试下 and go back as soon as it ends.
+#[test]
+fn gma_parameters_left_during_a_web_trial_go_back_when_the_trial_ends() {
+    let (mut r, h) = first_gma_hand_played(false, "false");
+    r.wb.web_board_started(7, "http://127.0.0.1:9998".into());
+    assert_eq!(enter_trial(&mut r.wb), None, "between hands a 试下 may start");
+    r.serve(&|_| None);
+    r.line(h, "stopsync");
+    let during = r.serve(&|_| None);
+    assert!(!during.iter().any(|c| c.starts_with("kata-set-param")), "nothing reaches the 试下's engine: {during:?}");
+    let exit = parse_client_message(r#"{"type":"exit_trial","clientId":"a"}"#).unwrap();
+    assert_eq!(r.wb.web_board_message(7, exit, Instant::now()), None);
+    let sent = r.serve(&|_| None);
+    for restore in ["kata-set-param maxTime 1e+20", "kata-set-param maxVisits 1000000"] {
+        assert!(sent.iter().any(|c| c == restore), "{restore} after the 试下: {sent:?}");
+    }
+    assert_eq!(r.lease(), LeaseAvailabilityView::Available);
+}
+
+/// `playpon off` between two hands (Java `disableReadBoardGmaPonderIfIdle`): the engine stops
+/// pondering for GMA at once; its own value goes back when GMA is cleared.
+#[test]
+fn unticking_background_analysis_between_gma_hands_stops_the_pondering() {
+    let (mut r, h) = first_gma_hand_played(true, "true");
+    r.line(h, "playpon off");
+    let sent = r.serve(&|_| None);
+    assert!(sent.iter().any(|c| c == "kata-set-param ponderingEnabled false"), "{sent:?}");
+    assert_eq!(r.lease(), LeaseAvailabilityView::ReadBoardGma, "GMA stays armed");
+    r.line(h, "stopsync");
+    let sent = r.serve(&|_| None);
+    assert!(sent.iter().any(|c| c == "kata-set-param ponderingEnabled true"), "the engine's own value: {sent:?}");
+    assert_eq!(r.lease(), LeaseAvailabilityView::Available);
+}
+
 // ------------------------------------------------------------------------ helper restarts
 
 /// The helper offers the update `tag` (a valid package in the rig's directory).
@@ -1213,4 +1263,73 @@ fn the_java_choice_not_to_show_the_pondering_notice_is_imported() {
     r.serve(&websocket_adapter);
     assert_eq!(pondering_notice(&mut r), None);
     assert!(genmove_held(&r), "{:?}", r.held);
+}
+
+/// A Java settings import reaches the running helper session at once: with 焦点归还 imported
+/// off, the float board no longer gives the focus back.
+#[test]
+fn a_java_import_reaches_the_running_helper_session() {
+    let mut r = Rig::new();
+    let h = r.open();
+    r.lines(h, &["ready", "start 19 19", "sync"]);
+    r.serve(&|_| None);
+    assert!(r.wb.config().read_board.get_focus, "焦点归还 is on");
+    assert_eq!(r.wb.readboard(ReadBoardCommand::ReturnFocus).unwrap(), CommandResult::Done);
+    assert_eq!(r.helpers.sent_to(h).last().map(String::as_str), Some("loss"), "the float board gives the focus back");
+
+    let java = r._dir.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), r#"{"ui": {"read-board-get-focus": false}}"#).unwrap();
+    let preview = r.wb.preview_java_import(java_import::read(&JavaSource::new(&java, None)).unwrap());
+    r.wb.apply_java_import(preview.id, &[], false, false, true, None).unwrap().unwrap();
+    r.engine = r.engines.last();
+    r.serve(&|_| None);
+    assert!(!r.wb.config().read_board.get_focus);
+    let before = r.helpers.sent_to(h).len();
+    assert_eq!(r.wb.readboard(ReadBoardCommand::ReturnFocus).unwrap(), CommandResult::Done);
+    let sent = r.helpers.sent_to(h)[before..].to_vec();
+    assert!(!sent.iter().any(|l| l == "loss"), "the running helper follows the imported setting: {sent:?}");
+}
+
+// ------------------------------------------------------------------------ 弈客 web window
+
+const YIKE_ROOM: &str = "https://home.yikeweiqi.com/#/live/new-room/186031/0/0";
+
+fn page_reloads(r: &mut Rig) -> Vec<String> {
+    r.wb.take_online_jobs()
+        .into_iter()
+        .filter_map(|j| match j {
+            OnlineJob::ReloadPage { url } => Some(url),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The helper's 弈客 signals drive the web window's sync (`handleYikeSyncStartCommand` /
+/// `handleYikeSyncStopCommand`): `syncPlatform yike` and `yikeSyncStart` follow the room the page
+/// shows, reloading it, unless that room is followed already; `yikeSyncStop` ends the sync.
+#[test]
+fn the_helpers_yike_signals_start_and_stop_the_web_window_sync() {
+    let mut r = Rig::new();
+    let h = r.open();
+    r.line(h, "ready");
+    r.line(h, "yikeSyncStart");
+    assert!(r.wb.view(true).online.following.is_none(), "no page address, nothing to follow");
+    r.wb.online_page(PageReport::Address { url: YIKE_ROOM.into() });
+    let o = r.wb.view(true).online;
+    assert!(!o.browser_sync && o.following.is_none(), "showing a room alone does not follow it");
+    page_reloads(&mut r);
+
+    r.line(h, "syncPlatform yike");
+    let o = r.wb.view(true).online;
+    assert!(o.browser_sync, "the window follows room addresses from now on");
+    assert_eq!(o.following.map(|f| f.url).as_deref(), Some(YIKE_ROOM));
+    assert_eq!(page_reloads(&mut r), [YIKE_ROOM]);
+    r.line(h, "yikeSyncStart");
+    assert_eq!(page_reloads(&mut r), Vec::<String>::new(), "the room is followed already");
+    assert!(r.wb.view(true).online.following.is_some());
+
+    r.line(h, "yikeSyncStop");
+    let o = r.wb.view(true).online;
+    assert!(!o.browser_sync && o.following.is_none(), "the helper's stop ends the web window's sync");
 }

@@ -200,13 +200,15 @@ impl Workbench {
         None
     }
 
-    /// The foreground engine is there and not held by a game, a borrowed search, an
-    /// unrestored state or a mode that moves it (`beginEngineModeReservation`,
-    /// `desktopPlayingProbe`).
+    /// The foreground engine is there, done starting, and not held by a game, a borrowed
+    /// search, an unrestored state or a mode that moves it (`beginEngineModeReservation`,
+    /// `desktopPlayingProbe`). An engine still starting is a switch or restart that has not
+    /// completed: Java's lifecycle reservation refuses the 试下 until it has.
     fn web_trial_engine_free(&self) -> bool {
         let held = matches!(
             self.engines.lease_availability(),
             LeaseAvailability::NoForegroundEngine
+                | LeaseAvailability::EngineNotReady
                 | LeaseAvailability::ExistingLease
                 | LeaseAvailability::EngineStateUnrestored
                 | LeaseAvailability::PlayMode
@@ -316,7 +318,8 @@ impl Workbench {
 
     /// Ends a running 试下 (`exitTrial` / `forceExitTrial`): a placeholder it added goes where
     /// nothing was played beside it (`cleanupMainlineDummy`), browsing returns to the anchor and
-    /// the engine follows. Returns whether one ran.
+    /// the engine follows; GMA parameters that could not be given back during the 试下 go back
+    /// now. Returns whether one ran.
     fn end_web_trial(&mut self) -> bool {
         let Some(t) = self.web_board.trial.take() else {
             return false;
@@ -330,6 +333,7 @@ impl Workbench {
             }
             self.web_trial_land(t.anchor);
         }
+        self.gma_restore_deferred();
         true
     }
 
@@ -367,7 +371,7 @@ impl Workbench {
                 op: GameCommand::Start { .. } | GameCommand::Continue { .. },
             }
             | Command::Match {
-                op: MatchCommand::Start { .. },
+                op: MatchCommand::Start { .. } | MatchCommand::StartToolbar,
             }
             | Command::HumanSl {
                 op: HumanSlCommand::Start { .. },

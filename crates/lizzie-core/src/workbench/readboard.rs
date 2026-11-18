@@ -743,7 +743,9 @@ impl Workbench {
         }
     }
 
-    fn readboard_settings_changed(&mut self) {
+    /// The running helper session follows the 棋盘同步工具 settings now (a menu change or a Java
+    /// settings import).
+    pub(super) fn readboard_settings_changed(&mut self) {
         let settings = self.readboard_settings();
         if let Some(h) = self.readboard.helper.as_mut() {
             h.session.set_settings(settings);
@@ -916,7 +918,9 @@ impl Workbench {
                 }
                 SessionEvent::GmaCleared { .. } => self.gma_clear(),
                 // Kept by the session (`read_board_ponder`); a GMA hand reads it when it starts.
-                SessionEvent::PonderPreference { .. } => {}
+                // Turned off between hands, the engine stops pondering at once.
+                SessionEvent::PonderPreference { on: false } => self.gma_ponder_off(),
+                SessionEvent::PonderPreference { on: true } => {}
                 SessionEvent::AutoPlay { color, toolbar_side, time, playouts, first_playouts, gma } => {
                     self.play_readboard_toolbar(toolbar_side, Some(time), Some(playouts), Some(first_playouts));
                     if gma {
@@ -965,11 +969,11 @@ impl Workbench {
                         h.logging.on_ready(Instant::now());
                     }
                 }
-                // 弈客 browser sync belongs to the Yike integration, which this client does not
-                // have yet.
-                SessionEvent::YikeSyncStart { .. } | SessionEvent::YikeSyncStop => {
-                    self.log(true, "readboard: Yike browser sync was requested but is not available".into());
-                }
+                // The 弈客 web window's sync (`handleYikeSyncStartCommand` /
+                // `handleYikeSyncStopCommand`): `yikeSyncStart` starts from the page's current
+                // address, `syncPlatform yike` only makes sure it is followed.
+                SessionEvent::YikeSyncStart { from_platform_line } => self.online_helper_yike_start(!from_platform_line),
+                SessionEvent::YikeSyncStop => self.online_browser_stop_sync(),
                 SessionEvent::LocalMoveConfirmed { .. } => {}
                 SessionEvent::LocalMoveFailed { reason, .. } => {
                     // Java `ReadBoardObservation.recordLocalMove("failed", reason)`.

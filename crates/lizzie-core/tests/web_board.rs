@@ -5,7 +5,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use lizzie_core::api::{Command, CommandResult, EditCommand, EngineScope, OpenSource, WebBoardCommand};
+use lizzie_core::api::{Command, CommandResult, EditCommand, EngineScope, MatchCommand, OpenSource, WebBoardCommand};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
@@ -270,6 +270,47 @@ fn a_trial_needs_a_free_foreground_engine() {
     assert!(denied.contains(r#""reason":"engine_busy""#), "{denied}");
 }
 
+/// While the desktop switches to an engine that is still starting, no viewer starts a 试下 (Java's
+/// switch holds the lifecycle reservation until the engine is up); when that start fails, the
+/// desktop switches back and a 试下 follows the ready engine.
+#[test]
+fn a_trial_waits_for_an_engine_switch_and_a_failed_switch_can_be_left() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    open(&mut wb, "(;SZ[9];B[ee])");
+    let profile = |id: &str, name: &str| EngineProfile {
+        id: id.into(),
+        name: name.into(),
+        command: format!("/opt/{id} gtp"),
+        ..EngineProfile::default()
+    };
+    let mut a = profile("a", "Local A");
+    a.is_default = true;
+    wb.save_engine_settings(vec![a, profile("b", "Slow B")], EngineStartup::Default)
+        .unwrap();
+    wb.start_engines();
+    let engine_a = world.latest();
+    serve(&mut wb, &world, engine_a);
+    wb.web_board_started(SESSION, "http://192.168.1.5:9998".into());
+
+    assert_eq!(wb.game_gate(&Command::SwitchEngine { index: 1 }), None);
+    wb.switch_engine(1).unwrap();
+    let engine_b = world.latest();
+    assert_ne!(engine_b, engine_a, "B is starting");
+    let denied = enter(&mut wb, "a", Instant::now()).expect("the switch has not finished");
+    assert!(denied.contains(r#""reason":"engine_busy""#), "{denied}");
+    assert!(!trial_active(&mut wb));
+
+    wb.engine_input(engine_b, EngineInput::Exited(Some(1)));
+    assert_eq!(wb.game_gate(&Command::SwitchEngine { index: 0 }), None);
+    wb.switch_engine(0).unwrap();
+    for id in [engine_a, world.latest()] {
+        serve(&mut wb, &world, id);
+    }
+    assert_eq!(enter(&mut wb, "a", Instant::now()), None);
+}
+
 #[test]
 fn a_position_without_continuation_gets_a_placeholder_kept_only_under_played_moves() {
     let dir = tempfile::tempdir().unwrap();
@@ -392,6 +433,44 @@ fn during_a_trial_the_console_komi_and_the_foreground_engine_lifecycle_are_refus
         }),
         None
     );
+}
+
+/// The detailed toolbar's 引擎对战 (the saved match settings) is refused like the dialog's start,
+/// before anything touches the 试下's engine.
+#[test]
+fn during_a_trial_an_engine_match_from_the_toolbar_is_refused_before_it_starts() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, _) = sharing(dir.path(), "(;SZ[9];B[ee];W[cc])");
+    assert_eq!(enter(&mut wb, "a", Instant::now()), None);
+    let state = |wb: &mut Workbench| {
+        let engine = wb.view(true).engine;
+        (
+            format!("{:?}", engine.foreground),
+            engine.paused,
+            world.0.lock().unwrap().len(),
+        )
+    };
+    let before = state(&mut wb);
+    // The application's command entry: the gate first, then the command.
+    let toolbar = Command::Match {
+        op: MatchCommand::StartToolbar,
+    };
+    let result = match wb.game_gate(&toolbar) {
+        Some(result) => result,
+        None => wb.engine_match(MatchCommand::StartToolbar).unwrap(),
+    };
+    assert_eq!(
+        result,
+        CommandResult::Refused {
+            message_key: "AnalysisSettings.reuseStatus.application_exclusive_mode".into()
+        }
+    );
+    assert_eq!(
+        state(&mut wb),
+        before,
+        "the 试下's engine, its analysis and the processes are unchanged"
+    );
+    assert!(trial_active(&mut wb));
 }
 
 #[test]

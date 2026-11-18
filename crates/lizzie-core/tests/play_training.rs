@@ -584,6 +584,34 @@ fn a_borrowed_flash_run_refuses_games_and_matches_until_its_engine_is_back() {
     assert!(b.wb.view(false).flash.is_none());
 }
 
+/// Review with 闪电分析 borrowing the foreground engine → AI 陪练 (admitted beside it) → Esc on
+/// 准备中: the session ends and review is back with the same record, while the flash run keeps
+/// its engine (the companion never took it, so there is nothing of its own to give back).
+#[test]
+fn cancelling_ai_coach_preparation_beside_a_borrowed_flash_run_returns_to_review() {
+    let mut b = Bench::new();
+    reuse_foreground(&mut b);
+    b.open_sgf(REVIEW);
+    let review = (b.wb.document().id, b.wb.document().revision);
+    assert_eq!(b.wb.start_flash_analysis(FlashTarget::WholeGame).unwrap(), Ok(true));
+    let taken = b.serve(&|_, _| None);
+    assert!(taken.iter().any(|(_, c)| c.contains("maxmoves")), "the flash run borrowed the engine: {taken:?}");
+    assert_eq!(b.run(ai_coach(PlayerColor::Black)), CommandResult::Done);
+    b.serve(&|_, _| None);
+    let worker = b.world.worker();
+    assert_eq!(b.wb.view(false).human_sl.map(|s| s.phase), Some(HumanSlPhase::Preparing));
+
+    assert_eq!(b.run(Command::HumanSl { op: HumanSlCommand::CancelPreparation }), CommandResult::Done);
+    b.serve(&|_, _| None);
+    let v = b.wb.view(false);
+    assert!(v.human_sl.is_none(), "AI 陪练 ended: {:?}", v.human_sl.map(|s| s.phase));
+    assert!(b.world.dead(worker), "the companion process is stopped");
+    assert_eq!((b.wb.document().id, b.wb.document().revision), review, "the review record is kept");
+    assert!(v.flash.is_some(), "the flash run goes on");
+    assert_eq!(v.engine.lease, LeaseAvailabilityView::ExistingLease, "it still holds the engine");
+    assert_eq!(v.engine.unrestored, None);
+}
+
 /// Review with an analysis using the foreground engine (`setup`) → AI 陪练 as a new game, which
 /// Java admits beside it (`startHumanSlGameDialogReserved` checks only games) → its new record
 /// ends the analysis (`ended`), whose engine is given back and confirmed; a late line of the old
