@@ -1,11 +1,12 @@
 # Installing LizzieYzy Tauri
 
 LizzieYzy Tauri is distributed as one package per system, architecture and form. It installs
-next to LizzieYzy Next (Java) and never changes or deletes the Java program's settings. It reads
-them, read-only, only when you preview an import from LizzieYzy Next (see
-[Moving over from LizzieYzy Next](#moving-over-from-lizzieyzy-next)); otherwise it only checks
-whether Java's usual settings folders contain a `config.txt`. It does not register itself for
-`.sgf` or `.gib` files.
+next to LizzieYzy Next (Java) and never changes or deletes the Java program's settings. At each
+start it only checks whether Java's usual settings folders contain a `config.txt`. It reads the
+Java settings when you preview an import from LizzieYzy Next, and reads the Java folder again
+when you confirm the import, for what it copies (see
+[Moving over from LizzieYzy Next](#moving-over-from-lizzieyzy-next)). It does not register itself
+for `.sgf` or `.gib` files.
 
 | System | Package |
 | --- | --- |
@@ -120,12 +121,21 @@ On first start the app offers to import the settings of LizzieYzy Next (the Java
 settings folder; *Help > Import settings from LizzieYzy Next…* runs it later. The preview lists every Java setting and
 what happens to it: imported, not compatible (for example Java window positions), not imported
 (with the reason: no longer used by LizzieYzy Next, LizzieYzy Next's own bookkeeping, or not yet
-available here), and which current settings it would replace. Nothing is written until you
-confirm, and a failed or cancelled import leaves the current settings as they were.
+available here), and which current settings it would replace. Making the preview reads the Java
+files and changes nothing. Nothing is written until you confirm, and a failed or cancelled import
+leaves the current settings as they were.
+
+Confirming reads the Java side again for the files the import copies: the strength models in the
+Java folder's `strength-models` folder and the board, background and stone pictures Java's
+settings point to.
 
 Passwords and keys (analysis SSH, cloud engine, AI explanation, 跑谱贡献 account and command) are
 copied only when you tick them; they go to the system credential store, never into
-`config.json`, the report or the logs. Without a credential store they are kept until you quit.
+`config.json`, the report or the logs. The cloud engine's token and password are read from where
+Java kept them (the system credential store or Java's own files) only when you confirm with
+their box ticked. For the AI explanation key the preview only checks that Java kept one; the key
+is read and copied when you confirm with its box ticked. Without a credential store they are
+kept until you quit.
 An engine command carrying a key or token comes over only when you tick that engine; an
 engine-match side using such a command comes over with it. The analysis-engine command has no
 such choice: one carrying a key or token is not imported (enter it again in the analysis

@@ -51,17 +51,18 @@ const VERSION_2: &[(&str, &str)] = &[
     (BINARY, "program 2"),
 ];
 
-fn snapshot(folder: &Path) -> Vec<(String, String)> {
+/// Every entry under `folder` by its relative path (compared as paths, whatever the separator).
+fn snapshot(folder: &Path) -> Vec<(PathBuf, String)> {
     let mut files = Vec::new();
     let mut stack = vec![folder.to_path_buf()];
     while let Some(dir) = stack.pop() {
         for entry in fs::read_dir(dir).unwrap().flatten() {
             let path = entry.path();
             if path.is_dir() {
-                files.push((path.strip_prefix(folder).unwrap().display().to_string(), "<dir>".into()));
+                files.push((path.strip_prefix(folder).unwrap().to_path_buf(), "<dir>".into()));
                 stack.push(path);
             } else {
-                files.push((path.strip_prefix(folder).unwrap().display().to_string(), read(&path)));
+                files.push((path.strip_prefix(folder).unwrap().to_path_buf(), read(&path)));
             }
         }
     }
@@ -97,7 +98,7 @@ fn an_update_replaces_only_the_packages_files_and_keeps_the_portable_folder() {
             ("readboard/runtimes", "<dir>"),
             ("readboard/runtimes/new.dll", "new 2"),
         ]
-        .map(|(a, b)| (a.to_string(), b.to_string()))
+        .map(|(a, b)| (PathBuf::from(a), b.to_string()))
     );
     assert_eq!(portable::recover(&folder), Recovery::None);
 }

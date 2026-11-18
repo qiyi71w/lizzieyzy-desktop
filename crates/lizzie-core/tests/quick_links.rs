@@ -1,14 +1,14 @@
 //! 快速启动 through the workbench operations the menu and 快速启动设置 use, and its Java import.
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use lizzie_core::api::{CommandResult, ImportReason, ImportStatus, ImportTarget};
+use lizzie_core::api::{ImportReason, ImportStatus, ImportTarget};
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::java_import::{self, JavaSource};
 use lizzie_core::quick_links::{QuickLinkProgram, QuickLinkSettings};
 use lizzie_core::settings::Storage;
-use lizzie_core::workbench::{Workbench, QUICK_LINK_FAILED};
+use lizzie_core::workbench::Workbench;
 use serde_json::json;
 
 struct NoEngine;
@@ -45,7 +45,10 @@ fn the_saved_list_drops_empty_commands_and_survives_a_restart() {
 #[cfg(unix)]
 #[test]
 fn choosing_a_program_starts_it_with_its_arguments_and_a_failure_is_refused() {
+    use lizzie_core::api::CommandResult;
+    use lizzie_core::workbench::QUICK_LINK_FAILED;
     use std::os::unix::fs::PermissionsExt;
+    use std::time::Instant;
     let dir = tempfile::tempdir().unwrap();
     let tool = dir.path().join("tool.sh");
     std::fs::write(&tool, "#!/bin/sh\nprintf '%s\\n' \"$PWD\" \"$@\" > \"$(dirname \"$0\")/marker.txt\"\n").unwrap();
@@ -168,7 +171,9 @@ fn a_command_list_java_cannot_read_is_refused_whole() {
 #[cfg(unix)]
 #[test]
 fn a_relative_java_program_is_found_in_the_java_folder() {
+    use lizzie_core::api::CommandResult;
     use std::os::unix::fs::PermissionsExt;
+    use std::time::Instant;
     let dir = tempfile::tempdir().unwrap();
     let java = java_dir(dir.path(), json!({"leelaz": {"program-name-list": ["M"], "program-command-list": ["tools/marker.sh one"]}}));
     std::fs::create_dir_all(java.join("tools")).unwrap();

@@ -87,6 +87,55 @@ fn lobby_pages_have_no_room_and_other_links_are_read_once() {
     assert_eq!(tag.java_type(), 4);
 }
 
+/// The 弈客 kinds are recognized only on `https://yikeweiqi.com` and its subdomains (default
+/// port, as the 弈客 web window loads). The same shapes elsewhere are any other link: read once
+/// from the link itself, never from `api.<that host>`, and URL 无法识别 in the web window.
+#[test]
+fn yike_shaped_links_of_other_hosts_are_not_yike_rooms() {
+    for yike in ["https://yikeweiqi.com/#/live/room/18328/1/15630642", "https://www.yikeweiqi.com/#/game/play/1/15630642"] {
+        assert!(classify(yike).unwrap().is_yike(), "{yike}");
+    }
+    let shapes = [
+        "/#/live/new-room/186031/0/0",
+        "/#/live/room/18328/1/15630642",
+        "/#/live/room/4903/0/0",
+        "/#/live/room/4903",
+        "/#/live/other/18328/1/15630642",
+        "/#/live/other/4903",
+        "/#/game/play/1/15630642",
+        "/#/hall?room=15630642&hall=1",
+        "/#/unite/66304678",
+    ];
+    let hosts = [
+        "https://evil.example",
+        "https://yikeweiqi.com.evil.example",
+        "https://notyikeweiqi.com",
+        "http://home.yikeweiqi.com",
+        "https://home.yikeweiqi.com:8443",
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    for host in hosts {
+        for shape in shapes {
+            let link = format!("{host}{shape}");
+            let plain = link.strip_suffix("/0/0").unwrap_or(&link).to_string();
+            assert_eq!(classify(&link), Some(OnlineSource::Plain { url: plain.clone() }), "{link}");
+            assert_eq!(yike_room_key(&link), None, "{link}");
+
+            wb.online(OnlineCommand::Open { url: link.clone(), refresh_seconds: 1 }).unwrap();
+            match wb.take_online_jobs().as_slice() {
+                [OnlineJob::Get { url, .. }] => assert_eq!(url, &plain, "{link}"),
+                other => panic!("{link}: {other:?}"),
+            }
+            wb.online(OnlineCommand::BrowserLoad { url: link.clone() }).unwrap();
+            let o = wb.view(true).online;
+            assert!(!o.browser_sync, "{link}");
+            assert_eq!(o.browser_status.map(|s| s.args), Some(vec!["URL 无法识别".to_string()]), "{link}");
+            assert!(wb.take_online_jobs().is_empty(), "{link}");
+        }
+    }
+}
+
 // ------------------------------------------------------------------ REST (YikeApiClientTest)
 
 #[test]
