@@ -1270,7 +1270,10 @@ importing the matching LizzieYzy Next settings.
   cannot be read is not replaced), restarts the engines with the imported choice, and shows the
   report; the language applies after a restart. Java's files are never written, so both programs
   can be used side by side.
-- An analysis time limit of 0 seconds means 9999 minutes, as in Java.
+- An analysis time limit of 0 seconds means 9999 minutes, whether it is typed into the top
+  toolbar's 限制: 时间 field, set in 综合设置 or read again after a restart; the saved value stays 0
+  (Java stopped the analysis at once when 0 was typed into the toolbar, but read the same 0 as 9999
+  minutes after a restart).
 - Engine resources (Settings > 引擎一键设置, the toolbar 一键设置 button, the bottom bar 更新官方权重
   button for the weights page, and the "AI 未就绪 - 点击修复" banner shown while no engine has a
   command): this client does not bundle an engine. Opening the dialog detects the computer (OS,
@@ -1404,10 +1407,7 @@ importing the matching LizzieYzy Next settings.
   constructed frames).
 
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
-as not yet available (greyed in menus; a notice when used). Not available yet: the other layout
-modes (classic, minimal, thinking, four sub boards, independent board, custom layouts),
-cloud engines, whole-game measured tuning, and the analysis-region items of the board context
-menu.
+as not yet available (greyed in menus; a notice when used).
 
 Resource acquisition and real engine analysis have been verified on Linux (private X11,
 WebKitGTK), including downloads of the official KataGo v1.18.1 Eigen AVX2 AppImage and model
@@ -1594,6 +1594,17 @@ positions of visible controls). With the feature, `LIZZIEYZY_TAURI_RESOURCE_BASE
 engine resource downloads fetch `<url>/<file name>` instead of the trusted source (digests and
 sizes stay pinned), for isolated download tests. The feature is off by default; builds made
 without `--features acceptance` contain neither, whatever the profile.
+
+These source builds, and the Rust-only rebuild below, keep the normal application identifier
+`io.github.qiyi71w.lizzieyzy-tauri`, so started as they are they use the normal program's
+settings and log folders and its credential-store entries. Run them only with isolated data. On
+Linux, point `HOME` at a throwaway folder and leave `XDG_CONFIG_HOME` and `XDG_DATA_HOME` unset
+(or point them into it too); this does not separate the desktop session's Secret Service
+keyring, so where passwords or keys are involved use a session without a Secret Service or a
+throwaway user account. On Windows and macOS `HOME` does not separate the settings folder
+(Windows) or the Keychain (macOS): use the acceptance-identity package from
+`node tools/package.mjs --identity acceptance` (see [Packages](#packages)), which has its own
+identifier, data folders and credential entries.
 
 After changing only Rust code, `cargo build --bins --features acceptance,tauri/custom-protocol`
 (the command `tauri build` runs) produces the same `target/debug/lizzieyzy-tauri`. It skips

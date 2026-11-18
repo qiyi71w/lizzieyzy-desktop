@@ -1,8 +1,11 @@
 # Installing LizzieYzy Tauri
 
 LizzieYzy Tauri is distributed as one package per system, architecture and form. It installs
-next to LizzieYzy Next (Java) and never reads, changes or deletes the Java program's settings,
-and it does not register itself for `.sgf` or `.gib` files.
+next to LizzieYzy Next (Java) and never changes or deletes the Java program's settings. It reads
+them, read-only, only when you preview an import from LizzieYzy Next (see
+[Moving over from LizzieYzy Next](#moving-over-from-lizzieyzy-next)); otherwise it only checks
+whether Java's usual settings folders contain a `config.txt`. It does not register itself for
+`.sgf` or `.gib` files.
 
 | System | Package |
 | --- | --- |
