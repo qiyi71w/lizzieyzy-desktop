@@ -701,7 +701,8 @@ impl Workbench {
                 color: rec.node(ROOT).to_play,
             });
             for &node in rec.path_to(end).iter().skip(1) {
-                let edit = match rec.node(node).kind {
+                let source = rec.node(node);
+                let edit = match source.kind {
                     NodeKind::Move { color, point } => DocumentEdit::Play {
                         at: self.cursor,
                         color,
@@ -710,7 +711,11 @@ impl Workbench {
                         rules: self.play_rules(),
                     },
                     NodeKind::Pass { color } => DocumentEdit::Pass { at: self.cursor, color },
-                    _ => continue,
+                    NodeKind::Snapshot => match super::play::snapshot_copy(&self.doc.record, self.cursor, source) {
+                        Some(edit) => edit,
+                        None => continue,
+                    },
+                    NodeKind::DummyPass => continue,
                 };
                 if let Some(node) = self.apply_edit(edit).ok().and_then(|a| a.node) {
                     self.cursor = node;

@@ -559,6 +559,16 @@ pub enum DocumentEdit {
     SetupSideToPlay {
         color: Stone,
     },
+    /// A setup snapshot added as the last child of `at` (any node, unlike the starting-position
+    /// setup): its net `setup`, side to play and `PL`, as a node of another record had them. A
+    /// new game replayed from a node after setup stones (人机续弈, 比赛 SGF 开局 / 固定当前局面)
+    /// keeps them this way. Returns the new node.
+    AppendSnapshot {
+        at: NodeId,
+        setup: Setup,
+        to_play: Stone,
+        explicit_to_play: Option<Stone>,
+    },
     /// The position at `node` becomes the root position; all moves are discarded.
     ConvertToStartingPosition {
         node: NodeId,

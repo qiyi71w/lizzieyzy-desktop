@@ -262,6 +262,47 @@ fn branch_order_moves_and_set_as_main_promotes_the_line() {
     assert_eq!(edit(&mut wb, EditCommand::SetAsMain), CommandResult::Unchanged);
 }
 
+/// The side to play a saved record reopens with at a reordered branch point: an action without
+/// `PL` takes its first continuation's colour (Java `alignParentTurnStateWithFirstActionChild`).
+fn reopened_to_play(wb: &mut Workbench, dir: &std::path::Path, at: NodeId) -> Stone {
+    let path = dir.join("reordered.sgf");
+    let job = wb.begin_save(path.to_str().unwrap(), "LizzieYzy Tauri:test");
+    let reopened = sgf::read(&job.text).expect("saved SGF reads back");
+    let depth = rec(wb).depth(at);
+    let mut n = ROOT;
+    for _ in 0..depth {
+        n = reopened.main_child(n).unwrap();
+    }
+    reopened.node(n).to_play
+}
+
+#[test]
+fn a_same_colour_variation_made_main_gives_its_branch_point_the_side_to_play_it_reopens_with() {
+    for promote in [EditCommand::SetAsMain, EditCommand::MoveBranch { up: true }] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut wb = opened(dir.path(), "(;SZ[9];B[aa]LZ[KataGo 55.0 100\nmove ee visits 10](;W[bb])(;B[cc]))");
+        let aa = rec(&wb).main_child(ROOT).unwrap();
+        let cc = rec(&wb).node(aa).children[1];
+        assert_eq!(rec(&wb).node(aa).to_play, Stone::White);
+        wb.goto_node(cc).unwrap();
+        assert_eq!(edit(&mut wb, promote.clone()), CommandResult::Done);
+        assert_eq!(rec(&wb).node(aa).children[0], cc, "{promote:?}");
+        assert_eq!(rec(&wb).node(aa).to_play, Stone::Black, "{promote:?}: the branch point follows its new main move");
+        assert!(
+            !rec(&wb).node(aa).properties.iter().any(|p| p.id.starts_with("LZ")),
+            "{promote:?}: the analysis of the old side to play no longer applies"
+        );
+        assert_eq!(reopened_to_play(&mut wb, dir.path(), aa), Stone::Black, "{promote:?}: save and reopen agree");
+        wb.goto_node(aa).unwrap();
+        play(&mut wb, "ee");
+        assert_eq!(
+            rec(&wb).node(wb.cursor()).kind,
+            NodeKind::Move { color: Stone::Black, point: p("ee") },
+            "{promote:?}: the next move takes the shown side"
+        );
+    }
+}
+
 #[test]
 fn insert_and_stone_edits_replay_what_follows_and_keep_node_content() {
     let dir = tempfile::tempdir().unwrap();

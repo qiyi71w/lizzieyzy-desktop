@@ -605,6 +605,56 @@ fn winrate_confirmation_fences_successor_and_opening_is_replayed() {
     assert_eq!(m.wb.document().record.node(m.wb.cursor()).move_number, 2);
 }
 
+/// A capture, then stones set up mid-game with a side to play that does not alternate.
+const MID_GAME_SETUP: &str = "(;SZ[19];B[ba];W[aa];B[ab];AB[dd]PL[B])";
+
+/// The stones, captures and side to play of `node`.
+fn position_at(rec: &lizzie_core::record::GameRecord, node: lizzie_core::record::NodeId) -> (Vec<Option<Stone>>, u32, u32, Stone) {
+    let pos = rec.position(node);
+    (pos.stones, pos.black_captures, pos.white_captures, rec.node(node).to_play)
+}
+
+#[test]
+fn a_match_opening_at_a_mid_game_setup_keeps_its_stones_and_side_to_play_for_the_engines_and_the_file() {
+    let source = lizzie_core::formats::sgf::read(MID_GAME_SETUP).unwrap();
+    let expected = position_at(&source, source.line_end(ROOT));
+    assert_eq!((expected.1, expected.3), (1, Stone::Black), "the sample captures one stone and gives Black the move");
+    // SGF 开局 from a file, and 固定当前局面 at the last node of the open record.
+    for from_file in [true, false] {
+        let mut m = Match::new();
+        let session = if from_file {
+            m.command(MatchCommand::ReplaceOpenings {
+                files: vec![MatchOpeningFile { path: "setup.sgf".into(), bytes: MID_GAME_SETUP.as_bytes().to_vec() }],
+            });
+            genmove()
+        } else {
+            let t = m.wb.begin_open(lizzie_core::workbench::OpenOrigin::File { path: "/x.sgf".into(), source: OpenSource::Drop });
+            assert!(m.wb.complete_open(t, Ok((lizzie_core::record::RecordFormat::Sgf, source.clone()))));
+            m.wb.navigate(lizzie_core::browse::Navigation::Last);
+            MatchSessionSettings { continue_position: true, ..genmove() }
+        };
+        m.command(MatchCommand::Start {
+            settings: MatchSettings { rules: "chinese".into(), sgf_start: from_file, sgf_random: false, ..MatchSettings::default() },
+            session,
+            first_engine: 0,
+            second_engine: 1,
+            disable_wrn: true,
+        });
+        let sent = m.serve(&|_, _| None);
+        let rec = m.wb.document().record.clone();
+        assert_eq!(position_at(&rec, m.wb.cursor()), expected, "from_file {from_file}: the match starts where the node stood");
+        let black = m.mover();
+        let to_black: Vec<&str> = sent.iter().filter(|(i, _)| *i == black).map(|(_, c)| c.as_str()).collect();
+        assert!(to_black.contains(&"play B D16"), "from_file {from_file}: {to_black:?}");
+        assert!(!to_black.contains(&"play W A19"), "from_file {from_file}: the position is set, not replayed: {to_black:?}");
+        assert!(m.held.iter().any(|(i, _, c)| *i == black && c == "genmove B"), "from_file {from_file}: {:?}", m.held);
+        let path = m._dir.path().join("match.sgf");
+        let job = m.wb.begin_save(path.to_str().unwrap(), "LizzieYzy Tauri:test");
+        let reopened = lizzie_core::formats::sgf::read(&job.text).unwrap();
+        assert_eq!(position_at(&reopened, reopened.line_end(ROOT)), expected, "from_file {from_file}: {}", job.text);
+    }
+}
+
 #[test]
 fn unverifiable_rules_require_consent_and_verified_mismatch_is_not_consent() {
     let mut m = Match::new();
