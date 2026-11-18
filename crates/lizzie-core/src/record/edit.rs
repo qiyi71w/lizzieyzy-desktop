@@ -523,21 +523,25 @@ impl GameRecord {
         id
     }
 
-    fn add_branch(&mut self, at: NodeId, moves: &[Point], rules: PlayRules) -> Applied {
+    fn add_branch(&mut self, at: NodeId, moves: &[Option<Point>], rules: PlayRules) -> Applied {
         let Some((&first, rest)) = moves.split_first() else {
             return Applied::unchanged(None);
         };
+        let kind = |color: Stone, point: Option<Point>| match point {
+            Some(point) => NodeKind::Move { color, point },
+            None => NodeKind::Pass { color },
+        };
         let color = self.node(at).to_play;
-        if !self.is_legal(at, color, first, rules) {
+        if first.is_some_and(|p| !self.is_legal(at, color, p, rules)) {
             return Applied::unchanged(None);
         }
         if self.node(at).children.is_empty() {
             self.push_child(at, NodeKind::DummyPass);
         }
-        let mut cur = self.push_move(at, NodeKind::Move { color, point: first }, rules);
+        let mut cur = self.push_move(at, kind(color, first), rules);
         for &point in rest {
             let color = self.node(cur).to_play;
-            match self.place(cur, NodeKind::Move { color, point }, rules, false) {
+            match self.place(cur, kind(color, point), rules, false) {
                 Some((next, _)) => cur = next,
                 None => break,
             }

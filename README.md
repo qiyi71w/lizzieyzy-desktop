@@ -39,7 +39,8 @@ importing the matching LizzieYzy Next settings.
   In 双引擎模式 `Ctrl+Down`, `Ctrl+Shift+Down` and the panel's `>`/`>>` grow the main board's
   variation only (the right board's when only it shows one); the other entries step both boards.
   A variation that auto-replays (自动回放变化图) is stepped from the length it shows, and the
-  replay goes on from the new length.
+  replay goes on from the new length. During an `R` replay (回放变化图) these keys and the wheel
+  step from the length the replay shows and end the replay, as in Java.
 - Stepping forward plays the Java stone sounds (stone, capture, capture of three or more).
 - The board shows setup stones, moves, passes, captures, comments, SGF markup (TR/SQ/CR/MA/LB),
   next-move rings, player names, the sub board, the variation tree and the empty winrate graph.
@@ -82,11 +83,14 @@ importing the matching LizzieYzy Next settings.
     continuation, without comments.
   - 保存主棋盘截图 (`Alt+S`), 保存小棋盘截图 (`Shift+S`) and 保存胜率图 (`Shift+Alt+S`): the
     picture chooser (PNG, JPG, GIF, BMP) opens in the last picture folder; the chosen name's
-    extension decides the format and `.png` is added otherwise. Errors show Java's message.
+    extension decides the format and `.png` is added otherwise. Errors show Java's message. In
+    浮动棋盘模式 the main board picture is the 浮动主棋盘 window; while 浮动小棋盘 shows, the sub
+    board picture is that window.
   Exports never replace the open record's revision or saved state otherwise; a failure leaves
   the old file untouched.
 - File > 复制主棋盘到剪贴板 (`Shift+C`), 复制小棋盘到剪贴板 (`Alt+C`) and 复制棋谱到剪贴板
-  (`Ctrl+C`) put the picture or the SGF text on the system clipboard.
+  (`Ctrl+C`) put the picture or the SGF text on the system clipboard; the board pictures come
+  from the floating windows as for the 截图 entries.
 - File > 存档与读档 or the toolbar's 存档 button opens Java's save-and-load panel: slots with the
   board picture, name and time; 新建存档, 保存 (asks first), 改名, 删除, 读取 (or a click on the
   picture), 全部删除, and the check boxes 鼠标悬停放大缩略棋盘, 自动存档 and 启动时自动恢复. A loaded
@@ -94,6 +98,8 @@ importing the matching LizzieYzy Next settings.
   title shows the slot. With 自动存档 on (the default) the automatic slot is written every
   60 seconds and when the window closes; File > 强制退出 writes none. If the application ended
   without its exit save, the next start keeps the newest periodic save as the automatic slot.
+  In 浮动棋盘模式 the slot pictures show 浮动主棋盘; a save whose picture cannot be taken still
+  writes the record, without a picture.
   With 启动时自动恢复 on, a start without a record to open resumes the automatic slot at the end
   of its main line. Slots live in this program's data folder (`save/`), never in Java's.
 - 野狐棋谱 (同步 menu, the toolbar's 野狐棋谱 button or the bottom bar's 同步 popup) opens Java's
@@ -143,7 +149,9 @@ importing the matching LizzieYzy Next settings.
     points, single-stone suicide, multi-stone suicide unless the foreground engine's rules allow
     it, and an immediate ko recapture are ignored without changing anything. `P` passes; `,` plays
     the best candidate (or the previewed variation); a middle click plays the previewed variation;
-    自动补完征子 continues a ladder.
+    自动补完征子 continues a ladder. A pass in the previewed variation is played too, so the moves
+    after it keep the colours the board shows (Java's middle click and `,` skipped the pass and
+    gave the next move the wrong colour).
   - 插入黑子 / 插入白子 (Edit menu toggle or the empty-point context menu) put a move after the
     current one; 反色, 删除 and 移动 on a stone (stone context menu, or dragging with 启用拖动棋子)
     change it where it was played. What followed is played again and keeps its comments, markup,
@@ -153,7 +161,8 @@ importing the matching LizzieYzy Next settings.
     content version and move it was asked for. 撤销删除 / 恢复删除 (shown only when
     possible) and the context menu 撤销编辑 / 恢复编辑 / 清除编辑缓存 undo and redo the last
     delete, insert or stone edit. `Shift+Left`/`Shift+Right` move the current branch, `L` and
-    设为主分支 make it the main line, 添加为分支 adds a previewed variation beside the line.
+    设为主分支 make it the main line, 添加为分支 adds a previewed variation beside the line, its
+    passes included (Java ended the branch at a pass).
   - 显示落子矩形 (综合设置 > 对局与操作 > 鼠标交互与坐标格式; 是 / 仅对局时 (default) / 否): a
     small square in the colour to play marks the empty point under the pointer on the main board
     and 浮动主棋盘. 仅对局时 means a game against the engine (人机对局 or 分析模式对局) on your

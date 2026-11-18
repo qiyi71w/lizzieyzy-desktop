@@ -51,7 +51,7 @@ impl Workbench {
     pub fn recovery_command(&mut self, op: RecoveryCommand, application: &str) -> Result<RecoveryStep, ApiError> {
         let changed = match op {
             RecoveryCommand::NewSlot { name, thumbnail } => {
-                let png = picture::png_from_base64(&thumbnail).ok();
+                let png = thumbnail.and_then(|t| picture::png_from_base64(&t).ok());
                 let sgf = self.record_text(application);
                 let meta = self.slot_meta(name);
                 self.recovery
@@ -64,7 +64,7 @@ impl Workbench {
                 true
             }
             RecoveryCommand::OverwriteSlot { index, name, thumbnail } => {
-                let png = picture::png_from_base64(&thumbnail).ok();
+                let png = thumbnail.and_then(|t| picture::png_from_base64(&t).ok());
                 let sgf = self.record_text(application);
                 let meta = self.slot_meta(name);
                 self.recovery
@@ -103,7 +103,7 @@ impl Workbench {
                 }
             }
             RecoveryCommand::AutoSave { thumbnail } => {
-                self.auto_save(AutoSave::Periodic, Some(&thumbnail), application)?;
+                self.auto_save(AutoSave::Periodic, thumbnail.as_deref(), application)?;
                 true
             }
             RecoveryCommand::ExitAutoSave { thumbnail } => {

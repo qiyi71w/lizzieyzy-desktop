@@ -30,8 +30,7 @@ const AUTO_SAVE_INTERVAL = 60_000;
 export async function startAutoSave(): Promise<void> {
   setInterval(async () => {
     if (!state.view?.recovery.settings.autoSaveOnExit) return;
-    const thumbnail = await captureMainBoard();
-    if (thumbnail) await run({ type: "Recovery", op: { type: "AutoSave", thumbnail } });
+    await run({ type: "Recovery", op: { type: "AutoSave", thumbnail: await captureMainBoard() } });
   }, AUTO_SAVE_INTERVAL);
   // Sent directly rather than after queued commands: the window is closing and the backend only
   // waits briefly for the answer.

@@ -7,6 +7,7 @@ import { run, state } from "../app";
 import type { CommandResult } from "../contract/generated";
 import { confirm, message } from "../dialogs";
 import { t } from "../i18n";
+import { captureIndependent, independentShown } from "../workbench/independent";
 import { boardGeom, type Panels, type Rect } from "../workbench/layout";
 
 export interface CaptureSurface {
@@ -63,9 +64,25 @@ async function capture(pick: (s: CaptureSurface) => Rect | null): Promise<string
   }
 }
 
-/** boardX, boardY, maxSize: the board square with coordinates and the player names. */
+/** boardX, boardY, maxSize: the board square with coordinates and the player names; in 浮动棋盘模式
+ *  the floating main board's window (saveMainBoardPicture, saveMainBoardToImageOri,
+ *  copyMainBoard: getIndependMainBoardToClipboard). */
 export function captureMainBoard(): Promise<string | null> {
+  if (state.view?.settings.extra_mode === "FloatBoard") {
+    repaint();
+    return captureIndependent("Main");
+  }
   return capture((s) => s.panels.board);
+}
+
+/** The floating sub board's window while it shows (getIndependSubBoardToClipboard), else the
+ *  sub board panel. */
+function captureSubBoard(): Promise<string | null> {
+  if (independentShown("Sub")) {
+    repaint();
+    return captureIndependent("Sub");
+  }
+  return capture(subBoardRect);
 }
 
 /** subBoardRenderer x, y, boardWidth, boardHeight. */
@@ -76,8 +93,10 @@ function subBoardRect(s: CaptureSurface): Rect | null {
   return { x: geo.x, y: geo.y, w: geo.size, h: geo.size };
 }
 
-/** Java `config.showSubBoard`: this layout always shows it once the window gives it room. */
+/** independentSubBoard.isVisible() or Java `config.showSubBoard`: this layout always shows the
+ *  panel once the window gives it room. */
 function subBoardShown(): boolean {
+  if (independentShown("Sub")) return true;
   const s = surface();
   return !!s && subBoardRect(s) !== null;
 }
@@ -117,7 +136,7 @@ export async function saveSubBoardPicture(): Promise<void> {
     await message(t("Message.title"), t("LizzieFrame.saveSubBoardHint"));
     return;
   }
-  await savePicture(await capture(subBoardRect));
+  await savePicture(await captureSubBoard());
 }
 
 /** 保存胜率图 (Shift+Alt+S). */
@@ -132,5 +151,5 @@ export async function copyMainBoardPicture(): Promise<void> {
 
 /** 复制小棋盘到剪贴板 (Alt+C); without a sub board nothing happens (LizzieFrame.copySubBoard). */
 export async function copySubBoardPicture(): Promise<void> {
-  if (subBoardShown()) await copyPicture(await capture(subBoardRect));
+  if (subBoardShown()) await copyPicture(await captureSubBoard());
 }

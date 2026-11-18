@@ -148,6 +148,9 @@ type FrozenVariation = { key: string; pv: (Point | null)[]; pv_captures: Point[]
 let hoverFrozen: FrozenVariation | null = null;
 let hoverFrozen2: FrozenVariation | null = null;
 let presentationFor = "";
+/** The shown position's stones and side to play: a rotation, mirror or colour exchange keeps the
+ *  node but changes them (Java rebuilds the board for SpinAndMirror). */
+let positionStones = "";
 let boardReport: BoardReport | null = null;
 let subReport: SubBoardReport | null = null;
 let statReport: StatReport | null = null;
@@ -252,6 +255,7 @@ function keptPoints(analysis: NodeAnalysisView | null): Set<string> {
 function projectAnalysis(v: WorkbenchView) {
   if (projectedView !== v) {
     projectedView = v;
+    positionStones = `${v.position.to_play}:${v.position.stones.map((s) => (s === "Black" ? "b" : s === "White" ? "w" : ".")).join("")}`;
     if (!sameAnalysis(projectedAnalysis, v.analysis)) analysisRevision++;
     projectedAnalysis = v.analysis;
     const secondary = v.secondary?.analysis ?? null;
@@ -264,7 +268,7 @@ function projectAnalysis(v: WorkbenchView) {
       historyByNode = new Map(v.history.map((p) => [p.node, p]));
     }
   }
-  const lineKey = `${v.document.id}:${v.position.node}:${v.position.line_end}`;
+  const lineKey = `${v.document.id}:${v.position.node}:${v.position.line_end}:${positionStones}`;
   if (presentationFor !== lineKey) {
     presentationFor = lineKey;
     hoveredCandidate = null;
@@ -616,10 +620,9 @@ function bindPointer() {
     previewMoves: () => {
       const v = state.view;
       const preview = v ? hoveredVariation(v)?.preview : null;
-      if (!preview) return null;
-      // The moves the board shows; passes are not placed.
-      const moves = preview.pv.slice(0, preview.length).filter((p): p is Point => p !== null);
-      return moves.length ? moves : null;
+      // The moves the board shows, passes included.
+      const moves = preview?.pv.slice(0, preview.length);
+      return moves?.length ? moves : null;
     },
     clearTableSelection,
     selectRange: (x1, y1, x2, y2) => {

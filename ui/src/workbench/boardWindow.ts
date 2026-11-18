@@ -9,7 +9,7 @@ import { LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
 import type { IndependentBoard, Point } from "../contract/generated";
 import { appMenuKey } from "../appMenuKey";
 import { setLanguage } from "../i18n";
-import { INDEPENDENT_DATA_EVENT, INDEPENDENT_INPUT_EVENT, INDEPENDENT_LABELS, type IndependentInput, type IndependentPayload, type KeyInit } from "./independentModel";
+import { INDEPENDENT_DATA_EVENT, INDEPENDENT_INPUT_EVENT, INDEPENDENT_LABELS, INDEPENDENT_PICTURE_EVENT, type IndependentInput, type IndependentPayload, type KeyInit } from "./independentModel";
 import { boardGeom, mainMarginRatio, selectRange, SUB_MARGIN_RATIO, type BoardGeom } from "./layout";
 import { loadImages, paintBoard, paintSubBoard, prepare } from "./paint";
 import { onAppearanceChange, syncAppearance } from "../appearance/state";
@@ -222,6 +222,25 @@ export function bootBoardWindow(): void {
     ]);
     render();
     send({ type: "ready" });
+  });
+  // getIndependMainBoardToClipboard / getIndependSubBoardToClipboard: the window's area as
+  // painted, at its size, opaque (TYPE_INT_RGB).
+  void self.listen<{ id: number }>(INDEPENDENT_PICTURE_EVENT, (e) => {
+    let png: string | null = null;
+    const { w, h } = size();
+    if (data && w > 0 && h > 0) {
+      render();
+      const picture = document.createElement("canvas");
+      picture.width = w;
+      picture.height = h;
+      const g = picture.getContext("2d")!;
+      g.fillStyle = "#000";
+      g.fillRect(0, 0, w, h);
+      g.drawImage(canvas, 0, 0, w, h);
+      const url = picture.toDataURL("image/png");
+      png = url.slice(url.indexOf(",") + 1);
+    }
+    send({ type: "picture", id: e.payload.id, png });
   });
   window.addEventListener("resize", render);
 }

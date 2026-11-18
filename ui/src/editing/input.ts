@@ -20,9 +20,10 @@ export interface BoardHost {
   pointAt(clientX: number, clientY: number): Point | null;
   /** Client-space centre and stone radius of an intersection. */
   stoneAt(point: Point): { x: number; y: number; r: number } | null;
-  /** Moves of the suggestion variation previewed on the main board (BoardRenderer
-   *  hasSelectedVariation), passes skipped, or null when none is shown. */
-  previewMoves(): Point[] | null;
+  /** Moves of the suggestion variation previewed on the main board as shown (BoardRenderer
+   *  hasSelectedVariation), null for a pass, or null when none is shown. 加入变化, the middle
+   *  click and `,` keep the passes so each later move keeps its colour. */
+  previewMoves(): (Point | null)[] | null;
   /** A suggestion clicked in the candidate table is cleared by a right click
    *  (openRightClickMenu `clickOrder != -1`); true when there was one. */
   clearTableSelection(): boolean;

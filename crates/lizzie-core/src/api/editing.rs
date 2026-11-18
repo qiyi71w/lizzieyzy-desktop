@@ -47,13 +47,15 @@ pub enum EditCommand {
     ChangeTurn,
     /// 让AI落子最佳一手(,): the best candidate of the current analysis.
     PlayBestMove,
-    /// Middle click on a variation / 添加为分支 at a branch end: its moves from the current
-    /// position, which moves to the end of them.
-    PlayVariation { moves: Vec<Point> },
-    /// RightClickMenu 添加为分支 (`LizzieFrame.addSuggestionAsBranch`): the variation becomes a new
-    /// branch of the current node and browsing stays; at the end of a side branch it is played
-    /// like [`EditCommand::PlayVariation`].
-    AddVariationAsBranch { moves: Vec<Point> },
+    /// Middle click on a variation / 让AI落子 (,) / 添加为分支 at a branch end: its moves from the
+    /// current position, `None` a pass, which moves to the end of them. Java's
+    /// `playCurrentVariation` skips a pass and gives the next move the pass's colour; the pass
+    /// is played here.
+    PlayVariation { moves: Vec<Option<Point>> },
+    /// RightClickMenu 添加为分支 (`LizzieFrame.addSuggestionAsBranch`): the variation, `None` a
+    /// pass, becomes a new branch of the current node and browsing stays; at the end of a side
+    /// branch it is played like [`EditCommand::PlayVariation`]. Java ends the branch at a pass.
+    AddVariationAsBranch { moves: Vec<Option<Point>> },
     /// 自动补完征子.
     ContinueLadder,
     /// Double click on a stone / 跳到此步 (`gotoAnyMoveByCoords`, `findMove`): the move that

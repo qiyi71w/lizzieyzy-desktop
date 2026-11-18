@@ -244,7 +244,7 @@ fn a_slot_reopens_its_record_at_the_saved_position_without_owning_a_file() {
         &mut wb,
         RecoveryCommand::NewSlot {
             name: "one".into(),
-            thumbnail: thumbnail.clone(),
+            thumbnail: Some(thumbnail.clone()),
         },
     );
     let slot = wb.view(false).recovery.slots[0].clone();
@@ -299,7 +299,7 @@ fn deleting_a_slot_moves_the_later_ones_up_and_delete_all_keeps_the_automatic_sl
             &mut wb,
             RecoveryCommand::NewSlot {
                 name: name.into(),
-                thumbnail: png(),
+                thumbnail: Some(png()),
             },
         );
     }
@@ -335,7 +335,7 @@ fn deleting_a_slot_moves_the_later_ones_up_and_delete_all_keeps_the_automatic_sl
         RecoveryCommand::OverwriteSlot {
             index: 2,
             name: "Untitled".into(),
-            thumbnail: png(),
+            thumbnail: Some(png()),
         },
     );
     assert_eq!(names(&mut wb), ["renamed", "Untitled"]);
@@ -355,6 +355,45 @@ fn deleting_a_slot_moves_the_later_ones_up_and_delete_all_keeps_the_automatic_sl
     assert!(v.auto.is_some());
 }
 
+/// A save whose picture could not be taken still writes the record (Java `addTempGame`,
+/// `saveTempGame`, `saveAutoGame` write the SGF before the bitmap; 浮动棋盘模式 takes the picture
+/// from the floating board window, which may not answer).
+#[test]
+fn new_overwrite_and_periodic_saves_without_a_picture_still_write_the_record() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut wb = workbench(tmp.path());
+    open_text(&mut wb, "(;SZ[9];B[aa])");
+    run(
+        &mut wb,
+        RecoveryCommand::NewSlot {
+            name: "a".into(),
+            thumbnail: None,
+        },
+    );
+    let slot = wb.view(false).recovery.slots[0].clone();
+    assert_eq!((slot.name.as_str(), slot.has_thumbnail), ("a", false));
+    assert_eq!(wb.slot_thumbnail(SlotRef::Manual { index: 1 }), None);
+
+    open_text(&mut wb, "(;SZ[9];B[bb];W[cc])");
+    run(
+        &mut wb,
+        RecoveryCommand::OverwriteSlot {
+            index: 1,
+            name: "b".into(),
+            thumbnail: None,
+        },
+    );
+    assert_eq!(names(&mut wb), ["b"]);
+    load(&mut wb, SlotRef::Manual { index: 1 });
+    assert_eq!(wb.document().record.node_count(), 3, "the overwritten record");
+
+    open_text(&mut wb, "(;SZ[9];B[dd])");
+    run(&mut wb, RecoveryCommand::AutoSave { thumbnail: None });
+    let periodic = std::fs::read_to_string(tmp.path().join("data/save/autoGame2.sgf")).unwrap();
+    assert!(periodic.contains("B[dd]"), "{periodic}");
+    assert!(!tmp.path().join("data/save/autoGame2.png").exists());
+}
+
 #[test]
 fn a_crash_promotes_the_periodic_save_and_the_next_start_resumes_it() {
     let tmp = tempfile::tempdir().unwrap();
@@ -371,7 +410,7 @@ fn a_crash_promotes_the_periodic_save_and_the_next_start_resumes_it() {
     open_text(&mut wb, "(;SZ[9];B[aa])");
     run(&mut wb, RecoveryCommand::ExitAutoSave { thumbnail: None });
     open_text(&mut wb, RECORD);
-    run(&mut wb, RecoveryCommand::AutoSave { thumbnail: png() });
+    run(&mut wb, RecoveryCommand::AutoSave { thumbnail: Some(png()) });
     // The process dies here: no exit save.
     drop(wb);
 
@@ -414,7 +453,7 @@ fn nothing_is_saved_or_resumed_automatically_while_switched_off() {
     );
     let before = std::fs::read(tmp.path().join("data/save/autoGame1.sgf")).unwrap();
     open_text(&mut wb, "(;SZ[9];B[aa])");
-    run(&mut wb, RecoveryCommand::AutoSave { thumbnail: png() });
+    run(&mut wb, RecoveryCommand::AutoSave { thumbnail: Some(png()) });
     run(&mut wb, RecoveryCommand::ExitAutoSave { thumbnail: None });
     assert!(!tmp.path().join("data/save/autoGame2.sgf").exists());
     assert_eq!(
@@ -438,7 +477,7 @@ fn a_slot_that_cannot_be_read_keeps_the_current_record() {
         &mut wb,
         RecoveryCommand::NewSlot {
             name: "x".into(),
-            thumbnail: png(),
+            thumbnail: Some(png()),
         },
     );
     std::fs::write(tmp.path().join("data/save/game1.sgf"), [0xff, 0xfe, 0x00]).unwrap();
@@ -461,7 +500,7 @@ fn a_crash_without_the_periodic_record_keeps_the_exit_save() {
     open_text(&mut wb, "(;SZ[9];B[aa];W[bb])");
     run(&mut wb, RecoveryCommand::ExitAutoSave { thumbnail: Some(png()) });
     open_text(&mut wb, RECORD);
-    run(&mut wb, RecoveryCommand::AutoSave { thumbnail: png() });
+    run(&mut wb, RecoveryCommand::AutoSave { thumbnail: Some(png()) });
     drop(wb);
     // The periodic record is gone before the next start.
     std::fs::remove_file(tmp.path().join("data/save/autoGame2.sgf")).unwrap();
@@ -483,7 +522,7 @@ fn a_slot_whose_list_cannot_be_written_keeps_its_previous_record() {
         &mut wb,
         RecoveryCommand::NewSlot {
             name: "A".into(),
-            thumbnail: png(),
+            thumbnail: Some(png()),
         },
     );
     let save = tmp.path().join("data/save");
@@ -506,7 +545,7 @@ fn a_slot_whose_list_cannot_be_written_keeps_its_previous_record() {
         RecoveryCommand::OverwriteSlot {
             index: 1,
             name: "B".into(),
-            thumbnail: other,
+            thumbnail: Some(other),
         },
         AP,
     );
@@ -743,7 +782,7 @@ fn java_slots_are_imported_only_when_chosen_after_this_products_own() {
         &mut wb,
         RecoveryCommand::NewSlot {
             name: "mine".into(),
-            thumbnail: png(),
+            thumbnail: Some(png()),
         },
     );
     run(&mut wb, RecoveryCommand::ExitAutoSave { thumbnail: None });
@@ -830,7 +869,7 @@ fn imported_java_slots_are_taken_back_when_the_settings_cannot_be_written() {
         &mut wb,
         RecoveryCommand::NewSlot {
             name: "mine".into(),
-            thumbnail: png(),
+            thumbnail: Some(png()),
         },
     );
     let before = files(&product.join("data/save"));
