@@ -1660,6 +1660,15 @@ fn open_katago_parameter_help(app: AppHandle) -> Result<(), ApiError> {
         .map_err(|_| ApiError::new(ErrorKind::Unavailable, "AutoSetup.openBrowserUnsupported"))
 }
 
+/// 精析设置's 这里 link (`AnalysisSettings.lblHint2`, opened by `AnalysisSettings.LinkLabel`):
+/// KataGo's analysis engine documentation, at the href every Java string bundle carries.
+#[tauri::command]
+fn open_analysis_engine_docs(app: AppHandle) -> Result<(), ApiError> {
+    app.opener()
+        .open_url("https://github.com/lightvector/KataGo/blob/master/docs/Analysis_Engine.md", None::<&str>)
+        .map_err(|_| ApiError::new(ErrorKind::Unavailable, "AutoSetup.openBrowserUnsupported"))
+}
+
 /// The pages 关于's link buttons open (`ConfigDialog2.createUnifiedAboutHero`), on this product's
 /// repository instead of Java's.
 #[derive(Clone, Copy, serde::Deserialize)]
@@ -2495,6 +2504,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         engine_console,
         open_katago_releases,
         open_katago_parameter_help,
+        open_analysis_engine_docs,
         open_project_page,
         update::open_update_release,
         output::recovery_thumbnail,
@@ -2555,6 +2565,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         engine_console,
         open_katago_releases,
         open_katago_parameter_help,
+        open_analysis_engine_docs,
         open_project_page,
         update::open_update_release,
         output::recovery_thumbnail,

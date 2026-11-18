@@ -7,6 +7,7 @@ import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { redo, undo } from "../analysis/table";
 import { COMMANDS, type CommandEntry } from "../commands";
+import { dialogOpen } from "../dialogs";
 import { language, t } from "../i18n";
 import { CONTROL_CLOSED_EVENT, CONTROL_DATA_EVENT, CONTROL_INPUT_EVENT, type ControlButton, type ControlInput, type ControlReport } from "./model";
 
@@ -38,7 +39,9 @@ const ACTIONS: Record<ControlButton, () => void> = {
 
 function input(i: ControlInput): void {
   if (i.type === "ready") void emitTo(LABEL, CONTROL_DATA_EVENT, { language: language() });
-  else if (i.type === "button") ACTIONS[i.button]();
+  // A Java modal dialog (ConfigDialog2, FirstUseSettings, JOptionPane) blocks the Controller
+  // window too: its buttons do nothing until the dialog closes.
+  else if (i.type === "button") { if (!dialogOpen()) ACTIONS[i.button](); }
   else report = i.report;
 }
 

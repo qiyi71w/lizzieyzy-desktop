@@ -243,7 +243,8 @@ importing the matching LizzieYzy Next settings.
   becomes the game komi unless the komi was set by hand (an engine that fails to start changes
   nothing). While an engine starts the status area shows 引擎正在加载中; after a failure it shows
   引擎未成功加载. As in Java, an engine that ended and was not started again is still the current
-  engine: 重启当前引擎 starts it again.
+  engine: 重启当前引擎 starts it again. During an engine game the list's changes are refused with a
+  message and the list keeps the saved engines.
 - 自动检测引擎是否存活 (综合设置 > 高级 > 日志与分析刷新, on by default, Java's
   `ui.auto-check-engine-alive`): when the foreground engine's process ends unexpectedly after it
   was ready, or a remote engine's command ends on the host or its connection is lost, the same
@@ -629,7 +630,8 @@ importing the matching LizzieYzy Next settings.
   eight large buttons: `|<` / `>|` go to the first / last move, `<<` / `>>` back / forward five
   moves, `<` / `>` one move, 返回 goes back to the main line and 涂鸦 opens 自由涂鸦 on the
   workbench. While a candidate's variation shows, `<<`, `<`, `>` and `>>` step it instead (see
-  browsing above). As in Java, `<<`, `<`, `>` and `>>` do nothing during a game against the engine. The
+  browsing above). As in Java, `<<`, `<`, `>` and `>>` do nothing during a game against the engine,
+  and no button does anything while a modal dialog (综合设置, 初始化设置, a message) is open. The
   menu item and the toolbar button show it or hide it; its close box hides it. It first opens
   510 x 470 centred on the main window, then keeps the place and size it was given; open when the
   application closes, it opens again at the next start. 重置界面位置 forgets its place. Its place
@@ -681,7 +683,8 @@ importing the matching LizzieYzy Next settings.
   beside it, created from KataGo's example when missing); 选择引擎 makes it the same way from a
   saved engine, and 自动生成 asks for the KataGo program, model and config files. 远程引擎 with
   设置 runs the analysis command on an SSH host instead (see remote engines below); the
-  lightweight quick-analysis model is a file of this computer and is not used then.
+  lightweight quick-analysis model is a file of this computer and is not used then. The hint's
+  这里 opens KataGo's analysis engine documentation in the system browser.
   - 启动Lizzie时预加载引擎 starts the analysis process with the configured command when the
     application starts, as in Java: at once, or, when the analysis depends on the foreground
     engine (复用当前前台引擎, a cloud foreground engine, or this client's Windows NVIDIA,
@@ -1139,7 +1142,9 @@ importing the matching LizzieYzy Next settings.
   (胜率吻合, 吻合度走势, loss distributions and statistics, 分段吻合度, 翻车现场) can be clicked, dragged
   or scrolled to browse. Clicking a row goes to the position before the move and marks it; under
   主干 only main-trunk moves can be chosen; during 自动分析 row clicks are ignored as in Java, chart
-  clicks are not. A click on one record that arrives after another record opened is ignored. Right-click a list for 导出为xls (a UTF-16
+  clicks are not. A click on one record that arrives after another record opened is ignored. A value the stored
+  analysis does not have (for example the score of a position analysed by Leela Zero) is an empty cell rather
+  than Java's 0. Right-click a list for 导出为xls (a UTF-16
   tab-separated file named `.xls`, as Java writes it). `Q` keeps the window on top. 双引擎模式
   opens a second window on the secondary engine's analysis. The open state, page, chart, filters,
   range, the primary window's bounds, sort and column widths are remembered; the window reopens

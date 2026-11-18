@@ -1,6 +1,7 @@
 // 分析 > 精析设置 (AnalysisSettings.java, frame 592x481, null layout at the small-font bounds). The
 // dialog edits a draft of `settings.analysis_engine`; 确定 saves it, Escape discards it.
-import { run, state, unavailable } from "../app";
+import { invoke } from "@tauri-apps/api/core";
+import { run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
 import { dispatch, isApiError } from "../contract/client";
 import type { AnalysisEngineSettings, LeaseAvailabilityView } from "../contract/generated";
@@ -145,8 +146,8 @@ function hintLabel(): HTMLElement {
     span.className = "analysis-settings-link";
     span.title = link.getAttribute("href") ?? "";
     span.append(...link.childNodes);
-    // Opening the browser needs the platform opener, which this client does not have yet.
-    span.onclick = unavailable;
+    // LinkLabel's Desktop.browse (java:628-637); the shell opens the same href every bundle has.
+    span.onclick = () => void invoke("open_analysis_engine_docs").catch(() => { /* Java ignores a browser that cannot open. */ });
     link.replaceWith(span);
   }
   el.append(...parsed.childNodes);
