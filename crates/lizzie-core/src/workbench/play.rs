@@ -259,6 +259,7 @@ impl Workbench {
             | Command::ResumeWholeGameAnalysis
             | Command::Region { .. }
             | Command::Tracking { .. }
+            | Command::Batch { .. }
             | Command::Tuning { op: TuningCommand::StartBenchmark { .. } }
             // A resource plan's 立即切换 restarts or switches the foreground engine.
             | Command::Resource { op: ResourceCommand::ApplySetup { switch_now: true, .. } } => Some(refused(PLAY_MODE)),

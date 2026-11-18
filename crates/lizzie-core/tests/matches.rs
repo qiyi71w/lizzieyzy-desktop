@@ -15,6 +15,8 @@ use std::time::{Duration, Instant};
 struct Process {
     id: InstanceId,
     sent: Vec<String>,
+    /// Launched for a 自建算力 profile (`LaunchSpec.cloud`).
+    cloud: bool,
 }
 #[derive(Clone, Default)]
 struct World(Arc<Mutex<Vec<Process>>>);
@@ -44,9 +46,10 @@ impl EngineIo for Io {
 }
 struct Launch(World);
 impl Launcher for Launch {
-    fn launch(&self, id: InstanceId, _: &LaunchSpec) -> std::io::Result<Box<dyn EngineIo>> {
+    fn launch(&self, id: InstanceId, spec: &LaunchSpec) -> std::io::Result<Box<dyn EngineIo>> {
         self.0 .0.lock().unwrap().push(Process {
             id,
+            cloud: spec.cloud.is_some(),
             ..Process::default()
         });
         Ok(Box::new(Io(self.0.clone(), id)))
@@ -1259,15 +1262,19 @@ fn a_custom_websocket_participant_takes_its_fixed_time_as_the_katago_move_limit(
     let mut m = Match::with_profiles(None, vec![custom, participant("two", "Second")]);
     m.start(genmove());
     let sent = m.serve(&|_, _| None);
+    // Each side by its launch input: the 自建算力 process was launched for the cloud profile.
+    let cloud: Vec<InstanceId> = m.world.0.lock().unwrap().iter().filter(|p| p.cloud).map(|p| p.id).collect();
+    assert_eq!(cloud.len(), 1, "one 自建算力 participant");
     let setup = |custom: bool| -> Vec<&String> {
-        let maxtime = sent.iter().find(|(_, c)| c.starts_with("kata-set-param maxTime")).map(|(i, _)| *i);
-        sent.iter().filter(|(i, _)| (Some(*i) == maxtime) == custom).map(|(_, c)| c).collect()
+        sent.iter().filter(|(i, _)| cloud.contains(i) == custom).map(|(_, c)| c).collect()
     };
     let (remote, local) = (setup(true), setup(false));
+    assert!(!local.is_empty(), "the local participant was set up");
     assert!(remote.iter().any(|c| *c == "kata-time_settings none"), "{remote:?}");
     assert!(remote.iter().any(|c| *c == "kata-set-param maxTime 2"), "{remote:?}");
     assert!(!remote.iter().any(|c| c.starts_with("time_settings")), "the 自建算力 side refuses time_settings: {remote:?}");
     assert!(local.iter().any(|c| *c == "time_settings 0 2 1"), "a local participant keeps its time settings: {local:?}");
+    assert!(!local.iter().any(|c| c.starts_with("kata-set-param maxTime") || c.starts_with("kata-time_settings")), "{local:?}");
     assert_eq!(m.phase(), Some(MatchPhase::Playing));
     m.finish_turn("D4");
     m.finish_turn("Q16");

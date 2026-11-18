@@ -211,6 +211,17 @@ impl Bench {
         }
     }
 
+    /// Waits for the threads of the transports that ended, then feeds every event left: what
+    /// they reported before ending, nothing later.
+    pub fn settle(&mut self) {
+        for handle in std::mem::take(&mut *self.endings.lock().unwrap()) {
+            handle.join().unwrap();
+        }
+        while let Ok((id, e)) = self.events.try_recv() {
+            self.wb.engine_input(id, e);
+        }
+    }
+
     pub fn finish(self) {
         let Bench {
             mut wb,

@@ -449,9 +449,9 @@ struct LeaseSearch {
     target_visits: u64,
     best: Option<InfoLine>,
     failed: bool,
-    /// The search reported since its stall deadline was set (Java
-    /// `remoteGtpLastCompletionActivityMillis`): a deadline passing then is renewed.
-    progressed: bool,
+    /// When the search last reported (Java `remoteGtpLastCompletionActivityMillis`), from its
+    /// start: its stall deadline counts idle time from here.
+    last_activity: Instant,
 }
 
 /// The foreground engine lent to a background task (Java `ForegroundAnalysisLease`): the seat's
@@ -2534,8 +2534,8 @@ impl Engines {
 
     // -------------------------------------------------------------------- input
 
-    /// Output of instance `id`. Returns what the application flow must act on.
-    pub fn input(&mut self, id: InstanceId, input: EngineInput) -> Vec<RuntimeEvent> {
+    /// Output of instance `id`, read at `now`. Returns what the application flow must act on.
+    pub fn input(&mut self, id: InstanceId, input: EngineInput, now: Instant) -> Vec<RuntimeEvent> {
         let mut events = std::mem::take(&mut self.pending);
         if self.workers.iter().any(|w| w.id == id) {
             self.worker_input(id, input, &mut events);
@@ -2607,7 +2607,7 @@ impl Engines {
                     if let Frame::Response { id: n, ok, .. } = &f {
                         self.record_answer(id, *n, *ok);
                     }
-                    self.frame(id, f, &mut events);
+                    self.frame(id, f, now, &mut events);
                 }
             }
         }
@@ -2682,8 +2682,8 @@ impl Engines {
         self.pump();
     }
 
-    fn frame(&mut self, id: InstanceId, frame: Frame, events: &mut Vec<RuntimeEvent>) {
-        if self.lease.as_ref().is_some_and(|l| l.instance == id) && self.lease_frame(&frame, events) {
+    fn frame(&mut self, id: InstanceId, frame: Frame, now: Instant, events: &mut Vec<RuntimeEvent>) {
+        if self.lease.as_ref().is_some_and(|l| l.instance == id) && self.lease_frame(&frame, now, events) {
             return;
         }
         // Only the foreground process takes a numSearchThreads answer (Java `target.isCurrent()`).
@@ -3144,19 +3144,20 @@ impl Engines {
         let l = self.lease.as_mut().unwrap();
         l.rules_changed |= rules.is_some();
         l.step = LeaseStep::Search;
-        l.deadline = Some(Instant::now() + LEASE_ACK);
+        let now = Instant::now();
+        l.deadline = Some(now + LEASE_ACK);
         l.search = Some(LeaseSearch {
             analyze: n,
             request: Request {
                 key: target.key(),
                 to_play,
                 size: target.record.size,
-                started: Instant::now(),
+                started: now,
             },
             target_visits: visits,
             best: None,
             failed: false,
-            progressed: false,
+            last_activity: now,
         });
         true
     }
@@ -3171,20 +3172,21 @@ impl Engines {
         l.releasing = true;
         match l.step {
             LeaseStep::Idle => self.lease_final_stop(),
-            LeaseStep::Search => self.lease_stop_search(),
+            LeaseStep::Search => self.lease_stop_search(Instant::now()),
             // The step in flight continues the release when answered.
             _ => {}
         }
     }
 
-    fn lease_stop_search(&mut self) {
+    /// `stop` ends the search; its answer is awaited `REMOTE_GTP_STOP_ACK_TIMEOUT_MILLIS` from `now`.
+    fn lease_stop_search(&mut self, now: Instant) {
         let id = self.lease.as_ref().unwrap().instance;
         let n = self.send(id, "stop", Purpose::Lease);
         let l = self.lease.as_mut().unwrap();
         match n {
             Some(n) => {
                 l.step = LeaseStep::SearchStop(n);
-                l.deadline = Some(Instant::now() + LEASE_STOP_ACK);
+                l.deadline = Some(now + LEASE_STOP_ACK);
             }
             None => {
                 l.step = LeaseStep::Idle;
@@ -3297,7 +3299,7 @@ impl Engines {
     }
 
     /// A frame of the leased engine: `true` when it belonged to the lease.
-    fn lease_frame(&mut self, frame: &Frame, events: &mut Vec<RuntimeEvent>) -> bool {
+    fn lease_frame(&mut self, frame: &Frame, now: Instant, events: &mut Vec<RuntimeEvent>) -> bool {
         let (id, step, analyze) = {
             let l = self.lease.as_ref().unwrap();
             (l.instance, l.step, l.search.as_ref().map(|s| s.analyze))
@@ -3315,7 +3317,7 @@ impl Engines {
                     .root_visits
                     .unwrap_or_else(|| info.candidates.iter().map(|c| c.visits).sum());
                 let accepted = !s.failed && !info.candidates.is_empty();
-                s.progressed = true;
+                s.last_activity = now;
                 if accepted {
                     s.best = Some(info);
                 }
@@ -3324,7 +3326,7 @@ impl Engines {
                     self.analysis_progress_accepted(id, total);
                 }
                 if complete {
-                    self.lease_stop_search();
+                    self.lease_stop_search(now);
                 }
                 true
             }
@@ -3429,8 +3431,9 @@ impl Engines {
         }
     }
 
-    /// A lease step that was not answered in time. A search that reported since its deadline
-    /// was set is not stalled (`REMOTE_GTP_ANALYZE_STALL_TIMEOUT_MILLIS` counts idle time).
+    /// A lease step that was not answered in time. A search is stalled only after
+    /// `REMOTE_GTP_ANALYZE_STALL_TIMEOUT_MILLIS` without a report; before that its deadline waits
+    /// only what is left of that idle time (`AnalysisEngine.java:1106-1114`).
     fn lease_timeout(&mut self, now: Instant, events: &mut Vec<RuntimeEvent>) {
         let l = self.lease.as_mut().unwrap();
         l.deadline = None;
@@ -3446,13 +3449,14 @@ impl Engines {
             }
             LeaseStep::Search => {
                 if let Some(s) = l.search.as_mut() {
-                    if std::mem::take(&mut s.progressed) {
-                        l.deadline = Some(now + LEASE_ACK);
+                    let stalled_at = s.last_activity + LEASE_ACK;
+                    if now < stalled_at {
+                        l.deadline = Some(stalled_at);
                         return;
                     }
                     s.failed = true;
                 }
-                self.lease_stop_search();
+                self.lease_stop_search(now);
             }
             LeaseStep::SearchStop(_) => {
                 if let Some(s) = l.search.as_mut() {
