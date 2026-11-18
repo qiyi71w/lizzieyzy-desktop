@@ -224,14 +224,18 @@ importing the matching LizzieYzy Next settings.
   while the input method is composing or on the key that commits its text) opens it, and `Esc`
   or 取消 closes the bar and gives the focus back to the control that had it, unless another
   control was chosen meanwhile. Opening a result does what the Java search does: a setting opens
-  综合设置 at its section and focuses its row (2.4 s gold outline) without changing it; a menu or
-  toolbar entry opens its menu path or shows its toolbar and focuses that control with the gold
-  outline, without running it (a markup button also shows the 标记工具 buttons for this
-  session, as Java does, without changing the saved 标记工具 choice); a board context entry
-  explains where to right-click and returns to the board; only an action entry runs. Entries
-  this client does not provide yet, or that the current state refuses (no engine, no KataGo, no
-  edit to restore, a whole-game analysis running, …), are greyed with their reason and cannot be
-  opened. While the bar or any other dialog is open, the workbench shortcuts and the floating
+  综合设置 at its section and focuses its row (2.4 s gold outline) without changing it; a
+  navigation or setting entry on a menu or toolbar opens its menu path or shows its toolbar and
+  focuses that control with the gold outline, without running it (a markup button also shows the
+  标记工具 buttons for this session, as Java does, without changing the saved 标记工具 choice;
+  `Space` then clicks a focused toolbar control); a 同步 popup item opens the 同步 popup with the
+  item selected, also while 同步 is switched off or sits in 更多; a board context entry explains
+  where to right-click and returns to the board; an action or window entry runs, as clicking its
+  menu item or button does (上一手 takes back a move during a game like the bottom bar's `<`).
+  Entries this client does not provide yet, or that the current state refuses (no engine, no
+  KataGo, no edit to restore, a whole-game analysis running, …), are greyed with their reason
+  and cannot be opened. `Ctrl+K` from the 浮动主棋盘 window gives the main window the keyboard for
+  the bar. While the bar or any other dialog is open, the workbench shortcuts and the floating
   boards' mouse input are inactive. Below a 900 px wide window the toolbar button shows its
   icon only.
 - Engines: the engine list (更多引擎 / `Alt+X`) adds, edits, orders and removes engine profiles
@@ -1525,14 +1529,16 @@ destination in `ui/src/search/targets.ts`. A feature makes its entries reachable
 them where its control lives:
 
 - Actions and windows: an entry in the `COMMANDS` catalog (`ui/src/commands.ts`, extended by each
-  feature module) under the Java action id. Search runs it only for ACTION entries and for the
-  Java openers listed in `targets.ts` (weights download, acceleration, komi, rules, …).
+  feature module) under the Java action id. Search runs it for ACTION entries and for the Java
+  openers listed in `targets.ts` (weights download, acceleration, komi, rules, …); a bottom-bar
+  button's command does what the button does.
 - Menu items: the item's `id` in `ui/src/chrome/javaMenus.ts` plus its `COMMANDS` entry. Search
-  opens the menu path and focuses the item (`locateMenuItem`); it does not run it.
+  runs a WINDOW item's command (`menuItemCommand`); for the others it opens the menu path and
+  focuses the item (`locateMenuItem`) without running it.
 - Toolbar controls: `data-function="<Java action id>"` on the control (`at()` in
   `chrome/toolbar.ts`, `located` in `chrome/bottombar.ts`). A control marked `unavailable` or
-  disabled does not count. A bottom-bar button not on the bar is located in its 更多 popup
-  (`locateHiddenButton`).
+  disabled does not count. Search clicks a WINDOW control and locates the others; a bottom-bar
+  button not on the bar is located in its 更多 popup (`locateHiddenButton`).
 - Settings rows: the section page (`SETTINGS_PAGES` in `ui/src/engine/settings.ts`) builds the
   row with `data-setting-target="<Java setting id>"`, and its module registers the ids with
   `registerSettingTargets(section, ids)` (`ui/src/engine/settingsTargets.ts`) when it loads, so
