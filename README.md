@@ -746,7 +746,10 @@ importing the matching LizzieYzy Next settings.
     An established Zhizi analysis that has no accepted visit
     progress for 20 seconds triggers the foreground recovery path, independently of the ordinary
     alive-check preference. Late data from a retired connection cannot update the board. Custom
-    WebSocket failures use the normal engine failure/restart policy.
+    WebSocket failures use the normal engine failure/restart policy. On a custom link, any new
+    command ends a running analysis query, as on a local KataGo, and the service is told to
+    terminate it, so browsing to another position starts that position's search; an engine move
+    asked with analysis keeps that move's evaluation.
   - Local protocol fixtures and the Linux desktop exercise these paths. Authorized live Zhizi
     and independently hosted custom-service acceptance, including real billing, have not yet
     been completed; fixture success is not a claim of current provider availability.
@@ -793,7 +796,8 @@ importing the matching LizzieYzy Next settings.
   each engine instance's own probe (`kata-analyze … focus pass 0`, then `stop`) when it starts,
   restarts or becomes the foreground engine, paused or not; the probe's output is never shown as
   analysis and never resumes a paused engine. An engine that rejects `focus` (for example the
-  official v1.18.1 release build) keeps ordinary analysis, and the menu item is disabled as
+  official v1.18.1 release build, or a 自建算力 link, whose adapter rejects the probe without a
+  remote query) keeps ordinary analysis, and the menu item is disabled as
   选点评估需要升级引擎; a failed probe says so and is repeated by restarting the engine. This
   client does not ship a KataGo build with `focus`.
 - 自动分析 (`A`, 分析 > 自动分析, or the bottom bar 自动分析 popup) opens Java's single-record

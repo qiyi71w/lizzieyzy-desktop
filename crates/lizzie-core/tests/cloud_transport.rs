@@ -7,13 +7,18 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use lizzie_core::api::GameCommand;
+use lizzie_core::browse::Navigation;
 use lizzie_core::engine::cloud::{CloudConnectError, CloudConnector, CloudLaunch, CloudProvider, SocketCredentials, SocketTokenSource};
 use lizzie_core::engine::gtp::{parse_info, Dialect};
-use lizzie_core::engine::runtime::{EngineInput, EngineIo};
-use lizzie_core::record::BoardSize;
+use lizzie_core::engine::runtime::{EngineInput, EngineIo, FocusCapability};
+use lizzie_core::record::{BoardSize, Point, ROOT};
 use lizzie_core::settings::{NetworkSettings, ProxyMode};
 use serde_json::{json, Value};
 use tokio_tungstenite::tungstenite::{accept, Message, WebSocket};
+
+#[path = "cloud_transport/workbench.rs"]
+mod workbench;
 
 type Peer = WebSocket<TcpStream>;
 
@@ -746,4 +751,119 @@ fn unavailable_network_snapshot_fails_closed_without_disclosing_its_error() {
         assert!(!events.iter().any(|event| matches!(event, EngineInput::Stderr(message) if message.contains("private-proxy-password"))));
         assert!(matches!(destination.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock));
     }
+}
+
+#[test]
+fn custom_command_after_a_pending_stop_closes_the_stream_and_answers_in_order() {
+    let (url, peer) = server(|mut peer| {
+        let first: Value = serde_json::from_str(&text(&mut peer)).unwrap();
+        let terminate: Value = serde_json::from_str(&text(&mut peer)).unwrap();
+        assert_eq!(terminate["terminateId"], first["id"]);
+        // The stop's terminate is still unanswered; the next query needs no second terminate.
+        let next: Value = serde_json::from_str(&text(&mut peer)).unwrap();
+        assert!(next.get("action").is_none(), "{next}");
+        assert_eq!(next["moves"], json!([["B", "D4"]]));
+        let _ = peer.read();
+    });
+    let mut engine = Running::custom(url);
+    engine.send("1 kata-analyze B 50"); engine.stdout("=1");
+    engine.send("2 stop");
+    engine.send("3 play B D4");
+    let lines: Vec<String> = engine.stdout("=3").into_iter()
+        .filter_map(|event| match event { EngineInput::Stdout(line) => Some(line), _ => None }).collect();
+    let at = |line: &str| lines.iter().position(|l| l == line).unwrap_or_else(|| panic!("{line:?} missing from {lines:?}"));
+    assert!(at("") < at("=2") && at("=2") < at("=3"), "the stream ends, then each command is answered in order: {lines:?}");
+    engine.send("4 kata-analyze W 50"); engine.stdout("=4");
+    engine.stop(); peer.join().unwrap();
+}
+
+fn d4() -> Point { Point { x: 3, y: 15 } }
+
+#[test]
+fn custom_engine_reports_focus_unsupported_without_a_remote_query_and_keeps_analysing() {
+    let peer = workbench::peer(workbench::terminate_only);
+    let mut b = workbench::bench();
+    b.open("(;SZ[19];B[pd];W[dd])");
+    b.activate_custom(&peer.url);
+    assert!(b.pump_until(Duration::from_secs(10), workbench::ready));
+    b.wb.toggle_analysis().unwrap();
+    assert!(b.wb.view(false).engine.paused);
+    // A new instance switched in while paused still runs its start-up probe.
+    assert!(b.wb.restart_engine().unwrap());
+    assert!(!workbench::ready(&mut b.wb), "the restarted instance starts up again");
+    assert!(b.pump_until(Duration::from_secs(10), workbench::ready));
+    let v = b.wb.view(false);
+    assert!(v.engine.paused);
+    assert_eq!(v.focus.capability, FocusCapability::Unsupported);
+    assert!(!v.focus.available, "评估此点 must not be offered");
+    assert!(peer.latest_queries().is_empty(), "the probe must not cost a remote query: {:?}", peer.latest_queries());
+    b.wb.toggle_analysis().unwrap();
+    assert!(b.pump_until(Duration::from_secs(10), |_| !peer.latest_queries().is_empty()), "resumed analysis reaches the peer");
+    b.finish();
+}
+
+#[test]
+fn custom_engine_moving_forward_during_a_long_analysis_searches_the_new_node() {
+    // Every query gets one in-progress result and keeps searching.
+    let peer = workbench::peer(|v| {
+        if v["action"] == "terminate" {
+            return workbench::terminate_only(v);
+        }
+        let n = v["moves"].as_array().map_or(0, Vec::len);
+        let mv = ["Q4", "D16"][n % 2];
+        vec![json!({"id": v["id"], "isDuringSearch": true,
+            "moveInfos": [{"move": mv, "visits": 50, "winrate": 0.55, "scoreLead": 1.0, "prior": 0.2, "order": 0, "pv": [mv]}],
+            "rootInfo": {"visits": 60, "winrate": 0.55, "scoreLead": 1.0}})]
+    });
+    let mut b = workbench::bench();
+    b.open("(;SZ[19];B[pd];W[dd];B[pp])");
+    b.wb.navigate(Navigation::First);
+    b.activate_custom(&peer.url);
+    assert!(b.pump_until(Duration::from_secs(10), |wb| workbench::ready(wb) && wb.view(false).analysis.is_some()));
+    let old = peer.queries().last().unwrap()["id"].clone();
+
+    b.wb.navigate(Navigation::Forward(1));
+    let candidate = |wb: &mut lizzie_core::workbench::Workbench| {
+        wb.view(false).analysis.and_then(|a| a.candidates.first().and_then(|c| c.point))
+    };
+    assert!(
+        b.pump_until(Duration::from_secs(10), |wb| candidate(wb) == Some(Point { x: 3, y: 3 })),
+        "the new node gets its own search (D16), queries: {:?}",
+        peer.queries().iter().map(|q| q["moves"].clone()).collect::<Vec<_>>()
+    );
+    assert_eq!(peer.queries().last().unwrap()["moves"], json!([["B", "Q16"]]));
+    assert!(peer.terminated().contains(&old), "the superseded remote query is terminated");
+    b.finish();
+}
+
+#[test]
+fn custom_engine_single_move_keeps_its_evaluation() {
+    // A move query gets its final answer at once with D4; analysis queries get nothing.
+    let peer = workbench::peer(|v| {
+        if v["action"] == "terminate" {
+            return workbench::terminate_only(v);
+        }
+        if v["priority"] != 2 {
+            return Vec::new();
+        }
+        vec![json!({"id": v["id"], "isDuringSearch": false,
+            "moveInfos": [{"move": "D4", "visits": 120, "winrate": 0.62, "scoreLead": 2.5, "prior": 0.3, "order": 0, "pv": ["D4", "Q16"]}],
+            "rootInfo": {"visits": 130, "winrate": 0.6, "scoreLead": 2.0}})]
+    });
+    let mut b = workbench::bench();
+    b.open("(;SZ[19])");
+    b.activate_custom(&peer.url);
+    assert!(b.pump_until(Duration::from_secs(10), workbench::ready));
+    // Paused, so no other analysis can supply the root's evaluation.
+    b.wb.toggle_analysis().unwrap();
+    assert!(b.wb.view(false).engine.paused);
+    assert!(b.wb.view(false).analysis.is_none());
+
+    b.wb.game(GameCommand::EngineMove).unwrap();
+    assert!(b.pump_until(Duration::from_secs(10), |wb| wb.view(false).position.move_number == 1));
+    assert_eq!(b.wb.document().record.node(ROOT).children.len(), 1, "D4 is played once");
+    b.wb.navigate(Navigation::First);
+    let root = b.wb.view(false).analysis.expect("the move's evaluation belongs to the position it was asked for");
+    assert_eq!(root.candidates.first().and_then(|c| c.point), Some(d4()));
+    b.finish();
 }

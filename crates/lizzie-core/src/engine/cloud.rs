@@ -576,11 +576,13 @@ async fn run_custom(
             _ = cancel.changed() => return None,
             command = rx.recv() => match command {
                 Some(Write::Line(line)) => match adapter.command(&line, output) {
-                    Ok(custom::Action::Send(payload)) => {
-                        diagnostics.trace_payload(EndpointCategory::Protocol, "send", &payload);
-                        if send(&mut socket, Message::Text(payload.into()), cancel).await.is_err() {
-                            if *cancel.borrow() { return None; }
-                            return Some((true, "Custom cloud request failed; rebuilding the current position"));
+                    Ok(custom::Action::Send(payloads)) => {
+                        for payload in payloads {
+                            diagnostics.trace_payload(EndpointCategory::Protocol, "send", &payload);
+                            if send(&mut socket, Message::Text(payload.into()), cancel).await.is_err() {
+                                if *cancel.borrow() { return None; }
+                                return Some((true, "Custom cloud request failed; rebuilding the current position"));
+                            }
                         }
                         // Do not publish an analysis stream until the complete query was written.
                         adapter.sent(output);
