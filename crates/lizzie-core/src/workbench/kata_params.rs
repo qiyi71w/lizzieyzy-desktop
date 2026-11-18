@@ -218,7 +218,7 @@ impl Workbench {
         // 野狐 owns the search; the settings are kept for the next start instead of changing
         // the engine under it.
         if !self.fox_owns_board() && !self.fox_holds_engine() {
-            self.engines.apply_custom_pda(&settings);
+            self.engines.apply_custom_pda(&settings, false);
         }
         Ok(None)
     }
@@ -289,8 +289,8 @@ impl Workbench {
     }
 
     /// 自动套用 on a handicap game's first White move (`BoardHistoryNode` →
-    /// `Leelaz.maybeAjustPDA`). Only a `KataGoPda` engine receives the private commands, and
-    /// only while 自动套用 is checked.
+    /// `Leelaz.maybeAjustPDA`): the saved `AutoPDA` command again. Only a `KataGoPda` engine
+    /// receives it, and only while 自动套用 is checked.
     pub(super) fn custom_pda_after_move(&mut self, node: NodeId) {
         let settings = &self.config.engine.custom_pda;
         if !settings.auto_apply {
@@ -301,7 +301,7 @@ impl Workbench {
             return;
         }
         let settings = settings.clone();
-        self.engines.apply_custom_pda(&settings);
+        self.engines.apply_custom_pda(&settings, true);
     }
 }
 

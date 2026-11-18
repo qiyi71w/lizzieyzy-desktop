@@ -2206,10 +2206,12 @@ impl Engines {
         self.get(id).is_some_and(|i| i.gtp_name.starts_with("KataGoCustom") || i.gtp_name.starts_with("KataGoPda"))
     }
 
-    /// Sends a `KataGoPda`'s private settings to the foreground engine: the dialog's 确定 and a
-    /// handicap game's re-apply. Commands go only to a ready, unrestored `KataGoPda`; a missing
-    /// numeric value sends nothing. Returns whether anything was sent.
-    pub fn apply_custom_pda(&mut self, settings: &CustomPdaSettings) -> bool {
+    /// Sends a `KataGoPda`'s private settings to the foreground engine: the dialog's 确定
+    /// ([`CustomPdaSettings::commands`]) or, when `automatic`, a handicap game's re-apply
+    /// ([`CustomPdaSettings::auto_commands`], which leaves a 动态 engine's own PDA). Commands go
+    /// only to a ready, unrestored `KataGoPda`; a missing numeric value sends nothing. Returns
+    /// whether anything was sent.
+    pub fn apply_custom_pda(&mut self, settings: &CustomPdaSettings, automatic: bool) -> bool {
         let Some(id) = self.foreground else { return false };
         let Some(inst) = self.get(id) else { return false };
         if !inst.gtp_name.starts_with("KataGoPda")
@@ -2219,7 +2221,7 @@ impl Engines {
         {
             return false;
         }
-        let commands = settings.commands();
+        let commands = if automatic { settings.auto_commands() } else { settings.commands() };
         if commands.is_empty() {
             return false;
         }
@@ -2231,7 +2233,8 @@ impl Engines {
         inst.pda_mode = Some(settings.mode);
         match settings.mode {
             super::profile::CustomPdaMode::Disabled => inst.pda = Some(0.0),
-            super::profile::CustomPdaMode::Dynamic => inst.pda = Some(0.0),
+            super::profile::CustomPdaMode::Dynamic if !automatic => inst.pda = Some(0.0),
+            super::profile::CustomPdaMode::Dynamic => {}
             super::profile::CustomPdaMode::Fixed => inst.pda = settings.fixed_value,
         }
         if settings.mode == super::profile::CustomPdaMode::Dynamic {
@@ -2290,7 +2293,7 @@ impl Engines {
             } else {
                 inst.pda.map(|pda| if pda == 0.0 { CustomPdaMode::Disabled } else { CustomPdaMode::Fixed })
             };
-            if inst.custom_pda.auto_apply { inst.custom_pda.commands() } else { Vec::new() }
+            if inst.custom_pda.auto_apply { inst.custom_pda.auto_commands() } else { Vec::new() }
         };
         for command in &commands {
             self.send(id, command, Purpose::Setup);
@@ -2302,7 +2305,6 @@ impl Engines {
             match inst.custom_pda.mode {
                 super::profile::CustomPdaMode::Disabled => inst.pda = Some(0.0),
                 super::profile::CustomPdaMode::Dynamic => {
-                    inst.pda = Some(0.0);
                     if let Some(cap) = inst.custom_pda.dynamic_cap.filter(|cap| cap.is_finite() && *cap != 0.0) {
                         inst.pda_cap = Some(cap);
                     }

@@ -290,6 +290,21 @@ impl CustomPdaSettings {
         }
     }
 
+    /// Java's `AutoPDA`, the one command 自动套用 replays at start-up and on a handicap game's
+    /// first White move (`Leelaz`, `maybeAjustPDA`): 不启用 `pda 0`; 动态 `dympdacap <cap>`
+    /// only, so the engine keeps its own PDA; 固定 `pda <value>`. Only the dialog's 确定 sends
+    /// [`Self::commands`].
+    pub fn auto_commands(&self) -> Vec<String> {
+        match self.mode {
+            CustomPdaMode::Dynamic => self
+                .dynamic_cap
+                .filter(|cap| cap.is_finite() && *cap != 0.0)
+                .map(|cap| vec![format!("dympdacap {}", java_double(cap))])
+                .unwrap_or_default(),
+            CustomPdaMode::Disabled | CustomPdaMode::Fixed => self.commands(),
+        }
+    }
+
     /// The dialog's refusal (`SetKataPDA.wrongParameter`): a 动态 系数 that is zero or not a
     /// finite number, or a 固定 value that is not finite.
     pub fn invalid(&self) -> bool {

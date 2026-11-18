@@ -389,7 +389,9 @@ importing the matching LizzieYzy Next settings.
   command. The dialog can also be used with standard KataGo, but only an engine whose GTP name
   begins with `KataGoPda` receives `pda`, `dympdacap`, `getpda` or `getdympdacap`.
   自动加载 applies the saved choice after startup read-back and again on the first white move
-  of a handicap game. These are the Java implementation's triggers, not every new game.
+  of a handicap game. These are the Java implementation's triggers, not every new game. Like
+  Java's saved command, the automatic apply of 动态PDA sends only `dympdacap <coefficient>`, so
+  the engine keeps (and the toolbar shows) its own PDA; only 确定 also sends `pda 0`.
   The six Java PDA-dialog settings import as a mode, numeric values and an automatic-apply
   choice; an invalid `auto-pda` command is reported as an invalid value, never stored as a raw
   command. Explicit mode/value keys take precedence; a parsed command supplies missing fields.
