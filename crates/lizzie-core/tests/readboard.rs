@@ -10,18 +10,19 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use lizzie_core::api::{
-    Command, CommandResult, GameCommand, GameKind, ImportStatus, ImportTarget, LeaseAvailabilityView, OnlineJob, PageReport,
-    PonderingNoticeDecision, ReadBoardCommand, ReadBoardNotice,
+    BatchMode, Command, CommandResult, GameCommand, GameKind, ImportStatus, ImportTarget, LeaseAvailabilityView, OnlineJob,
+    OpenSource, PageReport, PonderingNoticeDecision, ReadBoardCommand, ReadBoardNotice,
 };
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::cloud::{CloudLaunch, CloudProvider};
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
+use lizzie_core::formats;
 use lizzie_core::java_import::{self, JavaSource};
 use lizzie_core::readboard::{HelperHost, HelperId, HelperInput, HelperLaunch};
 use lizzie_core::record::{NodeKind, Point, Stone, ROOT};
-use lizzie_core::settings::{GameSettings, Storage};
+use lizzie_core::settings::{AutoAnalysisSettings, GameSettings, Storage};
 use lizzie_core::web_board::parse_client_message;
 use lizzie_core::workbench::Workbench;
 
@@ -807,6 +808,49 @@ fn unticking_background_analysis_between_gma_hands_stops_the_pondering() {
     assert_eq!(r.lease(), LeaseAvailabilityView::ReadBoardGma, "GMA stays armed");
     r.line(h, "stopsync");
     let sent = r.serve(&|_| None);
+    assert!(sent.iter().any(|c| c == "kata-set-param ponderingEnabled true"), "the engine's own value: {sent:?}");
+    assert_eq!(r.lease(), LeaseAvailabilityView::Available);
+}
+
+/// `playpon off` while GMA waits for the opponent before its first hand and an ordinary 批量分析
+/// analyses on the foreground engine meanwhile. Java `disableReadBoardGmaPonderIfIdle`
+/// (ReadBoard.java:4595-4605) needs no earlier hand: the engine's own value is read, pondering
+/// is turned off, the running analysis stops and nothing is played; clearing GMA gives the
+/// value back.
+#[test]
+fn unticking_background_analysis_before_the_first_gma_hand_stops_the_running_analysis() {
+    let own = |c: &str| (c == "kata-get-param ponderingEnabled").then(|| "true".to_string());
+    let mut r = Rig::new();
+    let h = r.open();
+    r.lines(h, &["ready", "start 19 19", "sync", "bothSync", "playpon on", "play>white>5 100 0 gma"]);
+    r.frame(h, &[]);
+    let armed = r.serve(&own);
+    assert!(!armed.iter().any(|c| c.starts_with("kata-genmove_analyze") || c.contains("ponderingEnabled")), "no hand yet: {armed:?}");
+
+    let game = r._dir.path().join("a.sgf");
+    std::fs::write(&game, "(;SZ[19];B[pd];W[dd];B[pp];W[dp])").unwrap();
+    let paths = vec![game.to_string_lossy().into_owned()];
+    assert_eq!(r.wb.open_batch(BatchMode::Ordinary, paths, OpenSource::Chooser), Ok(true));
+    for (ticket, path, no_capture) in r.wb.take_batch_reads() {
+        assert!(r.wb.complete_batch_read(ticket, formats::read_file(&path, no_capture)));
+    }
+    let settings = AutoAnalysisSettings { visits_enabled: true, visits: 10, time_enabled: false, auto_save: false, ..Default::default() };
+    assert_eq!(r.wb.start_batch_ordinary(settings).unwrap(), Ok(true));
+    let batch = r.serve(&own);
+    assert!(batch.iter().any(|c| c.starts_with("kata-analyze")), "the batch analyses: {batch:?}");
+
+    r.line(h, "playpon off");
+    let sent = r.serve(&own);
+    let ponder: Vec<_> = sent.iter().filter(|c| c.contains("ponderingEnabled")).collect();
+    assert_eq!(ponder, ["kata-get-param ponderingEnabled", "kata-set-param ponderingEnabled false"], "{sent:?}");
+    assert!(r.wb.view(false).engine.paused, "the analysis stops (`stopPonderingIfActive`)");
+    assert!(!sent.iter().any(|c| c.starts_with("kata-analyze") || c.starts_with("kata-genmove_analyze")), "{sent:?}");
+    assert!(!r.serve(&own).iter().any(|c| c.starts_with("kata-analyze")), "the batch analyses no more");
+    assert!(r.main_line().is_empty());
+    assert_eq!(r.lease(), LeaseAvailabilityView::ReadBoardGma, "GMA stays armed");
+
+    r.line(h, "stopsync");
+    let sent = r.serve(&own);
     assert!(sent.iter().any(|c| c == "kata-set-param ponderingEnabled true"), "the engine's own value: {sent:?}");
     assert_eq!(r.lease(), LeaseAvailabilityView::Available);
 }

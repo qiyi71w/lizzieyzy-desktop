@@ -196,13 +196,15 @@ impl Workbench {
             }
         };
         // After "重置界面位置" the persist file stays deleted until the next start
-        // (`Config.deletePersist`), except for what the user imports now: it is written alone,
-        // over the defaults, without the placement that was reset.
-        let persist_write = if self.persist_reset {
-            let imported = candidate.mapped.persisted_after(&settings::Persisted::default());
-            (imported != settings::Persisted::default()).then_some(imported)
-        } else {
-            (persisted != self.persisted).then(|| persisted.clone())
+        // (`Config.deletePersist`), except for what the user imports: each import is written over
+        // what earlier imports of this session wrote there (the defaults at first), without the
+        // placement that was reset.
+        let persist_write = match &self.persist_reset {
+            Some(written) => {
+                let imported = candidate.mapped.persisted_after(written);
+                (imported != *written).then_some(imported)
+            }
+            None => (persisted != self.persisted).then(|| persisted.clone()),
         };
         let chosen: Vec<&slots::JavaSlot> = match recovery {
             Some(_) => candidate.slots.iter().filter(|s| s.importable()).collect(),
@@ -239,6 +241,9 @@ impl Workbench {
                 ErrorKind::Io,
                 format!("saving imported settings failed: {e}"),
             ));
+        }
+        if let (Some(written), Some(imported)) = (self.persist_reset.as_mut(), persist_write) {
+            *written = imported;
         }
         images.keep();
         models.keep();

@@ -328,7 +328,7 @@ impl Workbench {
     }
 
     pub fn record_independent_board(&mut self, board: IndependentBoard, placement: Option<WindowPlacement>) -> Result<(), ApiError> {
-        if self.persist_reset || placement.is_none() { return Ok(()); }
+        if self.persist_reset.is_some() || placement.is_none() { return Ok(()); }
         let target = match board {
             IndependentBoard::Main => &mut self.persisted.independent_main_board,
             IndependentBoard::Sub => &mut self.persisted.independent_sub_board,
@@ -352,7 +352,7 @@ impl Workbench {
         if self.config.ui.control_panel_open != open {
             self.commit_config(|c| c.ui.control_panel_open = open)?;
         }
-        if self.persist_reset || placement.is_none() { return Ok(()); }
+        if self.persist_reset.is_some() || placement.is_none() { return Ok(()); }
         let previous = std::mem::replace(&mut self.persisted.control_panel, placement);
         if let Err(error) = self.save_persisted() {
             self.persisted.control_panel = previous;
@@ -435,7 +435,7 @@ impl Workbench {
     /// Settings and window presentation as one write: the projection changes only once both files
     /// are saved (`save_both` puts the settings file back when the second write fails).
     fn commit_layout_files(&mut self, next: crate::settings::Config, persisted: crate::settings::Persisted) -> Result<(), ApiError> {
-        crate::settings::save_both(&self.storage, &next, (!self.persist_reset).then_some(&persisted))
+        crate::settings::save_both(&self.storage, &next, self.persist_reset.is_none().then_some(&persisted))
             .map_err(|e| ApiError::new(ErrorKind::Io, format!("saving layout failed: {e}")))?;
         self.config = next;
         self.persisted = persisted;

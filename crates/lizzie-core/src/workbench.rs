@@ -214,8 +214,9 @@ pub struct Workbench {
     storage: Storage,
     config: Config,
     persisted: Persisted,
-    /// Set by "重置界面位置": the persist file stays deleted until the next start.
-    persist_reset: bool,
+    /// Set by "重置界面位置": the persist file stays deleted until the next start, except for
+    /// what Java imports write over the defaults meanwhile; this is the file's content.
+    persist_reset: Option<Persisted>,
     active_language: Language,
     system_locale: Option<String>,
     active_frame_font_size: i32,
@@ -415,7 +416,7 @@ impl Workbench {
             storage,
             config,
             persisted,
-            persist_reset: false,
+            persist_reset: None,
             active_language,
             active_frame_font_size,
             appearance_theme,
@@ -555,7 +556,7 @@ impl Workbench {
     }
 
     fn save_persisted(&self) -> Result<(), ApiError> {
-        if self.persist_reset {
+        if self.persist_reset.is_some() {
             return Ok(());
         }
         settings::save_json(&self.storage.persist_file, &self.persisted)
@@ -1121,7 +1122,7 @@ impl Workbench {
                 ))
             }
         }
-        self.persist_reset = true;
+        self.persist_reset = Some(Persisted::default());
         self.persisted.panel_sizes = crate::settings::PanelSizes::default();
         self.persisted.bottom_toolbar = crate::settings::BottomToolbar::default();
         self.persisted.independent_main_board = None;
@@ -1142,7 +1143,7 @@ impl Workbench {
         suggestions_frame: Option<FramePlacement>,
         main_list_columns: Option<Vec<u32>>,
     ) -> Result<(), ApiError> {
-        if self.persist_reset {
+        if self.persist_reset.is_some() {
             return Ok(());
         }
         if window.is_some() {

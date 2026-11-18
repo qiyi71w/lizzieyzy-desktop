@@ -223,7 +223,9 @@ importing the matching LizzieYzy Next settings.
   (`<name>.<date>.<n>.log.gz`), keeping 7 days and at most 100 MB of archives per log.
   Diagnostics exports include the active files.
 - Help > 清除所有个人数据 clears the recent-record list and 野狐棋谱's 近期搜索; View > 重置界面位置
-  resets the saved window placement and last folder and turns the overwrite prompt back on.
+  resets the saved window placement and last folder and turns the overwrite prompt back on. Folders
+  a Java settings import brings over afterwards, in one import or several, are kept for the next
+  start; the reset placement does not come back.
 - 搜索功能 (the top toolbar button, or `Ctrl+K`, `⌘K` on macOS, with no other modifier) opens a
   search bar centred over the window; it is refused while a text field has the focus (the key
   stays with the field and its input method) and while a dialog, menu or context menu is open.
@@ -305,7 +307,9 @@ importing the matching LizzieYzy Next settings.
   the engine holds the record's position again; when a 试下 started between two moves holds the
   engine, they go back as soon as it ends. If the engine refuses them it stays unrestored
   (引擎状态未恢复) until it is switched or restarted. Unticking 后台分析 in the helper
-  (`playpon off`) between two moves turns the engine's pondering off at once.
+  (`playpon off`) while GMA is armed and no move is in flight, before its first move as between
+  two, turns the engine's pondering off at once (its own value goes back when GMA is cleared) and
+  stops a running analysis, as Java does; a 批量分析 started meanwhile stays paused.
   The 自建算力 engine (远程算力's WebSocket link) cannot ponder in the background: GMA leaves the
   pondering parameter alone on it, and when the helper asks for pondering (`playpon on`) each
   arming first shows ReadBoard 后台思考能力差异. GMA waits for the answer: 确定 or 不再提示 lets it

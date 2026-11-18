@@ -774,6 +774,78 @@ fn a_placement_reset_before_an_import_does_not_come_back() {
 }
 
 #[test]
+fn imports_after_one_interface_reset_keep_each_others_folders() {
+    // One 重置界面位置, then a Java profile holding only a picture folder and one holding only a
+    // game record folder, in either order: after a restart both folders are there and the reset
+    // placement and column widths stay gone.
+    for pictures_first in [true, false] {
+        let tmp = tempfile::tempdir().unwrap();
+        let pictures = tmp.path().join("java-pictures");
+        let games = tmp.path().join("java-games");
+        for (dir, folders) in [
+            (&pictures, json!({ "last-folder": "", "last-image-folder": "/pictures" })),
+            (&games, json!({ "last-folder": "/games" })),
+        ] {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join("config.txt"), "{}").unwrap();
+            std::fs::write(dir.join("persist"), json!({ "filesystem": folders }).to_string()).unwrap();
+        }
+        let product = tmp.path().join("product");
+        let mut wb = workbench(&product, Recorder::default());
+        let frame = FramePlacement { x: 11, y: 22, width: 333, height: 444, columns: vec![35, 20, 40, 70, 35, 50, 35] };
+        let window = WindowPlacement { x: 5, y: 6, width: 900, height: 700, maximized: false };
+        wb.persist_ui(Some(window), Some(frame), Some(vec![10, 30, 30, 45, 30])).unwrap();
+        drop(wb);
+        let mut wb = workbench(&product, Recorder::default());
+        wb.reset_ui_position().unwrap();
+        let order = if pictures_first { [&pictures, &games] } else { [&games, &pictures] };
+        for java in order {
+            let p = preview(&mut wb, java);
+            assert!(p.replaces.is_empty(), "pictures first {pictures_first}: {:?}", p.replaces);
+            wb.apply_java_import(p.id, &[], false, false, false, None).unwrap().unwrap();
+        }
+        drop(wb);
+        let reopened = workbench(&product, Recorder::default());
+        let persisted = reopened.persisted();
+        assert_eq!(persisted.last_image_folder.as_deref(), Some("/pictures"), "pictures first {pictures_first}");
+        assert_eq!(persisted.last_folder.as_deref(), Some("/games"), "pictures first {pictures_first}");
+        assert_eq!(persisted.window, None);
+        assert_eq!(persisted.suggestions_frame_7, None);
+        assert_eq!(persisted.main_list_columns, None);
+    }
+}
+
+#[test]
+fn after_an_interface_reset_a_different_imported_folder_still_needs_confirmation() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), "{}").unwrap();
+    let folders = |games: &str, pictures: &str| {
+        let persist = json!({ "filesystem": { "last-folder": games, "last-image-folder": pictures } });
+        std::fs::write(java.join("persist"), persist.to_string()).unwrap();
+    };
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    wb.reset_ui_position().unwrap();
+    folders("/games", "/pictures");
+    let p = preview(&mut wb, &java);
+    wb.apply_java_import(p.id, &[], false, false, false, None).unwrap().unwrap();
+
+    // Another picture folder replaces the one imported: refused until confirmed.
+    folders("", "/other-pictures");
+    let p = preview(&mut wb, &java);
+    assert_eq!(p.replaces, [ImportTarget::LastImageFolder]);
+    assert_eq!(wb.apply_java_import(p.id, &[], false, false, false, None).unwrap(), Err(IMPORT_NEEDS_REPLACE));
+    assert_eq!(workbench(&product, Recorder::default()).persisted().last_image_folder.as_deref(), Some("/pictures"));
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    drop(wb);
+    let reopened = workbench(&product, Recorder::default());
+    assert_eq!(reopened.persisted().last_image_folder.as_deref(), Some("/other-pictures"));
+    assert_eq!(reopened.persisted().last_folder.as_deref(), Some("/games"));
+}
+
+#[test]
 fn commands_carrying_unconfirmed_credentials_are_not_saved() {
     const MARKER: &str = "TEST_MARKER";
     let tmp = tempfile::tempdir().unwrap();

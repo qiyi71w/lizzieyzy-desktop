@@ -169,7 +169,7 @@ impl Workbench {
     /// The window's placement when it closes or the application exits (the primary window only,
     /// `Config.persist`), unless the UI position was reset.
     pub fn persist_hawkeye(&mut self, placement: HawkeyePlacement) -> Result<(), ApiError> {
-        if self.persist_reset {
+        if self.persist_reset.is_some() {
             return Ok(());
         }
         self.persisted.hawkeye = Some(placement);

@@ -826,6 +826,16 @@ impl Workbench {
         self.sync_engine();
     }
 
+    /// The helper stops the analysis (Java `stopPonderingIfActive`): a pause the helper asked
+    /// for, not the user's own.
+    pub(super) fn readboard_stop_analysis(&mut self) {
+        if !self.paused {
+            self.paused = true;
+            self.readboard.stopped_analysis = true;
+            self.sync_engine();
+        }
+    }
+
     /// Java `getHistory().getMainEnd()`.
     fn readboard_main_end(&self) -> NodeId {
         let rec = &self.doc.record;
@@ -886,13 +896,7 @@ impl Workbench {
             match event {
                 SessionEvent::Send(line) => self.readboard_send(&line),
                 SessionEvent::StartAnalysis | SessionEvent::ResumeAnalysis { .. } => self.readboard_resume_analysis(),
-                SessionEvent::StopAnalysis => {
-                    if !self.paused {
-                        self.paused = true;
-                        self.readboard.stopped_analysis = true;
-                        self.sync_engine();
-                    }
-                }
+                SessionEvent::StopAnalysis => self.readboard_stop_analysis(),
                 SessionEvent::ToggleAnalysisManual => {
                     if let Err(e) = self.toggle_analysis() {
                         self.log(true, format!("readboard: resuming the analysis failed: {}", e.message));
@@ -918,7 +922,7 @@ impl Workbench {
                 }
                 SessionEvent::GmaCleared { .. } => self.gma_clear(),
                 // Kept by the session (`read_board_ponder`); a GMA hand reads it when it starts.
-                // Turned off between hands, the engine stops pondering at once.
+                // Turned off while GMA is armed, the engine stops pondering at once.
                 SessionEvent::PonderPreference { on: false } => self.gma_ponder_off(),
                 SessionEvent::PonderPreference { on: true } => {}
                 SessionEvent::AutoPlay { color, toolbar_side, time, playouts, first_playouts, gma } => {
