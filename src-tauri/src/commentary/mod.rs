@@ -39,8 +39,7 @@ pub struct Adapter {
     connection_write: Mutex<()>,
 }
 impl Adapter {
-    pub fn new(application: String, config_dir: &Path, data_dir: &Path) -> Self {
-        let store = crate::secrets::Store::new(application, config_dir);
+    pub fn new(store: crate::secrets::Store, data_dir: &Path) -> Self {
         Self {
             key: Mutex::new(SessionKey::default()),
             sessions: Mutex::new(sessions::Sessions::new(data_dir.join("chatgpt"), store.clone())),
@@ -478,28 +477,68 @@ pub fn commentary_api_key_draft(app: AppHandle, window: tauri::WebviewWindow) ->
 
 /// The preview advertises only a source and address, never a credential value.
 pub fn discover_java_credential(app: &AppHandle, candidate: &mut lizzie_core::java_import::Candidate) {
-    if candidate.commentary_credential.is_some() {
-        return;
+    app.state::<Adapter>().discover_java_key(candidate);
+}
+
+impl Adapter {
+    /// Offers the key Java remembered in its credential store when this program can read it there.
+    fn discover_java_key(&self, candidate: &mut lizzie_core::java_import::Candidate) {
+        if candidate.commentary_credential.is_some() || !candidate.commentary_key_remembered {
+            return;
+        }
+        let Some(settings) = candidate.mapped.commentary.as_ref() else {
+            return;
+        };
+        let Ok(account) = settings::credential_account(&settings.base_url) else {
+            return;
+        };
+        if self
+            .store
+            .read_java_api_key(&candidate.source.config_dir, &account)
+            .ok()
+            .flatten()
+            .is_some_and(|key| !key.is_empty())
+        {
+            candidate.set_commentary_credential("secure-store");
+        }
     }
-    let Some(settings) = candidate.mapped.commentary.as_ref() else {
-        return;
+
+    /// The confirmed copy of a Java key. It is used from now on and kept in this client's store;
+    /// where the store cannot keep it, it lasts until the program quits, as Java keeps a legacy
+    /// key (`TeacherSettings.java:125-131`). Returns whether the store kept it.
+    fn import_java_key(
+        &self,
+        source: &Path,
+        choice: &lizzie_core::api::ImportCommentaryCredential,
+    ) -> Result<bool, CommentaryFailure> {
+        let account = settings::credential_account(&choice.base_url)?;
+        let key = if choice.source == "teacher.properties" {
+            lizzie_core::java_import::read_java_commentary_api_key(source)
+        } else {
+            self.store
+                .read_java_api_key(source, &account)
+                .map_err(|_| storage_failure())?
+        }
+        .filter(|key| !key.is_empty())
+        .ok_or_else(storage_failure)?;
+        let stored = self.store.write("api-key", &account, &key).is_ok();
+        self.key.lock().unwrap().key = key;
+        Ok(stored)
+    }
+}
+
+/// The report entry of the confirmed key copy: `Ok(true)` remembered, `Ok(false)` this run only.
+fn report_java_key(item: &mut lizzie_core::api::ImportItemView, outcome: Result<bool, CommentaryFailure>) {
+    use lizzie_core::api::{ImportReason, ImportStatus};
+    (item.status, item.reason, item.detail) = match outcome {
+        Ok(true) => (ImportStatus::Imported, None, None),
+        Ok(false) => (ImportStatus::Imported, Some(ImportReason::SessionOnly), None),
+        Err(error) => (
+            ImportStatus::Incompatible,
+            Some(ImportReason::Unreadable),
+            Some(error.message),
+        ),
     };
-    if !settings.remember_api_key {
-        return;
-    }
-    let Ok(account) = settings::credential_account(&settings.base_url) else {
-        return;
-    };
-    if app
-        .state::<Adapter>()
-        .store
-        .read_java_api_key(&candidate.source.config_dir, &account)
-        .ok()
-        .flatten()
-        .is_some_and(|key| !key.is_empty())
-    {
-        candidate.set_commentary_credential("secure-store");
-    }
 }
 
 pub fn imported_settings(app: &AppHandle) {
@@ -518,52 +557,175 @@ pub fn copy_java_credential(
     ),
     report: &mut lizzie_core::api::ImportReportView,
 ) {
-    use lizzie_core::api::{ImportReason, ImportStatus};
     let adapter = app.state::<Adapter>();
     let _write = adapter.connection_write.lock().unwrap();
     let (source, choice) = plan;
-    let outcome = (|| {
-        let account = settings::credential_account(&choice.base_url)?;
-        let key = if choice.source == "teacher.properties" {
-            lizzie_core::java_import::read_java_commentary_api_key(&source.config_dir)
-        } else {
-            adapter
-                .store
-                .read_java_api_key(&source.config_dir, &account)
-                .map_err(|_| storage_failure())?
-        }
-        .filter(|key| !key.is_empty())
-        .ok_or_else(storage_failure)?;
-        adapter
-            .store
-            .write("api-key", &account, &key)
-            .map_err(|_| storage_failure())?;
-        shared
-            .workbench
-            .lock()
-            .unwrap()
-            .remember_imported_commentary_key()
-            .map_err(|_| {
-                CommentaryFailure::keyed("Teacher.error.generic", "Could not save imported commentary settings.")
-            })?;
-        Ok::<(), CommentaryFailure>(())
-    })();
+    // Remembering starts only once the store kept the key; otherwise it lasts for this run.
+    let outcome = adapter.import_java_key(&source.config_dir, choice).map(|stored| {
+        stored
+            && shared
+                .workbench
+                .lock()
+                .unwrap()
+                .remember_imported_commentary_key()
+                .is_ok()
+    });
     if let Some(item) = report
         .items
         .iter_mut()
         .find(|item| item.key == "credential:commentary-api-key")
     {
-        match outcome {
-            Ok(()) => {
-                item.status = ImportStatus::Imported;
-                item.reason = None;
-                item.detail = None;
-            }
-            Err(error) => {
-                item.status = ImportStatus::Incompatible;
-                item.reason = Some(ImportReason::Unreadable);
-                item.detail = Some(error.message);
-            }
-        }
+        report_java_key(item, outcome);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::secrets::{Store, Vault};
+    use lizzie_core::api::{ImportReason, ImportStatus};
+    use lizzie_core::java_import::{self, Candidate, JavaSource};
+    use std::path::PathBuf;
+
+    const KEY: &str = "private-java-commentary-key";
+    const BASE_URL: &str = "https://provider.example/v1";
+    const APP: &str = "io.github.qiyi71w.lizzieyzy-tauri";
+
+    /// A Java settings folder holding `teacher` as its `teacher.properties`.
+    fn java(name: &str, teacher: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("lizzie-commentary-import-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.txt"), "{}").unwrap();
+        std::fs::write(dir.join("teacher.properties"), teacher).unwrap();
+        dir
+    }
+    fn adapter(vault: Option<Vault>) -> Adapter {
+        Adapter::new(
+            Store::memory(APP, vault),
+            &std::env::temp_dir().join("lizzie-commentary-import-data"),
+        )
+    }
+    /// The Java import preview's candidate, with this adapter's credential lookup.
+    fn preview(adapter: &Adapter, java: &Path) -> Candidate {
+        let mut candidate = java_import::read(&JavaSource::new(java, None)).unwrap();
+        adapter.discover_java_key(&mut candidate);
+        candidate
+    }
+    /// The confirmed copy and its report entry.
+    fn confirm(adapter: &Adapter, java: &Path, candidate: &Candidate) -> (ImportStatus, Option<ImportReason>) {
+        let choice = candidate
+            .commentary_credential
+            .as_ref()
+            .expect("the preview offers the key");
+        let mut item = candidate
+            .items
+            .iter()
+            .find(|item| item.key == "credential:commentary-api-key")
+            .unwrap()
+            .clone();
+        assert_eq!(
+            (item.status, item.reason),
+            (ImportStatus::NotMigrated, Some(ImportReason::CredentialNotConfirmed))
+        );
+        report_java_key(&mut item, adapter.import_java_key(java, choice));
+        (item.status, item.reason)
+    }
+    fn entry(application: &str) -> (String, String, String) {
+        let account = settings::credential_account(BASE_URL).unwrap().trim().to_lowercase();
+        (application.into(), "api-key".into(), account)
+    }
+
+    #[test]
+    fn a_key_java_remembered_in_its_store_is_offered_and_copied_into_this_store() {
+        let vault = Vault::default();
+        vault.lock().unwrap().insert(entry("lizzieyzy-next"), KEY.into());
+        let adapter = adapter(Some(vault.clone()));
+        let teacher = format!("provider=API_KEY\nbaseUrl={BASE_URL}\nmodel=example\nrememberApiKey=true\n");
+        let java = java("java-store", &teacher);
+        let candidate = preview(&adapter, &java);
+        let choice = candidate
+            .commentary_credential
+            .as_ref()
+            .expect("the preview offers the key");
+        assert_eq!(
+            (choice.source.as_str(), choice.base_url.as_str()),
+            ("secure-store", BASE_URL)
+        );
+        assert!(
+            !format!("{candidate:?}").contains(KEY),
+            "the preview never holds the key"
+        );
+
+        assert_eq!(confirm(&adapter, &java, &candidate), (ImportStatus::Imported, None));
+        let vault = vault.lock().unwrap();
+        assert_eq!(
+            vault.get(&entry(APP)).map(String::as_str),
+            Some(KEY),
+            "kept in this client's store"
+        );
+        assert_eq!(
+            vault.get(&entry("lizzieyzy-next")).map(String::as_str),
+            Some(KEY),
+            "Java's entry stays"
+        );
+        assert_eq!(adapter.key.lock().unwrap().key, KEY, "used from now on");
+        assert_eq!(
+            std::fs::read_to_string(java.join("teacher.properties")).unwrap(),
+            teacher
+        );
+    }
+
+    #[test]
+    fn a_java_store_entry_java_does_not_remember_is_not_offered() {
+        let vault = Vault::default();
+        vault.lock().unwrap().insert(entry("lizzieyzy-next"), KEY.into());
+        let adapter = adapter(Some(vault));
+        let java = java(
+            "not-remembered",
+            &format!("baseUrl={BASE_URL}\nmodel=example\nrememberApiKey=false\n"),
+        );
+        assert!(preview(&adapter, &java).commentary_credential.is_none());
+    }
+
+    #[test]
+    fn without_a_credential_store_a_legacy_key_is_kept_for_this_run() {
+        let adapter = adapter(None);
+        let teacher = format!("provider=API_KEY\nbaseUrl={BASE_URL}\nmodel=example\napiKey={KEY}\n");
+        let java = java("legacy-no-store", &teacher);
+        let candidate = preview(&adapter, &java);
+        assert_eq!(
+            candidate.commentary_credential.as_ref().unwrap().source,
+            "teacher.properties"
+        );
+
+        assert_eq!(
+            confirm(&adapter, &java, &candidate),
+            (ImportStatus::Imported, Some(ImportReason::SessionOnly))
+        );
+        assert_eq!(adapter.key.lock().unwrap().key, KEY, "used until the program quits");
+        assert_eq!(
+            std::fs::read_to_string(java.join("teacher.properties")).unwrap(),
+            teacher
+        );
+    }
+
+    #[test]
+    fn a_java_store_key_this_program_cannot_read_is_reported_unreadable() {
+        let vault = Vault::default();
+        let adapter = adapter(Some(vault.clone()));
+        let java = java(
+            "java-store-gone",
+            &format!("baseUrl={BASE_URL}\nmodel=example\nrememberApiKey=true\n"),
+        );
+        let mut candidate = java_import::read(&JavaSource::new(&java, None)).unwrap();
+        // Offered while Java's entry was there; removed before the copy.
+        candidate.set_commentary_credential("secure-store");
+        assert_eq!(
+            confirm(&adapter, &java, &candidate),
+            (ImportStatus::Incompatible, Some(ImportReason::Unreadable))
+        );
+        assert!(adapter.key.lock().unwrap().key.is_empty());
+        assert!(vault.lock().unwrap().is_empty());
     }
 }

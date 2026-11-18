@@ -1,7 +1,6 @@
 //! Account operations run on a shell worker, outside the workbench lock. Only a current
 //! generation can commit credentials, cached account data, or a settings reply.
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::{atomic::{AtomicBool, AtomicU64, Ordering}, Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use lizzie_core::{cloud::*, settings::NetworkSettings};
@@ -42,10 +41,14 @@ pub struct Adapter {
     world: Option<String>,
 }
 impl Adapter {
-    pub fn new(application: String, config_dir: &Path) -> Self {
+    pub fn new(store: crate::secrets::Store) -> Self {
         Self { session: Mutex::new(Session::default()), generation: Arc::new(AtomicU64::new(0)),
-            network: Mutex::new(NetworkSettings::default()), store: crate::secrets::Store::new(application,config_dir),
+            network: Mutex::new(NetworkSettings::default()), store,
             base: BASE.into(), world: None }
+    }
+    /// The credential storage this account uses, for the Java import's read of Java's entries.
+    pub fn store(&self) -> &crate::secrets::Store {
+        &self.store
     }
     /// Refreshes engine-token networking without changing the account or retiring requests.
     pub fn set_network(&self, network: &NetworkSettings) {

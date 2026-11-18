@@ -3263,6 +3263,27 @@ fn remembered_commentary_key_selection_does_not_share_engine_credential_consent(
 }
 
 #[test]
+fn java_remembering_its_key_in_the_credential_store_is_told_to_the_adapter() {
+    let temp = tempfile::tempdir().unwrap();
+    let java = temp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), "{}").unwrap();
+    // TeacherSettings.load: Boolean.parseBoolean, and a legacy plain-text key turns remembering off.
+    for (teacher, remembered) in [
+        ("baseUrl=https://provider.example/v1\nrememberApiKey=TRUE\n", true),
+        ("baseUrl=https://provider.example/v1\nrememberApiKey=false\n", false),
+        ("baseUrl=https://provider.example/v1\n", false),
+        ("baseUrl=https://provider.example/v1\nrememberApiKey=true\napiKey=legacy\n", false),
+    ] {
+        std::fs::write(java.join("teacher.properties"), teacher).unwrap();
+        let candidate = java_import::read(&JavaSource::new(&java, None)).unwrap();
+        assert_eq!(candidate.commentary_key_remembered, remembered, "{teacher:?}");
+        // Remembering here still waits for the confirmed copy.
+        assert!(!candidate.mapped.commentary.as_ref().unwrap().remember_api_key);
+    }
+}
+
+#[test]
 fn imported_commentary_settings_remember_nothing_until_a_key_is_copied() {
     let temp = tempfile::tempdir().unwrap();
     let java = temp.path().join("java");

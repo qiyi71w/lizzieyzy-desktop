@@ -14,6 +14,7 @@ use crate::resources::HttpFetch;
 use crate::{publish, State};
 use lizzie_core::api::{ApiError, CommandResult, UpdateCommand, UpdateError};
 use lizzie_core::resources as r;
+use lizzie_core::settings::NetworkSettings;
 use lizzie_core::update::deb::{self, Handover, Package};
 use lizzie_core::update::portable::{self, PortableFailure, Recovery};
 use lizzie_core::update::{self as u, InstallForm, InstalledApp, Offer};
@@ -301,20 +302,56 @@ fn fetcher(shared: &State) -> Result<UpdateFetch, String> {
 }
 
 fn check(app: &AppHandle, shared: &State, job: UpdateCheckJob) {
-    let result = match fetcher(shared) {
-        Ok(fetch) => u::discover(&job.installed, job.selection, &fetch),
-        Err(e) => {
-            shared.log.warn(&format!("update check: {e}"));
+    let network = shared.workbench.lock().unwrap().resource_network();
+    let (result, client_failure) = discover(&job.installed, job.selection, &network);
+    if let Some(e) = client_failure {
+        shared.log.warn(&format!("update check: {e}"));
+    }
+    shared.log.info(&format!("update check: {}", describe(&result.outcome)));
+    let step = shared.workbench.lock().unwrap().complete_update_check(job.id, result);
+    run(app, shared, step);
+}
+
+/// [`u::discover`] with the HTTP client built at its first request, so what needs no network
+/// (an unpackaged build, a build without the update key, an unsupported form) is reported even
+/// when the saved proxy cannot make a client. Such a client failure is the check's `Fetch`
+/// failure, returned with its message.
+fn discover(
+    installed: &InstalledApp,
+    selection: u::Selection,
+    network: &NetworkSettings,
+) -> (u::CheckResult, Option<String>) {
+    struct Lazy<'a> {
+        network: &'a NetworkSettings,
+        client: OnceLock<Result<UpdateFetch, String>>,
+    }
+    impl r::Fetch for Lazy<'_> {
+        fn get(&self, url: &str, start: Option<u64>) -> r::ResourceResult<r::FetchResponse> {
+            let client = self
+                .client
+                .get_or_init(|| HttpFetch::new(self.network).map(UpdateFetch).map_err(|e| e.to_string()));
+            match client {
+                Ok(fetch) => fetch.get(url, start),
+                Err(e) => Err(r::ResourceError::Invalid(e.clone())),
+            }
+        }
+    }
+    let fetch = Lazy {
+        network,
+        client: OnceLock::new(),
+    };
+    let result = u::discover(installed, selection, &fetch);
+    match fetch.client.into_inner() {
+        Some(Err(e)) => (
             u::CheckResult {
                 outcome: u::CheckOutcome::Failed(u::FailureKind::Fetch),
                 stable_failure: None,
                 beta_failure: None,
-            }
-        }
-    };
-    shared.log.info(&format!("update check: {}", describe(&result.outcome)));
-    let step = shared.workbench.lock().unwrap().complete_update_check(job.id, result);
-    run(app, shared, step);
+            },
+            Some(e),
+        ),
+        _ => (result, None),
+    }
 }
 
 fn describe(outcome: &u::CheckOutcome) -> String {
@@ -964,4 +1001,63 @@ fn wait_for_exit(pid: u32, timeout: Duration) -> bool {
 #[cfg(not(any(windows, target_os = "linux")))]
 fn wait_for_exit(_pid: u32, _timeout: Duration) -> bool {
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lizzie_core::settings::ProxyMode;
+    use lizzie_core::update::{UpdateChannel, UpdateSource};
+
+    /// A saved 手动代理 that makes no valid proxy: no HTTP client can be built.
+    fn invalid_proxy(host: &str) -> NetworkSettings {
+        NetworkSettings {
+            proxy_mode: ProxyMode::Manual,
+            proxy_host: host.into(),
+            proxy_port: 7897,
+        }
+    }
+    fn appimage(signing_configured: bool) -> InstalledApp {
+        InstalledApp {
+            version: env!("CARGO_PKG_VERSION").parse().unwrap(),
+            os: "linux".into(),
+            arch: "x86_64".into(),
+            form: InstallForm::AppImage,
+            signing_configured,
+        }
+    }
+
+    #[test]
+    fn a_build_without_the_update_key_says_so_whatever_the_proxy() {
+        for channel in [UpdateChannel::Stable, UpdateChannel::Beta] {
+            let selection = u::Selection {
+                channel,
+                source: UpdateSource::Official,
+            };
+            let (result, client_failure) = discover(&appimage(false), selection, &invalid_proxy("bad host"));
+            assert!(
+                matches!(result.outcome, u::CheckOutcome::SigningNotConfigured),
+                "{channel:?}: {:?}",
+                result.outcome
+            );
+            assert_eq!(client_failure, None, "no client was needed");
+        }
+    }
+
+    #[test]
+    fn a_proxy_that_makes_no_client_fails_a_check_that_needs_the_network() {
+        let selection = u::Selection {
+            channel: UpdateChannel::Stable,
+            source: UpdateSource::Official,
+        };
+        // An empty host is refused before any request could be made.
+        let (result, client_failure) = discover(&appimage(true), selection, &invalid_proxy(""));
+        assert!(
+            matches!(result.outcome, u::CheckOutcome::Failed(u::FailureKind::Fetch)),
+            "{:?}",
+            result.outcome
+        );
+        assert!((result.stable_failure, result.beta_failure) == (None, None));
+        assert!(client_failure.is_some());
+    }
 }
