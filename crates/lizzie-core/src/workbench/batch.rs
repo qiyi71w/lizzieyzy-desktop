@@ -1173,6 +1173,7 @@ impl Workbench {
             output,
             remote,
             foreground: false,
+            secondary: false,
             held: false,
             reserved: false,
             cloud_recovery: false,

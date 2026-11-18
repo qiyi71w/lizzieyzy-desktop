@@ -589,7 +589,12 @@ remote?: RemoteFailure,
  * The configured engine that failed (empty for the analysis engine), so the dialog can
  * start it again (Java opens 更多引擎 after a remote login failure).
  */
-profile_id: string, };
+profile_id: string, 
+/**
+ * It was started for or held the 双引擎模式 secondary seat: starting it again (信任新密钥并重试)
+ * takes that seat, not the foreground one.
+ */
+secondary: boolean, };
 
 export type EngineNotice = "StoppedByLimit" | "SetupModeActive" | "SameEngine";
 

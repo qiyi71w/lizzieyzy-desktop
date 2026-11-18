@@ -993,6 +993,7 @@ impl Workbench {
             repair: None,
             remote: session.last_remote.clone(),
             profile_id: String::new(),
+            secondary: false,
         });
         let saved = session.estimate_saved.take();
         if let Some(failure) = failure {

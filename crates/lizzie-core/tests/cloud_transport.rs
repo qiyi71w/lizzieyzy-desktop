@@ -867,3 +867,38 @@ fn custom_engine_single_move_keeps_its_evaluation() {
     assert_eq!(root.candidates.first().and_then(|c| c.point), Some(d4()));
     b.finish();
 }
+
+/// 关闭所有引擎 while a 自建算力 engine is still connecting (its peer never answers the WebSocket
+/// upgrade): the connection closes, the seat is empty, and nothing reports the switch as running
+/// or failed — the next view shows an empty seat that is not down, which ends the 远程算力
+/// window's switch (monitorEngineSwitch: the switch no longer holds the seat).
+#[test]
+fn shutting_all_engines_down_while_a_custom_engine_connects_empties_the_seat_and_closes_the_link() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("ws://{}/", listener.local_addr().unwrap());
+    let (closed_tx, closed) = mpsc::channel();
+    thread::spawn(move || {
+        let Ok((mut stream, _)) = listener.accept() else { return };
+        let mut buf = [0u8; 1024];
+        while matches!(stream.read(&mut buf), Ok(n) if n > 0) {}
+        let _ = closed_tx.send(());
+    });
+    let mut b = workbench::bench();
+    b.activate_custom(&url);
+    let v = b.wb.view(false);
+    let cloud = v.engine.foreground.as_ref().expect("the cloud engine holds the seat while it connects");
+    assert!(!cloud.ready);
+    assert!(!b.pump_until(Duration::from_millis(300), workbench::ready), "the peer never completes the upgrade");
+    let before = b.wb.view(false).seq;
+
+    assert!(b.wb.shutdown_engines(lizzie_core::api::EngineScope::All));
+    closed.recv_timeout(Duration::from_secs(3)).expect("the connection closes");
+    b.pump_until(Duration::from_millis(300), |_| false);
+    let v = b.wb.view(false);
+    assert!(v.seq > before);
+    assert!(v.engine.foreground.is_none());
+    assert!(!v.engine.down, "a shutdown is not a failure");
+    assert!(v.engine_failure.is_none());
+    assert!(v.engine.engines.iter().all(|e| e.state.is_none()), "nothing left running");
+    b.finish();
+}

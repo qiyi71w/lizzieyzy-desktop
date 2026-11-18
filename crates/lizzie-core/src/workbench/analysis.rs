@@ -1010,7 +1010,8 @@ impl Workbench {
                     );
                     i
                 }
-                Err(f) => {
+                Err(mut f) => {
+                    f.secondary = true;
                     self.engine_failed(*f);
                     return;
                 }
@@ -1855,6 +1856,7 @@ impl Workbench {
             repair: None,
             remote,
             profile_id: f.profile_id,
+            secondary: f.secondary,
         });
     }
 

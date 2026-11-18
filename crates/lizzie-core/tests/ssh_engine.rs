@@ -1,6 +1,7 @@
 //! Remote (SSH) engines through the public `Workbench` operations with a controlled connection:
-//! what is launched where, the SSH refresh interval, how each remote failure is reported, and
-//! that a replaced connection's late events reach neither the new engine nor the position.
+//! what is launched where, the SSH refresh interval, how each remote failure is reported (with
+//! the seat it was started for), and that a replaced connection's late events reach neither the
+//! new engine nor the position.
 
 use std::sync::{Arc, Mutex};
 
@@ -11,7 +12,7 @@ use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
 use lizzie_core::engine::ssh::{RemoteFailure, SshSettings};
 use lizzie_core::formats::sgf;
 use lizzie_core::record::RecordFormat;
-use lizzie_core::settings::{AnalysisEngineSettings, Storage};
+use lizzie_core::settings::{AnalysisEngineSettings, ExtraMode, Storage};
 use lizzie_core::workbench::{OpenOrigin, Workbench};
 
 struct Proc {
@@ -295,6 +296,77 @@ fn a_replaced_connections_late_events_reach_neither_the_new_engine_nor_the_posit
     );
     assert!(v.engine.foreground.unwrap().ready);
     assert!(v.analysis.is_none_or(|a| a.candidates.iter().all(|c| c.visits != 999)));
+}
+
+/// 双引擎模式: a remote engine started for the secondary seat reports that seat with its failure,
+/// so 信任新密钥并重试 starts it there again and the foreground engine stays in front; a
+/// foreground engine's failure does not name the secondary seat.
+#[test]
+fn a_secondary_engines_failure_names_its_seat_so_a_retry_keeps_the_foreground_engine() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    let local = EngineProfile {
+        name: "A".into(),
+        command: "/opt/a gtp".into(),
+        ..EngineProfile::default()
+    };
+    let blank = EngineProfile {
+        command: String::new(),
+        ..remote("Blank", "c.example")
+    };
+    wb.save_engine_settings(vec![local, remote("B", "b.example"), blank], EngineStartup::Default)
+        .unwrap();
+    wb.start_engines();
+    let a = world.last();
+    serve(&mut wb, &world, a);
+    assert!(wb.set_extra_mode(ExtraMode::DoubleEngine).unwrap());
+    let host_key_changed = RemoteFailure::HostKeyChanged {
+        host: "b.example".into(),
+        port: 2222,
+        trusted: "SHA256:old".into(),
+        offered: "SHA256:new".into(),
+    };
+
+    // The connection refuses the changed host key while B starts in the secondary seat.
+    assert!(wb.switch_secondary_engine(1).unwrap());
+    let b = world.last();
+    assert_ne!(a, b);
+    wb.engine_input(b, EngineInput::Remote(host_key_changed.clone()));
+    let v = wb.view(false);
+    let f = v.engine_failure.expect("failure shown");
+    assert_eq!(f.remote, Some(host_key_changed.clone()));
+    assert_eq!(f.profile_id, wb.config().engine.engines[1].id);
+    assert!(f.secondary, "B was started for the secondary seat");
+    assert!(v.engine.secondary.is_none());
+    assert_eq!(v.engine.foreground.map(|f| (f.index, f.ready)), Some((0, true)));
+
+    // A start refused before any connection names the seat too.
+    let before = world.count();
+    assert!(wb.switch_secondary_engine(2).unwrap());
+    assert_eq!(world.count(), before, "nothing launched");
+    let f = wb.view(false).engine_failure.expect("failure shown");
+    assert_eq!(f.profile_id, wb.config().engine.engines[2].id);
+    assert!(f.secondary);
+
+    // The retry the failure's seat asks for: B in the secondary seat, A still in front.
+    assert!(wb.switch_secondary_engine(1).unwrap());
+    let again = world.last();
+    assert_ne!(again, b);
+    serve(&mut wb, &world, again);
+    serve(&mut wb, &world, a);
+    let v = wb.view(false);
+    assert_eq!(v.engine.secondary.map(|s| (s.index, s.ready)), Some((1, true)));
+    assert_eq!(v.engine.foreground.map(|f| f.index), Some(0));
+
+    // B in front instead: its failure is the foreground seat's.
+    assert!(wb.shutdown_secondary_engine());
+    assert!(wb.switch_engine(1).unwrap());
+    let front = world.last();
+    wb.engine_input(front, EngineInput::Remote(host_key_changed));
+    let f = wb.view(false).engine_failure.expect("failure shown");
+    assert_eq!(f.profile_id, wb.config().engine.engines[1].id);
+    assert!(!f.secondary);
 }
 
 /// 精析设置's 远程引擎: the analysis process runs on its host; its failure ends the run.
