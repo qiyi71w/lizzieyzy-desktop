@@ -1235,23 +1235,24 @@ fn proxy_settings_java_would_reject_are_reported_and_not_taken_over() {
         std::fs::create_dir_all(&java).unwrap();
         std::fs::write(java.join("config.txt"), json!({ "ui": ui.clone() }).to_string()).unwrap();
         let mut wb = workbench(&product, Recorder::default());
+        // A proxy chosen in this product, which a rejected import must leave as it is.
+        let kept = lizzie_core::settings::NetworkSettings {
+            proxy_mode: ProxyMode::Manual,
+            proxy_host: "kept.example".into(),
+            proxy_port: 3128,
+        };
+        wb.set_resource_proxy(kept.clone()).unwrap();
         let p = preview(&mut wb, &java);
-        let proxy: Vec<_> = p
-            .items
-            .iter()
-            .filter(|i| i.key.starts_with("ui.network-proxy-"))
-            .collect();
         let expected = if valid {
             ImportStatus::Imported
         } else {
             ImportStatus::Incompatible
         };
-        assert!(
-            proxy
-                .iter()
-                .all(|i| i.status == expected && i.target == Some(ImportTarget::NetworkProxy)),
-            "{ui}"
-        );
+        // Every proxy key of the Java file is reported, each under 网络代理.
+        for key in ui.as_object().unwrap().keys() {
+            let reported = item(&p.items, &format!("ui.{key}"));
+            assert_eq!((reported.status, reported.target), (expected, Some(ImportTarget::NetworkProxy)), "{ui}: {key}");
+        }
         wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
         let network = saved_config(&product).network;
         if valid {
@@ -1262,11 +1263,7 @@ fn proxy_settings_java_would_reject_are_reported_and_not_taken_over() {
             };
             assert_eq!(network.proxy_mode, mode, "{ui}");
         } else {
-            assert_eq!(
-                network,
-                Default::default(),
-                "{ui}: rejected values leave the setting as it was"
-            );
+            assert_eq!(network, kept, "{ui}: rejected values leave the setting as it was");
         }
     }
 }
@@ -2277,10 +2274,11 @@ fn java_theme(java: &Path, name: &str, board: &[u8], extra: serde_json::Value) {
     std::fs::write(dir.join("white.png"), include_bytes!("../../../ui/public/assets/newtheme/white.png")).unwrap();
 }
 
-fn data_url(bytes: &[u8], dir: &Path) -> String {
-    let path = dir.join("expected.png");
-    std::fs::write(&path, bytes).unwrap();
-    lizzie_core::appearance::image_data(&path).unwrap()
+/// The data URL of the PNG `bytes`, encoded here rather than by the product's image encoder.
+fn data_url(bytes: &[u8]) -> String {
+    use base64::Engine;
+    assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"), "a PNG");
+    format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
 /// The board image this product shows with theme `name` selected.
@@ -2293,6 +2291,20 @@ fn shown_board(wb: &Workbench, name: &str) -> String {
 fn themes_snapshot(wb: &Workbench) -> Vec<(PathBuf, Vec<u8>)> {
     let dir = lizzie_core::appearance::themes_dir(wb.storage());
     if dir.exists() { snapshot(&dir) } else { Vec::new() }
+}
+
+/// Runs `f` while a folder stands where the settings file is, so saving the settings fails on
+/// every platform whatever the user's privileges; the file is put back afterwards.
+fn without_settings_file<T>(product: &Path, f: impl FnOnce() -> T) -> T {
+    let file = storage(product).config_file;
+    let aside = product.join("settings-file-aside");
+    let existed = file.exists();
+    if existed { std::fs::rename(&file, &aside).unwrap(); }
+    std::fs::create_dir(&file).unwrap();
+    let out = f();
+    std::fs::remove_dir(&file).unwrap();
+    if existed { std::fs::rename(&aside, &file).unwrap(); }
+    out
 }
 
 #[test]
@@ -2319,8 +2331,8 @@ fn java_theme_folders_become_themes_with_their_own_images_and_stay_selected() {
     let names: Vec<String> = lizzie_core::appearance::catalog(wb.storage(), &Default::default()).into_iter().map(|e| e.name).collect();
     assert!(names.contains(&"我的主题".to_string()) && names.contains(&"Night".to_string()), "{names:?}");
     // Same file name, different pictures: each theme shows its own.
-    assert_eq!(shown_board(&wb, "我的主题"), data_url(PLAIN_BOARD, tmp.path()));
-    assert_eq!(shown_board(&wb, "Night"), data_url(SABAKI_BOARD, tmp.path()));
+    assert_eq!(shown_board(&wb, "我的主题"), data_url(PLAIN_BOARD));
+    assert_eq!(shown_board(&wb, "Night"), data_url(SABAKI_BOARD));
     // Java takes an unreadable theme image from the ui settings; so does the imported theme.
     let night = lizzie_core::appearance::load_theme(wb.storage(), "Night", &Default::default());
     assert!(night.background_image.is_empty());
@@ -2331,7 +2343,7 @@ fn java_theme_folders_become_themes_with_their_own_images_and_stay_selected() {
     drop(wb);
     let mut reopened = workbench(&product, Recorder::default());
     assert_eq!(reopened.view(false).settings.appearance.theme, "我的主题");
-    assert_eq!(shown_board(&reopened, "我的主题"), data_url(PLAIN_BOARD, tmp.path()));
+    assert_eq!(shown_board(&reopened, "我的主题"), data_url(PLAIN_BOARD));
 }
 
 #[test]
@@ -2365,8 +2377,8 @@ fn java_bundled_theme_copy_is_skipped_and_a_changed_one_overrides_the_bundle() {
     assert!(!dir.join("sabaki").exists() && dir.join("Fast/theme.txt").is_file());
     let s = wb.view(false).settings;
     assert_eq!((s.appearance.theme.as_str(), s.theme.shadow_size), ("Fast", 37));
-    assert_eq!(shown_board(&wb, "Fast"), data_url(PLAIN_BOARD, tmp.path()));
-    assert_eq!(shown_board(&wb, "Megapack"), data_url(SABAKI_BOARD, tmp.path()));
+    assert_eq!(shown_board(&wb, "Fast"), data_url(PLAIN_BOARD));
+    assert_eq!(shown_board(&wb, "Megapack"), data_url(SABAKI_BOARD));
     assert_eq!(snapshot(&bundled), bundled_before, "the bundled files are not changed");
 }
 
@@ -2400,10 +2412,10 @@ fn bundled_theme_missing_its_picture_shows_the_ui_picture_as_java_does() {
         let mut wb = workbench(&product, Recorder::default());
         let p = preview(&mut wb, &java);
         wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
-        assert_eq!(committed_board(&mut wb), data_url(PLAIN_BOARD, tmp.path()), "theme.txt changed: {changed}");
+        assert_eq!(committed_board(&mut wb), data_url(PLAIN_BOARD), "theme.txt changed: {changed}");
         drop(wb);
         let mut reopened = workbench(&product, Recorder::default());
-        assert_eq!(committed_board(&mut reopened), data_url(PLAIN_BOARD, tmp.path()), "after restart, changed: {changed}");
+        assert_eq!(committed_board(&mut reopened), data_url(PLAIN_BOARD), "after restart, changed: {changed}");
     }
 }
 
@@ -2438,12 +2450,11 @@ fn user_theme_without_its_picture_shows_java_s_shared_theme_folder_picture() {
     let p = preview(&mut wb, &java);
     wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
     std::fs::remove_dir_all(&java).unwrap();
-    assert_eq!(committed_board(&mut wb), data_url(SABAKI_BOARD, tmp.path()));
+    assert_eq!(committed_board(&mut wb), data_url(SABAKI_BOARD));
 }
 
 #[test]
 fn unusable_theme_folders_are_reported_and_leave_the_others_and_existing_themes() {
-    use std::os::unix::fs::PermissionsExt;
     let tmp = tempfile::tempdir().unwrap();
     let java = tmp.path().join("java");
     java_theme(&java, "Good", PLAIN_BOARD, json!({}));
@@ -2453,10 +2464,9 @@ fn unusable_theme_folders_are_reported_and_leave_the_others_and_existing_themes(
     let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
     wb.add_theme("BadColour").unwrap();
     let before = snapshot(&lizzie_core::appearance::themes_dir(wb.storage()).join("BadColour"));
-    let locked = java.join("theme/Locked");
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    // A theme.txt that cannot be read as text, on every platform and for every user.
+    std::fs::write(java.join("theme/Locked/theme.txt"), b"{\"shadow-size\": \xff\xfe}").unwrap();
     let candidate = java_import::read(&JavaSource::new(&java, None));
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
     let p = wb.preview_java_import(candidate.unwrap());
     let bad = item(&p.items, "file:theme/BadColour");
     assert_eq!((bad.status, bad.reason), (ImportStatus::Incompatible, Some(ImportReason::InvalidValue)));
@@ -2501,7 +2511,7 @@ fn a_java_theme_tiff_picture_comes_over_as_png() {
     let picture = image::load_from_memory_with_format(&png, image::ImageFormat::Png).unwrap().to_rgb8();
     assert_eq!((picture.dimensions(), picture.get_pixel(3, 3).0), ((8, 8), [200, 30, 30]));
     let board = shown_board(&wb, "TiffTheme");
-    assert_eq!(board, data_url(&png, tmp.path()));
+    assert_eq!(board, data_url(&png));
     assert_ne!(board, default_board);
     assert_eq!(snapshot(&java), java_before, "the Java folder is only read");
 }
@@ -2543,14 +2553,10 @@ fn a_failed_import_with_ui_pictures_leaves_no_new_theme_folders() {
     let config_dir = product.join("config");
     let before = snapshot(&config_dir);
     let p = preview(&mut wb, &java);
-    let mode = std::fs::metadata(&config_dir).unwrap().permissions();
-    let mut read_only = mode.clone();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut read_only, 0o555);
-    // The themes folder is created first so the import can write into it; the settings cannot.
+    // A folder stands where the settings file goes: saving them fails on every platform and
+    // for every user. The themes folder is created first so the import can write into it.
     std::fs::create_dir(config_dir.join("themes")).unwrap();
-    std::fs::set_permissions(&config_dir, read_only).unwrap();
-    let failed = wb.apply_java_import(p.id, &[], false, false, true, None);
-    std::fs::set_permissions(&config_dir, mode).unwrap();
+    let failed = without_settings_file(&product, || wb.apply_java_import(p.id, &[], false, false, true, None));
     assert!(failed.as_ref().is_err_and(|e| e.message.starts_with("saving imported settings failed")), "{failed:?}");
     std::fs::remove_dir(config_dir.join("themes")).unwrap();
     assert_eq!(snapshot(&config_dir), before);
@@ -2576,13 +2582,7 @@ fn java_theme_replacing_a_user_theme_needs_confirmation_and_failures_leave_theme
     assert_eq!(wb.apply_java_import(p.id, &[], false, false, false, None).unwrap(), Err(IMPORT_NEEDS_REPLACE));
     assert_eq!(themes_snapshot(&wb), before, "not confirmed: the theme is unchanged");
     // The settings file cannot be written: the theme folders are put back as they were.
-    let config_dir = product.join("config");
-    let mode = std::fs::metadata(&config_dir).unwrap().permissions();
-    let mut read_only = mode.clone();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut read_only, 0o555);
-    std::fs::set_permissions(&config_dir, read_only).unwrap();
-    let failed = wb.apply_java_import(p.id, &[], false, false, true, None);
-    std::fs::set_permissions(&config_dir, mode).unwrap();
+    let failed = without_settings_file(&product, || wb.apply_java_import(p.id, &[], false, false, true, None));
     assert!(failed.as_ref().is_err_and(|e| e.message.starts_with("saving imported settings failed")), "{failed:?}");
     assert_eq!(themes_snapshot(&wb), before, "a failed import leaves no half-written theme");
     let revision = wb.view(false).settings.theme_files_revision;
@@ -2591,7 +2591,7 @@ fn java_theme_replacing_a_user_theme_needs_confirmation_and_failures_leave_theme
     assert_eq!((s.appearance.theme.as_str(), s.theme.shadow_size), ("Mine", 50));
     // The window reloads the images of a theme rewritten in place under the same values.
     assert_ne!(s.theme_files_revision, revision);
-    assert_eq!(shown_board(&wb, "Mine"), data_url(SABAKI_BOARD, tmp.path()));
+    assert_eq!(shown_board(&wb, "Mine"), data_url(SABAKI_BOARD));
     let names: Vec<String> = lizzie_core::appearance::catalog(wb.storage(), &Default::default()).into_iter().map(|e| e.name).collect();
     assert!(!names.contains(&"Broken".to_string()));
 }
@@ -2611,13 +2611,13 @@ fn java_theme_named_default_comes_over_renamed_and_stays_selected() {
     wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
     let s = wb.view(false).settings;
     assert_eq!((s.appearance.theme.as_str(), s.theme.shadow_size), ("default (LizzieYzy Next)", 33));
-    assert_eq!(committed_board(&mut wb), data_url(PLAIN_BOARD, tmp.path()));
+    assert_eq!(committed_board(&mut wb), data_url(PLAIN_BOARD));
     let names: Vec<String> = lizzie_core::appearance::catalog(wb.storage(), &Default::default()).into_iter().map(|e| e.name).collect();
     assert!(names.contains(&"default".to_string()) && names.contains(&"default (LizzieYzy Next)".to_string()), "{names:?}");
     drop(wb);
     let mut reopened = workbench(&product, Recorder::default());
     assert_eq!(reopened.view(false).settings.appearance.theme, "default (LizzieYzy Next)");
-    assert_eq!(committed_board(&mut reopened), data_url(PLAIN_BOARD, tmp.path()));
+    assert_eq!(committed_board(&mut reopened), data_url(PLAIN_BOARD));
 }
 
 #[test]

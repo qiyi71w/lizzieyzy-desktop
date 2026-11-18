@@ -470,6 +470,7 @@ fn a_raised_or_lifted_limit_resumes_the_analysis_it_stopped() {
 #[test]
 fn a_time_limit_counts_from_when_the_stopped_search_began() {
     // `System.currentTimeMillis() - getStartPonderTime()`: the stopped time counts too.
+    use std::time::{Duration, Instant};
     let dir = tempfile::tempdir().unwrap();
     let world = World::default();
     let (mut wb, id) = started(dir.path(), &world);
@@ -477,14 +478,26 @@ fn a_time_limit_counts_from_when_the_stopped_search_began() {
         s.limit_time = true;
         s.max_analyze_time_seconds = 1;
     });
+    // The search begins between `asked` and `sent`.
+    let asked = Instant::now();
     open(&mut wb, "(;B[pd];W[dd])");
     answer_all(&mut wb, &world, id, KATA);
-    std::thread::sleep(std::time::Duration::from_millis(1100));
+    let sent = Instant::now();
+    std::thread::sleep((sent + Duration::from_millis(1100)).saturating_duration_since(Instant::now()));
     out(&mut wb, id, &info("Q16", 5));
     assert!(wb.view(false).engine.stopped_by_limit);
+    // The search ran for at most `ran` before it stopped. A limit above that but below the time
+    // since it began, stopped time included, keeps it stopped.
+    let ran = asked.elapsed();
     answer_all(&mut wb, &world, id, KATA);
     analysis_settings(&mut wb, |s| s.limit_playouts = 50);
     assert!(wb.view(false).engine.stopped_by_limit, "still past one second");
+    let limit = ran.as_secs() as u32 + 2;
+    let past = sent + Duration::from_secs(u64::from(limit)) + Duration::from_millis(300);
+    std::thread::sleep(past.saturating_duration_since(Instant::now()));
+    analysis_settings(&mut wb, |s| s.max_analyze_time_seconds = limit);
+    assert!(wb.view(false).engine.stopped_by_limit, "{limit} s: the time it was stopped counts");
+    assert_eq!(answer_all(&mut wb, &world, id, KATA), Vec::<String>::new());
     analysis_settings(&mut wb, |s| s.max_analyze_time_seconds = 600);
     assert!(!wb.view(false).engine.stopped_by_limit);
     assert!(analyses(&answer_all(&mut wb, &world, id, KATA)));
@@ -923,6 +936,8 @@ fn an_engines_board_size_applies_to_a_new_empty_game_only() {
     let a = world.launched()[0].0;
     let done = answer_all(&mut wb, &world, a, KATA);
     assert_eq!(wb.view(false).document.size.width, 9);
+    // The engine is told the size, and no other.
+    assert!(done.iter().any(|c| c == "boardsize 9"), "{done:?}");
     assert!(
         done.iter()
             .filter(|c| c.starts_with("boardsize"))
@@ -999,19 +1014,24 @@ fn a_refused_sync_drops_the_analysis_requested_with_it() {
     answer_all(&mut wb, &world, a, KATA);
     wb.navigate(Navigation::Forward(2));
     let sent = world.take(a);
-    for line in &sent {
+    // The batch's sync is refused, and its search after it does deliver a result.
+    let (mut refused, mut delivered) = (None, None);
+    for (i, line) in sent.iter().enumerate() {
         let n = number(line);
         out(&mut wb, a, "");
         if line.contains(" play ") || line.contains(" set_position ") {
             out(&mut wb, a, &format!("?{n} illegal move"));
             out(&mut wb, a, "");
+            refused.get_or_insert(i);
         } else if line.contains("kata-analyze") {
             out(&mut wb, a, &format!("={n}"));
             out(&mut wb, a, &info("D4", 900));
+            delivered = Some(i);
         } else {
             answer(&mut wb, a, n, "");
         }
     }
+    assert!(refused.zip(delivered).is_some_and(|(r, d)| r < d), "a refused sync, then a search: {sent:?}");
     let v = wb.view(false);
     assert!(v.analysis.is_none(), "result of a failed sync shown: {sent:?}");
     assert!(
@@ -1239,17 +1259,20 @@ fn leela011_probes_collects_tables_and_pause_cancels_probes() {
     let dir = tempfile::tempdir().unwrap();
     let world = World::default();
     let commands = "name\nversion\nlist_commands\ntime_left";
+    // The probe is scheduled one interval after a moment inside `start_family`: before `before`
+    // plus the interval it cannot be due, after `after` plus the interval it must be.
+    let before = Instant::now();
     let (mut wb, id, sent) = start_family(dir.path(), &world, "Leela", commands);
+    let after = Instant::now();
     assert_eq!(sent.iter().filter(|s| *s == "time_left b 0 0").count(), 1);
     let node = wb.view(false).position.node;
-    let now = Instant::now();
-    wb.engine_tick(now);
+    wb.engine_tick(before + Duration::from_millis(999));
     assert!(world.take(id).is_empty(), "no probe before the interval");
-    wb.engine_tick(now + Duration::from_millis(1001));
+    wb.engine_tick(after + Duration::from_millis(1001));
     let probe = world.take(id);
     assert_eq!(probe.len(), 1);
     assert!(probe[0].ends_with(" name"));
-    wb.engine_tick(now + Duration::from_secs(3));
+    wb.engine_tick(after + Duration::from_secs(3));
     assert!(world.take(id).is_empty(), "one probe in flight");
     // A response and stderr can arrive in either order. No new cycle before the table.
     answer(&mut wb, id, number(&probe[0]), "Leela");
@@ -2394,10 +2417,13 @@ fn handicap_first_white_pass_applies_pda_once() {
 #[test]
 fn the_b11_speed_notice_follows_the_model_the_engine_loads() {
     use lizzie_core::engine::cloud::{CloudLaunch, CloudProvider};
-    let dir = tempfile::tempdir().unwrap();
-    let renamed = dir.path().join("renamed.bin");
+    let tmp = tempfile::tempdir().unwrap();
+    // A folder with a space, as a user's temporary folder can be: each path is one argument.
+    let root = tmp.path().join("test root");
+    std::fs::create_dir(&root).unwrap();
+    let renamed = root.join("renamed.bin");
     std::fs::write(&renamed, "kata1-tf3-b11c768-s12002M-d6304M\n16\n19\n19\nrest").unwrap();
-    let misnamed = dir.path().join("kata1-tf3-b11c768-s1M-d1M.bin");
+    let misnamed = root.join("kata1-tf3-b11c768-s1M-d1M.bin");
     std::fs::write(&misnamed, "kata1-b6c96-s175395328-d26788732\n16\n19\n19\nrest").unwrap();
     let local = |name: &str, command: String| EngineProfile { name: name.into(), command, ..EngineProfile::default() };
     let zhizi = |name: &str, args: &str| EngineProfile {
@@ -2407,20 +2433,20 @@ fn the_b11_speed_notice_follows_the_model_the_engine_loads() {
         ..EngineProfile::default()
     };
     let world = World::default();
-    let mut wb = workbench(dir.path(), &world);
+    let mut wb = workbench(tmp.path(), &world);
     wb.save_engine_settings(
         vec![
-            local("Renamed", format!("/opt/katago gtp -model {}", renamed.display())),
-            local("Misnamed", format!("/opt/katago gtp -model {}", misnamed.display())),
-            local("Equals", format!("/opt/katago gtp --model={}", renamed.display())),
-            local("Script", format!("{}/katago.sh gtp -model {}", dir.path().display(), renamed.display())),
+            local("Renamed", format!("/opt/katago gtp -model \"{}\"", renamed.display())),
+            local("Misnamed", format!("/opt/katago gtp -model \"{}\"", misnamed.display())),
+            local("Equals", format!("/opt/katago gtp --model=\"{}\"", renamed.display())),
+            local("Script", format!("\"{}\" gtp -model \"{}\"", root.join("katago.sh").display(), renamed.display())),
             zhizi("Zhizi B11", "--gpu-type 1x --kata-weight 11B768T"),
             zhizi("Zhizi default", "--gpu-type 1x"),
             EngineProfile {
                 ssh: Some(lizzie_core::engine::ssh::SshSettings::default()),
-                ..local("SSH", format!("/opt/katago gtp -model {}", renamed.display()))
+                ..local("SSH", format!("/opt/katago gtp -model \"{}\"", renamed.display()))
             },
-            local("Missing", format!("/opt/katago gtp -model {}", dir.path().join("missing.bin.gz").display())),
+            local("Missing", format!("/opt/katago gtp -model \"{}\"", root.join("missing.bin.gz").display())),
         ],
         EngineStartup::Default,
     )

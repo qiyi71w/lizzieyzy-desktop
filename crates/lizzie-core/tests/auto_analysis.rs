@@ -324,7 +324,12 @@ fn document_switch_and_engine_switch_drop_old_run() {
 #[test]
 fn autosave_is_a_captured_copy_and_settings_survive_restart() {
     let dir = tempfile::tempdir().unwrap(); let (mut wb, world, id) = setup(dir.path(), LINE);
-    assert_eq!(wb.auto_analysis_output("20261022123456", "已分析").to_string_lossy(), "/games/test_已分析_20261022123456.sgf");
+    // The copy goes next to the record's own file, whatever separator the platform joins with.
+    let source = dir.path().join("games").join("test.sgf");
+    let source_text = source.to_string_lossy().into_owned();
+    let t = wb.begin_open(OpenOrigin::File { path: source_text.clone(), source: OpenSource::Drop });
+    wb.complete_open(t, Ok((RecordFormat::Sgf, sgf::read(LINE).unwrap())));
+    assert_eq!(wb.auto_analysis_output("20261022123456", "已分析"), source.with_file_name("test_已分析_20261022123456.sgf"));
     let mut s = settings(); s.auto_save = true; s.exit_tip = false;
     wb.start_auto_analysis(s.clone()).unwrap().unwrap(); serve(&mut wb, &world, id);
     info(&mut wb, id, 10, 0, 0.5); wb.stop_auto_analysis();
@@ -335,7 +340,7 @@ fn autosave_is_a_captured_copy_and_settings_survive_restart() {
     let saved = lizzie_core::formats::saved_analysis::primary(&captured.node(0).properties).expect("captured root analysis");
     assert_eq!(saved.visits, 10);
     assert!(wb.complete_save(jobs[0].ticket, Ok(())));
-    assert_eq!(wb.document().path.as_deref(), Some("/games/test.sgf"));
+    assert_eq!(wb.document().path.as_deref(), Some(source_text.as_str()));
     assert_eq!(wb.view(true).auto_analysis.notice.unwrap().message_key, "Leelaz.autoAnalyzeStoppedSaved");
     drop(wb);
     let wb = Workbench::new(Storage::in_dirs(&dir.path().join("config"), &dir.path().join("data")), None, Box::new(world), vec![]);

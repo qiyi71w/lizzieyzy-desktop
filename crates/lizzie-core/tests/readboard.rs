@@ -975,7 +975,7 @@ fn a_rebuilt_snapshot_keeps_the_captures_and_numbers_for_later_moves() {
     assert_eq!(rebuilt.position.stones, before.stones);
     assert_eq!((rebuilt.position.black_captures, rebuilt.position.white_captures), (1, 0));
     assert!(rebuilt.board.move_numbers.is_empty(), "the snapshot itself shows no numbers");
-    let marked = rebuilt.position.move_number;
+    assert_eq!(rebuilt.position.move_number, 5, "the five moves before the sync");
 
     assert!(r.wb.readboard_input(h, HelperInput::Ended { error: None }));
     // White elsewhere, then Black takes the corner stone at 18,0.
@@ -991,9 +991,9 @@ fn a_rebuilt_snapshot_keeps_the_captures_and_numbers_for_later_moves() {
     let mut expected = vec![
         (0, 1, 3, false),
         (1, 0, 1, false),
-        (10, 10, marked + 1, false),
-        (17, 0, marked, false),
-        (18, 1, marked + 2, true),
+        (10, 10, 6, false),
+        (17, 0, 5, false),
+        (18, 1, 7, true),
     ];
     expected.sort_unstable();
     assert_eq!(labels, expected, "the marked stone keeps its number on later positions");
@@ -1111,7 +1111,17 @@ fn outside_the_edit_mode_the_float_board_draws_the_main_line_end() {
 /// version; the protocol log keeps the latest 100 lines, payload lines only their command.
 #[test]
 fn the_diagnostics_package_holds_the_recent_sync_protocol_and_decisions() {
-    use lizzie_core::readboard::diagnostics::{DECISION_CAPACITY, PROTOCOL_CAPACITY, SNAPSHOT_ENTRIES};
+    // Java SyncDiagnosticsExporter.writeSnapshotEntries's entries, in its order, and
+    // SyncDiagnosticsRecorder's 100 protocol lines and 50 decisions.
+    const ENTRIES: [&str; 7] = [
+        "summary.txt",
+        "sync-context.json",
+        "yike-session.json",
+        "recent-decisions.jsonl",
+        "readboard-protocol.log",
+        "yike-events.jsonl",
+        "environment.txt",
+    ];
     let mut r = Rig::new();
     let h = r.open();
     r.lines(h, &["ready", "version 230616", "roomToken secret-room", "start 19 19", "sync", "forceRebuild"]);
@@ -1122,13 +1132,14 @@ fn the_diagnostics_package_holds_the_recent_sync_protocol_and_decisions() {
     }
     let d = r.wb.readboard_diagnostics("9.9.9");
     assert_eq!(d.helper_version.as_deref(), Some("230616"));
-    assert_eq!(d.snapshots.iter().map(|(n, _)| *n).collect::<Vec<_>>(), SNAPSHOT_ENTRIES);
+    assert_eq!(d.snapshots.iter().map(|(n, _)| *n).collect::<Vec<_>>(), ENTRIES);
     let entry = |name: &str| d.snapshots.iter().find(|(n, _)| *n == name).unwrap().1.clone();
     let protocol = entry("readboard-protocol.log");
-    assert_eq!(protocol.lines().count(), PROTOCOL_CAPACITY);
-    assert!(protocol.lines().last().unwrap().ends_with("\tunknownLine119"));
+    let kept: Vec<&str> = protocol.lines().map(|l| l.rsplit_once('\t').unwrap().1).collect();
+    let latest: Vec<String> = (20..120).map(|i| format!("unknownLine{i}")).collect();
+    assert_eq!(kept, latest, "the latest 100 lines");
     let decisions = entry("recent-decisions.jsonl");
-    assert!((1..=DECISION_CAPACITY).contains(&decisions.lines().count()));
+    assert!((1..=50).contains(&decisions.lines().count()));
     assert!(decisions.contains("\"FORCE_REBUILD\"") && decisions.contains("remote_force_rebuild_requested"), "{decisions}");
     assert!(entry("summary.txt").contains("  attached: true\n"));
     assert!(entry("environment.txt").starts_with("appVersion: 9.9.9\n"));

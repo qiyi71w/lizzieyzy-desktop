@@ -308,14 +308,45 @@ mod tests {
     #[test]
     fn old_disconnect_is_delivered_before_replacement_and_old_permission_cannot_cross_token() {
         let (mut listener, peer, old) = connected();
+        let mut events = Vec::new();
         peer.shutdown(Shutdown::Both).unwrap();
-        let mut replacement = TcpStream::connect((Ipv4Addr::LOCALHOST, listener.local_port())).unwrap();
+        let replacement = TcpStream::connect((Ipv4Addr::LOCALHOST, listener.local_port())).unwrap();
+        // Whether the replacement is refused depends on whether the old peer's EOF was seen before
+        // the replacement was accepted (Java `FoxConnection` also refuses a client while the old
+        // slot is held). Either way the old disconnection is delivered on its own, first; the
+        // bound only stops a broken run from hanging.
+        let guard = Instant::now() + Duration::from_secs(30);
+        loop {
+            let polled = listener.poll();
+            assert!(!polled.iter().any(|e| matches!(e, TransportEvent::Connected { .. })), "admitted before the old disconnection: {events:?} then {polled:?}");
+            let done = polled.contains(&TransportEvent::Disconnected { token: old });
+            if done {
+                assert_eq!(polled, [TransportEvent::Disconnected { token: old }], "after {events:?}");
+            }
+            events.extend(polled);
+            if done { break; }
+            assert!(Instant::now() < guard, "waiting for the old disconnection; events: {events:?}");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let duplicate = TransportEvent::Problem { token: None, key: "Fox.duplicateClient".into() };
+        assert!(events.iter().all(|e| *e == duplicate || *e == TransportEvent::Disconnected { token: old }), "{events:?}");
+        // A refused replacement was closed; the client connects again.
+        let mut replacement = if events.contains(&duplicate) {
+            TcpStream::connect((Ipv4Addr::LOCALHOST, listener.local_port())).unwrap()
+        } else {
+            replacement
+        };
         replacement.set_nonblocking(true).unwrap();
-        let events = until(&mut listener, |events| events.iter().any(|e| matches!(e, TransportEvent::Disconnected { .. })));
-        assert_eq!(events.last(), Some(&TransportEvent::Disconnected { token: old }));
-        assert!(!events.iter().any(|e| matches!(e, TransportEvent::Connected { .. })));
-        let events = until(&mut listener, |events| events.iter().any(|e| matches!(e, TransportEvent::Connected { .. })));
-        let next = events.iter().find_map(|e| match e { TransportEvent::Connected { token } => Some(*token), _ => None }).unwrap();
+        let mut admitted = Vec::new();
+        let next = loop {
+            admitted.extend(listener.poll());
+            if let Some(next) = admitted.iter().find_map(|e| match e { TransportEvent::Connected { token } => Some(*token), _ => None }) {
+                break next;
+            }
+            assert!(Instant::now() < guard, "waiting for the replacement; events: {events:?} then {admitted:?}");
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        assert_eq!(admitted, [TransportEvent::Connected { token: next }]);
         assert_ne!(old, next);
         let called = Cell::new(false);
         assert!(!listener.send(old, "AFSKIP,B", || { called.set(true); true }).unwrap());

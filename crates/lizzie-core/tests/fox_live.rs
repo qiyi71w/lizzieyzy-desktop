@@ -59,11 +59,21 @@ impl Harness {
         panic!("controlled engine did not quiesce");
     }
     fn prepare(&mut self) { self.wb.fox(FoxCommand::Prepare).unwrap(); self.serve(None); assert!(self.wb.inspect().fox.can_start); }
+    /// Starts Fox on a loopback port that was free when picked. The product binds the port it is
+    /// given (never 0), so between picking and binding another program may take it: only that
+    /// explicit `Fox.portBusy` picks another port; any other outcome stands.
     fn start(&mut self) {
         self.prepare();
-        let probe=TcpListener::bind(("127.0.0.1",0)).unwrap(); let port=probe.local_addr().unwrap().port(); drop(probe);
         let document=self.wb.document(); let (document,revision)=(document.id,document.revision);
-        self.wb.fox(FoxCommand::Start { port,max_time:12.5,max_visits:500,warning_confirmed:true,replace:FoxReplaceChoice::Replace,document,revision }).unwrap();
+        let busy=Some(FoxStartOutcome::Failed { message_key: "Fox.portBusy".into() });
+        let mut attempt=0;
+        let port=loop {
+            attempt+=1;
+            let probe=TcpListener::bind(("127.0.0.1",0)).unwrap(); let port=probe.local_addr().unwrap().port(); drop(probe);
+            self.wb.fox(FoxCommand::Start { port,max_time:12.5,max_visits:500,warning_confirmed:true,replace:FoxReplaceChoice::Replace,document,revision }).unwrap();
+            if self.wb.inspect().fox.outcome!=busy { break port; }
+            assert!(attempt<20, "every port picked was taken before Fox bound it");
+        };
         self.serve(None); assert!(self.wb.inspect().fox.listening); assert!(!self.wb.inspect().fox.ready);
         let peer=TcpStream::connect(("127.0.0.1",port)).unwrap(); peer.set_nonblocking(true).unwrap(); peer.set_nodelay(true).unwrap(); self.peer=Some(peer);
         self.wait_for(|h| h.wb.inspect().fox.connection != 0);

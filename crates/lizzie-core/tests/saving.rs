@@ -11,6 +11,10 @@ use lizzie_core::record::{DocumentEdit, GameRecord, Mark, NodeId, RecordFormat, 
 use lizzie_core::settings::Storage;
 use lizzie_core::workbench::{OpenOrigin, SavePlan, Workbench, SAVE_FILE_FAILED};
 
+#[cfg(unix)]
+#[path = "support/permissions.rs"]
+mod permissions;
+
 const AP: &str = "LizzieYzy Tauri:test";
 
 fn fixture(name: &str) -> std::path::PathBuf {
@@ -204,7 +208,7 @@ fn a_failed_write_leaves_the_existing_file_and_no_staged_file() {
         std::fs::create_dir(&ro).unwrap();
         std::fs::write(ro.join("keep.sgf"), "(;C[old])").unwrap();
         std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o555)).unwrap();
-        let result = formats::write_record_file(&ro.join("keep.sgf"), "(;C[new])");
+        let result = permissions::obeying_permissions(|| formats::write_record_file(&ro.join("keep.sgf"), "(;C[new])"));
         std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o755)).unwrap();
         assert!(result.is_err());
         assert_eq!(std::fs::read_to_string(ro.join("keep.sgf")).unwrap(), "(;C[old])");
