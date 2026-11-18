@@ -2147,11 +2147,13 @@ pub fn run() {
             let config_dir = app.path().app_config_dir()?;
             let data_dir = app.path().app_data_dir()?;
             let storage = Storage::in_dirs(&config_dir, &data_dir);
-            app.manage(commentary::Adapter::new(app.config().identifier.clone(), &config_dir, &data_dir));
-            let ssh_adapter = ssh::Adapter::new(app.config().identifier.clone(), &config_dir);
+            // One credential storage for every owner of passwords and keys.
+            let store = secrets::Store::new(app.config().identifier.clone(), &config_dir);
+            app.manage(commentary::Adapter::new(store.clone(), &data_dir));
+            let ssh_adapter = ssh::Adapter::new(store.clone(), &config_dir);
             app.manage(ssh_adapter.clone());
-            app.manage(contribution::Adapter::new(app.config().identifier.clone(), &config_dir));
-            let cloud_adapter = Arc::new(cloud::Adapter::new(app.config().identifier.clone(), &config_dir));
+            app.manage(contribution::Adapter::new(store.clone()));
+            let cloud_adapter = Arc::new(cloud::Adapter::new(store));
             app.manage(cloud_adapter.clone());
             app.manage(cloud_dispatch::Requests::default());
             let log = Arc::new(logging::Log::start(&storage.logs_dir));

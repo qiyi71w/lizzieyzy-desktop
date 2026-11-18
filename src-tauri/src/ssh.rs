@@ -43,9 +43,9 @@ pub struct Adapter {
 }
 
 impl Adapter {
-    pub fn new(application: String, config_dir: &Path) -> Arc<Adapter> {
+    pub fn new(store: Store, config_dir: &Path) -> Arc<Adapter> {
         Arc::new(Adapter {
-            store: Store::new(application, config_dir),
+            store,
             session: Mutex::new(HashMap::new()),
             staged: Mutex::new(HashMap::new()),
             known_hosts: Arc::new(KnownHosts::new(config_dir.join("ssh-known-hosts.json"))),

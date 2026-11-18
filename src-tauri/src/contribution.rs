@@ -3,7 +3,6 @@
 //! command line. Everything else is the workbench's ([`lizzie_core::api::ContributionCommand`]).
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use lizzie_core::api::{
@@ -31,9 +30,9 @@ pub struct Adapter {
 }
 
 impl Adapter {
-    pub fn new(application: String, config_dir: &Path) -> Arc<Adapter> {
+    pub fn new(store: Store) -> Arc<Adapter> {
         Arc::new(Adapter {
-            store: Store::new(application, config_dir),
+            store,
             session: Mutex::new(HashMap::new()),
             command_session: Mutex::new(None),
         })

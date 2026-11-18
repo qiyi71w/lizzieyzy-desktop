@@ -516,6 +516,9 @@ pub struct Candidate {
     pub slots: Vec<slots::JavaSlot>,
     /// Non-secret API-key choice; the adapter reads its secret only after explicit consent.
     pub commentary_credential: Option<crate::api::ImportCommentaryCredential>,
+    /// Java remembered its API key in its credential store (`rememberApiKey`, no legacy
+    /// plain-text key); the adapter looks there for a key to offer.
+    pub commentary_key_remembered: bool,
     /// Independent cloud account token/password availability, never the secret values.
     pub cloud_credentials: Option<CloudImportCredentials>,
 }
@@ -691,7 +694,7 @@ pub fn read(source: &JavaSource) -> Result<Candidate, ImportFailure> {
         }
     }
     r.other_files();
-    let legacy_key = r.teacher_settings();
+    let (legacy_key, commentary_key_remembered) = r.teacher_settings();
     let slots = slots::read(source, &mut r);
     let cloud_credentials = cloud::credentials(&config).or_else(|| r.mapped.cloud.as_ref().map(|settings| CloudImportCredentials {
         identifier: settings.identifier.clone(), token: false, password: false,
@@ -705,6 +708,7 @@ pub fn read(source: &JavaSource) -> Result<Candidate, ImportFailure> {
         engines: r.engines,
         slots,
         commentary_credential: None,
+        commentary_key_remembered,
         cloud_credentials,
     };
     if legacy_key { candidate.set_commentary_credential("teacher.properties"); }
@@ -4351,17 +4355,19 @@ fn custom_layout(value: &Value) -> Option<crate::settings::CustomLayout> {
 }
 
 impl Reader<'_> {
-    /// TeacherSettings.load at the fixed Java baseline, without its source-file rewrite.
-    fn teacher_settings(&mut self) -> bool {
+    /// TeacherSettings.load at the fixed Java baseline, without its source-file rewrite. Returns
+    /// whether `teacher.properties` holds a legacy plain-text key, and whether Java remembered
+    /// the key in its credential store instead.
+    fn teacher_settings(&mut self) -> (bool, bool) {
         use crate::commentary::settings::{self, CommentarySettings, Preferences, Provider};
         let file = self.source.config_dir.join("teacher.properties");
-        if !file.is_file() { return false; }
+        if !file.is_file() { return (false, false); }
         let properties = match teacher_properties(&file) {
             Ok(properties) => properties,
             Err(()) => {
                 let item = self.item("file:teacher.properties".into(), ImportStatus::Incompatible);
                 item.reason = Some(ImportReason::Unreadable);
-                return false;
+                return (false, false);
             }
         };
         let get = |name: &str, default: &str| properties.get(name).cloned().unwrap_or_else(|| default.into());
@@ -4383,7 +4389,7 @@ impl Reader<'_> {
             Err(_) => {
                 let item = self.item("file:teacher.properties".into(), ImportStatus::Incompatible);
                 item.reason = Some(ImportReason::InvalidValue);
-                return false;
+                return (false, false);
             }
         };
         let rank_mode = if get("teacher.rankMode", "k") == "d" { "d" } else { "k" };
@@ -4391,10 +4397,12 @@ impl Reader<'_> {
             properties.get(name).and_then(|v| v.parse::<i32>().ok()).map(|v| v.clamp(low, high)).unwrap_or(default)
         };
         let legacy_key = properties.get("apiKey").is_some_and(|key| !key.trim().is_empty());
+        // Boolean.parseBoolean; a legacy key turns remembering off (TeacherSettings.java:127-131).
+        let remembered = !legacy_key && properties.get("rememberApiKey").is_some_and(|v| v.eq_ignore_ascii_case("true"));
         self.mapped.commentary = Some(CommentarySettings {
             provider, base_url, model,
-            // The key itself lives in Java's credential store; remembering it here starts only after
-            // the separately confirmed copy into this client's store succeeds.
+            // Remembering here starts only after the separately confirmed copy into this
+            // client's store succeeds.
             remember_api_key: false,
             preferences: Preferences { rank_mode: rank_mode.into(), rank_num: number("teacher.rankNum", 1, if rank_mode == "d" { 9 } else { 18 }, 5),
                 style_index: number("teacher.styleIndex", 0, 4, 0), density_index: number("teacher.densityIndex", 0, 2, 1),
@@ -4408,7 +4416,7 @@ impl Reader<'_> {
             item.credential = true;
             item.detail = Some("ChatGPT sessions are not migrated; sign in again.".into());
         }
-        legacy_key
+        (legacy_key, remembered)
     }
 }
 

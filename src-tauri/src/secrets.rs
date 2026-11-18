@@ -1,4 +1,6 @@
 //! OS credential storage. Errors are deliberately constant and never retain subprocess output.
+//! The program creates one [`Store`] at start and hands it to every credential owner; tests hand
+//! them an in-process [`Store::memory`] instead, so they never reach the machine's storage.
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -6,8 +8,19 @@ use std::path::{Path, PathBuf};
 pub struct Store {
     application: String,
     directory: PathBuf,
-    available: bool,
+    backend: Backend,
 }
+#[derive(Clone)]
+enum Backend {
+    /// The platform storage, probed once when the store is created.
+    Platform { available: bool },
+    /// In-process entries by (application, kind, account); `None` is a machine without storage.
+    #[cfg(test)]
+    Memory(Option<Vault>),
+}
+/// The entries of a [`Store::memory`], shared with the test that inspects them.
+#[cfg(test)]
+pub type Vault = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<(String, String, String), String>>>;
 fn unavailable() -> io::Error {
     io::Error::other("System secure credential storage is unavailable.")
 }
@@ -24,43 +37,90 @@ impl Store {
         Self {
             application,
             directory: config.join("secure-credentials"),
-            available: platform::available(),
+            backend: Backend::Platform {
+                available: platform::available(),
+            },
+        }
+    }
+    /// A test store for `application` holding `vault`'s entries; `None` has no storage at all.
+    #[cfg(test)]
+    pub fn memory(application: &str, vault: Option<Vault>) -> Self {
+        Self {
+            application: application.into(),
+            directory: PathBuf::new(),
+            backend: Backend::Memory(vault),
         }
     }
     pub fn available(&self) -> bool {
-        self.available
+        match &self.backend {
+            Backend::Platform { available } => *available,
+            #[cfg(test)]
+            Backend::Memory(vault) => vault.is_some(),
+        }
     }
     pub fn backend(&self) -> &'static str {
         platform::BACKEND
     }
+    fn get(&self, application: &str, directory: &Path, kind: &str, account: &str) -> io::Result<Option<String>> {
+        match &self.backend {
+            Backend::Platform { .. } => platform::read(application, directory, kind, account),
+            #[cfg(test)]
+            Backend::Memory(vault) => {
+                let vault = vault.as_ref().ok_or_else(unavailable)?.lock().unwrap();
+                Ok(vault.get(&(application.into(), kind.into(), account.into())).cloned())
+            }
+        }
+    }
+    fn put(&self, kind: &str, account: &str, secret: &str) -> io::Result<()> {
+        match &self.backend {
+            Backend::Platform { .. } => platform::write(&self.application, &self.directory, kind, account, secret),
+            #[cfg(test)]
+            Backend::Memory(vault) => {
+                let mut vault = vault.as_ref().ok_or_else(unavailable)?.lock().unwrap();
+                vault.insert((self.application.clone(), kind.into(), account.into()), secret.into());
+                Ok(())
+            }
+        }
+    }
+    fn clear(&self, kind: &str, account: &str) -> io::Result<()> {
+        match &self.backend {
+            Backend::Platform { .. } => platform::delete(&self.application, &self.directory, kind, account),
+            #[cfg(test)]
+            Backend::Memory(vault) => {
+                let mut vault = vault.as_ref().ok_or_else(unavailable)?.lock().unwrap();
+                vault.remove(&(self.application.clone(), kind.into(), account.into()));
+                Ok(())
+            }
+        }
+    }
     pub fn read(&self, kind: &str, account: &str) -> io::Result<Option<String>> {
-        if !self.available {
+        if !self.available() {
             return Ok(None);
         }
-        platform::read(&self.application, &self.directory, kind, &normalize(account))
+        self.get(&self.application, &self.directory, kind, &normalize(account))
     }
     pub fn write(&self, kind: &str, account: &str, secret: &str) -> io::Result<()> {
-        if !self.available || secret.is_empty() {
+        if !self.available() || secret.is_empty() {
             return Err(unavailable());
         }
-        platform::write(&self.application, &self.directory, kind, &normalize(account), secret)?;
+        self.put(kind, &normalize(account), secret)?;
         if self.read(kind, account)?.as_deref() != Some(secret) {
             return Err(unavailable());
         }
         Ok(())
     }
     pub fn delete(&self, kind: &str, account: &str) -> io::Result<()> {
-        if !self.available {
+        if !self.available() {
             return Ok(());
         }
-        platform::delete(&self.application, &self.directory, kind, &normalize(account))
+        self.clear(kind, &normalize(account))
     }
     /// The only Java identity access: read-only, called by explicit Java import.
     pub fn read_java_api_key(&self, source: &Path, account: &str) -> io::Result<Option<String>> {
-        if !self.available {
+        if !self.available() {
             return Ok(None);
         }
-        platform::read(
+        self.get(
             "lizzieyzy-next",
             &source.join("secure-credentials"),
             "api-key",
@@ -69,10 +129,10 @@ impl Store {
     }
     /// Explicit cloud credential import; the Java store remains read-only.
     pub fn read_java_cloud_secret(&self, source: &Path, account: &str, password: bool) -> io::Result<Option<String>> {
-        if !self.available {
+        if !self.available() {
             return Ok(None);
         }
-        platform::read(
+        self.get(
             "lizzieyzy-next",
             &source.join("secure-credentials"),
             if password { "password" } else { "account-token" },

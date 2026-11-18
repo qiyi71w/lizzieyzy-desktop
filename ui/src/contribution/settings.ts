@@ -132,8 +132,10 @@ async function settingsDialog(saved: ContributionSettings): Promise<void> {
     const settle = await stagePassword(edited.ssh, edited.password);
     if (!settle) return;
     const r = await contribution({ type: "SaveSettings", settings: { ...current, ssh: edited.ssh, remote: true } });
-    await settle(r?.type === "Done");
-    if (r?.type === "Done") ssh = edited.ssh;
+    // Only the password changed: the settings answer Unchanged, and the new password stays.
+    const keep = r?.type === "Done" || r?.type === "Unchanged";
+    await settle(keep);
+    if (keep) ssh = edited.ssh;
   });
   remoteSettings.dataset.key = "contribution.remoteSettings";
   const signUp = button(t("ContributeSettings.btnSignUp"), () => void contribution({ type: "OpenLink", link: "SignUp" }));

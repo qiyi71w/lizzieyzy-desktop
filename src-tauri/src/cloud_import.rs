@@ -21,10 +21,9 @@ impl Staged {
 pub fn stage(app: &AppHandle, plan: Option<(JavaSource, CloudSettings, CloudImportCredentials)>,
     token: bool, password: bool) -> Result<Option<Staged>, ApiError> {
     let Some((source, mut settings, offered)) = plan else { return Ok(None) };
-    let store = crate::secrets::Store::new(app.config().identifier.clone(),
-        &app.path().app_config_dir().map_err(|_| ApiError::new(ErrorKind::Io, "cloud credential directory"))?);
+    let adapter = app.state::<Arc<Adapter>>();
     let read = |password| {
-        store.read_java_cloud_secret(&source.config_dir, &offered.identifier, password)
+        adapter.store().read_java_cloud_secret(&source.config_dir, &offered.identifier, password)
             .ok().flatten().filter(|s| !s.is_empty())
             .or_else(|| java_import::read_java_cloud_secret(&source.config_dir, password))
     };
@@ -36,7 +35,7 @@ pub fn stage(app: &AppHandle, plan: Option<(JavaSource, CloudSettings, CloudImpo
     let password_found = password.is_some();
     settings.remember_token = token_found;
     settings.remember_password = password_found;
-    let stage = app.state::<Arc<Adapter>>().stage_import(&settings, token, password)
+    let stage = adapter.stage_import(&settings, token, password)
         .map_err(|e| ApiError::new(ErrorKind::Unavailable, e.to_string()))?;
     Ok(Some(Staged { stage, token_requested, password_requested, token_found, password_found }))
 }
