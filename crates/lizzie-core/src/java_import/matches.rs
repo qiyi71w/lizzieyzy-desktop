@@ -163,3 +163,31 @@ impl Reader<'_> {
         }
     }
 }
+
+impl Mapped {
+    /// The 引擎对战 values to take over. A side's command carrying credentials comes over only
+    /// with the engine it names (the side is restored by matching that engine's command), so only
+    /// when that engine's credentials were confirmed; otherwise this product's value stays.
+    pub(super) fn match_values<'a>(&'a self, copy_credentials: &'a [u32]) -> impl Iterator<Item = &'a DisplayValue> + 'a {
+        self.matches.iter().filter(move |v| !self.match_command_left_out(v, copy_credentials))
+    }
+
+    /// Whether the Java key `ui.<key>` is a side's command left out for its credentials.
+    pub(super) fn match_key_left_out(&self, key: &str, copy_credentials: &[u32]) -> bool {
+        let field = match key {
+            "ui.engine-pk-black-commands" => "first.commands",
+            "ui.engine-pk-white-commands" => "second.commands",
+            _ => return false,
+        };
+        self.matches.iter().any(|v| v.field == field && self.match_command_left_out(v, copy_credentials))
+    }
+
+    fn match_command_left_out(&self, value: &DisplayValue, copy_credentials: &[u32]) -> bool {
+        if !value.field.ends_with(".commands") { return false; }
+        let Some(command) = value.value.as_str() else { return false };
+        if sanitize(command) == command { return false; }
+        !self.engines.iter().flatten().any(|m| {
+            m.profile.command == command && copy_credentials.contains(&(m.java_index as u32))
+        })
+    }
+}
