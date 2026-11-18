@@ -588,6 +588,11 @@ impl Candidate {
                     i.status = ImportStatus::NotMigrated;
                     i.reason = Some(ImportReason::CredentialNotConfirmed);
                 }
+                if i.status == ImportStatus::Imported && self.mapped.match_key_left_out(&i.key, copy_credentials) {
+                    i.status = ImportStatus::NotMigrated;
+                    i.reason = Some(ImportReason::CredentialNotConfirmed);
+                    i.credential = true;
+                }
                 self.contribution_after(&mut i, contribution);
                 i
             })
@@ -820,6 +825,9 @@ enum Kind {
     Str(fn(&mut Mapped, String)),
     /// A finite number of at least 0.
     NonNegative(fn(&mut Mapped, f64)),
+    /// A board side this product opens (2–52); Java's dialog accepts larger ones, which are not
+    /// taken over.
+    BoardSize(fn(&mut Mapped, u16)),
 }
 
 /// `config.txt` keys mapped one to one: section, key, target, reader. Sections and defaults:
@@ -895,13 +903,13 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         "ui",
         "other-size-width",
         ImportTarget::OtherBoardSize,
-        Kind::U32(|m, v| m.other_size_width = u16::try_from(v).ok().filter(|v| (2..=52).contains(v))),
+        Kind::BoardSize(|m, v| m.other_size_width = Some(v)),
     ),
     (
         "ui",
         "other-size-height",
         ImportTarget::OtherBoardSize,
-        Kind::U32(|m, v| m.other_size_height = u16::try_from(v).ok().filter(|v| (2..=52).contains(v))),
+        Kind::BoardSize(|m, v| m.other_size_height = Some(v)),
     ),
     (
         "ui",
@@ -1682,7 +1690,9 @@ const JAVA_STATE: &[&str] = &[
     "persist:checked-empty-blunder-thresholds", "persist:first-time-factor",
     "ui.katago-auto-setup-analysis-config-path", "ui.katago-auto-setup-gtp-config-path",
     "ui.katago-auto-setup-weight-path", "ui.katago-auto-setup-updated-at",
-    "ui.migrated-default-transformer-v1",
+    "ui.migrated-default-transformer-v1", "ui.migrated-hide-blunder-bar-default-v1",
+    // WorkDirectoryResolver.java:576-601 sets it after recovering a Windows portable profile.
+    "ui.migrated-windows-portable-user-state-v2",
 ];
 
 type Handled = Vec<(&'static str, &'static str)>;
@@ -1885,6 +1895,10 @@ impl Reader<'_> {
                     set(&mut self.mapped, n);
                     n.to_string()
                 }),
+                Kind::BoardSize(set) => as_i64(v).and_then(|n| u16::try_from(n).ok()).filter(|n| (2..=52).contains(n)).map(|n| {
+                    set(&mut self.mapped, n);
+                    n.to_string()
+                }),
             };
             match value {
                 Some(value) => self.imported(name, *target, value),
@@ -1928,6 +1942,22 @@ impl Reader<'_> {
             } else {
                 resolve_command(&command, &self.source.roots(), &mut Vec::new())
             });
+        }
+        // 精析设置 has no confirmation of its own: a command carrying credentials is not taken
+        // over (like the other keys holding credentials) and this product keeps its command; the
+        // customized flag describes that command, so it stays too.
+        if self.mapped.analysis_command.take_if(|c| sanitize(c) != c.as_str()).is_some() {
+            self.mapped.analysis_command_customized = None;
+            for it in self.items.iter_mut() {
+                let holds = it.key == "ui.analysis-engine-command";
+                if holds || it.key == "ui.analysis-engine-command-customized" {
+                    it.status = ImportStatus::NotMigrated;
+                    it.reason = Some(ImportReason::Credential);
+                    it.target = None;
+                    it.value = None;
+                    it.credential = holds;
+                }
+            }
         }
         // `resolveConfiguredPath`: a relative model path is found under the Java folders.
         if let Some(path) = self.mapped.quick_model_path.take() {
@@ -2281,9 +2311,6 @@ impl Reader<'_> {
             let migrated = ui.get(BLUNDER_MIGRATED).and_then(as_bool).unwrap_or(false);
             let value = as_bool(v).map(|on| Value::from(on && migrated));
             self.display_value("ui.show-blunder-bar".into(), ImportTarget::WinrateGraph, "blunderBar", value, v);
-        }
-        if ui.contains_key(BLUNDER_MIGRATED) {
-            handled.push(("ui", BLUNDER_MIGRATED));
         }
 
         // Kata形势 squares: `drawEstimate` chooses by size first, then the big squares, then the
@@ -3191,13 +3218,18 @@ impl Reader<'_> {
                             self.auto_analysis_value(format!("{name}[{index}]"), field, as_bool(raw).map(Value::from), raw);
                         }
                         // 39: 自动播放分支 (`chkAutoSub`); a checked box starts the cycling at
-                        // start-up (BottomToolbar.java:2503-2505, 2524-2526).
+                        // start-up (BottomToolbar.java:2503-2505, 2524-2526). An unchecked box
+                        // (-1) leaves it off unless `ui.auto-replay-branch` starts it anyway
+                        // (Config.java:1902, Lizzie.java:488).
                         let raw = &values[39];
-                        let value = as_i64(raw).map(|n| n > 0);
-                        if value == Some(true) {
-                            self.display_value(format!("{name}[39]"), ImportTarget::Suggestions, "autoReplayBranch", Some(Value::from(true)), raw);
-                        } else if value.is_none() {
-                            self.invalid(format!("{name}[39]"), ImportTarget::Suggestions, raw);
+                        match as_i64(raw) {
+                            Some(n) => {
+                                let explicit = self.mapped.display.iter()
+                                    .any(|d| d.field == "autoReplayBranch" && d.value == Value::from(true));
+                                let value = Some(Value::from(n > 0 || explicit));
+                                self.display_value(format!("{name}[39]"), ImportTarget::Suggestions, "autoReplayBranch", value, raw);
+                            }
+                            None => self.invalid(format!("{name}[39]"), ImportTarget::Suggestions, raw),
                         }
                         // 32–34 place the three 详细工具栏 panels (ToolbarPositionConfig writes the
                         // combo index, 0–2). 50 is the flag of the 左移/右移 buttons, which are
@@ -3572,7 +3604,6 @@ impl Mapped {
     /// 快速启动 commands with credentials only with `quick_links`.
     pub fn apply(&self, config: &Config, persisted: &Persisted, copy_credentials: &[u32], contribution: bool, quick_links: bool) -> (Config, Persisted) {
         let mut c = config.clone();
-        let mut p = persisted.clone();
         macro_rules! set {
             ($field:expr, $value:expr) => {
                 if let Some(v) = &$value {
@@ -3603,30 +3634,13 @@ impl Mapped {
         for (index, layout) in self.custom_layouts.iter().enumerate() {
             if let Some(layout) = layout { c.custom_layouts[index] = Some(layout.clone()); }
         }
-        set!(p.independent_main_board, self.independent_main_board.map(Some));
-        set!(p.independent_sub_board, self.independent_sub_board.map(Some));
-        if let Ok(mut values) = serde_json::to_value(p.panel_sizes) {
-            for value in &self.panel_sizes { value.set(&mut values); }
-            p.panel_sizes = serde_json::from_value(values).unwrap_or(p.panel_sizes);
-        }
-        set!(p.bottom_toolbar, self.bottom_toolbar);
-        let order = &mut p.detail_panel_order;
-        for (place, value) in [&mut order.auto_analysis, &mut order.engine_match, &mut order.auto_play].into_iter().zip(self.detail_panel_order) {
-            if let Some(v) = value { *place = v; }
-        }
         let mut game = serde_json::to_value(&c.game).expect("settings serialize");
         for value in &self.game { value.set(&mut game); }
         c.game = serde_json::from_value(game).expect("typed imported game values");
-        let mut autoplay = serde_json::to_value(p.autoplay).expect("settings serialize");
-        for value in &self.autoplay { value.set(&mut autoplay); }
-        p.autoplay = serde_json::from_value(autoplay).expect("typed imported autoplay values");
         let mut matches = serde_json::to_value(&c.matches).expect("settings serialize");
-        for value in &self.matches { value.set(&mut matches); }
+        for value in self.match_values(copy_credentials) { value.set(&mut matches); }
         c.matches = serde_json::from_value(matches).expect("typed imported match values");
         self.apply_contribution(&mut c.contribution, contribution);
-        let mut toolbar = serde_json::to_value(&p.matches).expect("settings serialize");
-        for value in &self.match_toolbar { value.set(&mut toolbar); }
-        p.matches = serde_json::from_value(toolbar).expect("typed imported match toolbar values");
         set!(c.recent_files, self.recent_files);
         set!(c.fox_kifu.last_name, self.fox_last_name);
         set!(c.fox_kifu.last_query_by_uid, self.fox_query_by_uid);
@@ -3637,12 +3651,6 @@ impl Mapped {
             c.tencent_kifu.after_get = Some(action);
         }
         set!(c.tencent_kifu.recent, self.tencent_recent);
-        if let Some(folder) = &self.last_folder {
-            p.last_folder = Some(folder.clone());
-        }
-        if let Some(folder) = &self.last_image_folder {
-            p.last_image_folder = Some(folder.clone());
-        }
         set!(c.recovery.auto_save_on_exit, self.auto_save_on_exit);
         set!(c.recovery.resume_previous_game, self.resume_previous_game);
         set!(c.recovery.zoom_thumbnails, self.zoom_thumbnails);
@@ -3805,11 +3813,7 @@ impl Mapped {
         let mut theme = serde_json::to_value(&c.appearance_defaults).expect("theme serializes");
         for (field, value) in &self.theme { theme[*field] = value.clone(); }
         c.appearance_defaults = serde_json::from_value(theme).expect("validated theme values");
-        if let Some(engines) = &self.engines {
-            let kept: Vec<&MappedEngine> = engines
-                .iter()
-                .filter(|m| !m.credential || copy_credentials.contains(&(m.java_index as u32)))
-                .collect();
+        if let Some(kept) = self.kept_engines(copy_credentials) {
             c.engine.engines = kept.iter().map(|m| m.profile.clone()).collect();
             c.engine.last_engine = self
                 .last_engine
@@ -3817,14 +3821,56 @@ impl Mapped {
                 .map(|m| m.profile.id.clone());
             set!(c.engine.startup, self.startup);
         }
-        (c, p)
+        (c, self.persisted_after(persisted))
     }
 
-    /// Settings of this product the import would change, once this product has settings of its
-    /// own (`has_settings`; on first use there is nothing to protect). Any of them may have been
-    /// chosen, even at its default value. An empty engine list and a missing last folder hold
-    /// no choice.
-    pub fn replaces(&self, config: &Config, persisted: &Persisted, has_settings: bool) -> Vec<ImportTarget> {
+    /// `persisted` (this product's `persist.json` values) with the imported ones.
+    pub fn persisted_after(&self, persisted: &Persisted) -> Persisted {
+        let mut p = persisted.clone();
+        if let Some(board) = self.independent_main_board {
+            p.independent_main_board = Some(board);
+        }
+        if let Some(board) = self.independent_sub_board {
+            p.independent_sub_board = Some(board);
+        }
+        if let Ok(mut values) = serde_json::to_value(p.panel_sizes) {
+            for value in &self.panel_sizes { value.set(&mut values); }
+            p.panel_sizes = serde_json::from_value(values).unwrap_or(p.panel_sizes);
+        }
+        if let Some(toolbar) = self.bottom_toolbar {
+            p.bottom_toolbar = toolbar;
+        }
+        let order = &mut p.detail_panel_order;
+        for (place, value) in [&mut order.auto_analysis, &mut order.engine_match, &mut order.auto_play].into_iter().zip(self.detail_panel_order) {
+            if let Some(v) = value { *place = v; }
+        }
+        let mut autoplay = serde_json::to_value(p.autoplay).expect("settings serialize");
+        for value in &self.autoplay { value.set(&mut autoplay); }
+        p.autoplay = serde_json::from_value(autoplay).expect("typed imported autoplay values");
+        let mut toolbar = serde_json::to_value(&p.matches).expect("settings serialize");
+        for value in &self.match_toolbar { value.set(&mut toolbar); }
+        p.matches = serde_json::from_value(toolbar).expect("typed imported match toolbar values");
+        if let Some(folder) = &self.last_folder {
+            p.last_folder = Some(folder.clone());
+        }
+        if let Some(folder) = &self.last_image_folder {
+            p.last_image_folder = Some(folder.clone());
+        }
+        p
+    }
+
+    /// The Java engines brought over: those without credentials and those whose credentials
+    /// are in `copy_credentials`.
+    fn kept_engines(&self, copy_credentials: &[u32]) -> Option<Vec<&MappedEngine>> {
+        let engines = self.engines.as_ref()?;
+        Some(engines.iter().filter(|m| !m.credential || copy_credentials.contains(&(m.java_index as u32))).collect())
+    }
+
+    /// Settings of this product the import with the credentials in `copy_credentials` would
+    /// change, once this product has settings of its own (`has_settings`; on first use there is
+    /// nothing to protect). Any of them may have been chosen, even at its default value. An
+    /// empty engine list and a missing last folder hold no choice.
+    pub fn replaces(&self, config: &Config, persisted: &Persisted, has_settings: bool, copy_credentials: &[u32]) -> Vec<ImportTarget> {
         let mut out = Vec::new();
         if let Some(folder) = &self.last_folder {
             if persisted.last_folder.as_ref().is_some_and(|f| f != folder) {
@@ -3862,7 +3908,7 @@ impl Mapped {
         }
         let matches = serde_json::to_value(&config.matches).expect("settings serialize");
         let toolbar = serde_json::to_value(&persisted.matches).expect("settings serialize");
-        if self.matches.iter().any(|v|v.current(&matches).is_none_or(|c|c!=v.value))
+        if self.match_values(copy_credentials).any(|v|v.current(&matches).is_none_or(|c|c!=v.value))
             || self.match_toolbar.iter().any(|v|v.current(&toolbar).is_none_or(|c|c!=v.value)) {
             out.push(ImportTarget::EngineMatch);
         }
@@ -4080,11 +4126,14 @@ impl Mapped {
         if self.custom_pda.apply(&config.engine.custom_pda) != config.engine.custom_pda {
             out.push(ImportTarget::CustomPda);
         }
-        cmp!(
-            ImportTarget::StartupBenchmark,
-            config.engine.startup_benchmark,
-            self.startup_benchmark
-        );
+        if self.startup_benchmark.is_some_and(|v| v != config.engine.startup_benchmark)
+            || self.startup_benchmark_dismissed_signature.as_ref()
+                .is_some_and(|v| *v != config.engine.startup_benchmark_dismissed_signature)
+            || self.startup_benchmark_dismissed_version.as_ref()
+                .is_some_and(|v| *v != config.engine.startup_benchmark_dismissed_version)
+        {
+            out.push(ImportTarget::StartupBenchmark);
+        }
         cmp!(ImportTarget::NetworkProxy, config.network, self.network);
         cmp!(ImportTarget::WebBoard, config.web_board, self.web_board);
         cmp!(ImportTarget::Commentary, config.commentary, self.commentary);
@@ -4225,17 +4274,17 @@ impl Mapped {
         if with_hawkeye(&config.hawkeye, self) != config.hawkeye {
             out.push(ImportTarget::Hawkeye);
         }
-        if let Some(engines) = &self.engines {
-            let new: Vec<&EngineProfile> = engines.iter().map(|m| &m.profile).collect();
+        if let Some(kept) = self.kept_engines(copy_credentials) {
+            let new: Vec<&EngineProfile> = kept.iter().map(|m| &m.profile).collect();
             let current: Vec<&EngineProfile> = config.engine.engines.iter().collect();
             if !current.is_empty() && current != new {
                 out.push(ImportTarget::Engines);
             }
             cmp!(ImportTarget::EngineStartup, config.engine.startup, self.startup);
-            // The engine used last, as `apply` sets it when every credential is copied.
+            // The engine used last, as `apply` sets it.
             let last = self
                 .last_engine
-                .and_then(|i| engines.iter().find(|m| m.java_index == i))
+                .and_then(|i| kept.iter().find(|m| m.java_index == i))
                 .map(|m| m.profile.id.as_str());
             if config.engine.last_engine.as_deref() != last {
                 out.push(ImportTarget::LastEngine);

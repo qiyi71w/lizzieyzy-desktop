@@ -123,6 +123,10 @@ confirm, and a failed or cancelled import leaves the current settings as they we
 Passwords and keys (analysis SSH, cloud engine, AI explanation, 跑谱贡献 account and command) are
 copied only when you tick them; they go to the system credential store, never into
 `config.json`, the report or the logs. Without a credential store they are kept until you quit.
+An engine command carrying a key or token comes over only when you tick that engine; an
+engine-match side using such a command comes over with it. The analysis-engine command has no
+such choice: one carrying a key or token is not imported (enter it again in the analysis
+settings).
 
 The import never writes the Java folder, its engines or its weights; LizzieYzy Next keeps working
 side by side. Settings of the earlier LizzieYzy Next Tauri preview are not imported; SGF files it

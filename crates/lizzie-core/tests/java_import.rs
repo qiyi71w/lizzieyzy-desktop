@@ -15,8 +15,8 @@ use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::java_import::{self, JavaSource};
 use lizzie_core::settings::{
-    Config, DisplaySettings, EstimateStyle, ExtraMode, HawkeyeBranch, HawkeyePeriod, Language, MoveRankMode, Persisted,
-    ProblemSide, ProblemSort, ProxyMode, Storage, SubBoardMode,
+    Config, DisplaySettings, EstimateStyle, ExtraMode, FramePlacement, HawkeyeBranch, HawkeyePeriod, Language, MoveRankMode,
+    Persisted, ProblemSide, ProblemSort, ProxyMode, Storage, SubBoardMode, WindowPlacement,
 };
 use lizzie_core::workbench::{Workbench, IMPORT_NEEDS_REPLACE, IMPORT_STALE};
 use serde_json::json;
@@ -654,12 +654,273 @@ fn a_different_last_engine_choice_needs_confirmation() {
     )
     .unwrap();
     let p = preview(&mut wb, &java);
-    assert_eq!(p.replaces, [ImportTarget::LastEngine]);
-    assert_eq!(
-        wb.apply_java_import(p.id, &[], false, false, false, None).unwrap(),
-        Err(IMPORT_NEEDS_REPLACE)
-    );
+    // The credentials are chosen after the preview: copying none of them would also leave out
+    // the two engines carrying them.
+    assert_eq!(p.replaces, [ImportTarget::LastEngine, ImportTarget::Engines]);
+    for copy in [&[2, 3][..], &[]] {
+        assert_eq!(
+            wb.apply_java_import(p.id, copy, false, false, false, None).unwrap(),
+            Err(IMPORT_NEEDS_REPLACE)
+        );
+    }
     assert_eq!(wb.config().engine.last_engine.as_deref(), Some("java-0"));
+}
+
+#[test]
+fn engines_left_out_for_their_credentials_on_a_later_import_need_confirmation() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let config = json!({
+        "ui": { "autoload-empty": true, "last-engine": 0 },
+        "leelaz": { "engine-settings-list": [
+            { "id": "proxy-1", "name": "Proxy", "command": format!("katago gtp --token {}", SECRETS[2]), "isDefault": false },
+        ] },
+    });
+    std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    // The first import needs no replace confirmation; the credential copy is confirmed.
+    let p = preview(&mut wb, &java);
+    assert!(p.replaces.is_empty());
+    wb.apply_java_import(p.id, &[0], false, false, false, None).unwrap().unwrap();
+    let before = std::fs::read(storage(&product).config_file).unwrap();
+
+    // The same Java settings again: leaving the credential unticked would remove the engine.
+    let p = preview(&mut wb, &java);
+    assert_eq!(p.replaces, [ImportTarget::Engines, ImportTarget::LastEngine]);
+    assert_eq!(wb.apply_java_import(p.id, &[], false, false, false, None).unwrap(), Err(IMPORT_NEEDS_REPLACE));
+    assert_eq!(std::fs::read(storage(&product).config_file).unwrap(), before);
+    assert_eq!(wb.config().engine.engines.len(), 1);
+    assert_eq!(wb.config().engine.last_engine.as_deref(), Some("proxy-1"));
+    // Copying it again changes nothing, so no confirmation is needed.
+    wb.apply_java_import(p.id, &[0], false, false, false, None).unwrap().unwrap();
+    assert_eq!(wb.config().engine.engines.len(), 1);
+}
+
+#[test]
+fn a_different_dismissed_startup_benchmark_prompt_needs_confirmation() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let write = |signature: &str, version: u32| {
+        let ui = json!({ "ui": {
+            "katago-startup-benchmark-dismissed-signature": signature,
+            "katago-startup-benchmark-dismissed-version": version,
+        } });
+        std::fs::write(java.join("config.txt"), ui.to_string()).unwrap();
+    };
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    write("sig-a", 1);
+    let p = preview(&mut wb, &java);
+    wb.apply_java_import(p.id, &[], false, false, false, None).unwrap().unwrap();
+    for (signature, version) in [("sig-b", 1), ("sig-a", 2)] {
+        write(signature, version);
+        let p = preview(&mut wb, &java);
+        assert_eq!(p.replaces, [ImportTarget::StartupBenchmark], "{signature} {version}");
+        assert_eq!(wb.apply_java_import(p.id, &[], false, false, false, None).unwrap(), Err(IMPORT_NEEDS_REPLACE));
+        assert_eq!(wb.config().engine.startup_benchmark_dismissed_signature, "sig-a");
+        assert_eq!(wb.config().engine.startup_benchmark_dismissed_version, 1);
+    }
+}
+
+#[test]
+fn after_resetting_the_interface_position_an_imported_picture_folder_is_kept() {
+    // A Java profile that saved a picture but never opened a game record (`last-folder` "").
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), json!({ "ui": {} }).to_string()).unwrap();
+    let persist = json!({ "filesystem": { "last-folder": "", "last-image-folder": "/pictures" } });
+    std::fs::write(java.join("persist"), persist.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    wb.reset_ui_position().unwrap();
+    let p = preview(&mut wb, &java);
+    assert_eq!(item(&p.items, "persist:filesystem.last-image-folder").status, ImportStatus::Imported);
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    drop(wb);
+    let reopened = workbench(&product, Recorder::default());
+    assert_eq!(reopened.persisted().last_image_folder.as_deref(), Some("/pictures"));
+    assert_eq!(reopened.persisted().last_folder, None);
+}
+
+#[test]
+fn a_placement_reset_before_an_import_does_not_come_back() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), "{}").unwrap();
+    std::fs::write(java.join("persist"), json!({"filesystem": {"last-folder": "/imported-games"}}).to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let frame = FramePlacement { x: 11, y: 22, width: 333, height: 444, columns: vec![35, 20, 40, 70, 35, 50, 35] };
+    let window = WindowPlacement { x: 5, y: 6, width: 900, height: 700, maximized: false };
+    wb.persist_ui(Some(window), Some(frame), Some(vec![10, 30, 30, 45, 30])).unwrap();
+    drop(wb);
+    let mut wb = workbench(&product, Recorder::default());
+    assert!(wb.persisted().suggestions_frame_7.is_some());
+    wb.reset_ui_position().unwrap();
+    let p = preview(&mut wb, &java);
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    drop(wb);
+    let reopened = workbench(&product, Recorder::default());
+    let persisted = reopened.persisted();
+    assert_eq!(persisted.last_folder.as_deref(), Some("/imported-games"));
+    assert_eq!(persisted.window, None);
+    assert_eq!(persisted.suggestions_frame_7, None);
+    assert_eq!(persisted.main_list_columns, None);
+}
+
+#[test]
+fn commands_carrying_unconfirmed_credentials_are_not_saved() {
+    const MARKER: &str = "TEST_MARKER";
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let engine = format!("katago gtp --token {MARKER}");
+    let config = json!({
+        "ui": {
+            "analysis-engine-command": format!("katago analysis --token {MARKER} -model m.bin.gz -config a.cfg"),
+            "analysis-engine-command-customized": true,
+            "engine-pk-black-commands": engine,
+            "engine-pk-black-name": "Proxy",
+            "engine-pk-white-commands": engine,
+        },
+        "leelaz": { "engine-settings-list": [
+            { "id": "proxy-1", "name": "Proxy", "command": engine, "isDefault": false },
+        ] },
+    });
+    std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
+    for copy in [&[][..], &[0]] {
+        let product = tmp.path().join(format!("product-{}", copy.len()));
+        let mut wb = workbench(&product, Recorder::default());
+        let analysis_before = wb.config().analysis_engine.clone();
+        let p = preview(&mut wb, &java);
+        assert!(!serde_json::to_string(&p).unwrap().contains(MARKER));
+        let report = wb.apply_java_import(p.id, copy, false, false, true, None).unwrap().unwrap();
+        assert!(!serde_json::to_string(&report).unwrap().contains(MARKER));
+        // 精析设置 has no confirmation of its own: its command and flag stay this product's.
+        assert_eq!(wb.config().analysis_engine.command, analysis_before.command);
+        assert_eq!(wb.config().analysis_engine.command_customized, analysis_before.command_customized);
+        for key in ["ui.analysis-engine-command", "ui.analysis-engine-command-customized"] {
+            let it = item(&report.items, key);
+            assert_eq!((it.status, it.reason), (ImportStatus::NotMigrated, Some(ImportReason::Credential)), "{key}");
+        }
+        // A side's command comes over with the engine it names, so only with its credentials.
+        let sides = &wb.config().matches;
+        let saved = std::fs::read_to_string(storage(&product).config_file).unwrap();
+        if copy.is_empty() {
+            assert!(!saved.contains(MARKER), "nothing confirmed, nothing saved");
+            assert_eq!((sides.first.commands.as_str(), sides.second.commands.as_str()), ("", ""));
+            for key in ["ui.engine-pk-black-commands", "ui.engine-pk-white-commands"] {
+                let it = item(&report.items, key);
+                assert_eq!((it.status, it.reason), (ImportStatus::NotMigrated, Some(ImportReason::CredentialNotConfirmed)), "{key}");
+            }
+        } else {
+            assert_eq!((sides.first.commands.as_str(), sides.second.commands.as_str()), (engine.as_str(), engine.as_str()));
+            assert_eq!(item(&report.items, "ui.engine-pk-black-commands").status, ImportStatus::Imported);
+        }
+        assert_eq!(sides.first.name, "Proxy");
+    }
+}
+
+#[test]
+fn analysis_and_match_commands_without_credentials_still_come_over() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let config = json!({ "ui": {
+        "analysis-engine-command": "katago analysis -model /m.bin.gz -config /a.cfg",
+        "analysis-engine-command-customized": true,
+        "engine-pk-black-commands": "katago gtp -model /m.bin.gz",
+        "engine-pk-white-commands": "leelaz --gtp",
+    } });
+    std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
+    let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+    let p = preview(&mut wb, &java);
+    let report = wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    for key in ["ui.analysis-engine-command", "ui.engine-pk-black-commands", "ui.engine-pk-white-commands"] {
+        assert_eq!(item(&report.items, key).status, ImportStatus::Imported, "{key}");
+    }
+    let c = wb.config();
+    assert_eq!(c.analysis_engine.command, "katago analysis -model /m.bin.gz -config /a.cfg");
+    assert!(c.analysis_engine.command_customized);
+    assert_eq!(c.matches.first.commands, "katago gtp -model /m.bin.gz");
+    assert_eq!(c.matches.second.commands, "leelaz --gtp");
+}
+
+#[test]
+fn a_board_size_this_product_does_not_open_is_reported_and_left_alone() {
+    // Java's 综合设置 saves 53 (ConfigDialog2 only corrects values below 2).
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let config = json!({ "ui": { "other-size-width": 53, "other-size-height": 13 } });
+    std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
+    let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+    let before = wb.config().edit.other_size_width;
+    let p = preview(&mut wb, &java);
+    let report = wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    for items in [&p.items, &report.items] {
+        let width = item(items, "ui.other-size-width");
+        assert_eq!((width.status, width.reason), (ImportStatus::Incompatible, Some(ImportReason::InvalidValue)));
+        assert_eq!(item(items, "ui.other-size-height").status, ImportStatus::Imported);
+    }
+    assert_eq!(wb.config().edit.other_size_width, before);
+    assert_eq!(wb.config().edit.other_size_height, 13);
+}
+
+#[test]
+fn java_migration_markers_are_reported_once_as_java_state() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let config = json!({ "ui": {
+        "show-blunder-bar": true,
+        "migrated-hide-blunder-bar-default-v1": true,
+        "migrated-windows-portable-user-state-v2": true,
+    } });
+    std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
+    let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+    let p = preview(&mut wb, &java);
+    let report = wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    for items in [&p.items, &report.items] {
+        for key in ["ui.migrated-hide-blunder-bar-default-v1", "ui.migrated-windows-portable-user-state-v2"] {
+            let rows: Vec<_> = items.iter().filter(|i| i.key == key).map(|i| (i.status, i.reason)).collect();
+            assert_eq!(rows, [(ImportStatus::NotMigrated, Some(ImportReason::JavaState))], "{key}");
+        }
+    }
+    // The marker still decides how the blunder bar comes over.
+    assert!(wb.config().display.blunder_bar);
+}
+
+#[test]
+fn an_unchecked_auto_replay_box_turns_the_setting_off_unless_java_starts_it_anyway() {
+    // Java saves -1 for the unchecked 自动播放分支 box (Config.java:3395-3396); an explicit
+    // `ui.auto-replay-branch` still starts it (Lizzie.java:488).
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let toolbar = vec![json!(-1); 51];
+    std::fs::write(java.join("persist"), json!({"ui-persist": {"toolbar-parameter": toolbar}}).to_string()).unwrap();
+    for (ui, expected) in [(json!({}), false), (json!({"auto-replay-branch": true}), true)] {
+        std::fs::write(java.join("config.txt"), json!({ "ui": ui }).to_string()).unwrap();
+        let product = tmp.path().join(format!("product-{expected}"));
+        let mut wb = workbench(&product, Recorder::default());
+        let mut display = wb.config().display.clone();
+        display.auto_replay_branch = !expected;
+        wb.set_display_settings(display).unwrap();
+        let p = preview(&mut wb, &java);
+        let report = wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+        for items in [&p.items, &report.items] {
+            let slot = item(items, "persist:ui-persist.toolbar-parameter[39]");
+            assert_eq!((slot.status, slot.target), (ImportStatus::Imported, Some(ImportTarget::Suggestions)), "{ui}");
+        }
+        drop(wb);
+        assert_eq!(workbench(&product, Recorder::default()).config().display.auto_replay_branch, expected, "{ui}");
+    }
 }
 
 #[test]
@@ -1237,7 +1498,9 @@ fn java_estimate_and_blunder_bar_flags_follow_java_loading() {
         let product = tmp.path().join(format!("product-{i}"));
         let mut wb = workbench(&product, Recorder::default());
         let p = preview(&mut wb, &java);
-        assert!(p.items.iter().all(|item| item.status == ImportStatus::Imported), "{ui}");
+        // Java's migration marker itself is its own bookkeeping, reported as such.
+        assert!(p.items.iter().all(|item| item.status == ImportStatus::Imported
+            || (item.key == "ui.migrated-hide-blunder-bar-default-v1" && item.reason == Some(ImportReason::JavaState))), "{ui}");
         wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
         assert_eq!(serde_json::to_value(wb.config().display.clone()).unwrap()[field], expected, "{ui}");
     }
