@@ -62,6 +62,18 @@ impl Workbench {
     /// stone counts as the foreground engine's search (`Board.place` → `onMainEnginePonder`), and
     /// while 棋盘同步工具 syncs, it goes through ReadBoard's checks and is sent to the helper.
     pub(super) fn apply_edit(&mut self, edit: DocumentEdit) -> Result<Applied, EditError> {
+        self.write_edit(edit, true)
+    }
+
+    /// Applies a move an external service has already confirmed (Fox `appendConfirmed` writes
+    /// through `BoardHistoryList.place`, not `Board.place`): a fact of the record rather than a
+    /// local move, so 棋盘同步工具's checks never turn it into a variation and the helper is not
+    /// asked to click it.
+    pub(super) fn apply_confirmed_edit(&mut self, edit: DocumentEdit) -> Result<Applied, EditError> {
+        self.write_edit(edit, false)
+    }
+
+    fn write_edit(&mut self, edit: DocumentEdit, local: bool) -> Result<Applied, EditError> {
         let move_played = matches!(
             &edit,
             DocumentEdit::Play { .. }
@@ -73,7 +85,7 @@ impl Workbench {
             DocumentEdit::Play { at, color, point, .. } => Some((at, color, point)),
             _ => None,
         };
-        if let Some((at, color, point)) = placed {
+        if let Some((at, color, point)) = placed.filter(|_| local) {
             if let Some(applied) = self.readboard_before_play(at, color, point) {
                 return Ok(applied);
             }
@@ -96,7 +108,7 @@ impl Workbench {
         }
         if let Some((_, _, point)) = placed {
             self.foreground_pondered();
-            if applied.content && applied.node.is_some() {
+            if local && applied.content && applied.node.is_some() {
                 self.readboard_after_play(point);
             }
         }

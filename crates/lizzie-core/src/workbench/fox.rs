@@ -451,7 +451,7 @@ impl Workbench {
         while self.fox.applied < snapshot.actions.len() {
             let action = &snapshot.actions[self.fox.applied]; let at = self.fox.live.ok_or(())?;
             let op = if let Some(p) = &action.placement { DocumentEdit::Play { at, color: color(action.color), point: Point { x:p.x.into(), y:p.y.into() }, alternate: false, rules: PlayRules { allow_suicide, no_capture:false } } } else { DocumentEdit::Pass { at, color:color(action.color) } };
-            let applied = self.apply_edit(op).map_err(|_| ())?;
+            let applied = self.apply_confirmed_edit(op).map_err(|_| ())?;
             let node = applied.node.filter(|n| *n != at).ok_or(())?;
             self.fox.live = Some(node); self.fox.applied += 1;
             if following && self.config.ui.play_sound { self.sounds.push(super::step_sound(&self.doc.record, node)); }
