@@ -257,7 +257,7 @@ fn tencent_link_stops_on_a_failed_reply_even_when_its_body_reads() {
     let body = r#"jQuery1({"result":0,"ResultID":0,"ShowType":2,"ShowID":"77","CreateTime":1600000000})"#;
     let step = s.on_http(purpose, &HttpReply::Ok { status: 503, body: body.into() });
     assert!(step.connect.is_none());
-    let expected = OnlineText::with("Online.status.pullError", ["HTTP 503".to_string()]);
+    let expected = OnlineText::with("Online.text", ["拉取异常: HTTP 503".to_string()]);
     assert!(matches!(step.updates.as_slice(), [SourceUpdate::Stopped(t)] if *t == expected), "{:?}", step.updates);
 }
 

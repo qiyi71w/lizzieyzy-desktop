@@ -266,12 +266,15 @@ impl Session {
 
     /// `req0` (OD 1686-1736): the JSONP reply names the broadcast, then `req(true)`. Java ignores
     /// a reply it cannot read; here the follow stops with the dialog's invalid-link text. A failed
-    /// HTTP status stops it whatever its body says (Java read the error body as the broadcast).
+    /// request, a failed HTTP status included, stops it whatever its body says (Java read the
+    /// error body as the broadcast) with Java's hard-coded pull-failure status (`"拉取异常: " +
+    /// detail`, OD 4160), shown as it is in every language.
     fn on_request(&mut self, reply: &HttpReply) -> Step {
         let body = match reply_body(reply) {
             Ok(body) => body,
             Err(message) => {
-                return Step::update(SourceUpdate::Stopped(OnlineText::with("Online.status.pullError", [message])));
+                let text = OnlineText::with("Online.text", [format!("拉取异常: {message}")]);
+                return Step::update(SourceUpdate::Stopped(text));
             }
         };
         let Some(o) = jsonp_object(body) else {

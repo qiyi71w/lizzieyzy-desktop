@@ -635,7 +635,8 @@ fn a_room_the_server_disconnects_or_refuses_stops_following_and_keeps_the_record
         assert!(wb.online_socket(conn, SocketEvent::Text(packet.into())), "{packet}");
         let o = wb.view(true).online;
         assert!(o.following.is_none(), "{packet}: the follow ended");
-        assert_eq!(o.browser_status, Some(OnlineText::new("Online.status.stopped")), "{packet}");
+        let stopped = OnlineText::with("Online.text", ["已停止同步".to_string()]);
+        assert_eq!(o.browser_status, Some(stopped), "{packet}: Java's stopSync status");
         assert_eq!(main_line(&wb), kept, "{packet}: the record stays");
         let jobs = wb.take_online_jobs();
         assert!(!jobs.iter().any(|j| matches!(j, OnlineJob::Connect { .. })), "{packet}: {jobs:?}");

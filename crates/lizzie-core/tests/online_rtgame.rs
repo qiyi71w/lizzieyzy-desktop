@@ -248,7 +248,8 @@ fn ack_code_10_stops_without_reconnecting() {
     s.on_text(r#"42["userinfo",{"user_id":77}]"#);
     let step = s.on_text(r#"431[{"code":10}]"#);
     assert!(step.close && step.connect.is_none() && sent(&step).is_empty());
-    assert!(matches!(&step.updates[..], [SourceUpdate::Stopped(t)] if *t == OnlineText::new("Online.status.stopped")));
+    let stopped = OnlineText::with("Online.text", ["已停止同步".to_string()]);
+    assert!(matches!(&step.updates[..], [SourceUpdate::Stopped(t)] if *t == stopped));
     assert_eq!(s.next_due(), None);
     assert!(s.on_closed(None).connect.is_none());
 }

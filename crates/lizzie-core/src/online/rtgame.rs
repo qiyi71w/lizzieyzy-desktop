@@ -288,7 +288,7 @@ impl Session {
             // so the follow ends too (Java only logged it and kept showing the room as followed).
             '1' | '4' => {
                 self.end(step);
-                step.updates.push(SourceUpdate::Stopped(OnlineText::new("Online.status.stopped")));
+                step.updates.push(stopped());
             }
             '2' => {
                 let Ok(args) = serde_json::from_str::<Vec<Value>>(payload) else { return };
@@ -366,7 +366,7 @@ impl Session {
                     }
                     10 => {
                         self.end(step);
-                        step.updates.push(SourceUpdate::Stopped(OnlineText::new("Online.status.stopped")));
+                        step.updates.push(stopped());
                         return;
                     }
                     _ => None,
@@ -613,6 +613,12 @@ impl Session {
             None => Some(SourceUpdate::Comment { move_number, text }),
         }
     }
+}
+
+/// The server ended the room: the follow stops with Java's hard-coded `stopSync` status
+/// (`reportSyncStatus("已停止同步")`, OD 4502), shown as it is in every language.
+fn stopped() -> SourceUpdate {
+    SourceUpdate::Stopped(OnlineText::with("Online.text", ["已停止同步".to_string()]))
 }
 
 /// `pingInterval + pingTimeout` of an Engine.IO handshake (`HandshakeData`).
