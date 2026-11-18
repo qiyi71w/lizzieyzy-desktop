@@ -253,6 +253,44 @@ impl AnalysisStore {
         self.attended.remove(&node);
     }
 
+    /// The results of `nodes` (and what goes with them), moved out into a store of their own;
+    /// [`Self::rejoin`] takes them back when those nodes are in the record again.
+    pub(super) fn split_off(&mut self, nodes: &[NodeId]) -> AnalysisStore {
+        fn take<V>(from: &mut HashMap<NodeId, V>, to: &mut HashMap<NodeId, V>, node: NodeId) {
+            if let Some(v) = from.remove(&node) {
+                to.insert(node, v);
+            }
+        }
+        let mut part = AnalysisStore { doc: self.doc, ..AnalysisStore::default() };
+        for &node in nodes {
+            take(&mut self.nodes, &mut part.nodes, node);
+            take(&mut self.ownership, &mut part.ownership, node);
+            take(&mut self.metadata, &mut part.metadata, node);
+            take(&mut self.kept_since, &mut part.kept_since, node);
+            take(&mut self.attended, &mut part.attended, node);
+            if self.stale.remove(&node) {
+                part.stale.insert(node);
+            }
+        }
+        part
+    }
+
+    /// Takes back the results [`Self::split_off`] moved out of this document's store. Node ids
+    /// are never handed out twice, so nothing stored meanwhile is for the same nodes; results
+    /// whose node is not in `rec` with the same stamp stay out.
+    pub(super) fn rejoin(&mut self, part: AnalysisStore, rec: &GameRecord) {
+        if part.doc != self.doc {
+            return;
+        }
+        self.nodes.extend(part.nodes);
+        self.ownership.extend(part.ownership);
+        self.metadata.extend(part.metadata);
+        self.stale.extend(part.stale);
+        self.kept_since.extend(part.kept_since);
+        self.attended.extend(part.attended);
+        self.retain_valid(rec);
+    }
+
     /// `clearBestMovesInfomationAfter(start)`: every node's analysis is gone.
     pub(super) fn erase_all(&mut self) {
         self.reset(self.doc);
@@ -2088,7 +2126,7 @@ impl Workbench {
             display::rank_marks(rec, &path, &numbering, s, analysis)
         };
         BoardOverlayView {
-            move_numbers: display::number_labels(rec, &path, &numbering, s),
+            move_numbers: display::number_labels(rec, &path, &numbering, s, self.trial_start()),
             ranks,
             rank_corner: display::shows_ranks(s) && (s.move_rank == 0 || s.move_rank > 1),
             ranks_after_numbers: rank_override,

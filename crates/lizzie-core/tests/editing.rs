@@ -613,6 +613,51 @@ fn try_play_keeps_the_record_and_brings_it_back() {
 }
 
 #[test]
+fn try_play_brings_back_the_saved_analysis_of_what_it_set_aside() {
+    let dir = tempfile::tempdir().unwrap();
+    let text = "(;SZ[9];B[ee]\
+        (;W[dd]LZ[KataGo 55.0 100\nmove C3 visits 100 winrate 5500 pv C3])\
+        (;W[cc]LZ[KataGo 45.0 200\nmove G7 visits 200 winrate 4500 pv G7]))";
+    let mut wb = opened(dir.path(), text);
+    wb.navigate(Navigation::Forward(1));
+    let fork = wb.cursor();
+    let children = rec(&wb).node(fork).children.clone();
+    let visits = |wb: &mut Workbench| -> Vec<_> {
+        children
+            .iter()
+            .map(|&c| {
+                wb.goto_node(c).unwrap();
+                wb.view(false).analysis.map(|a| a.visits)
+            })
+            .collect()
+    };
+    assert_eq!(visits(&mut wb), [Some(100), Some(200)]);
+
+    wb.goto_node(fork).unwrap();
+    edit(&mut wb, EditCommand::TryPlay);
+    play(&mut wb, "gg");
+    edit(&mut wb, EditCommand::TryPlay);
+    assert_eq!(wb.cursor(), fork);
+    assert_eq!(rec(&wb).node(fork).children, children);
+    assert_eq!(visits(&mut wb), [Some(100), Some(200)], "the continuations keep their analysis");
+
+    let job = wb.begin_save(dir.path().join("a.sgf").to_str().unwrap(), "LizzieYzy Tauri:test");
+    let mut reopened = opened(&dir.path().join("reopened"), &job.text);
+    let fork = rec(&reopened).main_child(ROOT).unwrap();
+    let shown: Vec<_> = rec(&reopened)
+        .node(fork)
+        .children
+        .clone()
+        .into_iter()
+        .map(|c| {
+            reopened.goto_node(c).unwrap();
+            reopened.view(false).analysis.map(|a| a.visits)
+        })
+        .collect();
+    assert_eq!(shown, [Some(100), Some(200)], "and save it");
+}
+
+#[test]
 fn a_variation_added_as_branch_stays_beside_the_main_line() {
     let dir = tempfile::tempdir().unwrap();
     let mut wb = opened(dir.path(), "(;SZ[9];B[ee])");

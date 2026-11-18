@@ -223,7 +223,8 @@ pub struct NextMoveInfo {
 /// What the main board draws besides stones, marks and candidates.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, TS)]
 pub struct BoardOverlayView {
-    /// Move numbers outside a hovered variation. Empty while 手数 is off or 落子评价 shows.
+    /// Move numbers outside a hovered variation. Empty while 手数 is off or 落子评价 shows; while
+    /// 试下 runs, only its own stones, counted from 1.
     pub move_numbers: Vec<MoveNumberLabel>,
     /// 落子评价 marks, at most one per point.
     pub ranks: Vec<RankMark>,
@@ -248,24 +249,63 @@ pub fn info_order_sample(s: &DisplaySettings, to_play: Stone, komi: f64) -> Show
     Viewpoint::from(s).candidate(68.5, Some(5.7), to_play, komi)
 }
 
-/// `drawMoveNumbers` for the position at the end of `path` (no hovered variation).
-pub fn number_labels(rec: &GameRecord, path: &[NodeId], numbering: &Numbering, s: &DisplaySettings) -> Vec<MoveNumberLabel> {
+/// `drawMoveNumbers` for the position at the end of `path` (no hovered variation). While 试下 runs
+/// from `trial_start` (`isTrying`), only the stones placed since then are numbered, from 1 at its
+/// first move, whatever 手数 shows: `tryPlay` sets the start's move number to 0, `Board.place`
+/// writes `-moveNumber` for them and only those are drawn, every one of them.
+pub fn number_labels(
+    rec: &GameRecord,
+    path: &[NodeId],
+    numbering: &Numbering,
+    s: &DisplaySettings,
+    trial_start: Option<NodeId>,
+) -> Vec<MoveNumberLabel> {
     let Some(&current) = path.last() else { return Vec::new() };
     let node = rec.node(current);
     if node.kind == NodeKind::Snapshot || shows_ranks(s) {
-        return Vec::new();
-    }
-    let all_in_branch = s.all_numbers_in_branch && !rec.is_main_trunk(current);
-    let allow = s.move_numbers;
-    if allow == 0 && !all_in_branch {
         return Vec::new();
     }
     let last_point = match node.kind {
         NodeKind::Move { point, .. } => Some(point),
         _ => None,
     };
-    let last = numbering.list.iter().copied().max().unwrap_or(0);
     let width = rec.size.width as usize;
+    let label = |i: usize, number: u32| {
+        let point = Point {
+            x: (i % width) as u16,
+            y: (i / width) as u16,
+        };
+        MoveNumberLabel {
+            point,
+            number,
+            last: last_point == Some(point),
+        }
+    };
+    if let Some(start) = trial_start {
+        let Some(k) = path.iter().position(|&n| n == start) else { return Vec::new() };
+        let base = rec.node(start).move_number;
+        let mut trial = vec![0u32; numbering.list.len()];
+        for &id in &path[k + 1..] {
+            let n = rec.node(id);
+            if let NodeKind::Move { point, .. } = n.kind {
+                trial[rec.size.index(point)] = n.move_number - base;
+            }
+        }
+        // A captured stone, or one before a branch numbered from 1, has no number in the list.
+        return trial
+            .iter()
+            .zip(&numbering.list)
+            .enumerate()
+            .filter(|&(_, (&t, &shown))| t > 0 && shown > 0)
+            .map(|(i, (&t, _))| label(i, t))
+            .collect();
+    }
+    let all_in_branch = s.all_numbers_in_branch && !rec.is_main_trunk(current);
+    let allow = s.move_numbers;
+    if allow == 0 && !all_in_branch {
+        return Vec::new();
+    }
+    let last = numbering.list.iter().copied().max().unwrap_or(0);
     let mut out = Vec::new();
     for (i, &n) in numbering.list.iter().enumerate() {
         if n == 0 {
@@ -279,15 +319,7 @@ pub fn number_labels(rec: &GameRecord, path: &[NodeId], numbering: &Numbering, s
         } else {
             n
         };
-        let point = Point {
-            x: (i % width) as u16,
-            y: (i / width) as u16,
-        };
-        out.push(MoveNumberLabel {
-            point,
-            number,
-            last: last_point == Some(point),
-        });
+        out.push(label(i, number));
     }
     out
 }

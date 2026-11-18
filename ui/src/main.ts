@@ -1005,6 +1005,7 @@ function boardScene(v: WorkbenchView, hovered: number | null, preview: PreviewVa
     snapshot: at ? at.snapshot : pos.snapshot,
     // The main line's end is on the main trunk.
     mainTrunk: at ? true : pos.main_trunk,
+    trying: v.editing.trying,
     analysis,
     // isInPlayMode hides the move rank marks (BoardRenderer.moveOverlayOrder).
     overlay: v.game?.play_mode ? { ...board, ranks: [] } : board,

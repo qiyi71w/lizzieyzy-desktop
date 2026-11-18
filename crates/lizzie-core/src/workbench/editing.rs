@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use super::analysis::AnalysisStore;
 use super::Workbench;
 use crate::api::{ApiError, CommandResult, EditCommand, EditTarget, EditingView, ErrorKind};
 use crate::browse::{self, Navigation};
@@ -30,14 +31,21 @@ pub(super) struct EditState {
     cursor: NodeId,
 }
 
+/// 试下: the record and position it started from, and the stored analysis of both engines for
+/// what it set aside, which comes back with it.
+struct Trial {
+    kept: EditState,
+    analysis: AnalysisStore,
+    secondary: AnalysisStore,
+}
+
 /// Delete/edit undo cache, setup mode and 试下; reset when another record is adopted.
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub(super) struct Editing {
     setup_mode: bool,
     before: Option<EditState>,
     after: Option<EditState>,
-    /// The record and position kept while 试下 is on.
-    trial: Option<EditState>,
+    trial: Option<Trial>,
 }
 
 fn refused(key: &str) -> Result<CommandResult, ApiError> {
@@ -578,28 +586,46 @@ impl Workbench {
     /// line's end) first; starting keeps the record and position and removes what follows the
     /// current node (`deleteMoveNoHintAfter`); ending restores both. When nothing changed the
     /// record meanwhile it is still the kept one (every edit copies a shared record), so only the
-    /// position comes back and the document stays at its revision.
+    /// position comes back and the document stays at its revision. The stored analysis of what
+    /// was removed comes back with it, as Java's reload of the kept SGF brings its `LZ` back.
     fn try_play(&mut self) -> Result<CommandResult, ApiError> {
         self.readboard_before_try_play();
-        if let Some(kept) = self.editing.trial.take() {
+        if let Some(Trial { kept, analysis, secondary }) = self.editing.trial.take() {
             if Arc::ptr_eq(&kept.record, &self.doc.record) {
                 self.cursor = kept.cursor;
                 self.sync_engine();
             } else {
                 self.reinstate(kept);
             }
+            self.store.rejoin(analysis, &self.doc.record);
+            self.secondary_store.rejoin(secondary, &self.doc.record);
             return done(true);
         }
-        self.editing.trial = Some(EditState {
-            record: self.doc.record.clone(),
-            cursor: self.cursor,
-        });
         let children = self.doc.record.node(self.cursor).children.clone();
+        let mut removed = Vec::new();
+        let mut pending = children.clone();
+        while let Some(node) = pending.pop() {
+            removed.push(node);
+            pending.extend_from_slice(&self.doc.record.node(node).children);
+        }
+        self.editing.trial = Some(Trial {
+            kept: EditState {
+                record: self.doc.record.clone(),
+                cursor: self.cursor,
+            },
+            analysis: self.store.split_off(&removed),
+            secondary: self.secondary_store.split_off(&removed),
+        });
         for node in children {
             self.edit_op(DocumentEdit::Remove { node })?;
         }
         self.sync_engine();
         done(true)
+    }
+
+    /// The node 试下 started from, while it runs.
+    pub(super) fn trial_start(&self) -> Option<NodeId> {
+        self.editing.trial.as_ref().map(|t| t.kept.cursor)
     }
 
     /// `Board.clear` / `reopen`: a new empty board of `size`. The komi is the foreground engine's
