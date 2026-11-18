@@ -326,6 +326,13 @@ pub enum Command {
     SetAnalysisSettings {
         settings: AnalysisSettings,
     },
+    /// 设置 > 初始化设置 确定 (`FirstUseSettings`): display, analysis and language saved together.
+    /// The mode gates judge each changed part; one refusal refuses all and nothing is saved.
+    SaveInitSettings {
+        display: crate::settings::DisplaySettings,
+        analysis: AnalysisSettings,
+        language: Language,
+    },
     /// Toolbar komi field: the game komi, sent to the engine; stored analysis is cleared.
     SetKomi {
         komi: f64,

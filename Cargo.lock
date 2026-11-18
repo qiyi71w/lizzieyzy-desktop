@@ -2943,6 +2943,7 @@ dependencies = [
  "http",
  "hyper-util",
  "image",
+ "libc",
  "lizzie-core",
  "objc2-core-foundation",
  "objc2-core-graphics",

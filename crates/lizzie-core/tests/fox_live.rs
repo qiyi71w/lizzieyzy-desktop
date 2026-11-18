@@ -426,3 +426,24 @@ fn saving_while_fox_listens_writes_the_analysis_comments_and_keeps_fox_ownership
     assert!(matches!(h.wb.edit(EditCommand::SetComment{node:moved, comment:"mine".into()}).unwrap(), CommandResult::Refused{..}), "ordinary edits stay refused");
     assert_eq!(h.wb.document().record.node(moved).comment, comment);
 }
+
+#[test]
+fn init_settings_while_fox_listens_are_refused_whole_when_they_change_analysis() {
+    // 初始化设置 is one save (FirstUseSettings): the Fox gate admits or refuses it as a whole.
+    use lizzie_core::settings::Language;
+    let mut h=Harness::new(); h.start();
+    assert!(h.wb.inspect().fox.owns_board);
+    let before=h.wb.config().clone();
+    let mut display=before.display.clone(); display.no_refresh_on_mouse=!display.no_refresh_on_mouse;
+    let mut analysis=before.engine.analysis.clone(); analysis.limit_playout=true; analysis.limit_playouts=23456;
+    let mixed=Command::SaveInitSettings { display:display.clone(), analysis, language:Language::ZhCn };
+    assert_eq!(h.wb.game_gate(&mixed), Some(CommandResult::Refused { message_key:"Fox.conflict".into() }));
+    assert_eq!(h.wb.config(), &before, "a refused 确定 saves nothing");
+    // Display and language alone are admitted and saved together; the unchanged analysis is no part.
+    let plain=Command::SaveInitSettings { display:display.clone(), analysis:before.engine.analysis.clone(), language:Language::ZhCn };
+    assert_eq!(h.wb.game_gate(&plain), None);
+    assert!(h.wb.save_init_settings(display.clone(), before.engine.analysis.clone(), Language::ZhCn).unwrap());
+    let after=h.wb.config();
+    assert_eq!((&after.display, &after.engine.analysis, after.ui.language), (&display, &before.engine.analysis, Language::ZhCn));
+    assert!(h.wb.inspect().fox.owns_board);
+}

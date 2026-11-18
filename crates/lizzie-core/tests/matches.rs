@@ -2,7 +2,7 @@
 //! fixed migration baseline. Controlled processes exercise the same public Workbench interface.
 use lizzie_core::api::*;
 use lizzie_core::engine::gtp::LaunchSpec;
-use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
+use lizzie_core::engine::profile::{CustomPdaMode, CustomPdaSettings, EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
 use lizzie_core::record::{DocumentEdit, NodeKind, Point, Stone, ROOT};
 use lizzie_core::settings::{MatchSettings, Storage};
@@ -1249,5 +1249,50 @@ fn a_fixed_handicap_is_set_only_on_a_nineteen_line_match_board() {
         assert_eq!(rec.info.handicap, handicap, "{size}x{size}: HA");
         assert_eq!(rec.position(ROOT).stones.iter().flatten().count(), stones, "{size}x{size}: handicap stones");
         assert_eq!(rec.node(ROOT).to_play, to_play, "{size}x{size}: side to play");
+    }
+}
+
+#[test]
+fn the_pda_dialog_reaches_the_kata_go_pda_participant_whichever_engine_is_in_front() {
+    let fixed = |value: f64| CustomPdaSettings {
+        mode: CustomPdaMode::Fixed,
+        dynamic_cap: None,
+        fixed_value: Some(value),
+        auto_apply: false,
+    };
+    let mut m = Match::new();
+    m.start(genmove());
+    let world = m.world.clone();
+    m.serve(&move |i, c| (c == "name" && i == world.ids()[0]).then(|| "KataGoPda 1.16.4".to_string()));
+    assert_eq!(m.phase(), Some(MatchPhase::Playing));
+    assert!(m.wb.inspect().engine_match.unwrap().kata_go_pda_participant);
+    let (pda, standard) = (m.world.ids()[0], m.world.ids()[1]);
+    // The standard KataGo is the one in front (the side to move).
+    if m.mover() == pda {
+        m.finish_turn("D4");
+    }
+    assert_eq!(m.mover(), standard);
+    assert_eq!(m.wb.save_custom_pda(fixed(2.0)).unwrap(), None);
+    let sent = |m: &Match, id| m.world.take(id).into_iter().map(|l| l.split_once(' ').unwrap().1.to_string()).collect::<Vec<_>>();
+    assert_eq!(sent(&m, pda), ["pda 2.0"]);
+    assert!(sent(&m, standard).is_empty(), "the standard participant gets no pda");
+
+    // Paused, the same participant takes it.
+    m.command(MatchCommand::Pause);
+    assert_eq!(m.phase(), Some(MatchPhase::Paused));
+    sent(&m, pda);
+    sent(&m, standard);
+    assert_eq!(m.wb.save_custom_pda(fixed(1.5)).unwrap(), None);
+    assert_eq!(sent(&m, pda), ["pda 1.5"]);
+    assert!(sent(&m, standard).is_empty());
+
+    // Two standard KataGo participants: no KataGoPda flag, and no engine gets pda.
+    let mut plain = Match::new();
+    plain.start(genmove());
+    plain.serve(&|_, _| None);
+    assert!(!plain.wb.inspect().engine_match.unwrap().kata_go_pda_participant);
+    assert_eq!(plain.wb.save_custom_pda(fixed(2.0)).unwrap(), None);
+    for id in plain.world.ids() {
+        assert!(sent(&plain, id).is_empty());
     }
 }

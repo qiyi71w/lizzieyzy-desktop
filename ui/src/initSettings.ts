@@ -236,11 +236,10 @@ function openInitSettings(): void {
       limitMaxSuggestion: Math.max(0, suggestions),
       limitBranchLength: Math.max(0, variation),
     };
-    const language = languageChoice.value as Language;
-    await dialog.close();
-    await run({ type: "SetDisplaySettings", settings: nextDisplay });
-    await run({ type: "SetAnalysisSettings", settings: nextAnalysis });
-    if (language !== now.settings.language) await run({ type: "SetLanguage", language });
+    // FirstUseSettings saves everything at once: one command, admitted or refused as a whole. A
+    // refusal (shown by `run`) or a failed save leaves the dialog open with this draft.
+    const result = await run({ type: "SaveInitSettings", display: nextDisplay, analysis: nextAnalysis, language: languageChoice.value as Language });
+    if (result?.type === "Done" || result?.type === "Unchanged") await dialog.close();
   };
 }
 

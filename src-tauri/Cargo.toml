@@ -60,6 +60,11 @@ x11rb = "0.13"
 zbus = "5"
 gtk = "0.18"
 
+# Web 旁观's LAN address without a default route (`getifaddrs`, see src/web_board.rs); already
+# part of the dependency tree.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGImage", "CGDataProvider", "CGWindow"] }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes", "CFData"] }
@@ -67,7 +72,8 @@ security-framework = "3"
 
 [target.'cfg(windows)'.dependencies]
 rfd = { version = "0.16", default-features = false }
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security_Cryptography", "Win32_System_Memory", "Win32_System_Threading"] }
+# IpHelper/Ndis/WinSock: Web 旁观's LAN address without a default route (GetAdaptersAddresses).
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Security_Cryptography", "Win32_System_Memory", "Win32_System_Threading"] }
 
 [features]
 # Isolated acceptance builds only: a loopback control channel that dispatches the same commands

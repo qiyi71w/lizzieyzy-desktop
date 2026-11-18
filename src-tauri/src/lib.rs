@@ -881,6 +881,10 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().set_analysis_settings(settings)?;
             Ok(changed(&app, &shared, done))
         }
+        Command::SaveInitSettings { display, analysis, language } => {
+            let done = shared.workbench.lock().unwrap().save_init_settings(display, analysis, language)?;
+            Ok(changed(&app, &shared, done))
+        }
         Command::SetKomi { komi } => {
             let result = shared.workbench.lock().unwrap().set_komi(komi);
             match result {
@@ -2307,6 +2311,10 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
+            // The program lives as long as its main window (Java `System.exit` for 强制退出, and
+            // the frame's exit). Hidden windows (野狐棋谱, 腾讯棋谱, ...) would otherwise keep it
+            // running headless, without `RunEvent::Exit` ending the engines.
+            WindowEvent::Destroyed if window.label() == "main" => window.app_handle().exit(0),
             WindowEvent::Destroyed if window.label() == "commentary" => {
                 let app = window.app_handle();
                 commentary::closed(app, &app.state::<State>());
