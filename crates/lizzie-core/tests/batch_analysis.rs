@@ -841,19 +841,24 @@ fn a_late_reply_of_a_failed_flash_attempt_is_not_taken_for_the_next_attempt() {
 fn flash_batch_queries_use_each_records_own_rules() {
     let dir = tempfile::tempdir().unwrap();
     let (mut wb, world, _fg) = setup(dir.path(), false);
+    // Japanese first, then Chinese (the foreground's own rules are Chinese).
     let a = write(dir.path(), "a.sgf", "(;SZ[19]RU[Japanese];B[dd];W[pp])");
-    wb.open_batch(BatchMode::Flash, vec![a], OpenSource::Chooser).unwrap();
+    let b = write(dir.path(), "b.sgf", "(;SZ[19]RU[Chinese];B[pd];W[dp])");
+    wb.open_batch(BatchMode::Flash, vec![a, b], OpenSource::Chooser).unwrap();
     deliver_reads(&mut wb);
     wb.start_batch_flash(-1, -1, 2, false).unwrap().unwrap();
     deliver_reads(&mut wb);
     let worker = *world.workers().last().unwrap();
-    let qs = queries(&world, worker);
-    assert!(!qs.is_empty());
-    assert!(
-        qs.iter().all(|q| q["rules"]["scoring"] == "TERRITORY"),
-        "{}",
-        qs[0]["rules"]
-    );
+    let scoring = |qs: &[serde_json::Value]| qs.iter().map(|q| q["rules"]["scoring"].clone()).collect::<Vec<_>>();
+    let first = queries(&world, worker);
+    assert_eq!(scoring(&first), vec![serde_json::json!("TERRITORY"); 2], "a's own rules");
+    for q in &first {
+        answer(&mut wb, worker, q);
+    }
+    write_saves(&mut wb, None);
+    deliver_reads(&mut wb);
+    let second = queries(&world, worker);
+    assert_eq!(scoring(&second), vec![serde_json::json!("AREA"); 2], "b's own rules, not a's");
 }
 
 #[test]

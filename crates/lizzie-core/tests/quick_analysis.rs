@@ -452,7 +452,10 @@ fn a_failed_attempt_lets_the_foreground_analyse_and_retries_later() {
     let fg = with_engine(&mut wb, &world);
     open(&mut wb, RECORD);
     let worker = *world.workers().last().unwrap();
+    // The retry is scheduled from a moment between `failed` and `reported`.
+    let failed = Instant::now();
     wb.engine_input(worker, EngineInput::Exited(Some(1)));
+    let reported = Instant::now();
     let v = wb.view(false);
     assert!(v.quick.running && v.quick.retrying);
     let fg_sent = serve(&mut wb, &world, fg, 0, true);
@@ -460,11 +463,10 @@ fn a_failed_attempt_lets_the_foreground_analyse_and_retries_later() {
         fg_sent.iter().any(|c| c.starts_with("kata-analyze")),
         "the failure is the foreground's opportunity"
     );
-    // 1800 ms << 1 later the task tries again.
-    let now = Instant::now();
-    wb.engine_tick(now + Duration::from_millis(2000));
+    // 1800 ms << 1 after the failure the task tries again.
+    wb.engine_tick(failed + Duration::from_millis(3599));
     assert_eq!(world.workers().len(), 1, "not before the delay");
-    wb.engine_tick(now + Duration::from_millis(3700));
+    wb.engine_tick(reported + Duration::from_millis(3601));
     assert_eq!(world.workers().len(), 2);
     // The new attempt has the position again: the foreground engine stops.
     let fg_sent = serve(&mut wb, &world, fg, 0, true);

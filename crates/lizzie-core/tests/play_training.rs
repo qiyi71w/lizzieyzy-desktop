@@ -83,10 +83,12 @@ impl Bench {
         let dir = tempfile::tempdir().unwrap();
         let storage = Storage::in_dirs(&dir.path().join("config"), &dir.path().join("data"));
         let mut config = Config::default();
-        let analysis = dir.path().join("katago");
+        // A folder with a space, as a user's temporary folder can be: the path is one argument.
+        let analysis = dir.path().join("test root").join("katago");
+        std::fs::create_dir(analysis.parent().unwrap()).unwrap();
         std::fs::write(&analysis, b"stand-in engine").unwrap();
         config.analysis_engine.command =
-            format!("{} analysis -config /fake/analysis.cfg -model /fake/main.bin.gz", analysis.display());
+            format!("\"{}\" analysis -config /fake/analysis.cfg -model /fake/main.bin.gz", analysis.display());
         config.analysis_engine.command_customized = true;
         let human = dir.path().join("custom-human.bin.gz");
         std::fs::File::create(&human).unwrap().set_len(1024 * 1024 + 1).unwrap();
@@ -255,19 +257,27 @@ impl Bench {
         self.clock += Duration::from_millis(millis);
         self.wb.engine_tick(self.clock);
     }
-    /// Ticks until an analysis process other than `previous` has been launched (棋力评估 prepares
-    /// on its own thread first).
+    /// Waits until an analysis process other than `previous` has been launched. 棋力评估 prepares
+    /// on its own thread first (file hashing, config files); meanwhile the engine clock follows
+    /// the wall clock, as in the application, so a slow host only makes this wait longer instead
+    /// of running minutes of engine time past the preparation. The bound only stops a broken run
+    /// from hanging.
     fn next_worker(&mut self, previous: Option<InstanceId>) -> InstanceId {
-        for _ in 0..400 {
-            self.tick(1100);
+        let give_up = Instant::now() + Duration::from_secs(120);
+        let mut last = Instant::now();
+        loop {
+            let now = Instant::now();
+            self.clock += now - last;
+            last = now;
+            self.wb.engine_tick(self.clock);
             self.serve(&|_, _| None);
             let latest = self.world.0.lock().unwrap().iter().rev().find(|p| p.analysis).map(|p| p.id);
             if let Some(id) = latest.filter(|&id| Some(id) != previous) {
                 return id;
             }
+            assert!(now < give_up, "no analysis process was launched in 120 s: {:?}", self.wb.view(false).strength.status);
             std::thread::sleep(Duration::from_millis(5));
         }
-        panic!("no analysis process was launched: {:?}", self.wb.view(false).strength.status);
     }
 }
 

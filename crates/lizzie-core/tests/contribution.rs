@@ -571,6 +571,7 @@ fn pause_is_throttled_and_slow_quit_repeats_are_refused() {
     let mut fixture = Fixture::new();
     fixture.configure(Fixture::settings("/opt/katago"));
     let id = fixture.start();
+    let first = std::time::Instant::now();
     assert_eq!(
         fixture
             .wb
@@ -578,19 +579,28 @@ fn pause_is_throttled_and_slow_quit_repeats_are_refused() {
             .unwrap(),
         CommandResult::Done
     );
+    let second = fixture
+        .wb
+        .contribution(ContributionCommand::PauseResume)
+        .unwrap();
+    let refused = CommandResult::Refused {
+        message_key: "Contribute.pauseResumeTooFrequently".into(),
+    };
+    // The two presses are less than two seconds apart unless this thread was held up that long
+    // between them; only then may the second one go through.
+    if first.elapsed() < std::time::Duration::from_secs(2) {
+        assert_eq!(second, refused);
+    }
     let session = fixture.contribution();
-    assert!(session.paused);
-    assert!(!session.active);
-    assert_eq!(fixture.world.sent(id), vec!["pause"]);
-    assert_eq!(
-        fixture
-            .wb
-            .contribution(ContributionCommand::PauseResume)
-            .unwrap(),
-        CommandResult::Refused {
-            message_key: "Contribute.pauseResumeTooFrequently".into()
-        }
-    );
+    if second == refused {
+        assert!(session.paused);
+        assert!(!session.active);
+        assert_eq!(fixture.world.sent(id), vec!["pause"]);
+    } else {
+        assert_eq!(second, CommandResult::Done);
+        assert!(!session.paused);
+        assert_eq!(fixture.world.sent(id), vec!["pause", "resume"]);
+    }
     // 顺序结束 resumes first, then sends quit; a second press is refused.
     assert_eq!(
         fixture

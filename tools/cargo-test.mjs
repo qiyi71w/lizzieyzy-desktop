@@ -8,7 +8,7 @@
 // The selection goes to `cargo test --no-run` (for example `-p lizzie-core`, `--test panels`,
 // `--features lizzieyzy-tauri/acceptance`); arguments after `--` reach every test binary (name
 // filters, `--exact`, `--nocapture`). Without a target selection the doc tests run too, as cargo
-// does. Binaries start longest first, by the durations earlier runs recorded in
+// does; `--doc` runs only them. Binaries start longest first, by the durations earlier runs recorded in
 // <target dir>/cargo-test-durations.json. At most --jobs (default 4) run at once: starting every
 // binary together starves the timing-sensitive tests.
 
@@ -55,7 +55,9 @@ function cargo(args) {
 function testJobs({ cargoArgs, binaryArgs }) {
   const metadata = JSON.parse(cargo(["metadata", "--format-version", "1", "--no-deps"]));
   const packages = new Map(metadata.packages.map((p) => [p.manifest_path, p.name]));
-  const built = cargo(["test", "--no-run", "--message-format=json-render-diagnostics", ...cargoArgs]);
+  // `--doc` selects only the doc tests, which cargo builds and runs itself (no `--no-run`).
+  const docOnly = cargoArgs.includes("--doc");
+  const built = docOnly ? "" : cargo(["test", "--no-run", "--message-format=json-render-diagnostics", ...cargoArgs]);
   const jobs = new Map();
   for (const line of built.split("\n")) {
     if (!line.startsWith("{")) continue;
@@ -73,11 +75,11 @@ function testJobs({ cargoArgs, binaryArgs }) {
     });
   }
   const selected = cargoArgs.some((arg) => TARGET_SELECTION.has(arg.split("=")[0]));
-  if (!selected) {
+  if (docOnly || !selected) {
     jobs.set("doc", {
       key: "doc tests",
       cmd: "cargo",
-      args: ["test", "--doc", ...cargoArgs, "--", ...binaryArgs],
+      args: ["test", ...(docOnly ? [] : ["--doc"]), ...cargoArgs, "--", ...binaryArgs],
       cwd: root,
       env: process.env,
       ownSummaries: Infinity,

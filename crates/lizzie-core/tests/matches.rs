@@ -1070,6 +1070,34 @@ fn spec_05_enabled_zero_max_moves_uses_board_area_times_two() {
         "zero resolves to 19*19*2, not a zero-move game"
     );
     assert!(m.wb.inspect().match_outcome.is_none());
+
+    // The match summary reports the limit: board width × height × 2 on each board size, so
+    // neither "no limit" nor a fixed 722 passes for it. Java's English label is " Max moves:".
+    for (size, expected) in [(9u8, 162u32), (19, 722)] {
+        let profile = |id: &str, name: &str| EngineProfile {
+            id: id.into(),
+            name: name.into(),
+            command: "/opt/katago gtp".into(),
+            width: size.into(),
+            height: size.into(),
+            ..EngineProfile::default()
+        };
+        let mut m = Match::with_profiles(Some("en-US"), vec![profile("one", "First"), profile("two", "Second")]);
+        m.start(MatchSessionSettings { max_moves_enabled: true, max_moves: 0, ..batch() });
+        m.serve(&|_, _| None);
+        assert_eq!(m.wb.document().record.size.width, u16::from(size));
+        m.finish_turn("resign");
+        let jobs = m.wb.take_background_saves();
+        let summary = &jobs.iter().find(|j| j.path.extension().is_some_and(|e| e == "txt")).unwrap().text;
+        let shown: String = summary
+            .split_once(" Max moves:")
+            .unwrap_or_else(|| panic!("{summary}"))
+            .1
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect();
+        assert_eq!(shown, expected.to_string(), "{size}×{size}");
+    }
 }
 
 #[test]

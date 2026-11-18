@@ -6,6 +6,12 @@ use std::path::{Path, PathBuf};
 
 use lizzie_core::update::portable::{self, PortableFailure, Recovery, WORK_DIR_NAME};
 
+#[cfg(unix)]
+#[path = "support/permissions.rs"]
+mod permissions;
+#[cfg(unix)]
+use permissions::obeying_permissions;
+
 const BINARY: &str = "lizzieyzy-tauri.exe";
 
 /// A release zip: one folder holding the given files.
@@ -135,7 +141,7 @@ fn an_unwritable_folder_is_reported_while_the_program_still_runs() {
     let zip = package(root.path(), VERSION_2);
     let before = snapshot(&folder);
     set_mode(&folder, 0o555);
-    let result = portable::prepare(&zip, &folder, "LizzieYzy.exe", BINARY, "0.2.0");
+    let result = obeying_permissions(|| portable::prepare(&zip, &folder, "LizzieYzy.exe", BINARY, "0.2.0"));
     set_mode(&folder, 0o755);
     assert_eq!(result.unwrap_err().failure, PortableFailure::Permission);
     assert_eq!(snapshot(&folder), before);
@@ -157,7 +163,7 @@ fn a_file_that_cannot_be_replaced_puts_every_replaced_file_back() {
     // The file cannot be replaced after the program closed (Windows: kept open elsewhere).
     set_mode(&folder.join("locked"), 0o555);
     let mut replaced = Vec::new();
-    let result = portable::claim(&folder).unwrap().apply(&mut |f| replaced.push(f.to_string()));
+    let result = obeying_permissions(|| portable::claim(&folder).unwrap().apply(&mut |f| replaced.push(f.to_string())));
     set_mode(&folder.join("locked"), 0o755);
 
     let error = result.unwrap_err();
@@ -209,7 +215,7 @@ fn undoing_again_after_a_partly_failed_undo_keeps_the_files_already_put_back() {
 
     // One file cannot be put back at this start; the others are.
     set_mode(&folder.join("readboard"), 0o555);
-    let first = portable::recover(&folder);
+    let first = obeying_permissions(|| portable::recover(&folder));
     set_mode(&folder.join("readboard"), 0o755);
     assert!(matches!(first, Recovery::Failed(_)), "{first:?}");
     assert_eq!(read(folder.join("LICENSE.txt")), "licence 1");

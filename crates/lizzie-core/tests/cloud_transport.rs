@@ -318,6 +318,16 @@ fn zhizi_waits_for_real_ready_and_decodes_text_binary_chunks_and_heartbeats() {
     engine.stop(); peer.join().unwrap();
 }
 
+/// Lets the blocked token resolver go when dropped, so every exit of a test (a failed assertion
+/// too) releases it before the engine is dropped and joins it.
+struct Release(mpsc::Sender<()>);
+
+impl Drop for Release {
+    fn drop(&mut self) {
+        let _ = self.0.send(());
+    }
+}
+
 #[test]
 fn cancelling_during_token_resolution_cannot_open_a_late_socket_or_emit_failure() {
     let (entered_tx, entered) = mpsc::channel();
@@ -330,10 +340,21 @@ fn cancelling_during_token_resolution_cannot_open_a_late_socket_or_emit_failure(
         entered_tx.send(()).unwrap(); release.lock().unwrap().recv().unwrap();
         Ok(SocketCredentials { socket_url: format!("ws://{address}"), token: "secret".into() })
     }));
+    // Declared after `engine`, so dropped (and the resolver let go) before it.
+    let resolver = Release(release_tx);
     entered.recv_timeout(Duration::from_secs(4)).unwrap();
-    let started = Instant::now(); engine.stop();
-    assert!(started.elapsed() < Duration::from_millis(100));
-    release_tx.send(()).unwrap();
+    // `stop` returns while the resolver is still held. One that waited for the resolver is let
+    // go after ten seconds, and the test fails instead of hanging.
+    let (returned_tx, returned) = mpsc::channel::<()>();
+    let rescue = resolver.0.clone();
+    let watchdog = thread::spawn(move || {
+        matches!(returned.recv_timeout(Duration::from_secs(10)), Err(mpsc::RecvTimeoutError::Timeout)) && rescue.send(()).is_ok()
+    });
+    engine.stop();
+    returned_tx.send(()).unwrap();
+    let waited = watchdog.join().unwrap();
+    assert!(!waited, "stop waited for the token resolver");
+    drop(resolver);
     drop(engine.io.take());
     // Joining the worker and token resolver proves that there is no deferred socket use.
     for handle in std::mem::take(&mut *engine.endings.lock().unwrap()) { handle.join().unwrap(); }
@@ -395,33 +416,45 @@ fn launch_and_socket_credentials_debug_never_reveal_secrets() {
 #[test]
 fn raw_analysis_and_repeated_accepted_totals_do_not_keep_a_stalled_zhizi_session_alive() {
     let (started_tx, started) = mpsc::channel();
+    let gave_up = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let fixture_gave_up = gave_up.clone();
     let (url, peer) = server(move |mut peer| {
         socketio_ready(&mut peer);
         assert!(text(&mut peer).contains("kata-analyze"));
         started_tx.send(()).unwrap();
-        // A peer can keep producing bytes while the current board rejects every result.
-        for _ in 0..230 {
+        // A peer keeps producing bytes, and stays connected, while the current board rejects
+        // every result: only the client ends the connection, well within this minute.
+        for _ in 0..600 {
             if peer.send(Message::Text("42[\"stdout\",\"info move D4 visits 100 winrate 0.5\\n\"]".into())).is_err() { return; }
             thread::sleep(Duration::from_millis(100));
         }
+        fixture_gave_up.store(true, std::sync::atomic::Ordering::SeqCst);
     });
     let mut engine = Running::zhizi(url);
     engine.send("1 kata-analyze B 50");
     started.recv_timeout(Duration::from_secs(4)).unwrap();
+    // The 20 seconds without new accepted progress count from this report…
+    let accepted = Instant::now();
     engine.io.as_mut().unwrap().analysis_progress_accepted(100);
-    let start = Instant::now();
-    let mut repeated = false;
-    loop {
-        if !repeated && start.elapsed() > Duration::from_secs(10) {
+    // …and a later report of the same total does not restart them.
+    let mut repeated = None;
+    let _recovery = loop {
+        if repeated.is_none() && accepted.elapsed() > Duration::from_secs(10) {
+            repeated = Some(Instant::now());
             engine.io.as_mut().unwrap().analysis_progress_accepted(100);
-            repeated = true;
         }
-        let event = engine.events.recv_timeout(Duration::from_secs(24).saturating_sub(start.elapsed())).unwrap();
-        if matches!(event, EngineInput::CloudRecovery { .. }) { break; }
-    }
-    assert!(repeated);
-    assert!(start.elapsed() >= Duration::from_secs(19));
-    assert!(start.elapsed() < Duration::from_secs(24));
+        let wait = if repeated.is_none() { Duration::from_millis(100) } else { Duration::from_secs(90) };
+        match engine.events.recv_timeout(wait) {
+            Ok(EngineInput::CloudRecovery { message }) => break message,
+            Ok(_) | Err(mpsc::RecvTimeoutError::Timeout) if repeated.is_none() => {}
+            Ok(_) => {}
+            Err(error) => panic!("no recovery: {error:?}"),
+        }
+    };
+    let at = Instant::now();
+    assert!(!gave_up.load(std::sync::atomic::Ordering::SeqCst), "the fixture ended the connection first");
+    assert!(at >= accepted + Duration::from_secs(20), "before 20 seconds without progress");
+    assert!(at < repeated.unwrap() + Duration::from_secs(20), "the repeated total restarted the 20 seconds");
     engine.stop(); peer.join().unwrap();
 }
 
@@ -451,9 +484,14 @@ fn cancel_during_ready_wait_closes_connection_without_flushing_queued_gtp() {
         assert_eq!(text(&mut peer), "40");
         peer.send(Message::Text("40{}".into())).unwrap();
         connected_tx.send(()).unwrap();
+        // Only the client's close, or the end of its connection, counts; the fixture's own read
+        // timeout does not.
+        use tokio_tungstenite::tungstenite::{error::ProtocolError, Error};
         match peer.read() {
-            Err(_) | Ok(Message::Close(_)) => {},
-            other => panic!("cancelled startup sent GTP: {other:?}"),
+            Ok(Message::Close(_))
+            | Err(Error::ConnectionClosed | Error::AlreadyClosed | Error::Protocol(ProtocolError::ResetWithoutClosingHandshake)) => {},
+            Err(Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted | std::io::ErrorKind::UnexpectedEof) => {},
+            other => panic!("the cancelled startup did not close its connection: {other:?}"),
         }
     });
     let mut engine = Running::zhizi(url);

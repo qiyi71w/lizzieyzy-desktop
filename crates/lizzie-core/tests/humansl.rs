@@ -175,11 +175,13 @@ fn foreground(f: &mut Fixture) -> InstanceId {
     serve(f, id, false);
     id
 }
-fn serve(f: &mut Fixture, id: InstanceId, fail_name: bool) {
+/// Answers the foreground engine's commands; returns them.
+fn serve(f: &mut Fixture, id: InstanceId, fail_name: bool) -> Vec<String> {
+    let mut seen = Vec::new();
     for _ in 0..30 {
         let pending = f.world.take(id);
         if pending.is_empty() {
-            return;
+            return seen;
         }
         for line in pending {
             f.wb.engine_input(id, EngineInput::Stdout(String::new()));
@@ -196,6 +198,7 @@ fn serve(f: &mut Fixture, id: InstanceId, fail_name: bool) {
             if word != "kata-analyze" {
                 f.wb.engine_input(id, EngineInput::Stdout(String::new()));
             }
+            seen.push(command.to_string());
         }
     }
     panic!("foreground handshake did not settle");
@@ -554,28 +557,48 @@ fn readiness_capability_failure_and_retry_are_not_ordinary_analysis() {
 
 #[test]
 fn quick_analysis_cannot_borrow_training_foreground() {
-    let mut f = fixture(true);
-    let fg = foreground(&mut f);
-    let mut s = f.wb.config().analysis_engine.clone();
-    s.reuse_current_engine = true;
-    let command = s.command.clone();
-    f.wb.save_analysis_engine_settings(s, &command, false).unwrap().unwrap();
-    let id = start(&mut f, settings(PlayerColor::Black), false);
+    // Two moves without analysis on the main trunk; 自动快析 borrows the foreground engine.
+    let prepare = || {
+        let mut f = fixture(true);
+        let fg = foreground(&mut f);
+        f.wb.set_auto_quick_analyze(false).unwrap();
+        let mut s = f.wb.config().analysis_engine.clone();
+        s.reuse_current_engine = true;
+        let command = s.command.clone();
+        f.wb.save_analysis_engine_settings(s, &command, false).unwrap().unwrap();
+        for (x, y) in [(3, 3), (15, 15)] {
+            f.wb.edit(EditCommand::Play { point: Point { x, y }, color: None }).unwrap();
+        }
+        assert!(f.wb.navigate(Navigation::First));
+        serve(&mut f, fg, false);
+        (f, fg)
+    };
+    let browse = |f: &mut Fixture, fg: InstanceId| {
+        f.wb.set_auto_quick_analyze(true).unwrap();
+        assert!(f.wb.navigate(Navigation::Forward(1)));
+        // Browsing settles (700 ms) before the analysis starts.
+        f.wb.engine_tick(Instant::now() + Duration::from_secs(1));
+        serve(f, fg, false)
+    };
+    let borrowed = |sent: &[String]| sent.iter().any(|c| c.contains("maxmoves 1"));
+
+    // Without training, browsing starts a finite search on the borrowed foreground engine.
+    let (mut f, fg) = prepare();
+    let sent = browse(&mut f, fg);
+    assert!(borrowed(&sent), "{sent:?}");
+
+    // During training whose foreground keeps analysing, the same browsing borrows nothing.
+    let (mut f, fg) = prepare();
+    let id = start(&mut f, HumanSlTrainingSettings { mode: TrainingMode::LiveAnalysis, ..settings(PlayerColor::Black) }, true);
     ready(&mut f, id);
-    f.wb.set_auto_quick_analyze(true).unwrap();
-    f.wb.engine_tick(Instant::now() + Duration::from_secs(1));
     serve(&mut f, fg, false);
+    assert!(!f.wb.inspect().engine.paused);
+    let sent = browse(&mut f, fg);
+    assert!(!borrowed(&sent), "{sent:?}");
     assert_eq!(f.wb.inspect().engine.lease, LeaseAvailabilityView::HumanSlGame);
-    assert_eq!(
-        f.world
-            .0
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|p| p.args.first().is_some_and(|s| s == "analysis") && !p.dead)
-            .count(),
-        1
-    );
+    assert!(f.wb.inspect().human_sl.is_some());
+    assert!(!f.world.dead(id));
+    assert!(!f.wb.view(false).quick.running);
 }
 
 #[test]
