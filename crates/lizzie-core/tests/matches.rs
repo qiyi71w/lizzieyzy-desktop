@@ -751,6 +751,54 @@ fn an_analysis_match_lifts_the_visit_limit_of_leela_participants_only() {
     }
 }
 
+/// The lifted visit limit is the match's own: when the match ends, the same Leela Zero / Sai
+/// process gets back the Visits value it had before, confirmed before it is handed back.
+#[test]
+fn an_analysis_match_gives_the_leela_visit_limit_back_when_it_ends() {
+    const LEELA: &str = "name\nversion\nlist_commands\nboardsize\nclear_board\nkomi\nplay\nundo\nlz-analyze\nlz-setoption\nclear_cache\ngenmove";
+    let mut m = Match::new();
+    m.wb.start_engines();
+    let leela = m.world.ids()[0];
+    let as_leela = move |instance: InstanceId, command: &str| -> Option<String> {
+        if instance != leela {
+            return None;
+        }
+        match command {
+            "name" => Some("Leela Zero".into()),
+            "version" => Some("0.17".into()),
+            "list_commands" => Some(LEELA.into()),
+            _ => None,
+        }
+    };
+    m.serve(&as_leela);
+    let visits = lizzie_core::engine::profile::LeelaOptionSetting { enabled: true, auto_load: true, value: "800".into() };
+    let options = lizzie_core::engine::profile::LeelaOptionSettings { visits, ..Default::default() };
+    assert_eq!(m.wb.save_leela_engine_options(options).unwrap(), None);
+    m.serve(&as_leela);
+    m.start(MatchSessionSettings {
+        kind: GameKind::Analysis,
+        time_enabled: false,
+        visits_enabled: true,
+        first_visits: 1000,
+        second_visits: 1000,
+        auto_save: false,
+        ..MatchSessionSettings::default()
+    });
+    let mut sent = m.serve(&as_leela);
+    m.command(MatchCommand::Stop);
+    sent.extend(m.serve(&as_leela));
+    let leela_sent: Vec<&str> = sent.iter().filter(|(i, _)| *i == leela).map(|(_, c)| c.as_str()).collect();
+    let lift = leela_sent.iter().position(|c| *c == "lz-setoption name Visits value 1000000000").expect("lifted");
+    let restore = leela_sent.iter().rposition(|c| *c == "lz-setoption name Visits value 800");
+    assert!(restore.is_some_and(|at| at > lift), "{leela_sent:?}");
+    assert_eq!(m.phase(), None);
+    assert!(m.wb.view(false).match_outcome.unwrap().unrestored.is_empty());
+    for other in m.world.ids().into_iter().filter(|&i| i != leela) {
+        let to_other: Vec<_> = sent.iter().filter(|(i, _)| *i == other).map(|(_, c)| c.as_str()).collect();
+        assert!(!to_other.iter().any(|c| c.starts_with("lz-setoption")), "KataGo gets no lz-setoption: {to_other:?}");
+    }
+}
+
 #[test]
 fn analysis_intervention_uses_current_candidates_while_previous_candidates_are_shown() {
     let mut m = Match::new();

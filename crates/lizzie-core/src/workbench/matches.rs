@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use super::{SaveJob, Workbench};
 use crate::api::*;
-use crate::engine::runtime::{GenmoveReply, InstanceId, LeaseFailure, Phase, RuntimeEvent};
+use crate::engine::runtime::{GenmoveReply, InstanceId, LeaseFailure, LeelaOption, Phase, RuntimeEvent};
 use crate::record::{DocumentEdit, GameRecord, NodeId, NodeKind, Point, RecordFormat, Stone, ROOT};
 use crate::settings::{MatchIdentity, MatchSettings, MatchTimeMode};
 
@@ -858,12 +858,16 @@ impl Workbench {
                 commands.push("kata-set-param analysisWideRootNoise 0".into());
             }
             // EngineManager.java:2607-2617 (分析模式对战): Visits 自动加载 lifts a Leela Zero / Sai
-            // participant's visit limit for the match; Java sends it to KataGo as well.
+            // participant's visit limit for the match; Java sends it to KataGo as well. Java never
+            // gives the limit back, so a process that stays up keeps searching without one; here the
+            // value the process had before is part of what the match restores at its end.
+            let mut restore_visits = None;
             if values.kind == GameKind::Analysis
                 && self.config.engine.leela_options.visits.auto_load
                 && self.engines.takes_lz_options(id)
             {
                 commands.push("lz-setoption name Visits value 1000000000".into());
+                restore_visits = self.engines.leela_visits(id).and_then(|v| LeelaOption::Visits.command(v));
             }
             if self.engines.has_command(id, "clear_cache") {
                 commands.push("clear_cache".into());
@@ -884,6 +888,7 @@ impl Workbench {
             p.setup = true;
             p.awaiting = awaiting;
             p.captures = captures;
+            p.restore.extend(restore_visits);
             let mode = if n == 0 {
                 settings.first_time_mode
             } else {

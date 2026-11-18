@@ -203,7 +203,9 @@ impl Workbench {
     /// The foreground engine is there, done starting, and not held by a game, a borrowed
     /// search, an unrestored state or a mode that moves it (`beginEngineModeReservation`,
     /// `desktopPlayingProbe`). An engine still starting is a switch or restart that has not
-    /// completed: Java's lifecycle reservation refuses the 试下 until it has.
+    /// completed: Java's lifecycle reservation refuses the 试下 until it has. A Fox session owns
+    /// the board from the moment it listens, before it takes the engine; the desktop gate
+    /// (`fox_gate`) refuses changes then, and so does this entry (Java admits the 试下 there).
     fn web_trial_engine_free(&self) -> bool {
         let held = matches!(
             self.engines.lease_availability(),
@@ -218,6 +220,8 @@ impl Workbench {
         // A GMA hand or its restore holds `readBoardGmaReservation` (Leelaz.java:15201-15205).
         !held
             && !self.readboard.gma.reserved()
+            && !self.fox_owns_board()
+            && !self.fox_holds_engine()
             && !self.game_active()
             && !self.match_active()
             && !self.human_sl_active()
