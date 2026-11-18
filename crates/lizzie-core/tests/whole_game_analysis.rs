@@ -465,31 +465,63 @@ fn sent_at_tick(wb: &mut Workbench, world: &World, fg: InstanceId, at: Instant) 
     world.0.lock().unwrap().iter_mut().find(|p| p.id == fg).unwrap().sent.splice(0..0, sent.clone());
     sent
 }
-/// A deep search is stopped only after 8 s without a report (`REMOTE_GTP_ANALYZE_STALL_TIMEOUT_MILLIS`
-/// counts idle time), not 8 s after it was sent.
-#[test]
-fn a_reporting_borrowed_deep_search_outlives_8_seconds_and_only_a_silent_one_is_stopped() {
-    let dir = tempfile::tempdir().unwrap(); let world = World::default();
-    let (mut wb, fg) = borrowed_deep(dir.path(), &world);
-    serve(&mut wb, &world, fg, 2_000);
-    assert_eq!(wb.view(false).whole_game.state, State::Deep);
-    for visits in [4_000, 6_000, 8_000] { output(&mut wb, fg, &info(visits)); }
-    let start = Instant::now();
-    let at_9 = sent_at_tick(&mut wb, &world, fg, start + Duration::from_secs(9));
-    assert!(!at_9.iter().any(|c| c.ends_with(" stop")), "a reporting search is not stalled: {at_9:?}");
-    // No report for the next 8 s: the search is stalled and stopped.
-    let at_18 = sent_at_tick(&mut wb, &world, fg, start + Duration::from_secs(18));
-    assert!(at_18.iter().any(|c| c.ends_with(" stop")), "{at_18:?}");
+/// A report of the borrowed engine read at `at`.
+fn output_at(wb: &mut Workbench, id: InstanceId, text: &str, at: Instant) {
+    wb.engine_input_at(id, EngineInput::Stdout(text.into()), at);
 }
+fn stops(sent: &[String]) -> bool { sent.iter().any(|c| c.ends_with(" stop")) }
+/// The borrowed deep search of the first position, running since before `t0`: `t0` is when its
+/// first controlled report comes.
+fn deep_search_running(dir: &std::path::Path, world: &World) -> (Workbench, InstanceId, Instant) {
+    let (mut wb, fg) = borrowed_deep(dir, world);
+    serve(&mut wb, world, fg, 2_000);
+    assert_eq!(wb.view(false).whole_game.state, State::Deep);
+    (wb, fg, Instant::now())
+}
+/// A deep search is stalled 8 s after its last report (`REMOTE_GTP_ANALYZE_STALL_TIMEOUT_MILLIS`
+/// counts idle time, `AnalysisEngine.java:1106-1114`): a report at the start of the window and
+/// then silence is stopped at the first tick 8 s after that report.
+#[test]
+fn a_borrowed_deep_search_silent_after_an_early_report_is_stopped_8_seconds_after_it() {
+    let dir = tempfile::tempdir().unwrap(); let world = World::default();
+    let (mut wb, fg, t0) = deep_search_running(dir.path(), &world);
+    output_at(&mut wb, fg, &info(4_000), t0);
+    let at_7 = sent_at_tick(&mut wb, &world, fg, t0 + Duration::from_millis(7_500));
+    assert!(!stops(&at_7), "7.5 s after the last report: {at_7:?}");
+    let at_9 = sent_at_tick(&mut wb, &world, fg, t0 + Duration::from_secs(9));
+    assert!(stops(&at_9), "9 s after the last report: {at_9:?}");
+}
+/// A report late in the first window: ticks after that window ends (whatever their phase) wait
+/// for 8 s of silence counted from the report, then the search is stopped. The `stop` itself has
+/// its own 1.2 s answer deadline (`REMOTE_GTP_STOP_ACK_TIMEOUT_MILLIS`), which a report does not
+/// extend; unanswered, the search fails and the next position is searched.
+#[test]
+fn a_borrowed_deep_search_reporting_late_in_its_window_is_stopped_8_seconds_after_that_report() {
+    let dir = tempfile::tempdir().unwrap(); let world = World::default();
+    let (mut wb, fg, t0) = deep_search_running(dir.path(), &world);
+    output_at(&mut wb, fg, &info(4_000), t0 + Duration::from_secs(6));
+    for at in [9_000, 11_300, 13_900] {
+        let sent = sent_at_tick(&mut wb, &world, fg, t0 + Duration::from_millis(at));
+        assert!(!stops(&sent), "{at} ms, last report at 6 s: {sent:?}");
+    }
+    let at_14 = sent_at_tick(&mut wb, &world, fg, t0 + Duration::from_secs(14));
+    assert!(stops(&at_14), "8 s after the last report: {at_14:?}");
+    world.take(fg);
+    output_at(&mut wb, fg, &info(5_000), t0 + Duration::from_millis(14_500));
+    let before = sent_at_tick(&mut wb, &world, fg, t0 + Duration::from_millis(15_100));
+    assert!(before.is_empty(), "the stop is still awaited 1.1 s after it was sent: {before:?}");
+    let after = sent_at_tick(&mut wb, &world, fg, t0 + Duration::from_millis(15_300));
+    assert!(after.iter().any(|c| c.starts_with("kata-analyze") || c.contains(" kata-analyze")), "unanswered for 1.2 s, the next position is searched: {after:?}");
+}
+/// Reports keep a deep search alive past its first 8 s, until it reaches its target.
 #[test]
 fn a_reporting_borrowed_deep_search_reaches_its_target_after_8_seconds() {
     let dir = tempfile::tempdir().unwrap(); let world = World::default();
-    let (mut wb, fg) = borrowed_deep(dir.path(), &world);
-    serve(&mut wb, &world, fg, 2_000);
-    for visits in [4_000, 6_000, 8_000] { output(&mut wb, fg, &info(visits)); }
-    let at_9 = sent_at_tick(&mut wb, &world, fg, Instant::now() + Duration::from_secs(9));
-    assert!(!at_9.iter().any(|c| c.ends_with(" stop")), "{at_9:?}");
-    output(&mut wb, fg, &info(10_000));
+    let (mut wb, fg, t0) = deep_search_running(dir.path(), &world);
+    for (s, visits) in [(3, 4_000), (5, 6_000), (7, 8_000)] { output_at(&mut wb, fg, &info(visits), t0 + Duration::from_secs(s)); }
+    let at_9 = sent_at_tick(&mut wb, &world, fg, t0 + Duration::from_secs(9));
+    assert!(!stops(&at_9), "{at_9:?}");
+    output_at(&mut wb, fg, &info(10_000), t0 + Duration::from_secs(10));
     for _ in 0..20 { serve(&mut wb, &world, fg, 10_000); }
     assert_eq!(wb.view(false).whole_game.state, State::Complete);
     wb.navigate(Navigation::First);
@@ -497,7 +529,7 @@ fn a_reporting_borrowed_deep_search_reaches_its_target_after_8_seconds() {
     for _ in 0..5 { visits.push(wb.view(false).analysis.map(|a| a.visits)); wb.navigate(Navigation::Forward(1)); }
     assert_eq!(visits, [Some(10_000); 5]);
 }
-/// Every deep search reports growing visits and needs about 12 s for its target.
+/// Every deep search reports every 6 s and needs 12 s for its target.
 #[test]
 fn a_consistently_slow_reporting_engine_completes_the_deep_phase() {
     let dir = tempfile::tempdir().unwrap(); let world = World::default();
@@ -507,10 +539,10 @@ fn a_consistently_slow_reporting_engine_completes_the_deep_phase() {
         if !matches!(wb.view(false).whole_game.state, State::Deep | State::Baseline | State::Preparing) { break; }
         let start = Instant::now();
         let at_6 = sent_at_tick(&mut wb, &world, fg, start + Duration::from_secs(6));
-        output(&mut wb, fg, &info(6_000));
+        output_at(&mut wb, fg, &info(6_000), start + Duration::from_secs(6));
         let at_12 = sent_at_tick(&mut wb, &world, fg, start + Duration::from_secs(12));
-        assert!(!at_6.iter().chain(&at_12).any(|c| c.ends_with(" stop")), "a reporting search is stopped: {at_12:?}");
-        output(&mut wb, fg, &info(10_000));
+        assert!(!stops(&at_6) && !stops(&at_12), "a reporting search is stopped: {at_12:?}");
+        output_at(&mut wb, fg, &info(10_000), start + Duration::from_secs(12));
     }
     assert_eq!(wb.view(false).whole_game.state, State::Complete);
 }

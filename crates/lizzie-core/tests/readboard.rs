@@ -797,6 +797,26 @@ fn gma_parameters_left_during_a_web_trial_go_back_when_the_trial_ends() {
     assert_eq!(r.lease(), LeaseAvailabilityView::Available);
 }
 
+/// GMA armed and between hands, the engine restarted: a GMA hand may share the engine with a 试下,
+/// but an engine still starting takes none (`EngineNotReady`): the request is refused and leaves
+/// the record alone; once the engine is up the same request is admitted.
+#[test]
+fn between_gma_hands_a_web_trial_waits_for_a_restarted_engine() {
+    let (mut r, _h) = first_gma_hand_played(false, "false");
+    r.wb.web_board_started(7, "http://127.0.0.1:9998".into());
+    assert_eq!(r.wb.game_gate(&Command::RestartEngine), None, "no hand holds the engine");
+    assert!(r.wb.restart_engine().unwrap());
+    r.engine = r.engines.last();
+    let (revision, cursor) = (r.wb.document().revision, r.wb.cursor());
+    let denied = enter_trial(&mut r.wb).expect("the restarted engine is still starting");
+    assert!(denied.contains(r#""reason":"engine_busy""#), "{denied}");
+    assert!(!r.wb.view(false).web_board.trial_active);
+    assert_eq!((r.wb.document().revision, r.wb.cursor()), (revision, cursor));
+    r.serve(&|_| None);
+    assert_eq!(enter_trial(&mut r.wb), None, "the ready engine takes the 试下");
+    assert!(r.wb.view(false).web_board.trial_active);
+}
+
 /// `playpon off` between two hands (Java `disableReadBoardGmaPonderIfIdle`): the engine stops
 /// pondering for GMA at once; its own value goes back when GMA is cleared.
 #[test]

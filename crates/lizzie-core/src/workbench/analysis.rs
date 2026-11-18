@@ -335,7 +335,9 @@ impl AnalysisStore {
             self.metadata.get(&node).copied().unwrap_or_default(), self.ownership(rec, node)))
     }
 
-    /// The analysis saved under `tags` in every node of `rec`.
+    /// The analysis saved under `tags` in every node of `rec`. Secondary-engine tags keep every
+    /// candidate (`parseAnalysisInfoForDetachedNode` reads them with 361, SGFParser.java:4825-4830);
+    /// variations follow 变化长度 for both, as Java's `captureVariationTokens`.
     pub(super) fn load(
         &mut self,
         rec: &GameRecord,
@@ -343,7 +345,8 @@ impl AnalysisStore {
         settings: &AnalysisSettings,
         no_sugg_circle: bool,
     ) {
-        let limit = if settings.limit_max_suggestion > 0 && !no_sugg_circle {
+        let secondary = tags == crate::formats::saved_analysis::SECONDARY;
+        let limit = if settings.limit_max_suggestion > 0 && !no_sugg_circle && !secondary {
             settings.limit_max_suggestion as usize
         } else { 0 };
         let max = if limit > 0 { limit } else { 361 };
@@ -1529,7 +1532,13 @@ impl Workbench {
 
     /// Output of an engine process. Returns whether the view changed.
     pub fn engine_input(&mut self, instance: InstanceId, input: EngineInput) -> bool {
-        let events = self.engines.input(instance, input);
+        self.engine_input_at(instance, input, std::time::Instant::now())
+    }
+
+    /// [`Self::engine_input`] read at `now`, the clock [`Self::engine_tick`] is given: a borrowed
+    /// search's stall time counts from the last output read.
+    pub fn engine_input_at(&mut self, instance: InstanceId, input: EngineInput, now: std::time::Instant) -> bool {
+        let events = self.engines.input(instance, input, now);
         let changed = self.engine_events(events);
         // A remote compute switch completes with its board sync, whose answers raise no event.
         self.cloud_activation_settle();

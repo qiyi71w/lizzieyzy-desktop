@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use lizzie_core::api::{
-    Command, CommandResult, EditCommand, GameCommand, GameEnd, GameKind, GamePhase, LeaseAvailabilityView, OpenSource,
-    ResourceCommand, ResourceResult, ScoreCommand,
+    BatchCommand, BatchMode, Command, CommandResult, EditCommand, GameCommand, GameEnd, GameKind, GamePhase,
+    LeaseAvailabilityView, OpenSource, ResourceCommand, ResourceResult, ScoreCommand,
 };
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::cloud::{CloudLaunch, CloudProvider};
@@ -15,7 +15,9 @@ use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, KataParam,
 use lizzie_core::formats::sgf;
 use lizzie_core::record::{NodeKind, Point, RecordFormat, Stone, ROOT};
 use lizzie_core::resources as r;
-use lizzie_core::settings::{AiTimeMode, AiTimeSettings, AutoPlaySettings, GameSettings, KataTimeType, Storage};
+use lizzie_core::settings::{
+    AiTimeMode, AiTimeSettings, AutoAnalysisSettings, AutoPlaySettings, GameSettings, KataTimeType, Storage,
+};
 use lizzie_core::web_board::parse_client_message;
 use lizzie_core::workbench::{OpenOrigin, Workbench};
 
@@ -467,6 +469,75 @@ fn an_ended_game_whose_engine_never_answers_can_be_released_by_restarting_it() {
     assert_eq!(g.wb.game_gate(&Command::RestartEngine), None, "an ending game's engine may be restarted");
     g.wb.restart_engine().unwrap();
     assert_eq!(g.phase(), None, "the stuck engine is gone with the game");
+}
+
+/// The application's command entry for a batch command (`dispatch`): the game's gate, then the
+/// operation; `Choose` stands for the chooser answering `path`. `None`: the command ran.
+fn dispatch_batch(g: &mut Game, op: &BatchCommand, path: &str) -> Option<CommandResult> {
+    if let Some(refused) = g.wb.game_gate(&Command::Batch { op: op.clone() }) {
+        return Some(refused);
+    }
+    match op {
+        BatchCommand::Choose { mode } => drop(g.wb.open_batch(*mode, vec![path.into()], OpenSource::Chooser)),
+        BatchCommand::Open { mode, paths, source } => drop(g.wb.open_batch(*mode, paths.clone(), *source)),
+        BatchCommand::StartOrdinary { settings } => drop(g.wb.start_batch_ordinary(settings.clone())),
+        BatchCommand::StartFlash { start_move, end_move, visits, all_branches } => {
+            drop(g.wb.start_batch_flash(*start_move, *end_move, *visits, *all_branches))
+        }
+        other => panic!("{other:?}"),
+    }
+    None
+}
+
+/// 批量分析 / 批量精析 while a game runs and while it gives its engine back: the command entry
+/// refuses opening and starting them as play mode (T20), before a record is read, a dialog opens or
+/// a setting changes (Java's batch load ends at `openFileFailed.inGame`). After the game the same
+/// commands are admitted.
+#[test]
+fn batch_analysis_is_refused_while_a_game_holds_or_gives_back_its_engine() {
+    let mut g = Game::new();
+    let src = g._dir.path().join("b.sgf");
+    std::fs::write(&src, "(;SZ[19];B[pd])").unwrap();
+    let path = src.to_string_lossy().into_owned();
+    let commands = [
+        BatchCommand::Choose { mode: BatchMode::Ordinary },
+        BatchCommand::Open { mode: BatchMode::Flash, paths: vec![path.clone()], source: OpenSource::Drop },
+        BatchCommand::StartOrdinary { settings: AutoAnalysisSettings { auto_save: true, ..AutoAnalysisSettings::default() } },
+        BatchCommand::StartFlash { start_move: -1, end_move: -1, visits: 100, all_branches: false },
+    ];
+    let refused = CommandResult::Refused { message_key: "AnalysisSettings.reuseStatus.play_mode".into() };
+    let all_refused = |g: &mut Game, when: &str| {
+        let config = format!("{:?}", g.wb.config());
+        for op in &commands {
+            assert_eq!(dispatch_batch(g, op, &path), Some(refused.clone()), "{when}: {op:?}");
+            assert!(g.wb.take_batch_reads().is_empty(), "{when}: no record is read for {op:?}");
+            let batch = g.wb.view(false).batch;
+            assert_eq!(batch.setup, None, "{when}: no settings dialog for {op:?}");
+            assert!(batch.items.is_empty(), "{when}: the queue is unchanged by {op:?}");
+            assert_eq!(format!("{:?}", g.wb.config()), config, "{when}: no setting is written by {op:?}");
+        }
+    };
+
+    start(&mut g, GameKind::Genmove, genmove_settings(true), None);
+    g.serve(&|_| None);
+    assert_eq!(g.phase(), Some(GamePhase::Playing));
+    all_refused(&mut g, "playing");
+
+    play(&mut g, 3, 3);
+    g.serve(&|_| None);
+    g.game(GameCommand::End);
+    g.serve(&|c| (c == "name").then(|| "HOLD".to_string()));
+    assert_eq!(g.phase(), Some(GamePhase::Ending));
+    all_refused(&mut g, "giving the engine back");
+
+    g.answer_held("genmove W", "Q16");
+    g.answer_held("name", "KataGo");
+    assert_eq!(g.phase(), None);
+    for op in &commands {
+        assert_eq!(g.wb.game_gate(&Command::Batch { op: op.clone() }), None, "after the game: {op:?}");
+    }
+    assert_eq!(dispatch_batch(&mut g, &commands[0], &path), None);
+    assert_eq!(g.wb.take_batch_reads().len(), 1, "the chosen record is read");
 }
 
 #[test]

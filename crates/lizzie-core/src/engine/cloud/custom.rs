@@ -51,6 +51,9 @@ pub(super) struct Adapter {
     noise: f64,
     sequence: u64,
     active: Option<Query>,
+    /// Analysis streams a later command ended while an explicit `stop` of theirs waits for the
+    /// final result and the matching terminate ack (Java `completeStoppedQueryIfReady`).
+    stopping: Vec<Query>,
 }
 
 impl Default for Adapter {
@@ -60,7 +63,7 @@ impl Default for Adapter {
             rules: KataRules::preset("chinese").unwrap().to_gtp_argument(),
             initial_stones: Vec::new(), moves: Vec::new(), initial_player: None,
             max_time: 1e20, max_visits: 256, advantage: 0.0, noise: 0.04,
-            sequence: 0, active: None,
+            sequence: 0, active: None, stopping: Vec::new(),
         }
     }
 }
@@ -218,14 +221,38 @@ impl Adapter {
         Ok(if sends.is_empty() { Action::None } else { Action::Send(sends) })
     }
 
-    /// Ends the active analysis stream: its response closes, a pending `stop` is answered and
-    /// the remote query is terminated unless a `stop` already did; its late results stay inert.
-    /// Returns that `terminate`. A move query is not a stream and keeps running.
+    /// Ends the active analysis stream: its response closes and the remote query is terminated
+    /// unless a `stop` already did; its late results stay inert. A pending `stop` is answered only
+    /// once that query's final result and terminate ack arrive. Returns that `terminate`. A move
+    /// query is not a stream and keeps running.
     fn end_stream(&mut self, output: &Output) -> Option<String> {
         let query = self.active.take_if(|query| !query.genmove)?;
         if query.started && !query.final_received { stdout(output, "\n"); }
-        for id in &query.stop_ids { ok(output, id, ""); }
-        query.stop_ids.is_empty().then(|| terminate(&query.id))
+        if query.stop_ids.is_empty() {
+            return Some(terminate(&query.id));
+        }
+        self.stopping.push(query);
+        None
+    }
+
+    /// A response for a stopped stream a later command ended: it settles that `stop` once its
+    /// final result and matching ack are in. A remote error fails the transport, as Java's
+    /// `failActiveQuery`; the `stop` is never answered with success.
+    fn stopping_response(&mut self, at: usize, id: &str, response: &Value, output: &Output) -> Result<(), ()> {
+        if response.get("error").is_some() { return Err(()); }
+        let query = &mut self.stopping[at];
+        if id == format!("terminate-{}", query.id) {
+            if response["action"] != "terminate" || response["terminateId"] != query.id { return Err(()); }
+            query.terminate_ack = true;
+        } else if response.get("warning").is_some() {
+            output.emit(EngineInput::Stderr("Custom cloud analysis warning".into()));
+        } else if !response["isDuringSearch"].as_bool().ok_or(())? {
+            query.final_received = true;
+        }
+        if query.final_received && query.terminate_ack {
+            for id in &self.stopping.remove(at).stop_ids { ok(output, id, ""); }
+        }
+        Ok(())
     }
 
     fn clear(&mut self) {
@@ -299,7 +326,10 @@ impl Adapter {
         if !response.is_object() { return Err(()); }
         let id = response["id"].as_str().unwrap_or("");
         let sequence = id.strip_prefix("terminate-").unwrap_or(id).strip_prefix("lz-ws-").and_then(|id| id.parse::<u64>().ok());
-        // Every response from an old query is inert, including its late warning, error and stop ack.
+        if let Some(at) = self.stopping.iter().position(|query| Some(query.sequence) == sequence) {
+            return self.stopping_response(at, id, &response, output);
+        }
+        // Every other response from an old query is inert, including its late warning, error and stop ack.
         if sequence.is_some_and(|sequence| sequence > 0 && sequence <= self.sequence && self.active.as_ref().is_none_or(|active| sequence < active.sequence)) {
             return Ok(());
         }

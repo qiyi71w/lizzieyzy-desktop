@@ -104,6 +104,14 @@ fn out(wb: &mut Workbench, id: InstanceId, line: &str) {
 
 /// Answers every outstanding GTP command of `id`; each `kata-analyze` gets one line of `visits`.
 fn serve(wb: &mut Workbench, world: &World, id: InstanceId, visits: u64) -> Vec<String> {
+    let info = (visits > 0).then(|| format!(
+        "info move K10 visits {visits} winrate 0.5 scoreLead 0.5 prior 0.2 order 0 pv K10 rootInfo visits {visits} winrate 0.4 scoreLead -0.5"
+    ));
+    serve_with(wb, world, id, info.as_deref())
+}
+
+/// [`serve`] with `info` as each `kata-analyze`'s line.
+fn serve_with(wb: &mut Workbench, world: &World, id: InstanceId, info: Option<&str>) -> Vec<String> {
     let mut done = Vec::new();
     loop {
         let pending = world.take(id);
@@ -125,10 +133,8 @@ fn serve(wb: &mut Workbench, world: &World, id: InstanceId, visits: u64) -> Vec<
                 "kata-get-rules" => reply(wb, CHINESE),
                 "kata-analyze" => {
                     out(wb, id, &format!("={n}"));
-                    if visits > 0 {
-                        out(wb, id, &format!(
-                            "info move K10 visits {visits} winrate 0.5 scoreLead 0.5 prior 0.2 order 0 pv K10 rootInfo visits {visits} winrate 0.4 scoreLead -0.5"
-                        ));
+                    if let Some(info) = info {
+                        out(wb, id, info);
                     }
                 }
                 _ => reply(wb, ""),
@@ -968,30 +974,77 @@ fn the_tables_start_opens_batch_analysis_of_the_remaining_records_like_the_menu(
     assert!(wb.config().auto_analysis.auto_save);
 }
 
-/// A record carrying secondary-engine analysis (`LZOP2` at the root, `LZ2` on both moves).
-const WITH_SECONDARY: &str = "(;SZ[19]KM[7.5]LZOP2[b6 50.0 80 0.5 1.0\nmove Q4 visits 80 winrate 5000 scoreMean 0.5 pv Q4]\
-;B[pd]LZ2[b6 40.0 100 1.0 2.0\nmove D4 visits 100 winrate 6000 scoreMean 1.0 pv D4]\
-;W[dd]LZ2[b6 45.0 200 -2.0 1.5\nmove C3 visits 200 winrate 5500 scoreMean -2.0 pv C3])";
+/// A record carrying secondary-engine analysis (`LZOP2` at the root, `LZ2` on both moves), each
+/// with two distinct candidates whose variations are several moves long.
+const WITH_SECONDARY: &str = "(;SZ[19]KM[7.5]LZOP2[b6 50.0 80 0.5 1.0\nmove Q4 visits 50 winrate 5000 scoreMean 0.5 order 0 pv Q4 D16 \
+info move R16 visits 30 winrate 4800 scoreMean -0.5 order 1 pv R16 C4]\
+;B[pd]LZ2[b6 40.0 100 1.0 2.0\nmove D4 visits 70 winrate 6000 scoreMean 1.0 order 0 pv D4 Q16 C17 \
+info move E16 visits 30 winrate 5800 scoreMean 0.4 order 1 pv E16 C3]\
+;W[dd]LZ2[b6 45.0 200 -2.0 1.5\nmove C3 visits 120 winrate 5500 scoreMean -2.0 order 0 pv C3 Q3 \
+info move R3 visits 80 winrate 5300 scoreMean -2.5 order 1 pv R3 C16])";
 
-fn secondary_payloads(text: &str) -> (usize, usize) {
-    (text.matches("LZ2[b6 ").count(), text.matches("LZOP2[b6 ").count())
+/// The candidates of each payload under `tags` along the main line, as (move, visits, win rate).
+fn saved_candidates(text: &str, tags: [&str; 2]) -> Vec<Vec<(String, String, String)>> {
+    let rec = sgf::read(text).unwrap();
+    let mut found = Vec::new();
+    let mut node = Some(ROOT);
+    while let Some(id) = node {
+        for p in rec.node(id).properties.iter().filter(|p| tags.contains(&p.id.as_str())) {
+            let detail = p.values[0].split_once('\n').map_or("", |(_, d)| d);
+            found.push(
+                detail
+                    .split(" info ")
+                    .map(|c| {
+                        let t: Vec<&str> = c.split_whitespace().collect();
+                        let value = |key: &str| t.iter().position(|k| *k == key).map_or(String::new(), |i| t[i + 1].to_string());
+                        (value("move"), value("visits"), value("winrate"))
+                    })
+                    .collect(),
+            );
+        }
+        node = rec.main_child(id);
+    }
+    found
+}
+
+fn source_secondary() -> Vec<Vec<(String, String, String)>> {
+    let c = |m: &str, v: &str, w: &str| (m.to_string(), v.to_string(), w.to_string());
+    vec![
+        vec![c("Q4", "50", "5000"), c("R16", "30", "4800")],
+        vec![c("D4", "70", "6000"), c("E16", "30", "5800")],
+        vec![c("C3", "120", "5500"), c("R3", "80", "5300")],
+    ]
+}
+
+/// 最大候选点数 1: the secondary engine's results the copy carries over keep both of their
+/// candidates, in order with their values (Java reads secondary-engine tags with 361 as the limit,
+/// `SGFParser.parseAnalysisInfoForDetachedNode`).
+fn limit_candidates_to_one(wb: &mut Workbench) {
+    let mut analysis = wb.config().engine.analysis.clone();
+    analysis.limit_max_suggestion = 1;
+    wb.set_analysis_settings(analysis).unwrap();
 }
 
 #[test]
 fn an_ordinary_batch_copy_keeps_the_sources_secondary_engine_analysis() {
     let dir = tempfile::tempdir().unwrap();
     let (mut wb, world, fg) = setup(dir.path(), false);
+    limit_candidates_to_one(&mut wb);
     let src = write(dir.path(), "s.sgf", WITH_SECONDARY);
     wb.open_batch(BatchMode::Ordinary, vec![src.clone()], OpenSource::Chooser).unwrap();
     deliver_reads(&mut wb);
     wb.start_batch_ordinary(ordinary()).unwrap().unwrap();
     deliver_reads(&mut wb);
-    serve(&mut wb, &world, fg, 10);
+    serve_with(&mut wb, &world, fg, Some(
+        "info move K10 visits 6 winrate 0.5 scoreLead 0.5 prior 0.2 order 0 pv K10 info move C17 visits 4 winrate 0.4 \
+         scoreLead 0.1 prior 0.1 order 1 pv C17 rootInfo visits 10 winrate 0.4 scoreLead -0.5",
+    ));
     let written = write_saves(&mut wb, None);
     assert_eq!(written.len(), 1);
     let copy = std::fs::read_to_string(&written[0]).unwrap();
-    assert!(copy.contains("LZ["), "the batch's own results: {copy}");
-    assert_eq!(secondary_payloads(&copy), (2, 1), "{copy}");
+    let own = saved_candidates(&copy, ["LZ", "LZOP"]);
+    assert!(!own.is_empty(), "the batch's own results: {copy}");
+    assert_eq!(saved_candidates(&copy, ["LZ2", "LZOP2"]), source_secondary(), "{copy}");
     assert_eq!(std::fs::read_to_string(&src).unwrap(), WITH_SECONDARY);
 }
 
@@ -999,6 +1052,7 @@ fn an_ordinary_batch_copy_keeps_the_sources_secondary_engine_analysis() {
 fn a_flash_batch_copy_keeps_the_sources_secondary_engine_analysis() {
     let dir = tempfile::tempdir().unwrap();
     let (mut wb, world, _fg) = setup(dir.path(), false);
+    limit_candidates_to_one(&mut wb);
     let src = write(dir.path(), "s.sgf", WITH_SECONDARY);
     wb.open_batch(BatchMode::Flash, vec![src], OpenSource::Chooser).unwrap();
     deliver_reads(&mut wb);
@@ -1006,13 +1060,22 @@ fn a_flash_batch_copy_keeps_the_sources_secondary_engine_analysis() {
     deliver_reads(&mut wb);
     let worker = *world.workers().last().unwrap();
     for q in queries(&world, worker) {
-        answer(&mut wb, worker, &q);
+        let reply = serde_json::json!({
+            "id": q["id"],
+            "moveInfos": [
+                {"move": "K10", "visits": 2, "winrate": 0.5, "scoreLead": 1.0, "order": 0, "pv": ["K10"]},
+                {"move": "C17", "visits": 1, "winrate": 0.4, "scoreLead": 0.2, "order": 1, "pv": ["C17"]},
+            ],
+            "rootInfo": {"visits": 3, "winrate": 0.5, "scoreLead": 1.0},
+        });
+        out(&mut wb, worker, &reply.to_string());
     }
     let written = write_saves(&mut wb, None);
     assert_eq!(written.len(), 1);
     let copy = std::fs::read_to_string(&written[0]).unwrap();
-    assert!(copy.contains("LZ["), "the batch's own results: {copy}");
-    assert_eq!(secondary_payloads(&copy), (2, 1), "{copy}");
+    let own = saved_candidates(&copy, ["LZ", "LZOP"]);
+    assert!(!own.is_empty(), "the batch's own results: {copy}");
+    assert_eq!(saved_candidates(&copy, ["LZ2", "LZOP2"]), source_secondary(), "{copy}");
 }
 
 /// The `kata-set-rules` argument in effect at each finite search of the position whose first

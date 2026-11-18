@@ -753,28 +753,72 @@ fn unavailable_network_snapshot_fails_closed_without_disclosing_its_error() {
     }
 }
 
+fn stdout_lines(events: Vec<EngineInput>) -> Vec<String> {
+    events.into_iter().filter_map(|event| match event { EngineInput::Stdout(line) => Some(line), _ => None }).collect()
+}
+
+/// `stop`, `play` and a new analysis sent back to back while the peer holds the stopped query's
+/// final result and its terminate ack: the old stream ends and the later commands are answered
+/// (the new node gets its own query), but the `stop` succeeds only on its matching ack
+/// (Java `completeStoppedQueryIfReady`), once. A refused terminate fails the transport as Java's
+/// `failActiveQuery` does: the `stop` is never answered with success.
 #[test]
-fn custom_command_after_a_pending_stop_closes_the_stream_and_answers_in_order() {
-    let (url, peer) = server(|mut peer| {
-        let first: Value = serde_json::from_str(&text(&mut peer)).unwrap();
-        let terminate: Value = serde_json::from_str(&text(&mut peer)).unwrap();
-        assert_eq!(terminate["terminateId"], first["id"]);
-        // The stop's terminate is still unanswered; the next query needs no second terminate.
-        let next: Value = serde_json::from_str(&text(&mut peer)).unwrap();
-        assert!(next.get("action").is_none(), "{next}");
-        assert_eq!(next["moves"], json!([["B", "D4"]]));
-        let _ = peer.read();
-    });
-    let mut engine = Running::custom(url);
-    engine.send("1 kata-analyze B 50"); engine.stdout("=1");
-    engine.send("2 stop");
-    engine.send("3 play B D4");
-    let lines: Vec<String> = engine.stdout("=3").into_iter()
-        .filter_map(|event| match event { EngineInput::Stdout(line) => Some(line), _ => None }).collect();
-    let at = |line: &str| lines.iter().position(|l| l == line).unwrap_or_else(|| panic!("{line:?} missing from {lines:?}"));
-    assert!(at("") < at("=2") && at("=2") < at("=3"), "the stream ends, then each command is answered in order: {lines:?}");
-    engine.send("4 kata-analyze W 50"); engine.stdout("=4");
-    engine.stop(); peer.join().unwrap();
+fn custom_commands_after_an_unconfirmed_stop_run_while_the_stop_waits_for_its_ack() {
+    for refuse in [false, true] {
+        let (release, released) = mpsc::channel::<()>();
+        let (url, peer) = server(move |mut peer| {
+            let first: Value = serde_json::from_str(&text(&mut peer)).unwrap();
+            let terminate: Value = serde_json::from_str(&text(&mut peer)).unwrap();
+            assert_eq!(terminate["terminateId"], first["id"]);
+            // The stop's terminate is still unanswered; the next query needs no second terminate.
+            let next: Value = serde_json::from_str(&text(&mut peer)).unwrap();
+            assert!(next.get("action").is_none(), "{next}");
+            assert_eq!(next["moves"], json!([["B", "D4"]]));
+            write(&mut peer, json!({"id": next["id"], "isDuringSearch": true,
+                "moveInfos": [{"move": "Q16", "visits": 5, "winrate": 0.5, "scoreLead": 0.0, "prior": 0.1, "order": 0, "pv": ["Q16"]}],
+                "rootInfo": {"visits": 5, "winrate": 0.5, "scoreLead": 0.0}}));
+            released.recv().unwrap();
+            if refuse {
+                write(&mut peer, json!({"id": terminate["id"], "error": "terminate refused"}));
+                let _ = peer.read();
+                return;
+            }
+            write(&mut peer, json!({"id": first["id"], "isDuringSearch": false, "moveInfos": [], "rootInfo": {"visits": 0}}));
+            write(&mut peer, json!({"id": terminate["id"], "action": "terminate", "terminateId": first["id"]}));
+            // A repeated ack settles nothing more.
+            write(&mut peer, json!({"id": terminate["id"], "action": "terminate", "terminateId": first["id"]}));
+            // The new query's own stop.
+            let second: Value = serde_json::from_str(&text(&mut peer)).unwrap();
+            assert_eq!(second["terminateId"], next["id"]);
+            write(&mut peer, json!({"id": next["id"], "isDuringSearch": false, "moveInfos": [], "rootInfo": {"visits": 5}}));
+            write(&mut peer, json!({"id": second["id"], "action": "terminate", "terminateId": next["id"]}));
+            let _ = peer.read();
+        });
+        let mut engine = Running::custom(url);
+        engine.send("1 kata-analyze B 50"); engine.stdout("=1");
+        engine.send("2 stop");
+        engine.send("3 play B D4");
+        let mut lines = stdout_lines(engine.stdout("=3"));
+        assert!(lines.iter().any(|l| l.is_empty()), "the old stream ends before `play` is answered: {lines:?}");
+        engine.send("4 kata-analyze W 50");
+        lines.extend(stdout_lines(engine.until(|e| matches!(e, EngineInput::Stdout(l) if l.starts_with("info move Q16")))));
+        assert!(!lines.iter().any(|l| l.starts_with("=2") || l.starts_with("?2")), "the stop is unconfirmed: {lines:?}");
+        assert!(lines.iter().any(|l| l == "=4"), "{lines:?}");
+
+        release.send(()).unwrap();
+        if refuse {
+            let ended = stdout_lines(engine.until(|e| matches!(e, EngineInput::Exited(_))));
+            assert!(!ended.iter().any(|l| l.starts_with("=2")), "a refused stop is no success: {ended:?}");
+        } else {
+            let settled = stdout_lines(engine.until(|e| matches!(e, EngineInput::Stdout(l) if l.starts_with("=2"))));
+            // The new query keeps running: a `stop` of it is answered after the old one settled.
+            engine.send("5 stop");
+            let after = stdout_lines(engine.stdout("=5"));
+            let all: Vec<&String> = settled.iter().chain(&after).collect();
+            assert_eq!(all.iter().filter(|l| l.starts_with("=2")).count(), 1, "settled once: {all:?}");
+        }
+        engine.stop(); peer.join().unwrap();
+    }
 }
 
 fn d4() -> Point { Point { x: 3, y: 15 } }
@@ -868,32 +912,44 @@ fn custom_engine_single_move_keeps_its_evaluation() {
     b.finish();
 }
 
-/// 关闭所有引擎 while a 自建算力 engine is still connecting (its peer never answers the WebSocket
-/// upgrade): the connection closes, the seat is empty, and nothing reports the switch as running
-/// or failed — the next view shows an empty seat that is not down, which ends the 远程算力
-/// window's switch (monitorEngineSwitch: the switch no longer holds the seat).
+/// 关闭所有引擎 while a 自建算力 engine is still connecting (its peer has read the WebSocket
+/// upgrade and holds the answer): the connection closes, the seat is empty, and nothing reports
+/// the switch as running or failed — the next view shows an empty seat that is not down, which
+/// ends the 远程算力 window's switch (monitorEngineSwitch: the switch no longer holds the seat).
+/// The peer's notices and the transport's end order the steps; timeouts only bound a failure.
 #[test]
 fn shutting_all_engines_down_while_a_custom_engine_connects_empties_the_seat_and_closes_the_link() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("ws://{}/", listener.local_addr().unwrap());
-    let (closed_tx, closed) = mpsc::channel();
-    thread::spawn(move || {
-        let Ok((mut stream, _)) = listener.accept() else { return };
+    let (upgrade_tx, upgrade) = mpsc::channel();
+    let peer = thread::spawn(move || {
+        let mut stream = accept_bounded(&listener);
+        let head = read_http_head(&mut stream);
+        upgrade_tx.send(head).unwrap();
+        // The upgrade stays unanswered until the client closes the connection.
         let mut buf = [0u8; 1024];
-        while matches!(stream.read(&mut buf), Ok(n) if n > 0) {}
-        let _ = closed_tx.send(());
+        loop {
+            match stream.read(&mut buf) {
+                Ok(0) => return,
+                Ok(_) => {}
+                Err(error) => panic!("the connection was not closed: {error}"),
+            }
+        }
     });
     let mut b = workbench::bench();
     b.activate_custom(&url);
     let v = b.wb.view(false);
     let cloud = v.engine.foreground.as_ref().expect("the cloud engine holds the seat while it connects");
     assert!(!cloud.ready);
-    assert!(!b.pump_until(Duration::from_millis(300), workbench::ready), "the peer never completes the upgrade");
+    let head = upgrade.recv_timeout(Duration::from_secs(10)).expect("the client sends its upgrade");
+    assert!(head.to_ascii_lowercase().contains("upgrade: websocket"), "{head}");
+    b.settle();
+    assert!(!workbench::ready(&mut b.wb), "the peer never completes the upgrade");
     let before = b.wb.view(false).seq;
 
     assert!(b.wb.shutdown_engines(lizzie_core::api::EngineScope::All));
-    closed.recv_timeout(Duration::from_secs(3)).expect("the connection closes");
-    b.pump_until(Duration::from_millis(300), |_| false);
+    peer.join().expect("the connection closes");
+    b.settle();
     let v = b.wb.view(false);
     assert!(v.seq > before);
     assert!(v.engine.foreground.is_none());

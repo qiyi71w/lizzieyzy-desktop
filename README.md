@@ -790,7 +790,9 @@ importing the matching LizzieYzy Next settings.
     WebSocket failures use the normal engine failure/restart policy. On a custom link, any new
     command ends a running analysis query, as on a local KataGo, and the service is told to
     terminate it, so browsing to another position starts that position's search; an engine move
-    asked with analysis keeps that move's evaluation.
+    asked with analysis keeps that move's evaluation. An explicit `stop` is confirmed only after
+    the service sends that query's final result and its terminate acknowledgement, even when later
+    commands were already answered; a refused terminate fails the custom engine, as in Java.
   - Local protocol fixtures and the Linux desktop exercise these paths. Authorized live Zhizi
     and independently hosted custom-service acceptance, including real billing, have not yet
     been completed; fixture success is not a claim of current provider availability.
@@ -876,7 +878,8 @@ importing the matching LizzieYzy Next settings.
   button edits that value in 精析设置. Each record is read
   and analysed in turn, then saved beside its source as `<name>_已分析_<yyyyMMddHHmmss>.sgf`
   (always SGF; the source is not changed, and the copy keeps the source's secondary-engine
-  analysis, `LZ2` / `LZOP2`). Unlike Java, the records are analysed as background
+  analysis, `LZ2` / `LZOP2`, with all of its candidates whatever 最大候选点数 is, as Java reads
+  those tags; variations follow 变化长度 as in Java). Unlike Java, the records are analysed as background
   documents with their own komi and declared rules: the open record stays on the board and can
   be browsed, edited and saved meanwhile, and nothing the batch does marks it saved or moves it.
   批量分析 runs automatic analysis with the foreground engine (which follows the batch record
