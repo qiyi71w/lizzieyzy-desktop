@@ -499,10 +499,10 @@ pub enum DocumentEdit {
     /// (`BoardRenderer.addSuggestionAsBranch`): a node without continuation first gets an end
     /// placeholder so the variation stays a side branch; the first move always starts a new
     /// variation, the others follow equal existing moves. Colours alternate from `at`'s side to
-    /// play; an illegal move ends the variation.
+    /// play; `None` is a pass, which takes its turn; an illegal move ends the variation.
     AddBranch {
         at: NodeId,
-        moves: Vec<Point>,
+        moves: Vec<Option<Point>>,
         rules: PlayRules,
     },
     /// The end placeholder (`DD[true]`) that keeps moves added under `at` side branches: with

@@ -666,7 +666,7 @@ fn a_variation_added_as_branch_stays_beside_the_main_line() {
     edit(
         &mut wb,
         EditCommand::AddVariationAsBranch {
-            moves: vec![p("dd"), p("cc")],
+            moves: vec![Some(p("dd")), Some(p("cc"))],
         },
     );
     assert_eq!(wb.cursor(), at, "browsing stays");
@@ -682,6 +682,44 @@ fn a_variation_added_as_branch_stays_beside_the_main_line() {
     play(&mut wb, "gg");
     assert_eq!(line(rec(&wb), ROOT), ["B[ee]", "W[gg]"]);
     assert_eq!(rec(&wb).node(at).children.len(), 2);
+}
+
+/// A candidate's variation with a pass in the middle (`D4 pass Q16` on 19x19, here `ee pass cc`):
+/// 加入变化, the middle click and 让AI落子 (,) keep the pass, so the move after it is the
+/// colour after the pass. Java's middle click and `,` skip the pass and play `cc` as White; its
+/// 加入变化 ends the branch at the pass.
+#[test]
+fn a_variation_keeps_its_pass_and_the_colours_after_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let moves = vec![Some(p("ee")), None, Some(p("cc"))];
+
+    let mut wb = opened(dir.path(), "(;SZ[9];B[gg];W[hh])");
+    wb.navigate(Navigation::Last);
+    let at = wb.cursor();
+    edit(&mut wb, EditCommand::AddVariationAsBranch { moves: moves.clone() });
+    assert_eq!(wb.cursor(), at, "browsing stays");
+    let branch = *rec(&wb).node(at).children.last().unwrap();
+    assert_eq!(
+        rec(&wb).node(branch).kind,
+        NodeKind::Move {
+            color: Stone::Black,
+            point: p("ee")
+        }
+    );
+    assert_eq!(line(rec(&wb), branch), ["W[]", "B[cc]"]);
+
+    // The middle click and `,` play the variation from the current position.
+    let mut wb = opened(&dir.path().join("play"), "(;SZ[9];B[gg];W[hh])");
+    wb.navigate(Navigation::Last);
+    edit(&mut wb, EditCommand::PlayVariation { moves });
+    assert_eq!(line(rec(&wb), ROOT), ["B[gg]", "W[hh]", "B[ee]", "W[]", "B[cc]"]);
+    assert_eq!(
+        rec(&wb).node(wb.cursor()).kind,
+        NodeKind::Move {
+            color: Stone::Black,
+            point: p("cc")
+        }
+    );
 }
 
 #[test]

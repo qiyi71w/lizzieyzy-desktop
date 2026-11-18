@@ -12,6 +12,7 @@ import { appearance, frameMetrics } from "../appearance/state";
 import { customFont } from "../appearance/model";
 import { bindColumnResize, layoutColumns, MIN_COLUMN, type FrameBar, type FrameCell, type FramePayload } from "./suggestionsFrame";
 import { autoReplayed, setAutoReplayed } from "../display/autoplay";
+import { replayLength, stopReplayOf } from "../display/replay";
 
 /** One row of a table model (`data2`), as Java's MoveData. */
 interface TableRow {
@@ -355,14 +356,17 @@ function shownVariations(): { left: ShownVariation | null; right: ShownVariation
   return { left: shown?.left ?? null, right: shown?.right ?? null };
 }
 
-/** A shown variation's displayedBranchLength: the length the wheel or the browsing keys set, else
- *  the auto-replayed one; null is the whole variation (SHOW_NORMAL_BOARD). */
+/** A shown variation's displayedBranchLength: the `R` replay's current length, else the length
+ *  the wheel or the browsing keys set, else the auto-replayed one; null is the whole variation
+ *  (SHOW_NORMAL_BOARD). Same order as the board shows it. */
 function displayedLength(shown: ShownVariation): number | null {
-  return tableBranchLength(shown.key) ?? autoReplayed(shown.key) ?? null;
+  return replayLength(shown.key) ?? tableBranchLength(shown.key) ?? autoReplayed(shown.key) ?? null;
 }
 
-/** Sets a shown variation's displayed length; an auto-replayed one grows on from it. */
+/** Sets a shown variation's displayed length (setDisplayedBranchLength): a running `R` replay of
+ *  it stops; an auto-replayed one grows on from it. */
 function setDisplayedLength(shown: ShownVariation, length: number): void {
+  stopReplayOf(shown.key);
   if (tableBranchLength(shown.key) === null && setAutoReplayed(shown.key, length)) return;
   branches.set(shown.key, length);
 }

@@ -12,6 +12,9 @@ export const INDEPENDENT_LABELS: Record<IndependentBoard, string> = { Main: "ind
 export const INDEPENDENT_DATA_EVENT = "independent-board-data";
 /** Window → main window. */
 export const INDEPENDENT_INPUT_EVENT = "independent-board-input";
+/** Main window → window: paint a picture of the window (getIndependMainBoardToClipboard /
+ *  getIndependSubBoardToClipboard); answered with the `picture` input carrying the same `id`. */
+export const INDEPENDENT_PICTURE_EVENT = "independent-board-picture";
 
 /** BoardScene over the wire: the kept-beyond-limit points as an array. */
 export type WireBoardScene = Omit<BoardScene, "unlimited"> & { unlimited: string[] };
@@ -73,4 +76,7 @@ export type IndependentInput = { board: IndependentBoard } & (
   /** The lock / always-on-top buttons. */
   | { type: "lock" }
   | { type: "top" }
+  /** The answer to INDEPENDENT_PICTURE_EVENT: base64 PNG of the window's client area, opaque,
+   *  in CSS pixels; null when the window has nothing painted yet. */
+  | { type: "picture"; id: number; png: string | null }
 );

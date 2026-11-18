@@ -491,7 +491,7 @@ impl Workbench {
                 let rules = self.play_rules();
                 let before = self.doc.record.node(at).children.clone();
                 self.readboard.applying = true;
-                let applied = self.apply_edit(DocumentEdit::AddBranch { at, moves: vec![point], rules });
+                let applied = self.apply_edit(DocumentEdit::AddBranch { at, moves: vec![Some(point)], rules });
                 self.readboard.applying = false;
                 let applied = applied.ok()?;
                 let rec = &self.doc.record;

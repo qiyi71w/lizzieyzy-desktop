@@ -352,7 +352,10 @@ impl Workbench {
                 let mut sounds = Vec::new();
                 let mut changed = false;
                 for point in moves {
-                    changed |= self.play(point, None);
+                    changed |= match point {
+                        Some(point) => self.play(point, None),
+                        None => self.pass(),
+                    };
                     sounds.append(&mut self.sounds);
                 }
                 self.sounds = sounds;
@@ -511,6 +514,15 @@ impl Workbench {
             rules,
         };
         match self.apply_edit(edit) {
+            Ok(applied) => self.follow(applied) == CommandResult::Done,
+            Err(_) => false,
+        }
+    }
+
+    /// A pass by the side to play at the current node, as [`Self::play`] for a stone.
+    fn pass(&mut self) -> bool {
+        let color = self.doc.record.node(self.cursor).to_play;
+        match self.apply_edit(DocumentEdit::Pass { at: self.cursor, color }) {
             Ok(applied) => self.follow(applied) == CommandResult::Done,
             Err(_) => false,
         }

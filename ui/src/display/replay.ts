@@ -32,6 +32,13 @@ export function replayLength(key: string): number | null {
   return replay && replay.key === key ? replay.length : null;
 }
 
+/** BoardRenderer.setDisplayedBranchLength → preview.stopReplay: an explicit length for the
+ *  replayed variation `key` (Ctrl+Up/Down, the wheel, ↑/↓) ends the replay; the explicit length
+ *  then shows. */
+export function stopReplayOf(key: string): void {
+  if (replay?.key === key) finishReplayBranch();
+}
+
 /** Not while auto-replay-branch runs its own replay (LizzieFrame.java:11628). */
 export function replayBranch(): void {
   const view = state.view, h = host;
