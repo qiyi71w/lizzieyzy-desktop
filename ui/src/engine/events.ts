@@ -70,7 +70,8 @@ async function failureDialog(failure: EngineFailureView, restartContribution = f
   }
   const remote = failure.remote;
   const index = state.view?.settings.engine.engines.findIndex((e) => e.id === failure.profile_id) ?? -1;
-  const restart = () => run(state.view?.engine.secondary?.index === index ? { type: "SwitchSecondaryEngine", index } : { type: "SwitchEngine", index });
+  // The engine starts again in the seat it failed in: a secondary engine stays secondary.
+  const restart = () => run(failure.secondary ? { type: "SwitchSecondaryEngine", index } : { type: "SwitchEngine", index });
   if (remote?.type === "HostKeyChanged") {
     // The analysis engine connects again at its next analysis; a configured engine restarts.
     // Only the key shown here is trusted: a key offered since has its own refusal.

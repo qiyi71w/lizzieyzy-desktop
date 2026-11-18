@@ -247,6 +247,8 @@ pub struct EngineFailure {
     pub remote: Option<super::ssh::RemoteFailure>,
     /// It held the foreground seat when it ended.
     pub foreground: bool,
+    /// It held the 双引擎模式 secondary seat when it ended, or was being started for it.
+    pub secondary: bool,
     /// When it ended, its state belonged to a holder other than the seat's wish: lent to a
     /// background task (the lease, its restore included), being given back by a play mode or
     /// HumanSL, reserved by a ReadBoard GMA hand or its restore, or left unrestored by such a
@@ -958,6 +960,7 @@ impl Instance {
             remote: None,
             // Filled in by `Engines::fail`, which knows the seats.
             foreground: false,
+            secondary: false,
             held: false,
             reserved: false,
             cloud_recovery: false,
@@ -1409,6 +1412,7 @@ impl Engines {
             output: Vec::new(),
             remote: None,
             foreground: false,
+            secondary: false,
             held: false,
             reserved: false,
             cloud_recovery: false,
@@ -1677,6 +1681,7 @@ impl Engines {
     /// says which seat the instance held and whether a holder owned its state at that moment.
     fn fail(&mut self, id: InstanceId, mut failure: EngineFailure) -> RuntimeEvent {
         failure.foreground = self.foreground == Some(id);
+        failure.secondary = self.secondary == Some(id);
         failure.reserved = self.get(id).is_some_and(|i| i.unrestored.is_some())
             || self.readboard_gma_holds(id)
             || self.exclusive_session_holds(id)

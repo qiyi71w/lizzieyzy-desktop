@@ -723,11 +723,12 @@ importing the matching LizzieYzy Next settings.
   management are not offered for such engines. The host key is trusted on first use and kept in
   `ssh-known-hosts.json` beside `config.json`; a different key is refused before anything is
   sent, and the failure dialog shows both SHA-256 fingerprints with 信任新密钥并重试, which trusts
-  only the key shown there. Passwords never go into `config.json`: they are kept by the system
-  credential store (Windows DPAPI, macOS Keychain, Linux Secret Service), or only until quitting
-  when that store is unavailable; the password field shows which and is left empty to keep it. A
-  typed password replaces the saved one only when its settings are saved. Remote engines refresh
-  at 综合设置 > 高级 > SSH 分析刷新间隔. Failures say what happened: a refused login (Java's
+  only the key shown there and starts the engine again in the seat it failed in (in 双引擎模式 a
+  secondary engine stays the secondary one). Passwords never go into `config.json`: they are kept
+  by the system credential store (Windows DPAPI, macOS Keychain, Linux Secret Service), or only
+  until quitting when that store is unavailable; the password field shows which and is left empty
+  to keep it. A typed password replaces the saved one only when its settings are saved. Remote
+  engines refresh at 综合设置 > 高级 > SSH 分析刷新间隔. Failures say what happened: a refused login (Java's
   认证失败), a connection or key-exchange failure or timeout (3 s each), a missing password, the
   remote command ending on the host (its exit code or signal), or a connection lost without the
   command's end, when whether it still runs on the host is unknown (keepalive every 10 s, lost
@@ -761,7 +762,9 @@ importing the matching LizzieYzy Next settings.
     sync; only then does successful cloud/local switching run the normal analysis
     preload entry. 切换到本地引擎 selects the first local profile whose executable and referenced
     model/config/JAR files exist. 引擎 > 关闭当前引擎 disconnects it; closing the center alone
-    leaves an established engine running.
+    leaves an established engine running. Closing the engine while a switch is still starting
+    it (for example 关闭所有引擎), or switching to another engine, ends that switch: the center
+    becomes usable again and reports that the switch did not complete.
   - Zhizi uses HTTPS account operations and its Socket.IO v4 transport. A startup has at most
     three connection attempts with a fresh socket token for each; temporary token-service
     failures share that budget, while fatal authentication or service rejection does not retry.
