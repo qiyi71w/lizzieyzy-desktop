@@ -190,7 +190,9 @@ importing the matching LizzieYzy Next settings.
     asks to turn the current position into the starting position) while no foreground engine
     runs, and no engine starts while it is on. Clicks place black or white setup stones or erase
     them (right click the other colour); 黑先 / 白先 set the side to play (`PL`). Setup stones take
-    no move number. 将当前盘面设为起始局面 converts the current position.
+    no move number, so the bottom bar's 手数 jump lands on the node that shows the number asked
+    for, also past setup snapshots within the record (Java counted nodes and landed a move short
+    there). 将当前盘面设为起始局面 converts the current position.
   - 编辑棋局信息 (`I`: names, komi), 设置棋盘大小 (`Ctrl+I`; 其他 sizes are remembered), 新建 and
     the bottom bar 清空棋盘 (Java's "新的棋盘?" prompt with 不再提示, Cancel by default),
     清空棋盘 `Ctrl+Home` without asking, 交换黑白 and the rotations / mirrors
@@ -397,8 +399,10 @@ importing the matching LizzieYzy Next settings.
   searches again; an empty value sends nothing. A row with 修改 and 自动加载 is sent to every Leela
   Zero / Sai that starts. In an analysis-mode engine match, 访问量's 自动加载 sends
   `lz-setoption name Visits value 1000000000` to the Leela Zero / Sai participants before the
-  game. The rows are global, as in Java, and the twelve Java keys are taken over by the
-  LizzieYzy Next import. Other engines never get `lz-setoption`: for an engine that is neither
+  game; when the game ends, a participant that keeps running gets back the 访问量 it was last
+  given (自动加载 at its start or 确定 here), confirmed before it is handed back (Java left the
+  1000000000 in place). The rows are global, as in Java, and the twelve Java keys are taken over
+  by the LizzieYzy Next import. Other engines never get `lz-setoption`: for an engine that is neither
   KataGo nor Leela Zero / Sai (Sayuri, Pachi, Leela 0.11, unknown engines) the entry shows Java's
   "not Leela or Sai" notice instead of the window, where Java would open it.
 - KataGoPda settings: the `...` button beside the toolbar's PDA controls opens the dedicated
@@ -1133,7 +1137,9 @@ importing the matching LizzieYzy Next settings.
   Since Java placed only the first placeholder, a 试下 continued past the record's last move could
   extend the main line there; here it stays a branch.
   A 试下 needs a free foreground engine that has finished starting, so none starts while the
-  desktop switches or restarts the engine. 停止 Web 旁观 or quitting closes both ports and disconnects
+  desktop switches or restarts the engine, nor while 野狐 AI 直连 owns the record, from 开始 on,
+  before its first position arrives; the viewer gets the engine-busy answer (Java admitted the
+  试下 while Fox only listened). 停止 Web 旁观 or quitting closes both ports and disconnects
   every viewer; messages of a stopped share never reach a later one. A firewall between viewer and
   this machine must allow both ports.
 - 快速曲线轻量模型 (引擎一键设置 > 权重管理): the official lightweight b10 model is downloaded on demand

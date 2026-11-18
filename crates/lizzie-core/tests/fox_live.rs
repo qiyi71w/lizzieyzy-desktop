@@ -137,6 +137,20 @@ fn stop_invalidates_late_choice_and_confirms_rules_limits_no_clock_and_position_
     assert!(!h.received.iter().any(|s|s.starts_with("AFPLAY")));
 }
 #[test]
+fn a_web_viewer_cannot_take_the_board_while_fox_listens_before_its_first_position() {
+    use lizzie_core::web_board::ClientMessage;
+    let mut h=Harness::new(); h.wb.web_board_started(1,"http://127.0.0.1:9998".into()); h.start();
+    let enter=|h:&mut Harness| h.wb.web_board_message(1,ClientMessage::EnterTrial{client:"viewer".into()},Instant::now());
+    let before=(h.wb.document().id,h.wb.document().revision,h.wb.cursor(),h.wb.document().record.node(ROOT).children.len());
+    // The desktop already refuses changes to the board Fox owns; the viewer entry does the same.
+    let denied=enter(&mut h).expect("refused while Fox owns the board");
+    assert!(denied.contains(r#""reason":"engine_busy""#),"{denied}");
+    assert_eq!((h.wb.document().id,h.wb.document().revision,h.wb.cursor(),h.wb.document().record.node(ROOT).children.len()),before);
+    h.wb.fox(FoxCommand::Stop).unwrap(); h.serve(None); h.pump();
+    assert!(!h.wb.inspect().fox.owns_board);
+    assert_eq!(enter(&mut h),None,"after Fox stops the 试下 is admitted again");
+}
+#[test]
 fn restore_refusal_keeps_engine_unavailable_and_preserves_confirmed_history() {
     let mut h=Harness::new(); h.start(); h.initialize(); h.choose("R16"); h.send(&["FAMOVE,0,B,1^16^3^B"]);
     h.wait_for(|h| h.wb.cursor() != ROOT);

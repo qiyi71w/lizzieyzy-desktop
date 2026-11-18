@@ -102,6 +102,27 @@ fn move_number_jump_returns_to_main_line_when_branch_is_too_short() {
 }
 
 #[test]
+fn move_number_jump_counts_moves_not_setup_snapshots() {
+    // root - B aa(1) - AB snapshot(1) - AW snapshot(1) - W pass(2) - B cc(3)
+    let r = rec("(;SZ[9];B[aa];AB[bb];AW[dd];W[];B[cc])");
+    let number = |id: NodeId| r.node(id).move_number;
+    let snapshot = at(&r, &[0, 0, 0]);
+    for (from, want) in [(ROOT, 2), (ROOT, 3), (snapshot, 2), (snapshot, 3), (at(&r, &[0, 0, 0, 0, 0]), 1)] {
+        let got = browse::goto_move_number(&r, from, want);
+        assert_eq!(number(got), want, "jump to move {want}");
+    }
+    assert_eq!(browse::goto_move_number(&r, ROOT, 2), at(&r, &[0, 0, 0, 0]));
+    // Ordinary single steps still stop on the snapshots.
+    assert_eq!(nav(&r, at(&r, &[0]), Navigation::Forward(1)), at(&r, &[0, 0]));
+
+    // Snapshots do not lengthen a branch: move 3 is only on the main trunk.
+    // Main: B ee(1) - W gc(2) - B cg(3); side: B ee(1) - AB - AW - W gg(2).
+    let r = rec("(;SZ[9];B[ee](;W[gc];B[cg])(;AB[aa];AW[bb];W[gg]))");
+    let side_snapshot = at(&r, &[0, 1]);
+    assert_eq!(browse::goto_move_number(&r, side_snapshot, 3), at(&r, &[0, 0, 0]));
+}
+
+#[test]
 fn dummy_placeholder_is_never_landed_on() {
     let r = rec("(;SZ[9];B[ee](;DD[true])(;W[aa]))");
     let first = at(&r, &[0]);

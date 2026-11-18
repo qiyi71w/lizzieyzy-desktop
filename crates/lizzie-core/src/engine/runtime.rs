@@ -109,6 +109,14 @@ impl LeelaOption {
     }
 }
 
+/// The `Visits` value among `options` that [`LeelaOption::command`] sends, as sent.
+fn sent_visits(options: &[(LeelaOption, String)]) -> Option<String> {
+    options
+        .iter()
+        .find(|(o, v)| *o == LeelaOption::Visits && o.command(v).is_some())
+        .map(|(_, v)| v.trim().to_string())
+}
+
 /// A KataGo search parameter of the toolbar and the 引擎参数 window (`kata-set-param`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
 pub enum KataParam {
@@ -643,6 +651,9 @@ struct Instance {
     pda_queries: u8,
     /// The start-up answers were followed by the 自动套用 commands.
     pda_autoloaded: bool,
+    /// The Leela Zero / Sai `Visits` value this process was last given by its start-up options
+    /// or the 引擎参数 window; `None` while it runs on its launch default.
+    lz_visits: Option<String>,
     /// `numSearchThreads` this process confirmed to the 引擎参数 window, and whether that window
     /// changed it (Java `RuntimeSearchThreads`, bound to the process).
     threads_overridden: bool,
@@ -1138,6 +1149,12 @@ impl Engines {
         self.get(id).is_some_and(Instance::takes_lz_options)
     }
 
+    /// The `Visits` value Leela Zero / Sai `id` was last given by its start-up options or the
+    /// 引擎参数 window, as sent; `None` while it runs on its launch default.
+    pub fn leela_visits(&self, id: InstanceId) -> Option<&str> {
+        self.get(id).and_then(|i| i.lz_visits.as_deref())
+    }
+
     pub fn supports(&self, id: InstanceId, command: &str) -> bool {
         self.get(id).is_some_and(|i| i.has(command))
     }
@@ -1534,6 +1551,7 @@ impl Engines {
             pda_mode: None,
             pda_queries: 0,
             pda_autoloaded: false,
+            lz_visits: None,
             threads_overridden: false,
             threads_confirmed: None,
             thread_requests: HashMap::new(),
@@ -2402,6 +2420,9 @@ impl Engines {
             return false;
         }
         let inst = self.get_mut(id).unwrap();
+        if let Some(visits) = sent_visits(options) {
+            inst.lz_visits = Some(visits);
+        }
         if let Some(old) = inst.stream {
             inst.requests.retain(|(r, _)| *r != old);
         }
@@ -2891,6 +2912,7 @@ impl Engines {
         // `setLeelaSaiEnginePara`, once the engine is known not to be KataGo.
         if inst.takes_lz_options() {
             cmds.extend(boot.leela_options.iter().filter_map(|(o, v)| o.command(v)));
+            inst.lz_visits = sent_visits(&boot.leela_options);
         }
         let katago = inst.kind == EngineKind::KataGo;
         // `setKataEnginePara`: the auto-loaded PDA, the launch threads, then the auto-loaded WRN.
