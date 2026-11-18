@@ -1199,7 +1199,9 @@ lead_with_komi: string, stdev: string, playouts: string, komi: string, pda: stri
 
 export type SlotRef = { "type": "Auto" } | { "type": "Manual", index: number, };
 
-export type RecoveryCommand = { "type": "NewSlot", name: string, thumbnail: string | null, } | { "type": "OverwriteSlot", index: number, name: string, thumbnail: string | null, } | { "type": "RenameSlot", index: number, name: string, } | { "type": "LoadSlot", slot: SlotRef, } | { "type": "DeleteSlot", slot: SlotRef, } | { "type": "DeleteAllSlots" } | { "type": "SetSettings", settings: RecoverySettings, } | { "type": "AutoSave", thumbnail: string | null, } | { "type": "ExitAutoSave", thumbnail: string | null, };
+export type SlotThumbnail = { png: string, document: number, revision: number, node: number, };
+
+export type RecoveryCommand = { "type": "NewSlot", name: string, thumbnail: SlotThumbnail | null, } | { "type": "OverwriteSlot", index: number, name: string, thumbnail: SlotThumbnail | null, } | { "type": "RenameSlot", index: number, name: string, } | { "type": "LoadSlot", slot: SlotRef, } | { "type": "DeleteSlot", slot: SlotRef, } | { "type": "DeleteAllSlots" } | { "type": "SetSettings", settings: RecoverySettings, } | { "type": "AutoSave", thumbnail: SlotThumbnail | null, } | { "type": "ExitAutoSave", thumbnail: SlotThumbnail | null, };
 
 export type SlotView = { slot: SlotRef, 
 /**

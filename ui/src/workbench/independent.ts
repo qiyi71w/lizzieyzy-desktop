@@ -18,13 +18,16 @@ interface FloatingWindow {
   open: boolean;
   opening: boolean;
   lastSent: string;
+  /** The last scene's delivery; a picture request follows it, so the window answers with that
+   *  scene (two emits run side by side and may arrive in either order). */
+  delivered: Promise<void>;
   /** The always-on-top state last applied, null to apply it again. */
   onTop: boolean | null;
 }
 
 const windows: Record<IndependentBoard, FloatingWindow> = {
-  Main: { open: false, opening: false, lastSent: "", onTop: null },
-  Sub: { open: false, opening: false, lastSent: "", onTop: null },
+  Main: { open: false, opening: false, lastSent: "", delivered: Promise.resolve(), onTop: null },
+  Sub: { open: false, opening: false, lastSent: "", delivered: Promise.resolve(), onTop: null },
 };
 let repaint: () => void = () => {};
 /** Compound layout operations in progress: the windows follow only their final state. */
@@ -34,6 +37,8 @@ const pictures = new Map<number, (png: string | null) => void>();
 let pictureId = 0;
 /** A window that does not answer (closing, not loaded) gives no picture. */
 const PICTURE_TIMEOUT_MS = 3000;
+/** The floating window whose key is being handled, null for the main window's own keys. */
+let keySource: IndependentBoard | null = null;
 
 function flags(board: IndependentBoard, p: PanelSettings) {
   return board === "Main"
@@ -114,7 +119,7 @@ export function relayIndependent(v: WorkbenchView, scenes: IndependentScenes): v
     const text = JSON.stringify(payload);
     if (text === w.lastSent) continue;
     w.lastSent = text;
-    void emitTo(INDEPENDENT_LABELS[board], INDEPENDENT_DATA_EVENT, payload);
+    w.delivered = emitTo(INDEPENDENT_LABELS[board], INDEPENDENT_DATA_EVENT, payload).catch(() => {});
   }
 }
 
@@ -123,9 +128,26 @@ export function independentShown(board: IndependentBoard): boolean {
   return windows[board].open;
 }
 
+/** The floating window a key event being handled came from, null when it is the main window's
+ *  (the focused window: KeyboardFocusManager.getFocusedWindow). */
+export function keyFromIndependent(): IndependentBoard | null {
+  return keySource;
+}
+
+/** Gives the floating window the keyboard again (Window.toFront + requestFocus); false when it
+ *  is not shown. */
+export async function focusIndependent(board: IndependentBoard): Promise<boolean> {
+  if (!windows[board].open) return false;
+  const win = await WebviewWindow.getByLabel(INDEPENDENT_LABELS[board]);
+  if (!win) return false;
+  await win.setFocus();
+  return true;
+}
+
 /** Base64 PNG of the floating window as painted (getIndependMainBoardToClipboard /
  *  getIndependSubBoardToClipboard), or null when it is not open or does not answer. The caller
- *  repaints first, so the window holds the current scene before the request reaches it. */
+ *  repaints first, so the window holds the current scene before the request reaches it: the
+ *  request is sent once that scene has been delivered. */
 export function captureIndependent(board: IndependentBoard): Promise<string | null> {
   if (!windows[board].open) return Promise.resolve(null);
   const id = ++pictureId;
@@ -137,7 +159,9 @@ export function captureIndependent(board: IndependentBoard): Promise<string | nu
   };
   const timeout = window.setTimeout(() => done(null), PICTURE_TIMEOUT_MS);
   pictures.set(id, done);
-  void emitTo(INDEPENDENT_LABELS[board], INDEPENDENT_PICTURE_EVENT, { id }).catch(() => done(null));
+  void windows[board].delivered
+    .then(() => emitTo(INDEPENDENT_LABELS[board], INDEPENDENT_PICTURE_EVENT, { id }))
+    .catch(() => done(null));
   return promise;
 }
 
@@ -177,7 +201,12 @@ export async function startIndependent(board: (input: IndependentInput) => void,
       }
       case "key":
         // InputIndependentMainBoard / InputIndependentSubboard: the frame's own key handling.
-        document.dispatchEvent(new KeyboardEvent(input.kind, { ...input.init, bubbles: true, cancelable: true }));
+        keySource = input.board;
+        try {
+          document.dispatchEvent(new KeyboardEvent(input.kind, { ...input.init, bubbles: true, cancelable: true }));
+        } finally {
+          keySource = null;
+        }
         break;
       default:
         board(input);

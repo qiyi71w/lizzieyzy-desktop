@@ -8,7 +8,7 @@ import { recoveryThumbnail } from "../contract/client";
 import type { RecoveryCommand, SlotRef, SlotView } from "../contract/generated";
 import { chooseSave, confirm } from "../dialogs";
 import { product, t } from "../i18n";
-import { captureMainBoard } from "./capture";
+import { slotThumbnail } from "./capture";
 import "./recovery.css";
 
 const CELL_W = 310;
@@ -236,7 +236,7 @@ function addSlot(content: HTMLElement, s: SlotView, x: number, y: number): void 
       if (s.slot.type !== "Manual") return;
       // JOptionPane YES_NO_OPTION: 存档已存在,是否覆盖?
       if (!(await chooseSave(t("LizzieFrame.warning"), t("LizzieFrame.recordExists"), product("yes"), product("no")))) return;
-      await send({ type: "OverwriteSlot", index: s.slot.index, name: saveFileName(), thumbnail: await captureMainBoard() });
+      await send({ type: "OverwriteSlot", index: s.slot.index, name: saveFileName(), thumbnail: await slotThumbnail() });
     }, !auto), x + 200, y + 320, 50, 20),
     at(button(t("LizzieFrame.saveAndLoad.del"), `${key}.del`, () => void send({ type: "DeleteSlot", slot: s.slot })), x + 250, y + 320, 50, 20),
   );
@@ -246,7 +246,7 @@ function addSlot(content: HTMLElement, s: SlotView, x: number, y: number): void 
 function addNew(content: HTMLElement, index: number, x: number, y: number): void {
   const name = nameField("recovery.new.name", "");
   const create = async () => {
-    await send({ type: "NewSlot", name: name.value.length > 0 ? name.value : saveFileName(), thumbnail: await captureMainBoard() });
+    await send({ type: "NewSlot", name: name.value.length > 0 ? name.value : saveFileName(), thumbnail: await slotThumbnail() });
   };
   const big = button(t("LizzieFrame.saveAndLoad.newRecord"), "recovery.new.image", create);
   big.classList.add("rc-new");

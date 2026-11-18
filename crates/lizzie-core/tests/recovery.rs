@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use base64::Engine as _;
 use lizzie_core::api::{
     CommentLabels, ExportKind, ImportReason, ImportStatus, OpenOutcome, OpenSource, RecoveryCommand, RecoveryImport,
-    SaveOutcome, SlotRef,
+    SaveOutcome, SlotRef, SlotThumbnail,
 };
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
@@ -98,6 +98,16 @@ fn png() -> String {
         .write_to(&mut out, image::ImageFormat::Png)
         .unwrap();
     base64::engine::general_purpose::STANDARD.encode(out.into_inner())
+}
+
+/// `png` as the UI sends it: a picture of the position shown now.
+fn shot(wb: &Workbench, png: String) -> SlotThumbnail {
+    SlotThumbnail {
+        png,
+        document: wb.document().id,
+        revision: wb.document().revision,
+        node: wb.cursor(),
+    }
 }
 
 fn run(wb: &mut Workbench, op: RecoveryCommand) -> RecoveryStep {
@@ -240,11 +250,12 @@ fn a_slot_reopens_its_record_at_the_saved_position_without_owning_a_file() {
     let side = node_at(&wb.document().record, &[(Stone::Black, 4, 4), (Stone::White, 6, 2)]);
     wb.goto_node(side).unwrap();
     let thumbnail = png();
+    let picture = shot(&wb, thumbnail.clone());
     run(
         &mut wb,
         RecoveryCommand::NewSlot {
             name: "one".into(),
-            thumbnail: Some(thumbnail.clone()),
+            thumbnail: Some(picture),
         },
     );
     let slot = wb.view(false).recovery.slots[0].clone();
@@ -285,6 +296,65 @@ fn a_slot_reopens_its_record_at_the_saved_position_without_owning_a_file() {
     assert!(wb.config().recent_files.is_empty(), "a slot is not a recent record");
 }
 
+/// The UI takes the picture first and sends the save after it; a step taken meanwhile reaches
+/// the core before the save. The record is saved where the core is, without a picture of
+/// another position.
+#[test]
+fn a_picture_of_another_position_is_left_out_and_the_record_is_still_saved() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut wb = workbench(tmp.path());
+    open_text(&mut wb, RECORD);
+    wb.goto_node(node_at(&wb.document().record, &[(Stone::Black, 4, 4)])).unwrap();
+    let stale = shot(&wb, png());
+    wb.navigate(lizzie_core::browse::Navigation::Forward(1));
+    run(
+        &mut wb,
+        RecoveryCommand::NewSlot {
+            name: "late".into(),
+            thumbnail: Some(stale),
+        },
+    );
+    let slot = wb.view(false).recovery.slots[0].clone();
+    assert_eq!((slot.move_number, slot.has_thumbnail), (2, false));
+    assert_eq!(wb.slot_thumbnail(SlotRef::Manual { index: 1 }), None);
+    let save = tmp.path().join("data/save");
+    assert!(save.join("game1.sgf").is_file() && !save.join("game1.png").exists());
+
+    // The periodic save of another record than the one pictured.
+    let stale = shot(&wb, png());
+    open_text(&mut wb, "(;SZ[9];B[aa])");
+    run(&mut wb, RecoveryCommand::AutoSave { thumbnail: Some(stale) });
+    assert!(save.join("autoGame2.sgf").is_file() && !save.join("autoGame2.png").exists());
+}
+
+#[test]
+fn a_picture_of_the_saved_position_is_kept_with_the_record() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut wb = workbench(tmp.path());
+    open_text(&mut wb, RECORD);
+    wb.goto_node(node_at(&wb.document().record, &[(Stone::Black, 4, 4)])).unwrap();
+    let thumbnail = png();
+    let picture = shot(&wb, thumbnail.clone());
+    run(
+        &mut wb,
+        RecoveryCommand::AutoSave {
+            thumbnail: Some(picture.clone()),
+        },
+    );
+    run(
+        &mut wb,
+        RecoveryCommand::NewSlot {
+            name: "now".into(),
+            thumbnail: Some(picture),
+        },
+    );
+    let slot = wb.view(false).recovery.slots[0].clone();
+    assert_eq!((slot.move_number, slot.has_thumbnail), (1, true));
+    let bytes = base64::engine::general_purpose::STANDARD.decode(thumbnail).unwrap();
+    assert_eq!(wb.slot_thumbnail(SlotRef::Manual { index: 1 }), Some(bytes.clone()));
+    assert_eq!(std::fs::read(tmp.path().join("data/save/autoGame2.png")).unwrap(), bytes);
+}
+
 #[test]
 fn deleting_a_slot_moves_the_later_ones_up_and_delete_all_keeps_the_automatic_slot() {
     let tmp = tempfile::tempdir().unwrap();
@@ -295,11 +365,12 @@ fn deleting_a_slot_moves_the_later_ones_up_and_delete_all_keeps_the_automatic_sl
         ("c", "(;SZ[9];B[cc])"),
     ] {
         open_text(&mut wb, record);
+        let picture = shot(&wb, png());
         run(
             &mut wb,
             RecoveryCommand::NewSlot {
                 name: name.into(),
-                thumbnail: Some(png()),
+                thumbnail: Some(picture),
             },
         );
     }
@@ -330,12 +401,13 @@ fn deleting_a_slot_moves_the_later_ones_up_and_delete_all_keeps_the_automatic_sl
     );
     // 保存 replaces the slot and gives it the record's save name.
     open_text(&mut wb, "(;SZ[9];B[dd])");
+    let picture = shot(&wb, png());
     run(
         &mut wb,
         RecoveryCommand::OverwriteSlot {
             index: 2,
             name: "Untitled".into(),
-            thumbnail: Some(png()),
+            thumbnail: Some(picture),
         },
     );
     assert_eq!(names(&mut wb), ["renamed", "Untitled"]);
@@ -410,7 +482,8 @@ fn a_crash_promotes_the_periodic_save_and_the_next_start_resumes_it() {
     open_text(&mut wb, "(;SZ[9];B[aa])");
     run(&mut wb, RecoveryCommand::ExitAutoSave { thumbnail: None });
     open_text(&mut wb, RECORD);
-    run(&mut wb, RecoveryCommand::AutoSave { thumbnail: Some(png()) });
+    let picture = shot(&wb, png());
+    run(&mut wb, RecoveryCommand::AutoSave { thumbnail: Some(picture) });
     // The process dies here: no exit save.
     drop(wb);
 
@@ -453,7 +526,8 @@ fn nothing_is_saved_or_resumed_automatically_while_switched_off() {
     );
     let before = std::fs::read(tmp.path().join("data/save/autoGame1.sgf")).unwrap();
     open_text(&mut wb, "(;SZ[9];B[aa])");
-    run(&mut wb, RecoveryCommand::AutoSave { thumbnail: Some(png()) });
+    let picture = shot(&wb, png());
+    run(&mut wb, RecoveryCommand::AutoSave { thumbnail: Some(picture) });
     run(&mut wb, RecoveryCommand::ExitAutoSave { thumbnail: None });
     assert!(!tmp.path().join("data/save/autoGame2.sgf").exists());
     assert_eq!(
@@ -473,11 +547,12 @@ fn a_slot_that_cannot_be_read_keeps_the_current_record() {
     let tmp = tempfile::tempdir().unwrap();
     let mut wb = workbench(tmp.path());
     open_text(&mut wb, "(;SZ[9];B[aa])");
+    let picture = shot(&wb, png());
     run(
         &mut wb,
         RecoveryCommand::NewSlot {
             name: "x".into(),
-            thumbnail: Some(png()),
+            thumbnail: Some(picture),
         },
     );
     std::fs::write(tmp.path().join("data/save/game1.sgf"), [0xff, 0xfe, 0x00]).unwrap();
@@ -498,9 +573,11 @@ fn a_crash_without_the_periodic_record_keeps_the_exit_save() {
     let tmp = tempfile::tempdir().unwrap();
     let mut wb = workbench(tmp.path());
     open_text(&mut wb, "(;SZ[9];B[aa];W[bb])");
-    run(&mut wb, RecoveryCommand::ExitAutoSave { thumbnail: Some(png()) });
+    let picture = shot(&wb, png());
+    run(&mut wb, RecoveryCommand::ExitAutoSave { thumbnail: Some(picture) });
     open_text(&mut wb, RECORD);
-    run(&mut wb, RecoveryCommand::AutoSave { thumbnail: Some(png()) });
+    let picture = shot(&wb, png());
+    run(&mut wb, RecoveryCommand::AutoSave { thumbnail: Some(picture) });
     drop(wb);
     // The periodic record is gone before the next start.
     std::fs::remove_file(tmp.path().join("data/save/autoGame2.sgf")).unwrap();
@@ -518,11 +595,12 @@ fn a_slot_whose_list_cannot_be_written_keeps_its_previous_record() {
     let mut wb = workbench(tmp.path());
     open_text(&mut wb, "(;SZ[9];B[aa];W[bb])");
     wb.navigate(lizzie_core::browse::Navigation::Forward(2));
+    let picture = shot(&wb, png());
     run(
         &mut wb,
         RecoveryCommand::NewSlot {
             name: "A".into(),
-            thumbnail: Some(png()),
+            thumbnail: Some(picture),
         },
     );
     let save = tmp.path().join("data/save");
@@ -545,7 +623,7 @@ fn a_slot_whose_list_cannot_be_written_keeps_its_previous_record() {
         RecoveryCommand::OverwriteSlot {
             index: 1,
             name: "B".into(),
-            thumbnail: Some(other),
+            thumbnail: Some(shot(&wb, other)),
         },
         AP,
     );
@@ -778,11 +856,12 @@ fn java_slots_are_imported_only_when_chosen_after_this_products_own() {
     let product = tmp.path().join("product");
     let mut wb = workbench(&product);
     open_text(&mut wb, "(;SZ[9];B[ee])");
+    let picture = shot(&wb, png());
     run(
         &mut wb,
         RecoveryCommand::NewSlot {
             name: "mine".into(),
-            thumbnail: Some(png()),
+            thumbnail: Some(picture),
         },
     );
     run(&mut wb, RecoveryCommand::ExitAutoSave { thumbnail: None });
@@ -865,11 +944,12 @@ fn imported_java_slots_are_taken_back_when_the_settings_cannot_be_written() {
     let product = tmp.path().join("product");
     let mut wb = workbench(&product);
     open_text(&mut wb, "(;SZ[9];B[ee])");
+    let picture = shot(&wb, png());
     run(
         &mut wb,
         RecoveryCommand::NewSlot {
             name: "mine".into(),
-            thumbnail: Some(png()),
+            thumbnail: Some(picture),
         },
     );
     let before = files(&product.join("data/save"));

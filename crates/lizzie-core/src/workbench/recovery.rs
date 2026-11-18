@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use super::{OpenOrigin, SlotPosition, Workbench};
-use crate::api::{ApiError, ErrorKind, RecoveryCommand, RecoveryView, SlotRef};
+use crate::api::{ApiError, ErrorKind, RecoveryCommand, RecoveryView, SlotRef, SlotThumbnail};
 use crate::formats::picture;
 use crate::recovery::{self, AutoSave, SlotMeta, SlotWrite};
 
@@ -47,11 +47,19 @@ impl Workbench {
         }
     }
 
+    /// The PNG of `thumbnail` when it shows the position the record is saved at; a picture of
+    /// another document, content or node is left out.
+    fn slot_picture(&self, thumbnail: Option<SlotThumbnail>) -> Option<Vec<u8>> {
+        thumbnail
+            .filter(|t| (t.document, t.revision, t.node) == (self.doc.id, self.doc.revision, self.cursor))
+            .and_then(|t| picture::png_from_base64(&t.png).ok())
+    }
+
     /// Runs a 存档与读档 command. `application` is the `AP` written into slot records.
     pub fn recovery_command(&mut self, op: RecoveryCommand, application: &str) -> Result<RecoveryStep, ApiError> {
         let changed = match op {
             RecoveryCommand::NewSlot { name, thumbnail } => {
-                let png = thumbnail.and_then(|t| picture::png_from_base64(&t).ok());
+                let png = self.slot_picture(thumbnail);
                 let sgf = self.record_text(application);
                 let meta = self.slot_meta(name);
                 self.recovery
@@ -64,7 +72,7 @@ impl Workbench {
                 true
             }
             RecoveryCommand::OverwriteSlot { index, name, thumbnail } => {
-                let png = thumbnail.and_then(|t| picture::png_from_base64(&t).ok());
+                let png = self.slot_picture(thumbnail);
                 let sgf = self.record_text(application);
                 let meta = self.slot_meta(name);
                 self.recovery
@@ -103,11 +111,11 @@ impl Workbench {
                 }
             }
             RecoveryCommand::AutoSave { thumbnail } => {
-                self.auto_save(AutoSave::Periodic, thumbnail.as_deref(), application)?;
+                self.auto_save(AutoSave::Periodic, thumbnail, application)?;
                 true
             }
             RecoveryCommand::ExitAutoSave { thumbnail } => {
-                self.auto_save(AutoSave::Exit, thumbnail.as_deref(), application)?;
+                self.auto_save(AutoSave::Exit, thumbnail, application)?;
                 true
             }
         };
@@ -115,11 +123,11 @@ impl Workbench {
     }
 
     /// `saveAutoGame`: only while 自动存档 is on (`autoSaveOnExit`).
-    pub fn auto_save(&mut self, which: AutoSave, thumbnail: Option<&str>, application: &str) -> Result<(), ApiError> {
+    pub fn auto_save(&mut self, which: AutoSave, thumbnail: Option<SlotThumbnail>, application: &str) -> Result<(), ApiError> {
         if !self.config.recovery.auto_save_on_exit {
             return Ok(());
         }
-        let png = thumbnail.and_then(|t| picture::png_from_base64(t).ok());
+        let png = self.slot_picture(thumbnail);
         let sgf = self.record_text(application);
         let meta = self.slot_meta(String::new());
         self.recovery

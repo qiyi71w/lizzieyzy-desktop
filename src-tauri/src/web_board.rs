@@ -613,7 +613,8 @@ async fn broadcast(shared: State, session: u64, hub: Arc<Hub>, wake: Arc<Notify>
 #[cfg(test)]
 mod tests {
     use super::{first_lan_ipv4, interface_addresses, page, InterfaceAddress};
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::net::{IpAddr, Ipv4Addr, UdpSocket};
+    use std::time::Duration;
 
     fn addr(up: bool, loopback: bool, ip: &str) -> InterfaceAddress {
         InterfaceAddress {
@@ -652,14 +653,34 @@ mod tests {
         assert_eq!(lan(&several).as_deref(), Some("192.168.77.2"));
     }
 
+    /// The system's own answer is the reference, not a fixed network setup: every IPv4 address
+    /// listed on an interface that is up can be bound here (a byte-swapped or garbled address
+    /// cannot), and where 127.0.0.1 carries a datagram to itself, the list shows it on an up
+    /// loopback interface (an address or flag lost in decoding is missed). A network namespace
+    /// whose loopback is still down has neither.
     #[test]
-    fn this_machines_interface_list_includes_its_loopback_interface() {
+    fn this_machines_interface_list_matches_the_addresses_it_can_use() {
         let all = interface_addresses();
-        assert!(
-            all.iter()
-                .any(|a| a.up && a.loopback && a.ip == IpAddr::V4(Ipv4Addr::LOCALHOST)),
-            "{all:?}"
-        );
+        for a in &all {
+            if let (true, IpAddr::V4(ip)) = (a.up, a.ip) {
+                assert!(UdpSocket::bind((ip, 0)).is_ok(), "{ip} is not an address of this machine: {all:?}");
+            }
+        }
+        let loopback_works = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
+            .and_then(|socket| {
+                socket.connect(socket.local_addr()?)?;
+                socket.set_read_timeout(Some(Duration::from_secs(1)))?;
+                socket.send(b"x")?;
+                socket.recv(&mut [0; 1])
+            })
+            .is_ok();
+        if loopback_works {
+            assert!(
+                all.iter()
+                    .any(|a| a.up && a.loopback && a.ip == IpAddr::V4(Ipv4Addr::LOCALHOST)),
+                "{all:?}"
+            );
+        }
     }
 
     #[test]
