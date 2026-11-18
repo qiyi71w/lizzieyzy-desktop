@@ -719,9 +719,12 @@ impl Workbench {
                 });
                 // A loaded record is a new analysis context: its komi is not a user choice and
                 // a user pause of the previous record ends
-                // (`startNewKifuAnalysisContextAfterSuccessfulLoad`).
+                // (`startNewKifuAnalysisContextAfterSuccessfulLoad`). A pause of 批量分析, which
+                // analyses its own record, is not the previous record's and stays.
                 self.komi_changed = false;
-                self.paused = false;
+                if !self.auto_analysis_holds_foreground() {
+                    self.paused = false;
+                }
                 self.reset_editing();
                 self.limit_stop = None;
                 let declared = match format {

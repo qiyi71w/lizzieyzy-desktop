@@ -447,3 +447,70 @@ fn whole_game_command_uses_java_throughput_profile_and_preserves_explicit_overri
     let spec = gtp::prepare_launch(&command,&[]).unwrap(); let overrides = tuning::overrides(&spec.args);
     assert_eq!(overrides["numanalysisthreads"],"3"); assert_eq!(overrides["numsearchthreadsperanalysisthread"],"4"); assert_eq!(overrides["analysispvlen"],"9");
 }
+
+fn info(visits: u64) -> String {
+    format!("info move K10 visits {visits} winrate 0.5 scoreLead 0.5 prior 0.2 order 0 pv K10 rootInfo visits {visits} winrate 0.4 scoreLead -0.5")
+}
+/// The borrowed foreground engine runs 整盘深入分析 of [`RECORD`] with a 10 000-visit deep budget.
+fn borrowed_deep(dir: &std::path::Path, world: &World) -> (Workbench, InstanceId) {
+    let mut wb = make(dir, world);
+    let fg = foreground(&mut wb, world); borrow(&mut wb); open(&mut wb, RECORD); serve(&mut wb, world, fg, 0);
+    assert_eq!(wb.start_whole_game_analysis(10_000).unwrap(), Ok(true));
+    (wb, fg)
+}
+/// Commands the engine was sent at `at`, put back afterwards so the run can still be served.
+fn sent_at_tick(wb: &mut Workbench, world: &World, fg: InstanceId, at: Instant) -> Vec<String> {
+    wb.engine_tick(at);
+    let sent = world.take(fg);
+    world.0.lock().unwrap().iter_mut().find(|p| p.id == fg).unwrap().sent.splice(0..0, sent.clone());
+    sent
+}
+/// A deep search is stopped only after 8 s without a report (`REMOTE_GTP_ANALYZE_STALL_TIMEOUT_MILLIS`
+/// counts idle time), not 8 s after it was sent.
+#[test]
+fn a_reporting_borrowed_deep_search_outlives_8_seconds_and_only_a_silent_one_is_stopped() {
+    let dir = tempfile::tempdir().unwrap(); let world = World::default();
+    let (mut wb, fg) = borrowed_deep(dir.path(), &world);
+    serve(&mut wb, &world, fg, 2_000);
+    assert_eq!(wb.view(false).whole_game.state, State::Deep);
+    for visits in [4_000, 6_000, 8_000] { output(&mut wb, fg, &info(visits)); }
+    let start = Instant::now();
+    let at_9 = sent_at_tick(&mut wb, &world, fg, start + Duration::from_secs(9));
+    assert!(!at_9.iter().any(|c| c.ends_with(" stop")), "a reporting search is not stalled: {at_9:?}");
+    // No report for the next 8 s: the search is stalled and stopped.
+    let at_18 = sent_at_tick(&mut wb, &world, fg, start + Duration::from_secs(18));
+    assert!(at_18.iter().any(|c| c.ends_with(" stop")), "{at_18:?}");
+}
+#[test]
+fn a_reporting_borrowed_deep_search_reaches_its_target_after_8_seconds() {
+    let dir = tempfile::tempdir().unwrap(); let world = World::default();
+    let (mut wb, fg) = borrowed_deep(dir.path(), &world);
+    serve(&mut wb, &world, fg, 2_000);
+    for visits in [4_000, 6_000, 8_000] { output(&mut wb, fg, &info(visits)); }
+    let at_9 = sent_at_tick(&mut wb, &world, fg, Instant::now() + Duration::from_secs(9));
+    assert!(!at_9.iter().any(|c| c.ends_with(" stop")), "{at_9:?}");
+    output(&mut wb, fg, &info(10_000));
+    for _ in 0..20 { serve(&mut wb, &world, fg, 10_000); }
+    assert_eq!(wb.view(false).whole_game.state, State::Complete);
+    wb.navigate(Navigation::First);
+    let mut visits = vec![];
+    for _ in 0..5 { visits.push(wb.view(false).analysis.map(|a| a.visits)); wb.navigate(Navigation::Forward(1)); }
+    assert_eq!(visits, [Some(10_000); 5]);
+}
+/// Every deep search reports growing visits and needs about 12 s for its target.
+#[test]
+fn a_consistently_slow_reporting_engine_completes_the_deep_phase() {
+    let dir = tempfile::tempdir().unwrap(); let world = World::default();
+    let (mut wb, fg) = borrowed_deep(dir.path(), &world);
+    for _ in 0..40 {
+        serve(&mut wb, &world, fg, 3_000);
+        if !matches!(wb.view(false).whole_game.state, State::Deep | State::Baseline | State::Preparing) { break; }
+        let start = Instant::now();
+        let at_6 = sent_at_tick(&mut wb, &world, fg, start + Duration::from_secs(6));
+        output(&mut wb, fg, &info(6_000));
+        let at_12 = sent_at_tick(&mut wb, &world, fg, start + Duration::from_secs(12));
+        assert!(!at_6.iter().chain(&at_12).any(|c| c.ends_with(" stop")), "a reporting search is stopped: {at_12:?}");
+        output(&mut wb, fg, &info(10_000));
+    }
+    assert_eq!(wb.view(false).whole_game.state, State::Complete);
+}

@@ -1094,3 +1094,71 @@ fn a_pause_while_a_completed_lease_is_given_back_keeps_the_results_and_the_pause
         "the pause holds: {sent:?}"
     );
 }
+
+/// Engines KataGo (foreground, analysing) and B, 快速切换 off; the automatic quick analysis of a
+/// long record borrows KataGo and a finite search is in flight.
+fn borrowed_without_fast_engine_change(wb: &mut Workbench, world: &World) -> InstanceId {
+    wb.save_analysis_engine_settings(analysis_settings(true), "", false)
+        .unwrap()
+        .unwrap();
+    let mut settings = wb.view(false).settings.engine.analysis;
+    settings.fast_engine_change = false;
+    wb.set_analysis_settings(settings).unwrap();
+    let engine = |name: &str, command: &str| EngineProfile {
+        name: name.into(),
+        command: command.into(),
+        ..EngineProfile::default()
+    };
+    wb.save_engine_settings(vec![engine("KataGo", "/opt/katago gtp"), engine("B", "/opt/b gtp")], EngineStartup::Default)
+        .unwrap();
+    wb.start_engines();
+    let fg = world.engine("/opt/katago");
+    serve(wb, world, fg, 0, true);
+    open(wb, &long_record(40));
+    let sent = serve(wb, world, fg, 0, true);
+    assert!(sent.iter().any(|c| c.contains("maxmoves 1")), "{sent:?}");
+    let v = wb.view(false);
+    assert!(v.quick.running && v.quick.borrowed && !v.engine.paused, "{:?}", v.quick);
+    fg
+}
+
+/// The successor of a borrowed engine owes nothing to the lease that ended with the old process:
+/// it is not paused and analyses the browsing position.
+#[test]
+fn switching_engines_during_a_borrowed_quick_analysis_leaves_the_successor_analysing() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    let old = borrowed_without_fast_engine_change(&mut wb, &world);
+    assert!(wb.switch_engine(1).unwrap());
+    assert!(world.terminated(old));
+    let b = world.engine("/opt/b");
+    let sent = serve(&mut wb, &world, b, 0, true);
+    let v = wb.view(false);
+    assert_eq!(v.engine.foreground.as_ref().map(|f| f.name.as_str()), Some("B"));
+    assert!(!v.engine.paused && !v.quick.running, "{:?}", v.quick);
+    assert_eq!(v.engine.unrestored, None);
+    assert!(
+        sent.iter().any(|c| c.starts_with("kata-analyze") && !c.contains("maxmoves")),
+        "{sent:?}"
+    );
+}
+
+#[test]
+fn restarting_the_engine_during_a_borrowed_quick_analysis_leaves_the_new_process_analysing() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    let old = borrowed_without_fast_engine_change(&mut wb, &world);
+    assert!(wb.restart_engine().unwrap());
+    let new = world.engine("/opt/katago");
+    assert_ne!(new, old);
+    let sent = serve(&mut wb, &world, new, 0, true);
+    let v = wb.view(false);
+    assert!(!v.engine.paused && !v.quick.running, "{:?}", v.quick);
+    assert_eq!(v.engine.unrestored, None);
+    assert!(
+        sent.iter().any(|c| c.starts_with("kata-analyze") && !c.contains("maxmoves")),
+        "{sent:?}"
+    );
+}

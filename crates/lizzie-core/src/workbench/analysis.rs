@@ -562,7 +562,7 @@ impl Workbench {
     /// `SessionRulesSynchronizer.permitsOrdinaryAnalysis`: no declared rules, an explicit
     /// continue, or the foreground engine and a taking-part secondary engine both confirmed
     /// exactly the declared rules.
-    fn rules_permit_analysis(&self) -> bool {
+    pub(super) fn rules_permit_analysis(&self) -> bool {
         let Some((_, fg, secondary)) = self.rules_key() else {
             return true;
         };
@@ -617,7 +617,8 @@ impl Workbench {
         });
     }
 
-    /// YES: analyse with the engines' current rules for this target and engines. NO: pause.
+    /// YES: analyse with the engines' current rules for this target and engines. NO: pause; for
+    /// an automatically restarted engine still being restored, its restore fails instead.
     pub fn answer_rules_prompt(&mut self, prompt: u64, accept: bool) -> bool {
         let Some((_, key)) = self.pending_prompt.take_if(|(id, _)| *id == prompt) else {
             return false;
@@ -627,7 +628,7 @@ impl Workbench {
         }
         if accept {
             self.rules_override = Some(key);
-        } else {
+        } else if !self.restart_rules_declined() {
             self.paused = true;
         }
         self.sync_engine();
@@ -686,9 +687,13 @@ impl Workbench {
             self.side_hold = None;
         }
         // 批量分析 analyses its own record with the foreground engine (the user's pause stops it,
-        // as Java's ponder toggle does); the secondary engine stays idle meanwhile.
+        // as Java's ponder toggle does); the secondary engine stays idle meanwhile. The open
+        // record's region and tracking are its own: they are interrupted, not sent with the
+        // batch record's searches.
         if self.auto_analysis_holds_foreground() {
             let analyse = !hold && !self.paused && !self.benchmark_running() && !self.quick_holds_foreground();
+            self.sync_search(false);
+            self.engines.set_search(None, None);
             self.engines.want_secondary(None, false);
             self.engines.want(Some(self.foreground_target()), analyse);
             return;
@@ -1524,7 +1529,10 @@ impl Workbench {
     /// Output of an engine process. Returns whether the view changed.
     pub fn engine_input(&mut self, instance: InstanceId, input: EngineInput) -> bool {
         let events = self.engines.input(instance, input);
-        self.engine_events(events)
+        let changed = self.engine_events(events);
+        // A remote compute switch completes with its board sync, whose answers raise no event.
+        self.cloud_activation_settle();
+        changed
     }
 
     /// Engine starts waiting for an artifact fingerprint check, each handed out once. The

@@ -569,3 +569,64 @@ fn a_remote_foreground_losing_its_connection_leaves_the_local_analysis_process_r
     wb.end_engines();
     assert!(world.terminated(local));
 }
+
+/// Switching to 智子 completes with its board sync: with 分析白 off (nothing searches, nothing is
+/// paused) the analysis process is preloaded only once the remote engine confirmed the position.
+#[test]
+fn a_remote_compute_switch_preloads_only_after_its_board_sync_is_confirmed() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    let fg = start(&mut wb, &world, vec![profile("Local", None)]);
+    serve(&mut wb, &world, fg, KATA);
+    open(&mut wb, "(;SZ[19];B[pd])");
+    wb.navigate(lizzie_core::browse::Navigation::Last);
+    serve(&mut wb, &world, fg, KATA);
+    configure(&mut wb, true, false);
+    assert!(wb.set_analyze_sides(true, false));
+    serve(&mut wb, &world, fg, KATA);
+    let analysis_processes = || world.0.lock().unwrap().iter().filter(|p| p.spec.program == "/opt/katago").count();
+    assert!(!wb.view(false).engine.paused && !wb.view(false).engine.analysing);
+    assert_eq!(analysis_processes(), 0);
+
+    let zhizi = lizzie_core::cloud::CloudSettings {
+        provider: lizzie_core::cloud::Provider::Zhizi,
+        identifier: "fixture-account".into(),
+        ..Default::default()
+    };
+    wb.activate_cloud(zhizi, true).unwrap();
+    let remote = world.0.lock().unwrap().last().unwrap().id;
+    // Start-up is answered up to the `stop` closing its probe; the board sync stays unanswered.
+    let answer = |wb: &mut Workbench, line: &str| {
+        let (n, cmd) = line.split_once(' ').unwrap();
+        let reply = match cmd.split(' ').next().unwrap() {
+            "name" => "KataGo",
+            "version" => "1.18.2",
+            "list_commands" => KATA,
+            "kata-get-rules" => RULES,
+            _ => "",
+        };
+        out(wb, remote, "");
+        out(wb, remote, &format!("={n} {reply}"));
+        // An analysis stream stays open until its `stop`.
+        if !cmd.starts_with("kata-analyze") {
+            out(wb, remote, "");
+        }
+    };
+    let held: Vec<String> = 'start_up: loop {
+        let pending = world.take(remote);
+        assert!(!pending.is_empty(), "the start-up ends with its probe's `stop`");
+        let stop = pending.iter().position(|l| l.ends_with(" stop"));
+        for line in &pending[..stop.map_or(pending.len(), |at| at + 1)] {
+            answer(&mut wb, line);
+        }
+        if let Some(at) = stop {
+            break 'start_up pending[at + 1..].iter().cloned().chain(world.take(remote)).collect();
+        }
+    };
+    assert!(held.iter().any(|c| c.contains("clear_board") || c.contains("play")), "{held:?}");
+    assert_eq!(analysis_processes(), 0, "not before the switch's board sync is confirmed");
+    world.0.lock().unwrap().iter_mut().find(|p| p.id == remote).unwrap().sent = held;
+    serve(&mut wb, &world, remote, KATA);
+    assert_eq!(analysis_processes(), 1, "preloaded once the switch completed");
+}
