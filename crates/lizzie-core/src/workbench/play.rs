@@ -13,13 +13,13 @@ use std::time::{Duration, Instant};
 use super::{SaveJob, Workbench};
 use crate::api::{
     ApiError, Command, CommandResult, EditCommand, ErrorKind, GameClockView, GameCommand, GameEnd, GameKind,
-    GameNotice, GameOutcomeView, GamePhase, GameView, HawkeyeCommand, NodeAnalysisView, RecoveryCommand,
+    GameNotice, GameOutcomeView, GamePhase, GameView, HawkeyeCommand, NodeAnalysisView, RecoveryCommand, ResourceCommand,
     TuningCommand,
 };
 use crate::engine::runtime::{GenmoveReply, LeaseAvailability, Phase, RuntimeEvent};
 use crate::play::{self, ClockTick, EngineClock, HumanClock};
 use crate::record::{DocumentEdit, NodeId, NodeKind, Point, Stone, ROOT};
-use crate::settings::{AutoPlaySettings, GameSettings};
+use crate::settings::{AiTimeMode, AiTimeSettings, AutoPlaySettings, GameSettings};
 
 /// `AnalysisSettings.reuseStatus.play_mode`: another mode was refused during a game.
 pub const PLAY_MODE: &str = "AnalysisSettings.reuseStatus.play_mode";
@@ -27,6 +27,9 @@ pub const PLAY_MODE: &str = "AnalysisSettings.reuseStatus.play_mode";
 pub const OPEN_IN_GAME: &str = "LizzieFrame.openFileFailed.inGame";
 /// `LizzieFrame.waitEngineLoadingHint`.
 const WAIT_ENGINE: &str = "LizzieFrame.waitEngineLoadingHint";
+/// `DesktopTimeControl.websocketAdvancedUnsupported`: the 自建算力 engine takes no advanced or
+/// KataGo clock.
+const WEBSOCKET_CLOCK: &str = "DesktopTimeControl.websocketAdvancedUnsupported";
 const TICK: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -246,8 +249,9 @@ impl Workbench {
             | Command::ResumeWholeGameAnalysis
             | Command::Region { .. }
             | Command::Tracking { .. }
-            | Command::Batch { .. }
-            | Command::Tuning { op: TuningCommand::StartBenchmark { .. } } => Some(refused(PLAY_MODE)),
+            | Command::Tuning { op: TuningCommand::StartBenchmark { .. } }
+            // A resource plan's 立即切换 restarts or switches the foreground engine.
+            | Command::Resource { op: ResourceCommand::ApplySetup { switch_now: true, .. } } => Some(refused(PLAY_MODE)),
             Command::Edit { op } => self.play_edit_refusal(op),
             _ => None,
         }
@@ -330,6 +334,9 @@ impl Workbench {
         if kind == GameKind::Analysis && !settings.pure_net && !conditions.has_condition() {
             return Ok(refused("NewAnaGameDialog.wrongAiMoveSettings"));
         }
+        if kind == GameKind::Genmove && self.websocket_refuses_clock(engine, &settings.ai_time) {
+            return Ok(refused(WEBSOCKET_CLOCK));
+        }
         if self.queue_after_current(GameCommand::Start { kind, settings: settings.clone(), autoplay, engine }) {
             return Ok(CommandResult::Done);
         }
@@ -379,6 +386,9 @@ impl Workbench {
 
     /// 人机续弈 (`continueAiPlaying`): from the current position with the saved settings.
     fn game_continue(&mut self, kind: GameKind, human: Option<Stone>) -> Result<CommandResult, ApiError> {
+        if kind == GameKind::Genmove && self.websocket_refuses_clock(None, &self.config.game.ai_time) {
+            return Ok(refused(WEBSOCKET_CLOCK));
+        }
         if self.queue_after_current(GameCommand::Continue { kind, human }) {
             return Ok(CommandResult::Done);
         }
@@ -413,6 +423,22 @@ impl Workbench {
             self.play.notices.push(notice("LizzieFrame.startContinueGame"));
         }
         Ok(CommandResult::Done)
+    }
+
+    /// `DesktopTimeControl.rejectsHumanGame`: a Genmove game on the 自建算力 engine (the profile at
+    /// `engine`, else the foreground engine) runs without a clock or with a fixed time per move
+    /// only; it is refused before anything is committed (`NewGameDialog#apply`,
+    /// `continueAiPlayingReserved`).
+    fn websocket_refuses_clock(&self, engine: Option<u32>, time: &AiTimeSettings) -> bool {
+        if !matches!(time.mode, AiTimeMode::Advanced | AiTimeMode::KataGo) {
+            return false;
+        }
+        match engine {
+            Some(index) => self.config.engine.engines.get(index as usize).is_some_and(|p| {
+                p.cloud.as_ref().is_some_and(|c| c.provider == crate::engine::cloud::CloudProvider::Custom)
+            }),
+            None => self.engines.foreground().is_some_and(|f| self.engines.is_custom_websocket(f)),
+        }
     }
 
     /// Another mode holding the foreground engine refuses a game (`showForegroundEngineLeaseConflict`).

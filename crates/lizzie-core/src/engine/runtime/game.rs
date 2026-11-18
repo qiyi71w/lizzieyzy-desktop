@@ -44,6 +44,8 @@ struct InFlight {
     gtp: u64,
     key: TargetKey,
     stop_after: bool,
+    /// A position command before it was refused: the answer is for no position of the game.
+    voided: bool,
 }
 
 pub(super) struct GameSeat {
@@ -434,8 +436,26 @@ impl Engines {
         ));
         i.fence = Some(n);
         let seat = self.games.iter_mut().find(|g| g.instance == id).unwrap();
-        seat.genmove = Some(InFlight { request: w.request, gtp: n, key, stop_after: w.stop_after });
+        seat.genmove = Some(InFlight { request: w.request, gtp: n, key, stop_after: w.stop_after, voided: false });
         true
+    }
+
+    /// The engine refused position command `n` (`play` …): a move asked for behind it would
+    /// answer for a board that is not the game's, so the request fails now and its answer is
+    /// dropped when it comes (Java `opponentPlayErrorFailsExactGameAndCancelsQueuedNextGenmove`).
+    pub(super) fn game_position_refused(&mut self, id: InstanceId, n: u64, text: &str, events: &mut Vec<RuntimeEvent>) {
+        let Some(seat) = self.games.iter_mut().find(|g| g.instance == id) else { return };
+        let game = seat.id;
+        let Some(f) = seat.genmove.as_mut().filter(|f| f.gtp > n && !f.voided) else { return };
+        f.voided = true;
+        events.push(RuntimeEvent::Genmove {
+            game,
+            request: f.request,
+            doc: f.key.doc,
+            node: f.key.node,
+            stamp: f.key.stamp,
+            reply: GenmoveReply::Failed(format!("position refused: {text}")),
+        });
     }
 
     /// The answer to a game command or move.
@@ -449,6 +469,15 @@ impl Engines {
             }
             let inst = self.get_mut(id).unwrap();
             inst.requests.retain(|(r, _)| *r != n);
+            if f.voided {
+                // The engine played on a board the game no longer knows; the next sync rebuilds it.
+                inst.board = None;
+                if f.stop_after {
+                    let stop = if inst.kind == EngineKind::KataGo { "stop" } else { "name" };
+                    self.send(id, stop, Purpose::Setup);
+                }
+                return;
+            }
             let size = inst.board.as_ref().map(|b| b.size);
             let word = text.split_whitespace().last().unwrap_or("").to_string();
             let reply = if !ok {

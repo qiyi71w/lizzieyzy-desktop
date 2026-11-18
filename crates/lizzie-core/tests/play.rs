@@ -5,15 +5,17 @@ use std::time::{Duration, Instant};
 
 use lizzie_core::api::{
     Command, CommandResult, EditCommand, GameCommand, GameEnd, GameKind, GamePhase, LeaseAvailabilityView, OpenSource,
-    ScoreCommand,
+    ResourceCommand, ResourceResult, ScoreCommand,
 };
 use lizzie_core::browse::Navigation;
+use lizzie_core::engine::cloud::{CloudLaunch, CloudProvider};
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, KataParam, Launcher};
 use lizzie_core::formats::sgf;
 use lizzie_core::record::{NodeKind, Point, RecordFormat, Stone, ROOT};
-use lizzie_core::settings::{AiTimeMode, AutoPlaySettings, GameSettings, Storage};
+use lizzie_core::resources as r;
+use lizzie_core::settings::{AiTimeMode, AiTimeSettings, AutoPlaySettings, GameSettings, KataTimeType, Storage};
 use lizzie_core::web_board::parse_client_message;
 use lizzie_core::workbench::{OpenOrigin, Workbench};
 
@@ -27,6 +29,9 @@ struct World(Arc<Mutex<Vec<Process>>>);
 impl World {
     fn take(&self, id: InstanceId) -> Vec<String> {
         std::mem::take(&mut self.0.lock().unwrap().iter_mut().find(|p| p.id == id).unwrap().sent)
+    }
+    fn ids(&self) -> Vec<InstanceId> {
+        self.0.lock().unwrap().iter().map(|p| p.id).collect()
     }
 }
 struct Io(World, InstanceId);
@@ -67,6 +72,10 @@ fn output(wb: &mut Workbench, id: InstanceId, text: &str) {
 
 impl Game {
     fn new() -> Game {
+        Game::with_profile(EngineProfile { name: "KataGo".into(), command: "/opt/katago gtp".into(), ..EngineProfile::default() })
+    }
+
+    fn with_profile(profile: EngineProfile) -> Game {
         let dir = tempfile::tempdir().unwrap();
         let world = World::default();
         let mut wb = Workbench::new(
@@ -76,16 +85,21 @@ impl Game {
             vec![],
         );
         wb.set_auto_quick_analyze(false).unwrap();
-        wb.save_engine_settings(
-            vec![EngineProfile { name: "KataGo".into(), command: "/opt/katago gtp".into(), ..EngineProfile::default() }],
-            EngineStartup::Default,
-        )
-        .unwrap();
+        wb.save_engine_settings(vec![profile], EngineStartup::Default).unwrap();
         wb.start_engines();
         let engine = world.0.lock().unwrap().last().unwrap().id;
         let mut g = Game { wb, world, engine, held: Vec::new(), analyzing: false, _dir: dir };
         g.serve(&|_| None);
         g
+    }
+
+    /// The application's command entry (`dispatch`): the game's gate first.
+    fn dispatch_resource(&mut self, op: ResourceCommand) -> ResourceResult {
+        if let Some(CommandResult::Refused { message_key }) = self.wb.game_gate(&Command::Resource { op: op.clone() }) {
+            return ResourceResult::Refused { message_key };
+        }
+        let ResourceCommand::ApplySetup { plan, make_default, switch_now } = op else { panic!("{op:?}") };
+        self.wb.apply_resource_setup(plan, make_default, switch_now).unwrap()
     }
 
     /// Answers everything the engine was sent and returns the commands. `genmove` is always held;
@@ -613,4 +627,128 @@ fn an_analysis_game_gives_back_the_breadth_field_and_ticks_it_again() {
     assert_ne!(after.wrn_read_back, before.wrn_read_back, "the toolbar shows the 广度 given back");
     assert_eq!(after.pda_read_back, before.pda_read_back, "激进度 keeps what the user left in it");
     assert!(g.wb.config().engine.kata_params.wrn_enabled);
+}
+
+#[test]
+fn an_engine_move_asked_behind_a_refused_position_fails_the_game() {
+    for answer in ["pass", "resign", "Q16"] {
+        let mut g = Game::new();
+        start(&mut g, GameKind::Genmove, genmove_settings(true), None);
+        g.serve(&|_| None);
+        assert_eq!(play(&mut g, 3, 3), CommandResult::Done);
+        let sent = g.serve(&|c| c.starts_with("play ").then(|| "?illegal move".to_string()));
+        assert!(sent.iter().any(|c| c == "play B D16"), "{sent:?}");
+        assert!(g.held.iter().any(|(_, c)| c == "genmove W"), "the move was asked behind the refused play: {:?}", g.held);
+        let outcome = g.wb.view(false).game_outcome.map(|o| (o.end, o.result));
+        assert_eq!(outcome, Some((GameEnd::Retired, None)), "{answer}: the refused position fails the game");
+        g.answer_held("genmove W", answer);
+        g.serve(&|_| None);
+        assert_eq!(last_move(&g.wb), Some((Stone::Black, Some(Point { x: 3, y: 3 }))), "{answer}: the late answer is not written");
+        assert_eq!(g.wb.document().record.info.result, "", "{answer}: the late answer decides nothing");
+        assert_eq!(g.phase(), None, "{answer}: the engine was given back");
+    }
+}
+
+fn custom_websocket() -> EngineProfile {
+    EngineProfile {
+        name: "Custom Compute".into(),
+        command: "remote-compute://custom-websocket".into(),
+        cloud: Some(CloudLaunch {
+            provider: CloudProvider::Custom,
+            identifier: String::new(),
+            args: String::new(),
+            url: "ws://127.0.0.1:1/analysis".into(),
+        }),
+        ..EngineProfile::default()
+    }
+}
+
+#[test]
+fn a_custom_websocket_engine_refuses_an_advanced_or_katago_clock_before_the_game_starts() {
+    let refusal = CommandResult::Refused { message_key: "DesktopTimeControl.websocketAdvancedUnsupported".into() };
+    for ai_time in [
+        AiTimeSettings { mode: AiTimeMode::Advanced, advanced: "time_settings 0 10 1".into(), ..AiTimeSettings::default() },
+        AiTimeSettings { mode: AiTimeMode::KataGo, kata_type: KataTimeType::Absolute, ..AiTimeSettings::default() },
+    ] {
+        let mut g = Game::with_profile(custom_websocket());
+        play(&mut g, 3, 3);
+        g.serve(&|_| None);
+        let (saved, revision, document) = (g.wb.config().game.clone(), g.wb.document().revision, g.wb.document().id);
+        let settings = GameSettings { ai_time: ai_time.clone(), ..genmove_settings(true) };
+        let start = GameCommand::Start { kind: GameKind::Genmove, settings, autoplay: None, engine: Some(0) };
+        assert_eq!(g.game(start), refusal, "{:?}", ai_time.mode);
+        assert_eq!(g.phase(), None);
+        assert_eq!(g.wb.config().game, saved, "the refused clock is not saved");
+        assert_eq!((g.wb.document().id, g.wb.document().revision), (document, revision), "the record is not replaced");
+        assert!(g.serve(&|_| None).is_empty(), "nothing reaches the engine");
+    }
+    // A saved clock of that kind refuses 人机续弈 too; a fixed time or the engine's own time plays.
+    let mut g = Game::with_profile(custom_websocket());
+    let kata = AiTimeSettings { mode: AiTimeMode::KataGo, ..AiTimeSettings::default() };
+    g.game(GameCommand::SetAiTime { time: kata, ponder: false, autoplay: AutoPlaySettings::default() });
+    assert_eq!(g.game(GameCommand::Continue { kind: GameKind::Genmove, human: Some(Stone::Black) }), refusal);
+    assert_eq!(g.phase(), None);
+    let fixed = GameSettings { ai_time: AiTimeSettings { mode: AiTimeMode::Fixed, ..AiTimeSettings::default() }, ..genmove_settings(true) };
+    start(&mut g, GameKind::Genmove, fixed, None);
+    let sent = g.serve(&|_| None);
+    assert!(sent.iter().any(|c| c == "kata-time_settings none") && !sent.iter().any(|c| c.starts_with("time_settings")), "{sent:?}");
+    assert_eq!(g.phase(), Some(GamePhase::Playing));
+}
+
+fn setup_choice(d: &std::path::Path, update: Option<String>) -> r::SetupChoice {
+    let (executable, config, weight) = (d.join("katago"), d.join("gtp.cfg"), d.join("model.bin.gz"));
+    for p in [&executable, &config, &weight] {
+        std::fs::write(p, b"fixture").unwrap();
+    }
+    r::SetupChoice {
+        asset_id: "linux-cpu".into(),
+        executable,
+        config,
+        weight,
+        model_display_name: "test model".into(),
+        model_name: Some("kata1-b18c384-test".into()),
+        engine_version: Some("1.18.2".into()),
+        experimental_backend: None,
+        update_profile_id: update,
+        set_as_default: false,
+        switch_now: false,
+    }
+}
+
+fn setup_plan(result: ResourceResult) -> u64 {
+    match result {
+        ResourceResult::Plan { plan } => plan.id,
+        other => panic!("expected a profile plan: {other:?}"),
+    }
+}
+
+#[test]
+fn a_resource_plan_switched_now_is_refused_during_a_game_and_saved_without_switching() {
+    let mut g = Game::new();
+    let dir = g._dir.path().to_path_buf();
+    let first = setup_plan(g.wb.plan_resource_setup(setup_choice(&dir, None)));
+    let applied = g.dispatch_resource(ResourceCommand::ApplySetup { plan: first, make_default: true, switch_now: true });
+    assert_eq!(applied, ResourceResult::Done);
+    g.engine = *g.world.ids().last().unwrap();
+    g.serve(&|_| None);
+    let managed = g.wb.config().engine.engines.iter().find(|p| p.managed.is_some()).unwrap().id.clone();
+    start(&mut g, GameKind::Genmove, genmove_settings(true), None);
+    g.serve(&|_| None);
+    assert_eq!(g.phase(), Some(GamePhase::Playing));
+    let (processes, engines) = (g.world.ids(), g.wb.config().engine.engines.clone());
+
+    let update = setup_plan(g.wb.plan_resource_setup(setup_choice(&dir, Some(managed.clone()))));
+    let now = g.dispatch_resource(ResourceCommand::ApplySetup { plan: update, make_default: false, switch_now: true });
+    assert_eq!(now, ResourceResult::Refused { message_key: "AnalysisSettings.reuseStatus.play_mode".into() });
+    g.serve(&|_| None);
+    assert_eq!(g.world.ids(), processes, "no engine is started or switched under the game");
+    assert_eq!(g.wb.config().engine.engines, engines, "nothing is saved by the refused switch");
+    assert_eq!(g.phase(), Some(GamePhase::Playing));
+
+    // Saving the same plan without switching stays available during the game.
+    let later = g.dispatch_resource(ResourceCommand::ApplySetup { plan: update, make_default: false, switch_now: false });
+    assert_eq!(later, ResourceResult::Done);
+    g.serve(&|_| None);
+    assert_eq!(g.world.ids(), processes);
+    assert_eq!(g.phase(), Some(GamePhase::Playing));
 }

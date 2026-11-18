@@ -67,16 +67,8 @@ impl Match {
     }
 
     fn with_locale(locale: Option<&str>) -> Self {
-        let dir = tempfile::tempdir().unwrap();
-        let world = World::default();
-        let mut wb = Workbench::new(
-            Storage::in_dirs(&dir.path().join("config"), &dir.path().join("data")),
+        Self::with_profiles(
             locale,
-            Box::new(Launch(world.clone())),
-            vec![],
-        );
-        wb.set_auto_quick_analyze(false).unwrap();
-        wb.save_engine_settings(
             vec![
                 EngineProfile {
                     id: "one".into(),
@@ -91,9 +83,20 @@ impl Match {
                     ..EngineProfile::default()
                 },
             ],
-            EngineStartup::Default,
         )
-        .unwrap();
+    }
+
+    fn with_profiles(locale: Option<&str>, profiles: Vec<EngineProfile>) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let world = World::default();
+        let mut wb = Workbench::new(
+            Storage::in_dirs(&dir.path().join("config"), &dir.path().join("data")),
+            locale,
+            Box::new(Launch(world.clone())),
+            vec![],
+        );
+        wb.set_auto_quick_analyze(false).unwrap();
+        wb.save_engine_settings(profiles, EngineStartup::Default).unwrap();
         Self {
             wb,
             world,
@@ -1185,5 +1188,66 @@ fn spec_08_query_only_rules_are_checked_instead_of_offered_as_unverified() {
             );
             assert_eq!(m.wb.view(false).match_outcome.unwrap().end, MatchEnd::Retired);
         }
+    }
+}
+
+fn participant(id: &str, name: &str) -> EngineProfile {
+    EngineProfile { id: id.into(), name: name.into(), command: format!("/opt/{id} gtp"), ..EngineProfile::default() }
+}
+
+#[test]
+fn a_custom_websocket_participant_takes_its_fixed_time_as_the_katago_move_limit() {
+    let custom = EngineProfile {
+        name: "Custom Compute".into(),
+        command: "remote-compute://custom-websocket".into(),
+        cloud: Some(lizzie_core::engine::cloud::CloudLaunch {
+            provider: lizzie_core::engine::cloud::CloudProvider::Custom,
+            identifier: String::new(),
+            args: String::new(),
+            url: "ws://127.0.0.1:1/analysis".into(),
+        }),
+        ..EngineProfile::default()
+    };
+    let mut m = Match::with_profiles(None, vec![custom, participant("two", "Second")]);
+    m.start(genmove());
+    let sent = m.serve(&|_, _| None);
+    let setup = |custom: bool| -> Vec<&String> {
+        let maxtime = sent.iter().find(|(_, c)| c.starts_with("kata-set-param maxTime")).map(|(i, _)| *i);
+        sent.iter().filter(|(i, _)| (Some(*i) == maxtime) == custom).map(|(_, c)| c).collect()
+    };
+    let (remote, local) = (setup(true), setup(false));
+    assert!(remote.iter().any(|c| *c == "kata-time_settings none"), "{remote:?}");
+    assert!(remote.iter().any(|c| *c == "kata-set-param maxTime 2"), "{remote:?}");
+    assert!(!remote.iter().any(|c| c.starts_with("time_settings")), "the 自建算力 side refuses time_settings: {remote:?}");
+    assert!(local.iter().any(|c| *c == "time_settings 0 2 1"), "a local participant keeps its time settings: {local:?}");
+    assert_eq!(m.phase(), Some(MatchPhase::Playing));
+    m.finish_turn("D4");
+    m.finish_turn("Q16");
+    let rec = &m.wb.document().record;
+    let mut moves = 0;
+    let mut node = ROOT;
+    while let Some(next) = rec.main_child(node) {
+        moves += matches!(rec.node(next).kind, NodeKind::Move { .. }) as usize;
+        node = next;
+    }
+    assert_eq!(moves, 2, "both participants moved");
+    assert_eq!(m.phase(), Some(MatchPhase::Playing));
+}
+
+#[test]
+fn a_fixed_handicap_is_set_only_on_a_nineteen_line_match_board() {
+    for (size, handicap, stones, to_play) in [(9, 0, 0, Stone::Black), (19, 2, 2, Stone::White)] {
+        let black = EngineProfile { width: size, height: size, ..participant("one", "First") };
+        let mut m = Match::with_profiles(None, vec![black, participant("two", "Second")]);
+        assert_eq!(m.wb.document().record.size.width, 19, "the open record is 19x19");
+        let settings = MatchSettings { rules: "chinese".into(), handicap: 2, ..MatchSettings::default() };
+        let start = MatchCommand::Start { settings, session: genmove(), first_engine: 0, second_engine: 1, disable_wrn: true };
+        assert_eq!(m.command(start), CommandResult::Done);
+        m.serve(&|_, _| None);
+        let rec = &m.wb.document().record;
+        assert_eq!((rec.size.width, rec.size.height), (size, size), "the black participant's board");
+        assert_eq!(rec.info.handicap, handicap, "{size}x{size}: HA");
+        assert_eq!(rec.position(ROOT).stones.iter().flatten().count(), stones, "{size}x{size}: handicap stones");
+        assert_eq!(rec.node(ROOT).to_play, to_play, "{size}x{size}: side to play");
     }
 }

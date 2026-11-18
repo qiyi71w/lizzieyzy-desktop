@@ -2780,6 +2780,7 @@ impl Engines {
                         inst.rejected = inst.syncing;
                         inst.requests.retain(|(m, _)| *m < n);
                         inst.raw_data = None;
+                        self.game_position_refused(id, n, &text, events);
                     }
                     Some(Purpose::SetRules) if !ok => {
                         if let Some((_, outcome)) = inst.rules_request.as_mut() {
