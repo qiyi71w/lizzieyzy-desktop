@@ -84,6 +84,9 @@ impl Workbench {
         };
         if self.engines.foreground() == Some(instance) {
             self.restart_engine()?;
+        } else if self.engines.secondary() == Some(instance) {
+            // The secondary seat keeps the new process (`restartEngine2`).
+            self.restart_secondary_engine()?;
         } else {
             let boot = self.bootstrap(profile);
             self.engines.terminate(instance);

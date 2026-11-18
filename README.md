@@ -256,8 +256,9 @@ importing the matching LizzieYzy Next settings.
   engine, while it was lent to a background analysis (or being given back), or while it was left
   unrestored. An engine restarted this way is restarted again only after it produced an analysis
   line or a legal move, so an engine that keeps crashing is not restarted in a loop; a launch
-  failure is reported like any start, and an engine that refuses the position it is brought to
-  is left unrestored (引擎状态未恢复 in the status area, no dialog, no further attempt). The
+  failure is reported like any start, and an engine that refuses the position it is brought to,
+  or whose rules prompt for a record's rules it cannot apply is answered with No, is left
+  unrestored (引擎状态未恢复 in the status area, no dialog, no further attempt). The
   ending is noticed at once from the process or connection, not by polling. Unlike Java, a local
   engine is restarted too (Java's check missed a local process that had ended).
 - 棋盘同步工具 (同步 menu and `Alt+O`, Windows only): starts the bundled ReadBoard helper
@@ -299,7 +300,8 @@ importing the matching LizzieYzy Next settings.
   Next-move dashed hints sit behind the labels; hovering a variation hides those hints until
   the pointer leaves. The bottom-bar analysis button uses pause/play
   icons and keeps its width when switching states. `Space` pauses
-  and resumes for this session only (never saved); opening another record ends the pause. Time
+  and resumes for this session only (never saved); opening another record ends the pause (a
+  paused 批量分析 stays paused, the pause being the batch record's). Time
   and visit limits stop the current position once and resume on the next one. Raising or
   unticking a limit (on the top toolbar or in 综合设置) lets a search a limit stopped go on at
   once when its visits and the time since it began are within the new limits; the resumed search
@@ -734,7 +736,8 @@ importing the matching LizzieYzy Next settings.
     last-engine choice stay unchanged.
   - Switching replaces the foreground engine and synchronizes the current board, komi and
     rules. Automatic quick analysis borrows a cloud foreground engine rather than launching a
-    separate local process. Successful cloud/local switching also runs the normal analysis
+    separate local process. A switch succeeds once the new engine has confirmed the board
+    sync; only then does successful cloud/local switching run the normal analysis
     preload entry. 切换到本地引擎 selects the first local profile whose executable and referenced
     model/config/JAR files exist. 引擎 > 关闭当前引擎 disconnects it; closing the center alone
     leaves an established engine running.
@@ -764,6 +767,8 @@ importing the matching LizzieYzy Next settings.
   move and lets the foreground engine analyse again unless it was paused. A rejected request ends
   the run with Java's failure message; a failed analysis process shows the engine failure and then
   精析设置 with 确定并重新计算; a borrowed engine that cannot be given back stays "引擎状态未恢复".
+  Changing 精析设置's rules during a run ends it as a failed request, as in Java: answers asked
+  under the old rules are not stored and browsing does not step to move 1.
   Results are stored like quick analysis results; opening another record ends the run silently.
   Each run searches the positions as they were when it was started: a position edited, deleted
   or added while it runs gets no result from it, answers land only on the node they were asked
@@ -777,7 +782,8 @@ importing the matching LizzieYzy Next settings.
   自定义限制手数, saved as `select-*-moves`). The board shades the region. A toolbar or Alt
   selection stays for later positions until cleared; a right-click 只分析此点 / 增加分析此点 /
   去除分析此点 (depth 1) or 不分析此点 lasts for that request only unless 持续分析/不分析 is
-  checked; 清除分析/不分析 clears it. Regions are session state: they never change the record.
+  checked; 清除分析/不分析 clears it. Regions are session state: they never change the record and
+  belong to the open record only (批量分析's searches of its own records never carry them).
   Stored results of the position give way to the next restricted live result.
 - 选点重点研究 (right-click 评估此点 / 取消评估 / 清除所有评估选点 on an empty point): on a local
   KataGo whose `kata-analyze` accepts `focus`, each tracked point gets extra search until its
@@ -827,7 +833,8 @@ importing the matching LizzieYzy Next settings.
   (`batch-analysis-playouts`, default 100; a search uses at least 2) and 分析所有分支, and its 设置
   button edits that value in 精析设置. Each record is read
   and analysed in turn, then saved beside its source as `<name>_已分析_<yyyyMMddHHmmss>.sgf`
-  (always SGF; the source is not changed). Unlike Java, the records are analysed as background
+  (always SGF; the source is not changed, and the copy keeps the source's secondary-engine
+  analysis, `LZ2` / `LZOP2`). Unlike Java, the records are analysed as background
   documents with their own komi and declared rules: the open record stays on the board and can
   be browsed, edited and saved meanwhile, and nothing the batch does marks it saved or moves it.
   批量分析 runs automatic analysis with the foreground engine (which follows the batch record
@@ -837,7 +844,9 @@ importing the matching LizzieYzy Next settings.
   foreground engine, as chosen when the batch started) for the whole batch and shows its
   progress window; 取消分析 ends the engine without saving the current record, which stays first
   in 进度表 with the results it has, so 开始/结束(闪电模式) continues from it and asks only for
-  the positions still below the requested visits (all of them with 总是覆盖已有分析结果).
+  the positions still below the requested visits (all of them with 总是覆盖已有分析结果). A
+  borrowed engine searches a record that declares no rules with the rules it had when it was
+  taken over, not with those of the record before.
   批量分析进度表 lists the current record and the ones still to
   analyse (finished ones leave the list), with the current record's progress, 增加棋谱, 清空
   (which stops a running batch first), and per-row 优先 / 上移 / 下移 / 删除; it opens by itself
@@ -864,7 +873,9 @@ importing the matching LizzieYzy Next settings.
   available throughout. The analysis process uses KataGo's whole-game throughput thread profile;
   an explicitly accepted matching whole-game measured profile takes precedence after off-thread
   artifact/hardware verification (stale or ambiguous profiles use the normal thread profile).
-  复用当前前台引擎 uses the same sequential foreground lease as quick analysis; switching the
+  复用当前前台引擎 uses the same sequential foreground lease as quick analysis; a borrowed search
+  is given up only after 8 s without any report from the engine (one that keeps reporting may
+  take longer, as in Java); switching the
   foreground engine during such a run, or while it is still returning the engine after its last
   answer, stops it with its results kept; the new engine analyses at once. The foreground
   engine stopped by a dedicated run resumes on completion, cancellation or failure unless the
@@ -1253,7 +1264,8 @@ importing the matching LizzieYzy Next settings.
   it can be stopped. Its recommended search threads stay in use until the policy is changed or
   measured again; the measured server threads and batch size apply only while the engine, model
   and config are unchanged, and the page then marks the result as historical. Measured tuning
-  reports can be reviewed, applied and restored; they and Apple Silicon tuning apply only while
+  reports can be reviewed, applied and restored (a running engine, the 双引擎模式 secondary one
+  included, starts again with the result and keeps its seat); they and Apple Silicon tuning apply only while
   the content of the engine, model and config still matches, which is checked before the engine
   starts without blocking the window. Apple Silicon deep tuning is experimental and asks first.
 - 跑谱贡献 (KataGo distributed training, the 跑谱贡献 menu; Settings > 显示跑谱贡献菜单 hides it):

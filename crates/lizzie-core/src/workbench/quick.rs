@@ -1027,7 +1027,9 @@ impl Workbench {
                 if self.quick.releasing == Some(lease) {
                     self.quick.releasing = None;
                     // `finishUserAnalysisPauseCleanup`: an engine not given back keeps the pause.
-                    if restore_failed {
+                    // A closed one is gone (switched, restarted or ended): its successor owes
+                    // nothing to it.
+                    if restore_failed && failure != Some(LeaseFailure::TransportClosed) {
                         self.paused = true;
                     }
                     self.borrowed_engine_returned();

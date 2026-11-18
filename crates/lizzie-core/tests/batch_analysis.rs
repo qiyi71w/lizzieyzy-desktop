@@ -6,12 +6,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use lizzie_core::api::{BatchMode, BatchMove, FlashTarget, OpenSource};
+use lizzie_core::api::{BatchMode, BatchMove, FlashTarget, OpenSource, RegionCommand};
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
 use lizzie_core::formats::{self, sgf};
-use lizzie_core::record::{DocumentEdit, RecordFormat, ROOT};
+use lizzie_core::record::{DocumentEdit, Point, RecordFormat, ROOT};
 use lizzie_core::settings::{AnalysisEngineSettings, AutoAnalysisSettings, Storage};
 use lizzie_core::workbench::{OpenOrigin, Workbench};
 
@@ -966,4 +966,149 @@ fn the_tables_start_opens_batch_analysis_of_the_remaining_records_like_the_menu(
     assert!(wb.cancel_batch_setup());
     assert!(wb.view(false).batch.items.is_empty(), "cancelling ends the batch");
     assert!(wb.config().auto_analysis.auto_save);
+}
+
+/// A record carrying secondary-engine analysis (`LZOP2` at the root, `LZ2` on both moves).
+const WITH_SECONDARY: &str = "(;SZ[19]KM[7.5]LZOP2[b6 50.0 80 0.5 1.0\nmove Q4 visits 80 winrate 5000 scoreMean 0.5 pv Q4]\
+;B[pd]LZ2[b6 40.0 100 1.0 2.0\nmove D4 visits 100 winrate 6000 scoreMean 1.0 pv D4]\
+;W[dd]LZ2[b6 45.0 200 -2.0 1.5\nmove C3 visits 200 winrate 5500 scoreMean -2.0 pv C3])";
+
+fn secondary_payloads(text: &str) -> (usize, usize) {
+    (text.matches("LZ2[b6 ").count(), text.matches("LZOP2[b6 ").count())
+}
+
+#[test]
+fn an_ordinary_batch_copy_keeps_the_sources_secondary_engine_analysis() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, fg) = setup(dir.path(), false);
+    let src = write(dir.path(), "s.sgf", WITH_SECONDARY);
+    wb.open_batch(BatchMode::Ordinary, vec![src.clone()], OpenSource::Chooser).unwrap();
+    deliver_reads(&mut wb);
+    wb.start_batch_ordinary(ordinary()).unwrap().unwrap();
+    deliver_reads(&mut wb);
+    serve(&mut wb, &world, fg, 10);
+    let written = write_saves(&mut wb, None);
+    assert_eq!(written.len(), 1);
+    let copy = std::fs::read_to_string(&written[0]).unwrap();
+    assert!(copy.contains("LZ["), "the batch's own results: {copy}");
+    assert_eq!(secondary_payloads(&copy), (2, 1), "{copy}");
+    assert_eq!(std::fs::read_to_string(&src).unwrap(), WITH_SECONDARY);
+}
+
+#[test]
+fn a_flash_batch_copy_keeps_the_sources_secondary_engine_analysis() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, _fg) = setup(dir.path(), false);
+    let src = write(dir.path(), "s.sgf", WITH_SECONDARY);
+    wb.open_batch(BatchMode::Flash, vec![src], OpenSource::Chooser).unwrap();
+    deliver_reads(&mut wb);
+    wb.start_batch_flash(-1, -1, 2, false).unwrap().unwrap();
+    deliver_reads(&mut wb);
+    let worker = *world.workers().last().unwrap();
+    for q in queries(&world, worker) {
+        answer(&mut wb, worker, &q);
+    }
+    let written = write_saves(&mut wb, None);
+    assert_eq!(written.len(), 1);
+    let copy = std::fs::read_to_string(&written[0]).unwrap();
+    assert!(copy.contains("LZ["), "the batch's own results: {copy}");
+    assert_eq!(secondary_payloads(&copy), (2, 1), "{copy}");
+}
+
+/// The `kata-set-rules` argument in effect at each finite search of the position whose first
+/// move is `first`, read from the commands the engine was sent (`None`: never set).
+fn rules_at_searches(sent: &[String], first: &str) -> Vec<Option<String>> {
+    let (mut rules, mut moves, mut found) = (None, Vec::new(), Vec::new());
+    for c in sent {
+        let (word, arg) = c.split_once(' ').unwrap_or((c, ""));
+        match word {
+            "kata-set-rules" => rules = Some(arg.to_string()),
+            "boardsize" | "clear_board" => moves.clear(),
+            "play" => moves.push(arg.to_string()),
+            "undo" => {
+                moves.pop();
+            }
+            "kata-analyze" if c.contains("maxmoves") && moves.first().is_some_and(|m| m == first) => {
+                found.push(rules.clone())
+            }
+            _ => {}
+        }
+    }
+    found
+}
+
+/// A borrowed 批量精析 with 使用当前规则: a record without `RU` is searched with the rules captured
+/// from the engine, not with those the record before it set.
+#[test]
+fn a_borrowed_flash_batch_searches_a_record_without_rules_with_the_engines_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, fg) = setup(dir.path(), true);
+    assert!(wb.config().analysis_engine.use_current_rules);
+    let a = write(dir.path(), "a.sgf", "(;SZ[19]RU[Japanese];B[pd];W[dd])");
+    let b = write(dir.path(), "b.sgf", GAME_B);
+    wb.open_batch(BatchMode::Flash, vec![a, b], OpenSource::Chooser).unwrap();
+    deliver_reads(&mut wb);
+    wb.start_batch_flash(-1, -1, 2, false).unwrap().unwrap();
+    let mut sent = Vec::new();
+    for _ in 0..20 {
+        deliver_reads(&mut wb);
+        sent.extend(serve(&mut wb, &world, fg, 5));
+        write_saves(&mut wb, None);
+        if wb.view(false).batch.running.is_none() {
+            break;
+        }
+    }
+    assert!(wb.view(false).batch.running.is_none(), "the batch completed");
+    let at_b = rules_at_searches(&sent, "B D16");
+    assert!(!at_b.is_empty());
+    assert!(at_b.iter().all(|r| r.as_deref() == Some(CHINESE)), "{at_b:?}");
+}
+
+/// With 手动暂停分析则退出自动分析 off, the paused batch keeps its pause when another record opens:
+/// the pause belongs to the batch record, not to the record that was open.
+#[test]
+fn opening_another_record_keeps_a_paused_ordinary_batch_paused() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, fg) = setup(dir.path(), false);
+    let a = write(dir.path(), "a.sgf", GAME_A);
+    let b = write(dir.path(), "b.sgf", GAME_B);
+    wb.open_batch(BatchMode::Ordinary, vec![a, b], OpenSource::Chooser).unwrap();
+    deliver_reads(&mut wb);
+    wb.start_batch_ordinary(AutoAnalysisSettings { exit_by_pause: false, ..ordinary() }).unwrap().unwrap();
+    deliver_reads(&mut wb);
+    serve(&mut wb, &world, fg, 3);
+    wb.toggle_analysis().unwrap();
+    serve(&mut wb, &world, fg, 0);
+    assert!(wb.view(false).engine.paused && wb.view(false).auto_analysis.active);
+
+    let t = wb.begin_open(OpenOrigin::File { path: "/c.sgf".into(), source: OpenSource::Drop });
+    assert!(wb.complete_open(t, Ok((RecordFormat::Sgf, sgf::read("(;SZ[19];B[qq])").unwrap()))));
+    let after = serve(&mut wb, &world, fg, 0);
+    let v = wb.view(false);
+    assert!(v.engine.paused && v.auto_analysis.active, "{after:?}");
+    assert!(!after.iter().any(|c| c.starts_with("kata-analyze")), "{after:?}");
+    // Resuming continues the batch.
+    wb.toggle_analysis().unwrap();
+    assert!(serve(&mut wb, &world, fg, 0).iter().any(|c| c.starts_with("kata-analyze")));
+}
+
+/// A one-shot 只分析此点 belongs to the open record's next search only: batch searches do not
+/// carry it.
+#[test]
+fn a_one_shot_region_of_the_open_record_does_not_reach_the_batch_searches() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, fg) = setup(dir.path(), false);
+    assert!(wb.region(RegionCommand::AllowPoint { point: Point { x: 9, y: 9 } }).unwrap());
+    let first = serve(&mut wb, &world, fg, 0);
+    assert!(first.iter().any(|c| c.starts_with("kata-analyze") && c.contains("allow")), "{first:?}");
+
+    let b = write(dir.path(), "b.sgf", GAME_B);
+    wb.open_batch(BatchMode::Ordinary, vec![b], OpenSource::Chooser).unwrap();
+    deliver_reads(&mut wb);
+    wb.start_batch_ordinary(ordinary()).unwrap().unwrap();
+    deliver_reads(&mut wb);
+    let batch = serve(&mut wb, &world, fg, 10);
+    let searches: Vec<&String> = batch.iter().filter(|c| c.starts_with("kata-analyze")).collect();
+    assert!(!searches.is_empty());
+    assert!(searches.iter().all(|c| !c.contains("allow")), "{searches:?}");
 }

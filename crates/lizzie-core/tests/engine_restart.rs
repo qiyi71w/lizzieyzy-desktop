@@ -374,6 +374,42 @@ fn a_restarted_engine_that_refuses_the_position_is_left_unrestored() {
     assert_eq!(world.launched().len(), 2, "not tried again");
 }
 
+/// The restore round of a restarted engine includes the record's rules: declining the rules
+/// override it asks for fails the restore, which leaves the engine unrestored without a dialog
+/// and without another attempt (not merely paused).
+#[test]
+fn declining_the_rules_override_of_a_restarted_engine_leaves_it_unrestored() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world, vec![profile("kata", "/opt/katago")]);
+    wb.start_engines();
+    let old = world.last();
+    serve(&mut wb, &world, old);
+    // The engine keeps its own (Chinese) rules: the record's Japanese ones cannot be applied.
+    open(&mut wb, "(;SZ[19]RU[Japanese];B[pd];W[dd];B[pp])");
+    wb.navigate(Navigation::Last);
+    serve(&mut wb, &world, old);
+    let p = wb.view(false).rules_prompt.expect("asked about the record's rules");
+    assert!(wb.answer_rules_prompt(p.prompt, true));
+    serve(&mut wb, &world, old);
+    info(&mut wb, old, 50);
+
+    wb.engine_input(old, EngineInput::Exited(Some(1)));
+    assert!(wb.view(false).engine_failure.is_some(), "the end itself is reported");
+    let new = world.last();
+    serve(&mut wb, &world, new);
+    let p = wb.view(false).rules_prompt.expect("the restarted engine asks again");
+    assert!(wb.answer_rules_prompt(p.prompt, false));
+    serve(&mut wb, &world, new);
+    let v = wb.view(false);
+    assert!(v.engine_failure.is_none(), "no dialog for the failed restore");
+    assert_eq!(v.engine.unrestored, Some(UnrestoredReason::Restore), "引擎状态未恢复");
+    // It follows no wish: resuming analyses nothing, and nothing is tried again.
+    wb.toggle_analysis().unwrap();
+    assert!(!serve(&mut wb, &world, new).iter().any(|c| c.starts_with("kata-analyze")));
+    assert_eq!(world.launched().len(), 2);
+}
+
 /// The position the user moved to while the restarted engine was being restored is the one it
 /// must hold: a refusal of that catch-up leaves it unrestored; holding it ends the restore.
 #[test]

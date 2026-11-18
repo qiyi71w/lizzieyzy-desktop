@@ -439,6 +439,9 @@ struct LeaseSearch {
     target_visits: u64,
     best: Option<InfoLine>,
     failed: bool,
+    /// The search reported since its stall deadline was set (Java
+    /// `remoteGtpLastCompletionActivityMillis`): a deadline passing then is renewed.
+    progressed: bool,
 }
 
 /// The foreground engine lent to a background task (Java `ForegroundAnalysisLease`): the seat's
@@ -1913,7 +1916,7 @@ impl Engines {
             }
         }
         if self.lease.as_ref().and_then(|l| l.deadline).is_some_and(|d| now >= d) {
-            self.lease_timeout(&mut events);
+            self.lease_timeout(now, &mut events);
         }
         self.game_timeout(now, &mut events);
         events.append(&mut self.pending);
@@ -3061,6 +3064,12 @@ impl Engines {
         self.lease.as_ref().is_some_and(|l| l.id == lease)
     }
 
+    /// The `kata-get-rules` answer lease `lease` captured from the engine it took (Java
+    /// `sharedForegroundOriginalRules`), once captured.
+    pub fn lease_captured_rules(&self, lease: u64) -> Option<String> {
+        self.lease.as_ref().filter(|l| l.id == lease)?.captured_rules.clone()
+    }
+
     /// Whether lease `lease` is ready for a search.
     pub fn lease_idle(&self, lease: u64) -> bool {
         self.lease
@@ -3111,6 +3120,7 @@ impl Engines {
             target_visits: visits,
             best: None,
             failed: false,
+            progressed: false,
         });
         true
     }
@@ -3269,6 +3279,7 @@ impl Engines {
                     .root_visits
                     .unwrap_or_else(|| info.candidates.iter().map(|c| c.visits).sum());
                 let accepted = !s.failed && !info.candidates.is_empty();
+                s.progressed = true;
                 if accepted {
                     s.best = Some(info);
                 }
@@ -3382,8 +3393,9 @@ impl Engines {
         }
     }
 
-    /// A lease step that was not answered in time.
-    fn lease_timeout(&mut self, events: &mut Vec<RuntimeEvent>) {
+    /// A lease step that was not answered in time. A search that reported since its deadline
+    /// was set is not stalled (`REMOTE_GTP_ANALYZE_STALL_TIMEOUT_MILLIS` counts idle time).
+    fn lease_timeout(&mut self, now: Instant, events: &mut Vec<RuntimeEvent>) {
         let l = self.lease.as_mut().unwrap();
         l.deadline = None;
         match l.step {
@@ -3398,6 +3410,10 @@ impl Engines {
             }
             LeaseStep::Search => {
                 if let Some(s) = l.search.as_mut() {
+                    if std::mem::take(&mut s.progressed) {
+                        l.deadline = Some(now + LEASE_ACK);
+                        return;
+                    }
                     s.failed = true;
                 }
                 self.lease_stop_search();
