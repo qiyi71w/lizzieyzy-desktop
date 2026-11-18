@@ -136,6 +136,42 @@ fn yike_shaped_links_of_other_hosts_are_not_yike_rooms() {
     }
 }
 
+/// Java tries the 弈客 shapes before the 野狐/欢乐 query keys (`OnlineDialog.checkUrl`,
+/// OnlineDialog.java:747-753, 757-807 before 809-824). A 弈客-shaped link whose host is not
+/// accepted is any other link even when it also carries the keys of 类型 3 or 4: read once from
+/// the link itself, no 欢乐 follow. On 弈客's own hosts the same links stay 弈客 rooms.
+#[test]
+fn yike_shaped_links_of_other_hosts_with_huanle_keys_are_read_once() {
+    let links = [
+        "/live/room/4903",
+        "/live/room/18328/1/15630642",
+        "/live/new-room/186031",
+        "/unite/66304678",
+        "/?{q}#/live/room/4903",
+        "/?{q}#/game/play/1/15630642",
+        "/?{q}#/live/other/18328/1/15630642",
+        "/?{q}#/unite/66304678",
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    for q in ["gameid=1&createtime=2", "gametag=ab&uin=9"] {
+        for shape in links {
+            let path = if shape.contains("{q}") { shape.replace("{q}", q) } else { format!("{shape}?{q}") };
+            let own = format!("https://home.yikeweiqi.com{path}");
+            assert!(classify(&own).unwrap().is_yike(), "{own}");
+            for host in ["https://evil.invalid", "http://home.yikeweiqi.com"] {
+                let link = format!("{host}{path}");
+                assert_eq!(classify(&link), Some(OnlineSource::Plain { url: link.clone() }), "{link}");
+                wb.online(OnlineCommand::Open { url: link.clone(), refresh_seconds: 1 }).unwrap();
+                match wb.take_online_jobs().as_slice() {
+                    [OnlineJob::Get { url, .. }] => assert_eq!(url, &link, "{link}"),
+                    other => panic!("{link}: {other:?}"),
+                }
+            }
+        }
+    }
+}
+
 // ------------------------------------------------------------------ REST (YikeApiClientTest)
 
 #[test]

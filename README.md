@@ -315,11 +315,14 @@ importing the matching LizzieYzy Next settings.
   (引擎状态未恢复) until it is switched or restarted. Arming GMA leaves a running analysis alone,
   as Java does: it goes on while GMA waits for the opponent, and each move's first engine command
   ends it before the move is asked. After a played move asked with pondering the engine goes on
-  pondering by itself on that position; any other answer leaves the analysis paused (Space or
-  the helper resumes it). Unticking 后台分析 in the helper
+  pondering by itself on that position; restarting the engine there hands the analysis to the
+  new engine once it holds the position. Any other answer of the current arming leaves the
+  analysis paused (Space or the helper resumes it); a move answered after GMA was cleared is
+  neither played nor pauses the analysis. Unticking 后台分析 in the helper
   (`playpon off`) while GMA is armed and no move is in flight, before its first move as between
   two, turns the engine's pondering off at once (its own value goes back when GMA is cleared) and
-  stops a running analysis, as Java does; a 批量分析 started meanwhile stays paused.
+  stops a running analysis, as Java does; resuming it analyses the same position again, and a
+  批量分析 started meanwhile stays paused.
   The 自建算力 engine (远程算力's WebSocket link) cannot ponder in the background: GMA leaves the
   pondering parameter alone on it, and when the helper asks for pondering (`playpon on`) each
   arming first shows ReadBoard 后台思考能力差异. GMA waits for the answer: 确定 or 不再提示 lets it
@@ -1421,7 +1424,8 @@ importing the matching LizzieYzy Next settings.
     huanle WebSocket), and any other link, which is read once and opened as an SGF record.
     The 弈客 kinds are recognized only on `https://yikeweiqi.com` and its subdomains, on the
     default port; the same link shape on another host, over `http` or on another port is any
-    other link. Java recognized them on every host and read that host's `api.` server.
+    other link, also when it carries 野狐 or 欢乐 share keys (the 弈客 shapes are checked first,
+    as in Java). Java recognized them on every host and read that host's `api.` server.
     中断 stops the follow, empties the link and closes the dialog; closing the dialog leaves the
     follow running. 新建 / 清空棋盘 and anything else that starts an empty board (人机对弈, AI
     陪练, 跑谱贡献) also ends the follow, as in Java; an engine match keeps it. An unknown link

@@ -817,6 +817,106 @@ fn between_gma_hands_a_web_trial_waits_for_a_restarted_engine() {
     assert!(r.wb.view(false).web_board.trial_active);
 }
 
+/// `playpon on`, one hand played: the engine ponders by itself on the new position and no
+/// analysis replaces that pondering while the same engine stays on the same position. Restarting
+/// the engine between hands replaces that engine: Java hands the pondering intent to the new
+/// instance once it is synced (EngineManager.java:4552-4560, 11947-11949), so the analysis runs
+/// there; the old engine's pondering is not kept for it and nothing is played.
+#[test]
+fn a_restarted_engine_between_gma_hands_analyses_instead_of_the_old_native_ponder() {
+    let (mut r, h) = first_gma_hand_played(true, "false");
+    // The same engine on the same position keeps its own pondering: closing 综合设置 asks the
+    // analysis again and none starts.
+    r.wb.hold_analysis(true);
+    r.wb.hold_analysis(false);
+    let same = r.serve(&|_| None);
+    assert!(!same.iter().any(|c| c.starts_with("kata-analyze")), "{same:?}");
+    assert!(!r.wb.view(false).engine.paused);
+    let placed = places(&r, h);
+
+    assert!(r.wb.restart_engine().unwrap());
+    let old = r.engine;
+    r.engine = r.engines.last();
+    assert_ne!(r.engine, old);
+    let sent = r.serve(&|_| None);
+    // The new engine is set up (its start probe included), then synced to the record and only
+    // then analyses.
+    let synced = sent.iter().rposition(|c| c == "play B Q16").unwrap_or_else(|| panic!("{sent:?}"));
+    assert!(sent[synced..].iter().any(|c| c.starts_with("kata-analyze")), "the new engine analyses once synced: {sent:?}");
+    assert!(!sent.iter().any(|c| c.starts_with("kata-genmove_analyze")), "{sent:?}");
+    assert!(!r.wb.view(false).engine.paused);
+    assert_eq!(r.main_line(), [(Stone::Black, p(15, 3))]);
+    assert_eq!(places(&r, h), placed);
+    assert_eq!(r.lease(), LeaseAvailabilityView::ReadBoardGma, "GMA stays armed");
+}
+
+/// A hand's answer arriving after GMA was cleared (Java `handleReadBoardGmaEnginePlay` only
+/// finishes a retired hand, ReadBoard.java:4991-5016; with GMA cleared
+/// `shouldStopPonderAfterEnginePlayLine` is false, Leelaz.java:8013-8031, 19813-19818): the
+/// parameters and the position go back, nothing is played or clicked, and the analysis is not
+/// paused by it: it runs again once the engine is restored. `stopsync` stops the analysis itself
+/// (`nameCmd`, ReadBoard.java:985); here the user resumed it before the late answer. `endsync`
+/// leaves it running.
+#[test]
+fn a_gma_answer_after_gma_was_cleared_neither_plays_nor_pauses_the_analysis() {
+    for (clear, ponder) in [("stopsync", false), ("stopsync", true), ("endsync", false), ("endsync", true)] {
+        let mut r = Rig::new();
+        let h = arm_gma(&mut r, ponder);
+        r.serve(&|_| None);
+        assert!(r.held.iter().any(|(_, c)| c.starts_with("kata-genmove_analyze B")), "{clear} {ponder}: {:?}", r.held);
+        assert!(!r.wb.view(false).engine.paused, "{clear} {ponder}");
+
+        r.line(h, clear);
+        r.serve(&|_| None);
+        assert_eq!(r.wb.view(false).engine.paused, clear == "stopsync", "{clear} {ponder}");
+        if clear == "stopsync" {
+            assert!(r.wb.toggle_analysis().unwrap());
+            r.serve(&|_| None);
+            assert!(!r.wb.view(false).engine.paused, "{ponder}: the user resumed");
+        }
+        r.answer_genmove("Q16");
+        let sent = r.serve(&|_| None);
+        assert_eq!(r.main_line(), [], "{clear} {ponder}");
+        assert_eq!(places(&r, h), Vec::<String>::new(), "{clear} {ponder}");
+        for restore in ["kata-set-param maxTime 1e+20", "kata-set-param maxVisits 1000000"] {
+            assert!(sent.iter().any(|c| c == restore), "{clear} {ponder}: {restore}: {sent:?}");
+        }
+        assert_eq!(r.lease(), LeaseAvailabilityView::Available, "{clear} {ponder}");
+        assert!(!r.wb.view(false).engine.paused, "{clear} {ponder}: the late answer pauses nothing");
+        assert!(sent.iter().any(|c| c.starts_with("kata-analyze")), "{clear} {ponder}: the analysis runs again: {sent:?}");
+    }
+}
+
+/// `playpon on`, one hand played, then `playpon off` between hands: the engine's own pondering is
+/// turned off and the analysis paused (`stopPonderingIfActive`). Resuming it with Space on the
+/// same position (`togglePonderMannul` → `ponder()`) analyses there again; GMA stays armed and
+/// nothing is played. Without `playpon off` and without a resume the position keeps the engine's
+/// own pondering.
+#[test]
+fn resuming_after_playpon_off_between_gma_hands_analyses_the_same_position() {
+    let (mut r, h) = first_gma_hand_played(true, "true");
+    r.wb.hold_analysis(true);
+    r.wb.hold_analysis(false);
+    let kept = r.serve(&|_| None);
+    assert!(!kept.iter().any(|c| c.starts_with("kata-analyze")), "{kept:?}");
+    assert!(!r.wb.view(false).engine.paused);
+
+    r.line(h, "playpon off");
+    let sent = r.serve(&|_| None);
+    assert!(sent.iter().any(|c| c == "kata-set-param ponderingEnabled false"), "{sent:?}");
+    assert!(r.wb.view(false).engine.paused);
+    let placed = places(&r, h);
+
+    assert!(r.wb.toggle_analysis().unwrap());
+    let sent = r.serve(&|_| None);
+    assert!(!r.wb.view(false).engine.paused);
+    assert!(sent.iter().any(|c| c.starts_with("kata-analyze")), "the resumed analysis runs: {sent:?}");
+    assert!(!sent.iter().any(|c| c.starts_with("kata-genmove_analyze")), "{sent:?}");
+    assert_eq!(r.main_line(), [(Stone::Black, p(15, 3))]);
+    assert_eq!(places(&r, h), placed);
+    assert_eq!(r.lease(), LeaseAvailabilityView::ReadBoardGma, "GMA stays armed");
+}
+
 /// `playpon off` between two hands (Java `disableReadBoardGmaPonderIfIdle`): the engine stops
 /// pondering for GMA at once; its own value goes back when GMA is cleared.
 #[test]

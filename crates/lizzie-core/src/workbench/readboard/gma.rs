@@ -169,10 +169,11 @@ pub(in crate::workbench) struct GmaFlow {
     /// Turning the engine's pondering off outside a hand.
     ponder_off: Option<PonderOff>,
     overrides: Option<Overrides>,
-    /// The position a played hand left the engine pondering on by itself (Java
+    /// The engine a played hand left pondering by itself and the position it ponders on (Java
     /// `retainReadBoardGmaNativePonderAfterTerminal`): no analysis replaces that pondering until
-    /// the position changes.
-    native_ponder: Option<(u64, NodeId)>,
+    /// the position changes, another engine takes the foreground or `playpon off` turns the
+    /// pondering off.
+    native_ponder: Option<(InstanceId, u64, NodeId)>,
     /// The engine `该模式仅支持 KataGo` was shown for (once per engine).
     unsupported_shown: Option<InstanceId>,
     next_request: u64,
@@ -267,13 +268,16 @@ impl Workbench {
     }
 
     /// Whether GMA keeps the analysis off the foreground engine: while a hand, the parameter
-    /// restore or a `playpon off` holds it, and on the position a played hand left the engine
-    /// pondering on by itself (forgotten once the position changes). Armed GMA alone leaves a
-    /// running analysis alone: Java arms without stopping it (ReadBoard.java:1086-1094).
+    /// restore or a `playpon off` holds it, and while the foreground engine still ponders by
+    /// itself on the position a played hand left it on (forgotten once the position or the
+    /// engine changes). Armed GMA alone leaves a running analysis alone: Java arms without
+    /// stopping it (ReadBoard.java:1086-1094). A restarted engine is not held for its
+    /// predecessor: Java hands the pondering to it once it is synced
+    /// (EngineManager.java:4552-4553, 11945-11950).
     pub(in crate::workbench) fn gma_holds_analysis(&mut self) -> bool {
-        let here = (self.doc.id, self.cursor);
+        let here = (self.engines.foreground(), self.doc.id, self.cursor);
         let gma = &mut self.readboard.gma;
-        if gma.native_ponder.is_some_and(|at| at != here) {
+        if gma.native_ponder.is_some_and(|(engine, doc, node)| (Some(engine), doc, node) != here) {
             gma.native_ponder = None;
         }
         gma.reserved() || gma.native_ponder.is_some()
@@ -745,8 +749,9 @@ impl Workbench {
     /// for is placed (the engine already played it) and clicked by the helper; anything else
     /// ends the hand with the engine back at the record's position. The engine's `play` line
     /// also ends the analysis as Java marks it (Leelaz.java:8013-8031): a placed move asked with
-    /// pondering leaves the engine pondering by itself on the new position, any other answer
-    /// leaves the analysis stopped (`isPondering = false`); a refused request changes neither.
+    /// pondering leaves the engine pondering by itself on the new position, any other answer of
+    /// the current arming leaves the analysis stopped (`isPondering = false`); a stale answer or
+    /// a refused request changes neither.
     fn gma_answer(&mut self, game: u64, request: u64, doc: u64, node: NodeId, stamp: u64, reply: GenmoveReply) {
         let gma = &self.readboard.gma;
         let Some(hand) = gma.hand.as_ref().filter(|h| h.game == game) else {
@@ -766,7 +771,7 @@ impl Workbench {
             && rec.contains(node)
             && rec.node(node).stamp == stamp
             && rec.node(node).to_play == hand.color;
-        let (color, ponder) = (hand.color, hand.ponder);
+        let (color, ponder, instance) = (hand.color, hand.ponder, hand.instance);
         if let (GenmoveReply::Move(point), false, true) = (&reply, stale, current) {
             let edit = DocumentEdit::Play { at: self.cursor, color, point: *point, alternate: false, rules: self.play_rules() };
             if let Some(n) = self.apply_edit(edit).ok().and_then(|a| a.node) {
@@ -774,7 +779,7 @@ impl Workbench {
                 let committed = self.doc.record.node(n).stamp;
                 self.engine_move_committed(game, request, committed);
                 if ponder {
-                    self.readboard.gma.native_ponder = Some((self.doc.id, n));
+                    self.readboard.gma.native_ponder = Some((instance, self.doc.id, n));
                 } else {
                     self.readboard_stop_analysis();
                 }
@@ -782,7 +787,9 @@ impl Workbench {
                 return;
             }
         }
-        if !matches!(reply, GenmoveReply::Failed(_)) {
+        // A stale answer (GMA cleared or re-armed meanwhile) only ends its hand: Java marks the
+        // analysis stopped only while the play is still active (Leelaz.java:8025-8028, 19813-19818).
+        if !stale && !matches!(reply, GenmoveReply::Failed(_)) {
             self.readboard_stop_analysis();
         }
         match &reply {
@@ -932,6 +939,8 @@ impl Workbench {
                 self.gma_hold();
                 return;
             }
+            // `ponderingEnabled false` is confirmed: the engine ponders by itself no more.
+            gma.native_ponder = None;
             // GMA may have been cleared, or its turn come, meanwhile.
             if gma.armed.is_none() {
                 self.gma_restore_runtime();

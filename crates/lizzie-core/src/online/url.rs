@@ -135,7 +135,7 @@ pub fn form_encode(value: &str) -> String {
     out
 }
 
-/// `YikeUrlParser.parse` of a link already known to be a 弈客 address.
+/// `YikeUrlParser.parse`: the 弈客 kind a link's shape names (its host is checked by the callers).
 fn yike(url: &str) -> Option<OnlineSource> {
     let url = url.strip_suffix("/0/0").unwrap_or(url);
     if let Some(c) = caps(&NEW_LIVE_FULL, url) {
@@ -199,39 +199,10 @@ pub fn classify(url: &str) -> Option<OnlineSource> {
         return None;
     }
     let trimmed = url.strip_suffix("/0/0").unwrap_or(url);
-    if yike_link(url) {
-        if let Some(source) = yike(url) {
-            return Some(source);
-        }
-        if let Some(c) = caps(&LEGACY_LIVE_FULL, trimmed) {
-            let id = c[3];
-            let (room, board) = match number(c[4]) {
-                Some(r) => (r, false),
-                None => (number(id).unwrap_or(0), true),
-            };
-            if !id.trim().is_empty() && room > 0 {
-                let detail = format!("{YIKE_OLD_DETAIL}?id={id}&flag=1");
-                return Some(if board {
-                    OnlineSource::YikeLiveBoard { id: id.into(), url: detail }
-                } else {
-                    OnlineSource::YikeLiveRoom { id: id.into(), room: room as u64, detail }
-                });
-            }
-        }
-        if let Some(c) = caps(&LEGACY_LIVE_SHORT, trimmed) {
-            if !c[3].trim().is_empty() {
-                return Some(OnlineSource::YikeLiveBoard {
-                    id: c[3].into(),
-                    url: format!("{YIKE_OLD_DETAIL}?id={}", c[3]),
-                });
-            }
-        }
-        if let Some(c) = caps(&LEGACY_GAME, trimmed) {
-            if let Some(room) = number(c[3]).filter(|&r| r > 0) {
-                let detail = format!("{YIKE_OLD_DETAIL}?id={room}");
-                return Some(OnlineSource::YikeGameRoom { room: room as u64, detail });
-            }
-        }
+    // The 弈客 shapes come before the 野狐 / 欢乐 query keys, as in Java; on a host that is not
+    // 弈客's the link is any other link.
+    if let Some(source) = yike_shape(url, trimmed) {
+        return Some(if yike_link(url) { source } else { OnlineSource::Plain { url: trimmed.to_string() } });
     }
     if let Some((query, raw)) = split_query(trimmed) {
         let has = |k: &str| query.iter().any(|(key, _)| key == k);
@@ -245,6 +216,45 @@ pub fn classify(url: &str) -> Option<OnlineSource> {
         }
     }
     Some(OnlineSource::Plain { url: trimmed.to_string() })
+}
+
+/// The 弈客 kind a link's shape names, whatever its host: `YikeUrlParser.parse`, then
+/// `checkUrl`'s three older shapes (OnlineDialog.java:747-807). `trimmed` is `url` without a
+/// trailing `/0/0`.
+fn yike_shape(url: &str, trimmed: &str) -> Option<OnlineSource> {
+    if let Some(source) = yike(url) {
+        return Some(source);
+    }
+    if let Some(c) = caps(&LEGACY_LIVE_FULL, trimmed) {
+        let id = c[3];
+        let (room, board) = match number(c[4]) {
+            Some(r) => (r, false),
+            None => (number(id).unwrap_or(0), true),
+        };
+        if !id.trim().is_empty() && room > 0 {
+            let detail = format!("{YIKE_OLD_DETAIL}?id={id}&flag=1");
+            return Some(if board {
+                OnlineSource::YikeLiveBoard { id: id.into(), url: detail }
+            } else {
+                OnlineSource::YikeLiveRoom { id: id.into(), room: room as u64, detail }
+            });
+        }
+    }
+    if let Some(c) = caps(&LEGACY_LIVE_SHORT, trimmed) {
+        if !c[3].trim().is_empty() {
+            return Some(OnlineSource::YikeLiveBoard {
+                id: c[3].into(),
+                url: format!("{YIKE_OLD_DETAIL}?id={}", c[3]),
+            });
+        }
+    }
+    if let Some(c) = caps(&LEGACY_GAME, trimmed) {
+        if let Some(room) = number(c[3]).filter(|&r| r > 0) {
+            let detail = format!("{YIKE_OLD_DETAIL}?id={room}");
+            return Some(OnlineSource::YikeGameRoom { room: room as u64, detail });
+        }
+    }
+    None
 }
 
 /// The 弈客 page kind of an address (`BrowserFrame.yikePageKind`, used for the room key that
