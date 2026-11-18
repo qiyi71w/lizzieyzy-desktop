@@ -1,7 +1,7 @@
 //! 棋力评估 through the public `Workbench::strength` command and view, with saved analysis read
 //! from SGF and a controlled HumanSL 40 policy process.
 use lizzie_core::api::{
-    CommandResult, OpenSource, StrengthCommand, StrengthManualOutcome, StrengthReport, TrackingCommand,
+    CommandResult, EditCommand, OpenSource, StrengthCommand, StrengthManualOutcome, StrengthReport, TrackingCommand,
 };
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
@@ -662,4 +662,35 @@ fn a_changed_suggestion_limit_leaves_loaded_analysis_as_it_was_split() {
     // Loaded again under the limit of one, Q16 is no candidate: the positions' difference, 0.5 + 2.
     open(&mut f.wb, sgf);
     assert_eq!(rank(&report(&mut f.wb)), (999, Some(2.5)));
+}
+
+#[test]
+fn trial_play_keeps_the_suggestion_limit_its_continuations_were_split_with() {
+    // 试下 sets the continuations aside and brings them back; their results keep the 最大候选点数
+    // they came with, so a candidate past it stays out of the estimate.
+    let mut f = fixture();
+    open(&mut f.wb, "(;SZ[19]KM[7.5];B[dd];W[pd])");
+    let id = foreground(&mut f);
+    let mut limits = f.wb.config().engine.analysis.clone();
+    limits.limit_max_suggestion = 1;
+    f.wb.set_analysis_settings(limits).unwrap();
+    f.wb.navigate(Navigation::Forward(1));
+    serve(&mut f, id);
+    // After B[dd], White to move: Q16 (pd, played) is the second candidate, beyond the limit of one.
+    f.wb.engine_input(id, EngineInput::Stdout("info move D4 visits 100 winrate 0.55 scoreLead 2 prior 0.2 order 0 pv D4 info move Q16 visits 50 winrate 0.5 scoreLead 1 prior 0.1 order 1 pv Q16".into()));
+    f.wb.navigate(Navigation::Forward(1));
+    serve(&mut f, id);
+    f.wb.engine_input(
+        id,
+        EngineInput::Stdout("info move D4 visits 80 winrate 0.52 scoreLead 0.5 prior 0.2 order 0 pv D4".into()),
+    );
+    let rank = |r: &StrengthReport| (r.white.samples[0].ai_rank, r.white.samples[0].score_loss);
+    assert_eq!(rank(&report(&mut f.wb)), (999, Some(2.5)), "the positions' difference, 0.5 + 2");
+    f.wb.navigate(Navigation::First);
+    serve(&mut f, id);
+    f.wb.edit(EditCommand::TryPlay).unwrap();
+    serve(&mut f, id);
+    f.wb.edit(EditCommand::TryPlay).unwrap();
+    serve(&mut f, id);
+    assert_eq!(rank(&report(&mut f.wb)), (999, Some(2.5)), "Q16 is still past the limit");
 }

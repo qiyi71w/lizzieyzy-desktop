@@ -282,6 +282,7 @@ impl AnalysisStore {
             take(&mut self.metadata, &mut part.metadata, node);
             take(&mut self.kept_since, &mut part.kept_since, node);
             take(&mut self.attended, &mut part.attended, node);
+            take(&mut self.limits, &mut part.limits, node);
             if self.stale.remove(&node) {
                 part.stale.insert(node);
             }
@@ -302,6 +303,7 @@ impl AnalysisStore {
         self.stale.extend(part.stale);
         self.kept_since.extend(part.kept_since);
         self.attended.extend(part.attended);
+        self.limits.extend(part.limits);
         self.retain_valid(rec);
     }
 
