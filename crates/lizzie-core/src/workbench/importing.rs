@@ -253,6 +253,7 @@ impl Workbench {
         self.config = config;
         self.reload_appearance_theme();
         self.logging_replaced();
+        self.readboard_settings_changed();
         self.update_settings_replaced(previous_update);
         self.persisted = persisted;
         self.new_profile = false;

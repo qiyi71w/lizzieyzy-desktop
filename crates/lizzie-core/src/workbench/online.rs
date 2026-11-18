@@ -123,6 +123,8 @@ pub(super) struct OnlineFlow {
     proxy_warning: Option<ProxyWarningView>,
     browser_sync: bool,
     last_auto_room: Option<String>,
+    /// The 弈客 web window's page address as last reported (BF `currentAddressForYikeSync`).
+    page_address: Option<String>,
     browser_status: Option<OnlineText>,
     live: LiveList,
     curve: Option<Curve>,
@@ -212,16 +214,7 @@ impl Workbench {
                 self.commit_config(|c| c.live.open_html_on_live = enabled)?;
             }
             OnlineCommand::BrowserLoad { url } => self.online_browser_load(&url),
-            OnlineCommand::BrowserStopSync => {
-                // stopYikeBrowserSync(true) (BF 1001-1024).
-                self.online.browser_sync = false;
-                self.online.last_auto_room = None;
-                if self.online.follow.is_some() {
-                    self.online_stop();
-                } else {
-                    self.online.browser_status = Some(raw("无同步任务"));
-                }
-            }
+            OnlineCommand::BrowserStopSync => self.online_browser_stop_sync(),
         }
         Ok(CommandResult::Done)
     }
@@ -367,11 +360,52 @@ impl Workbench {
         self.online_start(url, Origin::Web, LIVE_REFRESH_SECONDS);
     }
 
+    /// `stopYikeBrowserSync` (BF 1001-1024), from the web window's 停止同步 or the 棋盘同步工具's
+    /// `yikeSyncStop` (`stopYikeSyncFromReadBoard`): the web window stops following rooms and
+    /// the follow ends.
+    pub(super) fn online_browser_stop_sync(&mut self) {
+        self.online.browser_sync = false;
+        self.online.last_auto_room = None;
+        if self.online.follow.is_some() {
+            self.online_stop();
+        } else {
+            self.online.browser_status = Some(raw("无同步任务"));
+        }
+    }
+
+    /// The 棋盘同步工具's `yikeSyncStart` (`force_reload`, `startYikeSyncFromReadBoard`) or
+    /// `syncPlatform yike` (`ensureYikeSyncFromCurrentAddress`), BF 680-738: on a 弈客 room, list
+    /// or lobby page the web window follows room addresses from now on; the room of the page's
+    /// current address is followed and the page reloaded, unless that room is followed already.
+    /// `yikeSyncStart` also starts a room the window was not set to follow. Without a page
+    /// address (the window never showed one) nothing happens.
+    pub(super) fn online_helper_yike_start(&mut self, force_reload: bool) {
+        let Some(url) = self.online.page_address.clone() else { return };
+        let route = url.to_lowercase();
+        if ["#/live", "#/unite/", "#/game"].iter().any(|k| route.contains(k)) {
+            self.online.browser_sync = true;
+        }
+        let Some(key) = yike_room_key(&url) else { return };
+        let start = if self.online.browser_sync {
+            self.online.last_auto_room.as_deref() != Some(key.as_str())
+        } else {
+            force_reload
+        };
+        if !start {
+            return;
+        }
+        self.online.browser_sync = true;
+        self.online.last_auto_room = Some(key);
+        self.online_start(&url, Origin::Web, LIVE_REFRESH_SECONDS);
+        self.online.jobs.push(OnlineJob::ReloadPage { url });
+    }
+
     // ---------------------------------------------------------------- page bridge
 
     pub fn online_page(&mut self, report: PageReport) -> bool {
         match report {
             PageReport::Address { url } => {
+                self.online.page_address = Some(url.clone());
                 if !self.online.browser_sync {
                     return false;
                 }

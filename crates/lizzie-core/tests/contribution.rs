@@ -7,16 +7,17 @@ use std::sync::{Arc, Mutex};
 
 use lizzie_core::api::{
     Command, CommandResult, ContributionCommand, ContributionNotice, ContributionPhase,
-    EditCommand, GameCommand, SavedEngineKind, SavedEngineReason,
+    EditCommand, GameCommand, OpenSource, SavedEngineKind, SavedEngineReason,
 };
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineSettings};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
+use lizzie_core::formats::sgf;
 use lizzie_core::java_import::{self, JavaSource};
-use lizzie_core::record::{Point, Stone};
+use lizzie_core::record::{Point, RecordFormat, Stone};
 use lizzie_core::settings::{ContributionSettings, Storage};
-use lizzie_core::workbench::Workbench;
+use lizzie_core::workbench::{OpenOrigin, Workbench};
 use serde_json::{json, Value};
 
 const CONTRIBUTING: &str = "Contribute.tips.contributingAndStartAnotherLizzieYzy";
@@ -1114,6 +1115,45 @@ fn a_game_finishing_on_another_board_leaves_it_alone() {
     let game = fixture.contribution().game.unwrap();
     assert!(game.complete);
     assert_eq!(game.result, "B+R");
+}
+
+/// A record the user opened after pausing the watched contribution is left alone: the watch clock
+/// does not play it on and later snapshots of the watched game do not replace it. Picking the game
+/// in the list shows it again.
+#[test]
+fn the_watch_clock_and_later_snapshots_leave_a_record_opened_after_pausing_alone() {
+    let mut fixture = Fixture::new();
+    fixture.configure(Fixture::settings("/opt/katago"));
+    let id = fixture.start();
+    let moves = [["B", "Q16"], ["W", "D4"], ["B", "Q4"], ["W", "D16"]];
+    for n in 0..moves.len() {
+        fixture.stdout(id, &snapshot("A", json!(moves[..n]), json!(moves[n]), 0.5, 0.5, None));
+    }
+    assert_eq!(fixture.contribution().watching, 1, "game A is watched");
+
+    assert_eq!(fixture.wb.contribution(ContributionCommand::PauseResume).unwrap(), CommandResult::Done);
+    let t = fixture.wb.begin_open(OpenOrigin::File { path: "/other.sgf".into(), source: OpenSource::Drop });
+    assert!(fixture.wb.complete_open(t, Ok((RecordFormat::Sgf, sgf::read("(;SZ[19];B[cc];W[dd];B[ee];W[ff])").unwrap()))));
+    fixture.wb.navigate(Navigation::First);
+    fixture.wb.navigate(Navigation::Forward(1));
+    let opened = (fixture.wb.document().id, fixture.wb.cursor(), fixture.wb.document().revision);
+
+    let mut now = std::time::Instant::now();
+    for _ in 0..2 {
+        let due = fixture.wb.engine_timer().expect("the watch clock runs");
+        now = now.max(due) + std::time::Duration::from_secs(3);
+        fixture.wb.engine_tick(now);
+    }
+    let after = (fixture.wb.document().id, fixture.wb.cursor(), fixture.wb.document().revision);
+    assert_eq!(after, opened, "the watch clock leaves the opened record alone");
+    fixture.stdout(id, &snapshot("A", json!(moves), json!(["B", "C3"]), 0.5, 0.5, None));
+    let after = (fixture.wb.document().id, fixture.wb.cursor(), fixture.wb.document().revision);
+    assert_eq!(after, opened, "a later snapshot leaves the opened record alone");
+
+    assert_eq!(fixture.wb.contribution(ContributionCommand::WatchGame { index: 0 }).unwrap(), CommandResult::Done);
+    assert_ne!(fixture.wb.document().id, opened.0, "the watched game shows again");
+    // The game as of its latest snapshot (its move being searched, C3, is held back as usual).
+    assert_eq!(line_moves(&mut fixture.wb).len(), 4);
 }
 
 /// 自动保存 of a finished game opened later writes it with its result.

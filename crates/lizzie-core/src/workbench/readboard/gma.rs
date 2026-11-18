@@ -156,6 +156,9 @@ pub(in crate::workbench) struct GmaFlow {
     hand: Option<Hand>,
     /// The reservation giving the overridden parameters back after GMA was cleared.
     restore: Option<u64>,
+    /// The reservation turning the engine's pondering off between two hands (the helper's
+    /// `playpon off`, Java `disableReadBoardGmaPonderIfIdle`).
+    ponder_off: Option<u64>,
     overrides: Option<Overrides>,
     /// The engine `该模式仅支持 KataGo` was shown for (once per engine).
     unsupported_shown: Option<InstanceId>,
@@ -193,7 +196,7 @@ pub(in crate::workbench) struct GmaFacts {
 impl GmaFlow {
     /// Java `isReadBoardGmaEngineBusy`: armed, a hand in flight or parameters being given back.
     pub(in crate::workbench) fn busy(&self) -> bool {
-        self.armed.is_some() || self.hand.is_some() || self.restore.is_some()
+        self.armed.is_some() || self.reserved()
     }
 
     /// The colour GMA plays, while armed.
@@ -214,7 +217,7 @@ impl GmaFlow {
     /// A hand or the parameter restore holds a reservation (Java refuses engine switches and
     /// restarts while `readBoardGmaReservation` exists).
     pub(in crate::workbench) fn reserved(&self) -> bool {
-        self.hand.is_some() || self.restore.is_some()
+        self.hand.is_some() || self.restore.is_some() || self.ponder_off.is_some()
     }
 
     pub(in crate::workbench) fn take_notices(&mut self) -> Vec<GmaNotice> {
@@ -235,7 +238,7 @@ impl GmaFlow {
     }
 
     fn owns(&self, game: u64) -> bool {
-        self.hand.as_ref().is_some_and(|h| h.game == game) || self.restore == Some(game)
+        self.hand.as_ref().is_some_and(|h| h.game == game) || self.restore == Some(game) || self.ponder_off == Some(game)
     }
 }
 
@@ -299,6 +302,42 @@ impl Workbench {
         }
     }
 
+    /// `playpon off` (`disableReadBoardGmaPonderIfIdle`): with GMA armed and no hand or restore
+    /// holding the engine, the engine's own pondering after the last hand is turned off now
+    /// (`kata-set-param ponderingEnabled false`, which also ends the running ponder); the
+    /// original value goes back with the other parameters. Only an engine a hand prepared has
+    /// pondered for GMA, and the custom WebSocket engine never ponders.
+    pub(in crate::workbench) fn gma_ponder_off(&mut self) {
+        let gma = &self.readboard.gma;
+        if gma.armed.is_none() || gma.reserved() {
+            return;
+        }
+        let Some(fg) = self.engines.foreground() else { return };
+        let prepared = gma
+            .overrides
+            .as_ref()
+            .is_some_and(|o| o.instance == fg && o.params[0].original.is_some());
+        if !prepared || !self.gma_supported(fg) || self.engines.is_custom_websocket(fg) {
+            return;
+        }
+        let game = match self.engines.reserve_readboard_gma() {
+            Ok(game) => game,
+            Err(a) => {
+                self.log(false, format!("ReadBoard GMA pondering stays: {a:?}"));
+                return;
+            }
+        };
+        let gma = &mut self.readboard.gma;
+        gma.ponder_off = Some(game);
+        if let Some(o) = gma.overrides.as_mut() {
+            o.params[0].overridden = true;
+        }
+        self.engines
+            .release_game(game, &[format!("kata-set-param {} false", Param::Pondering.name())]);
+        self.drain_engine_events();
+        self.gma_hold();
+    }
+
     /// `clearReadBoardGmaAutoPlay`: GMA stops; a hand in flight still converges and gives the
     /// parameters back after its answer, otherwise they are given back now.
     pub(in crate::workbench) fn gma_clear(&mut self) {
@@ -351,6 +390,7 @@ impl Workbench {
         if gma.failed_generation == Some(gma.generation)
             || gma.hand.is_some()
             || gma.restore.is_some()
+            || gma.ponder_off.is_some()
             || facts.failed_move_waits
             || gma.awaiting_synced_board
         {
@@ -733,11 +773,14 @@ impl Workbench {
         self.gma_hold();
     }
 
-    /// The parameters go back once GMA is cleared and no hand holds the engine.
+    /// The parameters go back once GMA is cleared and no hand holds the engine. While another
+    /// mode holds the engine (a viewer's Web 试下 between two hands) the duty is kept and runs
+    /// when that mode lets go ([`Self::gma_restore_deferred`]); it lapses only with the engine
+    /// it belongs to.
     fn gma_restore_runtime(&mut self) {
         let gma = &mut self.readboard.gma;
         let Some(overrides) = gma.overrides.as_ref() else { return };
-        if gma.hand.is_some() || gma.restore.is_some() {
+        if gma.reserved() {
             return;
         }
         if !overrides.dirty() || self.engines.foreground() != Some(overrides.instance) {
@@ -751,15 +794,27 @@ impl Workbench {
                 self.engines.release_game(game, &restores);
                 self.drain_engine_events();
             }
-            Err(a) => {
+            Err(a @ (LeaseAvailability::NoForegroundEngine | LeaseAvailability::EngineStateUnrestored)) => {
                 self.log(true, format!("ReadBoard GMA runtime restore not admitted: {a:?}"));
                 self.readboard.gma.overrides = None;
             }
+            Err(a) => self.log(false, format!("ReadBoard GMA runtime restore waits: {a:?}")),
+        }
+    }
+
+    /// A mode that held the engine let it go: a parameter restore that had to wait runs now,
+    /// unless GMA was armed again meanwhile (its hands give the parameters back themselves).
+    pub(in crate::workbench) fn gma_restore_deferred(&mut self) {
+        let gma = &self.readboard.gma;
+        if gma.overrides.is_some() && gma.armed.is_none() && !gma.reserved() {
+            self.gma_restore_runtime();
+            self.gma_hold();
         }
     }
 
     /// A reservation ended in the runtime: the parameter restore after clearing confirmed (or
-    /// failed), or a hand's engine went away (Java `failEngineProcess`).
+    /// failed), pondering was turned off between hands, or a hand's engine went away (Java
+    /// `failEngineProcess`).
     fn gma_released(&mut self, game: u64, failure: Option<LeaseFailure>) {
         let gma = &mut self.readboard.gma;
         if gma.restore == Some(game) {
@@ -769,6 +824,23 @@ impl Workbench {
                 self.gma_quarantined(format!("restore response failed: {f:?}"));
             }
             self.gma_hold();
+            return;
+        }
+        if gma.ponder_off == Some(game) {
+            gma.ponder_off = None;
+            if let Some(f) = failure {
+                gma.overrides = None;
+                self.gma_quarantined(format!("ponder response failed: {f:?}"));
+                self.gma_hold();
+                return;
+            }
+            // GMA may have been cleared, or its turn come, meanwhile.
+            if gma.armed.is_none() {
+                self.gma_restore_runtime();
+            }
+            self.gma_hold();
+            let facts = self.gma_facts();
+            self.gma_schedule(facts);
             return;
         }
         let Some(hand) = gma.hand.take_if(|h| h.game == game) else { return };

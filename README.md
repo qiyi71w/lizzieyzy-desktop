@@ -285,8 +285,10 @@ importing the matching LizzieYzy Next settings.
   settings import), 跑谱贡献 and a Web 旁观 viewer's 试下 are refused too, and an engine that ends
   meanwhile is not restarted automatically. GMA is not armed while a 试下 holds the engine.
   Clearing GMA (stopping the sync or the helper ending) gives the original parameters back once
-  the engine holds the record's position again; if the engine refuses them it stays unrestored
-  (引擎状态未恢复) until it is switched or restarted.
+  the engine holds the record's position again; when a 试下 started between two moves holds the
+  engine, they go back as soon as it ends. If the engine refuses them it stays unrestored
+  (引擎状态未恢复) until it is switched or restarted. Unticking 后台分析 in the helper
+  (`playpon off`) between two moves turns the engine's pondering off at once.
   The 自建算力 engine (远程算力's WebSocket link) cannot ponder in the background: GMA leaves the
   pondering parameter alone on it, and when the helper asks for pondering (`playpon on`) each
   arming first shows ReadBoard 后台思考能力差异. GMA waits for the answer: 确定 or 不再提示 lets it
@@ -1099,10 +1101,13 @@ importing the matching LizzieYzy Next settings.
   GMA) are refused; an engine that ends meanwhile is not restarted automatically. It ends at the
   viewer's 退出试下, after five idle minutes, by
   强制结束试下, when the share stops or when another record opens; browsing then returns to where
-  it started.
+  it started. 自动落子 does not play while a 试下 runs, as desktop moves are refused; it plays
+  again with its settings once the 试下 ends (Java still played, on the position the 试下 started
+  from).
   Since Java placed only the first placeholder, a 试下 continued past the record's last move could
   extend the main line there; here it stays a branch.
-  A 试下 needs a free foreground engine. 停止 Web 旁观 or quitting closes both ports and disconnects
+  A 试下 needs a free foreground engine that has finished starting, so none starts while the
+  desktop switches or restarts the engine. 停止 Web 旁观 or quitting closes both ports and disconnects
   every viewer; messages of a stopped share never reach a later one. A firewall between viewer and
   this machine must allow both ports.
 - 快速曲线轻量模型 (引擎一键设置 > 权重管理): the official lightweight b10 model is downloaded on demand
@@ -1292,7 +1297,9 @@ importing the matching LizzieYzy Next settings.
   game (type, komi, result, rules) and Java's game/move navigation, auto play, 暂停/恢复,
   顺序结束(延迟), 强制结束(立刻) and 保存所有棋谱. While it runs the board cannot be edited and
   other engine work (including 远程算力 and applying a settings import) is refused; while paused
-  both are free again. 跑谱贡献 does not start while a 试下 or a GMA move holds the engine. A
+  both are free again. A record opened while paused is left alone: the watch's auto play and later
+  moves of the watched game only reach the contribution's own board, and choosing the game in the
+  list shows it again. 跑谱贡献 does not start while a 试下 or a GMA move holds the engine. A
   crash restarts it up to three times (a missing CA bundle adds KataGo's `cacert.pem` once); a
   build without distributed support or one the server rejects stops at once with the engine
   failure window and 重启引擎.
@@ -1347,6 +1354,8 @@ importing the matching LizzieYzy Next settings.
   - 打开网页 / 弈客网页版 open a 弈客-only web window with Java's toolbar (后退, address, 加载,
     停止同步). 加载 (or Enter) of a 弈客 room address follows it, and from then on a 弈客 room
     address the page moves to is followed automatically; any other address shows URL 无法识别.
+    The 棋盘同步工具 helper's 弈客 signals act on this window as in Java: its start follows the
+    room the page shows (reloading it) unless it is followed already, and its stop ends the sync.
     The window title shows the follow's status. Only `https://yikeweiqi.com` and its
     subdomains load in the window, plus the frames of the 腾讯验证码 the 弈客 login shows; other
     links go to the system browser. The page can call exactly one bridge command, which reports

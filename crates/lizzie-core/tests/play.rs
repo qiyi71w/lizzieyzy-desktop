@@ -7,12 +7,15 @@ use lizzie_core::api::{
     Command, CommandResult, EditCommand, GameCommand, GameEnd, GameKind, GamePhase, LeaseAvailabilityView, OpenSource,
     ScoreCommand,
 };
+use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, KataParam, Launcher};
-use lizzie_core::record::{NodeKind, Point, Stone, ROOT};
+use lizzie_core::formats::sgf;
+use lizzie_core::record::{NodeKind, Point, RecordFormat, Stone, ROOT};
 use lizzie_core::settings::{AiTimeMode, AutoPlaySettings, GameSettings, Storage};
-use lizzie_core::workbench::Workbench;
+use lizzie_core::web_board::parse_client_message;
+use lizzie_core::workbench::{OpenOrigin, Workbench};
 
 #[derive(Default)]
 struct Process {
@@ -481,6 +484,43 @@ fn an_analysis_game_uses_the_bottom_bar_autoplay_and_clears_it_at_the_end() {
     g.serve(&|_| None);
     let a = g.wb.view(false).settings.autoplay;
     assert!(!a.enabled && !a.settings.black && !a.settings.white, "cleared after the game: {a:?}");
+}
+
+/// The bottom bar's 自动落子 writes nothing while a viewer's Web 试下 runs, as a desktop move is
+/// refused then; it plays again with its settings once the 试下 ends. (Java still plays, on the
+/// 试下's anchor: an approved difference.)
+#[test]
+fn bottom_bar_autoplay_waits_while_a_web_trial_runs_and_resumes_after_it() {
+    let mut g = Game::new();
+    let t = g.wb.begin_open(OpenOrigin::File { path: "/x.sgf".into(), source: OpenSource::Drop });
+    assert!(g.wb.complete_open(t, Ok((RecordFormat::Sgf, sgf::read("(;SZ[19];B[dd];W[pp])").unwrap()))));
+    g.wb.navigate(Navigation::Last);
+    g.serve(&|_| None);
+    let anchor = g.wb.cursor();
+    let web = |wb: &mut Workbench, text: &str| wb.web_board_message(7, parse_client_message(text).unwrap(), Instant::now());
+    g.wb.web_board_started(7, "http://192.168.1.5:9998".into());
+    assert_eq!(web(&mut g.wb, r#"{"type":"enter_trial","clientId":"a"}"#), None);
+    assert_eq!(web(&mut g.wb, r#"{"type":"trial_move","clientId":"a","x":16,"y":2}"#), None);
+    g.serve(&|_| None);
+    let trial_at = g.wb.cursor();
+    let revision = g.wb.document().revision;
+
+    let autoplay = AutoPlaySettings { black: true, white: true, time_enabled: false, playouts_enabled: true, playouts: 100, ..AutoPlaySettings::default() };
+    let set = GameCommand::SetAutoPlay { enabled: true, settings: autoplay };
+    assert_eq!(g.wb.game_gate(&Command::Game { op: set.clone() }), None, "the box itself can be ticked");
+    g.game(set);
+    let sent = g.serve(&|_| None);
+    assert!(g.analyzing, "the engine analyses the 试下 position: {sent:?}");
+    output(&mut g.wb, g.engine, &info("C3", 150, 0.5));
+    assert!(g.wb.view(true).web_board.trial_active, "the 试下 still runs");
+    assert_eq!(g.wb.cursor(), trial_at, "the 试下's position stays");
+    assert_eq!(g.wb.document().revision, revision, "nothing is written during the 试下");
+
+    assert_eq!(web(&mut g.wb, r#"{"type":"exit_trial","clientId":"a"}"#), None);
+    g.serve(&|_| None);
+    assert_eq!(g.wb.cursor(), anchor, "browsing returns to the anchor");
+    output(&mut g.wb, g.engine, &info("C3", 150, 0.5));
+    assert_eq!(last_move(&g.wb), Some((Stone::Black, Some(Point { x: 2, y: 16 }))), "自动落子 plays again");
 }
 
 #[test]
