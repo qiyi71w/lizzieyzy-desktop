@@ -163,7 +163,8 @@ function openInitSettings(): void {
   showScore.checked = display.suggestionScore;
   limitVariation.value = String(analysis.limitBranchLength);
   limitSuggestion.value = String(analysis.limitMaxSuggestion);
-  maxTime.value = String(analysis.maxAnalyzeTimeSeconds);
+  const shownTime = String(analysis.maxAnalyzeTimeSeconds);
+  maxTime.value = shownTime;
   maxPlayouts.value = String(analysis.limitPlayouts);
   limitTime.checked = analysis.limitTime;
   limitPlayout.checked = analysis.limitPlayout;
@@ -215,7 +216,10 @@ function openInitSettings(): void {
       await message(t("Message.title"), t("FirstUseSettings.confirmHint2"));
       return;
     }
-    const seconds = time ?? now.settings.engine.analysis.maxAnalyzeTimeSeconds;
+    // The time limit as saved stays when its field was not edited: a saved 0 (kept by the toolbar
+    // and 综合设置) is not an analysis change. A typed limit of 0 or less means 9999 minutes.
+    const savedSeconds = now.settings.engine.analysis.maxAnalyzeTimeSeconds;
+    const seconds = time === null || maxTime.value === shownTime ? savedSeconds : time <= 0 ? UNLIMITED_SECONDS : time;
     const nextDisplay: DisplaySettings = {
       ...now.settings.display,
       suggestionWinrate: showWinrate.checked,
@@ -230,7 +234,7 @@ function openInitSettings(): void {
       ...now.settings.engine.analysis,
       limitTime: limitTime.checked,
       limitPlayout: limitPlayout.checked,
-      maxAnalyzeTimeSeconds: seconds <= 0 ? UNLIMITED_SECONDS : seconds,
+      maxAnalyzeTimeSeconds: seconds,
       limitPlayouts: playouts ?? now.settings.engine.analysis.limitPlayouts,
       enableLizzieCache: cacheOn.checked,
       limitMaxSuggestion: Math.max(0, suggestions),

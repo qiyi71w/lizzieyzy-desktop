@@ -99,8 +99,10 @@ importing the matching LizzieYzy Next settings.
   title shows the slot. With 自动存档 on (the default) the automatic slot is written every
   60 seconds and when the window closes; File > 强制退出 writes none. If the application ended
   without its exit save, the next start keeps the newest periodic save as the automatic slot.
-  In 浮动棋盘模式 the slot pictures show 浮动主棋盘; a save whose picture cannot be taken still
-  writes the record, without a picture.
+  In 浮动棋盘模式 the slot pictures show 浮动主棋盘. A slot keeps its picture only when the
+  picture shows the position the record is saved at; a save whose picture cannot be taken, or
+  whose position moved on meanwhile (stepping through moves in 浮动棋盘模式 while the automatic
+  save runs), still writes the record, without a picture.
   With 启动时自动恢复 on, a start without a record to open resumes the automatic slot at the end
   of its main line. Slots live in this program's data folder (`save/`), never in Java's.
 - 野狐棋谱 (同步 menu, the toolbar's 野狐棋谱 button or the bottom bar's 同步 popup) opens Java's
@@ -249,7 +251,8 @@ importing the matching LizzieYzy Next settings.
   Entries this client does not provide yet, or that the current state refuses (no engine, no
   KataGo, no edit to restore, a whole-game analysis running, …), are greyed with their reason
   and cannot be opened. `Ctrl+K` from the 浮动主棋盘 window gives the main window the keyboard for
-  the bar. While the bar or any other dialog is open, the workbench shortcuts and the floating
+  the bar; `Esc` or 取消 then gives the keyboard back to the 浮动主棋盘 window. While the bar or
+  any other dialog is open, the workbench shortcuts and the floating
   boards' mouse input are inactive. Below a 900 px wide window the toolbar button shows its
   icon only.
 - Engines: the engine list (更多引擎 / `Alt+X`) adds, edits, orders and removes engine profiles
@@ -589,8 +592,10 @@ importing the matching LizzieYzy Next settings.
   确定 shows that mode's notice, saves nothing and keeps the dialog open with the edits; Java's
   dialog has no such check and saved every row. A field that is not a whole
   number shows 错误的输入格式 and keeps the dialog open (a time or visit field whose switch is off is
-  not checked); a time limit of 0 or less is saved as 9999 minutes, negative candidate / variation
-  limits as 0 (no limit). The language applies from the next start, without a restart notice, as in
+  not checked); a time limit of 0 or less typed into the form is saved as 9999 minutes (a saved 0
+  left as shown stays 0, which means the same; Java rewrote it as 9999 minutes on every 确定), and
+  negative candidate / variation limits as 0 (no limit). The language applies from the next start,
+  without a restart notice, as in
   Java. Java's 界面样式 row (Swing look and feel) has no counterpart here, and the form does not open
   by itself on first start.
 - Appearance (Java defaults; saved and taken over by the LizzieYzy Next import):

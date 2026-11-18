@@ -4,7 +4,7 @@
 // region in panel pixels and written opaque (TYPE_INT_RGB). The variation tree, the comment and the
 // candidate table are Swing components in Java, outside that image.
 import { run, state } from "../app";
-import type { CommandResult } from "../contract/generated";
+import type { CommandResult, SlotThumbnail } from "../contract/generated";
 import { confirm, message } from "../dialogs";
 import { t } from "../i18n";
 import { captureIndependent, independentShown } from "../workbench/independent";
@@ -73,6 +73,23 @@ export function captureMainBoard(): Promise<string | null> {
     return captureIndependent("Main");
   }
   return capture((s) => s.panels.board);
+}
+
+/** The main board picture of a 存档与读档 record with the position it shows (the view it was
+ *  drawn from). When the view moved on while the picture was taken it is taken once more; the
+ *  core stores it only with a record saved at that position. */
+export async function slotThumbnail(): Promise<SlotThumbnail | null> {
+  let shot: SlotThumbnail | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const v = state.view;
+    if (!v) return null;
+    const shown = { document: v.document.id, revision: v.document.revision, node: v.position.node };
+    const png = await captureMainBoard();
+    shot = png === null ? null : { png, ...shown };
+    const now = state.view;
+    if (now && now.document.id === shown.document && now.document.revision === shown.revision && now.position.node === shown.node) break;
+  }
+  return shot;
 }
 
 /** The floating sub board's window while it shows (getIndependSubBoardToClipboard), else the

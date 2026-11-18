@@ -6,6 +6,7 @@ import { COMMANDS } from "../commands";
 import { searchFunctions } from "../contract/client";
 import { dialogOpen, message, ownerIsDisabled } from "../dialogs";
 import { t } from "../i18n";
+import { focusIndependent, keyFromIndependent } from "../workbench/independent";
 import { openSearchDialog, type SearchDialog } from "./dialog";
 import { activateFunction, focusBoard, reasonKey, reasonText, resolveFunction, type DestinationKind } from "./targets";
 
@@ -69,8 +70,10 @@ function restoreFocus(previous: HTMLElement | null, generation: number): void {
   if (generation === restoreGeneration) restoreTimer = window.setInterval(tick, 50);
 }
 
-/** open(): the search, then the chosen destination once the search closed. */
-export async function openFunctionSearch(): Promise<void> {
+/** open(): the search, then the chosen destination once the search closed. `fromFloating` is the
+ *  Ctrl+K pressed in the 浮动主棋盘 window: the window a cancel gives the keyboard back to (the
+ *  anchor; Java takes no other window as one). */
+export async function openFunctionSearch(fromFloating = false): Promise<void> {
   cancelFocusRestore();
   const generation = restoreGeneration;
   if (!state.view) return;
@@ -92,7 +95,7 @@ export async function openFunctionSearch(): Promise<void> {
     const reason = await activateFunction(selected);
     lastActivation = { id: selected.id, kind: resolveFunction(selected).kind, reason: reasonKey(reason) };
     if (reason) await message(t("FunctionSearch.title"), reasonText(reason));
-  } else restoreFocus(previous, generation);
+  } else if (!(fromFloating && generation === restoreGeneration && (await focusIndependent("Main")))) restoreFocus(previous, generation);
 }
 
 /** getMenuShortcutKeyMaskEx with nothing else held: Cmd on macOS, Ctrl elsewhere. */
@@ -125,10 +128,11 @@ export function bindFunctionSearch(refuse: (target: EventTarget | null) => boole
     e.stopImmediatePropagation();
     if (openQueued) return;
     openQueued = true;
+    const fromFloating = keyFromIndependent() === "Main";
     setTimeout(() => {
       if (!openQueued) return;
       openQueued = false;
-      void openFunctionSearch();
+      void openFunctionSearch(fromFloating);
     });
   }, true);
   window.addEventListener("keyup", (e) => {

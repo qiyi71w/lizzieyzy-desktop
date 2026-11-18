@@ -74,7 +74,7 @@ fn generate() -> String {
         EditCommand, EditTarget, EditingView, EditSettings, lizzie_core::settings::MoveRect, ClickReviewView,
         lizzie_core::settings::PaintingColor,
         MarkTool, StoneChange, Transform,
-        ExportKind, CommentLabels, SlotRef, RecoveryCommand, SlotView, RecoveryView, RecoverySettings,
+        ExportKind, CommentLabels, SlotRef, SlotThumbnail, RecoveryCommand, SlotView, RecoveryView, RecoverySettings,
         ImportSlotView, RecoveryImport, DisplaySettings, ShownValues, AsCandidate,
         MoveRankMode, SubBoardMode, BoardOverlayView, MoveNumberLabel, MoveRank, RankMark, NextMoveVerdict,
         NextMoveInfo,
