@@ -30,6 +30,9 @@ pub(super) struct CommentaryFlow {
     context: Vec<Message>,
     positions: Vec<evidence::Position>,
     target: Option<NodeId>,
+    /// Position stamp of `target` when `context`/`positions` were frozen: a follow-up on that
+    /// evidence may write only while the target still means the same position.
+    evidence_stamp: u64,
     status: CommentaryStatus,
     facts: CommentaryConnectionFacts,
     write_to_sgf: bool,
@@ -51,6 +54,7 @@ impl Default for CommentaryFlow {
             context: Vec::new(),
             positions: Vec::new(),
             target: None,
+            evidence_stamp: 0,
             status: CommentaryStatus::default(),
             facts: CommentaryConnectionFacts::default(),
             write_to_sgf: true,
@@ -266,7 +270,8 @@ impl Workbench {
                         CommentaryTone::Running,
                     );
                 }
-                self.begin_commentary(target, context.clone(), context, range.positions, String::new())?;
+                let stamp = rec.node(target).stamp;
+                self.begin_commentary(target, stamp, context.clone(), context, range.positions, String::new())?;
             }
             CommentaryCommand::Ask { question } => {
                 let question = commentary::java_trim(&question).to_owned();
@@ -280,9 +285,10 @@ impl Workbench {
                 }
                 // Java TeacherDialog.askFollowUp: frozen evidence keeps the original request target;
                 // only a rebuild without context falls back to the cursor.
-                let (target, context, positions) = match self.commentary.target {
+                let (target, stamp, context, positions) = match self.commentary.target {
                     Some(target) if !self.commentary.context.is_empty() => (
                         target,
+                        self.commentary.evidence_stamp,
                         self.commentary.context.clone(),
                         self.commentary.positions.clone(),
                     ),
@@ -300,6 +306,7 @@ impl Workbench {
                         };
                         (
                             target,
+                            self.doc.record.node(target).stamp,
                             prompt::for_position(&p, self.active_language, &self.config.commentary.preferences),
                             vec![p],
                         )
@@ -314,7 +321,7 @@ impl Workbench {
                 );
                 self.commentary
                     .status("Teacher.status.requesting", vec![], CommentaryTone::Running);
-                self.begin_commentary(target, messages, context, positions, question)?;
+                self.begin_commentary(target, stamp, messages, context, positions, question)?;
             }
         }
         Ok(CommandResult::Done)
@@ -348,6 +355,7 @@ impl Workbench {
     fn begin_commentary(
         &mut self,
         target: NodeId,
+        stamp: u64,
         messages: Vec<Message>,
         context: Vec<Message>,
         positions: Vec<evidence::Position>,
@@ -386,7 +394,7 @@ impl Workbench {
             id,
             document: self.doc.id,
             node: target,
-            stamp: self.doc.record.node(target).stamp,
+            stamp,
             cancel: cancel.clone(),
             model,
             question,
@@ -395,6 +403,7 @@ impl Workbench {
         self.commentary.context = context;
         self.commentary.positions = positions.clone();
         self.commentary.target = Some(target);
+        self.commentary.evidence_stamp = stamp;
         self.commentary.target_changed = false;
         self.commentary.restore_question = None;
         self.commentary.jobs.push(CommentaryJob {
