@@ -1519,7 +1519,8 @@ export type SubBoardMode = "Variation" | "Raw" | "Policy" | "Visits";
 
 export type BoardOverlayView = { 
 /**
- * Move numbers outside a hovered variation. Empty while 手数 is off or 落子评价 shows.
+ * Move numbers outside a hovered variation. Empty while 手数 is off or 落子评价 shows; while
+ * 试下 runs, only its own stones, counted from 1.
  */
 move_numbers: Array<MoveNumberLabel>, 
 /**

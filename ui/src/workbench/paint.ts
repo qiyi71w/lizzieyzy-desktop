@@ -184,6 +184,8 @@ export interface BoardScene {
   names: boolean;
   snapshot: boolean;
   mainTrunk: boolean;
+  /** 试下 runs (LizzieFrame.isTrying): the core numbers only its own stones. */
+  trying: boolean;
   analysis: NodeAnalysisView | null;
   overlay: BoardOverlayView;
   display: DisplaySettings;
@@ -1762,8 +1764,9 @@ function drawMoveOverlay(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardG
   }
   if (preview) return drawPreviewNumbers(g, preview, (p) => X(p % cols), (p) => Y(i(p / cols)), geo, hoverIndex, cols, d, report);
   if (s.snapshot) return false;
-  // drawMoveNumbers (BoardRenderer.java:1898-2101); the core chose the numbers.
-  if (d.moveNumbers === 0 && !(d.allNumbersInBranch && !s.mainTrunk)) {
+  // drawMoveNumbers (BoardRenderer.java:1898-2101); the core chose the numbers. While 试下 runs
+  // its stones are numbered whatever 手数 shows (1916-1918, 1974, 2066-2077).
+  if (d.moveNumbers === 0 && !(d.allNumbersInBranch && !s.mainTrunk) && !s.trying) {
     // stone-indicator-type (BoardRenderer.java:1932-1953): 0 a red triangle, 1 a ring and 2 a dot
     // of (int)(r * 0.325) in the opposite colour, 3 nothing.
     if (last?.point && look.indicator !== 3) {
@@ -1784,6 +1787,12 @@ function drawMoveOverlay(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardG
     return false;
   }
   drawNumbers();
+  // A last move without a 试下 number (the record's own) keeps the small red triangle (1993-2005).
+  if (s.trying && last?.point && !s.overlay.move_numbers.some((label) => label.last)) {
+    g.fillStyle = "#f00";
+    smallTriangle(g, X(last.point.x), Y(last.point.y), r);
+    report.lastMoveMarker = last.point;
+  }
   return false;
 }
 
