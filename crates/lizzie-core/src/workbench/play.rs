@@ -18,7 +18,7 @@ use crate::api::{
 };
 use crate::engine::runtime::{GenmoveReply, LeaseAvailability, Phase, RuntimeEvent};
 use crate::play::{self, ClockTick, EngineClock, HumanClock};
-use crate::record::{DocumentEdit, NodeId, NodeKind, Point, Stone, ROOT};
+use crate::record::{DocumentEdit, GameRecord, Node, NodeId, NodeKind, Point, Stone, ROOT};
 use crate::settings::{AiTimeMode, AiTimeSettings, AutoPlaySettings, GameSettings};
 
 /// `AnalysisSettings.reuseStatus.play_mode`: another mode was refused during a game.
@@ -122,6 +122,18 @@ fn color_sgf(c: Stone) -> &'static str {
 /// Characters a file name cannot hold on the supported systems.
 fn file_safe(name: &str) -> String {
     name.chars().map(|c| if "<>:\"/\\|?*".contains(c) || c.is_control() { '_' } else { c }).collect()
+}
+
+/// The edit that carries a snapshot of the record a new game is replayed from (`source`) onto
+/// node `at` of the new record: its setup stones and its side to play, `PL` included. A snapshot
+/// that changes neither (a node holding only a comment, say) adds nothing, as before.
+pub(super) fn snapshot_copy(new: &GameRecord, at: NodeId, source: &Node) -> Option<DocumentEdit> {
+    (!source.setup.is_empty() || source.to_play != new.node(at).to_play).then(|| DocumentEdit::AppendSnapshot {
+        at,
+        setup: source.setup.clone(),
+        to_play: source.to_play,
+        explicit_to_play: source.explicit_to_play,
+    })
 }
 
 impl Workbench {
@@ -462,7 +474,8 @@ impl Workbench {
         busy.then(|| refused(&super::flash::reuse_status_key(LeaseAvailability::ExistingLease)))
     }
 
-    /// A new record holding the root position and the moves up to the current node.
+    /// A new record holding the root position and the moves up to the current node, with the
+    /// setup stones and side to play of the snapshots on the way.
     fn replay_to_new_board(&mut self) {
         let rec = self.doc.record.clone();
         let path = rec.path_to(self.cursor);
@@ -482,10 +495,15 @@ impl Workbench {
         let rules = self.play_rules();
         let mut at = ROOT;
         for &n in &path[1..] {
-            let edit = match rec.node(n).kind {
+            let node = rec.node(n);
+            let edit = match node.kind {
                 NodeKind::Move { color, point } => DocumentEdit::Play { at, color, point, alternate: false, rules },
                 NodeKind::Pass { color } => DocumentEdit::Pass { at, color },
-                _ => continue,
+                NodeKind::Snapshot => match snapshot_copy(&self.doc.record, at, node) {
+                    Some(edit) => edit,
+                    None => continue,
+                },
+                NodeKind::DummyPass => continue,
             };
             match self.apply_edit(edit).ok().and_then(|a| a.node) {
                 Some(next) => at = next,

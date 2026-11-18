@@ -163,7 +163,10 @@ importing the matching LizzieYzy Next settings.
     possible) and the context menu 撤销编辑 / 恢复编辑 / 清除编辑缓存 undo and redo the last
     delete, insert or stone edit. `Shift+Left`/`Shift+Right` move the current branch, `L` and
     设为主分支 make it the main line, 添加为分支 adds a previewed variation beside the line, its
-    passes included (Java ended the branch at a pass).
+    passes included (Java ended the branch at a pass). A move without `PL` whose new first
+    continuation is a move plays on in that move's colour, as the record reads after saving and
+    reopening (Java kept the old side to play until the record was reopened); the move's stored
+    analysis is dropped when its side changes.
   - 显示落子矩形 (综合设置 > 对局与操作 > 鼠标交互与坐标格式; 是 / 仅对局时 (default) / 否): a
     small square in the colour to play marks the empty point under the pointer on the main board
     and 浮动主棋盘. 仅对局时 means a game against the engine (人机对局 or 分析模式对局) on your
@@ -968,9 +971,11 @@ importing the matching LizzieYzy Next settings.
   the current position; 修改AI用时, AI随机开局 and `Alt+,` (one engine move) are available.
   Differences from Java: results are always SGF (`B+R`, not the localized Japanese, Korean or
   Thai text Java writes there), the dialogs' switches are saved only with 确定 (Java saved some
-  even when cancelled), a new board during a game ends the game first, and AI随机开局 weights
+  even when cancelled), a new board during a game ends the game first, AI随机开局 weights
   close candidates by their share of the most searched candidate's visits (Java compares with
-  that count only when its unrelated `check-random-visits` option is on).
+  that count only when its unrelated `check-random-visits` option is on), and 接着当前局面下 keeps
+  the setup stones (`AB`/`AW`/`AE`) and side to play (`PL`) set between moves on the way to the
+  current position (Java replayed only the moves, so the game could start from another position).
 - 引擎对战 (棋局 > 新对局 > 引擎对局, `Alt+E`, the detailed toolbar's 引擎对战 panel): two different
   engines of the engine list play each other in Java's Genmove模式 (the engines' own `genmove`
   with per-side 每手用时 (sent to the 自建算力 engine as KataGo's per-move `maxTime`), the
@@ -1007,7 +1012,8 @@ importing the matching LizzieYzy Next settings.
   Differences from Java: results are always SGF `B+R` / `W+R`; the batch summary lists each
   engine's own settings after colours are exchanged (Java mixed the black and white sides there);
   a custom batch folder name made only of dots or separators is refused, so files stay under
-  `EngineGames`.
+  `EngineGames`; 当前局面续弈 and 加载开局SGF keep setup stones and side to play set between
+  moves (Java replayed only the moves).
 - AI 陪练 (HumanSL; the menu bar's AI 陪练 button, 棋局 > 新建对局 > AI 陪练, function search): a
   game against KataGo's human-imitation (HumanSL) network on the main board. The setup dialog
   follows Java: 训练方式 (实战后复盘 hides candidates, the winrate graph, Kata形势, policy and

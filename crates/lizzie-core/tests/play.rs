@@ -232,6 +232,59 @@ fn the_engine_move_is_committed_once_for_the_position_it_answers() {
     assert_ne!(g.wb.cursor(), at);
 }
 
+/// A capture, then stones set up mid-game with a side to play that does not alternate.
+const MID_GAME_SETUP: &str = "(;SZ[19];B[ba];W[aa];B[ab];AB[dd]PL[B])";
+
+/// The stones, captures and side to play of `node`.
+fn position_at(rec: &lizzie_core::record::GameRecord, node: lizzie_core::record::NodeId) -> (Vec<Option<Stone>>, u32, u32, Stone) {
+    let pos = rec.position(node);
+    (pos.stones, pos.black_captures, pos.white_captures, rec.node(node).to_play)
+}
+
+#[test]
+fn continuing_from_a_mid_game_setup_keeps_its_stones_and_side_to_play_for_the_engine_and_the_file() {
+    let mut g = Game::new();
+    let source = sgf::read(MID_GAME_SETUP).unwrap();
+    let end = source.line_end(ROOT);
+    let expected = position_at(&source, end);
+    assert_eq!((expected.1, expected.3), (1, Stone::Black), "the sample captures one stone and gives Black the move");
+    let t = g.wb.begin_open(OpenOrigin::File { path: "/x.sgf".into(), source: OpenSource::Drop });
+    assert!(g.wb.complete_open(t, Ok((RecordFormat::Sgf, source))));
+    g.wb.navigate(Navigation::Last);
+    g.serve(&|_| None);
+    // 继续 in the 人机对弈 dialog: a new record replayed up to here; the engine plays Black.
+    start(&mut g, GameKind::Genmove, GameSettings { continue_play: true, ..genmove_settings(false) }, None);
+    let rec = g.wb.document().record.clone();
+    assert_eq!(position_at(&rec, g.wb.cursor()), expected, "the new record stands where the chosen node stood");
+    let sent = g.serve(&|_| None);
+    assert!(sent.iter().any(|c| c == "set_position B B19 B A18 B D16"), "{sent:?}");
+    assert!(g.held.iter().any(|(_, c)| c == "genmove B"), "the engine plays the node's side: {:?}", g.held);
+    let path = g._dir.path().join("continued.sgf");
+    let job = g.wb.begin_save(path.to_str().unwrap(), "LizzieYzy Tauri:test");
+    let reopened = sgf::read(&job.text).unwrap();
+    assert_eq!(position_at(&reopened, reopened.line_end(ROOT)), expected, "saving keeps it: {}", job.text);
+
+    // Without setup stones on the way the new record still holds the moves only.
+    let mut g = Game::new();
+    let source = sgf::read("(;SZ[19]AB[jj];W[dd];C[a note only];B[pp])").unwrap();
+    let expected = position_at(&source, source.line_end(ROOT));
+    let t = g.wb.begin_open(OpenOrigin::File { path: "/x.sgf".into(), source: OpenSource::Drop });
+    assert!(g.wb.complete_open(t, Ok((RecordFormat::Sgf, source))));
+    g.wb.navigate(Navigation::Last);
+    start(&mut g, GameKind::Genmove, GameSettings { continue_play: true, ..genmove_settings(true) }, None);
+    let rec = g.wb.document().record.clone();
+    let line: Vec<NodeKind> = rec.path_to(g.wb.cursor())[1..].iter().map(|&n| rec.node(n).kind).collect();
+    assert_eq!(
+        line,
+        [
+            NodeKind::Move { color: Stone::White, point: Point { x: 3, y: 3 } },
+            NodeKind::Move { color: Stone::Black, point: Point { x: 15, y: 15 } },
+        ],
+        "a node that changes neither stones nor turn is not copied"
+    );
+    assert_eq!(position_at(&rec, g.wb.cursor()), expected);
+}
+
 #[test]
 fn a_late_engine_move_after_regret_changes_nothing() {
     let mut g = Game::new();
