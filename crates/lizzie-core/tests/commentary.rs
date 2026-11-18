@@ -488,3 +488,50 @@ fn comment_too_large_for_sgf_fails_and_restores_the_question() {
     assert_eq!(v.status.key, "Teacher.status.failed");
     assert_eq!(v.restore_question.as_deref(), Some("Why this reply?"));
 }
+#[test]
+fn follow_up_on_frozen_evidence_of_a_changed_position_is_shown_but_not_written() {
+    let (_dir, mut wb) = fixture(GAME);
+    let first = start(&mut wb, CommentaryMode::Next);
+    wb.commentary(CommentaryCommand::SetWriteToSgf { enabled: false })
+        .unwrap();
+    assert!(wb.commentary_finished(first.id, Ok("D4 is a useful reference.".into())));
+    assert!(codec::extract(&wb.document().record.node(ROOT).comment).is_none());
+    // Same node, other side to move: the frozen evidence no longer describes it.
+    wb.edit_document(DocumentEdit::SetToPlay {
+        node: ROOT,
+        color: Stone::White,
+    })
+    .unwrap();
+    wb.commentary(CommentaryCommand::SetWriteToSgf { enabled: true })
+        .unwrap();
+    wb.commentary(CommentaryCommand::Ask {
+        question: "Why this reply?".into(),
+    })
+    .unwrap();
+    let ask = wb.take_commentary_jobs().remove(0);
+    assert_eq!(ask.positions, first.positions);
+    assert!(wb.commentary_finished(ask.id, Ok("Answer about the old position.".into())));
+    assert!(codec::extract(&wb.document().record.node(ROOT).comment).is_none());
+    let v = wb.inspect().commentary;
+    assert!(v.target_changed);
+    assert!(v.output.starts_with("Answer about the old position."));
+    assert_eq!(v.status.key, "Teacher.status.completed");
+}
+#[test]
+fn follow_up_on_frozen_evidence_of_an_unchanged_position_is_written() {
+    let (_dir, mut wb) = fixture(GAME);
+    let first = start(&mut wb, CommentaryMode::Next);
+    assert!(wb.commentary_finished(first.id, Ok("D4 is a useful reference.".into())));
+    wb.commentary(CommentaryCommand::Ask {
+        question: "Why this reply?".into(),
+    })
+    .unwrap();
+    let ask = wb.take_commentary_jobs().remove(0);
+    assert_eq!(ask.positions, first.positions);
+    assert!(wb.commentary_finished(ask.id, Ok("Follow-up answer.".into())));
+    assert_eq!(
+        codec::extract(&wb.document().record.node(ROOT).comment).as_deref(),
+        Some("Follow-up answer.")
+    );
+    assert!(!wb.inspect().commentary.target_changed);
+}

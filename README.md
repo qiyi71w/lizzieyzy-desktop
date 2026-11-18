@@ -1018,9 +1018,10 @@ importing the matching LizzieYzy Next settings.
   block and leaves your own comment untouched; save the record to keep it, and the comment panel
   shows it as its own AI 解说 section. The block goes to the node the request was made for (下一手
   and 区间: the current node; 整局: the root) even if you navigate meanwhile; if that node is deleted
-  or its position is edited before the reply arrives, the answer is shown but not stored (Java
-  stored it into the stale node). 停止, closing the window or opening another record cancels the
-  request, closes the connection and discards a late reply.
+  or its position is edited after its evidence was taken (also when 继续追问 reuses that evidence),
+  the answer is shown but not stored (Java stored it into the stale node). 停止, closing the window
+  or opening another record cancels the request, closes the connection, ends the reply reader and
+  discards a late reply.
   设置 > 连接服务 offers Java's two connections. **API Key** works with any OpenAI-compatible
   service: service address (`/v1` is added to an address without a path), key and model; 获取模型
   lists `/models`; requests stream from `/chat/completions` and fall back to `/responses` only when
