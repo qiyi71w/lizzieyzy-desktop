@@ -403,6 +403,15 @@ export function menuItemState(id: string): "ok" | "hidden" | "missing" | null {
   return "ok";
 }
 
+/** What clicking the menu item runs (JMenuItem.doClick, the row's click): null for a submenu, a
+ *  dynamic entry or an item this client lacks. */
+export function menuItemCommand(id: string): CommandEntry | null {
+  const nodes = functionPath(id)?.nodes;
+  const leaf = nodes?.[nodes.length - 1];
+  if (!leaf || (leaf.t !== "item" && leaf.t !== "check" && leaf.t !== "radio")) return null;
+  return COMMANDS[leaf.id ?? ""] ?? COMMANDS[leaf.key] ?? null;
+}
+
 /** Menu.locateFunction: opens the real menu path and selects the item (focus and the gold line)
  *  without invoking it or changing its setting. Enter then acts on it like the selected Swing item. */
 export function locateMenuItem(id: string): boolean {

@@ -40,9 +40,11 @@ interface Item {
 // 刷新 (LizzieFrame.refreshCurrentMove, BottomToolbar.java:1054-1059); function search clicks it.
 COMMANDS["board.refresh"] = { run: () => void run({ type: "RefreshCurrentMove" }) };
 
-// BottomToolbar.functionTarget's actions (BottomToolbar.java:565-579): the navigation buttons.
+// BottomToolbar.functionTarget's actions (BottomToolbar.java:565-579): the navigation buttons; function
+// search clicks them, so each runs its button's action.
 COMMANDS["review.previous-ten"] = { run: () => navigate({ op: "Back", count: 10 }) };
-COMMANDS["review.previous"] = { run: () => navigate({ op: "Back", count: 1 }) };
+// backward1 (BottomToolbar.java:1423-1434): during a game it takes back a move pair (悔棋).
+COMMANDS["review.previous"] = { run: () => (state.view?.game ? void run({ type: "Game", op: { type: "Regret" } }) : navigate({ op: "Back", count: 1 })) };
 COMMANDS["review.next"] = { run: () => navigate({ op: "Forward", count: 1 }) };
 COMMANDS["review.next-ten"] = { run: () => navigate({ op: "Forward", count: 10 }) };
 
@@ -88,8 +90,7 @@ const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" 
   center: [
     { name: "firstButton", key: "|<", cls: "nav", run: () => navigate({ op: "First" }) },
     { name: "backward10", key: "<<", cls: "nav", run: () => COMMANDS["review.previous-ten"].run() },
-    // backward1 (BottomToolbar.java:1423-1434): during a game it takes back a move pair (悔棋).
-    { name: "backward1", key: "<", cls: "nav", run: () => (state.view?.game ? void run({ type: "Game", op: { type: "Regret" } }) : COMMANDS["review.previous"].run()) },
+    { name: "backward1", key: "<", cls: "nav", run: () => COMMANDS["review.previous"].run() },
     { name: "txtMoveNumber", key: "", located: "review.goto" },
     { name: "gotomove", key: "BottomToolbar.gotomove", run: () => gotoMove(moveInput) },
     { name: "forward1", key: ">", cls: "nav", run: () => COMMANDS["review.next"].run() },
@@ -128,8 +129,13 @@ export function livePopupAnchor(id: string): HTMLElement | null {
   return document.querySelector<HTMLElement>('#bottombar [data-name="liveButton"]');
 }
 
+/** BottomToolbar.locateFunction's popup branch (BottomToolbar.java:645-649): yike.show(this, 0,
+ *  -height) opens the popup above the bar, so 同步 need not be on it. With 同步 on the bar the popup
+ *  stands above the button; otherwise above the bar's left end, as in Java. */
 export function locateLivePopupItem(id: string): boolean {
-  const anchor = livePopupAnchor(id);
+  const button = livePopupAnchor(id);
+  if (!button) return false;
+  const anchor = button.getClientRects().length > 0 ? button : elements.get(MORE)?.parentElement;
   return !!anchor && locatePopupItem(anchor, LIVE_MENU, id);
 }
 

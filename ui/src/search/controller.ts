@@ -1,5 +1,6 @@
 // FunctionSearchController (Java cb53acc): the search entries (toolbar button, Ctrl+K / Cmd+K),
 // shortcut isolation, focus restore after a cancelled search, and the final activation admission.
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { state } from "../app";
 import { COMMANDS } from "../commands";
 import { searchFunctions } from "../contract/client";
@@ -82,6 +83,9 @@ export async function openFunctionSearch(): Promise<void> {
   const previous = active instanceof HTMLElement && active !== document.body ? active : null;
   const current = openSearchDialog();
   dialog = current;
+  // Ctrl+K forwarded from the 浮动主棋盘 window: the search is modal over the whole application
+  // (FunctionSearchDialog APPLICATION_MODAL), so the main window takes the keyboard for it.
+  if (!document.hasFocus()) void getCurrentWindow().setFocus();
   const selected = await current.done;
   if (dialog === current) dialog = null;
   if (selected) {

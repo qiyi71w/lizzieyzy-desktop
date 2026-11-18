@@ -1,11 +1,12 @@
 // Where a function-search result leads and whether it can be used now (Java cb53acc
 // FunctionSearchController.activate / unavailableReason / dependencyReason and
 // LizzieFrame.functionEntryUnavailableReason). Resolving is read-only: it never builds a page,
-// opens a menu or runs a command. Only an ACTION destination runs its catalog command; settings,
-// menus, toolbar controls and windows other than the Java openers are located, never clicked.
+// opens a menu or runs a command. Activating follows the catalog target: an ACTION runs its catalog
+// command, a WINDOW clicks its menu item or toolbar control (the Java openers run their owner
+// method), and SETTING / NAVIGATION menus and toolbar controls are located, never clicked.
 import { state } from "../app";
 import { livePopupAnchor, locateHiddenButton, locateLivePopupItem } from "../chrome/bottombar";
-import { locateMenuItem, menuItemState } from "../chrome/menubar";
+import { locateMenuItem, menuItemCommand, menuItemState } from "../chrome/menubar";
 import { COMMANDS } from "../commands";
 import type { FunctionMatch } from "../contract/generated";
 import { dialogOpen, message } from "../dialogs";
@@ -344,13 +345,48 @@ async function locateToolbarControl(id: string): Promise<Reason | null> {
   if (revealsMarkup(id) && !markupToolsShown()) setEditing({ markupRevealed: true });
   const bottom = !!control.closest("#bottombar");
   await revealToolbar(!bottom ? "top" : id.startsWith("legacy.") ? "detail" : "bottom");
+  // A 同步 popup item: the popup opens over the bar whether or not 同步 itself is on it.
+  if (control.dataset.function !== id) return locateLivePopupItem(id) ? null : TARGET_MISSING;
   if (bottom && control.isConnected && control.getClientRects().length === 0 && locateHiddenButton(id)) return null;
   if (!control.isConnected || control.getClientRects().length === 0) return TOOLBAR;
-  if (control.dataset.function !== id) return locateLivePopupItem(id) ? null : TARGET_MISSING;
   control.scrollIntoView({ block: "nearest", inline: "nearest" });
   if (!control.hasAttribute("tabindex")) control.tabIndex = -1;
+  clickOnSpace(control);
   control.focus({ preventScroll: true });
   highlight(control);
+  return null;
+}
+
+const spaceClickable = new WeakSet<HTMLElement>();
+
+/** The located control is a focused JButton (Menu.java:7012-7013): Space clicks it there rather
+ *  than reaching the workbench's Space (分析). Kept, like Java's setFocusable(true). */
+function clickOnSpace(control: HTMLElement): void {
+  if (spaceClickable.has(control)) return;
+  spaceClickable.add(control);
+  control.addEventListener("keydown", (e) => {
+    if (e.code !== "Space" || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.repeat) control.click();
+  });
+}
+
+/** FunctionSearchController.activate's doClick for a WINDOW destination (Java 225-236): the menu
+ *  item, else the toolbar control, acts as clicked; a menu that is a submenu opens like a located
+ *  one. Nothing is shown or located first. */
+function clickMenuItem(id: string): Reason | null {
+  const entry = menuItemCommand(id);
+  if (!entry) return locateMenuItem(id) ? null : TARGET_MISSING;
+  if (entry.enabled && !entry.enabled()) return CONTEXT;
+  entry.run();
+  return null;
+}
+
+function clickToolbarControl(id: string): Reason | null {
+  const control = toolbarControl(id);
+  if (!control || control.dataset.function !== id) return TARGET_MISSING;
+  control.click();
   return null;
 }
 
@@ -365,9 +401,10 @@ export async function activateFunction(m: FunctionMatch): Promise<Reason | null>
     case "setting":
       return (await openSettingsAt(m.id)) ? null : TARGET_MISSING;
     case "menu":
+      if (m.target === "Window") return clickMenuItem(m.id);
       return locateMenuItem(m.id) ? null : TARGET_MISSING;
     case "toolbar":
-      return locateToolbarControl(m.id);
+      return m.target === "Window" ? clickToolbarControl(m.id) : locateToolbarControl(m.id);
     case "window":
     case "action":
       COMMANDS[m.id].run();
