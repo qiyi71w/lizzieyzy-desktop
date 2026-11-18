@@ -880,7 +880,9 @@ importing the matching LizzieYzy Next settings.
   分析模式 dialogs choose the engine, colour, 接着当前局面下, handicap (KataGo may choose the points
   with 自由让子), komi, 限制我的用时 (保留时间, 读秒 and 次数, with Java's countdown voices), the
   engine's time (每手用时, a raw GTP time command, KataGo's 读秒/加秒/包干 or the engine's own
-  time), KataGo visit limits, 后台思考, 对弈模式 (analysis hidden during the game), the candidates
+  time; the 自建算力 engine takes only 每手用时 or its own time, and a Genmove game or 续弈 with
+  another clock is refused before anything is saved, with Java's message), KataGo visit limits,
+  后台思考, 对弈模式 (analysis hidden during the game), the candidates
   shown for each side and 自动保存棋谱; 分析模式 adds 纯网络, Java's resignation thresholds, 不使用
   分析广度拓展 and the 落子条件 (time, total or first-candidate visits) shared with the bottom bar's
   自动落子. A game has started only once the engine answered its setup (moves are refused with
@@ -892,10 +894,13 @@ importing the matching LizzieYzy Next settings.
   (B+R, W+R, B+T, W+T) is recorded, the played line becomes the main line, the game is saved to
   `MyGames/<time>(<black>_Vs_<white>).sgf` in this client's application data directory, and
   analysis stays paused; a finished game is counted with 棋局 > 终局点目. While a game runs or
-  gives its engine back, opening records, browsing, engine switching, komi/rules changes and the
+  gives its engine back, opening records, browsing, engine switching (also a resource plan's
+  立即切换; saving the plan without switching stays available), komi/rules changes and the
   other analysis modes are refused; the engine is given back only after it answered the game's
   setup and confirmed the restore of the parameters the game changed (`maxTime`, visit limits,
   `analysisWideRootNoise`). A refused or unconfirmed restore leaves the engine marked unrestored;
+  when the engine refuses the position (`play`) behind which its move was asked, the game ends
+  as failed and that move's answer is ignored (Java fails an engine game the same way);
   an engine that never answers the move it is thinking about can be restarted or closed to end
   the wait. Opening a 新对局 dialog ends a running game and pauses analysis (cancelling resumes
   it); an 分析模式 game turns 自动落子 on for the engine's side and off again at its end, and
@@ -908,12 +913,14 @@ importing the matching LizzieYzy Next settings.
   that count only when its unrelated `check-random-visits` option is on).
 - 引擎对战 (棋局 > 新对局 > 引擎对局, `Alt+E`, the detailed toolbar's 引擎对战 panel): two different
   engines of the engine list play each other in Java's Genmove模式 (the engines' own `genmove`
-  with per-side 每手用时, the engine's own time or a raw GTP time command) or 分析模式 (the mover's
+  with per-side 每手用时 (sent to the 自建算力 engine as KataGo's per-move `maxTime`), the
+  engine's own time or a raw GTP time command) or 分析模式 (the mover's
   analysis plays when its time, total or first-candidate visits are reached, with per-side
   resignation thresholds and 随机落子). The dialog, 引擎对局设置 (from the dialog or the panel's 设置),
   the panel, 人工干预 (立即落子, 允许人工落子, 黑认输, 白认输), 终止 / 暂停继续引擎对局 and
   修改多盘引擎对局数 follow Java, including 本局规则 (verified on KataGo with `kata-get-rules`; an
-  engine that cannot confirm them asks for consent), komi, handicap (19×19), 多盘对局 with
+  engine that cannot confirm them asks for consent), komi, handicap (on a 19×19 board only; when
+  the black engine's board is another size the game starts without handicap), 多盘对局 with
   交换黑白, 当前局面续弈, 加载开局SGF (in order or at random), 最大手数 and 后台计算. Both engines run
   as their own processes (other running engines are closed); the engine to move is the
   foreground engine, so its analysis is what the board, the lists and the graph show. A match

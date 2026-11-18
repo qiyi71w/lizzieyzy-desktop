@@ -718,7 +718,9 @@ impl Workbench {
             }
         } else {
             let handicap = self.matches.run.as_ref().unwrap().settings.handicap;
-            if handicap >= 2 {
+            // Java Board.setupFixedHandicap: only on the 19x19 board actually used; any other
+            // size starts without handicap stones or HA.
+            if handicap >= 2 && size.width == 19 && size.height == 19 {
                 // Java Board.setupFixedHandicap's standard 19x19 star points.
                 let points = [
                     (15, 3),
@@ -830,7 +832,12 @@ impl Workbench {
                         } else {
                             values.second_seconds
                         };
-                        if seconds > 0.0 {
+                        // DesktopTimeControl.sendEngineGameFixedTime: the 自建算力 engine takes
+                        // the fixed time as KataGo's per-move limit, not `time_settings`.
+                        if seconds > 0.0 && self.engines.is_custom_websocket(id) {
+                            commands.push("kata-time_settings none".into());
+                            commands.push(format!("kata-set-param maxTime {seconds}"));
+                        } else if seconds > 0.0 {
                             commands.push(format!("time_settings 0 {seconds} 1"));
                         }
                     }
