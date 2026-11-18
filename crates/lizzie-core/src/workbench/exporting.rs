@@ -133,11 +133,14 @@ impl Workbench {
     }
 
     /// Java mutates move comments on save, but never snapshot comments. Do so through the
-    /// document's write entry before capturing the revision that the save will confirm.
+    /// document's write entry before capturing the revision that the save will confirm. The
+    /// comments belong to the admitted save itself (`SGFParser.prepareCommentForSave` writes
+    /// `data.comment` without the Fox session's mutation guard), so they are not refused while
+    /// Fox owns the board.
     pub(super) fn prepare_save_comments(&mut self) {
         let edits = self.save_comment_edits(&self.doc.record, &self.store, self.comment_secondary());
         for edit in edits {
-            self.edit_document(edit).expect("save comments target existing nodes");
+            self.apply_edit(edit).expect("save comments target existing nodes");
         }
     }
 
