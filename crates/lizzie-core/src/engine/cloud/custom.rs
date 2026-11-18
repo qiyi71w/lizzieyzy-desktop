@@ -54,6 +54,9 @@ pub(super) struct Adapter {
     /// Analysis streams a later command ended while an explicit `stop` of theirs waits for the
     /// final result and the matching terminate ack (Java `completeStoppedQueryIfReady`).
     stopping: Vec<Query>,
+    /// Those `stop`s, settled while the active query's response was open: answered once it is
+    /// complete, as a GTP response cannot start inside another.
+    settled: Vec<String>,
 }
 
 impl Default for Adapter {
@@ -63,7 +66,7 @@ impl Default for Adapter {
             rules: KataRules::preset("chinese").unwrap().to_gtp_argument(),
             initial_stones: Vec::new(), moves: Vec::new(), initial_player: None,
             max_time: 1e20, max_visits: 256, advantage: 0.0, noise: 0.04,
-            sequence: 0, active: None, stopping: Vec::new(),
+            sequence: 0, active: None, stopping: Vec::new(), settled: Vec::new(),
         }
     }
 }
@@ -228,6 +231,7 @@ impl Adapter {
     fn end_stream(&mut self, output: &Output) -> Option<String> {
         let query = self.active.take_if(|query| !query.genmove)?;
         if query.started && !query.final_received { stdout(output, "\n"); }
+        self.answer_settled(output);
         if query.stop_ids.is_empty() {
             return Some(terminate(&query.id));
         }
@@ -236,8 +240,9 @@ impl Adapter {
     }
 
     /// A response for a stopped stream a later command ended: it settles that `stop` once its
-    /// final result and matching ack are in. A remote error fails the transport, as Java's
-    /// `failActiveQuery`; the `stop` is never answered with success.
+    /// final result and matching ack are in, answered at once unless the active query's response
+    /// is open. A remote error fails the transport, as Java's `failActiveQuery`; the `stop` is
+    /// never answered with success.
     fn stopping_response(&mut self, at: usize, id: &str, response: &Value, output: &Output) -> Result<(), ()> {
         if response.get("error").is_some() { return Err(()); }
         let query = &mut self.stopping[at];
@@ -250,9 +255,17 @@ impl Adapter {
             query.final_received = true;
         }
         if query.final_received && query.terminate_ack {
-            for id in &self.stopping.remove(at).stop_ids { ok(output, id, ""); }
+            let stops = self.stopping.remove(at).stop_ids;
+            self.settled.extend(stops);
+            if !self.active.as_ref().is_some_and(|active| active.started && !active.final_received) {
+                self.answer_settled(output);
+            }
         }
         Ok(())
+    }
+
+    fn answer_settled(&mut self, output: &Output) {
+        for id in self.settled.drain(..) { ok(output, &id, ""); }
     }
 
     fn clear(&mut self) {
@@ -367,9 +380,13 @@ impl Adapter {
                 query.final_received = true;
             }
         }
-        if query.final_received && (query.stop_ids.is_empty() || query.terminate_ack) {
-            for id in &query.stop_ids { ok(output, id, ""); }
-            self.active = None;
+        if query.final_received {
+            // Its response is complete: `stop`s settled meanwhile come first.
+            for id in self.settled.drain(..) { ok(output, &id, ""); }
+            if query.stop_ids.is_empty() || query.terminate_ack {
+                for id in &query.stop_ids { ok(output, id, ""); }
+                self.active = None;
+            }
         }
         Ok(())
     }

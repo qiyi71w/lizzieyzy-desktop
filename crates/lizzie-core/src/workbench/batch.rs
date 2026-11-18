@@ -40,7 +40,7 @@ use super::quick::Query;
 use super::{PendingSave, SaveJob, Workbench, FAILED_TO_OPEN_FILE, SAVE_FILE_FAILED};
 use crate::api::{
     ApiError, BatchCommand, BatchFailure, BatchItemView, BatchMode, BatchMove, BatchNotice, BatchRunView, BatchView,
-    ErrorKind, FlashTarget, MoveChange, MoveEvaluation, OpenSource,
+    Command, CommandResult, ErrorKind, FlashTarget, MoveChange, MoveEvaluation, OpenSource,
 };
 use crate::engine::gtp::InfoLine;
 use crate::engine::kata_analysis::{self, Response};
@@ -234,10 +234,19 @@ impl Workbench {
 
     // -------------------------------------------------------------------- queue
 
-    /// A [`BatchCommand`] that needs no chooser; `Err` holds the Java key of a refusal.
-    /// `Choose` and `AddFiles` show the adapter's chooser first, then call [`Self::open_batch`] /
+    /// A [`BatchCommand`] that needs no chooser, refused first while a running mode holds the
+    /// engine ([`Self::game_gate`]); `Err` holds the Java key of a refusal. `Choose` and
+    /// `AddFiles` show the adapter's chooser first, then call this with `Open` /
     /// [`Self::add_batch_files`].
     pub fn batch_command(&mut self, op: BatchCommand) -> Result<Result<bool, String>, ApiError> {
+        let command = Command::Batch { op };
+        match self.game_gate(&command) {
+            Some(CommandResult::Refused { message_key }) => return Ok(Err(message_key)),
+            // A mode gate refuses batch commands; anything else leaves nothing changed.
+            Some(_) => return Ok(Ok(false)),
+            None => {}
+        }
+        let Command::Batch { op } = command else { unreachable!() };
         let refused = |key: &'static str| key.to_string();
         Ok(match op {
             BatchCommand::Choose { .. } | BatchCommand::AddFiles => {

@@ -1491,8 +1491,9 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             if paths.is_empty() {
                 return Ok(CommandResult::Unchanged);
             }
-            let result = shared.workbench.lock().unwrap().open_batch(mode, paths, OpenSource::Chooser);
-            Ok(batch_result(&app, &shared, result.map_err(str::to_string)))
+            let open = BatchCommand::Open { mode, paths, source: OpenSource::Chooser };
+            let result = shared.workbench.lock().unwrap().batch_command(open)?;
+            Ok(batch_result(&app, &shared, result))
         }
         Command::Batch { op: BatchCommand::AddFiles } => {
             let paths = choose_records(&app, &shared).await?;
@@ -2434,8 +2435,10 @@ pub fn run() {
                     _ => {
                         let paths = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
                         let mut wb = shared.workbench.lock().unwrap();
-                        if let Err(key) = wb.open_batch(BatchMode::Ordinary, paths, OpenSource::Drop) {
-                            wb.refuse_batch(key);
+                        let open = BatchCommand::Open { mode: BatchMode::Ordinary, paths, source: OpenSource::Drop };
+                        // Refused like the other batch entries while a running mode holds the engine.
+                        if let Ok(Err(key)) = wb.batch_command(open) {
+                            wb.refuse_batch(&key);
                         }
                         drop(wb);
                         publish(app, &shared);
