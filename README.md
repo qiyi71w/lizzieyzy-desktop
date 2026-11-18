@@ -306,7 +306,11 @@ importing the matching LizzieYzy Next settings.
   Clearing GMA (stopping the sync or the helper ending) gives the original parameters back once
   the engine holds the record's position again; when a 试下 started between two moves holds the
   engine, they go back as soon as it ends. If the engine refuses them it stays unrestored
-  (引擎状态未恢复) until it is switched or restarted. Unticking 后台分析 in the helper
+  (引擎状态未恢复) until it is switched or restarted. Arming GMA leaves a running analysis alone,
+  as Java does: it goes on while GMA waits for the opponent, and each move's first engine command
+  ends it before the move is asked. After a played move asked with pondering the engine goes on
+  pondering by itself on that position; any other answer leaves the analysis paused (Space or
+  the helper resumes it). Unticking 后台分析 in the helper
   (`playpon off`) while GMA is armed and no move is in flight, before its first move as between
   two, turns the engine's pondering off at once (its own value goes back when GMA is cleared) and
   stops a running analysis, as Java does; a 批量分析 started meanwhile stays paused.
@@ -990,7 +994,9 @@ importing the matching LizzieYzy Next settings.
   `EngineGames/<batch name>/`, default `<first>_VS_<second>_<time>`) in this client's application
   data directory, with Java's move comments, together with the batch's `结果<time>.txt` summary
   (score, wins as black/white, time, visits, Elo and confidence intervals) and, with 自动保存胜率图,
-  the winrate graph. The next game of a batch starts only after both engines confirmed they are
+  the winrate graph. The saved record's 本局规则 block and the summary name each engine with its
+  command as Java does, with credential values in it (`--token …`, `password=…`) masked by the
+  credential sanitizer. The next game of a batch starts only after both engines confirmed they are
   given back (parameters and rules the match changed are restored; a refusal or missing
   confirmation marks the engine unrestored and stops the batch); an engine exit retires the
   game and ends the batch (the exit is logged, without the 引擎异常关闭 window), after which that

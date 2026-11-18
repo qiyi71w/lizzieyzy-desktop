@@ -718,9 +718,11 @@ impl Workbench {
             self.check_rules_prompt();
             return;
         }
-        // A running quick analysis leaves the foreground engine idle until it ends; ReadBoard GMA
-        // keeps it following the position without analysing (its moves come from
-        // `kata-genmove_analyze`).
+        // A running quick analysis leaves the foreground engine idle until it ends; a ReadBoard
+        // GMA hand keeps it following the position without analysing (its moves come from
+        // `kata-genmove_analyze`), as does the engine's own pondering after a hand. Armed GMA
+        // alone does not stop the analysis.
+        let gma_holds = self.gma_holds_analysis();
         let analyse = !hold
             && !self.paused
             && !self.benchmark_running()
@@ -730,7 +732,7 @@ impl Workbench {
             && !self.flash_holds_foreground()
             && !self.whole_game_holds_foreground()
             && !self.batch_holds_foreground()
-            && !self.readboard_gma_busy()
+            && !gma_holds
             && self.rules_permit_analysis();
         let target = self.analysis_target();
         self.sync_search(analyse);

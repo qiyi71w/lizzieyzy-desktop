@@ -1220,6 +1220,40 @@ fn spec_07_saved_match_records_include_java_match_rules_sections() {
     assert_eq!(record.node(ROOT).comment.matches("End of match rules").count(), 1);
 }
 
+/// The saved record and the batch summary name each side's engine command (Java
+/// MatchRulesTexts.identityLabel and EngineManager.fillEngineGameSettingStrings), but a command
+/// carrying credentials is written with their values masked, as every persisted text is.
+#[test]
+fn saved_match_records_and_summaries_mask_credentials_in_engine_commands() {
+    const MARK: &str = "R24MARK";
+    let secret = format!(r#"/opt/katago gtp --token {MARK}tok -override-config "password={MARK}pw""#);
+    let masked = r#"/opt/katago gtp --token <redacted> -override-config "password=<redacted>""#;
+    let plain = "/opt/katago gtp -model plain.bin.gz";
+    let mut m = Match::with_profiles(
+        Some("en-US"),
+        vec![
+            EngineProfile { id: "one".into(), name: "First".into(), command: secret, ..EngineProfile::default() },
+            EngineProfile { id: "two".into(), name: "Second".into(), command: plain.into(), ..EngineProfile::default() },
+        ],
+    );
+    m.start(batch());
+    m.serve(&|_, _| None);
+    m.finish_turn("resign");
+    let jobs = m.wb.take_background_saves();
+    let sgf = jobs.iter().find(|j| j.path.extension().is_some_and(|e| e == "sgf")).unwrap();
+    let summary = jobs.iter().find(|j| j.path.extension().is_some_and(|e| e == "txt")).unwrap();
+    for (what, text) in [("sgf", &sgf.text), ("summary", &summary.text)] {
+        assert!(!text.contains(MARK), "{what} holds a credential: {text}");
+    }
+    let record = lizzie_core::formats::parse(lizzie_core::record::RecordFormat::Sgf, &sgf.text, false).unwrap();
+    let root = &record.node(ROOT).comment;
+    assert!(root.contains(&format!("Black: First ({masked})\nStatus: confirmed\n")), "{root}");
+    assert!(root.contains(&format!("White: Second ({plain})\nStatus: confirmed\n")), "{root}");
+    assert!(sgf.text.contains("PB[First]") && sgf.text.contains("PW[Second]") && sgf.text.contains("RE[W+R]"));
+    assert!(summary.text.contains(&format!("\r\nCommand:{masked}")), "{}", summary.text);
+    assert!(summary.text.contains(&format!("\r\nCommand:{plain}")), "{}", summary.text);
+}
+
 #[test]
 fn spec_08_query_only_rules_are_checked_instead_of_offered_as_unverified() {
     // MatchRulesAdmission.java:36–40,167–180,202–210: a queryable side must return

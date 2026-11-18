@@ -875,6 +875,72 @@ fn unticking_background_analysis_before_the_first_gma_hand_stops_the_running_ana
     assert_eq!(r.lease(), LeaseAvailabilityView::Available);
 }
 
+/// Arming GMA leaves a running analysis alone (Java arms without `ponder()` or a stop,
+/// ReadBoard.java:1086-1094); the helper's later `playpon off` stops it and turns the engine's
+/// pondering off (`disableReadBoardGmaPonderIfIdle`, ReadBoard.java:4595-4605).
+#[test]
+fn an_analysis_running_when_gma_is_armed_goes_on_until_playpon_off_stops_it() {
+    let mut r = Rig::new();
+    let h = r.open();
+    r.lines(h, &["ready", "start 19 19", "sync", "bothSync"]);
+    r.serve(&|_| None);
+    assert!(r.analyzing, "the analysis of the empty board is running");
+
+    r.lines(h, &["playpon on", "play>white>5 100 0 gma"]);
+    r.frame(h, &[]);
+    let armed = r.serve(&|_| None);
+    assert!(!armed.iter().any(|c| c == "stop" || c.starts_with("kata-genmove_analyze")), "arming stops nothing: {armed:?}");
+    assert!(r.analyzing, "the analysis goes on while GMA waits for the opponent");
+    assert!(!r.wb.view(false).engine.paused);
+    assert_eq!(r.lease(), LeaseAvailabilityView::ReadBoardGma);
+
+    r.line(h, "playpon off");
+    let sent = r.serve(&|c| (c == "kata-get-param ponderingEnabled").then(|| "true".to_string()));
+    let ponder: Vec<_> = sent.iter().filter(|c| c.contains("ponderingEnabled")).collect();
+    assert_eq!(ponder, ["kata-get-param ponderingEnabled", "kata-set-param ponderingEnabled false"], "{sent:?}");
+    assert!(!r.analyzing, "the running analysis ends: {sent:?}");
+    assert!(r.wb.view(false).engine.paused, "`stopPonderingIfActive`");
+    assert!(!sent.iter().any(|c| c.starts_with("kata-analyze")), "{sent:?}");
+    assert!(r.main_line().is_empty());
+    assert_eq!(r.lease(), LeaseAvailabilityView::ReadBoardGma, "GMA stays armed");
+}
+
+/// With an analysis running while armed, a GMA hand first stops it, then prepares the parameters
+/// and asks `kata-genmove_analyze`; nothing analyses in between. After the played move Java
+/// marks the analysis stopped unless the engine keeps pondering natively (Leelaz.java:8013-8031):
+/// with `playpon off` the analysis stays stopped, with `playpon on` the engine's own pondering
+/// goes on and no analysis replaces it on that position.
+#[test]
+fn a_gma_hand_stops_the_running_analysis_before_asking_and_leaves_the_engine_pondering_as_java() {
+    for ponder in [false, true] {
+        let mut r = Rig::new();
+        let h = r.open();
+        r.lines(h, &["ready", "start 19 19", "sync", "bothSync"]);
+        r.serve(&|_| None);
+        r.lines(h, &[if ponder { "playpon on" } else { "playpon off" }, "play>white>5 100 0 gma"]);
+        r.frame(h, &[]);
+        r.serve(&|_| None);
+        assert!(r.analyzing, "ponder {ponder}: the analysis goes on while armed");
+
+        // The opponent plays: the analysis follows the position, then GMA's hand takes the engine.
+        // As in Java the hand's first command ends the running `kata-analyze` (a GTP command
+        // interrupts it); no analysis starts again before the move is asked.
+        r.frame(h, &[(3, 3, 3)]);
+        let sent = r.serve(&|_| None);
+        let analyse = sent.iter().rposition(|c| c.starts_with("kata-analyze")).unwrap_or_else(|| panic!("ponder {ponder}: {sent:?}"));
+        let first_param = sent.iter().position(|c| c.starts_with("kata-get-param")).unwrap_or_else(|| panic!("{sent:?}"));
+        assert!(analyse < first_param, "ponder {ponder}: the analysis ends with the hand's first command: {sent:?}");
+        assert!(r.held.iter().any(|(_, c)| c.starts_with("kata-genmove_analyze W")), "ponder {ponder}: {:?}", r.held);
+        assert!(!r.analyzing, "ponder {ponder}");
+
+        r.answer_genmove("Q16");
+        let after = r.serve(&|_| None);
+        assert_eq!(r.main_line(), [(Stone::Black, p(3, 3)), (Stone::White, p(15, 3))]);
+        assert!(!after.iter().any(|c| c.starts_with("kata-analyze")), "ponder {ponder}: {after:?}");
+        assert_eq!(r.wb.view(false).engine.paused, !ponder, "ponder {ponder}");
+    }
+}
+
 // ------------------------------------------------------------------------ helper restarts
 
 /// The helper offers the update `tag` (a valid package in the rig's directory).

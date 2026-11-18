@@ -100,12 +100,15 @@ impl Workbench {
             } else {
                 &run.settings.second
             };
+            // Java writes the command as configured; credentials in it are masked here, as in
+            // every other persisted text.
+            let commands = crate::sanitize::sanitize(&identity.commands);
             let label = if identity.name.is_empty() {
-                identity.commands.clone()
-            } else if identity.commands.is_empty() {
+                commands
+            } else if commands.is_empty() {
                 identity.name.clone()
             } else {
-                format!("{} ({})", identity.name, identity.commands)
+                format!("{} ({commands})", identity.name)
             };
             let color = text(if side == Stone::Black {
                 "MatchRules.black"
@@ -333,7 +336,11 @@ impl Workbench {
             ));
         }
         let identity = if index == 0 { &settings.first } else { &settings.second };
-        line.push_str(&format!("\r\n{}{}", text("EngineGameInfo.command"), identity.commands));
+        line.push_str(&format!(
+            "\r\n{}{}",
+            text("EngineGameInfo.command"),
+            crate::sanitize::sanitize(&identity.commands)
+        ));
         if let Some(rules) = crate::engine::rules::KataRules::parse(&settings.rules) {
             line.push_str(&format!(
                 "\r\n{}: {}",

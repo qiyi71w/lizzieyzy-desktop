@@ -450,12 +450,6 @@ impl Workbench {
 
     // -------------------------------------------------------------------- record hooks
 
-    /// GMA holds the foreground engine (armed, a hand in flight or its parameters being given
-    /// back): the engine follows the position without analysing.
-    pub(super) fn readboard_gma_busy(&self) -> bool {
-        self.readboard.gma.busy()
-    }
-
     /// The analysis may not make a 自动落子 move (`notifyAutoPlay`, `Leelaz.java:8488-8491`): GMA
     /// is armed, asking or giving the engine back (`isReadBoardGmaEngineBusy`), or the helper's
     /// switch to normal 自动落子 waits for GMA to let go (`isNormalAutoPlayTransitionPending`).

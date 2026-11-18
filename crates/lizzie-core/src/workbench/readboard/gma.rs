@@ -169,6 +169,10 @@ pub(in crate::workbench) struct GmaFlow {
     /// Turning the engine's pondering off outside a hand.
     ponder_off: Option<PonderOff>,
     overrides: Option<Overrides>,
+    /// The position a played hand left the engine pondering on by itself (Java
+    /// `retainReadBoardGmaNativePonderAfterTerminal`): no analysis replaces that pondering until
+    /// the position changes.
+    native_ponder: Option<(u64, NodeId)>,
     /// The engine `该模式仅支持 KataGo` was shown for (once per engine).
     unsupported_shown: Option<InstanceId>,
     next_request: u64,
@@ -260,6 +264,19 @@ impl Workbench {
         let busy = self.readboard.gma.busy();
         self.engines.set_readboard_gma(busy);
         self.sync_engine();
+    }
+
+    /// Whether GMA keeps the analysis off the foreground engine: while a hand, the parameter
+    /// restore or a `playpon off` holds it, and on the position a played hand left the engine
+    /// pondering on by itself (forgotten once the position changes). Armed GMA alone leaves a
+    /// running analysis alone: Java arms without stopping it (ReadBoard.java:1086-1094).
+    pub(in crate::workbench) fn gma_holds_analysis(&mut self) -> bool {
+        let here = (self.doc.id, self.cursor);
+        let gma = &mut self.readboard.gma;
+        if gma.native_ponder.is_some_and(|at| at != here) {
+            gma.native_ponder = None;
+        }
+        gma.reserved() || gma.native_ponder.is_some()
     }
 
     /// `play>…gma` (`ReadBoard.parseLine`): arms GMA for `color` with the helper's limits.
@@ -407,6 +424,7 @@ impl Workbench {
         let gma = &mut self.readboard.gma;
         let was = gma.armed.take().is_some() || gma.hand.is_some();
         gma.generation += 1;
+        gma.native_ponder = None;
         gma.ponder_notice = PonderNotice::default();
         gma.awaiting_synced_board = false;
         if was {
@@ -515,7 +533,10 @@ impl Workbench {
             // its preparation begins with `maxTime` (`PARAMS[1]`).
             step: Step::Prepare { index: usize::from(websocket), sent: None },
         });
+        // The hand's first command ends a running analysis (a GTP command interrupts it, as in
+        // Java); the analysis wish follows so none starts again while the hand holds the engine.
         self.gma_prepare();
+        self.sync_engine();
     }
 
     /// `supportsReadBoardGmaFixedLimits`: KataGo listing `kata-genmove_analyze`,
@@ -722,7 +743,10 @@ impl Workbench {
 
     /// `handleReadBoardGmaEnginePlay`: a move of the current arming at the position it was asked
     /// for is placed (the engine already played it) and clicked by the helper; anything else
-    /// ends the hand with the engine back at the record's position.
+    /// ends the hand with the engine back at the record's position. The engine's `play` line
+    /// also ends the analysis as Java marks it (Leelaz.java:8013-8031): a placed move asked with
+    /// pondering leaves the engine pondering by itself on the new position, any other answer
+    /// leaves the analysis stopped (`isPondering = false`); a refused request changes neither.
     fn gma_answer(&mut self, game: u64, request: u64, doc: u64, node: NodeId, stamp: u64, reply: GenmoveReply) {
         let gma = &self.readboard.gma;
         let Some(hand) = gma.hand.as_ref().filter(|h| h.game == game) else {
@@ -742,16 +766,24 @@ impl Workbench {
             && rec.contains(node)
             && rec.node(node).stamp == stamp
             && rec.node(node).to_play == hand.color;
-        let color = hand.color;
+        let (color, ponder) = (hand.color, hand.ponder);
         if let (GenmoveReply::Move(point), false, true) = (&reply, stale, current) {
             let edit = DocumentEdit::Play { at: self.cursor, color, point: *point, alternate: false, rules: self.play_rules() };
             if let Some(n) = self.apply_edit(edit).ok().and_then(|a| a.node) {
                 self.move_to(n);
                 let committed = self.doc.record.node(n).stamp;
                 self.engine_move_committed(game, request, committed);
+                if ponder {
+                    self.readboard.gma.native_ponder = Some((self.doc.id, n));
+                } else {
+                    self.readboard_stop_analysis();
+                }
                 self.gma_terminal(game, true);
                 return;
             }
+        }
+        if !matches!(reply, GenmoveReply::Failed(_)) {
+            self.readboard_stop_analysis();
         }
         match &reply {
             GenmoveReply::Failed(text) => self.log(true, format!("ReadBoard GMA move failed: {text}")),
