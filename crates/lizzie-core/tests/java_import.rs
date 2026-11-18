@@ -2470,6 +2470,66 @@ fn unusable_theme_folders_are_reported_and_leave_the_others_and_existing_themes(
     assert!(!wb.config().record.read_komi, "the other settings still come over");
 }
 
+/// An uncompressed 8×8 TIFF of one colour (Java's `ImageIO` reads TIFF).
+fn tiff(rgb: [u8; 3]) -> Vec<u8> {
+    let mut out = std::io::Cursor::new(Vec::new());
+    image::RgbImage::from_pixel(8, 8, image::Rgb(rgb)).write_to(&mut out, image::ImageFormat::Tiff).unwrap();
+    out.into_inner()
+}
+
+#[test]
+fn a_java_theme_tiff_picture_comes_over_as_png() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    // 棋盘图片 chosen with 所有文件: board.tif; the background is a different board.png.
+    java_theme(&java, "TiffTheme", PLAIN_BOARD, json!({"board-image": "board.tif", "background-image": "board.png"}));
+    std::fs::write(java.join("theme/TiffTheme/board.tif"), tiff([200, 30, 30])).unwrap();
+    std::fs::write(java.join("config.txt"), json!({"ui": {"theme": "TiffTheme"}}).to_string()).unwrap();
+    let java_before = snapshot(&java);
+    let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+    let default_board = shown_board(&wb, "default");
+    let p = preview(&mut wb, &java);
+    assert_eq!(item(&p.items, "file:theme/TiffTheme").status, ImportStatus::Imported);
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    assert_eq!(wb.view(true).settings.appearance.theme, "TiffTheme");
+    let dir = lizzie_core::appearance::themes_dir(wb.storage()).join("TiffTheme");
+    let raw: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("theme.txt")).unwrap()).unwrap();
+    // board.tif becomes board.png; the theme's own board.png keeps its picture under the next free name.
+    assert_eq!((&raw["board-image"], &raw["background-image"]), (&json!("board.png"), &json!("board-2.png")));
+    assert_eq!(std::fs::read(dir.join("board-2.png")).unwrap(), PLAIN_BOARD);
+    let png = std::fs::read(dir.join("board.png")).unwrap();
+    let picture = image::load_from_memory_with_format(&png, image::ImageFormat::Png).unwrap().to_rgb8();
+    assert_eq!((picture.dimensions(), picture.get_pixel(3, 3).0), ((8, 8), [200, 30, 30]));
+    let board = shown_board(&wb, "TiffTheme");
+    assert_eq!(board, data_url(&png, tmp.path()));
+    assert_ne!(board, default_board);
+    assert_eq!(snapshot(&java), java_before, "the Java folder is only read");
+}
+
+#[test]
+fn a_java_theme_whose_tiff_picture_does_not_decode_is_reported_not_imported() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    java_theme(&java, "Good", PLAIN_BOARD, json!({}));
+    java_theme(&java, "BrokenTiff", PLAIN_BOARD, json!({"board-image": "board.tif"}));
+    // A TIFF header whose first directory has no entries.
+    std::fs::write(java.join("theme/BrokenTiff/board.tif"), b"II*\0\x08\0\0\0\0\0\0\0\0\0").unwrap();
+    std::fs::write(java.join("config.txt"), json!({"ui": {"theme": "BrokenTiff", "read-komi": false}}).to_string()).unwrap();
+    let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+    let p = preview(&mut wb, &java);
+    let broken = item(&p.items, "file:theme/BrokenTiff");
+    assert_eq!((broken.status, broken.reason), (ImportStatus::Incompatible, Some(ImportReason::Unreadable)));
+    assert_eq!(broken.detail.as_deref(), Some("board-image: board.tif"));
+    assert_eq!(item(&p.items, "ui.theme").status, ImportStatus::Incompatible);
+    assert_eq!(item(&p.items, "file:theme/Good").status, ImportStatus::Imported);
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    let themes = lizzie_core::appearance::themes_dir(wb.storage());
+    assert!(!themes.join("BrokenTiff").exists());
+    assert!(themes.join("Good/theme.txt").is_file());
+    assert_eq!(wb.view(false).settings.appearance.theme, "default");
+    assert!(!wb.config().record.read_komi, "the other settings still come over");
+}
+
 #[test]
 fn a_failed_import_with_ui_pictures_leaves_no_new_theme_folders() {
     let tmp = tempfile::tempdir().unwrap();

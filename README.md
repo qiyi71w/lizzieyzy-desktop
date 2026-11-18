@@ -391,14 +391,17 @@ importing the matching LizzieYzy Next settings.
   command. The dialog can also be used with standard KataGo, but only an engine whose GTP name
   begins with `KataGoPda` receives `pda`, `dympdacap`, `getpda` or `getdympdacap`.
   自动加载 applies the saved choice after startup read-back and again on the first white move
-  of a handicap game. These are the Java implementation's triggers, not every new game.
+  of a handicap game. These are the Java implementation's triggers, not every new game. Like
+  Java's saved command, the automatic apply of 动态PDA sends only `dympdacap <coefficient>`, so
+  the engine keeps (and the toolbar shows) its own PDA; only 确定 also sends `pda 0`.
   The six Java PDA-dialog settings import as a mode, numeric values and an automatic-apply
   choice; an invalid `auto-pda` command is reported as an invalid value, never stored as a raw
   command. Explicit mode/value keys take precedence; a parsed command supplies missing fields.
 - With a `KataGoCustom` or `KataGoPda` engine, right-click an empty intersection for
   优先分析此点 (`setmaxpolicy <coordinate> 1.1`) or 清除优先分析 (`clearpolicy`). Choosing a priority
   point starts analysis if it is paused. Reported priority candidates remain visible beyond the
-  candidate-count and low-visit display limits. A move clears the temporary priority selection
+  candidate-count and low-visit display limits, and a result that came while the point was chosen
+  keeps it as a candidate for 棋力评估, as Java does. A move clears the temporary priority selection
   without sending `clearpolicy`; it is not saved in the record or preferences.
   The private protocol is covered with controlled engines; acceptance by a real KataGoPda
   binary remains unverified.
@@ -1187,14 +1190,18 @@ importing the matching LizzieYzy Next settings.
   Java's own themes also come over: every folder of Java's `theme/` (in the Java folder, else the
   Java program folder) that holds a `theme.txt` becomes a theme of this client with the same
   name, together with the board, background and stone images it shows, found as Java finds them
-  (relative to that theme's folder, or absolute) and copied into the theme. An image the theme
+  (relative to that theme's folder, or absolute) and copied into the theme. A TIFF picture, which
+  Java reads but this client's window cannot show, is converted to a PNG of the same name
+  (`board.tif` becomes `board.png`; a different picture already using that name in the theme gets
+  the next free name, such as `board-2.png`). An image the theme
   itself lacks follows Java's fallback: the default theme's image setting (the theme keeps
   following it), else the file of that name in `theme/`, else the built-in picture. The theme
   Java had selected stays selected, and Java's translated 默认 / Default entry selects the default
   theme. An untouched copy of a bundled theme is skipped; a changed one becomes the user's copy
-  of that bundled theme, whose own files are not changed. A theme folder that cannot be read, or
-  whose `theme.txt` holds values no theme can use (such as a colour channel above 255), is listed
-  as not usable with those keys; the other themes and settings still come over. `default` is
+  of that bundled theme, whose own files are not changed. A theme folder that cannot be read,
+  whose TIFF picture cannot be decoded, or whose `theme.txt` holds values no theme can use (such
+  as a colour channel above 255), is listed as not usable with those keys or that picture and is
+  not imported; the other themes and settings still come over. `default` is
   this client's default theme, so a Java theme folder named `default` comes over as
   "default (LizzieYzy Next)" (and stays selected if Java used it). Replacing
   a theme of this client with the same name is listed with the theme names and needs the same

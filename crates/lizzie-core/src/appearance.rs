@@ -320,12 +320,29 @@ fn image_bytes(bytes: &[u8]) -> std::io::Result<String> {
 /// The MIME type of a decodable PNG, JPEG, GIF or BMP image.
 fn image_mime(bytes: &[u8]) -> std::io::Result<&'static str> {
     let format = image::guess_format(bytes).map_err(std::io::Error::other)?;
+    let mime = match format { image::ImageFormat::Png=>"image/png",image::ImageFormat::Jpeg=>"image/jpeg",
+        image::ImageFormat::Gif=>"image/gif",image::ImageFormat::Bmp=>"image/bmp",_=>return Err(std::io::Error::other("unsupported image format")) };
     image::load_from_memory_with_format(bytes,format).map_err(std::io::Error::other)?;
-    match format { image::ImageFormat::Png=>Ok("image/png"),image::ImageFormat::Jpeg=>Ok("image/jpeg"),
-        image::ImageFormat::Gif=>Ok("image/gif"),image::ImageFormat::Bmp=>Ok("image/bmp"),_=>Err(std::io::Error::other("unsupported image format")) }
+    Ok(mime)
 }
 /// Whether `bytes` are an image this product shows.
 pub fn is_image(bytes: &[u8]) -> bool { image_mime(bytes).is_ok() }
+/// A TIFF picture, which Java's `ImageIO` reads but a webview does not show, as PNG: `None` when
+/// `bytes` are not a TIFF, an error when the TIFF does not decode.
+pub fn tiff_as_png(bytes: &[u8]) -> Option<std::io::Result<Vec<u8>>> {
+    if image::guess_format(bytes).ok()? != image::ImageFormat::Tiff { return None; }
+    Some((|| {
+        let picture = image::load_from_memory_with_format(bytes, image::ImageFormat::Tiff).map_err(std::io::Error::other)?;
+        // PNG has no floating-point samples.
+        let picture = match picture {
+            image::DynamicImage::ImageRgb32F(_) | image::DynamicImage::ImageRgba32F(_) => image::DynamicImage::ImageRgba8(picture.to_rgba8()),
+            other => other,
+        };
+        let mut png = std::io::Cursor::new(Vec::new());
+        picture.write_to(&mut png, image::ImageFormat::Png).map_err(std::io::Error::other)?;
+        Ok(png.into_inner())
+    })())
+}
 /// `appearance_images`: loadable URLs of the four theme images; `custom_board` /
 /// `custom_background` are Theme.isUsingCustomBoardImage / isUsingCustomBackgroundImage
 /// (Theme.java:210-217), the configured override decoded.

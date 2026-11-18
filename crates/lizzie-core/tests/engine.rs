@@ -2232,10 +2232,11 @@ fn auto_apply_follows_the_two_start_up_answers_in_order() {
     let (mut wb, _, sent) = started_pda_with(dir.path(), &world, dynamic(0.5, true));
     let at = |needle: &str| sent.iter().position(|c| c == needle).unwrap_or_else(|| panic!("{needle}: {sent:?}"));
     assert!(at("getpda") < at("getdympdacap"));
-    assert!(at("getdympdacap") < at("pda 0"));
-    assert!(at("pda 0") < at("dympdacap 0.5"));
+    // Java replays the saved `AutoPDA` (`dympdacap <cap>`) alone; the engine keeps its own PDA.
+    assert!(at("getdympdacap") < at("dympdacap 0.5"));
+    assert!(!sent.iter().any(|c| c == "pda 0"), "{sent:?}");
     let pda = wb.view(false).engine.custom_pda;
-    assert_eq!((pda.pda, pda.cap), (Some(0.0), Some(0.5)));
+    assert_eq!((pda.pda, pda.cap), (Some(0.25), Some(0.5)));
 }
 
 #[test]
@@ -2335,8 +2336,9 @@ fn auto_apply_runs_on_a_handicap_games_first_white_move_only() {
     wb.edit(EditCommand::Play { point: Point { x: 15, y: 3 }, color: Some(Stone::White) })
         .unwrap();
     let sent = commands(&world.take(id));
-    assert!(sent.contains(&"pda 0".to_string()), "{sent:?}");
     assert!(sent.contains(&"dympdacap 0.5".to_string()), "{sent:?}");
+    assert!(!sent.contains(&"pda 0".to_string()), "only the saved AutoPDA command: {sent:?}");
+    assert_eq!(wb.view(false).engine.custom_pda.pda, Some(0.25), "the engine's own PDA stays shown");
 }
 
 #[test]
