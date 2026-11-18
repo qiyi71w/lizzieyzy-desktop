@@ -70,22 +70,34 @@ impl Reader<'_> {
                 it.detail = Some(super::sanitize(&invalid.join(", ")));
                 continue;
             }
-            let own: Vec<(&str, &str, Option<Image>)> = IMAGES.iter().map(|&(k, d)| (k, d, image(&dir, &raw, k, d))).collect();
+            // A picture Java reads but this product cannot use leaves the folder out (reported),
+            // rather than coming over without it.
+            let own: Result<Vec<(&str, &str, Option<Image>)>, String> =
+                IMAGES.iter().map(|&(k, d)| Ok((k, d, image(&dir, &raw, k, d).map_err(|f| format!("{k}: {f}"))?))).collect();
+            let own = match own {
+                Ok(own) => own,
+                Err(detail) => { self.theme_unreadable(key, detail); continue; }
+            };
             let complete = own.iter().all(|(k, d, i)| i.is_some() || configured(&raw, k, d).is_some_and(|c| c.trim().is_empty()));
             let shown: Vec<(&str, &[u8])> = own.iter().filter_map(|(_, _, i)| i.as_ref().map(|(f, b)| (f.as_str(), b.as_slice()))).collect();
             if complete && appearance::bundled_copy(&name, &raw, &shown) { continue; }
             let bundled = appearance::BUNDLED.iter().any(|(n, _)| *n == name);
-            let images = own.into_iter().map(|(k, d, i)| (k, match i {
+            let images: Result<Vec<(&str, Shown)>, String> = own.into_iter().map(|(k, d, i)| Ok((k, match i {
                 Some(i) => Shown::Copy(i),
                 // Theme.getImageByKey's next steps: ui's value (or the same default name) in theme/,
                 // then the jar asset. A user theme keeps following ui's value; a user copy of a
                 // bundled theme would show the bundled picture instead, so it records the result.
-                None => match image(&root, ui, k, d) {
-                    Some(i) if bundled || !ui.contains_key(k) => Shown::Copy(i),
-                    _ if bundled => Shown::Asset,
-                    _ => Shown::Inherit,
+                None if bundled || !ui.contains_key(k) => match image(&root, ui, k, d).map_err(|f| format!("{k}: {f}"))? {
+                    Some(i) => Shown::Copy(i),
+                    None if bundled => Shown::Asset,
+                    None => Shown::Inherit,
                 },
-            })).collect();
+                None => Shown::Inherit,
+            }))).collect();
+            let images = match images {
+                Ok(images) => images,
+                Err(detail) => { self.theme_unreadable(key, detail); continue; }
+            };
             let product = product_name(&name);
             let renamed = product != name;
             self.mapped.themes.push(folder(product.clone(), raw, images));
@@ -120,13 +132,23 @@ fn configured<'a>(raw: &'a Map<String, Value>, key: &str, default: &'a str) -> O
 }
 
 /// The image Java reads for `key` from `raw`: the configured file (or the default name) relative
-/// to `dir`, or absolute. `None` when it is unset or not a readable picture.
-fn image(dir: &Path, raw: &Map<String, Value>, key: &str, default: &str) -> Option<Image> {
-    let configured = configured(raw, key, default)?;
-    if configured.trim().is_empty() { return None; }
+/// to `dir`, or absolute. `None` when it is unset or not a readable picture. A TIFF (Java's
+/// `ImageIO` reads it) comes as a PNG of the same name; one that does not decode is `Err(file)`.
+fn image(dir: &Path, raw: &Map<String, Value>, key: &str, default: &str) -> Result<Option<Image>, String> {
+    let Some(configured) = configured(raw, key, default) else { return Ok(None) };
+    if configured.trim().is_empty() { return Ok(None); }
     let path = dir.join(configured);
-    let bytes = std::fs::read(&path).ok().filter(|b| appearance::is_image(b))?;
-    Some((path.file_name()?.to_string_lossy().into_owned(), bytes))
+    let (Ok(bytes), Some(file)) = (std::fs::read(&path), path.file_name()) else { return Ok(None) };
+    let file = file.to_string_lossy().into_owned();
+    if appearance::is_image(&bytes) { return Ok(Some((file, bytes))); }
+    match appearance::tiff_as_png(&bytes) {
+        None => Ok(None),
+        Some(Ok(png)) => {
+            let stem = file.rsplit_once('.').map_or(file.as_str(), |(stem, _)| stem);
+            Ok(Some((format!("{stem}.png"), png)))
+        }
+        Some(Err(_)) => Err(file),
+    }
 }
 
 /// `theme.txt` naming the copied images (one flat folder; a clashing name gets a number).
