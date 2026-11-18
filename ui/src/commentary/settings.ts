@@ -140,6 +140,10 @@ export function openSettings(host: Host): SettingsDialog {
   let restoring = false;
   /** providerGeneration: a provider switch or closing drops the answers of earlier requests. */
   let generation = 0;
+  /** The address the access key was restored for, while the field still holds that key. */
+  let restoredFor: string | null = null;
+  /** The current model-list request; an edit of the address or key supersedes it. */
+  let listRequest = 0;
   let closed = false;
   let chatBusy = false;
   let chatMessage = "";
@@ -400,7 +404,8 @@ export function openSettings(host: Host): SettingsDialog {
   };
 
   /** Fills the access key with the key this session holds (Java's loaded password field), only
-   *  while the field is empty and the address is still the saved one. */
+   *  while the field is empty and the address is still the saved one. The filled key belongs to
+   *  that address: changing the address empties it (Java kept it and sent it to the new one). */
   const restoreKey = async (openTab: boolean) => {
     const request = generation;
     const savedAddress = host.view()?.connection.baseUrl ?? "";
@@ -425,7 +430,10 @@ export function openSettings(host: Host): SettingsDialog {
     }
     if (closed || request !== generation) return;
     restoring = false;
-    if (!apiKey.value && baseUrl.value === savedAddress) apiKey.value = key;
+    if (!apiKey.value && baseUrl.value === savedAddress && key) {
+      apiKey.value = key;
+      restoredFor = savedAddress;
+    }
     if (openTab) setStatus("");
     render();
   };
@@ -484,11 +492,12 @@ export function openSettings(host: Host): SettingsDialog {
       return;
     }
     const request = generation;
+    const ticket = ++listRequest;
     listing = true;
     setStatus(t("Teacher.settings.loadingModels"));
     render();
     const r = await connection({ type: "ListApiModels", base_url: baseUrl.value, api_key: apiKey.value });
-    if (closed || request !== generation) return;
+    if (closed || request !== generation || ticket !== listRequest) return;
     listing = false;
     if (r.ok && r.result.type === "CommentaryModels") {
       // The typed or chosen model stays; a list never picks one by itself.
@@ -497,6 +506,27 @@ export function openSettings(host: Host): SettingsDialog {
     } else setStatus(r.ok ? t("Teacher.error.generic") : failureText(r.message));
     render();
   };
+
+  /** A model list belongs to the address and key it was asked with: editing either drops the
+   *  answer still on its way (Java offered it for the new address). */
+  const identityEdited = () => {
+    listRequest++;
+    if (!listing) return;
+    listing = false;
+    setStatus("");
+    render();
+  };
+  baseUrl.addEventListener("input", () => {
+    if (restoredFor !== null && baseUrl.value !== restoredFor) {
+      apiKey.value = "";
+      restoredFor = null;
+    }
+    identityEdited();
+  });
+  apiKey.addEventListener("input", () => {
+    restoredFor = null;
+    identityEdited();
+  });
 
   reload.onclick = async () => {
     const r = await send({ type: "Commentary", op: { type: "ReloadKnowledge" } });

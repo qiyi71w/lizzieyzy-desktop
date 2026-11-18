@@ -12,7 +12,7 @@ use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::formats;
 use lizzie_core::online::url::{classify, yike_room_key, OnlineSource};
-use lizzie_core::online::{invalid_proxy_message, yike, HttpReply, SocketEvent};
+use lizzie_core::online::{invalid_proxy_message, yike, HttpReply, OnlineText, SocketEvent};
 use lizzie_core::record::{GameRecord, NodeId, NodeKind, Point, RecordFormat, ROOT};
 use lizzie_core::settings::{NetworkSettings, ProxyMode, Storage};
 use lizzie_core::workbench::{OpenOrigin, Workbench};
@@ -620,6 +620,51 @@ fn an_unusable_proxy_on_the_broadcast_socket_warns_and_stops_reconnecting() {
     let warning = wb.view(true).online.proxy_warning.expect("网络代理设置 is shown");
     assert_eq!(warning.message, message);
     assert!(connects(&mut wb).is_empty(), "no reconnect with the unusable settings");
+}
+
+#[test]
+fn a_room_the_server_disconnects_or_refuses_stops_following_and_keeps_the_record() {
+    // Socket.IO `41` (the server disconnects the namespace) and `44` (it refuses the connect)
+    // end the room for good; the follow ends with them while a dropped transport reconnects.
+    for packet in ["41", r#"44{"message":"Invalid namespace"}"#] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut wb = workbench(dir.path());
+        let conn = joined_room(&mut wb);
+        let kept = main_line(&wb);
+        wb.take_online_jobs();
+        assert!(wb.online_socket(conn, SocketEvent::Text(packet.into())), "{packet}");
+        let o = wb.view(true).online;
+        assert!(o.following.is_none(), "{packet}: the follow ended");
+        assert_eq!(o.browser_status, Some(OnlineText::new("Online.status.stopped")), "{packet}");
+        assert_eq!(main_line(&wb), kept, "{packet}: the record stays");
+        let jobs = wb.take_online_jobs();
+        assert!(!jobs.iter().any(|j| matches!(j, OnlineJob::Connect { .. })), "{packet}: {jobs:?}");
+        if let Some(due) = wb.engine_timer() {
+            wb.engine_tick(due.max(Instant::now()));
+            assert!(!wb.take_online_jobs().iter().any(|j| matches!(j, OnlineJob::Connect { .. })), "{packet}");
+        }
+    }
+}
+
+#[test]
+fn a_dropped_room_connection_still_reconnects() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    let conn = joined_room(&mut wb);
+    wb.take_online_jobs();
+    assert!(wb.online_socket(conn, SocketEvent::Closed { error: None }));
+    assert!(wb.view(true).online.following.is_some());
+    let until = Instant::now() + Duration::from_secs(10);
+    let mut reconnected = false;
+    for _ in 0..50 {
+        let Some(due) = wb.engine_timer().filter(|&d| d <= until) else { break };
+        wb.engine_tick(due.max(Instant::now()));
+        if wb.take_online_jobs().iter().any(|j| matches!(j, OnlineJob::Connect { .. })) {
+            reconnected = true;
+            break;
+        }
+    }
+    assert!(reconnected, "a dropped transport reconnects after its backoff");
 }
 
 #[test]

@@ -284,7 +284,12 @@ impl Session {
                     }
                 }
             }
-            '1' | '4' => self.end(step),
+            // The server disconnected the namespace or refused it: the socket never reconnects,
+            // so the follow ends too (Java only logged it and kept showing the room as followed).
+            '1' | '4' => {
+                self.end(step);
+                step.updates.push(SourceUpdate::Stopped(OnlineText::new("Online.status.stopped")));
+            }
             '2' => {
                 let Ok(args) = serde_json::from_str::<Vec<Value>>(payload) else { return };
                 if self.connected {
