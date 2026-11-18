@@ -10,6 +10,7 @@ use std::fmt::Write as _;
 use std::sync::Mutex;
 
 use lizzie_core::api::{ApiError, ErrorKind, OnlineJob, PageReport};
+use lizzie_core::online::url::is_yike_address;
 use lizzie_core::settings::WindowPlacement;
 use serde::Deserialize;
 use tauri::plugin::TauriPlugin;
@@ -58,15 +59,8 @@ pub fn plugin() -> TauriPlugin<Wry> {
         .build()
 }
 
-/// `https://yikeweiqi.com` or a subdomain, default port.
-fn is_yike(url: &Url) -> bool {
-    url.scheme() == "https"
-        && url.port().is_none()
-        && url.host_str().is_some_and(|h| h == "yikeweiqi.com" || h.ends_with(".yikeweiqi.com"))
-}
-
 fn page_url(text: &str) -> Option<Url> {
-    Url::parse(text.trim()).ok().filter(is_yike)
+    Url::parse(text.trim()).ok().filter(is_yike_address)
 }
 
 /// What the page may report (`{ kind: "address" | "unite", … }`); anything else fails to
@@ -92,7 +86,7 @@ enum Report {
 /// The page bridge (Java `cefQuery` `yikeUnite:` in BF 157-171, plus address reports).
 #[tauri::command]
 async fn report(app: AppHandle, webview: Webview, report: Report) {
-    if webview.label() != PAGE || !webview.url().is_ok_and(|url| is_yike(&url)) {
+    if webview.label() != PAGE || !webview.url().is_ok_and(|url| is_yike_address(&url)) {
         return;
     }
     match report {
@@ -490,9 +484,9 @@ fn page_builder(app: &AppHandle, url: Url) -> WebviewBuilder<Wry> {
 /// documents reaches the bridge: its capability and [`report`] admit 弈客 addresses only.
 fn allowed_navigation(url: &Url) -> bool {
     match url.scheme() {
-        "https" => is_yike(url) || is_captcha(url),
+        "https" => is_yike_address(url) || is_captcha(url),
         "about" => true,
-        "blob" => Url::parse(url.path()).is_ok_and(|inner| is_yike(&inner)),
+        "blob" => Url::parse(url.path()).is_ok_and(|inner| is_yike_address(&inner)),
         _ => false,
     }
 }
@@ -509,7 +503,7 @@ fn is_captcha(url: &Url) -> bool {
 /// BF `onBeforePopup` (372-388): a 弈客 popup loads in the page itself; any other address goes
 /// to the system browser.
 fn popup(app: &AppHandle, url: Url) {
-    if is_yike(&url) {
+    if is_yike_address(&url) {
         if let Some(page) = app.get_webview(PAGE) {
             let _ = page.navigate(url);
         }
@@ -521,7 +515,7 @@ fn popup(app: &AppHandle, url: Url) {
 /// Each load reports its address; while following a 对局室 the poller is started in the new
 /// document (BF onLoadStart / onLoadEnd 198-209).
 fn page_loaded(webview: &Webview, url: &Url, event: PageLoadEvent) {
-    if is_yike(url) {
+    if is_yike_address(url) {
         let app = webview.app_handle().clone();
         let url = url.to_string();
         // Load events arrive on the main thread; the workbench is not locked there.

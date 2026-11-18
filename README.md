@@ -1397,6 +1397,9 @@ importing the matching LizzieYzy Next settings.
     seconds from the signed detail service), older 弈客 live rooms and game rooms (the 弈客
     Socket.IO room), a 弈客 live board (read once), 野狐分享 and 腾讯欢乐 broadcast links (the
     huanle WebSocket), and any other link, which is read once and opened as an SGF record.
+    The 弈客 kinds are recognized only on `https://yikeweiqi.com` and its subdomains, on the
+    default port; the same link shape on another host, over `http` or on another port is any
+    other link. Java recognized them on every host and read that host's `api.` server.
     中断 stops the follow, empties the link and closes the dialog; closing the dialog leaves the
     follow running. 新建 / 清空棋盘 and anything else that starts an empty board (人机对弈, AI
     陪练, 跑谱贡献) also ends the follow, as in Java; an engine match keeps it. An unknown link
