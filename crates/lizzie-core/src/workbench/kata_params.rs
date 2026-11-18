@@ -206,10 +206,11 @@ impl Workbench {
     }
 
     /// KataGoPda 激进参数PDA设置 确定 (`SetKataPDA`): the mode, its value and 自动套用 are saved;
-    /// only a foreground `KataGoPda` receives `pda` / `dympdacap`, and an empty value sends
-    /// nothing. The dialog opens and saves on any engine (the fixed Java build could not tell
-    /// whether the engine understands these commands). A 动态 系数 of zero or a non-finite
-    /// value is `SetKataPDA.wrongParameter` and changes nothing.
+    /// only a `KataGoPda` receives `pda` / `dympdacap`: during an engine game its participant
+    /// (`kataGoPdaEngineGameParticipantOrPrimary`), otherwise the foreground engine. An empty
+    /// value sends nothing. The dialog opens and saves on any engine (the fixed Java build could
+    /// not tell whether the engine understands these commands). A 动态 系数 of zero or a
+    /// non-finite value is `SetKataPDA.wrongParameter` and changes nothing.
     pub fn save_custom_pda(&mut self, settings: CustomPdaSettings) -> Result<Option<&'static str>, ApiError> {
         if settings.invalid() {
             return Ok(Some("SetKataPDA.wrongParameter"));
@@ -218,7 +219,10 @@ impl Workbench {
         // 野狐 owns the search; the settings are kept for the next start instead of changing
         // the engine under it.
         if !self.fox_owns_board() && !self.fox_holds_engine() {
-            self.engines.apply_custom_pda(&settings, false);
+            match self.match_pda_participant() {
+                Some(id) => self.engines.apply_custom_pda_to(id, &settings, false),
+                None => self.engines.apply_custom_pda(&settings, false),
+            };
         }
         Ok(None)
     }

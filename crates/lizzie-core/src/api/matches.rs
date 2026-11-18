@@ -152,6 +152,9 @@ pub struct MatchView {
     pub first_name: String,
     pub second_name: String,
     pub first_is_black: bool,
+    /// A participant is a `KataGoPda` engine (`EngineGamePresentation.participantHasKataGoPda`):
+    /// its own PDA "..." stays on the toolbar during the game, and the dialog's commands go to it.
+    pub kata_go_pda_participant: bool,
     pub score: MatchScoreView,
     pub thinking_side: Option<Stone>,
     pub thinking_engine: Option<u32>,

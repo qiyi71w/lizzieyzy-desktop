@@ -207,6 +207,16 @@ impl Workbench {
     /// game whose engine does not confirm its restore (a move it never answers) can be released
     /// by restarting or closing that engine.
     pub fn game_gate(&mut self, command: &Command) -> Option<CommandResult> {
+        // 初始化设置 is admitted as a whole: each part it changes meets the rules of its own
+        // command, and the first refusal refuses everything (nothing is saved).
+        if let Command::SaveInitSettings { display, analysis, language } = command {
+            let parts = [
+                (self.config.display != *display).then(|| Command::SetDisplaySettings { settings: display.clone() }),
+                (self.config.engine.analysis != *analysis).then(|| Command::SetAnalysisSettings { settings: analysis.clone() }),
+                (self.config.ui.language != *language).then_some(Command::SetLanguage { language: *language }),
+            ];
+            return parts.into_iter().flatten().find_map(|part| self.game_gate(&part));
+        }
         if let Some(result) = self.web_trial_gate(command) { return Some(result); }
         if let Some(result) = self.readboard_gate(command) { return Some(result); }
         if let Some(result) = self.fox_gate(command) { return Some(result); }

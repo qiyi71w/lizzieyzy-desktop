@@ -68,7 +68,8 @@ importing the matching LizzieYzy Next settings.
   On Linux, the saved size is the WebView content area, excluding GTK window decorations,
   so reopening does not enlarge the content area by the title bar or shadow dimensions.
   File > 强制退出 skips both the pending-save wait and window-placement capture; use normal
-  close or Quit when a save must finish. Both exit paths shut down the owned engines.
+  close or Quit when a save must finish. Both exit paths end the whole application, including
+  hidden tool windows such as 野狐棋谱 and 腾讯棋谱, and shut down the owned engines.
 - File > 更多保存 has the Java exports, each through the save chooser like 另存为 (same folder,
   default name, `.sgf` completion and replace prompt):
   - 保存纯净棋谱 (`Ctrl+Shift+S`): the whole tree without analysis (`LZ`, `LZ2`) and without move
@@ -406,7 +407,9 @@ importing the matching LizzieYzy Next settings.
   KataGo nor Leela Zero / Sai (Sayuri, Pachi, Leela 0.11, unknown engines) the entry shows Java's
   "not Leela or Sai" notice instead of the window, where Java would open it.
 - KataGoPda settings: the `...` button beside the toolbar's PDA controls opens the dedicated
-  dialog. Choose 不启用PDA, 动态PDA with a nonzero coefficient, or 固定PDA with a value.
+  dialog. During an engine game (playing or paused) with a `KataGoPda` participant the button
+  stays, whichever engine is in front, and the dialog's commands go to that participant.
+  Choose 不启用PDA, 动态PDA with a nonzero coefficient, or 固定PDA with a value.
   确定 saves the choice; 取消 leaves it unchanged. An empty value is saved without sending a
   command. The dialog can also be used with standard KataGo, but only an engine whose GTP name
   begins with `KataGoPda` receives `pda`, `dympdacap`, `getpda` or `getdympdacap`.
@@ -576,8 +579,11 @@ importing the matching LizzieYzy Next settings.
   胜率(目数) perspective (总是黑棋 / 黑白交替), the Lizzie cache, the 选点信息 items with 自定义显示顺序,
   限制选点个数 and 限制变化图长度, the per-move time and visit limits with their switches, and the
   language. 加载默认设置 puts Java's defaults into the form only (the language stays; an empty
-  计算量 field keeps the saved visit limit); 确定 saves every row through the same settings as the
-  menus, toolbar and 综合设置; Escape or the close box saves nothing. A field that is not a whole
+  计算量 field keeps the saved visit limit); 确定 saves every row at once, through the same settings
+  as the menus, toolbar and 综合设置; Escape or the close box saves nothing. While a mode refuses
+  one of the changed rows (for example the analysis limits while 野狐 AI 直连 holds the engine),
+  确定 shows that mode's notice, saves nothing and keeps the dialog open with the edits; Java's
+  dialog has no such check and saved every row. A field that is not a whole
   number shows 错误的输入格式 and keeps the dialog open (a time or visit field whose switch is off is
   not checked); a time limit of 0 or less is saved as 9999 minutes, negative candidate / variation
   limits as 0 (no limit). The language applies from the next start, without a restart notice, as in
@@ -1113,7 +1119,10 @@ importing the matching LizzieYzy Next settings.
   Wayland (the desktop may ask for permission). Only the primary screen is used, as in Java.
 - Web 旁观 (同步 > Web 旁观, the bottom bar's 同步 popup, function search): 启动 Web 旁观 serves
   Java's viewer page to browsers on the network, at the address shown after the window title
-  (`| Web: http://<this machine's address>:9998`) and copied by 复制访问地址. The page listens on
+  (`| Web: http://<this machine's address>:9998`) and copied by 复制访问地址. The address is that of
+  the interface the system routes outward through; on a network without a default route it is
+  the first IPv4 address of an interface that is up and not loopback, and only without any such
+  interface `127.0.0.1`. The page listens on
   every network interface; the page uses port 9998 and the board stream 9999, each moving up to
   nine ports further when taken. The ports and the limit of 20 viewers come from settings
   (imported from Java's `web-board` section) and are not edited in the client. Viewers see the

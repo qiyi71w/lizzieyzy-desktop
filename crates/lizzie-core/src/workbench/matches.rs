@@ -1647,6 +1647,12 @@ impl Workbench {
             }
         }
     }
+    /// `SetKataPDA.kataGoPdaEngineGameParticipantOrPrimary`: during an engine game (playing or
+    /// paused) the first participant that is a `KataGoPda`, whichever engine is in front.
+    pub(super) fn match_pda_participant(&self) -> Option<InstanceId> {
+        let r = self.matches.run.as_ref().filter(|r| matches!(r.phase, MatchPhase::Playing | MatchPhase::Paused))?;
+        r.sides.iter().map(|p| p.instance).find(|&id| self.engines.is_kata_go_pda(id))
+    }
     pub(super) fn match_view(&self) -> Option<MatchView> {
         let r = self.matches.run.as_ref()?;
         let thinking = matches!(r.phase, MatchPhase::Playing | MatchPhase::Paused).then(|| self.match_side());
@@ -1702,6 +1708,7 @@ impl Workbench {
             first_name: r.sides[0].name.clone(),
             second_name: r.sides[1].name.clone(),
             first_is_black: r.first_is_black,
+            kata_go_pda_participant: r.sides.iter().any(|p| self.engines.is_kata_go_pda(p.instance)),
             score: r.score.clone(),
             thinking_side: thinking,
             thinking_engine: thinking.map(|side| r.sides[side_index(r.first_is_black, side)].index),

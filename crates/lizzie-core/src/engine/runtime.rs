@@ -2239,6 +2239,12 @@ impl Engines {
     /// whether anything was sent.
     pub fn apply_custom_pda(&mut self, settings: &CustomPdaSettings, automatic: bool) -> bool {
         let Some(id) = self.foreground else { return false };
+        self.apply_custom_pda_to(id, settings, automatic)
+    }
+
+    /// [`Self::apply_custom_pda`] for instance `id`, such as an engine game's `KataGoPda`
+    /// participant while the other one is in front.
+    pub fn apply_custom_pda_to(&mut self, id: InstanceId, settings: &CustomPdaSettings, automatic: bool) -> bool {
         let Some(inst) = self.get(id) else { return false };
         if !inst.gtp_name.starts_with("KataGoPda")
             || inst.phase != Phase::Ready

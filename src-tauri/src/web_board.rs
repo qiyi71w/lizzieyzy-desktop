@@ -136,7 +136,8 @@ fn bind(first: u16) -> Option<(StdListener, u16)> {
 }
 
 /// The address viewers on the network reach this machine at: that of the interface the system
-/// routes outward through, else loopback (`getLanIp`). No packet is sent.
+/// routes outward through (no packet is sent); without such a route, `getLanIp`'s first IPv4
+/// of an interface that is up and not loopback; else loopback.
 fn lan_ip() -> IpAddr {
     let routed = || -> std::io::Result<IpAddr> {
         let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?;
@@ -146,7 +147,118 @@ fn lan_ip() -> IpAddr {
     routed()
         .ok()
         .filter(|ip| !ip.is_loopback() && !ip.is_unspecified())
+        .or_else(|| first_lan_ipv4(&interface_addresses()).map(IpAddr::V4))
         .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST))
+}
+
+/// One address of a network interface, in the order the system lists them.
+#[derive(Clone, Copy, Debug)]
+struct InterfaceAddress {
+    up: bool,
+    loopback: bool,
+    ip: IpAddr,
+}
+
+/// `WebBoardManager.getLanIp`: the first IPv4 address, not itself loopback, of an interface that
+/// is up and not loopback.
+fn first_lan_ipv4(addresses: &[InterfaceAddress]) -> Option<Ipv4Addr> {
+    addresses.iter().find_map(|a| match a.ip {
+        IpAddr::V4(ip) if a.up && !a.loopback && !ip.is_loopback() => Some(ip),
+        _ => None,
+    })
+}
+
+/// This machine's interface addresses (`getifaddrs`); empty when they cannot be read.
+#[cfg(unix)]
+fn interface_addresses() -> Vec<InterfaceAddress> {
+    let mut list: *mut libc::ifaddrs = std::ptr::null_mut();
+    // SAFETY: `getifaddrs` fills `list` with a linked list that stays valid until `freeifaddrs`;
+    // every entry is read before that, and a null `ifa_addr` is skipped.
+    unsafe {
+        if libc::getifaddrs(&mut list) != 0 {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        let mut entry = list;
+        while let Some(e) = entry.as_ref() {
+            entry = e.ifa_next;
+            let Some(addr) = e.ifa_addr.as_ref() else { continue };
+            let ip = match i32::from(addr.sa_family) {
+                libc::AF_INET => {
+                    let v4 = &*(e.ifa_addr as *const libc::sockaddr_in);
+                    IpAddr::V4(Ipv4Addr::from(u32::from_be(v4.sin_addr.s_addr)))
+                }
+                libc::AF_INET6 => {
+                    let v6 = &*(e.ifa_addr as *const libc::sockaddr_in6);
+                    IpAddr::V6(std::net::Ipv6Addr::from(v6.sin6_addr.s6_addr))
+                }
+                _ => continue,
+            };
+            let flags = e.ifa_flags as libc::c_int;
+            out.push(InterfaceAddress {
+                up: flags & libc::IFF_UP != 0,
+                loopback: flags & libc::IFF_LOOPBACK != 0,
+                ip,
+            });
+        }
+        libc::freeifaddrs(list);
+        out
+    }
+}
+
+/// This machine's interface unicast IPv4 addresses (`GetAdaptersAddresses`); empty when they
+/// cannot be read.
+#[cfg(windows)]
+fn interface_addresses() -> Vec<InterfaceAddress> {
+    use windows::Win32::NetworkManagement::IpHelper::{
+        GetAdaptersAddresses, GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_DNS_SERVER, GAA_FLAG_SKIP_MULTICAST,
+        IF_TYPE_SOFTWARE_LOOPBACK, IP_ADAPTER_ADDRESSES_LH,
+    };
+    use windows::Win32::NetworkManagement::Ndis::IfOperStatusUp;
+    use windows::Win32::Networking::WinSock::{AF_INET, SOCKADDR_IN};
+    let flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
+    // The list grows between the size query and the read only rarely; try a few times.
+    let mut size = 16 * 1024u32;
+    for _ in 0..3 {
+        // u64 elements keep the buffer aligned for IP_ADAPTER_ADDRESSES_LH.
+        let mut buffer = vec![0u64; (size as usize).div_ceil(8)];
+        let first = buffer.as_mut_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>();
+        // SAFETY: `buffer` holds `size` bytes; on success the adapters and their unicast lists
+        // live inside it and are read before it is dropped.
+        let status = unsafe { GetAdaptersAddresses(u32::from(AF_INET.0), flags, None, Some(first), &mut size) };
+        if status == 111 {
+            continue; // ERROR_BUFFER_OVERFLOW: `size` now holds what is needed.
+        }
+        if status != 0 {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        let mut adapter = first.cast_const();
+        // SAFETY: as above; every pointer is null or into `buffer`.
+        unsafe {
+            while let Some(a) = adapter.as_ref() {
+                adapter = a.Next;
+                let mut unicast = a.FirstUnicastAddress.cast_const();
+                while let Some(u) = unicast.as_ref() {
+                    unicast = u.Next;
+                    let Some(addr) = u.Address.lpSockaddr.as_ref() else {
+                        continue;
+                    };
+                    if addr.sa_family != AF_INET {
+                        continue;
+                    }
+                    let v4 = &*(u.Address.lpSockaddr as *const SOCKADDR_IN);
+                    out.push(InterfaceAddress {
+                        up: a.OperStatus == IfOperStatusUp,
+                        loopback: a.IfType == IF_TYPE_SOFTWARE_LOOPBACK,
+                        ip: IpAddr::V4(Ipv4Addr::from(u32::from_be(v4.sin_addr.S_un.S_addr))),
+                    });
+                }
+            }
+        }
+        return out;
+    }
+    Vec::new()
 }
 
 // ------------------------------------------------------------------------ page
@@ -500,7 +612,55 @@ async fn broadcast(shared: State, session: u64, hub: Arc<Hub>, wake: Arc<Notify>
 
 #[cfg(test)]
 mod tests {
-    use super::page;
+    use super::{first_lan_ipv4, interface_addresses, page, InterfaceAddress};
+    use std::net::{IpAddr, Ipv4Addr};
+
+    fn addr(up: bool, loopback: bool, ip: &str) -> InterfaceAddress {
+        InterfaceAddress {
+            up,
+            loopback,
+            ip: ip.parse().unwrap(),
+        }
+    }
+
+    #[test]
+    fn the_lan_address_is_the_first_ipv4_of_an_interface_that_is_up_and_not_loopback() {
+        let lan = |list: &[InterfaceAddress]| first_lan_ipv4(list).map(|ip| ip.to_string());
+        assert_eq!(lan(&[]), None);
+        // Loopback interfaces and loopback addresses are skipped.
+        assert_eq!(
+            lan(&[addr(true, true, "127.0.0.1"), addr(true, false, "127.0.1.1")]),
+            None
+        );
+        // A down interface is skipped.
+        assert_eq!(
+            lan(&[addr(false, false, "10.0.0.5"), addr(true, false, "192.168.77.2")]).as_deref(),
+            Some("192.168.77.2")
+        );
+        // Only IPv6: none.
+        assert_eq!(
+            lan(&[addr(true, false, "fe80::1"), addr(true, false, "2001:db8::2")]),
+            None
+        );
+        // Several interfaces: the first one listed wins, past its IPv6 address.
+        let several = [
+            addr(true, true, "127.0.0.1"),
+            addr(true, false, "fe80::1"),
+            addr(true, false, "192.168.77.2"),
+            addr(true, false, "10.1.2.3"),
+        ];
+        assert_eq!(lan(&several).as_deref(), Some("192.168.77.2"));
+    }
+
+    #[test]
+    fn this_machines_interface_list_includes_its_loopback_interface() {
+        let all = interface_addresses();
+        assert!(
+            all.iter()
+                .any(|a| a.up && a.loopback && a.ip == IpAddr::V4(Ipv4Addr::LOCALHOST)),
+            "{all:?}"
+        );
+    }
 
     #[test]
     fn only_the_page_files_are_served() {

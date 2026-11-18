@@ -75,6 +75,7 @@ use crate::api::{
     TreeNodeKind, TreeNodeView, TreeView, WorkbenchView,
 };
 use crate::browse::{self, Navigation};
+use crate::engine::profile::AnalysisSettings;
 use crate::engine::runtime::{Engines, InstanceId, Launcher};
 use crate::formats::{self, saved_analysis, ReadError};
 use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, Point, RecordFormat, Stone, ROOT};
@@ -985,6 +986,16 @@ impl Workbench {
 
     /// 显示 settings: every display and the 带评论 export follow at once.
     pub fn set_display_settings(&mut self, settings: DisplaySettings) -> Result<bool, ApiError> {
+        let Some(settings) = self.next_display(settings)? else { return Ok(false) };
+        let previous = self.config.display.clone();
+        self.commit_config(|c| c.display = settings)?;
+        self.display_settings_changed(&previous);
+        Ok(true)
+    }
+
+    /// Validates display `settings`; `None` when they are the current ones. A changed
+    /// 形势判断 save choice brings back the estimate remembered for it.
+    fn next_display(&self, settings: DisplaySettings) -> Result<Option<DisplaySettings>, ApiError> {
         let finite = [settings.delay_candidates_seconds, settings.replay_interval_seconds, settings.min_playout_ratio,
             settings.entire_variation_first_seconds, settings.autoplay_main_seconds, settings.initial_max_score_lead,
             settings.match_ai_percents_playouts]
@@ -1004,17 +1015,19 @@ impl Workbench {
             return Err(ApiError::new(ErrorKind::InvalidArgument, "display settings"));
         }
         if self.config.display == settings {
-            return Ok(false);
+            return Ok(None);
         }
-        let previous = self.config.display.clone();
         let mut settings = settings;
-        if settings.kata_estimate_save_status != previous.kata_estimate_save_status {
+        if settings.kata_estimate_save_status != self.config.display.kata_estimate_save_status {
             settings.kata_estimate = self.remembered_estimate(settings.kata_estimate_save_status);
         }
-        self.commit_config(|c| c.display = settings)?;
+        Ok(Some(settings))
+    }
+
+    /// Puts committed display settings into effect.
+    fn display_settings_changed(&mut self, previous: &DisplaySettings) {
         self.engines.set_pv_visits(self.config.display.pv_visits != PvVisitsMode::Off);
-        self.estimate_settings_changed(&previous);
-        Ok(true)
+        self.estimate_settings_changed(previous);
     }
 
     pub fn set_language(&mut self, language: Language) -> Result<bool, ApiError> {
@@ -1022,6 +1035,45 @@ impl Workbench {
             return Ok(false);
         }
         self.commit_config(|c| c.ui.language = language)?;
+        Ok(true)
+    }
+
+    /// 初始化设置 确定 (`FirstUseSettings` sets every value, then saves once): display,
+    /// analysis and language in one write, each then taking effect as its own setter does. A
+    /// failed write keeps all three as they were. The mode gates judge the command first
+    /// ([`Self::game_gate`]).
+    pub fn save_init_settings(
+        &mut self,
+        display: DisplaySettings,
+        analysis: AnalysisSettings,
+        language: Language,
+    ) -> Result<bool, ApiError> {
+        let display = self.next_display(display)?;
+        let analysis = (self.config.engine.analysis != analysis).then_some(analysis);
+        let language = (self.config.ui.language != language).then_some(language);
+        if display.is_none() && analysis.is_none() && language.is_none() {
+            return Ok(false);
+        }
+        let previous_display = self.config.display.clone();
+        let previous_analysis = self.config.engine.analysis.clone();
+        let (display_changed, analysis_changed) = (display.is_some(), analysis.is_some());
+        self.commit_config(|c| {
+            if let Some(display) = display {
+                c.display = display;
+            }
+            if let Some(analysis) = analysis {
+                c.engine.analysis = analysis;
+            }
+            if let Some(language) = language {
+                c.ui.language = language;
+            }
+        })?;
+        if display_changed {
+            self.display_settings_changed(&previous_display);
+        }
+        if analysis_changed {
+            self.analysis_settings_changed(&previous_analysis);
+        }
         Ok(true)
     }
 

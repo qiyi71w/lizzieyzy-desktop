@@ -493,9 +493,17 @@ function kataGroup(param: KataParam): HTMLElement {
 /** more2 "..." (Menu.java:6101-6116) opens KataGo 激进参数PDA设置. Java shows it only in a
  *  KataGoPda engine's own PDA panel; here it follows every foreground KataGo outside engine games
  *  (approved: the window can be opened and saved with any KataGo). */
-function pdaMoreShown(): boolean {
+function pdaIdleShown(): boolean {
   const v = state.view;
   return !!v?.engine.foreground?.katago && v.engine_match?.phase !== "Starting" && !matchPlaying(v);
+}
+
+/** The "..." also stays during an engine game, playing or paused, that has a KataGoPda
+ *  participant, whichever engine is in front (Menu.java:7240-7276, 9970-9986
+ *  `participantHasKataGoPda`); the dialog then sets that participant. */
+function pdaMoreShown(): boolean {
+  const v = state.view;
+  return pdaIdleShown() || (matchPlaying(v) && !!v?.engine_match?.kata_go_pda_participant);
 }
 
 /** A KataGoPda engine's own PDA panel, lblCustomPda and txtPDA (Menu.java:5943-5965, 9658-9661,
@@ -515,7 +523,7 @@ function customPdaGroup(): HTMLElement {
   const g = group("custom-pda", label(t("Menu.separateLblPda")), value);
   let shown: number | null | undefined = undefined;
   updaters.push(() => {
-    const display = kataGoPda() && !foxOwnsEngine() && pdaMoreShown() ? "" : "none";
+    const display = kataGoPda() && !foxOwnsEngine() && pdaIdleShown() ? "" : "none";
     if (g.style.display !== display) g.style.display = display;
     const pda = state.view?.engine.custom_pda.pda ?? null;
     if (pda === shown || document.activeElement === value) return;
