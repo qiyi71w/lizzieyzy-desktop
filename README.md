@@ -398,7 +398,8 @@ importing the matching LizzieYzy Next settings.
 - With a `KataGoCustom` or `KataGoPda` engine, right-click an empty intersection for
   优先分析此点 (`setmaxpolicy <coordinate> 1.1`) or 清除优先分析 (`clearpolicy`). Choosing a priority
   point starts analysis if it is paused. Reported priority candidates remain visible beyond the
-  candidate-count and low-visit display limits. A move clears the temporary priority selection
+  candidate-count and low-visit display limits, and a result that came while the point was chosen
+  keeps it as a candidate for 棋力评估, as Java does. A move clears the temporary priority selection
   without sending `clearpolicy`; it is not saved in the record or preferences.
   The private protocol is covered with controlled engines; acceptance by a real KataGoPda
   binary remains unverified.
