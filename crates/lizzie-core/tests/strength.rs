@@ -638,3 +638,28 @@ fn background_preparation_follows_foreground_analysis_and_pause() {
     assert!(f.world.dead(worker));
     assert_eq!(f.wb.view(false).strength.status.key, "HumanSL40.backgroundPaused");
 }
+
+#[test]
+fn a_changed_suggestion_limit_leaves_loaded_analysis_as_it_was_split() {
+    // SGFParser limits saved candidates when the record is loaded; changing 最大候选点数 later does
+    // not rebuild bestMoves, which PlayerStrengthEstimator.findPlayedCandidate reads as they are.
+    let sgf = "(;SZ[19]KM[7.5]LZOP[b18 55.0 150 2.0 0.5 0 rootVisits=150\n\
+               move D4 visits 100 winrate 5500 prior 2000 scoreMean 2 order 0 pv D4 info \
+               move Q16 visits 50 winrate 5000 prior 1000 scoreMean 1 order 1 pv Q16]\
+               ;B[pd]LZ[b18 48.0 80 0.5 0.5 0 rootVisits=80\n\
+               move D4 visits 80 winrate 5200 prior 2000 scoreMean 0.5 order 0 pv D4])";
+    let mut f = fixture();
+    let mut limits = f.wb.config().engine.analysis.clone();
+    limits.limit_max_suggestion = 2;
+    f.wb.set_analysis_settings(limits.clone()).unwrap();
+    open(&mut f.wb, sgf);
+    // Root: D4 first, Q16 (pd, the move played) second: the candidates' difference, 2 - 1.
+    let rank = |r: &StrengthReport| (r.black.samples[0].ai_rank, r.black.samples[0].score_loss);
+    assert_eq!(rank(&report(&mut f.wb)), (1, Some(1.0)));
+    limits.limit_max_suggestion = 1;
+    f.wb.set_analysis_settings(limits).unwrap();
+    assert_eq!(rank(&report(&mut f.wb)), (1, Some(1.0)), "only the setting changed");
+    // Loaded again under the limit of one, Q16 is no candidate: the positions' difference, 0.5 + 2.
+    open(&mut f.wb, sgf);
+    assert_eq!(rank(&report(&mut f.wb)), (999, Some(2.5)));
+}

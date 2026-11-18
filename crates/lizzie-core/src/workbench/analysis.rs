@@ -72,6 +72,9 @@ pub(super) struct AnalysisStore {
     /// tracked them when the result came (`tryToLimitMoves`' attended points); the board does
     /// not draw them for that.
     attended: HashMap<NodeId, Vec<Point>>,
+    /// 最大候选点数 (0 = none) each result was limited with when it came or was loaded
+    /// (`tryToLimitMoves` splits `bestMoves` then; a later change of the setting does not).
+    limits: HashMap<NodeId, usize>,
 }
 
 /// How long a kept candidate whose visits stopped growing stays kept.
@@ -86,6 +89,7 @@ impl AnalysisStore {
         self.stale.clear();
         self.kept_since.clear();
         self.attended.clear();
+        self.limits.clear();
     }
 
     pub(super) fn get(&self, rec: &GameRecord, node: NodeId) -> Option<&NodeAnalysisView> {
@@ -159,6 +163,7 @@ impl AnalysisStore {
             c.kept = kept.contains_key(&c.point);
         }
         self.insert(node, stamp, view, ownership);
+        self.limits.insert(node, limit);
         if !kept.is_empty() {
             self.kept_since.insert(node, kept);
         }
@@ -174,6 +179,12 @@ impl AnalysisStore {
         self.attended.get(&node).map_or(&[], Vec::as_slice)
     }
 
+    /// The 最大候选点数 (0 = none) the node's result was limited with: candidates past it are
+    /// the node's `bestMovesOutOfRange` unless [kept](CandidateView::kept) or [attended](Self::attended).
+    pub(super) fn limit(&self, node: NodeId) -> usize {
+        self.limits.get(&node).copied().unwrap_or(0)
+    }
+
     /// `refreshFocusCandidateVisibility` after the tracked points changed: the node's result is
     /// limited again with no previous one, so nothing stays kept and only the points tracked now
     /// stay beyond `limit`.
@@ -185,6 +196,7 @@ impl AnalysisStore {
             c.kept = false;
         }
         self.kept_since.remove(&node);
+        self.limits.insert(node, limit);
         let attended: Vec<Point> = match limit {
             0 => Vec::new(),
             _ => view.candidates.iter().skip(limit).filter_map(|c| c.point.filter(|p| tracked.contains(p))).collect(),
@@ -206,6 +218,7 @@ impl AnalysisStore {
         self.stale.retain(|node| nodes.contains_key(node));
         self.kept_since.retain(|node, _| nodes.contains_key(node));
         self.attended.retain(|node, _| nodes.contains_key(node));
+        self.limits.retain(|node, _| nodes.contains_key(node));
     }
 
     /// `clearBestMovesAfter(start)`: every stored result gives way to the next live one.
@@ -251,6 +264,7 @@ impl AnalysisStore {
         self.stale.remove(&node);
         self.kept_since.remove(&node);
         self.attended.remove(&node);
+        self.limits.remove(&node);
     }
 
     /// `clearBestMovesInfomationAfter(start)`: every node's analysis is gone.
@@ -289,9 +303,10 @@ impl AnalysisStore {
         settings: &AnalysisSettings,
         no_sugg_circle: bool,
     ) {
-        let max = if settings.limit_max_suggestion > 0 && !no_sugg_circle {
+        let limit = if settings.limit_max_suggestion > 0 && !no_sugg_circle {
             settings.limit_max_suggestion as usize
-        } else { 361 };
+        } else { 0 };
+        let max = if limit > 0 { limit } else { 361 };
         let mut pending = vec![ROOT];
         while let Some(id) = pending.pop() {
             let node = rec.node(id);
@@ -308,6 +323,7 @@ impl AnalysisStore {
             ) {
                 self.insert(id, node.stamp, p.view, p.ownership);
                 self.metadata.insert(id, p.metadata);
+                self.limits.insert(id, limit);
             }
         }
     }
