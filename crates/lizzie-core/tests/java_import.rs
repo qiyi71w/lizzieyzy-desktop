@@ -302,8 +302,10 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
     // 自动快析, 精析设置 (a relative command resolved in the Java folder), 轻量模型, 问题手.
     assert!(!c.record.auto_quick_analyze_on_load);
     let ae = &c.analysis_engine;
-    assert!(
-        ae.command.contains("Lizzie Next/engines/fake-katago") && ae.command.contains(" analysis "),
+    let analysis = split_command(&ae.command);
+    assert_eq!(
+        (Path::new(&analysis[0]), analysis[1].as_str()),
+        (java.join("engines/fake-katago").as_path(), "analysis"),
         "{}",
         ae.command
     );
