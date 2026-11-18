@@ -278,6 +278,16 @@ impl Workbench {
         Ok(had || sent)
     }
 
+    /// The 优先分析此点 points of `node` (`LizzieFrame.priorityMoveCoords`): recorded there for the
+    /// current foreground engine; none elsewhere.
+    pub(super) fn priority_points_at(&self, node: NodeId) -> &[Point] {
+        if self.priority_engine == self.engines.foreground() && self.priority_at == Some((self.doc.id, node)) {
+            &self.priority_points
+        } else {
+            &[]
+        }
+    }
+
     /// 自动套用 on a handicap game's first White move (`BoardHistoryNode` →
     /// `Leelaz.maybeAjustPDA`). Only a `KataGoPda` engine receives the private commands, and
     /// only while 自动套用 is checked.

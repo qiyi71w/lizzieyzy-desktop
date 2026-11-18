@@ -313,7 +313,7 @@ impl Workbench {
         }
         let ownership = ownership.or_else(|| self.store.ownership(&self.doc.record, q.node).cloned());
         fill_pv_captures(&mut result, &self.doc.record.position(q.node), self.config.engine.analysis.limit_branch_length, !self.config.edit.no_capture);
-        let (shown, tracked) = (self.suggestion_limit(), self.tracked_points(q.node).to_vec());
+        let (shown, tracked) = (self.suggestion_limit(), self.attended_points(q.node));
         self.store.update(q.node, q.stamp, result, ownership, shown, &tracked);
     }
     fn whole_game_finish(&mut self, state: State, detail: &str) {

@@ -69,8 +69,8 @@ pub(super) struct AnalysisStore {
     /// When each kept candidate's search last grew (`MoveData.lastTimeUnlimitedTime`).
     kept_since: HashMap<NodeId, HashMap<Option<Point>, Instant>>,
     /// Candidates beyond 最大候选点数 that stayed in the node's `bestMoves` because 选点重点研究
-    /// tracked them when the result came (`tryToLimitMoves`' attended points); the board does
-    /// not draw them for that.
+    /// tracked them or they were 优先分析此点 points when the result came (`tryToLimitMoves`'
+    /// attended and priority points); the board does not draw them for that.
     attended: HashMap<NodeId, Vec<Point>>,
     /// 最大候选点数 (0 = none) each result was limited with when it came or was loaded
     /// (`tryToLimitMoves` splits `bestMoves` then; a later change of the setting does not).
@@ -115,8 +115,8 @@ impl AnalysisStore {
 
     /// An engine's new result for the node (`BoardData.tryToSetBestMoves`): beyond `limit`
     /// candidates (0 = none) the one just past it stays a candidate while it was one of the node's
-    /// previous candidates and is still searched, and so do `tracked` points (`tryToLimitMoves`);
-    /// the others are not. Results are in candidate order.
+    /// previous candidates and is still searched, and so do `tracked` points (选点重点研究 and
+    /// 优先分析此点, `tryToLimitMoves`); the others are not. Results are in candidate order.
     pub(super) fn update(
         &mut self,
         node: NodeId,
@@ -1714,7 +1714,7 @@ impl Workbench {
                     let in_game = !secondary && self.match_active();
                     let shown = self.suggestion_limit();
                     // Attended points belong to the main board's candidates only (`isMain`).
-                    let tracked_points = if secondary { Vec::new() } else { self.tracked_points(node).to_vec() };
+                    let tracked_points = if secondary { Vec::new() } else { self.attended_points(node) };
                     let pda = self.engine_pda(instance);
                     let rec = &self.doc.record;
                     let cache = self.config.engine.analysis.enable_lizzie_cache;
@@ -1932,13 +1932,7 @@ impl Workbench {
             search_threads: self.search_threads_view(),
             search_threads_operation: self.search_threads_operation_view(),
             custom_pda: self.custom_pda_view(),
-            priority_points: if self.priority_engine == self.engines.foreground()
-                && self.priority_at == Some((self.doc.id, self.cursor))
-            {
-                self.priority_points.clone()
-            } else {
-                Vec::new()
-            },
+            priority_points: self.priority_points_at(self.cursor).to_vec(),
         }
     }
 

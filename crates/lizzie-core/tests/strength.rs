@@ -81,6 +81,8 @@ struct Fixture {
     dir: tempfile::TempDir,
     wb: Workbench,
     world: World,
+    /// What the foreground engine answers to `name`.
+    gtp_name: &'static str,
 }
 
 /// A workbench whose analysis command names a local KataGo stand-in and whose HumanSL model is a
@@ -108,7 +110,7 @@ fn fixture_with(setup: impl FnOnce(&mut Config, &std::path::Path)) -> Fixture {
     let mut wb = Workbench::new(storage, None, Box::new(world.clone()), vec![]);
     wb.set_strength_human_digest(&lizzie_core::resources::sha256_file(&human).unwrap());
     open(&mut wb, GAME);
-    Fixture { dir, wb, world }
+    Fixture { dir, wb, world, gtp_name: "KataGo" }
 }
 
 fn open(wb: &mut Workbench, text: &str) {
@@ -496,7 +498,7 @@ fn serve(f: &mut Fixture, id: InstanceId) {
             let (n, command) = line.split_once(' ').unwrap();
             let word = command.split_whitespace().next().unwrap();
             let text = match word {
-                "name" => "KataGo",
+                "name" => f.gtp_name,
                 "version" => "1.18.2",
                 "list_commands" => "name\nversion\nlist_commands\nkomi\nboardsize\nclear_board\nplay\nundo\nkata-analyze\nkata-set-rules\nkata-get-rules\nstop",
                 "kata-get-rules" => r#"{"ko":"SIMPLE","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N","friendlyPassOk":true,"hasButton":false}"#,
@@ -593,6 +595,34 @@ fn a_tracked_candidate_beyond_the_limit_counts_while_its_tracking_lasted() {
         let s = &report(&mut f.wb).black.samples[0];
         assert_eq!((s.ai_rank, s.score_loss), expected, "cleared first: {clear}");
     }
+}
+
+#[test]
+fn a_priority_point_beyond_the_limit_counts_as_a_candidate() {
+    // 优先分析此点 on Q16 (pd), second of a limit of one, on a KataGoPda: BoardData.tryToLimitMoves
+    // keeps a priorityMoveCoords point in bestMoves, so the estimate takes the move as the second
+    // candidate (the ordinary case without it is ai_rank 999, score_loss 2.5).
+    let mut f = fixture();
+    f.gtp_name = "KataGoPda 1.16.4";
+    open(&mut f.wb, "(;SZ[19]KM[7.5];B[pd])");
+    let id = foreground(&mut f);
+    let mut limits = f.wb.config().engine.analysis.clone();
+    limits.limit_max_suggestion = 1;
+    f.wb.set_analysis_settings(limits).unwrap();
+    serve(&mut f, id);
+    let q16 = Point { x: 15, y: 3 };
+    assert!(f.wb.set_priority_point(q16).unwrap());
+    serve(&mut f, id);
+    f.wb.engine_input(id, EngineInput::Stdout("info move D4 visits 100 winrate 0.55 scoreLead 2 prior 0.2 order 0 pv D4 info move Q16 visits 50 winrate 0.5 scoreLead 1 prior 0.1 order 1 pv Q16".into()));
+    f.wb.navigate(Navigation::Forward(1));
+    serve(&mut f, id);
+    f.wb.engine_input(
+        id,
+        EngineInput::Stdout("info move D4 visits 80 winrate 0.52 scoreLead 0.5 prior 0.2 order 0 pv D4".into()),
+    );
+    let s = &report(&mut f.wb).black.samples[0];
+    assert_eq!((s.ai_rank, s.first_choice), (1, false));
+    assert_eq!(s.score_loss, Some(1.0), "the candidates' difference, 2 - 1");
 }
 
 #[test]
