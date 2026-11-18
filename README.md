@@ -799,7 +799,9 @@ importing the matching LizzieYzy Next settings.
     terminate it, so browsing to another position starts that position's search; an engine move
     asked with analysis keeps that move's evaluation. An explicit `stop` is confirmed only after
     the service sends that query's final result and its terminate acknowledgement, even when later
-    commands were already answered; a refused terminate fails the custom engine, as in Java.
+    commands were already answered; when that happens while a newer analysis is reporting, the
+    confirmation follows the end of that analysis, so its reports stay with it. A refused
+    terminate fails the custom engine, as in Java.
   - Local protocol fixtures and the Linux desktop exercise these paths. Authorized live Zhizi
     and independently hosted custom-service acceptance, including real billing, have not yet
     been completed; fixture success is not a claim of current provider availability.
@@ -909,7 +911,10 @@ importing the matching LizzieYzy Next settings.
   ends, and records already saved stay; a new batch starts only after the previous one's copies
   are written. The queue is not kept across restarts (Java keeps it only in memory). While a
   batch runs, including while its next record loads, single-record automatic, flash and
-  whole-game analyses are refused with Java's conflict message.
+  whole-game analyses are refused with Java's conflict message. While a game against the engine
+  runs or gives its engine back (or another mode holds the engine), choosing, dropping or
+  starting either batch is refused with that mode's message before any record is read, as Java
+  refuses loading a record in a game.
 - 整盘精析 (分析 menu, `Ctrl+Shift+B`, or 自动分析 popup): a modeless dialog selects 500, 1,000,
   3,000, 10,000 or a custom 500–1,000,000 visits per position. It first fills the missing
   32-visit overview of the starting position and every main-trunk move, then searches missing

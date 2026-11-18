@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use lizzie_core::api::GameCommand;
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::cloud::{CloudConnectError, CloudConnector, CloudLaunch, CloudProvider, SocketCredentials, SocketTokenSource};
-use lizzie_core::engine::gtp::{parse_info, Dialect};
+use lizzie_core::engine::gtp::{parse_info, Dialect, Frame, Framer};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, FocusCapability};
 use lizzie_core::record::{BoardSize, Point, ROOT};
 use lizzie_core::settings::{NetworkSettings, ProxyMode};
@@ -795,13 +795,25 @@ fn stdout_lines(events: Vec<EngineInput>) -> Vec<String> {
     events.into_iter().filter_map(|event| match event { EngineInput::Stdout(line) => Some(line), _ => None }).collect()
 }
 
+/// What the runtime's framer makes of `lines`.
+fn frames(lines: &[String]) -> Vec<Frame> {
+    let (mut framer, mut out) = (Framer::default(), Vec::new());
+    for line in lines { framer.feed(line, &mut out); }
+    out
+}
+
 /// `stop`, `play` and a new analysis sent back to back while the peer holds the stopped query's
 /// final result and its terminate ack: the old stream ends and the later commands are answered
 /// (the new node gets its own query), but the `stop` succeeds only on its matching ack
-/// (Java `completeStoppedQueryIfReady`), once. A refused terminate fails the transport as Java's
-/// `failActiveQuery` does: the `stop` is never answered with success.
+/// (Java `completeStoppedQueryIfReady`), once, and as its own response: one settled while the
+/// new stream's response is open is answered when it ends, before the command that ends it.
+/// Reports before and after the ack belong to the new query. A refused terminate fails the
+/// transport as Java's `failActiveQuery` does: the `stop` is never answered with success.
 #[test]
 fn custom_commands_after_an_unconfirmed_stop_run_while_the_stop_waits_for_its_ack() {
+    let report = |id: &Value, mv: &str| json!({"id": id, "isDuringSearch": true,
+        "moveInfos": [{"move": mv, "visits": 5, "winrate": 0.5, "scoreLead": 0.0, "prior": 0.1, "order": 0, "pv": [mv]}],
+        "rootInfo": {"visits": 5, "winrate": 0.5, "scoreLead": 0.0}});
     for refuse in [false, true] {
         let (release, released) = mpsc::channel::<()>();
         let (url, peer) = server(move |mut peer| {
@@ -812,11 +824,10 @@ fn custom_commands_after_an_unconfirmed_stop_run_while_the_stop_waits_for_its_ac
             let next: Value = serde_json::from_str(&text(&mut peer)).unwrap();
             assert!(next.get("action").is_none(), "{next}");
             assert_eq!(next["moves"], json!([["B", "D4"]]));
-            write(&mut peer, json!({"id": next["id"], "isDuringSearch": true,
-                "moveInfos": [{"move": "Q16", "visits": 5, "winrate": 0.5, "scoreLead": 0.0, "prior": 0.1, "order": 0, "pv": ["Q16"]}],
-                "rootInfo": {"visits": 5, "winrate": 0.5, "scoreLead": 0.0}}));
+            write(&mut peer, report(&next["id"], "Q16"));
             released.recv().unwrap();
             if refuse {
+                write(&mut peer, report(&next["id"], "R4"));
                 write(&mut peer, json!({"id": terminate["id"], "error": "terminate refused"}));
                 let _ = peer.read();
                 return;
@@ -825,19 +836,20 @@ fn custom_commands_after_an_unconfirmed_stop_run_while_the_stop_waits_for_its_ac
             write(&mut peer, json!({"id": terminate["id"], "action": "terminate", "terminateId": first["id"]}));
             // A repeated ack settles nothing more.
             write(&mut peer, json!({"id": terminate["id"], "action": "terminate", "terminateId": first["id"]}));
-            // The new query's own stop.
+            write(&mut peer, report(&next["id"], "R4"));
+            // `name` ends the new stream.
             let second: Value = serde_json::from_str(&text(&mut peer)).unwrap();
             assert_eq!(second["terminateId"], next["id"]);
-            write(&mut peer, json!({"id": next["id"], "isDuringSearch": false, "moveInfos": [], "rootInfo": {"visits": 5}}));
-            write(&mut peer, json!({"id": second["id"], "action": "terminate", "terminateId": next["id"]}));
             let _ = peer.read();
         });
         let mut engine = Running::custom(url);
-        engine.send("1 kata-analyze B 50"); engine.stdout("=1");
+        engine.send("1 kata-analyze B 50");
+        let mut lines = stdout_lines(engine.stdout("=1"));
         engine.send("2 stop");
         engine.send("3 play B D4");
-        let mut lines = stdout_lines(engine.stdout("=3"));
-        assert!(lines.iter().any(|l| l.is_empty()), "the old stream ends before `play` is answered: {lines:?}");
+        let answered = stdout_lines(engine.stdout("=3"));
+        assert!(answered.iter().any(|l| l.is_empty()), "the old stream ends before `play` is answered: {answered:?}");
+        lines.extend(answered);
         engine.send("4 kata-analyze W 50");
         lines.extend(stdout_lines(engine.until(|e| matches!(e, EngineInput::Stdout(l) if l.starts_with("info move Q16")))));
         assert!(!lines.iter().any(|l| l.starts_with("=2") || l.starts_with("?2")), "the stop is unconfirmed: {lines:?}");
@@ -845,18 +857,98 @@ fn custom_commands_after_an_unconfirmed_stop_run_while_the_stop_waits_for_its_ac
 
         release.send(()).unwrap();
         if refuse {
-            let ended = stdout_lines(engine.until(|e| matches!(e, EngineInput::Exited(_))));
-            assert!(!ended.iter().any(|l| l.starts_with("=2")), "a refused stop is no success: {ended:?}");
+            lines.extend(stdout_lines(engine.until(|e| matches!(e, EngineInput::Exited(_)))));
+            assert!(!lines.iter().any(|l| l.starts_with("=2")), "a refused stop is no success: {lines:?}");
         } else {
-            let settled = stdout_lines(engine.until(|e| matches!(e, EngineInput::Stdout(l) if l.starts_with("=2"))));
-            // The new query keeps running: a `stop` of it is answered after the old one settled.
-            engine.send("5 stop");
-            let after = stdout_lines(engine.stdout("=5"));
-            let all: Vec<&String> = settled.iter().chain(&after).collect();
-            assert_eq!(all.iter().filter(|l| l.starts_with("=2")).count(), 1, "settled once: {all:?}");
+            lines.extend(stdout_lines(engine.until(|e| matches!(e, EngineInput::Stdout(l) if l.starts_with("info move R4")))));
+            engine.send("5 name");
+            lines.extend(stdout_lines(engine.stdout("=5 KataGo")));
+            lines.extend(stdout_lines(engine.stdout("")));
         }
+        let frames = frames(&lines);
+        let info: Vec<(u64, &str)> = frames.iter().filter_map(|f| match f {
+            Frame::Info { id, line } => Some((*id, line.split_whitespace().nth(2)?)),
+            _ => None,
+        }).collect();
+        assert_eq!(info, [(4, "Q16"), (4, "R4")], "both reports belong to the new query: {lines:?}");
+        let responses: Vec<u64> = frames.iter().filter_map(|f| match f { Frame::Response { id, ok: true, .. } => Some(*id), _ => None }).collect();
+        let expected: &[u64] = if refuse { &[1, 3] } else { &[1, 3, 4, 2, 5] };
+        assert_eq!(responses, expected, "the stop settles once, as its own response, before `name`: {lines:?}");
         engine.stop(); peer.join().unwrap();
     }
+}
+
+/// Through the workbench (the product framer): a console `stop` waits on the peer, the next
+/// console command ends that stream, and the engine moves on to the next node (`play`, then a new
+/// analysis). The peer answers the new query, then settles the old stop, then answers the new
+/// query again: both reports belong to the new node, and the old `stop` is answered once, by
+/// itself.
+#[test]
+fn custom_engine_keeps_a_late_stop_confirmation_out_of_the_next_analysis() {
+    let report = |id: &Value, mv: &str, visits: u32| json!({"id": id, "isDuringSearch": true,
+        "moveInfos": [{"move": mv, "visits": visits, "winrate": 0.5, "scoreLead": 0.0, "prior": 0.1, "order": 0, "pv": [mv]}],
+        "rootInfo": {"visits": visits, "winrate": 0.5, "scoreLead": 0.0}});
+    let (mut first, mut stop) = (None::<Value>, None::<Value>);
+    let peer = workbench::peer(move |v| {
+        if v["action"] == "terminate" {
+            if first.as_ref() == Some(&v["terminateId"]) && stop.is_none() {
+                stop = Some(v.clone());
+                return Vec::new();
+            }
+            return workbench::terminate_only(v);
+        }
+        let Some(old) = first.clone() else {
+            first = Some(v["id"].clone());
+            return Vec::new();
+        };
+        let stop = stop.as_ref().expect("the old query was stopped first");
+        vec![
+            report(&v["id"], "D4", 50),
+            json!({"id": old, "isDuringSearch": false, "moveInfos": [], "rootInfo": {"visits": 0}}),
+            json!({"id": stop["id"], "action": "terminate", "terminateId": old}),
+            report(&v["id"], "R4", 80),
+        ]
+    });
+    let mut b = workbench::bench();
+    b.open("(;SZ[19];B[pd];W[dd])");
+    b.wb.navigate(Navigation::First);
+    b.activate_custom(&peer.url);
+    assert!(b.pump_until(Duration::from_secs(10), |wb| workbench::ready(wb) && !peer.queries().is_empty()));
+    let old = peer.queries()[0]["id"].clone();
+
+    assert_eq!(b.wb.send_gtp("stop").unwrap(), None);
+    assert!(b.pump_until(Duration::from_secs(10), |_| peer.terminated().contains(&old)));
+    b.wb.navigate(Navigation::Forward(1));
+    assert_eq!(b.wb.send_gtp("name").unwrap(), None);
+    let mut seen = Vec::new();
+    let r4 = Point { x: 16, y: 15 };
+    let reached = b.pump_until(Duration::from_secs(10), |wb| {
+        let best = wb.view(false).analysis.and_then(|a| a.candidates.first().map(|c| (c.point, c.visits)));
+        if let Some(best) = best.filter(|best| seen.last() != Some(best)) { seen.push(best); }
+        best.is_some_and(|(point, _)| point == Some(r4))
+    });
+    assert!(reached, "the report after the old stop's confirmation reaches the new node: {seen:?}");
+    assert_eq!(seen, [(Some(d4()), 50), (Some(r4), 80)], "both reports belong to the new node");
+    let queries = peer.queries();
+    assert_eq!(queries.len(), 2);
+    assert_eq!(queries[1]["moves"], json!([["B", "Q16"]]));
+
+    // The old stop is answered as its own response (`=<n>`, right before the console `name`'s
+    // `=<n+1> KataGo`, the last one) once the new stream's response is complete: pausing stops
+    // the new query, whose final result closes it.
+    let output = |wb: &lizzie_core::workbench::Workbench| -> Vec<String> {
+        wb.console_since(0).into_iter()
+            .filter(|l| l.kind == lizzie_core::api::ConsoleLineKind::Output).map(|l| l.text).collect()
+    };
+    let name = output(&b.wb).iter().rev().find_map(|l| l.strip_suffix(" KataGo")?.strip_prefix('=')?.parse::<u64>().ok())
+        .expect("the console `name` is answered");
+    let stop_answer = format!("={}", name - 1);
+    assert!(!output(&b.wb).contains(&stop_answer), "not inside the open stream: {:?}", output(&b.wb));
+    b.wb.toggle_analysis().unwrap();
+    assert!(b.pump_until(Duration::from_secs(10), |wb| output(wb).contains(&stop_answer)), "{:?}", output(&b.wb));
+    b.settle();
+    assert_eq!(output(&b.wb).iter().filter(|l| **l == stop_answer).count(), 1, "{:?}", output(&b.wb));
+    b.finish();
 }
 
 fn d4() -> Point { Point { x: 3, y: 15 } }
