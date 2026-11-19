@@ -543,44 +543,88 @@ body {
   gap: 12px;
   margin: 4px 0;
 }
-/* 详细工具栏 panels: 44 px high, their controls at fixed bounds set by bottomDetail.ts */
-.bb-detail,
-.bb-detail-group {
+/* 详细工具栏: the panels under the main bar's row, laid out by flex and grid; bottomDetail.ts
+   measures the area for the bar's height. Each panel is a group: its main switch as a heading
+   column, then rows of related sets that wrap as whole sets. Panels wrap as whole groups, and a
+   hairline separates neighbours on a line. The area overhangs the bar by one panel inset (16 px
+   plus the 1 px line) less the bar's 10 px side margin, so the line and inset before the first
+   panel of every line fall outside the clipped bar. */
+.bb-details {
   position: absolute;
-  box-sizing: border-box;
+  top: 31px; /* the main bar's 32 px row, counted inside the bar's 1 px top border */
+  left: -7px;
+  right: -6px;
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--ds-line);
 }
 .bb-detail {
-  border: 1px solid var(--ds-line-strong);
-  border-radius: var(--ds-radius);
-  background: var(--ds-panel);
+  display: grid;
+  grid-template-columns: max-content minmax(0, max-content);
+  align-items: start;
+  column-gap: 12px;
+  min-width: 0;
+  padding: 0 16px;
+  border-left: 1px solid var(--ds-line);
 }
-.bb-detail > *,
-.bb-detail-group > * {
-  position: absolute;
-  box-sizing: border-box;
-  margin: 0;
-  line-height: 18px;
-  white-space: nowrap;
+.bb-detail-head {
+  font-weight: 600;
+}
+.bb-detail-body {
+  display: flex;
+  flex-direction: column;
+  row-gap: 6px;
+  min-width: 0;
+}
+.bb-detail-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+/* a label, its field and the controls that belong with it, never split */
+.bb-detail-group {
+  display: flex;
+  align-items: center;
+  column-gap: 4px;
+}
+.bb-detail-group > label + label {
+  margin-left: 4px;
 }
 .bb-detail label {
   display: flex;
   align-items: center;
+  height: var(--ds-control-h);
 }
-.bb-detail input[type="checkbox"] {
-  margin: 0 3px 0 2px;
+.bb-detail label:has(> input:disabled) {
+  color: var(--ds-text-off);
 }
-.bb-detail input[type="text"],
+/* number fields fit the digits they take (--chars, set per field) */
+.bb-detail input[type="text"] {
+  width: calc(var(--chars) * 1ch + 12px);
+  height: var(--ds-control-h);
+  padding: 0 4px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
 .bb-detail select {
-  padding: 0 2px;
-  border-radius: var(--ds-radius-s);
+  width: 8em;
+  height: var(--ds-control-h);
+  padding: 0 20px 0 6px;
+  background-position: right 6px center;
 }
-.bb-detail select {
-  padding-right: 14px;
-  background-position: right 4px center;
-}
+/* the same width for 开始 / 终止 and 暂停 / 继续, so a state change does not rewrap the panel */
 .bb-detail button {
-  padding: 0;
-  border-radius: var(--ds-radius-s);
+  min-width: 4em;
+  height: var(--ds-control-h);
+  padding: 0 8px;
+}
+.bb-detail-score {
+  min-width: 4ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---- seams between panes: transparent hot zones the pointer resizes with */
