@@ -1,115 +1,131 @@
 /* Workbench stage tokens: the colours the canvas panels, the 胜率图 and the 选点列表 draw with on top
    of the design tokens. The stage is a linen wallpaper in the colour mode's ground colour under
-   translucent panels. The theme colours a user can change (胜率线, 胜率落差线, 目差线, 恶手条,
-   评论节点) use these only while they hold the theme's default value; their hues stay those of the
-   default theme. Both sets are read from canvas code through stage.ts. */
+   translucent cards, one per column of panels (DESIGN.md 工作台卡片). The theme colours a user can
+   change (胜率线, 胜率落差线, 目差线, 恶手条, 评论节点) use these only while they hold the theme's
+   default value. Both sets are read from canvas code through stage.ts. */
 :root,
 [data-theme="light"] {
-  /* A panel over the wallpaper and its edge. */
+  /* A card over the wallpaper, the hairline between its sections, its edge and the colour of its
+     downward shadow; `panel-solid` is the card as it reads over the wallpaper, for grounds that
+     must hide what scrolls or runs under them (the list's header, the graph's legend and markers). */
   --ws-panel: rgba(229, 221, 202, 0.8);
   --ws-panel-line: rgba(90, 66, 20, 0.16);
+  --ws-panel-solid: #e0d7c3;
+  --ws-card-edge: rgba(70, 50, 15, 0.3);
+  --ws-card-shadow: rgba(70, 50, 15, 0.5);
   /* The board's shadow on the wallpaper. */
   --ws-board-shadow: 0 1px 2px rgba(70, 50, 15, 0.26), 0 10px 26px -8px rgba(70, 50, 15, 0.46);
 
-  /* Theme colour defaults, tuned for the light panel. */
-  --ws-winrate-line: #1f78d1;
-  --ws-winrate-miss: #0000b2;
-  --ws-score-line: #b800b8;
-  --ws-blunder-bar: rgba(204, 51, 170, 0.45);
+  /* Theme colour defaults, tuned for the light card. */
+  --ws-winrate-line: #2c5f95;
+  --ws-winrate-miss: #5a6cc4;
+  --ws-score-line: #a8651c;
+  --ws-blunder-bar: rgba(160, 40, 140, 0.35);
   --ws-comment-node: #2f55d4;
 
-  /* 胜率图. */
-  --ws-graph-grid: rgba(0, 0, 0, 0.1);
-  --ws-graph-baseline: rgba(0, 0, 0, 0.3);
-  --ws-graph-guide: rgba(0, 0, 0, 0.45);
-  --ws-graph-hover: #d12a1f;
-  --ws-graph-score-text: #855800;
+  /* 胜率图: hairline grid, dashed midline, the current / hovered move's guide. */
+  --ws-graph-grid: rgba(90, 66, 20, 0.14);
+  --ws-graph-baseline: rgba(90, 66, 20, 0.42);
+  --ws-graph-guide: rgba(78, 70, 54, 0.6);
+  --ws-graph-hover: #b83a2b;
+  --ws-graph-score-text: #7a5000;
   --ws-graph-snapshot: rgba(201, 138, 0, 0.5);
-  --ws-graph-score-marker: #1b9e4b;
+  --ws-graph-score-marker: #2c7a47;
 
-  /* Stones, the 胜率条 and the 提子 panel's engine dot. */
-  --ws-stone-black: #1a1917;
-  --ws-stone-black-edge: #1a1917;
-  --ws-stone-white: #fffdf9;
+  /* Flat stones, the 胜率条's centre tick and change, the 提子 panel's engine dot. */
+  --ws-stone-black: #1c1c1d;
+  --ws-stone-black-edge: #1c1c1d;
+  --ws-stone-white: #fbf9f3;
+  --ws-stone-white-edge: rgba(90, 66, 20, 0.4);
   --ws-on-black: #ffffff;
   --ws-on-white: #1f1d1a;
-  --ws-bar-grid: #808080;
-  --ws-gain: #1b8a3a;
-  --ws-loss: #d12a1f;
-  --ws-live: #1f9d48;
-  --ws-idle: #d12a1f;
+  --ws-bar-grid: #5e5543;
+  --ws-gain: #2c6b3f;
+  --ws-loss: #a5321f;
+  --ws-live: #2f7a47;
+  --ws-idle: #b83a2b;
 
   /* 变化树. */
-  --ws-tree-node: #a9a294;
-  --ws-tree-line: #8f887a;
-  --ws-tree-line-off: #d3ccbe;
-  --ws-tree-dim: rgba(255, 253, 248, 0.55);
-  --ws-scroll-thumb: #c2b8a6;
+  --ws-tree-node: #9c937f;
+  --ws-tree-line: #8a7e66;
+  --ws-tree-line-off: #c9bfaa;
+  --ws-tree-dim: rgba(240, 235, 222, 0.6);
+  --ws-scroll-thumb: rgba(90, 66, 20, 0.32);
 
   /* 选点列表: the 占比 bar and the actual move's row by loss level (rank 1 worst to 6 best), soft
-     and, on the highlighted point, strong. */
-  --ws-share-bar: #ded7ca;
-  --ws-rank-1: #ecdcea;
-  --ws-rank-1-strong: #d7b6d3;
-  --ws-rank-2: #f8d6d6;
-  --ws-rank-2-strong: #f0aeae;
-  --ws-rank-3: #f6e6cf;
-  --ws-rank-3-strong: #ecd0a6;
-  --ws-rank-4: #f0f0c4;
-  --ws-rank-4-strong: #e1e18e;
-  --ws-rank-5: #e6f3d0;
-  --ws-rank-5-strong: #cde6a2;
-  --ws-rank-6: #d4efd4;
-  --ws-rank-6-strong: #a8dfa8;
+     and, on the highlighted point, strong; translucent so the card shows through. */
+  --ws-share-bar: rgba(90, 66, 20, 0.12);
+  --ws-rank-1: rgba(140, 40, 130, 0.16);
+  --ws-rank-1-strong: rgba(140, 40, 130, 0.3);
+  --ws-rank-2: rgba(200, 40, 30, 0.16);
+  --ws-rank-2-strong: rgba(200, 40, 30, 0.3);
+  --ws-rank-3: rgba(215, 120, 15, 0.2);
+  --ws-rank-3-strong: rgba(215, 120, 15, 0.36);
+  --ws-rank-4: rgba(185, 160, 0, 0.22);
+  --ws-rank-4-strong: rgba(185, 160, 0, 0.4);
+  --ws-rank-5: rgba(110, 165, 20, 0.2);
+  --ws-rank-5-strong: rgba(110, 165, 20, 0.36);
+  --ws-rank-6: rgba(30, 140, 60, 0.18);
+  --ws-rank-6-strong: rgba(30, 140, 60, 0.34);
 }
 
 [data-theme="dark"] {
   --ws-panel: rgba(35, 31, 25, 0.86);
   --ws-panel-line: rgba(255, 236, 200, 0.1);
+  --ws-panel-solid: #29241c;
+  --ws-card-edge: rgba(255, 236, 200, 0.1);
+  --ws-card-shadow: rgba(0, 0, 0, 0.7);
   --ws-board-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 12px 30px -8px rgba(0, 0, 0, 0.65);
 
-  --ws-winrate-line: #64b4ff;
-  --ws-winrate-miss: #7a7aff;
-  --ws-score-line: #ff5cff;
-  --ws-blunder-bar: rgba(255, 204, 255, 0.667);
+  --ws-winrate-line: #7fb0e6;
+  --ws-winrate-miss: #9aa6ff;
+  --ws-score-line: #e0ac58;
+  --ws-blunder-bar: rgba(255, 190, 240, 0.45);
   --ws-comment-node: #5574ff;
 
-  --ws-graph-grid: rgba(255, 255, 255, 0.2);
-  --ws-graph-baseline: rgba(236, 232, 224, 0.6);
-  --ws-graph-guide: rgba(232, 225, 210, 0.706);
-  --ws-graph-hover: #ff5a4f;
-  --ws-graph-score-text: #f5e04a;
+  --ws-graph-grid: rgba(255, 236, 200, 0.1);
+  --ws-graph-baseline: rgba(255, 236, 200, 0.32);
+  --ws-graph-guide: rgba(241, 233, 217, 0.55);
+  --ws-graph-hover: #f0958a;
+  --ws-graph-score-text: #e0ac58;
   --ws-graph-snapshot: rgba(255, 208, 84, 0.431);
-  --ws-graph-score-marker: #2ecc71;
+  --ws-graph-score-marker: #6cc487;
 
-  --ws-stone-black: #000000;
-  --ws-stone-black-edge: #6c675e;
-  --ws-stone-white: #f4f0e8;
+  --ws-stone-black: #0d0d0d;
+  --ws-stone-black-edge: rgba(255, 236, 200, 0.5);
+  --ws-stone-white: #f1e9d9;
+  --ws-stone-white-edge: #f1e9d9;
   --ws-on-black: #ffffff;
   --ws-on-white: #1f1d1a;
-  --ws-bar-grid: #808080;
-  --ws-gain: #34c759;
-  --ws-loss: #ff453a;
-  --ws-live: #34c759;
-  --ws-idle: #ff453a;
+  --ws-bar-grid: #a59a84;
+  --ws-gain: #6cc487;
+  --ws-loss: #f0958a;
+  --ws-live: #6cc487;
+  --ws-idle: #f0958a;
 
-  --ws-tree-node: #efeae0;
-  --ws-tree-line: #e6e0d4;
-  --ws-tree-line-off: #68635a;
-  --ws-tree-dim: rgba(0, 0, 0, 0.153);
-  --ws-scroll-thumb: #5c5850;
+  --ws-tree-node: #d9cfbc;
+  --ws-tree-line: #b5aa94;
+  --ws-tree-line-off: #5c5446;
+  --ws-tree-dim: rgba(0, 0, 0, 0.35);
+  --ws-scroll-thumb: rgba(255, 236, 200, 0.26);
 
-  --ws-share-bar: #3c3934;
-  --ws-rank-1: #392339;
-  --ws-rank-1-strong: #4f2b4a;
-  --ws-rank-2: #4b1d1f;
-  --ws-rank-2-strong: #6c1f22;
-  --ws-rank-3: #47361f;
-  --ws-rank-3-strong: #644a26;
-  --ws-rank-4: #43431b;
-  --ws-rank-4-strong: #5d5d17;
-  --ws-rank-5: #364520;
-  --ws-rank-5-strong: #4a6521;
-  --ws-rank-6: #17421b;
-  --ws-rank-6-strong: #135d17;
+  --ws-share-bar: rgba(255, 236, 200, 0.12);
+  --ws-rank-1: rgba(190, 80, 180, 0.22);
+  --ws-rank-1-strong: rgba(190, 80, 180, 0.4);
+  --ws-rank-2: rgba(230, 70, 60, 0.22);
+  --ws-rank-2-strong: rgba(230, 70, 60, 0.4);
+  --ws-rank-3: rgba(230, 150, 50, 0.22);
+  --ws-rank-3-strong: rgba(230, 150, 50, 0.4);
+  --ws-rank-4: rgba(215, 200, 40, 0.2);
+  --ws-rank-4-strong: rgba(215, 200, 40, 0.38);
+  --ws-rank-5: rgba(150, 205, 60, 0.2);
+  --ws-rank-5-strong: rgba(150, 205, 60, 0.38);
+  --ws-rank-6: rgba(60, 190, 90, 0.2);
+  --ws-rank-6-strong: rgba(60, 190, 90, 0.38);
+}
+
+/* Over a wallpaper the user chose the cards are translucent black (stage.ts); grounds that must
+   hide what runs under them take a near-opaque black. */
+:root[data-stage="wallpaper"] #main {
+  --ws-panel-solid: rgba(0, 0, 0, 0.78);
 }

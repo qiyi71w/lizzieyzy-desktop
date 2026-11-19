@@ -7,7 +7,7 @@ import type { DisplaySettings, HistoryPoint, TreeNodeView } from "../contract/ge
 import { t } from "../i18n";
 import { graphGeom, type Rect } from "../workbench/layout";
 import { panelFont } from "../workbench/paint";
-import { appearance } from "../appearance/state";
+import { appearance, frameMetrics } from "../appearance/state";
 import { belowBaselineFill, cssColor, graphBackground, sameRgba, THEME_DEFAULT, themeColor } from "../appearance/model";
 import { rgbaOf, stagePalette, type StagePalette } from "../design/stage";
 
@@ -88,17 +88,20 @@ const rgba = (c: readonly number[], a: number) => `rgba(${c[0]},${c[1]},${c[2]},
 /** The theme's graph values (Config.readThemeVaule, Config.java:2248-2264): winrate-line-color,
  *  winrate-miss-line-color, scoremean-line-color, blunder-bar-color, the two stroke widths and
  *  minimum-blunder-bar-width (WinrateGraph.java:174-184, 261-295, 654-656, 1208-1209); a colour
- *  still at the theme default takes the stage palette's shade of it. The panel is the palette's
- *  panel on the program's own stage while comment-background-color is the default, else
- *  resolveGraphBackgroundColor of comment-background-color; resolveBelowBaselineFillColor follows
- *  it (312-323, 396-399). */
+ *  still at the theme default takes the stage palette's shade of it, and stroke widths still at
+ *  the default (1.7 and 1) are the card's 1.4 and 1.2. The graph draws on its card section
+ *  without a ground of its own while comment-background-color is the default, else on
+ *  resolveGraphBackgroundColor of it; resolveBelowBaselineFillColor follows the ground under the
+ *  graph (312-323, 396-399). */
 function graphTheme() {
   const p = stagePalette();
   const th = appearance()?.theme;
   const comment = th?.commentBackgroundColor ?? THEME_DEFAULT.commentBackground;
-  const background = p.builtin && sameRgba(comment, THEME_DEFAULT.commentBackground) ? rgbaOf(p.panel) : graphBackground(comment);
+  const own = sameRgba(comment, THEME_DEFAULT.commentBackground) ? null : graphBackground(comment);
   const line = themeColor(th?.winrateLineColor, THEME_DEFAULT.winrateLine, p.winrateLine);
   const score = themeColor(th?.scoremeanLineColor, THEME_DEFAULT.scoreLine, p.scoreLine);
+  const winrateWidth = th?.winrateStrokeWidth ?? 1.7;
+  const scoreWidth = th?.scoreLeadStrokeWidth ?? 1;
   return {
     palette: p,
     lineRgb: rgbaOf(line),
@@ -107,11 +110,14 @@ function graphTheme() {
     miss: themeColor(th?.winrateMissLineColor, THEME_DEFAULT.winrateMiss, p.winrateMiss),
     score,
     bar: themeColor(th?.blunderBarColor, THEME_DEFAULT.blunderBar, p.blunderBar),
-    winrateWidth: th?.winrateStrokeWidth ?? 1.7,
-    scoreWidth: th?.scoreLeadStrokeWidth ?? 1,
+    winrateWidth: winrateWidth === 1.7 ? 1.4 : winrateWidth,
+    scoreWidth: scoreWidth === 1 ? 1.2 : scoreWidth,
     barMinimum: Math.max(1, th?.minimumBlunderBarWidth ?? 1),
-    background: cssColor(background),
-    belowFill: cssColor(belowBaselineFill(background)),
+    /** The graph's own ground, null on the card's. */
+    background: own ? cssColor(own) : null,
+    /** What a marker's ring separates it from the curves with. */
+    ground: own ? cssColor(own) : p.panelSolid,
+    belowFill: cssColor(belowBaselineFill(own ?? rgbaOf(p.panelSolid))),
   };
 }
 
@@ -126,7 +132,7 @@ interface MarkerColors {
 }
 
 /** The current move's and current score's markers: on the program's own stage the accent and the
- *  score marker colour, flat, separated from the curves by a ring of the graph's ground
+ *  score marker colour, flat, separated from the curves by a ring of the ground under the graph
  *  (`ground`); over a wallpaper the user chose, Java's red and green with their light halos. */
 function markerColors(p: StagePalette, ground: string): { move: MarkerColors; score: MarkerColors } {
   if (p.builtin)
@@ -239,13 +245,13 @@ function metrics(g: CanvasRenderingContext2D) {
 }
 const stringWidth = (g: CanvasRenderingContext2D, s: string) => Math.round(g.measureText(s).width);
 const plain = (size: number) => `${size}px ${panelFont()}`;
-const bold = (size: number) => `bold ${size}px ${panelFont()}`;
+const bold = (size: number) => `600 ${size}px ${panelFont()}`;
 
-/** drawLine with a 1 px aligned stroke. */
-function line(g: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string, width: number, dashed: boolean) {
+/** drawLine with a 1 px aligned stroke; `dashed` is Java's 4 / 4 dash or a pattern of its own. */
+function line(g: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string, width: number, dashed: boolean | number[]) {
   g.strokeStyle = color;
   g.lineWidth = width;
-  g.setLineDash(dashed ? [4, 4] : []);
+  g.setLineDash(dashed === true ? [4, 4] : dashed || []);
   g.beginPath();
   g.moveTo(x1 + 0.5, y1 + 0.5);
   g.lineTo(x2 + 0.5, y2 + 0.5);
@@ -317,25 +323,20 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   const nodes = s.nodes;
   const theme = graphTheme();
   const p = theme.palette;
-  const markers = markerColors(p, theme.background);
+  const markers = markerColors(p, theme.ground);
+  const type = frameMetrics().frameFontSize;
   const LINE = theme.line;
   const SCORE = theme.score;
   const background: Op[] = [];
+  const guide: Op[] = [];
+  const legendOps: Op[] = [];
   const blunder: Op[] = [];
   const front: Op[] = [];
   const flush = () => {
-    for (const op of background) op();
-    for (const op of blunder) op();
-    for (const op of front) op();
+    for (const op of [...background, ...guide, ...legendOps, ...blunder, ...front]) op();
     g.setLineDash([]);
     g.textAlign = "left";
     g.textBaseline = "alphabetic";
-    // The panel edge on the program's own stage: 1px, square, inside the panel.
-    if (p.builtin && W0 >= 2 && H0 >= 2) {
-      g.strokeStyle = p.line;
-      g.lineWidth = 1;
-      g.strokeRect(0.5, 0.5, W0 - 1, H0 - 1);
-    }
   };
   g.textAlign = "left";
   g.textBaseline = "alphabetic";
@@ -378,45 +379,47 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     xLabels: [],
   };
 
-  background.push(() => {
-    g.fillStyle = theme.background;
-    g.fillRect(0, 0, W0, H0);
-  });
+  if (theme.background) {
+    const ground = theme.background;
+    background.push(() => {
+      g.fillStyle = ground;
+      g.fillRect(0, 0, W0, H0);
+    });
+  }
   const posx = 0;
   const posy = 2;
   let width = W0 - 6;
   const height = H0 - 4;
-  // Dashed grid at 25 / 50 / 75 %; the highlighted baseline replaces the midline.
-  for (let k = 1; k <= 3; k++) {
-    if (baselineActive && k * 2 === 4) continue;
+  // Hairline grid at 25 / 75 %, the dashed midline at 50 % (the highlighted baseline when one
+  // curve shows).
+  for (const k of [1, 3]) {
     const y = posy + height - jInt((height * ((k * 100) / 4)) / 100);
     const w = width;
-    background.push(() => line(g, posx, y, posx + w, y, p.graphGrid, 1, true));
+    background.push(() => line(g, posx, y, posx + w, y, p.graphGrid, 1, false));
   }
   const baselineY = posy + i(height / 2);
   const occupied: Box[] = [];
   let chipBox: Box | null = null;
   if (chip) {
-    g.font = plain(11);
+    g.font = plain(type - 1);
     const fm = metrics(g);
     const h = fm.ascent + fm.descent + 2;
     chipBox = { x: posx + 4, y: baselineY - i(h / 2), w: stringWidth(g, chip) + 8, h };
     occupied.push(chipBox);
   }
-  /** paintHighlightedBaseline (WinrateGraph.java:1730-1759); flat, a 1px line with the chip on a
-   *  sunken ground. */
+  /** paintHighlightedBaseline (WinrateGraph.java:1730-1759) as the dashed midline, the chip on the
+   *  ground under the graph in Label text; the midline alone while no curve shows. */
   const paintBaseline = (w: number) => {
-    if (!baselineActive) return;
     background.push(() => {
-      line(g, posx, baselineY, posx + w, baselineY, p.graphBaseline, p.builtin ? 1 : 1.5, false);
+      line(g, posx, baselineY, posx + w, baselineY, p.graphBaseline, 1, [2, 3]);
       if (!chip || !chipBox) return;
-      g.font = plain(11);
+      g.font = plain(type - 1);
       const fm = metrics(g);
-      g.fillStyle = p.builtin ? p.sunken : "rgba(0,0,0,0.667)";
+      g.fillStyle = theme.ground;
       g.beginPath();
       g.roundRect(chipBox.x, chipBox.y, chipBox.w, chipBox.h, 3);
       g.fill();
-      g.fillStyle = p.builtin ? p.text2 : rgba([236, 232, 224], 230);
+      g.fillStyle = p.text3;
       g.fillText(chip, chipBox.x + 4, chipBox.y + fm.ascent + 1);
     });
   };
@@ -566,7 +569,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
       const low = wr < 3;
       front.push(() => {
         line(g, x, posy, x, posy + height, p.graphGuide, 1, true);
-        g.font = bold(12);
+        g.font = bold(type);
         const fm = metrics(g);
         const dx = moveNum < i(numMoves / 2) ? 3 : moveNum < 10 ? -10 : currentMoveNumber > 99 ? -22 : -16;
         g.fillStyle = p.text;
@@ -653,7 +656,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   if (mwr >= 0) {
     const x = X(mmovenum), y = clampDotY(WY(mwr) - DOT_RADIUS);
     front.push(() => oval(g, x, y + DOT_RADIUS, DOT_RADIUS, p.graphHover));
-    g.font = bold(16);
+    g.font = bold(type + 1);
     const fm = metrics(g);
     oriMWrHeight = posy + (height - jInt((mwr * height) / 100));
     mwrHeight = oriMWrHeight + (mwr < 10 ? -5 : (mwr > 90 ? 6 : -2) * DOT_RADIUS);
@@ -661,10 +664,10 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     if (mwrHeight > H0) mwrHeight = H0 - 2;
     const text = javaFixed1(mwr);
     report.hoverText = text;
-    placed(text, bold(16), p.text, centredX(text, mmovenum), mwrHeight);
+    placed(text, bold(type + 1), p.text, centredX(text, mmovenum), mwrHeight);
   }
   if (mScoreMoveNum >= 0) {
-    g.font = bold(14);
+    g.font = bold(type);
     const fm = metrics(g);
     let h = anchorY(drawHoverScore) - 3;
     const ori = h;
@@ -679,13 +682,13 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     if (h > H0) h = Math.max(H0, mwrHeight - mWinFontHeight);
     const text = formatScoreLead(drawHoverScore);
     report.hoverScoreText = text;
-    placed(text, bold(14), p.graphScoreText, centredX(text, mScoreMoveNum), h);
+    placed(text, bold(type), p.graphScoreText, centredX(text, mScoreMoveNum), h);
   }
   let cwrHeight = -1;
   let winFontHeight = -1;
   let oriWrHeight = -1;
   if (cwr >= 0) {
-    g.font = bold(16);
+    g.font = bold(type + 1);
     const fm = metrics(g);
     oriWrHeight = posy + (height - jInt((cwr * height) / 100));
     cwrHeight = oriWrHeight + (cwr < 10 ? -5 : (cwr > 90 ? 6 : -2) * DOT_RADIUS);
@@ -693,10 +696,10 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     if (cwrHeight > H0) cwrHeight = H0 - 2;
     const text = javaFixed1(cwr);
     report.currentText = text;
-    placed(text, bold(16), p.text, centredX(text, cmovenum), cwrHeight);
+    placed(text, bold(type + 1), p.text, centredX(text, cmovenum), cwrHeight);
   }
   if (curScoreMoveNum >= 0) {
-    g.font = bold(14);
+    g.font = bold(type);
     const fm = metrics(g);
     let h = anchorY(drawCurScore) - 3;
     const ori = h;
@@ -718,7 +721,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     }
     const text = formatScoreLead(drawCurScore);
     report.currentScoreText = text;
-    placed(text, bold(14), p.graphScoreText, centredX(text, curScoreMoveNum), h);
+    placed(text, bold(type), p.graphScoreText, centredX(text, curScoreMoveNum), h);
   }
 
   // ---------------------------------------------------------------- move numbers and legend
@@ -730,50 +733,45 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
       const x = posx + i(((k * step - 1) * width) / numMoves) - 3;
       report.xLabels.push(label);
       background.push(() => {
-        g.font = plain(11);
+        g.font = plain(type - 1);
         g.fillStyle = p.text3;
         g.fillText(label, x, posy + height - 1);
       });
     }
   }
-  // drawLineLegend (WinrateGraph.java:1774-1830); the outline keeps the background's dashed stroke.
+  // drawLineLegend (WinrateGraph.java:1774-1830) in the top right corner: each curve's swatch and
+  // name in Label text3, on the ground under the graph so the curves do not run through it.
   const legend: [string, string][] = [];
   if (winrateRenderable) legend.push([t("WinrateGraph.legendWinrate"), LINE]);
   if (scoreRenderable) legend.push([t("WinrateGraph.legendScoreLead"), SCORE]);
   if (W0 >= 240 && legend.length) {
     report.legend = legend.map(([label]) => label);
-    background.push(() => {
-      g.font = plain(11);
+    legendOps.push(() => {
+      g.font = plain(type - 1);
       const fm = metrics(g);
       const widths = legend.map(([label]) => stringWidth(g, label));
-      const boxW = widths.reduce((sum, w) => sum + 16 + 5 + w + 12, 0) - 12 + 16;
+      const boxW = widths.reduce((sum, w) => sum + 12 + 5 + w + 12, 0) - 12 + 12;
       const boxH = fm.ascent + fm.descent + 6;
       const boxX = W0 - boxW - 6;
       const boxY = 4;
-      // Flat: a square panel-coloured box with a 1px edge; the wallpaper keeps Java's dark box.
-      g.fillStyle = p.builtin ? p.panel : "rgba(0,0,0,0.588)";
+      g.fillStyle = theme.ground;
       g.beginPath();
-      g.roundRect(boxX, boxY, boxW, boxH, p.builtin ? 0 : 4);
+      g.roundRect(boxX, boxY, boxW, boxH, 4);
       g.fill();
-      g.strokeStyle = p.builtin ? p.line : "rgba(255,255,255,0.098)";
-      g.lineWidth = 1;
-      g.setLineDash(p.builtin ? [] : [4, 4]);
-      g.beginPath();
-      g.roundRect(boxX + 0.5, boxY + 0.5, boxW, boxH, p.builtin ? 0 : 4);
-      g.stroke();
-      g.setLineDash([]);
       const textY = boxY + 3 + fm.ascent;
       const lineY = textY - i(fm.ascent / 2);
-      let cx = boxX + 8;
+      let cx = boxX + 6;
       legend.forEach(([label, color], k) => {
         g.strokeStyle = color;
         g.lineWidth = 2;
+        g.lineCap = "round";
         g.beginPath();
         g.moveTo(cx, lineY);
-        g.lineTo(cx + 16, lineY);
+        g.lineTo(cx + 12, lineY);
         g.stroke();
-        cx += 21;
-        g.fillStyle = p.text2;
+        g.lineCap = "butt";
+        cx += 17;
+        g.fillStyle = p.text3;
         g.fillText(label, cx, textY);
         cx += widths[k] + 12;
       });
@@ -838,6 +836,9 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     : null;
   if (movePoint) report.currentMarker = { node: cur, x: movePoint.x, y: movePoint.y };
   report.scoreMarker = scorePoint;
+  // The current move's guide: a solid hairline through the plot at its column.
+  const guideX = movePoint ? movePoint.x : cmovenum >= 0 ? X(cmovenum) : null;
+  if (guideX !== null) guide.push(() => line(g, guideX, posy, guideX, posy + height, p.graphGuide, 1, false));
   if (scorePoint && movePoint) {
     const dx = movePoint.x - scorePoint.x;
     const dy = movePoint.y - scorePoint.y;

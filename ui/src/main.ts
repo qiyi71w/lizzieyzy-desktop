@@ -15,7 +15,7 @@ import type { BoardOverlayView, FloatSceneView, HistoryPoint, NodeAnalysisView, 
 import { dialogOpen, message } from "./dialogs";
 import { format, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
-import { boardGeom, doubleEngineLayout, floatBoardLayout, mainMarginRatio, selectRange, sideLayout, SUB_MARGIN_RATIO, workbenchLayout, type BoardGeom, type DualPanels, type PanelId, type Panels, type Rect, type SidePanels } from "./workbench/layout";
+import { boardGeom, cardLayout, doubleEngineLayout, floatBoardLayout, mainMarginRatio, selectRange, sideLayout, SUB_MARGIN_RATIO, workbenchLayout, type BoardGeom, type DualPanels, type PanelId, type Panels, type Rect, type SidePanels } from "./workbench/layout";
 import { handleLayoutKey } from "./workbench/extraMode";
 import { bindPanels, controlsShowing, handlePanelKey, layoutRequest, placeHandles } from "./workbench/panels";
 import { onPresentationChange, presentation } from "./workbench/presentation";
@@ -100,6 +100,7 @@ import {
   type BoardReport,
   type OwnershipLayer,
   type BoardScene,
+  type StageCards,
   type PreviewVariation,
   type StatReport,
   type SubBoardReport,
@@ -924,10 +925,10 @@ function changed(panel: string, sig: string): boolean {
   return true;
 }
 
-/** The wallpaper with its frosted containers is a static background of #main, one per size. */
+/** The wallpaper with its cards is a static background of #main, one per size and layout. */
 let backgroundUrl: string | null = null;
-async function installBackground(size: string, w: number, h: number, glass: Rect[]) {
-  const blob = await paintBackground(w, h, glass);
+async function installBackground(size: string, w: number, h: number, stage: StageCards) {
+  const blob = await paintBackground(w, h, stage);
   if (!blob || lastSig.bg !== size) return;
   if (backgroundUrl) URL.revokeObjectURL(backgroundUrl);
   backgroundUrl = URL.createObjectURL(blob);
@@ -941,35 +942,43 @@ async function installBackground(size: string, w: number, h: number, glass: Rect
  *  java:7871-7890); a foreground engine still starting shows 引擎正在加载中 and one that failed
  *  引擎未成功加载 (loadingTextResourceKey, 7894-7915); a retrying quick analysis replaces the
  *  shortcut hint (drawCommandString). While 野狐 AI 直连 history is browsed, its two lines say so
- *  and how to get back (java:8253-8256). */
-function statusLines(): string[] {
+ *  and how to get back (java:8253-8256). `live` is whether the engine ponders while the lines are
+ *  the engine's own status, null for the other messages. */
+function statusView(): { lines: string[]; live: boolean | null } {
   const v = state.view;
   const hint = notice && notice.until > performance.now()
     ? notice.text
     : v?.quick.retrying ? t("LizzieFrame.quickAnalysis.retrying") : t("LizzieFrame.prompt.showControlsHint");
-  if (v?.fox.browsing) return [t(v.fox.browsing_status_key), t("Fox.returnLive"), hint];
+  if (v?.fox.browsing) return { lines: [t(v.fox.browsing_status_key), t("Fox.returnLive"), hint], live: null };
   const unrestored = v?.engine.unrestored;
   if (unrestored) {
     const reason = unrestored === "Stop" ? t("LizzieFrame.foregroundUnrestored.reason.stop") : t("LizzieFrame.foregroundUnrestored.reason.restore");
-    return [
-      format(t("LizzieFrame.display.foregroundUnrestored"), reason),
-      format(t("LizzieFrame.display.foregroundUnrestoredAction"), t("Menu.restartCurrentEngine")),
-      hint,
-    ];
+    return {
+      lines: [
+        format(t("LizzieFrame.display.foregroundUnrestored"), reason),
+        format(t("LizzieFrame.display.foregroundUnrestoredAction"), t("Menu.restartCurrentEngine")),
+        hint,
+      ],
+      live: null,
+    };
   }
-  if (v?.engine.down) return [t("LizzieFrame.display.down"), hint];
+  if (v?.engine.down) return { lines: [t("LizzieFrame.display.down"), hint], live: null };
   const fg = v?.engine.foreground;
-  if (fg && v?.engine.engines[fg.index]?.state === "Loading") return [t("LizzieFrame.display.loading"), hint];
+  if (fg && v?.engine.engines[fg.index]?.state === "Loading") return { lines: [t("LizzieFrame.display.loading"), hint], live: null };
   // LizzieFrame.statusEngineName: a cloud engine shows only its provider (compactDisplayNameForCommand).
   const cloud = fg ? v?.settings.engine.engines[fg.index]?.cloud?.provider : undefined;
-  return [
-    // weightText: 跑谱贡献中 while the contribution runs (LizzieFrame.java:7548-7553).
-    v?.contribution?.active
-      ? t("LizzieFrame.weightText.contributing")
-      : cloud === "Zhizi" ? t("RemoteCompute.zhizi") : cloud === "Custom" ? t("RemoteCompute.custom") : fg?.name ?? t("LizzieFrame.noEngineText"),
-    `${t("LizzieFrame.display.pondering")} ${v?.engine.analysing ? t("LizzieFrame.display.on") : t("LizzieFrame.display.off")}${t("LizzieFrame.display.space")}`,
-    hint,
-  ];
+  const analysing = !!v?.engine.analysing;
+  return {
+    lines: [
+      // weightText: 跑谱贡献中 while the contribution runs (LizzieFrame.java:7548-7553).
+      v?.contribution?.active
+        ? t("LizzieFrame.weightText.contributing")
+        : cloud === "Zhizi" ? t("RemoteCompute.zhizi") : cloud === "Custom" ? t("RemoteCompute.custom") : fg?.name ?? t("LizzieFrame.noEngineText"),
+      `${t("LizzieFrame.display.pondering")} ${analysing ? t("LizzieFrame.display.on") : t("LizzieFrame.display.off")}${t("LizzieFrame.display.space")}`,
+      hint,
+    ],
+    live: analysing,
+  };
 }
 
 /** The main board's scene for the view, with the hovered candidate (already gated by
@@ -1066,22 +1075,29 @@ function render() {
   side = mode === "FourSub" || mode === "Thinking" ? sideLayout(W, H, request) : null;
   const floating = mode === "FloatBoard";
   const normal = side ?? (floating ? floatBoardLayout(W, H, request) : workbenchLayout(W, H, request, mode === "Normal"));
-  panels = dual ? { ...normal, board: dual.left, glass: [], handles: null } : normal;
+  // The cards (DESIGN.md 工作台卡片): every panel rectangle below is clipped to its card. 双引擎模式
+  // has no side panels and no cards.
+  const carded = dual ? null : cardLayout(normal, H);
+  panels = carded ? carded.panels : { ...normal, board: dual!.left, glass: [], handles: null };
   const P = panels;
+  const stage: StageCards = { cards: carded?.cards ?? [], dividers: carded?.dividers ?? [] };
   // A committed appearance repaints every themed panel and the wallpaper (Config.readThemeVaule);
   // so does a change of the colour mode or of the stage.
   const size = `${W}x${H}:${window.devicePixelRatio}:${appearanceRevision()}:${stageRevision()}`;
   // Edits change a node's position, marks or side to play in place: the revision moves on.
   const docSig = `${v.document.id}:${v.document.revision}:${pos.node}:${pos.to_play}`;
   projectAnalysis(v);
-  const background = `${size}:${mode}:${JSON.stringify(P.glass)}`;
-  if (changed("bg", background)) installBackground(background, W, H, P.glass);
+  const background = `${size}:${mode}:${JSON.stringify(stage)}`;
+  if (changed("bg", background)) installBackground(background, W, H, stage);
   // 界面 > 面板 flags; holding X hides the tree, the list and the comment (Input.java:616-623).
   const controls = controlsShowing();
   for (const id of PANEL_IDS) {
     const shown = !dual && P.shown[id] && !(controls && (id === "tree" || id === "table" || id === "comment"));
     const display = shown ? "" : "none";
     if ($(id).style.display !== display) $(id).style.display = display;
+    // A pane at a card's corner takes the card's rounded corner.
+    const radius = carded?.radii[id] ?? "";
+    if (changed(`radius:${id}`, radius)) $(id).style.borderRadius = radius;
   }
   if (changed("mode", mode)) {
     $("board").style.display = floating ? "none" : "";
@@ -1178,8 +1194,9 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
     graphHits = painted.hits;
   }
   const statusRect = P.status ?? { x: 0, y: P.ponderingY, w: P.board.x, h: H - P.ponderingY };
-  const lines = statusLines();
-  if (P.shown.status && changed("status", `${at(statusRect)}:${lines.join("|")}`)) paintStatus(prepare($("status"), statusRect), statusRect, lines);
+  const status = statusView();
+  if (P.shown.status && changed("status", `${at(statusRect)}:${status.lines.join("|")}:${status.live}`))
+    paintStatus(prepare($("status"), statusRect), statusRect, status.lines, status.live);
   if (treeScrollFor !== docSig) {
     treeScroll = null;
     treeScrollFor = docSig;
@@ -1438,7 +1455,7 @@ function uiReport() {
       body: box.querySelector(".modal-body")?.textContent
         ?? [...box.children].filter((el) => !el.classList.contains("modal-title")).map((el) => el.textContent ?? "").join(""),
     })),
-    status: statusLines(),
+    status: statusView().lines,
     candidateCount: boardReport?.candidates.length ?? 0,
     hoveredCandidate,
     subBoardCandidateIndex: subCandidate,
@@ -1450,7 +1467,7 @@ function uiReport() {
     tables: { ...tablesReport(), window: frameReport() },
     graphPointCount: graphReport?.pointCount ?? 0,
     graph: graphReport,
-    statusLines: statusLines(),
+    statusLines: statusView().lines,
     candidates: state.view?.analysis?.candidates.map((c) => ({ order: c.order, point: c.point, visits: c.visits, pvLength: c.pv.length })) ?? [],
     /** Client-area geometry so automation points at real board / sub-board / graph / table spots. */
     geometry: panels && state.view && (() => {

@@ -7,24 +7,32 @@
   outline: 2px solid var(--ds-ring);
   outline-offset: -2px;
 }
-/* Side filter after 问题手: the active side underlined like the active tab. */
+/* Side filter after 问题手: two text segments like the tabs, the active side on the well. */
 #problemSides {
   display: flex;
-  gap: 14px;
-  color: var(--ds-text-2);
+  gap: 2px;
+  margin-left: 6px;
 }
 #comment .side {
-  padding: 8px 0 5px;
-  border-bottom: 2px solid transparent;
+  padding: 0 7px;
+  line-height: 22px;
+  border-radius: 5px;
+  color: var(--comment-color, var(--ds-text-3));
   cursor: default;
 }
+#comment .side:hover {
+  background: var(--ds-hover);
+}
 #comment .side.on {
-  color: var(--ds-text);
-  border-bottom-color: var(--theme-accent-underline, var(--ds-accent));
+  background: var(--ds-well);
+  box-shadow: inset 0 -2px 0 var(--theme-accent-underline, transparent);
+  color: var(--comment-color, var(--ds-text));
+  font-weight: 600;
 }
 /* Progress chip at the row's end. */
 #problemProgress {
   margin-left: auto;
+  margin-right: 8px;
   padding: 2px 8px;
   border-radius: var(--ds-radius-s);
   font-size: var(--ds-size-s);
@@ -37,14 +45,14 @@
   color: var(--ds-warning-text);
   background: var(--ds-warning-soft);
 }
-/* BlunderListPanel: BorderLayout(0, 4) toolbar over the list inside the 10 px sidebar border. */
+/* BlunderListPanel: BorderLayout(0, 4) toolbar over the list, at the card section's side padding. */
 #problemPage {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 0 10px 10px;
+  padding: 4px 14px 10px;
   font-size: var(--ds-size);
   container-type: inline-size;
 }

@@ -36,11 +36,14 @@ export function stageWallpaper(): HTMLImageElement {
 /** The colours and the interface face the canvas panels draw with. */
 export interface StagePalette {
   builtin: boolean;
-  /** Panel ground and edge (the edge 1px, square). */
+  /** A card's translucent ground, the hairline between its sections, the card as it reads over
+   *  the wallpaper (grounds that hide what runs under them), its edge and its shadow's colour. */
   panel: string;
   line: string;
+  panelSolid: string;
+  cardEdge: string;
+  cardShadow: string;
   lineStrong: string;
-  sunken: string;
   text: string;
   text2: string;
   text3: string;
@@ -62,6 +65,7 @@ export interface StagePalette {
   stoneBlack: string;
   stoneBlackEdge: string;
   stoneWhite: string;
+  stoneWhiteEdge: string;
   onBlack: string;
   onWhite: string;
   barGrid: string;
@@ -79,8 +83,10 @@ export interface StagePalette {
 const NAMES: Record<Exclude<keyof StagePalette, "builtin">, string> = {
   panel: "--ws-panel",
   line: "--ws-panel-line",
+  panelSolid: "--ws-panel-solid",
+  cardEdge: "--ws-card-edge",
+  cardShadow: "--ws-card-shadow",
   lineStrong: "--ds-line-strong",
-  sunken: "--ds-sunken",
   text: "--ds-text",
   text2: "--ds-text-2",
   text3: "--ds-text-3",
@@ -101,6 +107,7 @@ const NAMES: Record<Exclude<keyof StagePalette, "builtin">, string> = {
   stoneBlack: "--ws-stone-black",
   stoneBlackEdge: "--ws-stone-black-edge",
   stoneWhite: "--ws-stone-white",
+  stoneWhiteEdge: "--ws-stone-white-edge",
   onBlack: "--ws-on-black",
   onWhite: "--ws-on-white",
   barGrid: "--ws-bar-grid",
@@ -115,8 +122,10 @@ const NAMES: Record<Exclude<keyof StagePalette, "builtin">, string> = {
   scrollThumb: "--ws-scroll-thumb",
 };
 
-/** The panels over a wallpaper the user chose: translucent black under light text. */
+/** The cards over a wallpaper the user chose: translucent black under light text, and the
+ *  near-opaque black that hides what runs under a ground there (stage.css). */
 const WALLPAPER_PANEL = "rgba(0,0,0,0.51)";
+const WALLPAPER_SOLID = "rgba(0,0,0,0.78)";
 
 let cached: StagePalette | null = null;
 let darkProbe: HTMLElement | null = null;
@@ -143,7 +152,7 @@ export function stagePalette(): StagePalette {
   for (const [key, name] of Object.entries(NAMES)) (palette as unknown as Record<string, string>)[key] = style.getPropertyValue(name).trim();
   if (!builtin) {
     palette.panel = WALLPAPER_PANEL;
-    palette.line = WALLPAPER_PANEL;
+    palette.panelSolid = WALLPAPER_SOLID;
   }
   cached = palette;
   return palette;

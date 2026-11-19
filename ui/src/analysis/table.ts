@@ -517,13 +517,14 @@ export function frameSortBy(id: FrameId, column: number): void {
 
 // ------------------------------------------------------------------ main window table
 
-const TABLE_HEADER = navigator.userAgent.includes("Windows") ? 19 : 17;
+/** The list's rows and header at the 12 px interface font (DESIGN.md 选点列表: 22 px rows). */
+const ROW = 22;
+const HEADER = 24;
 
 /** refreshSuggestionTableStyle (LizzieFrame.java:2697-2721): the list takes
- *  workspaceFont(PLAIN, frameFontSize) — the theme's UI font when one is named — and rows of
- *  max(Config.menuHeight - 4, font height + 8) (SuggestionTableScrollPane.rowHeightFor); the header
- *  is the font height plus its insets. The 12 px heights are the measured ones above; other sizes
- *  add the font's own height difference, and the row never drops below menuHeight - 4. */
+ *  workspaceFont(PLAIN, frameFontSize) — the theme's UI font when one is named. Rows are 22 px and
+ *  the header 24 px at 12 px; other sizes add the font's own height difference, and the row never
+ *  drops below Java's menuHeight - 4. */
 function mainTableStyle(table: HTMLTableElement): { row: number; header: number } {
   const { frameFontSize, menuHeight } = frameMetrics();
   const a = appearance();
@@ -537,9 +538,9 @@ function mainTableStyle(table: HTMLTableElement): { row: number; header: number 
     return Math.ceil(m.fontBoundingBoxAscent + m.fontBoundingBoxDescent);
   };
   const grow = frameFontSize === 12 ? 0 : height(frameFontSize) - height(12);
-  return { row: Math.max(menuHeight - 4, TABLE_HEADER + 3 + grow), header: TABLE_HEADER + grow };
+  return { row: Math.max(menuHeight - 4, ROW + grow), header: HEADER + grow };
 }
-let mainRowHeight = TABLE_HEADER + 3;
+let mainRowHeight = ROW;
 /** setPreferredWidth of 序号, 胜率, 计算量, 占比, 目数 (LizzieFrame.java:907-912); 序号's 10 is
  *  raised to TableColumn's minimum. */
 let mainPreferred = [15, 30, 30, 45, 30];
@@ -637,10 +638,11 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
       // The actual row's cells carry their text as a tooltip.
       cell.title = r.actual ? c.text : "";
       cell.style.color = c.fg;
-      // 占比: a hard-edged bar of the share token, the rest of the cell clear.
-      cell.style.background = c.bar === null
-        ? c.bg
-        : `linear-gradient(to right, var(--ws-share-bar) ${Math.min(100, c.bar)}%, transparent ${Math.min(100, c.bar)}%)`;
+      // 占比: a hard-edged bar of the share token behind the right-aligned number, growing
+      // leftwards from the cell's right padding, over the row's own tint.
+      const bar = c.bar === null ? "" : `linear-gradient(to left, var(--ws-share-bar) ${Math.min(100, c.bar)}%, transparent ${Math.min(100, c.bar)}%) right 4px center / calc(100% - 8px) calc(100% - 8px) no-repeat`;
+      const tint = cells[0].bg;
+      cell.style.background = c.bar === null ? c.bg : tint ? `${bar}, ${tint}` : bar;
     });
   });
 }
