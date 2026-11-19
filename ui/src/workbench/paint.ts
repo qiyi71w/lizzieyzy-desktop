@@ -23,7 +23,7 @@ import type {
 import { language, t } from "../i18n";
 import { appearance, onAppearanceChange } from "../appearance/state";
 import { chineseClassicLabel, cssColor, customFont, drawChineseClassicMarkers, javaHue, localeFonts, opaque, rankColor, reverseColor, THEME_DEFAULT, themeColor, themedFont } from "../appearance/model";
-import { stagePalette, type StagePalette } from "../design/stage";
+import { stagePalette, stageWallpaper, type StagePalette } from "../design/stage";
 import type { BoardGeom, Rect } from "./layout";
 
 const COLS = "ABCDEFGHJKLMNOPQRSTUVWXYZ";
@@ -440,24 +440,25 @@ function liquidEffects(g: CanvasRenderingContext2D, r: Rect) {
  * border (255,255,255,26), highlight (255,255,255,77); at level 0 only the region blurred by the
  * theme's background-filter. The pure background colour replaces the wallpaper and the containers
  * (LizzieFrame.java:8197-8208).
- * On the flat stage (flatStage) there is no wallpaper: nothing is painted (null) and the stage
- * colour of stage.css is the ground.
+ * The program's own stage tiles its wallpaper for the colour mode instead and leaves it sharp
+ * under the panels: the material shows through them.
  * Painted once per size into a detached canvas and returned as a PNG blob: a live full-window canvas
  * layer would be recomposited every frame by WebKitGTK. */
 export function paintBackground(w: number, h: number, glass: Rect[]): Promise<Blob | null> {
   if (stagePalette().flat) return Promise.resolve(null);
   const canvas = document.createElement("canvas");
   const g = prepare(canvas, { x: 0, y: 0, w, h });
-  if (look.pureBackground) {
+  if (look.pureBackground && !builtin) {
     g.fillStyle = look.pureBackground;
     g.fillRect(0, 0, w, h);
     glass = [];
-  } else drawTexture(g, look.background, 0, 0, w, h, 0, 0);
+  } else drawTexture(g, builtin ? stageWallpaper() : look.background, 0, 0, w, h, 0, 0);
   const glassy = look.glassLevel > 0;
   const liquid = look.glassLevel >= 2;
   for (const r of glass) {
     if (r.w <= 0 || r.h <= 0 || r.x < 0 || r.y < 0 || r.x + r.w > w || r.y + r.h > h) continue;
     if (!glassy) {
+      if (builtin) continue;
       // GaussianFilter(0) leaves the region as it is.
       if (look.backgroundFilter > 0) blurRegion(g, r, look.backgroundFilter);
       continue;

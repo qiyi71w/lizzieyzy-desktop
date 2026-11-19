@@ -359,7 +359,8 @@ body {
   border-top: 4px solid var(--ds-text-2);
 }
 
-/* ---- workbench: absolute children positioned by the layout code on the stage ground */
+/* ---- workbench: absolute children positioned by the layout code over the stage's wallpaper
+   (design/stage.ts); the board rests on it with a shadow */
 #main {
   flex: 1;
   position: relative;
@@ -370,18 +371,25 @@ body {
 #main > div {
   position: absolute;
 }
+#board,
+#board2,
+#sub,
+#main > canvas.quad {
+  box-shadow: var(--ws-board-shadow);
+}
 
-/* Comment and problem-move pane. The appearance module sets --comment-background, --comment-color,
-   --comment-font-size and --theme-accent-underline when the theme chooses its own. */
+/* Comment and problem-move pane: a translucent panel like the canvas panels beside it. The
+   appearance module sets --comment-background, --comment-color, --comment-font-size and
+   --theme-accent-underline when the theme chooses its own. */
 #comment {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--ds-line);
-  background: var(--comment-background, var(--ds-panel));
+  border: 1px solid var(--ws-panel-line);
+  background: var(--comment-background, var(--ws-panel));
   color: var(--comment-color, var(--ds-text));
 }
-/* Over a wallpaper the panes are translucent black, as the wallpaper's canvas panels are. */
+/* Over a wallpaper the user chose the panes are translucent black, as its canvas panels are. */
 :root[data-stage="wallpaper"] #comment {
   border-color: transparent;
   background: var(--comment-background, rgba(0, 0, 0, 0.784));
@@ -425,8 +433,8 @@ body {
 }
 /* Candidate list: column widths and row colours come from table.ts */
 #table {
-  border: 1px solid var(--ds-line);
-  background: var(--ds-panel);
+  border: 1px solid var(--ws-panel-line);
+  background: var(--ws-panel);
   overflow-x: hidden;
   overflow-y: scroll;
 }
@@ -442,7 +450,7 @@ body {
   z-index: 1;
   padding: 0;
   border-bottom: 1px solid var(--ds-line);
-  background: var(--ds-sunken);
+  background: var(--ds-panel);
   color: var(--ds-text-2);
   font-weight: 400;
   user-select: none;

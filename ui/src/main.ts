@@ -76,7 +76,7 @@ import { openWholeGameAnalysis } from "./quick/wholeGame";
 import { bindFunctionSearch, functionSearchReport } from "./search/controller";
 import { strengthReport } from "./strength/dashboard";
 import { appearanceRevision, onAppearanceChange, startAppearance } from "./appearance/state";
-import { onStageChange, stageRevision } from "./design/stage";
+import { onStageChange, stageReady, stageRevision } from "./design/stage";
 import "./appearance/commands";
 import "./webBoard";
 import { humanSlDisplay } from "./humansl/state";
@@ -1651,6 +1651,7 @@ async function boot() {
     loadImages(["board.png", "heatmap.png", "smallUp.png", "smallDown.png", "smallLeft.png", "smallRight.png"]),
     document.fonts.load('12px "Lizzie Winrate"'),
     startAppearance(first),
+    stageReady,
   ]);
   onAppearanceChange(schedule);
   onStageChange(schedule);
