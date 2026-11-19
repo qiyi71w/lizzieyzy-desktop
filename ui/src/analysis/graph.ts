@@ -332,8 +332,10 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   const legendOps: Op[] = [];
   const blunder: Op[] = [];
   const front: Op[] = [];
+  /** The values in figures: over the markers and the guide, each on an outline of the ground. */
+  const labels: Op[] = [];
   const flush = () => {
-    for (const op of [...background, ...guide, ...legendOps, ...blunder, ...front]) op();
+    for (const op of [...background, ...guide, ...legendOps, ...blunder, ...front, ...labels]) op();
     g.setLineDash([]);
     g.textAlign = "left";
     g.textBaseline = "alphabetic";
@@ -643,8 +645,12 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     const fm = metrics(g);
     const box = placeLabel({ x, y: y - fm.ascent, w: stringWidth(g, text), h: fm.ascent + fm.descent }, bounds, occupied);
     occupied.push(box);
-    front.push(() => {
+    labels.push(() => {
       g.font = font;
+      g.strokeStyle = theme.ground;
+      g.lineWidth = 3;
+      g.lineJoin = "round";
+      g.strokeText(text, box.x, box.y + fm.ascent);
       g.fillStyle = color;
       g.fillText(text, box.x, box.y + fm.ascent);
     });

@@ -230,10 +230,12 @@ function group(cls: string, ...items: HTMLElement[]): HTMLElement {
   return g;
 }
 
+/** A caption inside a capsule. Its colour sets it apart from the values, so the colon some
+ *  languages' strings end with is left out. */
 function label(text: string): HTMLElement {
   const s = document.createElement("span");
   s.className = "tb-label";
-  s.textContent = text;
+  s.textContent = text.replace(/[:：]\s*$/, "");
   return s;
 }
 

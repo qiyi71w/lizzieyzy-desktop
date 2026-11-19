@@ -541,9 +541,11 @@ function mainTableStyle(table: HTMLTableElement): { row: number; header: number 
   return { row: Math.max(menuHeight - 4, ROW + grow), header: HEADER + grow };
 }
 let mainRowHeight = ROW;
-/** setPreferredWidth of 序号, 胜率, 计算量, 占比, 目数 (LizzieFrame.java:907-912); 序号's 10 is
- *  raised to TableColumn's minimum. */
-let mainPreferred = [15, 30, 30, 45, 30];
+/** Preferred widths of 序号, 胜率, 计算量, 占比, 目数 until the user drags a border. The list's
+ *  width is shared out from them, so at the default window size the actual move's row
+ *  ("21(实战)", "↓-8.6(46.4)") shows in full inside the cells' padding; Java's own
+ *  15 / 30 / 30 / 45 / 30 (LizzieFrame.java:907-912) gave the widest share to 占比. */
+let mainPreferred = [22, 40, 16, 20, 42];
 let mainWidths: number[] = [];
 let mainStructure = "";
 
