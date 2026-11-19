@@ -51,10 +51,9 @@ body {
   height: 24px;
   margin-left: 6px;
   padding: 0 12px;
-  line-height: 22px;
-  border: 1px solid var(--ds-line-strong);
+  line-height: 24px;
   border-radius: var(--ds-radius);
-  background-color: var(--ds-field);
+  background-color: var(--ds-soft);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -224,15 +223,16 @@ body {
 .tb-icon.unavailable {
   color: var(--ds-text-off);
 }
+/* Text buttons in the bars: a soft fill without an edge, so fields (which keep their edge) and
+   buttons read apart. */
 .tb-pill {
   height: var(--ds-control-h);
-  padding: 0 8px;
-  line-height: calc(var(--ds-control-h) - 2px);
+  padding: 0 9px;
+  line-height: var(--ds-control-h);
   text-align: center;
   white-space: nowrap;
-  border: 1px solid var(--ds-line-strong);
   border-radius: var(--ds-radius);
-  background-color: var(--ds-field);
+  background-color: var(--ds-soft);
 }
 .tb-pill:hover {
   background-image: linear-gradient(var(--ds-hover), var(--ds-hover));
@@ -242,13 +242,10 @@ body {
 }
 .tb-pill.disabled {
   color: var(--ds-text-off);
-  background-color: var(--ds-sunken);
   background-image: none;
 }
 /* 结束对局, 认输 */
 .tb-pill.danger {
-  border-color: var(--ds-danger-soft-line);
-  background-color: var(--ds-danger-soft);
   color: var(--ds-danger-text);
 }
 /* An icon and its text centred as one group */
@@ -469,13 +466,12 @@ body {
 }
 .bb {
   position: absolute;
-  top: 3px;
+  top: 4px;
   height: 24px;
-  line-height: 22px;
+  line-height: 24px;
   text-align: center;
-  border: 1px solid var(--ds-line-strong);
   border-radius: var(--ds-radius);
-  background-color: var(--ds-field);
+  background-color: var(--ds-soft);
 }
 .bb:hover {
   background-image: linear-gradient(var(--ds-hover), var(--ds-hover));
@@ -483,22 +479,38 @@ body {
 .bb:active {
   background-image: linear-gradient(var(--ds-pressed), var(--ds-pressed));
 }
+/* 自动分析, 远程算力: the accent ink marks them, the fill stays the bar's */
 .bb.primary {
-  border-color: var(--ds-accent-soft-line);
-  background-color: var(--ds-accent-soft);
   color: var(--ds-accent-text);
+  font-weight: 600;
 }
 .bb.danger {
-  border-color: var(--ds-danger-soft-line);
-  background-color: var(--ds-danger-soft);
   color: var(--ds-danger-text);
 }
-/* 分析: its state icon and label centred as one group */
+/* The step buttons around the move field: icons without a fill until the pointer is on them */
+.bb.nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: transparent;
+  color: var(--ds-text-2);
+}
+.bb.nav:hover {
+  color: var(--ds-text);
+}
+.bb.nav .icon {
+  width: 16px;
+  height: 16px;
+}
+/* 分析, the bar's one filled button: its state icon and label centred as one group */
 .bb.with-icon {
   display: flex;
   align-items: center;
   justify-content: center;
   column-gap: 4px;
+  background-color: var(--ds-accent);
+  color: var(--ds-on-accent);
+  font-weight: 600;
 }
 .bb.with-icon .icon {
   width: 16px;
@@ -506,7 +518,7 @@ body {
 }
 #moveInput {
   position: absolute;
-  top: 3px;
+  top: 4px;
   width: 56px;
   height: 24px;
   padding: 0 4px;

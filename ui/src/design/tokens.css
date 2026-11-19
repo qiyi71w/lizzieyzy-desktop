@@ -1,32 +1,34 @@
-/* Design tokens: the only place interface colours, type and metrics are named. The neutrals are
-   the materials of a Go set: washi and ink in the light mode, slate and clamshell in the dark
-   one; the one accent is indigo. Light is the default; theme.ts sets data-theme on the root from
-   the appearance mode, and any element may carry data-theme to fix its subtree to one theme.
-   Board, stone and analysis-mark colours belong to the board theme, not to these tokens. */
+/* Design tokens: the only place interface colours, type and metrics are named. The window frame
+   (bars, dialogs, other windows) is a near-neutral grey in a light and a dark set, with one ink-blue
+   accent; the workbench between the bars is the Go table and always takes the dark set
+   (design/stage.ts). Light is the default; theme.ts sets data-theme on the root from the appearance
+   mode, and any element may carry data-theme to fix its subtree to one theme. Board, stone and
+   analysis-mark colours belong to the board theme, not to these tokens. */
 :root,
 [data-theme="light"] {
   color-scheme: light;
 
   /* Surfaces, from the window frame inwards. */
-  --ds-chrome: #f0ebe2; /* window bar, toolbar, bottom bar */
-  --ds-stage: #e4ddd0; /* workbench ground where no wallpaper is drawn */
-  --ds-panel: #fbf9f4; /* panes, tables, dialogs */
-  --ds-raised: #fffdf9; /* menus and popovers */
-  --ds-field: #fffdf9; /* inputs and default buttons */
-  --ds-sunken: #e9e3d8; /* table headers, wells, read-only fields */
-  --ds-hover: rgba(60, 45, 20, 0.07);
-  --ds-pressed: rgba(60, 45, 20, 0.13);
-  --ds-scrim: rgba(30, 24, 14, 0.32);
+  --ds-chrome: #f3f2ef; /* window bar, toolbar, bottom bar */
+  --ds-stage: #e2e0db; /* workbench ground where no wallpaper is drawn */
+  --ds-panel: #fbfbfa; /* panes, tables, dialogs */
+  --ds-raised: #ffffff; /* menus and popovers */
+  --ds-field: #ffffff; /* inputs */
+  --ds-sunken: #e9e8e4; /* table headers, wells, read-only fields */
+  --ds-soft: rgba(30, 28, 20, 0.06); /* buttons in the bars: a fill, no edge */
+  --ds-hover: rgba(30, 28, 20, 0.07);
+  --ds-pressed: rgba(30, 28, 20, 0.13);
+  --ds-scrim: rgba(20, 20, 18, 0.32);
 
   /* Lines. */
-  --ds-line: #ddd5c7; /* separators and pane edges */
-  --ds-line-strong: #c2b8a6; /* control borders */
+  --ds-line: #dcdad5; /* separators and pane edges */
+  --ds-line-strong: #c1bfb9; /* control borders */
 
   /* Text. */
-  --ds-text: #1f1d1a;
-  --ds-text-2: #57524a;
-  --ds-text-3: #696358;
-  --ds-text-off: #a59e91;
+  --ds-text: #1c1c1a;
+  --ds-text-2: #54534e;
+  --ds-text-3: #686761;
+  --ds-text-off: #a3a19b;
 
   /* Accent: primary action, selection, focus. Nothing else. */
   --ds-accent: #2a5a8c;
@@ -51,11 +53,11 @@
   --ds-success-soft: #e2efe2;
 
   /* Depth. */
-  --ds-shadow-pop: 0 0 0 1px rgba(40, 30, 10, 0.1), 0 6px 20px -4px rgba(40, 30, 10, 0.24);
-  --ds-shadow-dialog: 0 0 0 1px rgba(40, 30, 10, 0.12), 0 18px 48px -8px rgba(40, 30, 10, 0.34);
+  --ds-shadow-pop: 0 0 0 1px rgba(20, 20, 18, 0.1), 0 6px 20px -4px rgba(20, 20, 18, 0.24);
+  --ds-shadow-dialog: 0 0 0 1px rgba(20, 20, 18, 0.12), 0 18px 48px -8px rgba(20, 20, 18, 0.34);
 
   /* The arrow of a select, in the secondary text colour. */
-  --ds-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M.8.8 4 4 7.2.8' fill='none' stroke='%2357524a' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --ds-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M.8.8 4 4 7.2.8' fill='none' stroke='%2354534e' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 :root {
@@ -80,23 +82,24 @@
 [data-theme="dark"] {
   color-scheme: dark;
 
-  --ds-chrome: #242321;
+  --ds-chrome: #252524;
   --ds-stage: #161615;
-  --ds-panel: #1e1d1b;
-  --ds-raised: #2b2a27;
-  --ds-field: #34322e;
-  --ds-sunken: #191817;
-  --ds-hover: rgba(255, 245, 225, 0.08);
-  --ds-pressed: rgba(255, 245, 225, 0.14);
+  --ds-panel: #1e1e1d;
+  --ds-raised: #2b2b29;
+  --ds-field: #353533;
+  --ds-sunken: #191918;
+  --ds-soft: rgba(255, 252, 245, 0.07);
+  --ds-hover: rgba(255, 252, 245, 0.08);
+  --ds-pressed: rgba(255, 252, 245, 0.14);
   --ds-scrim: rgba(0, 0, 0, 0.55);
 
-  --ds-line: #3a3833;
-  --ds-line-strong: #524e47;
+  --ds-line: #393937;
+  --ds-line-strong: #52514d;
 
-  --ds-text: #efeae0;
-  --ds-text-2: #bab3a6;
-  --ds-text-3: #a39c8f;
-  --ds-text-off: #6c675e;
+  --ds-text: #eeede8;
+  --ds-text-2: #b7b5ae;
+  --ds-text-3: #a09e97;
+  --ds-text-off: #6a6964;
 
   --ds-accent: #3d6fa6;
   --ds-accent-hover: #477bb5;
@@ -118,10 +121,10 @@
   --ds-success-text: #7fc591;
   --ds-success-soft: #1c3122;
 
-  --ds-shadow-pop: 0 0 0 1px rgba(255, 245, 225, 0.1), 0 8px 24px -4px rgba(0, 0, 0, 0.6);
-  --ds-shadow-dialog: 0 0 0 1px rgba(255, 245, 225, 0.12), 0 20px 56px -8px rgba(0, 0, 0, 0.7);
+  --ds-shadow-pop: 0 0 0 1px rgba(255, 252, 245, 0.1), 0 8px 24px -4px rgba(0, 0, 0, 0.6);
+  --ds-shadow-dialog: 0 0 0 1px rgba(255, 252, 245, 0.12), 0 20px 56px -8px rgba(0, 0, 0, 0.7);
 
-  --ds-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M.8.8 4 4 7.2.8' fill='none' stroke='%23bab3a6' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --ds-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M.8.8 4 4 7.2.8' fill='none' stroke='%23b7b5ae' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 /* The platform's own interface face; the document language picks the matching CJK face. */

@@ -1485,7 +1485,7 @@ function uiReport() {
     })(),
     comment: $("commentText").textContent,
     moveField: $<HTMLInputElement>("moveInput").value,
-    bottomBar: [...document.querySelectorAll<HTMLElement>("#bottombar .bb")].filter((b) => b.style.display !== "none").map((b) => b.textContent),
+    bottomBar: [...document.querySelectorAll<HTMLElement>("#bottombar .bb")].filter((b) => b.style.display !== "none").map((b) => b.getAttribute("aria-label") ?? b.textContent),
     editing: {
       placement: editing.placement,
       insert: editing.insert,

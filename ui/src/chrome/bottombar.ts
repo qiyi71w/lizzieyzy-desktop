@@ -24,8 +24,11 @@ import { icon, type IconName } from "../design/icons";
 
 interface Item {
   name: string;
+  /** The label's resource key; for an `icon` button, Java's own glyph label, kept as its name. */
   key: string;
   cls?: string;
+  /** Drawn in place of the label. */
+  icon?: IconName;
   run?: () => void;
   /** Its 自定义内容 setting; visibleButtons skips the button while it is off. */
   setting?: BottomButton;
@@ -88,14 +91,14 @@ const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" 
     { name: "liveButton", key: "BottomToolbar.liveButton", setting: "live", popup: LIVE_MENU },
   ],
   center: [
-    { name: "firstButton", key: "|<", cls: "nav", run: () => navigate({ op: "First" }) },
-    { name: "backward10", key: "<<", cls: "nav", run: () => COMMANDS["review.previous-ten"].run() },
-    { name: "backward1", key: "<", cls: "nav", run: () => COMMANDS["review.previous"].run() },
+    { name: "firstButton", key: "|<", cls: "nav", icon: "step-first", run: () => navigate({ op: "First" }) },
+    { name: "backward10", key: "<<", cls: "nav", icon: "step-back-ten", run: () => COMMANDS["review.previous-ten"].run() },
+    { name: "backward1", key: "<", cls: "nav", icon: "step-back", run: () => COMMANDS["review.previous"].run() },
     { name: "txtMoveNumber", key: "", located: "review.goto" },
     { name: "gotomove", key: "BottomToolbar.gotomove", run: () => gotoMove(moveInput) },
-    { name: "forward1", key: ">", cls: "nav", run: () => COMMANDS["review.next"].run() },
-    { name: "forward10", key: ">>", cls: "nav", run: () => COMMANDS["review.next-ten"].run() },
-    { name: "lastButton", key: ">|", cls: "nav", run: () => navigate({ op: "Last" }) },
+    { name: "forward1", key: ">", cls: "nav", icon: "step-forward", run: () => COMMANDS["review.next"].run() },
+    { name: "forward10", key: ">>", cls: "nav", icon: "step-forward-ten", run: () => COMMANDS["review.next-ten"].run() },
+    { name: "lastButton", key: ">|", cls: "nav", icon: "step-last", run: () => navigate({ op: "Last" }) },
     // new AutoPlay().setVisible(true) (BottomToolbar.java:1296-1302)
     { name: "autoPlay", key: "BottomToolbar.autoPlay", setting: "autoPlay", run: () => COMMANDS["menu.makeAutoPlay"].run() },
   ],
@@ -186,9 +189,10 @@ export function locateHiddenButton(id: string): boolean {
 const elements = new Map<Item, HTMLElement>();
 const widths = new Map<Item, number>();
 
-/** Java button widths: string width + 26 with a 52 minimum for text buttons (navigation arrows have
- *  no minimum); the move field is 56. The analyse button carries a 16 px icon and keeps one width
- *  for both states: the wider of its two labels + 38 (setAnalyseButtonSize, BottomToolbar.java:2608-2623). */
+/** Java button widths: string width + 26 with a 52 minimum for text buttons; the step buttons are
+ *  28 around their icon and the move field is 56. The analyse button carries a 16 px icon and keeps
+ *  one width for both states: the wider of its two labels + 38 (setAnalyseButtonSize,
+ *  BottomToolbar.java:2608-2623). */
 function measure(host: HTMLElement) {
   const g = document.createElement("canvas").getContext("2d")!;
   g.font = getComputedStyle(host).font;
@@ -197,10 +201,7 @@ function measure(host: HTMLElement) {
     if (item.name === "txtMoveNumber") widths.set(item, 56);
     else if (item.name === "analyse") {
       widths.set(item, Math.max(text(t("BottomToolbar.analyse")), text(t("BottomToolbar.pauseAnalyse"))) + 38);
-    } else {
-      const w = text(elements.get(item)!.textContent ?? "") + 26;
-      widths.set(item, item.cls === "nav" ? w : Math.max(52, w));
-    }
+    } else widths.set(item, item.icon ? 28 : Math.max(52, text(elements.get(item)!.textContent ?? "") + 26));
   }
 }
 
@@ -242,6 +243,9 @@ export function buildBottomBar(host: HTMLElement): void {
       analyseLabel = document.createElement("span");
       b.append(analyseIcon, analyseLabel);
       showAnalysis(false);
+    } else if (item.icon) {
+      b.setAttribute("aria-label", item.key);
+      b.append(icon(item.icon));
     } else b.textContent = t(item.key);
     // batchOpen's autoAnalyzePopup (above the button) and liveButton's `yike` popup
     // (BottomToolbar.java:1452-1457): JPopupMenus shown over the bar.

@@ -1,25 +1,23 @@
 // The workbench stage: the wallpaper under the board and the palette the canvas panels draw with.
-// Without a theme wallpaper, a custom background image or a pure background colour the stage is
-// the program's own: washi in the light mode, slate in the dark one, under translucent panels of
-// that mode. A wallpaper or colour the user chose stays as it is, under translucent dark panels
-// drawn with the dark theme's colours.
+// The stage is the table the board stands on, the same in either colour mode: a dark material
+// under translucent dark panels drawn with the dark theme's colours. Without a theme wallpaper, a
+// custom background image or a pure background colour the material is the program's own; a
+// wallpaper or colour the user chose takes its place under Java's translucent black panels.
 import { appearance, onAppearanceChange } from "../appearance/state";
-import { onThemeChange, resolvedTheme } from "./theme";
 import "./stage.css";
 
 /** The bundled wallpaper the core resolves to without a theme or custom background image. */
 const DEFAULT_WALLPAPER = "/assets/background.jpg";
 
-/** The program's own wallpapers, 512 px tiles made by tools/stage_wallpapers.py. */
-const WALLPAPERS = { light: new Image(), dark: new Image() };
-WALLPAPERS.light.src = "/assets/stage-washi.jpg";
-WALLPAPERS.dark.src = "/assets/stage-ink.jpg";
+/** The program's own wallpaper, a tile made by tools/stage_wallpapers.py. */
+const WALLPAPER = new Image();
+WALLPAPER.src = "/assets/stage.jpg";
 
-/** Settles once both wallpapers can be painted (or cannot be read). */
-export const stageReady: Promise<unknown> = Promise.allSettled([WALLPAPERS.light.decode(), WALLPAPERS.dark.decode()]);
+/** Settles once the wallpaper can be painted (or cannot be read). */
+export const stageReady: Promise<unknown> = WALLPAPER.decode().catch(() => undefined);
 
 /** True while the committed appearance names no wallpaper of its own: the stage is then the
- *  program's wallpaper for the current colour mode and the panels take that mode's tokens. */
+ *  program's wallpaper and its panels take the stage tokens. */
 export function builtinStage(): boolean {
   const a = appearance();
   if (!a) return true;
@@ -28,9 +26,9 @@ export function builtinStage(): boolean {
   return !!src && new URL(src, location.href).pathname === DEFAULT_WALLPAPER;
 }
 
-/** The program's wallpaper for the current colour mode. */
+/** The program's wallpaper. */
 export function stageWallpaper(): HTMLImageElement {
-  return WALLPAPERS[resolvedTheme()];
+  return WALLPAPER;
 }
 
 /** The colours and the interface face the canvas panels draw with. */
@@ -123,22 +121,18 @@ let darkProbe: HTMLElement | null = null;
 let revision = 0;
 const listeners: (() => void)[] = [];
 
-/** The palette for the current stage and colour mode. */
+/** The palette for the current stage: the dark theme's values in either colour mode, read from a
+ *  hidden element fixed to that theme. */
 export function stagePalette(): StagePalette {
   if (cached) return cached;
   const builtin = builtinStage();
-  let source: Element = document.documentElement;
-  if (!builtin) {
-    // The dark theme's values whatever the mode: a hidden element fixed to the dark theme.
-    if (!darkProbe?.isConnected) {
-      darkProbe = document.createElement("div");
-      darkProbe.dataset.theme = "dark";
-      darkProbe.hidden = true;
-      document.documentElement.append(darkProbe);
-    }
-    source = darkProbe;
+  if (!darkProbe?.isConnected) {
+    darkProbe = document.createElement("div");
+    darkProbe.dataset.theme = "dark";
+    darkProbe.hidden = true;
+    document.documentElement.append(darkProbe);
   }
-  const style = getComputedStyle(source);
+  const style = getComputedStyle(darkProbe);
   const palette = { builtin } as StagePalette;
   for (const [key, name] of Object.entries(NAMES)) (palette as unknown as Record<string, string>)[key] = style.getPropertyValue(name).trim();
   if (!builtin) {
@@ -149,25 +143,22 @@ export function stagePalette(): StagePalette {
   return palette;
 }
 
-/** Moves on whenever the palette or the stage changes: painters include it in their repaint
- *  signatures, as they do the appearance revision. */
+/** Moves on whenever the stage changes: painters include it in their repaint signatures, as they
+ *  do the appearance revision. */
 export function stageRevision(): number {
   return revision;
 }
 
-/** Called after the palette changed (colour mode, or the stage with the appearance). */
+/** Called after the stage changed with the appearance. */
 export function onStageChange(listener: () => void): void {
   listeners.push(listener);
 }
 
-/** The stage as the style sheets see it. Over a wallpaper the user chose, the workbench's panes
- *  take the dark theme's tokens in either colour mode, like the canvas panels beside them. */
+/** The stage as the style sheets see it: which wallpaper it shows, and the workbench's panes on
+ *  the dark theme's tokens like the canvas panels beside them. */
 function applyStage(): void {
-  const builtin = builtinStage();
-  document.documentElement.dataset.stage = builtin ? "builtin" : "wallpaper";
-  const main = document.getElementById("main");
-  if (builtin) main?.removeAttribute("data-theme");
-  else main?.setAttribute("data-theme", "dark");
+  document.documentElement.dataset.stage = builtinStage() ? "builtin" : "wallpaper";
+  document.getElementById("main")?.setAttribute("data-theme", "dark");
 }
 
 function changed(): void {
@@ -193,6 +184,5 @@ export function rgbaOf(css: string): number[] {
   return [r, g, b, Math.round(a * 255)];
 }
 
-onThemeChange(changed);
 onAppearanceChange(changed);
 applyStage();
