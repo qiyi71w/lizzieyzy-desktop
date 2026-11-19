@@ -111,6 +111,16 @@ come in only through the Java import, as copies; Java's own `save` folder is nev
 The installer and the portable zip use the same folders. Uninstalling or deleting the program
 does not delete them. Help > 诊断与日志 shows the log files of the running program.
 
+If `config.json` is damaged (its content is not settings), the program keeps it in the same
+folder as `config.json.unreadable-backup` (`.1`, `.2`, … when that name is taken) and starts with
+the default settings. If the file cannot be read at all (its permissions changed, or it is a
+link to a drive that is not there), or a damaged file cannot be kept as that backup, the program
+starts with the default settings, leaves the file untouched and says why when you change a
+setting: `config.json` is not written in that run. What the program keeps in other files, such
+as the window placement in `persist.json`, is still saved. Once the file can be read again,
+starting the program brings your settings back. A damaged file is not repaired: once the backup
+can be made, the next start keeps it as described above and uses the default settings.
+
 Test builds named *LizzieYzy Tauri Acceptance* (`lizzieyzy-tauri-acceptance_…`) are for automated
 testing. They use the identifier `io.github.qiyi71w.lizzieyzy-tauri.acceptance`, their own
 install folder, package and data folders, and do not touch the normal program's data.

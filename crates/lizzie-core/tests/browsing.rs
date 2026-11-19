@@ -10,6 +10,10 @@ use lizzie_core::record::{BoardSize, GameRecord, NodeId, Point, Stone, ROOT};
 use lizzie_core::settings::{FramePlacement, Language, Storage, WindowPlacement};
 use lizzie_core::workbench::{OpenOrigin, PasteDecision, Workbench, FAILED_TO_OPEN_FILE, KIFU_LOAD_FAILED};
 
+#[cfg(unix)]
+#[path = "support/permissions.rs"]
+mod permissions;
+
 /// Browsing runs without engines; nothing is ever launched here.
 struct NoEngines;
 
@@ -439,6 +443,122 @@ fn a_settings_change_that_cannot_be_saved_is_not_applied() {
     assert!(wb.clear_personal_data().unwrap());
     let reopened = Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
     assert!(reopened.config().recent_files.is_empty());
+}
+
+#[test]
+fn settings_that_cannot_be_understood_are_kept_beside_the_file_that_replaces_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let config_file = storage(dir.path()).config_file;
+    let start = || Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
+    let mut wb = start();
+    wb.set_read_komi(false).unwrap();
+    drop(wb);
+    // The user's settings as a broken hand edit or a damaged disk leaves them: half the file.
+    let mut damaged = std::fs::read(&config_file).unwrap();
+    damaged.truncate(damaged.len() / 2);
+    std::fs::write(&config_file, &damaged).unwrap();
+
+    // Nothing of it can be used, so the defaults are; the next change is saved as usual.
+    let mut wb = start();
+    assert!(wb.view(false).settings.read_komi);
+    wb.set_language(Language::EnUs).unwrap();
+    drop(wb);
+    assert_eq!(start().view(false).settings.language, Language::EnUs);
+    // What the user had is still there to repair (Java: `config.txt.unreadable-backup`).
+    let kept = |name: &str| std::fs::read(config_file.with_file_name(name)).ok();
+    assert!(kept("config.json.unreadable-backup").as_deref() == Some(&damaged[..]), "the damaged file is kept");
+
+    // A later damaged file is kept under another name, not over the first one.
+    std::fs::write(&config_file, b"{ \"ui\": ").unwrap();
+    let mut wb = start();
+    wb.set_read_komi(false).unwrap();
+    drop(wb);
+    assert!(kept("config.json.unreadable-backup").as_deref() == Some(&damaged[..]), "the first kept file stays");
+    assert_eq!(kept("config.json.unreadable-backup.1").as_deref(), Some(&b"{ \"ui\": "[..]));
+}
+
+#[cfg(unix)]
+#[test]
+fn settings_that_cannot_be_read_at_start_are_not_replaced() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let config_file = storage(dir.path()).config_file;
+    let start = || Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
+    let mut wb = start();
+    wb.set_read_komi(false).unwrap();
+    drop(wb);
+    let saved = std::fs::read(&config_file).unwrap();
+    let set = |mode| std::fs::set_permissions(&config_file, std::fs::Permissions::from_mode(mode)).unwrap();
+
+    // The file is there but cannot be read while the program starts; its folder stays writable.
+    set(0o000);
+    let mut wb = permissions::obeying_permissions(&start);
+    set(0o600);
+    assert!(wb.view(false).settings.read_komi, "the defaults are in use");
+    assert!(!wb.view(false).java_import.offer, "the settings exist: this is no first run");
+    // A change is refused rather than written over the settings the user has.
+    assert!(wb.set_language(Language::EnUs).is_err());
+    assert_eq!(wb.view(false).settings.language, Language::System);
+    drop(wb);
+    assert_eq!(std::fs::read(&config_file).unwrap(), saved);
+    // The next start has them again.
+    assert!(!start().view(false).settings.read_komi);
+}
+
+#[cfg(unix)]
+#[test]
+fn settings_linked_from_a_folder_that_is_away_at_start_are_not_a_first_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let config_file = storage(dir.path()).config_file;
+    let start = || Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
+    let mut wb = start();
+    wb.set_read_komi(false).unwrap();
+    drop(wb);
+    // The user keeps the settings in another folder and links them here.
+    let elsewhere = dir.path().join("synced.json");
+    std::fs::rename(&config_file, &elsewhere).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, &config_file).unwrap();
+
+    // That folder is away while the program starts (a drive not mounted yet) and back afterwards.
+    let away = dir.path().join("away.json");
+    std::fs::rename(&elsewhere, &away).unwrap();
+    let mut wb = start();
+    std::fs::rename(&away, &elsewhere).unwrap();
+    assert!(!wb.view(false).java_import.offer, "the settings exist: this is no first run");
+    assert!(wb.set_language(Language::EnUs).is_err());
+    drop(wb);
+    assert!(config_file.symlink_metadata().unwrap().file_type().is_symlink(), "the link is kept");
+    // The next start follows it to the user's settings.
+    assert!(!start().view(false).settings.read_komi);
+}
+
+#[cfg(unix)]
+#[test]
+fn damaged_settings_that_cannot_be_kept_are_not_replaced() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let config_file = storage(dir.path()).config_file;
+    let config_dir = config_file.parent().unwrap().to_path_buf();
+    let start = || Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
+    let damaged = b"{ \"ui\": ";
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::write(&config_file, damaged).unwrap();
+    let set = |mode| std::fs::set_permissions(&config_dir, std::fs::Permissions::from_mode(mode)).unwrap();
+    let kept = || std::fs::read(config_file.with_file_name("config.json.unreadable-backup")).ok();
+
+    // The folder takes no new file while the program starts, so there is nowhere to keep them.
+    set(0o555);
+    let mut wb = permissions::obeying_permissions(&start);
+    set(0o755);
+    assert!(!wb.view(false).java_import.offer, "the settings exist: this is no first run");
+    assert!(wb.set_language(Language::EnUs).is_err());
+    drop(wb);
+    assert_eq!(std::fs::read(&config_file).unwrap(), damaged);
+    assert_eq!(kept(), None);
+    // A start that can keep them does, and saves again.
+    let mut wb = start();
+    wb.set_language(Language::EnUs).unwrap();
+    assert_eq!(kept().as_deref(), Some(&damaged[..]));
 }
 
 #[test]

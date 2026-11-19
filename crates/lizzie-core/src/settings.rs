@@ -2065,8 +2065,104 @@ impl Storage {
     }
 }
 
-/// Reads a JSON file; a missing or unreadable file yields defaults (Java falls back to its
-/// default config the same way).
+/// The settings file as start-up found it ([`load_config`]).
+pub struct LoadedConfig {
+    pub config: Config,
+    pub file: SettingsFile,
+    /// What became of a file that could not be used, for the log.
+    pub notice: Option<String>,
+}
+
+/// What start-up found where the settings are kept.
+pub enum SettingsFile {
+    /// Nothing: a first run.
+    Missing,
+    /// The settings, read or rebuilt: saving replaces the file.
+    Usable,
+    /// A file that could neither be read nor kept as a backup. It still holds the user's
+    /// settings, so nothing is written over it in this run; the text says what went wrong.
+    LeftAsItIs(String),
+}
+
+/// Reads the settings file at start-up. Only when nothing is there is it a first run, which
+/// yields the defaults. A file that is there but cannot be used is the user's settings all the
+/// same:
+/// - content that is not settings is kept beside the file as `<name>.unreadable-backup` and the
+///   file is rebuilt from the defaults (Java `Config.backupUnreadableConfig`, `Config.java`
+///   :1568-1574);
+/// - a file that cannot be read (a link whose file is away included), or whose content cannot
+///   be kept, is left as it is.
+pub fn load_config(path: &Path) -> LoadedConfig {
+    use std::io::ErrorKind::NotFound;
+    let left = |cause: String| LoadedConfig {
+        config: Config::default(),
+        notice: Some(format!("the settings file is left unchanged and settings are not saved: {cause}")),
+        file: SettingsFile::LeftAsItIs(cause),
+    };
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == NotFound => {
+            return match path.symlink_metadata() {
+                Err(e) if e.kind() == NotFound => {
+                    LoadedConfig { config: Config::default(), file: SettingsFile::Missing, notice: None }
+                }
+                _ => left("it is a link to a file that was not there when the program started".into()),
+            };
+        }
+        Err(e) => return left(format!("it could not be read when the program started ({})", e.kind())),
+    };
+    if let Ok(config) = serde_json::from_slice(&bytes) {
+        return LoadedConfig { config, file: SettingsFile::Usable, notice: None };
+    }
+    match keep_unusable(path, &bytes) {
+        Ok(backup) => {
+            let config = Config::default();
+            // The content is safe in the backup. A failed rebuild loses nothing: the next save
+            // writes the file.
+            let _ = save_json(path, &config);
+            let name = backup.file_name().unwrap_or_default().to_string_lossy();
+            let notice = format!("the settings file did not hold settings; it was kept as {name} and the defaults are in use");
+            LoadedConfig { config, file: SettingsFile::Usable, notice: Some(notice) }
+        }
+        Err(e) => left(format!(
+            "it did not hold settings and could not be kept as a backup when the program started ({})",
+            e.kind()
+        )),
+    }
+}
+
+/// Keeps `bytes`, the content of the unusable settings file `path`, beside it under the first
+/// free name of `<name>.unreadable-backup`, `<name>.unreadable-backup.1`, …: an earlier backup is
+/// never replaced.
+fn keep_unusable(path: &Path, bytes: &[u8]) -> std::io::Result<PathBuf> {
+    use std::io::Write;
+    let base = format!("{}.unreadable-backup", path.file_name().unwrap_or_default().to_string_lossy());
+    let mut name = base.clone();
+    let mut suffix = 0u32;
+    loop {
+        let backup = path.with_file_name(&name);
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&backup) {
+            Ok(mut file) => {
+                return match file.write_all(bytes) {
+                    Ok(()) => Ok(backup),
+                    Err(e) => {
+                        drop(file);
+                        let _ = std::fs::remove_file(&backup);
+                        Err(e)
+                    }
+                };
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                suffix += 1;
+                name = format!("{base}.{suffix}");
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+/// Reads a JSON file that may be rebuilt: a missing or unreadable one yields defaults (Java
+/// recovers its `persist` file the same way). The settings file is read with [`load_config`].
 pub fn load_json<T: Default + for<'de> Deserialize<'de>>(path: &Path) -> T {
     std::fs::read(path)
         .ok()

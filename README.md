@@ -1744,7 +1744,20 @@ remembers are DPAPI-encrypted under `secure-credentials/` in the configuration d
 macOS and Linux use the Keychain and Secret Service. LizzieYzy Next keeps its own
 `config.txt` and `persist` elsewhere (for example `~/.lizzieyzy-next/`); this client never writes
 there. The first start is detected by the missing `config.json`; declining the import offer
-writes it. 跑谱贡献 runs KataGo in `contribution/` of the data directory (its downloaded models
+writes it. A `config.json` that is there but cannot be used is not a first start. Content that
+is not settings is kept beside it as `config.json.unreadable-backup` (then `.1`, `.2`, …; an
+earlier backup is never replaced), as Java does with `config.txt`, and the file is rebuilt from
+the defaults. A file that cannot be read (a link whose file is away included), or whose content
+cannot be kept as that backup, is left untouched: that run uses the defaults and refuses each
+settings change with the reason; what it notes on the side in `config.json`, such as recent
+files, lasts for that run only, and what is kept only in `persist.json`, such as the window
+placement, is still saved. At the next start a file that was only out of reach is read as
+usual, and a damaged one is kept as that backup once that is possible. Java differs here: a
+`config.txt` for which `File.canRead()` is false it tries to replace with its defaults, and a
+damaged one it tries to rebuild even when the backup could not be made; when that write fails,
+or the file cannot be read for another reason, Java does not start. Both cases are noted in
+`logs/app.log`.
+跑谱贡献 runs KataGo in `contribution/` of the data directory (its downloaded models
 and finished-game SGFs stay there) and 保存所有棋谱 writes to `ContributeGames/<yyyy-MM-dd-HH>/`
 next to it. The training password is kept in the system credential storage like the keys above
 (for the current run only where none is available) and never in `config.json`; a `password=` value
