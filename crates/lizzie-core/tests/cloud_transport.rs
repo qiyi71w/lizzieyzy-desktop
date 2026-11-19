@@ -94,7 +94,10 @@ impl Running {
     }
     fn send(&mut self, line: &str) { self.io.as_mut().unwrap().send(line).unwrap(); }
     fn until(&self, predicate: impl Fn(&EngineInput) -> bool) -> Vec<EngineInput> {
-        let deadline = Instant::now() + Duration::from_secs(8);
+        self.until_within(Duration::from_secs(8), predicate)
+    }
+    fn until_within(&self, limit: Duration, predicate: impl Fn(&EngineInput) -> bool) -> Vec<EngineInput> {
+        let deadline = Instant::now() + limit;
         let mut received = Vec::new();
         loop {
             let event = self.events.recv_timeout(deadline.saturating_duration_since(Instant::now())).unwrap();
@@ -214,7 +217,9 @@ fn custom_genmove_snapshots_budget_and_updates_moves_without_accepting_invalid_p
         let next: Value = serde_json::from_str(&text(&mut peer)).unwrap();
         assert_eq!(next["moves"], json!([["W","pass"]]));
         assert_eq!(next["maxVisits"], 10_000_000);
-        write(&mut peer, json!({"id":next["id"],"isDuringSearch":false,"moveInfos":[]}));
+        // The client may already be stopped (it only waits for "=6"); on Windows this late answer
+        // can then fail with ConnectionAborted.
+        let _ = peer.send(Message::Text(json!({"id":next["id"],"isDuringSearch":false,"moveInfos":[]}).to_string().into()));
         let _ = peer.read();
     });
     let mut engine = Running::custom(url);
@@ -235,7 +240,8 @@ fn custom_loadsgf_snapshot_preserves_komi_player_stones_and_rectangular_coordina
         assert_eq!(query["initialPlayer"], "W"); assert_eq!(query["komi"], 0.5);
         assert_eq!(query["initialStones"], json!([["B","A7"],["W","J1"]]));
         assert_eq!(query["boardXSize"], 9); assert_eq!(query["boardYSize"], 7);
-        write(&mut peer, json!({"id":query["id"],"isDuringSearch":false,"moveInfos":[]}));
+        // Answers the analysis begun by "2 kata-analyze": the client may already be stopped.
+        let _ = peer.send(Message::Text(json!({"id":query["id"],"isDuringSearch":false,"moveInfos":[]}).to_string().into()));
         let _ = peer.read();
     });
     let mut engine = Running::custom(url);
@@ -249,7 +255,8 @@ fn custom_rejects_unsupported_commands_and_zero_liberty_setup_without_mutating_p
     let (url, peer) = server(|mut peer| {
         let query: Value = serde_json::from_str(&text(&mut peer)).unwrap();
         assert_eq!(query["initialStones"], json!([["B","A1"]]));
-        write(&mut peer, json!({"id":query["id"],"isDuringSearch":false,"moveInfos":[]}));
+        // Answers the analysis begun by "7 kata-analyze": the client may already be stopped.
+        let _ = peer.send(Message::Text(json!({"id":query["id"],"isDuringSearch":false,"moveInfos":[]}).to_string().into()));
         let _ = peer.read();
     });
     let mut engine = Running::custom(url);
@@ -542,6 +549,9 @@ fn accept_bounded(listener: &TcpListener) -> TcpStream {
     loop {
         match listener.accept() {
             Ok((stream, _)) => {
+                // Winsock hands the listener's non-blocking mode to the accepted socket; the
+                // fixture reads it synchronously, bounded by the timeouts below.
+                stream.set_nonblocking(false).unwrap();
                 stream.set_read_timeout(Some(Duration::from_secs(8))).unwrap();
                 stream.set_write_timeout(Some(Duration::from_secs(8))).unwrap();
                 return stream;
@@ -656,7 +666,9 @@ fn invalid_or_unreachable_manual_proxy_never_falls_through_to_the_destination() 
         }] {
             let mut engine = Running::network(provider, format!("ws://{}/private-link", destination.local_addr().unwrap()), settings);
             engine.send("1 name");
-            let events = engine.until(|event| matches!(event, EngineInput::Exited(None)));
+            // Windows takes about 2 s to refuse a closed loopback port, and Zhizi makes three
+            // attempts with 1.5 s + 4 s backoff between them (cloud.rs run_zhizi): about 11.6 s.
+            let events = engine.until_within(Duration::from_secs(20), |event| matches!(event, EngineInput::Exited(None)));
             for event in events {
                 if let EngineInput::Stderr(message) = event {
                     for secret in ["private-user", "private-password", "private-proxy", "private-link", "private-socket-token", "ws://"] {

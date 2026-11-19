@@ -366,6 +366,9 @@ mod tests {
             "readboardUpdateReady\tv3.0.2-beta\tC:\\a.zip",
             "readboardUpdateReady\tv3..2\tC:\\a.zip",
             "readboardUpdateReady\tv3.0.2\t",
+            // A bare drive root is too short for the textual drive rule; Windows itself calls it
+            // absolute (see below).
+            #[cfg(not(windows))]
             "readboardUpdateReady\tv3.0.2\tC:\\",
             "readboardUpdateReady\tv3.0.2\t\\\\",
             "readboardUpdateReadyX\tv3.0.2\tC:\\a.zip",
@@ -373,6 +376,13 @@ mod tests {
         ] {
             assert_eq!(UpdateRequest::try_parse(line), None, "{line:?}");
         }
+        // As Java's File.isAbsolute, Windows accepts its own drive root; install then fails
+        // because it is not a package file.
+        #[cfg(windows)]
+        assert_eq!(
+            UpdateRequest::try_parse("readboardUpdateReady\tv3.0.2\tC:\\").map(|r| r.zip_path().to_path_buf()),
+            Some(PathBuf::from("C:\\"))
+        );
     }
 
     #[test]
