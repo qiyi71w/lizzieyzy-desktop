@@ -590,6 +590,13 @@ importing the matching LizzieYzy Next settings.
   type 名称 and 命令行 or pick a file with 自动生成 (on Windows only `.jar`, `.exe`, `.bat`), and
   保存; 删除 removes it, 上移 / 下移 / 置顶 reorder. Every change is saved at once, empty commands
   are dropped, and nothing is started while editing, importing or starting the app.
+  自动生成 names the entry after the picked file and writes its path as the command, in quotes
+  when the path holds a space or a quote character, so the picked file is the program that
+  starts. Unlike Java, which always writes the bare path: there the command is split at the
+  space and the picked program does not start (usually 运行失败!) until the quotes are typed by
+  hand. Any other path is written bare, as in Java. A path holding both `"` and `'` is written
+  as it is and needs its quoting typed by hand. Commands typed by hand or imported are split as
+  before.
 - 帮助 > 关于 opens 综合设置 at 关于 (also reachable from its navigation and function search):
   the product name, the running version (the same as in the window title), a note that this
   client is migrated from LizzieYzy Next (Java), and 项目主页 / 发布下载 / 问题反馈 buttons that open

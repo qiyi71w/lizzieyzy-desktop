@@ -83,6 +83,43 @@ fn choosing_a_program_starts_it_with_its_arguments_and_a_failure_is_refused() {
     assert_eq!(wb.launch_quick_link(2), CommandResult::Unchanged);
 }
 
+#[cfg(unix)]
+#[test]
+fn a_program_picked_in_a_folder_with_a_space_is_the_one_that_starts() {
+    use lizzie_core::api::CommandResult;
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::Instant;
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("go tools");
+    std::fs::create_dir(&folder).unwrap();
+    let tool = folder.join("tool.sh");
+    std::fs::write(&tool, "#!/bin/sh\n: > \"$(dirname \"$0\")/marker.txt\"\n").unwrap();
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut wb = workbench(dir.path());
+
+    // 自动生成 fills the form from the picked file and the user saves it as it is.
+    let picked = QuickLinkProgram::chosen(&tool);
+    assert_eq!(picked.name, "tool.sh");
+    wb.set_quick_links(QuickLinkSettings { show: true, programs: vec![picked] }).unwrap();
+    assert_eq!(wb.launch_quick_link(0), CommandResult::Done);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !folder.join("marker.txt").exists() {
+        assert!(Instant::now() < deadline, "the picked program did not run");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn a_picked_path_is_one_program_argument_of_the_command() {
+    use lizzie_core::engine::gtp::split_command;
+    for path in ["/opt/go tools/run", r"C:\Program Files\Go\run.exe", "/home/o'brien/run", "/opt/say \"hi\"/run"] {
+        let picked = QuickLinkProgram::chosen(Path::new(path));
+        assert_eq!(split_command(&picked.command), [path], "{}", picked.command);
+    }
+    // A path the command syntax already reads whole stays as Java writes it.
+    assert_eq!(QuickLinkProgram::chosen(Path::new("/usr/bin/gnugo")).command, "/usr/bin/gnugo");
+}
+
 fn java_dir(root: &Path, config: serde_json::Value) -> std::path::PathBuf {
     let java = root.join("java");
     std::fs::create_dir_all(&java).unwrap();

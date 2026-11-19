@@ -979,7 +979,7 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             .await
             .map_err(|e| ApiError::new(ErrorKind::Unavailable, e.to_string()))?;
             Ok(match picked.and_then(|p| p.into_path().ok()) {
-                Some(path) => CommandResult::FileChosen { path: path.to_string_lossy().into_owned() },
+                Some(path) => CommandResult::QuickLinkProgramChosen { program: lizzie_core::quick_links::QuickLinkProgram::chosen(&path) },
                 None => CommandResult::Unchanged,
             })
         }

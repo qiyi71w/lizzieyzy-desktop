@@ -2,8 +2,9 @@
 //! each a name and a command line, shown as a menu while 显示快速启动 is on. Choosing one starts
 //! its command at once, split and resolved like an engine command, without waiting for it.
 
-use crate::engine::gtp::LaunchSpec;
+use crate::engine::gtp::{join_command, LaunchSpec};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use ts_rs::TS;
 
@@ -13,6 +14,21 @@ use ts_rs::TS;
 pub struct QuickLinkProgram {
     pub name: String,
     pub command: String,
+}
+
+impl QuickLinkProgram {
+    /// 自动生成 (`OtherPrograms.getEngineLine`): the entry for the file picked in the chooser,
+    /// named after the file. Java puts the bare path in the command, which the shared command
+    /// syntax then splits at a space; here the path is one token of that syntax
+    /// ([`join_command`]), so the picked file is the program that starts. A path holding both
+    /// kinds of quote, which [`join_command`] does not quote, is given as it is.
+    pub fn chosen(path: &Path) -> QuickLinkProgram {
+        let text = path.to_string_lossy().into_owned();
+        QuickLinkProgram {
+            name: path.file_name().map_or_else(|| text.clone(), |name| name.to_string_lossy().into_owned()),
+            command: join_command(std::slice::from_ref(&text)).unwrap_or(text),
+        }
+    }
 }
 
 /// 显示快速启动 (`ui.show-quick-links`, default off) and the program list (empty by default).

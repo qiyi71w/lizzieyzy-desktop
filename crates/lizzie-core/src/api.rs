@@ -414,8 +414,9 @@ pub enum Command {
     LaunchQuickLink {
         index: u32,
     },
-    /// 快速启动设置 > 浏览 (`OtherPrograms.getEngineLine`): the system file chooser titled `title`,
-    /// on Windows limited to `filter_name` (`*.jar`, `*.exe`, `*.bat`). Answers `FileChosen`.
+    /// 快速启动设置 > 自动生成 (`OtherPrograms.getEngineLine`): the system file chooser titled
+    /// `title`, on Windows limited to `filter_name` (`*.jar`, `*.exe`, `*.bat`). Answers
+    /// `QuickLinkProgramChosen`.
     ChooseQuickLinkProgram {
         title: String,
         filter_name: String,
@@ -1040,6 +1041,9 @@ pub enum CommandResult {
     FolderChosen { path: String },
     /// A file was chosen ([`SshCredentialCommand::ChooseKeyFile`]).
     FileChosen { path: String },
+    /// A program was chosen for the 快速启动 list ([`Command::ChooseQuickLinkProgram`]): the
+    /// entry that starts it ([`crate::quick_links::QuickLinkProgram::chosen`]).
+    QuickLinkProgramChosen { program: crate::quick_links::QuickLinkProgram },
     /// What an import would do; nothing has changed yet.
     JavaImportPreview { preview: ImportPreviewView },
     /// The Java configuration could not be read; nothing has changed.
