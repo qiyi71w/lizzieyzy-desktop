@@ -22,6 +22,10 @@ body {
   user-select: none;
   cursor: default;
 }
+/* A subtree fixed to one theme takes that theme's text colour along with its tokens. */
+[data-theme] {
+  color: var(--ds-text);
+}
 
 /* ---- the parts the browser draws */
 ::selection {

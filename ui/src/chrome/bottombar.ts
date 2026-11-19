@@ -259,7 +259,7 @@ export function buildBottomBar(host: HTMLElement): void {
     b.dataset.name = item.name;
     if (item.located) b.dataset.function = item.located;
     if (item.name === "analyse") {
-      b.classList.add("icon");
+      b.classList.add("with-icon");
       analyseIcon = icon("play");
       analyseLabel = document.createElement("span");
       b.append(analyseIcon, analyseLabel);

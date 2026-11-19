@@ -2113,7 +2113,7 @@ function panelGround(g: CanvasRenderingContext2D, w: number, h: number, p: Stage
   g.fillRect(0, 0, w, h);
 }
 
-/** On the flat stage a panel is a flat region with a 1px square edge just inside its rect. */
+/** On the program's own stage a panel carries a 1px square edge just inside its rect. */
 function panelEdge(g: CanvasRenderingContext2D, w: number, h: number, p: StagePalette) {
   if (!p.builtin || w < 2 || h < 2) return;
   g.strokeStyle = p.line;
@@ -2189,18 +2189,12 @@ export function parseJavaDouble(text: string): number | null {
 
 /** LizzieFrame.drawCaptured (LizzieFrame.java:9098-9375): captures, rules caption, komi and
  * the live pondering dot. Stored analysis is intentionally independent of this indicator. On the
- * flat stage the stones are flat discs with a 1px edge (white always; black where the panel is
- * dark), the capture counts and AI总评分 primary text and komi and the caption secondary. */
+ * program's own stage the stones are flat discs with a 1px edge (white always; black where the
+ * panel is dark), the capture counts and AI总评分 primary text and komi and the caption secondary. */
 export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedScene) {
   const p = stagePalette();
   const { w: width, h: height } = r;
   panelGround(g, width, height, p);
-  g.strokeStyle = p.line;
-  g.lineWidth = 1;
-  g.beginPath();
-  g.moveTo(i(width / 2) - 1 + 0.5, 3);
-  g.lineTo(i(width / 2) - 1 + 0.5, height - 1);
-  g.stroke();
   panelEdge(g, width, height, p);
   const blacksTurn = s.toPlay === "Black";
   const diam0 = i(Math.min(i(width / 2), height) / 3);
@@ -2292,8 +2286,8 @@ function javaSigned(v: number): string {
 
 /** LizzieFrame.drawMoveStatistics (LizzieFrame.java:8702-9025) outside play mode: the score and
  *  last-move line, the black/white bar with its 10% dashed grid, the change marker and the
- *  percentages. Unknown values are left out instead of being drawn as zero. On the flat stage the
- *  bar has a 1px edge and the percentages tabular figures. */
+ *  percentages. Unknown values are left out instead of being drawn as zero. On the program's own
+ *  stage the bar has a 1px edge and the percentages tabular figures. */
 export function paintStat(g: CanvasRenderingContext2D, r: Rect, s: StatScene): StatReport {
   const { w, h } = r;
   const report: StatReport = { text: "", bar: null, change: null, moveNumber: false };
@@ -2695,7 +2689,7 @@ function walkTree(
         dot(start, x, posy);
         label(start, (k) => (k < 10 ? x + 3 : k >= 100 ? x - 3 : x), posy - 5);
       } else {
-        // root: square, a red (flat: accent) centre while it is the displayed node
+        // root: square, a red (program's own stage: accent) centre while it is the displayed node
         ops.push((g) => {
           g.fillStyle = line.has(start) ? p.treeNode : p.treeLineOff;
           g.fillRect(x, posy, DOT, DOT);
@@ -2737,7 +2731,7 @@ function walkTree(
  * commented nodes get the comment-node-color ring, and every node is filled with the 错误节点
  * colour the core projects for it (`nodeColors`, LizzieFrame.getBlunderNodeColor 11465-11536 with
  * Board.updateIsBest; VariationTree.java:136-158), the palette's plain node colour without one;
- * the flat stage marks the current node with an accent ring; 显示分支面板上的手数 (`numbers`)
+ * the program's own stage marks the current node with an accent ring; 显示分支面板上的手数 (`numbers`)
  * writes each node's core display number beside it (VariationTree.java:159-176, 285-304).
  * 设置最大宽度 (`maxWidth`, setTreeMaxLimit 13894-13908): a layout that wide is cut off there and
  * reported `tooWide` (Board.setBigBranch). Returns node centres (panel coordinates) for click
@@ -2793,8 +2787,8 @@ export function paintTree(
   }
   const vertical = vbar ? scrollbar(viewH, maxY, top) : null;
   const horizontal = hbar ? scrollbar(viewW, maxX, left) : null;
-  // DemoScrollBarUI: arrow buttons, black track, thumb (230,230,250) at 0.7; on the flat stage a
-  // sunken track and buttons with drawn arrows and a neutral thumb.
+  // DemoScrollBarUI: arrow buttons, black track, thumb (230,230,250) at 0.7; on the program's own
+  // stage a sunken track and buttons with drawn arrows and a neutral thumb.
   const button = (x: number, y: number, horiz: boolean, forward: boolean, image: string) => {
     const [bw, bh] = horiz ? [ARROW, SCROLLBAR] : [SCROLLBAR, ARROW];
     g.fillStyle = p.builtin ? p.sunken : "rgb(238,238,238)";

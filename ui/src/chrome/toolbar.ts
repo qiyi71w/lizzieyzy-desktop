@@ -704,7 +704,7 @@ function doubleMenuButton(): HTMLElement {
 }
 
 /** 选点: (lblShowCandidate, Menu.java:9874-9899): shown with either 黑 / 白 or 胜率 / 计算量 / 目数,
- *  with a separator between the two while both are. */
+ *  with a separator between the two while both are. The caption wraps together with 黑 / 白. */
 function candidateGroup(): HTMLElement {
   const sides = shownGroup("showCandidateSides");
   const info = shownGroup("showCandidateInfo");
@@ -713,8 +713,7 @@ function candidateGroup(): HTMLElement {
   return optional(
     () => sides() || info(),
     sep(),
-    caption,
-    optional(sides, at("toolbar.candidate-sides", candidateCheck(t("Menu.Black"), true)), candidateCheck(t("Menu.White"), false)),
+    group("candidate", caption, optional(sides, at("toolbar.candidate-sides", candidateCheck(t("Menu.Black"), true)), candidateCheck(t("Menu.White"), false))),
     optional(
       info,
       optional(sides, sep()),

@@ -495,13 +495,13 @@ body {
   color: var(--ds-danger-text);
 }
 /* 分析: its state icon and label centred as one group */
-.bb.icon {
+.bb.with-icon {
   display: flex;
   align-items: center;
   justify-content: center;
   column-gap: 4px;
 }
-.bb.icon .icon {
+.bb.with-icon .icon {
   width: 16px;
   height: 16px;
 }
@@ -540,10 +540,11 @@ body {
 }
 /* 详细工具栏: the panels under the main bar's row, laid out by flex and grid; bottomDetail.ts
    measures the area for the bar's height. Each panel is a group: its main switch as a heading
-   column, then rows of related sets that wrap as whole sets. Panels wrap as whole groups, and a
-   hairline separates neighbours on a line. The area overhangs the bar by one panel inset (16 px
-   plus the 1 px line) less the bar's 10 px side margin, so the line and inset before the first
-   panel of every line fall outside the clipped bar. */
+   column, then sets of related controls that run on one line while the bar is wide enough and
+   wrap as whole sets when it is not. Panels wrap as whole groups, and a hairline separates
+   neighbours on a line. The area overhangs the bar by one panel inset (16 px plus the 1 px line)
+   less the bar's 10 px side margin, so the line and inset before the first panel of every line
+   fall outside the clipped bar. */
 .bb-details {
   position: absolute;
   top: 31px; /* the main bar's 32 px row, counted inside the bar's 1 px top border */
@@ -551,7 +552,7 @@ body {
   right: -6px;
   display: flex;
   flex-wrap: wrap;
-  row-gap: 12px;
+  row-gap: 8px;
   padding: 8px 0;
   border-top: 1px solid var(--ds-line);
 }
@@ -569,8 +570,9 @@ body {
 }
 .bb-detail-body {
   display: flex;
-  flex-direction: column;
-  row-gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 20px;
   min-width: 0;
 }
 .bb-detail-row {

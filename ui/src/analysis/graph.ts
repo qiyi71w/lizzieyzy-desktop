@@ -89,7 +89,7 @@ const rgba = (c: readonly number[], a: number) => `rgba(${c[0]},${c[1]},${c[2]},
  *  winrate-miss-line-color, scoremean-line-color, blunder-bar-color, the two stroke widths and
  *  minimum-blunder-bar-width (WinrateGraph.java:174-184, 261-295, 654-656, 1208-1209); a colour
  *  still at the theme default takes the stage palette's shade of it. The panel is the palette's
- *  panel on the flat stage while comment-background-color is the default, else
+ *  panel on the program's own stage while comment-background-color is the default, else
  *  resolveGraphBackgroundColor of comment-background-color; resolveBelowBaselineFillColor follows
  *  it (312-323, 396-399). */
 function graphTheme() {
@@ -125,9 +125,9 @@ interface MarkerColors {
   halo: string;
 }
 
-/** The current move's and current score's markers: on the flat stage the accent and the score
- *  marker colour, flat, separated from the curves by a ring of the graph's ground (`ground`); on
- *  the wallpaper Java's red and green with their light halos. */
+/** The current move's and current score's markers: on the program's own stage the accent and the
+ *  score marker colour, flat, separated from the curves by a ring of the graph's ground
+ *  (`ground`); over a wallpaper the user chose, Java's red and green with their light halos. */
 function markerColors(p: StagePalette, ground: string): { move: MarkerColors; score: MarkerColors } {
   if (p.builtin)
     return {
@@ -330,7 +330,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     g.setLineDash([]);
     g.textAlign = "left";
     g.textBaseline = "alphabetic";
-    // The flat stage's panel edge: 1px, square, inside the panel.
+    // The panel edge on the program's own stage: 1px, square, inside the panel.
     if (p.builtin && W0 >= 2 && H0 >= 2) {
       g.strokeStyle = p.line;
       g.lineWidth = 1;
