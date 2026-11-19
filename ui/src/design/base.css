@@ -107,6 +107,12 @@ body {
   background-color: var(--ds-danger-soft);
   color: var(--ds-danger-text);
 }
+/* A filled or destructive action that cannot run looks like any unavailable button. */
+:where(button.primary, button.danger):disabled {
+  border-color: var(--ds-line-strong);
+  background-color: var(--ds-sunken);
+  color: var(--ds-text-off);
+}
 
 /* ---- text fields and menus */
 :where(input:not([type]), input[type="text"], input[type="number"], input[type="password"], input[type="search"], input[type="url"], select, textarea) {

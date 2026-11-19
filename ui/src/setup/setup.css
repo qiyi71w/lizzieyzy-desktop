@@ -159,12 +159,6 @@
   gap: 8px;
   margin-top: 12px;
 }
-/* A filled action that cannot run yet looks like any unavailable button. */
-.auto-setup-window button.primary:disabled {
-  border-color: var(--ds-line-strong);
-  background-color: var(--ds-sunken);
-  color: var(--ds-text-off);
-}
 
 /* 状态标签: a step's state in its status colour. */
 .setup-tag {

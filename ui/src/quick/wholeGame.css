@@ -175,9 +175,8 @@
   box-shadow: var(--ds-shadow-pop);
   font-weight: 600;
 }
-/* No success line token exists yet: the control line stands in for it. */
 .whole-game-notice.success {
-  border-color: var(--ds-line-strong);
+  border-color: var(--ds-success-soft-line);
   background: var(--ds-success-soft);
   color: var(--ds-success-text);
 }

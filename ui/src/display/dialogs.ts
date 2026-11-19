@@ -466,7 +466,7 @@ export function openInfoOrderDialog(saved?: (shows: Pick<DisplaySettings, "sugge
   const dialog = formPanel(t("SuggestionInfoOrderSettings.title"), body);
   cancel.onclick = () => void dialog.close();
   ok.onclick = async () => {
-    const shows = { suggestionWinrate: checks[0].checked, suggestionPlayouts: checks[1].checked, suggestionScore: checks[2].checked };
+    const shows = { suggestionWinrate: checks[0].input.checked, suggestionPlayouts: checks[1].input.checked, suggestionScore: checks[2].input.checked };
     const order = chosen();
     if (!valid(order)) {
       setDisplay(shows);

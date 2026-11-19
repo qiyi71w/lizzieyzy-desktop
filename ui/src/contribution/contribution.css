@@ -72,11 +72,6 @@
   margin-top: 8px;
   resize: none;
 }
-.contribution-saved button.primary:disabled {
-  border-color: var(--ds-line-strong);
-  background-color: var(--ds-sunken);
-  color: var(--ds-text-off);
-}
 
 /* KataGo分布式训练 (ContributeView.java): a tool window beside the board with the dialog's ground,
    radius and shadow; the engine console on top, then the watch controls in rows divided by

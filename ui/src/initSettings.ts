@@ -23,8 +23,6 @@ const LANGUAGES: [Language, () => string][] = [
   ["ThTh", () => "ไทย"],
 ];
 
-/** A question mark in a circle, drawn like the icons of design/icons.ts (which has no help icon). */
-const HELP_ICON = '<circle cx="8" cy="8" r="6.25"/><path d="M6.25 6.4a1.8 1.8 0 1 1 2.55 1.64c-.5.23-.8.62-.8 1.16v.3"/><circle class="ic-fill" cx="8" cy="11.4" r=".85"/>';
 /** maxAnalyzeTimeMillis <= 0 is saved as 9999 minutes. */
 const UNLIMITED_SECONDS = 9999 * 60;
 
@@ -59,12 +57,7 @@ function openInitSettings(): void {
     b.dataset.key = key;
     b.title = title;
     b.setAttribute("aria-label", title);
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("class", "icon");
-    svg.setAttribute("viewBox", "0 0 16 16");
-    svg.setAttribute("aria-hidden", "true");
-    svg.innerHTML = HELP_ICON;
-    b.append(svg);
+    b.append(icon("help"));
     b.onclick = () => void message(title, text);
     return b;
   };

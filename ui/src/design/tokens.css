@@ -51,6 +51,7 @@
   --ds-warning-soft-line: #d9c07f;
   --ds-success-text: #2c6b3f;
   --ds-success-soft: #dde9d2;
+  --ds-success-soft-line: #b3cba3;
 
   /* Depth. */
   --ds-shadow-cap: 0 0 0 0.5px rgba(90, 66, 20, 0.28), 0 1px 1.5px rgba(90, 66, 20, 0.16);
@@ -124,6 +125,7 @@
   --ds-warning-soft-line: #6b5827;
   --ds-success-text: #7fc591;
   --ds-success-soft: #243725;
+  --ds-success-soft-line: #3d5a3c;
 
   --ds-shadow-cap: inset 0 0.5px 0 rgba(255, 236, 200, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.3);
   --ds-shadow-pop: 0 0 0 1px rgba(255, 236, 200, 0.1), 0 8px 24px -4px rgba(0, 0, 0, 0.6);

@@ -165,7 +165,8 @@ function sharedSession(f: SharedFields, base: MatchSessionSettings): MatchSessio
 
 /** A 帮助 button: the message it shows is its name. */
 function helpButton(key: string, title: string, text: string): HTMLButtonElement {
-  const help = button("?", () => void message(title, plainJava(text)));
+  const help = button("", () => void message(title, plainJava(text)));
+  help.append(icon("help"));
   help.className = "match-help";
   help.title = title;
   help.setAttribute("aria-label", title);

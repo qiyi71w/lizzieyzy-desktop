@@ -52,12 +52,6 @@
   min-height: 0;
   overflow: auto;
 }
-.cloud-window button.primary:disabled,
-.rc-payment-root button.primary:disabled {
-  border-color: var(--ds-line-strong);
-  background-color: var(--ds-sunken);
-  color: var(--ds-text-off);
-}
 
 /* Text segments: the shown page (or mode) on the well at weight 600. */
 .rc-tabs {

@@ -210,7 +210,8 @@ function exclusive(boxes: HTMLInputElement[], changed: () => void): void {
 
 /** btnAboutAdvTime: Utils.showHtmlMessageModal(AdvanceTimeSettings.title, .describe). */
 function advancedHelp(): HTMLButtonElement {
-  const help = button("?", () => void message(t("AdvanceTimeSettings.title"), plainJava(t("AdvanceTimeSettings.describe"))));
+  const help = button("", () => void message(t("AdvanceTimeSettings.title"), plainJava(t("AdvanceTimeSettings.describe"))));
+  help.append(icon("help"));
   help.className = "game-help";
   help.title = t("AdvanceTimeSettings.title");
   help.setAttribute("aria-label", t("AdvanceTimeSettings.title"));
