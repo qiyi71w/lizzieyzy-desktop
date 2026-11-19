@@ -1,0 +1,111 @@
+/* Workbench stage tokens: the colours the canvas panels, the 胜率图 and the 选点列表 draw with on top
+   of the design tokens. The theme colours a user can change (胜率线, 胜率落差线, 目差线, 恶手条, 评论
+   节点) use these only while they hold the theme's default value; their hues stay those of the
+   default theme. Both sets are read from canvas code through stage.ts. */
+:root,
+[data-theme="light"] {
+  /* Theme colour defaults, tuned for the light panel. */
+  --ws-winrate-line: #1f78d1;
+  --ws-winrate-miss: #0000b2;
+  --ws-score-line: #b800b8;
+  --ws-blunder-bar: rgba(204, 51, 170, 0.45);
+  --ws-comment-node: #2f55d4;
+
+  /* 胜率图. */
+  --ws-graph-grid: rgba(0, 0, 0, 0.1);
+  --ws-graph-baseline: rgba(0, 0, 0, 0.3);
+  --ws-graph-guide: rgba(0, 0, 0, 0.45);
+  --ws-graph-hover: #d12a1f;
+  --ws-graph-score-text: #855800;
+  --ws-graph-snapshot: rgba(201, 138, 0, 0.5);
+  --ws-graph-score-marker: #1b9e4b;
+
+  /* Stones, the 胜率条 and the 提子 panel's engine dot. */
+  --ws-stone-black: #111113;
+  --ws-stone-black-edge: #111113;
+  --ws-stone-white: #ffffff;
+  --ws-on-black: #ffffff;
+  --ws-on-white: #1d1d1f;
+  --ws-bar-grid: #808080;
+  --ws-gain: #1b8a3a;
+  --ws-loss: #d12a1f;
+  --ws-live: #1f9d48;
+  --ws-idle: #d12a1f;
+
+  /* 变化树. */
+  --ws-tree-node: #a8a8b0;
+  --ws-tree-line: #8e8e95;
+  --ws-tree-line-off: #d4d4da;
+  --ws-tree-dim: rgba(255, 255, 255, 0.55);
+  --ws-scroll-thumb: #c4c4cb;
+
+  /* 选点列表: the 占比 bar and the actual move's row by loss level (rank 1 worst to 6 best), soft
+     and, on the highlighted point, strong. */
+  --ws-share-bar: #dcdce3;
+  --ws-rank-1: #ecdcea;
+  --ws-rank-1-strong: #d7b6d3;
+  --ws-rank-2: #f8d6d6;
+  --ws-rank-2-strong: #f0aeae;
+  --ws-rank-3: #f6e6cf;
+  --ws-rank-3-strong: #ecd0a6;
+  --ws-rank-4: #f0f0c4;
+  --ws-rank-4-strong: #e1e18e;
+  --ws-rank-5: #e6f3d0;
+  --ws-rank-5-strong: #cde6a2;
+  --ws-rank-6: #d4efd4;
+  --ws-rank-6-strong: #a8dfa8;
+}
+
+[data-theme="dark"] {
+  --ws-winrate-line: #64b4ff;
+  --ws-winrate-miss: #7a7aff;
+  --ws-score-line: #ff5cff;
+  --ws-blunder-bar: rgba(255, 204, 255, 0.667);
+  --ws-comment-node: #5574ff;
+
+  --ws-graph-grid: rgba(255, 255, 255, 0.2);
+  --ws-graph-baseline: rgba(236, 232, 224, 0.6);
+  --ws-graph-guide: rgba(232, 225, 210, 0.706);
+  --ws-graph-hover: #ff5a4f;
+  --ws-graph-score-text: #f5e04a;
+  --ws-graph-snapshot: rgba(255, 208, 84, 0.431);
+  --ws-graph-score-marker: #2ecc71;
+
+  --ws-stone-black: #000000;
+  --ws-stone-black-edge: #6a6a70;
+  --ws-stone-white: #f2f2f4;
+  --ws-on-black: #ffffff;
+  --ws-on-white: #1d1d1f;
+  --ws-bar-grid: #808080;
+  --ws-gain: #34c759;
+  --ws-loss: #ff453a;
+  --ws-live: #34c759;
+  --ws-idle: #ff453a;
+
+  --ws-tree-node: #f2f2f4;
+  --ws-tree-line: #e8e8ec;
+  --ws-tree-line-off: #67676b;
+  --ws-tree-dim: rgba(0, 0, 0, 0.153);
+  --ws-scroll-thumb: #5a5a60;
+
+  --ws-share-bar: #3a3a40;
+  --ws-rank-1: #392339;
+  --ws-rank-1-strong: #4f2b4a;
+  --ws-rank-2: #4b1d1f;
+  --ws-rank-2-strong: #6c1f22;
+  --ws-rank-3: #47361f;
+  --ws-rank-3-strong: #644a26;
+  --ws-rank-4: #43431b;
+  --ws-rank-4-strong: #5d5d17;
+  --ws-rank-5: #364520;
+  --ws-rank-5-strong: #4a6521;
+  --ws-rank-6: #17421b;
+  --ws-rank-6-strong: #135d17;
+}
+
+/* The flat stage: the workbench ground is the stage colour, whatever wallpaper image the window
+   last installed inline. */
+:root[data-stage="flat"] #main {
+  background-image: none !important;
+  background-color: var(--ds-stage);
+}

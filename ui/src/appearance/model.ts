@@ -50,9 +50,8 @@ export function reverseColor(c: readonly number[]): number[] {
   return [255 - c[0], 255 - c[1], 255 - c[2]];
 }
 
-/** MoveRankDefinition.Rank colours: classic and MorandiPalette.SUGGESTION_* (MoveRankDefinition.java:22-65,
- *  MorandiPalette.java:31-36), chosen by use-morandi-colors (Rank.color, 101-103). */
-const RANK_CLASSIC: Record<MoveRank, string> = {
+/** MoveRankDefinition.Rank colours (MoveRankDefinition.java:22-65). */
+const RANK_COLOR: Record<MoveRank, string> = {
   Best: "rgb(0,180,0)",
   Good: "rgb(140,202,34)",
   Normal: "rgb(180,180,0)",
@@ -60,16 +59,8 @@ const RANK_CLASSIC: Record<MoveRank, string> = {
   Mistake: "rgb(208,16,19)",
   Blunder: "rgb(155,25,150)",
 };
-const RANK_MORANDI: Record<MoveRank, string> = {
-  Best: "rgb(120,168,168)",
-  Good: "rgb(142,172,130)",
-  Normal: "rgb(198,186,138)",
-  Inaccuracy: "rgb(192,155,120)",
-  Mistake: "rgb(176,112,112)",
-  Blunder: "rgb(148,126,158)",
-};
-export function rankColor(rank: MoveRank, morandi: boolean): string {
-  return (morandi ? RANK_MORANDI : RANK_CLASSIC)[rank];
+export function rankColor(rank: MoveRank): string {
+  return RANK_COLOR[rank];
 }
 
 /** A configured font family ahead of the role's default stack. "Lizzie Default" (or empty) keeps the
@@ -161,10 +152,10 @@ export function drawChineseClassicMarkers(g: CanvasRenderingContext2D, cols: num
 
 const blend = (a: number, b: number, t: number) => Math.round(a + (b - a) * t);
 
-/** WinrateGraph.resolveGraphBackgroundColor (WinrateGraph.java:312-323) with Config.commentBackgroundColor
- *  and is-apple-style; WinrateGraph.blend rounds the linear mix. */
-export function graphBackground(panel: readonly number[], apple: boolean): number[] {
-  const lift = apple ? [62, 68, 78] : [58, 66, 76];
+/** WinrateGraph.resolveGraphBackgroundColor (WinrateGraph.java:312-323) with
+ *  Config.commentBackgroundColor; WinrateGraph.blend rounds the linear mix. */
+export function graphBackground(panel: readonly number[]): number[] {
+  const lift = [58, 66, 76];
   const alpha = Math.max(118, Math.min(178, (panel[3] ?? 255) - 35));
   return [blend(panel[0], lift[0], 0.38), blend(panel[1], lift[1], 0.38), blend(panel[2], lift[2], 0.38), alpha];
 }

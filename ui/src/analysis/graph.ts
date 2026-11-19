@@ -6,9 +6,10 @@
 import type { DisplaySettings, HistoryPoint, TreeNodeView } from "../contract/generated";
 import { t } from "../i18n";
 import { graphGeom, type Rect } from "../workbench/layout";
-import { GRAPH_FONT } from "../workbench/paint";
+import { panelFont } from "../workbench/paint";
 import { appearance } from "../appearance/state";
 import { belowBaselineFill, cssColor, graphBackground } from "../appearance/model";
+import { rgbaOf, sameRgba, stagePalette, THEME_DEFAULT, themeColor, type StagePalette } from "../design/stage";
 
 const i = Math.trunc;
 
@@ -80,32 +81,32 @@ export interface GraphReport {
   xLabels: string[];
 }
 
-// ------------------------------------------------------------------ colours (Java defaults)
+// ------------------------------------------------------------------ colours
 
-const GRID = "rgba(255,255,255,0.282)";
-const BASELINE = "rgba(236,232,224,0.659)";
-const GUIDE = "rgba(232,225,210,0.706)";
-const rgba = (c: number[], a: number) => `rgba(${c[0]},${c[1]},${c[2]},${+(a / 255).toFixed(3)})`;
+const rgba = (c: readonly number[], a: number) => `rgba(${c[0]},${c[1]},${c[2]},${+(a / 255).toFixed(3)})`;
 
 /** The theme's graph values (Config.readThemeVaule, Config.java:2248-2264): winrate-line-color,
  *  winrate-miss-line-color, scoremean-line-color, blunder-bar-color, the two stroke widths and
- *  minimum-blunder-bar-width (WinrateGraph.java:174-184, 261-295, 654-656, 1208-1209). The panel
- *  takes resolveGraphBackgroundColor of comment-background-color and Apple style and its
- *  resolveBelowBaselineFillColor (312-323, 396-399). Java always loads a theme at start-up
- *  (Config.java:2159), so the colours of its null fallbacks never show. */
+ *  minimum-blunder-bar-width (WinrateGraph.java:174-184, 261-295, 654-656, 1208-1209); a colour
+ *  still at the theme default takes the stage palette's shade of it. The panel is the palette's
+ *  panel on the flat stage while comment-background-color is the default, else
+ *  resolveGraphBackgroundColor of comment-background-color; resolveBelowBaselineFillColor follows
+ *  it (312-323, 396-399). */
 function graphTheme() {
-  const a = appearance();
-  const th = a?.theme;
-  const background = graphBackground(th?.commentBackgroundColor ?? [0, 0, 0, 200], a?.settings.appleStyle ?? false);
-  const line = th?.winrateLineColor ?? [100, 180, 255];
-  const score = th?.scoremeanLineColor ?? [255, 0, 255];
+  const p = stagePalette();
+  const th = appearance()?.theme;
+  const comment = th?.commentBackgroundColor ?? THEME_DEFAULT.commentBackground;
+  const background = p.flat && sameRgba(comment, THEME_DEFAULT.commentBackground) ? rgbaOf(p.panel) : graphBackground(comment);
+  const line = themeColor(th?.winrateLineColor, THEME_DEFAULT.winrateLine, p.winrateLine);
+  const score = themeColor(th?.scoremeanLineColor, THEME_DEFAULT.scoreLine, p.scoreLine);
   return {
-    lineRgb: line,
-    scoreRgb: score,
-    line: cssColor(line),
-    miss: cssColor(th?.winrateMissLineColor ?? [0, 0, 178]),
-    score: cssColor(score),
-    bar: cssColor(th?.blunderBarColor ?? [255, 204, 255, 170]),
+    palette: p,
+    lineRgb: rgbaOf(line),
+    scoreRgb: rgbaOf(score),
+    line,
+    miss: themeColor(th?.winrateMissLineColor, THEME_DEFAULT.winrateMiss, p.winrateMiss),
+    score,
+    bar: themeColor(th?.blunderBarColor, THEME_DEFAULT.blunderBar, p.blunderBar),
     winrateWidth: th?.winrateStrokeWidth ?? 1.7,
     scoreWidth: th?.scoreLeadStrokeWidth ?? 1,
     barMinimum: Math.max(1, th?.minimumBlunderBarWidth ?? 1),
@@ -117,8 +118,27 @@ function graphTheme() {
 const DOT_RADIUS = 3;
 const ANCHOR_HALF = 2;
 const MARKER_RADIUS = 4;
-const MOVE_MARKER = { fill: "rgb(244,67,72)", border: rgba([112, 24, 28], 230), halo: rgba([255, 250, 240], 225) };
-const SCORE_MARKER = { fill: "rgb(46,204,113)", border: rgba([20, 96, 55], 230), halo: rgba([248, 255, 245], 225) };
+
+interface MarkerColors {
+  fill: string;
+  border: string;
+  halo: string;
+}
+
+/** The current move's and current score's markers: on the flat stage the accent and the score
+ *  marker colour, flat, separated from the curves by a ring of the graph's ground (`ground`); on
+ *  the wallpaper Java's red and green with their light halos. */
+function markerColors(p: StagePalette, ground: string): { move: MarkerColors; score: MarkerColors } {
+  if (p.flat)
+    return {
+      move: { fill: p.accent, border: p.accent, halo: ground },
+      score: { fill: p.graphScoreMarker, border: p.graphScoreMarker, halo: ground },
+    };
+  return {
+    move: { fill: "rgb(244,67,72)", border: rgba([112, 24, 28], 230), halo: rgba([255, 250, 240], 225) },
+    score: { fill: "rgb(46,204,113)", border: rgba([20, 96, 55], 230), halo: rgba([248, 255, 245], 225) },
+  };
+}
 
 // ------------------------------------------------------------------ Java number helpers
 
@@ -218,8 +238,8 @@ function metrics(g: CanvasRenderingContext2D) {
   return { ascent: i(0.95 + m.fontBoundingBoxAscent), descent: i(0.95 + m.fontBoundingBoxDescent) };
 }
 const stringWidth = (g: CanvasRenderingContext2D, s: string) => Math.round(g.measureText(s).width);
-const plain = (size: number) => `${size}px ${GRAPH_FONT}`;
-const bold = (size: number) => `bold ${size}px ${GRAPH_FONT}`;
+const plain = (size: number) => `${size}px ${panelFont()}`;
+const bold = (size: number) => `bold ${size}px ${panelFont()}`;
 
 /** drawLine with a 1 px aligned stroke. */
 function line(g: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string, width: number, dashed: boolean) {
@@ -242,7 +262,7 @@ function oval(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, co
 }
 
 /** drawMetricMarkerCore. */
-function markerCore(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, c: typeof MOVE_MARKER) {
+function markerCore(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, c: MarkerColors) {
   oval(g, cx, cy, r, c.fill);
   g.strokeStyle = c.border;
   g.lineWidth = 1;
@@ -252,7 +272,7 @@ function markerCore(g: CanvasRenderingContext2D, cx: number, cy: number, r: numb
 }
 
 /** drawMetricMarker: the halo, then the core. */
-function marker(g: CanvasRenderingContext2D, cx: number, cy: number, radius: number, c: typeof MOVE_MARKER) {
+function marker(g: CanvasRenderingContext2D, cx: number, cy: number, radius: number, c: MarkerColors) {
   const r = Math.max(3, radius);
   oval(g, cx, cy, r + 2, c.halo);
   markerCore(g, cx, cy, r, c);
@@ -296,6 +316,8 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   const d = s.display;
   const nodes = s.nodes;
   const theme = graphTheme();
+  const p = theme.palette;
+  const markers = markerColors(p, theme.background);
   const LINE = theme.line;
   const SCORE = theme.score;
   const background: Op[] = [];
@@ -308,6 +330,12 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     g.setLineDash([]);
     g.textAlign = "left";
     g.textBaseline = "alphabetic";
+    // The flat stage's panel edge: 1px, square, inside the panel.
+    if (p.flat && W0 >= 2 && H0 >= 2) {
+      g.strokeStyle = p.line;
+      g.lineWidth = 1;
+      g.strokeRect(0.5, 0.5, W0 - 1, H0 - 1);
+    }
   };
   g.textAlign = "left";
   g.textBaseline = "alphabetic";
@@ -363,7 +391,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     if (baselineActive && k * 2 === 4) continue;
     const y = posy + height - jInt((height * ((k * 100) / 4)) / 100);
     const w = width;
-    background.push(() => line(g, posx, y, posx + w, y, GRID, 1, true));
+    background.push(() => line(g, posx, y, posx + w, y, p.graphGrid, 1, true));
   }
   const baselineY = posy + i(height / 2);
   const occupied: Box[] = [];
@@ -375,19 +403,20 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     chipBox = { x: posx + 4, y: baselineY - i(h / 2), w: stringWidth(g, chip) + 8, h };
     occupied.push(chipBox);
   }
-  /** paintHighlightedBaseline (WinrateGraph.java:1730-1759). */
+  /** paintHighlightedBaseline (WinrateGraph.java:1730-1759); flat, a 1px line with the chip on a
+   *  sunken ground. */
   const paintBaseline = (w: number) => {
     if (!baselineActive) return;
     background.push(() => {
-      line(g, posx, baselineY, posx + w, baselineY, BASELINE, 1.5, false);
+      line(g, posx, baselineY, posx + w, baselineY, p.graphBaseline, p.flat ? 1 : 1.5, false);
       if (!chip || !chipBox) return;
       g.font = plain(11);
       const fm = metrics(g);
-      g.fillStyle = "rgba(0,0,0,0.667)";
+      g.fillStyle = p.flat ? p.sunken : "rgba(0,0,0,0.667)";
       g.beginPath();
       g.roundRect(chipBox.x, chipBox.y, chipBox.w, chipBox.h, 3);
       g.fill();
-      g.fillStyle = rgba([236, 232, 224], 230);
+      g.fillStyle = p.flat ? p.text2 : rgba([236, 232, 224], 230);
       g.fillText(chip, chipBox.x + 4, chipBox.y + fm.ascent + 1);
     });
   };
@@ -478,17 +507,17 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   let top = variationTop;
   let node = end;
   while (parentOf(nodes, node) !== null) {
-    const p = s.history.get(node);
+    const point = s.history.get(node);
     // Java's own win rate of an unanalysed node only places the hover number; 50 puts it below.
     let wr = 50;
     const shown = displayedWinrate(s, node, lastWr);
     if (shown !== null) {
       wr = shown;
       plotted.add(node);
-      const score = p ? p.black.score_lead ?? 0 : lastScore;
+      const score = point ? point.black.score_lead ?? 0 : lastScore;
       const color = lastNodeOk ? LINE : theme.miss;
       if (lastOkMove > 0 && lastOkMove - movenum < 25) {
-        if (canDrawBlunderBar && d.blunderBar && p) blunderBar(lastOkMove, movenum, Math.abs(lastWr - wr), Math.abs(lastScore - score));
+        if (canDrawBlunderBar && d.blunderBar && point) blunderBar(lastOkMove, movenum, Math.abs(lastWr - wr), Math.abs(lastScore - score));
         if (d.winrateLine) {
           filledLine(!lastNodeOk, X(lastOkMove), WY(lastWr), X(movenum), WY(wr), color, dashed ? 1 : theme.winrateWidth, dashed);
           if (!pieceOpen) report.segments++;
@@ -536,11 +565,11 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
       const moveNum = moveNumber(nodes, node);
       const low = wr < 3;
       front.push(() => {
-        line(g, x, posy, x, posy + height, GUIDE, 1, true);
+        line(g, x, posy, x, posy + height, p.graphGuide, 1, true);
         g.font = bold(12);
         const fm = metrics(g);
         const dx = moveNum < i(numMoves / 2) ? 3 : moveNum < 10 ? -10 : currentMoveNumber > 99 ? -22 : -16;
-        g.fillStyle = "#fff";
+        g.fillStyle = p.text;
         g.fillText(String(moveNum), x + dx, low ? posy + fm.ascent - fm.descent - 1 : posy + height - 1);
       });
       if (d.winrateLine && s.history.has(node)) {
@@ -623,7 +652,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   let oriMWrHeight = -1;
   if (mwr >= 0) {
     const x = X(mmovenum), y = clampDotY(WY(mwr) - DOT_RADIUS);
-    front.push(() => oval(g, x, y + DOT_RADIUS, DOT_RADIUS, "rgb(255,0,0)"));
+    front.push(() => oval(g, x, y + DOT_RADIUS, DOT_RADIUS, p.graphHover));
     g.font = bold(16);
     const fm = metrics(g);
     oriMWrHeight = posy + (height - jInt((mwr * height) / 100));
@@ -632,7 +661,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     if (mwrHeight > H0) mwrHeight = H0 - 2;
     const text = javaFixed1(mwr);
     report.hoverText = text;
-    placed(text, bold(16), "#fff", centredX(text, mmovenum), mwrHeight);
+    placed(text, bold(16), p.text, centredX(text, mmovenum), mwrHeight);
   }
   if (mScoreMoveNum >= 0) {
     g.font = bold(14);
@@ -650,7 +679,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     if (h > H0) h = Math.max(H0, mwrHeight - mWinFontHeight);
     const text = formatScoreLead(drawHoverScore);
     report.hoverScoreText = text;
-    placed(text, bold(14), "rgb(255,255,0)", centredX(text, mScoreMoveNum), h);
+    placed(text, bold(14), p.graphScoreText, centredX(text, mScoreMoveNum), h);
   }
   let cwrHeight = -1;
   let winFontHeight = -1;
@@ -664,7 +693,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     if (cwrHeight > H0) cwrHeight = H0 - 2;
     const text = javaFixed1(cwr);
     report.currentText = text;
-    placed(text, bold(16), "#fff", centredX(text, cmovenum), cwrHeight);
+    placed(text, bold(16), p.text, centredX(text, cmovenum), cwrHeight);
   }
   if (curScoreMoveNum >= 0) {
     g.font = bold(14);
@@ -689,7 +718,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     }
     const text = formatScoreLead(drawCurScore);
     report.currentScoreText = text;
-    placed(text, bold(14), "rgb(255,255,0)", centredX(text, curScoreMoveNum), h);
+    placed(text, bold(14), p.graphScoreText, centredX(text, curScoreMoveNum), h);
   }
 
   // ---------------------------------------------------------------- move numbers and legend
@@ -702,7 +731,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
       report.xLabels.push(label);
       background.push(() => {
         g.font = plain(11);
-        g.fillStyle = "rgb(200,200,200)";
+        g.fillStyle = p.text3;
         g.fillText(label, x, posy + height - 1);
       });
     }
@@ -721,15 +750,16 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
       const boxH = fm.ascent + fm.descent + 6;
       const boxX = W0 - boxW - 6;
       const boxY = 4;
-      g.fillStyle = "rgba(0,0,0,0.588)";
+      // Flat: a square panel-coloured box with a 1px edge; the wallpaper keeps Java's dark box.
+      g.fillStyle = p.flat ? p.panel : "rgba(0,0,0,0.588)";
       g.beginPath();
-      g.roundRect(boxX, boxY, boxW, boxH, 4);
+      g.roundRect(boxX, boxY, boxW, boxH, p.flat ? 0 : 4);
       g.fill();
-      g.strokeStyle = "rgba(255,255,255,0.098)";
+      g.strokeStyle = p.flat ? p.line : "rgba(255,255,255,0.098)";
       g.lineWidth = 1;
-      g.setLineDash([4, 4]);
+      g.setLineDash(p.flat ? [] : [4, 4]);
       g.beginPath();
-      g.roundRect(boxX + 0.5, boxY + 0.5, boxW, boxH, 4);
+      g.roundRect(boxX + 0.5, boxY + 0.5, boxW, boxH, p.flat ? 0 : 4);
       g.stroke();
       g.setLineDash([]);
       const textY = boxY + 3 + fm.ascent;
@@ -743,7 +773,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
         g.lineTo(cx + 16, lineY);
         g.stroke();
         cx += 21;
-        g.fillStyle = "rgb(210,210,210)";
+        g.fillStyle = p.text2;
         g.fillText(label, cx, textY);
         cx += widths[k] + 12;
       });
@@ -796,7 +826,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     const half = anchorHalfWidth(anchors);
     front.push(() => {
       for (const a of anchors) {
-        g.fillStyle = nodes.get(a.node)?.kind === "Snapshot" ? rgba([255, 208, 84], 110) : rgba(theme.lineRgb, 80);
+        g.fillStyle = nodes.get(a.node)?.kind === "Snapshot" ? p.graphSnapshot : rgba(theme.lineRgb, 80);
         g.fillRect(a.x - half, a.y - ANCHOR_HALF, half * 2 + 1, ANCHOR_HALF * 2 + 1);
       }
     });
@@ -816,18 +846,18 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   }
   front.push(() => {
     if (!scorePoint) {
-      if (movePoint) marker(g, movePoint.x, movePoint.y, MARKER_RADIUS, MOVE_MARKER);
+      if (movePoint) marker(g, movePoint.x, movePoint.y, MARKER_RADIUS, markers.move);
       return;
     }
-    if (!movePoint) return marker(g, scorePoint.x, scorePoint.y, MARKER_RADIUS, SCORE_MARKER);
+    if (!movePoint) return marker(g, scorePoint.x, scorePoint.y, MARKER_RADIUS, markers.score);
     if (!report.markersOverlap) {
-      marker(g, scorePoint.x, scorePoint.y, MARKER_RADIUS, SCORE_MARKER);
-      marker(g, movePoint.x, movePoint.y, MARKER_RADIUS, MOVE_MARKER);
+      marker(g, scorePoint.x, scorePoint.y, MARKER_RADIUS, markers.score);
+      marker(g, movePoint.x, movePoint.y, MARKER_RADIUS, markers.move);
       return;
     }
     // Overlapping: a larger score marker with the move's core drawn on it.
-    marker(g, scorePoint.x, scorePoint.y, MARKER_RADIUS + 3, SCORE_MARKER);
-    markerCore(g, movePoint.x, movePoint.y, Math.max(3, MARKER_RADIUS - 1), MOVE_MARKER);
+    marker(g, scorePoint.x, scorePoint.y, MARKER_RADIUS + 3, markers.score);
+    markerCore(g, movePoint.x, movePoint.y, Math.max(3, MARKER_RADIUS - 1), markers.move);
   });
   flush();
 

@@ -259,8 +259,15 @@ function parsedDifference(text: string | undefined): number {
 }
 
 /** ColorTableCellRenderer: the actual row's level by the configured win-rate / score loss
- *  thresholds, stronger while it is the highlighted point (LizzieFrame.java:15025-15098). */
-const LEVELS: [number, number, number, number, number][] = [
+ *  thresholds, 0 the worst and 5 the best (LizzieFrame.java:15025-15098). */
+function lossLevel(v: WorkbenchView, diff: number, scoreDiff: number): number {
+  const w = v.settings.display.winLossThresholds, s = v.settings.display.scoreLossThresholds;
+  for (let k = 4; k >= 0; k--) if (diff <= w[k] || scoreDiff <= s[k]) return 4 - k;
+  return 5;
+}
+
+/** The 独立选点列表's level colours with their alpha off and on the highlighted point. */
+const FRAME_LEVELS: [number, number, number, number, number][] = [
   [85, 25, 80, 120, 70],
   [208, 16, 19, 100, 50],
   [200, 140, 50, 100, 50],
@@ -269,34 +276,30 @@ const LEVELS: [number, number, number, number, number][] = [
   [0, 180, 0, 100, 60],
 ];
 
-function rankBackground(v: WorkbenchView, diff: number, scoreDiff: number, selected: boolean): string {
-  const w = v.settings.display.winLossThresholds, s = v.settings.display.scoreLossThresholds;
-  let level = 5;
-  for (let k = 4; k >= 0; k--)
-    if (diff <= w[k] || scoreDiff <= s[k]) {
-      level = 4 - k;
-      break;
-    }
-  const [r, g, b, strong, light] = LEVELS[level];
-  return `rgba(${r}, ${g}, ${b}, ${(selected ? strong : light) / 255})`;
-}
-
-/** Cell colours of one row: blue on the highlighted point's rows (red where the clicked row moved
- *  away from it), the rank colour on the actual row; the 占比 cell draws its bar only. */
+/** Cell colours of one row: the highlighted point's rows (another colour where the clicked row
+ *  moved away from it), the loss level on the actual row, stronger while it is the highlighted
+ *  point; the 占比 cell draws its bar only. The main list takes them from the stage tokens, so
+ *  they follow the colour mode; the 独立选点列表 keeps Java's (blue / red text, translucent black,
+ *  the level colours). */
 function colourCells(v: WorkbenchView, table: Table, rows: TableRow[], cells: string[][], shareColumn: number, winrateColumn: number, scoreColumn: number | null): FrameCell[][] {
-  const selectedAlpha = table === "main" ? 70 : 35;
+  const main = table === "main";
   return rows.map((r, k) => {
     const isSelect = samePoint(r.point, suggestionClick);
     const isChanged = isSelect && selection[table].selected >= 0 && selection[table].selected !== k;
     let fg = "", bg = "";
     if (isSelect) {
-      fg = "#0000ff";
-      bg = `rgba(0, 0, 0, ${selectedAlpha / 255})`;
+      fg = main ? "var(--ds-accent-text)" : "#0000ff";
+      bg = main ? "var(--ds-accent-soft)" : `rgba(0, 0, 0, ${35 / 255})`;
     }
-    if (isChanged) fg = "#ff0000";
+    if (isChanged) fg = main ? "var(--ds-danger-text)" : "#ff0000";
     if (r.actual) {
       const scoreDiff = scoreColumn === null ? 0 : parsedDifference(cells[k][scoreColumn]);
-      bg = rankBackground(v, parsedDifference(cells[k][winrateColumn]), scoreDiff, isSelect);
+      const level = lossLevel(v, parsedDifference(cells[k][winrateColumn]), scoreDiff);
+      if (main) bg = `var(--ws-rank-${level + 1}${isSelect ? "-strong" : ""})`;
+      else {
+        const [red, green, blue, strong, light] = FRAME_LEVELS[level];
+        bg = `rgba(${red}, ${green}, ${blue}, ${(isSelect ? strong : light) / 255})`;
+      }
     }
     return cells[k].map((text, column) =>
       column === shareColumn ? { text, fg: "", bg: "", bar: Number.parseFloat(text) } : { text, fg, bg, bar: null });
@@ -634,9 +637,10 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
       // The actual row's cells carry their text as a tooltip.
       cell.title = r.actual ? c.text : "";
       cell.style.color = c.fg;
+      // 占比: a hard-edged bar of the share token, the rest of the cell clear.
       cell.style.background = c.bar === null
         ? c.bg
-        : `linear-gradient(to right, rgb(192, 192, 192) ${Math.min(100, c.bar)}%, transparent ${Math.min(100, c.bar)}%)`;
+        : `linear-gradient(to right, var(--ws-share-bar) ${Math.min(100, c.bar)}%, transparent ${Math.min(100, c.bar)}%)`;
     });
   });
 }
