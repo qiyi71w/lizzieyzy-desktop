@@ -161,10 +161,10 @@ function openInitSettings(): void {
 
   const notes = document.createElement("div");
   notes.className = "init-notes";
-  for (const key of ["FirstUseSettings.lblNotice", "FirstUseSettings.lblHint"]) {
+  for (const text of [t("FirstUseSettings.lblNotice"), t("FirstUseSettings.lblHint")]) {
     const p = document.createElement("p");
     p.className = "engine-hint";
-    p.textContent = t(key);
+    p.textContent = text;
     notes.append(p);
   }
   form.append(notes);
@@ -225,7 +225,7 @@ function openInitSettings(): void {
   const head = box.querySelector(".modal-title")!;
   const close = document.createElement("button");
   close.type = "button";
-  close.className = "init-close";
+  close.className = "modal-close";
   close.append(icon("close"));
   close.tabIndex = -1;
   close.dataset.key = "init.close";

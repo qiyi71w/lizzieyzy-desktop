@@ -56,6 +56,25 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Column shares by content: the time and the two win rates in full, the counts narrow. */
+#yl-scroll th:nth-child(1) {
+  width: 11%;
+}
+#yl-scroll th:nth-child(2) {
+  width: 15%;
+}
+#yl-scroll th:nth-child(3) {
+  width: 20%;
+}
+#yl-scroll th:nth-child(4),
+#yl-scroll th:nth-child(5),
+#yl-scroll th:nth-child(7) {
+  width: 14%;
+}
+#yl-scroll th:nth-child(6),
+#yl-scroll th:nth-child(8) {
+  width: 6%;
+}
 #yl-scroll th {
   position: sticky;
   top: 0;

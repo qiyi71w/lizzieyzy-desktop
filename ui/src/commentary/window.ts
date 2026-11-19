@@ -6,7 +6,7 @@ import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { Command, CommentaryView, Mode } from "../contract/generated";
 import { format, setLanguage, t } from "../i18n";
-import { localIcon } from "./icons";
+import { icon } from "../design/icons";
 import { markdownToHtml } from "./markdown";
 import {
   COMMENTARY_DATA_EVENT,
@@ -39,9 +39,30 @@ function button(text: string, className: string, key: string): HTMLButtonElement
   return b;
 }
 
+const emit = (input: CommentaryInput) => void emitTo("main", COMMENTARY_INPUT_EVENT, input);
+
 export function bootCommentary(): void {
+  // The window is built on the first payload, whose language its fixed texts (modes, tabs,
+  // buttons) are in; the language does not change within a session.
+  let receive: ((payload: CommentaryPayload) => void) | null = null;
+  void getCurrentWebviewWindow()
+    .listen<CommentaryPayload>(COMMENTARY_DATA_EVENT, (e) => {
+      if (!receive) {
+        setLanguage(e.payload.language);
+        receive = mount();
+      }
+      receive(e.payload);
+    })
+    .then(() => {
+      emit({ type: "ready" });
+      // TeacherDialog's constructor: refresh from the board and load the settings.
+      void send({ type: "Commentary", op: { type: "Open" } });
+    });
+}
+
+/** Builds the window; returns what takes each payload from the main window. */
+function mount(): (payload: CommentaryPayload) => void {
   const self = getCurrentWebviewWindow();
-  const emit = (input: CommentaryInput) => void emitTo("main", COMMENTARY_INPUT_EVENT, input);
   type Op = Extract<Command, { type: "Commentary" }>["op"];
   const commentary = (op: Op) => send({ type: "Commentary", op });
 
@@ -86,7 +107,7 @@ export function bootCommentary(): void {
     return { value, b };
   });
   const settingsButton = button(t("Teacher.action.settings"), "tc-settings", "commentary.settings");
-  settingsButton.prepend(localIcon("settings"));
+  settingsButton.prepend(icon("settings"));
   settingsButton.title = t("Teacher.action.settings.description");
   settingsButton.onclick = () => void showSettings();
   header.append(modes, settingsButton);
@@ -144,7 +165,7 @@ export function bootCommentary(): void {
   const emptyTitle = el("div", "tc-empty-title");
   const emptyDetail = el("div", "tc-empty-detail");
   emptyDetail.dataset.key = "commentary.emptyDetail";
-  empty.append(localIcon("commentary"), emptyTitle, emptyDetail);
+  empty.append(icon("commentary"), emptyTitle, emptyDetail);
   const output = el("div", "tc-output");
   output.setAttribute("aria-label", t("Teacher.output"));
   lessonPage.append(empty, output);
@@ -448,28 +469,22 @@ export function bootCommentary(): void {
   window.addEventListener("resize", () => report());
   for (const field of [fromField, toField]) field.addEventListener("change", () => report());
 
-  let documentId = -1;
-  void self
-    .listen<CommentaryPayload>(COMMENTARY_DATA_EVENT, (e) => {
-      setLanguage(e.payload.language);
-      const first = !v;
-      // TeacherDialog's game guard: another record drops the unsent question (followUp.setText("")).
-      if (!first && e.payload.document !== documentId) followUp.value = "";
-      documentId = e.payload.document;
-      v = e.payload.view;
-      if (first) mode = v.mode;
-      // A failed or stopped follow-up gives its question back when the field is empty.
-      if (v.restore_question && !followUp.value.trim()) followUp.value = v.restore_question;
-      render();
-      if (first) focusPrimary();
-    })
-    .then(() => {
-      emit({ type: "ready" });
-      // TeacherDialog's constructor: refresh from the board and load the settings.
-      void commentary({ type: "Open" });
-    });
   void self.listen(COMMENTARY_FOCUS_EVENT, () => {
     void self.setFocus();
     focusPrimary();
   });
+
+  let documentId = -1;
+  return (payload) => {
+    const first = !v;
+    // TeacherDialog's game guard: another record drops the unsent question (followUp.setText("")).
+    if (!first && payload.document !== documentId) followUp.value = "";
+    documentId = payload.document;
+    v = payload.view;
+    if (first) mode = v.mode;
+    // A failed or stopped follow-up gives its question back when the field is empty.
+    if (v.restore_question && !followUp.value.trim()) followUp.value = v.restore_question;
+    render();
+    if (first) focusPrimary();
+  };
 }

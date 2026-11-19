@@ -316,6 +316,10 @@
 .engine-rule-row {
   display: contents;
 }
+/* A rule with two choices leaves its row's last cell empty; the next caption starts a new row. */
+.engine-rule-row > span {
+  grid-column: 1;
+}
 .engine-rule-rows label {
   display: inline-flex;
   align-items: center;
