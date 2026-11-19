@@ -627,7 +627,7 @@ importing the matching LizzieYzy Next settings.
     Lizzie默认, 系统默认 or a system font), pure-colour background / board / stones and the image
     files of a named theme (the default theme's images are fixed, as in Java), the background
     blur (as in Java it blurs the panels only when the glass effect is off: `glass-effect-level`
-    0 in an imported Java configuration, without Apple style; the default level 1 draws the
+    0 in an imported Java configuration; the default level 1 draws the
     frosted glass, level 2 the liquid glass, both with the theme's imported glass colours and
     blur radii), the graph, comment and best-move colours, the comment font size, the
     last-move marker (圆圈, 三角, 实心, 无), the comment-node colour, the 错误节点 thresholds and
@@ -637,12 +637,12 @@ importing the matching LizzieYzy Next settings.
     dropping unsaved edits. Bundled themes are read-only: deleting one hides it, and edits are
     kept as the user's copy.
   - 显示 > 外观主题: 棋盘风格 日式 / 中式经典 (corner markers instead of star points, Chinese
-    numerals counted from the nearer edge as coordinates), Apple 风格界面 (also turns the Morandi
-    colours on; dark translucent menu, tool and bottom bars, darkened wallpaper), 经典配色 (off:
-    Morandi colours for the bars, menus and move marks; the bottom bar turns dark), and a custom
-    board image (scaled to cover the main board under a light shade; the sub board keeps the
-    theme's board) with its 清除 entry. The bar colours change at once; the light toolbar icons of
-    Apple style follow from the next start.
+    numerals counted from the nearer edge as coordinates), 外观模式 跟随系统 / 浅色 / 深色 (the
+    interface follows the system's light or dark setting, or stays light or dark; the default is
+    跟随系统, and a choice applies at once and is saved), and a custom board image (scaled to cover
+    the main board under a light shade; the sub board keeps the theme's board) with its 清除
+    entry. The LizzieYzy Next import takes Java's Apple style (`is-apple-style`) on as 深色 and off
+    as 跟随系统; its Morandi colour switch (`use-morandi-colors`) is reported as not carried over.
   - 设置 > 界面字体大小 (12, 16, 20 or 自定义 12-20) sets, from the next start, the menu font
     size, the toolbar icon size (16, 20 or 24), the font and row height of the main 选点 list,
     and the list rows and fonts of 超级鹰眼 and the 选点列表 window; outside Chinese a size above
@@ -1611,7 +1611,11 @@ binary with its output and exits non-zero, like `cargo test --no-fail-fast`.
 - `ui/src/i18n/javaStrings.json` holds the Java UI strings used by the UI, taken from the Java
   `l10n/DisplayStrings_*.properties` bundles. Regenerate it with
   `python3 tools/extract_java_strings.py <java-checkout>`; the script requires the checkout to be
-  at the reference commit and lists keys that are shown literally.
+  at the reference commit and lists keys that are shown literally. It copies every
+  `FunctionSearch.*` key of the Java bundles, including the aliases and descriptions of Java's
+  Apple 风格 UI and 经典配色 entries, which the catalog no longer lists; remove those after
+  regenerating. Strings this product adds to Java's menus and catalog are kept by hand, in all
+  six languages, in `ui/src/i18n/productStrings.json`; the script does not touch that file.
 
 ### Commands, settings rows and function search
 
@@ -1640,6 +1644,12 @@ Three Java catalog entries are not offered and never listed (`WITHDRAWN` in
 `crates/lizzie-core/src/function_search/mod.rs`): the two lizzieyzy.cn kifu-history search windows,
 whose service is offline and which Java reaches only through search, and 设置 > 界面外观, which only
 switches the Swing look and feel.
+
+The catalog's two Java interface-style switches (Apple 风格 UI, 经典配色) are replaced in
+`catalog.json` by this product's three 外观模式 entries (`menu.appearanceModeSystem`, `…Light`,
+`…Dark`), with their text in every bundle; the UI shows the same text from
+`ui/src/i18n/productStrings.json`. Re-extracting the catalog from Java drops them and brings the
+two Java entries back, so they have to be applied again.
 
 Two mappings live in `targets.ts` itself:
 
