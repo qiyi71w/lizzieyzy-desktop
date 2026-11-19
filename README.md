@@ -1762,7 +1762,11 @@ placement, is still saved. At the next start a file that was only out of reach i
 usual, and a damaged one is kept as that backup once that is possible. Java differs here: a
 `config.txt` for which `File.canRead()` is false it tries to replace with its defaults, and a
 damaged one it tries to rebuild even when the backup could not be made; when that write fails,
-Java does not start. Both cases are noted in `logs/app.log`.
+Java does not start. Both cases are noted in `logs/app.log`. On Linux and macOS the settings
+files the program creates (`config.json`, `persist.json`, `ssh-known-hosts.json`) and that
+backup are readable and writable by their owner only, as Java's `config.txt` is: a saved custom
+link or command can carry a credential. A file that is already there keeps its permission bits
+when it is saved again (Java makes it owner-only on every save).
 跑谱贡献 runs KataGo in `contribution/` of the data directory (its downloaded models
 and finished-game SGFs stay there) and 保存所有棋谱 writes to `ContributeGames/<yyyy-MM-dd-HH>/`
 next to it. The training password is kept in the system credential storage like the keys above

@@ -561,6 +561,45 @@ fn damaged_settings_that_cannot_be_kept_are_not_replaced() {
     assert_eq!(kept().as_deref(), Some(&damaged[..]));
 }
 
+#[cfg(unix)]
+fn mode(path: &std::path::Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+}
+
+#[cfg(unix)]
+#[test]
+fn settings_are_saved_for_their_owner_only_and_keep_permissions_the_user_set() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let config_file = storage(dir.path()).config_file;
+    let mut wb = Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new());
+    wb.set_read_komi(false).unwrap();
+    // A new settings file may hold a link or command with a credential: no one else reads it
+    // (Java writes `config.txt` through `Files.createTempFile`, which is owner-only too).
+    assert_eq!(mode(&config_file), 0o600);
+    // What the user chose for the file afterwards survives the next save.
+    std::fs::set_permissions(&config_file, std::fs::Permissions::from_mode(0o640)).unwrap();
+    wb.set_language(Language::EnUs).unwrap();
+    assert_eq!(mode(&config_file), 0o640);
+}
+
+#[cfg(unix)]
+#[test]
+fn damaged_settings_are_kept_for_their_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let config_file = storage(dir.path()).config_file;
+    std::fs::create_dir_all(config_file.parent().unwrap()).unwrap();
+    std::fs::write(&config_file, b"{ \"ui\": ").unwrap();
+    std::fs::set_permissions(&config_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+    drop(Workbench::new(storage(dir.path()), None, Box::new(NoEngines), Vec::new()));
+    // Neither the kept copy nor the rebuilt file is opened to anyone the damaged file was not.
+    assert_eq!(mode(&config_file.with_file_name("config.json.unreadable-backup")), 0o600);
+    assert_eq!(mode(&config_file), 0o600);
+}
+
 #[test]
 fn inspecting_the_view_does_not_consume_what_the_ui_must_receive() {
     let dir = tempfile::tempdir().unwrap();

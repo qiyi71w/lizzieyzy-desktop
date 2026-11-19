@@ -137,7 +137,7 @@ pub fn write_record_file(target: &Path, text: &str) -> std::io::Result<()> {
     write_file_atomic(target, text.as_bytes())
 }
 
-/// [`write_record_file`] for any bytes (pictures, slot thumbnails).
+/// [`write_record_file`] for any bytes (pictures, slot thumbnails, settings files).
 pub fn write_file_atomic(target: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let dir = match target.parent() {
         Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),

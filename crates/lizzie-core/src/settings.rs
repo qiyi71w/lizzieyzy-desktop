@@ -2133,15 +2133,22 @@ pub fn load_config(path: &Path) -> LoadedConfig {
 
 /// Keeps `bytes`, the content of the unusable settings file `path`, beside it under the first
 /// free name of `<name>.unreadable-backup`, `<name>.unreadable-backup.1`, …: an earlier backup is
-/// never replaced.
+/// never replaced. On Unix the copy is for its owner only, as the settings may hold a credential.
 fn keep_unusable(path: &Path, bytes: &[u8]) -> std::io::Result<PathBuf> {
     use std::io::Write;
     let base = format!("{}.unreadable-backup", path.file_name().unwrap_or_default().to_string_lossy());
     let mut name = base.clone();
     let mut suffix = 0u32;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
     loop {
         let backup = path.with_file_name(&name);
-        match std::fs::OpenOptions::new().write(true).create_new(true).open(&backup) {
+        match options.open(&backup) {
             Ok(mut file) => {
                 return match file.write_all(bytes) {
                     Ok(()) => Ok(backup),
@@ -2170,23 +2177,19 @@ pub fn load_json<T: Default + for<'de> Deserialize<'de>>(path: &Path) -> T {
         .unwrap_or_default()
 }
 
-/// Writes through a temporary file and rename so a crash never leaves a partial file.
+/// Writes through a staged file and rename so a crash never leaves a partial file.
 pub fn save_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
     write_atomic(path, &serde_json::to_vec_pretty(value)?)
 }
 
-/// Replaces `path` with `bytes` through a temporary file and rename; on failure the temporary
-/// file is removed and `path` is unchanged.
+/// Replaces `path` with `bytes` as a record is saved ([`crate::formats::write_file_atomic`]),
+/// creating its folder first: on Unix a new file is for its owner only and a replaced one keeps
+/// its permission bits; on failure `path` is unchanged.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let tmp = path.with_extension("json.tmp");
-    let result = std::fs::write(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, path));
-    if result.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
-    result
+    crate::formats::write_file_atomic(path, bytes)
 }
 
 /// Writes `config` and, if given, `persisted` as one change: when the second write fails, the
