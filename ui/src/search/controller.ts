@@ -1,10 +1,12 @@
 // FunctionSearchController (Java cb53acc): the search entries (toolbar button, Ctrl+K / Cmd+K),
 // shortcut isolation, focus restore after a cancelled search, and the final activation admission.
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { state } from "../app";
 import { COMMANDS } from "../commands";
 import { searchFunctions } from "../contract/client";
 import { dialogOpen, message, ownerIsDisabled } from "../dialogs";
 import { t } from "../i18n";
+import { focusIndependent, keyFromIndependent } from "../workbench/independent";
 import { openSearchDialog, type SearchDialog } from "./dialog";
 import { activateFunction, focusBoard, reasonKey, reasonText, resolveFunction, type DestinationKind } from "./targets";
 
@@ -68,8 +70,10 @@ function restoreFocus(previous: HTMLElement | null, generation: number): void {
   if (generation === restoreGeneration) restoreTimer = window.setInterval(tick, 50);
 }
 
-/** open(): the search, then the chosen destination once the search closed. */
-export async function openFunctionSearch(): Promise<void> {
+/** open(): the search, then the chosen destination once the search closed. `fromFloating` is the
+ *  Ctrl+K pressed in the 浮动主棋盘 window: the window a cancel gives the keyboard back to (the
+ *  anchor; Java takes no other window as one). */
+export async function openFunctionSearch(fromFloating = false): Promise<void> {
   cancelFocusRestore();
   const generation = restoreGeneration;
   if (!state.view) return;
@@ -82,13 +86,16 @@ export async function openFunctionSearch(): Promise<void> {
   const previous = active instanceof HTMLElement && active !== document.body ? active : null;
   const current = openSearchDialog();
   dialog = current;
+  // Ctrl+K forwarded from the 浮动主棋盘 window: the search is modal over the whole application
+  // (FunctionSearchDialog APPLICATION_MODAL), so the main window takes the keyboard for it.
+  if (!document.hasFocus()) void getCurrentWindow().setFocus();
   const selected = await current.done;
   if (dialog === current) dialog = null;
   if (selected) {
     const reason = await activateFunction(selected);
     lastActivation = { id: selected.id, kind: resolveFunction(selected).kind, reason: reasonKey(reason) };
     if (reason) await message(t("FunctionSearch.title"), reasonText(reason));
-  } else restoreFocus(previous, generation);
+  } else if (!(fromFloating && generation === restoreGeneration && (await focusIndependent("Main")))) restoreFocus(previous, generation);
 }
 
 /** getMenuShortcutKeyMaskEx with nothing else held: Cmd on macOS, Ctrl elsewhere. */
@@ -121,10 +128,11 @@ export function bindFunctionSearch(refuse: (target: EventTarget | null) => boole
     e.stopImmediatePropagation();
     if (openQueued) return;
     openQueued = true;
+    const fromFloating = keyFromIndependent() === "Main";
     setTimeout(() => {
       if (!openQueued) return;
       openQueued = false;
-      void openFunctionSearch();
+      void openFunctionSearch(fromFloating);
     });
   }, true);
   window.addEventListener("keyup", (e) => {

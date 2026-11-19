@@ -262,6 +262,47 @@ fn branch_order_moves_and_set_as_main_promotes_the_line() {
     assert_eq!(edit(&mut wb, EditCommand::SetAsMain), CommandResult::Unchanged);
 }
 
+/// The side to play a saved record reopens with at a reordered branch point: an action without
+/// `PL` takes its first continuation's colour (Java `alignParentTurnStateWithFirstActionChild`).
+fn reopened_to_play(wb: &mut Workbench, dir: &std::path::Path, at: NodeId) -> Stone {
+    let path = dir.join("reordered.sgf");
+    let job = wb.begin_save(path.to_str().unwrap(), "LizzieYzy Tauri:test");
+    let reopened = sgf::read(&job.text).expect("saved SGF reads back");
+    let depth = rec(wb).depth(at);
+    let mut n = ROOT;
+    for _ in 0..depth {
+        n = reopened.main_child(n).unwrap();
+    }
+    reopened.node(n).to_play
+}
+
+#[test]
+fn a_same_colour_variation_made_main_gives_its_branch_point_the_side_to_play_it_reopens_with() {
+    for promote in [EditCommand::SetAsMain, EditCommand::MoveBranch { up: true }] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut wb = opened(dir.path(), "(;SZ[9];B[aa]LZ[KataGo 55.0 100\nmove ee visits 10](;W[bb])(;B[cc]))");
+        let aa = rec(&wb).main_child(ROOT).unwrap();
+        let cc = rec(&wb).node(aa).children[1];
+        assert_eq!(rec(&wb).node(aa).to_play, Stone::White);
+        wb.goto_node(cc).unwrap();
+        assert_eq!(edit(&mut wb, promote.clone()), CommandResult::Done);
+        assert_eq!(rec(&wb).node(aa).children[0], cc, "{promote:?}");
+        assert_eq!(rec(&wb).node(aa).to_play, Stone::Black, "{promote:?}: the branch point follows its new main move");
+        assert!(
+            !rec(&wb).node(aa).properties.iter().any(|p| p.id.starts_with("LZ")),
+            "{promote:?}: the analysis of the old side to play no longer applies"
+        );
+        assert_eq!(reopened_to_play(&mut wb, dir.path(), aa), Stone::Black, "{promote:?}: save and reopen agree");
+        wb.goto_node(aa).unwrap();
+        play(&mut wb, "ee");
+        assert_eq!(
+            rec(&wb).node(wb.cursor()).kind,
+            NodeKind::Move { color: Stone::Black, point: p("ee") },
+            "{promote:?}: the next move takes the shown side"
+        );
+    }
+}
+
 #[test]
 fn insert_and_stone_edits_replay_what_follows_and_keep_node_content() {
     let dir = tempfile::tempdir().unwrap();
@@ -613,6 +654,51 @@ fn try_play_keeps_the_record_and_brings_it_back() {
 }
 
 #[test]
+fn try_play_brings_back_the_saved_analysis_of_what_it_set_aside() {
+    let dir = tempfile::tempdir().unwrap();
+    let text = "(;SZ[9];B[ee]\
+        (;W[dd]LZ[KataGo 55.0 100\nmove C3 visits 100 winrate 5500 pv C3])\
+        (;W[cc]LZ[KataGo 45.0 200\nmove G7 visits 200 winrate 4500 pv G7]))";
+    let mut wb = opened(dir.path(), text);
+    wb.navigate(Navigation::Forward(1));
+    let fork = wb.cursor();
+    let children = rec(&wb).node(fork).children.clone();
+    let visits = |wb: &mut Workbench| -> Vec<_> {
+        children
+            .iter()
+            .map(|&c| {
+                wb.goto_node(c).unwrap();
+                wb.view(false).analysis.map(|a| a.visits)
+            })
+            .collect()
+    };
+    assert_eq!(visits(&mut wb), [Some(100), Some(200)]);
+
+    wb.goto_node(fork).unwrap();
+    edit(&mut wb, EditCommand::TryPlay);
+    play(&mut wb, "gg");
+    edit(&mut wb, EditCommand::TryPlay);
+    assert_eq!(wb.cursor(), fork);
+    assert_eq!(rec(&wb).node(fork).children, children);
+    assert_eq!(visits(&mut wb), [Some(100), Some(200)], "the continuations keep their analysis");
+
+    let job = wb.begin_save(dir.path().join("a.sgf").to_str().unwrap(), "LizzieYzy Tauri:test");
+    let mut reopened = opened(&dir.path().join("reopened"), &job.text);
+    let fork = rec(&reopened).main_child(ROOT).unwrap();
+    let shown: Vec<_> = rec(&reopened)
+        .node(fork)
+        .children
+        .clone()
+        .into_iter()
+        .map(|c| {
+            reopened.goto_node(c).unwrap();
+            reopened.view(false).analysis.map(|a| a.visits)
+        })
+        .collect();
+    assert_eq!(shown, [Some(100), Some(200)], "and save it");
+}
+
+#[test]
 fn a_variation_added_as_branch_stays_beside_the_main_line() {
     let dir = tempfile::tempdir().unwrap();
     let mut wb = opened(dir.path(), "(;SZ[9];B[ee])");
@@ -621,7 +707,7 @@ fn a_variation_added_as_branch_stays_beside_the_main_line() {
     edit(
         &mut wb,
         EditCommand::AddVariationAsBranch {
-            moves: vec![p("dd"), p("cc")],
+            moves: vec![Some(p("dd")), Some(p("cc"))],
         },
     );
     assert_eq!(wb.cursor(), at, "browsing stays");
@@ -637,6 +723,44 @@ fn a_variation_added_as_branch_stays_beside_the_main_line() {
     play(&mut wb, "gg");
     assert_eq!(line(rec(&wb), ROOT), ["B[ee]", "W[gg]"]);
     assert_eq!(rec(&wb).node(at).children.len(), 2);
+}
+
+/// A candidate's variation with a pass in the middle (`D4 pass Q16` on 19x19, here `ee pass cc`):
+/// 加入变化, the middle click and 让AI落子 (,) keep the pass, so the move after it is the
+/// colour after the pass. Java's middle click and `,` skip the pass and play `cc` as White; its
+/// 加入变化 ends the branch at the pass.
+#[test]
+fn a_variation_keeps_its_pass_and_the_colours_after_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let moves = vec![Some(p("ee")), None, Some(p("cc"))];
+
+    let mut wb = opened(dir.path(), "(;SZ[9];B[gg];W[hh])");
+    wb.navigate(Navigation::Last);
+    let at = wb.cursor();
+    edit(&mut wb, EditCommand::AddVariationAsBranch { moves: moves.clone() });
+    assert_eq!(wb.cursor(), at, "browsing stays");
+    let branch = *rec(&wb).node(at).children.last().unwrap();
+    assert_eq!(
+        rec(&wb).node(branch).kind,
+        NodeKind::Move {
+            color: Stone::Black,
+            point: p("ee")
+        }
+    );
+    assert_eq!(line(rec(&wb), branch), ["W[]", "B[cc]"]);
+
+    // The middle click and `,` play the variation from the current position.
+    let mut wb = opened(&dir.path().join("play"), "(;SZ[9];B[gg];W[hh])");
+    wb.navigate(Navigation::Last);
+    edit(&mut wb, EditCommand::PlayVariation { moves });
+    assert_eq!(line(rec(&wb), ROOT), ["B[gg]", "W[hh]", "B[ee]", "W[]", "B[cc]"]);
+    assert_eq!(
+        rec(&wb).node(wb.cursor()).kind,
+        NodeKind::Move {
+            color: Stone::Black,
+            point: p("cc")
+        }
+    );
 }
 
 #[test]

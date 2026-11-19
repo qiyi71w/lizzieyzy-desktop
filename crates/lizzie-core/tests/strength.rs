@@ -1,7 +1,7 @@
 //! 棋力评估 through the public `Workbench::strength` command and view, with saved analysis read
 //! from SGF and a controlled HumanSL 40 policy process.
 use lizzie_core::api::{
-    CommandResult, OpenSource, StrengthCommand, StrengthManualOutcome, StrengthReport, TrackingCommand,
+    CommandResult, EditCommand, OpenSource, StrengthCommand, StrengthManualOutcome, StrengthReport, TrackingCommand,
 };
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
@@ -81,6 +81,8 @@ struct Fixture {
     dir: tempfile::TempDir,
     wb: Workbench,
     world: World,
+    /// What the foreground engine answers to `name`.
+    gtp_name: &'static str,
 }
 
 /// A workbench whose analysis command names a local KataGo stand-in and whose HumanSL model is a
@@ -108,7 +110,7 @@ fn fixture_with(setup: impl FnOnce(&mut Config, &std::path::Path)) -> Fixture {
     let mut wb = Workbench::new(storage, None, Box::new(world.clone()), vec![]);
     wb.set_strength_human_digest(&lizzie_core::resources::sha256_file(&human).unwrap());
     open(&mut wb, GAME);
-    Fixture { dir, wb, world }
+    Fixture { dir, wb, world, gtp_name: "KataGo" }
 }
 
 fn open(wb: &mut Workbench, text: &str) {
@@ -496,7 +498,7 @@ fn serve(f: &mut Fixture, id: InstanceId) {
             let (n, command) = line.split_once(' ').unwrap();
             let word = command.split_whitespace().next().unwrap();
             let text = match word {
-                "name" => "KataGo",
+                "name" => f.gtp_name,
                 "version" => "1.18.2",
                 "list_commands" => "name\nversion\nlist_commands\nkomi\nboardsize\nclear_board\nplay\nundo\nkata-analyze\nkata-set-rules\nkata-get-rules\nstop",
                 "kata-get-rules" => r#"{"ko":"SIMPLE","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N","friendlyPassOk":true,"hasButton":false}"#,
@@ -596,6 +598,34 @@ fn a_tracked_candidate_beyond_the_limit_counts_while_its_tracking_lasted() {
 }
 
 #[test]
+fn a_priority_point_beyond_the_limit_counts_as_a_candidate() {
+    // 优先分析此点 on Q16 (pd), second of a limit of one, on a KataGoPda: BoardData.tryToLimitMoves
+    // keeps a priorityMoveCoords point in bestMoves, so the estimate takes the move as the second
+    // candidate (the ordinary case without it is ai_rank 999, score_loss 2.5).
+    let mut f = fixture();
+    f.gtp_name = "KataGoPda 1.16.4";
+    open(&mut f.wb, "(;SZ[19]KM[7.5];B[pd])");
+    let id = foreground(&mut f);
+    let mut limits = f.wb.config().engine.analysis.clone();
+    limits.limit_max_suggestion = 1;
+    f.wb.set_analysis_settings(limits).unwrap();
+    serve(&mut f, id);
+    let q16 = Point { x: 15, y: 3 };
+    assert!(f.wb.set_priority_point(q16).unwrap());
+    serve(&mut f, id);
+    f.wb.engine_input(id, EngineInput::Stdout("info move D4 visits 100 winrate 0.55 scoreLead 2 prior 0.2 order 0 pv D4 info move Q16 visits 50 winrate 0.5 scoreLead 1 prior 0.1 order 1 pv Q16".into()));
+    f.wb.navigate(Navigation::Forward(1));
+    serve(&mut f, id);
+    f.wb.engine_input(
+        id,
+        EngineInput::Stdout("info move D4 visits 80 winrate 0.52 scoreLead 0.5 prior 0.2 order 0 pv D4".into()),
+    );
+    let s = &report(&mut f.wb).black.samples[0];
+    assert_eq!((s.ai_rank, s.first_choice), (1, false));
+    assert_eq!(s.score_loss, Some(1.0), "the candidates' difference, 2 - 1");
+}
+
+#[test]
 fn a_background_choice_that_cannot_be_saved_reports_why_and_stays_off() {
     let mut f = fixture();
     let config = f.dir.path().join("config").join("config.json");
@@ -637,4 +667,60 @@ fn background_preparation_follows_foreground_analysis_and_pause() {
     f.wb.engine_tick(now + Duration::from_secs(2));
     assert!(f.world.dead(worker));
     assert_eq!(f.wb.view(false).strength.status.key, "HumanSL40.backgroundPaused");
+}
+
+#[test]
+fn a_changed_suggestion_limit_leaves_loaded_analysis_as_it_was_split() {
+    // SGFParser limits saved candidates when the record is loaded; changing 最大候选点数 later does
+    // not rebuild bestMoves, which PlayerStrengthEstimator.findPlayedCandidate reads as they are.
+    let sgf = "(;SZ[19]KM[7.5]LZOP[b18 55.0 150 2.0 0.5 0 rootVisits=150\n\
+               move D4 visits 100 winrate 5500 prior 2000 scoreMean 2 order 0 pv D4 info \
+               move Q16 visits 50 winrate 5000 prior 1000 scoreMean 1 order 1 pv Q16]\
+               ;B[pd]LZ[b18 48.0 80 0.5 0.5 0 rootVisits=80\n\
+               move D4 visits 80 winrate 5200 prior 2000 scoreMean 0.5 order 0 pv D4])";
+    let mut f = fixture();
+    let mut limits = f.wb.config().engine.analysis.clone();
+    limits.limit_max_suggestion = 2;
+    f.wb.set_analysis_settings(limits.clone()).unwrap();
+    open(&mut f.wb, sgf);
+    // Root: D4 first, Q16 (pd, the move played) second: the candidates' difference, 2 - 1.
+    let rank = |r: &StrengthReport| (r.black.samples[0].ai_rank, r.black.samples[0].score_loss);
+    assert_eq!(rank(&report(&mut f.wb)), (1, Some(1.0)));
+    limits.limit_max_suggestion = 1;
+    f.wb.set_analysis_settings(limits).unwrap();
+    assert_eq!(rank(&report(&mut f.wb)), (1, Some(1.0)), "only the setting changed");
+    // Loaded again under the limit of one, Q16 is no candidate: the positions' difference, 0.5 + 2.
+    open(&mut f.wb, sgf);
+    assert_eq!(rank(&report(&mut f.wb)), (999, Some(2.5)));
+}
+
+#[test]
+fn trial_play_keeps_the_suggestion_limit_its_continuations_were_split_with() {
+    // 试下 sets the continuations aside and brings them back; their results keep the 最大候选点数
+    // they came with, so a candidate past it stays out of the estimate.
+    let mut f = fixture();
+    open(&mut f.wb, "(;SZ[19]KM[7.5];B[dd];W[pd])");
+    let id = foreground(&mut f);
+    let mut limits = f.wb.config().engine.analysis.clone();
+    limits.limit_max_suggestion = 1;
+    f.wb.set_analysis_settings(limits).unwrap();
+    f.wb.navigate(Navigation::Forward(1));
+    serve(&mut f, id);
+    // After B[dd], White to move: Q16 (pd, played) is the second candidate, beyond the limit of one.
+    f.wb.engine_input(id, EngineInput::Stdout("info move D4 visits 100 winrate 0.55 scoreLead 2 prior 0.2 order 0 pv D4 info move Q16 visits 50 winrate 0.5 scoreLead 1 prior 0.1 order 1 pv Q16".into()));
+    f.wb.navigate(Navigation::Forward(1));
+    serve(&mut f, id);
+    f.wb.engine_input(
+        id,
+        EngineInput::Stdout("info move D4 visits 80 winrate 0.52 scoreLead 0.5 prior 0.2 order 0 pv D4".into()),
+    );
+    let rank = |r: &StrengthReport| (r.white.samples[0].ai_rank, r.white.samples[0].score_loss);
+    assert_eq!(rank(&report(&mut f.wb)), (999, Some(2.5)), "the positions' difference, 0.5 + 2");
+    f.wb.navigate(Navigation::First);
+    serve(&mut f, id);
+    f.wb.edit(EditCommand::TryPlay).unwrap();
+    serve(&mut f, id);
+    f.wb.edit(EditCommand::TryPlay).unwrap();
+    serve(&mut f, id);
+    assert_eq!(rank(&report(&mut f.wb)), (999, Some(2.5)), "Q16 is still past the limit");
 }

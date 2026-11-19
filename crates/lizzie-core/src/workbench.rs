@@ -75,6 +75,7 @@ use crate::api::{
     TreeNodeKind, TreeNodeView, TreeView, WorkbenchView,
 };
 use crate::browse::{self, Navigation};
+use crate::engine::profile::AnalysisSettings;
 use crate::engine::runtime::{Engines, InstanceId, Launcher};
 use crate::formats::{self, saved_analysis, ReadError};
 use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, Point, RecordFormat, Stone, ROOT};
@@ -213,8 +214,9 @@ pub struct Workbench {
     storage: Storage,
     config: Config,
     persisted: Persisted,
-    /// Set by "重置界面位置": the persist file stays deleted until the next start.
-    persist_reset: bool,
+    /// Set by "重置界面位置": the persist file stays deleted until the next start, except for
+    /// what Java imports write over the defaults meanwhile; this is the file's content.
+    persist_reset: Option<Persisted>,
     active_language: Language,
     system_locale: Option<String>,
     active_frame_font_size: i32,
@@ -414,7 +416,7 @@ impl Workbench {
             storage,
             config,
             persisted,
-            persist_reset: false,
+            persist_reset: None,
             active_language,
             active_frame_font_size,
             appearance_theme,
@@ -554,7 +556,7 @@ impl Workbench {
     }
 
     fn save_persisted(&self) -> Result<(), ApiError> {
-        if self.persist_reset {
+        if self.persist_reset.is_some() {
             return Ok(());
         }
         settings::save_json(&self.storage.persist_file, &self.persisted)
@@ -719,9 +721,12 @@ impl Workbench {
                 });
                 // A loaded record is a new analysis context: its komi is not a user choice and
                 // a user pause of the previous record ends
-                // (`startNewKifuAnalysisContextAfterSuccessfulLoad`).
+                // (`startNewKifuAnalysisContextAfterSuccessfulLoad`). A pause of 批量分析, which
+                // analyses its own record, is not the previous record's and stays.
                 self.komi_changed = false;
-                self.paused = false;
+                if !self.auto_analysis_holds_foreground() {
+                    self.paused = false;
+                }
                 self.reset_editing();
                 self.limit_stop = None;
                 let declared = match format {
@@ -982,6 +987,16 @@ impl Workbench {
 
     /// 显示 settings: every display and the 带评论 export follow at once.
     pub fn set_display_settings(&mut self, settings: DisplaySettings) -> Result<bool, ApiError> {
+        let Some(settings) = self.next_display(settings)? else { return Ok(false) };
+        let previous = self.config.display.clone();
+        self.commit_config(|c| c.display = settings)?;
+        self.display_settings_changed(&previous);
+        Ok(true)
+    }
+
+    /// Validates display `settings`; `None` when they are the current ones. A changed
+    /// 形势判断 save choice brings back the estimate remembered for it.
+    fn next_display(&self, settings: DisplaySettings) -> Result<Option<DisplaySettings>, ApiError> {
         let finite = [settings.delay_candidates_seconds, settings.replay_interval_seconds, settings.min_playout_ratio,
             settings.entire_variation_first_seconds, settings.autoplay_main_seconds, settings.initial_max_score_lead,
             settings.match_ai_percents_playouts]
@@ -1001,17 +1016,19 @@ impl Workbench {
             return Err(ApiError::new(ErrorKind::InvalidArgument, "display settings"));
         }
         if self.config.display == settings {
-            return Ok(false);
+            return Ok(None);
         }
-        let previous = self.config.display.clone();
         let mut settings = settings;
-        if settings.kata_estimate_save_status != previous.kata_estimate_save_status {
+        if settings.kata_estimate_save_status != self.config.display.kata_estimate_save_status {
             settings.kata_estimate = self.remembered_estimate(settings.kata_estimate_save_status);
         }
-        self.commit_config(|c| c.display = settings)?;
+        Ok(Some(settings))
+    }
+
+    /// Puts committed display settings into effect.
+    fn display_settings_changed(&mut self, previous: &DisplaySettings) {
         self.engines.set_pv_visits(self.config.display.pv_visits != PvVisitsMode::Off);
-        self.estimate_settings_changed(&previous);
-        Ok(true)
+        self.estimate_settings_changed(previous);
     }
 
     pub fn set_language(&mut self, language: Language) -> Result<bool, ApiError> {
@@ -1019,6 +1036,45 @@ impl Workbench {
             return Ok(false);
         }
         self.commit_config(|c| c.ui.language = language)?;
+        Ok(true)
+    }
+
+    /// 初始化设置 确定 (`FirstUseSettings` sets every value, then saves once): display,
+    /// analysis and language in one write, each then taking effect as its own setter does. A
+    /// failed write keeps all three as they were. The mode gates judge the command first
+    /// ([`Self::game_gate`]).
+    pub fn save_init_settings(
+        &mut self,
+        display: DisplaySettings,
+        analysis: AnalysisSettings,
+        language: Language,
+    ) -> Result<bool, ApiError> {
+        let display = self.next_display(display)?;
+        let analysis = (self.config.engine.analysis != analysis).then_some(analysis);
+        let language = (self.config.ui.language != language).then_some(language);
+        if display.is_none() && analysis.is_none() && language.is_none() {
+            return Ok(false);
+        }
+        let previous_display = self.config.display.clone();
+        let previous_analysis = self.config.engine.analysis.clone();
+        let (display_changed, analysis_changed) = (display.is_some(), analysis.is_some());
+        self.commit_config(|c| {
+            if let Some(display) = display {
+                c.display = display;
+            }
+            if let Some(analysis) = analysis {
+                c.engine.analysis = analysis;
+            }
+            if let Some(language) = language {
+                c.ui.language = language;
+            }
+        })?;
+        if display_changed {
+            self.display_settings_changed(&previous_display);
+        }
+        if analysis_changed {
+            self.analysis_settings_changed(&previous_analysis);
+        }
         Ok(true)
     }
 
@@ -1066,7 +1122,7 @@ impl Workbench {
                 ))
             }
         }
-        self.persist_reset = true;
+        self.persist_reset = Some(Persisted::default());
         self.persisted.panel_sizes = crate::settings::PanelSizes::default();
         self.persisted.bottom_toolbar = crate::settings::BottomToolbar::default();
         self.persisted.independent_main_board = None;
@@ -1087,7 +1143,7 @@ impl Workbench {
         suggestions_frame: Option<FramePlacement>,
         main_list_columns: Option<Vec<u32>>,
     ) -> Result<(), ApiError> {
-        if self.persist_reset {
+        if self.persist_reset.is_some() {
             return Ok(());
         }
         if window.is_some() {

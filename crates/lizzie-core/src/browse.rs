@@ -76,14 +76,13 @@ fn back(rec: &GameRecord, mut id: NodeId, n: u32) -> NodeId {
     id
 }
 
-/// Number of nodes on the line below `id` (Java `getDepth`).
-fn line_depth(rec: &GameRecord, mut id: NodeId) -> u32 {
-    let mut d = 0;
-    while let Some(c) = next(rec, id) {
-        d += 1;
-        id = c;
+/// Move number at the end of the line below `id`.
+fn line_end_move_number(rec: &GameRecord, id: NodeId) -> u32 {
+    let mut end = id;
+    while let Some(c) = next(rec, end) {
+        end = c;
     }
-    d
+    rec.node(end).move_number
 }
 
 /// `Board.branchCandidates`: all nodes at the current depth in tree order, with the end of the
@@ -190,21 +189,27 @@ pub fn navigate(rec: &GameRecord, current: NodeId, nav: Navigation) -> NodeId {
 
 /// Move-number jump (bottom bar field + "跳转", `Board.goToMoveNumberBeyondBranch`): when the
 /// current branch is shorter than the number but the main trunk is long enough, start from the
-/// root; then step one node at a time by the difference in move numbers.
+/// root; then walk the line until the node shows that move number. Setup snapshots are nodes
+/// but not moves, so the walk counts move numbers rather than nodes (Java steps one node per
+/// move and lands on the wrong move once a snapshot lies in between).
 pub fn goto_move_number(rec: &GameRecord, current: NodeId, number: u32) -> NodeId {
     let mut node = current;
-    let branch_len = rec.node(current).move_number + line_depth(rec, current);
-    let main_len = line_depth(rec, ROOT);
-    if number > branch_len && number <= main_len {
+    if number > line_end_move_number(rec, current) && number <= line_end_move_number(rec, ROOT) {
         node = ROOT;
     }
-    let from = rec.node(node).move_number as i64;
-    let delta = number as i64 - from;
-    if delta > 0 {
-        forward(rec, node, delta as u32)
-    } else {
-        back(rec, node, (-delta) as u32)
+    while rec.node(node).move_number < number {
+        match next(rec, node) {
+            Some(c) => node = c,
+            None => break,
+        }
     }
+    while rec.node(node).move_number > number {
+        match rec.parent(node) {
+            Some(p) => node = p,
+            None => break,
+        }
+    }
+    node
 }
 
 /// Whether `id` is a node the user can land on.

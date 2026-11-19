@@ -65,10 +65,13 @@ async function openDiff(draft: AutoAnalysisSettings): Promise<void> {
     if (integer(time) <= 0 && integer(visits) <= 0 && integer(first) <= 0) { await message(t("Message.title"), t("SetDiffAnalyze.noCondition")); return; }
     const w = Number(winValue.value.trim()), s = Number(scoreValue.value.trim());
     if (!Number.isFinite(w) || !Number.isFinite(s)) return;
-    const next: AutoAnalysisSettings = { ...draft, diffBlack: black.checked, diffWhite: white.checked, diffUseWin: win.checked, diffUseScore: score.checked, diffWinThreshold: w, diffScoreThreshold: s, diffTime: integer(time), diffVisits: integer(visits), diffFirstVisits: integer(first) };
-    const result = await run({ type: "SaveAutoAnalysisSettings", settings: next });
+    // SetDiffAnalyze.java:192-216 writes only the conditions; the parent's 差异分析 switch is
+    // saved when 开始分析 starts the run (StartAnaDialog.java:392-393).
+    const conditions = { diffBlack: black.checked, diffWhite: white.checked, diffUseWin: win.checked, diffUseScore: score.checked, diffWinThreshold: w, diffScoreThreshold: s, diffTime: integer(time), diffVisits: integer(visits), diffFirstVisits: integer(first) };
+    const saved = state.view?.settings.auto_analysis ?? draft;
+    const result = await run({ type: "SaveAutoAnalysisSettings", settings: { ...saved, ...conditions } });
     if (!result || result.type === "Refused") return;
-    Object.assign(draft, next); await dialog.close();
+    Object.assign(draft, conditions); await dialog.close();
   });
   apply.dataset.key = "autoDiff.apply";
   const cancel = button(t("SetKataEngines.btnCancel"), () => void dialog.close()); cancel.dataset.key = "autoDiff.cancel";
@@ -91,7 +94,7 @@ export async function openAutoAnalysis(batch = false): Promise<void> {
   const black = check(draft.black, "autoAnalysis.black"), white = check(draft.white, "autoAnalysis.white"), branches = check(draft.allBranches, "autoAnalysis.allBranches"), diff = check(draft.diffEnable, "autoAnalysis.diff");
   row(rows, t("StartAnaDialog.analyzeBlack"), black); row(rows, t("StartAnaDialog.analyzeWhite"), white); row(rows, t("StartAnaDialog.analyzeAllBranch"), branches);
   const conditions = button(t("StartAnaDialog.btnSetDiff"), () => void openDiff(draft)); conditions.dataset.key = "autoAnalysis.conditions";
-  conditions.disabled = !diff.checked; diff.onchange = () => { conditions.disabled = !diff.checked; draft.diffEnable = diff.checked; };
+  conditions.disabled = !diff.checked; diff.onchange = () => { conditions.disabled = !diff.checked; };
   const group = document.createElement("div"); group.className = "auto-analysis-inline"; group.append(diff, conditions); row(rows, t("StartAnaDialog.lblDiffAnalyze"), group);
   const pause = check(draft.exitByPause, "autoAnalysis.exitByPause"), save = check(draft.autoSave, "autoAnalysis.autoSave");
   row(rows, t("StartAnaDialog.chkExitByPause"), pause);

@@ -323,6 +323,20 @@ impl GameRecord {
                 self.setup_root()?;
                 Ok(self.set_to_play(ROOT, *color))
             }
+            DocumentEdit::AppendSnapshot {
+                at,
+                setup,
+                to_play,
+                explicit_to_play,
+            } => {
+                known(self, *at)?;
+                let node = self.push_child(*at, NodeKind::Snapshot);
+                let n = self.node_mut(node);
+                n.setup = setup.clone();
+                n.to_play = *to_play;
+                n.explicit_to_play = *explicit_to_play;
+                Ok(Applied::content(Some(node)))
+            }
             DocumentEdit::ConvertToStartingPosition { node } => {
                 known(self, *node)?;
                 Ok(self.convert_to_start(*node))
@@ -505,13 +519,7 @@ impl GameRecord {
             self.node_mut(at).children[slot] = id;
             self.mark_removed(d);
         } else if first {
-            let parent = self.node(at);
-            if let Some(color) = kind.action_color() {
-                if parent.kind.is_action() && parent.explicit_to_play.is_none() && parent.to_play != color {
-                    self.node_mut(at).to_play = color;
-                    self.restamp_position(at);
-                }
-            }
+            self.align_turn_with_first_child(at);
         }
         id
     }
@@ -523,21 +531,25 @@ impl GameRecord {
         id
     }
 
-    fn add_branch(&mut self, at: NodeId, moves: &[Point], rules: PlayRules) -> Applied {
+    fn add_branch(&mut self, at: NodeId, moves: &[Option<Point>], rules: PlayRules) -> Applied {
         let Some((&first, rest)) = moves.split_first() else {
             return Applied::unchanged(None);
         };
+        let kind = |color: Stone, point: Option<Point>| match point {
+            Some(point) => NodeKind::Move { color, point },
+            None => NodeKind::Pass { color },
+        };
         let color = self.node(at).to_play;
-        if !self.is_legal(at, color, first, rules) {
+        if first.is_some_and(|p| !self.is_legal(at, color, p, rules)) {
             return Applied::unchanged(None);
         }
         if self.node(at).children.is_empty() {
             self.push_child(at, NodeKind::DummyPass);
         }
-        let mut cur = self.push_move(at, NodeKind::Move { color, point: first }, rules);
+        let mut cur = self.push_move(at, kind(color, first), rules);
         for &point in rest {
             let color = self.node(cur).to_play;
-            match self.place(cur, NodeKind::Move { color, point }, rules, false) {
+            match self.place(cur, kind(color, point), rules, false) {
                 Some((next, _)) => cur = next,
                 None => break,
             }
@@ -839,6 +851,7 @@ impl GameRecord {
         match other {
             Some(o) => {
                 children.swap(index, o);
+                self.align_turn_with_first_child(parent);
                 Applied::content(None)
             }
             None => Applied::unchanged(None),
@@ -862,7 +875,22 @@ impl GameRecord {
         let children = &mut self.node_mut(parent).children;
         let index = children.iter().position(|&c| c == top).expect("child");
         children.swap(0, index);
+        self.align_turn_with_first_child(parent);
         true
+    }
+
+    /// `BoardHistoryNode.alignParentTurnStateWithFirstActionChild`: an action node without `PL`
+    /// plays on in the colour of its first continuation's action. Reading a saved record applies
+    /// the same rule (`formats::resolve_turns`), so a reordered branch point shows the side to
+    /// play it reopens with; the analysis of the old side goes as with [`Self::set_to_play`].
+    fn align_turn_with_first_child(&mut self, parent: NodeId) {
+        let node = self.node(parent);
+        if !node.kind.is_action() || node.explicit_to_play.is_some() {
+            return;
+        }
+        if let Some(color) = node.children.first().and_then(|&c| self.node(c).kind.action_color()) {
+            self.set_to_play(parent, color);
+        }
     }
 
     // ------------------------------------------------------------------------ side to play

@@ -13,13 +13,13 @@ use std::time::{Duration, Instant};
 use super::{SaveJob, Workbench};
 use crate::api::{
     ApiError, Command, CommandResult, EditCommand, ErrorKind, GameClockView, GameCommand, GameEnd, GameKind,
-    GameNotice, GameOutcomeView, GamePhase, GameView, HawkeyeCommand, NodeAnalysisView, RecoveryCommand,
+    GameNotice, GameOutcomeView, GamePhase, GameView, HawkeyeCommand, NodeAnalysisView, RecoveryCommand, ResourceCommand,
     TuningCommand,
 };
 use crate::engine::runtime::{GenmoveReply, LeaseAvailability, Phase, RuntimeEvent};
 use crate::play::{self, ClockTick, EngineClock, HumanClock};
-use crate::record::{DocumentEdit, NodeId, NodeKind, Point, Stone, ROOT};
-use crate::settings::{AutoPlaySettings, GameSettings};
+use crate::record::{DocumentEdit, GameRecord, Node, NodeId, NodeKind, Point, Stone, ROOT};
+use crate::settings::{AiTimeMode, AiTimeSettings, AutoPlaySettings, GameSettings};
 
 /// `AnalysisSettings.reuseStatus.play_mode`: another mode was refused during a game.
 pub const PLAY_MODE: &str = "AnalysisSettings.reuseStatus.play_mode";
@@ -27,6 +27,9 @@ pub const PLAY_MODE: &str = "AnalysisSettings.reuseStatus.play_mode";
 pub const OPEN_IN_GAME: &str = "LizzieFrame.openFileFailed.inGame";
 /// `LizzieFrame.waitEngineLoadingHint`.
 const WAIT_ENGINE: &str = "LizzieFrame.waitEngineLoadingHint";
+/// `DesktopTimeControl.websocketAdvancedUnsupported`: the 自建算力 engine takes no advanced or
+/// KataGo clock.
+const WEBSOCKET_CLOCK: &str = "DesktopTimeControl.websocketAdvancedUnsupported";
 const TICK: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -121,6 +124,18 @@ fn file_safe(name: &str) -> String {
     name.chars().map(|c| if "<>:\"/\\|?*".contains(c) || c.is_control() { '_' } else { c }).collect()
 }
 
+/// The edit that carries a snapshot of the record a new game is replayed from (`source`) onto
+/// node `at` of the new record: its setup stones and its side to play, `PL` included. A snapshot
+/// that changes neither (a node holding only a comment, say) adds nothing, as before.
+pub(super) fn snapshot_copy(new: &GameRecord, at: NodeId, source: &Node) -> Option<DocumentEdit> {
+    (!source.setup.is_empty() || source.to_play != new.node(at).to_play).then(|| DocumentEdit::AppendSnapshot {
+        at,
+        setup: source.setup.clone(),
+        to_play: source.to_play,
+        explicit_to_play: source.explicit_to_play,
+    })
+}
+
 impl Workbench {
     // -------------------------------------------------------------------- queries
 
@@ -204,6 +219,16 @@ impl Workbench {
     /// game whose engine does not confirm its restore (a move it never answers) can be released
     /// by restarting or closing that engine.
     pub fn game_gate(&mut self, command: &Command) -> Option<CommandResult> {
+        // 初始化设置 is admitted as a whole: each part it changes meets the rules of its own
+        // command, and the first refusal refuses everything (nothing is saved).
+        if let Command::SaveInitSettings { display, analysis, language } = command {
+            let parts = [
+                (self.config.display != *display).then(|| Command::SetDisplaySettings { settings: display.clone() }),
+                (self.config.engine.analysis != *analysis).then(|| Command::SetAnalysisSettings { settings: analysis.clone() }),
+                (self.config.ui.language != *language).then_some(Command::SetLanguage { language: *language }),
+            ];
+            return parts.into_iter().flatten().find_map(|part| self.game_gate(&part));
+        }
         if let Some(result) = self.web_trial_gate(command) { return Some(result); }
         if let Some(result) = self.readboard_gate(command) { return Some(result); }
         if let Some(result) = self.fox_gate(command) { return Some(result); }
@@ -247,7 +272,9 @@ impl Workbench {
             | Command::Region { .. }
             | Command::Tracking { .. }
             | Command::Batch { .. }
-            | Command::Tuning { op: TuningCommand::StartBenchmark { .. } } => Some(refused(PLAY_MODE)),
+            | Command::Tuning { op: TuningCommand::StartBenchmark { .. } }
+            // A resource plan's 立即切换 restarts or switches the foreground engine.
+            | Command::Resource { op: ResourceCommand::ApplySetup { switch_now: true, .. } } => Some(refused(PLAY_MODE)),
             Command::Edit { op } => self.play_edit_refusal(op),
             _ => None,
         }
@@ -330,6 +357,9 @@ impl Workbench {
         if kind == GameKind::Analysis && !settings.pure_net && !conditions.has_condition() {
             return Ok(refused("NewAnaGameDialog.wrongAiMoveSettings"));
         }
+        if kind == GameKind::Genmove && self.websocket_refuses_clock(engine, &settings.ai_time) {
+            return Ok(refused(WEBSOCKET_CLOCK));
+        }
         if self.queue_after_current(GameCommand::Start { kind, settings: settings.clone(), autoplay, engine }) {
             return Ok(CommandResult::Done);
         }
@@ -379,6 +409,9 @@ impl Workbench {
 
     /// 人机续弈 (`continueAiPlaying`): from the current position with the saved settings.
     fn game_continue(&mut self, kind: GameKind, human: Option<Stone>) -> Result<CommandResult, ApiError> {
+        if kind == GameKind::Genmove && self.websocket_refuses_clock(None, &self.config.game.ai_time) {
+            return Ok(refused(WEBSOCKET_CLOCK));
+        }
         if self.queue_after_current(GameCommand::Continue { kind, human }) {
             return Ok(CommandResult::Done);
         }
@@ -415,6 +448,22 @@ impl Workbench {
         Ok(CommandResult::Done)
     }
 
+    /// `DesktopTimeControl.rejectsHumanGame`: a Genmove game on the 自建算力 engine (the profile at
+    /// `engine`, else the foreground engine) runs without a clock or with a fixed time per move
+    /// only; it is refused before anything is committed (`NewGameDialog#apply`,
+    /// `continueAiPlayingReserved`).
+    fn websocket_refuses_clock(&self, engine: Option<u32>, time: &AiTimeSettings) -> bool {
+        if !matches!(time.mode, AiTimeMode::Advanced | AiTimeMode::KataGo) {
+            return false;
+        }
+        match engine {
+            Some(index) => self.config.engine.engines.get(index as usize).is_some_and(|p| {
+                p.cloud.as_ref().is_some_and(|c| c.provider == crate::engine::cloud::CloudProvider::Custom)
+            }),
+            None => self.engines.foreground().is_some_and(|f| self.engines.is_custom_websocket(f)),
+        }
+    }
+
     /// Another mode holding the foreground engine refuses a game (`showForegroundEngineLeaseConflict`).
     fn foreground_mode_conflict(&self) -> Option<CommandResult> {
         let busy = self.quick_holds_foreground()
@@ -425,7 +474,8 @@ impl Workbench {
         busy.then(|| refused(&super::flash::reuse_status_key(LeaseAvailability::ExistingLease)))
     }
 
-    /// A new record holding the root position and the moves up to the current node.
+    /// A new record holding the root position and the moves up to the current node, with the
+    /// setup stones and side to play of the snapshots on the way.
     fn replay_to_new_board(&mut self) {
         let rec = self.doc.record.clone();
         let path = rec.path_to(self.cursor);
@@ -445,10 +495,15 @@ impl Workbench {
         let rules = self.play_rules();
         let mut at = ROOT;
         for &n in &path[1..] {
-            let edit = match rec.node(n).kind {
+            let node = rec.node(n);
+            let edit = match node.kind {
                 NodeKind::Move { color, point } => DocumentEdit::Play { at, color, point, alternate: false, rules },
                 NodeKind::Pass { color } => DocumentEdit::Pass { at, color },
-                _ => continue,
+                NodeKind::Snapshot => match snapshot_copy(&self.doc.record, at, node) {
+                    Some(edit) => edit,
+                    None => continue,
+                },
+                NodeKind::DummyPass => continue,
             };
             match self.apply_edit(edit).ok().and_then(|a| a.node) {
                 Some(next) => at = next,
@@ -946,13 +1001,15 @@ impl Workbench {
 
     /// Who may move from the analysis of the current position now (`notifyAutoPlay`: the
     /// 自动落子 box and the box of the side to move): `Some(true)` a 分析模式 game's engine,
-    /// `Some(false)` the bottom bar outside a game. Nobody during 终局点目 or while 棋盘同步工具's
-    /// GMA holds 自动落子.
+    /// `Some(false)` the bottom bar outside a game. Nobody during 终局点目, while 棋盘同步工具's
+    /// GMA holds 自动落子, or while a viewer's Web 试下 runs: like a desktop move, 自动落子 does
+    /// not write into the record then and resumes with its settings when the 试下 ends (Java
+    /// still plays on the 试下's anchor).
     fn analysis_mover(&self) -> Option<bool> {
         let to_play = self.to_play();
         let a = &self.persisted.autoplay;
         let side = if to_play == Stone::Black { a.black } else { a.white };
-        if !self.play.autoplay || !side || self.scoring.is_some() || self.readboard_holds_autoplay() {
+        if !self.play.autoplay || !side || self.scoring.is_some() || self.readboard_holds_autoplay() || self.web_trial_active() {
             return None;
         }
         match &self.play.session {

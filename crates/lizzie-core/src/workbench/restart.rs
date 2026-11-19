@@ -8,8 +8,9 @@
 //! the position, komi, session rules and board size current when it is synced (a position the
 //! user moved to meanwhile included), and it analyses only while the user has not paused. Komi
 //! and board size stay those of the game; the profile's apply only to a new engine choice. A
-//! restarted engine that refuses the position it is brought to is left unrestored (引擎状态未恢复)
-//! without a dialog and is not tried again, as Java's failed restore round leaves it not loaded.
+//! restarted engine that refuses the position it is brought to, or whose rules override the user
+//! declines, is left unrestored (引擎状态未恢复) without a dialog and is not tried again, as Java's
+//! failed restore round leaves it not loaded.
 //!
 //! Java only restarts an engine it may check (`canCheckAlive`): a restart clears that until the
 //! new process produced an accepted analysis line or a legal game move, so an engine that keeps
@@ -157,12 +158,15 @@ impl Workbench {
     }
 
     /// Settles the restore of a restarted engine: done once it holds the position wished for it
-    /// now (catching up with a position the user moved to meanwhile); a refusal of that position
-    /// leaves it unrestored (no dialog, no further attempt). Returns whether it was left
-    /// unrestored.
+    /// now (catching up with a position the user moved to meanwhile) under rules that permit
+    /// analysis; a refusal of that position leaves it unrestored (no dialog, no further attempt),
+    /// as does declining the rules override it asks for ([`Self::restart_rules_declined`]).
+    /// Returns whether it was left unrestored.
     pub(super) fn restart_settle(&mut self) -> bool {
         let Some(instance) = self.restart.restoring else { return false };
-        if self.engines.foreground() != Some(instance) || self.engines.holds_wish(instance) {
+        if self.engines.foreground() != Some(instance)
+            || (self.engines.holds_wish(instance) && self.rules_permit_analysis())
+        {
             self.restart.restoring = None;
             return false;
         }
@@ -172,6 +176,20 @@ impl Workbench {
         self.restart.restoring = None;
         self.engines.restore_failed(instance);
         self.log(true, "engine restart: the position was refused; the engine is left unrestored".into());
+        true
+    }
+
+    /// The user declined the rules override the restarted foreground engine asked for: its
+    /// restore round fails (同步规则不满足时进入规则覆盖提示路径，拒绝则失败) and it is left
+    /// unrestored, without a dialog or a further attempt. Returns whether a restore was settled.
+    pub(super) fn restart_rules_declined(&mut self) -> bool {
+        let Some(instance) = self.restart.restoring else { return false };
+        if self.engines.foreground() != Some(instance) {
+            return false;
+        }
+        self.restart.restoring = None;
+        self.engines.restore_failed(instance);
+        self.log(true, "engine restart: the rules override was declined; the engine is left unrestored".into());
         true
     }
 

@@ -881,6 +881,10 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().set_analysis_settings(settings)?;
             Ok(changed(&app, &shared, done))
         }
+        Command::SaveInitSettings { display, analysis, language } => {
+            let done = shared.workbench.lock().unwrap().save_init_settings(display, analysis, language)?;
+            Ok(changed(&app, &shared, done))
+        }
         Command::SetKomi { komi } => {
             let result = shared.workbench.lock().unwrap().set_komi(komi);
             match result {
@@ -1487,8 +1491,9 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             if paths.is_empty() {
                 return Ok(CommandResult::Unchanged);
             }
-            let result = shared.workbench.lock().unwrap().open_batch(mode, paths, OpenSource::Chooser);
-            Ok(batch_result(&app, &shared, result.map_err(str::to_string)))
+            let open = BatchCommand::Open { mode, paths, source: OpenSource::Chooser };
+            let result = shared.workbench.lock().unwrap().batch_command(open)?;
+            Ok(batch_result(&app, &shared, result))
         }
         Command::Batch { op: BatchCommand::AddFiles } => {
             let paths = choose_records(&app, &shared).await?;
@@ -1657,6 +1662,15 @@ fn open_katago_parameter_help(app: AppHandle) -> Result<(), ApiError> {
             "https://github.com/lightvector/KataGo/blob/20d34784703c5b4000643d3ccc43bb37d418f3b5/cpp/configs/gtp_example.cfg#L76",
             None::<&str>,
         )
+        .map_err(|_| ApiError::new(ErrorKind::Unavailable, "AutoSetup.openBrowserUnsupported"))
+}
+
+/// 精析设置's 这里 link (`AnalysisSettings.lblHint2`, opened by `AnalysisSettings.LinkLabel`):
+/// KataGo's analysis engine documentation, at the href every Java string bundle carries.
+#[tauri::command]
+fn open_analysis_engine_docs(app: AppHandle) -> Result<(), ApiError> {
+    app.opener()
+        .open_url("https://github.com/lightvector/KataGo/blob/master/docs/Analysis_Engine.md", None::<&str>)
         .map_err(|_| ApiError::new(ErrorKind::Unavailable, "AutoSetup.openBrowserUnsupported"))
 }
 
@@ -2147,11 +2161,13 @@ pub fn run() {
             let config_dir = app.path().app_config_dir()?;
             let data_dir = app.path().app_data_dir()?;
             let storage = Storage::in_dirs(&config_dir, &data_dir);
-            app.manage(commentary::Adapter::new(app.config().identifier.clone(), &config_dir, &data_dir));
-            let ssh_adapter = ssh::Adapter::new(app.config().identifier.clone(), &config_dir);
+            // One credential storage for every owner of passwords and keys.
+            let store = secrets::Store::new(app.config().identifier.clone(), &config_dir);
+            app.manage(commentary::Adapter::new(store.clone(), &data_dir));
+            let ssh_adapter = ssh::Adapter::new(store.clone(), &config_dir);
             app.manage(ssh_adapter.clone());
-            app.manage(contribution::Adapter::new(app.config().identifier.clone(), &config_dir));
-            let cloud_adapter = Arc::new(cloud::Adapter::new(app.config().identifier.clone(), &config_dir));
+            app.manage(contribution::Adapter::new(store.clone()));
+            let cloud_adapter = Arc::new(cloud::Adapter::new(store));
             app.manage(cloud_adapter.clone());
             app.manage(cloud_dispatch::Requests::default());
             let log = Arc::new(logging::Log::start(&storage.logs_dir));
@@ -2307,6 +2323,10 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
+            // The program lives as long as its main window (Java `System.exit` for 强制退出, and
+            // the frame's exit). Hidden windows (野狐棋谱, 腾讯棋谱, ...) would otherwise keep it
+            // running headless, without `RunEvent::Exit` ending the engines.
+            WindowEvent::Destroyed if window.label() == "main" => window.app_handle().exit(0),
             WindowEvent::Destroyed if window.label() == "commentary" => {
                 let app = window.app_handle();
                 commentary::closed(app, &app.state::<State>());
@@ -2415,8 +2435,10 @@ pub fn run() {
                     _ => {
                         let paths = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
                         let mut wb = shared.workbench.lock().unwrap();
-                        if let Err(key) = wb.open_batch(BatchMode::Ordinary, paths, OpenSource::Drop) {
-                            wb.refuse_batch(key);
+                        let open = BatchCommand::Open { mode: BatchMode::Ordinary, paths, source: OpenSource::Drop };
+                        // Refused like the other batch entries while a running mode holds the engine.
+                        if let Ok(Err(key)) = wb.batch_command(open) {
+                            wb.refuse_batch(&key);
                         }
                         drop(wb);
                         publish(app, &shared);
@@ -2495,6 +2517,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         engine_console,
         open_katago_releases,
         open_katago_parameter_help,
+        open_analysis_engine_docs,
         open_project_page,
         update::open_update_release,
         output::recovery_thumbnail,
@@ -2555,6 +2578,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         engine_console,
         open_katago_releases,
         open_katago_parameter_help,
+        open_analysis_engine_docs,
         open_project_page,
         update::open_update_release,
         output::recovery_thumbnail,

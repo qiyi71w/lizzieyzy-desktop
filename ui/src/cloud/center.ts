@@ -61,16 +61,20 @@ function launches(profile: EngineProfile, launch: Launch): boolean {
 }
 
 /** switchPrimaryEngine's verdict on one view: `true` once the seated profile `profile` is ready
- *  with the requested launch, `false` once the seat's engine failed or another engine (or a newer
- *  launch of the same profile) is ready in it, `null` while undecided. Only views built after the
- *  switch committed (`seq > after`) count: a failure shown before it never decides, and the
- *  final view decides alone, whatever intermediate views were coalesced away. */
+ *  with the requested launch, `false` once the switch ended otherwise — the seat's engine failed,
+ *  the seat was emptied (关闭所有引擎 during the start) or holds another engine, or another
+ *  engine (or a newer launch of the same profile) is ready in it — and `null` while the requested
+ *  engine is still starting (monitorEngineSwitch: a token change or the FAILED phase ends it).
+ *  Only views built after the switch committed (`seq > after`) count: a failure shown before it
+ *  never decides, and the final view decides alone, whatever intermediate views were coalesced
+ *  away. */
 function switchOutcome(view: WorkbenchView, profile: string, after: number, launch: Launch): boolean | null {
   if (view.seq <= after) return null;
   if (view.engine.down) return false;
-  if (!view.engine.foreground?.ready) return null;
   const seated = profileOf(view);
-  return !!seated && seated.id === profile && launches(seated, launch);
+  if (!seated || seated.id !== profile) return false;
+  if (!view.engine.foreground?.ready) return null;
+  return launches(seated, launch);
 }
 
 /** EmptyBorder-sized field row: a bold muted label and its control (fieldRow). */

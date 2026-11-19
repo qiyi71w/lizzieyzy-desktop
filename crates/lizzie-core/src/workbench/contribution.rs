@@ -619,7 +619,8 @@ impl Workbench {
             return CommandResult::Unchanged;
         }
         let target = (index as usize).min(session.games.len() - 1);
-        if session.watching == Some(target) {
+        // The watched game is shown again when another record was opened meanwhile (paused).
+        if session.watching == Some(target) && session.board == self.doc.id {
             return CommandResult::Unchanged;
         }
         self.contribution_set_watching(target);
@@ -992,6 +993,7 @@ impl Workbench {
             repair: None,
             remote: session.last_remote.clone(),
             profile_id: String::new(),
+            secondary: false,
         });
         let saved = session.estimate_saved.take();
         if let Some(failure) = failure {
@@ -1007,8 +1009,12 @@ impl Workbench {
 
     // -------------------------------------------------------------------- games
 
+    /// A snapshot of the contribution's games. Only the contribution's own board follows it: a
+    /// record the user opened meanwhile (paused) is left alone, and the game shows when it is
+    /// picked in the list again.
     fn contribution_ingest(&mut self, json: &serde_json::Value) {
         let at_end = self.cursor == self.doc.record.line_end(ROOT);
+        let document = self.doc.id;
         let Some(session) = self.contribution.session.as_mut() else {
             return;
         };
@@ -1020,7 +1026,7 @@ impl Workbench {
                     .contribution
                     .session
                     .as_ref()
-                    .is_some_and(|session| session.watching.is_none());
+                    .is_some_and(|session| session.watching.is_none() && session.board == document);
                 if let Some(session) = self.contribution.session.as_mut() {
                     if session.phase != ContributionPhase::Exited {
                         session.phase = ContributionPhase::Running;
@@ -1042,7 +1048,7 @@ impl Workbench {
                     .contribution
                     .session
                     .as_ref()
-                    .is_some_and(|session| session.watching == Some(index))
+                    .is_some_and(|session| session.watching == Some(index) && session.board == document)
                 {
                     self.contribution_set_game(index, false);
                     if self.config.contribution.watch.always_last_move && at_end {
@@ -1088,8 +1094,8 @@ impl Workbench {
         else {
             return;
         };
-        // Only the contribution's own board is continued; a record the user opened meanwhile
-        // (paused) is taken over by a rebuild, like Java's takeover of another position.
+        // Only the contribution's own board is continued; once the user picks a game while a
+        // record opened meanwhile (paused) is shown, the game is rebuilt as a new board.
         let remain = (board == self.doc.id).then(|| self.contribution_remain(&game)).flatten();
         let same = previous == Some(index) && remain.is_some();
         if let Some(session) = self.contribution.session.as_mut() {
@@ -1576,6 +1582,7 @@ impl Workbench {
         let watch = self.config.contribution.watch.clone();
         let cursor = self.cursor;
         let has_next = self.doc.record.main_child(cursor).is_some();
+        let document = self.doc.id;
         let step = {
             let Some(session) = self.contribution.session.as_mut() else {
                 return false;
@@ -1586,6 +1593,11 @@ impl Workbench {
             let delta = now.saturating_duration_since(session.watch_tick);
             session.watch_tick = now;
             session.watch_elapsed += delta;
+            // The clock plays the contribution's own board only, never a record the user opened
+            // meanwhile (paused).
+            if session.board != document {
+                return false;
+            }
             if !watch.auto_play
                 || !watch.auto_play_interval.is_finite()
                 || watch.auto_play_interval <= 0.0

@@ -15,8 +15,8 @@ use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::java_import::{self, JavaSource};
 use lizzie_core::settings::{
-    Config, DisplaySettings, EstimateStyle, ExtraMode, HawkeyeBranch, HawkeyePeriod, Language, MoveRankMode, Persisted,
-    ProblemSide, ProblemSort, ProxyMode, Storage, SubBoardMode,
+    Config, DisplaySettings, EstimateStyle, ExtraMode, FramePlacement, HawkeyeBranch, HawkeyePeriod, Language, MoveRankMode,
+    Persisted, ProblemSide, ProblemSort, ProxyMode, Storage, SubBoardMode, WindowPlacement,
 };
 use lizzie_core::workbench::{Workbench, IMPORT_NEEDS_REPLACE, IMPORT_STALE};
 use serde_json::json;
@@ -302,8 +302,10 @@ fn imports_basic_settings_and_reports_every_other_java_setting() {
     // 自动快析, 精析设置 (a relative command resolved in the Java folder), 轻量模型, 问题手.
     assert!(!c.record.auto_quick_analyze_on_load);
     let ae = &c.analysis_engine;
-    assert!(
-        ae.command.contains("Lizzie Next/engines/fake-katago") && ae.command.contains(" analysis "),
+    let analysis = split_command(&ae.command);
+    assert_eq!(
+        (Path::new(&analysis[0]), analysis[1].as_str()),
+        (java.join("engines/fake-katago").as_path(), "analysis"),
         "{}",
         ae.command
     );
@@ -654,12 +656,345 @@ fn a_different_last_engine_choice_needs_confirmation() {
     )
     .unwrap();
     let p = preview(&mut wb, &java);
-    assert_eq!(p.replaces, [ImportTarget::LastEngine]);
-    assert_eq!(
-        wb.apply_java_import(p.id, &[], false, false, false, None).unwrap(),
-        Err(IMPORT_NEEDS_REPLACE)
-    );
+    // The credentials are chosen after the preview: copying none of them would also leave out
+    // the two engines carrying them.
+    assert_eq!(p.replaces, [ImportTarget::LastEngine, ImportTarget::Engines]);
+    for copy in [&[2, 3][..], &[]] {
+        assert_eq!(
+            wb.apply_java_import(p.id, copy, false, false, false, None).unwrap(),
+            Err(IMPORT_NEEDS_REPLACE)
+        );
+    }
     assert_eq!(wb.config().engine.last_engine.as_deref(), Some("java-0"));
+}
+
+#[test]
+fn engines_left_out_for_their_credentials_on_a_later_import_need_confirmation() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let config = json!({
+        "ui": { "autoload-empty": true, "last-engine": 0 },
+        "leelaz": { "engine-settings-list": [
+            { "id": "proxy-1", "name": "Proxy", "command": format!("katago gtp --token {}", SECRETS[2]), "isDefault": false },
+        ] },
+    });
+    std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    // The first import needs no replace confirmation; the credential copy is confirmed.
+    let p = preview(&mut wb, &java);
+    assert!(p.replaces.is_empty());
+    wb.apply_java_import(p.id, &[0], false, false, false, None).unwrap().unwrap();
+    let before = std::fs::read(storage(&product).config_file).unwrap();
+
+    // The same Java settings again: leaving the credential unticked would remove the engine.
+    let p = preview(&mut wb, &java);
+    assert_eq!(p.replaces, [ImportTarget::Engines, ImportTarget::LastEngine]);
+    assert_eq!(wb.apply_java_import(p.id, &[], false, false, false, None).unwrap(), Err(IMPORT_NEEDS_REPLACE));
+    assert_eq!(std::fs::read(storage(&product).config_file).unwrap(), before);
+    assert_eq!(wb.config().engine.engines.len(), 1);
+    assert_eq!(wb.config().engine.last_engine.as_deref(), Some("proxy-1"));
+    // Copying it again changes nothing, so no confirmation is needed.
+    wb.apply_java_import(p.id, &[0], false, false, false, None).unwrap().unwrap();
+    assert_eq!(wb.config().engine.engines.len(), 1);
+}
+
+#[test]
+fn a_different_dismissed_startup_benchmark_prompt_needs_confirmation() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let write = |signature: &str, version: u32| {
+        let ui = json!({ "ui": {
+            "katago-startup-benchmark-dismissed-signature": signature,
+            "katago-startup-benchmark-dismissed-version": version,
+        } });
+        std::fs::write(java.join("config.txt"), ui.to_string()).unwrap();
+    };
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    write("sig-a", 1);
+    let p = preview(&mut wb, &java);
+    wb.apply_java_import(p.id, &[], false, false, false, None).unwrap().unwrap();
+    for (signature, version) in [("sig-b", 1), ("sig-a", 2)] {
+        write(signature, version);
+        let p = preview(&mut wb, &java);
+        assert_eq!(p.replaces, [ImportTarget::StartupBenchmark], "{signature} {version}");
+        assert_eq!(wb.apply_java_import(p.id, &[], false, false, false, None).unwrap(), Err(IMPORT_NEEDS_REPLACE));
+        assert_eq!(wb.config().engine.startup_benchmark_dismissed_signature, "sig-a");
+        assert_eq!(wb.config().engine.startup_benchmark_dismissed_version, 1);
+    }
+}
+
+#[test]
+fn after_resetting_the_interface_position_an_imported_picture_folder_is_kept() {
+    // A Java profile that saved a picture but never opened a game record (`last-folder` "").
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), json!({ "ui": {} }).to_string()).unwrap();
+    let persist = json!({ "filesystem": { "last-folder": "", "last-image-folder": "/pictures" } });
+    std::fs::write(java.join("persist"), persist.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    wb.reset_ui_position().unwrap();
+    let p = preview(&mut wb, &java);
+    assert_eq!(item(&p.items, "persist:filesystem.last-image-folder").status, ImportStatus::Imported);
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    drop(wb);
+    let reopened = workbench(&product, Recorder::default());
+    assert_eq!(reopened.persisted().last_image_folder.as_deref(), Some("/pictures"));
+    assert_eq!(reopened.persisted().last_folder, None);
+}
+
+#[test]
+fn a_placement_reset_before_an_import_does_not_come_back() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), "{}").unwrap();
+    std::fs::write(java.join("persist"), json!({"filesystem": {"last-folder": "/imported-games"}}).to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let frame = FramePlacement { x: 11, y: 22, width: 333, height: 444, columns: vec![35, 20, 40, 70, 35, 50, 35] };
+    let window = WindowPlacement { x: 5, y: 6, width: 900, height: 700, maximized: false };
+    wb.persist_ui(Some(window), Some(frame), Some(vec![10, 30, 30, 45, 30])).unwrap();
+    drop(wb);
+    let mut wb = workbench(&product, Recorder::default());
+    assert!(wb.persisted().suggestions_frame_7.is_some());
+    wb.reset_ui_position().unwrap();
+    let p = preview(&mut wb, &java);
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    drop(wb);
+    let reopened = workbench(&product, Recorder::default());
+    let persisted = reopened.persisted();
+    assert_eq!(persisted.last_folder.as_deref(), Some("/imported-games"));
+    assert_eq!(persisted.window, None);
+    assert_eq!(persisted.suggestions_frame_7, None);
+    assert_eq!(persisted.main_list_columns, None);
+}
+
+#[test]
+fn imports_after_one_interface_reset_keep_each_others_folders() {
+    // One 重置界面位置, then a Java profile holding only a picture folder and one holding only a
+    // game record folder, in either order: after a restart both folders are there and the reset
+    // placement and column widths stay gone.
+    for pictures_first in [true, false] {
+        let tmp = tempfile::tempdir().unwrap();
+        let pictures = tmp.path().join("java-pictures");
+        let games = tmp.path().join("java-games");
+        for (dir, folders) in [
+            (&pictures, json!({ "last-folder": "", "last-image-folder": "/pictures" })),
+            (&games, json!({ "last-folder": "/games" })),
+        ] {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join("config.txt"), "{}").unwrap();
+            std::fs::write(dir.join("persist"), json!({ "filesystem": folders }).to_string()).unwrap();
+        }
+        let product = tmp.path().join("product");
+        let mut wb = workbench(&product, Recorder::default());
+        let frame = FramePlacement { x: 11, y: 22, width: 333, height: 444, columns: vec![35, 20, 40, 70, 35, 50, 35] };
+        let window = WindowPlacement { x: 5, y: 6, width: 900, height: 700, maximized: false };
+        wb.persist_ui(Some(window), Some(frame), Some(vec![10, 30, 30, 45, 30])).unwrap();
+        drop(wb);
+        let mut wb = workbench(&product, Recorder::default());
+        wb.reset_ui_position().unwrap();
+        let order = if pictures_first { [&pictures, &games] } else { [&games, &pictures] };
+        for java in order {
+            let p = preview(&mut wb, java);
+            assert!(p.replaces.is_empty(), "pictures first {pictures_first}: {:?}", p.replaces);
+            wb.apply_java_import(p.id, &[], false, false, false, None).unwrap().unwrap();
+        }
+        drop(wb);
+        let reopened = workbench(&product, Recorder::default());
+        let persisted = reopened.persisted();
+        assert_eq!(persisted.last_image_folder.as_deref(), Some("/pictures"), "pictures first {pictures_first}");
+        assert_eq!(persisted.last_folder.as_deref(), Some("/games"), "pictures first {pictures_first}");
+        assert_eq!(persisted.window, None);
+        assert_eq!(persisted.suggestions_frame_7, None);
+        assert_eq!(persisted.main_list_columns, None);
+    }
+}
+
+#[test]
+fn after_an_interface_reset_a_different_imported_folder_still_needs_confirmation() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), "{}").unwrap();
+    let folders = |games: &str, pictures: &str| {
+        let persist = json!({ "filesystem": { "last-folder": games, "last-image-folder": pictures } });
+        std::fs::write(java.join("persist"), persist.to_string()).unwrap();
+    };
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    wb.reset_ui_position().unwrap();
+    folders("/games", "/pictures");
+    let p = preview(&mut wb, &java);
+    wb.apply_java_import(p.id, &[], false, false, false, None).unwrap().unwrap();
+
+    // Another picture folder replaces the one imported: refused until confirmed.
+    folders("", "/other-pictures");
+    let p = preview(&mut wb, &java);
+    assert_eq!(p.replaces, [ImportTarget::LastImageFolder]);
+    assert_eq!(wb.apply_java_import(p.id, &[], false, false, false, None).unwrap(), Err(IMPORT_NEEDS_REPLACE));
+    assert_eq!(workbench(&product, Recorder::default()).persisted().last_image_folder.as_deref(), Some("/pictures"));
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    drop(wb);
+    let reopened = workbench(&product, Recorder::default());
+    assert_eq!(reopened.persisted().last_image_folder.as_deref(), Some("/other-pictures"));
+    assert_eq!(reopened.persisted().last_folder.as_deref(), Some("/games"));
+}
+
+#[test]
+fn commands_carrying_unconfirmed_credentials_are_not_saved() {
+    const MARKER: &str = "TEST_MARKER";
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let engine = format!("katago gtp --token {MARKER}");
+    let config = json!({
+        "ui": {
+            "analysis-engine-command": format!("katago analysis --token {MARKER} -model m.bin.gz -config a.cfg"),
+            "analysis-engine-command-customized": true,
+            "engine-pk-black-commands": engine,
+            "engine-pk-black-name": "Proxy",
+            "engine-pk-white-commands": engine,
+        },
+        "leelaz": { "engine-settings-list": [
+            { "id": "proxy-1", "name": "Proxy", "command": engine, "isDefault": false },
+        ] },
+    });
+    std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
+    for copy in [&[][..], &[0]] {
+        let product = tmp.path().join(format!("product-{}", copy.len()));
+        let mut wb = workbench(&product, Recorder::default());
+        let analysis_before = wb.config().analysis_engine.clone();
+        let p = preview(&mut wb, &java);
+        assert!(!serde_json::to_string(&p).unwrap().contains(MARKER));
+        let report = wb.apply_java_import(p.id, copy, false, false, true, None).unwrap().unwrap();
+        assert!(!serde_json::to_string(&report).unwrap().contains(MARKER));
+        // 精析设置 has no confirmation of its own: its command and flag stay this product's.
+        assert_eq!(wb.config().analysis_engine.command, analysis_before.command);
+        assert_eq!(wb.config().analysis_engine.command_customized, analysis_before.command_customized);
+        for key in ["ui.analysis-engine-command", "ui.analysis-engine-command-customized"] {
+            let it = item(&report.items, key);
+            assert_eq!((it.status, it.reason), (ImportStatus::NotMigrated, Some(ImportReason::Credential)), "{key}");
+        }
+        // A side's command comes over with the engine it names, so only with its credentials.
+        let sides = &wb.config().matches;
+        let saved = std::fs::read_to_string(storage(&product).config_file).unwrap();
+        if copy.is_empty() {
+            assert!(!saved.contains(MARKER), "nothing confirmed, nothing saved");
+            assert_eq!((sides.first.commands.as_str(), sides.second.commands.as_str()), ("", ""));
+            for key in ["ui.engine-pk-black-commands", "ui.engine-pk-white-commands"] {
+                let it = item(&report.items, key);
+                assert_eq!((it.status, it.reason), (ImportStatus::NotMigrated, Some(ImportReason::CredentialNotConfirmed)), "{key}");
+            }
+        } else {
+            assert_eq!((sides.first.commands.as_str(), sides.second.commands.as_str()), (engine.as_str(), engine.as_str()));
+            assert_eq!(item(&report.items, "ui.engine-pk-black-commands").status, ImportStatus::Imported);
+        }
+        assert_eq!(sides.first.name, "Proxy");
+    }
+}
+
+#[test]
+fn analysis_and_match_commands_without_credentials_still_come_over() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let config = json!({ "ui": {
+        "analysis-engine-command": "katago analysis -model /m.bin.gz -config /a.cfg",
+        "analysis-engine-command-customized": true,
+        "engine-pk-black-commands": "katago gtp -model /m.bin.gz",
+        "engine-pk-white-commands": "leelaz --gtp",
+    } });
+    std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
+    let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+    let p = preview(&mut wb, &java);
+    let report = wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    for key in ["ui.analysis-engine-command", "ui.engine-pk-black-commands", "ui.engine-pk-white-commands"] {
+        assert_eq!(item(&report.items, key).status, ImportStatus::Imported, "{key}");
+    }
+    let c = wb.config();
+    assert_eq!(c.analysis_engine.command, "katago analysis -model /m.bin.gz -config /a.cfg");
+    assert!(c.analysis_engine.command_customized);
+    assert_eq!(c.matches.first.commands, "katago gtp -model /m.bin.gz");
+    assert_eq!(c.matches.second.commands, "leelaz --gtp");
+}
+
+#[test]
+fn a_board_size_this_product_does_not_open_is_reported_and_left_alone() {
+    // Java's 综合设置 saves 53 (ConfigDialog2 only corrects values below 2).
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let config = json!({ "ui": { "other-size-width": 53, "other-size-height": 13 } });
+    std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
+    let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+    let before = wb.config().edit.other_size_width;
+    let p = preview(&mut wb, &java);
+    let report = wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    for items in [&p.items, &report.items] {
+        let width = item(items, "ui.other-size-width");
+        assert_eq!((width.status, width.reason), (ImportStatus::Incompatible, Some(ImportReason::InvalidValue)));
+        assert_eq!(item(items, "ui.other-size-height").status, ImportStatus::Imported);
+    }
+    assert_eq!(wb.config().edit.other_size_width, before);
+    assert_eq!(wb.config().edit.other_size_height, 13);
+}
+
+#[test]
+fn java_migration_markers_are_reported_once_as_java_state() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let config = json!({ "ui": {
+        "show-blunder-bar": true,
+        "migrated-hide-blunder-bar-default-v1": true,
+        "migrated-windows-portable-user-state-v2": true,
+    } });
+    std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
+    let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+    let p = preview(&mut wb, &java);
+    let report = wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    for items in [&p.items, &report.items] {
+        for key in ["ui.migrated-hide-blunder-bar-default-v1", "ui.migrated-windows-portable-user-state-v2"] {
+            let rows: Vec<_> = items.iter().filter(|i| i.key == key).map(|i| (i.status, i.reason)).collect();
+            assert_eq!(rows, [(ImportStatus::NotMigrated, Some(ImportReason::JavaState))], "{key}");
+        }
+    }
+    // The marker still decides how the blunder bar comes over.
+    assert!(wb.config().display.blunder_bar);
+}
+
+#[test]
+fn an_unchecked_auto_replay_box_turns_the_setting_off_unless_java_starts_it_anyway() {
+    // Java saves -1 for the unchecked 自动播放分支 box (Config.java:3395-3396); an explicit
+    // `ui.auto-replay-branch` still starts it (Lizzie.java:488).
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let toolbar = vec![json!(-1); 51];
+    std::fs::write(java.join("persist"), json!({"ui-persist": {"toolbar-parameter": toolbar}}).to_string()).unwrap();
+    for (ui, expected) in [(json!({}), false), (json!({"auto-replay-branch": true}), true)] {
+        std::fs::write(java.join("config.txt"), json!({ "ui": ui }).to_string()).unwrap();
+        let product = tmp.path().join(format!("product-{expected}"));
+        let mut wb = workbench(&product, Recorder::default());
+        let mut display = wb.config().display.clone();
+        display.auto_replay_branch = !expected;
+        wb.set_display_settings(display).unwrap();
+        let p = preview(&mut wb, &java);
+        let report = wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+        for items in [&p.items, &report.items] {
+            let slot = item(items, "persist:ui-persist.toolbar-parameter[39]");
+            assert_eq!((slot.status, slot.target), (ImportStatus::Imported, Some(ImportTarget::Suggestions)), "{ui}");
+        }
+        drop(wb);
+        assert_eq!(workbench(&product, Recorder::default()).config().display.auto_replay_branch, expected, "{ui}");
+    }
 }
 
 #[test]
@@ -974,23 +1309,24 @@ fn proxy_settings_java_would_reject_are_reported_and_not_taken_over() {
         std::fs::create_dir_all(&java).unwrap();
         std::fs::write(java.join("config.txt"), json!({ "ui": ui.clone() }).to_string()).unwrap();
         let mut wb = workbench(&product, Recorder::default());
+        // A proxy chosen in this product, which a rejected import must leave as it is.
+        let kept = lizzie_core::settings::NetworkSettings {
+            proxy_mode: ProxyMode::Manual,
+            proxy_host: "kept.example".into(),
+            proxy_port: 3128,
+        };
+        wb.set_resource_proxy(kept.clone()).unwrap();
         let p = preview(&mut wb, &java);
-        let proxy: Vec<_> = p
-            .items
-            .iter()
-            .filter(|i| i.key.starts_with("ui.network-proxy-"))
-            .collect();
         let expected = if valid {
             ImportStatus::Imported
         } else {
             ImportStatus::Incompatible
         };
-        assert!(
-            proxy
-                .iter()
-                .all(|i| i.status == expected && i.target == Some(ImportTarget::NetworkProxy)),
-            "{ui}"
-        );
+        // Every proxy key of the Java file is reported, each under 网络代理.
+        for key in ui.as_object().unwrap().keys() {
+            let reported = item(&p.items, &format!("ui.{key}"));
+            assert_eq!((reported.status, reported.target), (expected, Some(ImportTarget::NetworkProxy)), "{ui}: {key}");
+        }
         wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
         let network = saved_config(&product).network;
         if valid {
@@ -1001,11 +1337,7 @@ fn proxy_settings_java_would_reject_are_reported_and_not_taken_over() {
             };
             assert_eq!(network.proxy_mode, mode, "{ui}");
         } else {
-            assert_eq!(
-                network,
-                Default::default(),
-                "{ui}: rejected values leave the setting as it was"
-            );
+            assert_eq!(network, kept, "{ui}: rejected values leave the setting as it was");
         }
     }
 }
@@ -1237,7 +1569,9 @@ fn java_estimate_and_blunder_bar_flags_follow_java_loading() {
         let product = tmp.path().join(format!("product-{i}"));
         let mut wb = workbench(&product, Recorder::default());
         let p = preview(&mut wb, &java);
-        assert!(p.items.iter().all(|item| item.status == ImportStatus::Imported), "{ui}");
+        // Java's migration marker itself is its own bookkeeping, reported as such.
+        assert!(p.items.iter().all(|item| item.status == ImportStatus::Imported
+            || (item.key == "ui.migrated-hide-blunder-bar-default-v1" && item.reason == Some(ImportReason::JavaState))), "{ui}");
         wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
         assert_eq!(serde_json::to_value(wb.config().display.clone()).unwrap()[field], expected, "{ui}");
     }
@@ -2014,10 +2348,11 @@ fn java_theme(java: &Path, name: &str, board: &[u8], extra: serde_json::Value) {
     std::fs::write(dir.join("white.png"), include_bytes!("../../../ui/public/assets/newtheme/white.png")).unwrap();
 }
 
-fn data_url(bytes: &[u8], dir: &Path) -> String {
-    let path = dir.join("expected.png");
-    std::fs::write(&path, bytes).unwrap();
-    lizzie_core::appearance::image_data(&path).unwrap()
+/// The data URL of the PNG `bytes`, encoded here rather than by the product's image encoder.
+fn data_url(bytes: &[u8]) -> String {
+    use base64::Engine;
+    assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"), "a PNG");
+    format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
 /// The board image this product shows with theme `name` selected.
@@ -2030,6 +2365,20 @@ fn shown_board(wb: &Workbench, name: &str) -> String {
 fn themes_snapshot(wb: &Workbench) -> Vec<(PathBuf, Vec<u8>)> {
     let dir = lizzie_core::appearance::themes_dir(wb.storage());
     if dir.exists() { snapshot(&dir) } else { Vec::new() }
+}
+
+/// Runs `f` while a folder stands where the settings file is, so saving the settings fails on
+/// every platform whatever the user's privileges; the file is put back afterwards.
+fn without_settings_file<T>(product: &Path, f: impl FnOnce() -> T) -> T {
+    let file = storage(product).config_file;
+    let aside = product.join("settings-file-aside");
+    let existed = file.exists();
+    if existed { std::fs::rename(&file, &aside).unwrap(); }
+    std::fs::create_dir(&file).unwrap();
+    let out = f();
+    std::fs::remove_dir(&file).unwrap();
+    if existed { std::fs::rename(&aside, &file).unwrap(); }
+    out
 }
 
 #[test]
@@ -2056,8 +2405,8 @@ fn java_theme_folders_become_themes_with_their_own_images_and_stay_selected() {
     let names: Vec<String> = lizzie_core::appearance::catalog(wb.storage(), &Default::default()).into_iter().map(|e| e.name).collect();
     assert!(names.contains(&"我的主题".to_string()) && names.contains(&"Night".to_string()), "{names:?}");
     // Same file name, different pictures: each theme shows its own.
-    assert_eq!(shown_board(&wb, "我的主题"), data_url(PLAIN_BOARD, tmp.path()));
-    assert_eq!(shown_board(&wb, "Night"), data_url(SABAKI_BOARD, tmp.path()));
+    assert_eq!(shown_board(&wb, "我的主题"), data_url(PLAIN_BOARD));
+    assert_eq!(shown_board(&wb, "Night"), data_url(SABAKI_BOARD));
     // Java takes an unreadable theme image from the ui settings; so does the imported theme.
     let night = lizzie_core::appearance::load_theme(wb.storage(), "Night", &Default::default());
     assert!(night.background_image.is_empty());
@@ -2068,7 +2417,7 @@ fn java_theme_folders_become_themes_with_their_own_images_and_stay_selected() {
     drop(wb);
     let mut reopened = workbench(&product, Recorder::default());
     assert_eq!(reopened.view(false).settings.appearance.theme, "我的主题");
-    assert_eq!(shown_board(&reopened, "我的主题"), data_url(PLAIN_BOARD, tmp.path()));
+    assert_eq!(shown_board(&reopened, "我的主题"), data_url(PLAIN_BOARD));
 }
 
 #[test]
@@ -2102,8 +2451,8 @@ fn java_bundled_theme_copy_is_skipped_and_a_changed_one_overrides_the_bundle() {
     assert!(!dir.join("sabaki").exists() && dir.join("Fast/theme.txt").is_file());
     let s = wb.view(false).settings;
     assert_eq!((s.appearance.theme.as_str(), s.theme.shadow_size), ("Fast", 37));
-    assert_eq!(shown_board(&wb, "Fast"), data_url(PLAIN_BOARD, tmp.path()));
-    assert_eq!(shown_board(&wb, "Megapack"), data_url(SABAKI_BOARD, tmp.path()));
+    assert_eq!(shown_board(&wb, "Fast"), data_url(PLAIN_BOARD));
+    assert_eq!(shown_board(&wb, "Megapack"), data_url(SABAKI_BOARD));
     assert_eq!(snapshot(&bundled), bundled_before, "the bundled files are not changed");
 }
 
@@ -2137,10 +2486,10 @@ fn bundled_theme_missing_its_picture_shows_the_ui_picture_as_java_does() {
         let mut wb = workbench(&product, Recorder::default());
         let p = preview(&mut wb, &java);
         wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
-        assert_eq!(committed_board(&mut wb), data_url(PLAIN_BOARD, tmp.path()), "theme.txt changed: {changed}");
+        assert_eq!(committed_board(&mut wb), data_url(PLAIN_BOARD), "theme.txt changed: {changed}");
         drop(wb);
         let mut reopened = workbench(&product, Recorder::default());
-        assert_eq!(committed_board(&mut reopened), data_url(PLAIN_BOARD, tmp.path()), "after restart, changed: {changed}");
+        assert_eq!(committed_board(&mut reopened), data_url(PLAIN_BOARD), "after restart, changed: {changed}");
     }
 }
 
@@ -2175,12 +2524,11 @@ fn user_theme_without_its_picture_shows_java_s_shared_theme_folder_picture() {
     let p = preview(&mut wb, &java);
     wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
     std::fs::remove_dir_all(&java).unwrap();
-    assert_eq!(committed_board(&mut wb), data_url(SABAKI_BOARD, tmp.path()));
+    assert_eq!(committed_board(&mut wb), data_url(SABAKI_BOARD));
 }
 
 #[test]
 fn unusable_theme_folders_are_reported_and_leave_the_others_and_existing_themes() {
-    use std::os::unix::fs::PermissionsExt;
     let tmp = tempfile::tempdir().unwrap();
     let java = tmp.path().join("java");
     java_theme(&java, "Good", PLAIN_BOARD, json!({}));
@@ -2190,10 +2538,9 @@ fn unusable_theme_folders_are_reported_and_leave_the_others_and_existing_themes(
     let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
     wb.add_theme("BadColour").unwrap();
     let before = snapshot(&lizzie_core::appearance::themes_dir(wb.storage()).join("BadColour"));
-    let locked = java.join("theme/Locked");
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    // A theme.txt that cannot be read as text, on every platform and for every user.
+    std::fs::write(java.join("theme/Locked/theme.txt"), b"{\"shadow-size\": \xff\xfe}").unwrap();
     let candidate = java_import::read(&JavaSource::new(&java, None));
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
     let p = wb.preview_java_import(candidate.unwrap());
     let bad = item(&p.items, "file:theme/BadColour");
     assert_eq!((bad.status, bad.reason), (ImportStatus::Incompatible, Some(ImportReason::InvalidValue)));
@@ -2204,6 +2551,66 @@ fn unusable_theme_folders_are_reported_and_leave_the_others_and_existing_themes(
     wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
     assert!(lizzie_core::appearance::themes_dir(wb.storage()).join("Good/theme.txt").is_file());
     assert_eq!(snapshot(&lizzie_core::appearance::themes_dir(wb.storage()).join("BadColour")), before);
+    assert!(!wb.config().record.read_komi, "the other settings still come over");
+}
+
+/// An uncompressed 8×8 TIFF of one colour (Java's `ImageIO` reads TIFF).
+fn tiff(rgb: [u8; 3]) -> Vec<u8> {
+    let mut out = std::io::Cursor::new(Vec::new());
+    image::RgbImage::from_pixel(8, 8, image::Rgb(rgb)).write_to(&mut out, image::ImageFormat::Tiff).unwrap();
+    out.into_inner()
+}
+
+#[test]
+fn a_java_theme_tiff_picture_comes_over_as_png() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    // 棋盘图片 chosen with 所有文件: board.tif; the background is a different board.png.
+    java_theme(&java, "TiffTheme", PLAIN_BOARD, json!({"board-image": "board.tif", "background-image": "board.png"}));
+    std::fs::write(java.join("theme/TiffTheme/board.tif"), tiff([200, 30, 30])).unwrap();
+    std::fs::write(java.join("config.txt"), json!({"ui": {"theme": "TiffTheme"}}).to_string()).unwrap();
+    let java_before = snapshot(&java);
+    let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+    let default_board = shown_board(&wb, "default");
+    let p = preview(&mut wb, &java);
+    assert_eq!(item(&p.items, "file:theme/TiffTheme").status, ImportStatus::Imported);
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    assert_eq!(wb.view(true).settings.appearance.theme, "TiffTheme");
+    let dir = lizzie_core::appearance::themes_dir(wb.storage()).join("TiffTheme");
+    let raw: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("theme.txt")).unwrap()).unwrap();
+    // board.tif becomes board.png; the theme's own board.png keeps its picture under the next free name.
+    assert_eq!((&raw["board-image"], &raw["background-image"]), (&json!("board.png"), &json!("board-2.png")));
+    assert_eq!(std::fs::read(dir.join("board-2.png")).unwrap(), PLAIN_BOARD);
+    let png = std::fs::read(dir.join("board.png")).unwrap();
+    let picture = image::load_from_memory_with_format(&png, image::ImageFormat::Png).unwrap().to_rgb8();
+    assert_eq!((picture.dimensions(), picture.get_pixel(3, 3).0), ((8, 8), [200, 30, 30]));
+    let board = shown_board(&wb, "TiffTheme");
+    assert_eq!(board, data_url(&png));
+    assert_ne!(board, default_board);
+    assert_eq!(snapshot(&java), java_before, "the Java folder is only read");
+}
+
+#[test]
+fn a_java_theme_whose_tiff_picture_does_not_decode_is_reported_not_imported() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    java_theme(&java, "Good", PLAIN_BOARD, json!({}));
+    java_theme(&java, "BrokenTiff", PLAIN_BOARD, json!({"board-image": "board.tif"}));
+    // A TIFF header whose first directory has no entries.
+    std::fs::write(java.join("theme/BrokenTiff/board.tif"), b"II*\0\x08\0\0\0\0\0\0\0\0\0").unwrap();
+    std::fs::write(java.join("config.txt"), json!({"ui": {"theme": "BrokenTiff", "read-komi": false}}).to_string()).unwrap();
+    let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+    let p = preview(&mut wb, &java);
+    let broken = item(&p.items, "file:theme/BrokenTiff");
+    assert_eq!((broken.status, broken.reason), (ImportStatus::Incompatible, Some(ImportReason::Unreadable)));
+    assert_eq!(broken.detail.as_deref(), Some("board-image: board.tif"));
+    assert_eq!(item(&p.items, "ui.theme").status, ImportStatus::Incompatible);
+    assert_eq!(item(&p.items, "file:theme/Good").status, ImportStatus::Imported);
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    let themes = lizzie_core::appearance::themes_dir(wb.storage());
+    assert!(!themes.join("BrokenTiff").exists());
+    assert!(themes.join("Good/theme.txt").is_file());
+    assert_eq!(wb.view(false).settings.appearance.theme, "default");
     assert!(!wb.config().record.read_komi, "the other settings still come over");
 }
 
@@ -2220,14 +2627,10 @@ fn a_failed_import_with_ui_pictures_leaves_no_new_theme_folders() {
     let config_dir = product.join("config");
     let before = snapshot(&config_dir);
     let p = preview(&mut wb, &java);
-    let mode = std::fs::metadata(&config_dir).unwrap().permissions();
-    let mut read_only = mode.clone();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut read_only, 0o555);
-    // The themes folder is created first so the import can write into it; the settings cannot.
+    // A folder stands where the settings file goes: saving them fails on every platform and
+    // for every user. The themes folder is created first so the import can write into it.
     std::fs::create_dir(config_dir.join("themes")).unwrap();
-    std::fs::set_permissions(&config_dir, read_only).unwrap();
-    let failed = wb.apply_java_import(p.id, &[], false, false, true, None);
-    std::fs::set_permissions(&config_dir, mode).unwrap();
+    let failed = without_settings_file(&product, || wb.apply_java_import(p.id, &[], false, false, true, None));
     assert!(failed.as_ref().is_err_and(|e| e.message.starts_with("saving imported settings failed")), "{failed:?}");
     std::fs::remove_dir(config_dir.join("themes")).unwrap();
     assert_eq!(snapshot(&config_dir), before);
@@ -2253,13 +2656,7 @@ fn java_theme_replacing_a_user_theme_needs_confirmation_and_failures_leave_theme
     assert_eq!(wb.apply_java_import(p.id, &[], false, false, false, None).unwrap(), Err(IMPORT_NEEDS_REPLACE));
     assert_eq!(themes_snapshot(&wb), before, "not confirmed: the theme is unchanged");
     // The settings file cannot be written: the theme folders are put back as they were.
-    let config_dir = product.join("config");
-    let mode = std::fs::metadata(&config_dir).unwrap().permissions();
-    let mut read_only = mode.clone();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut read_only, 0o555);
-    std::fs::set_permissions(&config_dir, read_only).unwrap();
-    let failed = wb.apply_java_import(p.id, &[], false, false, true, None);
-    std::fs::set_permissions(&config_dir, mode).unwrap();
+    let failed = without_settings_file(&product, || wb.apply_java_import(p.id, &[], false, false, true, None));
     assert!(failed.as_ref().is_err_and(|e| e.message.starts_with("saving imported settings failed")), "{failed:?}");
     assert_eq!(themes_snapshot(&wb), before, "a failed import leaves no half-written theme");
     let revision = wb.view(false).settings.theme_files_revision;
@@ -2268,7 +2665,7 @@ fn java_theme_replacing_a_user_theme_needs_confirmation_and_failures_leave_theme
     assert_eq!((s.appearance.theme.as_str(), s.theme.shadow_size), ("Mine", 50));
     // The window reloads the images of a theme rewritten in place under the same values.
     assert_ne!(s.theme_files_revision, revision);
-    assert_eq!(shown_board(&wb, "Mine"), data_url(SABAKI_BOARD, tmp.path()));
+    assert_eq!(shown_board(&wb, "Mine"), data_url(SABAKI_BOARD));
     let names: Vec<String> = lizzie_core::appearance::catalog(wb.storage(), &Default::default()).into_iter().map(|e| e.name).collect();
     assert!(!names.contains(&"Broken".to_string()));
 }
@@ -2288,13 +2685,13 @@ fn java_theme_named_default_comes_over_renamed_and_stays_selected() {
     wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
     let s = wb.view(false).settings;
     assert_eq!((s.appearance.theme.as_str(), s.theme.shadow_size), ("default (LizzieYzy Next)", 33));
-    assert_eq!(committed_board(&mut wb), data_url(PLAIN_BOARD, tmp.path()));
+    assert_eq!(committed_board(&mut wb), data_url(PLAIN_BOARD));
     let names: Vec<String> = lizzie_core::appearance::catalog(wb.storage(), &Default::default()).into_iter().map(|e| e.name).collect();
     assert!(names.contains(&"default".to_string()) && names.contains(&"default (LizzieYzy Next)".to_string()), "{names:?}");
     drop(wb);
     let mut reopened = workbench(&product, Recorder::default());
     assert_eq!(reopened.view(false).settings.appearance.theme, "default (LizzieYzy Next)");
-    assert_eq!(committed_board(&mut reopened), data_url(PLAIN_BOARD, tmp.path()));
+    assert_eq!(committed_board(&mut reopened), data_url(PLAIN_BOARD));
 }
 
 #[test]
@@ -2937,6 +3334,27 @@ fn remembered_commentary_key_selection_does_not_share_engine_credential_consent(
     let credential = items.iter().find(|item| item.key == "credential:commentary-api-key").unwrap();
     assert_eq!(credential.reason, Some(ImportReason::CredentialNotConfirmed));
     assert_eq!(candidate.commentary_credential.unwrap().source, "secure-store");
+}
+
+#[test]
+fn java_remembering_its_key_in_the_credential_store_is_told_to_the_adapter() {
+    let temp = tempfile::tempdir().unwrap();
+    let java = temp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), "{}").unwrap();
+    // TeacherSettings.load: Boolean.parseBoolean, and a legacy plain-text key turns remembering off.
+    for (teacher, remembered) in [
+        ("baseUrl=https://provider.example/v1\nrememberApiKey=TRUE\n", true),
+        ("baseUrl=https://provider.example/v1\nrememberApiKey=false\n", false),
+        ("baseUrl=https://provider.example/v1\n", false),
+        ("baseUrl=https://provider.example/v1\nrememberApiKey=true\napiKey=legacy\n", false),
+    ] {
+        std::fs::write(java.join("teacher.properties"), teacher).unwrap();
+        let candidate = java_import::read(&JavaSource::new(&java, None)).unwrap();
+        assert_eq!(candidate.commentary_key_remembered, remembered, "{teacher:?}");
+        // Remembering here still waits for the confirmed copy.
+        assert!(!candidate.mapped.commentary.as_ref().unwrap().remember_api_key);
+    }
 }
 
 #[test]

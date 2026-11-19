@@ -1,13 +1,31 @@
 //! What an 打开在线链接 link or a 弈客 page address refers to (`YikeUrlParser.parse`, then the rest
 //! of `OnlineDialog.checkUrl`, fixed Java `cb53acc`). The first match wins; anything left is a
 //! plain link that is fetched once and read as SGF (type 99).
+//!
+//! Java matched the 弈客 kinds by shape on any host and read `api.<host>`; here they are
+//! recognized only on the hosts [`is_yike_address`] accepts and read from 弈客's own hosts.
 
 use std::sync::LazyLock;
 
+use ::url::Url;
 use fancy_regex::Regex;
 
 /// Yike detail endpoint of new live rooms (`YikeApiClient.DETAIL_URL_PREFIX`).
 pub const YIKE_DETAIL_PREFIX: &str = "https://api-new.yikeweiqi.com/v1/golives/";
+/// The old live detail endpoint (Java `https://api.` + the link's domain + `/golive/dtl`).
+const YIKE_OLD_DETAIL: &str = "https://api.yikeweiqi.com/golive/dtl";
+
+/// `https://yikeweiqi.com` or one of its subdomains on the default port: the addresses whose
+/// 弈客 kinds are followed and the only ones the 弈客 web window loads.
+pub fn is_yike_address(url: &Url) -> bool {
+    url.scheme() == "https"
+        && url.port().is_none()
+        && url.host_str().is_some_and(|h| h == "yikeweiqi.com" || h.ends_with(".yikeweiqi.com"))
+}
+
+fn yike_link(text: &str) -> bool {
+    Url::parse(text).is_ok_and(|url| is_yike_address(&url))
+}
 
 /// The followed source of a link (`YikeUrlInfo` types and `checkUrl`'s 3, 4 and 99).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -117,6 +135,7 @@ pub fn form_encode(value: &str) -> String {
     out
 }
 
+/// `YikeUrlParser.parse`: the 弈客 kind a link's shape names (its host is checked by the callers).
 fn yike(url: &str) -> Option<OnlineSource> {
     let url = url.strip_suffix("/0/0").unwrap_or(url);
     if let Some(c) = caps(&NEW_LIVE_FULL, url) {
@@ -136,7 +155,7 @@ fn yike(url: &str) -> Option<OnlineSource> {
             _ => (number(id).unwrap_or(0), true),
         };
         if !id.trim().is_empty() && room > 0 {
-            let detail = format!("https://api.{}/golive/dtl?id={id}&flag=1", c[1]);
+            let detail = format!("{YIKE_OLD_DETAIL}?id={id}&flag=1");
             return Some(if board {
                 OnlineSource::YikeLiveBoard { id: id.into(), url: detail }
             } else {
@@ -148,14 +167,14 @@ fn yike(url: &str) -> Option<OnlineSource> {
         if !c[3].trim().is_empty() {
             return Some(OnlineSource::YikeLiveBoard {
                 id: c[3].into(),
-                url: format!("https://api.{}/golive/dtl?id={}", c[1], c[3]),
+                url: format!("{YIKE_OLD_DETAIL}?id={}", c[3]),
             });
         }
     }
     for regex in [&*GAME_ROOM, &*HALL_ROOM] {
         if let Some(c) = caps(regex, url) {
             if let Some(room) = number(c[3]).filter(|&r| r > 0) {
-                let detail = format!("https://api.{}/golive/dtl?id={room}", c[1]);
+                let detail = format!("{YIKE_OLD_DETAIL}?id={room}");
                 return Some(OnlineSource::YikeGameRoom { room: room as u64, detail });
             }
         }
@@ -179,38 +198,11 @@ pub fn classify(url: &str) -> Option<OnlineSource> {
     if url.is_empty() {
         return None;
     }
-    if let Some(source) = yike(url) {
-        return Some(source);
-    }
     let trimmed = url.strip_suffix("/0/0").unwrap_or(url);
-    if let Some(c) = caps(&LEGACY_LIVE_FULL, trimmed) {
-        let id = c[3];
-        let (room, board) = match number(c[4]) {
-            Some(r) => (r, false),
-            None => (number(id).unwrap_or(0), true),
-        };
-        if !id.trim().is_empty() && room > 0 {
-            let detail = format!("https://api.{}/golive/dtl?id={id}&flag=1", c[1]);
-            return Some(if board {
-                OnlineSource::YikeLiveBoard { id: id.into(), url: detail }
-            } else {
-                OnlineSource::YikeLiveRoom { id: id.into(), room: room as u64, detail }
-            });
-        }
-    }
-    if let Some(c) = caps(&LEGACY_LIVE_SHORT, trimmed) {
-        if !c[3].trim().is_empty() {
-            return Some(OnlineSource::YikeLiveBoard {
-                id: c[3].into(),
-                url: format!("https://api.{}/golive/dtl?id={}", c[1], c[3]),
-            });
-        }
-    }
-    if let Some(c) = caps(&LEGACY_GAME, trimmed) {
-        if let Some(room) = number(c[3]).filter(|&r| r > 0) {
-            let detail = format!("https://api.{}/golive/dtl?id={room}", c[1]);
-            return Some(OnlineSource::YikeGameRoom { room: room as u64, detail });
-        }
+    // The 弈客 shapes come before the 野狐 / 欢乐 query keys, as in Java; on a host that is not
+    // 弈客's the link is any other link.
+    if let Some(source) = yike_shape(url, trimmed) {
+        return Some(if yike_link(url) { source } else { OnlineSource::Plain { url: trimmed.to_string() } });
     }
     if let Some((query, raw)) = split_query(trimmed) {
         let has = |k: &str| query.iter().any(|(key, _)| key == k);
@@ -226,10 +218,53 @@ pub fn classify(url: &str) -> Option<OnlineSource> {
     Some(OnlineSource::Plain { url: trimmed.to_string() })
 }
 
+/// The 弈客 kind a link's shape names, whatever its host: `YikeUrlParser.parse`, then
+/// `checkUrl`'s three older shapes (OnlineDialog.java:747-807). `trimmed` is `url` without a
+/// trailing `/0/0`.
+fn yike_shape(url: &str, trimmed: &str) -> Option<OnlineSource> {
+    if let Some(source) = yike(url) {
+        return Some(source);
+    }
+    if let Some(c) = caps(&LEGACY_LIVE_FULL, trimmed) {
+        let id = c[3];
+        let (room, board) = match number(c[4]) {
+            Some(r) => (r, false),
+            None => (number(id).unwrap_or(0), true),
+        };
+        if !id.trim().is_empty() && room > 0 {
+            let detail = format!("{YIKE_OLD_DETAIL}?id={id}&flag=1");
+            return Some(if board {
+                OnlineSource::YikeLiveBoard { id: id.into(), url: detail }
+            } else {
+                OnlineSource::YikeLiveRoom { id: id.into(), room: room as u64, detail }
+            });
+        }
+    }
+    if let Some(c) = caps(&LEGACY_LIVE_SHORT, trimmed) {
+        if !c[3].trim().is_empty() {
+            return Some(OnlineSource::YikeLiveBoard {
+                id: c[3].into(),
+                url: format!("{YIKE_OLD_DETAIL}?id={}", c[3]),
+            });
+        }
+    }
+    if let Some(c) = caps(&LEGACY_GAME, trimmed) {
+        if let Some(room) = number(c[3]).filter(|&r| r > 0) {
+            let detail = format!("{YIKE_OLD_DETAIL}?id={room}");
+            return Some(OnlineSource::YikeGameRoom { room: room as u64, detail });
+        }
+    }
+    None
+}
+
 /// The 弈客 page kind of an address (`BrowserFrame.yikePageKind`, used for the room key that
 /// keeps one room from being followed twice).
 pub fn yike_room_key(url: &str) -> Option<String> {
-    match yike(url.trim())? {
+    let url = url.trim();
+    if !yike_link(url) {
+        return None;
+    }
+    match yike(url)? {
         OnlineSource::YikeNewLive { id, .. }
         | OnlineSource::YikeLiveRoom { id, .. }
         | OnlineSource::YikeLiveBoard { id, .. } => Some(format!("live-room:{id}")),

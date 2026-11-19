@@ -62,7 +62,7 @@ struct Run {
     /// An analysis process took the position from the analysing foreground engine, which
     /// analyses again when the run completes (`shouldRePonder`).
     holds: bool,
-    /// The rules settings the run asks under; answers under others are dropped.
+    /// The rules settings the run asks under; other ones end it as a failed request.
     rules: RulesSignature,
     engine: Engine,
 }
@@ -390,6 +390,7 @@ impl Workbench {
             output,
             remote,
             foreground: false,
+            secondary: false,
             held: false,
             reserved: false,
             cloud_recovery: false,
@@ -421,11 +422,14 @@ impl Workbench {
             Response::Other => return,
         };
         let run = self.flash.run.as_mut().unwrap();
-        run.done += 1;
-        let (doc, same_rules) = (run.doc, run.rules == signature);
-        if same_rules {
-            self.store_background_result(doc, &query, line, false);
+        // `requestStillTargetsCurrentGame`: an answer under other rules settings ends the run
+        // as a failed request (`finishFailedRequestDispatch`); nothing of it is stored.
+        if run.rules != signature {
+            return self.flash_request_failed();
         }
+        run.done += 1;
+        let doc = run.doc;
+        self.store_background_result(doc, &query, line, false);
         let finished =
             matches!(&self.flash.run, Some(Run { engine: Engine::Process { queries, .. }, .. }) if queries.is_empty());
         if finished {
@@ -462,6 +466,7 @@ impl Workbench {
     /// Asks the borrowed engine about the next move, or gives it back after the last one.
     fn flash_lease_next(&mut self) {
         loop {
+            let signature = self.quick_rules_signature();
             let Some(Run {
                 engine:
                     Engine::Lease {
@@ -470,11 +475,17 @@ impl Workbench {
                         ending: None,
                     },
                 done,
+                rules,
                 ..
             }) = self.flash.run.as_mut()
             else {
                 return;
             };
+            // `requestStillTargetsCurrentGame` before each dispatch: other rules settings fail
+            // the run instead of searching under them.
+            if *rules != signature {
+                return self.flash_lease_end(false);
+            }
             let lease = *lease;
             let Some((node, stamp)) = queue.pop_front() else {
                 return self.flash_lease_end(true);
@@ -536,8 +547,12 @@ impl Workbench {
                 let signature = self.quick_rules_signature();
                 let run = self.flash.run.as_mut().unwrap();
                 if matches!(run.engine, Engine::Lease { ending: None, .. }) {
-                    run.done += 1;
-                    if run.rules == signature {
+                    if run.rules != signature {
+                        // `requestStillTargetsCurrentGame`: the answer is not stored, the run
+                        // fails once the engine is given back.
+                        self.flash_lease_end(false);
+                    } else {
+                        run.done += 1;
                         let q = Query {
                             node,
                             stamp,
@@ -546,8 +561,8 @@ impl Workbench {
                             to_play,
                         };
                         self.store_background_result(doc, &q, line, true);
+                        self.flash_lease_next();
                     }
-                    self.flash_lease_next();
                 }
             }
             RuntimeEvent::LeaseSearchFailed { lease: l } if lease == Some(l) => self.flash_lease_end(false),

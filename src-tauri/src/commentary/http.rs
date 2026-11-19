@@ -191,6 +191,11 @@ struct Body {
     bytes: bytes::Bytes,
     offset: usize,
 }
+/// A cancelled body ends with a terminal error. `Interrupted` would be retried forever by
+/// `BufRead::read_line`/`read_to_end`, spinning the worker after the connection is gone.
+fn cancelled_read() -> io::Error {
+    io::Error::new(io::ErrorKind::ConnectionAborted, "AI commentary request was cancelled.")
+}
 impl Read for Body {
     fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
         if output.is_empty() {
@@ -198,10 +203,7 @@ impl Read for Body {
         }
         loop {
             if self.cancel.load(Ordering::Acquire) {
-                return Err(io::Error::new(
-                    io::ErrorKind::Interrupted,
-                    "AI commentary request was cancelled.",
-                ));
+                return Err(cancelled_read());
             }
             if self.offset < self.bytes.len() {
                 let n = output.len().min(self.bytes.len() - self.offset);
@@ -215,14 +217,82 @@ impl Read for Body {
                     self.offset = 0;
                 }
                 Some(Err(())) => return Err(io::Error::other("AI service response was interrupted.")),
-                None if self.cancel.load(Ordering::Acquire) => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::Interrupted,
-                        "AI commentary request was cancelled.",
-                    ))
-                }
+                None if self.cancel.load(Ordering::Acquire) => return Err(cancelled_read()),
                 None => return Ok(0),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lizzie_core::commentary::{api_key::ApiKeyClient, ChatTransport, Message};
+    use std::io::Write;
+    use std::net::TcpListener;
+
+    /// Stop while a streamed answer waits for its line end: the commentary worker must return
+    /// the cancellation and the service must see its connection closed, without more bytes.
+    #[test]
+    fn stop_while_a_streamed_line_is_incomplete_ends_the_worker_and_closes_the_connection() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let (sent, partial_sent) = mpsc::channel();
+        let (closed, connection_closed) = mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 4096];
+            while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                let n = stream.read(&mut buffer).unwrap();
+                assert!(n > 0, "request ended before its headers");
+                request.extend_from_slice(&buffer[..n]);
+            }
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n\
+                      data: {\"choices\":[{\"delta\":{\"content\":\"D4",
+                )
+                .unwrap();
+            stream.flush().unwrap();
+            sent.send(()).unwrap();
+            // Drain the rest of the request; a zero-length read is the client closing.
+            loop {
+                match stream.read(&mut buffer) {
+                    Ok(0) => break closed.send(true).unwrap(),
+                    Ok(_) => {}
+                    Err(_) => break closed.send(false).unwrap(),
+                }
+            }
+        });
+        let cancel = Arc::new(AtomicBool::new(false));
+        let network = NetworkSettings {
+            proxy_mode: ProxyMode::Direct,
+            ..NetworkSettings::default()
+        };
+        let http = Http::new(&network, cancel.clone(), false).unwrap();
+        let mut transport = ApiKeyClient::new(&base, "sk-test", "test-model")
+            .unwrap()
+            .with_exchange(http);
+        let (done, finished) = mpsc::channel();
+        let flag = cancel.clone();
+        std::thread::spawn(move || {
+            let messages = [Message::new("user", "Explain this move.")];
+            let _ = done.send(transport.complete(&messages, &flag));
+        });
+        partial_sent.recv_timeout(Duration::from_secs(10)).unwrap();
+        // Let the worker block on the missing line end before Stop.
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(
+            finished.try_recv().is_err(),
+            "the worker answered before its line was complete"
+        );
+        cancel.store(true, Ordering::Release);
+        let outcome = finished
+            .recv_timeout(Duration::from_secs(3))
+            .expect("the commentary worker did not end after Stop");
+        assert!(outcome.is_err_and(|failure| failure.cancelled));
+        assert_eq!(connection_closed.recv_timeout(Duration::from_secs(3)), Ok(true));
     }
 }

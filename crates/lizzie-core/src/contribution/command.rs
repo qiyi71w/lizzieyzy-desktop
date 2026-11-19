@@ -272,9 +272,15 @@ mod tests {
 
     #[test]
     fn certificate_recovery_resolves_beside_the_engine() {
+        #[cfg(not(windows))]
         assert_eq!(
             certificate_recovery("/opt/katago contribute", "/opt/katago", false, false),
             "/opt/katago contribute -cacerts \"/opt/cacert.pem\""
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            certificate_recovery("C:\\opt\\katago.exe contribute", "C:\\opt\\katago.exe", false, false),
+            "C:\\opt\\katago.exe contribute -cacerts \"C:\\opt\\cacert.pem\""
         );
         assert_eq!(
             certificate_recovery("/opt/katago contribute", "/opt/katago", true, false),

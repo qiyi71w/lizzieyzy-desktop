@@ -1,9 +1,8 @@
 //! Behavioral cases ported from the fixed Java FunctionSearchTest, through the public index seam.
 use std::collections::HashSet;
 use lizzie_core::function_search::{self, FunctionBundle, FunctionEntry, FunctionIndex, FunctionMatch,
-    FunctionTarget, MatchLevel};
+    FunctionTarget, MatchLevel, SettingsSection};
 use lizzie_core::settings::Language;
-use serde::Deserialize;
 
 fn entry(id: &str) -> FunctionEntry {
     FunctionEntry { id: id.into(), title: format!("{id}.title"), description: format!("{id}.description"),
@@ -21,34 +20,55 @@ fn index(text: &[(&str, &str)]) -> FunctionIndex {
     FunctionIndex::new(vec![entry("weights.download")], vec![bundle("en_US", text)])
 }
 
-#[derive(Deserialize)]
-struct Catalog { entries: Vec<FunctionEntry>, bundles: Vec<FunctionBundle> }
-fn catalog() -> Catalog {
-    serde_json::from_str(include_str!("../src/function_search/catalog.json")).unwrap()
+/// The fixed Java program's DisplayStrings bundles, as the UI carries them.
+fn java_strings() -> serde_json::Value {
+    serde_json::from_str::<serde_json::Value>(include_str!("../../../ui/src/i18n/javaStrings.json")).unwrap()["strings"].take()
 }
 
 #[test]
 fn browse_preserves_java_id_order_and_unique_words_results() {
-    let catalog = catalog();
-    assert_eq!(catalog.entries.len(), 360);
-    assert_eq!(catalog.entries.iter().filter(|e| e.section.is_some()).count(), 76);
-    assert_eq!(catalog.bundles.len(), 8);
     assert_eq!(function_search::categories().len(), 6);
-    assert!(catalog.entries.iter().all(|e| function_search::categories().contains(&e.category.as_str())));
-    // Approved exceptions the product does not offer are never listed.
-    let withdrawn = ["share.private-history", "share.public-history", "menu.frameLooks"];
-    let mut ids: Vec<_> = catalog.entries.iter().map(|e| e.id.as_str()).filter(|id| !withdrawn.contains(id)).collect();
-    ids.sort();
-    ids.dedup();
     let browse = function_search::search("", Language::EnUs);
+    // Java's 360 functions less the three approved exceptions the product does not offer.
     assert_eq!(browse.len(), 357);
-    assert_eq!(browse.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ids);
-    for id in withdrawn {
+    let ids: Vec<&str> = browse.iter().map(|m| m.id.as_str()).collect();
+    assert!(ids.windows(2).all(|w| w[0] < w[1]), "in id order, each once");
+    assert!(browse.iter().all(|m| function_search::categories().contains(&m.category.as_str())));
+    for id in ["share.private-history", "share.public-history", "menu.frameLooks"] {
+        assert!(!ids.contains(&id), "{id}");
         assert!(function_search::search(id, Language::EnUs).iter().all(|m| m.id != id), "{id}");
     }
     assert!(browse.iter().all(|m| m.level == MatchLevel::Words));
     for whitespace in ["\u{2003}", "\u{00a0}\u{0085}\u{202f}\u{3000}\t\r\n", "\u{001c}\u{001f}"] {
         assert_eq!(function_search::search(whitespace, Language::EnUs), browse);
+    }
+}
+
+/// Destinations as the fixed Java `FunctionCatalog` / `ConfigSettingTargets` declare them.
+#[test]
+fn representative_functions_lead_to_their_java_destinations() {
+    use FunctionTarget::*;
+    fn comprehensive(page: &'static str, title: &'static str) -> Vec<&'static str> {
+        vec!["Menu.settings", "Menu.comprehensiveSettings", page, title]
+    }
+    let cases: [(&str, FunctionTarget, Option<SettingsSection>, Vec<&str>); 8] = [
+        ("weights.download", Window, None,
+            vec!["Menu.settings", "Menu.autoSetup", "AutoSetup.navWeights", "AutoSetup.officialWeightTab"]),
+        ("game.komi", Setting, None, vec!["Menu.edit", "Menu.setInfo", "GameInfoDialog.komi"]),
+        ("sync.board", Window, None, vec!["Menu.sync", "Menu.readBoard"]),
+        ("menu.webBoardToggle", Action, None, vec!["Menu.sync", "Menu.webBoard", "Menu.webBoardStart"]),
+        ("files.recent", Navigation, None, vec!["Menu.fileMenu", "Menu.openRecent"]),
+        ("config.kifu.read-komi", Setting, Some(SettingsSection::Kifu),
+            comprehensive("ConfigDialog2.modern.nav.kifu", "ConfigDialog2.modern.kifu.readKomi")),
+        ("config.engine.always-gtp", Setting, Some(SettingsSection::Advanced),
+            comprehensive("ConfigDialog2.modern.nav.advanced", "ConfigDialog2.modern.engineHealth.alwaysGtp")),
+        ("config.theme.shadow", Setting, Some(SettingsSection::Theme),
+            comprehensive("ConfigDialog2.modern.nav.theme", "ConfigDialog2.modern.theme.shadow")),
+    ];
+    let browse = function_search::search("", Language::EnUs);
+    for (id, target, section, path) in cases {
+        let found = browse.iter().find(|m| m.id == id).unwrap_or_else(|| panic!("{id}"));
+        assert_eq!((found.target, found.section, found.path.iter().map(String::as_str).collect::<Vec<_>>()), (target, section, path), "{id}");
     }
 }
 
@@ -67,19 +87,20 @@ fn curated_pinyin_and_distinct_cross_language_intents() {
 }
 
 #[test]
-fn every_bundle_title_finds_its_destination_and_metadata_remains_keys() {
-    let catalog = catalog();
-    let search = FunctionIndex::new(catalog.entries.clone(), catalog.bundles.clone());
-    for bundle in &catalog.bundles {
-        for entry in &catalog.entries {
-            let title = &bundle.strings[&entry.title];
-            let matches = search.search_locale(title, &bundle.locale);
-            let found = matches.iter().find(|m| m.id == entry.id)
-                .unwrap_or_else(|| panic!("{}: {}", bundle.locale, entry.id));
-            assert_eq!(found.title, entry.title);
-            assert_eq!(found.path, entry.path);
-            assert_eq!(found.target, entry.target);
-            assert_eq!(found.section, entry.section);
+fn every_java_title_finds_its_function() {
+    // Java FunctionSearchTest.everyLocalizedDestinationCanBeRenderedAndFoundByItsRealTitle.
+    let strings = java_strings();
+    let browse = function_search::search("", Language::EnUs);
+    for (language, name) in [
+        (Language::EnUs, "EnUs"), (Language::ZhCn, "ZhCn"), (Language::ZhTw, "ZhTw"),
+        (Language::JaJp, "JaJp"), (Language::KoKr, "KoKr"), (Language::ThTh, "ThTh"),
+    ] {
+        for function in &browse {
+            let title = strings[name][&function.title].as_str().unwrap_or_else(|| panic!("{name}: {}", function.title));
+            assert!(
+                function_search::search(title, language).iter().any(|m| m.id == function.id),
+                "{name}: {title} must find {}", function.id
+            );
         }
     }
 }

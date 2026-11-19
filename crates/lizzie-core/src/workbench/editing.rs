@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use super::analysis::AnalysisStore;
 use super::Workbench;
 use crate::api::{ApiError, CommandResult, EditCommand, EditTarget, EditingView, ErrorKind};
 use crate::browse::{self, Navigation};
@@ -30,14 +31,21 @@ pub(super) struct EditState {
     cursor: NodeId,
 }
 
+/// 试下: the record and position it started from, and the stored analysis of both engines for
+/// what it set aside, which comes back with it.
+struct Trial {
+    kept: EditState,
+    analysis: AnalysisStore,
+    secondary: AnalysisStore,
+}
+
 /// Delete/edit undo cache, setup mode and 试下; reset when another record is adopted.
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub(super) struct Editing {
     setup_mode: bool,
     before: Option<EditState>,
     after: Option<EditState>,
-    /// The record and position kept while 试下 is on.
-    trial: Option<EditState>,
+    trial: Option<Trial>,
 }
 
 fn refused(key: &str) -> Result<CommandResult, ApiError> {
@@ -62,6 +70,18 @@ impl Workbench {
     /// stone counts as the foreground engine's search (`Board.place` → `onMainEnginePonder`), and
     /// while 棋盘同步工具 syncs, it goes through ReadBoard's checks and is sent to the helper.
     pub(super) fn apply_edit(&mut self, edit: DocumentEdit) -> Result<Applied, EditError> {
+        self.write_edit(edit, true)
+    }
+
+    /// Applies a move an external service has already confirmed (Fox `appendConfirmed` writes
+    /// through `BoardHistoryList.place`, not `Board.place`): a fact of the record rather than a
+    /// local move, so 棋盘同步工具's checks never turn it into a variation and the helper is not
+    /// asked to click it.
+    pub(super) fn apply_confirmed_edit(&mut self, edit: DocumentEdit) -> Result<Applied, EditError> {
+        self.write_edit(edit, false)
+    }
+
+    fn write_edit(&mut self, edit: DocumentEdit, local: bool) -> Result<Applied, EditError> {
         let move_played = matches!(
             &edit,
             DocumentEdit::Play { .. }
@@ -73,7 +93,7 @@ impl Workbench {
             DocumentEdit::Play { at, color, point, .. } => Some((at, color, point)),
             _ => None,
         };
-        if let Some((at, color, point)) = placed {
+        if let Some((at, color, point)) = placed.filter(|_| local) {
             if let Some(applied) = self.readboard_before_play(at, color, point) {
                 return Ok(applied);
             }
@@ -96,7 +116,7 @@ impl Workbench {
         }
         if let Some((_, _, point)) = placed {
             self.foreground_pondered();
-            if applied.content && applied.node.is_some() {
+            if local && applied.content && applied.node.is_some() {
                 self.readboard_after_play(point);
             }
         }
@@ -332,7 +352,10 @@ impl Workbench {
                 let mut sounds = Vec::new();
                 let mut changed = false;
                 for point in moves {
-                    changed |= self.play(point, None);
+                    changed |= match point {
+                        Some(point) => self.play(point, None),
+                        None => self.pass(),
+                    };
                     sounds.append(&mut self.sounds);
                 }
                 self.sounds = sounds;
@@ -496,6 +519,15 @@ impl Workbench {
         }
     }
 
+    /// A pass by the side to play at the current node, as [`Self::play`] for a stone.
+    fn pass(&mut self) -> bool {
+        let color = self.doc.record.node(self.cursor).to_play;
+        match self.apply_edit(DocumentEdit::Pass { at: self.cursor, color }) {
+            Ok(applied) => self.follow(applied) == CommandResult::Done,
+            Err(_) => false,
+        }
+    }
+
     /// After an insert or stone edit: the undo cache holds the record before it.
     fn after_rebuild(&mut self, before: Arc<GameRecord>, applied: Applied) -> Result<CommandResult, ApiError> {
         if !applied.changed {
@@ -578,28 +610,46 @@ impl Workbench {
     /// line's end) first; starting keeps the record and position and removes what follows the
     /// current node (`deleteMoveNoHintAfter`); ending restores both. When nothing changed the
     /// record meanwhile it is still the kept one (every edit copies a shared record), so only the
-    /// position comes back and the document stays at its revision.
+    /// position comes back and the document stays at its revision. The stored analysis of what
+    /// was removed comes back with it, as Java's reload of the kept SGF brings its `LZ` back.
     fn try_play(&mut self) -> Result<CommandResult, ApiError> {
         self.readboard_before_try_play();
-        if let Some(kept) = self.editing.trial.take() {
+        if let Some(Trial { kept, analysis, secondary }) = self.editing.trial.take() {
             if Arc::ptr_eq(&kept.record, &self.doc.record) {
                 self.cursor = kept.cursor;
                 self.sync_engine();
             } else {
                 self.reinstate(kept);
             }
+            self.store.rejoin(analysis, &self.doc.record);
+            self.secondary_store.rejoin(secondary, &self.doc.record);
             return done(true);
         }
-        self.editing.trial = Some(EditState {
-            record: self.doc.record.clone(),
-            cursor: self.cursor,
-        });
         let children = self.doc.record.node(self.cursor).children.clone();
+        let mut removed = Vec::new();
+        let mut pending = children.clone();
+        while let Some(node) = pending.pop() {
+            removed.push(node);
+            pending.extend_from_slice(&self.doc.record.node(node).children);
+        }
+        self.editing.trial = Some(Trial {
+            kept: EditState {
+                record: self.doc.record.clone(),
+                cursor: self.cursor,
+            },
+            analysis: self.store.split_off(&removed),
+            secondary: self.secondary_store.split_off(&removed),
+        });
         for node in children {
             self.edit_op(DocumentEdit::Remove { node })?;
         }
         self.sync_engine();
         done(true)
+    }
+
+    /// The node 试下 started from, while it runs.
+    pub(super) fn trial_start(&self) -> Option<NodeId> {
+        self.editing.trial.as_ref().map(|t| t.kept.cursor)
     }
 
     /// `Board.clear` / `reopen`: a new empty board of `size`. The komi is the foreground engine's

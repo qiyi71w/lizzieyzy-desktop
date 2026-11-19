@@ -326,6 +326,13 @@ pub enum Command {
     SetAnalysisSettings {
         settings: AnalysisSettings,
     },
+    /// 设置 > 初始化设置 确定 (`FirstUseSettings`): display, analysis and language saved together.
+    /// The mode gates judge each changed part; one refusal refuses all and nothing is saved.
+    SaveInitSettings {
+        display: crate::settings::DisplaySettings,
+        analysis: AnalysisSettings,
+        language: Language,
+    },
     /// Toolbar komi field: the game komi, sent to the engine; stored analysis is cleared.
     SetKomi {
         komi: f64,
@@ -2443,6 +2450,9 @@ pub struct EngineFailureView {
     /// The configured engine that failed (empty for the analysis engine), so the dialog can
     /// start it again (Java opens 更多引擎 after a remote login failure).
     pub profile_id: String,
+    /// It was started for or held the 双引擎模式 secondary seat: starting it again (信任新密钥并重试)
+    /// takes that seat, not the foreground one.
+    pub secondary: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]

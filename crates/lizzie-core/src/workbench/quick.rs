@@ -968,8 +968,8 @@ impl Workbench {
         if replace {
             let limit = self.config.engine.analysis.limit_branch_length;
             fill_pv_captures(&mut result, &rec.position(q.node), limit, !self.config.edit.no_capture);
-            let tracked = if std::ptr::eq(rec, &*self.doc.record) { self.tracked_points(q.node) } else { &[] };
-            store.update(q.node, q.stamp, result, ownership, self.suggestion_limit(), tracked);
+            let tracked = if std::ptr::eq(rec, &*self.doc.record) { self.attended_points(q.node) } else { Vec::new() };
+            store.update(q.node, q.stamp, result, ownership, self.suggestion_limit(), &tracked);
             store.made_with_pda(q.node, pda);
         }
     }
@@ -1027,7 +1027,9 @@ impl Workbench {
                 if self.quick.releasing == Some(lease) {
                     self.quick.releasing = None;
                     // `finishUserAnalysisPauseCleanup`: an engine not given back keeps the pause.
-                    if restore_failed {
+                    // A closed one is gone (switched, restarted or ended): its successor owes
+                    // nothing to it.
+                    if restore_failed && failure != Some(LeaseFailure::TransportClosed) {
                         self.paused = true;
                     }
                     self.borrowed_engine_returned();

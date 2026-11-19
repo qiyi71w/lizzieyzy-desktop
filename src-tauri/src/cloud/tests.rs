@@ -45,7 +45,7 @@ fn fixture(mut replies: impl FnMut(Request) -> Reply + Send + 'static, count: us
 }
 fn adapter(base: String) -> Adapter {
     let app = format!("cloud-test-{}-{}",std::process::id(),now_millis());
-    let mut adapter = Adapter::new(app,&std::env::temp_dir().join("lizzie-cloud-tests"));
+    let mut adapter = Adapter::new(crate::secrets::Store::memory(&app,None));
     adapter.base = base;
     adapter
 }

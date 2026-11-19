@@ -40,7 +40,7 @@ use super::quick::Query;
 use super::{PendingSave, SaveJob, Workbench, FAILED_TO_OPEN_FILE, SAVE_FILE_FAILED};
 use crate::api::{
     ApiError, BatchCommand, BatchFailure, BatchItemView, BatchMode, BatchMove, BatchNotice, BatchRunView, BatchView,
-    ErrorKind, FlashTarget, MoveChange, MoveEvaluation, OpenSource,
+    Command, CommandResult, ErrorKind, FlashTarget, MoveChange, MoveEvaluation, OpenSource,
 };
 use crate::engine::gtp::InfoLine;
 use crate::engine::kata_analysis::{self, Response};
@@ -71,6 +71,8 @@ pub(super) struct BatchDoc {
     path: String,
     record: Arc<GameRecord>,
     store: AnalysisStore,
+    /// The source's secondary-engine analysis (`LZ2`/`LZOP2`): written back unchanged.
+    secondary: AnalysisStore,
     komi: f64,
     rules: Option<KataRules>,
     cursor: NodeId,
@@ -232,10 +234,19 @@ impl Workbench {
 
     // -------------------------------------------------------------------- queue
 
-    /// A [`BatchCommand`] that needs no chooser; `Err` holds the Java key of a refusal.
-    /// `Choose` and `AddFiles` show the adapter's chooser first, then call [`Self::open_batch`] /
+    /// A [`BatchCommand`] that needs no chooser, refused first while a running mode holds the
+    /// engine ([`Self::game_gate`]); `Err` holds the Java key of a refusal. `Choose` and
+    /// `AddFiles` show the adapter's chooser first, then call this with `Open` /
     /// [`Self::add_batch_files`].
     pub fn batch_command(&mut self, op: BatchCommand) -> Result<Result<bool, String>, ApiError> {
+        let command = Command::Batch { op };
+        match self.game_gate(&command) {
+            Some(CommandResult::Refused { message_key }) => return Ok(Err(message_key)),
+            // A mode gate refuses batch commands; anything else leaves nothing changed.
+            Some(_) => return Ok(Ok(false)),
+            None => {}
+        }
+        let Command::Batch { op } = command else { unreachable!() };
         let refused = |key: &'static str| key.to_string();
         Ok(match op {
             BatchCommand::Choose { .. } | BatchCommand::AddFiles => {
@@ -663,14 +674,13 @@ impl Workbench {
         };
         let id = self.next_doc;
         self.next_doc += 1;
+        let (settings, no_circle) = (&self.config.engine.analysis, self.config.display.no_sugg_circle);
         let mut store = AnalysisStore::default();
         store.reset(id);
-        store.load(
-            &record,
-            saved_analysis::PRIMARY,
-            &self.config.engine.analysis,
-            self.config.display.no_sugg_circle,
-        );
+        store.load(&record, saved_analysis::PRIMARY, settings, no_circle);
+        let mut secondary = AnalysisStore::default();
+        secondary.reset(id);
+        secondary.load(&record, saved_analysis::SECONDARY, settings, no_circle);
         if remember {
             self.config.remember_recent(&path);
             if let Some(parent) = Path::new(&path).parent() {
@@ -684,6 +694,7 @@ impl Workbench {
             path,
             record: Arc::new(record),
             store,
+            secondary,
             komi,
             rules,
             cursor: ROOT,
@@ -956,11 +967,15 @@ impl Workbench {
     }
 
     /// The rules a borrowed engine searches a batch record with (`resolveRemoteGtpRules`):
-    /// 使用指定规则, else the record's declared rules.
-    fn batch_lease_rules(&self) -> Option<String> {
+    /// 使用指定规则, else the record's declared rules, else the rules lease `lease` captured
+    /// from the engine (`CURRENT_FOREGROUND_RULES`), never those a previous record left on it.
+    fn batch_lease_rules(&self, lease: u64) -> Option<String> {
         let a = &self.config.analysis_engine;
         if a.use_current_rules {
-            return self.batch_doc()?.rules.as_ref().map(KataRules::to_gtp_argument);
+            return self
+                .batch_doc()
+                .and_then(|d| d.rules.as_ref().map(KataRules::to_gtp_argument))
+                .or_else(|| self.engines.lease_captured_rules(lease));
         }
         let rules = a.specific_rules.trim();
         Some(if rules.is_empty() { "tromp-taylor" } else { rules }.to_string())
@@ -970,7 +985,13 @@ impl Workbench {
     fn batch_lease_next(&mut self) {
         let visits = self.batch_flash_params().map_or(2, |p| p.visits.max(2));
         loop {
-            let rules = self.batch_lease_rules();
+            let Some(lease) = self.batch.run.as_ref().and_then(|r| match r.engine.as_ref() {
+                Some(FlashEngine::Lease { lease, .. }) => Some(*lease),
+                _ => None,
+            }) else {
+                return;
+            };
+            let rules = self.batch_lease_rules(lease);
             let Some(run) = self.batch.run.as_mut() else { return };
             let Some(FlashEngine::Lease {
                 lease,
@@ -1161,6 +1182,7 @@ impl Workbench {
             output,
             remote,
             foreground: false,
+            secondary: false,
             held: false,
             reserved: false,
             cloud_recovery: false,
@@ -1359,7 +1381,7 @@ impl Workbench {
         let work = self.storage.save_dir.parent().unwrap_or(Path::new(".")).to_path_buf();
         let path = analyzed_output(Path::new(&d.path), &work, &stamp, &label);
         let path_text = path.to_string_lossy().into_owned();
-        let text = self.analyzed_text(&d.record, &d.store, None, None, APPLICATION);
+        let text = self.analyzed_text(&d.record, &d.store, Some(&d.secondary), None, APPLICATION);
         let ticket = self.next_save;
         self.next_save += 1;
         self.saves.push(PendingSave {

@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use super::{SaveJob, Workbench};
 use crate::api::*;
-use crate::engine::runtime::{GenmoveReply, InstanceId, LeaseFailure, Phase, RuntimeEvent};
+use crate::engine::runtime::{GenmoveReply, InstanceId, LeaseFailure, LeelaOption, Phase, RuntimeEvent};
 use crate::record::{DocumentEdit, GameRecord, NodeId, NodeKind, Point, RecordFormat, Stone, ROOT};
 use crate::settings::{MatchIdentity, MatchSettings, MatchTimeMode};
 
@@ -701,7 +701,8 @@ impl Workbench {
                 color: rec.node(ROOT).to_play,
             });
             for &node in rec.path_to(end).iter().skip(1) {
-                let edit = match rec.node(node).kind {
+                let source = rec.node(node);
+                let edit = match source.kind {
                     NodeKind::Move { color, point } => DocumentEdit::Play {
                         at: self.cursor,
                         color,
@@ -710,7 +711,11 @@ impl Workbench {
                         rules: self.play_rules(),
                     },
                     NodeKind::Pass { color } => DocumentEdit::Pass { at: self.cursor, color },
-                    _ => continue,
+                    NodeKind::Snapshot => match super::play::snapshot_copy(&self.doc.record, self.cursor, source) {
+                        Some(edit) => edit,
+                        None => continue,
+                    },
+                    NodeKind::DummyPass => continue,
                 };
                 if let Some(node) = self.apply_edit(edit).ok().and_then(|a| a.node) {
                     self.cursor = node;
@@ -718,7 +723,9 @@ impl Workbench {
             }
         } else {
             let handicap = self.matches.run.as_ref().unwrap().settings.handicap;
-            if handicap >= 2 {
+            // Java Board.setupFixedHandicap: only on the 19x19 board actually used; any other
+            // size starts without handicap stones or HA.
+            if handicap >= 2 && size.width == 19 && size.height == 19 {
                 // Java Board.setupFixedHandicap's standard 19x19 star points.
                 let points = [
                     (15, 3),
@@ -830,7 +837,12 @@ impl Workbench {
                         } else {
                             values.second_seconds
                         };
-                        if seconds > 0.0 {
+                        // DesktopTimeControl.sendEngineGameFixedTime: the 自建算力 engine takes
+                        // the fixed time as KataGo's per-move limit, not `time_settings`.
+                        if seconds > 0.0 && self.engines.is_custom_websocket(id) {
+                            commands.push("kata-time_settings none".into());
+                            commands.push(format!("kata-set-param maxTime {seconds}"));
+                        } else if seconds > 0.0 {
                             commands.push(format!("time_settings 0 {seconds} 1"));
                         }
                     }
@@ -851,12 +863,16 @@ impl Workbench {
                 commands.push("kata-set-param analysisWideRootNoise 0".into());
             }
             // EngineManager.java:2607-2617 (分析模式对战): Visits 自动加载 lifts a Leela Zero / Sai
-            // participant's visit limit for the match; Java sends it to KataGo as well.
+            // participant's visit limit for the match; Java sends it to KataGo as well. Java never
+            // gives the limit back, so a process that stays up keeps searching without one; here the
+            // value the process had before is part of what the match restores at its end.
+            let mut restore_visits = None;
             if values.kind == GameKind::Analysis
                 && self.config.engine.leela_options.visits.auto_load
                 && self.engines.takes_lz_options(id)
             {
                 commands.push("lz-setoption name Visits value 1000000000".into());
+                restore_visits = self.engines.leela_visits(id).and_then(|v| LeelaOption::Visits.command(v));
             }
             if self.engines.has_command(id, "clear_cache") {
                 commands.push("clear_cache".into());
@@ -877,6 +893,7 @@ impl Workbench {
             p.setup = true;
             p.awaiting = awaiting;
             p.captures = captures;
+            p.restore.extend(restore_visits);
             let mode = if n == 0 {
                 settings.first_time_mode
             } else {
@@ -1635,6 +1652,12 @@ impl Workbench {
             }
         }
     }
+    /// `SetKataPDA.kataGoPdaEngineGameParticipantOrPrimary`: during an engine game (playing or
+    /// paused) the first participant that is a `KataGoPda`, whichever engine is in front.
+    pub(super) fn match_pda_participant(&self) -> Option<InstanceId> {
+        let r = self.matches.run.as_ref().filter(|r| matches!(r.phase, MatchPhase::Playing | MatchPhase::Paused))?;
+        r.sides.iter().map(|p| p.instance).find(|&id| self.engines.is_kata_go_pda(id))
+    }
     pub(super) fn match_view(&self) -> Option<MatchView> {
         let r = self.matches.run.as_ref()?;
         let thinking = matches!(r.phase, MatchPhase::Playing | MatchPhase::Paused).then(|| self.match_side());
@@ -1690,6 +1713,7 @@ impl Workbench {
             first_name: r.sides[0].name.clone(),
             second_name: r.sides[1].name.clone(),
             first_is_black: r.first_is_black,
+            kata_go_pda_participant: r.sides.iter().any(|p| self.engines.is_kata_go_pda(p.instance)),
             score: r.score.clone(),
             thinking_side: thinking,
             thinking_engine: thinking.map(|side| r.sides[side_index(r.first_is_black, side)].index),

@@ -10,18 +10,19 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use lizzie_core::api::{
-    Command, CommandResult, GameCommand, GameKind, ImportStatus, ImportTarget, LeaseAvailabilityView, PonderingNoticeDecision,
-    ReadBoardCommand, ReadBoardNotice,
+    BatchMode, Command, CommandResult, GameCommand, GameKind, ImportStatus, ImportTarget, LeaseAvailabilityView, OnlineJob,
+    OpenSource, PageReport, PonderingNoticeDecision, ReadBoardCommand, ReadBoardNotice,
 };
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::cloud::{CloudLaunch, CloudProvider};
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
+use lizzie_core::formats;
 use lizzie_core::java_import::{self, JavaSource};
 use lizzie_core::readboard::{HelperHost, HelperId, HelperInput, HelperLaunch};
 use lizzie_core::record::{NodeKind, Point, Stone, ROOT};
-use lizzie_core::settings::{GameSettings, Storage};
+use lizzie_core::settings::{AutoAnalysisSettings, GameSettings, Storage};
 use lizzie_core::web_board::parse_client_message;
 use lizzie_core::workbench::Workbench;
 
@@ -761,6 +762,285 @@ fn a_position_refused_after_the_gma_parameter_restore_leaves_the_engine_unrestor
     assert_eq!(r.lease(), LeaseAvailabilityView::EngineStateUnrestored);
 }
 
+/// GMA armed for Black (5 s, 100 visits) on an empty board, the helper having asked for
+/// pondering or not, its first hand played (Q16). The engine's own `ponderingEnabled` is
+/// `ponder_original`.
+fn first_gma_hand_played(ponder: bool, ponder_original: &'static str) -> (Rig, HelperId) {
+    let mut r = Rig::new();
+    let h = arm_gma(&mut r, ponder);
+    let sent = r.serve(&move |c| (c == "kata-get-param ponderingEnabled").then(|| ponder_original.to_string()));
+    assert!(sent.iter().any(|c| c == "kata-set-param maxTime 5"), "{sent:?}");
+    r.answer_genmove("Q16");
+    r.serve(&|_| None);
+    assert_eq!(r.main_line(), [(Stone::Black, p(15, 3))]);
+    assert!(r.held.is_empty(), "between hands: {:?}", r.held);
+    (r, h)
+}
+
+/// GMA cleared (`stopsync`) between two hands while a viewer's Web 试下 holds the engine: its
+/// parameters cannot be given back during the 试下 and go back as soon as it ends.
+#[test]
+fn gma_parameters_left_during_a_web_trial_go_back_when_the_trial_ends() {
+    let (mut r, h) = first_gma_hand_played(false, "false");
+    r.wb.web_board_started(7, "http://127.0.0.1:9998".into());
+    assert_eq!(enter_trial(&mut r.wb), None, "between hands a 试下 may start");
+    r.serve(&|_| None);
+    r.line(h, "stopsync");
+    let during = r.serve(&|_| None);
+    assert!(!during.iter().any(|c| c.starts_with("kata-set-param")), "nothing reaches the 试下's engine: {during:?}");
+    let exit = parse_client_message(r#"{"type":"exit_trial","clientId":"a"}"#).unwrap();
+    assert_eq!(r.wb.web_board_message(7, exit, Instant::now()), None);
+    let sent = r.serve(&|_| None);
+    for restore in ["kata-set-param maxTime 1e+20", "kata-set-param maxVisits 1000000"] {
+        assert!(sent.iter().any(|c| c == restore), "{restore} after the 试下: {sent:?}");
+    }
+    assert_eq!(r.lease(), LeaseAvailabilityView::Available);
+}
+
+/// GMA armed and between hands, the engine restarted: a GMA hand may share the engine with a 试下,
+/// but an engine still starting takes none (`EngineNotReady`): the request is refused and leaves
+/// the record alone; once the engine is up the same request is admitted.
+#[test]
+fn between_gma_hands_a_web_trial_waits_for_a_restarted_engine() {
+    let (mut r, _h) = first_gma_hand_played(false, "false");
+    r.wb.web_board_started(7, "http://127.0.0.1:9998".into());
+    assert_eq!(r.wb.game_gate(&Command::RestartEngine), None, "no hand holds the engine");
+    assert!(r.wb.restart_engine().unwrap());
+    r.engine = r.engines.last();
+    let (revision, cursor) = (r.wb.document().revision, r.wb.cursor());
+    let denied = enter_trial(&mut r.wb).expect("the restarted engine is still starting");
+    assert!(denied.contains(r#""reason":"engine_busy""#), "{denied}");
+    assert!(!r.wb.view(false).web_board.trial_active);
+    assert_eq!((r.wb.document().revision, r.wb.cursor()), (revision, cursor));
+    r.serve(&|_| None);
+    assert_eq!(enter_trial(&mut r.wb), None, "the ready engine takes the 试下");
+    assert!(r.wb.view(false).web_board.trial_active);
+}
+
+/// `playpon on`, one hand played: the engine ponders by itself on the new position and no
+/// analysis replaces that pondering while the same engine stays on the same position. Restarting
+/// the engine between hands replaces that engine: Java hands the pondering intent to the new
+/// instance once it is synced (EngineManager.java:4552-4560, 11947-11949), so the analysis runs
+/// there; the old engine's pondering is not kept for it and nothing is played.
+#[test]
+fn a_restarted_engine_between_gma_hands_analyses_instead_of_the_old_native_ponder() {
+    let (mut r, h) = first_gma_hand_played(true, "false");
+    // The same engine on the same position keeps its own pondering: closing 综合设置 asks the
+    // analysis again and none starts.
+    r.wb.hold_analysis(true);
+    r.wb.hold_analysis(false);
+    let same = r.serve(&|_| None);
+    assert!(!same.iter().any(|c| c.starts_with("kata-analyze")), "{same:?}");
+    assert!(!r.wb.view(false).engine.paused);
+    let placed = places(&r, h);
+
+    assert!(r.wb.restart_engine().unwrap());
+    let old = r.engine;
+    r.engine = r.engines.last();
+    assert_ne!(r.engine, old);
+    let sent = r.serve(&|_| None);
+    // The new engine is set up (its start probe included), then synced to the record and only
+    // then analyses.
+    let synced = sent.iter().rposition(|c| c == "play B Q16").unwrap_or_else(|| panic!("{sent:?}"));
+    assert!(sent[synced..].iter().any(|c| c.starts_with("kata-analyze")), "the new engine analyses once synced: {sent:?}");
+    assert!(!sent.iter().any(|c| c.starts_with("kata-genmove_analyze")), "{sent:?}");
+    assert!(!r.wb.view(false).engine.paused);
+    assert_eq!(r.main_line(), [(Stone::Black, p(15, 3))]);
+    assert_eq!(places(&r, h), placed);
+    assert_eq!(r.lease(), LeaseAvailabilityView::ReadBoardGma, "GMA stays armed");
+}
+
+/// A hand's answer arriving after GMA was cleared (Java `handleReadBoardGmaEnginePlay` only
+/// finishes a retired hand, ReadBoard.java:4991-5016; with GMA cleared
+/// `shouldStopPonderAfterEnginePlayLine` is false, Leelaz.java:8013-8031, 19813-19818): the
+/// parameters and the position go back, nothing is played or clicked, and the analysis is not
+/// paused by it: it runs again once the engine is restored. `stopsync` stops the analysis itself
+/// (`nameCmd`, ReadBoard.java:985); here the user resumed it before the late answer. `endsync`
+/// leaves it running.
+#[test]
+fn a_gma_answer_after_gma_was_cleared_neither_plays_nor_pauses_the_analysis() {
+    for (clear, ponder) in [("stopsync", false), ("stopsync", true), ("endsync", false), ("endsync", true)] {
+        let mut r = Rig::new();
+        let h = arm_gma(&mut r, ponder);
+        r.serve(&|_| None);
+        assert!(r.held.iter().any(|(_, c)| c.starts_with("kata-genmove_analyze B")), "{clear} {ponder}: {:?}", r.held);
+        assert!(!r.wb.view(false).engine.paused, "{clear} {ponder}");
+
+        r.line(h, clear);
+        r.serve(&|_| None);
+        assert_eq!(r.wb.view(false).engine.paused, clear == "stopsync", "{clear} {ponder}");
+        if clear == "stopsync" {
+            assert!(r.wb.toggle_analysis().unwrap());
+            r.serve(&|_| None);
+            assert!(!r.wb.view(false).engine.paused, "{ponder}: the user resumed");
+        }
+        r.answer_genmove("Q16");
+        let sent = r.serve(&|_| None);
+        assert_eq!(r.main_line(), [], "{clear} {ponder}");
+        assert_eq!(places(&r, h), Vec::<String>::new(), "{clear} {ponder}");
+        for restore in ["kata-set-param maxTime 1e+20", "kata-set-param maxVisits 1000000"] {
+            assert!(sent.iter().any(|c| c == restore), "{clear} {ponder}: {restore}: {sent:?}");
+        }
+        assert_eq!(r.lease(), LeaseAvailabilityView::Available, "{clear} {ponder}");
+        assert!(!r.wb.view(false).engine.paused, "{clear} {ponder}: the late answer pauses nothing");
+        assert!(sent.iter().any(|c| c.starts_with("kata-analyze")), "{clear} {ponder}: the analysis runs again: {sent:?}");
+    }
+}
+
+/// `playpon on`, one hand played, then `playpon off` between hands: the engine's own pondering is
+/// turned off and the analysis paused (`stopPonderingIfActive`). Resuming it with Space on the
+/// same position (`togglePonderMannul` → `ponder()`) analyses there again; GMA stays armed and
+/// nothing is played. Without `playpon off` and without a resume the position keeps the engine's
+/// own pondering.
+#[test]
+fn resuming_after_playpon_off_between_gma_hands_analyses_the_same_position() {
+    let (mut r, h) = first_gma_hand_played(true, "true");
+    r.wb.hold_analysis(true);
+    r.wb.hold_analysis(false);
+    let kept = r.serve(&|_| None);
+    assert!(!kept.iter().any(|c| c.starts_with("kata-analyze")), "{kept:?}");
+    assert!(!r.wb.view(false).engine.paused);
+
+    r.line(h, "playpon off");
+    let sent = r.serve(&|_| None);
+    assert!(sent.iter().any(|c| c == "kata-set-param ponderingEnabled false"), "{sent:?}");
+    assert!(r.wb.view(false).engine.paused);
+    let placed = places(&r, h);
+
+    assert!(r.wb.toggle_analysis().unwrap());
+    let sent = r.serve(&|_| None);
+    assert!(!r.wb.view(false).engine.paused);
+    assert!(sent.iter().any(|c| c.starts_with("kata-analyze")), "the resumed analysis runs: {sent:?}");
+    assert!(!sent.iter().any(|c| c.starts_with("kata-genmove_analyze")), "{sent:?}");
+    assert_eq!(r.main_line(), [(Stone::Black, p(15, 3))]);
+    assert_eq!(places(&r, h), placed);
+    assert_eq!(r.lease(), LeaseAvailabilityView::ReadBoardGma, "GMA stays armed");
+}
+
+/// `playpon off` between two hands (Java `disableReadBoardGmaPonderIfIdle`): the engine stops
+/// pondering for GMA at once; its own value goes back when GMA is cleared.
+#[test]
+fn unticking_background_analysis_between_gma_hands_stops_the_pondering() {
+    let (mut r, h) = first_gma_hand_played(true, "true");
+    r.line(h, "playpon off");
+    let sent = r.serve(&|_| None);
+    assert!(sent.iter().any(|c| c == "kata-set-param ponderingEnabled false"), "{sent:?}");
+    assert_eq!(r.lease(), LeaseAvailabilityView::ReadBoardGma, "GMA stays armed");
+    r.line(h, "stopsync");
+    let sent = r.serve(&|_| None);
+    assert!(sent.iter().any(|c| c == "kata-set-param ponderingEnabled true"), "the engine's own value: {sent:?}");
+    assert_eq!(r.lease(), LeaseAvailabilityView::Available);
+}
+
+/// `playpon off` while GMA waits for the opponent before its first hand and an ordinary 批量分析
+/// analyses on the foreground engine meanwhile. Java `disableReadBoardGmaPonderIfIdle`
+/// (ReadBoard.java:4595-4605) needs no earlier hand: the engine's own value is read, pondering
+/// is turned off, the running analysis stops and nothing is played; clearing GMA gives the
+/// value back.
+#[test]
+fn unticking_background_analysis_before_the_first_gma_hand_stops_the_running_analysis() {
+    let own = |c: &str| (c == "kata-get-param ponderingEnabled").then(|| "true".to_string());
+    let mut r = Rig::new();
+    let h = r.open();
+    r.lines(h, &["ready", "start 19 19", "sync", "bothSync", "playpon on", "play>white>5 100 0 gma"]);
+    r.frame(h, &[]);
+    let armed = r.serve(&own);
+    assert!(!armed.iter().any(|c| c.starts_with("kata-genmove_analyze") || c.contains("ponderingEnabled")), "no hand yet: {armed:?}");
+
+    let game = r._dir.path().join("a.sgf");
+    std::fs::write(&game, "(;SZ[19];B[pd];W[dd];B[pp];W[dp])").unwrap();
+    let paths = vec![game.to_string_lossy().into_owned()];
+    assert_eq!(r.wb.open_batch(BatchMode::Ordinary, paths, OpenSource::Chooser), Ok(true));
+    for (ticket, path, no_capture) in r.wb.take_batch_reads() {
+        assert!(r.wb.complete_batch_read(ticket, formats::read_file(&path, no_capture)));
+    }
+    let settings = AutoAnalysisSettings { visits_enabled: true, visits: 10, time_enabled: false, auto_save: false, ..Default::default() };
+    assert_eq!(r.wb.start_batch_ordinary(settings).unwrap(), Ok(true));
+    let batch = r.serve(&own);
+    assert!(batch.iter().any(|c| c.starts_with("kata-analyze")), "the batch analyses: {batch:?}");
+
+    r.line(h, "playpon off");
+    let sent = r.serve(&own);
+    let ponder: Vec<_> = sent.iter().filter(|c| c.contains("ponderingEnabled")).collect();
+    assert_eq!(ponder, ["kata-get-param ponderingEnabled", "kata-set-param ponderingEnabled false"], "{sent:?}");
+    assert!(r.wb.view(false).engine.paused, "the analysis stops (`stopPonderingIfActive`)");
+    assert!(!sent.iter().any(|c| c.starts_with("kata-analyze") || c.starts_with("kata-genmove_analyze")), "{sent:?}");
+    assert!(!r.serve(&own).iter().any(|c| c.starts_with("kata-analyze")), "the batch analyses no more");
+    assert!(r.main_line().is_empty());
+    assert_eq!(r.lease(), LeaseAvailabilityView::ReadBoardGma, "GMA stays armed");
+
+    r.line(h, "stopsync");
+    let sent = r.serve(&own);
+    assert!(sent.iter().any(|c| c == "kata-set-param ponderingEnabled true"), "the engine's own value: {sent:?}");
+    assert_eq!(r.lease(), LeaseAvailabilityView::Available);
+}
+
+/// Arming GMA leaves a running analysis alone (Java arms without `ponder()` or a stop,
+/// ReadBoard.java:1086-1094); the helper's later `playpon off` stops it and turns the engine's
+/// pondering off (`disableReadBoardGmaPonderIfIdle`, ReadBoard.java:4595-4605).
+#[test]
+fn an_analysis_running_when_gma_is_armed_goes_on_until_playpon_off_stops_it() {
+    let mut r = Rig::new();
+    let h = r.open();
+    r.lines(h, &["ready", "start 19 19", "sync", "bothSync"]);
+    r.serve(&|_| None);
+    assert!(r.analyzing, "the analysis of the empty board is running");
+
+    r.lines(h, &["playpon on", "play>white>5 100 0 gma"]);
+    r.frame(h, &[]);
+    let armed = r.serve(&|_| None);
+    assert!(!armed.iter().any(|c| c == "stop" || c.starts_with("kata-genmove_analyze")), "arming stops nothing: {armed:?}");
+    assert!(r.analyzing, "the analysis goes on while GMA waits for the opponent");
+    assert!(!r.wb.view(false).engine.paused);
+    assert_eq!(r.lease(), LeaseAvailabilityView::ReadBoardGma);
+
+    r.line(h, "playpon off");
+    let sent = r.serve(&|c| (c == "kata-get-param ponderingEnabled").then(|| "true".to_string()));
+    let ponder: Vec<_> = sent.iter().filter(|c| c.contains("ponderingEnabled")).collect();
+    assert_eq!(ponder, ["kata-get-param ponderingEnabled", "kata-set-param ponderingEnabled false"], "{sent:?}");
+    assert!(!r.analyzing, "the running analysis ends: {sent:?}");
+    assert!(r.wb.view(false).engine.paused, "`stopPonderingIfActive`");
+    assert!(!sent.iter().any(|c| c.starts_with("kata-analyze")), "{sent:?}");
+    assert!(r.main_line().is_empty());
+    assert_eq!(r.lease(), LeaseAvailabilityView::ReadBoardGma, "GMA stays armed");
+}
+
+/// With an analysis running while armed, a GMA hand first stops it, then prepares the parameters
+/// and asks `kata-genmove_analyze`; nothing analyses in between. After the played move Java
+/// marks the analysis stopped unless the engine keeps pondering natively (Leelaz.java:8013-8031):
+/// with `playpon off` the analysis stays stopped, with `playpon on` the engine's own pondering
+/// goes on and no analysis replaces it on that position.
+#[test]
+fn a_gma_hand_stops_the_running_analysis_before_asking_and_leaves_the_engine_pondering_as_java() {
+    for ponder in [false, true] {
+        let mut r = Rig::new();
+        let h = r.open();
+        r.lines(h, &["ready", "start 19 19", "sync", "bothSync"]);
+        r.serve(&|_| None);
+        r.lines(h, &[if ponder { "playpon on" } else { "playpon off" }, "play>white>5 100 0 gma"]);
+        r.frame(h, &[]);
+        r.serve(&|_| None);
+        assert!(r.analyzing, "ponder {ponder}: the analysis goes on while armed");
+
+        // The opponent plays: the analysis follows the position, then GMA's hand takes the engine.
+        // As in Java the hand's first command ends the running `kata-analyze` (a GTP command
+        // interrupts it); no analysis starts again before the move is asked.
+        r.frame(h, &[(3, 3, 3)]);
+        let sent = r.serve(&|_| None);
+        let analyse = sent.iter().rposition(|c| c.starts_with("kata-analyze")).unwrap_or_else(|| panic!("ponder {ponder}: {sent:?}"));
+        let first_param = sent.iter().position(|c| c.starts_with("kata-get-param")).unwrap_or_else(|| panic!("{sent:?}"));
+        assert!(analyse < first_param, "ponder {ponder}: the analysis ends with the hand's first command: {sent:?}");
+        assert!(r.held.iter().any(|(_, c)| c.starts_with("kata-genmove_analyze W")), "ponder {ponder}: {:?}", r.held);
+        assert!(!r.analyzing, "ponder {ponder}");
+
+        r.answer_genmove("Q16");
+        let after = r.serve(&|_| None);
+        assert_eq!(r.main_line(), [(Stone::Black, p(3, 3)), (Stone::White, p(15, 3))]);
+        assert!(!after.iter().any(|c| c.starts_with("kata-analyze")), "ponder {ponder}: {after:?}");
+        assert_eq!(r.wb.view(false).engine.paused, !ponder, "ponder {ponder}");
+    }
+}
+
 // ------------------------------------------------------------------------ helper restarts
 
 /// The helper offers the update `tag` (a valid package in the rig's directory).
@@ -925,7 +1205,7 @@ fn a_rebuilt_snapshot_keeps_the_captures_and_numbers_for_later_moves() {
     assert_eq!(rebuilt.position.stones, before.stones);
     assert_eq!((rebuilt.position.black_captures, rebuilt.position.white_captures), (1, 0));
     assert!(rebuilt.board.move_numbers.is_empty(), "the snapshot itself shows no numbers");
-    let marked = rebuilt.position.move_number;
+    assert_eq!(rebuilt.position.move_number, 5, "the five moves before the sync");
 
     assert!(r.wb.readboard_input(h, HelperInput::Ended { error: None }));
     // White elsewhere, then Black takes the corner stone at 18,0.
@@ -941,9 +1221,9 @@ fn a_rebuilt_snapshot_keeps_the_captures_and_numbers_for_later_moves() {
     let mut expected = vec![
         (0, 1, 3, false),
         (1, 0, 1, false),
-        (10, 10, marked + 1, false),
-        (17, 0, marked, false),
-        (18, 1, marked + 2, true),
+        (10, 10, 6, false),
+        (17, 0, 5, false),
+        (18, 1, 7, true),
     ];
     expected.sort_unstable();
     assert_eq!(labels, expected, "the marked stone keeps its number on later positions");
@@ -1061,7 +1341,17 @@ fn outside_the_edit_mode_the_float_board_draws_the_main_line_end() {
 /// version; the protocol log keeps the latest 100 lines, payload lines only their command.
 #[test]
 fn the_diagnostics_package_holds_the_recent_sync_protocol_and_decisions() {
-    use lizzie_core::readboard::diagnostics::{DECISION_CAPACITY, PROTOCOL_CAPACITY, SNAPSHOT_ENTRIES};
+    // Java SyncDiagnosticsExporter.writeSnapshotEntries's entries, in its order, and
+    // SyncDiagnosticsRecorder's 100 protocol lines and 50 decisions.
+    const ENTRIES: [&str; 7] = [
+        "summary.txt",
+        "sync-context.json",
+        "yike-session.json",
+        "recent-decisions.jsonl",
+        "readboard-protocol.log",
+        "yike-events.jsonl",
+        "environment.txt",
+    ];
     let mut r = Rig::new();
     let h = r.open();
     r.lines(h, &["ready", "version 230616", "roomToken secret-room", "start 19 19", "sync", "forceRebuild"]);
@@ -1072,13 +1362,14 @@ fn the_diagnostics_package_holds_the_recent_sync_protocol_and_decisions() {
     }
     let d = r.wb.readboard_diagnostics("9.9.9");
     assert_eq!(d.helper_version.as_deref(), Some("230616"));
-    assert_eq!(d.snapshots.iter().map(|(n, _)| *n).collect::<Vec<_>>(), SNAPSHOT_ENTRIES);
+    assert_eq!(d.snapshots.iter().map(|(n, _)| *n).collect::<Vec<_>>(), ENTRIES);
     let entry = |name: &str| d.snapshots.iter().find(|(n, _)| *n == name).unwrap().1.clone();
     let protocol = entry("readboard-protocol.log");
-    assert_eq!(protocol.lines().count(), PROTOCOL_CAPACITY);
-    assert!(protocol.lines().last().unwrap().ends_with("\tunknownLine119"));
+    let kept: Vec<&str> = protocol.lines().map(|l| l.rsplit_once('\t').unwrap().1).collect();
+    let latest: Vec<String> = (20..120).map(|i| format!("unknownLine{i}")).collect();
+    assert_eq!(kept, latest, "the latest 100 lines");
     let decisions = entry("recent-decisions.jsonl");
-    assert!((1..=DECISION_CAPACITY).contains(&decisions.lines().count()));
+    assert!((1..=50).contains(&decisions.lines().count()));
     assert!(decisions.contains("\"FORCE_REBUILD\"") && decisions.contains("remote_force_rebuild_requested"), "{decisions}");
     assert!(entry("summary.txt").contains("  attached: true\n"));
     assert!(entry("environment.txt").starts_with("appVersion: 9.9.9\n"));
@@ -1213,4 +1504,73 @@ fn the_java_choice_not_to_show_the_pondering_notice_is_imported() {
     r.serve(&websocket_adapter);
     assert_eq!(pondering_notice(&mut r), None);
     assert!(genmove_held(&r), "{:?}", r.held);
+}
+
+/// A Java settings import reaches the running helper session at once: with 焦点归还 imported
+/// off, the float board no longer gives the focus back.
+#[test]
+fn a_java_import_reaches_the_running_helper_session() {
+    let mut r = Rig::new();
+    let h = r.open();
+    r.lines(h, &["ready", "start 19 19", "sync"]);
+    r.serve(&|_| None);
+    assert!(r.wb.config().read_board.get_focus, "焦点归还 is on");
+    assert_eq!(r.wb.readboard(ReadBoardCommand::ReturnFocus).unwrap(), CommandResult::Done);
+    assert_eq!(r.helpers.sent_to(h).last().map(String::as_str), Some("loss"), "the float board gives the focus back");
+
+    let java = r._dir.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), r#"{"ui": {"read-board-get-focus": false}}"#).unwrap();
+    let preview = r.wb.preview_java_import(java_import::read(&JavaSource::new(&java, None)).unwrap());
+    r.wb.apply_java_import(preview.id, &[], false, false, true, None).unwrap().unwrap();
+    r.engine = r.engines.last();
+    r.serve(&|_| None);
+    assert!(!r.wb.config().read_board.get_focus);
+    let before = r.helpers.sent_to(h).len();
+    assert_eq!(r.wb.readboard(ReadBoardCommand::ReturnFocus).unwrap(), CommandResult::Done);
+    let sent = r.helpers.sent_to(h)[before..].to_vec();
+    assert!(!sent.iter().any(|l| l == "loss"), "the running helper follows the imported setting: {sent:?}");
+}
+
+// ------------------------------------------------------------------------ 弈客 web window
+
+const YIKE_ROOM: &str = "https://home.yikeweiqi.com/#/live/new-room/186031/0/0";
+
+fn page_reloads(r: &mut Rig) -> Vec<String> {
+    r.wb.take_online_jobs()
+        .into_iter()
+        .filter_map(|j| match j {
+            OnlineJob::ReloadPage { url } => Some(url),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The helper's 弈客 signals drive the web window's sync (`handleYikeSyncStartCommand` /
+/// `handleYikeSyncStopCommand`): `syncPlatform yike` and `yikeSyncStart` follow the room the page
+/// shows, reloading it, unless that room is followed already; `yikeSyncStop` ends the sync.
+#[test]
+fn the_helpers_yike_signals_start_and_stop_the_web_window_sync() {
+    let mut r = Rig::new();
+    let h = r.open();
+    r.line(h, "ready");
+    r.line(h, "yikeSyncStart");
+    assert!(r.wb.view(true).online.following.is_none(), "no page address, nothing to follow");
+    r.wb.online_page(PageReport::Address { url: YIKE_ROOM.into() });
+    let o = r.wb.view(true).online;
+    assert!(!o.browser_sync && o.following.is_none(), "showing a room alone does not follow it");
+    page_reloads(&mut r);
+
+    r.line(h, "syncPlatform yike");
+    let o = r.wb.view(true).online;
+    assert!(o.browser_sync, "the window follows room addresses from now on");
+    assert_eq!(o.following.map(|f| f.url).as_deref(), Some(YIKE_ROOM));
+    assert_eq!(page_reloads(&mut r), [YIKE_ROOM]);
+    r.line(h, "yikeSyncStart");
+    assert_eq!(page_reloads(&mut r), Vec::<String>::new(), "the room is followed already");
+    assert!(r.wb.view(true).online.following.is_some());
+
+    r.line(h, "yikeSyncStop");
+    let o = r.wb.view(true).online;
+    assert!(!o.browser_sync && o.following.is_none(), "the helper's stop ends the web window's sync");
 }

@@ -450,12 +450,6 @@ impl Workbench {
 
     // -------------------------------------------------------------------- record hooks
 
-    /// GMA holds the foreground engine (armed, a hand in flight or its parameters being given
-    /// back): the engine follows the position without analysing.
-    pub(super) fn readboard_gma_busy(&self) -> bool {
-        self.readboard.gma.busy()
-    }
-
     /// The analysis may not make a 自动落子 move (`notifyAutoPlay`, `Leelaz.java:8488-8491`): GMA
     /// is armed, asking or giving the engine back (`isReadBoardGmaEngineBusy`), or the helper's
     /// switch to normal 自动落子 waits for GMA to let go (`isNormalAutoPlayTransitionPending`).
@@ -491,7 +485,7 @@ impl Workbench {
                 let rules = self.play_rules();
                 let before = self.doc.record.node(at).children.clone();
                 self.readboard.applying = true;
-                let applied = self.apply_edit(DocumentEdit::AddBranch { at, moves: vec![point], rules });
+                let applied = self.apply_edit(DocumentEdit::AddBranch { at, moves: vec![Some(point)], rules });
                 self.readboard.applying = false;
                 let applied = applied.ok()?;
                 let rec = &self.doc.record;
@@ -743,7 +737,9 @@ impl Workbench {
         }
     }
 
-    fn readboard_settings_changed(&mut self) {
+    /// The running helper session follows the 棋盘同步工具 settings now (a menu change or a Java
+    /// settings import).
+    pub(super) fn readboard_settings_changed(&mut self) {
         let settings = self.readboard_settings();
         if let Some(h) = self.readboard.helper.as_mut() {
             h.session.set_settings(settings);
@@ -824,6 +820,16 @@ impl Workbench {
         self.sync_engine();
     }
 
+    /// The helper stops the analysis (Java `stopPonderingIfActive`): a pause the helper asked
+    /// for, not the user's own.
+    pub(super) fn readboard_stop_analysis(&mut self) {
+        if !self.paused {
+            self.paused = true;
+            self.readboard.stopped_analysis = true;
+            self.sync_engine();
+        }
+    }
+
     /// Java `getHistory().getMainEnd()`.
     fn readboard_main_end(&self) -> NodeId {
         let rec = &self.doc.record;
@@ -884,13 +890,7 @@ impl Workbench {
             match event {
                 SessionEvent::Send(line) => self.readboard_send(&line),
                 SessionEvent::StartAnalysis | SessionEvent::ResumeAnalysis { .. } => self.readboard_resume_analysis(),
-                SessionEvent::StopAnalysis => {
-                    if !self.paused {
-                        self.paused = true;
-                        self.readboard.stopped_analysis = true;
-                        self.sync_engine();
-                    }
-                }
+                SessionEvent::StopAnalysis => self.readboard_stop_analysis(),
                 SessionEvent::ToggleAnalysisManual => {
                     if let Err(e) = self.toggle_analysis() {
                         self.log(true, format!("readboard: resuming the analysis failed: {}", e.message));
@@ -916,7 +916,9 @@ impl Workbench {
                 }
                 SessionEvent::GmaCleared { .. } => self.gma_clear(),
                 // Kept by the session (`read_board_ponder`); a GMA hand reads it when it starts.
-                SessionEvent::PonderPreference { .. } => {}
+                // Turned off while GMA is armed, the engine stops pondering at once.
+                SessionEvent::PonderPreference { on: false } => self.gma_ponder_off(),
+                SessionEvent::PonderPreference { on: true } => {}
                 SessionEvent::AutoPlay { color, toolbar_side, time, playouts, first_playouts, gma } => {
                     self.play_readboard_toolbar(toolbar_side, Some(time), Some(playouts), Some(first_playouts));
                     if gma {
@@ -965,11 +967,11 @@ impl Workbench {
                         h.logging.on_ready(Instant::now());
                     }
                 }
-                // 弈客 browser sync belongs to the Yike integration, which this client does not
-                // have yet.
-                SessionEvent::YikeSyncStart { .. } | SessionEvent::YikeSyncStop => {
-                    self.log(true, "readboard: Yike browser sync was requested but is not available".into());
-                }
+                // The 弈客 web window's sync (`handleYikeSyncStartCommand` /
+                // `handleYikeSyncStopCommand`): `yikeSyncStart` starts from the page's current
+                // address, `syncPlatform yike` only makes sure it is followed.
+                SessionEvent::YikeSyncStart { from_platform_line } => self.online_helper_yike_start(!from_platform_line),
+                SessionEvent::YikeSyncStop => self.online_browser_stop_sync(),
                 SessionEvent::LocalMoveConfirmed { .. } => {}
                 SessionEvent::LocalMoveFailed { reason, .. } => {
                     // Java `ReadBoardObservation.recordLocalMove("failed", reason)`.

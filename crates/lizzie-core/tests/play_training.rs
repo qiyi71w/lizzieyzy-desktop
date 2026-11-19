@@ -83,10 +83,12 @@ impl Bench {
         let dir = tempfile::tempdir().unwrap();
         let storage = Storage::in_dirs(&dir.path().join("config"), &dir.path().join("data"));
         let mut config = Config::default();
-        let analysis = dir.path().join("katago");
+        // A folder with a space, as a user's temporary folder can be: the path is one argument.
+        let analysis = dir.path().join("test root").join("katago");
+        std::fs::create_dir(analysis.parent().unwrap()).unwrap();
         std::fs::write(&analysis, b"stand-in engine").unwrap();
         config.analysis_engine.command =
-            format!("{} analysis -config /fake/analysis.cfg -model /fake/main.bin.gz", analysis.display());
+            format!("\"{}\" analysis -config /fake/analysis.cfg -model /fake/main.bin.gz", analysis.display());
         config.analysis_engine.command_customized = true;
         let human = dir.path().join("custom-human.bin.gz");
         std::fs::File::create(&human).unwrap().set_len(1024 * 1024 + 1).unwrap();
@@ -255,19 +257,27 @@ impl Bench {
         self.clock += Duration::from_millis(millis);
         self.wb.engine_tick(self.clock);
     }
-    /// Ticks until an analysis process other than `previous` has been launched (棋力评估 prepares
-    /// on its own thread first).
+    /// Waits until an analysis process other than `previous` has been launched. 棋力评估 prepares
+    /// on its own thread first (file hashing, config files); meanwhile the engine clock follows
+    /// the wall clock, as in the application, so a slow host only makes this wait longer instead
+    /// of running minutes of engine time past the preparation. The bound only stops a broken run
+    /// from hanging.
     fn next_worker(&mut self, previous: Option<InstanceId>) -> InstanceId {
-        for _ in 0..400 {
-            self.tick(1100);
+        let give_up = Instant::now() + Duration::from_secs(120);
+        let mut last = Instant::now();
+        loop {
+            let now = Instant::now();
+            self.clock += now - last;
+            last = now;
+            self.wb.engine_tick(self.clock);
             self.serve(&|_, _| None);
             let latest = self.world.0.lock().unwrap().iter().rev().find(|p| p.analysis).map(|p| p.id);
             if let Some(id) = latest.filter(|&id| Some(id) != previous) {
                 return id;
             }
+            assert!(now < give_up, "no analysis process was launched in 120 s: {:?}", self.wb.view(false).strength.status);
             std::thread::sleep(Duration::from_millis(5));
         }
-        panic!("no analysis process was launched: {:?}", self.wb.view(false).strength.status);
     }
 }
 
@@ -582,6 +592,34 @@ fn a_borrowed_flash_run_refuses_games_and_matches_until_its_engine_is_back() {
     assert_eq!(b.game_phase(), Some(GamePhase::Playing));
     assert_eq!(b.engine().lease, LeaseAvailabilityView::PlayMode);
     assert!(b.wb.view(false).flash.is_none());
+}
+
+/// Review with 闪电分析 borrowing the foreground engine → AI 陪练 (admitted beside it) → Esc on
+/// 准备中: the session ends and review is back with the same record, while the flash run keeps
+/// its engine (the companion never took it, so there is nothing of its own to give back).
+#[test]
+fn cancelling_ai_coach_preparation_beside_a_borrowed_flash_run_returns_to_review() {
+    let mut b = Bench::new();
+    reuse_foreground(&mut b);
+    b.open_sgf(REVIEW);
+    let review = (b.wb.document().id, b.wb.document().revision);
+    assert_eq!(b.wb.start_flash_analysis(FlashTarget::WholeGame).unwrap(), Ok(true));
+    let taken = b.serve(&|_, _| None);
+    assert!(taken.iter().any(|(_, c)| c.contains("maxmoves")), "the flash run borrowed the engine: {taken:?}");
+    assert_eq!(b.run(ai_coach(PlayerColor::Black)), CommandResult::Done);
+    b.serve(&|_, _| None);
+    let worker = b.world.worker();
+    assert_eq!(b.wb.view(false).human_sl.map(|s| s.phase), Some(HumanSlPhase::Preparing));
+
+    assert_eq!(b.run(Command::HumanSl { op: HumanSlCommand::CancelPreparation }), CommandResult::Done);
+    b.serve(&|_, _| None);
+    let v = b.wb.view(false);
+    assert!(v.human_sl.is_none(), "AI 陪练 ended: {:?}", v.human_sl.map(|s| s.phase));
+    assert!(b.world.dead(worker), "the companion process is stopped");
+    assert_eq!((b.wb.document().id, b.wb.document().revision), review, "the review record is kept");
+    assert!(v.flash.is_some(), "the flash run goes on");
+    assert_eq!(v.engine.lease, LeaseAvailabilityView::ExistingLease, "it still holds the engine");
+    assert_eq!(v.engine.unrestored, None);
 }
 
 /// Review with an analysis using the foreground engine (`setup`) → AI 陪练 as a new game, which

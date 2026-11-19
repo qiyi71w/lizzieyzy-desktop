@@ -148,6 +148,9 @@ type FrozenVariation = { key: string; pv: (Point | null)[]; pv_captures: Point[]
 let hoverFrozen: FrozenVariation | null = null;
 let hoverFrozen2: FrozenVariation | null = null;
 let presentationFor = "";
+/** The shown position's stones and side to play: a rotation, mirror or colour exchange keeps the
+ *  node but changes them (Java rebuilds the board for SpinAndMirror). */
+let positionStones = "";
 let boardReport: BoardReport | null = null;
 let subReport: SubBoardReport | null = null;
 let statReport: StatReport | null = null;
@@ -252,6 +255,7 @@ function keptPoints(analysis: NodeAnalysisView | null): Set<string> {
 function projectAnalysis(v: WorkbenchView) {
   if (projectedView !== v) {
     projectedView = v;
+    positionStones = `${v.position.to_play}:${v.position.stones.map((s) => (s === "Black" ? "b" : s === "White" ? "w" : ".")).join("")}`;
     if (!sameAnalysis(projectedAnalysis, v.analysis)) analysisRevision++;
     projectedAnalysis = v.analysis;
     const secondary = v.secondary?.analysis ?? null;
@@ -264,7 +268,7 @@ function projectAnalysis(v: WorkbenchView) {
       historyByNode = new Map(v.history.map((p) => [p.node, p]));
     }
   }
-  const lineKey = `${v.document.id}:${v.position.node}:${v.position.line_end}`;
+  const lineKey = `${v.document.id}:${v.position.node}:${v.position.line_end}:${positionStones}`;
   if (presentationFor !== lineKey) {
     presentationFor = lineKey;
     hoveredCandidate = null;
@@ -616,10 +620,9 @@ function bindPointer() {
     previewMoves: () => {
       const v = state.view;
       const preview = v ? hoveredVariation(v)?.preview : null;
-      if (!preview) return null;
-      // The moves the board shows; passes are not placed.
-      const moves = preview.pv.slice(0, preview.length).filter((p): p is Point => p !== null);
-      return moves.length ? moves : null;
+      // The moves the board shows, passes included.
+      const moves = preview?.pv.slice(0, preview.length);
+      return moves?.length ? moves : null;
     },
     clearTableSelection,
     selectRange: (x1, y1, x2, y2) => {
@@ -1005,6 +1008,7 @@ function boardScene(v: WorkbenchView, hovered: number | null, preview: PreviewVa
     snapshot: at ? at.snapshot : pos.snapshot,
     // The main line's end is on the main trunk.
     mainTrunk: at ? true : pos.main_trunk,
+    trying: v.editing.trying,
     analysis,
     // isInPlayMode hides the move rank marks (BoardRenderer.moveOverlayOrder).
     overlay: v.game?.play_mode ? { ...board, ranks: [] } : board,
@@ -1101,7 +1105,8 @@ function render() {
   const base = boardScene(v, hoverAllowed(v) ? hoveredCandidate : null, hoveredVariation(v)?.preview ?? null);
   const scene = reviewScene(base) ?? { ...base, moveRect: moveRect(v, "main") };
   const reviewSig = JSON.stringify(clickReviewReport());
-  const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}:${v.game?.id ?? ""}:${v.game?.play_mode ?? ""}:${training ?? ""}`;
+  // 试下 changes which move numbers show without changing the position (tryPlay at the last move).
+  const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}:${v.game?.id ?? ""}:${v.game?.play_mode ?? ""}:${training ?? ""}:${v.editing.trying}`;
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
   const scoreSig = v.score ? JSON.stringify(v.score) : "";
   const searchSig = JSON.stringify([v.region, scene.selecting, v.focus, v.settings.tracking, scene.priority]);

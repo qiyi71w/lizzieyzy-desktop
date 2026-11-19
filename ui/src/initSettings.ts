@@ -164,6 +164,10 @@ function openInitSettings(): void {
   limitVariation.value = String(analysis.limitBranchLength);
   limitSuggestion.value = String(analysis.limitMaxSuggestion);
   maxTime.value = String(analysis.maxAnalyzeTimeSeconds);
+  // Whether the time field was given any input (typing, deleting, pasting) or 加载默认设置: only
+  // then is its text a limit the user chose, even when it reads as before.
+  let timeEdited = false;
+  maxTime.addEventListener("input", () => (timeEdited = true));
   maxPlayouts.value = String(analysis.limitPlayouts);
   limitTime.checked = analysis.limitTime;
   limitPlayout.checked = analysis.limitPlayout;
@@ -181,6 +185,7 @@ function openInitSettings(): void {
     limitTime.checked = true;
     maxTime.disabled = false;
     maxTime.value = "600";
+    timeEdited = true;
     limitPlayout.checked = false;
     maxPlayouts.disabled = true;
     maxPlayouts.value = "";
@@ -215,7 +220,11 @@ function openInitSettings(): void {
       await message(t("Message.title"), t("FirstUseSettings.confirmHint2"));
       return;
     }
-    const seconds = time ?? now.settings.engine.analysis.maxAnalyzeTimeSeconds;
+    // The time limit as saved stays when its field was given no input: a saved 0 (kept by the
+    // toolbar and 综合设置) is not an analysis change. A limit of 0 or less entered in the field,
+    // even the same 0 typed again, means 9999 minutes (FirstUseSettings.java:656-658).
+    const savedSeconds = now.settings.engine.analysis.maxAnalyzeTimeSeconds;
+    const seconds = time === null || !timeEdited ? savedSeconds : time <= 0 ? UNLIMITED_SECONDS : time;
     const nextDisplay: DisplaySettings = {
       ...now.settings.display,
       suggestionWinrate: showWinrate.checked,
@@ -230,17 +239,16 @@ function openInitSettings(): void {
       ...now.settings.engine.analysis,
       limitTime: limitTime.checked,
       limitPlayout: limitPlayout.checked,
-      maxAnalyzeTimeSeconds: seconds <= 0 ? UNLIMITED_SECONDS : seconds,
+      maxAnalyzeTimeSeconds: seconds,
       limitPlayouts: playouts ?? now.settings.engine.analysis.limitPlayouts,
       enableLizzieCache: cacheOn.checked,
       limitMaxSuggestion: Math.max(0, suggestions),
       limitBranchLength: Math.max(0, variation),
     };
-    const language = languageChoice.value as Language;
-    await dialog.close();
-    await run({ type: "SetDisplaySettings", settings: nextDisplay });
-    await run({ type: "SetAnalysisSettings", settings: nextAnalysis });
-    if (language !== now.settings.language) await run({ type: "SetLanguage", language });
+    // FirstUseSettings saves everything at once: one command, admitted or refused as a whole. A
+    // refusal (shown by `run`) or a failed save leaves the dialog open with this draft.
+    const result = await run({ type: "SaveInitSettings", display: nextDisplay, analysis: nextAnalysis, language: languageChoice.value as Language });
+    if (result?.type === "Done" || result?.type === "Unchanged") await dialog.close();
   };
 }
 

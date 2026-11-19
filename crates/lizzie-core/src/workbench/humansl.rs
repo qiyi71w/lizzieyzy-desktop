@@ -5,7 +5,7 @@ use super::Workbench;
 use crate::api::*;
 use crate::engine::{
     gtp,
-    runtime::{InstanceId, RuntimeEvent},
+    runtime::{InstanceId, LeaseAvailability, RuntimeEvent},
 };
 use crate::humansl::{self, protocol};
 use crate::record::{DocumentEdit, NodeId, Point, Stone};
@@ -478,6 +478,13 @@ impl Workbench {
         self.paused = true;
         self.engines.want(None, false);
         self.engines.want_secondary(None, false);
+        // An analysis that borrowed the foreground engine beside AI 陪练 (Java admits it, T27)
+        // still holds it and gives it back itself: the companion never used it, so the session
+        // ends without a handback of its own.
+        if self.engines.exclusive_gtp_availability() == LeaseAvailability::ExistingLease {
+            self.human_sl_ended();
+            return;
+        }
         let target = self.analysis_target();
         match self.engines.restore_human_sl(&target) {
             Ok(Some(id)) => self.human_sl.session.as_mut().unwrap().restore = Some(id),

@@ -4,9 +4,11 @@
 // region in panel pixels and written opaque (TYPE_INT_RGB). The variation tree, the comment and the
 // candidate table are Swing components in Java, outside that image.
 import { run, state } from "../app";
-import type { CommandResult } from "../contract/generated";
+import type { CommandResult, IndependentBoard, SlotThumbnail } from "../contract/generated";
 import { confirm, message } from "../dialogs";
 import { t } from "../i18n";
+import { captureIndependent, independentShown } from "../workbench/independent";
+import type { ScenePosition } from "../workbench/independentModel";
 import { boardGeom, type Panels, type Rect } from "../workbench/layout";
 
 export interface CaptureSurface {
@@ -63,9 +65,49 @@ async function capture(pick: (s: CaptureSurface) => Rect | null): Promise<string
   }
 }
 
-/** boardX, boardY, maxSize: the board square with coordinates and the player names. */
-export function captureMainBoard(): Promise<string | null> {
+/** The floating window's picture with the position it was painted from; the window is
+ *  repainted first. */
+function independentPicture(board: IndependentBoard): Promise<SlotThumbnail | null> {
+  repaint();
+  return captureIndependent(board);
+}
+
+/** boardX, boardY, maxSize: the board square with coordinates and the player names; in 浮动棋盘模式
+ *  the floating main board's window (saveMainBoardPicture, saveMainBoardToImageOri,
+ *  copyMainBoard: getIndependMainBoardToClipboard). */
+export async function captureMainBoard(): Promise<string | null> {
+  if (state.view?.settings.extra_mode === "FloatBoard") return (await independentPicture("Main"))?.png ?? null;
   return capture((s) => s.panels.board);
+}
+
+/** The main board picture of a 存档与读档 record with the position it shows: the view it was
+ *  drawn from, or in 浮动棋盘模式 the scene the floating window painted. When the view no longer
+ *  shows that position it is taken once more; the core stores it only with a record saved at
+ *  that position. */
+export async function slotThumbnail(): Promise<SlotThumbnail | null> {
+  let shot: SlotThumbnail | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const v = state.view;
+    if (!v) return null;
+    const shown: ScenePosition = { document: v.document.id, revision: v.document.revision, node: v.position.node };
+    if (v.settings.extra_mode === "FloatBoard") {
+      shot = await independentPicture("Main");
+    } else {
+      const png = await capture((s) => s.panels.board);
+      shot = png === null ? null : { png, ...shown };
+    }
+    const at = shot ?? shown;
+    const now = state.view;
+    if (now && now.document.id === at.document && now.document.revision === at.revision && now.position.node === at.node) break;
+  }
+  return shot;
+}
+
+/** The floating sub board's window while it shows (getIndependSubBoardToClipboard), else the
+ *  sub board panel. */
+async function captureSubBoard(): Promise<string | null> {
+  if (independentShown("Sub")) return (await independentPicture("Sub"))?.png ?? null;
+  return capture(subBoardRect);
 }
 
 /** subBoardRenderer x, y, boardWidth, boardHeight. */
@@ -76,8 +118,10 @@ function subBoardRect(s: CaptureSurface): Rect | null {
   return { x: geo.x, y: geo.y, w: geo.size, h: geo.size };
 }
 
-/** Java `config.showSubBoard`: this layout always shows it once the window gives it room. */
+/** independentSubBoard.isVisible() or Java `config.showSubBoard`: this layout always shows the
+ *  panel once the window gives it room. */
 function subBoardShown(): boolean {
+  if (independentShown("Sub")) return true;
   const s = surface();
   return !!s && subBoardRect(s) !== null;
 }
@@ -117,7 +161,7 @@ export async function saveSubBoardPicture(): Promise<void> {
     await message(t("Message.title"), t("LizzieFrame.saveSubBoardHint"));
     return;
   }
-  await savePicture(await capture(subBoardRect));
+  await savePicture(await captureSubBoard());
 }
 
 /** 保存胜率图 (Shift+Alt+S). */
@@ -132,5 +176,5 @@ export async function copyMainBoardPicture(): Promise<void> {
 
 /** 复制小棋盘到剪贴板 (Alt+C); without a sub board nothing happens (LizzieFrame.copySubBoard). */
 export async function copySubBoardPicture(): Promise<void> {
-  if (subBoardShown()) await copyPicture(await capture(subBoardRect));
+  if (subBoardShown()) await copyPicture(await captureSubBoard());
 }

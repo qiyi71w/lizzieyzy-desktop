@@ -69,9 +69,12 @@ pub(super) struct AnalysisStore {
     /// When each kept candidate's search last grew (`MoveData.lastTimeUnlimitedTime`).
     kept_since: HashMap<NodeId, HashMap<Option<Point>, Instant>>,
     /// Candidates beyond 最大候选点数 that stayed in the node's `bestMoves` because 选点重点研究
-    /// tracked them when the result came (`tryToLimitMoves`' attended points); the board does
-    /// not draw them for that.
+    /// tracked them or they were 优先分析此点 points when the result came (`tryToLimitMoves`'
+    /// attended and priority points); the board does not draw them for that.
     attended: HashMap<NodeId, Vec<Point>>,
+    /// 最大候选点数 (0 = none) each result was limited with when it came or was loaded
+    /// (`tryToLimitMoves` splits `bestMoves` then; a later change of the setting does not).
+    limits: HashMap<NodeId, usize>,
 }
 
 /// How long a kept candidate whose visits stopped growing stays kept.
@@ -86,6 +89,7 @@ impl AnalysisStore {
         self.stale.clear();
         self.kept_since.clear();
         self.attended.clear();
+        self.limits.clear();
     }
 
     pub(super) fn get(&self, rec: &GameRecord, node: NodeId) -> Option<&NodeAnalysisView> {
@@ -111,8 +115,8 @@ impl AnalysisStore {
 
     /// An engine's new result for the node (`BoardData.tryToSetBestMoves`): beyond `limit`
     /// candidates (0 = none) the one just past it stays a candidate while it was one of the node's
-    /// previous candidates and is still searched, and so do `tracked` points (`tryToLimitMoves`);
-    /// the others are not. Results are in candidate order.
+    /// previous candidates and is still searched, and so do `tracked` points (选点重点研究 and
+    /// 优先分析此点, `tryToLimitMoves`); the others are not. Results are in candidate order.
     pub(super) fn update(
         &mut self,
         node: NodeId,
@@ -159,6 +163,7 @@ impl AnalysisStore {
             c.kept = kept.contains_key(&c.point);
         }
         self.insert(node, stamp, view, ownership);
+        self.limits.insert(node, limit);
         if !kept.is_empty() {
             self.kept_since.insert(node, kept);
         }
@@ -174,6 +179,12 @@ impl AnalysisStore {
         self.attended.get(&node).map_or(&[], Vec::as_slice)
     }
 
+    /// The 最大候选点数 (0 = none) the node's result was limited with: candidates past it are
+    /// the node's `bestMovesOutOfRange` unless [kept](CandidateView::kept) or [attended](Self::attended).
+    pub(super) fn limit(&self, node: NodeId) -> usize {
+        self.limits.get(&node).copied().unwrap_or(0)
+    }
+
     /// `refreshFocusCandidateVisibility` after the tracked points changed: the node's result is
     /// limited again with no previous one, so nothing stays kept and only the points tracked now
     /// stay beyond `limit`.
@@ -185,6 +196,7 @@ impl AnalysisStore {
             c.kept = false;
         }
         self.kept_since.remove(&node);
+        self.limits.insert(node, limit);
         let attended: Vec<Point> = match limit {
             0 => Vec::new(),
             _ => view.candidates.iter().skip(limit).filter_map(|c| c.point.filter(|p| tracked.contains(p))).collect(),
@@ -206,6 +218,7 @@ impl AnalysisStore {
         self.stale.retain(|node| nodes.contains_key(node));
         self.kept_since.retain(|node, _| nodes.contains_key(node));
         self.attended.retain(|node, _| nodes.contains_key(node));
+        self.limits.retain(|node, _| nodes.contains_key(node));
     }
 
     /// `clearBestMovesAfter(start)`: every stored result gives way to the next live one.
@@ -251,6 +264,47 @@ impl AnalysisStore {
         self.stale.remove(&node);
         self.kept_since.remove(&node);
         self.attended.remove(&node);
+        self.limits.remove(&node);
+    }
+
+    /// The results of `nodes` (and what goes with them), moved out into a store of their own;
+    /// [`Self::rejoin`] takes them back when those nodes are in the record again.
+    pub(super) fn split_off(&mut self, nodes: &[NodeId]) -> AnalysisStore {
+        fn take<V>(from: &mut HashMap<NodeId, V>, to: &mut HashMap<NodeId, V>, node: NodeId) {
+            if let Some(v) = from.remove(&node) {
+                to.insert(node, v);
+            }
+        }
+        let mut part = AnalysisStore { doc: self.doc, ..AnalysisStore::default() };
+        for &node in nodes {
+            take(&mut self.nodes, &mut part.nodes, node);
+            take(&mut self.ownership, &mut part.ownership, node);
+            take(&mut self.metadata, &mut part.metadata, node);
+            take(&mut self.kept_since, &mut part.kept_since, node);
+            take(&mut self.attended, &mut part.attended, node);
+            take(&mut self.limits, &mut part.limits, node);
+            if self.stale.remove(&node) {
+                part.stale.insert(node);
+            }
+        }
+        part
+    }
+
+    /// Takes back the results [`Self::split_off`] moved out of this document's store. Node ids
+    /// are never handed out twice, so nothing stored meanwhile is for the same nodes; results
+    /// whose node is not in `rec` with the same stamp stay out.
+    pub(super) fn rejoin(&mut self, part: AnalysisStore, rec: &GameRecord) {
+        if part.doc != self.doc {
+            return;
+        }
+        self.nodes.extend(part.nodes);
+        self.ownership.extend(part.ownership);
+        self.metadata.extend(part.metadata);
+        self.stale.extend(part.stale);
+        self.kept_since.extend(part.kept_since);
+        self.attended.extend(part.attended);
+        self.limits.extend(part.limits);
+        self.retain_valid(rec);
     }
 
     /// `clearBestMovesInfomationAfter(start)`: every node's analysis is gone.
@@ -281,7 +335,9 @@ impl AnalysisStore {
             self.metadata.get(&node).copied().unwrap_or_default(), self.ownership(rec, node)))
     }
 
-    /// The analysis saved under `tags` in every node of `rec`.
+    /// The analysis saved under `tags` in every node of `rec`. Secondary-engine tags keep every
+    /// candidate (`parseAnalysisInfoForDetachedNode` reads them with 361, SGFParser.java:4825-4830);
+    /// variations follow 变化长度 for both, as Java's `captureVariationTokens`.
     pub(super) fn load(
         &mut self,
         rec: &GameRecord,
@@ -289,9 +345,11 @@ impl AnalysisStore {
         settings: &AnalysisSettings,
         no_sugg_circle: bool,
     ) {
-        let max = if settings.limit_max_suggestion > 0 && !no_sugg_circle {
+        let secondary = tags == crate::formats::saved_analysis::SECONDARY;
+        let limit = if settings.limit_max_suggestion > 0 && !no_sugg_circle && !secondary {
             settings.limit_max_suggestion as usize
-        } else { 361 };
+        } else { 0 };
+        let max = if limit > 0 { limit } else { 361 };
         let mut pending = vec![ROOT];
         while let Some(id) = pending.pop() {
             let node = rec.node(id);
@@ -308,6 +366,7 @@ impl AnalysisStore {
             ) {
                 self.insert(id, node.stamp, p.view, p.ownership);
                 self.metadata.insert(id, p.metadata);
+                self.limits.insert(id, limit);
             }
         }
     }
@@ -506,7 +565,7 @@ impl Workbench {
     /// `SessionRulesSynchronizer.permitsOrdinaryAnalysis`: no declared rules, an explicit
     /// continue, or the foreground engine and a taking-part secondary engine both confirmed
     /// exactly the declared rules.
-    fn rules_permit_analysis(&self) -> bool {
+    pub(super) fn rules_permit_analysis(&self) -> bool {
         let Some((_, fg, secondary)) = self.rules_key() else {
             return true;
         };
@@ -561,7 +620,8 @@ impl Workbench {
         });
     }
 
-    /// YES: analyse with the engines' current rules for this target and engines. NO: pause.
+    /// YES: analyse with the engines' current rules for this target and engines. NO: pause; for
+    /// an automatically restarted engine still being restored, its restore fails instead.
     pub fn answer_rules_prompt(&mut self, prompt: u64, accept: bool) -> bool {
         let Some((_, key)) = self.pending_prompt.take_if(|(id, _)| *id == prompt) else {
             return false;
@@ -571,7 +631,7 @@ impl Workbench {
         }
         if accept {
             self.rules_override = Some(key);
-        } else {
+        } else if !self.restart_rules_declined() {
             self.paused = true;
         }
         self.sync_engine();
@@ -630,9 +690,13 @@ impl Workbench {
             self.side_hold = None;
         }
         // 批量分析 analyses its own record with the foreground engine (the user's pause stops it,
-        // as Java's ponder toggle does); the secondary engine stays idle meanwhile.
+        // as Java's ponder toggle does); the secondary engine stays idle meanwhile. The open
+        // record's region and tracking are its own: they are interrupted, not sent with the
+        // batch record's searches.
         if self.auto_analysis_holds_foreground() {
             let analyse = !hold && !self.paused && !self.benchmark_running() && !self.quick_holds_foreground();
+            self.sync_search(false);
+            self.engines.set_search(None, None);
             self.engines.want_secondary(None, false);
             self.engines.want(Some(self.foreground_target()), analyse);
             return;
@@ -654,9 +718,11 @@ impl Workbench {
             self.check_rules_prompt();
             return;
         }
-        // A running quick analysis leaves the foreground engine idle until it ends; ReadBoard GMA
-        // keeps it following the position without analysing (its moves come from
-        // `kata-genmove_analyze`).
+        // A running quick analysis leaves the foreground engine idle until it ends; a ReadBoard
+        // GMA hand keeps it following the position without analysing (its moves come from
+        // `kata-genmove_analyze`), as does the engine's own pondering after a hand. Armed GMA
+        // alone does not stop the analysis.
+        let gma_holds = self.gma_holds_analysis();
         let analyse = !hold
             && !self.paused
             && !self.benchmark_running()
@@ -666,7 +732,7 @@ impl Workbench {
             && !self.flash_holds_foreground()
             && !self.whole_game_holds_foreground()
             && !self.batch_holds_foreground()
-            && !self.readboard_gma_busy()
+            && !gma_holds
             && self.rules_permit_analysis();
         let target = self.analysis_target();
         self.sync_search(analyse);
@@ -949,7 +1015,8 @@ impl Workbench {
                     );
                     i
                 }
-                Err(f) => {
+                Err(mut f) => {
+                    f.secondary = true;
                     self.engine_failed(*f);
                     return;
                 }
@@ -1467,8 +1534,17 @@ impl Workbench {
 
     /// Output of an engine process. Returns whether the view changed.
     pub fn engine_input(&mut self, instance: InstanceId, input: EngineInput) -> bool {
-        let events = self.engines.input(instance, input);
-        self.engine_events(events)
+        self.engine_input_at(instance, input, std::time::Instant::now())
+    }
+
+    /// [`Self::engine_input`] read at `now`, the clock [`Self::engine_tick`] is given: a borrowed
+    /// search's stall time counts from the last output read.
+    pub fn engine_input_at(&mut self, instance: InstanceId, input: EngineInput, now: std::time::Instant) -> bool {
+        let events = self.engines.input(instance, input, now);
+        let changed = self.engine_events(events);
+        // A remote compute switch completes with its board sync, whose answers raise no event.
+        self.cloud_activation_settle();
+        changed
     }
 
     /// Engine starts waiting for an artifact fingerprint check, each handed out once. The
@@ -1658,7 +1734,7 @@ impl Workbench {
                     let in_game = !secondary && self.match_active();
                     let shown = self.suggestion_limit();
                     // Attended points belong to the main board's candidates only (`isMain`).
-                    let tracked_points = if secondary { Vec::new() } else { self.tracked_points(node).to_vec() };
+                    let tracked_points = if secondary { Vec::new() } else { self.attended_points(node) };
                     let pda = self.engine_pda(instance);
                     let rec = &self.doc.record;
                     let cache = self.config.engine.analysis.enable_lizzie_cache;
@@ -1791,6 +1867,7 @@ impl Workbench {
             repair: None,
             remote,
             profile_id: f.profile_id,
+            secondary: f.secondary,
         });
     }
 
@@ -1876,13 +1953,7 @@ impl Workbench {
             search_threads: self.search_threads_view(),
             search_threads_operation: self.search_threads_operation_view(),
             custom_pda: self.custom_pda_view(),
-            priority_points: if self.priority_engine == self.engines.foreground()
-                && self.priority_at == Some((self.doc.id, self.cursor))
-            {
-                self.priority_points.clone()
-            } else {
-                Vec::new()
-            },
+            priority_points: self.priority_points_at(self.cursor).to_vec(),
         }
     }
 
@@ -2088,7 +2159,7 @@ impl Workbench {
             display::rank_marks(rec, &path, &numbering, s, analysis)
         };
         BoardOverlayView {
-            move_numbers: display::number_labels(rec, &path, &numbering, s),
+            move_numbers: display::number_labels(rec, &path, &numbering, s, self.trial_start()),
             ranks,
             rank_corner: display::shows_ranks(s) && (s.move_rank == 0 || s.move_rank > 1),
             ranks_after_numbers: rank_override,

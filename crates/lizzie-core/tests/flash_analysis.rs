@@ -899,3 +899,82 @@ fn a_preload_while_a_run_holds_the_analysis_process_starts_no_second_one() {
     wb.preload_analysis_engine();
     assert_eq!(world.workers(), [worker]);
 }
+
+/// 精析设置: 使用当前规则 → 使用指定规则 (Japanese), confirmed with an ordinary 确定.
+fn change_rules_to_japanese(wb: &mut Workbench) {
+    let mut settings = wb.config().analysis_engine.clone();
+    assert!(settings.use_current_rules);
+    settings.use_current_rules = false;
+    settings.specific_rules = r#"{"friendlyPassOk":true,"hasButton":false,"ko":"SIMPLE","scoring":"TERRITORY","suicide":false,"tax":"SEKI","whiteHandicapBonus":"0"}"#.into();
+    let shown = settings.command.clone();
+    assert_eq!(wb.save_analysis_engine_settings(settings, &shown, false).unwrap(), Ok(true));
+}
+
+/// How many main-trunk moves of [`RECORD`] carry a flash result.
+fn flash_results(wb: &mut Workbench) -> usize {
+    wb.navigate(Navigation::First);
+    (0..4)
+        .filter(|_| {
+            wb.navigate(Navigation::Forward(1));
+            wb.view(false).analysis.is_some_and(|a| a.engine == "闪电分析")
+        })
+        .count()
+}
+
+/// Answers under rules changed during the run do not count (`requestStillTargetsCurrentGame`):
+/// the run fails as a failed request, nothing is stored and browsing stays at the root.
+#[test]
+fn changing_the_rules_during_a_process_run_fails_it_without_storing_or_stepping() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, false, false);
+    with_engine(&mut wb, &world);
+    open(&mut wb, RECORD);
+    start(&mut wb, FlashTarget::WholeGame);
+    let worker = *world.workers().last().unwrap();
+    let qs = queries(&world, worker);
+    assert_eq!(qs.len(), 4);
+    change_rules_to_japanese(&mut wb);
+    for q in &qs {
+        answer(&mut wb, worker, q);
+    }
+    let v = wb.view(false);
+    assert!(v.flash.is_none());
+    assert_eq!(
+        v.flash_outcome,
+        Some(FlashOutcome::Failed { run: 1, message_key: "AnalysisEngine.requestDispatchFailed".into() })
+    );
+    assert_eq!(v.position.move_number, 0, "no completion step to the first move");
+    assert_eq!(flash_results(&mut wb), 0);
+}
+
+/// A borrowed run whose rules change before it searches searches nothing under the new rules:
+/// it gives the engine back and fails as a failed request.
+#[test]
+fn changing_the_rules_during_a_borrowed_run_fails_it_without_storing_or_stepping() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, true, false);
+    let fg = with_engine(&mut wb, &world);
+    open(&mut wb, RECORD);
+    serve(&mut wb, &world, fg, 0, true);
+    start(&mut wb, FlashTarget::WholeGame);
+    assert!(wb.view(false).flash.unwrap().borrowed);
+    // The take-over (`stop`, `kata-get-rules`) is not answered yet.
+    change_rules_to_japanese(&mut wb);
+    let mut sent = serve(&mut wb, &world, fg, 20, false);
+    world.release_held(fg);
+    sent.extend(serve(&mut wb, &world, fg, 0, true));
+    assert!(!sent.iter().any(|c| c.contains("maxmoves 1") || c.starts_with("kata-set-rules")), "{sent:?}");
+    let v = wb.view(false);
+    assert!(v.flash.is_none());
+    assert_eq!(
+        v.flash_outcome,
+        Some(FlashOutcome::Failed { run: 1, message_key: "AnalysisEngine.requestDispatchFailed".into() })
+    );
+    assert_eq!(v.engine.unrestored, None, "the engine was given back");
+    assert_eq!(v.position.move_number, 0);
+    assert_eq!(flash_results(&mut wb), 0);
+}

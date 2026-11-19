@@ -134,6 +134,16 @@ struct Hand {
     step: Step,
 }
 
+/// The reservation turning the engine's pondering off outside a hand (the helper's `playpon
+/// off`, Java `disableReadBoardGmaPonderIfIdle`).
+#[derive(Debug)]
+struct PonderOff {
+    game: u64,
+    /// The `kata-get-param ponderingEnabled` waiting for the engine's own value (an engine no
+    /// hand has prepared yet) and its deadline.
+    snapshot: Option<(u64, Instant)>,
+}
+
 /// What GMA wants shown.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::workbench) enum GmaNotice {
@@ -156,7 +166,14 @@ pub(in crate::workbench) struct GmaFlow {
     hand: Option<Hand>,
     /// The reservation giving the overridden parameters back after GMA was cleared.
     restore: Option<u64>,
+    /// Turning the engine's pondering off outside a hand.
+    ponder_off: Option<PonderOff>,
     overrides: Option<Overrides>,
+    /// The engine a played hand left pondering by itself and the position it ponders on (Java
+    /// `retainReadBoardGmaNativePonderAfterTerminal`): no analysis replaces that pondering until
+    /// the position changes, another engine takes the foreground or `playpon off` turns the
+    /// pondering off.
+    native_ponder: Option<(InstanceId, u64, NodeId)>,
     /// The engine `该模式仅支持 KataGo` was shown for (once per engine).
     unsupported_shown: Option<InstanceId>,
     next_request: u64,
@@ -193,7 +210,7 @@ pub(in crate::workbench) struct GmaFacts {
 impl GmaFlow {
     /// Java `isReadBoardGmaEngineBusy`: armed, a hand in flight or parameters being given back.
     pub(in crate::workbench) fn busy(&self) -> bool {
-        self.armed.is_some() || self.hand.is_some() || self.restore.is_some()
+        self.armed.is_some() || self.reserved()
     }
 
     /// The colour GMA plays, while armed.
@@ -214,7 +231,7 @@ impl GmaFlow {
     /// A hand or the parameter restore holds a reservation (Java refuses engine switches and
     /// restarts while `readBoardGmaReservation` exists).
     pub(in crate::workbench) fn reserved(&self) -> bool {
-        self.hand.is_some() || self.restore.is_some()
+        self.hand.is_some() || self.restore.is_some() || self.ponder_off.is_some()
     }
 
     pub(in crate::workbench) fn take_notices(&mut self) -> Vec<GmaNotice> {
@@ -227,15 +244,18 @@ impl GmaFlow {
     }
 
     pub(in crate::workbench) fn deadline(&self) -> Option<Instant> {
+        let snapshot = self.ponder_off.as_ref().and_then(|p| p.snapshot).map(|(_, deadline)| deadline);
         match self.hand.as_ref().map(|h| &h.step) {
             Some(Step::Prepare { sent: Some(s), .. }) => Some(s.deadline),
             Some(Step::Settling { deadline } | Step::Restoring { deadline, .. }) => Some(*deadline),
-            _ => None,
+            _ => snapshot,
         }
     }
 
     fn owns(&self, game: u64) -> bool {
-        self.hand.as_ref().is_some_and(|h| h.game == game) || self.restore == Some(game)
+        self.hand.as_ref().is_some_and(|h| h.game == game)
+            || self.restore == Some(game)
+            || self.ponder_off.as_ref().is_some_and(|p| p.game == game)
     }
 }
 
@@ -245,6 +265,22 @@ impl Workbench {
         let busy = self.readboard.gma.busy();
         self.engines.set_readboard_gma(busy);
         self.sync_engine();
+    }
+
+    /// Whether GMA keeps the analysis off the foreground engine: while a hand, the parameter
+    /// restore or a `playpon off` holds it, and while the foreground engine still ponders by
+    /// itself on the position a played hand left it on (forgotten once the position or the
+    /// engine changes). Armed GMA alone leaves a running analysis alone: Java arms without
+    /// stopping it (ReadBoard.java:1086-1094). A restarted engine is not held for its
+    /// predecessor: Java hands the pondering to it once it is synced
+    /// (EngineManager.java:4552-4553, 11945-11950).
+    pub(in crate::workbench) fn gma_holds_analysis(&mut self) -> bool {
+        let here = (self.engines.foreground(), self.doc.id, self.cursor);
+        let gma = &mut self.readboard.gma;
+        if gma.native_ponder.is_some_and(|(engine, doc, node)| (Some(engine), doc, node) != here) {
+            gma.native_ponder = None;
+        }
+        gma.reserved() || gma.native_ponder.is_some()
     }
 
     /// `play>…gma` (`ReadBoard.parseLine`): arms GMA for `color` with the helper's limits.
@@ -299,12 +335,100 @@ impl Workbench {
         }
     }
 
+    /// `playpon off` (`disableReadBoardGmaPonderIfIdle`): with GMA armed, no hand or restore
+    /// holding the engine and an engine that can do GMA, the engine's pondering is turned off
+    /// now (`setReadBoardGmaPondering(false)`: its own value read first if no hand has read it,
+    /// then `kata-set-param ponderingEnabled false`; the original goes back with the other
+    /// parameters) and a running analysis stops (`stopPonderingIfActive`), before the first hand
+    /// as between two. The custom WebSocket engine gets no parameter command.
+    pub(in crate::workbench) fn gma_ponder_off(&mut self) {
+        let gma = &self.readboard.gma;
+        if gma.armed.is_none() || gma.reserved() {
+            return;
+        }
+        let Some(fg) = self.engines.foreground() else { return };
+        if !self.gma_supported(fg) {
+            return;
+        }
+        if !self.engines.is_custom_websocket(fg) {
+            self.gma_set_pondering_off(fg);
+        }
+        self.readboard_stop_analysis();
+    }
+
+    /// `setReadBoardGmaPondering(false)` on its own GMA seat.
+    fn gma_set_pondering_off(&mut self, fg: InstanceId) {
+        let game = match self.engines.reserve_readboard_gma() {
+            Ok(game) => game,
+            Err(a) => {
+                self.log(false, format!("ReadBoard GMA pondering stays: {a:?}"));
+                return;
+            }
+        };
+        let gma = &mut self.readboard.gma;
+        if gma.overrides.as_ref().is_some_and(|o| o.instance != fg) {
+            gma.overrides = None;
+        }
+        let pondering = &mut gma.overrides.get_or_insert_with(|| Overrides { instance: fg, params: Default::default() }).params[0];
+        let snapshot = if pondering.original.is_some() {
+            None
+        } else {
+            pondering.snapshot_requested = true;
+            let Some(command) = self.engines.game_send(game, &format!("kata-get-param {}", Param::Pondering.name())) else {
+                self.readboard.gma.ponder_off = Some(PonderOff { game, snapshot: None });
+                self.engines.abandon_game(game);
+                self.drain_engine_events();
+                return;
+            };
+            Some((command, Instant::now() + RESPONSE_TIMEOUT))
+        };
+        let waits = snapshot.is_some();
+        self.readboard.gma.ponder_off = Some(PonderOff { game, snapshot });
+        if !waits {
+            self.gma_release_pondering_off(game);
+        }
+        self.gma_hold();
+    }
+
+    /// The engine's own value is known: `ponderingEnabled` is overridden and set to `false` as
+    /// the seat is given back.
+    fn gma_release_pondering_off(&mut self, game: u64) {
+        if let Some(o) = self.readboard.gma.overrides.as_mut() {
+            o.params[0].overridden = true;
+        }
+        self.engines.release_game(game, &[format!("kata-set-param {} false", Param::Pondering.name())]);
+        self.drain_engine_events();
+    }
+
+    /// The answer to the `kata-get-param` a `playpon off` sent: the engine's own value, or a
+    /// failure that leaves the engine unrestored (as a hand's failed snapshot does).
+    fn gma_ponder_off_reply(&mut self, game: u64, command: u64, ok: bool, text: &str) {
+        let gma = &mut self.readboard.gma;
+        let Some(off) = gma.ponder_off.as_mut().filter(|p| p.game == game) else { return };
+        if !matches!(off.snapshot, Some((c, _)) if c == command) {
+            return;
+        }
+        off.snapshot = None;
+        let value = text.trim();
+        if !ok || value.is_empty() {
+            self.log(true, format!("ReadBoard GMA invalid parameter snapshot response: {}", Param::Pondering.name()));
+            self.engines.abandon_game(game);
+            self.drain_engine_events();
+            return;
+        }
+        if let Some(o) = gma.overrides.as_mut() {
+            o.params[0].original = Some(value.to_string());
+        }
+        self.gma_release_pondering_off(game);
+    }
+
     /// `clearReadBoardGmaAutoPlay`: GMA stops; a hand in flight still converges and gives the
     /// parameters back after its answer, otherwise they are given back now.
     pub(in crate::workbench) fn gma_clear(&mut self) {
         let gma = &mut self.readboard.gma;
         let was = gma.armed.take().is_some() || gma.hand.is_some();
         gma.generation += 1;
+        gma.native_ponder = None;
         gma.ponder_notice = PonderNotice::default();
         gma.awaiting_synced_board = false;
         if was {
@@ -351,6 +475,7 @@ impl Workbench {
         if gma.failed_generation == Some(gma.generation)
             || gma.hand.is_some()
             || gma.restore.is_some()
+            || gma.ponder_off.is_some()
             || facts.failed_move_waits
             || gma.awaiting_synced_board
         {
@@ -412,7 +537,10 @@ impl Workbench {
             // its preparation begins with `maxTime` (`PARAMS[1]`).
             step: Step::Prepare { index: usize::from(websocket), sent: None },
         });
+        // The hand's first command ends a running analysis (a GTP command interrupts it, as in
+        // Java); the analysis wish follows so none starts again while the hand holds the engine.
         self.gma_prepare();
+        self.sync_engine();
     }
 
     /// `supportsReadBoardGmaFixedLimits`: KataGo listing `kata-genmove_analyze`,
@@ -570,6 +698,10 @@ impl Workbench {
 
     fn gma_reply(&mut self, game: u64, command: u64, ok: bool, text: String) {
         let gma = &mut self.readboard.gma;
+        if gma.ponder_off.as_ref().is_some_and(|p| p.game == game) {
+            self.gma_ponder_off_reply(game, command, ok, &text);
+            return;
+        }
         let Some(hand) = gma.hand.as_mut().filter(|h| h.game == game) else { return };
         if let Step::Restoring { pending, .. } = &mut hand.step {
             let Some(at) = pending.iter().position(|c| *c == command) else { return };
@@ -615,7 +747,11 @@ impl Workbench {
 
     /// `handleReadBoardGmaEnginePlay`: a move of the current arming at the position it was asked
     /// for is placed (the engine already played it) and clicked by the helper; anything else
-    /// ends the hand with the engine back at the record's position.
+    /// ends the hand with the engine back at the record's position. The engine's `play` line
+    /// also ends the analysis as Java marks it (Leelaz.java:8013-8031): a placed move asked with
+    /// pondering leaves the engine pondering by itself on the new position, any other answer of
+    /// the current arming leaves the analysis stopped (`isPondering = false`); a stale answer or
+    /// a refused request changes neither.
     fn gma_answer(&mut self, game: u64, request: u64, doc: u64, node: NodeId, stamp: u64, reply: GenmoveReply) {
         let gma = &self.readboard.gma;
         let Some(hand) = gma.hand.as_ref().filter(|h| h.game == game) else {
@@ -635,16 +771,26 @@ impl Workbench {
             && rec.contains(node)
             && rec.node(node).stamp == stamp
             && rec.node(node).to_play == hand.color;
-        let color = hand.color;
+        let (color, ponder, instance) = (hand.color, hand.ponder, hand.instance);
         if let (GenmoveReply::Move(point), false, true) = (&reply, stale, current) {
             let edit = DocumentEdit::Play { at: self.cursor, color, point: *point, alternate: false, rules: self.play_rules() };
             if let Some(n) = self.apply_edit(edit).ok().and_then(|a| a.node) {
                 self.move_to(n);
                 let committed = self.doc.record.node(n).stamp;
                 self.engine_move_committed(game, request, committed);
+                if ponder {
+                    self.readboard.gma.native_ponder = Some((instance, self.doc.id, n));
+                } else {
+                    self.readboard_stop_analysis();
+                }
                 self.gma_terminal(game, true);
                 return;
             }
+        }
+        // A stale answer (GMA cleared or re-armed meanwhile) only ends its hand: Java marks the
+        // analysis stopped only while the play is still active (Leelaz.java:8025-8028, 19813-19818).
+        if !stale && !matches!(reply, GenmoveReply::Failed(_)) {
+            self.readboard_stop_analysis();
         }
         match &reply {
             GenmoveReply::Failed(text) => self.log(true, format!("ReadBoard GMA move failed: {text}")),
@@ -733,11 +879,14 @@ impl Workbench {
         self.gma_hold();
     }
 
-    /// The parameters go back once GMA is cleared and no hand holds the engine.
+    /// The parameters go back once GMA is cleared and no hand holds the engine. While another
+    /// mode holds the engine (a viewer's Web 试下 between two hands) the duty is kept and runs
+    /// when that mode lets go ([`Self::gma_restore_deferred`]); it lapses only with the engine
+    /// it belongs to.
     fn gma_restore_runtime(&mut self) {
         let gma = &mut self.readboard.gma;
         let Some(overrides) = gma.overrides.as_ref() else { return };
-        if gma.hand.is_some() || gma.restore.is_some() {
+        if gma.reserved() {
             return;
         }
         if !overrides.dirty() || self.engines.foreground() != Some(overrides.instance) {
@@ -751,15 +900,27 @@ impl Workbench {
                 self.engines.release_game(game, &restores);
                 self.drain_engine_events();
             }
-            Err(a) => {
+            Err(a @ (LeaseAvailability::NoForegroundEngine | LeaseAvailability::EngineStateUnrestored)) => {
                 self.log(true, format!("ReadBoard GMA runtime restore not admitted: {a:?}"));
                 self.readboard.gma.overrides = None;
             }
+            Err(a) => self.log(false, format!("ReadBoard GMA runtime restore waits: {a:?}")),
+        }
+    }
+
+    /// A mode that held the engine let it go: a parameter restore that had to wait runs now,
+    /// unless GMA was armed again meanwhile (its hands give the parameters back themselves).
+    pub(in crate::workbench) fn gma_restore_deferred(&mut self) {
+        let gma = &self.readboard.gma;
+        if gma.overrides.is_some() && gma.armed.is_none() && !gma.reserved() {
+            self.gma_restore_runtime();
+            self.gma_hold();
         }
     }
 
     /// A reservation ended in the runtime: the parameter restore after clearing confirmed (or
-    /// failed), or a hand's engine went away (Java `failEngineProcess`).
+    /// failed), pondering was turned off outside a hand, or a hand's engine went away (Java
+    /// `failEngineProcess`).
     fn gma_released(&mut self, game: u64, failure: Option<LeaseFailure>) {
         let gma = &mut self.readboard.gma;
         if gma.restore == Some(game) {
@@ -769,6 +930,24 @@ impl Workbench {
                 self.gma_quarantined(format!("restore response failed: {f:?}"));
             }
             self.gma_hold();
+            return;
+        }
+        if gma.ponder_off.take_if(|p| p.game == game).is_some() {
+            if let Some(f) = failure {
+                gma.overrides = None;
+                self.gma_quarantined(format!("ponder response failed: {f:?}"));
+                self.gma_hold();
+                return;
+            }
+            // `ponderingEnabled false` is confirmed: the engine ponders by itself no more.
+            gma.native_ponder = None;
+            // GMA may have been cleared, or its turn come, meanwhile.
+            if gma.armed.is_none() {
+                self.gma_restore_runtime();
+            }
+            self.gma_hold();
+            let facts = self.gma_facts();
+            self.gma_schedule(facts);
             return;
         }
         let Some(hand) = gma.hand.take_if(|h| h.game == game) else { return };
@@ -797,9 +976,16 @@ impl Workbench {
         self.log(true, format!("ReadBoard GMA engine restore failed: {detail}"));
     }
 
-    /// Preparation commands, the parameter restore and the exact restore are bounded by 8 s
-    /// each.
+    /// Preparation commands, the parameter restore, the exact restore and the snapshot a
+    /// `playpon off` reads are bounded by 8 s each.
     pub(in crate::workbench) fn gma_tick(&mut self, now: Instant) -> bool {
+        let off = self.readboard.gma.ponder_off.as_ref();
+        if let Some(game) = off.filter(|p| p.snapshot.is_some_and(|(_, d)| now >= d)).map(|p| p.game) {
+            self.log(true, format!("ReadBoard GMA parameter response timeout: kata-get-param {}", Param::Pondering.name()));
+            self.engines.abandon_game(game);
+            self.drain_engine_events();
+            return true;
+        }
         let Some(hand) = self.readboard.gma.hand.as_ref() else { return false };
         let game = hand.game;
         match &hand.step {

@@ -6,6 +6,12 @@ use std::path::{Path, PathBuf};
 
 use lizzie_core::update::portable::{self, PortableFailure, Recovery, WORK_DIR_NAME};
 
+#[cfg(unix)]
+#[path = "support/permissions.rs"]
+mod permissions;
+#[cfg(unix)]
+use permissions::obeying_permissions;
+
 const BINARY: &str = "lizzieyzy-tauri.exe";
 
 /// A release zip: one folder holding the given files.
@@ -45,17 +51,18 @@ const VERSION_2: &[(&str, &str)] = &[
     (BINARY, "program 2"),
 ];
 
-fn snapshot(folder: &Path) -> Vec<(String, String)> {
+/// Every entry under `folder` by its relative path (compared as paths, whatever the separator).
+fn snapshot(folder: &Path) -> Vec<(PathBuf, String)> {
     let mut files = Vec::new();
     let mut stack = vec![folder.to_path_buf()];
     while let Some(dir) = stack.pop() {
         for entry in fs::read_dir(dir).unwrap().flatten() {
             let path = entry.path();
             if path.is_dir() {
-                files.push((path.strip_prefix(folder).unwrap().display().to_string(), "<dir>".into()));
+                files.push((path.strip_prefix(folder).unwrap().to_path_buf(), "<dir>".into()));
                 stack.push(path);
             } else {
-                files.push((path.strip_prefix(folder).unwrap().display().to_string(), read(&path)));
+                files.push((path.strip_prefix(folder).unwrap().to_path_buf(), read(&path)));
             }
         }
     }
@@ -91,7 +98,7 @@ fn an_update_replaces_only_the_packages_files_and_keeps_the_portable_folder() {
             ("readboard/runtimes", "<dir>"),
             ("readboard/runtimes/new.dll", "new 2"),
         ]
-        .map(|(a, b)| (a.to_string(), b.to_string()))
+        .map(|(a, b)| (PathBuf::from(a), b.to_string()))
     );
     assert_eq!(portable::recover(&folder), Recovery::None);
 }
@@ -135,7 +142,7 @@ fn an_unwritable_folder_is_reported_while_the_program_still_runs() {
     let zip = package(root.path(), VERSION_2);
     let before = snapshot(&folder);
     set_mode(&folder, 0o555);
-    let result = portable::prepare(&zip, &folder, "LizzieYzy.exe", BINARY, "0.2.0");
+    let result = obeying_permissions(|| portable::prepare(&zip, &folder, "LizzieYzy.exe", BINARY, "0.2.0"));
     set_mode(&folder, 0o755);
     assert_eq!(result.unwrap_err().failure, PortableFailure::Permission);
     assert_eq!(snapshot(&folder), before);
@@ -157,7 +164,7 @@ fn a_file_that_cannot_be_replaced_puts_every_replaced_file_back() {
     // The file cannot be replaced after the program closed (Windows: kept open elsewhere).
     set_mode(&folder.join("locked"), 0o555);
     let mut replaced = Vec::new();
-    let result = portable::claim(&folder).unwrap().apply(&mut |f| replaced.push(f.to_string()));
+    let result = obeying_permissions(|| portable::claim(&folder).unwrap().apply(&mut |f| replaced.push(f.to_string())));
     set_mode(&folder.join("locked"), 0o755);
 
     let error = result.unwrap_err();
@@ -209,7 +216,7 @@ fn undoing_again_after_a_partly_failed_undo_keeps_the_files_already_put_back() {
 
     // One file cannot be put back at this start; the others are.
     set_mode(&folder.join("readboard"), 0o555);
-    let first = portable::recover(&folder);
+    let first = obeying_permissions(|| portable::recover(&folder));
     set_mode(&folder.join("readboard"), 0o755);
     assert!(matches!(first, Recovery::Failed(_)), "{first:?}");
     assert_eq!(read(folder.join("LICENSE.txt")), "licence 1");

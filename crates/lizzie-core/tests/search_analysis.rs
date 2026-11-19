@@ -420,26 +420,40 @@ fn tracking_counts_the_current_search_not_a_stronger_stored_result() {
 
 #[test]
 fn changing_tracked_points_keeps_the_analysis_time_limit() {
-    let dir = tempfile::tempdir().unwrap();
-    let world = World::default();
-    let mut wb = workbench(dir.path(), &world);
-    let e = with_engines(&mut wb, &world, &["a"], Probe::Accept);
-    let mut settings = wb.config().engine.analysis.clone();
-    settings.limit_time = true;
-    settings.max_analyze_time_seconds = 1;
-    wb.set_analysis_settings(settings).unwrap();
-    open(&mut wb, RECORD);
-    serve(&mut wb, &world, &e, Some(&info(&[("D4", 10)])));
-    std::thread::sleep(Duration::from_millis(600));
-    wb.tracking(TrackingCommand::Track { point: p(16, 15) }).unwrap(); // R4
-    let sent = serve(&mut wb, &world, &e, None);
-    assert_eq!(analyses(&sent), ["kata-analyze B 10 rootInfo true focus R4 0.5"]);
-    std::thread::sleep(Duration::from_millis(600));
-    out(&mut wb, e.id, &info(&[("D4", 20), ("R4", 10)]));
-    assert!(
-        wb.view(false).engine.stopped_by_limit,
-        "the second since the position's analysis began is up; the focus request did not restart it"
-    );
+    // The one-second limit counts from when the position's search began (by `began`), not from
+    // the focus request (at or after `focused`). The next line arrives past a second since
+    // `began`, so the search stops; a run where it also arrived within a second of `focused`
+    // is one a limit restarted by the focus request would not have stopped.
+    for attempt in 1.. {
+        let dir = tempfile::tempdir().unwrap();
+        let world = World::default();
+        let mut wb = workbench(dir.path(), &world);
+        let e = with_engines(&mut wb, &world, &["a"], Probe::Accept);
+        let mut settings = wb.config().engine.analysis.clone();
+        settings.limit_time = true;
+        settings.max_analyze_time_seconds = 1;
+        wb.set_analysis_settings(settings).unwrap();
+        open(&mut wb, RECORD);
+        serve(&mut wb, &world, &e, Some(&info(&[("D4", 10)])));
+        let began = Instant::now();
+        std::thread::sleep(Duration::from_millis(500));
+        let focused = Instant::now();
+        wb.tracking(TrackingCommand::Track { point: p(16, 15) }).unwrap(); // R4
+        let sent = serve(&mut wb, &world, &e, None);
+        assert_eq!(analyses(&sent), ["kata-analyze B 10 rootInfo true focus R4 0.5"]);
+        std::thread::sleep((began + Duration::from_millis(1050)).saturating_duration_since(Instant::now()));
+        out(&mut wb, e.id, &info(&[("D4", 20), ("R4", 10)]));
+        let arrived = Instant::now();
+        assert!(
+            wb.view(false).engine.stopped_by_limit,
+            "the second since the position's analysis began is up; the focus request did not restart it"
+        );
+        if arrived < focused + Duration::from_secs(1) {
+            return;
+        }
+        // This host held the test up for so long that a restarted limit would have run out too.
+        assert!(attempt < 5, "no run delivered the line within a second of the focus request");
+    }
 }
 
 #[test]

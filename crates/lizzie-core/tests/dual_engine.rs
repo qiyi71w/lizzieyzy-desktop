@@ -10,6 +10,7 @@ use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
+use lizzie_core::engine::tuning::ThreadPolicy;
 use lizzie_core::formats::sgf;
 use lizzie_core::record::RecordFormat;
 use lizzie_core::settings::{ExtraMode, Storage};
@@ -557,4 +558,46 @@ fn secondary_analysis_in_records_is_read_offered_and_saved_as_its_own() {
         Some(OpenOutcome::Adopted { double_engine_hint, .. }) => assert!(!double_engine_hint),
         other => panic!("{other:?}"),
     }
+}
+
+/// 恢复实测设置 on the secondary engine starts it again with its restored settings: the new
+/// process stays the secondary engine and analyses what the position becomes.
+#[test]
+fn restoring_the_secondary_engines_measured_settings_keeps_it_the_secondary_engine() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = Workbench::new(storage(dir.path()), None, Box::new(FakeLauncher(world.clone())), Vec::new());
+    wb.set_auto_quick_analyze(false).unwrap();
+    let mut b = profile("B", "/opt/b");
+    b.thread_policy = Some(ThreadPolicy {
+        measured_scenes: Some(serde_json::json!({"live": {"schemaVersion": 1, "command": "/opt/b gtp", "report": {}}})),
+        ..ThreadPolicy::default()
+    });
+    wb.save_engine_settings(vec![profile("A", "/opt/a"), b], EngineStartup::Default).unwrap();
+    wb.start_engines();
+    let a = world.instance("/opt/a").unwrap();
+    answer_all(&mut wb, &world, a);
+    open(&mut wb, "(;SZ[19];B[pd];W[dd];B[pp])");
+    answer_all(&mut wb, &world, a);
+    assert!(wb.set_extra_mode(ExtraMode::DoubleEngine).unwrap());
+    assert!(wb.switch_secondary_engine(1).unwrap());
+    let old_b = world.instance("/opt/b").unwrap();
+    answer_all(&mut wb, &world, old_b);
+    answer_all(&mut wb, &world, a);
+
+    let b_id = wb.config().engine.engines[1].id.clone();
+    wb.restore_measured_tuning(&b_id).unwrap();
+    assert!(wb.config().engine.engines[1].thread_policy.as_ref().unwrap().measured_scenes.is_none());
+    let new_b = world.instance("/opt/b").unwrap();
+    assert_ne!(new_b, old_b, "a new process with the restored settings");
+    assert!(world.terminated(old_b));
+    answer_all(&mut wb, &world, new_b);
+    answer_all(&mut wb, &world, a);
+    let v = wb.view(false);
+    assert_eq!(v.engine.secondary.as_ref().map(|s| (s.index, s.name.as_str())), Some((1, "B")));
+
+    wb.navigate(Navigation::Forward(1));
+    answer_all(&mut wb, &world, a);
+    let sent = answer_all(&mut wb, &world, new_b);
+    assert!(analyses(&sent) >= 1, "the new secondary process analyses the new position: {sent:?}");
 }

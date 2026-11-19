@@ -205,6 +205,51 @@ fn all_numbers_in_a_branch_show_with_numbers_off_unless_move_ranks_do() {
 }
 
 #[test]
+fn try_play_numbers_only_its_own_stones_from_one_in_every_mode() {
+    // drawMoveNumbers while isTrying: the stones placed since 试下 began, numbered from its
+    // first move (a pass counts) whatever 手数 shows; the record's stones have none.
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    display(&mut wb, |s| s.move_rank = -1);
+    open(&mut wb, "(;SZ[9];B[aa];W[ba];B[ca])");
+    wb.navigate(Navigation::Last);
+    assert!(numbers(&mut wb).is_empty(), "手数 不显示");
+    wb.edit(EditCommand::TryPlay).unwrap();
+    assert!(numbers(&mut wb).is_empty(), "nothing tried yet");
+    for at in ["gg", "hh"] {
+        play(&mut wb, at);
+    }
+    wb.edit(EditCommand::Pass).unwrap();
+    play(&mut wb, "ii");
+    let tried = ["gg1", "hh2", "ii4*"];
+    assert_eq!(numbers(&mut wb), tried, "手数 不显示");
+    display(&mut wb, |s| s.move_numbers = -1);
+    assert_eq!(numbers(&mut wb), tried, "全部");
+    display(&mut wb, |s| s.move_numbers = 1);
+    assert_eq!(numbers(&mut wb), tried, "最近 1 手");
+    display(&mut wb, |s| s.move_numbers_from_one = true);
+    assert_eq!(numbers(&mut wb), tried, "总是从1开始");
+    display(&mut wb, |s| {
+        s.move_numbers = 0;
+        s.all_numbers_in_branch = true;
+    });
+    assert_eq!(numbers(&mut wb), tried, "分支显示全部手数");
+
+    wb.navigate(Navigation::Back(2));
+    assert_eq!(numbers(&mut wb), ["gg1", "hh2*"]);
+    wb.navigate(Navigation::Back(3));
+    assert!(numbers(&mut wb).is_empty(), "before 试下 began");
+    wb.navigate(Navigation::Last);
+    // moveOverlayOrder: 落子评价 replaces the numbers while 手数 is off, 试下 too.
+    display(&mut wb, |s| s.move_rank = 1);
+    assert!(numbers(&mut wb).is_empty());
+
+    display(&mut wb, |s| s.move_numbers = -1);
+    wb.edit(EditCommand::TryPlay).unwrap();
+    assert_eq!(numbers(&mut wb), ["aa1", "ba2", "ca3*"], "the record's own numbers are back");
+}
+
+#[test]
 fn invalid_display_settings_are_refused_and_valid_ones_reopen() {
     let dir = tempfile::tempdir().unwrap();
     let mut wb = workbench(dir.path());

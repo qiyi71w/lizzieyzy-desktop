@@ -12,7 +12,7 @@ use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::formats;
 use lizzie_core::online::url::{classify, yike_room_key, OnlineSource};
-use lizzie_core::online::{invalid_proxy_message, yike, HttpReply, SocketEvent};
+use lizzie_core::online::{invalid_proxy_message, yike, HttpReply, OnlineText, SocketEvent};
 use lizzie_core::record::{GameRecord, NodeId, NodeKind, Point, RecordFormat, ROOT};
 use lizzie_core::settings::{NetworkSettings, ProxyMode, Storage};
 use lizzie_core::workbench::{OpenOrigin, Workbench};
@@ -85,6 +85,91 @@ fn lobby_pages_have_no_room_and_other_links_are_read_once() {
     assert_eq!(fox.java_type(), 3);
     let tag = classify("https://h5.qq.com/x?gametag=ab&uin=9").unwrap();
     assert_eq!(tag.java_type(), 4);
+}
+
+/// The 弈客 kinds are recognized only on `https://yikeweiqi.com` and its subdomains (default
+/// port, as the 弈客 web window loads). The same shapes elsewhere are any other link: read once
+/// from the link itself, never from `api.<that host>`, and URL 无法识别 in the web window.
+#[test]
+fn yike_shaped_links_of_other_hosts_are_not_yike_rooms() {
+    for yike in ["https://yikeweiqi.com/#/live/room/18328/1/15630642", "https://www.yikeweiqi.com/#/game/play/1/15630642"] {
+        assert!(classify(yike).unwrap().is_yike(), "{yike}");
+    }
+    let shapes = [
+        "/#/live/new-room/186031/0/0",
+        "/#/live/room/18328/1/15630642",
+        "/#/live/room/4903/0/0",
+        "/#/live/room/4903",
+        "/#/live/other/18328/1/15630642",
+        "/#/live/other/4903",
+        "/#/game/play/1/15630642",
+        "/#/hall?room=15630642&hall=1",
+        "/#/unite/66304678",
+    ];
+    let hosts = [
+        "https://evil.example",
+        "https://yikeweiqi.com.evil.example",
+        "https://notyikeweiqi.com",
+        "http://home.yikeweiqi.com",
+        "https://home.yikeweiqi.com:8443",
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    for host in hosts {
+        for shape in shapes {
+            let link = format!("{host}{shape}");
+            let plain = link.strip_suffix("/0/0").unwrap_or(&link).to_string();
+            assert_eq!(classify(&link), Some(OnlineSource::Plain { url: plain.clone() }), "{link}");
+            assert_eq!(yike_room_key(&link), None, "{link}");
+
+            wb.online(OnlineCommand::Open { url: link.clone(), refresh_seconds: 1 }).unwrap();
+            match wb.take_online_jobs().as_slice() {
+                [OnlineJob::Get { url, .. }] => assert_eq!(url, &plain, "{link}"),
+                other => panic!("{link}: {other:?}"),
+            }
+            wb.online(OnlineCommand::BrowserLoad { url: link.clone() }).unwrap();
+            let o = wb.view(true).online;
+            assert!(!o.browser_sync, "{link}");
+            assert_eq!(o.browser_status.map(|s| s.args), Some(vec!["URL 无法识别".to_string()]), "{link}");
+            assert!(wb.take_online_jobs().is_empty(), "{link}");
+        }
+    }
+}
+
+/// Java tries the 弈客 shapes before the 野狐/欢乐 query keys (`OnlineDialog.checkUrl`,
+/// OnlineDialog.java:747-753, 757-807 before 809-824). A 弈客-shaped link whose host is not
+/// accepted is any other link even when it also carries the keys of 类型 3 or 4: read once from
+/// the link itself, no 欢乐 follow. On 弈客's own hosts the same links stay 弈客 rooms.
+#[test]
+fn yike_shaped_links_of_other_hosts_with_huanle_keys_are_read_once() {
+    let links = [
+        "/live/room/4903",
+        "/live/room/18328/1/15630642",
+        "/live/new-room/186031",
+        "/unite/66304678",
+        "/?{q}#/live/room/4903",
+        "/?{q}#/game/play/1/15630642",
+        "/?{q}#/live/other/18328/1/15630642",
+        "/?{q}#/unite/66304678",
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    for q in ["gameid=1&createtime=2", "gametag=ab&uin=9"] {
+        for shape in links {
+            let path = if shape.contains("{q}") { shape.replace("{q}", q) } else { format!("{shape}?{q}") };
+            let own = format!("https://home.yikeweiqi.com{path}");
+            assert!(classify(&own).unwrap().is_yike(), "{own}");
+            for host in ["https://evil.invalid", "http://home.yikeweiqi.com"] {
+                let link = format!("{host}{path}");
+                assert_eq!(classify(&link), Some(OnlineSource::Plain { url: link.clone() }), "{link}");
+                wb.online(OnlineCommand::Open { url: link.clone(), refresh_seconds: 1 }).unwrap();
+                match wb.take_online_jobs().as_slice() {
+                    [OnlineJob::Get { url, .. }] => assert_eq!(url, &link, "{link}"),
+                    other => panic!("{link}: {other:?}"),
+                }
+            }
+        }
+    }
 }
 
 // ------------------------------------------------------------------ REST (YikeApiClientTest)
@@ -620,6 +705,52 @@ fn an_unusable_proxy_on_the_broadcast_socket_warns_and_stops_reconnecting() {
     let warning = wb.view(true).online.proxy_warning.expect("网络代理设置 is shown");
     assert_eq!(warning.message, message);
     assert!(connects(&mut wb).is_empty(), "no reconnect with the unusable settings");
+}
+
+#[test]
+fn a_room_the_server_disconnects_or_refuses_stops_following_and_keeps_the_record() {
+    // Socket.IO `41` (the server disconnects the namespace) and `44` (it refuses the connect)
+    // end the room for good; the follow ends with them while a dropped transport reconnects.
+    for packet in ["41", r#"44{"message":"Invalid namespace"}"#] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut wb = workbench(dir.path());
+        let conn = joined_room(&mut wb);
+        let kept = main_line(&wb);
+        wb.take_online_jobs();
+        assert!(wb.online_socket(conn, SocketEvent::Text(packet.into())), "{packet}");
+        let o = wb.view(true).online;
+        assert!(o.following.is_none(), "{packet}: the follow ended");
+        let stopped = OnlineText::with("Online.text", ["已停止同步".to_string()]);
+        assert_eq!(o.browser_status, Some(stopped), "{packet}: Java's stopSync status");
+        assert_eq!(main_line(&wb), kept, "{packet}: the record stays");
+        let jobs = wb.take_online_jobs();
+        assert!(!jobs.iter().any(|j| matches!(j, OnlineJob::Connect { .. })), "{packet}: {jobs:?}");
+        if let Some(due) = wb.engine_timer() {
+            wb.engine_tick(due.max(Instant::now()));
+            assert!(!wb.take_online_jobs().iter().any(|j| matches!(j, OnlineJob::Connect { .. })), "{packet}");
+        }
+    }
+}
+
+#[test]
+fn a_dropped_room_connection_still_reconnects() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    let conn = joined_room(&mut wb);
+    wb.take_online_jobs();
+    assert!(wb.online_socket(conn, SocketEvent::Closed { error: None }));
+    assert!(wb.view(true).online.following.is_some());
+    let until = Instant::now() + Duration::from_secs(10);
+    let mut reconnected = false;
+    for _ in 0..50 {
+        let Some(due) = wb.engine_timer().filter(|&d| d <= until) else { break };
+        wb.engine_tick(due.max(Instant::now()));
+        if wb.take_online_jobs().iter().any(|j| matches!(j, OnlineJob::Connect { .. })) {
+            reconnected = true;
+            break;
+        }
+    }
+    assert!(reconnected, "a dropped transport reconnects after its backoff");
 }
 
 #[test]

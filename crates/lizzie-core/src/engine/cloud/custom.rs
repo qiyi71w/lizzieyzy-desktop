@@ -14,7 +14,8 @@ const MAX_VISITS: f64 = (1u64 << 50) as f64;
 
 pub(super) enum Action {
     None,
-    Send(String),
+    /// Payloads to write in order: a superseded query's `terminate`, then any new query.
+    Send(Vec<String>),
     Quit,
 }
 
@@ -26,6 +27,8 @@ struct Query {
     id: String,
     response_id: String,
     genmove: bool,
+    /// `kata-genmove_analyze`: answered like KataGo, an analysis stream ending in `play <move>`.
+    analyze: bool,
     color: &'static str,
     sent: bool,
     started: bool,
@@ -48,6 +51,12 @@ pub(super) struct Adapter {
     noise: f64,
     sequence: u64,
     active: Option<Query>,
+    /// Analysis streams a later command ended while an explicit `stop` of theirs waits for the
+    /// final result and the matching terminate ack (Java `completeStoppedQueryIfReady`).
+    stopping: Vec<Query>,
+    /// Those `stop`s, settled while the active query's response was open: answered once it is
+    /// complete, as a GTP response cannot start inside another.
+    settled: Vec<String>,
 }
 
 impl Default for Adapter {
@@ -57,7 +66,7 @@ impl Default for Adapter {
             rules: KataRules::preset("chinese").unwrap().to_gtp_argument(),
             initial_stones: Vec::new(), moves: Vec::new(), initial_player: None,
             max_time: 1e20, max_visits: 256, advantage: 0.0, noise: 0.04,
-            sequence: 0, active: None,
+            sequence: 0, active: None, stopping: Vec::new(), settled: Vec::new(),
         }
     }
 }
@@ -90,6 +99,10 @@ fn color(value: &str) -> Option<&'static str> {
     }
 }
 
+fn terminate(query_id: &str) -> String {
+    json!({ "id": format!("terminate-{query_id}"), "action": "terminate", "terminateId": query_id }).to_string()
+}
+
 impl Adapter {
     pub(super) fn command(&mut self, raw: &str, output: &Output) -> Result<Action, &'static str> {
         let (id, command) = command_parts(raw);
@@ -97,6 +110,12 @@ impl Adapter {
         let tokens: Vec<&str> = command.split_whitespace().collect();
         let name = tokens[0].to_ascii_lowercase();
         let token = |i: usize| tokens.get(i).copied().unwrap_or("");
+        // Any other command ends a running analysis stream first, as in KataGo's GTP loop.
+        let mut sends: Vec<String> = if matches!(name.as_str(), "stop" | "stop-ponder" | "quit") {
+            Vec::new()
+        } else {
+            self.end_stream(output).into_iter().collect()
+        };
         let mut body = String::new();
         let result: Result<(), &'static str> = match name.as_str() {
             "name" => { body = "KataGo".into(); Ok(()) }
@@ -166,6 +185,9 @@ impl Adapter {
             "kata-analyze" | "kata-genmove_analyze" | "genmove" => {
                 if self.active.is_some() {
                     Err("another websocket analysis query is still active")
+                } else if tokens.iter().any(|t| t.eq_ignore_ascii_case("focus")) {
+                    // Analysis queries have no focus field: say so rather than search without it.
+                    Err("unknown analyze option focus")
                 } else {
                     let genmove = name != "kata-analyze";
                     let player = color(token(1)).unwrap_or_else(|| self.next_player());
@@ -177,19 +199,18 @@ impl Adapter {
                     let payload = self.build_query(&query_id, genmove, player, interval, ownership);
                     self.active = Some(Query {
                         sequence: self.sequence, id: query_id, response_id: id.into(), genmove,
-                        color: player, sent: false, started: false, final_received: false,
-                        stop_ids: Vec::new(), terminate_ack: false,
+                        analyze: name == "kata-genmove_analyze", color: player, sent: false, started: false,
+                        final_received: false, stop_ids: Vec::new(), terminate_ack: false,
                     });
-                    return Ok(Action::Send(payload.to_string()));
+                    sends.push(payload.to_string());
+                    return Ok(Action::Send(sends));
                 }
             }
             "stop" | "stop-ponder" => {
                 let Some(query) = self.active.as_mut() else { ok(output, id, ""); return Ok(Action::None); };
                 query.stop_ids.push(id.into());
                 if query.stop_ids.len() == 1 {
-                    return Ok(Action::Send(json!({
-                        "id": format!("terminate-{}", query.id), "action": "terminate", "terminateId": query.id,
-                    }).to_string()));
+                    return Ok(Action::Send(vec![terminate(&query.id)]));
                 }
                 return Ok(Action::None);
             }
@@ -200,7 +221,51 @@ impl Adapter {
             Ok(()) => ok(output, id, &body),
             Err(message) => error(output, id, message),
         }
-        Ok(Action::None)
+        Ok(if sends.is_empty() { Action::None } else { Action::Send(sends) })
+    }
+
+    /// Ends the active analysis stream: its response closes and the remote query is terminated
+    /// unless a `stop` already did; its late results stay inert. A pending `stop` is answered only
+    /// once that query's final result and terminate ack arrive. Returns that `terminate`. A move
+    /// query is not a stream and keeps running.
+    fn end_stream(&mut self, output: &Output) -> Option<String> {
+        let query = self.active.take_if(|query| !query.genmove)?;
+        if query.started && !query.final_received { stdout(output, "\n"); }
+        self.answer_settled(output);
+        if query.stop_ids.is_empty() {
+            return Some(terminate(&query.id));
+        }
+        self.stopping.push(query);
+        None
+    }
+
+    /// A response for a stopped stream a later command ended: it settles that `stop` once its
+    /// final result and matching ack are in, answered at once unless the active query's response
+    /// is open. A remote error fails the transport, as Java's `failActiveQuery`; the `stop` is
+    /// never answered with success.
+    fn stopping_response(&mut self, at: usize, id: &str, response: &Value, output: &Output) -> Result<(), ()> {
+        if response.get("error").is_some() { return Err(()); }
+        let query = &mut self.stopping[at];
+        if id == format!("terminate-{}", query.id) {
+            if response["action"] != "terminate" || response["terminateId"] != query.id { return Err(()); }
+            query.terminate_ack = true;
+        } else if response.get("warning").is_some() {
+            output.emit(EngineInput::Stderr("Custom cloud analysis warning".into()));
+        } else if !response["isDuringSearch"].as_bool().ok_or(())? {
+            query.final_received = true;
+        }
+        if query.final_received && query.terminate_ack {
+            let stops = self.stopping.remove(at).stop_ids;
+            self.settled.extend(stops);
+            if !self.active.as_ref().is_some_and(|active| active.started && !active.final_received) {
+                self.answer_settled(output);
+            }
+        }
+        Ok(())
+    }
+
+    fn answer_settled(&mut self, output: &Output) {
+        for id in self.settled.drain(..) { ok(output, &id, ""); }
     }
 
     fn clear(&mut self) {
@@ -261,7 +326,7 @@ impl Adapter {
         if let Some(query) = self.active.as_mut() {
             if !query.sent {
                 query.sent = true;
-                if !query.genmove {
+                if !query.genmove || query.analyze {
                     stdout(output, &format!("={}\n", query.response_id));
                     query.started = true;
                 }
@@ -274,7 +339,10 @@ impl Adapter {
         if !response.is_object() { return Err(()); }
         let id = response["id"].as_str().unwrap_or("");
         let sequence = id.strip_prefix("terminate-").unwrap_or(id).strip_prefix("lz-ws-").and_then(|id| id.parse::<u64>().ok());
-        // Every response from an old query is inert, including its late warning, error and stop ack.
+        if let Some(at) = self.stopping.iter().position(|query| Some(query.sequence) == sequence) {
+            return self.stopping_response(at, id, &response, output);
+        }
+        // Every other response from an old query is inert, including its late warning, error and stop ack.
         if sequence.is_some_and(|sequence| sequence > 0 && sequence <= self.sequence && self.active.as_ref().is_none_or(|active| sequence < active.sequence)) {
             return Ok(());
         }
@@ -301,16 +369,24 @@ impl Adapter {
                 if query.genmove {
                     let point = response["moveInfos"].as_array().and_then(|infos| infos.first()).and_then(|info| info["move"].as_str()).filter(|point| !point.is_empty()).ok_or(())?;
                     self.moves.push(Move { color: query.color, point: point.into() });
-                    ok(output, &query.response_id, point);
+                    if query.analyze {
+                        stdout(output, &format!("play {point}\n\n"));
+                    } else {
+                        ok(output, &query.response_id, point);
+                    }
                 } else {
                     stdout(output, "\n");
                 }
                 query.final_received = true;
             }
         }
-        if query.final_received && (query.stop_ids.is_empty() || query.terminate_ack) {
-            for id in &query.stop_ids { ok(output, id, ""); }
-            self.active = None;
+        if query.final_received {
+            // Its response is complete: `stop`s settled meanwhile come first.
+            for id in self.settled.drain(..) { ok(output, &id, ""); }
+            if query.stop_ids.is_empty() || query.terminate_ack {
+                for id in &query.stop_ids { ok(output, id, ""); }
+                self.active = None;
+            }
         }
         Ok(())
     }

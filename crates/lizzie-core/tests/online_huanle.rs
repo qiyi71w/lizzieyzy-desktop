@@ -4,7 +4,7 @@
 use std::time::{Duration, Instant};
 
 use lizzie_core::online::huanle::Session;
-use lizzie_core::online::{Connect, Frame, HttpReply, SourceUpdate, Step};
+use lizzie_core::online::{Connect, Frame, HttpReply, OnlineText, SourceUpdate, Step};
 use lizzie_core::record::{GameRecord, NodeId, NodeKind, Point, SourceAction, Stone, ROOT};
 
 const REFRESH: Duration = Duration::from_secs(5);
@@ -250,6 +250,18 @@ fn tencent_link_stops_on_a_reply_it_cannot_read() {
 }
 
 #[test]
+fn tencent_link_stops_on_a_failed_reply_even_when_its_body_reads() {
+    let q = query(&[("gametag", "abc"), ("uin", "42")]);
+    let (mut s, step) = Session::new(&q, Some("http://example.invalid/r"), REFRESH);
+    let purpose = step.fetch[0].purpose;
+    let body = r#"jQuery1({"result":0,"ResultID":0,"ShowType":2,"ShowID":"77","CreateTime":1600000000})"#;
+    let step = s.on_http(purpose, &HttpReply::Ok { status: 503, body: body.into() });
+    assert!(step.connect.is_none());
+    let expected = OnlineText::with("Online.text", ["拉取异常: HTTP 503".to_string()]);
+    assert!(matches!(step.updates.as_slice(), [SourceUpdate::Stopped(t)] if *t == expected), "{:?}", step.updates);
+}
+
+#[test]
 fn follow_requests_start_one_second_after_the_first_reply_then_every_refresh() {
     let mut s = fox();
     let before = Instant::now();
@@ -393,4 +405,16 @@ fn ended_broadcast_downloads_the_record() {
     assert_eq!(finished(&step), None, "the record's RE is not written to the live end like 7185");
 
     assert!(s.on_closed(None).connect.is_none());
+}
+
+#[test]
+fn a_failed_record_download_is_no_record_even_when_its_body_reads() {
+    let mut s = fox();
+    let step = s.on_binary(&broadcast(true, 23409, &[new_game(19, 0, 650, 0)]));
+    let [need] = step.fetch.as_slice() else { panic!("one record download") };
+    let body = "jQuery1(\"(;GM[1]FF[4]SZ[19];B[pd];W[dd])\",\"extra\")".to_string();
+    let step = s.on_http(need.purpose, &HttpReply::Ok { status: 500, body });
+    assert!(!step.updates.iter().any(|u| matches!(u, SourceUpdate::Game { .. })), "{:?}", step.updates);
+    let expected = OnlineText::with("YikeLiveDialog.syncFailed", ["HTTP 500".to_string()]);
+    assert!(matches!(step.updates.as_slice(), [SourceUpdate::Status(t)] if *t == expected), "{:?}", step.updates);
 }

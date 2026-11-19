@@ -200,14 +200,20 @@ impl Workbench {
         None
     }
 
-    /// The foreground engine is there and not held by a game, a borrowed search, an
-    /// unrestored state or a mode that moves it (`beginEngineModeReservation`,
-    /// `desktopPlayingProbe`).
+    /// The foreground engine is there, done starting, and not held by a game, a borrowed
+    /// search, an unrestored state or a mode that moves it (`beginEngineModeReservation`,
+    /// `desktopPlayingProbe`). An engine still starting is a switch or restart that has not
+    /// completed: Java's lifecycle reservation refuses the 试下 until it has. That holds while GMA
+    /// is armed as well, whose availability (`ReadBoardGma`) answers before the engine's start-up.
+    /// A Fox session owns the board from the moment it listens, before it takes the engine; the
+    /// desktop gate (`fox_gate`) refuses changes then, and so does this entry (Java admits the 试下
+    /// there).
     fn web_trial_engine_free(&self) -> bool {
+        // Missing or still starting: `foreground_complete` (availability answers `ReadBoardGma`
+        // before `EngineNotReady`).
         let held = matches!(
             self.engines.lease_availability(),
-            LeaseAvailability::NoForegroundEngine
-                | LeaseAvailability::ExistingLease
+            LeaseAvailability::ExistingLease
                 | LeaseAvailability::EngineStateUnrestored
                 | LeaseAvailability::PlayMode
                 | LeaseAvailability::HumanSlGame
@@ -215,7 +221,10 @@ impl Workbench {
         );
         // A GMA hand or its restore holds `readBoardGmaReservation` (Leelaz.java:15201-15205).
         !held
+            && self.engines.foreground_complete()
             && !self.readboard.gma.reserved()
+            && !self.fox_owns_board()
+            && !self.fox_holds_engine()
             && !self.game_active()
             && !self.match_active()
             && !self.human_sl_active()
@@ -316,7 +325,8 @@ impl Workbench {
 
     /// Ends a running 试下 (`exitTrial` / `forceExitTrial`): a placeholder it added goes where
     /// nothing was played beside it (`cleanupMainlineDummy`), browsing returns to the anchor and
-    /// the engine follows. Returns whether one ran.
+    /// the engine follows; GMA parameters that could not be given back during the 试下 go back
+    /// now. Returns whether one ran.
     fn end_web_trial(&mut self) -> bool {
         let Some(t) = self.web_board.trial.take() else {
             return false;
@@ -330,6 +340,7 @@ impl Workbench {
             }
             self.web_trial_land(t.anchor);
         }
+        self.gma_restore_deferred();
         true
     }
 
@@ -367,7 +378,7 @@ impl Workbench {
                 op: GameCommand::Start { .. } | GameCommand::Continue { .. },
             }
             | Command::Match {
-                op: MatchCommand::Start { .. },
+                op: MatchCommand::Start { .. } | MatchCommand::StartToolbar,
             }
             | Command::HumanSl {
                 op: HumanSlCommand::Start { .. },

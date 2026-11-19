@@ -59,11 +59,21 @@ impl Harness {
         panic!("controlled engine did not quiesce");
     }
     fn prepare(&mut self) { self.wb.fox(FoxCommand::Prepare).unwrap(); self.serve(None); assert!(self.wb.inspect().fox.can_start); }
+    /// Starts Fox on a loopback port that was free when picked. The product binds the port it is
+    /// given (never 0), so between picking and binding another program may take it: only that
+    /// explicit `Fox.portBusy` picks another port; any other outcome stands.
     fn start(&mut self) {
         self.prepare();
-        let probe=TcpListener::bind(("127.0.0.1",0)).unwrap(); let port=probe.local_addr().unwrap().port(); drop(probe);
         let document=self.wb.document(); let (document,revision)=(document.id,document.revision);
-        self.wb.fox(FoxCommand::Start { port,max_time:12.5,max_visits:500,warning_confirmed:true,replace:FoxReplaceChoice::Replace,document,revision }).unwrap();
+        let busy=Some(FoxStartOutcome::Failed { message_key: "Fox.portBusy".into() });
+        let mut attempt=0;
+        let port=loop {
+            attempt+=1;
+            let probe=TcpListener::bind(("127.0.0.1",0)).unwrap(); let port=probe.local_addr().unwrap().port(); drop(probe);
+            self.wb.fox(FoxCommand::Start { port,max_time:12.5,max_visits:500,warning_confirmed:true,replace:FoxReplaceChoice::Replace,document,revision }).unwrap();
+            if self.wb.inspect().fox.outcome!=busy { break port; }
+            assert!(attempt<20, "every port picked was taken before Fox bound it");
+        };
         self.serve(None); assert!(self.wb.inspect().fox.listening); assert!(!self.wb.inspect().fox.ready);
         let peer=TcpStream::connect(("127.0.0.1",port)).unwrap(); peer.set_nonblocking(true).unwrap(); peer.set_nodelay(true).unwrap(); self.peer=Some(peer);
         self.wait_for(|h| h.wb.inspect().fox.connection != 0);
@@ -135,6 +145,20 @@ fn stop_invalidates_late_choice_and_confirms_rules_limits_no_clock_and_position_
     assert_eq!(h.params["maxTime"],"12.5"); assert_eq!(h.params["maxVisits"],"999");
     assert!(h.sent.iter().any(|c|c=="kata-time_settings none"));
     assert!(!h.received.iter().any(|s|s.starts_with("AFPLAY")));
+}
+#[test]
+fn a_web_viewer_cannot_take_the_board_while_fox_listens_before_its_first_position() {
+    use lizzie_core::web_board::ClientMessage;
+    let mut h=Harness::new(); h.wb.web_board_started(1,"http://127.0.0.1:9998".into()); h.start();
+    let enter=|h:&mut Harness| h.wb.web_board_message(1,ClientMessage::EnterTrial{client:"viewer".into()},Instant::now());
+    let before=(h.wb.document().id,h.wb.document().revision,h.wb.cursor(),h.wb.document().record.node(ROOT).children.len());
+    // The desktop already refuses changes to the board Fox owns; the viewer entry does the same.
+    let denied=enter(&mut h).expect("refused while Fox owns the board");
+    assert!(denied.contains(r#""reason":"engine_busy""#),"{denied}");
+    assert_eq!((h.wb.document().id,h.wb.document().revision,h.wb.cursor(),h.wb.document().record.node(ROOT).children.len()),before);
+    h.wb.fox(FoxCommand::Stop).unwrap(); h.serve(None); h.pump();
+    assert!(!h.wb.inspect().fox.owns_board);
+    assert_eq!(enter(&mut h),None,"after Fox stops the 试下 is admitted again");
 }
 #[test]
 fn restore_refusal_keeps_engine_unavailable_and_preserves_confirmed_history() {
@@ -369,4 +393,81 @@ fn an_online_follow_does_not_write_into_the_record_the_fox_session_owns() {
     let (doc,revision)=(h.wb.document().id,h.wb.document().revision);
     let r=next_read(&mut h.wb); h.wb.online_http(r, HttpReply::Ok{status:200, body:detail(";B[pd];W[dp]")});
     assert_eq!((h.wb.document().id,h.wb.document().revision),(doc,revision), "the record the Fox session owns is untouched");
+}
+
+#[test]
+fn confirmed_fox_moves_form_the_main_line_while_a_board_sync_helper_syncs() {
+    // Java appends confirmed actions through BoardHistoryList.place (FoxLiveSession.appendConfirmed),
+    // not Board.place, so 棋盘同步工具's one-way sync never turns them into a variation.
+    use lizzie_core::{api::ReadBoardCommand, readboard::HelperInput, record::{NodeKind, Stone}};
+    let mut h=Harness::new();
+    let base=h.dir.path().join("app"); std::fs::create_dir_all(base.join("readboard")).unwrap();
+    std::fs::write(base.join("readboard").join("readboard.exe"), b"helper").unwrap();
+    let launched=Arc::new(Mutex::new(None));
+    h.wb.set_readboard_host(Box::new(Helper(launched.clone())), vec![base]);
+    assert_eq!(h.wb.readboard(ReadBoardCommand::Open).unwrap(), CommandResult::Done);
+    let helper=launched.lock().unwrap().expect("the helper started");
+    for line in ["ready","start 19 19","sync"] { h.wb.readboard_input(helper, HelperInput::Line(line.into())); }
+    h.serve(None);
+    h.start(); h.initialize(); h.choose("R16"); h.send(&["FAMOVE,0,B,1^16^3^B"]);
+    h.wait_for(|h| h.wb.cursor() != ROOT);
+    let live=h.wb.inspect().fox.live_node;
+    h.send(&["FAMOVE,1,B,2^3^15^W","FATIMELEFT,58,30,3"]);
+    h.wait_for(|h| h.wb.inspect().fox.live_node != live);
+    h.wb.fox(FoxCommand::Stop).unwrap(); h.serve(None); h.pump();
+    assert!(!h.wb.inspect().fox.owns_board);
+    let rec=&h.wb.document().record;
+    let mut main=Vec::new(); let mut at=ROOT;
+    while let Some(next)=rec.main_child(at) { assert_eq!(rec.node(at).children.len(), 1, "no variation beside the confirmed line"); main.push(rec.node(next).kind.clone()); at=next; }
+    assert_eq!(main, vec![
+        NodeKind::Move { color: Stone::Black, point: Point { x: 16, y: 3 } },
+        NodeKind::Move { color: Stone::White, point: Point { x: 3, y: 15 } },
+    ]);
+}
+
+#[test]
+fn saving_while_fox_listens_writes_the_analysis_comments_and_keeps_fox_ownership() {
+    // Java's save writes comments straight into the nodes (SGFParser.prepareCommentForSave),
+    // outside FoxLiveSession.rejectOrdinaryMutation; ordinary edits stay refused.
+    use lizzie_core::workbench::OpenOrigin;
+    let mut h=Harness::new();
+    let text="(;SZ[19]KM[7.5];B[pd]LZ[b18 48.0 80 0.5 0.5 0 rootVisits=80\nmove D4 visits 80 winrate 5200 prior 2000 scoreMean 0.5 order 0 pv D4])";
+    let ticket=h.wb.begin_open(OpenOrigin::Clipboard);
+    assert!(h.wb.complete_open(ticket, Workbench::read_clipboard_record(text, false)));
+    h.serve(None);
+    h.wb.set_append_winrate_to_comment(true).unwrap();
+    h.start();
+    assert!(h.wb.inspect().fox.owns_board && h.wb.document().record.has_actions());
+    let job=h.wb.begin_save("out.sgf", "LizzieYzy Tauri:test");
+    let rec=&h.wb.document().record; let moved=rec.main_child(ROOT).unwrap();
+    let comment=rec.node(moved).comment.clone();
+    assert!(!comment.is_empty(), "the move's analysis summary became its comment");
+    assert!(job.text.contains(&format!("C[{comment}]")), "{}", job.text);
+    let revision=h.wb.document().revision;
+    assert!(h.wb.complete_save(job.ticket, Ok(())));
+    assert_eq!(h.wb.document().saved_revision, Some(revision));
+    let fox=h.wb.inspect().fox; assert!(fox.owns_board && fox.listening);
+    assert!(matches!(h.wb.edit(EditCommand::SetComment{node:moved, comment:"mine".into()}).unwrap(), CommandResult::Refused{..}), "ordinary edits stay refused");
+    assert_eq!(h.wb.document().record.node(moved).comment, comment);
+}
+
+#[test]
+fn init_settings_while_fox_listens_are_refused_whole_when_they_change_analysis() {
+    // 初始化设置 is one save (FirstUseSettings): the Fox gate admits or refuses it as a whole.
+    use lizzie_core::settings::Language;
+    let mut h=Harness::new(); h.start();
+    assert!(h.wb.inspect().fox.owns_board);
+    let before=h.wb.config().clone();
+    let mut display=before.display.clone(); display.no_refresh_on_mouse=!display.no_refresh_on_mouse;
+    let mut analysis=before.engine.analysis.clone(); analysis.limit_playout=true; analysis.limit_playouts=23456;
+    let mixed=Command::SaveInitSettings { display:display.clone(), analysis, language:Language::ZhCn };
+    assert_eq!(h.wb.game_gate(&mixed), Some(CommandResult::Refused { message_key:"Fox.conflict".into() }));
+    assert_eq!(h.wb.config(), &before, "a refused 确定 saves nothing");
+    // Display and language alone are admitted and saved together; the unchanged analysis is no part.
+    let plain=Command::SaveInitSettings { display:display.clone(), analysis:before.engine.analysis.clone(), language:Language::ZhCn };
+    assert_eq!(h.wb.game_gate(&plain), None);
+    assert!(h.wb.save_init_settings(display.clone(), before.engine.analysis.clone(), Language::ZhCn).unwrap());
+    let after=h.wb.config();
+    assert_eq!((&after.display, &after.engine.analysis, after.ui.language), (&display, &before.engine.analysis, Language::ZhCn));
+    assert!(h.wb.inspect().fox.owns_board);
 }

@@ -128,11 +128,16 @@ impl Workbench {
         self.shutdown_engines(EngineScope::Current)
     }
 
+    /// The remote compute switch succeeded once the new foreground engine is ready and holds the
+    /// position wished for it (its board sync confirmed): only then the analysis process may
+    /// preload (`preloadQuickAnalysisEngineForKifuBrowsing` after the switch).
     pub(super) fn cloud_activation_settle(&mut self) {
         let Some(id) = self.cloud_activation.as_deref() else { return };
         let Some(fg) = self.engines.foreground() else { return };
         if self.engines.profile_of(fg).is_some_and(|p| p.id == id)
-            && self.engines.phase(fg) == Some(Phase::Ready) {
+            && self.engines.phase(fg) == Some(Phase::Ready)
+            && self.engines.holds_wish(fg)
+        {
             self.cloud_activation = None;
             self.preload_analysis_engine();
         }

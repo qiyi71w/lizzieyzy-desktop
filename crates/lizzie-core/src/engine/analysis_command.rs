@@ -230,10 +230,12 @@ mod tests {
     #[test]
     fn generation_needs_gtp_and_config() {
         let g = from_engine_command("katago gtp -model m.bin.gz -config cfg/gtp.cfg", &[]).unwrap();
-        assert_eq!(
-            g.command,
-            "katago analysis -model m.bin.gz -config cfg/analysis.cfg -quit-without-waiting"
-        );
+        // The config keeps the platform's separator, as Java's Path.resolve does.
+        #[cfg(not(windows))]
+        let expected = "katago analysis -model m.bin.gz -config cfg/analysis.cfg -quit-without-waiting";
+        #[cfg(windows)]
+        let expected = "katago analysis -model m.bin.gz -config cfg\\analysis.cfg -quit-without-waiting";
+        assert_eq!(g.command, expected);
         assert_eq!(
             from_engine_command("katago -config a.cfg", &[]),
             Err("AnalysisEngineCommandHelper.missingGtp")

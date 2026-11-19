@@ -499,10 +499,10 @@ pub enum DocumentEdit {
     /// (`BoardRenderer.addSuggestionAsBranch`): a node without continuation first gets an end
     /// placeholder so the variation stays a side branch; the first move always starts a new
     /// variation, the others follow equal existing moves. Colours alternate from `at`'s side to
-    /// play; an illegal move ends the variation.
+    /// play; `None` is a pass, which takes its turn; an illegal move ends the variation.
     AddBranch {
         at: NodeId,
-        moves: Vec<Point>,
+        moves: Vec<Option<Point>>,
         rules: PlayRules,
     },
     /// The end placeholder (`DD[true]`) that keeps moves added under `at` side branches: with
@@ -558,6 +558,16 @@ pub enum DocumentEdit {
     /// 黑先 / 白先 of the starting position.
     SetupSideToPlay {
         color: Stone,
+    },
+    /// A setup snapshot added as the last child of `at` (any node, unlike the starting-position
+    /// setup): its net `setup`, side to play and `PL`, as a node of another record had them. A
+    /// new game replayed from a node after setup stones (人机续弈, 比赛 SGF 开局 / 固定当前局面)
+    /// keeps them this way. Returns the new node.
+    AppendSnapshot {
+        at: NodeId,
+        setup: Setup,
+        to_play: Stone,
+        explicit_to_play: Option<Stone>,
     },
     /// The position at `node` becomes the root position; all moves are discarded.
     ConvertToStartingPosition {

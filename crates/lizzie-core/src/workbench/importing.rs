@@ -73,7 +73,7 @@ impl Workbench {
             contribution_credential: candidate.contribution_credential(),
             quick_link_credential: candidate.mapped.quick_link_credential,
             cloud_credentials: candidate.cloud_credentials.clone(),
-            replaces: self.java_import_replaces(&candidate),
+            replaces: self.java_import_preview_replaces(&candidate),
             replaced_themes: crate::appearance::replaced_themes(&self.storage, &candidate.mapped.themes),
             // As choosing the slots would import them; the report shows the choice made.
             recovery: slots::after(&candidate.slots, true),
@@ -163,8 +163,9 @@ impl Workbench {
             self.java_preview = Some((id, candidate));
             return Ok(Err(IMPORT_STALE));
         }
-        // Settings may have changed since the preview was made.
-        if !replace && !self.java_import_replaces(&candidate).is_empty() {
+        // Settings may have changed since the preview was made; checked for the credentials
+        // actually chosen, as they decide which engines are written.
+        if !replace && !self.java_import_replaces(&candidate, copy_credentials).is_empty() {
             self.java_preview = Some((id, candidate));
             return Ok(Err(IMPORT_NEEDS_REPLACE));
         }
@@ -195,15 +196,15 @@ impl Workbench {
             }
         };
         // After "重置界面位置" the persist file stays deleted until the next start
-        // (`Config.deletePersist`), except for the folder the user imports now: it is written
-        // alone, without the placement that was reset.
-        let persist_write = if self.persist_reset {
-            candidate.mapped.last_folder.as_ref().map(|_| settings::Persisted {
-                window: None,
-                ..persisted.clone()
-            })
-        } else {
-            (persisted != self.persisted).then(|| persisted.clone())
+        // (`Config.deletePersist`), except for what the user imports: each import is written over
+        // what earlier imports of this session wrote there (the defaults at first), without the
+        // placement that was reset.
+        let persist_write = match &self.persist_reset {
+            Some(written) => {
+                let imported = candidate.mapped.persisted_after(written);
+                (imported != *written).then_some(imported)
+            }
+            None => (persisted != self.persisted).then(|| persisted.clone()),
         };
         let chosen: Vec<&slots::JavaSlot> = match recovery {
             Some(_) => candidate.slots.iter().filter(|s| s.importable()).collect(),
@@ -241,6 +242,9 @@ impl Workbench {
                 format!("saving imported settings failed: {e}"),
             ));
         }
+        if let (Some(written), Some(imported)) = (self.persist_reset.as_mut(), persist_write) {
+            *written = imported;
+        }
         images.keep();
         models.keep();
         if themes.keep() {
@@ -254,6 +258,7 @@ impl Workbench {
         self.config = config;
         self.reload_appearance_theme();
         self.logging_replaced();
+        self.readboard_settings_changed();
         self.update_settings_replaced(previous_update);
         self.persisted = persisted;
         self.new_profile = false;
@@ -296,13 +301,27 @@ impl Workbench {
         }))
     }
 
-    /// Settings of this product the candidate would change (see [`crate::java_import::Mapped::replaces`]),
-    /// and this product's themes its theme folders would replace.
-    fn java_import_replaces(&self, candidate: &Candidate) -> Vec<crate::api::ImportTarget> {
+    /// Settings of this product the candidate would change with the credentials in
+    /// `copy_credentials` (see [`crate::java_import::Mapped::replaces`]), and this product's
+    /// themes its theme folders would replace.
+    fn java_import_replaces(&self, candidate: &Candidate, copy_credentials: &[u32]) -> Vec<crate::api::ImportTarget> {
         let has_settings = self.storage.config_file.exists();
-        let mut out = candidate.mapped.replaces(&self.config, &self.persisted, has_settings);
+        let mut out = candidate.mapped.replaces(&self.config, &self.persisted, has_settings, copy_credentials);
         if !crate::appearance::replaced_themes(&self.storage, &candidate.mapped.themes).is_empty() {
             out.push(crate::api::ImportTarget::Themes);
+        }
+        out
+    }
+
+    /// What the preview offers to replace: the credentials are chosen after it, so everything
+    /// copying none or all of them would replace (any other choice keeps a subset of the
+    /// engines, so it changes the same settings).
+    fn java_import_preview_replaces(&self, candidate: &Candidate) -> Vec<crate::api::ImportTarget> {
+        let mut out = self.java_import_replaces(candidate, &candidate.credential_engines());
+        for target in self.java_import_replaces(candidate, &[]) {
+            if !out.contains(&target) {
+                out.push(target);
+            }
         }
         out
     }

@@ -7,13 +7,18 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use lizzie_core::api::GameCommand;
+use lizzie_core::browse::Navigation;
 use lizzie_core::engine::cloud::{CloudConnectError, CloudConnector, CloudLaunch, CloudProvider, SocketCredentials, SocketTokenSource};
-use lizzie_core::engine::gtp::{parse_info, Dialect};
-use lizzie_core::engine::runtime::{EngineInput, EngineIo};
-use lizzie_core::record::BoardSize;
+use lizzie_core::engine::gtp::{parse_info, Dialect, Frame, Framer};
+use lizzie_core::engine::runtime::{EngineInput, EngineIo, FocusCapability};
+use lizzie_core::record::{BoardSize, Point, ROOT};
 use lizzie_core::settings::{NetworkSettings, ProxyMode};
 use serde_json::{json, Value};
 use tokio_tungstenite::tungstenite::{accept, Message, WebSocket};
+
+#[path = "cloud_transport/workbench.rs"]
+mod workbench;
 
 type Peer = WebSocket<TcpStream>;
 
@@ -89,7 +94,10 @@ impl Running {
     }
     fn send(&mut self, line: &str) { self.io.as_mut().unwrap().send(line).unwrap(); }
     fn until(&self, predicate: impl Fn(&EngineInput) -> bool) -> Vec<EngineInput> {
-        let deadline = Instant::now() + Duration::from_secs(8);
+        self.until_within(Duration::from_secs(8), predicate)
+    }
+    fn until_within(&self, limit: Duration, predicate: impl Fn(&EngineInput) -> bool) -> Vec<EngineInput> {
+        let deadline = Instant::now() + limit;
         let mut received = Vec::new();
         loop {
             let event = self.events.recv_timeout(deadline.saturating_duration_since(Instant::now())).unwrap();
@@ -209,7 +217,9 @@ fn custom_genmove_snapshots_budget_and_updates_moves_without_accepting_invalid_p
         let next: Value = serde_json::from_str(&text(&mut peer)).unwrap();
         assert_eq!(next["moves"], json!([["W","pass"]]));
         assert_eq!(next["maxVisits"], 10_000_000);
-        write(&mut peer, json!({"id":next["id"],"isDuringSearch":false,"moveInfos":[]}));
+        // The client may already be stopped (it only waits for "=6"); on Windows this late answer
+        // can then fail with ConnectionAborted.
+        let _ = peer.send(Message::Text(json!({"id":next["id"],"isDuringSearch":false,"moveInfos":[]}).to_string().into()));
         let _ = peer.read();
     });
     let mut engine = Running::custom(url);
@@ -230,7 +240,8 @@ fn custom_loadsgf_snapshot_preserves_komi_player_stones_and_rectangular_coordina
         assert_eq!(query["initialPlayer"], "W"); assert_eq!(query["komi"], 0.5);
         assert_eq!(query["initialStones"], json!([["B","A7"],["W","J1"]]));
         assert_eq!(query["boardXSize"], 9); assert_eq!(query["boardYSize"], 7);
-        write(&mut peer, json!({"id":query["id"],"isDuringSearch":false,"moveInfos":[]}));
+        // Answers the analysis begun by "2 kata-analyze": the client may already be stopped.
+        let _ = peer.send(Message::Text(json!({"id":query["id"],"isDuringSearch":false,"moveInfos":[]}).to_string().into()));
         let _ = peer.read();
     });
     let mut engine = Running::custom(url);
@@ -244,7 +255,8 @@ fn custom_rejects_unsupported_commands_and_zero_liberty_setup_without_mutating_p
     let (url, peer) = server(|mut peer| {
         let query: Value = serde_json::from_str(&text(&mut peer)).unwrap();
         assert_eq!(query["initialStones"], json!([["B","A1"]]));
-        write(&mut peer, json!({"id":query["id"],"isDuringSearch":false,"moveInfos":[]}));
+        // Answers the analysis begun by "7 kata-analyze": the client may already be stopped.
+        let _ = peer.send(Message::Text(json!({"id":query["id"],"isDuringSearch":false,"moveInfos":[]}).to_string().into()));
         let _ = peer.read();
     });
     let mut engine = Running::custom(url);
@@ -313,6 +325,16 @@ fn zhizi_waits_for_real_ready_and_decodes_text_binary_chunks_and_heartbeats() {
     engine.stop(); peer.join().unwrap();
 }
 
+/// Lets the blocked token resolver go when dropped, so every exit of a test (a failed assertion
+/// too) releases it before the engine is dropped and joins it.
+struct Release(mpsc::Sender<()>);
+
+impl Drop for Release {
+    fn drop(&mut self) {
+        let _ = self.0.send(());
+    }
+}
+
 #[test]
 fn cancelling_during_token_resolution_cannot_open_a_late_socket_or_emit_failure() {
     let (entered_tx, entered) = mpsc::channel();
@@ -325,10 +347,21 @@ fn cancelling_during_token_resolution_cannot_open_a_late_socket_or_emit_failure(
         entered_tx.send(()).unwrap(); release.lock().unwrap().recv().unwrap();
         Ok(SocketCredentials { socket_url: format!("ws://{address}"), token: "secret".into() })
     }));
+    // Declared after `engine`, so dropped (and the resolver let go) before it.
+    let resolver = Release(release_tx);
     entered.recv_timeout(Duration::from_secs(4)).unwrap();
-    let started = Instant::now(); engine.stop();
-    assert!(started.elapsed() < Duration::from_millis(100));
-    release_tx.send(()).unwrap();
+    // `stop` returns while the resolver is still held. One that waited for the resolver is let
+    // go after ten seconds, and the test fails instead of hanging.
+    let (returned_tx, returned) = mpsc::channel::<()>();
+    let rescue = resolver.0.clone();
+    let watchdog = thread::spawn(move || {
+        matches!(returned.recv_timeout(Duration::from_secs(10)), Err(mpsc::RecvTimeoutError::Timeout)) && rescue.send(()).is_ok()
+    });
+    engine.stop();
+    returned_tx.send(()).unwrap();
+    let waited = watchdog.join().unwrap();
+    assert!(!waited, "stop waited for the token resolver");
+    drop(resolver);
     drop(engine.io.take());
     // Joining the worker and token resolver proves that there is no deferred socket use.
     for handle in std::mem::take(&mut *engine.endings.lock().unwrap()) { handle.join().unwrap(); }
@@ -390,33 +423,45 @@ fn launch_and_socket_credentials_debug_never_reveal_secrets() {
 #[test]
 fn raw_analysis_and_repeated_accepted_totals_do_not_keep_a_stalled_zhizi_session_alive() {
     let (started_tx, started) = mpsc::channel();
+    let gave_up = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let fixture_gave_up = gave_up.clone();
     let (url, peer) = server(move |mut peer| {
         socketio_ready(&mut peer);
         assert!(text(&mut peer).contains("kata-analyze"));
         started_tx.send(()).unwrap();
-        // A peer can keep producing bytes while the current board rejects every result.
-        for _ in 0..230 {
+        // A peer keeps producing bytes, and stays connected, while the current board rejects
+        // every result: only the client ends the connection, well within this minute.
+        for _ in 0..600 {
             if peer.send(Message::Text("42[\"stdout\",\"info move D4 visits 100 winrate 0.5\\n\"]".into())).is_err() { return; }
             thread::sleep(Duration::from_millis(100));
         }
+        fixture_gave_up.store(true, std::sync::atomic::Ordering::SeqCst);
     });
     let mut engine = Running::zhizi(url);
     engine.send("1 kata-analyze B 50");
     started.recv_timeout(Duration::from_secs(4)).unwrap();
+    // The 20 seconds without new accepted progress count from this report…
+    let accepted = Instant::now();
     engine.io.as_mut().unwrap().analysis_progress_accepted(100);
-    let start = Instant::now();
-    let mut repeated = false;
-    loop {
-        if !repeated && start.elapsed() > Duration::from_secs(10) {
+    // …and a later report of the same total does not restart them.
+    let mut repeated = None;
+    let _recovery = loop {
+        if repeated.is_none() && accepted.elapsed() > Duration::from_secs(10) {
+            repeated = Some(Instant::now());
             engine.io.as_mut().unwrap().analysis_progress_accepted(100);
-            repeated = true;
         }
-        let event = engine.events.recv_timeout(Duration::from_secs(24).saturating_sub(start.elapsed())).unwrap();
-        if matches!(event, EngineInput::CloudRecovery { .. }) { break; }
-    }
-    assert!(repeated);
-    assert!(start.elapsed() >= Duration::from_secs(19));
-    assert!(start.elapsed() < Duration::from_secs(24));
+        let wait = if repeated.is_none() { Duration::from_millis(100) } else { Duration::from_secs(90) };
+        match engine.events.recv_timeout(wait) {
+            Ok(EngineInput::CloudRecovery { message }) => break message,
+            Ok(_) | Err(mpsc::RecvTimeoutError::Timeout) if repeated.is_none() => {}
+            Ok(_) => {}
+            Err(error) => panic!("no recovery: {error:?}"),
+        }
+    };
+    let at = Instant::now();
+    assert!(!gave_up.load(std::sync::atomic::Ordering::SeqCst), "the fixture ended the connection first");
+    assert!(at >= accepted + Duration::from_secs(20), "before 20 seconds without progress");
+    assert!(at < repeated.unwrap() + Duration::from_secs(20), "the repeated total restarted the 20 seconds");
     engine.stop(); peer.join().unwrap();
 }
 
@@ -446,9 +491,14 @@ fn cancel_during_ready_wait_closes_connection_without_flushing_queued_gtp() {
         assert_eq!(text(&mut peer), "40");
         peer.send(Message::Text("40{}".into())).unwrap();
         connected_tx.send(()).unwrap();
+        // Only the client's close, or the end of its connection, counts; the fixture's own read
+        // timeout does not.
+        use tokio_tungstenite::tungstenite::{error::ProtocolError, Error};
         match peer.read() {
-            Err(_) | Ok(Message::Close(_)) => {},
-            other => panic!("cancelled startup sent GTP: {other:?}"),
+            Ok(Message::Close(_))
+            | Err(Error::ConnectionClosed | Error::AlreadyClosed | Error::Protocol(ProtocolError::ResetWithoutClosingHandshake)) => {},
+            Err(Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted | std::io::ErrorKind::UnexpectedEof) => {},
+            other => panic!("the cancelled startup did not close its connection: {other:?}"),
         }
     });
     let mut engine = Running::zhizi(url);
@@ -499,6 +549,9 @@ fn accept_bounded(listener: &TcpListener) -> TcpStream {
     loop {
         match listener.accept() {
             Ok((stream, _)) => {
+                // Winsock hands the listener's non-blocking mode to the accepted socket; the
+                // fixture reads it synchronously, bounded by the timeouts below.
+                stream.set_nonblocking(false).unwrap();
                 stream.set_read_timeout(Some(Duration::from_secs(8))).unwrap();
                 stream.set_write_timeout(Some(Duration::from_secs(8))).unwrap();
                 return stream;
@@ -613,7 +666,9 @@ fn invalid_or_unreachable_manual_proxy_never_falls_through_to_the_destination() 
         }] {
             let mut engine = Running::network(provider, format!("ws://{}/private-link", destination.local_addr().unwrap()), settings);
             engine.send("1 name");
-            let events = engine.until(|event| matches!(event, EngineInput::Exited(None)));
+            // Windows takes about 2 s to refuse a closed loopback port, and Zhizi makes three
+            // attempts with 1.5 s + 4 s backoff between them (cloud.rs run_zhizi): about 11.6 s.
+            let events = engine.until_within(Duration::from_secs(20), |event| matches!(event, EngineInput::Exited(None)));
             for event in events {
                 if let EngineInput::Stderr(message) = event {
                     for secret in ["private-user", "private-password", "private-proxy", "private-link", "private-socket-token", "ws://"] {
@@ -746,4 +801,302 @@ fn unavailable_network_snapshot_fails_closed_without_disclosing_its_error() {
         assert!(!events.iter().any(|event| matches!(event, EngineInput::Stderr(message) if message.contains("private-proxy-password"))));
         assert!(matches!(destination.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock));
     }
+}
+
+fn stdout_lines(events: Vec<EngineInput>) -> Vec<String> {
+    events.into_iter().filter_map(|event| match event { EngineInput::Stdout(line) => Some(line), _ => None }).collect()
+}
+
+/// What the runtime's framer makes of `lines`.
+fn frames(lines: &[String]) -> Vec<Frame> {
+    let (mut framer, mut out) = (Framer::default(), Vec::new());
+    for line in lines { framer.feed(line, &mut out); }
+    out
+}
+
+/// `stop`, `play` and a new analysis sent back to back while the peer holds the stopped query's
+/// final result and its terminate ack: the old stream ends and the later commands are answered
+/// (the new node gets its own query), but the `stop` succeeds only on its matching ack
+/// (Java `completeStoppedQueryIfReady`), once, and as its own response: one settled while the
+/// new stream's response is open is answered when it ends, before the command that ends it.
+/// Reports before and after the ack belong to the new query. A refused terminate fails the
+/// transport as Java's `failActiveQuery` does: the `stop` is never answered with success.
+#[test]
+fn custom_commands_after_an_unconfirmed_stop_run_while_the_stop_waits_for_its_ack() {
+    let report = |id: &Value, mv: &str| json!({"id": id, "isDuringSearch": true,
+        "moveInfos": [{"move": mv, "visits": 5, "winrate": 0.5, "scoreLead": 0.0, "prior": 0.1, "order": 0, "pv": [mv]}],
+        "rootInfo": {"visits": 5, "winrate": 0.5, "scoreLead": 0.0}});
+    for refuse in [false, true] {
+        let (release, released) = mpsc::channel::<()>();
+        let (url, peer) = server(move |mut peer| {
+            let first: Value = serde_json::from_str(&text(&mut peer)).unwrap();
+            let terminate: Value = serde_json::from_str(&text(&mut peer)).unwrap();
+            assert_eq!(terminate["terminateId"], first["id"]);
+            // The stop's terminate is still unanswered; the next query needs no second terminate.
+            let next: Value = serde_json::from_str(&text(&mut peer)).unwrap();
+            assert!(next.get("action").is_none(), "{next}");
+            assert_eq!(next["moves"], json!([["B", "D4"]]));
+            write(&mut peer, report(&next["id"], "Q16"));
+            released.recv().unwrap();
+            if refuse {
+                write(&mut peer, report(&next["id"], "R4"));
+                write(&mut peer, json!({"id": terminate["id"], "error": "terminate refused"}));
+                let _ = peer.read();
+                return;
+            }
+            write(&mut peer, json!({"id": first["id"], "isDuringSearch": false, "moveInfos": [], "rootInfo": {"visits": 0}}));
+            write(&mut peer, json!({"id": terminate["id"], "action": "terminate", "terminateId": first["id"]}));
+            // A repeated ack settles nothing more.
+            write(&mut peer, json!({"id": terminate["id"], "action": "terminate", "terminateId": first["id"]}));
+            write(&mut peer, report(&next["id"], "R4"));
+            // `name` ends the new stream.
+            let second: Value = serde_json::from_str(&text(&mut peer)).unwrap();
+            assert_eq!(second["terminateId"], next["id"]);
+            let _ = peer.read();
+        });
+        let mut engine = Running::custom(url);
+        engine.send("1 kata-analyze B 50");
+        let mut lines = stdout_lines(engine.stdout("=1"));
+        engine.send("2 stop");
+        engine.send("3 play B D4");
+        let answered = stdout_lines(engine.stdout("=3"));
+        assert!(answered.iter().any(|l| l.is_empty()), "the old stream ends before `play` is answered: {answered:?}");
+        lines.extend(answered);
+        engine.send("4 kata-analyze W 50");
+        lines.extend(stdout_lines(engine.until(|e| matches!(e, EngineInput::Stdout(l) if l.starts_with("info move Q16")))));
+        assert!(!lines.iter().any(|l| l.starts_with("=2") || l.starts_with("?2")), "the stop is unconfirmed: {lines:?}");
+        assert!(lines.iter().any(|l| l == "=4"), "{lines:?}");
+
+        release.send(()).unwrap();
+        if refuse {
+            lines.extend(stdout_lines(engine.until(|e| matches!(e, EngineInput::Exited(_)))));
+            assert!(!lines.iter().any(|l| l.starts_with("=2")), "a refused stop is no success: {lines:?}");
+        } else {
+            lines.extend(stdout_lines(engine.until(|e| matches!(e, EngineInput::Stdout(l) if l.starts_with("info move R4")))));
+            engine.send("5 name");
+            lines.extend(stdout_lines(engine.stdout("=5 KataGo")));
+            lines.extend(stdout_lines(engine.stdout("")));
+        }
+        let frames = frames(&lines);
+        let info: Vec<(u64, &str)> = frames.iter().filter_map(|f| match f {
+            Frame::Info { id, line } => Some((*id, line.split_whitespace().nth(2)?)),
+            _ => None,
+        }).collect();
+        assert_eq!(info, [(4, "Q16"), (4, "R4")], "both reports belong to the new query: {lines:?}");
+        let responses: Vec<u64> = frames.iter().filter_map(|f| match f { Frame::Response { id, ok: true, .. } => Some(*id), _ => None }).collect();
+        let expected: &[u64] = if refuse { &[1, 3] } else { &[1, 3, 4, 2, 5] };
+        assert_eq!(responses, expected, "the stop settles once, as its own response, before `name`: {lines:?}");
+        engine.stop(); peer.join().unwrap();
+    }
+}
+
+/// Through the workbench (the product framer): a console `stop` waits on the peer, the next
+/// console command ends that stream, and the engine moves on to the next node (`play`, then a new
+/// analysis). The peer answers the new query, then settles the old stop, then answers the new
+/// query again: both reports belong to the new node, and the old `stop` is answered once, by
+/// itself.
+#[test]
+fn custom_engine_keeps_a_late_stop_confirmation_out_of_the_next_analysis() {
+    let report = |id: &Value, mv: &str, visits: u32| json!({"id": id, "isDuringSearch": true,
+        "moveInfos": [{"move": mv, "visits": visits, "winrate": 0.5, "scoreLead": 0.0, "prior": 0.1, "order": 0, "pv": [mv]}],
+        "rootInfo": {"visits": visits, "winrate": 0.5, "scoreLead": 0.0}});
+    let (mut first, mut stop) = (None::<Value>, None::<Value>);
+    let peer = workbench::peer(move |v| {
+        if v["action"] == "terminate" {
+            if first.as_ref() == Some(&v["terminateId"]) && stop.is_none() {
+                stop = Some(v.clone());
+                return Vec::new();
+            }
+            return workbench::terminate_only(v);
+        }
+        let Some(old) = first.clone() else {
+            first = Some(v["id"].clone());
+            return Vec::new();
+        };
+        let stop = stop.as_ref().expect("the old query was stopped first");
+        vec![
+            report(&v["id"], "D4", 50),
+            json!({"id": old, "isDuringSearch": false, "moveInfos": [], "rootInfo": {"visits": 0}}),
+            json!({"id": stop["id"], "action": "terminate", "terminateId": old}),
+            report(&v["id"], "R4", 80),
+        ]
+    });
+    let mut b = workbench::bench();
+    b.open("(;SZ[19];B[pd];W[dd])");
+    b.wb.navigate(Navigation::First);
+    b.activate_custom(&peer.url);
+    assert!(b.pump_until(Duration::from_secs(10), |wb| workbench::ready(wb) && !peer.queries().is_empty()));
+    let old = peer.queries()[0]["id"].clone();
+
+    assert_eq!(b.wb.send_gtp("stop").unwrap(), None);
+    assert!(b.pump_until(Duration::from_secs(10), |_| peer.terminated().contains(&old)));
+    b.wb.navigate(Navigation::Forward(1));
+    assert_eq!(b.wb.send_gtp("name").unwrap(), None);
+    let mut seen = Vec::new();
+    let r4 = Point { x: 16, y: 15 };
+    let reached = b.pump_until(Duration::from_secs(10), |wb| {
+        let best = wb.view(false).analysis.and_then(|a| a.candidates.first().map(|c| (c.point, c.visits)));
+        if let Some(best) = best.filter(|best| seen.last() != Some(best)) { seen.push(best); }
+        best.is_some_and(|(point, _)| point == Some(r4))
+    });
+    assert!(reached, "the report after the old stop's confirmation reaches the new node: {seen:?}");
+    assert_eq!(seen, [(Some(d4()), 50), (Some(r4), 80)], "both reports belong to the new node");
+    let queries = peer.queries();
+    assert_eq!(queries.len(), 2);
+    assert_eq!(queries[1]["moves"], json!([["B", "Q16"]]));
+
+    // The old stop is answered as its own response (`=<n>`, right before the console `name`'s
+    // `=<n+1> KataGo`, the last one) once the new stream's response is complete: pausing stops
+    // the new query, whose final result closes it.
+    let output = |wb: &lizzie_core::workbench::Workbench| -> Vec<String> {
+        wb.console_since(0).into_iter()
+            .filter(|l| l.kind == lizzie_core::api::ConsoleLineKind::Output).map(|l| l.text).collect()
+    };
+    let name = output(&b.wb).iter().rev().find_map(|l| l.strip_suffix(" KataGo")?.strip_prefix('=')?.parse::<u64>().ok())
+        .expect("the console `name` is answered");
+    let stop_answer = format!("={}", name - 1);
+    assert!(!output(&b.wb).contains(&stop_answer), "not inside the open stream: {:?}", output(&b.wb));
+    b.wb.toggle_analysis().unwrap();
+    assert!(b.pump_until(Duration::from_secs(10), |wb| output(wb).contains(&stop_answer)), "{:?}", output(&b.wb));
+    b.settle();
+    assert_eq!(output(&b.wb).iter().filter(|l| **l == stop_answer).count(), 1, "{:?}", output(&b.wb));
+    b.finish();
+}
+
+fn d4() -> Point { Point { x: 3, y: 15 } }
+
+#[test]
+fn custom_engine_reports_focus_unsupported_without_a_remote_query_and_keeps_analysing() {
+    let peer = workbench::peer(workbench::terminate_only);
+    let mut b = workbench::bench();
+    b.open("(;SZ[19];B[pd];W[dd])");
+    b.activate_custom(&peer.url);
+    assert!(b.pump_until(Duration::from_secs(10), workbench::ready));
+    b.wb.toggle_analysis().unwrap();
+    assert!(b.wb.view(false).engine.paused);
+    // A new instance switched in while paused still runs its start-up probe.
+    assert!(b.wb.restart_engine().unwrap());
+    assert!(!workbench::ready(&mut b.wb), "the restarted instance starts up again");
+    assert!(b.pump_until(Duration::from_secs(10), workbench::ready));
+    let v = b.wb.view(false);
+    assert!(v.engine.paused);
+    assert_eq!(v.focus.capability, FocusCapability::Unsupported);
+    assert!(!v.focus.available, "评估此点 must not be offered");
+    assert!(peer.latest_queries().is_empty(), "the probe must not cost a remote query: {:?}", peer.latest_queries());
+    b.wb.toggle_analysis().unwrap();
+    assert!(b.pump_until(Duration::from_secs(10), |_| !peer.latest_queries().is_empty()), "resumed analysis reaches the peer");
+    b.finish();
+}
+
+#[test]
+fn custom_engine_moving_forward_during_a_long_analysis_searches_the_new_node() {
+    // Every query gets one in-progress result and keeps searching.
+    let peer = workbench::peer(|v| {
+        if v["action"] == "terminate" {
+            return workbench::terminate_only(v);
+        }
+        let n = v["moves"].as_array().map_or(0, Vec::len);
+        let mv = ["Q4", "D16"][n % 2];
+        vec![json!({"id": v["id"], "isDuringSearch": true,
+            "moveInfos": [{"move": mv, "visits": 50, "winrate": 0.55, "scoreLead": 1.0, "prior": 0.2, "order": 0, "pv": [mv]}],
+            "rootInfo": {"visits": 60, "winrate": 0.55, "scoreLead": 1.0}})]
+    });
+    let mut b = workbench::bench();
+    b.open("(;SZ[19];B[pd];W[dd];B[pp])");
+    b.wb.navigate(Navigation::First);
+    b.activate_custom(&peer.url);
+    assert!(b.pump_until(Duration::from_secs(10), |wb| workbench::ready(wb) && wb.view(false).analysis.is_some()));
+    let old = peer.queries().last().unwrap()["id"].clone();
+
+    b.wb.navigate(Navigation::Forward(1));
+    let candidate = |wb: &mut lizzie_core::workbench::Workbench| {
+        wb.view(false).analysis.and_then(|a| a.candidates.first().and_then(|c| c.point))
+    };
+    assert!(
+        b.pump_until(Duration::from_secs(10), |wb| candidate(wb) == Some(Point { x: 3, y: 3 })),
+        "the new node gets its own search (D16), queries: {:?}",
+        peer.queries().iter().map(|q| q["moves"].clone()).collect::<Vec<_>>()
+    );
+    assert_eq!(peer.queries().last().unwrap()["moves"], json!([["B", "Q16"]]));
+    assert!(peer.terminated().contains(&old), "the superseded remote query is terminated");
+    b.finish();
+}
+
+#[test]
+fn custom_engine_single_move_keeps_its_evaluation() {
+    // A move query gets its final answer at once with D4; analysis queries get nothing.
+    let peer = workbench::peer(|v| {
+        if v["action"] == "terminate" {
+            return workbench::terminate_only(v);
+        }
+        if v["priority"] != 2 {
+            return Vec::new();
+        }
+        vec![json!({"id": v["id"], "isDuringSearch": false,
+            "moveInfos": [{"move": "D4", "visits": 120, "winrate": 0.62, "scoreLead": 2.5, "prior": 0.3, "order": 0, "pv": ["D4", "Q16"]}],
+            "rootInfo": {"visits": 130, "winrate": 0.6, "scoreLead": 2.0}})]
+    });
+    let mut b = workbench::bench();
+    b.open("(;SZ[19])");
+    b.activate_custom(&peer.url);
+    assert!(b.pump_until(Duration::from_secs(10), workbench::ready));
+    // Paused, so no other analysis can supply the root's evaluation.
+    b.wb.toggle_analysis().unwrap();
+    assert!(b.wb.view(false).engine.paused);
+    assert!(b.wb.view(false).analysis.is_none());
+
+    b.wb.game(GameCommand::EngineMove).unwrap();
+    assert!(b.pump_until(Duration::from_secs(10), |wb| wb.view(false).position.move_number == 1));
+    assert_eq!(b.wb.document().record.node(ROOT).children.len(), 1, "D4 is played once");
+    b.wb.navigate(Navigation::First);
+    let root = b.wb.view(false).analysis.expect("the move's evaluation belongs to the position it was asked for");
+    assert_eq!(root.candidates.first().and_then(|c| c.point), Some(d4()));
+    b.finish();
+}
+
+/// 关闭所有引擎 while a 自建算力 engine is still connecting (its peer has read the WebSocket
+/// upgrade and holds the answer): the connection closes, the seat is empty, and nothing reports
+/// the switch as running or failed — the next view shows an empty seat that is not down, which
+/// ends the 远程算力 window's switch (monitorEngineSwitch: the switch no longer holds the seat).
+/// The peer's notices and the transport's end order the steps; timeouts only bound a failure.
+#[test]
+fn shutting_all_engines_down_while_a_custom_engine_connects_empties_the_seat_and_closes_the_link() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("ws://{}/", listener.local_addr().unwrap());
+    let (upgrade_tx, upgrade) = mpsc::channel();
+    let peer = thread::spawn(move || {
+        let mut stream = accept_bounded(&listener);
+        let head = read_http_head(&mut stream);
+        upgrade_tx.send(head).unwrap();
+        // The upgrade stays unanswered until the client closes the connection.
+        let mut buf = [0u8; 1024];
+        loop {
+            match stream.read(&mut buf) {
+                Ok(0) => return,
+                Ok(_) => {}
+                Err(error) => panic!("the connection was not closed: {error}"),
+            }
+        }
+    });
+    let mut b = workbench::bench();
+    b.activate_custom(&url);
+    let v = b.wb.view(false);
+    let cloud = v.engine.foreground.as_ref().expect("the cloud engine holds the seat while it connects");
+    assert!(!cloud.ready);
+    let head = upgrade.recv_timeout(Duration::from_secs(10)).expect("the client sends its upgrade");
+    assert!(head.to_ascii_lowercase().contains("upgrade: websocket"), "{head}");
+    b.settle();
+    assert!(!workbench::ready(&mut b.wb), "the peer never completes the upgrade");
+    let before = b.wb.view(false).seq;
+
+    assert!(b.wb.shutdown_engines(lizzie_core::api::EngineScope::All));
+    peer.join().expect("the connection closes");
+    b.settle();
+    let v = b.wb.view(false);
+    assert!(v.seq > before);
+    assert!(v.engine.foreground.is_none());
+    assert!(!v.engine.down, "a shutdown is not a failure");
+    assert!(v.engine_failure.is_none());
+    assert!(v.engine.engines.iter().all(|e| e.state.is_none()), "nothing left running");
+    b.finish();
 }

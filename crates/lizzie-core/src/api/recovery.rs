@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::{ImportReason, ImportStatus};
+use crate::record::NodeId;
 use crate::settings::RecoverySettings;
 
 /// A slot of the panel: the automatic one (自动存档) or manual slot `index` (存档N, from 1).
@@ -15,19 +16,32 @@ pub enum SlotRef {
     Manual { index: u32 },
 }
 
-/// Pictures travel as base64 PNG of the panel as shown (main board for thumbnails).
+/// A slot picture: base64 PNG of the panel as shown (main board for thumbnails, the floating
+/// main board in 浮动棋盘模式) and the position it shows, from the view it was drawn from
+/// (`DocumentView.id`, `DocumentView.revision`, `PositionView.node`). The picture is stored only
+/// when that is the position the record is saved at.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+pub struct SlotThumbnail {
+    pub png: String,
+    pub document: u64,
+    pub revision: u64,
+    pub node: NodeId,
+}
+
+/// A save whose picture could not be taken (`None`) or shows another position than the record's
+/// still writes the record, without a picture (Java writes the SGF before the bitmap).
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
 #[serde(tag = "type")]
 pub enum RecoveryCommand {
     /// 新建存档: a slot after the last one. `name` is the typed name, else the record's save name
     /// (`GameInfo.getSaveFileName`).
-    NewSlot { name: String, thumbnail: String },
+    NewSlot { name: String, thumbnail: Option<SlotThumbnail> },
     /// 保存 on manual slot `index`, after "存档已存在,是否覆盖?": the current record replaces it and
     /// the slot takes `name`, the record's save name (`saveTempGame(index, getSaveFileName())`).
     OverwriteSlot {
         index: u32,
         name: String,
-        thumbnail: String,
+        thumbnail: Option<SlotThumbnail>,
     },
     /// 重命名.
     RenameSlot { index: u32, name: String },
@@ -42,10 +56,9 @@ pub enum RecoveryCommand {
     SetSettings { settings: RecoverySettings },
     /// The periodic automatic save (every 60 seconds while 自动存档 is on): a crash leaves it
     /// to be recovered at the next start.
-    AutoSave { thumbnail: String },
-    /// The exit automatic save, answering the exit request event; `None` when the picture could
-    /// not be taken. The window closes afterwards.
-    ExitAutoSave { thumbnail: Option<String> },
+    AutoSave { thumbnail: Option<SlotThumbnail> },
+    /// The exit automatic save, answering the exit request event. The window closes afterwards.
+    ExitAutoSave { thumbnail: Option<SlotThumbnail> },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]

@@ -4,7 +4,7 @@
 import { copyRecord, exportRecord, run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
 import { dispatch, onExitAutoSaveRequest } from "../contract/client";
-import { captureMainBoard, copyMainBoardPicture, copySubBoardPicture, saveMainBoardPicture, saveSubBoardPicture, saveWinratePicture } from "./capture";
+import { copyMainBoardPicture, copySubBoardPicture, saveMainBoardPicture, saveSubBoardPicture, saveWinratePicture, slotThumbnail } from "./capture";
 import { openRecovery } from "./panel";
 
 Object.assign(COMMANDS, {
@@ -30,13 +30,12 @@ const AUTO_SAVE_INTERVAL = 60_000;
 export async function startAutoSave(): Promise<void> {
   setInterval(async () => {
     if (!state.view?.recovery.settings.autoSaveOnExit) return;
-    const thumbnail = await captureMainBoard();
-    if (thumbnail) await run({ type: "Recovery", op: { type: "AutoSave", thumbnail } });
+    await run({ type: "Recovery", op: { type: "AutoSave", thumbnail: await slotThumbnail() } });
   }, AUTO_SAVE_INTERVAL);
   // Sent directly rather than after queued commands: the window is closing and the backend only
   // waits briefly for the answer.
   await onExitAutoSaveRequest(async () => {
-    const thumbnail = await captureMainBoard();
+    const thumbnail = await slotThumbnail();
     try {
       await dispatch({ type: "Recovery", op: { type: "ExitAutoSave", thumbnail } });
     } catch (e) {

@@ -2,7 +2,7 @@
 //! fixed migration baseline. Controlled processes exercise the same public Workbench interface.
 use lizzie_core::api::*;
 use lizzie_core::engine::gtp::LaunchSpec;
-use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
+use lizzie_core::engine::profile::{CustomPdaMode, CustomPdaSettings, EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
 use lizzie_core::record::{DocumentEdit, NodeKind, Point, Stone, ROOT};
 use lizzie_core::settings::{MatchSettings, Storage};
@@ -15,6 +15,8 @@ use std::time::{Duration, Instant};
 struct Process {
     id: InstanceId,
     sent: Vec<String>,
+    /// Launched for a 自建算力 profile (`LaunchSpec.cloud`).
+    cloud: bool,
 }
 #[derive(Clone, Default)]
 struct World(Arc<Mutex<Vec<Process>>>);
@@ -44,9 +46,10 @@ impl EngineIo for Io {
 }
 struct Launch(World);
 impl Launcher for Launch {
-    fn launch(&self, id: InstanceId, _: &LaunchSpec) -> std::io::Result<Box<dyn EngineIo>> {
+    fn launch(&self, id: InstanceId, spec: &LaunchSpec) -> std::io::Result<Box<dyn EngineIo>> {
         self.0 .0.lock().unwrap().push(Process {
             id,
+            cloud: spec.cloud.is_some(),
             ..Process::default()
         });
         Ok(Box::new(Io(self.0.clone(), id)))
@@ -67,16 +70,8 @@ impl Match {
     }
 
     fn with_locale(locale: Option<&str>) -> Self {
-        let dir = tempfile::tempdir().unwrap();
-        let world = World::default();
-        let mut wb = Workbench::new(
-            Storage::in_dirs(&dir.path().join("config"), &dir.path().join("data")),
+        Self::with_profiles(
             locale,
-            Box::new(Launch(world.clone())),
-            vec![],
-        );
-        wb.set_auto_quick_analyze(false).unwrap();
-        wb.save_engine_settings(
             vec![
                 EngineProfile {
                     id: "one".into(),
@@ -91,9 +86,20 @@ impl Match {
                     ..EngineProfile::default()
                 },
             ],
-            EngineStartup::Default,
         )
-        .unwrap();
+    }
+
+    fn with_profiles(locale: Option<&str>, profiles: Vec<EngineProfile>) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let world = World::default();
+        let mut wb = Workbench::new(
+            Storage::in_dirs(&dir.path().join("config"), &dir.path().join("data")),
+            locale,
+            Box::new(Launch(world.clone())),
+            vec![],
+        );
+        wb.set_auto_quick_analyze(false).unwrap();
+        wb.save_engine_settings(profiles, EngineStartup::Default).unwrap();
         Self {
             wb,
             world,
@@ -599,6 +605,56 @@ fn winrate_confirmation_fences_successor_and_opening_is_replayed() {
     assert_eq!(m.wb.document().record.node(m.wb.cursor()).move_number, 2);
 }
 
+/// A capture, then stones set up mid-game with a side to play that does not alternate.
+const MID_GAME_SETUP: &str = "(;SZ[19];B[ba];W[aa];B[ab];AB[dd]PL[B])";
+
+/// The stones, captures and side to play of `node`.
+fn position_at(rec: &lizzie_core::record::GameRecord, node: lizzie_core::record::NodeId) -> (Vec<Option<Stone>>, u32, u32, Stone) {
+    let pos = rec.position(node);
+    (pos.stones, pos.black_captures, pos.white_captures, rec.node(node).to_play)
+}
+
+#[test]
+fn a_match_opening_at_a_mid_game_setup_keeps_its_stones_and_side_to_play_for_the_engines_and_the_file() {
+    let source = lizzie_core::formats::sgf::read(MID_GAME_SETUP).unwrap();
+    let expected = position_at(&source, source.line_end(ROOT));
+    assert_eq!((expected.1, expected.3), (1, Stone::Black), "the sample captures one stone and gives Black the move");
+    // SGF 开局 from a file, and 固定当前局面 at the last node of the open record.
+    for from_file in [true, false] {
+        let mut m = Match::new();
+        let session = if from_file {
+            m.command(MatchCommand::ReplaceOpenings {
+                files: vec![MatchOpeningFile { path: "setup.sgf".into(), bytes: MID_GAME_SETUP.as_bytes().to_vec() }],
+            });
+            genmove()
+        } else {
+            let t = m.wb.begin_open(lizzie_core::workbench::OpenOrigin::File { path: "/x.sgf".into(), source: OpenSource::Drop });
+            assert!(m.wb.complete_open(t, Ok((lizzie_core::record::RecordFormat::Sgf, source.clone()))));
+            m.wb.navigate(lizzie_core::browse::Navigation::Last);
+            MatchSessionSettings { continue_position: true, ..genmove() }
+        };
+        m.command(MatchCommand::Start {
+            settings: MatchSettings { rules: "chinese".into(), sgf_start: from_file, sgf_random: false, ..MatchSettings::default() },
+            session,
+            first_engine: 0,
+            second_engine: 1,
+            disable_wrn: true,
+        });
+        let sent = m.serve(&|_, _| None);
+        let rec = m.wb.document().record.clone();
+        assert_eq!(position_at(&rec, m.wb.cursor()), expected, "from_file {from_file}: the match starts where the node stood");
+        let black = m.mover();
+        let to_black: Vec<&str> = sent.iter().filter(|(i, _)| *i == black).map(|(_, c)| c.as_str()).collect();
+        assert!(to_black.contains(&"play B D16"), "from_file {from_file}: {to_black:?}");
+        assert!(!to_black.contains(&"play W A19"), "from_file {from_file}: the position is set, not replayed: {to_black:?}");
+        assert!(m.held.iter().any(|(i, _, c)| *i == black && c == "genmove B"), "from_file {from_file}: {:?}", m.held);
+        let path = m._dir.path().join("match.sgf");
+        let job = m.wb.begin_save(path.to_str().unwrap(), "LizzieYzy Tauri:test");
+        let reopened = lizzie_core::formats::sgf::read(&job.text).unwrap();
+        assert_eq!(position_at(&reopened, reopened.line_end(ROOT)), expected, "from_file {from_file}: {}", job.text);
+    }
+}
+
 #[test]
 fn unverifiable_rules_require_consent_and_verified_mismatch_is_not_consent() {
     let mut m = Match::new();
@@ -745,6 +801,54 @@ fn an_analysis_match_lifts_the_visit_limit_of_leela_participants_only() {
     assert!(lift < clear, "{leela_sent:?}");
     for other in m.world.ids().into_iter().filter(|&i| i != leela) {
         assert!(!to(other).iter().any(|c| c.starts_with("lz-setoption")), "KataGo gets no lz-setoption: {:?}", to(other));
+    }
+}
+
+/// The lifted visit limit is the match's own: when the match ends, the same Leela Zero / Sai
+/// process gets back the Visits value it had before, confirmed before it is handed back.
+#[test]
+fn an_analysis_match_gives_the_leela_visit_limit_back_when_it_ends() {
+    const LEELA: &str = "name\nversion\nlist_commands\nboardsize\nclear_board\nkomi\nplay\nundo\nlz-analyze\nlz-setoption\nclear_cache\ngenmove";
+    let mut m = Match::new();
+    m.wb.start_engines();
+    let leela = m.world.ids()[0];
+    let as_leela = move |instance: InstanceId, command: &str| -> Option<String> {
+        if instance != leela {
+            return None;
+        }
+        match command {
+            "name" => Some("Leela Zero".into()),
+            "version" => Some("0.17".into()),
+            "list_commands" => Some(LEELA.into()),
+            _ => None,
+        }
+    };
+    m.serve(&as_leela);
+    let visits = lizzie_core::engine::profile::LeelaOptionSetting { enabled: true, auto_load: true, value: "800".into() };
+    let options = lizzie_core::engine::profile::LeelaOptionSettings { visits, ..Default::default() };
+    assert_eq!(m.wb.save_leela_engine_options(options).unwrap(), None);
+    m.serve(&as_leela);
+    m.start(MatchSessionSettings {
+        kind: GameKind::Analysis,
+        time_enabled: false,
+        visits_enabled: true,
+        first_visits: 1000,
+        second_visits: 1000,
+        auto_save: false,
+        ..MatchSessionSettings::default()
+    });
+    let mut sent = m.serve(&as_leela);
+    m.command(MatchCommand::Stop);
+    sent.extend(m.serve(&as_leela));
+    let leela_sent: Vec<&str> = sent.iter().filter(|(i, _)| *i == leela).map(|(_, c)| c.as_str()).collect();
+    let lift = leela_sent.iter().position(|c| *c == "lz-setoption name Visits value 1000000000").expect("lifted");
+    let restore = leela_sent.iter().rposition(|c| *c == "lz-setoption name Visits value 800");
+    assert!(restore.is_some_and(|at| at > lift), "{leela_sent:?}");
+    assert_eq!(m.phase(), None);
+    assert!(m.wb.view(false).match_outcome.unwrap().unrestored.is_empty());
+    for other in m.world.ids().into_iter().filter(|&i| i != leela) {
+        let to_other: Vec<_> = sent.iter().filter(|(i, _)| *i == other).map(|(_, c)| c.as_str()).collect();
+        assert!(!to_other.iter().any(|c| c.starts_with("lz-setoption")), "KataGo gets no lz-setoption: {to_other:?}");
     }
 }
 
@@ -1016,6 +1120,34 @@ fn spec_05_enabled_zero_max_moves_uses_board_area_times_two() {
         "zero resolves to 19*19*2, not a zero-move game"
     );
     assert!(m.wb.inspect().match_outcome.is_none());
+
+    // The match summary reports the limit: board width × height × 2 on each board size, so
+    // neither "no limit" nor a fixed 722 passes for it. Java's English label is " Max moves:".
+    for (size, expected) in [(9u8, 162u32), (19, 722)] {
+        let profile = |id: &str, name: &str| EngineProfile {
+            id: id.into(),
+            name: name.into(),
+            command: "/opt/katago gtp".into(),
+            width: size.into(),
+            height: size.into(),
+            ..EngineProfile::default()
+        };
+        let mut m = Match::with_profiles(Some("en-US"), vec![profile("one", "First"), profile("two", "Second")]);
+        m.start(MatchSessionSettings { max_moves_enabled: true, max_moves: 0, ..batch() });
+        m.serve(&|_, _| None);
+        assert_eq!(m.wb.document().record.size.width, u16::from(size));
+        m.finish_turn("resign");
+        let jobs = m.wb.take_background_saves();
+        let summary = &jobs.iter().find(|j| j.path.extension().is_some_and(|e| e == "txt")).unwrap().text;
+        let shown: String = summary
+            .split_once(" Max moves:")
+            .unwrap_or_else(|| panic!("{summary}"))
+            .1
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect();
+        assert_eq!(shown, expected.to_string(), "{size}×{size}");
+    }
 }
 
 #[test]
@@ -1138,6 +1270,40 @@ fn spec_07_saved_match_records_include_java_match_rules_sections() {
     assert_eq!(record.node(ROOT).comment.matches("End of match rules").count(), 1);
 }
 
+/// The saved record and the batch summary name each side's engine command (Java
+/// MatchRulesTexts.identityLabel and EngineManager.fillEngineGameSettingStrings), but a command
+/// carrying credentials is written with their values masked, as every persisted text is.
+#[test]
+fn saved_match_records_and_summaries_mask_credentials_in_engine_commands() {
+    const MARK: &str = "R24MARK";
+    let secret = format!(r#"/opt/katago gtp --token {MARK}tok -override-config "password={MARK}pw""#);
+    let masked = r#"/opt/katago gtp --token <redacted> -override-config "password=<redacted>""#;
+    let plain = "/opt/katago gtp -model plain.bin.gz";
+    let mut m = Match::with_profiles(
+        Some("en-US"),
+        vec![
+            EngineProfile { id: "one".into(), name: "First".into(), command: secret, ..EngineProfile::default() },
+            EngineProfile { id: "two".into(), name: "Second".into(), command: plain.into(), ..EngineProfile::default() },
+        ],
+    );
+    m.start(batch());
+    m.serve(&|_, _| None);
+    m.finish_turn("resign");
+    let jobs = m.wb.take_background_saves();
+    let sgf = jobs.iter().find(|j| j.path.extension().is_some_and(|e| e == "sgf")).unwrap();
+    let summary = jobs.iter().find(|j| j.path.extension().is_some_and(|e| e == "txt")).unwrap();
+    for (what, text) in [("sgf", &sgf.text), ("summary", &summary.text)] {
+        assert!(!text.contains(MARK), "{what} holds a credential: {text}");
+    }
+    let record = lizzie_core::formats::parse(lizzie_core::record::RecordFormat::Sgf, &sgf.text, false).unwrap();
+    let root = &record.node(ROOT).comment;
+    assert!(root.contains(&format!("Black: First ({masked})\nStatus: confirmed\n")), "{root}");
+    assert!(root.contains(&format!("White: Second ({plain})\nStatus: confirmed\n")), "{root}");
+    assert!(sgf.text.contains("PB[First]") && sgf.text.contains("PW[Second]") && sgf.text.contains("RE[W+R]"));
+    assert!(summary.text.contains(&format!("\r\nCommand:{masked}")), "{}", summary.text);
+    assert!(summary.text.contains(&format!("\r\nCommand:{plain}")), "{}", summary.text);
+}
+
 #[test]
 fn spec_08_query_only_rules_are_checked_instead_of_offered_as_unverified() {
     // MatchRulesAdmission.java:36–40,167–180,202–210: a queryable side must return
@@ -1185,5 +1351,115 @@ fn spec_08_query_only_rules_are_checked_instead_of_offered_as_unverified() {
             );
             assert_eq!(m.wb.view(false).match_outcome.unwrap().end, MatchEnd::Retired);
         }
+    }
+}
+
+fn participant(id: &str, name: &str) -> EngineProfile {
+    EngineProfile { id: id.into(), name: name.into(), command: format!("/opt/{id} gtp"), ..EngineProfile::default() }
+}
+
+#[test]
+fn a_custom_websocket_participant_takes_its_fixed_time_as_the_katago_move_limit() {
+    let custom = EngineProfile {
+        name: "Custom Compute".into(),
+        command: "remote-compute://custom-websocket".into(),
+        cloud: Some(lizzie_core::engine::cloud::CloudLaunch {
+            provider: lizzie_core::engine::cloud::CloudProvider::Custom,
+            identifier: String::new(),
+            args: String::new(),
+            url: "ws://127.0.0.1:1/analysis".into(),
+        }),
+        ..EngineProfile::default()
+    };
+    let mut m = Match::with_profiles(None, vec![custom, participant("two", "Second")]);
+    m.start(genmove());
+    let sent = m.serve(&|_, _| None);
+    // Each side by its launch input: the 自建算力 process was launched for the cloud profile.
+    let cloud: Vec<InstanceId> = m.world.0.lock().unwrap().iter().filter(|p| p.cloud).map(|p| p.id).collect();
+    assert_eq!(cloud.len(), 1, "one 自建算力 participant");
+    let setup = |custom: bool| -> Vec<&String> {
+        sent.iter().filter(|(i, _)| cloud.contains(i) == custom).map(|(_, c)| c).collect()
+    };
+    let (remote, local) = (setup(true), setup(false));
+    assert!(!local.is_empty(), "the local participant was set up");
+    assert!(remote.iter().any(|c| *c == "kata-time_settings none"), "{remote:?}");
+    assert!(remote.iter().any(|c| *c == "kata-set-param maxTime 2"), "{remote:?}");
+    assert!(!remote.iter().any(|c| c.starts_with("time_settings")), "the 自建算力 side refuses time_settings: {remote:?}");
+    assert!(local.iter().any(|c| *c == "time_settings 0 2 1"), "a local participant keeps its time settings: {local:?}");
+    assert!(!local.iter().any(|c| c.starts_with("kata-set-param maxTime") || c.starts_with("kata-time_settings")), "{local:?}");
+    assert_eq!(m.phase(), Some(MatchPhase::Playing));
+    m.finish_turn("D4");
+    m.finish_turn("Q16");
+    let rec = &m.wb.document().record;
+    let mut moves = 0;
+    let mut node = ROOT;
+    while let Some(next) = rec.main_child(node) {
+        moves += matches!(rec.node(next).kind, NodeKind::Move { .. }) as usize;
+        node = next;
+    }
+    assert_eq!(moves, 2, "both participants moved");
+    assert_eq!(m.phase(), Some(MatchPhase::Playing));
+}
+
+#[test]
+fn a_fixed_handicap_is_set_only_on_a_nineteen_line_match_board() {
+    for (size, handicap, stones, to_play) in [(9, 0, 0, Stone::Black), (19, 2, 2, Stone::White)] {
+        let black = EngineProfile { width: size, height: size, ..participant("one", "First") };
+        let mut m = Match::with_profiles(None, vec![black, participant("two", "Second")]);
+        assert_eq!(m.wb.document().record.size.width, 19, "the open record is 19x19");
+        let settings = MatchSettings { rules: "chinese".into(), handicap: 2, ..MatchSettings::default() };
+        let start = MatchCommand::Start { settings, session: genmove(), first_engine: 0, second_engine: 1, disable_wrn: true };
+        assert_eq!(m.command(start), CommandResult::Done);
+        m.serve(&|_, _| None);
+        let rec = &m.wb.document().record;
+        assert_eq!((rec.size.width, rec.size.height), (size, size), "the black participant's board");
+        assert_eq!(rec.info.handicap, handicap, "{size}x{size}: HA");
+        assert_eq!(rec.position(ROOT).stones.iter().flatten().count(), stones, "{size}x{size}: handicap stones");
+        assert_eq!(rec.node(ROOT).to_play, to_play, "{size}x{size}: side to play");
+    }
+}
+
+#[test]
+fn the_pda_dialog_reaches_the_kata_go_pda_participant_whichever_engine_is_in_front() {
+    let fixed = |value: f64| CustomPdaSettings {
+        mode: CustomPdaMode::Fixed,
+        dynamic_cap: None,
+        fixed_value: Some(value),
+        auto_apply: false,
+    };
+    let mut m = Match::new();
+    m.start(genmove());
+    let world = m.world.clone();
+    m.serve(&move |i, c| (c == "name" && i == world.ids()[0]).then(|| "KataGoPda 1.16.4".to_string()));
+    assert_eq!(m.phase(), Some(MatchPhase::Playing));
+    assert!(m.wb.inspect().engine_match.unwrap().kata_go_pda_participant);
+    let (pda, standard) = (m.world.ids()[0], m.world.ids()[1]);
+    // The standard KataGo is the one in front (the side to move).
+    if m.mover() == pda {
+        m.finish_turn("D4");
+    }
+    assert_eq!(m.mover(), standard);
+    assert_eq!(m.wb.save_custom_pda(fixed(2.0)).unwrap(), None);
+    let sent = |m: &Match, id| m.world.take(id).into_iter().map(|l| l.split_once(' ').unwrap().1.to_string()).collect::<Vec<_>>();
+    assert_eq!(sent(&m, pda), ["pda 2.0"]);
+    assert!(sent(&m, standard).is_empty(), "the standard participant gets no pda");
+
+    // Paused, the same participant takes it.
+    m.command(MatchCommand::Pause);
+    assert_eq!(m.phase(), Some(MatchPhase::Paused));
+    sent(&m, pda);
+    sent(&m, standard);
+    assert_eq!(m.wb.save_custom_pda(fixed(1.5)).unwrap(), None);
+    assert_eq!(sent(&m, pda), ["pda 1.5"]);
+    assert!(sent(&m, standard).is_empty());
+
+    // Two standard KataGo participants: no KataGoPda flag, and no engine gets pda.
+    let mut plain = Match::new();
+    plain.start(genmove());
+    plain.serve(&|_, _| None);
+    assert!(!plain.wb.inspect().engine_match.unwrap().kata_go_pda_participant);
+    assert_eq!(plain.wb.save_custom_pda(fixed(2.0)).unwrap(), None);
+    for id in plain.world.ids() {
+        assert!(sent(&plain, id).is_empty());
     }
 }

@@ -150,6 +150,18 @@ impl Workbench {
         }
     }
 
+    /// The points a result for `node` keeps beyond 最大候选点数 (`BoardData.tryToLimitMoves`):
+    /// those 选点重点研究 tracks and the 优先分析此点 points recorded there.
+    pub(super) fn attended_points(&self, node: NodeId) -> Vec<Point> {
+        let mut points = self.tracked_points(node).to_vec();
+        for &p in self.priority_points_at(node) {
+            if !points.contains(&p) {
+                points.push(p);
+            }
+        }
+        points
+    }
+
     fn on_board(&self, p: Point) -> bool {
         let size = self.doc.record.size;
         p.x < size.width && p.y < size.height
@@ -474,7 +486,7 @@ impl Workbench {
         // onTrackingDisplayChanged: the shown position's candidates are limited again
         // (`refreshFocusCandidateVisibility`).
         if was_shown || shown(self) {
-            let (limit, tracked) = (self.suggestion_limit(), self.tracked_points(self.cursor).to_vec());
+            let (limit, tracked) = (self.suggestion_limit(), self.attended_points(self.cursor));
             self.store.refocus(self.cursor, limit, &tracked);
         }
         self.sync_engine();

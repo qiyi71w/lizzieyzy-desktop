@@ -193,12 +193,9 @@ impl Workbench {
         let rec = &self.doc.record;
         let nodes = rec.path_to(rec.line_end(ROOT));
         // BoardData.tryToLimitMoves: candidates past 最大候选点数 are bestMovesOutOfRange, which only
-        // the HumanSL 40 snapshot reads, except a kept one (lastTimeUnlimited) and the points
-        // 选点重点研究 tracked when the result came.
-        let shown = match self.suggestion_limit() {
-            0 => usize::MAX,
-            limit => limit,
-        };
+        // the HumanSL 40 snapshot reads, except a kept one (lastTimeUnlimited), the points
+        // 选点重点研究 tracked and the 优先分析此点 points when the result came. The split is the one
+        // made when the result came or was loaded; a later change of the limit does not redo it.
         let positions = nodes
             .iter()
             .map(|&id| {
@@ -214,6 +211,10 @@ impl Workbench {
                 });
                 let analysis = self.store.get(rec, id).map(|a| {
                     let tracked = self.store.attended(id);
+                    let shown = match self.store.limit(id) {
+                        0 => usize::MAX,
+                        limit => limit,
+                    };
                     let (candidates, extra_candidates) = a
                         .candidates
                         .iter()

@@ -39,7 +39,8 @@ importing the matching LizzieYzy Next settings.
   In 双引擎模式 `Ctrl+Down`, `Ctrl+Shift+Down` and the panel's `>`/`>>` grow the main board's
   variation only (the right board's when only it shows one); the other entries step both boards.
   A variation that auto-replays (自动回放变化图) is stepped from the length it shows, and the
-  replay goes on from the new length.
+  replay goes on from the new length. During an `R` replay (回放变化图) these keys and the wheel
+  step from the length the replay shows and end the replay, as in Java.
 - Stepping forward plays the Java stone sounds (stone, capture, capture of three or more).
 - The board shows setup stones, moves, passes, captures, comments, SGF markup (TR/SQ/CR/MA/LB),
   next-move rings, player names, the sub board, the variation tree and the empty winrate graph.
@@ -67,7 +68,8 @@ importing the matching LizzieYzy Next settings.
   On Linux, the saved size is the WebView content area, excluding GTK window decorations,
   so reopening does not enlarge the content area by the title bar or shadow dimensions.
   File > 强制退出 skips both the pending-save wait and window-placement capture; use normal
-  close or Quit when a save must finish. Both exit paths shut down the owned engines.
+  close or Quit when a save must finish. Both exit paths end the whole application, including
+  hidden tool windows such as 野狐棋谱 and 腾讯棋谱, and shut down the owned engines.
 - File > 更多保存 has the Java exports, each through the save chooser like 另存为 (same folder,
   default name, `.sgf` completion and replace prompt):
   - 保存纯净棋谱 (`Ctrl+Shift+S`): the whole tree without analysis (`LZ`, `LZ2`) and without move
@@ -82,11 +84,14 @@ importing the matching LizzieYzy Next settings.
     continuation, without comments.
   - 保存主棋盘截图 (`Alt+S`), 保存小棋盘截图 (`Shift+S`) and 保存胜率图 (`Shift+Alt+S`): the
     picture chooser (PNG, JPG, GIF, BMP) opens in the last picture folder; the chosen name's
-    extension decides the format and `.png` is added otherwise. Errors show Java's message.
+    extension decides the format and `.png` is added otherwise. Errors show Java's message. In
+    浮动棋盘模式 the main board picture is the 浮动主棋盘 window; while 浮动小棋盘 shows, the sub
+    board picture is that window.
   Exports never replace the open record's revision or saved state otherwise; a failure leaves
   the old file untouched.
 - File > 复制主棋盘到剪贴板 (`Shift+C`), 复制小棋盘到剪贴板 (`Alt+C`) and 复制棋谱到剪贴板
-  (`Ctrl+C`) put the picture or the SGF text on the system clipboard.
+  (`Ctrl+C`) put the picture or the SGF text on the system clipboard; the board pictures come
+  from the floating windows as for the 截图 entries.
 - File > 存档与读档 or the toolbar's 存档 button opens Java's save-and-load panel: slots with the
   board picture, name and time; 新建存档, 保存 (asks first), 改名, 删除, 读取 (or a click on the
   picture), 全部删除, and the check boxes 鼠标悬停放大缩略棋盘, 自动存档 and 启动时自动恢复. A loaded
@@ -94,6 +99,11 @@ importing the matching LizzieYzy Next settings.
   title shows the slot. With 自动存档 on (the default) the automatic slot is written every
   60 seconds and when the window closes; File > 强制退出 writes none. If the application ended
   without its exit save, the next start keeps the newest periodic save as the automatic slot.
+  In 浮动棋盘模式 the slot pictures show 浮动主棋盘, taken with the position that window painted
+  (not the one the main window showed when it asked). A slot keeps its picture only when the
+  picture shows the position the record is saved at; a save whose picture cannot be taken, or
+  whose position moved on meanwhile (stepping through moves in 浮动棋盘模式 while the automatic
+  save runs), still writes the record, without a picture.
   With 启动时自动恢复 on, a start without a record to open resumes the automatic slot at the end
   of its main line. Slots live in this program's data folder (`save/`), never in Java's.
 - 野狐棋谱 (同步 menu, the toolbar's 野狐棋谱 button or the bottom bar's 同步 popup) opens Java's
@@ -143,7 +153,9 @@ importing the matching LizzieYzy Next settings.
     points, single-stone suicide, multi-stone suicide unless the foreground engine's rules allow
     it, and an immediate ko recapture are ignored without changing anything. `P` passes; `,` plays
     the best candidate (or the previewed variation); a middle click plays the previewed variation;
-    自动补完征子 continues a ladder.
+    自动补完征子 continues a ladder. A pass in the previewed variation is played too, so the moves
+    after it keep the colours the board shows (Java's middle click and `,` skipped the pass and
+    gave the next move the wrong colour).
   - 插入黑子 / 插入白子 (Edit menu toggle or the empty-point context menu) put a move after the
     current one; 反色, 删除 and 移动 on a stone (stone context menu, or dragging with 启用拖动棋子)
     change it where it was played. What followed is played again and keeps its comments, markup,
@@ -153,7 +165,11 @@ importing the matching LizzieYzy Next settings.
     content version and move it was asked for. 撤销删除 / 恢复删除 (shown only when
     possible) and the context menu 撤销编辑 / 恢复编辑 / 清除编辑缓存 undo and redo the last
     delete, insert or stone edit. `Shift+Left`/`Shift+Right` move the current branch, `L` and
-    设为主分支 make it the main line, 添加为分支 adds a previewed variation beside the line.
+    设为主分支 make it the main line, 添加为分支 adds a previewed variation beside the line, its
+    passes included (Java ended the branch at a pass). A move without `PL` whose new first
+    continuation is a move plays on in that move's colour, as the record reads after saving and
+    reopening (Java kept the old side to play until the record was reopened); the move's stored
+    analysis is dropped when its side changes.
   - 显示落子矩形 (综合设置 > 对局与操作 > 鼠标交互与坐标格式; 是 / 仅对局时 (default) / 否): a
     small square in the colour to play marks the empty point under the pointer on the main board
     and 浮动主棋盘. 仅对局时 means a game against the engine (人机对局 or 分析模式对局) on your
@@ -181,7 +197,9 @@ importing the matching LizzieYzy Next settings.
     asks to turn the current position into the starting position) while no foreground engine
     runs, and no engine starts while it is on. Clicks place black or white setup stones or erase
     them (right click the other colour); 黑先 / 白先 set the side to play (`PL`). Setup stones take
-    no move number. 将当前盘面设为起始局面 converts the current position.
+    no move number, so the bottom bar's 手数 jump lands on the node that shows the number asked
+    for, also past setup snapshots within the record (Java counted nodes and landed a move short
+    there). 将当前盘面设为起始局面 converts the current position.
   - 编辑棋局信息 (`I`: names, komi), 设置棋盘大小 (`Ctrl+I`; 其他 sizes are remembered), 新建 and
     the bottom bar 清空棋盘 (Java's "新的棋盘?" prompt with 不再提示, Cancel by default),
     清空棋盘 `Ctrl+Home` without asking, 交换黑白 and the rotations / mirrors
@@ -211,7 +229,9 @@ importing the matching LizzieYzy Next settings.
   (`<name>.<date>.<n>.log.gz`), keeping 7 days and at most 100 MB of archives per log.
   Diagnostics exports include the active files.
 - Help > 清除所有个人数据 clears the recent-record list and 野狐棋谱's 近期搜索; View > 重置界面位置
-  resets the saved window placement and last folder and turns the overwrite prompt back on.
+  resets the saved window placement and last folder and turns the overwrite prompt back on. Folders
+  a Java settings import brings over afterwards, in one import or several, are kept for the next
+  start; the reset placement does not come back.
 - 搜索功能 (the top toolbar button, or `Ctrl+K`, `⌘K` on macOS, with no other modifier) opens a
   search bar centred over the window; it is refused while a text field has the focus (the key
   stays with the field and its input method) and while a dialog, menu or context menu is open.
@@ -224,14 +244,19 @@ importing the matching LizzieYzy Next settings.
   while the input method is composing or on the key that commits its text) opens it, and `Esc`
   or 取消 closes the bar and gives the focus back to the control that had it, unless another
   control was chosen meanwhile. Opening a result does what the Java search does: a setting opens
-  综合设置 at its section and focuses its row (2.4 s gold outline) without changing it; a menu or
-  toolbar entry opens its menu path or shows its toolbar and focuses that control with the gold
-  outline, without running it (a markup button also shows the 标记工具 buttons for this
-  session, as Java does, without changing the saved 标记工具 choice); a board context entry
-  explains where to right-click and returns to the board; only an action entry runs. Entries
-  this client does not provide yet, or that the current state refuses (no engine, no KataGo, no
-  edit to restore, a whole-game analysis running, …), are greyed with their reason and cannot be
-  opened. While the bar or any other dialog is open, the workbench shortcuts and the floating
+  综合设置 at its section and focuses its row (2.4 s gold outline) without changing it; a
+  navigation or setting entry on a menu or toolbar opens its menu path or shows its toolbar and
+  focuses that control with the gold outline, without running it (a markup button also shows the
+  标记工具 buttons for this session, as Java does, without changing the saved 标记工具 choice;
+  `Space` then clicks a focused toolbar control); a 同步 popup item opens the 同步 popup with the
+  item selected, also while 同步 is switched off or sits in 更多; a board context entry explains
+  where to right-click and returns to the board; an action or window entry runs, as clicking its
+  menu item or button does (上一手 takes back a move during a game like the bottom bar's `<`).
+  Entries this client does not provide yet, or that the current state refuses (no engine, no
+  KataGo, no edit to restore, a whole-game analysis running, …), are greyed with their reason
+  and cannot be opened. `Ctrl+K` from the 浮动主棋盘 window gives the main window the keyboard for
+  the bar; `Esc` or 取消 then gives the keyboard back to the 浮动主棋盘 window. While the bar or
+  any other dialog is open, the workbench shortcuts and the floating
   boards' mouse input are inactive. Below a 900 px wide window the toolbar button shows its
   icon only.
 - Engines: the engine list (更多引擎 / `Alt+X`) adds, edits, orders and removes engine profiles
@@ -243,7 +268,8 @@ importing the matching LizzieYzy Next settings.
   becomes the game komi unless the komi was set by hand (an engine that fails to start changes
   nothing). While an engine starts the status area shows 引擎正在加载中; after a failure it shows
   引擎未成功加载. As in Java, an engine that ended and was not started again is still the current
-  engine: 重启当前引擎 starts it again.
+  engine: 重启当前引擎 starts it again. During an engine game the list's changes are refused with a
+  message and the list keeps the saved engines.
 - 自动检测引擎是否存活 (综合设置 > 高级 > 日志与分析刷新, on by default, Java's
   `ui.auto-check-engine-alive`): when the foreground engine's process ends unexpectedly after it
   was ready, or a remote engine's command ends on the host or its connection is lost, the same
@@ -256,8 +282,9 @@ importing the matching LizzieYzy Next settings.
   engine, while it was lent to a background analysis (or being given back), or while it was left
   unrestored. An engine restarted this way is restarted again only after it produced an analysis
   line or a legal move, so an engine that keeps crashing is not restarted in a loop; a launch
-  failure is reported like any start, and an engine that refuses the position it is brought to
-  is left unrestored (引擎状态未恢复 in the status area, no dialog, no further attempt). The
+  failure is reported like any start, and an engine that refuses the position it is brought to,
+  or whose rules prompt for a record's rules it cannot apply is answered with No, is left
+  unrestored (引擎状态未恢复 in the status area, no dialog, no further attempt). The
   ending is noticed at once from the process or connection, not by polling. Unlike Java, a local
   engine is restarted too (Java's check missed a local process that had ended).
 - 棋盘同步工具 (同步 menu and `Alt+O`, Windows only): starts the bundled ReadBoard helper
@@ -284,8 +311,22 @@ importing the matching LizzieYzy Next settings.
   settings import), 跑谱贡献 and a Web 旁观 viewer's 试下 are refused too, and an engine that ends
   meanwhile is not restarted automatically. GMA is not armed while a 试下 holds the engine.
   Clearing GMA (stopping the sync or the helper ending) gives the original parameters back once
-  the engine holds the record's position again; if the engine refuses them it stays unrestored
-  (引擎状态未恢复) until it is switched or restarted.
+  the engine holds the record's position again; when a 试下 started between two moves holds the
+  engine, they go back as soon as it ends. If the engine refuses them it stays unrestored
+  (引擎状态未恢复) until it is switched or restarted. Arming GMA leaves a running analysis alone,
+  as Java does: it goes on while GMA waits for the opponent, and each move's first engine command
+  ends it before the move is asked. After a played move asked with pondering the engine goes on
+  pondering by itself on that position; restarting the engine there hands the analysis to the
+  new engine once it holds the position. Any other answer of the current arming except a failed
+  one (a move played without pondering, a pass, a resignation) leaves the analysis paused; Space
+  resumes it, and the helper's resume (`resumeponder`) does so once GMA is cleared, as it starts
+  no analysis while GMA is armed. A failed answer (refused, or naming no move of the board) pauses
+  nothing, and a move answered after GMA was cleared is neither played nor pauses the analysis.
+  Unticking 后台分析 in the helper
+  (`playpon off`) while GMA is armed and no move is in flight, before its first move as between
+  two, turns the engine's pondering off at once (its own value goes back when GMA is cleared) and
+  stops a running analysis, as Java does; resuming it analyses the same position again, and a
+  批量分析 started meanwhile stays paused.
   The 自建算力 engine (远程算力's WebSocket link) cannot ponder in the background: GMA leaves the
   pondering parameter alone on it, and when the helper asks for pondering (`playpon on`) each
   arming first shows ReadBoard 后台思考能力差异. GMA waits for the answer: 确定 or 不再提示 lets it
@@ -299,7 +340,8 @@ importing the matching LizzieYzy Next settings.
   Next-move dashed hints sit behind the labels; hovering a variation hides those hints until
   the pointer leaves. The bottom-bar analysis button uses pause/play
   icons and keeps its width when switching states. `Space` pauses
-  and resumes for this session only (never saved); opening another record ends the pause. Time
+  and resumes for this session only (never saved); opening another record ends the pause (a
+  paused 批量分析 stays paused, the pause being the batch record's). Time
   and visit limits stop the current position once and resume on the next one. Raising or
   unticking a limit (on the top toolbar or in 综合设置) lets a search a limit stopped go on at
   once when its visits and the time since it began are within the new limits; the resumed search
@@ -379,24 +421,31 @@ importing the matching LizzieYzy Next settings.
   searches again; an empty value sends nothing. A row with 修改 and 自动加载 is sent to every Leela
   Zero / Sai that starts. In an analysis-mode engine match, 访问量's 自动加载 sends
   `lz-setoption name Visits value 1000000000` to the Leela Zero / Sai participants before the
-  game. The rows are global, as in Java, and the twelve Java keys are taken over by the
-  LizzieYzy Next import. Other engines never get `lz-setoption`: for an engine that is neither
+  game; when the game ends, a participant that keeps running gets back the 访问量 it was last
+  given (自动加载 at its start or 确定 here), confirmed before it is handed back (Java left the
+  1000000000 in place). The rows are global, as in Java, and the twelve Java keys are taken over
+  by the LizzieYzy Next import. Other engines never get `lz-setoption`: for an engine that is neither
   KataGo nor Leela Zero / Sai (Sayuri, Pachi, Leela 0.11, unknown engines) the entry shows Java's
   "not Leela or Sai" notice instead of the window, where Java would open it.
 - KataGoPda settings: the `...` button beside the toolbar's PDA controls opens the dedicated
-  dialog. Choose 不启用PDA, 动态PDA with a nonzero coefficient, or 固定PDA with a value.
+  dialog. During an engine game (playing or paused) with a `KataGoPda` participant the button
+  stays, whichever engine is in front, and the dialog's commands go to that participant.
+  Choose 不启用PDA, 动态PDA with a nonzero coefficient, or 固定PDA with a value.
   确定 saves the choice; 取消 leaves it unchanged. An empty value is saved without sending a
   command. The dialog can also be used with standard KataGo, but only an engine whose GTP name
   begins with `KataGoPda` receives `pda`, `dympdacap`, `getpda` or `getdympdacap`.
   自动加载 applies the saved choice after startup read-back and again on the first white move
-  of a handicap game. These are the Java implementation's triggers, not every new game.
+  of a handicap game. These are the Java implementation's triggers, not every new game. Like
+  Java's saved command, the automatic apply of 动态PDA sends only `dympdacap <coefficient>`, so
+  the engine keeps (and the toolbar shows) its own PDA; only 确定 also sends `pda 0`.
   The six Java PDA-dialog settings import as a mode, numeric values and an automatic-apply
   choice; an invalid `auto-pda` command is reported as an invalid value, never stored as a raw
   command. Explicit mode/value keys take precedence; a parsed command supplies missing fields.
 - With a `KataGoCustom` or `KataGoPda` engine, right-click an empty intersection for
   优先分析此点 (`setmaxpolicy <coordinate> 1.1`) or 清除优先分析 (`clearpolicy`). Choosing a priority
   point starts analysis if it is paused. Reported priority candidates remain visible beyond the
-  candidate-count and low-visit display limits. A move clears the temporary priority selection
+  candidate-count and low-visit display limits, and a result that came while the point was chosen
+  keeps it as a candidate for 棋力评估, as Java does. A move clears the temporary priority selection
   without sending `clearpolicy`; it is not saved in the record or preferences.
   The private protocol is covered with controlled engines; acceptance by a real KataGoPda
   binary remains unverified.
@@ -551,11 +600,17 @@ importing the matching LizzieYzy Next settings.
   胜率(目数) perspective (总是黑棋 / 黑白交替), the Lizzie cache, the 选点信息 items with 自定义显示顺序,
   限制选点个数 and 限制变化图长度, the per-move time and visit limits with their switches, and the
   language. 加载默认设置 puts Java's defaults into the form only (the language stays; an empty
-  计算量 field keeps the saved visit limit); 确定 saves every row through the same settings as the
-  menus, toolbar and 综合设置; Escape or the close box saves nothing. A field that is not a whole
+  计算量 field keeps the saved visit limit); 确定 saves every row at once, through the same settings
+  as the menus, toolbar and 综合设置; Escape or the close box saves nothing. While a mode refuses
+  one of the changed rows (for example the analysis limits while 野狐 AI 直连 holds the engine),
+  确定 shows that mode's notice, saves nothing and keeps the dialog open with the edits; Java's
+  dialog has no such check and saved every row. A field that is not a whole
   number shows 错误的输入格式 and keeps the dialog open (a time or visit field whose switch is off is
-  not checked); a time limit of 0 or less is saved as 9999 minutes, negative candidate / variation
-  limits as 0 (no limit). The language applies from the next start, without a restart notice, as in
+  not checked); a time limit of 0 or less entered in the form, even a 0 cleared and typed again,
+  is saved as 9999 minutes as in Java (a saved 0 whose field is left untouched stays 0, which
+  means the same; Java rewrote it as 9999 minutes on every 确定), and
+  negative candidate / variation limits as 0 (no limit). The language applies from the next start,
+  without a restart notice, as in
   Java. Java's 界面样式 row (Swing look and feel) has no counterpart here, and the form does not open
   by itself on first start.
 - Appearance (Java defaults; saved and taken over by the LizzieYzy Next import):
@@ -622,7 +677,8 @@ importing the matching LizzieYzy Next settings.
   eight large buttons: `|<` / `>|` go to the first / last move, `<<` / `>>` back / forward five
   moves, `<` / `>` one move, 返回 goes back to the main line and 涂鸦 opens 自由涂鸦 on the
   workbench. While a candidate's variation shows, `<<`, `<`, `>` and `>>` step it instead (see
-  browsing above). As in Java, `<<`, `<`, `>` and `>>` do nothing during a game against the engine. The
+  browsing above). As in Java, `<<`, `<`, `>` and `>>` do nothing during a game against the engine,
+  and no button does anything while a modal dialog (综合设置, 初始化设置, a message) is open. The
   menu item and the toolbar button show it or hide it; its close box hides it. It first opens
   510 x 470 centred on the main window, then keeps the place and size it was given; open when the
   application closes, it opens again at the next start. 重置界面位置 forgets its place. Its place
@@ -674,7 +730,8 @@ importing the matching LizzieYzy Next settings.
   beside it, created from KataGo's example when missing); 选择引擎 makes it the same way from a
   saved engine, and 自动生成 asks for the KataGo program, model and config files. 远程引擎 with
   设置 runs the analysis command on an SSH host instead (see remote engines below); the
-  lightweight quick-analysis model is a file of this computer and is not used then.
+  lightweight quick-analysis model is a file of this computer and is not used then. The hint's
+  这里 opens KataGo's analysis engine documentation in the system browser.
   - 启动Lizzie时预加载引擎 starts the analysis process with the configured command when the
     application starts, as in Java: at once, or, when the analysis depends on the foreground
     engine (复用当前前台引擎, a cloud foreground engine, or this client's Windows NVIDIA,
@@ -700,11 +757,12 @@ importing the matching LizzieYzy Next settings.
   management are not offered for such engines. The host key is trusted on first use and kept in
   `ssh-known-hosts.json` beside `config.json`; a different key is refused before anything is
   sent, and the failure dialog shows both SHA-256 fingerprints with 信任新密钥并重试, which trusts
-  only the key shown there. Passwords never go into `config.json`: they are kept by the system
-  credential store (Windows DPAPI, macOS Keychain, Linux Secret Service), or only until quitting
-  when that store is unavailable; the password field shows which and is left empty to keep it. A
-  typed password replaces the saved one only when its settings are saved. Remote engines refresh
-  at 综合设置 > 高级 > SSH 分析刷新间隔. Failures say what happened: a refused login (Java's
+  only the key shown there and starts the engine again in the seat it failed in (in 双引擎模式 a
+  secondary engine stays the secondary one). Passwords never go into `config.json`: they are kept
+  by the system credential store (Windows DPAPI, macOS Keychain, Linux Secret Service), or only
+  until quitting when that store is unavailable; the password field shows which and is left empty
+  to keep it. A typed password replaces the saved one only when its settings are saved. Remote
+  engines refresh at 综合设置 > 高级 > SSH 分析刷新间隔. Failures say what happened: a refused login (Java's
   认证失败), a connection or key-exchange failure or timeout (3 s each), a missing password, the
   remote command ending on the host (its exit code or signal), or a connection lost without the
   command's end, when whether it still runs on the host is unknown (keepalive every 10 s, lost
@@ -734,10 +792,13 @@ importing the matching LizzieYzy Next settings.
     last-engine choice stay unchanged.
   - Switching replaces the foreground engine and synchronizes the current board, komi and
     rules. Automatic quick analysis borrows a cloud foreground engine rather than launching a
-    separate local process. Successful cloud/local switching also runs the normal analysis
+    separate local process. A switch succeeds once the new engine has confirmed the board
+    sync; only then does successful cloud/local switching run the normal analysis
     preload entry. 切换到本地引擎 selects the first local profile whose executable and referenced
     model/config/JAR files exist. 引擎 > 关闭当前引擎 disconnects it; closing the center alone
-    leaves an established engine running.
+    leaves an established engine running. Closing the engine while a switch is still starting
+    it (for example 关闭所有引擎), or switching to another engine, ends that switch: the center
+    becomes usable again and reports that the switch did not complete.
   - Zhizi uses HTTPS account operations and its Socket.IO v4 transport. A startup has at most
     three connection attempts with a fresh socket token for each; temporary token-service
     failures share that budget, while fatal authentication or service rejection does not retry.
@@ -746,7 +807,14 @@ importing the matching LizzieYzy Next settings.
     An established Zhizi analysis that has no accepted visit
     progress for 20 seconds triggers the foreground recovery path, independently of the ordinary
     alive-check preference. Late data from a retired connection cannot update the board. Custom
-    WebSocket failures use the normal engine failure/restart policy.
+    WebSocket failures use the normal engine failure/restart policy. On a custom link, any new
+    command ends a running analysis query, as on a local KataGo, and the service is told to
+    terminate it, so browsing to another position starts that position's search; an engine move
+    asked with analysis keeps that move's evaluation. An explicit `stop` is confirmed only after
+    the service sends that query's final result and its terminate acknowledgement, even when later
+    commands were already answered; when that happens while a newer analysis is reporting, the
+    confirmation follows the end of that analysis, so its reports stay with it. A refused
+    terminate fails the custom engine, as in Java.
   - Local protocol fixtures and the Linux desktop exercise these paths. Authorized live Zhizi
     and independently hosted custom-service acceptance, including real billing, have not yet
     been completed; fixture success is not a claim of current provider availability.
@@ -764,6 +832,8 @@ importing the matching LizzieYzy Next settings.
   move and lets the foreground engine analyse again unless it was paused. A rejected request ends
   the run with Java's failure message; a failed analysis process shows the engine failure and then
   精析设置 with 确定并重新计算; a borrowed engine that cannot be given back stays "引擎状态未恢复".
+  Changing 精析设置's rules during a run ends it as a failed request, as in Java: answers asked
+  under the old rules are not stored and browsing does not step to move 1.
   Results are stored like quick analysis results; opening another record ends the run silently.
   Each run searches the positions as they were when it was started: a position edited, deleted
   or added while it runs gets no result from it, answers land only on the node they were asked
@@ -777,7 +847,8 @@ importing the matching LizzieYzy Next settings.
   自定义限制手数, saved as `select-*-moves`). The board shades the region. A toolbar or Alt
   selection stays for later positions until cleared; a right-click 只分析此点 / 增加分析此点 /
   去除分析此点 (depth 1) or 不分析此点 lasts for that request only unless 持续分析/不分析 is
-  checked; 清除分析/不分析 clears it. Regions are session state: they never change the record.
+  checked; 清除分析/不分析 clears it. Regions are session state: they never change the record and
+  belong to the open record only (批量分析's searches of its own records never carry them).
   Stored results of the position give way to the next restricted live result.
 - 选点重点研究 (right-click 评估此点 / 取消评估 / 清除所有评估选点 on an empty point): on a local
   KataGo whose `kata-analyze` accepts `focus`, each tracked point gets extra search until its
@@ -793,7 +864,8 @@ importing the matching LizzieYzy Next settings.
   each engine instance's own probe (`kata-analyze … focus pass 0`, then `stop`) when it starts,
   restarts or becomes the foreground engine, paused or not; the probe's output is never shown as
   analysis and never resumes a paused engine. An engine that rejects `focus` (for example the
-  official v1.18.1 release build) keeps ordinary analysis, and the menu item is disabled as
+  official v1.18.1 release build, or a 自建算力 link, whose adapter rejects the probe without a
+  remote query) keeps ordinary analysis, and the menu item is disabled as
   选点评估需要升级引擎; a failed probe says so and is repeated by restarting the engine. This
   client does not ship a KataGo build with `focus`.
 - 自动分析 (`A`, 分析 > 自动分析, or the bottom bar 自动分析 popup) opens Java's single-record
@@ -827,7 +899,9 @@ importing the matching LizzieYzy Next settings.
   (`batch-analysis-playouts`, default 100; a search uses at least 2) and 分析所有分支, and its 设置
   button edits that value in 精析设置. Each record is read
   and analysed in turn, then saved beside its source as `<name>_已分析_<yyyyMMddHHmmss>.sgf`
-  (always SGF; the source is not changed). Unlike Java, the records are analysed as background
+  (always SGF; the source is not changed, and the copy keeps the source's secondary-engine
+  analysis, `LZ2` / `LZOP2`, with all of its candidates whatever 最大候选点数 is, as Java reads
+  those tags; variations follow 变化长度 as in Java). Unlike Java, the records are analysed as background
   documents with their own komi and declared rules: the open record stays on the board and can
   be browsed, edited and saved meanwhile, and nothing the batch does marks it saved or moves it.
   批量分析 runs automatic analysis with the foreground engine (which follows the batch record
@@ -837,7 +911,9 @@ importing the matching LizzieYzy Next settings.
   foreground engine, as chosen when the batch started) for the whole batch and shows its
   progress window; 取消分析 ends the engine without saving the current record, which stays first
   in 进度表 with the results it has, so 开始/结束(闪电模式) continues from it and asks only for
-  the positions still below the requested visits (all of them with 总是覆盖已有分析结果).
+  the positions still below the requested visits (all of them with 总是覆盖已有分析结果). A
+  borrowed engine searches a record that declares no rules with the rules it had when it was
+  taken over, not with those of the record before.
   批量分析进度表 lists the current record and the ones still to
   analyse (finished ones leave the list), with the current record's progress, 增加棋谱, 清空
   (which stops a running batch first), and per-row 优先 / 上移 / 下移 / 删除; it opens by itself
@@ -848,7 +924,10 @@ importing the matching LizzieYzy Next settings.
   ends, and records already saved stay; a new batch starts only after the previous one's copies
   are written. The queue is not kept across restarts (Java keeps it only in memory). While a
   batch runs, including while its next record loads, single-record automatic, flash and
-  whole-game analyses are refused with Java's conflict message.
+  whole-game analyses are refused with Java's conflict message. While a game against the engine
+  runs or gives its engine back (or another mode holds the engine), choosing, dropping or
+  starting either batch is refused with that mode's message before any record is read, as Java
+  refuses loading a record in a game.
 - 整盘精析 (分析 menu, `Ctrl+Shift+B`, or 自动分析 popup): a modeless dialog selects 500, 1,000,
   3,000, 10,000 or a custom 500–1,000,000 visits per position. It first fills the missing
   32-visit overview of the starting position and every main-trunk move, then searches missing
@@ -864,7 +943,9 @@ importing the matching LizzieYzy Next settings.
   available throughout. The analysis process uses KataGo's whole-game throughput thread profile;
   an explicitly accepted matching whole-game measured profile takes precedence after off-thread
   artifact/hardware verification (stale or ambiguous profiles use the normal thread profile).
-  复用当前前台引擎 uses the same sequential foreground lease as quick analysis; switching the
+  复用当前前台引擎 uses the same sequential foreground lease as quick analysis; a borrowed search
+  is given up only after 8 s without any report from the engine (one that keeps reporting may
+  take longer, as in Java); switching the
   foreground engine during such a run, or while it is still returning the engine after its last
   answer, stops it with its results kept; the new engine analyses at once. The foreground
   engine stopped by a dedicated run resumes on completion, cancellation or failure unless the
@@ -880,7 +961,9 @@ importing the matching LizzieYzy Next settings.
   分析模式 dialogs choose the engine, colour, 接着当前局面下, handicap (KataGo may choose the points
   with 自由让子), komi, 限制我的用时 (保留时间, 读秒 and 次数, with Java's countdown voices), the
   engine's time (每手用时, a raw GTP time command, KataGo's 读秒/加秒/包干 or the engine's own
-  time), KataGo visit limits, 后台思考, 对弈模式 (analysis hidden during the game), the candidates
+  time; the 自建算力 engine takes only 每手用时 or its own time, and a Genmove game or 续弈 with
+  another clock is refused before anything is saved, with Java's message), KataGo visit limits,
+  后台思考, 对弈模式 (analysis hidden during the game), the candidates
   shown for each side and 自动保存棋谱; 分析模式 adds 纯网络, Java's resignation thresholds, 不使用
   分析广度拓展 and the 落子条件 (time, total or first-candidate visits) shared with the bottom bar's
   自动落子. A game has started only once the engine answered its setup (moves are refused with
@@ -892,10 +975,13 @@ importing the matching LizzieYzy Next settings.
   (B+R, W+R, B+T, W+T) is recorded, the played line becomes the main line, the game is saved to
   `MyGames/<time>(<black>_Vs_<white>).sgf` in this client's application data directory, and
   analysis stays paused; a finished game is counted with 棋局 > 终局点目. While a game runs or
-  gives its engine back, opening records, browsing, engine switching, komi/rules changes and the
+  gives its engine back, opening records, browsing, engine switching (also a resource plan's
+  立即切换; saving the plan without switching stays available), komi/rules changes and the
   other analysis modes are refused; the engine is given back only after it answered the game's
   setup and confirmed the restore of the parameters the game changed (`maxTime`, visit limits,
   `analysisWideRootNoise`). A refused or unconfirmed restore leaves the engine marked unrestored;
+  when the engine refuses the position (`play`) behind which its move was asked, the game ends
+  as failed and that move's answer is ignored (Java fails an engine game the same way);
   an engine that never answers the move it is thinking about can be restarted or closed to end
   the wait. Opening a 新对局 dialog ends a running game and pauses analysis (cancelling resumes
   it); an 分析模式 game turns 自动落子 on for the engine's side and off again at its end, and
@@ -903,17 +989,21 @@ importing the matching LizzieYzy Next settings.
   the current position; 修改AI用时, AI随机开局 and `Alt+,` (one engine move) are available.
   Differences from Java: results are always SGF (`B+R`, not the localized Japanese, Korean or
   Thai text Java writes there), the dialogs' switches are saved only with 确定 (Java saved some
-  even when cancelled), a new board during a game ends the game first, and AI随机开局 weights
+  even when cancelled), a new board during a game ends the game first, AI随机开局 weights
   close candidates by their share of the most searched candidate's visits (Java compares with
-  that count only when its unrelated `check-random-visits` option is on).
+  that count only when its unrelated `check-random-visits` option is on), and 接着当前局面下 keeps
+  the setup stones (`AB`/`AW`/`AE`) and side to play (`PL`) set between moves on the way to the
+  current position (Java replayed only the moves, so the game could start from another position).
 - 引擎对战 (棋局 > 新对局 > 引擎对局, `Alt+E`, the detailed toolbar's 引擎对战 panel): two different
   engines of the engine list play each other in Java's Genmove模式 (the engines' own `genmove`
-  with per-side 每手用时, the engine's own time or a raw GTP time command) or 分析模式 (the mover's
+  with per-side 每手用时 (sent to the 自建算力 engine as KataGo's per-move `maxTime`), the
+  engine's own time or a raw GTP time command) or 分析模式 (the mover's
   analysis plays when its time, total or first-candidate visits are reached, with per-side
   resignation thresholds and 随机落子). The dialog, 引擎对局设置 (from the dialog or the panel's 设置),
   the panel, 人工干预 (立即落子, 允许人工落子, 黑认输, 白认输), 终止 / 暂停继续引擎对局 and
   修改多盘引擎对局数 follow Java, including 本局规则 (verified on KataGo with `kata-get-rules`; an
-  engine that cannot confirm them asks for consent), komi, handicap (19×19), 多盘对局 with
+  engine that cannot confirm them asks for consent), komi, handicap (on a 19×19 board only; when
+  the black engine's board is another size the game starts without handicap), 多盘对局 with
   交换黑白, 当前局面续弈, 加载开局SGF (in order or at random), 最大手数 and 后台计算. Both engines run
   as their own processes (other running engines are closed); the engine to move is the
   foreground engine, so its analysis is what the board, the lists and the graph show. A match
@@ -927,7 +1017,9 @@ importing the matching LizzieYzy Next settings.
   `EngineGames/<batch name>/`, default `<first>_VS_<second>_<time>`) in this client's application
   data directory, with Java's move comments, together with the batch's `结果<time>.txt` summary
   (score, wins as black/white, time, visits, Elo and confidence intervals) and, with 自动保存胜率图,
-  the winrate graph. The next game of a batch starts only after both engines confirmed they are
+  the winrate graph. The saved record's 本局规则 block and the summary name each engine with its
+  command as Java does, with credential values in it (`--token …`, `password=…`) masked by the
+  credential sanitizer. The next game of a batch starts only after both engines confirmed they are
   given back (parameters and rules the match changed are restored; a refusal or missing
   confirmation marks the engine unrestored and stops the batch); an engine exit retires the
   game and ends the batch (the exit is logged, without the 引擎异常关闭 window), after which that
@@ -938,7 +1030,8 @@ importing the matching LizzieYzy Next settings.
   Differences from Java: results are always SGF `B+R` / `W+R`; the batch summary lists each
   engine's own settings after colours are exchanged (Java mixed the black and white sides there);
   a custom batch folder name made only of dots or separators is refused, so files stay under
-  `EngineGames`.
+  `EngineGames`; 当前局面续弈 and 加载开局SGF keep setup stones and side to play set between
+  moves (Java replayed only the moves).
 - AI 陪练 (HumanSL; the menu bar's AI 陪练 button, 棋局 > 新建对局 > AI 陪练, function search): a
   game against KataGo's human-imitation (HumanSL) network on the main board. The setup dialog
   follows Java: 训练方式 (实战后复盘 hides candidates, the winrate graph, Kata形势, policy and
@@ -1018,13 +1111,18 @@ importing the matching LizzieYzy Next settings.
   block and leaves your own comment untouched; save the record to keep it, and the comment panel
   shows it as its own AI 解说 section. The block goes to the node the request was made for (下一手
   and 区间: the current node; 整局: the root) even if you navigate meanwhile; if that node is deleted
-  or its position is edited before the reply arrives, the answer is shown but not stored (Java
-  stored it into the stale node). 停止, closing the window or opening another record cancels the
-  request, closes the connection and discards a late reply.
+  or its position is edited after its evidence was taken (also when 继续追问 reuses that evidence),
+  the answer is shown but not stored (Java stored it into the stale node). 停止, closing the window
+  or opening another record cancels the request, closes the connection, ends the reply reader and
+  discards a late reply.
   设置 > 连接服务 offers Java's two connections. **API Key** works with any OpenAI-compatible
   service: service address (`/v1` is added to an address without a path), key and model; 获取模型
   lists `/models`; requests stream from `/chat/completions` and fall back to `/responses` only when
-  the service answers 404 or 405; HTTPS is required except for a service on this computer.
+  the service answers 404 or 405; HTTPS is required except for a service on this computer. The
+  key filled in from this session belongs to the saved address: changing the address empties the
+  field, so 获取模型 never sends it to another service, and a model list still loading when the
+  address or key changes is dropped (Java sent the filled key to the new address and offered the
+  old address's models for it).
   **ChatGPT 登录** is OpenAI's Sign in with ChatGPT in the browser and uses your ChatGPT plan
   (管理用量 opens its usage page); several accounts can be added and switched. 记住密钥 keeps the key
   in the system credential store (Windows DPAPI, macOS Keychain, Linux Secret Service through
@@ -1062,7 +1160,10 @@ importing the matching LizzieYzy Next settings.
   Wayland (the desktop may ask for permission). Only the primary screen is used, as in Java.
 - Web 旁观 (同步 > Web 旁观, the bottom bar's 同步 popup, function search): 启动 Web 旁观 serves
   Java's viewer page to browsers on the network, at the address shown after the window title
-  (`| Web: http://<this machine's address>:9998`) and copied by 复制访问地址. The page listens on
+  (`| Web: http://<this machine's address>:9998`) and copied by 复制访问地址. The address is that of
+  the interface the system routes outward through; on a network without a default route it is
+  the first IPv4 address of an interface that is up and not loopback, and only without any such
+  interface `127.0.0.1`. The page listens on
   every network interface; the page uses port 9998 and the board stream 9999, each moving up to
   nine ports further when taken. The ports and the limit of 20 viewers come from settings
   (imported from Java's `web-board` section) and are not edited in the client. Viewers see the
@@ -1080,10 +1181,15 @@ importing the matching LizzieYzy Next settings.
   GMA) are refused; an engine that ends meanwhile is not restarted automatically. It ends at the
   viewer's 退出试下, after five idle minutes, by
   强制结束试下, when the share stops or when another record opens; browsing then returns to where
-  it started.
+  it started. 自动落子 does not play while a 试下 runs, as desktop moves are refused; it plays
+  again with its settings once the 试下 ends (Java still played, on the position the 试下 started
+  from).
   Since Java placed only the first placeholder, a 试下 continued past the record's last move could
   extend the main line there; here it stays a branch.
-  A 试下 needs a free foreground engine. 停止 Web 旁观 or quitting closes both ports and disconnects
+  A 试下 needs a free foreground engine that has finished starting, so none starts while the
+  desktop switches or restarts the engine, nor while 野狐 AI 直连 owns the record, from 开始 on,
+  before its first position arrives; the viewer gets the engine-busy answer (Java admitted the
+  试下 while Fox only listened). 停止 Web 旁观 or quitting closes both ports and disconnects
   every viewer; messages of a stopped share never reach a later one. A firewall between viewer and
   this machine must allow both ports.
 - 快速曲线轻量模型 (引擎一键设置 > 权重管理): the official lightweight b10 model is downloaded on demand
@@ -1108,7 +1214,9 @@ importing the matching LizzieYzy Next settings.
   (胜率吻合, 吻合度走势, loss distributions and statistics, 分段吻合度, 翻车现场) can be clicked, dragged
   or scrolled to browse. Clicking a row goes to the position before the move and marks it; under
   主干 only main-trunk moves can be chosen; during 自动分析 row clicks are ignored as in Java, chart
-  clicks are not. A click on one record that arrives after another record opened is ignored. Right-click a list for 导出为xls (a UTF-16
+  clicks are not. A click on one record that arrives after another record opened is ignored. A value the stored
+  analysis does not have (for example the score of a position analysed by Leela Zero) is an empty cell rather
+  than Java's 0. Right-click a list for 导出为xls (a UTF-16
   tab-separated file named `.xls`, as Java writes it). `Q` keeps the window on top. 双引擎模式
   opens a second window on the secondary engine's analysis. The open state, page, chart, filters,
   range, the primary window's bounds, sort and column widths are remembered; the window reopens
@@ -1171,14 +1279,18 @@ importing the matching LizzieYzy Next settings.
   Java's own themes also come over: every folder of Java's `theme/` (in the Java folder, else the
   Java program folder) that holds a `theme.txt` becomes a theme of this client with the same
   name, together with the board, background and stone images it shows, found as Java finds them
-  (relative to that theme's folder, or absolute) and copied into the theme. An image the theme
+  (relative to that theme's folder, or absolute) and copied into the theme. A TIFF picture, which
+  Java reads but this client's window cannot show, is converted to a PNG of the same name
+  (`board.tif` becomes `board.png`; a different picture already using that name in the theme gets
+  the next free name, such as `board-2.png`). An image the theme
   itself lacks follows Java's fallback: the default theme's image setting (the theme keeps
   following it), else the file of that name in `theme/`, else the built-in picture. The theme
   Java had selected stays selected, and Java's translated 默认 / Default entry selects the default
   theme. An untouched copy of a bundled theme is skipped; a changed one becomes the user's copy
-  of that bundled theme, whose own files are not changed. A theme folder that cannot be read, or
-  whose `theme.txt` holds values no theme can use (such as a colour channel above 255), is listed
-  as not usable with those keys; the other themes and settings still come over. `default` is
+  of that bundled theme, whose own files are not changed. A theme folder that cannot be read,
+  whose TIFF picture cannot be decoded, or whose `theme.txt` holds values no theme can use (such
+  as a colour channel above 255), is listed as not usable with those keys or that picture and is
+  not imported; the other themes and settings still come over. `default` is
   this client's default theme, so a Java theme folder named `default` comes over as
   "default (LizzieYzy Next)" (and stays selected if Java used it). Replacing
   a theme of this client with the same name is listed with the theme names and needs the same
@@ -1214,7 +1326,10 @@ importing the matching LizzieYzy Next settings.
   cannot be read is not replaced), restarts the engines with the imported choice, and shows the
   report; the language applies after a restart. Java's files are never written, so both programs
   can be used side by side.
-- An analysis time limit of 0 seconds means 9999 minutes, as in Java.
+- An analysis time limit of 0 seconds means 9999 minutes, whether it is typed into the top
+  toolbar's 限制: 时间 field, set in 综合设置 or read again after a restart; the saved value stays 0
+  (Java stopped the analysis at once when 0 was typed into the toolbar, but read the same 0 as 9999
+  minutes after a restart).
 - Engine resources (Settings > 引擎一键设置, the toolbar 一键设置 button, the bottom bar 更新官方权重
   button for the weights page, and the "AI 未就绪 - 点击修复" banner shown while no engine has a
   command): this client does not bundle an engine. Opening the dialog detects the computer (OS,
@@ -1252,7 +1367,8 @@ importing the matching LizzieYzy Next settings.
   it can be stopped. Its recommended search threads stay in use until the policy is changed or
   measured again; the measured server threads and batch size apply only while the engine, model
   and config are unchanged, and the page then marks the result as historical. Measured tuning
-  reports can be reviewed, applied and restored; they and Apple Silicon tuning apply only while
+  reports can be reviewed, applied and restored (a running engine, the 双引擎模式 secondary one
+  included, starts again with the result and keeps its seat); they and Apple Silicon tuning apply only while
   the content of the engine, model and config still matches, which is checked before the engine
   starts without blocking the window. Apple Silicon deep tuning is experimental and asks first.
 - 跑谱贡献 (KataGo distributed training, the 跑谱贡献 menu; Settings > 显示跑谱贡献菜单 hides it):
@@ -1268,7 +1384,9 @@ importing the matching LizzieYzy Next settings.
   game (type, komi, result, rules) and Java's game/move navigation, auto play, 暂停/恢复,
   顺序结束(延迟), 强制结束(立刻) and 保存所有棋谱. While it runs the board cannot be edited and
   other engine work (including 远程算力 and applying a settings import) is refused; while paused
-  both are free again. 跑谱贡献 does not start while a 试下 or a GMA move holds the engine. A
+  both are free again. A record opened while paused is left alone: the watch's auto play and later
+  moves of the watched game only reach the contribution's own board, and choosing the game in the
+  list shows it again. 跑谱贡献 does not start while a 试下 or a GMA move holds the engine. A
   crash restarts it up to three times (a missing CA bundle adds KataGo's `cacert.pem` once); a
   build without distributed support or one the server rejects stops at once with the engine
   failure window and 重启引擎.
@@ -1309,6 +1427,13 @@ importing the matching LizzieYzy Next settings.
     seconds from the signed detail service), older 弈客 live rooms and game rooms (the 弈客
     Socket.IO room), a 弈客 live board (read once), 野狐分享 and 腾讯欢乐 broadcast links (the
     huanle WebSocket), and any other link, which is read once and opened as an SGF record.
+    The 弈客 kinds are recognized only on `https://yikeweiqi.com` and its subdomains, on the
+    default port; the same link shape on another host, over `http` or on another port is any
+    other link, also when it carries 野狐 or 欢乐 share keys (the 弈客 shapes are checked first,
+    as in Java). Java recognized them on every host; its older live-room, live-board and
+    game-room links read the `golive/dtl` detail from that host's `api.` server, while new live
+    rooms and 对局室 used fixed 弈客 service addresses. Here the `golive/dtl` detail is always read
+    from `https://api.yikeweiqi.com`.
     中断 stops the follow, empties the link and closes the dialog; closing the dialog leaves the
     follow running. 新建 / 清空棋盘 and anything else that starts an empty board (人机对弈, AI
     陪练, 跑谱贡献) also ends the follow, as in Java; an engine match keeps it. An unknown link
@@ -1323,6 +1448,8 @@ importing the matching LizzieYzy Next settings.
   - 打开网页 / 弈客网页版 open a 弈客-only web window with Java's toolbar (后退, address, 加载,
     停止同步). 加载 (or Enter) of a 弈客 room address follows it, and from then on a 弈客 room
     address the page moves to is followed automatically; any other address shows URL 无法识别.
+    The 棋盘同步工具 helper's 弈客 signals act on this window as in Java: its start follows the
+    room the page shows (reloading it) unless it is followed already, and its stop ends the sync.
     The window title shows the follow's status. Only `https://yikeweiqi.com` and its
     subdomains load in the window, plus the frames of the 腾讯验证码 the 弈客 login shows; other
     links go to the system browser. The page can call exactly one bridge command, which reports
@@ -1332,6 +1459,11 @@ importing the matching LizzieYzy Next settings.
   - Reads use Settings > 网络代理 like Java; the 弈客 Socket.IO room connects directly, as in
     Java. An unusable manual proxy shows Java's 网络代理设置 warning and stops the polling or the
     broadcast connection.
+  - When the 弈客 Socket.IO server disconnects or refuses the room, the follow stops as it does
+    when the server ends the room, and the record is kept (Java kept showing the room as followed
+    with no more updates); a dropped connection still reconnects. A 腾讯欢乐 broadcast or record
+    read that the server answers with an HTTP error status fails even when its body could be read
+    (Java took the error body as the broadcast or the record).
   - Commentator variations are added as side branches with their own colours, passes and
     comments. A game that arrives while a borrowed engine is being given back waits for it; 中断
     meanwhile drops it.
@@ -1343,10 +1475,7 @@ importing the matching LizzieYzy Next settings.
   constructed frames).
 
 Every other Java menu item, toolbar button and shortcut is present in its Java place but marked
-as not yet available (greyed in menus; a notice when used). Not available yet: the other layout
-modes (classic, minimal, thinking, four sub boards, independent board, custom layouts),
-cloud engines, whole-game measured tuning, and the analysis-region items of the board context
-menu.
+as not yet available (greyed in menus; a notice when used).
 
 Resource acquisition and real engine analysis have been verified on Linux (private X11,
 WebKitGTK), including downloads of the official KataGo v1.18.1 Eigen AVX2 AppImage and model
@@ -1485,14 +1614,16 @@ destination in `ui/src/search/targets.ts`. A feature makes its entries reachable
 them where its control lives:
 
 - Actions and windows: an entry in the `COMMANDS` catalog (`ui/src/commands.ts`, extended by each
-  feature module) under the Java action id. Search runs it only for ACTION entries and for the
-  Java openers listed in `targets.ts` (weights download, acceleration, komi, rules, …).
+  feature module) under the Java action id. Search runs it for ACTION entries and for the Java
+  openers listed in `targets.ts` (weights download, acceleration, komi, rules, …); a bottom-bar
+  button's command does what the button does.
 - Menu items: the item's `id` in `ui/src/chrome/javaMenus.ts` plus its `COMMANDS` entry. Search
-  opens the menu path and focuses the item (`locateMenuItem`); it does not run it.
+  runs a WINDOW item's command (`menuItemCommand`); for the others it opens the menu path and
+  focuses the item (`locateMenuItem`) without running it.
 - Toolbar controls: `data-function="<Java action id>"` on the control (`at()` in
   `chrome/toolbar.ts`, `located` in `chrome/bottombar.ts`). A control marked `unavailable` or
-  disabled does not count. A bottom-bar button not on the bar is located in its 更多 popup
-  (`locateHiddenButton`).
+  disabled does not count. Search clicks a WINDOW control and locates the others; a bottom-bar
+  button not on the bar is located in its 更多 popup (`locateHiddenButton`).
 - Settings rows: the section page (`SETTINGS_PAGES` in `ui/src/engine/settings.ts`) builds the
   row with `data-setting-target="<Java setting id>"`, and its module registers the ids with
   `registerSettingTargets(section, ids)` (`ui/src/engine/settingsTargets.ts`) when it loads, so
@@ -1531,6 +1662,17 @@ positions of visible controls). With the feature, `LIZZIEYZY_TAURI_RESOURCE_BASE
 engine resource downloads fetch `<url>/<file name>` instead of the trusted source (digests and
 sizes stay pinned), for isolated download tests. The feature is off by default; builds made
 without `--features acceptance` contain neither, whatever the profile.
+
+These source builds, and the Rust-only rebuild below, keep the normal application identifier
+`io.github.qiyi71w.lizzieyzy-tauri`, so started as they are they use the normal program's
+settings and log folders and its credential-store entries. Run them only with isolated data. On
+Linux, point `HOME` at a throwaway folder and leave `XDG_CONFIG_HOME` and `XDG_DATA_HOME` unset
+(or point them into it too); this does not separate the desktop session's Secret Service
+keyring, so where passwords or keys are involved use a session without a Secret Service or a
+throwaway user account. On Windows and macOS `HOME` does not separate the settings folder
+(Windows) or the Keychain (macOS): use the acceptance-identity package from
+`node tools/package.mjs --identity acceptance` (see [Packages](#packages)), which has its own
+identifier, data folders and credential entries.
 
 After changing only Rust code, `cargo build --bins --features acceptance,tauri/custom-protocol`
 (the command `tauri build` runs) produces the same `target/debug/lizzieyzy-tauri`. It skips

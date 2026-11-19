@@ -109,6 +109,14 @@ impl LeelaOption {
     }
 }
 
+/// The `Visits` value among `options` that [`LeelaOption::command`] sends, as sent.
+fn sent_visits(options: &[(LeelaOption, String)]) -> Option<String> {
+    options
+        .iter()
+        .find(|(o, v)| *o == LeelaOption::Visits && o.command(v).is_some())
+        .map(|(_, v)| v.trim().to_string())
+}
+
 /// A KataGo search parameter of the toolbar and the 引擎参数 window (`kata-set-param`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
 pub enum KataParam {
@@ -247,6 +255,8 @@ pub struct EngineFailure {
     pub remote: Option<super::ssh::RemoteFailure>,
     /// It held the foreground seat when it ended.
     pub foreground: bool,
+    /// It held the 双引擎模式 secondary seat when it ended, or was being started for it.
+    pub secondary: bool,
     /// When it ended, its state belonged to a holder other than the seat's wish: lent to a
     /// background task (the lease, its restore included), being given back by a play mode or
     /// HumanSL, reserved by a ReadBoard GMA hand or its restore, or left unrestored by such a
@@ -439,6 +449,9 @@ struct LeaseSearch {
     target_visits: u64,
     best: Option<InfoLine>,
     failed: bool,
+    /// When the search last reported (Java `remoteGtpLastCompletionActivityMillis`), from its
+    /// start: its stall deadline counts idle time from here.
+    last_activity: Instant,
 }
 
 /// The foreground engine lent to a background task (Java `ForegroundAnalysisLease`): the seat's
@@ -638,6 +651,9 @@ struct Instance {
     pda_queries: u8,
     /// The start-up answers were followed by the 自动套用 commands.
     pda_autoloaded: bool,
+    /// The Leela Zero / Sai `Visits` value this process was last given by its start-up options
+    /// or the 引擎参数 window; `None` while it runs on its launch default.
+    lz_visits: Option<String>,
     /// `numSearchThreads` this process confirmed to the 引擎参数 window, and whether that window
     /// changed it (Java `RuntimeSearchThreads`, bound to the process).
     threads_overridden: bool,
@@ -955,6 +971,7 @@ impl Instance {
             remote: None,
             // Filled in by `Engines::fail`, which knows the seats.
             foreground: false,
+            secondary: false,
             held: false,
             reserved: false,
             cloud_recovery: false,
@@ -1130,6 +1147,12 @@ impl Engines {
     /// Leela Zero or Sai, which take `lz-setoption`.
     pub fn takes_lz_options(&self, id: InstanceId) -> bool {
         self.get(id).is_some_and(Instance::takes_lz_options)
+    }
+
+    /// The `Visits` value Leela Zero / Sai `id` was last given by its start-up options or the
+    /// 引擎参数 window, as sent; `None` while it runs on its launch default.
+    pub fn leela_visits(&self, id: InstanceId) -> Option<&str> {
+        self.get(id).and_then(|i| i.lz_visits.as_deref())
     }
 
     pub fn supports(&self, id: InstanceId, command: &str) -> bool {
@@ -1406,6 +1429,7 @@ impl Engines {
             output: Vec::new(),
             remote: None,
             foreground: false,
+            secondary: false,
             held: false,
             reserved: false,
             cloud_recovery: false,
@@ -1527,6 +1551,7 @@ impl Engines {
             pda_mode: None,
             pda_queries: 0,
             pda_autoloaded: false,
+            lz_visits: None,
             threads_overridden: false,
             threads_confirmed: None,
             thread_requests: HashMap::new(),
@@ -1674,6 +1699,7 @@ impl Engines {
     /// says which seat the instance held and whether a holder owned its state at that moment.
     fn fail(&mut self, id: InstanceId, mut failure: EngineFailure) -> RuntimeEvent {
         failure.foreground = self.foreground == Some(id);
+        failure.secondary = self.secondary == Some(id);
         failure.reserved = self.get(id).is_some_and(|i| i.unrestored.is_some())
             || self.readboard_gma_holds(id)
             || self.exclusive_session_holds(id)
@@ -1913,7 +1939,7 @@ impl Engines {
             }
         }
         if self.lease.as_ref().and_then(|l| l.deadline).is_some_and(|d| now >= d) {
-            self.lease_timeout(&mut events);
+            self.lease_timeout(now, &mut events);
         }
         self.game_timeout(now, &mut events);
         events.append(&mut self.pending);
@@ -2206,11 +2232,19 @@ impl Engines {
         self.get(id).is_some_and(|i| i.gtp_name.starts_with("KataGoCustom") || i.gtp_name.starts_with("KataGoPda"))
     }
 
-    /// Sends a `KataGoPda`'s private settings to the foreground engine: the dialog's 确定 and a
-    /// handicap game's re-apply. Commands go only to a ready, unrestored `KataGoPda`; a missing
-    /// numeric value sends nothing. Returns whether anything was sent.
-    pub fn apply_custom_pda(&mut self, settings: &CustomPdaSettings) -> bool {
+    /// Sends a `KataGoPda`'s private settings to the foreground engine: the dialog's 确定
+    /// ([`CustomPdaSettings::commands`]) or, when `automatic`, a handicap game's re-apply
+    /// ([`CustomPdaSettings::auto_commands`], which leaves a 动态 engine's own PDA). Commands go
+    /// only to a ready, unrestored `KataGoPda`; a missing numeric value sends nothing. Returns
+    /// whether anything was sent.
+    pub fn apply_custom_pda(&mut self, settings: &CustomPdaSettings, automatic: bool) -> bool {
         let Some(id) = self.foreground else { return false };
+        self.apply_custom_pda_to(id, settings, automatic)
+    }
+
+    /// [`Self::apply_custom_pda`] for instance `id`, such as an engine game's `KataGoPda`
+    /// participant while the other one is in front.
+    pub fn apply_custom_pda_to(&mut self, id: InstanceId, settings: &CustomPdaSettings, automatic: bool) -> bool {
         let Some(inst) = self.get(id) else { return false };
         if !inst.gtp_name.starts_with("KataGoPda")
             || inst.phase != Phase::Ready
@@ -2219,7 +2253,7 @@ impl Engines {
         {
             return false;
         }
-        let commands = settings.commands();
+        let commands = if automatic { settings.auto_commands() } else { settings.commands() };
         if commands.is_empty() {
             return false;
         }
@@ -2231,7 +2265,8 @@ impl Engines {
         inst.pda_mode = Some(settings.mode);
         match settings.mode {
             super::profile::CustomPdaMode::Disabled => inst.pda = Some(0.0),
-            super::profile::CustomPdaMode::Dynamic => inst.pda = Some(0.0),
+            super::profile::CustomPdaMode::Dynamic if !automatic => inst.pda = Some(0.0),
+            super::profile::CustomPdaMode::Dynamic => {}
             super::profile::CustomPdaMode::Fixed => inst.pda = settings.fixed_value,
         }
         if settings.mode == super::profile::CustomPdaMode::Dynamic {
@@ -2290,7 +2325,7 @@ impl Engines {
             } else {
                 inst.pda.map(|pda| if pda == 0.0 { CustomPdaMode::Disabled } else { CustomPdaMode::Fixed })
             };
-            if inst.custom_pda.auto_apply { inst.custom_pda.commands() } else { Vec::new() }
+            if inst.custom_pda.auto_apply { inst.custom_pda.auto_commands() } else { Vec::new() }
         };
         for command in &commands {
             self.send(id, command, Purpose::Setup);
@@ -2302,7 +2337,6 @@ impl Engines {
             match inst.custom_pda.mode {
                 super::profile::CustomPdaMode::Disabled => inst.pda = Some(0.0),
                 super::profile::CustomPdaMode::Dynamic => {
-                    inst.pda = Some(0.0);
                     if let Some(cap) = inst.custom_pda.dynamic_cap.filter(|cap| cap.is_finite() && *cap != 0.0) {
                         inst.pda_cap = Some(cap);
                     }
@@ -2392,6 +2426,9 @@ impl Engines {
             return false;
         }
         let inst = self.get_mut(id).unwrap();
+        if let Some(visits) = sent_visits(options) {
+            inst.lz_visits = Some(visits);
+        }
         if let Some(old) = inst.stream {
             inst.requests.retain(|(r, _)| *r != old);
         }
@@ -2497,8 +2534,8 @@ impl Engines {
 
     // -------------------------------------------------------------------- input
 
-    /// Output of instance `id`. Returns what the application flow must act on.
-    pub fn input(&mut self, id: InstanceId, input: EngineInput) -> Vec<RuntimeEvent> {
+    /// Output of instance `id`, read at `now`. Returns what the application flow must act on.
+    pub fn input(&mut self, id: InstanceId, input: EngineInput, now: Instant) -> Vec<RuntimeEvent> {
         let mut events = std::mem::take(&mut self.pending);
         if self.workers.iter().any(|w| w.id == id) {
             self.worker_input(id, input, &mut events);
@@ -2570,7 +2607,7 @@ impl Engines {
                     if let Frame::Response { id: n, ok, .. } = &f {
                         self.record_answer(id, *n, *ok);
                     }
-                    self.frame(id, f, &mut events);
+                    self.frame(id, f, now, &mut events);
                 }
             }
         }
@@ -2645,8 +2682,8 @@ impl Engines {
         self.pump();
     }
 
-    fn frame(&mut self, id: InstanceId, frame: Frame, events: &mut Vec<RuntimeEvent>) {
-        if self.lease.as_ref().is_some_and(|l| l.instance == id) && self.lease_frame(&frame, events) {
+    fn frame(&mut self, id: InstanceId, frame: Frame, now: Instant, events: &mut Vec<RuntimeEvent>) {
+        if self.lease.as_ref().is_some_and(|l| l.instance == id) && self.lease_frame(&frame, now, events) {
             return;
         }
         // Only the foreground process takes a numSearchThreads answer (Java `target.isCurrent()`).
@@ -2775,6 +2812,7 @@ impl Engines {
                         inst.rejected = inst.syncing;
                         inst.requests.retain(|(m, _)| *m < n);
                         inst.raw_data = None;
+                        self.game_position_refused(id, n, &text, events);
                     }
                     Some(Purpose::SetRules) if !ok => {
                         if let Some((_, outcome)) = inst.rules_request.as_mut() {
@@ -2880,6 +2918,7 @@ impl Engines {
         // `setLeelaSaiEnginePara`, once the engine is known not to be KataGo.
         if inst.takes_lz_options() {
             cmds.extend(boot.leela_options.iter().filter_map(|(o, v)| o.command(v)));
+            inst.lz_visits = sent_visits(&boot.leela_options);
         }
         let katago = inst.kind == EngineKind::KataGo;
         // `setKataEnginePara`: the auto-loaded PDA, the launch threads, then the auto-loaded WRN.
@@ -3061,6 +3100,12 @@ impl Engines {
         self.lease.as_ref().is_some_and(|l| l.id == lease)
     }
 
+    /// The `kata-get-rules` answer lease `lease` captured from the engine it took (Java
+    /// `sharedForegroundOriginalRules`), once captured.
+    pub fn lease_captured_rules(&self, lease: u64) -> Option<String> {
+        self.lease.as_ref().filter(|l| l.id == lease)?.captured_rules.clone()
+    }
+
     /// Whether lease `lease` is ready for a search.
     pub fn lease_idle(&self, lease: u64) -> bool {
         self.lease
@@ -3099,18 +3144,20 @@ impl Engines {
         let l = self.lease.as_mut().unwrap();
         l.rules_changed |= rules.is_some();
         l.step = LeaseStep::Search;
-        l.deadline = Some(Instant::now() + LEASE_ACK);
+        let now = Instant::now();
+        l.deadline = Some(now + LEASE_ACK);
         l.search = Some(LeaseSearch {
             analyze: n,
             request: Request {
                 key: target.key(),
                 to_play,
                 size: target.record.size,
-                started: Instant::now(),
+                started: now,
             },
             target_visits: visits,
             best: None,
             failed: false,
+            last_activity: now,
         });
         true
     }
@@ -3125,20 +3172,21 @@ impl Engines {
         l.releasing = true;
         match l.step {
             LeaseStep::Idle => self.lease_final_stop(),
-            LeaseStep::Search => self.lease_stop_search(),
+            LeaseStep::Search => self.lease_stop_search(Instant::now()),
             // The step in flight continues the release when answered.
             _ => {}
         }
     }
 
-    fn lease_stop_search(&mut self) {
+    /// `stop` ends the search; its answer is awaited `REMOTE_GTP_STOP_ACK_TIMEOUT_MILLIS` from `now`.
+    fn lease_stop_search(&mut self, now: Instant) {
         let id = self.lease.as_ref().unwrap().instance;
         let n = self.send(id, "stop", Purpose::Lease);
         let l = self.lease.as_mut().unwrap();
         match n {
             Some(n) => {
                 l.step = LeaseStep::SearchStop(n);
-                l.deadline = Some(Instant::now() + LEASE_STOP_ACK);
+                l.deadline = Some(now + LEASE_STOP_ACK);
             }
             None => {
                 l.step = LeaseStep::Idle;
@@ -3251,7 +3299,7 @@ impl Engines {
     }
 
     /// A frame of the leased engine: `true` when it belonged to the lease.
-    fn lease_frame(&mut self, frame: &Frame, events: &mut Vec<RuntimeEvent>) -> bool {
+    fn lease_frame(&mut self, frame: &Frame, now: Instant, events: &mut Vec<RuntimeEvent>) -> bool {
         let (id, step, analyze) = {
             let l = self.lease.as_ref().unwrap();
             (l.instance, l.step, l.search.as_ref().map(|s| s.analyze))
@@ -3269,6 +3317,7 @@ impl Engines {
                     .root_visits
                     .unwrap_or_else(|| info.candidates.iter().map(|c| c.visits).sum());
                 let accepted = !s.failed && !info.candidates.is_empty();
+                s.last_activity = now;
                 if accepted {
                     s.best = Some(info);
                 }
@@ -3277,7 +3326,7 @@ impl Engines {
                     self.analysis_progress_accepted(id, total);
                 }
                 if complete {
-                    self.lease_stop_search();
+                    self.lease_stop_search(now);
                 }
                 true
             }
@@ -3382,8 +3431,10 @@ impl Engines {
         }
     }
 
-    /// A lease step that was not answered in time.
-    fn lease_timeout(&mut self, events: &mut Vec<RuntimeEvent>) {
+    /// A lease step that was not answered in time. A search is stalled only after
+    /// `REMOTE_GTP_ANALYZE_STALL_TIMEOUT_MILLIS` without a report; before that its deadline waits
+    /// only what is left of that idle time (`AnalysisEngine.java:1106-1114`).
+    fn lease_timeout(&mut self, now: Instant, events: &mut Vec<RuntimeEvent>) {
         let l = self.lease.as_mut().unwrap();
         l.deadline = None;
         match l.step {
@@ -3398,9 +3449,14 @@ impl Engines {
             }
             LeaseStep::Search => {
                 if let Some(s) = l.search.as_mut() {
+                    let stalled_at = s.last_activity + LEASE_ACK;
+                    if now < stalled_at {
+                        l.deadline = Some(stalled_at);
+                        return;
+                    }
                     s.failed = true;
                 }
-                self.lease_stop_search();
+                self.lease_stop_search(now);
             }
             LeaseStep::SearchStop(_) => {
                 if let Some(s) = l.search.as_mut() {
