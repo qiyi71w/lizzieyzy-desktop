@@ -9,7 +9,9 @@ import type { Command, KifuAfterGet, FoxKifuCommand, KifuPage, FoxKifuRow, FoxKi
 import { confirm, dialogOpen, message } from "../dialogs";
 import { format, isChinese, setLanguage, t } from "../i18n";
 import { FOX_KIFU_DATA_EVENT, FOX_KIFU_INPUT_EVENT, type FoxKifuInput, type FoxKifuPayload, type FoxKifuReport } from "./model";
-import "../styles.css";
+import { icon } from "../design/icons";
+import "../design/window";
+import "../design/stage.css";
 import "./foxkifu.css";
 
 const AFTER_GET: KifuAfterGet[] = ["Minimize", "Close", "Keep"];
@@ -108,7 +110,7 @@ export function bootFoxKifu(): void {
   account.type = "text";
   account.id = "fk-account";
   accountLabel.htmlFor = account.id;
-  const searchButton = el("button", "fk-btn");
+  const searchButton = el("button", "primary");
   searchButton.dataset.key = "fox.search";
   const afterLabel = el("label", "", "");
   const after = el("select", "fk-after");
@@ -121,7 +123,7 @@ export function bootFoxKifu(): void {
   const recentRow = el("div", "fk-recent");
   const recentLabel = el("span", "fk-recent-label");
   const recentButtons = el("div", "fk-recent-list");
-  const clearRecent = el("button", "fk-btn fk-clear");
+  const clearRecent = el("button", "fk-clear");
   clearRecent.dataset.key = "fox.clearRecent";
   recentRow.append(recentLabel, recentButtons, clearRecent);
   north.append(searchRow, currentUser, recentRow);
@@ -129,9 +131,10 @@ export function bootFoxKifu(): void {
   const scroll = el("div", "fk-scroll");
   const table = el("table", "fk-table");
   const columns = el("colgroup");
-  for (const width of [40, 180, 160, 50, 160, 50, 95, 55, 45]) {
+  // Fixed columns in multiples of the type size; the two player columns share the rest.
+  for (const width of [4.5, 12, 0, 4.5, 0, 4.5, 10, 4.5, 5]) {
     const c = el("col");
-    c.style.width = `${width}px`;
+    if (width) c.style.width = `calc(var(--ds-size) * ${width})`;
     columns.append(c);
   }
   const head = el("thead");
@@ -142,14 +145,16 @@ export function bootFoxKifu(): void {
   scroll.append(table);
 
   const south = el("div", "fk-south");
-  const pageButtons: [string, KifuPage][] = [
-    ["|<", "First"],
-    ["<", "Previous"],
-    [">", "Next"],
-    [">|", "Last"],
+  const pageButtons: [string, KifuPage, "step-first" | "step-back" | "step-forward" | "step-last"][] = [
+    ["|<", "First", "step-first"],
+    ["<", "Previous", "step-back"],
+    [">", "Next", "step-forward"],
+    [">|", "Last", "step-last"],
   ];
-  for (const [text, to] of pageButtons) {
-    const b = el("button", "fk-btn fk-page", text);
+  for (const [text, to, glyph] of pageButtons) {
+    // The icon shows; the Java text stays as the button's (unseen) text.
+    const b = el("button", "fk-page");
+    b.append(icon(glyph), el("span", "fk-unseen", text));
     b.dataset.key = `fox.page.${to}`;
     b.onclick = () => void command({ type: "Page", to });
     south.append(b);
@@ -162,8 +167,7 @@ export function bootFoxKifu(): void {
   const card = el("div", "fk-card");
   const overlayText = el("div", "fk-card-text");
   const bar = el("div", "fk-bar");
-  const barText = el("span", "fk-bar-text");
-  bar.append(el("span", "fk-bar-run"), barText);
+  bar.append(el("span", "fk-bar-run"));
   card.append(overlayText, bar);
   overlay.append(card);
   overlay.setAttribute("role", "progressbar");
@@ -252,11 +256,11 @@ export function bootFoxKifu(): void {
   function renderRows(view: FoxKifuView): void {
     body.replaceChildren();
     for (const r of view.rows) {
-      const tr = el("tr", r.won ? "won" : "");
+      const tr = el("tr", r.won ? "won" : r.winner === 1 || r.winner === 2 ? "lost" : "");
       if (r.chessid === selected) tr.classList.add("selected");
-      for (const text of cells(r)) tr.append(el("td", "", text));
+      cells(r).forEach((text, column) => tr.append(el("td", column === 6 ? "fk-result" : "", text)));
       const openCell = el("td", "fk-open-cell");
-      const open = el("button", "fk-btn fk-open", t("FoxKifuDownload.column.open"));
+      const open = el("button", "fk-open", t("FoxKifuDownload.column.open"));
       open.dataset.key = `fox.open.${r.chessid}`;
       open.onclick = (e) => {
         e.stopPropagation();
@@ -305,7 +309,7 @@ export function bootFoxKifu(): void {
     recentButtons.replaceChildren();
     if (view.recent.length === 0) recentButtons.append(el("span", "fk-recent-empty", t("FoxKifuDownload.recentEmpty")));
     for (const r of view.recent) {
-      const b = el("button", "fk-btn fk-recent-btn", foxUser(r.nickname, r.uid));
+      const b = el("button", "fk-recent-btn", foxUser(r.nickname, r.uid));
       b.dataset.key = `fox.recent.${r.uid || r.nickname}`;
       // A saved UID pins the account; only UID-less entries resolve the nickname again.
       b.onclick = () => (r.uid ? startSearch(r.uid, true, r.nickname) : startSearch(r.nickname, false, ""));
@@ -317,7 +321,6 @@ export function bootFoxKifu(): void {
     const text = overlayMessage(view);
     overlay.hidden = text === null;
     overlayText.textContent = text ?? "";
-    barText.textContent = text ?? "";
     // showProgressNotice → presentWindow: progress brings the window back, even when it was closed.
     if (text !== null && (!previous || overlayMessage(previous) !== text)) {
       void self.unminimize().then(() => self.show()).then(() => self.setFocus());

@@ -1,20 +1,96 @@
-/* 弈客直播中心 (YikeLiveDialog.java, 920x420): BorderLayout of a left FlowLayout row (gaps 8/6, empty
-   border 4,6,0,6), the table's scroll pane and the status line (empty border 4,10,6,10). JTable's
-   columns share the width equally; 16px rows; the sort arrow sits in the sorted header. */
-html, body { margin: 0; height: 100%; overflow: hidden; background: #eee; font-size: 12px; user-select: none; }
-body { display: flex; flex-direction: column; }
-#yl-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 10px 6px 6px; }
-#yl-top select, #yl-top input, #yl-top button { font: inherit; height: 24px; box-sizing: border-box; }
-#yl-top input { width: 18em; padding: 0 3px; border: 1px solid rgb(160, 165, 170); background: #fff; }
-#yl-top button { padding: 0 12px; }
-#yl-scroll { flex: 1; min-height: 0; overflow: auto; margin: 0 1px; background: #fff; border: 1px solid rgb(128, 128, 128); }
-#yl-scroll table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; outline: none; }
-#yl-scroll th { position: sticky; top: 0; z-index: 1; height: 18px; padding: 0 4px; font-weight: normal; font-size: 12px; cursor: default;
-  background: rgb(238, 238, 238); border: solid rgb(128, 128, 128); border-width: 0 1px 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#yl-scroll th.asc::after { content: " \25B2"; font-size: 9px; }
-#yl-scroll th.desc::after { content: " \25BC"; font-size: 9px; }
-#yl-scroll td { height: 15px; padding: 0 2px; line-height: 15px; color: #000; background: #fff;
-  border: solid rgb(221, 221, 221); border-width: 0 1px 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
-#yl-scroll tr.selected td { background: rgb(184, 207, 229); }
-#yl-bottom { padding: 4px 10px 6px; }
-#yl-status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 16px; line-height: 16px; }
+/* 弈客直播中心 (YikeLiveDialog): the control strip (分类, 筛选, 刷新, 更多, 同步, 打开网页) on
+   --ds-chrome, the live table on --ds-panel with the sort arrow in the sorted header, and the
+   status line. The base controls are design/base.css. */
+html,
+body {
+  overflow: hidden;
+}
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--ds-panel);
+}
+#yl-top {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
+}
+#yl-top label {
+  white-space: nowrap;
+}
+#yl-top label:not(:first-child) {
+  margin-left: 8px;
+}
+#yl-filter {
+  width: calc(var(--ds-size) * 16);
+  margin-right: 8px;
+}
+
+#yl-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+#yl-scroll table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+#yl-scroll table:focus-visible {
+  outline-offset: -2px;
+}
+#yl-scroll th,
+#yl-scroll td {
+  height: 24px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--ds-line);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#yl-scroll th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--ds-sunken);
+  color: var(--ds-text-2);
+  font-weight: 400;
+}
+#yl-scroll th:hover {
+  background-image: linear-gradient(var(--ds-hover), var(--ds-hover));
+}
+#yl-scroll th > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+}
+#yl-scroll th .icon {
+  --menu-icon-size: 12px;
+}
+#yl-scroll tbody tr:hover {
+  background: var(--ds-hover);
+}
+#yl-scroll tbody tr.selected {
+  background: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+}
+
+#yl-bottom {
+  flex: none;
+  padding: 6px 12px;
+  border-top: 1px solid var(--ds-line);
+}
+#yl-status {
+  min-height: 1.4em;
+  color: var(--ds-text-2);
+  overflow-wrap: anywhere;
+}

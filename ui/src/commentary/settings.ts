@@ -5,10 +5,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Command, CommentaryAccount, CommentaryModel, CommentaryView, Preferences, Provider } from "../contract/generated";
 import { format, product, t } from "../i18n";
-import { icon } from "./icons";
+import { icon } from "../design/icons";
+import { localIcon } from "./icons";
 import type { SettingsReport } from "./model";
 import { send } from "./send";
 import { failureText, keyOr } from "./text";
+import "../design/dialog.css";
 
 export interface SettingsDialog {
   refresh(): void;
@@ -85,7 +87,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text 
 }
 
 function btn(text: string, className: string, key: string): HTMLButtonElement {
-  const b = el("button", `tc-btn ${className}`.trim(), text);
+  const b = el("button", className, text);
   b.type = "button";
   b.dataset.key = key;
   return b;
@@ -114,7 +116,7 @@ function setOptions(s: HTMLSelectElement, options: [string, string][]): void {
 
 function privacyRow(): HTMLElement {
   const row = el("div", "ts-privacy");
-  row.append(icon("lock"), el("span", "", design("privacy")));
+  row.append(localIcon("lock"), el("span", "", design("privacy")));
   return row;
 }
 
@@ -123,8 +125,8 @@ export function openSettings(host: Host): SettingsDialog {
   const windowRoot = document.getElementById("tc-root");
   windowRoot?.setAttribute("inert", "");
 
-  const overlay = el("div", "ts-overlay");
-  const box = el("div", "ts-box");
+  const overlay = el("div", "modal ts-overlay");
+  const box = el("div", "modal-box ts-box");
   box.setAttribute("role", "dialog");
   box.setAttribute("aria-modal", "true");
   box.setAttribute("aria-label", t("Teacher.settings.title"));
@@ -157,11 +159,11 @@ export function openSettings(host: Host): SettingsDialog {
   head.append(el("div", "ts-title", t("Teacher.settings.title")), el("div", "ts-subtitle", design("subtitle")));
   const main = el("div", "ts-main");
   const rail = el("div", "ts-rail");
-  const navButton = (value: "connection" | "preferences", glyph: "link" | "sliders", text: string) => {
+  const navButton = (value: "connection" | "preferences", text: string) => {
     const b = el("button", "ts-nav");
     b.type = "button";
     b.dataset.key = `commentary.settings.page.${value}`;
-    b.append(icon(glyph), el("span", "", text));
+    b.textContent = text;
     b.onclick = () => {
       page = value;
       render();
@@ -169,8 +171,8 @@ export function openSettings(host: Host): SettingsDialog {
     rail.append(b);
     return b;
   };
-  const connectionNav = navButton("connection", "link", design("connection"));
-  const preferencesNav = navButton("preferences", "sliders", design("preferences"));
+  const connectionNav = navButton("connection", design("connection"));
+  const preferencesNav = navButton("preferences", design("preferences"));
   const pages = el("div", "ts-pages");
   main.append(rail, pages);
   const foot = el("div", "ts-foot");
@@ -204,7 +206,7 @@ export function openSettings(host: Host): SettingsDialog {
   const welcomeIntro = el("div", "ts-welcome");
   const welcomeText = el("div");
   welcomeText.append(el("div", "ts-welcome-title", design("setupTitle")), el("div", "ts-note", t("Teacher.chatgpt.choose")));
-  welcomeIntro.append(icon("browser"), welcomeText);
+  welcomeIntro.append(welcomeText);
   welcome.append(welcomeIntro, privacyRow());
 
   // API Key
@@ -246,7 +248,8 @@ export function openSettings(host: Host): SettingsDialog {
   const modelInput = field("commentary.settings.model", "text", t("Teacher.settings.modelExample"));
   modelInput.setAttribute("role", "combobox");
   modelInput.setAttribute("aria-expanded", "false");
-  const comboToggle = el("button", "ts-combo-toggle", "▾");
+  const comboToggle = el("button", "ts-combo-toggle");
+  comboToggle.append(icon("chevron-down"));
   comboToggle.type = "button";
   comboToggle.tabIndex = -1;
   comboToggle.dataset.key = "commentary.settings.modelList";
@@ -300,7 +303,7 @@ export function openSettings(host: Host): SettingsDialog {
   const chatWelcome = el("div", "ts-welcome");
   const chatWelcomeText = el("div");
   chatWelcomeText.append(el("div", "ts-welcome-title", design("chatTitle")), el("div", "ts-welcome-hint", design("chatHint")));
-  chatWelcome.append(icon("browser"), chatWelcomeText);
+  chatWelcome.append(chatWelcomeText);
   const chatFields = el("div", "ts-body");
   const accountSelect = select("commentary.settings.account", t("Teacher.chatgpt.account"));
   accountSelect.id = "ts-account";
@@ -324,7 +327,7 @@ export function openSettings(host: Host): SettingsDialog {
   modelFields.append(chatGrid, effortHint);
   chatFields.append(accountLabel, accountSelect, modelFields);
   const signInRow = el("div", "ts-actions");
-  const connect = btn(t("Teacher.chatgpt.connect"), "primary ts-connect", "commentary.settings.connect");
+  const connect = btn(t("Teacher.chatgpt.connect"), "ts-connect", "commentary.settings.connect");
   const cancelSignIn = btn(t("Teacher.chatgpt.cancel"), "", "commentary.settings.cancelSignIn");
   // ChatGptSettingsPanel.retry: shown while saved credentials cannot be read; reloads the account.
   const retry = btn(t("Teacher.chatgpt.retry"), "", "commentary.settings.retry");
@@ -368,7 +371,7 @@ export function openSettings(host: Host): SettingsDialog {
   const reload = el("button", "ts-link");
   reload.type = "button";
   reload.dataset.key = "commentary.settings.reloadKnowledge";
-  reload.append(icon("book"), el("span", "", t("Teacher.settings.reloadKnowledge")));
+  reload.textContent = t("Teacher.settings.reloadKnowledge");
   preferencesPage.append(reload);
   pages.append(connectionPage, preferencesPage);
 
@@ -675,12 +678,12 @@ export function openSettings(host: Host): SettingsDialog {
   function welcomeOnce(statusKey: string | undefined, account: string | undefined): void {
     if (statusKey !== "Teacher.chatgpt.welcome" || !account || welcomed.has(account)) return;
     welcomed.add(account);
-    const layer = el("div", "ts-overlay ts-notice-layer");
-    const card = el("div", "ts-notice");
+    const layer = el("div", "modal ts-overlay ts-notice-layer");
+    const card = el("div", "modal-box ts-notice");
     card.setAttribute("role", "alertdialog");
     card.setAttribute("aria-modal", "true");
     card.setAttribute("aria-label", t("Teacher.chatgpt.usingPlan"));
-    const ok = el("button", "tc-btn primary", product("ok"));
+    const ok = el("button", "primary", product("ok"));
     const close = () => {
       layer.remove();
       box.focus();

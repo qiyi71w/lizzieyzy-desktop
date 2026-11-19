@@ -1,153 +1,173 @@
-/* 野狐棋谱 (FoxKifuDownload): BorderLayout north rows (8/8/4/8 border, 6 px gaps), the table
-   (centred cells, red text for the searched account's wins and grey otherwise), the south page
-   buttons and the glass-pane progress card. Measured from the fixed Java cb53acc capture.
-   腾讯棋谱 (TencentKifuDownload) is the same Java frame and uses these rules too. */
+/* 野狐棋谱 (FoxKifuDownload), and 腾讯棋谱 (TencentKifuDownload), the same Java frame: the search
+   strip (account, 搜索, 打开棋谱后此窗口, 当前账号, 近期搜索) on --ds-chrome, the game table on
+   --ds-panel, the page buttons and the progress card. The base controls are design/base.css; a
+   game's result is the searched account's gain or loss colour (design/stage.css). */
+html,
+body {
+  overflow: hidden;
+}
 .fk-root {
   position: relative;
-  flex: 1;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  font-size: 12px;
+  background: var(--ds-panel);
 }
+
+/* ---- the search strip */
 .fk-north {
   flex: none;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 8px 8px 4px;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
 }
 .fk-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 6px 8px;
   white-space: nowrap;
 }
-.fk-row label {
-  margin-left: 6px;
-}
-.fk-row label:first-child {
-  margin-left: 6px;
-}
-.fk-btn {
-  height: 20px;
-  padding: 0 7px;
-  font: inherit;
-  border: 1px solid rgb(178, 182, 188);
-  border-radius: 10px;
-  background: #fff;
-  color: #111;
-}
-.fk-btn:hover:not(:disabled) {
-  background: rgb(232, 238, 246);
-}
-.fk-mode,
-.fk-after {
-  height: 24px;
-  min-width: 74px;
-  padding: 0 10px;
-  font: inherit;
-  border: 1px solid rgb(205, 209, 214);
-  border-radius: 6px;
-  background: #fff;
+.fk-row > label:not(:first-child) {
+  margin-left: 8px;
 }
 .fk-account {
-  width: 122px;
-  height: 22px;
-  padding: 0 5px;
-  font: inherit;
-  border: 1px solid rgb(205, 209, 214);
-  border-radius: 6px;
+  width: calc(var(--ds-size) * 12);
 }
 .fk-current {
-  height: 18px;
-  line-height: 18px;
+  color: var(--ds-text-2);
 }
 .fk-recent {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 20px;
+  gap: 8px;
+  min-height: var(--ds-control-h);
+}
+.fk-recent-label {
+  flex: none;
+  color: var(--ds-text-2);
 }
 .fk-recent-list {
   flex: 1;
+  min-width: 0;
   display: flex;
   gap: 6px;
   overflow: hidden;
-  white-space: nowrap;
 }
 .fk-recent-empty {
-  color: gray;
+  color: var(--ds-text-3);
 }
-.fk-recent-btn {
-  padding: 0 8px;
+.fk-recent-btn,
+.fk-clear {
+  flex: none;
+  height: var(--ds-control-h);
+  padding: 0 10px;
 }
+.fk-clear {
+  color: var(--ds-danger-text);
+}
+.fk-clear:hover:enabled {
+  background-image: linear-gradient(var(--ds-danger-soft), var(--ds-danger-soft));
+}
+
+/* ---- the game table */
 .fk-scroll {
   flex: 1;
   min-height: 0;
-  overflow-y: scroll;
-  overflow-x: auto;
-  border: 1px solid rgb(122, 138, 153);
-  background: #fff;
+  overflow: auto;
 }
 .fk-table {
   width: 100%;
   table-layout: fixed;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+.fk-table th,
+.fk-table td {
+  height: 26px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--ds-line);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .fk-table th {
   position: sticky;
   top: 0;
-  height: 19px;
-  font-weight: normal;
+  z-index: 1;
+  background: var(--ds-sunken);
+  color: var(--ds-text-2);
+  font-weight: 400;
+}
+/* 序号, 等级, 手数 and 打开 are short and centred. */
+.fk-table :is(th, td):is(:nth-child(1), :nth-child(4), :nth-child(6), :nth-child(8), :nth-child(9)) {
   text-align: center;
-  background: rgb(238, 238, 238);
-  border: 1px solid rgb(122, 138, 153);
-  border-top: none;
-  overflow: hidden;
-  white-space: nowrap;
 }
-.fk-table td {
-  height: 20px;
-  text-align: center;
-  color: gray;
-  border: 1px solid rgb(122, 138, 153);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+.fk-table tbody tr:hover {
+  background: var(--ds-hover);
 }
-.fk-table tr.won td {
-  color: rgb(255, 0, 0);
+.fk-table tbody tr.selected {
+  background: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
 }
-.fk-table tr.selected td {
-  background: rgb(184, 207, 229);
+.fk-table tr.won .fk-result {
+  color: var(--ws-gain);
+}
+.fk-table tr.lost .fk-result {
+  color: var(--ws-loss);
 }
 .fk-table td.fk-open-cell {
-  padding: 0;
+  padding: 0 4px;
 }
 .fk-open {
-  width: 100%;
-  height: 19px;
-  border-radius: 0;
-  border-color: rgb(178, 182, 188);
+  height: var(--ds-control-h);
+  padding: 0 8px;
 }
 .fk-table.disabled {
   pointer-events: none;
 }
+
+/* ---- the page buttons */
 .fk-south {
   flex: none;
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 5px;
-  padding: 5px 0;
+  gap: 4px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
 }
 .fk-page {
-  min-width: 30px;
+  width: var(--ds-control-h-l);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--ds-text-2);
 }
 .fk-page-label {
-  min-width: 60px;
+  min-width: calc(var(--ds-size) * 5);
+  margin-left: 8px;
+  color: var(--ds-text-2);
+  font-variant-numeric: tabular-nums;
 }
+/* Text kept for automation and screen readers, not drawn. */
+.fk-unseen {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- the progress card while a search or download runs; the window waits under it */
 .fk-overlay {
   position: absolute;
   inset: 0;
@@ -162,39 +182,35 @@
 .fk-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px 22px;
-  background: rgb(250, 250, 250);
-  border: 1px solid rgb(96, 112, 128);
+  gap: 12px;
+  min-width: calc(var(--ds-size) * 26);
+  max-width: 80vw;
+  padding: 16px 20px;
+  border-radius: var(--ds-radius-l);
+  background: var(--ds-panel);
+  box-shadow: var(--ds-shadow-dialog);
 }
 .fk-bar {
   position: relative;
-  width: 360px;
-  height: 22px;
+  height: 4px;
   overflow: hidden;
-  border: 1px solid rgb(122, 138, 153);
-  background: rgb(238, 238, 238);
+  border-radius: 2px;
+  background: var(--ds-well);
 }
 .fk-bar-run {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 60px;
-  background: rgb(160, 180, 205);
+  width: 30%;
+  border-radius: 2px;
+  background: var(--ds-accent);
   animation: fk-run 1.4s linear infinite;
-}
-.fk-bar-text {
-  position: absolute;
-  inset: 0;
-  text-align: center;
-  line-height: 20px;
-  color: rgb(70, 100, 170);
 }
 @keyframes fk-run {
   from {
-    left: -60px;
+    left: -30%;
   }
   to {
-    left: 360px;
+    left: 100%;
   }
 }

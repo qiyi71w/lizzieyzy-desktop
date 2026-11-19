@@ -1,6 +1,7 @@
-/* 腾讯棋谱 (TencentKifuDownload): the 野狐棋谱 window's layout (foxkifu.css) plus the grey input
-   hint after 搜索 (lblHint, Color.GRAY). */
+/* 腾讯棋谱 (TencentKifuDownload): the 野狐棋谱 window's layout (foxkifu.css) plus the input hint
+   after 搜索 (lblHint). */
 .tk-hint {
-  color: rgb(128, 128, 128);
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
   white-space: nowrap;
 }

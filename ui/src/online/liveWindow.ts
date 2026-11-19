@@ -6,10 +6,11 @@
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { LiveCategory, LiveGameView } from "../contract/generated";
-import { UI_FONT } from "../hawkeye/model";
+import { icon } from "../design/icons";
 import { setLanguage, t } from "../i18n";
 import { LIVE_DATA_EVENT, LIVE_INPUT_EVENT, type LiveInput, type LivePayload, type LiveReport } from "./model";
 import { onlineText } from "./text";
+import "../design/window";
 import "./live.css";
 
 /** The combo's entries in Java order (推荐 official=1, 地方 0, 个人 4). */
@@ -44,7 +45,6 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, id = "", text = ""): 
 }
 
 export function bootYikeLive(): void {
-  document.body.style.fontFamily = UI_FONT;
   const send = (input: LiveInput) => void emitTo("main", LIVE_INPUT_EVENT, input);
   const self = getCurrentWebviewWindow();
 
@@ -151,9 +151,14 @@ export function bootYikeLive(): void {
   const drawHeader = () => {
     const tr = el("tr");
     COLUMNS.forEach((text, column) => {
-      const th = el("th", "", text());
+      const th = el("th");
+      const label = el("span", "", text());
+      th.append(label);
       th.dataset.key = `yikeLive.column.${column}`;
-      if (sort?.column === column) th.classList.add(sort.ascending ? "asc" : "desc");
+      if (sort?.column === column) {
+        th.classList.add(sort.ascending ? "asc" : "desc");
+        label.append(icon(sort.ascending ? "chevron-up" : "chevron-down"));
+      }
       // Header clicks toggle the column ascending / descending (DefaultRowSorter.toggleSortOrder).
       th.onclick = () => {
         sort = sort?.column === column ? { column, ascending: !sort.ascending } : { column, ascending: true };

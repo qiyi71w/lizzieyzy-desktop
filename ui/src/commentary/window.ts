@@ -6,7 +6,7 @@ import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { Command, CommentaryView, Mode } from "../contract/generated";
 import { format, setLanguage, t } from "../i18n";
-import { icon } from "./icons";
+import { localIcon } from "./icons";
 import { markdownToHtml } from "./markdown";
 import {
   COMMENTARY_DATA_EVENT,
@@ -19,6 +19,7 @@ import {
 import { send } from "./send";
 import { openSettings, type SettingsDialog } from "./settings";
 import { failureText, statusText, teacherText } from "./text";
+import "../design/window";
 import "./commentary.css";
 
 /** TeacherDialogView.StatusTone. */
@@ -32,7 +33,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text 
 }
 
 function button(text: string, className: string, key: string): HTMLButtonElement {
-  const b = el("button", `tc-btn ${className}`.trim(), text);
+  const b = el("button", className, text);
   b.type = "button";
   b.dataset.key = key;
   return b;
@@ -67,15 +68,15 @@ export function bootCommentary(): void {
       ["Range", "range", "Teacher.mode.range", "Teacher.action.range", "Teacher.action.range.description"],
       ["Whole", "whole", "Teacher.mode.whole", "Teacher.action.whole", "Teacher.action.whole.description"],
     ] as const
-  ).map(([value, glyph, label, name, description]) => {
+  ).map(([value, suffix, label, name, description]) => {
     const b = el("button", "tc-mode");
     b.type = "button";
-    b.dataset.key = `commentary.mode.${glyph}`;
+    b.dataset.key = `commentary.mode.${suffix}`;
     b.setAttribute("role", "radio");
     b.title = t(name);
     b.setAttribute("aria-label", t(name));
     b.setAttribute("aria-description", t(description));
-    b.append(icon(glyph), el("span", "", t(label)));
+    b.append(el("span", "", t(label)));
     b.onclick = () => {
       // Selecting a mode never starts a request.
       mode = value;
@@ -84,9 +85,8 @@ export function bootCommentary(): void {
     modes.append(b);
     return { value, b };
   });
-  const settingsButton = button(t("Teacher.action.settings"), "", "commentary.settings");
-  settingsButton.prepend(icon("settings"));
-  settingsButton.querySelector("svg")?.classList.add("icon");
+  const settingsButton = button(t("Teacher.action.settings"), "tc-settings", "commentary.settings");
+  settingsButton.prepend(localIcon("settings"));
   settingsButton.title = t("Teacher.action.settings.description");
   settingsButton.onclick = () => void showSettings();
   header.append(modes, settingsButton);
@@ -115,8 +115,8 @@ export function bootCommentary(): void {
   toLabel.htmlFor = toField.id;
   range.append(fromLabel, fromField, toLabel, toField);
   const actions = el("div", "tc-actions");
-  const start = button(t("Teacher.action.start"), "primary", "commentary.start");
-  const stop = button(t("Teacher.action.stop"), "danger", "commentary.stop");
+  const start = button(t("Teacher.action.start"), "", "commentary.start");
+  const stop = button(t("Teacher.action.stop"), "", "commentary.stop");
   stop.title = t("Teacher.action.stop.description");
   actions.append(start, stop);
   context.append(range, scope, actions);
@@ -144,7 +144,7 @@ export function bootCommentary(): void {
   const emptyTitle = el("div", "tc-empty-title");
   const emptyDetail = el("div", "tc-empty-detail");
   emptyDetail.dataset.key = "commentary.emptyDetail";
-  empty.append(icon("commentary"), emptyTitle, emptyDetail);
+  empty.append(localIcon("commentary"), emptyTitle, emptyDetail);
   const output = el("div", "tc-output");
   output.setAttribute("aria-label", t("Teacher.output"));
   lessonPage.append(empty, output);

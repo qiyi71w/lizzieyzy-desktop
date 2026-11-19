@@ -1,46 +1,46 @@
-// 独立棋局控制面板 window (Controller.java): eight buttons in a 4 x 2 grid with 5 px gaps and a 5 px
-// edge. Each press goes to the main window, which owns the record and runs the command. Like
-// setBtnFont, every resize sets each button's font to fit its text: the smaller of 90% of the
-// width per character and half the height.
+// 独立棋局控制面板 window (Controller.java): eight large buttons in a 4 x 2 grid filling the window.
+// Each press goes to the main window, which owns the record and runs the command. The browsing
+// buttons show the shared step icons and keep Java's arrow text as their unseen text; 返回主分支
+// and 涂鸦 show their icon above their name.
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { icon, type IconName } from "../design/icons";
 import { setLanguage, t } from "../i18n";
 import { CONTROL_DATA_EVENT, CONTROL_INPUT_EVENT, type ControlButton, type ControlInput, type ControlPayload } from "./model";
 import "../design/window";
 import "./control.css";
 
-/** Java's buttons and texts in GridLayout order. Literal t() calls keep the keys in the Java string
- *  extraction. */
-const BUTTONS: [ControlButton, () => string][] = [
-  ["first", () => "|<"],
-  ["last", () => ">|"],
-  ["back5", () => "<<"],
-  ["forward5", () => ">>"],
-  ["back1", () => "<"],
-  ["forward1", () => ">"],
-  ["backToMain", () => t("Controller.btnBackToMain")],
-  ["painting", () => t("Controller.btnDrawPainting")],
+/** Java's buttons and texts in GridLayout order, with their icon and whether the text is drawn.
+ *  Literal t() calls keep the keys in the Java string extraction. */
+const BUTTONS: [ControlButton, IconName, () => string, boolean][] = [
+  ["first", "step-first", () => "|<", false],
+  ["last", "step-last", () => ">|", false],
+  ["back5", "step-back-ten", () => "<<", false],
+  ["forward5", "step-forward-ten", () => ">>", false],
+  ["back1", "step-back", () => "<", false],
+  ["forward1", "step-forward", () => ">", false],
+  ["backToMain", "back-to-main", () => t("Controller.btnBackToMain"), true],
+  ["painting", "paint-brush", () => t("Controller.btnDrawPainting"), true],
 ];
 
 export function bootControlPanel(): void {
   const send = (input: ControlInput) => void emitTo("main", CONTROL_INPUT_EVENT, input);
   const grid = document.createElement("div");
   grid.id = "cp-grid";
-  const buttons = BUTTONS.map(([key, text]) => {
+  const buttons = BUTTONS.map(([key, glyph, text, shown]) => {
     const b = document.createElement("button");
     b.dataset.key = `control.${key}`;
+    const label = document.createElement("span");
+    label.className = shown ? "cp-label" : "cp-unseen";
+    b.append(icon(glyph), label);
     b.onclick = () => send({ type: "button", button: key });
     grid.append(b);
-    return { b, text };
+    return { b, label, text };
   });
   document.body.append(grid);
 
   let lastReport = "";
-  const fit = () => {
-    for (const { b } of buttons) {
-      const chars = Math.max(1, b.textContent?.length ?? 1);
-      b.style.fontSize = `${Math.max(1, Math.min((b.clientWidth * 0.9) / chars, b.clientHeight * 0.5))}px`;
-    }
+  const report = () => {
     const report = {
       width: window.innerWidth,
       height: window.innerHeight,
@@ -49,7 +49,7 @@ export function bootControlPanel(): void {
         return {
           key: b.dataset.key!,
           text: b.textContent ?? "",
-          fontSize: Math.round(parseFloat(b.style.fontSize)),
+          fontSize: Math.round(parseFloat(getComputedStyle(b).fontSize)),
           x: Math.round(r.left + r.width / 2),
           y: Math.round(r.top + r.height / 2),
           width: Math.round(r.width),
@@ -62,12 +62,12 @@ export function bootControlPanel(): void {
     lastReport = text;
     send({ type: "report", report });
   };
-  new ResizeObserver(fit).observe(grid);
+  new ResizeObserver(report).observe(grid);
 
   const render = (p: ControlPayload) => {
     setLanguage(p.language);
-    for (const { b, text } of buttons) b.textContent = text();
-    fit();
+    for (const { label, text } of buttons) label.textContent = text();
+    report();
   };
 
   document.addEventListener("contextmenu", (e) => e.preventDefault());
