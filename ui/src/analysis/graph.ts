@@ -8,8 +8,8 @@ import { t } from "../i18n";
 import { graphGeom, type Rect } from "../workbench/layout";
 import { panelFont } from "../workbench/paint";
 import { appearance } from "../appearance/state";
-import { belowBaselineFill, cssColor, graphBackground } from "../appearance/model";
-import { rgbaOf, sameRgba, stagePalette, THEME_DEFAULT, themeColor, type StagePalette } from "../design/stage";
+import { belowBaselineFill, cssColor, graphBackground, sameRgba, THEME_DEFAULT, themeColor } from "../appearance/model";
+import { rgbaOf, stagePalette, type StagePalette } from "../design/stage";
 
 const i = Math.trunc;
 

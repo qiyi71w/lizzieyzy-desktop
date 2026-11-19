@@ -2100,6 +2100,19 @@ fn read_clipboard_text(app: AppHandle) -> String {
     app.clipboard().read_text().unwrap_or_default()
 }
 
+/// The desktop's window button order for the page's window bar: GTK's `gtk-decoration-layout`
+/// ("close,minimize:" puts the buttons at the start). Empty where the system draws the buttons.
+#[tauri::command]
+fn window_button_layout() -> String {
+    #[cfg(target_os = "linux")]
+    {
+        use gtk::prelude::GtkSettingsExt;
+        gtk::Settings::default().and_then(|settings| settings.gtk_decoration_layout()).map(String::from).unwrap_or_default()
+    }
+    #[cfg(not(target_os = "linux"))]
+    String::new()
+}
+
 /// Cocoa's predefined Quit calls terminate: without Tauri's cancellable ExitRequested.
 /// Keep the default native menu, replacing only Quit with the shared exit request.
 #[cfg(target_os = "macos")]
@@ -2289,7 +2302,13 @@ pub fn run() {
             resources::startup(app.handle().clone(), shared.clone());
             tuning::startup(app.handle().clone(), shared.clone());
 
-            let window = app.get_webview_window("main").expect("main window");
+            // The configured main window, built here because its frame differs by platform: on
+            // Linux the page's window bar is the title bar (title, window buttons, move and
+            // resize), so the desktop's own decorations are left out.
+            let main = WebviewWindowBuilder::from_config(app.handle(), &app.config().app.windows[0])?;
+            #[cfg(target_os = "linux")]
+            let main = main.decorations(false);
+            let window = main.build()?;
             if let Some(p) = placement {
                 let _ = window.set_size(PhysicalSize::new(p.width, p.height));
                 let _ = window.set_position(PhysicalPosition::new(p.x, p.y));
@@ -2529,6 +2548,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         set_suggestions_columns,
         main_list_columns,
         read_clipboard_text,
+        window_button_layout,
         yike_browser::open_yike_live,
         yike_browser::open_yike_browser,
         yike_browser::yike_browser_back,
@@ -2590,6 +2610,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         set_suggestions_columns,
         main_list_columns,
         read_clipboard_text,
+        window_button_layout,
         yike_browser::open_yike_live,
         yike_browser::open_yike_browser,
         yike_browser::yike_browser_back,

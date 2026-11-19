@@ -170,3 +170,31 @@ export function belowBaselineFill(background: readonly number[]): number[] {
   const luminance = 0.2126 * linear(background[0]) + 0.7152 * linear(background[1]) + 0.0722 * linear(background[2]);
   return luminance < 0.5 ? [232, 225, 210, 42] : [50, 54, 60, 42];
 }
+
+// ------------------------------------------------------------------ theme defaults
+
+/** The default theme's values of the colours a user can change (ThemeSettings::default in
+ *  crates/lizzie-core/src/appearance.rs). While a colour holds its default the interface draws
+ *  with its own token for the current colour mode. */
+export const THEME_DEFAULT = {
+  winrateLine: [100, 180, 255],
+  winrateMiss: [0, 0, 178],
+  scoreLine: [255, 0, 255],
+  blunderBar: [255, 204, 255, 170],
+  commentBackground: [0, 0, 0, 200],
+  commentFont: [255, 255, 255],
+  commentNode: [0, 0, 255],
+  glassAccent: [96, 165, 250],
+} as const;
+
+/** Equal colours, a missing alpha being opaque. */
+export function sameRgba(a: readonly number[], b: readonly number[]): boolean {
+  return [0, 1, 2, 3].every((k) => (a[k] ?? 255) === (b[k] ?? 255));
+}
+
+/** A theme colour the user can change: `tokenColor` while it holds the theme default
+ *  (`themeDefault`), else the user's colour as it is. */
+export function themeColor(value: readonly number[] | undefined, themeDefault: readonly number[], tokenColor: string): string {
+  if (!value || sameRgba(value, themeDefault)) return tokenColor;
+  return cssColor(value);
+}

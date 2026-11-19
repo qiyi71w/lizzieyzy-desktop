@@ -14,10 +14,13 @@ import { startFromToolbar, stopMatch, toggleMatchPause } from "../match/commands
 import { openEnginePkConfig, openManual, sharedSession, type SharedFields } from "../match/dialogs";
 import { engineIdentity, matchActive, matchUi, matchValues, onMatchUiChange, setEngineMatchChecked } from "../match/state";
 
-const MAIN_BAR_HEIGHT = 26;
+/** The main bar's row, as styles.css draws it. */
+const MAIN_BAR_HEIGHT = 32;
 const DETAIL_PANEL_HEIGHT = 44;
 const DETAIL_PANEL_GAP = 8;
 const SIDE_PADDING = 10;
+/** Space under the last row of panels; the row above them is the main bar's own margin. */
+const DETAIL_BOTTOM = 8;
 
 type Bounds = [number, number, number, number];
 
@@ -371,7 +374,7 @@ export function layoutBottomDetail(host: HTMLElement, expanded: boolean): number
   const width = host.clientWidth;
   const available = Math.max(320, width - SIDE_PADDING * 2);
   let x = SIDE_PADDING;
-  let y = MAIN_BAR_HEIGHT + 4;
+  let y = MAIN_BAR_HEIGHT;
   let rows = 1;
   for (const panel of ordered) {
     const w = Math.min(Number(panel.dataset.width), available);
@@ -383,5 +386,5 @@ export function layoutBottomDetail(host: HTMLElement, expanded: boolean): number
     Object.assign(panel.style, { display: "", left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${DETAIL_PANEL_HEIGHT}px` });
     x += w + DETAIL_PANEL_GAP;
   }
-  return MAIN_BAR_HEIGHT + 4 + rows * DETAIL_PANEL_HEIGHT + Math.max(0, rows - 1) * DETAIL_PANEL_GAP;
+  return MAIN_BAR_HEIGHT + rows * DETAIL_PANEL_HEIGHT + Math.max(0, rows - 1) * DETAIL_PANEL_GAP + DETAIL_BOTTOM;
 }

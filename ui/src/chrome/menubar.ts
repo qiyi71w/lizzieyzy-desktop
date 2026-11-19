@@ -341,9 +341,11 @@ export function buildMenubar(host: HTMLElement): void {
       if (openMenu && openMenu !== top) open();
     });
   }
+  // In the capture phase: a press on the window bar's free space starts moving the window before
+  // it reaches the document's other listeners, and must still close an open menu.
   document.addEventListener("mousedown", (e) => {
     if (openMenu && !openMenu.contains(e.target as Node)) closeMenus();
-  });
+  }, true);
   document.addEventListener("keydown", (e) => {
     if (openMenu && e.key === "Escape") {
       closeMenus();

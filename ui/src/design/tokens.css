@@ -45,12 +45,16 @@
   --ds-danger-soft-line: #f3c3be;
   --ds-warning-text: #8a5700;
   --ds-warning-soft: #fff3d1;
+  --ds-warning-soft-line: #ecd08a;
   --ds-success-text: #1b7a36;
   --ds-success-soft: #e4f5e8;
 
   /* Depth. */
   --ds-shadow-pop: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 6px 20px -4px rgba(0, 0, 0, 0.22);
   --ds-shadow-dialog: 0 0 0 1px rgba(0, 0, 0, 0.1), 0 18px 48px -8px rgba(0, 0, 0, 0.32);
+
+  /* The arrow of a select, in the secondary text colour. */
+  --ds-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M.8.8 4 4 7.2.8' fill='none' stroke='%2355555b' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 :root {
@@ -69,7 +73,7 @@
   /* Metrics. */
   --ds-control-h: 22px; /* controls in the bars */
   --ds-control-h-l: 26px; /* controls in dialogs */
-  --ds-bar-h: 38px; /* window bar */
+  --ds-bar-h: 32px; /* window bar */
 }
 
 [data-theme="dark"] {
@@ -109,16 +113,21 @@
   --ds-danger-soft-line: #6b2f2a;
   --ds-warning-text: #f2c14e;
   --ds-warning-soft: #3a2f12;
+  --ds-warning-soft-line: #6b5620;
   --ds-success-text: #5fcb7e;
   --ds-success-soft: #173322;
 
   --ds-shadow-pop: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 8px 24px -4px rgba(0, 0, 0, 0.6);
   --ds-shadow-dialog: 0 0 0 1px rgba(255, 255, 255, 0.12), 0 20px 56px -8px rgba(0, 0, 0, 0.7);
+
+  --ds-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M.8.8 4 4 7.2.8' fill='none' stroke='%23b8b8be' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 /* The platform's own interface face; the document language picks the matching CJK face. */
 :root[data-os="mac"] {
   --ds-font: -apple-system, BlinkMacSystemFont, sans-serif;
+  /* The system places the window buttons for a 28 px title bar; this bar stays close to it. */
+  --ds-bar-h: 30px;
 }
 :root[data-os="windows"] {
   --ds-font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;

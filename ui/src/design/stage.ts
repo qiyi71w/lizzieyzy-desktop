@@ -3,7 +3,6 @@
 // own wallpaper, a custom background image or a pure background colour keeps the wallpaper and
 // its translucent dark panels, drawn with the dark theme's colours.
 import { appearance, onAppearanceChange } from "../appearance/state";
-import { cssColor } from "../appearance/model";
 import { onThemeChange } from "./theme";
 import "./stage.css";
 
@@ -147,47 +146,39 @@ export function onStageChange(listener: () => void): void {
   listeners.push(listener);
 }
 
+/** The stage as the style sheets see it. Over a wallpaper the workbench's panes take the dark
+ *  theme's tokens in either colour mode, like the canvas panels beside them. */
+function applyStage(): void {
+  const flat = flatStage();
+  document.documentElement.dataset.stage = flat ? "flat" : "wallpaper";
+  const main = document.getElementById("main");
+  if (flat) main?.removeAttribute("data-theme");
+  else main?.setAttribute("data-theme", "dark");
+}
+
 function changed(): void {
   cached = null;
   revision++;
-  document.documentElement.dataset.stage = flatStage() ? "flat" : "wallpaper";
+  applyStage();
   for (const listener of listeners) listener();
 }
 
-/** The default theme's values of the user-changeable colours the panels draw with
- *  (ThemeSettings::default in crates/lizzie-core/src/appearance.rs). */
-export const THEME_DEFAULT = {
-  winrateLine: [100, 180, 255],
-  winrateMiss: [0, 0, 178],
-  scoreLine: [255, 0, 255],
-  blunderBar: [255, 204, 255, 170],
-  commentBackground: [0, 0, 0, 200],
-  commentNode: [0, 0, 255],
-} as const;
+const colourProbe = document.createElement("canvas").getContext("2d")!;
 
-/** A theme colour the user can change: the stage token while it holds the theme default
- *  (`javaDefault`, ThemeSettings::default), else the user's colour as it is. */
-export function themeColor(value: readonly number[] | undefined, javaDefault: readonly number[], tokenColor: string): string {
-  if (!value || sameRgba(value, javaDefault)) return tokenColor;
-  return cssColor(value);
-}
-
-/** Equal colours, a missing alpha being opaque. */
-export function sameRgba(a: readonly number[], b: readonly number[]): boolean {
-  return [0, 1, 2, 3].every((k) => (a[k] ?? 255) === (b[k] ?? 255));
-}
-
-/** [r, g, b, a(0-255)] of a `#rrggbb` or `rgb()` / `rgba()` colour. */
+/** [r, g, b, a(0-255)] of a CSS colour in any notation: the canvas reports what it parsed as
+ *  `#rrggbb` or `rgba(r, g, b, a)`. The build shortens the tokens' own notation (`#fff`). */
 export function rgbaOf(css: string): number[] {
-  const hex = /^#([0-9a-f]{6})$/i.exec(css);
-  if (hex) {
-    const n = Number.parseInt(hex[1], 16);
+  colourProbe.fillStyle = "#000";
+  colourProbe.fillStyle = css;
+  const parsed = colourProbe.fillStyle;
+  if (parsed.startsWith("#")) {
+    const n = Number.parseInt(parsed.slice(1), 16);
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255, 255];
   }
-  const parts = /rgba?\(([^)]*)\)/i.exec(css)?.[1].split(/[\s,/]+/).filter(Boolean).map(Number) ?? [0, 0, 0];
-  return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0, parts[3] === undefined ? 255 : Math.round(parts[3] * 255)];
+  const [r = 0, g = 0, b = 0, a = 1] = parsed.slice(parsed.indexOf("(") + 1, -1).split(",").map(Number);
+  return [r, g, b, Math.round(a * 255)];
 }
 
 onThemeChange(changed);
 onAppearanceChange(changed);
-document.documentElement.dataset.stage = flatStage() ? "flat" : "wallpaper";
+applyStage();

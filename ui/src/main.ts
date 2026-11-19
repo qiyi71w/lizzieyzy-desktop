@@ -8,11 +8,12 @@ import { apply, copyRecord, exportRecord, navigate, pasteRecord, run, saveRecord
 import { COMMANDS } from "./commands";
 import { buildBottomBar, layoutBottomBar } from "./chrome/bottombar";
 import { buildMenubar, menuOpen, secondaryMenuTitle } from "./chrome/menubar";
+import { mountWindowBar, setWindowTitle } from "./chrome/windowBar";
 import { buildToolbar, renderToolbar } from "./chrome/toolbar";
 import { onUnavailable, onView, snapshot } from "./contract/client";
 import type { BoardOverlayView, FloatSceneView, HistoryPoint, NodeAnalysisView, Point, SubBoardMode, WorkbenchView } from "./contract/generated";
 import { dialogOpen, message } from "./dialogs";
-import { format, isChinese, product, setLanguage, t } from "./i18n";
+import { format, language, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
 import { boardGeom, doubleEngineLayout, floatBoardLayout, mainMarginRatio, selectRange, sideLayout, SUB_MARGIN_RATIO, workbenchLayout, type BoardGeom, type DualPanels, type PanelId, type Panels, type Rect, type SidePanels } from "./workbench/layout";
 import { handleLayoutKey } from "./workbench/extraMode";
@@ -75,6 +76,8 @@ import { openWholeGameAnalysis } from "./quick/wholeGame";
 import { bindFunctionSearch, functionSearchReport } from "./search/controller";
 import { strengthReport } from "./strength/dashboard";
 import { appearanceRevision, onAppearanceChange, startAppearance } from "./appearance/state";
+import { setDocumentLanguage } from "./design/theme";
+import { onStageChange, stageRevision } from "./design/stage";
 import "./appearance/commands";
 import "./webBoard";
 import { humanSlDisplay } from "./humansl/state";
@@ -107,14 +110,6 @@ import {
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const PANEL_IDS: PanelId[] = ["captured", "stat", "graph", "comment", "status", "tree", "table", "sub"];
-
-// Java's chrome fonts are platform-resolved (Dialog / Microsoft YaHei UI on Windows, DejaVu / Noto
-// on Linux); styles.css selects the matching set from this attribute.
-document.documentElement.dataset.os = navigator.userAgent.includes("Windows")
-  ? "windows"
-  : navigator.userAgent.includes("Mac OS")
-    ? "mac"
-    : "linux";
 
 let panels: Panels | null = null;
 let treeHits = new Map<string, number>();
@@ -1074,8 +1069,9 @@ function render() {
   const normal = side ?? (floating ? floatBoardLayout(W, H, request) : workbenchLayout(W, H, request, mode === "Normal"));
   panels = dual ? { ...normal, board: dual.left, glass: [], handles: null } : normal;
   const P = panels;
-  // A committed appearance repaints every themed panel and the wallpaper (Config.readThemeVaule).
-  const size = `${W}x${H}:${window.devicePixelRatio}:${appearanceRevision()}`;
+  // A committed appearance repaints every themed panel and the wallpaper (Config.readThemeVaule);
+  // so does a change of the colour mode or of the stage.
+  const size = `${W}x${H}:${window.devicePixelRatio}:${appearanceRevision()}:${stageRevision()}`;
   // Edits change a node's position, marks or side to play in place: the revision moves on.
   const docSig = `${v.document.id}:${v.document.revision}:${pos.node}:${pos.to_play}`;
   projectAnalysis(v);
@@ -1131,10 +1127,7 @@ function render() {
   }
   renderToolbar();
   const title = workbenchTitle(v, version, historyByNode, state.nodes.get(pos.node)?.parent ?? undefined);
-  if (changed("title", title)) {
-    document.title = title;
-    getCurrentWindow().setTitle(title);
-  }
+  if (changed("title", title)) setWindowTitle(title);
 }
 
 /** The Normal-mode panels beside the main board: sub board, captured and statistics panels, the
@@ -1645,8 +1638,9 @@ async function boot() {
   const [first, appVersion] = await Promise.all([snapshot(), getVersion()]);
   version = appVersion;
   setLanguage(first.settings.active_language);
-  document.documentElement.lang = isChinese() ? "zh" : "en";
+  setDocumentLanguage(language());
   buildMenubar($("menubar"));
+  await mountWindowBar($("menubar"));
   buildToolbar($("toolbar"));
   buildBottomBar($("bottombar"));
   mountSetupBanner();
@@ -1661,6 +1655,7 @@ async function boot() {
     startAppearance(first),
   ]);
   onAppearanceChange(schedule);
+  onStageChange(schedule);
   subscribe(schedule);
   bindScoreDialog(() => (panels ? $("board").getBoundingClientRect() : null));
   startTitleUpdates(schedule);

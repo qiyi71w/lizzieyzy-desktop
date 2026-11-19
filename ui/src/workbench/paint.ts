@@ -22,8 +22,8 @@ import type {
 } from "../contract/generated";
 import { language, t } from "../i18n";
 import { appearance, onAppearanceChange } from "../appearance/state";
-import { chineseClassicLabel, cssColor, customFont, drawChineseClassicMarkers, javaHue, localeFonts, opaque, rankColor, reverseColor, themedFont } from "../appearance/model";
-import { stagePalette, THEME_DEFAULT, themeColor, type StagePalette } from "../design/stage";
+import { chineseClassicLabel, cssColor, customFont, drawChineseClassicMarkers, javaHue, localeFonts, opaque, rankColor, reverseColor, THEME_DEFAULT, themeColor, themedFont } from "../appearance/model";
+import { stagePalette, type StagePalette } from "../design/stage";
 import type { BoardGeom, Rect } from "./layout";
 
 const COLS = "ABCDEFGHJKLMNOPQRSTUVWXYZ";

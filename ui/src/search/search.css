@@ -29,7 +29,7 @@
   width: 16px;
   height: 16px;
   fill: none;
-  stroke: #0a655e;
+  stroke: var(--ds-text-2);
   stroke-width: 1.5;
   stroke-linecap: square;
 }
@@ -184,9 +184,9 @@
   display: none;
 }
 
-/* A control located by function search: the 2 px gold line for 2.4 s (search/highlight.ts). */
+/* A control located by function search: a 2 px accent line for 2.4 s (search/highlight.ts). */
 .located {
-  outline: 2px solid #b99c5d;
+  outline: 2px solid var(--ds-accent);
   outline-offset: 0;
 }
 /* The board takes the focus back (search/targets.ts focusBoard) without a focus ring. */
@@ -195,7 +195,7 @@
 }
 /* A located menu item is the selected item of its open menu. */
 .dropdown .mi.located-item:focus {
-  background: rgb(226, 230, 236);
+  background: var(--ds-hover);
 }
 .dropdown .mi.located-item:focus:not(.located) {
   outline: none;

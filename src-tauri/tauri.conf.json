@@ -14,7 +14,10 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "LizzieYzy Tauri",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
         "width": 1500,
         "height": 900,
         "minWidth": 520,

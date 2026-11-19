@@ -5,7 +5,8 @@
 // value this session started with (LizzieFrame.java:20764-20767: applied after a restart).
 import type { AppearanceSettings, ThemeImages, ThemeSettings, WorkbenchView } from "../contract/generated";
 import { appearanceImages } from "../contract/client";
-import { cssColor } from "./model";
+import { setThemeMode } from "../design/theme";
+import { cssColor, sameRgba, THEME_DEFAULT } from "./model";
 
 export interface LoadedImages {
   board?: HTMLImageElement;
@@ -62,26 +63,23 @@ export async function loadThemeImages(settings: AppearanceSettings, theme: Theme
   return { images: { board, background, black, white, themeBoard }, customBoard: !!board && urls.customBoard };
 }
 
-/** Comment panel colours and size (LizzieFrame.java:11292-11304, 11358-11359; SidebarPanel.java:113-121)
- *  and the chrome palette: 苹果风格, else 莫兰迪, else classic (AppleStyleSupport.isAppleStyleEnabled /
- *  isClassicEnabled, AppleStyleSupport.java:66-72). */
+/** The colour mode, and what the theme chooses for the comment pane: its colours and text size
+ *  (LizzieFrame.java:11292-11304, 11358-11359) and the 评论 / 问题手 underline, the theme's accent
+ *  colour at alpha 220 (SidebarHeaderPanel.java:226-238). A value still at the theme default is
+ *  left to the style sheet, which draws it for the current colour mode. */
 function applyStyles(settings: AppearanceSettings, theme: ThemeSettings): void {
+  setThemeMode(settings.mode);
   const root = document.documentElement.style;
-  root.setProperty("--comment-background", cssColor(theme.commentBackgroundColor));
-  root.setProperty("--comment-color", cssColor(theme.commentFontColor));
+  const own = (name: string, value: readonly number[], themeDefault: readonly number[], css = cssColor(value)) => {
+    if (sameRgba(value, themeDefault)) root.removeProperty(name);
+    else root.setProperty(name, css);
+  };
+  own("--comment-background", theme.commentBackgroundColor, THEME_DEFAULT.commentBackground);
+  own("--comment-color", theme.commentFontColor, THEME_DEFAULT.commentFont);
+  const [r, g, b] = theme.glassAccentColor;
+  own("--theme-accent-underline", [r, g, b], THEME_DEFAULT.glassAccent, `rgba(${r}, ${g}, ${b}, ${220 / 255})`);
   if (theme.commentFontSize > 0) root.setProperty("--comment-font-size", `${theme.commentFontSize}px`);
   else root.removeProperty("--comment-font-size");
-  const chrome = settings.appleStyle ? "apple" : settings.morandiColors ? "morandi" : null;
-  if (chrome) document.documentElement.dataset.chrome = chrome;
-  else delete document.documentElement.dataset.chrome;
-  // The glass values the chrome draws with: controlBorderColor, accentFillColor /
-  // accentBorderColor and controlCornerRadius (AppleStyleSupport.java:688-717).
-  const [r, g, b] = theme.glassAccentColor;
-  root.setProperty("--glass-accent", `${r}, ${g}, ${b}`);
-  root.setProperty("--glass-border", cssColor(theme.glassPanelBorderColor));
-  root.setProperty("--control-radius", `${Math.max(8, theme.glassCornerRadius) / 2}px`);
-  if (r === 96 && g === 165 && b === 250) root.removeProperty("--glass-accent-underline");
-  else root.setProperty("--glass-accent-underline", `rgba(${r}, ${g}, ${b}, ${220 / 255})`);
 }
 
 /** Applies a published appearance (the workbench's view, or the one a floating board window is
@@ -121,17 +119,5 @@ export async function startAppearance(first: WorkbenchView): Promise<void> {
   const root = document.documentElement.style;
   root.setProperty("--frame-font-size", `${size}px`);
   root.setProperty("--menu-icon-size", `${metrics.menuIconSize}px`);
-  if (first.settings.appearance.appleStyle) installAppleIcons();
   await syncAppearance(first.settings.appearance, first.settings.theme, first.settings.theme_files_revision);
-}
-
-/** brightenIcon's recolouring as an SVG filter: every visible pixel becomes #E0E4EA. */
-function installAppleIcons(): void {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("width", "0");
-  svg.setAttribute("height", "0");
-  svg.style.position = "absolute";
-  svg.innerHTML = '<filter id="apple-icon" color-interpolation-filters="sRGB"><feFlood flood-color="#E0E4EA"/><feComposite in2="SourceAlpha" operator="in"/></filter>';
-  document.body.append(svg);
-  document.documentElement.dataset.appleIcons = "";
 }

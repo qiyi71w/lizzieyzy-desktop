@@ -97,9 +97,9 @@
 .setup-plan label { display: flex; align-items: center; gap: 9px; margin: 14px 0; }
 .setup-plan label select { flex: 1; min-width: 0; max-width: 650px; }
 .setup-plan .setup-info-row { grid-template-columns: 95px minmax(0, 1fr); }
-.setup-startup-banner { position: fixed; z-index: 15; left: 10px; bottom: 42px; min-width: 180px; max-width: calc(100vw - 20px); height: 32px; border: 1px solid #e0b153; border-radius: 6px; background: #5b4119ee; color: #fff; padding: 3px 10px; font: inherit; font-weight: bold; cursor: pointer; }
-.setup-startup-banner:hover { background: #704e1bf2; }
-.setup-startup-banner:focus-visible { outline: 2px solid #ffd884; outline-offset: -4px; }
+.setup-startup-banner { flex: none; height: 28px; padding: 0 12px; border: 0; border-bottom: 1px solid var(--ds-warning-soft-line); border-radius: 0; background-color: var(--ds-warning-soft); color: var(--ds-warning-text); font-weight: 600; text-align: left; }
+.setup-startup-banner[hidden] { display: none; }
+.setup-startup-banner:focus-visible { outline-offset: -2px; }
 @media (max-width: 950px) {
   .setup-nav { width: 230px; padding: 12px 10px; }
   .setup-content { padding: 14px 18px; }

@@ -1,0 +1,184 @@
+/* The document baseline and the standard controls every window shares. Control rules sit inside
+   :where() so they carry no specificity: a surface's own rule always wins without !important. */
+@import "./tokens.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+body {
+  font-family: var(--ds-font);
+  font-size: var(--ds-size);
+  line-height: 1.4;
+  color: var(--ds-text);
+  background: var(--ds-chrome);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+/* ---- the parts the browser draws */
+::selection {
+  background: var(--ds-accent-soft-line);
+  color: var(--ds-text);
+}
+:focus-visible {
+  outline: 2px solid var(--ds-ring);
+  outline-offset: 1px;
+}
+::placeholder {
+  color: var(--ds-text-3);
+  opacity: 1;
+}
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 6px;
+  background: var(--ds-line-strong);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--ds-text-3);
+}
+:where(a) {
+  color: var(--ds-accent-text);
+}
+
+/* ---- buttons */
+:where(button, input, select, textarea) {
+  margin: 0;
+  font: inherit;
+  color: inherit;
+}
+:where(button) {
+  height: var(--ds-control-h-l);
+  padding: 0 12px;
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-radius);
+  background-color: var(--ds-field);
+  color: var(--ds-text);
+  white-space: nowrap;
+  cursor: default;
+}
+:where(button):hover:enabled {
+  background-image: linear-gradient(var(--ds-hover), var(--ds-hover));
+}
+:where(button):active:enabled {
+  background-image: linear-gradient(var(--ds-pressed), var(--ds-pressed));
+}
+:where(button):disabled {
+  color: var(--ds-text-off);
+  background-color: var(--ds-sunken);
+}
+:where(button.primary) {
+  border-color: var(--ds-accent);
+  background-color: var(--ds-accent);
+  color: var(--ds-on-accent);
+}
+:where(button.primary):hover:enabled {
+  border-color: var(--ds-accent-hover);
+  background-color: var(--ds-accent-hover);
+  background-image: none;
+}
+:where(button.primary):active:enabled {
+  border-color: var(--ds-accent-pressed);
+  background-color: var(--ds-accent-pressed);
+  background-image: none;
+}
+:where(button.danger) {
+  border-color: var(--ds-danger-soft-line);
+  background-color: var(--ds-danger-soft);
+  color: var(--ds-danger-text);
+}
+
+/* ---- text fields and menus */
+:where(input:not([type]), input[type="text"], input[type="number"], input[type="password"], input[type="search"], input[type="url"], select, textarea) {
+  height: var(--ds-control-h-l);
+  padding: 0 8px;
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-radius);
+  background-color: var(--ds-field);
+  color: var(--ds-text);
+}
+:where(textarea) {
+  height: auto;
+  padding: 6px 8px;
+  line-height: 1.4;
+}
+:where(input, select, textarea):focus-visible {
+  border-color: var(--ds-accent);
+  outline-offset: -1px;
+}
+:where(input, select, textarea):disabled {
+  color: var(--ds-text-off);
+  background-color: var(--ds-sunken);
+}
+:where(input.invalid, input[aria-invalid="true"]) {
+  border-color: var(--ds-danger);
+  background-color: var(--ds-danger-soft);
+}
+:where(select) {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 24px;
+  background-image: var(--ds-chevron);
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 8px 5px;
+}
+
+/* ---- check boxes and radio buttons: drawn here so they match on every WebView */
+:where(input[type="checkbox"], input[type="radio"]) {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0 5px 0 0;
+  border: 1px solid var(--ds-line-strong);
+  border-radius: 3.5px;
+  background: var(--ds-field) center / 10px 10px no-repeat;
+  vertical-align: -2px;
+}
+:where(input[type="radio"]) {
+  border-radius: 50%;
+}
+:where(input[type="checkbox"], input[type="radio"]):checked {
+  border-color: var(--ds-accent);
+  background-color: var(--ds-accent);
+}
+:where(input[type="checkbox"]):checked {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 5.2 4.2 7.4 8.2 2.9' fill='none' stroke='%23fff' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+:where(input[type="checkbox"]):indeterminate {
+  border-color: var(--ds-accent);
+  background-color: var(--ds-accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2.5 5h5' stroke='%23fff' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+:where(input[type="radio"]):checked {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Ccircle cx='5' cy='5' r='2.2' fill='%23fff'/%3E%3C/svg%3E");
+}
+:where(input[type="checkbox"], input[type="radio"]):disabled {
+  border-color: var(--ds-line);
+  background-color: var(--ds-sunken);
+}
+:where(input[type="checkbox"], input[type="radio"]):checked:disabled {
+  border-color: var(--ds-text-off);
+  background-color: var(--ds-text-off);
+}
+:where(input[type="range"], progress) {
+  accent-color: var(--ds-accent);
+}
