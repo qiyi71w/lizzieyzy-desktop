@@ -7,7 +7,8 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { appMenuKey } from "../appMenuKey";
 import type { Command, DisplaySettings, HawkeyePeriod, HawkeyeSettings, MoveEvaluation } from "../contract/generated";
 import { setLanguage, t } from "../i18n";
-import { bindColumnResize, layoutColumns } from "../analysis/suggestionsFrame";
+import { bindColumnResize, layoutColumns, namedFace } from "../analysis/suggestionsFrame";
+import { icon } from "../design/icons";
 import { frameCoordinate, playouts } from "../workbench/paint";
 import { mountCharts, type ChartPanel } from "./charts";
 import { dialogTargets, openDialog, openSetThreshold, openStatisticsThreshold, openMatchAiHelp, refreshDialogs } from "./dialogs";
@@ -16,7 +17,6 @@ import {
   HAWKEYE_INPUT_EVENT,
   HAWKEYE_SUB_INPUT_EVENT,
   HAWKEYE_SUB_LABEL,
-  UI_FONT,
   fixed,
   settingsCommand,
   type HawkeyeInput,
@@ -24,39 +24,13 @@ import {
   type HawkeyeReport,
 } from "./model";
 import { mountStatistics } from "./statistics";
+import "../design/window";
+import "../design/dialog.css";
+import "../design/stage.css";
+import "./hawkeye.css";
 
 /** The 详细列表's preferred widths (MoveListFrame.java:1272-1280); later columns keep JTable's 75. */
 const DETAIL_WIDTHS = [52, 50, 57, 72, 77, 70, 70, 70, 70, 75, 75, 75];
-
-const STYLE = `
-html, body { margin: 0; height: 100%; overflow: hidden; background: #eee; font-family: ${UI_FONT}; font-size: 12px; }
-.hk-tabs { display: flex; height: 20px; align-items: flex-end; background: #eee; border-bottom: 1px solid #999; user-select: none; }
-.hk-tab { padding: 1px 9px; margin-right: 1px; border: 1px solid #aaa; border-bottom: none; background: #ddd; font-size: 12px; cursor: default; white-space: nowrap; }
-.hk-tab.sel { background: #fff; position: relative; top: 1px; }
-#hk-top { position: absolute; left: 0; top: 0; right: 0; }
-#hk-pages { position: absolute; left: 0; right: 0; top: 21px; }
-.hk-page { position: absolute; inset: 0; }
-.hk-scroll { position: absolute; overflow-x: hidden; overflow-y: auto; background: #fff; }
-.hk-scroll table { border-collapse: separate; border-spacing: 0; table-layout: fixed; }
-/* tables (MoveListFrame.java:320-325): row height Config.menuHeight, header
-   Font(uiFontName, PLAIN, max(frameFontSize, 13)), cells Font(uiFontName, BOLD, max(frameFontSize, 14));
-   the main window sends the values with every payload */
-.hk-scroll th { position: sticky; top: 0; z-index: 1; height: var(--hk-row, 20px); padding: 0; font-weight: normal; font-family: var(--hk-ui-font, inherit); font-size: var(--hk-head-size, 13px);
-  background: rgb(238, 238, 238); border: solid rgb(128, 128, 128); border-width: 0 1px 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none; }
-.hk-scroll td { height: var(--hk-row, 20px); padding: 0; text-align: center; font-weight: bold; font-family: var(--hk-ui-font, inherit); font-size: var(--hk-cell-size, 14px); color: #000; background: #fff;
-  border: solid rgb(128, 128, 128); border-width: 0 1px 1px 0; white-space: nowrap; overflow: hidden; cursor: default; }
-#hk-filter { position: absolute; left: 0; right: 0; height: 24px; display: flex; align-items: center; justify-content: center; gap: 1px; white-space: nowrap; background: #eee; user-select: none; }
-#hk-filter button { height: 20px; padding: 0 2px; font: inherit; font-size: 12px; }
-#hk-filter button.icon { width: 20px; padding: 0; display: flex; align-items: center; justify-content: center; }
-#hk-filter label { display: inline-flex; align-items: center; }
-#hk-filter input[type=checkbox] { margin: 0 2px; }
-#hk-filter input[type=text] { width: 3em; height: 16px; font: inherit; font-size: 12px; padding: 0 2px; }
-#hk-filter select { height: 20px; box-sizing: border-box; padding: 0 2px; line-height: 18px; font: inherit; font-size: 12px; }
-#hk-bottom { position: absolute; left: 0; right: 0; bottom: 0; }
-.hk-menu { position: fixed; z-index: 50; background: #fff; border: 1px solid #888; box-shadow: 2px 2px 3px rgba(0,0,0,.3); padding: 2px 0; font-size: 12px; }
-.hk-menu div { padding: 3px 18px; cursor: default; }
-.hk-menu div:hover { background: rgb(184, 207, 229); }
-`;
 
 /** Sort state shared by the three lists, as Java keeps it on the frame. */
 interface Sort {
@@ -77,16 +51,17 @@ function diffText(v: number): string {
   return `${v > 0 ? "+" : "-"}${fixed(Math.abs(v), 2)}${v > 0 ? "↑" : "↓"}`;
 }
 
-/** ColorTableCellRenderer: the colour of a 胜率波动 / 目数波动 cell from its shown number. */
+/** ColorTableCellRenderer: the class of a 胜率波动 / 目数波动 cell from its shown number, as the
+ *  colour hawkeye.css gives it. */
 function diffColor(text: string, gain: number, thresholds: number[]): string {
   const v = Number.parseFloat(text.substring(0, text.length - 1));
-  if (v >= gain) return "rgb(0,170,170)";
-  if (v <= thresholds[4]) return "rgb(165,25,160)";
-  if (v <= thresholds[3]) return "rgb(175,16,19)";
-  if (v <= thresholds[2]) return "rgb(105,162,34)";
-  if (v <= thresholds[1]) return "rgb(150,150,0)";
-  if (v <= thresholds[0]) return "rgb(180,120,45)";
-  return "rgb(0,150,0)";
+  if (v >= gain) return "var(--hk-diff-gain)";
+  if (v <= thresholds[4]) return "var(--hk-diff-5)";
+  if (v <= thresholds[3]) return "var(--hk-diff-4)";
+  if (v <= thresholds[2]) return "var(--hk-diff-3)";
+  if (v <= thresholds[1]) return "var(--hk-diff-2)";
+  if (v <= thresholds[0]) return "var(--hk-diff-1)";
+  return "var(--hk-diff-even)";
 }
 
 /** The raw change Java keeps in `NodeInfo.diffWinrate` / `scoreMeanDiff` (0 before it is known);
@@ -191,7 +166,16 @@ function minHeaders(black: boolean, katago: boolean): string[] {
     : [...head, t("Movelistframe.minTableColumnAiScore")];
 }
 
-/** A JTable in a JScrollPane: header, rows, click and right-click. */
+/** How one cell is drawn: its text and ground colours (empty for the table's own) and whether it
+ *  holds the figure the row is listed for. */
+interface CellLook {
+  fg: string;
+  bg: string;
+  key: boolean;
+}
+
+/** A JTable in a JScrollPane: header, rows, click and right-click. `categorical` names the columns
+ *  that hold words (colour, coordinate): they align left, the numbers right. */
 class ListTable {
   readonly scroll = document.createElement("div");
   private readonly table = document.createElement("table");
@@ -203,7 +187,7 @@ class ListTable {
   widths: number[] = [];
   preferred: number[] | null = null;
 
-  constructor(key: string, onSort: (column: number) => void, onRow: (row: Row) => void, onMenu: (x: number, y: number) => void, onColumns?: (w: number[]) => void) {
+  constructor(key: string, private readonly categorical: number[], onSort: (column: number) => void, onRow: (row: Row) => void, onMenu: (x: number, y: number) => void, onColumns?: (w: number[]) => void) {
     this.scroll.className = "hk-scroll";
     this.scroll.dataset.key = key;
     const thead = document.createElement("thead");
@@ -252,16 +236,17 @@ class ListTable {
     this.headers = headers;
     this.preferred = preferred;
     this.colgroup.replaceChildren(...headers.map(() => document.createElement("col")));
-    this.head.replaceChildren(...headers.map((text) => {
+    this.head.replaceChildren(...headers.map((text, column) => {
       const th = document.createElement("th");
       th.textContent = text;
       th.title = text;
+      th.classList.toggle("cat", this.categorical.includes(column));
       return th;
     }));
     this.layout();
   }
 
-  setRows(rows: Row[], color: (row: Row, column: number) => { fg: string; bg: string }): void {
+  setRows(rows: Row[], look: (row: Row, column: number) => CellLook): void {
     this.rows = rows;
     while (this.body.rows.length > rows.length) this.body.deleteRow(this.body.rows.length - 1);
     rows.forEach((r, k) => {
@@ -270,9 +255,11 @@ class ListTable {
       r.cells.forEach((text, column) => {
         const td = tr.cells[column] ?? tr.insertCell();
         if (td.textContent !== text) td.textContent = text;
-        const c = color(r, column);
+        const c = look(r, column);
         td.style.color = c.fg;
-        td.style.background = c.bg;
+        td.style.backgroundColor = c.bg;
+        td.classList.toggle("cat", this.categorical.includes(column));
+        td.classList.toggle("key", c.key);
       });
     });
   }
@@ -289,10 +276,6 @@ class ListTable {
 }
 
 export function bootHawkeye(): void {
-  const style = document.createElement("style");
-  style.textContent = STYLE;
-  document.head.append(style);
-
   const self = getCurrentWebviewWindow();
   const inputEvent = self.label === HAWKEYE_SUB_LABEL ? HAWKEYE_SUB_INPUT_EVENT : HAWKEYE_INPUT_EVENT;
   const send = (input: HawkeyeInput) => void emitTo("main", inputEvent, input);
@@ -369,9 +352,10 @@ export function bootHawkeye(): void {
   menu.append(exportItem);
   const showMenu = (table: ListTable) => (x: number, y: number) => {
     menuTable = table;
-    menu.style.left = `${x}px`;
-    menu.style.top = `${y}px`;
     menu.hidden = false;
+    // Inside the window, beside the pointer.
+    menu.style.left = `${Math.max(0, Math.min(x, window.innerWidth - menu.offsetWidth))}px`;
+    menu.style.top = `${Math.max(0, Math.min(y, window.innerHeight - menu.offsetHeight))}px`;
   };
   document.addEventListener("mousedown", (ev) => {
     if (!menu.contains(ev.target as Node)) menu.hidden = true;
@@ -379,11 +363,12 @@ export function bootHawkeye(): void {
 
   const katago = () => !!data?.pane.katago;
   const minSort = (column: number) => sortBy(column, column === 2 || (katago() && column === 3));
-  const black: ListTable = new ListTable("hawkeye.simple.black", minSort, onRow, (x, y) => showMenu(black)(x, y));
-  const white: ListTable = new ListTable("hawkeye.simple.white", minSort, onRow, (x, y) => showMenu(white)(x, y));
+  const black: ListTable = new ListTable("hawkeye.simple.black", [1], minSort, onRow, (x, y) => showMenu(black)(x, y));
+  const white: ListTable = new ListTable("hawkeye.simple.white", [1], minSort, onRow, (x, y) => showMenu(white)(x, y));
   simplePage.append(black.scroll, white.scroll);
   const detail: ListTable = new ListTable(
     "hawkeye.detail",
+    [0, 2],
     (column) => sortBy(column, column === 3 || (katago() && column === 4)),
     onRow,
     (x, y) => showMenu(detail)(x, y),
@@ -404,8 +389,7 @@ export function bootHawkeye(): void {
   };
   const hideMove = button("hawkeye.hideMove", "", () => data && settings({ showList: !data.settings.showList }));
   hideMove.className = "icon";
-  const hideIcon = document.createElement("img");
-  hideMove.append(hideIcon);
+  const hideIcons = { up: icon("chevron-up"), down: icon("chevron-down") };
   const tableThreshold = button("hawkeye.tableThreshold", t("Movelistframe.btnSetTabelThresold"), () => data && openSetThreshold(data, { run, display }));
   const statThreshold = button("hawkeye.statisticsThreshold", t("Movelistframe.btnSetStatisticsThresold"), () => data && openStatisticsThreshold(data, { run, display }));
   const sideBox = (key: string, label: string) => {
@@ -414,7 +398,9 @@ export function bootHawkeye(): void {
     box.type = "checkbox";
     box.dataset.key = key;
     box.tabIndex = -1;
-    wrap.append(label, box);
+    const name = document.createElement("span");
+    name.textContent = label;
+    wrap.append(name, box);
     return { wrap, box };
   };
   const blackBox = sideBox("hawkeye.black", t("Movelistframe.checkBlackFilter"));
@@ -463,7 +449,7 @@ export function bootHawkeye(): void {
     f.dataset.key = key;
     f.addEventListener("input", () => {
       const ok = /^-?\d+$/.test(f.value.trim());
-      if (red) f.style.background = ok ? "#fff" : "red";
+      if (red) f.classList.toggle("invalid", !ok);
       if (ok) settings(apply(Number.parseInt(f.value.trim(), 10)));
     });
     return f;
@@ -478,6 +464,8 @@ export function bootHawkeye(): void {
   const middleLabel = document.createElement("span");
   middleLabel.textContent = t("Movelistframe.middleEndMove");
   const middle = intField("hawkeye.middleEndMove", (v) => ({ middleEndMove: v }), true);
+  // Related controls stand together; a wider gap starts the next group.
+  for (const first of [blackBox.wrap, branchLabel, periodBoxes[0].wrap, customStart, openingLabel, middleLabel]) first.classList.add("group");
   filter.append(hideMove, tableThreshold, statThreshold, blackBox.wrap, whiteBox.wrap, branchLabel, branch,
     ...periodBoxes.map((p) => p.wrap), customStart, dash, customEnd, openingLabel, opening, middleLabel, middle);
 
@@ -501,7 +489,9 @@ export function bootHawkeye(): void {
     filter.style.bottom = `${bottomHeight}px`;
     top.hidden = !s.showList;
     top.style.height = `${Math.max(0, h - bottomHeight - filter.offsetHeight)}px`;
-    pages.style.height = `${Math.max(0, h - bottomHeight - filter.offsetHeight - 21)}px`;
+    const tabsHeight = tabs.offsetHeight;
+    pages.style.top = `${tabsHeight}px`;
+    pages.style.height = `${Math.max(0, h - bottomHeight - filter.offsetHeight - tabsHeight)}px`;
     const pw = pages.clientWidth, ph = pages.clientHeight;
     const half = Math.floor(pw / 2);
     Object.assign(black.scroll.style, { left: "0px", top: "0px", width: `${half}px`, height: `${ph}px` });
@@ -543,33 +533,33 @@ export function bootHawkeye(): void {
 
     const mark = p.mark;
     const marked = (e: MoveEvaluation) => !!mark && e.point.x === mark.x && e.point.y === mark.y;
-    const colorOf = (diffColumns: [number, number | null]) => (row: Row, column: number) => {
-      let bg = "#fff";
-      let fg = "#000";
-      if (row.pinned) bg = "rgb(220,220,220)";
-      else if (marked(row.e)) bg = "rgb(238,221,130)";
-      if (!row.pinned || column === diffColumns[0] || column === diffColumns[1]) {
-        if (column === diffColumns[0]) fg = diffColor(row.cells[column], 3, p.winLoss);
-        else if (column === diffColumns[1]) fg = diffColor(row.cells[column], 1.5, p.scoreLoss);
-      }
-      return { fg, bg };
+    // The pinned current move on the sunken ground; the move marked on the board as the selection,
+    // its other figures in the selection's text colour. The change columns keep their class colour.
+    const lookOf = (diffColumns: [number, number | null]) => (row: Row, column: number): CellLook => {
+      const isMarked = !row.pinned && marked(row.e);
+      const bg = row.pinned ? "var(--ds-sunken)" : isMarked ? "var(--ds-accent-soft)" : "";
+      const key = column === diffColumns[0] || column === diffColumns[1];
+      let fg = isMarked ? "var(--ds-accent-text)" : "";
+      if (column === diffColumns[0]) fg = diffColor(row.cells[column], 3, p.winLoss);
+      else if (column === diffColumns[1]) fg = diffColor(row.cells[column], 1.5, p.scoreLoss);
+      return { fg, bg, key };
     };
     const moves = pane.moves;
     const simple = pane.rows.map((i) => moves[i]);
     const minKeyNow = minKey(sort.column, pane.katago, sort);
     const toRows = (list: MoveEvaluation[], cells: (e: MoveEvaluation) => string[]) => list.map((e) => ({ e, cells: cells(e), pinned: false }));
     black.setRows(toRows(sorted(simple.filter((e) => e.mover === "Black"), minKeyNow, sort, false), (e) => minCells(e, p)),
-      colorOf([2, pane.katago ? 3 : null]));
+      lookOf([2, pane.katago ? 3 : null]));
     white.setRows(toRows(sorted(simple.filter((e) => e.mover === "White"), minKeyNow, sort, false), (e) => minCells(e, p)),
-      colorOf([2, pane.katago ? 3 : null]));
+      lookOf([2, pane.katago ? 3 : null]));
     const detailRows = toRows(
       sorted(pane.detail_rows.map((i) => moves[i]), detailKey(sort.column, pane.katago, sort), sort, sort.column === 0),
       (e) => detailCells(e, p),
     );
     if (pane.pinned !== null) detailRows.unshift({ e: moves[pane.pinned], cells: detailCells(moves[pane.pinned], p), pinned: true });
-    detail.setRows(detailRows, colorOf([3, pane.katago ? 4 : null]));
+    detail.setRows(detailRows, lookOf([3, pane.katago ? 4 : null]));
 
-    hideIcon.src = s.showList ? "/assets/up.png" : "/assets/down.png";
+    hideMove.replaceChildren(s.showList ? hideIcons.up : hideIcons.down);
     tableThreshold.hidden = s.topPage === 0;
     statThreshold.hidden = s.topPage !== 0;
     blackBox.box.checked = p.black;
@@ -642,10 +632,13 @@ export function bootHawkeye(): void {
   void self.listen<HawkeyePayload>(HAWKEYE_DATA_EVENT, (e) => {
     data = e.payload;
     const root = document.documentElement.style;
+    // The session's 界面字体大小 sizes the type scale, Config.menuHeight the list rows; a font the
+    // theme names replaces the interface face in the lists.
+    root.setProperty("--frame-font-size", `${data.frameFontSize}px`);
     root.setProperty("--hk-row", `${data.menuHeight}px`);
-    root.setProperty("--hk-ui-font", data.fonts.ui);
-    root.setProperty("--hk-head-size", `${Math.max(data.frameFontSize, 13)}px`);
-    root.setProperty("--hk-cell-size", `${Math.max(data.frameFontSize, 14)}px`);
+    const face = namedFace(data.fonts.ui);
+    if (face) root.setProperty("--hk-ui-font", face);
+    else root.removeProperty("--hk-ui-font");
     render();
   }).then(() => send({ type: "ready" }));
   window.addEventListener("resize", () => {

@@ -266,40 +266,24 @@ function lossLevel(v: WorkbenchView, diff: number, scoreDiff: number): number {
   return 5;
 }
 
-/** The 独立选点列表's level colours with their alpha off and on the highlighted point. */
-const FRAME_LEVELS: [number, number, number, number, number][] = [
-  [85, 25, 80, 120, 70],
-  [208, 16, 19, 100, 50],
-  [200, 140, 50, 100, 50],
-  [180, 180, 0, 100, 50],
-  [140, 202, 34, 100, 50],
-  [0, 180, 0, 100, 60],
-];
-
 /** Cell colours of one row: the highlighted point's rows (another colour where the clicked row
  *  moved away from it), the loss level on the actual row, stronger while it is the highlighted
- *  point; the 占比 cell draws its bar only. The main list takes them from the stage tokens, so
- *  they follow the colour mode; the 独立选点列表 keeps Java's (blue / red text, translucent black,
- *  the level colours). */
+ *  point; the 占比 cell draws its bar only. Both the main list and the 独立选点列表 take them from
+ *  the design and stage tokens, so they follow the colour mode. */
 function colourCells(v: WorkbenchView, table: Table, rows: TableRow[], cells: string[][], shareColumn: number, winrateColumn: number, scoreColumn: number | null): FrameCell[][] {
-  const main = table === "main";
   return rows.map((r, k) => {
     const isSelect = samePoint(r.point, suggestionClick);
     const isChanged = isSelect && selection[table].selected >= 0 && selection[table].selected !== k;
     let fg = "", bg = "";
     if (isSelect) {
-      fg = main ? "var(--ds-accent-text)" : "#0000ff";
-      bg = main ? "var(--ds-accent-soft)" : `rgba(0, 0, 0, ${35 / 255})`;
+      fg = "var(--ds-accent-text)";
+      bg = "var(--ds-accent-soft)";
     }
-    if (isChanged) fg = main ? "var(--ds-danger-text)" : "#ff0000";
+    if (isChanged) fg = "var(--ds-danger-text)";
     if (r.actual) {
       const scoreDiff = scoreColumn === null ? 0 : parsedDifference(cells[k][scoreColumn]);
       const level = lossLevel(v, parsedDifference(cells[k][winrateColumn]), scoreDiff);
-      if (main) bg = `var(--ws-rank-${level + 1}${isSelect ? "-strong" : ""})`;
-      else {
-        const [red, green, blue, strong, light] = FRAME_LEVELS[level];
-        bg = `rgba(${red}, ${green}, ${blue}, ${(isSelect ? strong : light) / 255})`;
-      }
+      bg = `var(--ws-rank-${level + 1}${isSelect ? "-strong" : ""})`;
     }
     return cells[k].map((text, column) =>
       column === shareColumn ? { text, fg: "", bg: "", bar: Number.parseFloat(text) } : { text, fg, bg, bar: null });

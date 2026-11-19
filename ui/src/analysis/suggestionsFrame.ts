@@ -2,10 +2,14 @@
 // formatted there from the core view, see analysis/table.ts) and reports its input back: hovers,
 // clicks, the wheel, keys, header sorts, the four boxes and its column widths. It holds no
 // analysis state of its own. The same page serves 双引擎模式's secondary window (AnalysisFrame
-// index 2). Also the JTable column layout shared with the main window's 选点列表.
+// index 2), started by suggestions.html with the design base and its stylesheet. Also the JTable
+// column layout shared with the main window's 选点列表, and the face rule both windows' lists
+// follow; the main window loads this module for those, so it imports no style sheets.
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { appMenuKey } from "../appMenuKey";
+import { onThemeChange, token } from "../design/theme";
+import { GRAPH_FONT } from "../workbench/paint";
 
 /** The primary engine's window and 双引擎模式's secondary engine window (src-tauri). */
 export const FRAME_LABEL = "suggestions";
@@ -18,10 +22,10 @@ export const SUB_FRAME_INPUT_EVENT = "suggestions-sub-frame-input";
 
 export interface FrameCell {
   text: string;
-  /** CSS colours; empty for the table's own. */
+  /** CSS colours (design and stage tokens); empty for the table's own. */
   fg: string;
   bg: string;
-  /** 占比: the LIGHT_GRAY bar's share of the cell width, percent. */
+  /** 占比: the share bar's share of the cell width, percent. */
   bar: number | null;
 }
 
@@ -132,44 +136,21 @@ export function bindColumnResize(
 
 // ------------------------------------------------------------------ the window
 
+/** The theme's own face from a font stack the main window resolved (paint.ts themeFonts), or
+ *  null when the theme names none and the interface face (--ds-font) applies: an unnamed font
+ *  resolves to the Dialog stack, which starts as GRAPH_FONT does. */
+export function namedFace(stack: string): string | null {
+  return stack.startsWith(GRAPH_FONT.replace(/, sans-serif$/, "")) ? null : stack;
+}
+
 /** AnalysisFrame bottom panel: 22 px with the list, half the window with the 柱状图, all of it
  *  without the list (componentResized, AnalysisFrame.java:199-215). */
 const BOTTOM = 22;
-/** Lizzie.config.uiFontName (Dialog) as the main window resolves it. */
-const UI_FONT = navigator.userAgent.includes("Windows")
-  ? 'Arial, "Microsoft YaHei UI", "Microsoft YaHei", sans-serif'
-  : navigator.userAgent.includes("Mac OS")
-    ? '"Lucida Grande", "PingFang SC", sans-serif'
-    : '"DejaVu Sans", "Noto Sans CJK SC", sans-serif';
 
-const STYLE = `
-html, body { margin: 0; height: 100%; overflow: hidden; background: #eee; font-family: ${UI_FONT}; }
-#top { position: absolute; left: 0; top: 0; right: 0; overflow-x: hidden; overflow-y: auto; background: #fff; }
-#top table { border-collapse: separate; border-spacing: 0; table-layout: fixed; }
-/* rows Config.menuHeight, header Font(uiFontName, PLAIN, max(frameFontSize, 13)), cells
-   Font(uiFontName, BOLD, max(frameFontSize, 14)) (AnalysisFrame.java:95-101), set from each payload */
-#top th { position: sticky; top: 0; z-index: 1; height: var(--af-row, 20px); padding: 0; font-weight: normal; font-family: var(--af-ui-font, inherit); font-size: var(--af-head-size, 13px);
-  background: rgb(238, 238, 238); border: solid rgb(128, 128, 128); border-width: 0 1px 1px 0; white-space: nowrap; overflow: hidden; user-select: none; }
-#top td { height: var(--af-row, 20px); padding: 0; text-align: center; font-weight: bold; font-family: var(--af-ui-font, inherit); font-size: var(--af-cell-size, 14px); color: #000;
-  border: solid rgb(128, 128, 128); border-width: 0 1px 1px 0; white-space: nowrap; overflow: hidden; cursor: default; }
-#bottom { position: absolute; left: 0; right: 0; bottom: 0; background: #eee; }
-#bottom canvas { position: absolute; left: 0; top: 0; }
-#bottom label { position: absolute; top: 0; height: 18px; display: flex; align-items: center; font-size: 12px; white-space: nowrap; user-select: none; }
-#bottom input { margin: 0 2px 0 0; }
-`;
-
-/** Checkbox bounds (x, width) in the bottom panel (AnalysisFrame.java:120-189). */
-const BOX_PLACES: Record<FramePayload["boxes"][number]["key"], [number, number]> = {
-  list: [370, 50],
-  graph: [420, 65],
-  showNext: [485, 65],
-  mouseMove: [550, 95],
-};
+/** The four boxes in Java's order (AnalysisFrame.java:120-189). */
+const BOX_KEYS: FramePayload["boxes"][number]["key"][] = ["list", "graph", "showNext", "mouseMove"];
 
 export function bootFrame(): void {
-  const style = document.createElement("style");
-  style.textContent = STYLE;
-  document.head.append(style);
   const top = document.createElement("div");
   top.id = "top";
   const table = document.createElement("table");
@@ -183,8 +164,11 @@ export function bootFrame(): void {
   bottom.id = "bottom";
   const canvas = document.createElement("canvas");
   bottom.append(canvas);
+  const boxRow = document.createElement("div");
+  boxRow.className = "boxes";
+  bottom.append(boxRow);
   const boxes = new Map<string, HTMLInputElement>();
-  for (const key of Object.keys(BOX_PLACES) as (keyof typeof BOX_PLACES)[]) {
+  for (const key of BOX_KEYS) {
     const label = document.createElement("label");
     const input = document.createElement("input");
     input.type = "checkbox";
@@ -196,10 +180,8 @@ export function bootFrame(): void {
       send({ type: "box", key });
     });
     label.append(input, document.createElement("span"));
-    label.style.left = `${BOX_PLACES[key][0]}px`;
-    label.style.width = `${BOX_PLACES[key][1]}px`;
     label.dataset.key = key;
-    bottom.append(label);
+    boxRow.append(label);
     boxes.set(key, input);
   }
   document.body.append(top, bottom);
@@ -283,30 +265,39 @@ export function bootFrame(): void {
     const g = canvas.getContext("2d")!;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, w, h);
-    // paintBottomPanel (AnalysisFrame.java:485-555).
+    // paintBottomPanel (AnalysisFrame.java:485-555): the totals on the strip, the 柱状图 below it
+    // on the panel ground.
     if (data.stats === null) return;
-    g.fillStyle = "#000";
-    g.strokeStyle = "#000";
-    g.font = `13px ${UI_FONT}`;
+    const size = Number.parseFloat(token("--ds-size")) || 12;
+    const face = token("--ds-font");
     g.textBaseline = "alphabetic";
-    g.fillText(data.stats, 5, 15);
+    g.font = `${size}px ${face}`;
+    g.fillStyle = token("--ds-text");
+    g.fillText(data.stats, 8, 15);
     if (!data.graph) return;
-    g.lineWidth = 1;
-    g.beginPath();
-    g.moveTo(0, 20.5);
-    g.lineTo(w, 20.5);
-    g.stroke();
+    g.fillStyle = token("--ds-panel");
+    g.fillRect(0, BOTTOM - 1, w, h - BOTTOM + 1);
+    g.fillStyle = token("--ds-line");
+    g.fillRect(0, BOTTOM - 2, w, 1);
+    const index = token("--ds-text-3");
+    const fill = token("--ds-line-strong");
+    const text = token("--ds-text-2");
     const count = Math.floor((h - BOTTOM) / 20);
     for (let i = 0; i < count; i++) {
+      g.font = `${size - 1}px ${face}`;
+      g.fillStyle = index;
       g.fillText(String(i + 1), 3, BOTTOM + i * 20 + 15);
-      g.fillStyle = "rgb(64, 64, 64)";
       const bar = data.bars[i];
       if (!bar) continue;
       const length = Math.trunc((w - 80) * bar.ratio);
+      g.fillStyle = fill;
       g.fillRect(20, BOTTOM + i * 20 + 2, length, 16);
+      g.font = `${size}px ${face}`;
+      g.fillStyle = text;
       g.fillText(bar.text, 26 + length, BOTTOM + i * 20 + 15);
     }
   };
+  onThemeChange(paintBottom);
 
   const place = () => {
     if (!data) return;
@@ -339,9 +330,11 @@ export function bootFrame(): void {
         const cell = row.cells[column] ?? row.insertCell();
         if (cell.textContent !== c.text) cell.textContent = c.text;
         cell.style.color = c.fg;
-        cell.style.background = c.bar === null
-          ? c.bg
-          : `linear-gradient(to right, rgb(192, 192, 192) ${Math.min(100, c.bar)}%, transparent ${Math.min(100, c.bar)}%)`;
+        // 占比: a hard-edged bar of the share token behind the right-aligned number, growing
+        // leftwards from the cell's right padding, over the row's own tint (as the main list).
+        const tint = cells[0].bg;
+        const bar = c.bar === null ? "" : `linear-gradient(to left, var(--ws-share-bar) ${Math.min(100, c.bar)}%, transparent ${Math.min(100, c.bar)}%) right 4px center / calc(100% - 8px) calc(100% - 8px) no-repeat`;
+        cell.style.background = c.bar === null ? c.bg : tint ? `${bar}, ${tint}` : bar;
       });
     });
     for (const box of data.boxes) {
@@ -356,10 +349,13 @@ export function bootFrame(): void {
   void self.listen<FramePayload>(FRAME_DATA_EVENT, (e) => {
     data = e.payload;
     const root = document.documentElement.style;
+    // The session's 界面字体大小 sizes the type scale, Config.menuHeight the rows; a font the theme
+    // names replaces the interface face in the list.
+    root.setProperty("--frame-font-size", `${data.frameFontSize}px`);
     root.setProperty("--af-row", `${data.menuHeight}px`);
-    root.setProperty("--af-ui-font", data.uiFont);
-    root.setProperty("--af-head-size", `${Math.max(data.frameFontSize, 13)}px`);
-    root.setProperty("--af-cell-size", `${Math.max(data.frameFontSize, 14)}px`);
+    const face = namedFace(data.uiFont);
+    if (face) root.setProperty("--af-ui-font", face);
+    else root.removeProperty("--af-ui-font");
     render();
   }).then(() => send({ type: "ready" }));
   window.addEventListener("resize", () => {
