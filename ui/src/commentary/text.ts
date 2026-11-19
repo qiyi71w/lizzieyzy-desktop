@@ -8,6 +8,9 @@ registerProduct({
   ZhCn: { commentaryTargetChanged: "解说已完成，但讲解的这一手已被修改或删除，因此未加入棋谱评论。" },
   ZhTw: { commentaryTargetChanged: "解說已完成，但講解的這一手已被修改或刪除，因此未加入棋譜評論。" },
   EnUs: { commentaryTargetChanged: "Commentary completed, but the explained move was edited or deleted, so it was not added to the game comments." },
+  JaJp: { commentaryTargetChanged: "解説は完了しましたが、解説対象の手が変更または削除されたため、棋譜のコメントには追加しませんでした。" },
+  KoKr: { commentaryTargetChanged: "해설은 완료되었지만 설명한 수가 수정되거나 삭제되어 기보 코멘트에 추가하지 않았습니다." },
+  ThTh: { commentaryTargetChanged: "คำอธิบายเสร็จแล้ว แต่ตาเดินที่อธิบายถูกแก้ไขหรือลบไปแล้ว จึงไม่ได้เพิ่มลงในความคิดเห็นของบันทึกหมาก" },
 });
 
 /** A Java key, or the given text when the bundles have no such key (TeacherStrings fallback). */

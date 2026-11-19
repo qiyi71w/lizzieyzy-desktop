@@ -16,6 +16,7 @@ registerProduct({
   EnUs: { inputTitle: "Input" },
   JaJp: { inputTitle: "入力" },
   KoKr: { inputTitle: "입력" },
+  ThTh: { inputTitle: "ป้อนข้อมูล" },
 });
 
 /** Integer.parseInt: an optionally signed decimal int, nothing else. */

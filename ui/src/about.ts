@@ -17,6 +17,9 @@ registerProduct({
   ZhCn: { aboutVersion: "版本 {0}", aboutOrigin: "由 LizzieYzy Next（Java）迁移而来。" },
   ZhTw: { aboutVersion: "版本 {0}", aboutOrigin: "由 LizzieYzy Next（Java）遷移而來。" },
   EnUs: { aboutVersion: "Version {0}", aboutOrigin: "Migrated from LizzieYzy Next (Java)." },
+  JaJp: { aboutVersion: "バージョン {0}", aboutOrigin: "LizzieYzy Next（Java）から移行しました。" },
+  KoKr: { aboutVersion: "버전 {0}", aboutOrigin: "LizzieYzy Next(Java)에서 이전했습니다." },
+  ThTh: { aboutVersion: "เวอร์ชัน {0}", aboutOrigin: "ย้ายมาจาก LizzieYzy Next (Java)" },
 });
 
 SETTINGS_PAGES.about = (host) => {

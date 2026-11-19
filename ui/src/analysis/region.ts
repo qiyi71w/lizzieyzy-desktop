@@ -28,6 +28,21 @@ registerProduct({
     trackPointProbeFailed: "Point evaluation unavailable (engine check failed)",
     trackPointProbeFailedTooltip: "Checking whether this KataGo supports point evaluation failed. Restarting the engine checks again; normal analysis still works.",
   },
+  JaJp: {
+    trackPointUnsupportedTooltip: "この KataGo は選点評価（解析コマンドの focus オプション）に対応していません。対応する KataGo のバージョンに切り替えてください。通常の解析は引き続き使用できます。",
+    trackPointProbeFailed: "選点評価は利用不可（エンジンの確認に失敗）",
+    trackPointProbeFailedTooltip: "この KataGo が選点評価に対応しているかの確認中にエラーが発生しました。エンジンを再起動すると再確認します。通常の解析は引き続き使用できます。",
+  },
+  KoKr: {
+    trackPointUnsupportedTooltip: "현재 KataGo는 착점 평가(분석 명령의 focus 옵션)를 지원하지 않습니다. 이를 지원하는 KataGo 버전으로 바꿔야 합니다. 일반 분석은 계속 사용할 수 있습니다.",
+    trackPointProbeFailed: "착점 평가 사용 불가(엔진 확인 실패)",
+    trackPointProbeFailedTooltip: "현재 KataGo의 착점 평가 지원 여부를 확인하는 중 오류가 발생했습니다. 엔진을 다시 시작하면 다시 확인합니다. 일반 분석은 계속 사용할 수 있습니다.",
+  },
+  ThTh: {
+    trackPointUnsupportedTooltip: "KataGo ปัจจุบันไม่รองรับการประเมินจุด (ตัวเลือก focus ของคำสั่งวิเคราะห์) โปรดเปลี่ยนไปใช้ KataGo รุ่นที่รองรับ การวิเคราะห์ปกติยังใช้ได้",
+    trackPointProbeFailed: "ใช้การประเมินจุดไม่ได้ (ตรวจสอบเอนจินไม่สำเร็จ)",
+    trackPointProbeFailedTooltip: "เกิดข้อผิดพลาดขณะตรวจสอบว่า KataGo ปัจจุบันรองรับการประเมินจุดหรือไม่ การรีสตาร์ทเอนจินจะตรวจสอบใหม่ การวิเคราะห์ปกติยังใช้ได้",
+  },
 });
 
 // ------------------------------------------------------------------ window state
