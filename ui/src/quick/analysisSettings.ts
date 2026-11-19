@@ -1,12 +1,14 @@
-// 分析 > 精析设置 (AnalysisSettings.java, frame 592x481, null layout at the small-font bounds). The
-// dialog edits a draft of `settings.analysis_engine`; 确定 saves it, Escape discards it.
+// 分析 > 精析设置 (AnalysisSettings.java, frame 592x481): its controls as a flowing form in
+// 综合设置's grammar (quick.css). The dialog edits a draft of `settings.analysis_engine`; 确定
+// saves it, Escape discards it.
 import { invoke } from "@tauri-apps/api/core";
 import { run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
 import { dispatch, isApiError } from "../contract/client";
 import type { AnalysisEngineSettings, LeaseAvailabilityView } from "../contract/generated";
 import { ask, formPanel, message } from "../dialogs";
-import { absolute, parseJavaInt, place } from "../display/dialogs";
+import { parseJavaInt } from "../display/dialogs";
+import { actions } from "../engine/controls";
 import { editAnalysisRules } from "../engine/rules";
 import { editRemoteEngine, stagePassword } from "../engine/remote";
 import { format, product, t } from "../i18n";
@@ -78,11 +80,19 @@ async function generate(index: number | null, quiet: boolean): Promise<Generated
   }
 }
 
-function text(content: string, className = "display-label"): HTMLSpanElement {
+function text(content: string, className = ""): HTMLSpanElement {
   const el = document.createElement("span");
   el.className = className;
   el.textContent = content;
   return el;
+}
+
+/** A labelled field of the form: the label column, then the control column. */
+function field(host: HTMLElement, label: HTMLElement, control: HTMLElement): void {
+  const row = document.createElement("div");
+  row.className = "engine-field";
+  row.append(label, control);
+  host.append(row);
 }
 
 function choice(type: "checkbox" | "radio", label: string, key: string, checked: boolean): { label: HTMLLabelElement; input: HTMLInputElement } {
@@ -92,7 +102,7 @@ function choice(type: "checkbox" | "radio", label: string, key: string, checked:
   input.dataset.key = `analysisSettings.${key}`;
   if (type === "radio") input.name = "analysis-rules";
   const el = document.createElement("label");
-  el.className = "display-choice";
+  el.className = "quick-check";
   el.append(input, label);
   return { label: el, input };
 }
@@ -130,17 +140,20 @@ async function chooseEngine(): Promise<number | null> {
   return (await ask(t("NewAnaGameDialog.chooseEngine"), body, product("ok"), product("cancel"))) ? Number(select.value) : null;
 }
 
-/** The lblHint2 HTML (red engine name, blue link) drawn on the comment colours like LinkLabel. */
+/** The lblHint2 HTML: the engine's name stressed and the link to KataGo's analysis engine
+ *  documentation, as a hint line. */
 function hintLabel(): HTMLElement {
-  const el = text("", "analysis-settings-hint");
+  const el = text("", "engine-hint analysis-settings-hint");
   const source = t("AnalysisSettings.lblHint2").replace(/^<html>|<\/html>$/g, "");
   const parsed = new DOMParser().parseFromString(source, "text/html").body;
+  // The link's own <font> is its text; any other names the analysis engine.
   for (const font of parsed.querySelectorAll("font")) {
     const span = document.createElement("span");
-    span.style.color = font.getAttribute("color") ?? "";
+    if (!font.closest("a")) span.className = "analysis-settings-em";
     span.append(...font.childNodes);
     font.replaceWith(span);
   }
+  for (const bold of parsed.querySelectorAll("b")) bold.replaceWith(...bold.childNodes);
   for (const link of parsed.querySelectorAll("a")) {
     const span = document.createElement("span");
     span.className = "analysis-settings-link";
@@ -189,14 +202,18 @@ export async function openAnalysisEngineSettings(options: AnalysisSettingsOption
   }
   let rules = saved.specificRules;
   let edited = false;
-  const panel = absolute(586, 462);
-  panel.classList.add("analysis-settings");
-  place(panel, text(t("AnalysisSettings.lblEngineCmd")), 10, 1, 83, 22);
-  const toolbar = place(panel, document.createElement("div"), 93, 1, 483, 23);
+  const panel = document.createElement("div");
+  panel.className = "analysis-settings";
+  const form = document.createElement("div");
+  form.className = "quick-form";
+  panel.append(form);
+  const toolbar = document.createElement("span");
   toolbar.className = "analysis-settings-row";
-  const remoteRow = place(panel, document.createElement("div"), 10, 27, 566, 23);
-  remoteRow.className = "analysis-settings-row";
-  const command = place(panel, document.createElement("textarea"), 10, 52, 566, 130);
+  field(form, text(t("AnalysisSettings.lblEngineCmd")), toolbar);
+  const remoteRow = document.createElement("div");
+  remoteRow.className = "quick-check-with";
+  const command = document.createElement("textarea");
+  command.className = "analysis-settings-command";
   command.dataset.key = "analysisSettings.command";
   command.spellcheck = false;
   command.value = shown;
@@ -230,34 +247,37 @@ export async function openAnalysisEngineSettings(options: AnalysisSettingsOption
     if (next) { ssh = next.ssh; sshPassword = next.password; }
   });
   remoteRow.append(remote.label, remoteSettings);
-  place(panel, text(t("AnalysisSettings.example")), 10, 184, 567, 20);
-  place(panel, hintLabel(), 7, 203, 572, 20);
-  place(panel, text(t("AnalysisSettings.lblMaxVisits")), 10, 233, 136, 20);
-  const visits = place(panel, document.createElement("input"), 80, 231, 66, 24);
+  form.append(remoteRow, command, text(t("AnalysisSettings.example"), "engine-hint analysis-settings-example"), hintLabel(), document.createElement("hr"));
+  const visits = document.createElement("input");
   visits.type = "text";
+  visits.className = "quick-number";
   // Context.BATCH (java:303-306): the same label edits `batch-analysis-playouts`.
   visits.value = String(batch ? saved.batchVisits : saved.maxVisits);
   visits.dataset.key = batch ? "analysisSettings.batchVisits" : "analysisSettings.maxVisits";
   visits.setAttribute("aria-label", t("AnalysisSettings.lblMaxVisits"));
-  place(panel, text(t("AnalysisSettings.lblRules")), 10, 258, 54, 20);
+  field(form, text(t("AnalysisSettings.lblMaxVisits")), visits);
   const current = choice("radio", t("AnalysisSettings.rdoUseCurrentRules"), "useCurrentRules", saved.useCurrentRules);
   const specific = choice("radio", t("AnalysisSettings.rdoUseSpecificRules"), "useSpecificRules", !saved.useCurrentRules);
-  place(panel, current.label, 59, 257, 510, 23);
-  place(panel, specific.label, 59, 282, 131, 23);
-  place(panel, jbutton(t("AnalysisSettings.btnSetRules"), "setRules", async () => {
+  const specificRow = document.createElement("span");
+  specificRow.className = "analysis-settings-row";
+  specificRow.append(specific.label, jbutton(t("AnalysisSettings.btnSetRules"), "setRules", async () => {
     const next = await editAnalysisRules(rules);
     if (next !== null) rules = next;
-  }), 191, 282, 93, 23);
+  }));
+  const ruleChoices = document.createElement("div");
+  ruleChoices.className = "analysis-settings-rules";
+  ruleChoices.setAttribute("role", "radiogroup");
+  ruleChoices.setAttribute("aria-label", t("AnalysisSettings.lblRules"));
+  ruleChoices.append(current.label, specificRow);
+  field(form, text(t("AnalysisSettings.lblRules")), ruleChoices);
+  form.append(document.createElement("hr"));
   const override = choice("checkbox", t("AnalysisSettings.chkAlwaysOverride"), "alwaysOverride", saved.alwaysOverride);
   const preload = choice("checkbox", t("AnalysisSettings.chkPreLoad"), "preload", saved.preload);
   const autoQuit = choice("checkbox", t("AnalysisSettings.chkAutoExit"), "autoQuit", saved.autoQuit);
   const reuse = choice("checkbox", t("AnalysisSettings.chkReuseCurrentEngine"), "reuseCurrentEngine", saved.reuseCurrentEngine);
-  place(panel, override.label, 10, 307, 370, 23);
-  place(panel, preload.label, 10, 332, 304, 23);
-  place(panel, autoQuit.label, 10, 357, 304, 23);
-  place(panel, reuse.label, 10, 382, 304, 23);
-  const target = place(panel, text(""), 30, 405, 535, 20);
+  const target = text("", "engine-hint analysis-settings-target");
   target.dataset.key = "analysisSettings.reuseTarget";
+  form.append(override.label, preload.label, autoQuit.label, reuse.label, target);
   // updateReuseControls (java:493-503): reusing the foreground engine needs no command or process.
   const updateReuse = () => {
     const own = !reuse.input.checked;
@@ -273,9 +293,11 @@ export async function openAnalysisEngineSettings(options: AnalysisSettingsOption
   reuse.input.onchange = updateReuse;
   remote.input.onchange = updateReuse;
   updateReuse();
-  const confirm = place(panel, jbutton(t("AnalysisSettings.btnConfirm"), "confirm", () => {}), 484, 427, 93, 31);
-  const redo = place(panel, jbutton(t("AnalysisSettings.btnConfirmAndRedo"), "confirmAndRedo", () => {}), 375, 427, 99, 31);
+  const redo = jbutton(t("AnalysisSettings.btnConfirmAndRedo"), "confirmAndRedo", () => {});
+  const confirm = jbutton(t("AnalysisSettings.btnConfirm"), "confirm", () => {});
+  confirm.classList.add("primary");
   redo.hidden = options.redo !== true;
+  actions(panel, redo, confirm);
   const dialog = formPanel(t("AnalysisSettings.title"), panel);
   let saving = false;
   let kept: AnalysisEngineSettings | null = null;

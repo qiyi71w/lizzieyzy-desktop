@@ -1,6 +1,7 @@
 // The in-game training bar (HumanSlTrainingBar.java): 对手 and the opponent, 我方 / 对手 clocks
-// around the turn status with the thin thinking bar below, and 停一手 / 重试 AI / 结束并复盘. It sits
-// between the workbench and the bottom toolbar (LizzieFrame.layoutMainContent) while a game is on.
+// around the turn status with the thin thinking line below, and 停一手 / 重试 AI / 结束并复盘, as
+// capsules on the bar ground like the bottom bar. It sits between the workbench and the bottom
+// toolbar (LizzieFrame.layoutMainContent) while a game is on.
 import { run } from "../app";
 import type { HumanSlCommand, HumanSlView } from "../contract/generated";
 import { t } from "../i18n";
@@ -39,32 +40,30 @@ export function mountTrainingBar(): void {
   opponent.dataset.key = "humansl.bar.opponent";
   identity.append(el("div", "hs-bar-caption", t("HumanSlTraining.bar.opponent")), opponent);
 
-  const statusPanel = el("div", "hs-bar-status");
-  const row = el("div", "hs-bar-row");
+  const statusPanel = el("div", "hs-bar-status hs-cap");
   const humanClock = el("span", "hs-bar-clock");
   humanClock.dataset.key = "humansl.bar.humanClock";
   const turn = el("span", "hs-bar-turn");
   turn.dataset.key = "humansl.bar.turn";
   const aiClock = el("span", "hs-bar-clock");
   aiClock.dataset.key = "humansl.bar.aiClock";
-  row.append(humanClock, turn, aiClock);
   const thinking = el("div", "hs-bar-thinking");
   thinking.dataset.key = "humansl.bar.thinking";
   thinking.append(el("div", "hs-bar-thinking-run"));
-  statusPanel.append(row, thinking);
+  statusPanel.append(humanClock, turn, aiClock, thinking);
 
-  const actions = el("div", "hs-bar-actions");
+  const actions = el("div", "hs-bar-actions hs-cap");
   const make = (name: string, style: string, onClick: () => void) => {
-    const b = el("button", `hs-button ${style}`);
+    const b = el("button", `hs-seg ${style}`);
     b.type = "button";
     b.dataset.key = `humansl.bar.${name}`;
     b.onclick = onClick;
     actions.append(b);
     return b;
   };
-  const pass = make("pass", "secondary", () => send({ type: "Pass" }));
+  const pass = make("pass", "", () => send({ type: "Pass" }));
   pass.textContent = t("HumanSlGame.btn.pass");
-  const retry = make("retryAi", "primary", () => send({ type: "RetryAi" }));
+  const retry = make("retryAi", "", () => send({ type: "RetryAi" }));
   retry.textContent = t("HumanSlTraining.retryAi");
   // 重试清理 runs the exit again (Finish); a stop in progress is never clicked (disabled).
   const finish = make("finish", "danger", () => {

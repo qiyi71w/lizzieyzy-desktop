@@ -1,13 +1,99 @@
-/* 批量分析进度表 (AnalysisTable.java): a 617x317 null layout; the table's columns keep Java's
-   preferred widths 40/300/40/40/40/40 spread over the scroll pane, JTable's 16px rows. */
-html, body { margin: 0; height: 100%; overflow: hidden; background: #eee; font-size: 12px; user-select: none; }
-#bt-buttons button { position: absolute; top: 2px; height: 25px; padding: 0; font: inherit; white-space: nowrap; }
-#bt-scroll { position: absolute; left: 10px; top: 30px; width: 584px; height: 242px; box-sizing: border-box; overflow-x: hidden; overflow-y: auto; background: #eee; border: 1px solid rgb(128, 128, 128); }
-#bt-scroll table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
-#bt-scroll th { position: sticky; top: 0; z-index: 1; height: 17px; padding: 0; font-weight: normal; font-size: 12px;
-  background: rgb(238, 238, 238); border: solid rgb(128, 128, 128); border-width: 0 1px 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#bt-scroll td { height: 15px; padding: 0 2px; font-size: 12px; line-height: 15px; color: #000; background: #fff;
-  border: solid rgb(128, 128, 128); border-width: 0 1px 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
-#bt-scroll td.bt-action { padding: 0; }
-#bt-scroll td.bt-action button { display: block; width: 100%; height: 15px; padding: 0; font: inherit; font-size: 11px; line-height: 13px; }
-.bt-progress { margin-left: 8px; }
+/* 批量分析进度表 (AnalysisTable.java): a fixed 617 x 317 window. Its button bar on --ds-chrome
+   with a hairline below, then the queue as a table on --ds-panel: header on --ds-sunken, a line
+   between rows, tabular numerals, no vertical grid. */
+html,
+body {
+  overflow: hidden;
+}
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--ds-panel);
+}
+#bt-buttons {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
+}
+#bt-buttons button {
+  height: var(--ds-control-h-l);
+  white-space: nowrap;
+}
+#bt-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+#bt-scroll table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-variant-numeric: tabular-nums;
+}
+.bt-col-number {
+  width: calc(var(--ds-size) * 4.5);
+}
+.bt-col-action {
+  width: calc(var(--ds-size) * 5.5);
+}
+#bt-scroll th,
+#bt-scroll td {
+  height: 26px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--ds-line);
+  text-align: left;
+  white-space: nowrap;
+  cursor: default;
+}
+#bt-scroll th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--ds-sunken);
+  color: var(--ds-text-2);
+  font-weight: 400;
+}
+#bt-scroll td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The record being analysed. */
+#bt-scroll tbody tr:first-child td {
+  font-weight: 600;
+}
+#bt-scroll :is(th, td):nth-child(n + 3) {
+  padding: 0 2px;
+  text-align: center;
+}
+#bt-scroll td.bt-action button {
+  width: 100%;
+  height: var(--ds-control-h);
+  padding: 0 4px;
+  border-color: transparent;
+  background-color: transparent;
+  color: var(--ds-text-2);
+}
+#bt-scroll td.bt-action button:hover:enabled {
+  color: var(--ds-text);
+}
+#bt-scroll td.bt-remove button:enabled {
+  color: var(--ds-danger-text);
+}
+#bt-scroll td.bt-remove button:hover:enabled {
+  background-image: none;
+  background-color: var(--ds-danger-soft);
+}
+#bt-scroll td.bt-action button:disabled {
+  background-color: transparent;
+}
+.bt-progress {
+  margin-left: 8px;
+  color: var(--ds-text-3);
+  font-weight: 400;
+}

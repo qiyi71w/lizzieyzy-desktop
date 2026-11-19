@@ -7,7 +7,8 @@ import { COMMANDS, type CommandEntry } from "../commands";
 import { dispatch, isApiError } from "../contract/client";
 import type { AnalysisEngineSettings, Command, FlashOutcome, FlashTarget, WorkbenchView } from "../contract/generated";
 import { confirm, formPanel, message, setOwnerDisabled } from "../dialogs";
-import { absolute, parseJavaInt, place } from "../display/dialogs";
+import { parseJavaInt } from "../display/dialogs";
+import { actions, primaryButton } from "../engine/controls";
 import { toggleConsole } from "../engine/console";
 import { t } from "../i18n";
 import type { MenuNode } from "../chrome/javaMenus";
@@ -51,33 +52,36 @@ function rangeValue(text: string, previous: number): number {
   return parseJavaInt(trimmed) ?? previous;
 }
 
-/** 局部精析 (AnalysisPartGame, small-font bounds): start and end move, then 开始分析. */
+/** 局部精析 (AnalysisPartGame): the start and end move fields, the tip, then 开始分析. */
 async function openPartGame(): Promise<void> {
   const range = state.view?.settings.flash_range ?? { startMove: -1, endMove: -1 };
-  const panel = absolute(335, 85);
-  panel.classList.add("flash-part");
-  const label = (text: string) => {
-    const el = document.createElement("span");
-    el.className = "display-label";
-    el.textContent = text;
-    return el;
-  };
+  const panel = document.createElement("div");
+  panel.className = "flash-part";
+  const form = document.createElement("div");
+  form.className = "quick-form";
   const field = (value: number, key: string, name: string) => {
+    const row = document.createElement("label");
+    row.className = "engine-field";
     const input = document.createElement("input");
     input.type = "text";
+    input.className = "quick-number";
     input.value = value > 0 ? String(value) : "";
     input.dataset.key = `flashPart.${key}`;
     input.setAttribute("aria-label", name);
+    row.append(name, input);
+    form.append(row);
     return input;
   };
-  place(panel, label(t("AnalysisPartGame.startMove")), 10, 7, 66, 23);
-  const start = place(panel, field(range.startMove, "start", t("AnalysisPartGame.startMove")), 80, 7, 66, 23);
-  place(panel, label(t("AnalysisPartGame.endMove")), 190, 7, 66, 23);
-  const end = place(panel, field(range.endMove, "end", t("AnalysisPartGame.endMove")), 260, 7, 66, 23);
-  place(panel, label(t("AnalysisPartGame.lblNotice")), 10, 33, 320, 23);
-  const button = place(panel, document.createElement("button"), 124, 60, 93, 23);
-  button.textContent = t("AnalysisPartGame.btnStart");
+  const start = field(range.startMove, "start", t("AnalysisPartGame.startMove"));
+  const end = field(range.endMove, "end", t("AnalysisPartGame.endMove"));
+  const notice = document.createElement("p");
+  notice.className = "engine-hint";
+  notice.textContent = t("AnalysisPartGame.lblNotice");
+  form.append(notice);
+  panel.append(form);
+  const button = primaryButton(t("AnalysisPartGame.btnStart"), () => {});
   button.dataset.key = "flashPart.run";
+  actions(panel, button);
   const dialog = formPanel(t("AnalysisPartGame.title"), panel);
   button.onclick = async () => {
     const target: FlashTarget = {
@@ -141,8 +145,8 @@ function hideWindow(): void {
   setOwnerDisabled(false);
 }
 
-/** The dialog (378x93, buttons at 71/148/225,29 73x22); closing it from the title bar does
- *  nothing (DO_NOTHING_ON_CLOSE). */
+/** WaitForAnalysis: a non-modal tool window over the disabled workbench with its progress and
+ *  three buttons; closing it from a title bar does nothing (DO_NOTHING_ON_CLOSE). */
 function buildWindow(): HTMLElement {
   const box = document.createElement("div");
   box.className = "modal-box flash-wait";
@@ -150,26 +154,29 @@ function buildWindow(): HTMLElement {
   box.dataset.freeWindow = "";
   title = document.createElement("div");
   title.className = "modal-title";
-  const body = absolute(362, 54);
-  progress = place(body, document.createElement("span"), 10, 2, 335, 25);
+  progress = document.createElement("p");
   progress.className = "flash-progress";
-  const button = (text: string, key: string, x: number, action: () => void) => {
-    const b = place(body, document.createElement("button"), x, 29, 73, 22);
+  progress.setAttribute("role", "status");
+  const row = document.createElement("div");
+  row.className = "engine-actions";
+  const button = (text: string, key: string, action: () => void) => {
+    const b = document.createElement("button");
     b.textContent = text;
     b.dataset.key = `flashWait.${key}`;
     b.onclick = action;
+    row.append(b);
   };
-  button(t("WaitForAnalysis.btnCancel"), "cancel", 71, () => {
+  button(t("WaitForAnalysis.btnCancel"), "cancel", () => {
     const cancel = shown?.cancel;
     hideWindow();
     if (cancel) void run(cancel);
   });
-  button(t("WaitForAnalysis.btnHide"), "hide", 148, () => {
+  button(t("WaitForAnalysis.btnHide"), "hide", () => {
     hidden = shown?.key ?? null;
     hideWindow();
   });
-  button(t("WaitForAnalysis.btnGtpConsole"), "console", 225, () => void toggleConsole());
-  box.append(title, body);
+  button(t("WaitForAnalysis.btnGtpConsole"), "console", () => void toggleConsole());
+  box.append(title, progress, row);
   document.body.append(box);
   return box;
 }

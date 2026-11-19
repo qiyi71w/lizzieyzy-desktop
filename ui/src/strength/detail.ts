@@ -1,28 +1,20 @@
-// 棋力评估 - 详细数据 (showPlayerStrengthDetailDialog 17645-17668): on the 吻合度 tab the dark match
-// chart (buildPlayerStrengthMatchPanel), otherwise the two dark metric cards with the review note
-// (buildPlayerStrengthAssessmentPanel / buildPlayerStrengthAssessmentDetailCard).
+// 棋力评估 - 详细数据 (showPlayerStrengthDetailDialog 17645-17668): on the 吻合度 tab the match
+// chart (buildPlayerStrengthMatchPanel), otherwise the two sides' figures with the review note
+// (buildPlayerStrengthAssessmentPanel / buildPlayerStrengthAssessmentDetailCard). The sides are
+// sections split by a hairline on the dialog's ground.
 import type { StrengthReport, StrengthSummary } from "../contract/generated";
 import { t } from "../i18n";
 import {
   averageScoreLossText, confidenceText, difficultyText, displayRank, humanSlCoverageText, matchRateText, precisePercentText, sideRankText,
   weightedScoreLossText,
 } from "./format";
-import { matchChart, noteStrip, paintDetailRoot } from "./panels";
-import { painted } from "./paint";
+import { el, legend, matchChart, noteStrip, sideHeading } from "./panels";
 import { openWindow } from "./window";
 
-function el(tag: "div" | "span", cls: string, text = ""): HTMLElement {
-  const e = document.createElement(tag);
-  e.className = cls;
-  if (text) e.textContent = text;
-  return e;
-}
-
-/** PlayerStrengthDetailCard with its title and the GridLayout(0, 2, 10, 9) of metrics. */
+/** PlayerStrengthDetailCard: the side's title and its metrics in two columns of label and value. */
 function detailCard(black: boolean, s: StrengthSummary, humanSl: boolean): HTMLElement {
-  const card = el("div", `ps-detail-card ${black ? "black" : "white"}`);
-  card.append(el("div", "ps-detail-card-title", black ? t("Menu.Black") : t("Menu.White")));
-  const metrics = el("div", "ps-detail-metrics");
+  const card = el("section", `ps-side ps-detail-card ${black ? "black" : "white"}`);
+  const metrics = el("dl", "ps-detail-metrics");
   const rows: [string, string][] = [
     [t("PlayerStrengthEstimate.match.strength"), displayRank(s.strength_band)],
     [t("PlayerStrengthEstimate.rank.scale"), sideRankText(s)],
@@ -36,8 +28,12 @@ function detailCard(black: boolean, s: StrengthSummary, humanSl: boolean): HTMLE
     [t("PlayerStrengthEstimate.match.overallMatch"), matchRateText(s)],
   ];
   if (humanSl) rows.push([t("HumanSL40.difficulty"), difficultyText(s)], [t("HumanSL40.coverage"), humanSlCoverageText(s)]);
-  for (const [label, value] of rows) metrics.append(el("span", "ps-metric-label", label), el("span", "ps-metric-value", value || "-"));
-  card.append(metrics);
+  for (const [label, value] of rows) {
+    const row = el("div", "ps-detail-metric");
+    row.append(el("dt", "ps-metric-label", label), el("dd", "ps-metric-value", value || "-"));
+    metrics.append(row);
+  }
+  card.append(sideHeading(black, black ? t("Menu.Black") : t("Menu.White")), metrics);
   return card;
 }
 
@@ -51,17 +47,16 @@ export function openDetailDialog(report: StrengthReport, matchDetail: boolean): 
   });
   openDetail = { kind: matchDetail ? "match" : "assessment", box: win.box };
   const root = el("div", `ps-detail-root ${matchDetail ? "match" : "assessment"}`);
-  root.append(painted("ps-root-bg", paintDetailRoot).element);
   if (matchDetail) {
+    const head = el("div", "ps-section-head");
+    head.append(legend());
     const chart = el("div", "ps-fill");
     chart.append(matchChart(report).element);
-    root.append(chart);
+    root.append(head, chart);
   } else {
-    const cards = el("div", "ps-two ps-gap-14 ps-detail-cards");
+    const cards = el("div", "ps-two ps-detail-cards");
     cards.append(detailCard(true, report.black.summary, report.model.human_sl), detailCard(false, report.white.summary, report.model.human_sl));
-    const note = el("div", "ps-detail-note-box");
-    note.append(noteStrip(report.model.human_sl ? t("HumanSL40.reviewNote") : t("PlayerStrengthEstimate.reviewOnlyNote"), true).element);
-    root.append(cards, note);
+    root.append(cards, noteStrip(report.model.human_sl ? t("HumanSL40.reviewNote") : t("PlayerStrengthEstimate.reviewOnlyNote")));
   }
   win.body.append(root);
 }

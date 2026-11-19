@@ -1,18 +1,18 @@
 // 棋力评估 (LizzieFrame.showPlayerStrengthEstimate 17271-17300, buildPlayerStrengthDashboardPanel
-// 17417-17566): the modal dashboard with its header (mark, title, subtitle, 测评 / 吻合度 / 发挥水准
-// tabs, model combo, 导入, 详细数据), the three dashboards and the HumanSL strip. The core computes
-// the report; a model change, an import, a HumanSL run or a changed HumanSL 40 stamp rebuilds the
-// dashboard from a fresh report like Java's dispose-and-reopen and 700 ms refresh.
+// 17417-17566): the modal dashboard with its toolbar (测评 / 吻合度 / 发挥水准 tabs and their
+// subtitle, model combo, 导入, 详细数据), the three dashboards and the HumanSL strip. The core
+// computes the report; a model change, an import, a HumanSL run or a changed HumanSL 40 stamp
+// rebuilds the dashboard from a fresh report like Java's dispose-and-reopen and 700 ms refresh.
 import { registerViewHandler, run, state } from "../app";
 import { chooseStrengthModel } from "../contract/client";
 import type { StrengthModelView, StrengthReport, StrengthView } from "../contract/generated";
+import { icon } from "../design/icons";
 import { message } from "../dialogs";
 import { format, t } from "../i18n";
 import { openDetail, openDetailDialog } from "./detail";
 import { humanSlText, javaFormat, modelDisplayName } from "./format";
 import { prepareHumanSl, progressReport } from "./humanSl";
-import { DASH, drawRound, ff, fillRound, fittedText, infoBadge, painted, rgb, setFont, text as drawText, width, type Painted } from "./paint";
-import { assessmentCard, headerMark, matchSummaryCard, moveHitMap, noteStrip, paintDashboardRoot, performancePanel, type CardTexts } from "./panels";
+import { assessmentSection, el, legend, matchSummary, moveHitMap, noteStrip, performancePanel, type CardTexts } from "./panels";
 import { openWindow, ownerFocus, type StrengthWindow } from "./window";
 import "./strength.css";
 
@@ -40,13 +40,6 @@ interface Probe {
 }
 
 let dashboard: Dashboard | null = null;
-
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text = ""): HTMLElementTagNameMap[K] {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text) e.textContent = text;
-  return e;
-}
 
 /** humanSlPreparationStatus: the strip's wording of the preparation status. */
 function preparationStatus(view: StrengthView): string {
@@ -94,85 +87,28 @@ async function refresh(d: Dashboard): Promise<void> {
   build(d, result.report);
 }
 
-/** PlayerStrengthDetailButton: the compact 详细数据 button with the "!" badge, or 导入 with the gold
- *  plus mark; painted with its rollover and focus states. */
-function detailButton(text: string, compact: boolean, onClick: () => void): HTMLButtonElement {
-  const button = el("button", "ps-detail-button");
+/** A toolbar button of the dashboard (导入, 详细数据). */
+function toolButton(text: string, onClick: () => void): HTMLButtonElement {
+  const button = el("button", "", text);
   button.type = "button";
-  button.setAttribute("aria-label", text);
-  let rollover = false;
-  let focused = false;
-  const face: Painted = painted("ps-detail-face", (g, w, h) => {
-    fillRound(g, 0, 0, w - 1, h - 1, 22, rollover ? rgb(238, 228, 207, 238) : rgb(242, 235, 222, 210));
-    drawRound(g, 0, 0, w - 1, h - 1, 22, rollover ? rgb(183, 129, 45, 160) : rgb(207, 194, 170, 130));
-    if (focused) drawRound(g, 2, 2, w - 5, h - 5, 18, rgb(120, 82, 26), 2);
-    if (compact) infoBadge(g, 12, 9, 22, 24, 0.95);
-    else {
-      const mid = Math.trunc(h / 2);
-      fillRound(g, 13, mid - 7, 18, 14, 8, rgb(183, 129, 45, 170));
-      const stroke = rgb(255, 253, 247, 220);
-      g.strokeStyle = stroke;
-      g.lineWidth = 1;
-      g.beginPath();
-      g.moveTo(20.5, mid - 3 + 0.5);
-      g.lineTo(24.5, mid - 3 + 0.5);
-      g.moveTo(22.5, mid - 5 + 0.5);
-      g.lineTo(22.5, mid - 1 + 0.5);
-      g.stroke();
-    }
-    fittedText(g, text, compact ? 42 : 40, Math.trunc(h / 2) + 5, w - (compact ? 52 : 48), DASH.ACCENT_DARK, true, ff() + 1);
-  });
-  button.append(face.element);
-  // setPreferredSize(max(112 | 104, icon and padding + the text width), 42).
-  const probe = document.createElement("canvas").getContext("2d")!;
-  setFont(probe, true, ff() + 1);
-  button.style.width = `${Math.max(compact ? 112 : 104, (compact ? 66 : 62) + width(probe, text))}px`;
-  const look = (r: boolean, f: boolean) => {
-    rollover = r;
-    focused = f;
-    face.repaint();
-  };
-  button.addEventListener("mouseenter", () => look(true, focused));
-  button.addEventListener("mouseleave", () => look(false, focused));
-  button.addEventListener("focus", () => look(rollover, true));
-  button.addEventListener("blur", () => look(rollover, false));
   button.onclick = onClick;
   return button;
 }
 
-/** PlayerStrengthModelCombo: 棋力模型 over the selected name with the arrow, and its popup list
- *  (PlayerStrengthModelComboRenderer rows). */
+/** PlayerStrengthModelCombo: 棋力模型 before a button with the selected name and the arrow, and
+ *  its popup list (PlayerStrengthModelComboRenderer rows). */
 function modelCombo(d: Dashboard, models: StrengthModelView[], selected: StrengthModelView, onSelect: (m: StrengthModelView) => void): HTMLElement {
   const host = el("div", "ps-combo");
+  const caption = el("span", "ps-label", t("PlayerStrengthEstimate.model"));
+  const anchor = el("div", "ps-combo-anchor");
   const button = el("button", "ps-combo-button");
   button.type = "button";
   button.title = t("PlayerStrengthEstimate.model.tooltip");
   button.setAttribute("aria-label", t("PlayerStrengthEstimate.model"));
   button.setAttribute("aria-haspopup", "listbox");
   button.setAttribute("aria-expanded", "false");
-  let rollover = false;
   button.dataset.strength = "model.combo";
-  let focused = false;
-  const face = painted("ps-combo-face", (g, w, h) => {
-    const open = d.comboOpen;
-    fillRound(g, 1, 2, w - 2, h - 2, 23, rgb(120, 82, 35, rollover ? 28 : 16));
-    fillRound(g, 0, 0, w - 1, h - 2, 23, open || rollover ? rgb(248, 239, 221, 242) : rgb(255, 252, 245, 226));
-    drawRound(g, 0, 0, w - 1, h - 2, 23, open || rollover ? rgb(183, 129, 45, 185) : rgb(207, 194, 170, 150));
-    drawText(g, t("PlayerStrengthEstimate.model"), 16, 15, DASH.MUTED_TEXT, false, Math.max(10, ff() - 1));
-    fittedText(g, modelDisplayName(selected), 16, 32, Math.max(40, w - 56), DASH.TEXT, true, ff() + 1);
-    const ax = w - 28;
-    const ay = Math.trunc(h / 2) + 2;
-    g.fillStyle = DASH.ACCENT_DARK;
-    g.beginPath();
-    g.moveTo(ax - 5, ay - 3);
-    g.lineTo(ax + 5, ay - 3);
-    g.lineTo(ax, ay + 4);
-    g.closePath();
-    g.fill();
-    // The focused combo shows the look-and-feel focus rectangle inside its face.
-    if (focused) drawRound(g, 3, 3, w - 7, h - 8, 18, rgb(120, 82, 26), 1);
-  });
-  button.append(face.element);
+  button.append(el("span", "ps-combo-value", modelDisplayName(selected)), icon("chevron-down"));
   const list = el("div", "ps-combo-list");
   list.setAttribute("role", "listbox");
   list.hidden = true;
@@ -188,8 +124,9 @@ function modelCombo(d: Dashboard, models: StrengthModelView[], selected: Strengt
   });
   list.append(...rows);
   // setMaximumRowCount(min(8, max(3, model count))).
-  list.style.maxHeight = `calc(${Math.min(8, Math.max(3, models.length))} * var(--ps-combo-row))`;
-  host.append(button, list);
+  list.style.maxHeight = `calc(${Math.min(8, Math.max(3, models.length))} * var(--ps-combo-row) + 8px)`;
+  anchor.append(button, list);
+  host.append(caption, anchor);
 
   function mark(k: number): void {
     active = k;
@@ -204,7 +141,6 @@ function modelCombo(d: Dashboard, models: StrengthModelView[], selected: Strengt
     list.hidden = !open;
     button.setAttribute("aria-expanded", String(open));
     if (open) mark(Math.max(0, models.findIndex((m) => m.id === selected.id)));
-    face.repaint();
     // A refresh skipped while the popup was open runs now.
     if (!open && dashboard === d) checkStamp(d);
   }
@@ -214,10 +150,7 @@ function modelCombo(d: Dashboard, models: StrengthModelView[], selected: Strengt
     if (model) onSelect(model);
   }
   button.onclick = () => setOpen(!d.comboOpen);
-  button.addEventListener("mouseenter", () => { rollover = true; face.repaint(); });
-  button.addEventListener("mouseleave", () => { rollover = false; face.repaint(); });
-  button.addEventListener("focus", () => { focused = true; face.repaint(); });
-  button.addEventListener("blur", () => { focused = false; setOpen(false); face.repaint(); });
+  button.addEventListener("blur", () => setOpen(false));
   button.addEventListener("keydown", (e) => {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
@@ -242,25 +175,18 @@ function tabButton(text: string): HTMLButtonElement {
   return b;
 }
 
-/** A dashboard card filling the card area; the painted panel fills it. */
-function filled(p: Painted, cls: string): HTMLElement {
-  const box = el("div", `ps-fill ${cls}`);
-  box.append(p.element);
-  return box;
-}
-
-/** buildPlayerStrengthAssessmentDashboard, with the cards' painted texts and the note. */
+/** buildPlayerStrengthAssessmentDashboard: the two sides and the note. */
 function assessmentDashboard(report: StrengthReport): { panel: HTMLElement; cards: { black: CardTexts; white: CardTexts }; note: string } {
   const humanSl = report.model.human_sl;
   const panel = el("div", "ps-dash ps-dash-assessment");
-  const cards = el("div", "ps-two ps-gap-20");
-  const black = assessmentCard(true, report.black, humanSl);
-  const white = assessmentCard(false, report.white, humanSl);
-  cards.append(filled(black, "ps-card"), filled(white, "ps-card"));
+  const sides = el("div", "ps-two");
+  const black = assessmentSection(true, report.black, humanSl);
+  const white = assessmentSection(false, report.white, humanSl);
+  sides.append(black.element, white.element);
   const note = humanSl
     ? report.enough_data ? t("HumanSL40.reviewNote") : t("HumanSL40.unavailable")
     : report.enough_data ? t("PlayerStrengthEstimate.reviewOnlyNote") : t("PlayerStrengthEstimate.needMoreData");
-  panel.append(cards, filled(noteStrip(note, false), "ps-note-strip"));
+  panel.append(sides, noteStrip(note));
   return { panel, cards: { black: black.drawn, white: white.drawn }, note };
 }
 
@@ -270,33 +196,41 @@ function tagged<T extends HTMLElement>(e: T, key: string): T {
   return e;
 }
 
-/** buildPlayerStrengthMatchDashboard. */
+/** buildPlayerStrengthMatchDashboard: the two sides' match figures, 选点命中图 with its legend,
+ *  the note. */
 function matchDashboard(report: StrengthReport): HTMLElement {
   const panel = el("div", "ps-dash ps-dash-match");
-  const top = el("div", "ps-two ps-gap-18 ps-match-top");
-  top.append(filled(matchSummaryCard(true, report.black.summary), "ps-card"), filled(matchSummaryCard(false, report.white.summary), "ps-card"));
-  panel.append(top, filled(moveHitMap(report), "ps-hit-map-box"), filled(noteStrip(t("PlayerStrengthEstimate.match.reviewNote"), false), "ps-note-strip"));
+  const top = el("div", "ps-two ps-match-top");
+  top.append(matchSummary(true, report.black.summary), matchSummary(false, report.white.summary));
+  const head = el("div", "ps-section-head");
+  const titles = el("div", "ps-section-title");
+  titles.append(el("h3", "", t("PlayerStrengthEstimate.match.moveMap")), el("p", "ps-label", t("PlayerStrengthEstimate.match.moveMapHint")));
+  head.append(titles, legend());
+  const map = el("div", "ps-fill ps-hit-map-box");
+  map.append(moveHitMap(report).element);
+  const chart = el("section", "ps-chart");
+  chart.append(head, map);
+  panel.append(top, chart, noteStrip(t("PlayerStrengthEstimate.match.reviewNote")));
   return panel;
 }
 
-/** Builds the panel for `report` into the open dialog (buildPlayerStrengthDashboardPanel). */
+/** Builds the panel for `report` into the open dialog (buildPlayerStrengthDashboardPanel): the
+ *  toolbar, the shown dashboard and the HumanSL strip, divided by hairlines. */
 function build(d: Dashboard, report: StrengthReport): void {
   const view = state.view?.strength;
   const root = d.content;
   root.replaceChildren();
-  const background = painted("ps-root-bg", paintDashboardRoot);
-  root.append(background.element);
 
   const assessment = assessmentDashboard(report);
   const cards: Record<Tab, HTMLElement> = {
     assessment: assessment.panel,
     match: matchDashboard(report),
-    performance: filled(performancePanel(report), "ps-dash ps-dash-performance"),
+    performance: performancePanel(report),
   };
   const cardHost = el("div", "ps-cards");
   cardHost.append(cards.assessment, cards.match, cards.performance);
 
-  const subtitle = el("div", "ps-subtitle");
+  const subtitle = el("p", "ps-subtitle");
   let current: Tab = "assessment";
   const subtitles: Record<Tab, () => string> = {
     assessment: () => t("PlayerStrengthEstimate.subtitle.assessment"),
@@ -321,17 +255,14 @@ function build(d: Dashboard, report: StrengthReport): void {
     tabs[key].onclick = () => show(key);
     tabs[key].dataset.strength = `tab.${key}`;
   }
-
-  const titleRow = el("div", "ps-title-row");
-  titleRow.append(headerMark().element, el("div", "ps-title", t("PlayerStrengthEstimate.title")));
   const tabRow = el("div", "ps-tabs");
   tabRow.setAttribute("role", "tablist");
   tabRow.append(tabs.assessment, tabs.match, tabs.performance);
-  const titleBlock = el("div", "ps-title-block");
-  titleBlock.append(titleRow, subtitle, tabRow);
 
   const actions = el("div", "ps-actions");
   const models = view?.models.length ? view.models : [report.model];
+  const detail = toolButton(t("PlayerStrengthEstimate.detailData"), () => openDetailDialog(report, current === "match"));
+  detail.classList.add("primary");
   actions.append(
     modelCombo(d, models, report.model, (model) => {
       if (model.id !== state.view?.strength.active || model.human_sl) {
@@ -342,10 +273,10 @@ function build(d: Dashboard, report: StrengthReport): void {
       }
     }),
     tagged(importButton(d), "import"),
-    tagged(detailButton(t("PlayerStrengthEstimate.detailData"), true, () => openDetailDialog(report, current === "match")), "detail"),
+    tagged(detail, "detail"),
   );
   const header = el("div", "ps-header");
-  header.append(titleBlock, actions);
+  header.append(tabRow, subtitle, actions);
 
   // The HumanSL strip: 后台 HumanSL, 补算 HumanSL for HumanSL 40, the preparation status.
   const strip = el("div", "ps-strip");
@@ -362,23 +293,21 @@ function build(d: Dashboard, report: StrengthReport): void {
   toggle.append(box, t("HumanSL40.backgroundToggle"));
   strip.append(toggle);
   if (report.model.human_sl) {
-    const manual = el("button", "ps-native-button", t("HumanSL40.manualRun"));
-    manual.type = "button";
-    manual.onclick = async () => {
+    const manual = toolButton(t("HumanSL40.manualRun"), async () => {
       await prepareHumanSl();
       if (dashboard === d) await refresh(d);
-    };
+    });
     manual.dataset.strength = "run";
     strip.append(manual);
   }
   const status = el("span", "ps-strip-status", view ? preparationStatus(view) : "");
+  status.setAttribute("role", "status");
   strip.append(status);
   d.statusLabel = status;
   d.background = box;
 
   root.append(header, cardHost, strip);
   show("assessment");
-  alignSubtitle(titleRow, subtitle, tabRow);
   // A rebuild removes the control that had the focus (the combo, 导入, 补算 HumanSL): the focus
   // would fall to the body, outside every dialog's Esc binding. Java's reopened dialog is focused.
   if (!document.activeElement?.closest("#dialog .modal-box")) ownerFocus();
@@ -390,19 +319,10 @@ function build(d: Dashboard, report: StrengthReport): void {
   };
 }
 
-/** BoxLayout(Y_AXIS) of the title block: the rows (alignment 0.5) are centred on one axis and the
- *  subtitle (LEFT_ALIGNMENT) starts on it, half the wider row's width from the left. */
-function alignSubtitle(titleRow: HTMLElement, subtitle: HTMLElement, tabRow: HTMLElement): void {
-  const preferred = (row: HTMLElement) => [...row.children].reduce((sum, c) => sum + (c as HTMLElement).offsetWidth, 0);
-  // titleRow is a FlowLayout(LEFT, 12, 0): 12 px before, between and after its two parts.
-  const axis = Math.max(preferred(titleRow) + 36, preferred(tabRow) + 24) / 2;
-  subtitle.style.marginLeft = `${Math.trunc(axis)}px`;
-}
-
 /** createPlayerStrengthImportModelButton. */
 function importButton(d: Dashboard): HTMLButtonElement {
   const title = t("PlayerStrengthEstimate.importModel.title");
-  const button = detailButton(t("PlayerStrengthEstimate.importModel"), false, async () => {
+  const button = toolButton(t("PlayerStrengthEstimate.importModel"), async () => {
     const path = await chooseStrengthModel(title).catch((e: unknown) => {
       void message("Error", String(e), "error");
       return null;

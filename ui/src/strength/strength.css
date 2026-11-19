@@ -1,260 +1,624 @@
-/* 棋力评估 dialogs (LizzieFrame.java 17271-17668 and the nested PlayerStrength* classes). The
-   Java content areas: Lizzie.setFrameSize(w, h) sets the window to (w + 10) x (h + 10) at scale 1
-   (Lizzie.java:898-907), which is the whole content area of the undecorated Java dialogs measured
-   in the reference screenshots. So the dashboard's content is 1130 x 770 (window minimum
-   1040 x 700), 详细数据 910 x 470 (550 with HumanSL 40, minimum 760 x 420) and the HumanSL 40
-   progress dialog (plain setSize) 500 x 165. This product's title bar sits above that content;
-   everything stays within the window. Fonts are Config.sysDefaultFontName at Config.frameFontSize
-   offsets. */
+/* 棋力评估 dialogs (LizzieFrame.java 17271-17668 and the nested PlayerStrength* classes): a data
+   dashboard on the dialog's ground. Panels are sections divided by hairlines, not cards; figures
+   are the Headline size at 600 in tabular numerals with Label-size names in --ds-text-3; the two
+   move charts paint from these tokens (paint.ts). The dashboard fits a 1065 x 700 window; a tab
+   whose content is taller scrolls inside it. */
+
+/* The data colours with a meaning no shared token has, for each colour mode: the rate and loss
+   bars and the 吻合度 ring, the 段位 windows and 疑似AI intervals of the match chart, and the six
+   move ranks of 发挥水准分布. The canvas reads them from the root (paint.ts palette). */
+:root,
+[data-theme="light"] {
+  --ps-rate: #4d7c5e;
+  --ps-loss: #a8772c;
+  --ps-rank-window: rgba(77, 124, 94, 0.3);
+  --ps-ai: #c4962f;
+  --ps-rank-best: #2f8a43;
+  --ps-rank-good: #7b9f2a;
+  --ps-rank-normal: #a8901a;
+  --ps-rank-inaccuracy: #c2772a;
+  --ps-rank-mistake: #bf3b2c;
+  --ps-rank-blunder: #93358a;
+}
+[data-theme="dark"] {
+  --ps-rate: #84bf98;
+  --ps-loss: #dcae62;
+  --ps-rank-window: rgba(132, 191, 152, 0.32);
+  --ps-ai: #d9b154;
+  --ps-rank-best: #63c27f;
+  --ps-rank-good: #a9c95a;
+  --ps-rank-normal: #d6c255;
+  --ps-rank-inaccuracy: #e3a15a;
+  --ps-rank-mistake: #ec7b6d;
+  --ps-rank-blunder: #cf82c6;
+}
+
+/* ---- the frame: title with its close button, the body below */
 .modal-box.ps-window {
-  --ps-ff: var(--frame-font-size, 12px);
-  box-sizing: border-box;
   max-width: none;
-  min-width: 0;
+  max-height: calc(100vh - 40px);
   display: flex;
   flex-direction: column;
   padding-bottom: 0;
   overflow: hidden;
-  font-size: var(--ps-ff);
 }
-.ps-window:focus { outline: none; }
-.ps-window [hidden] { display: none !important; }
-.ps-window-title { display: flex; justify-content: space-between; align-items: center; }
-.ps-window-close { border: 0; background: none; font: inherit; padding: 0 4px; cursor: pointer; }
-.ps-window-body { position: relative; flex: none; }
-
-.ps-dashboard .ps-window-body {
-  width: min(1130px, calc(100vw - 22px));
-  height: min(770px, calc(100vh - 60px));
-  min-width: min(1040px, calc(100vw - 22px));
-  min-height: min(700px, calc(100vh - 60px));
+.ps-window:focus {
+  outline: none;
 }
-.ps-detail-dialog .ps-window-body {
-  width: min(910px, calc(100vw - 22px));
-  height: min(470px, calc(100vh - 60px));
-  min-width: min(760px, calc(100vw - 22px));
-  min-height: min(420px, calc(100vh - 60px));
+.ps-window-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
 }
-.ps-detail-dialog.humansl .ps-window-body { height: min(550px, calc(100vh - 60px)); }
+.ps-window-close {
+  width: var(--ds-control-h);
+  height: var(--ds-control-h);
+  margin-right: -6px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-color: transparent;
+  background-color: transparent;
+  color: var(--ds-text-2);
+}
+.ps-window-close .icon {
+  width: 14px;
+  height: 14px;
+}
+.ps-window-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.ps-window p,
+.ps-window h3,
+.ps-window dl,
+.ps-window dd {
+  margin: 0;
+}
+.ps-window h3 {
+  font-size: var(--ds-size-l);
+  font-weight: 600;
+}
 
-/* painted components fill their boxes */
-.ps-canvas { display: block; width: 100%; height: 100%; }
-.ps-root-bg { position: absolute; inset: 0; }
-.ps-fill { position: relative; min-width: 0; min-height: 0; }
-.ps-fill > .ps-canvas { position: absolute; inset: 0; }
+.ps-dashboard {
+  width: min(1100px, calc(100vw - 40px));
+  height: min(740px, calc(100vh - 40px));
+}
+.ps-detail-dialog {
+  width: min(900px, calc(100vw - 40px));
+}
 
-/* PlayerStrengthDashboardRoot: BorderLayout(0, 18) in a 24 30 26 30 border */
+/* ---- type */
+.ps-label {
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.ps-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ps-headline {
+  font-size: var(--ds-size-xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ps-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+/* A small status label (手数 of a side). */
+.ps-tag {
+  padding: 1px 6px;
+  border-radius: var(--ds-radius-s);
+  background: var(--ds-well);
+  color: var(--ds-text-2);
+  font-size: var(--ds-size-s);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The flat stone pair (黑白棋子对). */
+.ps-stone {
+  flex: none;
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid;
+}
+.ps-stone.black {
+  border-color: var(--ws-stone-black-edge);
+  background: var(--ws-stone-black);
+}
+.ps-stone.white {
+  border-color: var(--ws-stone-white-edge);
+  background: var(--ws-stone-white);
+}
+
+/* ---- the dashboard: toolbar, the shown tab, the HumanSL strip */
 .ps-root {
   position: absolute;
   inset: 0;
-  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 24px 30px 26px;
-  color: rgb(47, 35, 22);
 }
-.ps-root > :not(.ps-root-bg) { position: relative; }
-.ps-header { display: flex; justify-content: space-between; align-items: flex-start; flex: none; }
-.ps-title-block { display: flex; flex-direction: column; align-items: flex-start; }
-/* FlowLayout(LEFT, 12, 0): the 62 x 50 mark and the BOLD frameFontSize + 22 title */
-.ps-title-row { display: flex; align-items: center; gap: 12px; padding-left: 12px; }
-.ps-header-mark { width: 62px; height: 50px; flex: none; }
-.ps-title { font-weight: bold; font-size: calc(var(--ps-ff) + 22px); white-space: nowrap; }
-.ps-subtitle { margin-top: 6px; color: rgb(130, 119, 104); font-size: calc(var(--ps-ff) + 1px); white-space: nowrap; }
-.ps-tabs { display: flex; gap: 12px; margin-top: 22px; }
-/* PlayerStrengthTabButton: 10 54 padding, arc-20 face, gold underline when selected */
-.ps-tab {
-  position: relative;
-  padding: 10px 54px;
-  /* The Swing font height, not the CJK fallback's taller line box: Java's tabs are 36 px. */
-  line-height: calc(var(--ps-ff) + 4px);
-  border: 0;
-  border-radius: 10px;
-  background: rgba(248, 245, 238, 0.667);
-  box-shadow: inset 0 0 0 1px rgba(204, 194, 177, 0.588);
-  color: rgb(47, 35, 22);
-  font-family: inherit;
-  font-weight: bold;
-  font-size: calc(var(--ps-ff) + 2px);
-  cursor: pointer;
-  white-space: nowrap;
-}
-.ps-tab.selected { background: rgb(249, 239, 220); box-shadow: inset 0 0 0 1px rgb(197, 158, 91); }
-.ps-tab.selected::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: 1px;
-  width: max(22px, 25%);
-  height: 4px;
-  border-radius: 2px;
-  background: rgb(183, 129, 45);
-  transform: translateX(-50%);
-}
-.ps-tab:focus { outline: none; }
-.ps-tab:focus::before {
-  content: "";
-  position: absolute;
-  inset: 2px;
-  border: 2px solid rgb(120, 82, 26);
-  border-radius: 8px;
-}
-/* FlowLayout(RIGHT, 0, 6): combo, 10, 导入, 10, 详细数据 */
-.ps-actions { display: flex; gap: 10px; padding-top: 6px; }
-.ps-combo { position: relative; width: 260px; height: 42px; flex: none;
-  --ps-combo-row: calc(var(--ps-ff) + 20px); }
-.ps-combo-button, .ps-detail-button {
-  display: block;
-  height: 42px;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
+.ps-header {
   flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 12px 20px;
 }
-.ps-combo-button { width: 100%; }
-.ps-combo-button:focus, .ps-detail-button:focus { outline: none; }
-/* BasicComboPopup: a 1 px gold line around PlayerStrengthModelComboRenderer rows */
+.ps-subtitle {
+  flex: 1 1 200px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+/* 测评 / 吻合度 / 发挥水准: joined text segments, the shown one on. */
+.ps-tabs {
+  display: inline-flex;
+}
+.ps-tab {
+  border-radius: 0;
+}
+.ps-tab + .ps-tab {
+  margin-left: -1px;
+}
+.ps-tab:first-child {
+  border-radius: var(--ds-radius) 0 0 var(--ds-radius);
+}
+.ps-tab:last-child {
+  border-radius: 0 var(--ds-radius) var(--ds-radius) 0;
+}
+.ps-tab.selected {
+  position: relative;
+  border-color: var(--ds-accent-soft-line);
+  background-color: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+  font-weight: 600;
+}
+.ps-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* 棋力模型: its name before a button that opens the list below it. */
+.ps-combo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  --ps-combo-row: 25px;
+}
+.ps-combo-anchor {
+  position: relative;
+}
+.ps-combo-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: calc(var(--ds-size) * 14);
+  padding: 0 8px;
+  border-color: var(--ds-line-strong);
+  background-color: var(--ds-field);
+}
+.ps-combo-value {
+  font-weight: 600;
+}
+.ps-combo-button .icon {
+  width: 12px;
+  height: 12px;
+  color: var(--ds-text-2);
+}
 .ps-combo-list {
   position: absolute;
-  top: 100%;
-  left: 0;
+  top: calc(100% + 4px);
   right: 0;
   z-index: 3;
+  min-width: 100%;
+  padding: 4px;
   overflow-y: auto;
-  border: 1px solid rgba(197, 158, 91, 0.745);
-  background: rgb(255, 252, 245);
+  border-radius: 8px;
+  background: var(--ds-raised);
+  box-shadow: var(--ds-shadow-pop);
+}
+.ps-combo-list[hidden] {
+  display: none;
 }
 .ps-combo-row {
   height: var(--ps-combo-row);
-  box-sizing: border-box;
-  padding: 8px 14px;
-  line-height: calc(var(--ps-ff) + 4px);
-  font-weight: bold;
-  font-size: calc(var(--ps-ff) + 1px);
-  color: rgb(47, 35, 22);
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: var(--ds-radius-s);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: default;
 }
-.ps-combo-row.selected { background: rgb(249, 239, 220); }
+.ps-combo-row.selected {
+  background: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+}
 
-/* CardLayout of the three dashboards */
-.ps-cards { flex: 1; min-height: 0; }
-.ps-dash { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 16px; }
-.ps-dash > .ps-two, .ps-dash > .ps-hit-map-box { flex: 1; }
-.ps-two { display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
-.ps-gap-20 { column-gap: 20px; }
-.ps-gap-18 { column-gap: 18px; }
-.ps-gap-14 { column-gap: 14px; }
-.ps-dash .ps-match-top { flex: none; height: 188px; }
-.ps-note-strip { flex: none; height: 64px; }
-
-/* FlowLayout(LEFT, 12, 0): 后台 HumanSL, 补算 HumanSL, the status (frameFontSize - 1) */
-.ps-strip { display: flex; align-items: center; gap: 12px; padding-left: 12px; flex: none; white-space: nowrap; }
-.ps-check { display: inline-flex; align-items: center; gap: 4px; }
-.ps-check input { margin: 0; }
-.ps-strip-status { font-size: calc(var(--ps-ff) - 1px); }
-.ps-native-button {
-  padding: 3px 14px;
-  border: 1px solid rgb(122, 138, 153);
-  border-radius: 2px;
-  background: linear-gradient(rgb(251, 252, 253), rgb(221, 226, 232));
-  color: #000;
-  font: inherit;
-  cursor: pointer;
-}
-.ps-native-button:focus-visible { outline: 1px dotted rgb(99, 130, 191); outline-offset: -4px; }
-
-/* 详细数据: PlayerStrengthDetailRoot with BorderLayout(0, 16), border 18 (16 for the chart) */
-.ps-detail-root {
-  position: absolute;
-  inset: 0;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 18px;
-}
-.ps-detail-root.match { padding: 16px; }
-.ps-detail-root > :not(.ps-root-bg) { position: relative; }
-.ps-detail-root > .ps-fill, .ps-detail-cards { flex: 1; }
-.ps-detail-note-box { position: relative; flex: none; height: 62px; }
-.ps-detail-note-box > .ps-canvas { position: absolute; inset: 0; }
-/* PlayerStrengthDetailCard: soft gradient, accent band (alpha 54) and 42 x 4 accent bar */
-.ps-detail-card {
-  --accent: 255, 116, 122;
-  position: relative;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-height: 0;
-  padding: 18px 20px;
-  border: 1px solid rgb(86, 101, 125);
-  border-radius: 12px;
-  background: linear-gradient(rgb(39, 49, 65), rgb(30, 39, 53));
-}
-.ps-detail-card.white { --accent: 118, 180, 255; }
-.ps-detail-card::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 42px;
-  border-radius: 12px;
-  background: rgba(var(--accent), 0.212);
-}
-.ps-detail-card::after {
-  content: "";
-  position: absolute;
-  top: 11px;
-  left: 17px;
-  width: 42px;
-  height: 4px;
-  border-radius: 2px;
-  background: rgb(var(--accent));
-}
-.ps-detail-card > * { position: relative; }
-.ps-detail-card-title { font-weight: bold; font-size: calc(var(--ps-ff) + 8px); color: rgb(248, 250, 252); }
-.ps-detail-card.white .ps-detail-card-title { color: rgb(255, 244, 218); }
-/* GridLayout(0, 2, 10, 9): equal cells filling the card */
-.ps-detail-metrics {
+/* The tabs' panels: one shown, scrolling inside when taller than the window allows. */
+.ps-cards {
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-auto-rows: 1fr;
-  column-gap: 10px;
-  row-gap: 9px;
-  align-items: center;
+  position: relative;
+  border-top: 1px solid var(--ds-line);
 }
-.ps-metric-label { color: rgb(203, 213, 225); font-size: var(--ps-ff); white-space: nowrap; overflow: hidden; }
-.ps-metric-value { color: rgb(248, 250, 252); font-weight: bold; font-size: calc(var(--ps-ff) + 1px); white-space: nowrap; overflow: hidden; }
-
-/* HumanSlStrengthDialog: BorderLayout(12, 12) in an 18 20 border; status, bar, 取消 at the right */
-.ps-progress-dialog .ps-window-body {
-  box-sizing: border-box;
-  width: min(500px, calc(100vw - 22px));
-  height: min(165px, calc(100vh - 60px));
+.ps-dash {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 18px 20px;
+  padding: 12px 20px;
+  overflow: auto;
 }
-.ps-progress-status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ps-progress-bar {
+.ps-dash[hidden] {
+  display: none;
+}
+/* Black and white side by side, split by a hairline. */
+.ps-two {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-height: 0;
+}
+.ps-two > :first-child {
+  padding-right: 20px;
+}
+.ps-two > :last-child {
+  padding-left: 20px;
+  border-left: 1px solid var(--ds-line);
+}
+.ps-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.ps-side-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ps-side-head > .ps-tag {
+  margin-left: auto;
+}
+.ps-figure {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+/* 测评: the five metrics with their bars, the 评分规则 scale beside them. */
+.ps-dash-assessment > .ps-two {
+  flex: 1 0 auto;
+}
+.ps-side-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 24px;
+}
+.ps-metrics {
+  display: grid;
+  grid-template-columns: max-content max-content minmax(48px, 1fr);
+  align-items: center;
+  column-gap: 12px;
+}
+.ps-metric {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: center;
+  min-height: 32px;
+  border-top: 1px solid var(--ds-line);
+}
+.ps-metric > .ps-value {
+  text-align: right;
+}
+.ps-meter {
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--ds-well);
+}
+.ps-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+}
+.ps-fill-rate {
+  background: var(--ps-rate);
+}
+.ps-fill-loss {
+  background: var(--ps-loss);
+}
+.ps-fill-rank {
+  background: var(--ps-rank-color);
+}
+.ps-scale {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: calc(var(--ds-size) * 10);
+}
+.ps-scale > .ps-label {
+  margin-bottom: 4px;
+}
+.ps-scale-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: var(--ds-radius-s);
+  white-space: nowrap;
+}
+.ps-scale-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ds-text-3);
+}
+.ps-scale-key {
+  min-width: calc(var(--ds-size) * 2.2);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ps-scale-row.selected {
+  background: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+  font-weight: 600;
+}
+.ps-scale-row.selected .ps-scale-dot {
+  background: var(--ds-accent-text);
+}
+
+/* 吻合度: each side's ring with its figure and four small figures, then the hit map. */
+.ps-match-top {
+  flex: none;
+}
+.ps-match-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 24px;
+}
+.ps-ring-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ps-ring-row > .ps-figure {
+  flex-direction: column;
+  gap: 0;
+}
+.ps-ring {
+  width: 56px;
+  height: 56px;
+  fill: none;
+  stroke-width: 6;
+}
+.ps-ring-track {
+  stroke: var(--ds-well);
+}
+.ps-ring-value {
+  stroke: var(--ps-rate);
+  stroke-linecap: round;
+}
+.ps-stats {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  gap: 6px 24px;
+}
+.ps-stat {
+  display: flex;
+  flex-direction: column;
+}
+.ps-stat > .ps-value {
+  font-size: var(--ds-size-l);
+}
+.ps-chart {
+  flex: 1 0 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 200px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ds-line);
+}
+.ps-section-head {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.ps-section-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+/* The legend at the top right of a chart. */
+.ps-legend {
+  flex: none;
+  display: flex;
+  gap: 12px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.ps-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ps-legend .ps-stone {
+  width: 10px;
+  height: 10px;
+}
+.ps-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.ps-fill {
   position: relative;
   flex: 1;
-  min-height: 12px;
-  overflow: hidden;
-  border: 1px solid rgb(122, 138, 153);
-  background: rgb(238, 238, 238);
+  min-width: 0;
+  min-height: 0;
 }
-.ps-progress-fill { height: 100%; width: 0; background: rgb(163, 184, 204); }
+.ps-fill > .ps-canvas {
+  position: absolute;
+  inset: 0;
+}
+.ps-hit-map-box {
+  min-height: 140px;
+}
+
+/* 发挥水准: per side the six move ranks with their counts, bars and shares. */
+.ps-dash-performance > .ps-two {
+  flex: 1 0 auto;
+}
+.ps-ranks {
+  display: grid;
+  grid-template-columns: max-content max-content minmax(60px, 1fr) max-content;
+  align-items: center;
+  column-gap: 16px;
+}
+.ps-rank-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: center;
+  min-height: 34px;
+  border-top: 1px solid var(--ds-line);
+}
+.ps-rank-head {
+  min-height: 22px;
+  border-top: 0;
+}
+.ps-rank-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.ps-rank-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ps-rank-color);
+}
+.rank-best { --ps-rank-color: var(--ps-rank-best); }
+.rank-good { --ps-rank-color: var(--ps-rank-good); }
+.rank-normal { --ps-rank-color: var(--ps-rank-normal); }
+.rank-inaccuracy { --ps-rank-color: var(--ps-rank-inaccuracy); }
+.rank-mistake { --ps-rank-color: var(--ps-rank-mistake); }
+.rank-blunder { --ps-rank-color: var(--ps-rank-blunder); }
+.ps-empty {
+  color: var(--ds-text-3);
+}
+
+/* The note under a tab: a warning 提示条. */
+.ps-note {
+  flex: none;
+  min-height: 28px;
+  padding: 5px 10px;
+  border: 1px solid var(--ds-warning-soft-line);
+  border-radius: var(--ds-radius);
+  background: var(--ds-warning-soft);
+  color: var(--ds-warning-text);
+  font-weight: 600;
+}
+
+/* 后台 HumanSL, 补算 HumanSL and the preparation status below the tabs. */
+.ps-strip {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 10px 20px 14px;
+  border-top: 1px solid var(--ds-line);
+}
+.ps-check {
+  display: inline-flex;
+  align-items: center;
+}
+.ps-strip-status {
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 详细数据: the two sides' figures and the note, or the match chart */
+.ps-detail-root {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 20px 16px;
+}
+.ps-detail-root.match {
+  height: min(440px, calc(100vh - 120px));
+}
+.ps-detail-metrics {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 16px;
+}
+.ps-detail-metric {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: center;
+  min-height: 28px;
+  border-top: 1px solid var(--ds-line);
+}
+.ps-metric-label {
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.ps-metric-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ---- HumanSL 40 progress (HumanSlStrengthDialog): status, bar, 取消 at the right */
+.ps-progress-dialog {
+  width: min(500px, calc(100vw - 40px));
+}
+.ps-progress-dialog .ps-window-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 20px 16px;
+}
+.ps-progress-status {
+  overflow-wrap: anywhere;
+}
+.ps-progress-bar {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--ds-well);
+}
+.ps-progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--ds-accent);
+}
+/* Indeterminate progress: the run slides back and forth while the length is unknown. */
 .ps-progress-bar.indeterminate .ps-progress-fill {
   position: absolute;
   width: 20%;
@@ -265,4 +629,10 @@
   50% { left: 80%; }
   100% { left: 0; }
 }
-.ps-progress-actions { display: flex; justify-content: flex-end; }
+.ps-progress-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.ps-progress-actions button {
+  min-width: 76px;
+}

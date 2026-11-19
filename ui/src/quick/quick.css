@@ -163,74 +163,126 @@
   }
 }
 
-/* 精析设置 (AnalysisSettings null layout). */
-.analysis-settings textarea {
-  position: absolute;
-  box-sizing: border-box;
-  margin: 0;
-  padding: 2px 4px;
-  font: inherit;
-  resize: none;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  border: 1px solid rgb(160, 165, 170);
-}
-.analysis-settings input[type="text"] {
-  padding: 0 2px;
-  border: 1px solid rgb(160, 165, 170);
-}
-.analysis-settings-row {
-  display: flex;
+/* ---- The analysis dialogs (自动分析设置, 加强分析条件, 批量精析, 精析设置, 局部精析): 综合设置's form
+   grammar. A label column sized to its longest label and a control column; check rows start at
+   the label column; groups are split by a hairline; hints in --ds-text-3 at --ds-size-s. The
+   frame, the field rows and the button row are design/dialog.css. */
+.quick-form {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
   align-items: center;
-  gap: 6px;
+  column-gap: 12px;
+  row-gap: 8px;
+  max-width: 640px;
 }
-.analysis-settings-row button {
-  min-width: 68px;
-  height: 23px;
-  font: inherit;
+.quick-form > * {
+  grid-column: 1 / -1;
+  margin: 0;
 }
-.analysis-settings-row .unavailable,
-.analysis-settings .unavailable {
-  opacity: 0.55;
+.quick-form > .engine-field {
+  grid-template-columns: subgrid;
+  min-height: var(--ds-control-h-l);
 }
-/* LinkLabel paints the hint on the comment colours (black, white text). */
-.analysis-settings-hint {
-  display: block;
-  overflow: hidden;
-  padding: 0 3px;
-  line-height: 20px;
-  background: #000;
-  color: #fff;
+.quick-form > .engine-field > :is(input, select, .engine-unit, .analysis-settings-row) {
+  justify-self: start;
 }
-.analysis-settings-link {
-  font-weight: bold;
-  text-decoration: underline;
-  cursor: pointer;
+.quick-form > hr {
+  height: 0;
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--ds-line);
+}
+.quick-check {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  min-height: 20px;
+}
+/* A check row with the button it enables after its text. */
+.quick-check-with {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.quick-number {
+  width: calc(var(--ds-size) * 8);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
-/* WaitForAnalysis: a non-modal 378x93 window over the disabled main window, below modal dialogs. */
+/* 精析设置: the command, its hints, the rules and the reuse target. */
+.analysis-settings {
+  width: min(600px, 88vw);
+}
+.analysis-settings-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.analysis-settings-command {
+  min-height: calc(var(--ds-size) * 9);
+  resize: vertical;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.quick-form > .analysis-settings-example {
+  margin-top: -4px;
+  overflow-wrap: anywhere;
+}
+.analysis-settings-hint {
+  margin-top: -6px;
+}
+.analysis-settings-em {
+  color: var(--ds-text-2);
+  font-weight: 600;
+}
+.analysis-settings-link {
+  color: var(--ds-accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.analysis-settings-rules {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.quick-form > .analysis-settings-target {
+  margin-top: -6px;
+  padding-left: 19px;
+}
+
+/* 局部精析 */
+.flash-part {
+  min-width: 280px;
+}
+
+/* WaitForAnalysis: a non-modal tool window over the disabled workbench, below modal dialogs. */
 .flash-wait {
   position: fixed;
   z-index: 29;
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  min-width: 0;
-  padding-bottom: 8px;
+  padding: 0 20px 16px;
 }
 .flash-wait[hidden] {
   display: none;
 }
-.flash-wait .modal-body {
-  padding-top: 6px;
+.flash-wait > .modal-title {
+  padding: 14px 0 0;
 }
 .flash-progress {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  margin: 10px 0 0;
+  font-variant-numeric: tabular-nums;
 }
-.flash-wait button,
-.flash-part button {
-  padding: 0;
-  font: inherit;
+.flash-wait > .engine-actions {
+  justify-content: flex-end;
+}
+.flash-wait > .engine-actions button {
+  min-width: 76px;
 }

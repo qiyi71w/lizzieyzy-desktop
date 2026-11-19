@@ -1,22 +1,22 @@
-// 批量分析进度表 window (AnalysisTable.java): five buttons over a six-column table whose first
-// row is the record being analysed. It draws what the main window relays and reports every
-// click; the main window decides the command.
+// 批量分析进度表 window (AnalysisTable.java): five buttons in the window's button bar over a
+// six-column table whose first row is the record being analysed. It draws what the main window
+// relays and reports every click; the main window decides the command.
+import "../design/window";
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { BatchMove } from "../contract/generated";
-import { UI_FONT } from "../hawkeye/model";
 import { setLanguage, t } from "../i18n";
 import { BATCH_DATA_EVENT, BATCH_INPUT_EVENT, type BatchButton, type BatchInput, type BatchPayload, type BatchReport } from "./model";
 import "./batch.css";
 
-/** The top buttons: key, text and bounds (x, width; y 2, height 25). Literal t() calls keep the
- *  keys in the Java string extraction. */
-const BUTTONS: [BatchButton, () => string, number, number][] = [
-  ["stopGo", () => t("AnalysisTable.stopGo"), 10, 100],
-  ["stopStart", () => t("AnalysisTable.stopStart"), 110, 100],
-  ["stopStartAnalysisMode", () => t("AnalysisTable.stopStartAnalysisMode"), 210, 130],
-  ["addFile", () => t("AnalysisTable.addFile"), 340, 100],
-  ["clearAllFiles", () => t("AnalysisTable.clearAllFiles"), 440, 100],
+/** The top buttons: key, text and look (开始/结束 is the window's main action, 清空 empties the
+ *  queue). Literal t() calls keep the keys in the Java string extraction. */
+const BUTTONS: [BatchButton, () => string, "" | "primary" | "danger"][] = [
+  ["stopGo", () => t("AnalysisTable.stopGo"), ""],
+  ["stopStart", () => t("AnalysisTable.stopStart"), "primary"],
+  ["stopStartAnalysisMode", () => t("AnalysisTable.stopStartAnalysisMode"), ""],
+  ["addFile", () => t("AnalysisTable.addFile"), ""],
+  ["clearAllFiles", () => t("AnalysisTable.clearAllFiles"), "danger"],
 ];
 
 /** The row buttons' columns: text (also the header), action and the rows (index, count) where
@@ -29,17 +29,15 @@ const ROW_ACTIONS: [() => string, BatchMove | "Remove", (row: number, count: num
 ];
 
 export function bootBatchTable(): void {
-  document.body.style.fontFamily = UI_FONT;
   const send = (input: BatchInput) => void emitTo("main", BATCH_INPUT_EVENT, input);
 
   const bar = document.createElement("div");
   bar.id = "bt-buttons";
   const buttons = new Map<BatchButton, HTMLButtonElement>();
-  for (const [key, , x, width] of BUTTONS) {
+  for (const [key, , look] of BUTTONS) {
     const b = document.createElement("button");
     b.dataset.key = `batchTable.${key}`;
-    b.style.left = `${x}px`;
-    b.style.width = `${width}px`;
+    if (look) b.className = look;
     b.onclick = () => send({ type: "button", button: key });
     buttons.set(key, b);
     bar.append(b);
@@ -48,9 +46,10 @@ export function bootBatchTable(): void {
   scroll.id = "bt-scroll";
   const table = document.createElement("table");
   const columns = document.createElement("colgroup");
-  for (const width of [40, 300, 40, 40, 40, 40]) {
+  // The number, the file name taking the rest, then the four row actions sized to their text.
+  for (const cls of ["bt-col-number", "bt-col-name", "bt-col-action", "bt-col-action", "bt-col-action", "bt-col-action"]) {
     const col = document.createElement("col");
-    col.style.width = `${width / 5}%`;
+    col.className = cls;
     columns.append(col);
   }
   const head = document.createElement("thead");
@@ -113,7 +112,7 @@ export function bootBatchTable(): void {
         tr.append(number, name);
         for (const [label, action, enabled] of ROW_ACTIONS) {
           const td = document.createElement("td");
-          td.className = "bt-action";
+          td.className = action === "Remove" ? "bt-action bt-remove" : "bt-action";
           const b = document.createElement("button");
           b.textContent = label();
           b.dataset.key = `batchTable.${action}.${row}`;

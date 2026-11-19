@@ -1,15 +1,17 @@
 // StartAnaDialog (the automatic analysis and the two batch variants), SetDiffAnalyze and
-// AutoAnalyzeMenu. Drafts only; Rust owns the run.
+// AutoAnalyzeMenu. Drafts only; Rust owns the run. The dialogs use 综合设置's form grammar
+// (quick.css): labelled fields, check rows from the label column, groups split by a hairline.
 import { registerViewHandler, run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
 import type { AutoAnalysisSettings, WorkbenchView } from "../contract/generated";
 import { formPanel, message } from "../dialogs";
 import { parseJavaInt } from "../display/dialogs";
-import { actions, button } from "../engine/controls";
+import { actions, button, primaryButton } from "../engine/controls";
 import { t } from "../i18n";
 import type { MenuNode } from "../chrome/javaMenus";
 import { openAnalysisEngineSettings } from "./analysisSettings";
 import { requestFlash } from "./flash";
+import "./quick.css";
 import "./autoAnalysis.css";
 
 export const AUTO_ANALYSIS_MENU: MenuNode[] = [
@@ -25,17 +27,31 @@ export const AUTO_ANALYSIS_MENU: MenuNode[] = [
 
 function grid(): { body: HTMLDivElement; rows: HTMLDivElement } {
   const body = document.createElement("div"); body.className = "auto-analysis-dialog";
-  const rows = document.createElement("div"); rows.className = "auto-analysis-grid";
+  const rows = document.createElement("div"); rows.className = "quick-form";
   body.append(rows);
   return { body, rows };
 }
+/** A labelled field: the text in the label column, the control in the control column. */
 function row(host: HTMLElement, text: string, control: HTMLElement): void {
+  const line = document.createElement("div"); line.className = "engine-field";
   const label = document.createElement("label"); label.textContent = text;
   if (control instanceof HTMLInputElement) { control.id = control.dataset.key!; label.htmlFor = control.id; }
-  host.append(label, control);
+  line.append(label, control);
+  host.append(line);
+}
+/** A check row: the box and its text, from the label column. */
+function checkRow(host: HTMLElement, text: string, box: HTMLInputElement): void {
+  const label = document.createElement("label"); label.className = "quick-check";
+  box.id = box.dataset.key!;
+  label.append(box, text);
+  host.append(label);
+}
+/** The hairline between two groups of rows. */
+function separator(host: HTMLElement): void {
+  host.append(document.createElement("hr"));
 }
 function number(value: number, key: string, decimal = false): HTMLInputElement {
-  const el = document.createElement("input"); el.type = "text"; el.inputMode = decimal ? "decimal" : "numeric";
+  const el = document.createElement("input"); el.type = "text"; el.inputMode = decimal ? "decimal" : "numeric"; el.className = "quick-number";
   el.value = value >= 0 ? String(value) : ""; el.dataset.key = key;
   return el;
 }
@@ -45,21 +61,25 @@ function check(value: boolean, key: string): HTMLInputElement {
 }
 const integer = (el: HTMLInputElement) => parseJavaInt(el.value.replaceAll(" ", "")) ?? -1;
 
-/** Seven equal-height two-column rows; Java's optional condition fields use -1 for empty. */
+/** Which side, the two fluctuation thresholds, then the three work limits; Java's optional
+ *  condition fields use -1 for empty. */
 async function openDiff(draft: AutoAnalysisSettings): Promise<void> {
   const { body, rows } = grid();
   const black = check(draft.diffBlack, "autoDiff.black"), white = check(draft.diffWhite, "autoDiff.white");
-  row(rows, t("StartAnaDialog.analyzeBlack"), black); row(rows, t("StartAnaDialog.analyzeWhite"), white);
+  checkRow(rows, t("StartAnaDialog.analyzeBlack"), black); checkRow(rows, t("StartAnaDialog.analyzeWhite"), white);
+  separator(rows);
   const win = check(draft.diffUseWin, "autoDiff.useWin"), score = check(draft.diffUseScore, "autoDiff.useScore");
   const winValue = number(draft.diffWinThreshold, "autoDiff.win", true), scoreValue = number(draft.diffScoreThreshold, "autoDiff.score", true);
   for (const [text, box, value] of [[t("SetDiffAnalyze.lblWinThreshold"), win, winValue], [t("SetDiffAnalyze.lblScoreThreshold"), score, scoreValue]] as const) {
-    const group = document.createElement("div"); group.className = "auto-analysis-inline"; group.append(box, value);
+    const group = document.createElement("span"); group.className = "engine-unit"; group.append(box, value);
+    box.setAttribute("aria-label", text); value.setAttribute("aria-label", text);
     value.disabled = !box.checked; box.onchange = () => { value.disabled = !box.checked; }; row(rows, text, group);
   }
+  separator(rows);
   const time = number(draft.diffTime, "autoDiff.time"), visits = number(draft.diffVisits, "autoDiff.visits"), first = number(draft.diffFirstVisits, "autoDiff.firstVisits");
   row(rows, t("StartAnaDialog.timePerMove"), time); row(rows, t("StartAnaDialog.totalVisitsPerMove"), visits); row(rows, t("StartAnaDialog.firstVisitsPerMove"), first);
   const dialog = formPanel(t("SetDiffAnalyze.title"), body);
-  const apply = button(t("SetKataEngines.btnApply"), async () => {
+  const apply = primaryButton(t("SetKataEngines.btnApply"), async () => {
     if (!black.checked && !white.checked) { await message(t("Message.title"), t("SetDiffAnalyze.noBlackWhite")); return; }
     if (!win.checked && !score.checked) { await message(t("Message.title"), t("SetDiffAnalyze.noWinScore")); return; }
     if (integer(time) <= 0 && integer(visits) <= 0 && integer(first) <= 0) { await message(t("Message.title"), t("SetDiffAnalyze.noCondition")); return; }
@@ -90,18 +110,23 @@ export async function openAutoAnalysis(batch = false): Promise<void> {
   const start = number(draft.startMove, "autoAnalysis.start"), end = number(draft.endMove, "autoAnalysis.end");
   const time = number(draft.timeSeconds, "autoAnalysis.time"), visits = number(draft.visits, "autoAnalysis.visits"), first = number(draft.firstVisits, "autoAnalysis.firstVisits");
   row(rows, batch ? t("StartAnaDialog.startMoveBatch") : t("StartAnaDialog.startMove"), start); row(rows, t("StartAnaDialog.endMove"), end);
+  separator(rows);
   row(rows, t("StartAnaDialog.timePerMove"), time); row(rows, t("StartAnaDialog.totalVisitsPerMove"), visits); row(rows, t("StartAnaDialog.firstVisitsPerMove"), first);
+  separator(rows);
   const black = check(draft.black, "autoAnalysis.black"), white = check(draft.white, "autoAnalysis.white"), branches = check(draft.allBranches, "autoAnalysis.allBranches"), diff = check(draft.diffEnable, "autoAnalysis.diff");
-  row(rows, t("StartAnaDialog.analyzeBlack"), black); row(rows, t("StartAnaDialog.analyzeWhite"), white); row(rows, t("StartAnaDialog.analyzeAllBranch"), branches);
+  checkRow(rows, t("StartAnaDialog.analyzeBlack"), black); checkRow(rows, t("StartAnaDialog.analyzeWhite"), white); checkRow(rows, t("StartAnaDialog.analyzeAllBranch"), branches);
+  separator(rows);
+  // 波动过大时加强分析: the switch with 条件设置 beside its text.
   const conditions = button(t("StartAnaDialog.btnSetDiff"), () => void openDiff(draft)); conditions.dataset.key = "autoAnalysis.conditions";
   conditions.disabled = !diff.checked; diff.onchange = () => { conditions.disabled = !diff.checked; };
-  const group = document.createElement("div"); group.className = "auto-analysis-inline"; group.append(diff, conditions); row(rows, t("StartAnaDialog.lblDiffAnalyze"), group);
+  const diffRow = document.createElement("div"); diffRow.className = "quick-check-with";
+  checkRow(diffRow, t("StartAnaDialog.lblDiffAnalyze"), diff); diffRow.append(conditions); rows.append(diffRow);
   const pause = check(draft.exitByPause, "autoAnalysis.exitByPause"), save = check(draft.autoSave, "autoAnalysis.autoSave");
-  row(rows, t("StartAnaDialog.chkExitByPause"), pause);
-  if (!batch) row(rows, t("StartAnaDialog.autoSaveKifu"), save);
+  checkRow(rows, t("StartAnaDialog.chkExitByPause"), pause);
+  if (!batch) checkRow(rows, t("StartAnaDialog.autoSaveKifu"), save);
   const dialog = formPanel(t("StartAnaDialog.title"), body);
   let started = false;
-  const begin = button(t("StartAnaDialog.startAnalyze"), async () => {
+  const begin = primaryButton(t("StartAnaDialog.startAnalyze"), async () => {
     const settings: AutoAnalysisSettings = { ...draft, startMove: integer(start), endMove: integer(end), timeSeconds: integer(time), visits: integer(visits), firstVisits: integer(first), timeEnabled: integer(time) > 0, visitsEnabled: integer(visits) > 0, firstVisitsEnabled: integer(first) > 0, black: black.checked, white: white.checked, allBranches: branches.checked, diffEnable: diff.checked, exitByPause: pause.checked, autoSave: save.checked };
     const result = await run(batch ? { type: "Batch", op: { type: "StartOrdinary", settings } } : { type: "StartAutoAnalysis", settings });
     if (!result || result.type === "Refused") return;
@@ -127,7 +152,8 @@ export async function openFlashBatchSetup(): Promise<void> {
   const start = number(range.startMove, "flashBatch.start"), end = number(range.endMove, "flashBatch.end");
   const visits = number(savedVisits(), "flashBatch.visits"), branches = check(false, "flashBatch.allBranches");
   row(rows, t("StartAnaDialog.startMoveBatch"), start); row(rows, t("StartAnaDialog.endMove"), end);
-  row(rows, t("StartAnaDialog.totalVisitsPerMove"), visits); row(rows, t("StartAnaDialog.chkAllBranches"), branches);
+  separator(rows);
+  row(rows, t("StartAnaDialog.totalVisitsPerMove"), visits); checkRow(rows, t("StartAnaDialog.chkAllBranches"), branches);
   const dialog = formPanel(t("StartAnaDialog.title"), body);
   let started = false;
   /** apply(): Utils.parseTextToInt keeps the saved 每手总计算量 for text that is no number. */
@@ -146,7 +172,7 @@ export async function openFlashBatchSetup(): Promise<void> {
     visits.value = String(kept?.batchVisits ?? savedVisits());
   });
   settings.dataset.key = "flashBatch.settings";
-  const ok = button(t("StartAnaDialog.startAnalyze"), () => void begin()); ok.dataset.key = "flashBatch.begin";
+  const ok = primaryButton(t("StartAnaDialog.startAnalyze"), () => void begin()); ok.dataset.key = "flashBatch.begin";
   const stop = button(t("StartAnaDialog.stopAnalyze"), () => void dialog.close()); stop.dataset.key = "flashBatch.stop";
   actions(body, settings, ok, stop);
   await dialog.closed;
@@ -175,11 +201,14 @@ function noticeText(key: string): string {
 let lastNotice = -1, askingDiff = false, showingTip = false;
 let notice: HTMLElement | null = null;
 let noticeTimer: number | undefined;
+/** A non-modal tool window over the workbench (no scrim): the message, then 确定 unless it
+ *  closes by itself after three seconds. */
 function nonmodal(text: string, timed: boolean): void {
   notice?.remove(); window.clearTimeout(noticeTimer);
   notice = document.createElement("div"); notice.className = "auto-analysis-notice modal-box"; notice.dataset.key = "autoAnalysis.notice";
-  const content = document.createElement("div"); content.textContent = text; notice.append(content);
-  if (!timed) { const close = button(t("SetKataEngines.btnApply"), () => { notice?.remove(); notice = null; }); close.dataset.key = "autoAnalysis.noticeClose"; notice.append(close); }
+  notice.setAttribute("role", "status");
+  const content = document.createElement("p"); content.textContent = text; notice.append(content);
+  if (!timed) { const close = primaryButton(t("SetKataEngines.btnApply"), () => { notice?.remove(); notice = null; }); close.dataset.key = "autoAnalysis.noticeClose"; actions(notice, close); }
   document.body.append(notice);
   if (timed) noticeTimer = window.setTimeout(() => { notice?.remove(); notice = null; }, 3000);
 }
@@ -194,22 +223,22 @@ function render(view: WorkbenchView): void {
   }
   if (a.confirmation && !askingDiff) {
     askingDiff = true;
-    const body = document.createElement("div"); body.className = "auto-analysis-dialog";
+    const body = document.createElement("div"); body.className = "auto-analysis-dialog auto-analysis-message";
     const content = document.createElement("p"); content.textContent = `${t("BottomToolbar.noticeBigDiff")}${a.diff_moves}(${t("BottomToolbar.needAnalyze")}${a.diff_nodes})${t("BottomToolbar.askStartReAnalyze")}`; body.append(content);
     const dialog = formPanel(t("BottomToolbar.askStartReAnalyzeTitle"), body);
     let answered = false;
     const answer = async (accept: boolean) => { answered = true; await run({ type: "AnswerAutoAnalysisDiff", accept }); await dialog.close(); };
-    const yes = button(t("SetKataEngines.btnApply"), () => void answer(true)), no = button(t("SetKataEngines.btnCancel"), () => void answer(false));
+    const yes = primaryButton(t("SetKataEngines.btnApply"), () => void answer(true)), no = button(t("SetKataEngines.btnCancel"), () => void answer(false));
     yes.dataset.key = "autoAnalysis.diffConfirm"; no.dataset.key = "autoAnalysis.diffCancel"; actions(body, yes, no);
     void dialog.closed.then(async () => { if (!answered) await run({ type: "AnswerAutoAnalysisDiff", accept: false }); askingDiff = false; });
   }
   if (a.pause_tip && !showingTip) {
     showingTip = true;
-    const body = document.createElement("div"); const content = document.createElement("p"); content.textContent = t("LizzieFrame.autoAnalyze.tip.content"); body.append(content);
+    const body = document.createElement("div"); body.className = "auto-analysis-dialog auto-analysis-message"; const content = document.createElement("p"); content.textContent = t("LizzieFrame.autoAnalyze.tip.content"); body.append(content);
     const dialog = formPanel(t("LizzieFrame.autoAnalyze.tip.title"), body);
     let dismissed = false;
     const dismiss = async (never_again: boolean) => { dismissed = true; await run({ type: "DismissAutoAnalysisTip", never_again }); await dialog.close(); };
-    const never = button(t("LizzieFrame.autoAnalyze.notShowAgain"), () => void dismiss(true)), ok = button(t("LizzieFrame.confirm"), () => void dismiss(false));
+    const never = button(t("LizzieFrame.autoAnalyze.notShowAgain"), () => void dismiss(true)), ok = primaryButton(t("LizzieFrame.confirm"), () => void dismiss(false));
     never.dataset.key = "autoAnalysis.tipNever"; ok.dataset.key = "autoAnalysis.tipOk"; actions(body, never, ok);
     void dialog.closed.then(async () => { if (!dismissed) await run({ type: "DismissAutoAnalysisTip", never_again: false }); showingTip = false; });
   }

@@ -1,8 +1,9 @@
-// A modal JDialog of the 棋力评估 feature: a title bar with its close button, Esc closing it
-// (AccessibilitySupport.installEscapeAction) and the keyboard kept inside the dialog.
+// A modal JDialog of the 棋力评估 feature on the shared dialog frame: the title with its close
+// button, Esc closing it (AccessibilitySupport.installEscapeAction) and the keyboard kept inside
+// the dialog.
+import { icon } from "../design/icons";
 import { openModalLayer } from "../dialogs";
 import { product } from "../i18n";
-import { GRAPH_FONT } from "../workbench/paint";
 
 export interface StrengthWindow {
   box: HTMLDivElement;
@@ -22,17 +23,16 @@ export function openWindow(title: string, cls: string, onClose: () => void): Str
   box.setAttribute("aria-label", title);
   box.tabIndex = -1;
   const head = document.createElement("div");
-  // Font(Config.sysDefaultFontName, …) throughout.
-  box.style.fontFamily = GRAPH_FONT;
   head.className = "modal-title ps-window-title";
   const caption = document.createElement("span");
   caption.textContent = title;
   const x = document.createElement("button");
   x.type = "button";
   x.className = "ps-window-close";
-  x.textContent = "×";
+  x.append(icon("close"));
   x.tabIndex = -1;
   x.setAttribute("aria-label", product("close"));
+  x.title = product("close");
   head.append(caption, x);
   const body = document.createElement("div");
   body.className = "ps-window-body";
