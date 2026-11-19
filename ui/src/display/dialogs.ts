@@ -444,8 +444,8 @@ export function openInfoOrderDialog(saved?: (shows: Pick<DisplaySettings, "sugge
       return radio;
     }),
   );
-  ["SuggestionInfoOrderSettings.lblFirstRow", "SuggestionInfoOrderSettings.lblSecondRow", "SuggestionInfoOrderSettings.lblThirdRow"].forEach((key, row) =>
-    grid.append(name(t(key)), ...radios.map((rows) => rows[row].label)));
+  [t("SuggestionInfoOrderSettings.lblFirstRow"), t("SuggestionInfoOrderSettings.lblSecondRow"), t("SuggestionInfoOrderSettings.lblThirdRow")].forEach((text, row) =>
+    grid.append(name(text), ...radios.map((rows) => rows[row].label)));
   const ok = button(t("SuggestionInfoOrderSettings.okButton"));
   ok.classList.add("primary");
   const cancel = button(t("SuggestionInfoOrderSettings.cancelButton"));

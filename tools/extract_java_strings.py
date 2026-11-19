@@ -91,7 +91,9 @@ def main() -> None:
     l10n = java / "src/main/resources/l10n"
     base = load_properties(l10n / "DisplayStrings.properties")
     keys = used_keys()
-    keys.update(key for key in base if key.startswith("FunctionSearch."))
+    # A function's aliases and description are wanted only while the catalogue lists the function.
+    per_function = ("FunctionSearch.aliases.", "FunctionSearch.description.")
+    keys.update(key for key in base if key.startswith("FunctionSearch.") and not key.startswith(per_function))
     # Match summaries and notices select Java keys dynamically by side/outcome; AI 解说 statuses,
     # failures and ChatGPT messages arrive from the core and the adapter as Teacher.* keys; Fox
     # direct-connection statuses and failures arrive from the core as Fox.* keys.
@@ -100,7 +102,7 @@ def main() -> None:
     keys.add("GtpConsolePane.isEngineGame")
     bundles = {locale: load_properties(l10n / file) for locale, file in LOCALES.items()}
     for bundle in bundles.values():
-        keys.update(key for key in bundle if key.startswith("FunctionSearch."))
+        keys.update(key for key in bundle if key.startswith("FunctionSearch.") and not key.startswith(per_function))
     result: dict[str, dict[str, str]] = {}
     missing: set[str] = set()
     for locale, bundle in bundles.items():
