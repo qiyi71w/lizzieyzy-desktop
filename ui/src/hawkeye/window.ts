@@ -29,8 +29,9 @@ import "../design/dialog.css";
 import "../design/stage.css";
 import "./hawkeye.css";
 
-/** The 详细列表's preferred widths (MoveListFrame.java:1272-1280); later columns keep JTable's 75. */
-const DETAIL_WIDTHS = [52, 50, 57, 72, 77, 70, 70, 70, 70, 75, 75, 75];
+/** The 详细列表's preferred widths (MoveListFrame.java:1272-1280, with 手数 widened to its longest
+ *  header, "MoveNum"); later columns keep JTable's 75. */
+const DETAIL_WIDTHS = [52, 64, 57, 72, 77, 70, 70, 70, 70, 75, 75, 75];
 
 /** Sort state shared by the three lists, as Java keeps it on the frame. */
 interface Sort {
@@ -279,6 +280,20 @@ export function bootHawkeye(): void {
   const self = getCurrentWebviewWindow();
   const inputEvent = self.label === HAWKEYE_SUB_LABEL ? HAWKEYE_SUB_INPUT_EVENT : HAWKEYE_INPUT_EVENT;
   const send = (input: HawkeyeInput) => void emitTo("main", inputEvent, input);
+  // The window is built on the first payload, whose language its fixed texts (page tabs, filter
+  // bar) are in; the language does not change within a session.
+  let receive: ((payload: HawkeyePayload) => void) | null = null;
+  void self.listen<HawkeyePayload>(HAWKEYE_DATA_EVENT, (e) => {
+    if (!receive) {
+      setLanguage(e.payload.language);
+      receive = mount(send);
+    }
+    receive(e.payload);
+  }).then(() => send({ type: "ready" }));
+}
+
+/** Builds the window; returns what takes each payload from the main window. */
+function mount(send: (input: HawkeyeInput) => void): (payload: HawkeyePayload) => void {
   const run = (command: Command) => send({ type: "run", command });
   const display = (change: Partial<DisplaySettings>) => send({ type: "display", change });
 
@@ -511,7 +526,6 @@ export function bootHawkeye(): void {
   const render = () => {
     const p = data;
     if (!p) return;
-    setLanguage(p.language);
     const s = p.settings;
     const pane = p.pane;
     if (p.layout !== layout) {
@@ -629,8 +643,12 @@ export function bootHawkeye(): void {
   });
   document.addEventListener("contextmenu", (ev) => ev.preventDefault());
 
-  void self.listen<HawkeyePayload>(HAWKEYE_DATA_EVENT, (e) => {
-    data = e.payload;
+  window.addEventListener("resize", () => {
+    place();
+    report();
+  });
+  return (payload) => {
+    data = payload;
     const root = document.documentElement.style;
     // The session's 界面字体大小 sizes the type scale, Config.menuHeight the list rows; a font the
     // theme names replaces the interface face in the lists.
@@ -640,9 +658,5 @@ export function bootHawkeye(): void {
     if (face) root.setProperty("--hk-ui-font", face);
     else root.removeProperty("--hk-ui-font");
     render();
-  }).then(() => send({ type: "ready" }));
-  window.addEventListener("resize", () => {
-    place();
-    report();
-  });
+  };
 }

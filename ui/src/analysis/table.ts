@@ -642,8 +642,10 @@ export function mainTableSignature(v: WorkbenchView): string {
 
 // ------------------------------------------------------------------ 独立选点列表 rows
 
-/** Default column widths (AnalysisFrame.java:249-259). */
-export const FRAME_WIDTHS = [35, 20, 40, 70, 35, 50, 35, 70, 35];
+/** Preferred column widths until the user drags a border; the window's width is shared out from
+ *  them. At the default window size every header and the actual move's row show in full inside
+ *  the cells' padding in each language (Java's own: AnalysisFrame.java:249-259). */
+export const FRAME_WIDTHS = [42, 26, 38, 60, 34, 44, 44, 58, 48];
 
 /** getColumnCount (AnalysisFrame.java:769-781): 9 with a KataGo engine or when a main-line node
  *  holds score data (Board.isContainsKataData / isContainsKataData2, Board.java:5854-5870: from

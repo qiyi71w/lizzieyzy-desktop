@@ -109,9 +109,6 @@ export function fixed(v: number, digits: number): string {
   return v.toFixed(digits);
 }
 
-/** Bar / text colours shared by the statistics panel, the dialogs and the cell renderers. */
-export const LOSS_COLORS = ["rgb(22,222,0)", "rgb(158,232,34)", "rgb(222,222,0)", "rgb(200,140,50)", "rgb(172,16,19)", "rgb(85,25,80)"];
-
 /** Config.sysDefaultFontName (Dialog) as the main window resolves it. */
 export const UI_FONT = navigator.userAgent.includes("Windows")
   ? 'Arial, "Microsoft YaHei UI", "Microsoft YaHei", sans-serif'
