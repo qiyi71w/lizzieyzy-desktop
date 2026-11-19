@@ -121,6 +121,9 @@ as the window placement in `persist.json`, is still saved. Once the file can be 
 starting the program brings your settings back. A damaged file is not repaired: once the backup
 can be made, the next start keeps it as described above and uses the default settings.
 
+On Linux and macOS the settings files the program creates, and that backup, can be read by your
+account only. A settings file that is already there keeps the permissions it has.
+
 Test builds named *LizzieYzy Tauri Acceptance* (`lizzieyzy-tauri-acceptance_…`) are for automated
 testing. They use the identifier `io.github.qiyi71w.lizzieyzy-tauri.acceptance`, their own
 install folder, package and data folders, and do not touch the normal program's data.
