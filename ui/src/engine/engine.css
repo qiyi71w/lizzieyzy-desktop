@@ -157,9 +157,25 @@
   text-align: left;
 }
 
-/* ---- 更多引擎 (MoreEngines): the form above the catalog. */
+/* ---- 更多引擎 (MoreEngines): the form above the catalog. The table gives up height before the
+   box scrolls; when it does scroll, the body narrows by the scrollbar instead of overflowing. */
+.engine-dialog:has(> .engine-catalog) {
+  display: flex;
+  flex-direction: column;
+}
 .engine-catalog {
+  display: flex;
+  flex-direction: column;
   width: min(880px, 92vw);
+  max-width: 100%;
+  min-height: 0;
+}
+.engine-catalog > * {
+  flex: none;
+}
+.engine-catalog > .engine-table-wrap {
+  flex: 0 1 min(300px, 32vh);
+  height: auto;
 }
 .engine-catalog .engine-field {
   grid-template-columns: calc(var(--ds-size) * 8) minmax(0, 1fr);
@@ -442,7 +458,8 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  color: var(--ds-danger-text);
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
 }
 
 /* ---- GTP 引擎配置 (GtpEngineConfigDialog). */

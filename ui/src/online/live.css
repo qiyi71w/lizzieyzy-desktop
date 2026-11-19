@@ -58,22 +58,26 @@ body {
 }
 /* Column shares by content: the time and the two win rates in full, the counts narrow. */
 #yl-scroll th:nth-child(1) {
-  width: 11%;
+  width: 10%;
 }
 #yl-scroll th:nth-child(2) {
-  width: 15%;
-}
-#yl-scroll th:nth-child(3) {
-  width: 20%;
-}
-#yl-scroll th:nth-child(4),
-#yl-scroll th:nth-child(5),
-#yl-scroll th:nth-child(7) {
   width: 14%;
 }
-#yl-scroll th:nth-child(6),
-#yl-scroll th:nth-child(8) {
+#yl-scroll th:nth-child(3) {
+  width: 17%;
+}
+#yl-scroll th:nth-child(4),
+#yl-scroll th:nth-child(5) {
+  width: 13%;
+}
+#yl-scroll th:nth-child(6) {
   width: 6%;
+}
+#yl-scroll th:nth-child(7) {
+  width: 19%;
+}
+#yl-scroll th:nth-child(8) {
+  width: 8%;
 }
 #yl-scroll th {
   position: sticky;
