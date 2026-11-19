@@ -8,7 +8,7 @@ import { onTuningChange, tuningView } from "../setup/performance";
 import { configureGtp } from "./gtpConfig";
 import { scanEngine } from "./scan";
 import { tuningText } from "./tuningText";
-import { actions, button, checkbox, field, input } from "./controls";
+import { actions, button, checkbox, field, input, primaryButton } from "./controls";
 import { aboutRemoteButton, RemoteFields } from "./remote";
 
 let opened = false;
@@ -218,7 +218,7 @@ export async function openMoreEngines(): Promise<void> {
       button(t("MoreEngines.moveFirst"), () => reorder(0)), button(t("MoreEngines.moveLast"), () => reorder(engines.length - 1)),
       button(t("MoreEngines.moveUp"), () => reorder(selected - 1)), button(t("MoreEngines.moveDown"), () => reorder(selected + 1)),
       button(t("MoreEngines.moveUp5"), () => reorder(selected - 5)), button(t("MoreEngines.moveDown5"), () => reorder(selected + 5)),
-      button(t("MoreEngines.save"), async () => { if (await save()) load(); }));
+      primaryButton(t("MoreEngines.save"), async () => { if (await save()) load(); }));
     body.append(tableWrap);
     const radios = document.createElement("div"); radios.className = "engine-actions"; radios.append(t("ChooseMoreEngine.lblchooseStart"));
     const startupRadios: HTMLInputElement[] = [];
@@ -271,6 +271,6 @@ export async function chooseEngine(manual = false, secondary = false): Promise<v
     await dialog.close();
   };
   select.ondblclick = load;
-  actions(body, button(manual ? t("loadEngine.ok") : t("ChooseMoreEngine.ok"), load), button(t("loadEngine.noEngine"), () => dialog.close()));
+  actions(body, primaryButton(manual ? t("loadEngine.ok") : t("ChooseMoreEngine.ok"), load), button(t("loadEngine.noEngine"), () => dialog.close()));
   await dialog.closed;
 }

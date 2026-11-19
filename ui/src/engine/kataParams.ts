@@ -8,7 +8,7 @@ import { confirm, formPanel, message } from "../dialogs";
 import { format, t } from "../i18n";
 import { matchPlaying } from "../match/state";
 import { javaDouble, parseJavaDouble } from "../workbench/paint";
-import { actions, button } from "./controls";
+import { actions, button, primaryButton } from "./controls";
 import { openLeelaEngines } from "./leelaOptions";
 
 /** 搜索线程数 operations the window waits for, by ticket. A newer operation supersedes an older
@@ -101,7 +101,8 @@ export async function openEngineParameters(): Promise<void> {
   await message(t("Message.title"), t("LizzieFrame.setParamsWarning"));
 }
 
-/** The red / blue parts and the 这里 link of SetKataEngines.Hint2 (LinkLabel). */
+/** SetKataEngines.Hint2 (LinkLabel): its red part is drawn as a warning and its 这里 link opens
+ *  the KataGo parameter help; the link's own colour is the link style's. */
 function hint2(): HTMLElement {
   const el = document.createElement("div");
   el.className = "kata-params-hint";
@@ -109,7 +110,7 @@ function hint2(): HTMLElement {
   const parsed = new DOMParser().parseFromString(source, "text/html").body;
   for (const font of parsed.querySelectorAll("font")) {
     const span = document.createElement("span");
-    span.style.color = font.getAttribute("color") ?? "";
+    if (font.getAttribute("color") === "red") span.className = "kata-params-warn";
     span.append(...font.childNodes);
     font.replaceWith(span);
   }
@@ -238,6 +239,7 @@ async function openKataEngines(): Promise<void> {
   grid.append(threads, threadCheck, threadValue, threadStatus);
 
   const hint = document.createElement("div");
+  hint.className = "engine-hint";
   hint.textContent = t("SetKataEngines.lblHint");
   body.append(grid, hint, hint2());
 
@@ -274,7 +276,7 @@ async function openKataEngines(): Promise<void> {
     }
   };
   // confirmSettings: the core decides between saving, setting and restoring.
-  const apply = button(t("SetKataEngines.btnApply"), async () => {
+  const apply = primaryButton(t("SetKataEngines.btnApply"), async () => {
     if (busy) return;
     const params = rows();
     if (process === null) {

@@ -5,7 +5,7 @@ import { run } from "../app";
 import type { RemoteFailure, SshPasswordState, SshSettings } from "../contract/generated";
 import { formPanel } from "../dialogs";
 import { product, registerProduct, t } from "../i18n";
-import { actions, button, input } from "./controls";
+import { actions, button, input, primaryButton } from "./controls";
 
 registerProduct({
   ZhCn: {
@@ -68,7 +68,7 @@ export function aboutRemoteButton(): HTMLButtonElement {
     const text = document.createElement("p"); text.className = "engine-remote-about"; text.textContent = t("MoreEngines.aboutRemoteEngine");
     body.append(text);
     const dialog = formPanel(t("MoreEngines.aboutRemoteEngineTitle"), body);
-    actions(body, button(product("ok"), () => dialog.close()));
+    actions(body, primaryButton(product("ok"), () => dialog.close()));
   });
   about.dataset.key = "engine.remote.about";
   about.title = t("MoreEngines.aboutRemoteEngineTitle");
@@ -201,7 +201,7 @@ export async function editRemoteEngine(initial: SshSettings, password: string | 
   body.append(grid);
   let result: { ssh: SshSettings; password: string | null } | null = null;
   const dialog = formPanel(t("RemoteEngineSettings.title"), body);
-  const ok = button(t("RemoteEngineSettings.okButton"), () => {
+  const ok = primaryButton(t("RemoteEngineSettings.okButton"), () => {
     result = { ssh: fields.read(), password: fields.typedPassword() };
     void dialog.close();
   });

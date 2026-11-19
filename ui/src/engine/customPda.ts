@@ -7,7 +7,7 @@ import { formPanel, message } from "../dialogs";
 import type { ContextEntry } from "../editing/contextMenu";
 import { isChinese, t } from "../i18n";
 import { javaDouble, parseJavaDouble } from "../workbench/paint";
-import { actions, button } from "./controls";
+import { actions, button, primaryButton } from "./controls";
 
 /** Leelaz.isKatagoCustom: a `KataGoCustom` build, or a `KataGoPda` one (Leelaz.java:6246-6253). */
 export function kataGoCustom(): boolean {
@@ -106,22 +106,25 @@ export async function openCustomPda(): Promise<void> {
   modes.append(dynamic.label, ratio, fixed.label, value, disabled.label);
 
   const auto = check(t("SetKataPDA.chkAutoPDA"), "customPda.autoApply", saved.autoApply);
-  body.append(current, modes, el("div", "", t("SetKataPDA.lblTip")), auto.label);
-  body.append(el("div", "custom-pda-warning", t("SetKataPDA.lblpdakatagopdapda")));
+  body.append(current, modes, el("div", "engine-hint", t("SetKataPDA.lblTip")), auto.label);
+  // The warnings read as one block below the choices.
+  const notes = el("div", "custom-pda-notes");
+  notes.append(el("div", "custom-pda-warning", t("SetKataPDA.lblpdakatagopdapda")));
   // Two lines Java writes in Chinese only, without resources (SetKataPDA.java:280-283, 300-303).
   if (isChinese()) {
-    body.append(
+    notes.append(
       el("div", "custom-pda-warning", "被让子需要消极(PDA为负,如默认为白视角,则黑方需设置PDA为正才是消极)"),
       el("div", "custom-pda-warning", "一般默认为白方视角,也可修改配置文件改为黑方视角,或无视角(轮谁下是谁的视角)"),
     );
   }
+  body.append(notes);
 
   const dialog = formPanel(t("SetKataPDA.title"), body);
   currentPda = pda;
   void dialog.closed.then(() => {
     if (currentPda === pda) currentPda = null;
   });
-  const apply = button(t("SetKataPDA.btnApply"), async () => {
+  const apply = primaryButton(t("SetKataPDA.btnApply"), async () => {
     const chosen = choices.find(([box]) => box.checked)?.[1] ?? "Disabled";
     const capText = cap.value.trim();
     const valueText = value.value.trim();

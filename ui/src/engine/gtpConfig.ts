@@ -3,7 +3,7 @@ import { run, state } from "../app";
 import type { GtpConfiguration } from "../contract/generated";
 import { formPanel, message } from "../dialogs";
 import { t } from "../i18n";
-import { actions, button, field, input } from "./controls";
+import { actions, button, field, input, primaryButton } from "./controls";
 
 const object = (value: unknown): Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const fieldLabel = (name: string): string => {
@@ -85,7 +85,7 @@ export async function configureGtp(engineId: string): Promise<void> {
   const dialog = formPanel(t("GtpEngineConfig.title"), body);
   const defaults = button(t("GtpEngineConfig.restoreDefaults"), () => { fields.forEach((f) => { editors.get(f.name)!.value = String(f.defaultValue); }); update(); }); defaults.dataset.key = "gtp.defaults";
   const cancel = button(t("GtpEngineConfig.cancel"), () => dialog.close()); cancel.dataset.key = "gtp.cancel";
-  const save = button(t("GtpEngineConfig.save"), async () => {
+  const save = primaryButton(t("GtpEngineConfig.save"), async () => {
     const profile = values(); const invalid = fields.find((f) => !accepts(f, profile[f.name]));
     if (invalid) { await message(t("GtpEngineConfig.invalidValue"), `${t("GtpEngineConfig.invalidField")} ${fieldLabel(invalid.name)}`, "warning"); return; }
     save.disabled = true;

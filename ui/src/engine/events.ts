@@ -54,7 +54,7 @@ function endedWindow(failure: EngineFailureView): void {
 async function failureDialog(failure: EngineFailureView, restartContribution = false): Promise<void> {
   const body = document.createElement("div"); body.className = "engine-failure";
   const text = failure.remote ? remoteFailureText(failure.remote) : failure.message;
-  const summary = document.createElement("pre"); summary.textContent = `${failure.engine_name}: ${text}`;
+  const summary = document.createElement("pre"); summary.className = "engine-failure-summary"; summary.textContent = `${failure.engine_name}: ${text}`;
   const label = document.createElement("div"); label.textContent = t("EngineFailedMessage.engineCmd");
   const command = document.createElement("pre"); command.textContent = failure.command;
   body.append(summary, label, command);

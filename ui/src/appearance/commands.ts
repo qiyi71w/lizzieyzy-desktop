@@ -6,7 +6,7 @@ import { COMMANDS, type CommandEntry } from "../commands";
 import { chooseAppearanceImage } from "../contract/client";
 import type { AppearanceMode, AppearanceSettings, BoardStyle } from "../contract/generated";
 import { formPanel, message } from "../dialogs";
-import { actions, button } from "../engine/controls";
+import { actions, primaryButton } from "../engine/controls";
 import { openAnalysisSettings } from "../engine/settings";
 import { isChinese, t } from "../i18n";
 import { syncAppearance } from "./state";
@@ -85,7 +85,7 @@ async function openFrameFontSize(): Promise<void> {
   label.append(field);
   body.append(label);
   const dialog = formPanel(t("SetFrameFontSize.title"), body);
-  const ok = button(t("SetFrameFontSize.okButton"), async () => {
+  const ok = primaryButton(t("SetFrameFontSize.okButton"), async () => {
     // txtFieldValue: blank or ten or more characters read as 0.
     const text = field.value.trim();
     const size = text === "" || text.length >= 10 ? 0 : Number.parseInt(text, 10);
@@ -97,7 +97,6 @@ async function openFrameFontSize(): Promise<void> {
     await dialog.close();
     await setFrameSize(size, () => t("SetFrameFontSize.successHint"));
   });
-  ok.className = "primary";
   ok.dataset.key = "SetFrameFontSize.okButton";
   body.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {

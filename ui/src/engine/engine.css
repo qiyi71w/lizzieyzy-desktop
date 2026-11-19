@@ -1,89 +1,608 @@
-/* 引擎 dialogs: the engine list, the engine form and the engine parameter dialogs. The dialog
-   frame and the label / action rows are design/dialog.css. */
-.engine-catalog { width: min(885px, 90vw); padding: 10px; }
-.engine-size { display: flex; gap: 20px; }
-.engine-size .engine-field { display: flex; gap: 6px; }
-.engine-size input { width: 65px; }
-/* 远程引擎 rows (MoreEngines.java:479-493: IP and 用户名 150, 端口 58, 密码 150, 浏览 100). */
-.engine-remote { margin: 0; }
-.engine-remote input[type="text"], .engine-remote input[type="password"] { width: 150px; }
-.engine-remote input[data-key="engine.remote.port"] { width: 58px; }
-.engine-remote button { min-width: 24px; }
-/* 远程引擎设置: GridLayout(5, 2, 4, 4) inside a 12px border. */
-.engine-remote-grid { display: grid; grid-template-columns: auto 160px; gap: 4px; padding: 12px 12px 0; align-items: center; }
-.engine-remote-about { max-width: 520px; white-space: pre-wrap; padding: 12px; margin: 0; }
-.engine-table-wrap { overflow: auto; height: min(330px, 33vh); border: 1px solid #888; background: white; }
-.engine-table { width: 100%; border-collapse: collapse; table-layout: fixed; color: #111; font-size: 13px; }
-.engine-table th, .engine-table td { padding: 3px 4px; border: 1px solid #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.engine-table th { position: sticky; top: 0; background: #eee; font-weight: normal; }
-.engine-table th:nth-child(1) { width: 36px; }
-.engine-table th:nth-child(2) { width: 22%; }
-.engine-table th:nth-child(3) { width: 34%; }
-.engine-table tr.selected { background: #b8d4ed; }
-.engine-table tbody tr { cursor: default; }
-.engine-chooser { padding: 12px; }
-.engine-chooser select { display: block; width: min(850px, 85vw); }
-.engine-rules { padding: 10px 16px; }
-.engine-rule-row { display: grid; grid-template-columns: minmax(190px, 1.3fr) repeat(3, minmax(90px, 1fr)); align-items: center; gap: 14px; margin: 12px 0; }
-.engine-rule-row label { white-space: nowrap; }
-.engine-hint { margin-top: 10px; }
-/* 设置KataGo引擎高级参数 (SetKataEngines.java, middle font: label, 修改 at 560, value 133 wide at
-   591, 自动加载 at 756, 在工具栏中控制 at 854; hint rows below). */
-.kata-params { padding: 4px 10px 10px; }
-.kata-params-grid { display: grid; grid-template-columns: minmax(420px, auto) 25px 133px 110px 140px; align-items: center; column-gap: 6px; row-gap: 8px; }
-.kata-params-grid input[type=checkbox] { justify-self: center; }
-.kata-params-grid input:not([type=checkbox]) { height: 24px; box-sizing: border-box; }
-.kata-params-grid input.invalid { background: red; }
-.kata-params-head { text-align: center; white-space: nowrap; }
-.kata-params-pda-engine { grid-column: span 4; }
-/* 搜索线程数's read status (lblThreadReadStatus, 150 wide right of the value). */
-.kata-params-thread-status { grid-column: span 2; white-space: nowrap; }
-/* 设置Leela(Sai)引擎高级参数 (SetLeelaEngines.java, middle font: label, 修改 at 560, value 133
-   wide at 591, 自动加载 at 763; the hint below). */
-.leela-params-grid { grid-template-columns: minmax(420px, auto) 25px 133px 110px; }
-.kata-params > div:not(.kata-params-grid) { margin-top: 8px; }
-.kata-params-link { cursor: pointer; text-decoration: underline; }
-.kata-params .engine-actions { justify-content: center; }
-/* KataGo 激进参数PDA设置 (SetKataPDA.java, middle font 680 wide: 当前PDA row, the three choices
-   with 动态系数 and the two 66 x 24 fields, the tip, 自动加载, the red notes, 确定 / 取消). */
-.kata-params.custom-pda { min-width: 640px; }
-.custom-pda-current { display: flex; align-items: baseline; gap: 8px; font-size: 14px; }
-.custom-pda-current-value { font-size: 15px; }
-.custom-pda-modes { display: flex; flex-wrap: wrap; align-items: center; column-gap: 14px; row-gap: 6px; }
-.custom-pda-check, .custom-pda-ratio { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-.custom-pda-value { width: 66px; height: 24px; box-sizing: border-box; }
-.kata-params > .custom-pda-check { display: flex; margin-top: 8px; }
-.kata-params > .custom-pda-warning { color: red; margin-top: 4px; }
-.engine-settings { display: grid; grid-template-columns: 150px minmax(360px, 1fr); padding: 12px; gap: 20px; }
-.engine-settings nav { display: flex; flex-direction: column; gap: 6px; }
-.engine-settings-form { display: grid; gap: 10px; }
-/* 综合设置 (ConfigDialog2): the section scrolls, 保存设置 / 取消 stay in the footer. */
-.engine-dialog:has(> .engine-settings) { overflow: hidden; display: flex; flex-direction: column; }
-.engine-settings { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr) auto; }
-.engine-settings nav { grid-row: 1; }
-.engine-settings > .engine-settings-form { grid-row: 1; grid-column: 2; min-height: 0; overflow: auto; align-content: start; }
-.engine-settings > .engine-actions { grid-row: 2; }
-.engine-settings-form > label:not(.engine-field) { display: block; }
-.engine-failure { padding: 12px; width: min(730px, 85vw); }
-.engine-failure pre, .engine-failure-details { max-height: 45vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-.gtp-console { position: fixed; z-index: 45; width: min(770px, 90vw); height: min(430px, 70vh); right: 16px; bottom: 45px; display: flex; flex-direction: column; border: 1px solid #666; background: #eee; color: #111; box-shadow: 0 3px 16px #0007; resize: both; overflow: auto; font-size: 13px; }
-.gtp-console[hidden] { display: none; }
-.gtp-header { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; font-weight: bold; }
-.gtp-output { flex: 1; min-height: 60px; margin: 0; padding: 6px; overflow: auto; background: #000; color: #ddd; font: 13px monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-.gtp-line-sent { color: #fff; }.gtp-line-output { color: #0f0; }.gtp-line-error { color: #f00; }
-.gtp-console .engine-actions { padding: 0 6px; }
-.gtp-console .engine-actions label { flex: 1; display: flex; align-items: center; gap: 5px; }
-.gtp-console input { width: 100%; min-width: 60px; }
-.gtp-console select { max-width: 160px; }
-.engine-limit-notice { position: fixed; z-index: 46; width: min(520px, 85vw); right: 25px; bottom: 60px; padding: 14px; background: #eee; color: #111; border: 1px solid #777; box-shadow: 0 3px 14px #0006; font-size: 13px; }
-.engine-limit-notice p { white-space: pre-line; }
-.engine-thread-status { white-space: pre-line; color: #555; }
-.engine-scan { padding: 14px; min-width: 360px; }
-.engine-scan > button { margin-right: 8px; }
-.gtp-config { padding: 18px 20px 16px; width: min(600px, 86vw); }
-.gtp-config section { display: grid; gap: 12px; margin: 12px 0; }
-.gtp-config section[hidden] { display: none; }
-.gtp-config .engine-field { grid-template-columns: minmax(200px, 1fr) minmax(140px, 190px); }
-.gtp-config .inactive { opacity: .55; }
-.gtp-config > p { color: #666; }
-.gtp-config > .engine-actions { justify-content: flex-end; }
+/* 引擎 dialogs and 综合设置: the engine list and form, the engine parameter dialogs, the rules
+   editor, the GTP console and the engine notices. The dialog frame, the label / control rows and
+   the button row are design/dialog.css; this sheet states only what differs.
+
+   One form grammar throughout: a label column and a control column; check boxes and radio rows
+   start at the label column; a hint sits under what it describes in --ds-text-3 at --ds-size-s. */
+.engine-hint {
+  margin: 0;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.engine-unit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  white-space: nowrap;
+}
+.engine-unit > input[type="checkbox"] {
+  margin-right: 0;
+}
+.engine-unit input:not([type="checkbox"]) {
+  width: calc(var(--ds-size) * 8);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.engine-unit label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---- 综合设置 (ConfigDialog2): the page list on the left, the page on the right, 保存设置 / 取消
+   below both; only the page scrolls. */
+.engine-dialog:has(> .engine-settings) {
+  display: flex;
+  flex-direction: column;
+  width: min(960px, 96vw);
+  height: min(720px, 94vh);
+  overflow: hidden;
+}
+.engine-dialog > .engine-settings {
+  --settings-label: calc(var(--ds-size) * 16);
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  padding: 12px 0 0;
+}
+.engine-settings > nav {
+  grid-row: 1;
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: calc(var(--ds-size) * 11);
+  padding: 0 12px 12px;
+  border-right: 1px solid var(--ds-line);
+  overflow: auto;
+}
+.engine-settings > nav > button {
+  flex: none;
+  padding: 0 10px;
+  border-color: transparent;
+  background-color: transparent;
+  text-align: left;
+}
+.engine-settings > nav > button[aria-current="page"] {
+  background-color: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+  font-weight: 600;
+}
+.engine-settings > .engine-settings-form {
+  grid-row: 1;
+  grid-column: 2;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0 20px 16px;
+}
+.engine-settings > .engine-settings-form[hidden] {
+  display: none;
+}
+.engine-dialog > .engine-settings > .engine-actions:last-child {
+  grid-row: 2;
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--ds-line);
+}
+
+/* The page: titled groups of rows. */
+.engine-settings-form > *,
+.engine-settings-form p {
+  margin: 0;
+}
+.engine-settings-form > :is(.engine-field, .settings-row, .appearance-card, .about-hero) {
+  align-self: stretch;
+}
+.engine-settings-form h3 {
+  margin: 0;
+  font-size: var(--ds-size-l);
+  font-weight: 600;
+}
+.engine-settings-form > h3:not(:first-child),
+.engine-settings-form > .appearance-card + .appearance-card {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ds-line);
+}
+.engine-settings-form p {
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.engine-settings-form > h3 + p {
+  margin-top: 2px;
+}
+.engine-settings-form > :is(label, .settings-row, .engine-field) {
+  margin-top: 10px;
+}
+.engine-settings-form > :is(label, .engine-field) + p,
+.settings-row > p {
+  margin-top: 2px;
+}
+/* Check box rows: the hint lines up with the text after the box. */
+.engine-settings-form > label:not(.engine-field),
+.settings-row > label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+}
+.engine-settings-form > label:not(.engine-field) + p,
+.settings-row > p {
+  padding-left: 19px;
+}
+/* Labelled rows: the hint lines up with the control. */
+.engine-settings-form .engine-field {
+  grid-template-columns: var(--settings-label) minmax(0, 1fr);
+  min-height: var(--ds-control-h-l);
+}
+.engine-settings-form .engine-field > :is(input, select) {
+  justify-self: start;
+}
+.engine-settings-form .engine-field > select {
+  min-width: calc(var(--ds-size) * 16);
+  max-width: 100%;
+}
+.engine-settings-form > .engine-field + p,
+.engine-settings-form > .engine-field-hint {
+  padding-left: calc(var(--settings-label) + 12px);
+}
+.engine-unit input[data-key="settings.proxy.host"] {
+  width: calc(var(--ds-size) * 12);
+  text-align: left;
+}
+
+/* ---- 更多引擎 (MoreEngines): the form above the catalog. */
+.engine-catalog {
+  width: min(880px, 92vw);
+}
+.engine-catalog .engine-field {
+  grid-template-columns: calc(var(--ds-size) * 8) minmax(0, 1fr);
+}
+.engine-catalog .engine-form > .engine-actions {
+  margin-top: 0;
+}
+.engine-size {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+.engine-size .engine-field {
+  display: inline-flex;
+  gap: 8px;
+}
+.engine-size input {
+  width: calc(var(--ds-size) * 5.5);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.engine-remote input:is([type="text"], [type="password"]) {
+  width: calc(var(--ds-size) * 12);
+}
+.engine-remote input[data-key="engine.remote.port"] {
+  width: calc(var(--ds-size) * 5.5);
+  font-variant-numeric: tabular-nums;
+}
+.engine-remote button[data-key="engine.remote.about"] {
+  width: var(--ds-control-h-l);
+  padding: 0;
+}
+.engine-thread-status {
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+  white-space: pre-line;
+}
+.engine-thread-status:empty {
+  display: none;
+}
+
+/* The catalog table: header on --ds-sunken, a line between rows, the selected row in accent. */
+.engine-table-wrap {
+  height: min(300px, 32vh);
+  min-height: 120px;
+  margin-top: 8px;
+  overflow: auto;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius);
+}
+.engine-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-variant-numeric: tabular-nums;
+}
+.engine-table th,
+.engine-table td {
+  height: 24px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--ds-line);
+  text-align: left;
+  white-space: nowrap;
+}
+.engine-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.engine-table th {
+  position: sticky;
+  top: 0;
+  background: var(--ds-sunken);
+  color: var(--ds-text-2);
+  font-weight: 400;
+}
+.engine-table :is(th, td):is(:nth-child(1), :nth-child(n + 4)) {
+  text-align: center;
+}
+.engine-table th:nth-child(1) { width: calc(var(--ds-size) * 4.5); }
+.engine-table th:nth-child(2) { width: 20%; }
+.engine-table th:nth-child(4) { width: calc(var(--ds-size) * 6.5); }
+.engine-table th:nth-child(5),
+.engine-table th:nth-child(6) { width: calc(var(--ds-size) * 3.5); }
+.engine-table th:nth-child(7),
+.engine-table th:nth-child(9) { width: calc(var(--ds-size) * 4.5); }
+.engine-table th:nth-child(8) { width: calc(var(--ds-size) * 6); }
+.engine-table tbody tr:hover {
+  background: var(--ds-hover);
+}
+.engine-table tbody tr.selected {
+  background: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+}
+.engine-table tbody tr:focus-visible {
+  outline-offset: -2px;
+}
+
+/* 选择引擎 (ChooseMoreEngine): the catalog as a list box. */
+.engine-chooser select {
+  display: block;
+  width: min(820px, 85vw);
+  height: auto;
+  padding: 4px;
+  background-image: none;
+  font-variant-numeric: tabular-nums;
+}
+.engine-chooser option {
+  padding: 3px 6px;
+  border-radius: var(--ds-radius-s);
+}
+.engine-chooser option:checked {
+  background: linear-gradient(var(--ds-accent-soft), var(--ds-accent-soft));
+  color: var(--ds-accent-text);
+}
+
+/* 选择引擎类型 / 平台 (GetEngineLine). */
+.engine-scan {
+  min-width: 360px;
+}
+.engine-scan > p {
+  margin: 0;
+}
+
+/* ---- 远程引擎设置 (RemoteEngineSettings): label and control per row. */
+.engine-remote-grid {
+  display: grid;
+  grid-template-columns: max-content minmax(calc(var(--ds-size) * 16), 1fr);
+  align-items: center;
+  gap: 8px 12px;
+}
+.engine-remote-grid label {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.engine-remote-grid > button {
+  justify-self: start;
+}
+.engine-remote-about {
+  max-width: 520px;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+/* ---- KataGo / 精析 rules (KataRulesEditor): the classic presets, then one row per rule with its
+   choices in columns. */
+.engine-rule-rows {
+  display: grid;
+  grid-template-columns: max-content repeat(3, max-content);
+  align-items: center;
+  gap: 8px 16px;
+}
+.engine-rule-row {
+  display: contents;
+}
+.engine-rule-rows label {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.engine-rule-rows > .engine-actions {
+  grid-column: 2 / -1;
+  margin: 0 0 4px;
+}
+.engine-rules > label {
+  display: flex;
+  align-items: center;
+  margin-top: 12px;
+}
+.engine-rules > .engine-hint {
+  margin-top: 4px;
+}
+.engine-rules > .engine-hint:empty {
+  display: none;
+}
+
+/* ---- 设置KataGo引擎高级参数 / 设置Leela(Sai)引擎高级参数 (SetKataEngines, SetLeelaEngines): each
+   row is its label, 修改, the value, 自动加载 and 在工具栏中控制; hints below. */
+.kata-params {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kata-params-grid {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) auto calc(var(--ds-size) * 8) auto auto;
+  align-items: center;
+  gap: 8px 12px;
+}
+.leela-params-grid {
+  grid-template-columns: minmax(0, max-content) auto calc(var(--ds-size) * 8) auto;
+}
+.kata-params-grid input[type="checkbox"] {
+  justify-self: center;
+  margin: 0;
+}
+.kata-params-grid input:not([type="checkbox"]) {
+  width: 100%;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.kata-params-head {
+  color: var(--ds-text-2);
+  font-size: var(--ds-size-s);
+  text-align: center;
+  white-space: nowrap;
+}
+.kata-params-pda-engine {
+  grid-column: span 4;
+  color: var(--ds-text-3);
+}
+/* 搜索线程数's read status (lblThreadReadStatus). */
+.kata-params-thread-status {
+  grid-column: span 2;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+  white-space: nowrap;
+}
+.kata-params-hint {
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.kata-params-hint b {
+  font-weight: 600;
+}
+.kata-params-warn {
+  color: var(--ds-danger-text);
+}
+.kata-params-link {
+  color: var(--ds-accent-text);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ---- KataGo 激进参数PDA设置 (SetKataPDA): 当前PDA, the three choices with their fields, the tip,
+   自动加载, the warnings. */
+.kata-params.custom-pda {
+  min-width: 560px;
+}
+.custom-pda-current {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--ds-size-l);
+}
+.custom-pda-current-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.custom-pda-modes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.custom-pda-check,
+.custom-pda-ratio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.custom-pda-check > input {
+  margin-right: 0;
+}
+.custom-pda-value {
+  width: calc(var(--ds-size) * 6);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.kata-params > .custom-pda-check {
+  align-self: flex-start;
+}
+.custom-pda-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--ds-danger-text);
+}
+
+/* ---- GTP 引擎配置 (GtpEngineConfigDialog). */
+.gtp-config {
+  width: min(600px, 86vw);
+}
+.gtp-config > p {
+  margin: 0 0 8px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.gtp-config > h3 {
+  margin: 4px 0 8px;
+  font-size: var(--ds-size-l);
+  font-weight: 600;
+}
+.gtp-config section {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.gtp-config section[hidden] {
+  display: none;
+}
+.gtp-config .engine-field {
+  grid-template-columns: calc(var(--ds-size) * 16) minmax(0, 1fr);
+}
+.gtp-config .engine-field > :is(input, select) {
+  justify-self: start;
+  min-width: calc(var(--ds-size) * 14);
+}
+.gtp-config .inactive {
+  color: var(--ds-text-off);
+}
+.gtp-config > button {
+  margin-bottom: 12px;
+}
+
+/* ---- 引擎启动失败 (EngineFailedMessage): the message, the launch command and the engine's output. */
+.engine-failure {
+  width: min(720px, 90vw);
+}
+.engine-failure pre {
+  max-height: 45vh;
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  overflow: auto;
+  border-radius: var(--ds-radius-s);
+  background: var(--ds-sunken);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  font-size: var(--ds-size-s);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.engine-failure pre.engine-failure-summary {
+  margin: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+}
+.engine-failure > div:not(.engine-actions) {
+  margin-top: 8px;
+  color: var(--ds-text-2);
+}
+.engine-failure > span:empty {
+  display: none;
+}
+
+/* ---- Notices and tool windows over the workbench: the dialog's ground, radius and shadow, no
+   scrim, above the bottom bar on the right. */
+.engine-limit-notice,
+.gtp-console {
+  position: fixed;
+  right: 12px;
+  bottom: 52px;
+  border-radius: var(--ds-radius-l);
+  background: var(--ds-panel);
+  color: var(--ds-text);
+  box-shadow: var(--ds-shadow-dialog);
+}
+.engine-limit-notice {
+  z-index: 46;
+  width: min(520px, 85vw);
+  padding: 14px 16px 16px;
+}
+.engine-limit-notice > strong {
+  display: block;
+  font-size: var(--ds-size-l);
+  font-weight: 600;
+}
+.engine-limit-notice p {
+  margin: 8px 0;
+  white-space: pre-line;
+}
+.engine-limit-notice > .engine-actions:last-child {
+  justify-content: flex-end;
+}
+
+/* GTP 控制台 (GtpConsolePane): a non-modal tool window; the output is a dark console surface
+   (data-theme="dark") whatever the mode. */
+.gtp-console {
+  z-index: 45;
+  width: min(760px, 90vw);
+  height: min(420px, 70vh);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  overflow: hidden;
+  resize: both;
+}
+.gtp-console[hidden] {
+  display: none;
+}
+.gtp-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 0 16px;
+  font-size: var(--ds-size-l);
+  font-weight: 600;
+}
+.gtp-header > button {
+  font-size: var(--ds-size);
+  font-weight: 400;
+}
+.gtp-output {
+  flex: 1;
+  min-height: 60px;
+  margin: 0 12px;
+  padding: 6px 8px;
+  overflow: auto;
+  border-radius: var(--ds-radius);
+  background: var(--ds-field);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  font-size: var(--ds-size);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.gtp-line-sent { color: var(--ds-text); }
+.gtp-line-output { color: var(--ds-success-text); }
+.gtp-line-error { color: var(--ds-danger-text); }
+.gtp-console > .engine-actions {
+  flex-wrap: nowrap;
+  margin: 0;
+  padding: 0 12px;
+}
+.gtp-console > .engine-actions > label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ds-text-2);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+}
+.gtp-console input {
+  flex: 1;
+  min-width: 60px;
+}
+.gtp-console select {
+  max-width: 180px;
+}

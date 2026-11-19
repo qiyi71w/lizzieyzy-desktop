@@ -5,7 +5,7 @@ import { run, state } from "../app";
 import type { AnalysisSettings, Command, MoveRect, ProxyMode } from "../contract/generated";
 import { confirm, formPanel, message } from "../dialogs";
 import { t } from "../i18n";
-import { actions, button, checkbox, field, input } from "./controls";
+import { actions, button, checkbox, field, input, primaryButton } from "./controls";
 import { resourceCommand, resourceView } from "../setup/dialog";
 import { buildDisplaySettings } from "../display/settingsPage";
 import { beginPanelDraft } from "../workbench/panelDraft";
@@ -91,11 +91,16 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
     const page = document.createElement("div"); page.className = "engine-settings-form"; page.hidden = true;
     pages[key] = page; registered.push(build(page, owner));
   }
-  const showPage = (key: string) => { for (const [id, page] of Object.entries(pages)) page.hidden = id !== key; };
+  // The navigation item of the shown page carries aria-current, which draws it selected.
+  const navItems = new Map<string, HTMLButtonElement>();
+  const showPage = (key: string) => {
+    for (const [id, page] of Object.entries(pages)) page.hidden = id !== key;
+    for (const [id, item] of navItems) if (id === key) item.setAttribute("aria-current", "page"); else item.removeAttribute("aria-current");
+  };
   for (const [key, text] of [["display", t("ConfigDialog2.modern.nav.display")], ["kifu", t("ConfigDialog2.modern.nav.kifu")], ["engine", t("ConfigDialog2.modern.nav.engine")], ["play", t("ConfigDialog2.modern.nav.play")], ["theme", t("ConfigDialog2.modern.nav.theme")], ["advanced", t("ConfigDialog2.modern.nav.advanced")], ["about", t("ConfigDialog2.modern.nav.about")]]) {
     const item = document.createElement("button"); item.textContent = text; item.dataset.key = `settings.nav.${key}`;
     item.onclick = () => showPage(key);
-    nav.append(item);
+    nav.append(item); navItems.set(key, item);
   }
   body.append(nav);
   // Numeric analysis fields (addInputRow / addToggleInputRow): checked with 保存设置. A limit's
@@ -187,11 +192,14 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
   mode.value = network.proxyMode; field(advanced, t("ConfigDialog2.modern.proxy.title"), mode);
   (advanced.lastElementChild as HTMLElement).dataset.settingTarget = "config.proxy.mode";
   advanced.append(hint(t("ConfigDialog2.modern.proxy.subtitle")));
-  const restart = document.createElement("p"); restart.textContent = t("ConfigDialog2.modern.proxy.restartHint"); advanced.append(restart);
+  const restart = hint(t("ConfigDialog2.modern.proxy.restartHint")); restart.className = "engine-field-hint"; advanced.append(restart);
   const host = input(network.proxyHost || "127.0.0.1"); host.dataset.key = "settings.proxy.host";
   const port = input(network.proxyPort || 7897, "number"); port.dataset.key = "settings.proxy.port"; port.min = "1"; port.max = "65535"; port.step = "1";
-  const address = document.createElement("div"); address.className = "engine-actions";
-  field(address, t("ConfigDialog2.modern.proxy.host"), host); field(address, t("ConfigDialog2.modern.proxy.port"), port);
+  // 代理主机 and 代理端口 side by side in the control column, each with its own label.
+  const address = document.createElement("span"); address.className = "engine-unit";
+  for (const [text, control] of [[t("ConfigDialog2.modern.proxy.host"), host], [t("ConfigDialog2.modern.proxy.port"), port]] as const) {
+    const label = document.createElement("label"); label.append(text, control); address.append(label);
+  }
   const manualRow = document.createElement("div"); manualRow.className = "engine-field"; manualRow.dataset.settingTarget = "config.proxy.manual-address";
   const manualTitle = document.createElement("span"); manualTitle.textContent = t("ConfigDialog2.modern.proxy.manual"); manualRow.append(manualTitle, address); advanced.append(manualRow);
   const toggleManual = () => { host.disabled = port.disabled = mode.value !== "Manual"; }; mode.onchange = toggleManual; toggleManual();
@@ -263,7 +271,7 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
     await dialog.close();
     return true;
   };
-  const save = button(t("SetKataRules.btnApply"), () => void apply()); save.dataset.key = "settings.apply";
+  const save = primaryButton(t("SetKataRules.btnApply"), () => void apply()); save.dataset.key = "settings.apply";
   const cancel = button(t("SetKataRules.btnCancel"), () => dialog.close()); cancel.dataset.key = "settings.cancel";
   actions(body, save, cancel);
   onOpened?.(body);

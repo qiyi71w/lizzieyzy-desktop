@@ -5,7 +5,7 @@ import { run, state } from "../app";
 import type { LeelaOptionSetting, LeelaOptionSettings } from "../contract/generated";
 import { formPanel } from "../dialogs";
 import { t } from "../i18n";
-import { actions, button } from "./controls";
+import { actions, button, primaryButton } from "./controls";
 
 type RowKey = keyof LeelaOptionSettings;
 
@@ -55,11 +55,12 @@ export async function openLeelaEngines(): Promise<void> {
     ["resign", row(grid, "resign", t("SetLeelaEngines.lblResign"), saved.resign)],
   ];
   const hint = document.createElement("div");
+  hint.className = "engine-hint";
   hint.textContent = t("SetLeelaEngines.lblHint");
   body.append(grid, hint);
 
   const dialog = formPanel(t("SetLeelaEngines.title"), body);
-  const apply = button(t("SetLeelaEngines.btnApply"), async () => {
+  const apply = primaryButton(t("SetLeelaEngines.btnApply"), async () => {
     const options = Object.fromEntries(
       rows.map(([key, r]) => [key, { enabled: r.edit.checked, autoLoad: r.autoLoad.checked, value: r.value.value }]),
     ) as LeelaOptionSettings;

@@ -1,27 +1,163 @@
-/* 主题外观 cards and rows (ConfigDialog2 createDesignSettingsCard / createDesignRow) at the
-   settings dialog's Swing form density; controls keep the engine dialog's native look. */
-.appearance-card { display: grid; gap: 4px; padding: 6px 0 10px; border-bottom: 1px solid #ccc; }
-.appearance-card h3 { margin: 0; font-size: 14px; }
-.appearance-card-sub { margin: 0 0 4px; color: #555; }
-.appearance-row { display: grid; grid-template-columns: minmax(150px, 220px) minmax(0, 1fr); align-items: center; gap: 12px; padding: 4px 0; }
-.appearance-row-title { font-weight: bold; }
-.appearance-row-sub { color: #666; font-size: 12px; }
-.appearance-row-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.appearance-check { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-.appearance-color { display: inline-flex; align-items: center; gap: 6px; }
-.appearance-color input[type=color] { width: 74px; height: 28px; padding: 1px; }
-.appearance-number { width: 66px; }
-.appearance-path { display: inline-flex; align-items: center; gap: 4px; }
-.appearance-path input { width: 300px; }
-.appearance-preview { display: block; border: 1px solid #999; }
-.appearance-blunder-table { overflow: auto; width: 440px; height: 116px; border: 1px solid #888; background: #fff; }
-.appearance-rules { width: 100%; border-collapse: collapse; table-layout: fixed; color: #111; }
-.appearance-rules th, .appearance-rules td { width: 50%; padding: 2px 4px; border: 1px solid #aaa; }
-.appearance-rules th { position: sticky; top: 0; background: #eee; font-weight: normal; }
-.appearance-rules tr.selected { background: #b8d4ed; }
-.appearance-rules input[type=number] { width: 100%; box-sizing: border-box; }
-.appearance-rule-buttons { display: flex; flex-direction: column; gap: 6px; }
-.appearance-frame-size { padding: 10px 12px 0; }
-.appearance-frame-size label { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
-.appearance-frame-size input { width: 70px; }
-.appearance-frame-size input.invalid { background: rgb(255, 0, 0); }
+/* 综合设置 > 主题外观 (ConfigDialog2 createDesignSettingsCard / createDesignRow) in the settings
+   page's row grammar (engine/engine.css): a titled group per card; each row's title in the label
+   column, its controls and their sub line in the control column. */
+.appearance-card {
+  display: flex;
+  flex-direction: column;
+}
+.appearance-card > .appearance-card-sub {
+  margin-top: 2px;
+}
+.appearance-row {
+  display: grid;
+  grid-template-columns: var(--settings-label) minmax(0, 1fr);
+  grid-template-areas: "title controls" ". sub";
+  align-items: start;
+  gap: 2px 12px;
+  margin-top: 10px;
+}
+.appearance-row-text {
+  display: contents;
+}
+.appearance-row-title {
+  grid-area: title;
+  display: flex;
+  align-items: center;
+  min-height: var(--ds-control-h-l);
+}
+.appearance-row-controls {
+  grid-area: controls;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-height: var(--ds-control-h-l);
+}
+.appearance-row-sub {
+  grid-area: sub;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.appearance-check {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+/* A colour: the swatch opens the chooser; alpha and 选择 beside it. */
+.appearance-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.appearance-color input[type="color"] {
+  width: 44px;
+  height: var(--ds-control-h-l);
+  padding: 3px;
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-radius);
+  background-color: var(--ds-field);
+}
+.appearance-color input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.appearance-color input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: var(--ds-radius-s);
+}
+.appearance-number,
+.appearance-row-controls input[type="number"] {
+  width: calc(var(--ds-size) * 5.5);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.appearance-row-controls input[type="range"] + span {
+  min-width: 4ch;
+  font-variant-numeric: tabular-nums;
+}
+.appearance-path {
+  display: inline-flex;
+  flex: 1 1 260px;
+  align-items: center;
+  gap: 4px;
+  min-width: 200px;
+}
+.appearance-path input {
+  flex: 1;
+  min-width: 0;
+}
+.appearance-path button {
+  padding: 0 8px;
+}
+.appearance-preview {
+  display: block;
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-radius-s);
+}
+
+/* 错误节点: the rules table (header on --ds-sunken, a line between rows, the selected row in
+   accent) with 添加 / 删除 / 重置 beside it. */
+.appearance-blunder-table {
+  width: min(100%, 360px);
+  height: 132px;
+  overflow: auto;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius);
+}
+.appearance-rules {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-variant-numeric: tabular-nums;
+}
+.appearance-rules th,
+.appearance-rules td {
+  width: 50%;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--ds-line);
+  text-align: left;
+}
+.appearance-rules th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--ds-sunken);
+  color: var(--ds-text-2);
+  font-weight: 400;
+}
+.appearance-rules tr.selected {
+  background: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+}
+.appearance-blunder-table td:first-child > input[type="number"] {
+  width: 100%;
+  height: var(--ds-control-h);
+  text-align: right;
+}
+.appearance-rules .appearance-color input[type="color"] {
+  height: var(--ds-control-h);
+}
+.appearance-rules .appearance-number {
+  height: var(--ds-control-h);
+}
+.appearance-rule-buttons {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  align-self: flex-start;
+}
+
+/* 设置界面字体大小 (SetFrameFontSize). */
+.appearance-frame-size label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.appearance-frame-size input {
+  width: calc(var(--ds-size) * 5);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

@@ -12,6 +12,13 @@ export function button(key: string, action: () => void, enabled = true): HTMLBut
   return el;
 }
 
+/** The dialog's main action: its one filled accent button. */
+export function primaryButton(key: string, action: () => void): HTMLButtonElement {
+  const el = button(key, action);
+  el.classList.add("primary");
+  return el;
+}
+
 export function input(value: string | number, type = "text"): HTMLInputElement {
   const el = document.createElement("input");
   el.type = type;

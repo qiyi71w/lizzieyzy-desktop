@@ -64,8 +64,9 @@ function card(host: HTMLElement, title: string, subtitle: string): HTMLElement {
   return box;
 }
 
-/** createDesignRow: title and sub line on the left, the controls on the right; rows with a
- *  ConfigSettingTargets id carry it for 功能搜索's row location. */
+/** createDesignRow: the title in the settings page's label column, the controls and the sub line
+ *  below them in its control column (appearance.css); rows with a ConfigSettingTargets id carry
+ *  it for 功能搜索's row location. */
 function row(box: HTMLElement, target: Target | null, title: string, subtitle: string, ...controls: HTMLElement[]): HTMLElement {
   const line = el("div", "appearance-row");
   if (target) line.dataset.settingTarget = target;

@@ -50,7 +50,8 @@ export async function toggleConsole(): Promise<void> {
   pane.dataset.freeWindow = "";
   const header = document.createElement("div"); header.className = "gtp-header";
   header.append(t("GtpConsolePane.title"), button(product("close"), () => show(false)));
-  output = document.createElement("pre"); output.className = "gtp-output"; output.tabIndex = 0;
+  // The protocol text is a dark console surface in either mode: its tokens are the dark set's.
+  output = document.createElement("pre"); output.className = "gtp-output"; output.tabIndex = 0; output.dataset.theme = "dark";
   const command = input(""); command.setAttribute("aria-label", "GTP>");
   const send = async () => { const text = command.value.trim(); if (!text) return; command.value = ""; await run({ type: "SendGtpCommand", command: text }); command.focus(); };
   command.onkeydown = (event) => { event.stopPropagation(); if (event.key === "Enter") { event.preventDefault(); void send(); } };

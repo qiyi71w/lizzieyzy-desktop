@@ -94,10 +94,22 @@
   align-items: center;
   white-space: nowrap;
 }
+/* The button row stays in view while a tall form scrolls inside the box. */
+:where(.engine-dialog:has(> .modal-title + * > .engine-actions:last-child)) {
+  padding-bottom: 0;
+}
 :where(.engine-dialog > .modal-title + * > .engine-actions:last-child) {
+  position: sticky;
+  bottom: 0;
   justify-content: flex-end;
-  margin-top: 16px;
+  margin-top: 4px;
+  padding: 12px 0 16px;
+  background: var(--ds-panel);
 }
 :where(.engine-dialog > .modal-title + * > .engine-actions:last-child button) {
   min-width: 76px;
+}
+/* A check box or radio that cannot be changed takes its text with it. */
+:where(.modal-box label:has(> input:is([type="checkbox"], [type="radio"]):disabled)) {
+  color: var(--ds-text-off);
 }

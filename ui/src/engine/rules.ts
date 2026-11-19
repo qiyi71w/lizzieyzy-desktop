@@ -2,7 +2,7 @@
 import { run, state } from "../app";
 import { formPanel, message } from "../dialogs";
 import { format, t } from "../i18n";
-import { actions, button, checkbox } from "./controls";
+import { actions, button, checkbox, primaryButton } from "./controls";
 
 export type Rules = Record<string, unknown>;
 const PRESETS: Record<string, Rules> = {
@@ -28,7 +28,10 @@ export function rulesEditor(body: HTMLElement, initial: Rules, changed: (rules: 
     changed(rules);
   };
   const preset = (name: string) => () => { rules = { ...rules, ...PRESETS[name] }; refresh(); };
-  actions(body, t("SetKataRules.lblClassicRules"),
+  // One grid: the presets' caption and each rule's caption share the label column.
+  const rows = document.createElement("div"); rows.className = "engine-rule-rows";
+  const presets = document.createElement("span"); presets.textContent = t("SetKataRules.lblClassicRules"); rows.append(presets);
+  actions(rows,
     button(t("SetKataRules.btnChnRule"), preset("chinese")),
     button(t("SetKataRules.btnJpnRule"), preset("japanese")),
     button(t("SetKataRules.btnChnOldRule"), preset("stone-scoring")),
@@ -43,7 +46,6 @@ export function rulesEditor(body: HTMLElement, initial: Rules, changed: (rules: 
     ["hasButton", t("SetKataRules.lblHasButton"), [["true", t("SetKataRules.rdoButtonGo")], ["false", t("SetKataRules.rdoNoButtonGo")]], true],
     ["friendlyPassOk", t("SetKataRules.lblFriendlyPassOk"), [["true", t("SetKataRules.rdoButtonGo")], ["false", t("SetKataRules.rdoNoButtonGo")]], true],
   ];
-  const rows = document.createElement("div");
   for (const [name, caption, choices, boolean] of options) {
     const row = document.createElement("div"); row.className = "engine-rule-row";
     const title = document.createElement("span"); title.textContent = caption; row.append(title);
@@ -71,7 +73,7 @@ export async function editAnalysisRules(current: string): Promise<string | null>
   let result: string | null = null;
   const dialog = formPanel(t("SetAnalysisRules.title"), body);
   actions(body,
-    button(t("SetKataRules.btnApply"), () => { result = JSON.stringify(rules()); void dialog.close(); }),
+    primaryButton(t("SetKataRules.btnApply"), () => { result = JSON.stringify(rules()); void dialog.close(); }),
     button(t("SetKataRules.btnCancel"), () => dialog.close()));
   await dialog.closed;
   return result;
@@ -87,7 +89,7 @@ export async function composeMatchRules(initialJson: string): Promise<string | n
   let result: string | null = null;
   const dialog = formPanel(t("SetKataRules.title"), body);
   actions(body,
-    button(t("SetKataRules.btnApply"), () => {
+    primaryButton(t("SetKataRules.btnApply"), () => {
       const r = rules();
       result = JSON.stringify({ ...r, suicide: r.suicide ?? false, hasButton: r.hasButton ?? false, friendlyPassOk: r.friendlyPassOk ?? false });
       void dialog.close();
@@ -114,9 +116,9 @@ export async function openRules(): Promise<void> {
   });
   const auto = checkbox(t("SetKataRules.chkbxAutoLoadRules"), view.settings.engine.auto_load_kata_rules);
   body.append(auto.label, hint);
-  const status = document.createElement("div"); status.textContent = view.engine.rules ? "" : t("SetKataRules.status.unconfirmed"); body.append(status);
+  const status = document.createElement("div"); status.className = "engine-hint"; status.textContent = view.engine.rules ? "" : t("SetKataRules.status.unconfirmed"); body.append(status);
   const dialog = formPanel(t("SetKataRules.title"), body);
-  actions(body, button(t("SetKataRules.btnApply"), async () => {
+  actions(body, primaryButton(t("SetKataRules.btnApply"), async () => {
     if (!state.view?.engine.foreground?.ready || state.view.engine.foreground.index !== engine) { await message(t("Message.title"), t("LizzieFrame.setParamNoEngineHint")); return; }
     const rules = rulesNow();
     const requested = { ...rules, suicide: rules.suicide ?? false, hasButton: rules.hasButton ?? false, friendlyPassOk: rules.friendlyPassOk ?? false };
