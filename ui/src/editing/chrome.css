@@ -1,51 +1,59 @@
-/* GameInfoDialog: EmptyBorder 12, GridLayout(4, 2, 4, 4), button bar with 12 px top border and
-   an 80 px 确定 on the right. */
-.game-info {
-  padding: 12px;
-}
-.game-info-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  align-items: center;
-}
-.game-info-grid input {
-  min-width: 120px;
-}
-.game-info-grid input:read-only {
-  background: rgb(238, 238, 238);
-}
-.game-info-buttons {
-  display: flex;
-  justify-content: flex-end;
-  padding-top: 12px;
-}
-.game-info-buttons button {
-  width: 80px;
+/* 棋局信息 and 设置棋盘大小: form dialogs; the frame and the button row are design/dialog.css. */
+.modal-body:is(.game-info, .board-size) {
+  white-space: normal;
 }
 
-/* SetBoardSize: one row of radios and the 其他 width x height fields, 确定 centred below. */
-.board-size-row {
-  display: flex;
+/* 棋局信息: one label column (黑 and 白 beside their stones) and one field column. */
+.edit-form {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 16px;
+}
+.edit-form > label {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
   white-space: nowrap;
 }
-.board-size-row label {
+.edit-form > label > .icon {
+  width: 14px;
+  height: 14px;
+}
+.edit-form > input {
+  width: calc(var(--ds-size) * 18);
+}
+.edit-form > input.edit-number {
+  justify-self: start;
+  width: calc(var(--ds-size) * 6);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.edit-form > input:read-only {
+  background-color: var(--ds-sunken);
+}
+
+/* 设置棋盘大小: the sizes in one row, 其他 followed by its width x height. */
+.board-size-row {
+  display: flex;
+  align-items: center;
+  gap: 6px 14px;
+  white-space: nowrap;
+}
+.board-size-row > label {
   display: inline-flex;
   align-items: center;
+  min-height: 20px;
+}
+/* 其他 and its width x height sit 6 px apart. */
+.board-size-row > label:last-of-type {
+  margin-right: -8px;
+}
+.board-size-row > input + span {
+  margin: 0 -8px;
 }
 .board-size-field {
-  width: 36px;
-}
-.board-size-field.invalid {
-  background: red;
-}
-.board-size-buttons {
-  display: flex;
-  justify-content: center;
-  padding-top: 8px;
-}
-.board-size-buttons button {
-  width: 95px;
+  width: calc(var(--ds-size) * 4);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }

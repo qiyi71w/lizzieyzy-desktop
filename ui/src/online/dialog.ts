@@ -8,7 +8,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { registerViewHandler, run } from "../app";
 import type { OnlineCommand, WorkbenchView } from "../contract/generated";
 import { formPanel, message } from "../dialogs";
-import { absolute, button, digitsOnly, fieldValue, place } from "../display/dialogs";
+import { button, digitsOnly, fieldValue } from "../display/dialogs";
+import { actions } from "../engine/controls";
 import { t } from "../i18n";
 import "./online.css";
 
@@ -29,9 +30,9 @@ export function followedElsewhere(): void {
   fromDialog = false;
 }
 
-function label(text: string): HTMLSpanElement {
+function span(text: string, cls = ""): HTMLSpanElement {
   const l = document.createElement("span");
-  l.className = "display-label";
+  l.className = cls;
   l.textContent = text;
   return l;
 }
@@ -41,38 +42,46 @@ function show(): void {
     shownError.hidden = !errorShown;
     return;
   }
-  // Lizzie.setFrameSize(730, 172): the content pane is the frame less its decorations.
-  const panel = absolute(714, 134);
-  place(panel, label(t("OnlineDialog.lblPrompt1.text")), 10, 6, 398, 14);
-  place(panel, label(t("OnlineDialog.title.url")), 10, 58, 56, 14);
-  const urlField = place(panel, document.createElement("input"), 69, 55, 639, 20);
+  // The prompt, then 链接 and 刷新 with their fields and the error, then 确定 / 中断 / 取消.
+  const body = document.createElement("div");
+  body.className = "online-form";
+  const grid = document.createElement("div");
+  grid.className = "online-grid";
+  const urlField = document.createElement("input");
   urlField.type = "text";
   urlField.value = url;
   urlField.spellcheck = false;
   urlField.dataset.key = "OnlineDialog.url";
   urlField.setAttribute("aria-label", t("OnlineDialog.title.url"));
   urlField.addEventListener("focus", () => urlField.select());
-  place(panel, label(t("OnlineDialog.title.refresh")), 10, 80, 56, 14);
-  const refreshField = place(panel, document.createElement("input"), 69, 79, 36, 20);
+  const refreshField = document.createElement("input");
   refreshField.type = "text";
   refreshField.value = refresh;
   refreshField.dataset.key = "OnlineDialog.refresh";
   refreshField.setAttribute("aria-label", t("OnlineDialog.title.refresh"));
   digitsOnly(refreshField);
-  place(panel, label(t("OnlineDialog.title.refreshTime")), 119, 80, 81, 14);
-  const error = place(panel, label(t("OnlineDialog.lblError.text")), 171, 80, 316, 16);
-  error.classList.add("online-error");
+  const error = span(t("OnlineDialog.lblError.text"), "online-error");
   error.dataset.key = "OnlineDialog.error";
   error.hidden = !errorShown;
-  const ok = place(panel, button(t("OnlineDialog.button.ok")), 129, 105, 74, 29);
-  const interrupt = place(panel, button(t("OnlineDialog.button.interrupt")), 218, 105, 74, 29);
-  const cancel = place(panel, button(t("OnlineDialog.button.cancel")), 307, 105, 74, 29);
+  const refreshRow = document.createElement("div");
+  refreshRow.className = "online-refresh";
+  refreshRow.append(refreshField, span(t("OnlineDialog.title.refreshTime")), error);
+  grid.append(
+    span(t("OnlineDialog.lblPrompt1.text"), "online-prompt"),
+    span(t("OnlineDialog.title.url")), urlField,
+    span(t("OnlineDialog.title.refresh")), refreshRow,
+  );
+  body.append(grid);
+  const ok = button(t("OnlineDialog.button.ok"));
+  ok.className = "primary";
+  const interrupt = button(t("OnlineDialog.button.interrupt"));
+  const cancel = button(t("OnlineDialog.button.cancel"));
   ok.dataset.key = "OnlineDialog.ok";
   interrupt.dataset.key = "OnlineDialog.interrupt";
   cancel.dataset.key = "OnlineDialog.cancel";
+  actions(body, ok, interrupt, cancel);
 
-  const dialog = formPanel(t("OnlineDialog.title.config"), panel);
-  panel.closest<HTMLElement>(".modal-box")?.classList.add("online-dialog");
+  const dialog = formPanel(t("OnlineDialog.title.config"), body);
   shownError = error;
   const keep = () => {
     url = urlField.value;
@@ -102,7 +111,7 @@ function show(): void {
   };
   cancel.onclick = () => void dialog.close();
   // getRootPane().setDefaultButton(okButton): Enter anywhere applies.
-  panel.addEventListener("keydown", (e) => {
+  body.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.isComposing) {
       e.preventDefault();
       apply();

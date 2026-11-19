@@ -5,11 +5,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { run, state } from "../app";
 import { isApiError } from "../contract/client";
 import type { CaptureSettings, TsumegoAttacker, TsumegoFrameSettings, TsumegoKoThreat, TsumegoToPlay } from "../contract/generated";
+import { icon } from "../design/icons";
 import { formPanel, message } from "../dialogs";
 import { parseJavaInt } from "../display/dialogs";
 import { choosePlacement } from "../editing/commands";
 import { edit } from "../editing/state";
-import { button } from "../engine/controls";
+import { actions, button, primaryButton } from "../engine/controls";
 import { plainJava } from "../engine/tuningText";
 import { product, t } from "../i18n";
 import { messageNoModal } from "../match/dialogs";
@@ -50,7 +51,6 @@ function intDocument(field: HTMLInputElement): void {
 function intField(value: number, key: string): HTMLInputElement {
   const field = el("input");
   field.type = "text";
-  field.size = 5;
   field.value = String(value);
   field.dataset.key = key;
   intDocument(field);
@@ -65,20 +65,23 @@ function unfocusable(b: HTMLButtonElement): HTMLButtonElement {
 }
 
 /** A window of its own (JDialog / JFrame) inside the workbench: non-modal, above the workbench and
- *  below modal dialogs, with its title bar close button. */
-function windowBox(title: string, cls: string, close: () => void): HTMLDivElement {
+ *  below modal dialogs, the dialog frame with a close button in its title. `body` follows the
+ *  title; its last row of buttons is the window's button row. */
+function windowBox(title: string, cls: string, close: () => void): { box: HTMLDivElement; body: HTMLDivElement } {
   const box = el("div", `modal-box engine-dialog tsumego-window ${cls}`);
   box.setAttribute("role", "dialog");
   box.setAttribute("aria-label", title);
   // Usable while WaitForAnalysis disables the main window, like the Java window.
   box.dataset.freeWindow = "";
   const head = el("div", "modal-title tsumego-title", title);
-  const x = el("button", "tsumego-close", "×");
+  const x = unfocusable(button("", close));
+  x.className = "tsumego-close";
+  x.append(icon("close"));
   x.setAttribute("aria-label", product("close"));
-  unfocusable(x).onclick = close;
   head.append(x);
-  box.append(head);
-  return box;
+  const body = el("div", "tsumego-body");
+  box.append(head, body);
+  return { box, body };
 }
 
 // ------------------------------------------------------------------ 死活题
@@ -116,7 +119,7 @@ export function openTsumego(): void {
   closeTsumego();
   const saved = state.view?.settings.tsumego.frame;
   if (!saved) return;
-  const box = windowBox(t("TsumeGoFrame.title"), "tsumego-frame", closeTsumego);
+  const { box, body } = windowBox(t("TsumeGoFrame.title"), "tsumego-frame", closeTsumego);
   box.dataset.name = "tsumego.frame";
   const grid = el("div", "tsumego-grid");
   const toPlay = radios<TsumegoToPlay>("tsumego.toPlay", saved.toPlay, [
@@ -149,7 +152,7 @@ export function openTsumego(): void {
     closeTsumego();
   }));
   capture.dataset.key = "tsumego.capture";
-  const confirm = button(t("TsumeGoFrame.btnConfirm"), () => {
+  const confirm = primaryButton(t("TsumeGoFrame.btnConfirm"), () => {
     const settings: TsumegoFrameSettings = {
       toPlay: toPlay.get(),
       attacker: attacker.get(),
@@ -163,11 +166,9 @@ export function openTsumego(): void {
   confirm.dataset.key = "tsumego.confirm";
   const cancel = button(t("TsumeGoFrame.btnCancel"), closeTsumego);
   cancel.dataset.key = "tsumego.cancel";
-  const right = el("div", "tsumego-buttons");
-  right.append(confirm, cancel);
-  const row = el("div", "tsumego-button-row");
-  row.append(capture, right);
-  box.append(grid, row);
+  body.append(grid);
+  // 屏幕抓取 at the left of the button row, 确定 and 取消 at the right.
+  actions(body, capture, el("span", "tsumego-fill"), confirm, cancel);
 
   // The window takes its own keys, like a focused Swing dialog; Shift+T starts the capture.
   box.addEventListener("keydown", (e) => {
@@ -209,7 +210,7 @@ function closeCaptureFrame(): void {
  *  workbench; an open one is replaced. */
 export function openCaptureFrame(): void {
   closeCaptureFrame();
-  const box = windowBox(t("CaptureTsumeGoFrame.title"), "capture-frame", closeCaptureFrame);
+  const { box, body } = windowBox(t("CaptureTsumeGoFrame.title"), "capture-frame", closeCaptureFrame);
   box.dataset.key = "capture.frame";
   box.tabIndex = -1;
   const grid = el("div", "capture-grid");
@@ -224,11 +225,10 @@ export function openCaptureFrame(): void {
   });
   const settings = unfocusable(button(t("CaptureTsumeGoFrame.btnSettings"), () => void openCaptureSettings()));
   settings.dataset.key = "capture.settings";
-  const start = unfocusable(button(t("CaptureTsumeGoFrame.btnStart"), () => void startCapture()));
+  const start = unfocusable(primaryButton(t("CaptureTsumeGoFrame.btnStart"), () => void startCapture()));
   start.dataset.key = "capture.start";
-  const row = el("div", "capture-button-row");
-  row.append(settings, el("span", "capture-tip", t("CaptureTsumeGoFrame.lblTip")), start);
-  box.append(grid, row);
+  body.append(grid);
+  actions(body, settings, el("span", "capture-tip engine-hint", t("CaptureTsumeGoFrame.lblTip")), start);
   box.addEventListener("keydown", (e) => {
     e.stopPropagation();
     if (e.code === "KeyT" && e.shiftKey) {
@@ -266,10 +266,9 @@ async function openCaptureSettings(): Promise<void> {
     ...labelled(t("CaptureTsumeGoSettings.lblWhitePercent"), fields.whitePercent),
     ...labelled(t("CaptureTsumeGoSettings.lblGrayOffset"), fields.grayOffset),
   );
-  const row = el("div", "capture-settings-buttons");
-  body.append(grid, row);
+  body.append(grid);
   const dialog = formPanel(t("CaptureTsumeGoSettings.title"), body);
-  const confirm = button(t("CaptureTsumeGoSettings.btnConfirm"), async () => {
+  const confirm = primaryButton(t("CaptureTsumeGoSettings.btnConfirm"), async () => {
     const values = Object.fromEntries(Object.entries(fields).map(([k, f]) => [k, parseJavaInt(f.value)]));
     if (Object.values(values).some((v) => v === null)) await message(t("Message.title"), t("Menu.inputIntegerHint"));
     else void run({ type: "SetCaptureSettings", settings: values as CaptureSettings });
@@ -278,7 +277,7 @@ async function openCaptureSettings(): Promise<void> {
   confirm.dataset.key = "capture.settingsConfirm";
   const cancel = button(t("CaptureTsumeGoSettings.btnCancel"), () => void dialog.close());
   cancel.dataset.key = "capture.settingsCancel";
-  row.append(confirm, cancel);
+  actions(body, confirm, cancel);
   await dialog.closed;
 }
 

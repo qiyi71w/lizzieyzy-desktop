@@ -6,6 +6,7 @@ import { apply, registerViewHandler, run, saveRecordAs, state } from "../app";
 import { COMMANDS } from "../commands";
 import { isApiError, snapshot } from "../contract/client";
 import type { FoxCommand, FoxReplaceChoice, FoxStartOutcome, FoxView } from "../contract/generated";
+import { icon } from "../design/icons";
 import { message, options } from "../dialogs";
 import { format, product, t } from "../i18n";
 import { javaDouble, parseJavaDouble } from "../workbench/paint";
@@ -187,13 +188,14 @@ function build(): HTMLElement {
   // An owned JDialog stays usable while WaitForAnalysis disables the main window.
   box.dataset.freeWindow = "";
   const head = el("div", "modal-title fox-title", t("Fox.title"));
-  const x = el("button", "fox-close", "×");
+  const x = el("button", "fox-close");
+  x.append(icon("close"));
   x.setAttribute("aria-label", product("close"));
   x.dataset.key = "fox.close";
   x.onclick = () => { box.hidden = true; };
   head.append(x);
 
-  // Status card: status with its dot, then the clock, PDA and browsing rows when they have text.
+  // Status: its dot and text, then the clock, PDA and browsing rows when they have text.
   statusText = el("span", "fox-status-text");
   statusLine = row(el("span", "fox-dot"), statusText);
   statusLine.classList.add("fox-status");
@@ -206,14 +208,14 @@ function build(): HTMLElement {
   pdaRow.classList.add("fox-detail", "fox-muted");
   pdaRow.dataset.key = "fox.pda-status";
   browsingText = el("span", "fox-browsing-text");
-  returnLive = el("button", "fox-button", t("Fox.returnLive"));
+  returnLive = el("button", "", t("Fox.returnLive"));
   returnLive.dataset.key = "fox.return-live";
   returnLive.onclick = () => void fox({ type: "ReturnLive" });
   browsingRow = row(browsingText, returnLive);
   browsingRow.classList.add("fox-detail", "fox-browsing");
   browsingRow.dataset.key = "fox.browsing";
-  const card = el("div", "fox-card");
-  card.append(statusLine, clockRow, pdaRow, browsingRow);
+  const status = el("div", "fox-state");
+  status.append(statusLine, clockRow, pdaRow, browsingRow);
 
   // Port, limits, the unlimited note, the inherited rules and the 广度 note.
   const form = el("div", "fox-form");
@@ -235,21 +237,22 @@ function build(): HTMLElement {
   formRow(form, t("Fox.maxTime"), timeField);
   formRow(form, t("Fox.maxVisits"), visitsField);
   form.append(el("span"), el("span", "fox-muted fox-note", t("Fox.limitUnlimited")));
-  const rulesLabel = el("div", "fox-rules-label", t("Fox.rules"));
   rulesText = el("div", "fox-rules");
   rulesText.dataset.key = "fox.rules";
-  const breadth = el("div", "fox-muted fox-breadth", t("Fox.breadthUnavailable"));
+  form.append(el("span", "fox-label", t("Fox.rules")), rulesText);
+  form.append(el("span"), el("span", "fox-muted fox-note", t("Fox.breadthUnavailable")));
 
-  start = el("button", "fox-button", t("Fox.start"));
+  // 开启 (the window's main action) and 停止, at the bottom right.
+  start = el("button", "primary", t("Fox.start"));
   start.dataset.key = "fox.start";
   start.onclick = () => void startSession();
-  stop = el("button", "fox-button", t("Fox.stop"));
+  stop = el("button", "", t("Fox.stop"));
   stop.dataset.key = "fox.stop";
   stop.onclick = () => void fox({ type: "Stop" });
   const actions = el("div", "fox-actions");
   actions.append(start, stop);
 
-  const communication = el("div", "fox-muted fox-communication", t("Fox.communication"));
+  const communication = el("div", "fox-label fox-communication", t("Fox.communication"));
   transcript = el("textarea", "fox-transcript");
   transcript.readOnly = true;
   transcript.wrap = "off";
@@ -258,7 +261,7 @@ function build(): HTMLElement {
   transcript.setAttribute("aria-label", t("Fox.communication"));
 
   const content = el("div", "fox-content");
-  content.append(card, form, rulesLabel, rulesText, breadth, actions, communication, transcript);
+  content.append(status, form, communication, transcript, actions);
   box.append(head, content);
   // The window's own keys stay out of the workbench shortcuts (the JDialog has the focus); like
   // the Java dialog it closes only from its title bar.

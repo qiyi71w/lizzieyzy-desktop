@@ -1,4 +1,33 @@
-/* 打开在线链接 (OnlineDialog, 730x172, not resizable): wider than the shared modal maximum. */
-.modal-box.online-dialog { max-width: none; }
-.online-dialog .online-error { color: red; }
-.online-dialog .online-error[hidden] { display: none; }
+/* 在线棋谱 (OnlineDialog): the prompt, then one label column and one field column; the error
+   follows the refresh seconds in the danger colour. */
+.online-grid {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 16px;
+}
+.online-prompt {
+  grid-column: 1 / -1;
+  color: var(--ds-text-2);
+}
+.online-grid input[data-key="OnlineDialog.url"] {
+  width: min(calc(var(--ds-size) * 44), 70vw);
+}
+.online-refresh {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.online-refresh input {
+  width: calc(var(--ds-size) * 4);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.online-error {
+  margin-left: 10px;
+  color: var(--ds-danger-text);
+}
+.online-error[hidden] {
+  display: none;
+}

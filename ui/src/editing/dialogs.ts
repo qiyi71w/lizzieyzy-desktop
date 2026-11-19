@@ -1,8 +1,10 @@
 // 编辑棋局信息 (GameInfoDialog.java) and 设置棋盘大小 (SetBoardSize.java). Both send one Edit command
 // and close; the record itself changes only in Rust.
 import { state } from "../app";
+import { icon } from "../design/icons";
 import { formPanel } from "../dialogs";
-import { t } from "../i18n";
+import { actions, button, primaryButton } from "../engine/controls";
+import { product, t } from "../i18n";
 import { javaDouble } from "../workbench/paint";
 import { edit } from "./state";
 import "./chrome.css";
@@ -39,17 +41,17 @@ function parseDouble(text: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** LizzieFrame.editGameInfo (LizzieFrame.java:3866-3879) → GameInfoDialog: a 4×2 grid (gaps 4) of
- *  黑 / 白 / 贴目 / 让子 with an 80 px 确定 at the bottom right. Names and komi are editable, the
- *  handicap is read-only. Apply sends names and komi (GameInfoDialog.apply 259-306); a komi that
- *  does not parse leaves the dialog open, as Java's NumberFormatException does. */
+/** LizzieFrame.editGameInfo (LizzieFrame.java:3866-3879) → GameInfoDialog: 黑 / 白 / 贴目 / 让子, each
+ *  label beside its field, and 确定. Names and komi are editable, the handicap is read-only. Apply
+ *  sends names and komi (GameInfoDialog.apply 259-306); a komi that does not parse leaves the
+ *  dialog open, as Java's NumberFormatException does. */
 export function openGameInfo(): void {
   const info = state.view?.document.info;
   if (!info) return;
   const body = document.createElement("div");
   body.className = "modal-body game-info";
   const grid = document.createElement("div");
-  grid.className = "game-info-grid";
+  grid.className = "edit-form";
   const row = (id: string, text: string, value: string, editable = true) => {
     const label = document.createElement("label");
     label.textContent = text;
@@ -60,27 +62,29 @@ export function openGameInfo(): void {
     field.setAttribute("aria-label", text);
     label.htmlFor = field.id = `gameInfo-${id}`;
     grid.append(label, field);
-    return field;
+    return { label, field };
   };
   const black = row("black", t("GameInfoDialog.black"), info.black);
   const white = row("white", t("GameInfoDialog.white"), info.white);
-  const komi = row("komi", t("GameInfoDialog.komi"), javaDouble(info.komi));
+  // The players' names beside their stones.
+  black.label.prepend(icon("stone-black"));
+  white.label.prepend(icon("stone-white"));
+  const komi = row("komi", t("GameInfoDialog.komi"), javaDouble(info.komi)).field;
+  komi.classList.add("edit-number");
   komiFilter(komi);
   // FORMAT_HANDICAP: DecimalFormat("0") limited to one integer digit.
-  row("handicap", t("GameInfoDialog.handicap"), String(Math.trunc(info.handicap) % 10), false);
-  const bar = document.createElement("div");
-  bar.className = "game-info-buttons";
-  const ok = document.createElement("button");
-  ok.textContent = t("GameInfoDialog.okButton");
-  bar.append(ok);
-  body.append(grid, bar);
+  row("handicap", t("GameInfoDialog.handicap"), String(Math.trunc(info.handicap) % 10), false).field.classList.add("edit-number");
+  body.append(grid);
   const dialog = formPanel(t("GameInfoDialog.title"), body);
-  ok.onclick = async () => {
+  const ok = primaryButton(t("GameInfoDialog.okButton"), async () => {
     const value = parseDouble(komi.value);
     if (value === null) return;
     await dialog.close();
-    await edit({ op: "SetGameInfo", black: black.value, white: white.value, komi: value });
-  };
+    await edit({ op: "SetGameInfo", black: black.field.value, white: white.field.value, komi: value });
+  });
+  const cancel = button(product("cancel"), () => void dialog.close());
+  cancel.dataset.key = "gameInfo.cancel";
+  actions(body, ok, cancel);
 }
 
 const STANDARD = [19, 15, 13, 9];
@@ -142,14 +146,13 @@ export function openBoardSize(): void {
   };
   radios.forEach((r) => (r.onchange = sync));
   sync();
-  const bar = document.createElement("div");
-  bar.className = "board-size-buttons";
-  const ok = document.createElement("button");
-  ok.textContent = t("SetBoardSize.okButton");
-  ok.tabIndex = -1;
-  bar.append(ok);
-  body.append(row, bar);
+  body.append(row);
   const dialog = formPanel(t("SetBoardSize.title"), body);
+  const ok = primaryButton(t("SetBoardSize.okButton"), () => void apply());
+  ok.tabIndex = -1;
+  const cancel = button(product("cancel"), () => void dialog.close());
+  cancel.dataset.key = "boardSize.cancel";
+  actions(body, ok, cancel);
   const apply = async () => {
     let size: [number, number];
     if (other.checked) {
@@ -170,10 +173,9 @@ export function openBoardSize(): void {
     await dialog.close();
     await edit({ op: "SetBoardSize", width: size[0], height: size[1] });
   };
-  ok.onclick = apply;
-  // getRootPane().setDefaultButton(okButton): Enter anywhere in the dialog applies.
+  // getRootPane().setDefaultButton(okButton): Enter anywhere in the dialog but on 取消 applies.
   body.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && e.target !== cancel) {
       e.preventDefault();
       void apply();
     }

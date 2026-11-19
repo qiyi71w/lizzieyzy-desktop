@@ -4,10 +4,11 @@
 // the settings view and every change is one Match command. Rust owns the match.
 import { run, state, subscribe } from "../app";
 import { isApiError, openMatchOpenings } from "../contract/client";
-import type { MatchCommand, MatchIntervention, MatchSessionSettings, MatchSettings, MatchTimeMode, Stone } from "../contract/generated";
+import type { MatchCommand, MatchIntervention, MatchSessionSettings, MatchSettings, MatchTimeMode } from "../contract/generated";
+import { icon } from "../design/icons";
 import { ask, formPanel, message } from "../dialogs";
-import { absolute, parseJavaInt, place } from "../display/dialogs";
-import { button } from "../engine/controls";
+import { parseJavaInt } from "../display/dialogs";
+import { actions, button, primaryButton } from "../engine/controls";
 import { composeMatchRules } from "../engine/rules";
 import { plainJava } from "../engine/tuningText";
 import { product, t } from "../i18n";
@@ -46,12 +47,11 @@ function radio(name: string, checked: boolean, key: string, text: string): { box
 }
 
 /** IntDocument (digits), DoubleDocument (digits and a point) or KomiDocument (signed decimal). */
-function field(value: string, key: string, filter: "int" | "double" | "komi" | null = null, width = 0): HTMLInputElement {
+function field(value: string, key: string, filter: "int" | "double" | "komi" | null = null): HTMLInputElement {
   const f = el("input");
   f.type = "text";
   f.value = value;
   f.dataset.key = key;
-  if (width) f.style.width = `${width}px`;
   if (filter) {
     const allowed = filter === "int" ? /\D/g : filter === "double" ? /[^\d.]/g : /[^\d.-]/g;
     f.addEventListener("input", () => {
@@ -76,11 +76,25 @@ function inline(...items: HTMLElement[]): HTMLDivElement {
   return d;
 }
 
-/** createSectionPanel: a 1 px rgb(220,224,230) line around 12 px padding. */
-function section(...rows: HTMLElement[]): HTMLDivElement {
-  const d = el("div", "match-section");
-  d.append(...rows);
-  return d;
+/** A dialog's form: a label column, then the control column (split into 黑方 and 白方 columns in
+ *  引擎对局). `wide` items start at the label column and span the row; `span` items span the
+ *  control column. */
+function form(cls: string) {
+  const grid = el("div", `match-form ${cls}`);
+  const add = (item: HTMLElement, place: "wide" | "span") => {
+    item.classList.add(`match-${place}`);
+    grid.append(item);
+  };
+  return {
+    grid,
+    row: (left: HTMLElement, ...controls: HTMLElement[]) => grid.append(left, ...controls),
+    wide: (item: HTMLElement) => add(item, "wide"),
+    span: (left: HTMLElement, item: HTMLElement) => {
+      grid.append(left);
+      add(item, "span");
+    },
+    rule: () => add(el("hr"), "wide"),
+  };
 }
 
 /** Integer.parseInt of the text, else the current value (catch NumberFormatException {}). */
@@ -149,16 +163,13 @@ function sharedSession(f: SharedFields, base: MatchSessionSettings): MatchSessio
   };
 }
 
-/** btnAboutAdvTime: Utils.showHtmlMessageModal(AdvanceTimeSettings.title, .describe). */
-function advancedHelp(): HTMLButtonElement {
-  const help = button("", () => void message(t("AdvanceTimeSettings.title"), plainJava(t("AdvanceTimeSettings.describe"))));
+/** A 帮助 button: the message it shows is its name. */
+function helpButton(key: string, title: string, text: string): HTMLButtonElement {
+  const help = button("?", () => void message(title, plainJava(text)));
   help.className = "match-help";
-  help.title = t("AdvanceTimeSettings.title");
-  help.dataset.key = "match.advancedTimeHelp";
-  const img = el("img");
-  img.src = "/assets/settings.png";
-  img.alt = "";
-  help.append(img);
+  help.title = title;
+  help.setAttribute("aria-label", title);
+  help.dataset.key = key;
   return help;
 }
 
@@ -236,21 +247,27 @@ export async function openEngineGameDialog(): Promise<void> {
     void run(matchValues({ settings: { second: identity(white.selectedIndex) } }));
   }
   const s = m.session;
+  // The toolbar's own boxes stand before their row labels.
+  const timeOn = check(s.timeEnabled, "match.timeOn", t("NewEngineGameDialog.lblTime"));
+  const visitsOn = check(s.visitsEnabled, "match.visitsOn", t("NewEngineGameDialog.lblPlayout"));
+  const firstOn = check(s.firstMoveVisitsEnabled, "match.firstVisitsOn", t("NewEngineGameDialog.lblFirstPlayout"));
+  const batchOn = check(s.batchEnabled, "match.batchOn", t("NewEngineGameDialog.lblBatchGame").trim());
+  const continuePlay = check(s.continuePosition, "match.continue", t("NewEngineGameDialog.lblContinue"));
   const f: SharedFields = {
     black,
     white,
-    timeOn: check(s.timeEnabled, "match.timeOn").box,
+    timeOn: timeOn.box,
     timeBlack: field(shown(s.firstSeconds), "match.timeBlack", "int"),
     timeWhite: field(shown(s.secondSeconds), "match.timeWhite", "int"),
-    visitsOn: check(s.visitsEnabled, "match.visitsOn").box,
+    visitsOn: visitsOn.box,
     visitsBlack: field(shown(s.firstVisits), "match.visitsBlack", "int"),
     visitsWhite: field(shown(s.secondVisits), "match.visitsWhite", "int"),
-    firstOn: check(s.firstMoveVisitsEnabled, "match.firstVisitsOn").box,
+    firstOn: firstOn.box,
     firstBlack: field(shown(s.firstMoveVisits), "match.firstVisitsBlack", "int"),
     firstWhite: field(shown(s.secondMoveVisits), "match.firstVisitsWhite", "int"),
-    batchOn: check(s.batchEnabled, "match.batchOn").box,
-    batch: field(shown(s.batchLimit), "match.batch", "int", 72),
-    continuePlay: check(s.continuePosition, "match.continue", t("NewEngineGameDialog.lblContinue")).box,
+    batchOn: batchOn.box,
+    batch: field(shown(s.batchLimit), "match.batch", "int"),
+    continuePlay: continuePlay.box,
   };
   const cfg = m.settings;
   const modeB = select([t("NewGameDialog.engineOwnedTime"), t("NewGameDialog.time"), t("NewEngineGameDialog.lblAdvanceTime")], TIME_MODES.indexOf(cfg.firstTimeMode), "match.timeModeBlack");
@@ -258,29 +275,38 @@ export async function openEngineGameDialog(): Promise<void> {
   const advB = field(cfg.firstTimeCommand, "match.advancedBlack");
   const advW = field(cfg.secondTimeCommand, "match.advancedWhite");
 
-  // 黑方设置 / 白方设置 with the toolbar's own boxes beside the row labels.
-  const engines = el("div", "match-engines");
-  const cell = (item: HTMLElement | null) => item ?? el("span");
-  const row = (label: HTMLElement, enable: HTMLElement | null, b: HTMLElement, w: HTMLElement) => engines.append(label, cell(enable), b, w);
-  const header = (key: string) => el("span", "match-side", key);
-  engines.append(el("span"), el("span"), header(t("NewEngineGameDialog.lblB")), header(t("NewEngineGameDialog.lblW")));
-  row(el("span", "", t("NewEngineGameDialog.lblengine")), null, black, white);
-  row(el("span", "", t("NewEngineGameDialog.lblTime")), f.timeOn, f.timeBlack, f.timeWhite);
-  row(el("span"), null, modeB, modeW);
-  row(inline(el("span", "", t("NewEngineGameDialog.lblAdvanceTime")), advancedHelp()), null, advB, advW);
-  row(el("span", "", t("NewEngineGameDialog.lblPlayout")), f.visitsOn, f.visitsBlack, f.visitsWhite);
-  row(el("span", "", t("NewEngineGameDialog.lblFirstPlayout")), f.firstOn, f.firstBlack, f.firstWhite);
+  // 黑方设置 / 白方设置: one column each, under its stone.
+  const g = form("match-sides");
+  const header = (stone: "stone-black" | "stone-white", text: string) => {
+    const h = el("span", "match-side");
+    h.append(icon(stone), text);
+    return h;
+  };
+  g.row(el("span"), header("stone-black", t("NewEngineGameDialog.lblB")), header("stone-white", t("NewEngineGameDialog.lblW")));
+  g.row(el("span", "", t("NewEngineGameDialog.lblengine")), black, white);
+  g.row(timeOn.wrap, f.timeBlack, f.timeWhite);
+  g.row(el("span"), modeB, modeW);
+  g.row(inline(el("span", "", t("NewEngineGameDialog.lblAdvanceTime")), helpButton("match.advancedTimeHelp", t("AdvanceTimeSettings.title"), t("AdvanceTimeSettings.describe"))), advB, advW);
+  g.row(visitsOn.wrap, f.visitsBlack, f.visitsWhite);
+  g.row(firstOn.wrap, f.firstBlack, f.firstWhite);
 
   // 认输预置: hidden in Genmove mode, where the hint takes its place.
-  const resignHint = el("div", "match-hint", t("EnginePkConfig.lblresignGenmove"));
+  const resignHint = el("p", "engine-hint", t("EnginePkConfig.lblresignGenmove"));
+  g.wide(resignHint);
   const resign = resignRows(cfg);
-  const resignSection = section(resignHint, resign.rows);
+  g.grid.append(resign.rows);
 
-  // 贴目 / 让子, 本局规则, 多盘, 当前局面续弈 / 加载开局SGF, 顺序随机 / 多选SGF.
-  const komi = field(javaDouble(cfg.komi), "match.komi", "komi", 72);
-  const handicap = field(String(cfg.handicap), "match.handicap", "int", 72);
+  // 贴目 / 让子, 本局规则, 多盘, 当前局面续弈 / 加载开局SGF with 顺序/随机 and 多选SGF.
+  g.rule();
+  const komi = field(javaDouble(cfg.komi), "match.komi", "komi");
+  g.span(el("span", "", t("NewEngineGameDialog.komi")), komi);
+  const handicap = field(String(cfg.handicap), "match.handicap", "int");
   const handicapLabel = el("span", "", t("NewEngineGameDialog.handicap"));
+  g.span(handicapLabel, handicap);
   const rules = rulesPicker(m.rules_prefill, m.rules_choice);
+  g.span(el("span", "", t("NewEngineGameDialog.matchRules")), rules.el);
+  g.span(batchOn.wrap, f.batch);
+  g.wide(continuePlay.wrap);
   const sgf = check(cfg.sgfStart, "match.sgfStart", t("NewEngineGameDialog.lblsgf").trim());
   const random = select([t("NewEngineGameDialog.cbxRandomSgf1"), t("NewEngineGameDialog.cbxRandomSgf2")], cfg.sgfRandom ? 1 : 0, "match.sgfRandom");
   const chooseSgf = button(t("NewEngineGameDialog.btnSGFstart"), () => void openMatchOpenings([]).then(
@@ -288,30 +314,14 @@ export async function openEngineGameDialog(): Promise<void> {
     (e: unknown) => message("Error", isApiError(e) ? e.message : String(e), "error"),
   ));
   chooseSgf.dataset.key = "match.chooseSgf";
-  const game = el("div", "match-setup");
-  const span = (item: HTMLElement, columns: number) => {
-    item.style.gridColumn = `span ${columns}`;
-    return item;
-  };
-  game.append(
-    el("span", "", t("NewEngineGameDialog.komi")), komi, handicapLabel, handicap,
-    el("span", "", t("NewEngineGameDialog.matchRules")), span(rules.el, 3),
-    el("span", "", t("NewEngineGameDialog.lblBatchGame").trim()), f.batchOn, span(f.batch, 2),
-    span(f.continuePlay.parentElement!, 2), span(sgf.wrap, 2),
-    random, span(chooseSgf, 3),
-  );
+  g.span(sgf.wrap, inline(random, chooseSgf));
+  g.rule();
   const ponder = check(cfg.ponder, "match.ponder", t("NewEngineGameDialog.checkBoxAllowPonder"));
+  g.wide(ponder.wrap);
   const wrn = check(m.disable_wrn, "match.disableWrn", t("NewAnaGameDialog.lblDisableWRNInGame"));
+  g.wide(wrn.wrap);
   const body = el("div", "match-dialog");
-  const main = el("div", "match-scroll");
-  main.append(section(engines), resignSection, section(game), section(ponder.wrap, wrn.wrap));
-  const more = button(t("NewEngineGameDialog.btnConfig"), () => void openEnginePkConfig().then(modeChanged));
-  more.dataset.key = "match.moreSettings";
-  const ok = button(t("NewEngineGameDialog.okButton"), () => void apply());
-  ok.dataset.key = "match-dialog-ok";
-  const bar = el("div", "match-buttons");
-  bar.append(more, el("span", "match-fill"), ok);
-  body.append(main, bar);
+  body.append(g.grid);
 
   // Enable rules (initContentPanel, updateModeDependentControls, setGenmove).
   const genmove = () => state.view?.settings.matches.session.kind === "Genmove";
@@ -384,7 +394,14 @@ export async function openEngineGameDialog(): Promise<void> {
     }
     return true;
   });
-  body.closest<HTMLElement>(".modal-box")?.classList.add("match-dialog-box");
+  // 更多设置 at the left of the button row, 确定 and 取消 at the right.
+  const more = button(t("NewEngineGameDialog.btnConfig"), () => void openEnginePkConfig().then(modeChanged));
+  more.dataset.key = "match.moreSettings";
+  const ok = primaryButton(t("NewEngineGameDialog.okButton"), () => void apply());
+  ok.dataset.key = "match-dialog-ok";
+  const cancel = button(product("cancel"), () => void dialog.close());
+  cancel.dataset.key = "match.cancel";
+  actions(body, more, el("span", "match-fill"), ok, cancel);
   subscribe(() => {
     if (!pending) return;
     const phase = state.view?.engine_match?.phase;
@@ -462,18 +479,21 @@ export async function openEngineGameDialog(): Promise<void> {
 // The dialog an AI 陪练 exit opens afterwards (deferUntilHumanSlExit(this::startEngineGameDialog)).
 registerHumanSlContinuation("EngineGame", () => void openEngineGameDialog());
 
-/** The 黑方/白方 认输预置 rows: 最小手数, 连续 … 手,胜率低于 … %. */
+/** The 黑方/白方 认输预置 rows: 最小手数, 连续 … 手,胜率低于 … %; each its label and its values across
+ *  the control column. `rows` lays its children into the dialog's grid. */
 function resignRows(cfg: MatchSettings) {
   const rows = el("div", "match-resign");
   const side = (label: string, p: MatchSettings["firstResign"], key: string) => {
-    const min = field(String(p.minMove), `match.${key}MinMove`, "int", 58);
-    const moves = field(String(p.consecutiveMoves), `match.${key}ResignMoves`, "int", 58);
-    const rate = field(javaDouble(p.winrate), `match.${key}ResignWinrate`, "double", 68);
-    rows.append(
-      el("span", "", label), el("span", "", t("EnginePkConfig.lblresignSettingConsistent")), min,
+    const min = field(String(p.minMove), `match.${key}MinMove`, "int");
+    const moves = field(String(p.consecutiveMoves), `match.${key}ResignMoves`, "int");
+    const rate = field(javaDouble(p.winrate), `match.${key}ResignWinrate`, "double");
+    const values = inline(
+      el("span", "", t("EnginePkConfig.lblresignSettingConsistent")), min,
       el("span", "", t("EnginePkConfig.lblresignSetting2")), moves,
       el("span", "", t("EnginePkConfig.lblresignSetting3")), rate, el("span", "", "%"),
     );
+    values.classList.add("match-span");
+    rows.append(el("span", "", label), values);
     return { fields: [min, moves, rate], read: (keep: MatchSettings["firstResign"]) => ({ minMove: intOr(min, keep.minMove), consecutiveMoves: intOr(moves, keep.consecutiveMoves), winrate: doubleOr(rate, keep.winrate) }) };
   };
   const b = side(t("EnginePkConfig.lblresignSettingBlack"), cfg.firstResign, "black");
@@ -495,43 +515,40 @@ async function openEnginePkConfig(): Promise<void> {
   const s = m.session;
   const genmove = radio("match-mode", s.kind === "Genmove", "match.genmove", t("EnginePkConfig.rdoGenmove"));
   const analysis = radio("match-mode", s.kind !== "Genmove", "match.analysisMode", t("EnginePkConfig.rdoAna"));
-  const about = button("?", () => void message(t("LizzieFrame.aboutAnalyzeGenmoveInfoTitle"), plainJava(t("LizzieFrame.aboutAnalyzeGenmoveInfo"))));
-  about.className = "match-help";
-  about.dataset.key = "match.modeHelp";
+  const about = helpButton("match.modeHelp", t("LizzieFrame.aboutAnalyzeGenmoveInfoTitle"), t("LizzieFrame.aboutAnalyzeGenmoveInfo"));
   const exchange = check(s.exchangeColors, "match.exchange", t("EnginePkConfig.chkExchange"));
   const maxOn = check(s.maxMovesEnabled, "match.maxMovesOn", t("EnginePkConfig.lblGameMAX"));
-  const maxMoves = field(String(s.maxMoves), "match.maxMoves", "int", 72);
+  const maxMoves = field(String(s.maxMoves), "match.maxMoves", "int");
   const autoSave = check(s.autoSave, "match.autoSave", t("EnginePkConfig.chkAutosave"));
   const saveWinrate = check(s.saveWinrate, "match.saveWinrate", t("EnginePkConfig.chkSaveWinrate"));
-  const batchName = field(s.batchName, "match.batchName", null, 240);
+  const batchName = field(s.batchName, "match.batchName");
   const startOn = check(s.startNumberEnabled, "match.startNumberOn", t("EnginePkConfig.chkSatartNum"));
-  const startNumber = field(String(s.startNumber), "match.startNumber", "int", 72);
+  const startNumber = field(String(s.startNumber), "match.startNumber", "int");
   const randomOn = check(s.randomMovesEnabled, "match.randomMovesOn", t("EnginePkConfig.chkRandomMove"));
-  const randomMoves = field(s.randomMoves > 0 ? String(s.randomMoves) : "", "match.randomMoves", "int", 64);
-  const randomDiff = field(javaDouble(s.randomWinrateDiff), "match.randomWinrate", "double", 64);
+  const randomMoves = field(s.randomMoves > 0 ? String(s.randomMoves) : "", "match.randomMoves", "int");
+  const randomDiff = field(javaDouble(s.randomWinrateDiff), "match.randomWinrate", "double");
   const visitsOn = check(cfg.checkRandomVisits, "match.randomVisitsOn", t("EnginePkConfig.chkRandomMoveVists"));
-  const visitsPercent = field(javaDouble(cfg.randomVisitsPercent), "match.randomVisits", "double", 72);
+  const visitsPercent = field(javaDouble(cfg.randomVisitsPercent), "match.randomVisits", "double");
   const current = radio("match-bestmoves", !cfg.showPreviousBestmoves, "match.currentMove", t("EnginePkConfig.rdoCurrentMove"));
   const previous = radio("match-bestmoves", cfg.showPreviousBestmoves, "match.lastMove", t("EnginePkConfig.rdoLastMove"));
   const onlyFirst = check(cfg.previousBestmoveOnly, "match.onlyFirstMove", t("EnginePkConfig.chkPreviousBestmovesOnlyFirstMove"));
-  const hint = el("div", "match-hint", t("EnginePkConfig.textAreaHint"));
 
   const percent = () => el("span", "", "%");
-  const sections = [
-    section(inline(genmove.wrap, analysis.wrap, about)),
-    section(
-      inline(exchange.wrap, maxOn.wrap, maxMoves),
-      inline(autoSave.wrap, saveWinrate.wrap),
-      inline(el("span", "", t("EnginePkConfig.lblnameSetting")), batchName),
-      inline(startOn.wrap, startNumber),
-    ),
-    section(
-      inline(randomOn.wrap, randomMoves, el("span", "", t("EnginePkConfig.lblRandomWinrate")), randomDiff, percent()),
-      inline(visitsOn.wrap, visitsPercent, percent()),
-    ),
-    section(inline(el("span", "", t("EnginePkConfig.lblChooseBestMoves")), current.wrap, previous.wrap), onlyFirst.wrap),
-    section(hint),
-  ];
+  const g = form("match-config");
+  g.wide(inline(genmove.wrap, analysis.wrap, about));
+  g.rule();
+  g.wide(exchange.wrap);
+  g.row(maxOn.wrap, maxMoves);
+  g.wide(inline(autoSave.wrap, saveWinrate.wrap));
+  g.row(el("span", "", t("EnginePkConfig.lblnameSetting")), batchName);
+  g.row(startOn.wrap, startNumber);
+  g.rule();
+  g.row(randomOn.wrap, inline(randomMoves, el("span", "", t("EnginePkConfig.lblRandomWinrate")), randomDiff, percent()));
+  g.row(visitsOn.wrap, inline(visitsPercent, percent()));
+  g.rule();
+  g.row(el("span", "", t("EnginePkConfig.lblChooseBestMoves")), inline(current.wrap, previous.wrap));
+  g.row(el("span"), onlyFirst.wrap);
+  g.wide(el("p", "engine-hint match-note", t("EnginePkConfig.textAreaHint")));
   // setTextEnable: Genmove模式 disables 随机落子.
   const textEnable = () => {
     const on = analysis.box.checked;
@@ -544,17 +561,13 @@ async function openEnginePkConfig(): Promise<void> {
   candidates();
 
   const body = el("div", "match-dialog");
-  const main = el("div", "match-scroll");
-  main.append(...sections);
+  body.append(g.grid);
+  const dialog = formPanel(t("EnginePkConfig.title"), body);
   const cancel = button(t("EnginePkConfig.cancelButton"), () => void dialog.close());
   cancel.dataset.key = "match.configCancel";
-  const ok = button(t("EnginePkConfig.okButton"), () => void apply());
+  const ok = primaryButton(t("EnginePkConfig.okButton"), () => void apply());
   ok.dataset.key = "match-config-ok";
-  const bar = el("div", "match-buttons");
-  bar.append(el("span", "match-fill"), cancel, ok);
-  body.append(main, bar);
-  const dialog = formPanel(t("EnginePkConfig.title"), body);
-  body.closest<HTMLElement>(".modal-box")?.classList.add("match-dialog-box", "match-config");
+  actions(body, cancel, ok);
 
   /** applyChange: each number field keeps its value when it does not parse. */
   async function apply(): Promise<void> {
@@ -589,7 +602,24 @@ async function openEnginePkConfig(): Promise<void> {
   await dialog.closed;
 }
 
-/** The one 人工干预 window (Manual: non-modal, always on top, 189x165). */
+/** A non-modal window over the workbench: the dialog frame with a close button in its title. */
+function toolWindow(cls: string, title: string, closeKey: string, close: () => void): HTMLDivElement {
+  const box = el("div", `modal-box match-window ${cls}`);
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-label", title);
+  box.dataset.freeWindow = "";
+  const head = el("div", "modal-title", title);
+  const x = button("", close);
+  x.className = "match-close";
+  x.append(icon("close"));
+  x.dataset.key = closeKey;
+  x.setAttribute("aria-label", product("close"));
+  head.append(x);
+  box.append(head);
+  return box;
+}
+
+/** The one 人工干预 window (Manual: non-modal, always on top). */
 let manual: HTMLElement | null = null;
 
 /** Manual.java: 立即落子 and 允许/关闭人工落子 (分析模式 only), 黑认输 and 白认输. */
@@ -598,34 +628,19 @@ export function openManual(): void {
     manual.hidden = false;
     return;
   }
-  const box = el("div", "modal-box match-manual");
-  box.setAttribute("role", "dialog");
-  box.setAttribute("aria-label", t("Mannul.title"));
-  box.dataset.freeWindow = "";
-  const head = el("div", "modal-title", t("Mannul.title"));
-  const close = el("button", "match-close", "×");
-  close.dataset.key = "match.manualClose";
-  close.setAttribute("aria-label", product("close"));
-  close.onclick = () => (box.hidden = true);
-  head.append(close);
-  const panel = absolute(173, 126);
-  const push = (key: string, y: number, op: MatchIntervention) => {
-    const b = place(panel, el("button"), 10, y, 158, 29);
+  const box = toolWindow("match-manual", t("Mannul.title"), "match.manualClose", () => (box.hidden = true));
+  const panel = el("div", "match-manual-actions");
+  const push = (key: string, op: MatchIntervention, text = "") => {
+    const b = button(text, () => void match({ type: "Intervention", op }));
     b.dataset.key = key;
-    b.onclick = () => void match({ type: "Intervention", op });
+    panel.append(b);
     return b;
   };
-  const playNow = push("match.playNow", 5, { type: "PlayNow" });
-  playNow.textContent = t("Mannul.playNow");
-  const manualOne = push("match.manualOne", 35, { type: "ToggleManual" });
-  const resign = (side: Stone, y: number, key: string, text: string) => {
-    const b = push(key, y, { type: "Resign", side });
-    b.textContent = text;
-    return b;
-  };
-  const blackResign = resign("Black", 65, "match.blackResign", t("Mannul.blackResign"));
-  const whiteResign = resign("White", 95, "match.whiteResign", t("Mannul.whiteResign"));
-  box.append(head, panel);
+  const playNow = push("match.playNow", { type: "PlayNow" }, t("Mannul.playNow"));
+  const manualOne = push("match.manualOne", { type: "ToggleManual" });
+  const blackResign = push("match.blackResign", { type: "Resign", side: "Black" }, t("Mannul.blackResign"));
+  const whiteResign = push("match.whiteResign", { type: "Resign", side: "White" }, t("Mannul.whiteResign"));
+  box.append(panel);
   document.body.append(box);
   manual = box;
   const sync = () => {
@@ -661,13 +676,13 @@ let messages = 0;
 
 /** Utils.showMsgNoModal: the Message window, which leaves the main window usable. */
 export function messageNoModal(text: string): void {
-  const box = el("div", "modal-box match-notice");
+  const box = el("div", "modal-box match-window match-notice");
   box.setAttribute("role", "dialog");
   box.setAttribute("aria-label", t("Message.title"));
   box.dataset.freeWindow = "";
   box.style.translate = `${(messages % 5) * 16}px ${(messages % 5) * 16}px`;
   messages++;
-  const ok = button(product("ok"), () => box.remove());
+  const ok = primaryButton(product("ok"), () => box.remove());
   ok.dataset.key = "match.noticeOk";
   const row = el("div", "modal-buttons");
   row.append(ok);
