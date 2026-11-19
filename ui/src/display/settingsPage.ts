@@ -4,16 +4,17 @@
 // with 保存设置. Each row carries its ConfigSettingTargets id as `data-setting-target`; rows of
 // these cards owned by other settings are passed in by the caller and placed in Java order.
 // This product also places here the values Java edited in their own small dialogs (设置最大宽度,
-// 设置初始目数差最大值, 设置低计算量阈值, 设置变化图回放间隔; their menu items open these rows, which
-// carry the menu items' catalog ids) and two settings Java offered only in 初始化设置 and the menus
-// (目数显示, 鼠标悬停显示变化图时不刷新).
+// 设置初始目数差最大值, 设置低计算量阈值, 设置变化图回放间隔, 延迟显示; their menu items open these rows,
+// which carry the menu items' catalog ids), two settings Java offered only in 初始化设置 and the
+// menus (目数显示, 鼠标悬停显示变化图时不刷新) and the button that opens 自定义信息顺序.
 import { run, state } from "../app";
 import type { CoordinateStyle, DisplaySettings, PvVisitsMode } from "../contract/generated";
 import { product, registerProduct, t } from "../i18n";
 import { checkbox, field, input } from "../engine/controls";
 import { javaDouble } from "../workbench/paint";
 import { panelDraft } from "../workbench/panelDraft";
-import { parseJavaInt } from "./dialogs";
+import { decimalOnly, openInfoOrderDialog, parseJavaInt } from "./dialogs";
+import { delayCandidates, setCandidates } from "./state";
 import { clearTreeTooWide } from "./variationTree";
 
 registerProduct({
@@ -109,6 +110,39 @@ registerProduct({
   },
 });
 
+registerProduct({
+  ZhCn: {
+    settingsDelayCandidates: "延迟显示选点",
+    settingsDelayCandidatesSub: "每到一个新局面先隐藏选点，过这么多秒再显示；0 或负数则一直隐藏，按 F 显示",
+    settingsInfoOrderSub: "选点圆圈里显示胜率、计算量、目数中的哪几项，以及从上到下的顺序",
+  },
+  ZhTw: {
+    settingsDelayCandidates: "延遲顯示選點",
+    settingsDelayCandidatesSub: "每到一個新局面先隱藏選點，過這麼多秒再顯示；0 或負數則一直隱藏，按 F 顯示",
+    settingsInfoOrderSub: "選點圓圈裡顯示勝率、計算量、目數中的哪幾項，以及由上到下的順序",
+  },
+  EnUs: {
+    settingsDelayCandidates: "Delay candidates",
+    settingsDelayCandidatesSub: "On each new position, candidates stay hidden for this many seconds; 0 or less keeps them hidden until you press F",
+    settingsInfoOrderSub: "Which of win rate, visits and score lead a candidate circle shows, and their order from top to bottom",
+  },
+  JaJp: {
+    settingsDelayCandidates: "候補手の表示を遅らせる",
+    settingsDelayCandidatesSub: "新しい局面ごとに候補手をこの秒数だけ隠します。0 以下なら F を押すまで隠したままです",
+    settingsInfoOrderSub: "候補手の円に勝率・訪問数・目差のどれを表示するかと、上からの順序",
+  },
+  KoKr: {
+    settingsDelayCandidates: "후보수 표시 지연",
+    settingsDelayCandidatesSub: "새 국면마다 후보수를 이 시간(초) 동안 숨깁니다. 0 이하이면 F를 누를 때까지 숨깁니다",
+    settingsInfoOrderSub: "후보수 원에 승률, 방문 수, 집 차이 중 무엇을 어떤 순서로 표시할지 정합니다",
+  },
+  ThTh: {
+    settingsDelayCandidates: "หน่วงการแสดงตัวเลือก",
+    settingsDelayCandidatesSub: "ทุกตำแหน่งใหม่จะซ่อนตัวเลือกไว้ตามจำนวนวินาทีนี้ ถ้าเป็น 0 หรือติดลบจะซ่อนไว้จนกว่าจะกด F",
+    settingsInfoOrderSub: "เลือกว่าวงกลมตัวเลือกจะแสดงอัตราชนะ จำนวนการเข้าชม หรือแต้มนำ และเรียงจากบนลงล่างอย่างไร",
+  },
+});
+
 function card(host: HTMLElement, title: string, subtitle: string): void {
   const heading = document.createElement("h3");
   heading.textContent = title;
@@ -135,6 +169,19 @@ function tagLastRow(host: HTMLElement, target: string, sub: string): void {
   const hint = document.createElement("p");
   hint.textContent = sub;
   host.append(hint);
+}
+
+/** A labelled row of several controls (a `div`, so its name does not activate the first one). */
+function controlsRow(host: HTMLElement, title: string, ...controls: (Node | string)[]): void {
+  const row = document.createElement("div");
+  row.className = "engine-field";
+  const name = document.createElement("span");
+  name.textContent = title;
+  const unit = document.createElement("span");
+  unit.className = "engine-unit";
+  unit.append(...controls);
+  row.append(name, unit);
+  host.append(row);
 }
 
 /** A combo box row with its sub line as the tooltip and the hint below; `items` pairs each value with its text. */
@@ -242,6 +289,30 @@ export function buildDisplaySettings(engine: HTMLElement, play: HTMLElement, sha
   ], s.scoreLeadWithKomi ? 1 : 0);
   // 设置低计算量阈值 (Menu.java:690-723): any Java int, negative ones too.
   const nextMoveVisits = text(engine, "menu.minPlayoutsForNextMove", "nextMoveMinPlayouts", product("settingsNextMoveVisits"), product("settingsNextMoveVisitsSub"), String(s.nextMoveMinPlayouts), t("ConfigDialog2.modern.unit.visits"), /[^0-9-]+/g);
+  // 推荐点 > 延迟显示 (SetDelayShowCandidates): the box turns the delay on and enables the seconds.
+  const delayOn = input("", "checkbox");
+  delayOn.checked = s.delayCandidates;
+  delayOn.dataset.key = "settings.display.delayCandidates";
+  delayOn.setAttribute("aria-label", product("settingsDelayCandidates"));
+  const delaySeconds = input(javaDouble(s.delayCandidatesSeconds));
+  delaySeconds.dataset.key = "settings.display.delayCandidatesSeconds";
+  delaySeconds.setAttribute("aria-label", product("settingsDelayCandidates"));
+  delaySeconds.title = product("settingsDelayCandidatesSub");
+  delaySeconds.disabled = !s.delayCandidates;
+  decimalOnly(delaySeconds);
+  delayOn.onchange = () => (delaySeconds.disabled = !delayOn.checked);
+  controlsRow(engine, product("settingsDelayCandidates"), delayOn, delaySeconds, ` ${t("ConfigDialog2.modern.unit.seconds")}`);
+  tagLastRow(engine, "menu.setCandidatesDelay", product("settingsDelayCandidatesSub"));
+  // 推荐点 > 自定义顺序 (SuggestionInfoOrderSettings): its own dialog, saved by its own 确定.
+  const infoOrder = document.createElement("button");
+  infoOrder.type = "button";
+  infoOrder.textContent = t("FirstUseSettings.btnCustomOrder");
+  infoOrder.dataset.key = "settings.display.infoOrder";
+  infoOrder.onclick = () => openInfoOrderDialog();
+  controlsRow(engine, t("FirstUseSettings.lblSuggestionInfo"), infoOrder);
+  const infoHint = document.createElement("p");
+  infoHint.textContent = product("settingsInfoOrderSub");
+  engine.append(infoHint);
 
   // 变化图与 PV 访问 (ConfigDialog2.java:1606-1630, 1945-1951, 6565-6583)
   card(engine, t("ConfigDialog2.modern.pv.title"), t("ConfigDialog2.modern.pv.subtitle"));
@@ -280,6 +351,8 @@ export function buildDisplaySettings(engine: HTMLElement, play: HTMLElement, sha
       const white = whiteStyle();
       const scale = Number.parseFloat(scoreScale.value);
       const replayMillis = parseJavaInt(replay.value.trim());
+      // A seconds field that does not read as a number keeps the saved delay (SetDelayShowCandidates).
+      const delay = Number(delaySeconds.value.trim());
       const next: DisplaySettings = {
         ...current,
         winrateAlwaysBlack: blackWinrate.checked,
@@ -297,6 +370,8 @@ export function buildDisplaySettings(engine: HTMLElement, play: HTMLElement, sha
         minPlayoutRatio: fieldNumber(minRatio, false) / 100,
         scoreLeadWithKomi: scoreDisplay() === 1,
         nextMoveMinPlayouts: intOr(nextMoveVisits, current.nextMoveMinPlayouts),
+        delayCandidates: delayOn.checked,
+        delayCandidatesSeconds: delaySeconds.value.trim() !== "" && Number.isFinite(delay) ? delay : current.delayCandidatesSeconds,
         pvVisits: pvMode(),
         pvVisitsLimit: fieldNumber(pvLimit, true),
         removeDeadInVariation: removeDead.checked,
@@ -310,6 +385,11 @@ export function buildDisplaySettings(engine: HTMLElement, play: HTMLElement, sha
       if (JSON.stringify(next) !== JSON.stringify(current)) {
         const result = await run({ type: "SetDisplaySettings", settings: next });
         if (!result || result.type === "Refused") return false;
+      }
+      // A changed delay applies at once, as 应用 did: candidates hide for it, or show when it is off.
+      if (next.delayCandidates !== current.delayCandidates || next.delayCandidatesSeconds !== current.delayCandidatesSeconds) {
+        if (next.delayCandidates) delayCandidates(next.delayCandidatesSeconds);
+        else setCandidates(true, true);
       }
       if (treeWidthEdited) clearTreeTooWide();
       return true;

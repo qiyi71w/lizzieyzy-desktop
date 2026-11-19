@@ -1,7 +1,7 @@
-/* 检查更新 (CheckUpdateDialog) and 发现新版本 (WindowsUpdateDialog): non-modal tool windows over
-   the workbench with a dialog's ground, radius and shadow and no scrim; above the workbench, below
-   modal dialogs (#dialog, 30), centred over the window. The page is at least 460 px wide, the
-   offer at least 560 × 360. */
+/* 检查更新 rows of 综合设置 > 关于 and the 发现新版本 window (WindowsUpdateDialog). The window is a
+   non-modal tool window over the workbench with a dialog's ground, radius and shadow and no scrim;
+   above the workbench, below modal dialogs (#dialog, 30), centred over the window, at least
+   560 × 360. */
 .modal-box.update-window {
   position: fixed;
   z-index: 29;
@@ -33,52 +33,47 @@
   flex-wrap: wrap;
   padding: 16px 20px;
 }
-.update-buttons button[hidden] {
+:is(.update-buttons, .update-actions) button[hidden] {
   display: none;
 }
 
-/* 检查更新: the version, the channel and source choices, the automatic options, the result. */
-.update-page {
-  width: min(460px, calc(100vw - 8px));
-  min-height: min(428px, calc(100vh - 8px));
-}
-.update-muted,
-.update-label {
-  color: var(--ds-text-2);
-}
-.update-version {
-  margin: 2px 0 16px;
-  font-size: var(--ds-size-l);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.update-label {
-  margin-bottom: 6px;
-}
-.update-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 20px;
-  margin-bottom: 14px;
-}
-.update-choice,
-.update-check {
-  display: flex;
-  align-items: center;
-}
-.update-check {
-  margin-bottom: 10px;
-}
+/* 综合设置 > 关于 > 检查更新: the channel and source rows, the automatic options, the status line,
+   the offer a check found and the buttons, all in the page's form grammar. */
 .update-choice.disabled,
 .update-check.disabled {
   color: var(--ds-text-off);
 }
+.engine-settings-form > :is(.update-result, .update-details) {
+  align-self: stretch;
+  margin-top: 10px;
+}
+.engine-settings-form > .update-actions {
+  margin-top: 12px;
+}
+.update-details[hidden] {
+  display: none;
+}
+.update-details > .update-summary {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-radius);
+  background: var(--ds-field);
+  white-space: pre-line;
+  user-select: text;
+}
+.update-details > .update-progress {
+  margin-top: 8px;
+}
 /* A failure can carry the system's own words or a command to copy. */
 .update-result {
-  margin-top: 6px;
   color: var(--ds-text-2);
+  white-space: pre-line;
   overflow-wrap: anywhere;
   user-select: text;
+}
+.update-result[hidden] {
+  display: none;
 }
 
 /* 提示条: a failure (danger) or a partial check (warning). */
@@ -131,10 +126,12 @@
   background: var(--ds-field);
   user-select: text;
 }
-.update-offer .update-body > .update-progress {
+.update-progress {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.update-offer .update-body > .update-progress {
   margin-top: 12px;
 }
 .update-progress[hidden] {

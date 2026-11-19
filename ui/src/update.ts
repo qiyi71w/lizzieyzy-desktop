@@ -1,7 +1,9 @@
-// 帮助 > 检查更新 (Menu.java:5274-5277): the 检查更新 page (CheckUpdateDialog) and the 发现新版本 window
-// (WindowsUpdateDialog), both modeless over the workbench. Rust owns the settings, the check, the
-// package preparation and the installation; these windows show `view.update` and send its commands.
-// Opening the page uses no network. The automatic options save at once and apply from the next start.
+// 帮助 > 检查更新 (Menu.java:5274-5277): the 检查更新 page (CheckUpdateDialog) as rows of 综合设置 > 关于,
+// with the offer a check found and its download in place below them, and the 发现新版本 window
+// (WindowsUpdateDialog) for an offer found while those rows are not in view. Rust owns the
+// settings, the check, the package preparation and the installation; this module shows
+// `view.update` and sends its commands. Opening the rows uses no network. The options save at
+// once, apart from 综合设置's 确定 / 取消, and the automatic ones apply from the next start.
 import { invoke } from "@tauri-apps/api/core";
 import { registerViewHandler, run, state } from "./app";
 import { COMMANDS } from "./commands";
@@ -9,6 +11,7 @@ import type { UpdateDownloadView, UpdateError, UpdateOfferView, UpdateResultView
 import { message } from "./dialogs";
 import { product, registerProduct, t } from "./i18n";
 import { icon } from "./design/icons";
+import { openSettingsAt, registerSettingTargets } from "./engine/settingsTargets";
 import "./update.css";
 
 registerProduct({
@@ -75,6 +78,15 @@ registerProduct({
     updateErrorPackageManager: "The system package manager did not install this update; the program is unchanged.",
     updateErrorPackageUnfinished: "The update was not fully installed, and the program's package is left unfinished. Run sudo dpkg --configure -a in a terminal to finish it; if that does not help, install the package again (it can be downloaded from the Release page).",
   },
+});
+
+registerProduct({
+  ZhCn: { updateSectionSub: "更新选项改动后立即保存，不受“{0}”“{1}”影响。" },
+  ZhTw: { updateSectionSub: "更新選項變更後立即儲存，不受「{0}」「{1}」影響。" },
+  EnUs: { updateSectionSub: "Update options are saved as soon as you change them; {0} and {1} do not affect them." },
+  JaJp: { updateSectionSub: "更新の設定は変更した時点で保存され、「{0}」「{1}」の影響を受けません。" },
+  KoKr: { updateSectionSub: "업데이트 옵션은 바꾸는 즉시 저장되며 '{0}', '{1}'과 관계없습니다." },
+  ThTh: { updateSectionSub: "ตัวเลือกการอัปเดตจะบันทึกทันทีที่เปลี่ยน ไม่ขึ้นกับปุ่ม “{0}” และ “{1}”" },
 });
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text = ""): HTMLElementTagNameMap[K] {
@@ -213,17 +225,18 @@ function frame(title: string, cls: string, key: string, onClose: () => void): { 
   return { box, close };
 }
 
-// ------------------------------------------------------------------ 检查更新 page
+// ------------------------------------------------------------------ 综合设置 > 关于 > 检查更新
 
-let page: { box: HTMLElement; close: () => void; show: (u: UpdateView) => void } | null = null;
+/** The rows of the open 综合设置; gone once that dialog closes. */
+let section: { root: HTMLElement; show: (u: UpdateView) => void } | null = null;
 
-/** Saves at once; a save that fails shows its error and the page returns to the saved settings
+/** Saves at once; a save that fails shows its error and the rows return to the saved settings
  *  (the control already shows the unsaved choice, and no new view follows a failure). */
 async function saveSettings(change: Partial<UpdateSettings>): Promise<void> {
   const settings = state.view?.update.settings;
   if (!settings) return;
   const result = await run({ type: "Update", op: { type: "Settings", settings: { ...settings, ...change } } });
-  if (result === null && state.view) page?.show(state.view.update);
+  if (result === null && state.view) section?.show(state.view.update);
 }
 
 function radio(name: string, text: string, key: string, onPick: () => void): { label: HTMLLabelElement; input: HTMLInputElement } {
@@ -238,26 +251,24 @@ function radio(name: string, text: string, key: string, onPick: () => void): { l
   return { label, input };
 }
 
-function openPage(): void {
-  if (page) {
-    document.body.append(page.box);
-    page.box.focus();
-    return;
-  }
-  const { box, close } = frame(t("WindowsUpdate.page.title"), "update-page", "update.page", () => { page = null; });
-  const body = el("div", "update-body");
-  const versionLabel = el("div", "update-muted", t("WindowsUpdate.currentVersion"));
-  const versionValue = el("div", "update-version");
-  versionValue.dataset.key = "update.version";
+/** CheckUpdateDialog's options, its result line and its buttons, then the offer the check found
+ *  with WindowsUpdateDialog's account of it and its download, built into 综合设置's 关于 page. */
+export function buildUpdateSection(host: HTMLElement): void {
+  const heading = el("h3", "", t("WindowsUpdate.page.title"));
+  const sub = el("p", "", product("updateSectionSub", t("SetKataRules.btnApply"), t("SetKataRules.btnCancel")));
+  host.append(heading, sub);
 
   const stable = radio("update-channel", t("WindowsUpdate.channel.stable"), "update.channel.stable", () => saveSettings({ channel: "Stable" }));
   const beta = radio("update-channel", t("WindowsUpdate.channel.beta"), "update.channel.beta", () => saveSettings({ channel: "Beta" }));
   const official = radio("update-source", t("WindowsUpdate.source.official"), "update.source.official", () => saveSettings({ source: "Official" }));
   const github = radio("update-source", t("WindowsUpdate.source.github"), "update.source.github", () => saveSettings({ source: "Github" }));
-  const channelRow = el("div", "update-row");
-  channelRow.append(stable.label, beta.label);
-  const sourceRow = el("div", "update-row");
-  sourceRow.append(official.label, github.label);
+  for (const [title, ...choices] of [[t("WindowsUpdate.page.channel"), stable, beta], [t("WindowsUpdate.page.source"), official, github]] as const) {
+    const row = el("div", "engine-field");
+    const unit = el("span", "engine-unit");
+    unit.append(...choices.map((choice) => choice.label));
+    row.append(el("span", "", title), unit);
+    host.append(row);
+  }
 
   const check = (key: string, onChange: (on: boolean) => void) => {
     const input = el("input");
@@ -275,34 +286,25 @@ function openPage(): void {
   const result = el("div", "update-result");
   result.dataset.key = "update.result";
   result.setAttribute("aria-live", "polite");
+  const details = el("div", "update-details");
+  host.append(autoCheck.label, autoDownload.label, result, details);
 
-  body.append(
-    versionLabel, versionValue,
-    el("div", "update-label", t("WindowsUpdate.page.channel")), channelRow,
-    el("div", "update-label", t("WindowsUpdate.page.source")), sourceRow,
-    autoCheck.label, autoDownload.label, result,
-  );
-
-  const footer = el("div", "modal-buttons update-buttons");
-  const cancel = button(t("WindowsUpdate.btnCancel"), "update.cancel", () => void run({ type: "Update", op: { type: "Cancel" } }));
-  const pause = button("", "update.pause", () => void run({ type: "Update", op: { type: "TogglePause" } }));
-  const retry = button(t("WindowsUpdate.btnResume"), "update.retry", () => void run({ type: "Update", op: { type: "Retry" } }));
-  const viewOffer = button(t("WindowsUpdate.viewOffer"), "update.viewOffer", () => openOffer(true));
-  const later = button(t("WindowsUpdate.later"), "update.later", () => close());
+  let offerId: number | null = null;
+  let offerShow: ((v: UpdateView) => void) | null = null;
   const checkNow = button(t("WindowsUpdate.btnCheck"), "update.check", () => void run({ type: "Update", op: { type: "Check" } }));
-  checkNow.classList.add("primary");
-  footer.append(cancel, pause, retry, viewOffer, later, checkNow);
-  box.append(body, footer);
-  // The page's default button (getRootPane().setDefaultButton(checkButton)).
-  box.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement) && !checkNow.disabled) {
-      e.preventDefault();
-      checkNow.click();
-    }
+  const updateNow = button(t("WindowsUpdate.btnUpdate"), "update.updateNow", () => {
+    if (offerId !== null) void run({ type: "Update", op: { type: "Update", offer: offerId } });
   });
+  const retry = button(t("WindowsUpdate.btnResume"), "update.retry", () => void run({ type: "Update", op: { type: "Retry" } }));
+  const pause = button("", "update.offerPause", () => void run({ type: "Update", op: { type: "TogglePause" } }));
+  const cancel = button(t("WindowsUpdate.btnCancel"), "update.offerCancel", () => void run({ type: "Update", op: { type: "Cancel" } }));
+  const release = button(t("WindowsUpdate.btnRelease"), "update.release", () => void openRelease());
+  const buttons = el("div", "engine-actions update-actions");
+  buttons.dataset.settingTarget = "menu.checkUpdate";
+  buttons.append(checkNow, updateNow, retry, pause, cancel, release);
+  host.append(buttons);
 
   const show = (u: UpdateView) => {
-    versionValue.textContent = u.current_version || "-";
     const s = u.settings;
     stable.input.checked = s.channel === "Stable";
     beta.input.checked = s.channel === "Beta";
@@ -322,14 +324,27 @@ function openPage(): void {
 
     const d = u.download;
     const offer = u.result?.offer ?? null;
+    if ((offer?.id ?? null) !== offerId) {
+      offerId = offer?.id ?? null;
+      offerShow = null;
+      details.replaceChildren();
+      if (offer) {
+        const parts = offerDetails(offer);
+        details.append(parts.heading, parts.summary, parts.bar);
+        offerShow = parts.show;
+      }
+    }
+    details.hidden = !offer;
+    offerShow?.(u);
     checkNow.disabled = u.busy;
-    viewOffer.hidden = !offer || downloading(d) || d.phase === "Cancelled" || d.phase === "Failed";
-    viewOffer.disabled = u.busy;
-    cancel.hidden = pause.hidden = !downloading(d);
-    pause.textContent = d.phase === "Paused" ? t("WindowsUpdate.btnResume") : t("WindowsUpdate.btnPause");
+    updateNow.hidden = !offer || downloading(d) || d.phase === "Cancelled" || d.phase === "Failed";
+    updateNow.disabled = u.busy;
     retry.hidden = !offer || (d.phase !== "Cancelled" && d.phase !== "Failed");
     retry.disabled = u.busy;
-    // The page's status line is a 提示条 when it reports a failure or a partial check.
+    pause.hidden = cancel.hidden = !downloading(d);
+    pause.textContent = d.phase === "Paused" ? t("WindowsUpdate.btnResume") : t("WindowsUpdate.btnPause");
+    release.hidden = !offer;
+    // The status line is a 提示条 when it reports a failure or a partial check.
     let tone: "error" | "warning" | null = null;
     if (d.phase !== "None" || u.installing) {
       result.textContent = downloadStatus(u);
@@ -343,16 +358,15 @@ function openPage(): void {
       result.textContent = extra ? `${feedback(u.result)}\n${extra}` : feedback(u.result);
       tone = u.result.outcome === "Failed" ? "error" : extra ? "warning" : null;
     }
+    result.hidden = !result.textContent;
     result.classList.toggle("update-error", tone === "error");
     result.classList.toggle("update-warn", tone === "warning");
-    // One filled action: 重试 or 查看更新 when shown, else 检查更新.
-    const primary = !retry.hidden ? retry : !viewOffer.hidden ? viewOffer : checkNow;
-    for (const b of [retry, viewOffer, checkNow]) b.classList.toggle("primary", b === primary);
   };
-  page = { box, close, show };
+  section = { root: host, show };
   if (state.view) show(state.view.update);
-  box.focus();
 }
+
+registerSettingTargets("about", ["menu.checkUpdate"]);
 
 // ------------------------------------------------------------------ 发现新版本
 
@@ -380,23 +394,10 @@ async function openRelease(): Promise<void> {
   }
 }
 
-/** Shows the current offer (`openOffer`): `focus` is false for an automatic check's reminder
- *  (setAutoRequestFocus(false)). Viewing grants nothing; only 立即更新 prepares and installs. */
-function openOffer(focus: boolean): void {
-  const u = state.view?.update;
-  const offer = u?.result?.offer;
-  if (!u || !offer) return;
-  page?.close();
-  if (offerWindow?.id === offer.id) {
-    if (focus) offerWindow.show(u);
-    return;
-  }
-  offerWindow?.close();
-  const { box, close } = frame(t("WindowsUpdate.title"), "update-offer", "update.offer", () => { offerWindow = null; });
-  const body = el("div", "update-body");
+/** WindowsUpdateDialog's account of one offer: its version, what 立即更新 does with it and the
+ *  download's progress; `show` fills them from a view of this offer. */
+function offerDetails(offer: UpdateOfferView): { heading: HTMLElement; summary: HTMLElement; bar: HTMLElement; show: (v: UpdateView) => void } {
   const heading = el("div", "update-offer-heading", `LizzieYzy Tauri ${offer.version}`);
-  const current = el("div", "", `${t("WindowsUpdate.currentVersion")}: ${offer.current_version}`);
-  const extra = el("div", "update-warning");
   const summary = el("div", "update-summary");
   summary.dataset.key = "update.summary";
   const bar = el("div", "update-progress");
@@ -410,11 +411,41 @@ function openOffer(focus: boolean): void {
   meter.setAttribute("aria-hidden", "true");
   const percent = el("span", "update-progress-text");
   bar.append(meter, percent);
+  const show = (v: UpdateView) => {
+    const d = v.download;
+    summary.textContent = `${intro(offer, d.phase === "Ready")}\n\n${t("WindowsUpdate.summary.package")}: ${offer.asset_name}\n${t("WindowsUpdate.summary.totalDownload")}: ${formatBytes(offer.size)}\n\n${product("updatePreserved")}`;
+    bar.hidden = d.phase === "None";
+    const value = d.total > 0 ? Math.min(1000, Math.floor((d.bytes * 1000) / d.total)) : 0;
+    meter.value = value;
+    percent.textContent = `${Math.floor(value / 10)}%`;
+    bar.setAttribute("aria-valuenow", String(Math.floor(value / 10)));
+  };
+  return { heading, summary, bar, show };
+}
+
+/** Shows the current offer (`openOffer`): `focus` is false for an automatic check's reminder
+ *  (setAutoRequestFocus(false)). Viewing grants nothing; only 立即更新 prepares and installs. */
+function openOffer(focus: boolean): void {
+  const u = state.view?.update;
+  const offer = u?.result?.offer;
+  if (!u || !offer) return;
+  // 综合设置's 关于 page, when in view, shows the offer in place of this window.
+  if (section?.root.isConnected && section.root.getClientRects().length > 0) return;
+  if (offerWindow?.id === offer.id) {
+    if (focus) offerWindow.show(u);
+    return;
+  }
+  offerWindow?.close();
+  const { box, close } = frame(t("WindowsUpdate.title"), "update-offer", "update.offer", () => { offerWindow = null; });
+  const body = el("div", "update-body");
+  const details = offerDetails(offer);
+  const current = el("div", "", `${t("WindowsUpdate.currentVersion")}: ${offer.current_version}`);
+  const extra = el("div", "update-warning");
   const status = el("div", "update-status");
   status.dataset.key = "update.status";
   status.setAttribute("aria-label", t("WindowsUpdate.accessibility.status"));
   status.setAttribute("aria-live", "polite");
-  body.append(heading, current, extra, summary, bar, status);
+  body.append(details.heading, current, extra, details.summary, details.bar, status);
 
   const footer = el("div", "modal-buttons update-buttons");
   const release = button(t("WindowsUpdate.btnRelease"), "update.release", () => void openRelease());
@@ -434,18 +465,12 @@ function openOffer(focus: boolean): void {
       return;
     }
     const d = v.download;
-    const ready = d.phase === "Ready";
     extra.textContent = v.result ? warning(v.result) : "";
     extra.hidden = !extra.textContent;
-    summary.textContent = `${intro(offer, ready)}\n\n${t("WindowsUpdate.summary.package")}: ${offer.asset_name}\n${t("WindowsUpdate.summary.totalDownload")}: ${formatBytes(offer.size)}\n\n${product("updatePreserved")}`;
+    details.show(v);
     update.disabled = v.busy;
     cancel.disabled = pause.disabled = !downloading(d);
     pause.textContent = d.phase === "Paused" ? t("WindowsUpdate.btnResume") : t("WindowsUpdate.btnPause");
-    bar.hidden = d.phase === "None";
-    const value = d.total > 0 ? Math.min(1000, Math.floor((d.bytes * 1000) / d.total)) : 0;
-    meter.value = value;
-    percent.textContent = `${Math.floor(value / 10)}%`;
-    bar.setAttribute("aria-valuenow", String(Math.floor(value / 10)));
     const text = downloadStatus(v);
     if (text) status.textContent = text;
     status.classList.toggle("update-error", d.phase === "Failed" || d.error !== null);
@@ -459,7 +484,8 @@ let reminded = 0;
 let handoverReported = false;
 registerViewHandler((view) => {
   const u = view.update;
-  page?.show(u);
+  if (section && !section.root.isConnected) section = null;
+  section?.show(u);
   offerWindow?.show(u);
   // The previous run closed to install an update, which did not happen.
   if (u.handover_failed && !handoverReported) {
@@ -474,6 +500,6 @@ registerViewHandler((view) => {
 });
 
 Object.assign(COMMANDS, {
-  // 帮助 > 检查更新 (WindowsUpdateController.openCheckUpdatePage): one page, brought to front.
-  "menu.checkUpdate": { run: () => openPage() },
+  // 帮助 > 检查更新 (WindowsUpdateController.openCheckUpdatePage): 综合设置 at the 检查更新 buttons.
+  "menu.checkUpdate": { run: () => void openSettingsAt("menu.checkUpdate") },
 });

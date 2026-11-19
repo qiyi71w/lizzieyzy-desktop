@@ -10,7 +10,7 @@ import { message } from "../dialogs";
 import { openSettingsAt } from "../engine/settingsTargets";
 import { t } from "../i18n";
 import { openAutoPlayDialog } from "./autoplay";
-import { inputDialog, openCandidatesDelayDialog, openInfoOrderDialog, openMoveNumberDialog, parseJavaInt } from "./dialogs";
+import { inputDialog, openInfoOrderDialog, openMoveNumberDialog, parseJavaInt } from "./dialogs";
 import { boardUi, setCandidates, togglePolicy, toggleRawNet } from "./state";
 
 const display = (): DisplaySettings | undefined => state.view?.settings.display;
@@ -209,7 +209,7 @@ Object.assign(COMMANDS, {
   "menu.suggestion3": flag("suggestionScore"),
   "menu.showScoreAsDiff": flag("scoreAsDiff"),
   "menu.customInfoOrdr": { run: () => openInfoOrderDialog() },
-  "menu.setCandidatesDelay": { run: openCandidatesDelayDialog, checked: () => display()?.delayCandidates ?? false },
+  "menu.setCandidatesDelay": { ...settingRow("menu.setCandidatesDelay"), checked: () => display()?.delayCandidates ?? false },
   "menu.showSuggestionOrder": flag("suggestionOrder"),
   "menu.showMaxValueReverse": flag("suggestionMaxRed"),
   "menu.showWhiteSuggestWhite": flag("whiteSuggestionWhite"),

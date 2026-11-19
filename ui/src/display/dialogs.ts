@@ -1,14 +1,13 @@
 // Board display dialogs: the JOptionPane integer input (落子评价 显示最后多手), 设置显示手数
-// (MovenumberDialog.java), 延迟显示候选点 (SetDelayShowCandidates.java) and 自定义信息顺序
-// (SuggestionInfoOrderSettings.java). Each applies through SetDisplaySettings and closes;
-// validation follows the Java dialog.
+// (MovenumberDialog.java) and 自定义信息顺序 (SuggestionInfoOrderSettings.java). Each applies
+// through SetDisplaySettings and closes; validation follows the Java dialog. 延迟显示候选点
+// (SetDelayShowCandidates.java) is a row of 综合设置 (settingsPage.ts).
 import { state } from "../app";
 import type { DisplaySettings } from "../contract/generated";
 import { setDisplay } from "../commands";
 import { ask, formPanel, message } from "../dialogs";
 import { isChinese, product, registerProduct, t } from "../i18n";
 import { GRAPH_FONT, images, javaDouble, playouts } from "../workbench/paint";
-import { delayCandidates, setCandidates } from "./state";
 
 // The JDK's own JOptionPane.showInputDialog title (OptionPane.inputDialogTitle).
 registerProduct({
@@ -124,7 +123,7 @@ export function openMoveNumberDialog(): void {
 }
 
 /** DoubleDocument: the text must stay a (partial) decimal number. */
-function decimalOnly(field: HTMLInputElement): void {
+export function decimalOnly(field: HTMLInputElement): void {
   field.addEventListener("beforeinput", (e) => {
     if (!e.inputType.startsWith("insert")) return;
     const inserted = e.data ?? e.dataTransfer?.getData("text/plain") ?? "";
@@ -133,41 +132,6 @@ function decimalOnly(field: HTMLInputElement): void {
     const next = field.value.slice(0, start) + inserted + field.value.slice(end);
     if (!/^-?\d*\.?\d*$/.test(next)) e.preventDefault();
   });
-}
-
-/** 推荐点 > 延迟显示候选点 (SetDelayShowCandidates, packed): the check box enables the seconds field;
- *  应用 saves both (an unparsable field keeps the old seconds), then hides the candidates for the
- *  delay when on, or shows them when off. */
-export function openCandidatesDelayDialog(): void {
-  const s = state.view?.settings.display;
-  if (!s) return;
-  const row = document.createElement("div");
-  const check = document.createElement("input");
-  check.type = "checkbox";
-  check.checked = s.delayCandidates;
-  const checkLabel = document.createElement("label");
-  checkLabel.append(check, t("SetDelayShowCandidates.lblDelayCandidates"));
-  const field = document.createElement("input");
-  field.type = "text";
-  field.title = t("SetDelayShowCandidates.txtDelayCandidates.tooltips");
-  field.value = javaDouble(s.delayCandidatesSeconds);
-  field.disabled = !s.delayCandidates;
-  decimalOnly(field);
-  check.onchange = () => (field.disabled = !check.checked);
-  row.append(checkLabel, field);
-  const apply = button(t("SetDelayShowCandidates.apply"));
-  const cancel = button(t("SetDelayShowCandidates.cancel"));
-  const body = smallForm(row, apply, cancel);
-  const dialog = formPanel(t("SetDelayShowCandidates.title"), body);
-  cancel.onclick = () => void dialog.close();
-  apply.onclick = () => {
-    const parsed = Number(field.value.trim());
-    const seconds = field.value.trim() !== "" && Number.isFinite(parsed) ? parsed : s.delayCandidatesSeconds;
-    void dialog.close();
-    setDisplay({ delayCandidates: check.checked, delayCandidatesSeconds: seconds });
-    if (check.checked) delayCandidates(seconds);
-    else setCandidates(true, true);
-  };
 }
 
 // ------------------------------------------------------------------ 自定义信息顺序

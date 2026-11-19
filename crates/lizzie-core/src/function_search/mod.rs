@@ -1,12 +1,12 @@
 //! Offline function search over the fixed Java catalog and its eight maintained bundles.
 //! `catalog.json` is the extracted Java catalog with Java's two interface-style switches replaced
 //! by this product's three 外观模式 entries (`menu.appearanceMode*`), edited in place; their text
-//! matches `ui/src/i18n/productStrings.json`. Five entries whose Java dialogs this product folds
+//! matches `ui/src/i18n/productStrings.json`. Six entries whose Java dialogs this product folds
 //! into 综合设置 (`menu.maxTreeWidth`, `menu.initialMaxScoreLead`, `menu.setReplayInterval`,
-//! `menu.minPlayoutsForNextMove` → engine, `menu.frameFontSize` → theme) carry that page as their
-//! `section`, also edited in place. The 详细工具栏's eleven entries (`legacy.*` and
-//! `toolbar.detailed`) are left out of it, as this product leaves out that toolbar; the bundles
-//! keep Java's whole `FunctionSearch.*` vocabulary.
+//! `menu.minPlayoutsForNextMove`, `menu.setCandidatesDelay` → engine, `menu.frameFontSize` →
+//! theme) carry that page as their `section`, also edited in place. The 详细工具栏's eleven
+//! entries (`legacy.*` and `toolbar.detailed`) are left out of it, as this product leaves out
+//! that toolbar; the bundles keep Java's whole `FunctionSearch.*` vocabulary.
 //! Resource keys are returned unchanged; presentation and activation belong to the caller.
 use std::cmp::Ordering;
 use std::collections::HashMap;

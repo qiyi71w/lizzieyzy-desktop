@@ -16,6 +16,7 @@ const targets = new Map<string, SettingsSection>([
     "config.analysis.suggestion-limit", "config.analysis.variation-limit", "config.analysis.limit-time", "config.analysis.limit-visits",
     "config.candidates.blue-ring", "config.candidates.color-ratio", "config.candidates.white-style",
     "config.candidates.no-suggestion-circle", "config.candidates.minimum-playout-ratio", "config.candidates.score-lead", "menu.minPlayoutsForNextMove",
+    "menu.setCandidatesDelay",
     "config.pv.mode", "config.pv.visit-limit", "config.pv.remove-dead", "menu.setReplayInterval",
   ].map((id): [string, SettingsSection] => [id, "engine"]),
   ...[

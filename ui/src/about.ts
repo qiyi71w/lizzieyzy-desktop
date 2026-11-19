@@ -1,7 +1,8 @@
 // 综合设置 > 关于 (ConfigDialog2.createUnifiedAboutHero, ConfigDialog2.java:2639-2688): the product
 // name, its version, where it comes from and the 项目主页 / 发布下载 / 问题反馈 buttons, opened from
-// 帮助 > 关于 (Menu.java:5263-5271, openConfigDialog2(2)). Java's feature cards and QQ group are not
-// shown, and the buttons open this product's repository.
+// 帮助 > 关于 (Menu.java:5263-5271, openConfigDialog2(2)), then the 检查更新 rows (update.ts) that
+// 帮助 > 检查更新 opens. Java's feature cards and QQ group are not shown, and the buttons open this
+// product's repository.
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { COMMANDS } from "./commands";
@@ -9,6 +10,7 @@ import { message } from "./dialogs";
 import { openAnalysisSettings, SETTINGS_PAGES } from "./engine/settings";
 import { button } from "./engine/controls";
 import { product, registerProduct, t } from "./i18n";
+import { buildUpdateSection } from "./update";
 import "./about.css";
 
 registerProduct({
@@ -34,6 +36,7 @@ SETTINGS_PAGES.about = (host) => {
   }
   hero.append(title, version, origin, links);
   host.append(hero);
+  buildUpdateSection(host);
   return { save: async () => true };
 };
 

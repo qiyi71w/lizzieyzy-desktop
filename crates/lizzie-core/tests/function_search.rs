@@ -88,6 +88,7 @@ fn folded_dialogs_lead_to_their_settings_page() {
     for (id, section) in [
         ("menu.maxTreeWidth", SettingsSection::Engine), ("menu.initialMaxScoreLead", SettingsSection::Engine),
         ("menu.setReplayInterval", SettingsSection::Engine), ("menu.minPlayoutsForNextMove", SettingsSection::Engine),
+        ("menu.setCandidatesDelay", SettingsSection::Engine),
         ("menu.frameFontSize", SettingsSection::Theme),
     ] {
         let found = browse.iter().find(|m| m.id == id).unwrap_or_else(|| panic!("{id}"));

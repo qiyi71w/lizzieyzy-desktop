@@ -16,10 +16,10 @@
   justify-self: start;
   white-space: nowrap;
 }
-.engine-unit > input[type="checkbox"] {
+.engine-unit > input:is([type="checkbox"], [type="radio"]) {
   margin-right: 0;
 }
-.engine-unit input:not([type="checkbox"]) {
+.engine-unit input:not([type="checkbox"], [type="radio"]) {
   width: calc(var(--ds-size) * 8);
   text-align: right;
   font-variant-numeric: tabular-nums;
