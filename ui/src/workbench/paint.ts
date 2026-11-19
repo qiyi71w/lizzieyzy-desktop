@@ -2302,12 +2302,18 @@ export function parseJavaDouble(text: string): number | null {
   return Number.isFinite(v) ? v : null;
 }
 
+/** The smallest text the panels draw (DESIGN.md: nothing below Label; 9 px at the smallest
+ *  interface size a short section allows). */
+const MIN_TEXT = 9;
+
 /** LizzieFrame.drawCaptured (LizzieFrame.java:9098-9375) as the card's game header: Black on the
  *  left and White on the right, each a flat stone (the side to move full size, the other smaller,
- *  as Java draws it) with its 提子 beside it and its AI总评分 below; in the middle the rules caption
- *  (else the move number) after the engine dot and the komi under it. The small strip of 四方图 /
+ *  as Java draws it) with its 提子 beside it and its AI总评分 below; in the middle the engine dot
+ *  with the rules caption (else the move number) and the komi under it. The small strip of 四方图 /
  *  思考模式 has no capture counts. The dot shows pondering; stored analysis is independent of it.
- *  Text shrinks together until both sides and the middle fit the width. */
+ *  Text shrinks to fit, never under MIN_TEXT; a section too short or narrow for that drops rows
+ *  instead: first the second row (吻合度, 贴目; the small strip moves 吻合度 beside its stones
+ *  while that fits), then the caption (the dot stays). */
 export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedScene) {
   const { w, h } = r;
   if (w < 10 || h < 5) return;
@@ -2325,13 +2331,11 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
   const komi: Figure[] = [{ name: nameOf(t("Menu.komi")), value: javaDouble(s.komi) }];
   const moveNumber: Figure[] = [{ name: nameOf(t("BottomToolbar.move")), value: String(s.moveNumber) }];
   const STONE = 20;
-  // Stone row, 6 px, figure row; everything scales down together on a short or narrow strip.
-  let k = Math.max(0.3, Math.min(1, (h - 8) / (STONE + 6 + type.large * 1.35)));
   const sizes = (k: number): HeaderSizes => ({
     stone: STONE * k,
-    label: Math.max(7, type.label * k),
-    body: Math.max(7, type.body * k),
-    large: Math.max(7, type.large * k),
+    label: Math.max(MIN_TEXT, type.label * k),
+    body: Math.max(MIN_TEXT, type.body * k),
+    large: Math.max(MIN_TEXT, type.large * k),
     gap: 8 * k,
     dot: Math.max(3, 6 * k),
   });
@@ -2340,19 +2344,47 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
     g.font = `${z.body}px ${family}`;
     return g.measureText(s.rules).width;
   };
-  const needed = (z: HeaderSizes) => {
-    const sideW = (f: { top: Figure[]; bottom: Figure[] }) =>
-      Math.max(z.stone + (f.top.length ? z.gap + figuresWidth(g, f.top, z.label, z.large, family) : 0), figuresWidth(g, f.bottom, z.label, z.large, family));
-    const middle = Math.max(z.dot + 5 * k + captionWidth(z), figuresWidth(g, komi, z.label, z.body, family));
-    return 2 * Math.max(sideW(black), sideW(white)) + middle + 2 * 12;
+  // The layouts from the fullest: both rows, then one row with and without the caption.
+  const tops: [Figure[], Figure[]] = [black.top, white.top];
+  const plans = [
+    { twoRows: true, caption: true, top: tops },
+    ...(s.small
+      ? [
+          { twoRows: false, caption: true, top: [black.bottom, white.bottom] as [Figure[], Figure[]] },
+          { twoRows: false, caption: true, top: tops },
+          { twoRows: false, caption: false, top: tops },
+        ]
+      : [
+          { twoRows: false, caption: true, top: tops },
+          { twoRows: false, caption: false, top: tops },
+        ]),
+  ];
+  const layout = (plan: (typeof plans)[number]) => {
+    // Stone row, 6 px, figure row (or the stone row alone); the scale follows the height.
+    let k = Math.max(0.3, Math.min(1, plan.twoRows ? (h - 8) / (STONE + 6 + type.large * 1.35) : (h - 4) / STONE));
+    const needed = (z: HeaderSizes) => {
+      const sideW = (top: Figure[], bottom: Figure[]) =>
+        Math.max(z.stone + (top.length ? z.gap + figuresWidth(g, top, z.label, z.large, family) : 0), plan.twoRows ? figuresWidth(g, bottom, z.label, z.large, family) : 0);
+      const middle = Math.max(z.dot + (plan.caption ? 5 * k + captionWidth(z) : 0), plan.twoRows ? figuresWidth(g, komi, z.label, z.body, family) : 0);
+      return 2 * Math.max(sideW(plan.top[0], black.bottom), sideW(plan.top[1], white.bottom)) + middle + 2 * 12;
+    };
+    for (let n = 0; n < 4 && needed(sizes(k)) > room; n++) k = Math.max(0.3, k * (room / needed(sizes(k))));
+    const z = sizes(k);
+    const tall = plan.twoRows ? z.stone + 6 * k + Math.round(z.large * 1.35) : Math.max(z.stone, Math.round(z.large * 1.2));
+    return { k, z, fits: needed(z) <= room && tall <= h - 2 };
   };
-  for (let n = 0; n < 4 && needed(sizes(k)) > room; n++) k *= room / needed(sizes(k));
-  const z = sizes(k);
+  let plan = plans[plans.length - 1];
+  let { k, z } = layout(plan);
+  for (const candidate of plans) {
+    const laid = layout(candidate);
+    if (!laid.fits) continue;
+    [plan, k, z] = [candidate, laid.k, laid.z];
+    break;
+  }
   const lineB = Math.round(z.large * 1.35);
-  const top = Math.max(0, (h - (z.stone + 6 * k + lineB)) / 2);
-  const rowA = top + z.stone / 2;
+  const rowA = plan.twoRows ? Math.max(0, (h - (z.stone + 6 * k + lineB)) / 2) + z.stone / 2 : h / 2;
   const baseA = Math.round(rowA + z.large * 0.36);
-  const baseB = Math.round(top + z.stone + 6 * k + lineB / 2 + z.large * 0.36);
+  const baseB = Math.round(rowA + z.stone / 2 + 6 * k + lineB / 2 + z.large * 0.36);
   const stone = (cx: number, toPlay: boolean, fill: string, edge: string) => {
     const d = toPlay ? z.stone : z.stone * 0.75;
     g.fillStyle = fill;
@@ -2365,13 +2397,17 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
   };
   stone(pad + z.stone / 2, s.toPlay === "Black", p.stoneBlack, p.stoneBlackEdge);
   stone(w - pad - z.stone / 2, s.toPlay === "White", p.stoneWhite, p.stoneWhiteEdge);
-  drawFigures(g, black.top, pad + z.stone + z.gap, baseA, z.label, z.large, family, p);
-  drawFigures(g, white.top, w - pad - z.stone - z.gap - figuresWidth(g, white.top, z.label, z.large, family), baseA, z.label, z.large, family, p);
-  drawFigures(g, black.bottom, pad, baseB, z.label, z.large, family, p);
-  drawFigures(g, white.bottom, w - pad - figuresWidth(g, white.bottom, z.label, z.large, family), baseB, z.label, z.large, family, p);
-  // The middle: the dot and the caption, the komi below.
-  const start = i(w / 2 - (z.dot + 5 * k + captionWidth(z)) / 2);
+  drawFigures(g, plan.top[0], pad + z.stone + z.gap, baseA, z.label, z.large, family, p);
+  drawFigures(g, plan.top[1], w - pad - z.stone - z.gap - figuresWidth(g, plan.top[1], z.label, z.large, family), baseA, z.label, z.large, family, p);
+  if (plan.twoRows) {
+    drawFigures(g, black.bottom, pad, baseB, z.label, z.large, family, p);
+    drawFigures(g, white.bottom, w - pad - figuresWidth(g, white.bottom, z.label, z.large, family), baseB, z.label, z.large, family, p);
+    drawFigures(g, komi, i(w / 2 - figuresWidth(g, komi, z.label, z.body, family) / 2), baseB, z.label, z.body, family, p);
+  }
+  // The middle: the dot and the caption.
+  const start = i(w / 2 - (z.dot + (plan.caption ? 5 * k + captionWidth(z) : 0)) / 2);
   engineDot(g, start + z.dot / 2, rowA, z.dot, s.analysing, p);
+  if (!plan.caption) return;
   const captionBase = Math.round(rowA + z.body * 0.36);
   if (s.rules) {
     g.font = `${z.body}px ${family}`;
@@ -2380,7 +2416,6 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
     g.textBaseline = "alphabetic";
     g.fillText(s.rules, start + z.dot + 5 * k, captionBase);
   } else drawFigures(g, moveNumber, start + z.dot + 5 * k, captionBase, z.label, z.body, family, p);
-  drawFigures(g, komi, i(w / 2 - figuresWidth(g, komi, z.label, z.body, family) / 2), baseB, z.label, z.body, family, p);
 }
 
 /** What the statistics panel shows, from core projections only. */
@@ -2454,27 +2489,36 @@ export function paintStat(g: CanvasRenderingContext2D, r: Rect, s: StatScene): S
       last.push({ name: "", value: `${javaSigned(s.scoreChange)}${t("LizzieFrame.pts")}`, ...(s.scoreChange < 0 ? { color: p.loss } : {}) });
   }
   const moveNumber: Figure[] = [{ name: nameOf(t("BottomToolbar.move")), value: String(s.moveNumber) }];
-  // Headline row, 6 px, the bar, 8 px (the change marker), the note row; all scale on a short panel.
-  const k = Math.max(0.3, Math.min(1, (h - 6) / (type.headline * 1.25 + 6 + 10 + 8 + type.body * 1.4)));
-  const headline = Math.max(8, type.headline * k);
-  const label = Math.max(7, type.label * k);
-  const body = Math.max(7, type.body * k);
-  const barH = Math.max(4, Math.round(10 * k));
-  const rowH1 = Math.round(headline * 1.25);
-  const rowH3 = Math.round(body * 1.4);
-  const total = rowH1 + 6 * k + barH + 8 * k + rowH3;
+  // Headline row, 6 px, the bar, 8 px (the change marker), the note row; the scale follows the
+  // height, text never under MIN_TEXT. Without room for the note row at that size (height, or
+  // width for the lead and the last move side by side) the row is left out, and the percentages
+  // and the bar take the height with room for the change marker under the bar.
+  const rows = (note: boolean) => {
+    const k = Math.max(0.3, Math.min(1, note ? (h - 6) / (type.headline * 1.25 + 6 + 10 + 8 + type.body * 1.4) : (h - 4) / (type.headline * 1.25 + 6 + 10 + 6)));
+    const headline = Math.max(MIN_TEXT, type.headline * k);
+    const label = Math.max(MIN_TEXT, type.label * k);
+    const body = Math.max(MIN_TEXT, type.body * k);
+    const barH = Math.max(4, Math.round(10 * k));
+    const rowH1 = Math.round(headline * 1.25);
+    const rowH3 = note ? Math.round(body * 1.4) : 0;
+    const total = rowH1 + 6 * k + barH + (note ? 8 * k + rowH3 : 6);
+    return { k, headline, label, body, barH, rowH1, rowH3, total };
+  };
+  let z = rows(true);
+  const notesW = figuresWidth(g, lead, z.label, z.body, family) + figuresWidth(g, last, z.label, z.body, family) + (lead.length ? 12 : 0);
+  const note = z.total <= h - 2 && notesW <= room;
+  if (!note) z = rows(false);
+  const { k, headline, label, body, barH, rowH1, rowH3, total } = z;
   const top = Math.max(0, (h - total) / 2);
   const base1 = Math.round(top + rowH1 / 2 + headline * 0.36);
   const barY = Math.round(top + rowH1 + 6 * k);
   const base3 = Math.round(barY + barH + 8 * k + rowH3 / 2 + body * 0.36);
 
-  // The note row: the lead at the left, the last move at the right, shrunk together to fit.
-  const leadW = figuresWidth(g, lead, label, body, family);
-  const lastW = figuresWidth(g, last, label, body, family);
-  const fit = Math.min(1, (room - (lead.length ? 12 : 0)) / Math.max(1, leadW + lastW));
-  const [label3, body3] = [Math.max(6, label * fit), Math.max(6, body * fit)];
-  drawFigures(g, lead, pad, base3, label3, body3, family, p);
-  drawFigures(g, last, w - pad - figuresWidth(g, last, label3, body3, family), base3, label3, body3, family, p);
+  // The note row: the lead at the left, the last move at the right.
+  if (note) {
+    drawFigures(g, lead, pad, base3, label, body, family, p);
+    drawFigures(g, last, w - pad - figuresWidth(g, last, label, body, family), base3, label, body, family, p);
+  }
 
   const moveW = figuresWidth(g, moveNumber, label, body, family);
   const centreMove = (ends: number) => {
