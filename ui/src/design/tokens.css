@@ -1,7 +1,9 @@
 /* Design tokens: the only place interface colours, type and metrics are named. Light is the
-   default; theme.ts sets data-theme from the appearance mode. Board, stone and analysis-mark
-   colours belong to the board theme, not to these tokens. */
-:root {
+   default; theme.ts sets data-theme on the root from the appearance mode, and any element may
+   carry data-theme to fix its subtree to one theme. Board, stone and analysis-mark colours belong
+   to the board theme, not to these tokens. */
+:root,
+[data-theme="light"] {
   color-scheme: light;
 
   /* Surfaces, from the window frame inwards. */
@@ -46,12 +48,16 @@
   --ds-success-text: #1b7a36;
   --ds-success-soft: #e4f5e8;
 
-  /* Shape and depth. */
+  /* Depth. */
+  --ds-shadow-pop: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 6px 20px -4px rgba(0, 0, 0, 0.22);
+  --ds-shadow-dialog: 0 0 0 1px rgba(0, 0, 0, 0.1), 0 18px 48px -8px rgba(0, 0, 0, 0.32);
+}
+
+:root {
+  /* Shape. */
   --ds-radius-s: 4px;
   --ds-radius: 6px;
   --ds-radius-l: 10px;
-  --ds-shadow-pop: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 6px 20px -4px rgba(0, 0, 0, 0.22);
-  --ds-shadow-dialog: 0 0 0 1px rgba(0, 0, 0, 0.1), 0 18px 48px -8px rgba(0, 0, 0, 0.32);
 
   /* Type. The size follows 界面字体大小 (set once per session by the appearance module). */
   --ds-font: system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -66,7 +72,7 @@
   --ds-bar-h: 38px; /* window bar */
 }
 
-:root[data-theme="dark"] {
+[data-theme="dark"] {
   color-scheme: dark;
 
   --ds-chrome: #2b2b2e;
