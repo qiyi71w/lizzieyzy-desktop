@@ -96,7 +96,7 @@ function graphTheme() {
   const p = stagePalette();
   const th = appearance()?.theme;
   const comment = th?.commentBackgroundColor ?? THEME_DEFAULT.commentBackground;
-  const background = p.flat && sameRgba(comment, THEME_DEFAULT.commentBackground) ? rgbaOf(p.panel) : graphBackground(comment);
+  const background = p.builtin && sameRgba(comment, THEME_DEFAULT.commentBackground) ? rgbaOf(p.panel) : graphBackground(comment);
   const line = themeColor(th?.winrateLineColor, THEME_DEFAULT.winrateLine, p.winrateLine);
   const score = themeColor(th?.scoremeanLineColor, THEME_DEFAULT.scoreLine, p.scoreLine);
   return {
@@ -129,7 +129,7 @@ interface MarkerColors {
  *  marker colour, flat, separated from the curves by a ring of the graph's ground (`ground`); on
  *  the wallpaper Java's red and green with their light halos. */
 function markerColors(p: StagePalette, ground: string): { move: MarkerColors; score: MarkerColors } {
-  if (p.flat)
+  if (p.builtin)
     return {
       move: { fill: p.accent, border: p.accent, halo: ground },
       score: { fill: p.graphScoreMarker, border: p.graphScoreMarker, halo: ground },
@@ -331,7 +331,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     g.textAlign = "left";
     g.textBaseline = "alphabetic";
     // The flat stage's panel edge: 1px, square, inside the panel.
-    if (p.flat && W0 >= 2 && H0 >= 2) {
+    if (p.builtin && W0 >= 2 && H0 >= 2) {
       g.strokeStyle = p.line;
       g.lineWidth = 1;
       g.strokeRect(0.5, 0.5, W0 - 1, H0 - 1);
@@ -408,15 +408,15 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   const paintBaseline = (w: number) => {
     if (!baselineActive) return;
     background.push(() => {
-      line(g, posx, baselineY, posx + w, baselineY, p.graphBaseline, p.flat ? 1 : 1.5, false);
+      line(g, posx, baselineY, posx + w, baselineY, p.graphBaseline, p.builtin ? 1 : 1.5, false);
       if (!chip || !chipBox) return;
       g.font = plain(11);
       const fm = metrics(g);
-      g.fillStyle = p.flat ? p.sunken : "rgba(0,0,0,0.667)";
+      g.fillStyle = p.builtin ? p.sunken : "rgba(0,0,0,0.667)";
       g.beginPath();
       g.roundRect(chipBox.x, chipBox.y, chipBox.w, chipBox.h, 3);
       g.fill();
-      g.fillStyle = p.flat ? p.text2 : rgba([236, 232, 224], 230);
+      g.fillStyle = p.builtin ? p.text2 : rgba([236, 232, 224], 230);
       g.fillText(chip, chipBox.x + 4, chipBox.y + fm.ascent + 1);
     });
   };
@@ -751,15 +751,15 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
       const boxX = W0 - boxW - 6;
       const boxY = 4;
       // Flat: a square panel-coloured box with a 1px edge; the wallpaper keeps Java's dark box.
-      g.fillStyle = p.flat ? p.panel : "rgba(0,0,0,0.588)";
+      g.fillStyle = p.builtin ? p.panel : "rgba(0,0,0,0.588)";
       g.beginPath();
-      g.roundRect(boxX, boxY, boxW, boxH, p.flat ? 0 : 4);
+      g.roundRect(boxX, boxY, boxW, boxH, p.builtin ? 0 : 4);
       g.fill();
-      g.strokeStyle = p.flat ? p.line : "rgba(255,255,255,0.098)";
+      g.strokeStyle = p.builtin ? p.line : "rgba(255,255,255,0.098)";
       g.lineWidth = 1;
-      g.setLineDash(p.flat ? [] : [4, 4]);
+      g.setLineDash(p.builtin ? [] : [4, 4]);
       g.beginPath();
-      g.roundRect(boxX + 0.5, boxY + 0.5, boxW, boxH, p.flat ? 0 : 4);
+      g.roundRect(boxX + 0.5, boxY + 0.5, boxW, boxH, p.builtin ? 0 : 4);
       g.stroke();
       g.setLineDash([]);
       const textY = boxY + 3 + fm.ascent;

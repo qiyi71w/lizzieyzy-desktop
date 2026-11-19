@@ -445,7 +445,7 @@ function liquidEffects(g: CanvasRenderingContext2D, r: Rect) {
  * Painted once per size into a detached canvas and returned as a PNG blob: a live full-window canvas
  * layer would be recomposited every frame by WebKitGTK. */
 export function paintBackground(w: number, h: number, glass: Rect[]): Promise<Blob | null> {
-  if (stagePalette().flat) return Promise.resolve(null);
+  const builtin = stagePalette().builtin;
   const canvas = document.createElement("canvas");
   const g = prepare(canvas, { x: 0, y: 0, w, h });
   if (look.pureBackground && !builtin) {
@@ -2115,7 +2115,7 @@ function panelGround(g: CanvasRenderingContext2D, w: number, h: number, p: Stage
 
 /** On the flat stage a panel is a flat region with a 1px square edge just inside its rect. */
 function panelEdge(g: CanvasRenderingContext2D, w: number, h: number, p: StagePalette) {
-  if (!p.flat || w < 2 || h < 2) return;
+  if (!p.builtin || w < 2 || h < 2) return;
   g.strokeStyle = p.line;
   g.lineWidth = 1;
   g.setLineDash([]);
@@ -2220,8 +2220,8 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
     circle(g, x, y, d / 2 - 0.5);
     g.stroke();
   };
-  oval(p.stoneBlack, p.flat && p.stoneBlackEdge !== p.stoneBlack ? p.stoneBlackEdge : null, i(width / 4), bd);
-  oval(p.stoneWhite, p.flat ? p.lineStrong : null, i((width * 3) / 4), wd);
+  oval(p.stoneBlack, p.builtin && p.stoneBlackEdge !== p.stoneBlack ? p.stoneBlackEdge : null, i(width / 4), bd);
+  oval(p.stoneWhite, p.builtin ? p.lineStrong : null, i((width * 3) / 4), wd);
   const statusDiam = i(height / 4) < 10 ? i(height / 4) : 10;
   g.fillStyle = s.analysing ? p.live : p.idle;
   circle(g, i(width / 2) - 1 - i(statusDiam / 2) + statusDiam / 2, i((height * 7) / 26) + i((diam - statusDiam) / 2) + statusDiam / 2, statusDiam / 2);
@@ -2300,7 +2300,7 @@ export function paintStat(g: CanvasRenderingContext2D, r: Rect, s: StatScene): S
   if (w < 10 || h < 5) return report;
   const p = stagePalette();
   panelGround(g, w, h, p);
-  if (p.flat) panelEdge(g, w, h, p);
+  if (p.builtin) panelEdge(g, w, h, p);
   else {
     g.strokeStyle = p.line;
     g.lineWidth = 1;
@@ -2404,8 +2404,8 @@ export function paintStat(g: CanvasRenderingContext2D, r: Rect, s: StatScene): S
   const winB = `${s.black.toFixed(1)}%`, winW = `${(100 - s.black).toFixed(1)}%`;
   report.bar = { black: winB, white: winW };
   // The percentages sit above the bar, on the panel.
-  const figures = (str: string) => (p.flat ? tabularWidth(g, str) : textWidth(str));
-  const draw = (str: string, x: number) => (p.flat ? fillTabular(g, str, x, textY) : g.fillText(str, x, textY));
+  const figures = (str: string) => (p.builtin ? tabularWidth(g, str) : textWidth(str));
+  const draw = (str: string, x: number) => (p.builtin ? fillTabular(g, str, x, textY) : g.fillText(str, x, textY));
   g.fillStyle = p.text;
   draw(winB, bx + 4);
   const swW = figures(winW);
@@ -2429,7 +2429,7 @@ export function paintStat(g: CanvasRenderingContext2D, r: Rect, s: StatScene): S
   }
   g.stroke();
   g.setLineDash([]);
-  if (p.flat) {
+  if (p.builtin) {
     g.strokeStyle = p.lineStrong;
     g.strokeRect(bx + 0.5, barY + 0.5, barW + barWW - 1, barH - 1);
   }
@@ -2444,7 +2444,7 @@ export function paintPlayStat(g: CanvasRenderingContext2D, r: Rect, clock: strin
   if (w < 10 || h < 5) return;
   const p = stagePalette();
   panelGround(g, w, h, p);
-  if (p.flat) panelEdge(g, w, h, p);
+  if (p.builtin) panelEdge(g, w, h, p);
   else {
     g.strokeStyle = p.line;
     g.lineWidth = 1;
@@ -2483,7 +2483,7 @@ export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[
   const fonts = lines.map((_, k) => `${k === 0 ? "600 " : ""}${size}px ${family}`);
   g.textBaseline = "middle";
   g.textAlign = "left";
-  if (!p.flat) {
+  if (!p.builtin) {
     let widest = 0;
     lines.forEach((s, k) => {
       g.font = fonts[k];
@@ -2494,7 +2494,7 @@ export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[
   }
   lines.forEach((s, k) => {
     g.font = fonts[k];
-    g.fillStyle = !p.flat ? "#fff" : k === 0 ? p.text : p.text2;
+    g.fillStyle = !p.builtin ? "#fff" : k === 0 ? p.text : p.text2;
     g.fillText(s, STATUS.left, top + k * lh + lh / 2);
   });
 }
@@ -2653,7 +2653,7 @@ function walkTree(
       disc(fill, DOT);
       if (dim) disc(p.treeDim, commented ? RING : DOT);
       if (n !== current) return;
-      if (p.flat) {
+      if (p.builtin) {
         // The current node: an accent ring around the node, its colour left readable.
         g.strokeStyle = p.accent;
         g.lineWidth = 2;
@@ -2699,11 +2699,11 @@ function walkTree(
         ops.push((g) => {
           g.fillStyle = line.has(start) ? p.treeNode : p.treeLineOff;
           g.fillRect(x, posy, DOT, DOT);
-          g.strokeStyle = p.flat ? p.lineStrong : "#000";
+          g.strokeStyle = p.builtin ? p.lineStrong : "#000";
           g.lineWidth = 1;
           g.strokeRect(x - 0.5, posy - 0.5, DOT + 1, DOT + 1);
           if (start === current) {
-            g.fillStyle = p.flat ? p.accent : "rgb(255,0,0)";
+            g.fillStyle = p.builtin ? p.accent : "rgb(255,0,0)";
             g.fillRect(x + 2, posy + 2, DOT - 4, DOT - 4);
           }
         });
@@ -2797,9 +2797,9 @@ export function paintTree(
   // sunken track and buttons with drawn arrows and a neutral thumb.
   const button = (x: number, y: number, horiz: boolean, forward: boolean, image: string) => {
     const [bw, bh] = horiz ? [ARROW, SCROLLBAR] : [SCROLLBAR, ARROW];
-    g.fillStyle = p.flat ? p.sunken : "rgb(238,238,238)";
+    g.fillStyle = p.builtin ? p.sunken : "rgb(238,238,238)";
     g.fillRect(x, y, bw, bh);
-    if (!p.flat) {
+    if (!p.builtin) {
       if (images[image]?.naturalWidth) g.drawImage(images[image], x + (horiz ? (forward ? 2 : 1) : 0), y + (horiz ? 0 : forward ? 2 : 1));
       return;
     }
@@ -2818,8 +2818,8 @@ export function paintTree(
     g.closePath();
     g.fill();
   };
-  const track = p.flat ? p.sunken : "#000";
-  const thumb = p.flat ? p.scrollThumb : "rgba(230,230,250,0.7)";
+  const track = p.builtin ? p.sunken : "#000";
+  const thumb = p.builtin ? p.scrollThumb : "rgba(230,230,250,0.7)";
   if (vertical) {
     const sx = w - SCROLLBAR;
     button(sx, 0, false, false, "smallUp.png");
