@@ -393,14 +393,8 @@ impl Workbench {
         if config.ui.extra_mode.hides_comment() {
             config.panels.show_comment = false;
         }
-        let mut persisted: Persisted = settings::load_json(&storage.persist_file);
+        let persisted: Persisted = settings::load_json(&storage.persist_file);
         let active_language = config.ui.language.resolve(system_locale);
-        // LizzieFrame.java:946-950: the obsolete detailed toolbar is Chinese-only.
-        if !matches!(active_language, Language::ZhCn | Language::ZhTw)
-            && persisted.bottom_toolbar == crate::settings::BottomToolbar::Detailed
-        {
-            persisted.bottom_toolbar = crate::settings::BottomToolbar::Simple;
-        }
         let active_frame_font_size = config.appearance.frame_font_size;
         let appearance_theme = crate::appearance::load_theme(&storage, &config.appearance.theme, &config.appearance_defaults);
         let mut engines = Engines::new(launcher, engine_roots);
@@ -1291,7 +1285,6 @@ impl Workbench {
                 panel_sizes: self.persisted.panel_sizes,
                 bottom_toolbar: self.persisted.bottom_toolbar,
                 bottom_buttons: self.config.bottom_buttons,
-                detail_panel_order: self.persisted.detail_panel_order,
                 comment_panel_auto_hidden: self.config.ui.extra_mode.hides_comment(),
                 custom_layouts: self.config.custom_layouts.clone(),
                 independent_main_board: self.persisted.independent_main_board,

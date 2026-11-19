@@ -1,6 +1,7 @@
 // Java main-window menu bar, in Menu.java add() order: fixed Java
 // wimi321/lizzieyzy-next cb53acc55eda42c6c671b5f668cd3b597456bf07, src/main/java/featurecat/lizzie/gui/Menu.java.
-// 显示 > 外观主题 > 外观模式 is this product's own submenu. `key` is the DisplayStrings resource key,
+// 显示 > 外观主题 > 外观模式 is this product's own submenu, and this product leaves out 底部工具栏's
+// 详细工具栏(过时的)(仅中文) submenu. `key` is the DisplayStrings resource key,
 // this product's resource key (i18n/productStrings.json), or literal text where Java uses literal
 // text; `id` the Java action id (AutoAnalyzeMenu.ACTION_PROPERTY / FunctionCatalog), or a product
 // id for an item Java gave none whose key another item shares (工具栏's 显示 / 不显示). Which
@@ -383,28 +384,6 @@ export const JAVA_MENUS: TopMenu[] = [
         "t": "check",
         "key": "Menu.inVisible",
         "id": "menu.bottomToolBar.invisible"
-       },
-       {
-        "t": "submenu",
-        "key": "详细工具栏(过时的)(仅中文)",
-        "when": "chinese",
-        "items": [
-         {
-          "t": "check",
-          "key": "使用详细工具栏",
-          "id": "toolbar.detailed"
-         },
-         {
-          "t": "check",
-          "key": "显示拓展/隐藏详细工具栏按钮",
-          "id": "menu.showDetailedToolbarMenu"
-         },
-         {
-          "t": "item",
-          "key": "设置模块顺序",
-          "id": "menu.detailedToolbarOrder"
-         }
-        ]
        },
        {
         "t": "sep"

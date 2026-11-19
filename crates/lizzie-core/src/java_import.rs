@@ -329,8 +329,6 @@ pub struct Mapped {
     pub top_auto_wrap: Option<bool>,
     /// 底部工具栏 自定义内容, as (BottomButtonSettings field, value).
     pub bottom_buttons: Vec<(&'static str, bool)>,
-    /// 详细工具栏 设置模块顺序 (`toolbar-parameter` 32–34): 自动分析, 引擎对战, 自动播放.
-    pub detail_panel_order: [Option<u8>; 3],
     /// 抓取死活题 参数设置.
     pub capture_black_offset: Option<i32>,
     pub capture_black_percent: Option<i32>,
@@ -1424,7 +1422,7 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
     ("ui", "show-goban-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_board_size = Some(v))),
     ("ui", "show-saveload-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_save_load = Some(v))),
     ("ui", "auto-wrap-tool-bar", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_auto_wrap = Some(v))),
-    // 底部工具栏 自定义内容 (Menu.java:4896-5156) and 显示拓展/隐藏详细工具栏按钮 (4593-4604).
+    // 底部工具栏 自定义内容 (Menu.java:4896-5156).
     ("ui", "liveButton", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("live", v)))),
     ("ui", "kataEstimate", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("kataEstimate", v)))),
     ("ui", "batchOpen", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("batchOpen", v)))),
@@ -1445,7 +1443,6 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
     ("ui", "move", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("moveNumbers", v)))),
     ("ui", "coords", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("coords", v)))),
     ("ui", "autoPlay", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("autoPlay", v)))),
-    ("ui", "show-detailed-toolbar-menu", ImportTarget::BottomButtons, Kind::Bool(|m, v| m.bottom_buttons.push(("detailButton", v)))),
     ("ui", "capture-black-offset", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_black_offset = Some(v))),
     ("ui", "capture-black-percent", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_black_percent = Some(v))),
     ("ui", "capture-white-offset", ImportTarget::CaptureTsumego, Kind::I32(|m, v| m.capture_white_offset = Some(v))),
@@ -1683,6 +1680,9 @@ const JAVA_UNUSED: &[&str] = &[
     "ui.use-java-looks",
     // Morandi palette; not carried over by approved decision (外观模式 replaces Java's palettes).
     "ui.use-morandi-colors",
+    // 显示拓展/隐藏详细工具栏按钮; not carried over by approved decision (this product leaves out
+    // the 详细工具栏).
+    "ui.show-detailed-toolbar-menu",
 ];
 
 /// Java's own bookkeeping, not settings: one-time migration markers, first-start and machine
@@ -3150,11 +3150,12 @@ impl Reader<'_> {
                     }
                     ("ui-persist", "main-window-other") => {
                         // LizzieFrame.java:946-950 reads exactly five entries, first is the toolbar.
+                        // This product leaves out the 详细工具栏: 70 is the shown toolbar, as Java
+                        // reads it outside the Chinese interface (LizzieFrame.java:974).
                         match v.as_array().filter(|a| a.len() == 5).and_then(|a| as_i64(&a[0])) {
                             Some(height) => {
                                 self.mapped.bottom_toolbar = Some(match height {
                                     0 => crate::settings::BottomToolbar::Hidden,
-                                    70 => crate::settings::BottomToolbar::Detailed,
                                     _ => crate::settings::BottomToolbar::Simple,
                                 });
                                 self.imported(format!("{name}[0]"), ImportTarget::BottomToolbar, height.to_string());
@@ -3237,20 +3238,12 @@ impl Reader<'_> {
                             }
                             None => self.invalid(format!("{name}[39]"), ImportTarget::Suggestions, raw),
                         }
-                        // 32–34 place the three 详细工具栏 panels (ToolbarPositionConfig writes the
-                        // combo index, 0–2). 50 is the flag of the 左移/右移 buttons, which are
-                        // never shown and never read: no longer used.
-                        for (slot, index) in [32, 33, 34].into_iter().enumerate() {
-                            let raw = &values[index];
-                            match as_i64(raw).filter(|n| (0..=2).contains(n)) {
-                                Some(n) => {
-                                    self.mapped.detail_panel_order[slot] = Some(n as u8);
-                                    self.imported(format!("{name}[{index}]"), ImportTarget::DetailPanelOrder, n.to_string());
-                                }
-                                None => self.invalid(format!("{name}[{index}]"), ImportTarget::DetailPanelOrder, raw),
-                            }
+                        // 32–34 place the three 详细工具栏 panels (ToolbarPositionConfig), which this
+                        // product leaves out by approved decision. 50 is the flag of the 左移/右移
+                        // buttons, which are never shown and never read. Neither is carried over.
+                        for index in [32, 33, 34, 50] {
+                            self.obsolete(format!("{name}[{index}]"));
                         }
-                        self.obsolete(format!("{name}[50]"));
                     }
                     // Window bounds and the tables' column pixels follow Java's own scaling,
                     // fonts and layout.
@@ -3846,10 +3839,6 @@ impl Mapped {
         if let Some(toolbar) = self.bottom_toolbar {
             p.bottom_toolbar = toolbar;
         }
-        let order = &mut p.detail_panel_order;
-        for (place, value) in [&mut order.auto_analysis, &mut order.engine_match, &mut order.auto_play].into_iter().zip(self.detail_panel_order) {
-            if let Some(v) = value { *place = v; }
-        }
         let mut autoplay = serde_json::to_value(p.autoplay).expect("settings serialize");
         for value in &self.autoplay { value.set(&mut autoplay); }
         p.autoplay = serde_json::from_value(autoplay).expect("typed imported autoplay values");
@@ -3895,12 +3884,6 @@ impl Mapped {
         }
         if self.bottom_toolbar.is_some_and(|v| v != persisted.bottom_toolbar) {
             out.push(ImportTarget::BottomToolbar);
-        }
-        let order = persisted.detail_panel_order;
-        if [order.auto_analysis, order.engine_match, order.auto_play].into_iter().zip(self.detail_panel_order)
-            .any(|(old, new)| new.is_some_and(|v| v != old))
-        {
-            out.push(ImportTarget::DetailPanelOrder);
         }
         if let Ok(current) = serde_json::to_value(persisted.autoplay) {
             if self.autoplay.iter().any(|v| v.current(&current).is_none_or(|c| c != v.value)) {

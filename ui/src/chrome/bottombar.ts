@@ -2,8 +2,8 @@
 // (5209-5235), placed by layoutMainBar (5237-5320); 自定义内容 (chrome/bottomButtons.ts) decides which
 // are shown. Buttons that do not fit go to 更多. Navigation, the move field, the record-editing and
 // board display buttons are implemented here; the other buttons report that the capability is not
-// available yet. 工具栏 > 底部工具栏 hides the bar or adds the 详细工具栏 panels below it
-// (bottomDetail.ts); the mode is the core's window presentation setting.
+// available yet. 工具栏 > 底部工具栏 shows or hides the bar; the mode is the core's window
+// presentation setting. This product leaves out Java's 详细工具栏.
 import { navigate, run, state, subscribe, unavailable } from "../app";
 import { COMMANDS } from "../commands";
 import { toggleCoordinates, toggleMoveNumbers, toggleMoveRank } from "../display/commands";
@@ -19,8 +19,7 @@ import { AUTO_ANALYSIS_MENU } from "../quick/autoAnalysis";
 import { LIVE_MENU } from "../online/commands";
 import type { MenuNode } from "./javaMenus";
 import { locatePopupItem, openPopupMenu } from "./menubar";
-import { buildBottomDetail, layoutBottomDetail } from "./bottomDetail";
-import { bottomButtonShown, detailButtonShown, type BottomButton } from "./bottomButtons";
+import { bottomButtonShown, type BottomButton } from "./bottomButtons";
 import { icon, type IconName } from "../design/icons";
 
 interface Item {
@@ -184,9 +183,6 @@ export function locateHiddenButton(id: string): boolean {
   return locatePopupItem(more, moreItems([item]), moreId(item));
 }
 
-let detailButton: HTMLElement;
-let detailIcon: SVGSVGElement;
-
 const elements = new Map<Item, HTMLElement>();
 const widths = new Map<Item, number>();
 
@@ -223,25 +219,7 @@ function swapIcon(current: SVGSVGElement, name: IconName): SVGSVGElement {
   return next;
 }
 
-/** detail (BottomToolbar.java:815-822, 1374-1385): an up chevron while the 详细工具栏 is
- *  collapsed, a down chevron while it is open; a click opens or collapses it, without the menu
- *  item's question. */
-function buildDetailButton(host: HTMLElement): void {
-  detailButton = document.createElement("span");
-  detailButton.className = "bb detail";
-  detailButton.dataset.name = "detail";
-  detailButton.setAttribute("role", "button");
-  detailIcon = icon("chevron-up");
-  detailButton.append(detailIcon);
-  detailButton.onclick = () => {
-    const mode = state.view?.settings.bottom_toolbar === "Detailed" ? "Simple" : "Detailed";
-    void run({ type: "SetBottomToolbar", mode });
-  };
-  host.append(detailButton);
-}
-
 export function buildBottomBar(host: HTMLElement): void {
-  buildDetailButton(host);
   for (const item of [...ITEMS, MORE]) {
     if (item.name === "txtMoveNumber") {
       moveInput = document.createElement("input");
@@ -289,7 +267,6 @@ export function buildBottomBar(host: HTMLElement): void {
     host.append(b);
   }
   measure(host);
-  buildBottomDetail(host);
   let lastAnalysis = false;
   let lastTrying = false;
   const tryPlay = elements.get(GROUPS.rightPrimary.find((item) => item.name === "tryPlay")!)!;
@@ -298,7 +275,7 @@ export function buildBottomBar(host: HTMLElement): void {
   let lastMode = "";
   subscribe(() => {
     const v = state.view;
-    // 显示 / 不显示 / 使用详细工具栏 (Menu.java:4532-4591): the bar's height 26, 0 or the panels'.
+    // 显示 / 不显示 (Menu.java:4532-4551).
     const mode = v?.settings.bottom_toolbar ?? "Simple";
     if (mode !== lastMode) {
       lastMode = mode;
@@ -320,10 +297,8 @@ export function buildBottomBar(host: HTMLElement): void {
       measure(host);
       layoutBottomBar(host);
     }
-    // reSetButtonLocation after a 自定义内容 check, an engine change, the 详细工具栏 button or
-    // 设置模块顺序.
-    const order = v?.settings.detail_panel_order;
-    const shown = [...ITEMS.map((item) => visible(item)), detailButtonShown(), order?.autoAnalysis, order?.engineMatch, order?.autoPlay].join();
+    // reSetButtonLocation after a 自定义内容 check or an engine change.
+    const shown = ITEMS.map((item) => visible(item)).join();
     if (shown !== lastShown) {
       lastShown = shown;
       layoutBottomBar(host);
@@ -336,20 +311,13 @@ function visible(item: Item): boolean {
   return (!item.setting || bottomButtonShown(item.setting)) && (item.shown?.() ?? true);
 }
 
-/** layoutMainBar: left groups greedy from the left (after the 详细工具栏 button), navigation centred
- *  between them, right groups from the right (optional ones overflow first); overflowed buttons go
- *  to "更多", which reserves its width in a second pass. */
+/** layoutMainBar: left groups greedy from the left, navigation centred between them, right groups
+ *  from the right (optional ones overflow first); overflowed buttons go to "更多", which reserves
+ *  its width in a second pass. */
 export function layoutBottomBar(host: HTMLElement): void {
-  const expanded = state.view?.settings.bottom_toolbar === "Detailed";
-  const height = layoutBottomDetail(host, expanded);
-  if (host.style.height !== `${height}px`) host.style.height = `${height}px`;
   const W = host.clientWidth;
   const PAD = 10;
   const GAP = 6;
-  const detail = detailButtonShown();
-  detailButton.style.display = detail ? "" : "none";
-  detailIcon = swapIcon(detailIcon, expanded ? "chevron-down" : "chevron-up");
-  const leftStart = PAD + (detail ? 32 : 0);
   const width = (item: Item) => widths.get(item) ?? 52;
   const span = (items: Item[]) => items.reduce((s, e) => s + width(e), 0) + Math.max(0, items.length - 1) * GAP;
   const place = new Map<Item, number>();
@@ -365,10 +333,10 @@ export function layoutBottomBar(host: HTMLElement): void {
     place.clear();
     let overflow = false;
     const rightEdge = W - PAD - (reserve ? width(MORE) + GAP : 0);
-    const minStart = leftStart + span(g.leftPrimary) + GAP * 2;
+    const minStart = PAD + span(g.leftPrimary) + GAP * 2;
     const maxStart = rightEdge - span(g.rightPrimary) - centerWidth - GAP * 2;
-    const centerStart = Math.max(leftStart, Math.max(minStart, Math.min(Math.floor((W - centerWidth) / 2), maxStart)));
-    let x = leftStart;
+    const centerStart = Math.max(PAD, Math.max(minStart, Math.min(Math.floor((W - centerWidth) / 2), maxStart)));
+    let x = PAD;
     for (const b of [...g.leftPrimary, ...g.leftOptional]) {
       if (x + width(b) > centerStart - GAP) overflow = true;
       else {

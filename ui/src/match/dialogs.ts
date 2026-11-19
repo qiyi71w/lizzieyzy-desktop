@@ -1,5 +1,5 @@
-// 引擎对战 windows: 引擎对局 (NewEngineGameDialog.java), 引擎对局设置 (EnginePkConfig.java, from the
-// toolbar or from 更多设置), 人工干预 (Manual.java), 修改多盘引擎对局数 (Menu.java:3121-3147) and the
+// 引擎对战 windows: 引擎对局 (NewEngineGameDialog.java), 引擎对局设置 (EnginePkConfig.java, from
+// 更多设置), 人工干预 (Manual.java), 修改多盘引擎对局数 (Menu.java:3121-3147) and the
 // non-modal end messages (Utils.showMsgNoModal). Each holds a draft; committed values come from
 // the settings view and every change is one Match command. Rust owns the match.
 import { run, state, subscribe } from "../app";
@@ -12,7 +12,7 @@ import { composeMatchRules } from "../engine/rules";
 import { plainJava } from "../engine/tuningText";
 import { product, t } from "../i18n";
 import { javaDouble } from "../workbench/paint";
-import { engineIdentity as identity, matchActive, matchValues, setEngineMatchChecked } from "./state";
+import { engineIdentity as identity, matchValues } from "./state";
 import { endHumanSlFirst, registerHumanSlContinuation } from "../humansl/state";
 import "./match.css";
 
@@ -113,7 +113,7 @@ function engineItems(): string[] {
 }
 
 /** The toolbar values the dialog edits in place (Java hosts the toolbar's own components). */
-export interface SharedFields {
+interface SharedFields {
   black: HTMLSelectElement;
   white: HTMLSelectElement;
   timeOn: HTMLInputElement;
@@ -131,7 +131,7 @@ export interface SharedFields {
 }
 
 /** The session values of the toolbar fields over the saved ones. */
-export function sharedSession(f: SharedFields, base: MatchSessionSettings): MatchSessionSettings {
+function sharedSession(f: SharedFields, base: MatchSessionSettings): MatchSessionSettings {
   return {
     ...base,
     timeEnabled: f.timeOn.checked,
@@ -226,7 +226,6 @@ export async function openEngineGameDialog(): Promise<void> {
   if (v.game) await run({ type: "Game", op: { type: "End" } });
   const m = (state.view ?? v).settings.matches;
   dialogOpen = true;
-  setEngineMatchChecked(true);
   const items = engineItems();
   const black = select(items, m.first_engine, "match.engineBlack");
   const white = select(items, m.second_engine, "match.engineWhite");
@@ -306,7 +305,7 @@ export async function openEngineGameDialog(): Promise<void> {
   const body = el("div", "match-dialog");
   const main = el("div", "match-scroll");
   main.append(section(engines), resignSection, section(game), section(ponder.wrap, wrn.wrap));
-  const more = button(t("NewEngineGameDialog.btnConfig"), () => void openEnginePkConfig(false).then(modeChanged));
+  const more = button(t("NewEngineGameDialog.btnConfig"), () => void openEnginePkConfig().then(modeChanged));
   more.dataset.key = "match.moreSettings";
   const ok = button(t("NewEngineGameDialog.okButton"), () => void apply());
   ok.dataset.key = "match-dialog-ok";
@@ -376,7 +375,6 @@ export async function openEngineGameDialog(): Promise<void> {
 
   // pendingEngineGameStart: accepted, waiting for the first move; closing it stops the start.
   let pending = false;
-  let started = false;
   /** The accepted start has shown its match, so its disappearing means the start failed. */
   let seen = false;
   const dialog = formPanel(t("NewEngineGameDialog.title"), body, async () => {
@@ -392,7 +390,6 @@ export async function openEngineGameDialog(): Promise<void> {
     const phase = state.view?.engine_match?.phase;
     if (phase === "Playing" || phase === "Paused") {
       pending = false;
-      started = true;
       void dialog.close();
     } else if (phase) seen = true;
     else if (seen) {
@@ -447,7 +444,6 @@ export async function openEngineGameDialog(): Promise<void> {
       secondTimeCommand: secondMode === "RawAdvanced" ? advW.value.trim() : base.secondTimeCommand,
     };
     ok.disabled = true;
-    setEngineMatchChecked(true);
     const r = await match({ type: "Start", settings, session: sharedSession(f, now.session), first_engine: black.selectedIndex, second_engine: white.selectedIndex, disable_wrn: wrn.box.checked });
     if (r && r.type !== "Refused") {
       pending = true;
@@ -455,15 +451,12 @@ export async function openEngineGameDialog(): Promise<void> {
       const phase = state.view?.engine_match?.phase;
       if (phase === "Playing" || phase === "Paused") {
         pending = false;
-        started = true;
         await dialog.close();
       }
     } else ok.disabled = false;
   }
   await dialog.closed;
   dialogOpen = false;
-  // A cancelled dialog unchecks 引擎对战 (and with it the toolbar's engine boxes).
-  if (!started && !matchActive()) setEngineMatchChecked(false);
 }
 
 // The dialog an AI 陪练 exit opens afterwards (deferUntilHumanSlExit(this::startEngineGameDialog)).
@@ -492,9 +485,9 @@ function resignRows(cfg: MatchSettings) {
   };
 }
 
-/** EnginePkConfig: from the toolbar (允许后台计算 and 认输预置 shown) or from 更多设置 (neither).
- *  Resolves when it closes. */
-export async function openEnginePkConfig(fromToolbar: boolean): Promise<void> {
+/** EnginePkConfig as 更多设置 opens it (without 允许后台计算 and 认输预置, which the 引擎对局 dialog
+ *  shows). Resolves when it closes. */
+async function openEnginePkConfig(): Promise<void> {
   const v = state.view;
   if (!v) return;
   const m = v.settings.matches;
@@ -505,8 +498,6 @@ export async function openEnginePkConfig(fromToolbar: boolean): Promise<void> {
   const about = button("?", () => void message(t("LizzieFrame.aboutAnalyzeGenmoveInfoTitle"), plainJava(t("LizzieFrame.aboutAnalyzeGenmoveInfo"))));
   about.className = "match-help";
   about.dataset.key = "match.modeHelp";
-  const ponder = check(cfg.ponder, "match.configPonder", t("NewEngineGameDialog.checkBoxAllowPonder"));
-  ponder.box.onchange = () => void run(matchValues({ settings: { ponder: ponder.box.checked } }));
   const exchange = check(s.exchangeColors, "match.exchange", t("EnginePkConfig.chkExchange"));
   const maxOn = check(s.maxMovesEnabled, "match.maxMovesOn", t("EnginePkConfig.lblGameMAX"));
   const maxMoves = field(String(s.maxMoves), "match.maxMoves", "int", 72);
@@ -520,17 +511,14 @@ export async function openEnginePkConfig(fromToolbar: boolean): Promise<void> {
   const randomDiff = field(javaDouble(s.randomWinrateDiff), "match.randomWinrate", "double", 64);
   const visitsOn = check(cfg.checkRandomVisits, "match.randomVisitsOn", t("EnginePkConfig.chkRandomMoveVists"));
   const visitsPercent = field(javaDouble(cfg.randomVisitsPercent), "match.randomVisits", "double", 72);
-  const resign = resignRows(cfg);
   const current = radio("match-bestmoves", !cfg.showPreviousBestmoves, "match.currentMove", t("EnginePkConfig.rdoCurrentMove"));
   const previous = radio("match-bestmoves", cfg.showPreviousBestmoves, "match.lastMove", t("EnginePkConfig.rdoLastMove"));
   const onlyFirst = check(cfg.previousBestmoveOnly, "match.onlyFirstMove", t("EnginePkConfig.chkPreviousBestmovesOnlyFirstMove"));
   const hint = el("div", "match-hint", t("EnginePkConfig.textAreaHint"));
 
   const percent = () => el("span", "", "%");
-  const modeRows: HTMLElement[] = [inline(genmove.wrap, analysis.wrap, about)];
-  if (fromToolbar) modeRows.push(ponder.wrap);
   const sections = [
-    section(...modeRows),
+    section(inline(genmove.wrap, analysis.wrap, about)),
     section(
       inline(exchange.wrap, maxOn.wrap, maxMoves),
       inline(autoSave.wrap, saveWinrate.wrap),
@@ -541,13 +529,13 @@ export async function openEnginePkConfig(fromToolbar: boolean): Promise<void> {
       inline(randomOn.wrap, randomMoves, el("span", "", t("EnginePkConfig.lblRandomWinrate")), randomDiff, percent()),
       inline(visitsOn.wrap, visitsPercent, percent()),
     ),
+    section(inline(el("span", "", t("EnginePkConfig.lblChooseBestMoves")), current.wrap, previous.wrap), onlyFirst.wrap),
+    section(hint),
   ];
-  if (fromToolbar) sections.push(section(resign.rows));
-  sections.push(section(inline(el("span", "", t("EnginePkConfig.lblChooseBestMoves")), current.wrap, previous.wrap), onlyFirst.wrap), section(hint));
-  // setTextEnable: Genmove模式 disables 认输预置 and 随机落子.
+  // setTextEnable: Genmove模式 disables 随机落子.
   const textEnable = () => {
     const on = analysis.box.checked;
-    for (const control of [...resign.fields, randomOn.box, randomMoves, randomDiff, visitsOn.box, visitsPercent]) control.disabled = !on;
+    for (const control of [randomOn.box, randomMoves, randomDiff, visitsOn.box, visitsPercent]) control.disabled = !on;
   };
   genmove.box.onchange = analysis.box.onchange = textEnable;
   textEnable();
@@ -566,7 +554,7 @@ export async function openEnginePkConfig(fromToolbar: boolean): Promise<void> {
   bar.append(el("span", "match-fill"), cancel, ok);
   body.append(main, bar);
   const dialog = formPanel(t("EnginePkConfig.title"), body);
-  body.closest<HTMLElement>(".modal-box")?.classList.add("match-dialog-box", fromToolbar ? "match-config-toolbar" : "match-config");
+  body.closest<HTMLElement>(".modal-box")?.classList.add("match-dialog-box", "match-config");
 
   /** applyChange: each number field keeps its value when it does not parse. */
   async function apply(): Promise<void> {
@@ -576,7 +564,6 @@ export async function openEnginePkConfig(fromToolbar: boolean): Promise<void> {
     const session = now.session;
     const r = await run(matchValues({
       settings: {
-        ...resign.read(base),
         showPreviousBestmoves: previous.box.checked,
         previousBestmoveOnly: onlyFirst.box.checked,
         checkRandomVisits: visitsOn.box.checked,

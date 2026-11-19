@@ -1524,10 +1524,6 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().set_bottom_buttons(settings)?;
             Ok(changed(&app, &shared, done))
         }
-        Command::SetDetailPanelOrder { order } => {
-            let done = shared.workbench.lock().unwrap().set_detail_panel_order(order)?;
-            Ok(changed(&app, &shared, done))
-        }
         Command::ExportTable { rows } => export_table(&app, rows).await,
     }
 }

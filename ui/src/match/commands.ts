@@ -1,6 +1,6 @@
 // 引擎对战 entries of the command catalog (Menu.java 对局 menu 2979-2990 and 3097-3159, the double
-// menu's 新对局 popup 9109-9135, Input.java Alt+E, the detailed toolbar's 引擎对战 panel and
-// FunctionCatalog legacy.engine-game-pause), and the match's one-shot messages and 胜率图 request.
+// menu's 新对局 popup 9109-9135 and Input.java Alt+E), and the match's one-shot messages and 胜率图
+// request.
 // Rust owns the match; this module sends Match commands and shows its view.
 import { registerViewHandler, run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
@@ -16,29 +16,12 @@ function match(op: MatchCommand) {
 }
 
 /** EngineGameDesktop.stop / togglePause: nothing without a match. */
-export function stopMatch(): void {
+function stopMatch(): void {
   if (matchActive()) void match({ type: "Stop" });
 }
 
-export function toggleMatchPause(): void {
+function toggleMatchPause(): void {
   if (matchActive()) void match({ type: "Pause" });
-}
-
-/** BottomToolbar.startEngineGame (4198-4226): corrupt saved 本局规则 is reported and, like rules
- *  never chosen, opens the 引擎对局 dialog instead of starting. */
-export async function startFromToolbar(): Promise<void> {
-  const m = state.view?.settings.matches;
-  if (!m) return;
-  if (m.rules_corrupt) {
-    await message(t("Message.title"), t("NewEngineGameDialog.matchRulesCorrupt"));
-    await openEngineGameDialog();
-    return;
-  }
-  if (m.settings.rules.trim() === "") {
-    await openEngineGameDialog();
-    return;
-  }
-  await match({ type: "StartToolbar" });
 }
 
 Object.assign(COMMANDS, {
@@ -47,8 +30,6 @@ Object.assign(COMMANDS, {
   "menu.pauseEngineGame": { run: toggleMatchPause },
   "menu.changeEngineGameNumbers": { run: () => void reviseBatchLimit() },
   "menu.intervention": { run: openManual },
-  // FunctionCatalog ACTION: the toolbar's 暂停/继续.
-  "legacy.engine-game-pause": { run: toggleMatchPause },
 } satisfies Record<string, CommandEntry>);
 
 /** Input.keyPressed VK_E with Alt: LizzieFrame.startEngineGameDialog. True when handled. */

@@ -1119,11 +1119,7 @@ function render() {
   relayFrame(v);
   relayHawkeye(v);
   relayCommentary(v);
-  if (changed("bottombar", `${$("bottombar").clientWidth}`)) {
-    layoutBottomBar($("bottombar"));
-    // 详细工具栏 wraps its panels by width: a new height resizes the workbench.
-    if (main.clientHeight !== H) schedule();
-  }
+  if (changed("bottombar", `${$("bottombar").clientWidth}`)) layoutBottomBar($("bottombar"));
   renderToolbar();
   const title = workbenchTitle(v, version, historyByNode, state.nodes.get(pos.node)?.parent ?? undefined);
   if (changed("title", title)) setWindowTitle(title);

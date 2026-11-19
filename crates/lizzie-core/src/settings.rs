@@ -568,9 +568,9 @@ impl GameSettings {
     }
 }
 
-/// The bottom detailed toolbar's 自动落子 group (Java `persistedUi.toolbar-parameter` 9–16): which
-/// sides the engine plays and when it plays. A value ≤ 0 is an empty field. The 自动落子 box itself
-/// is session state.
+/// 自动落子's sides and conditions (Java keeps them in its detailed toolbar's fields,
+/// `persistedUi.toolbar-parameter` 9–16): which sides the engine plays and when it plays. A value
+/// ≤ 0 is an empty field. Whether 自动落子 is on is session state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AutoPlaySettings {
@@ -1177,9 +1177,8 @@ impl Default for TopToolbarSettings {
 }
 
 /// 显示 > 工具栏 > 底部工具栏 > 自定义内容 (`Menu.customToolbarItem`, Menu.java:4896-5156): which
-/// buttons the bottom toolbar shows (`BottomToolbar.setButtonVisiable`, 4659-4705), and the
-/// 详细工具栏 expand button (Menu.java:4593-4604). Each check writes at once; Java defaults
-/// (Config.java:1909-1936) in brackets.
+/// buttons the bottom toolbar shows (`BottomToolbar.setButtonVisiable`, 4659-4705). Each check
+/// writes at once; Java defaults (Config.java:1909-1936) in brackets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
 pub struct BottomButtonSettings {
@@ -1224,9 +1223,6 @@ pub struct BottomButtonSettings {
     pub coords: bool,
     /// 自动播放 (`ui.autoPlay` [true]).
     pub auto_play: bool,
-    /// The ▴/▾ button that expands or collapses the 详细工具栏, Chinese interface only
-    /// (`ui.show-detailed-toolbar-menu` [false]).
-    pub detail_button: bool,
 }
 
 impl Default for BottomButtonSettings {
@@ -1252,24 +1248,7 @@ impl Default for BottomButtonSettings {
             move_numbers: true,
             coords: true,
             auto_play: true,
-            detail_button: false,
         }
-    }
-}
-
-/// 详细工具栏 设置模块顺序 (`ToolbarPositionConfig`; Java `persistedUi.toolbar-parameter` 32–34):
-/// each panel's place, 0–2. Panels with equal places keep 自动分析, 引擎对战, 自动播放 order.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(default, rename_all = "camelCase")]
-pub struct DetailPanelOrder {
-    pub auto_analysis: u8,
-    pub engine_match: u8,
-    pub auto_play: u8,
-}
-
-impl Default for DetailPanelOrder {
-    fn default() -> Self {
-        Self { auto_analysis: 0, engine_match: 1, auto_play: 2 }
     }
 }
 
@@ -1294,13 +1273,15 @@ impl Default for PanelSizes {
     }
 }
 
-/// `main-window-other[0]`: Java toolbar heights 0, 26 and 70 (`Menu.java:4532-4588`).
+/// `main-window-other[0]`: Java toolbar heights 0 and 26 (`Menu.java:4532-4551`). This product
+/// leaves out Java's 详细工具栏 (height 70); a saved `Detailed` reads as the shown toolbar, as Java
+/// itself reads 70 outside the Chinese interface (LizzieFrame.java:974).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum BottomToolbar {
     Hidden,
     #[default]
+    #[serde(alias = "Detailed")]
     Simple,
-    Detailed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -1830,7 +1811,7 @@ pub struct Config {
     pub panels: PanelSettings,
     /// The top toolbar's groups (自定义内容) and 自动换行.
     pub top_toolbar: TopToolbarSettings,
-    /// The bottom toolbar's buttons (自定义内容) and its 详细工具栏 button.
+    /// The bottom toolbar's buttons (自定义内容).
     pub bottom_buttons: BottomButtonSettings,
     pub appearance: crate::appearance::AppearanceSettings,
     /// Default theme edits live in config; named themes have their own theme.txt.
@@ -2025,12 +2006,11 @@ pub struct Persisted {
     pub hawkeye: Option<HawkeyePlacement>,
     pub panel_sizes: PanelSizes,
     pub bottom_toolbar: BottomToolbar,
-    /// The 详细工具栏 panels' places (设置模块顺序).
-    pub detail_panel_order: DetailPanelOrder,
     /// Independent boards use physical outer-window bounds (Java's four-element arrays).
     pub independent_main_board: Option<WindowPlacement>,
     pub independent_sub_board: Option<WindowPlacement>,
-    /// The bottom detailed toolbar's 自动落子 sides and conditions.
+    /// 自动落子's sides and conditions: the 落子条件 a 分析模式 人机对局 starts with (Java keeps them
+    /// in its toolbar's fields, `toolbar-parameter` 9–16).
     pub autoplay: AutoPlaySettings,
     /// Java toolbar-parameter's engine-match values (not the folder/start-number session fields).
     #[serde(serialize_with = "matches::serialize_toolbar", deserialize_with = "matches::deserialize_toolbar")]

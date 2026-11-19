@@ -2,7 +2,6 @@
    border, 12 px between sections) above the button bar. */
 .match-dialog-box { width: min(720px, 94vw); }
 .match-dialog { font: 12px Arial, "Microsoft YaHei", sans-serif; display: flex; flex-direction: column; max-height: min(560px, 86vh); }
-.match-config-toolbar .match-dialog { max-height: min(650px, 86vh); }
 .match-config .match-dialog { max-height: min(590px, 86vh); }
 .match-scroll { overflow-y: auto; overflow-x: hidden; padding: 16px 18px 12px; display: flex; flex-direction: column; gap: 12px; }
 .match-section { border: 1px solid rgb(220, 224, 230); padding: 12px; display: flex; flex-direction: column; gap: 8px; }

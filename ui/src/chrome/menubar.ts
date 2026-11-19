@@ -18,8 +18,6 @@ function visible(when: string | undefined): boolean {
   switch (when) {
     case undefined:
       return true;
-    case "chinese":
-      return isChinese();
     case "windows":
       return navigator.userAgent.includes("Windows");
     // Config.useJavaLooks defaults to !OS.isWindows() (Config.java:1647).

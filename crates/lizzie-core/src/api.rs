@@ -658,13 +658,9 @@ pub enum Command {
     SetTopToolbarSettings {
         settings: crate::settings::TopToolbarSettings,
     },
-    /// 自定义内容 of the bottom toolbar (its buttons) and the 详细工具栏 button.
+    /// 自定义内容 of the bottom toolbar (its buttons).
     SetBottomButtons {
         settings: crate::settings::BottomButtonSettings,
-    },
-    /// 详细工具栏 > 设置模块顺序 确认.
-    SetDetailPanelOrder {
-        order: crate::settings::DetailPanelOrder,
     },
 }
 
@@ -1273,10 +1269,8 @@ pub struct SettingsView {
     pub top_toolbar: crate::settings::TopToolbarSettings,
     pub panel_sizes: crate::settings::PanelSizes,
     pub bottom_toolbar: crate::settings::BottomToolbar,
-    /// The bottom toolbar's buttons (自定义内容) and 详细工具栏 button.
+    /// The bottom toolbar's buttons (自定义内容).
     pub bottom_buttons: crate::settings::BottomButtonSettings,
-    /// The 详细工具栏 panels' places (设置模块顺序).
-    pub detail_panel_order: crate::settings::DetailPanelOrder,
     pub comment_panel_auto_hidden: bool,
     pub custom_layouts: [Option<crate::settings::CustomLayout>; 2],
     pub independent_main_board: Option<crate::settings::WindowPlacement>,
@@ -1962,10 +1956,8 @@ pub enum ImportTarget {
     /// 底部工具栏 自定义内容: `ui.liveButton`, `kataEstimate`, `batchOpen`, `openfile`, `savefile`,
     /// `finalScore`, `heatMap`, `badMoves`, `analyze-list`, `refresh`, `analyse`, `tryPlay`,
     /// `setMain`, `backMain`, `clearButton`, `deleteMove`, `move-rank`, `move`, `coords`,
-    /// `autoPlay`, `show-detailed-toolbar-menu`.
+    /// `autoPlay`.
     BottomButtons,
-    /// 详细工具栏 设置模块顺序: `persist:ui-persist.toolbar-parameter` slots 32–34.
-    DetailPanelOrder,
     /// 问题手: `ui.is-showing-blunder-table`, `problem-list-side-filter`, `problem-list-sort`,
     /// `problem-list-winrate-threshold`, `blunder-playouts-threshold`,
     /// `hide-blunder-table-control-pane`.

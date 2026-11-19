@@ -278,20 +278,6 @@ export function autoplayReport() {
   };
 }
 
-/** The detailed bottom toolbar's 自动播放(大)(秒) box (chkAutoMain, BottomToolbar.java:1849-1856)
- *  and its txtAutoMain / txtAutoSub fields, which the players read at every step. */
-export const toolbarAutoplay = {
-  mainRunning: (): boolean => main.running,
-  setMain(on: boolean): void {
-    if (on) startMain();
-    else stopMain();
-  },
-  interval: (kind: "main" | "sub"): number => intervals[kind],
-  setInterval(kind: "main" | "sub", value: number): void {
-    intervals[kind] = value;
-  },
-};
-
 // ------------------------------------------------------------------ 设置自动播放
 
 function choice(panel: HTMLElement, text: string, checked: boolean, x: number, y: number, w: number, h: number): HTMLInputElement {
@@ -317,7 +303,7 @@ function parseJavaDouble(text: string): number {
   return /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?[dDfF]?$/.test(s) ? Number.parseFloat(s) : Number.NaN;
 }
 
-/** A saved interval as the toolbar field shows it: empty while none was entered. */
+/** A saved interval as its field shows it: empty while none was entered. */
 function intervalText(v: number): string {
   return v === -1 ? "" : String(v);
 }

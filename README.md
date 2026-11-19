@@ -559,9 +559,10 @@ importing the matching LizzieYzy Next settings.
   限制: 时间 / 计算 fields, 分析: 黑 / 白 and 选点 胜率 / 计算量 / 目数 to the row. The limit
   fields write 综合设置's analysis limits on every edit (digits only; an empty field keeps the
   value); the 选点 boxes are 显示 > 推荐点's win rate / visits / score items. Function search shows
-  a hidden group for the current run without saving it. 底部工具栏 is 显示, 不显示 or (Chinese
-  interface) 使用详细工具栏, which adds
-  Java's 自动分析, 自动播放, 自动落子 and 引擎对战 panels under the bar. Its 自定义内容 items show or
+  a hidden group for the current run without saving it. 底部工具栏 is 显示 or 不显示; Java's obsolete
+  Chinese-only 详细工具栏 is left out (its controls are in the top and bottom toolbars and the
+  自动分析, 自动播放, 人机对局 and 引擎对局 dialogs), and a Java profile that used it imports as 显示.
+  Its 自定义内容 items show or
   hide each bottom-bar button, as in Java: 同步, Kata形势 (with a KataGo engine), 自动分析, 纯网络,
   分析, 设为主分支, 清空棋盘, 删除, 手数, 坐标 and 自动播放 (on by default), 打开, 保存, 终局点目,
   选点列表, 刷新, 试下, 返回主分支 and 落子评价 (off by default), and 超级鹰眼 (off by default only when
@@ -570,15 +571,11 @@ importing the matching LizzieYzy Next settings.
   go to 更多, whose popup runs them. 打开 / 保存 act as 文件 > 打开 / 保存 (保存 overwrites the
   record's own file, otherwise asks for a name), 选点列表 as `U`, 落子评价 as `Alt+M`, 终局点目 as
   `Ctrl+Q`, and 刷新 lets the current move's stored result give way and searches the move again
-  while analysing. In the Chinese interface, 详细工具栏(过时的) > 显示拓展/隐藏详细工具栏按钮 adds a
-  button at the left of the bar that opens or closes the detailed panels without asking, and
-  设置模块顺序 places the three panels (1–3, saved with the window placement and taken over from
-  Java's `toolbar-parameter`). Function search locates a bottom button that is switched off or
-  does not fit in the 更多 popup, without changing the saved choice, and opens the detailed
-  toolbar for its controls. `Shift+X` and 设置 > 综合设置
+  while analysing. Function search locates a bottom button that is switched off or does not fit in
+  the 更多 popup, without changing the saved choice. `Shift+X` and 设置 > 综合设置
   open 综合设置 at 棋盘与显示, whose 启动时加载 rows
   (窗口总在最前, 显示快速启动, 显示状态面板, 显示小棋盘, 窗口标题显示胜率) apply with 保存设置. Panel
-  sizes, the bottom toolbar mode and the panel order are window placement (`persist.json`),
+  sizes and the bottom toolbar mode are window placement (`persist.json`),
   cleared by 重置界面位置. While 综合设置 is open, however it was opened, no engine analyses; when
   the dialog closes (保存设置 or 取消) analysis goes on as before: a game, an engine match or
   自动分析 continues, and analysis the user paused stays paused.
@@ -1001,13 +998,13 @@ importing the matching LizzieYzy Next settings.
   that count only when its unrelated `check-random-visits` option is on), and 接着当前局面下 keeps
   the setup stones (`AB`/`AW`/`AE`) and side to play (`PL`) set between moves on the way to the
   current position (Java replayed only the moves, so the game could start from another position).
-- 引擎对战 (棋局 > 新对局 > 引擎对局, `Alt+E`, the detailed toolbar's 引擎对战 panel): two different
+- 引擎对战 (棋局 > 新对局 > 引擎对局, `Alt+E`): two different
   engines of the engine list play each other in Java's Genmove模式 (the engines' own `genmove`
   with per-side 每手用时 (sent to the 自建算力 engine as KataGo's per-move `maxTime`), the
   engine's own time or a raw GTP time command) or 分析模式 (the mover's
   analysis plays when its time, total or first-candidate visits are reached, with per-side
-  resignation thresholds and 随机落子). The dialog, 引擎对局设置 (from the dialog or the panel's 设置),
-  the panel, 人工干预 (立即落子, 允许人工落子, 黑认输, 白认输), 终止 / 暂停继续引擎对局 and
+  resignation thresholds and 随机落子). The dialog, 引擎对局设置 (from the dialog's 更多设置),
+  人工干预 (立即落子, 允许人工落子, 黑认输, 白认输), 终止 / 暂停继续引擎对局 and
   修改多盘引擎对局数 follow Java, including 本局规则 (verified on KataGo with `kata-get-rules`; an
   engine that cannot confirm them asks for consent), komi, handicap (on a 19×19 board only; when
   the black engine's board is another size the game starts without handicap), 多盘对局 with
