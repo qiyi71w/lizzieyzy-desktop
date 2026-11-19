@@ -750,16 +750,22 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   const legend: [string, string][] = [];
   if (winrateRenderable) legend.push([t("WinrateGraph.legendWinrate"), LINE]);
   if (scoreRenderable) legend.push([t("WinrateGraph.legendScoreLead"), SCORE]);
-  if (W0 >= 240 && legend.length) {
+  g.font = plain(type - 1);
+  const legendMetrics = metrics(g);
+  const legendWidths = legend.map(([label]) => stringWidth(g, label));
+  const boxW = legendWidths.reduce((sum, w) => sum + 12 + 5 + w + 12, 0) - 12 + 12;
+  const boxH = legendMetrics.ascent + legendMetrics.descent + 6;
+  const boxX = W0 - boxW - 6;
+  const boxY = 4;
+  // The values in figures come first: the legend is left out where one of them stands in its place
+  // (a short graph, or a current move at the top right).
+  const legendFree = !occupied.some((box) => intersects(box, { x: boxX, y: boxY, w: boxW, h: boxH }));
+  if (W0 >= 240 && legend.length && legendFree) {
     report.legend = legend.map(([label]) => label);
     legendOps.push(() => {
       g.font = plain(type - 1);
-      const fm = metrics(g);
-      const widths = legend.map(([label]) => stringWidth(g, label));
-      const boxW = widths.reduce((sum, w) => sum + 12 + 5 + w + 12, 0) - 12 + 12;
-      const boxH = fm.ascent + fm.descent + 6;
-      const boxX = W0 - boxW - 6;
-      const boxY = 4;
+      const fm = legendMetrics;
+      const widths = legendWidths;
       g.fillStyle = theme.ground;
       g.beginPath();
       g.roundRect(boxX, boxY, boxW, boxH, 4);
