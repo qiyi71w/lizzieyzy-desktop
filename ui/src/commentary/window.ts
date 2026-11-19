@@ -5,7 +5,7 @@
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { Command, CommentaryView, Mode } from "../contract/generated";
-import { format, isChinese, setLanguage, t } from "../i18n";
+import { format, setLanguage, t } from "../i18n";
 import { icon } from "./icons";
 import { markdownToHtml } from "./markdown";
 import {
@@ -305,7 +305,6 @@ export function bootCommentary(): void {
   function render(): void {
     if (!v) return;
     const c = v;
-    document.documentElement.lang = isChinese() ? "zh" : "en";
     for (const m of modeButtons) {
       const on = m.value === mode;
       m.b.classList.toggle("selected", on);

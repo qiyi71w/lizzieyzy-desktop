@@ -6,7 +6,7 @@ import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { appMenuKey } from "../appMenuKey";
 import type { Command, DisplaySettings, HawkeyePeriod, HawkeyeSettings, MoveEvaluation } from "../contract/generated";
-import { isChinese, setLanguage, t } from "../i18n";
+import { setLanguage, t } from "../i18n";
 import { bindColumnResize, layoutColumns } from "../analysis/suggestionsFrame";
 import { frameCoordinate, playouts } from "../workbench/paint";
 import { mountCharts, type ChartPanel } from "./charts";
@@ -646,7 +646,6 @@ export function bootHawkeye(): void {
     root.setProperty("--hk-ui-font", data.fonts.ui);
     root.setProperty("--hk-head-size", `${Math.max(data.frameFontSize, 13)}px`);
     root.setProperty("--hk-cell-size", `${Math.max(data.frameFontSize, 14)}px`);
-    document.documentElement.lang = isChinese() ? "zh" : "en";
     render();
   }).then(() => send({ type: "ready" }));
   window.addEventListener("resize", () => {

@@ -4,9 +4,9 @@
 // width per character and half the height.
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { UI_FONT } from "../hawkeye/model";
-import { isChinese, setLanguage, t } from "../i18n";
+import { setLanguage, t } from "../i18n";
 import { CONTROL_DATA_EVENT, CONTROL_INPUT_EVENT, type ControlButton, type ControlInput, type ControlPayload } from "./model";
+import "../design/window";
 import "./control.css";
 
 /** Java's buttons and texts in GridLayout order. Literal t() calls keep the keys in the Java string
@@ -23,7 +23,6 @@ const BUTTONS: [ControlButton, () => string][] = [
 ];
 
 export function bootControlPanel(): void {
-  document.body.style.fontFamily = UI_FONT;
   const send = (input: ControlInput) => void emitTo("main", CONTROL_INPUT_EVENT, input);
   const grid = document.createElement("div");
   grid.id = "cp-grid";
@@ -67,7 +66,6 @@ export function bootControlPanel(): void {
 
   const render = (p: ControlPayload) => {
     setLanguage(p.language);
-    document.documentElement.lang = isChinese() ? "zh" : "en";
     for (const { b, text } of buttons) b.textContent = text();
     fit();
   };

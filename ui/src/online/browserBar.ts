@@ -3,7 +3,7 @@
 // requests to the main window, which loads the page and starts or stops the follow.
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { UI_FONT } from "../hawkeye/model";
-import { isChinese, setLanguage, t } from "../i18n";
+import { setLanguage, t } from "../i18n";
 import { BAR_ADDRESS_EVENT, BAR_DATA_EVENT, BAR_INPUT_EVENT, type BarInput, type BarPayload } from "./model";
 import "./bar.css";
 
@@ -56,7 +56,6 @@ export function bootYikeBar(): void {
   address.addEventListener("input", () => send({ type: "report", address: address.value }));
 
   const labels = () => {
-    document.documentElement.lang = isChinese() ? "zh" : "en";
     load.textContent = t("LizzieFrame.onLoad");
     stop.textContent = t("LizzieFrame.stopSync");
   };

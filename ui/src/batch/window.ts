@@ -5,7 +5,7 @@ import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { BatchMove } from "../contract/generated";
 import { UI_FONT } from "../hawkeye/model";
-import { isChinese, setLanguage, t } from "../i18n";
+import { setLanguage, t } from "../i18n";
 import { BATCH_DATA_EVENT, BATCH_INPUT_EVENT, type BatchButton, type BatchInput, type BatchPayload, type BatchReport } from "./model";
 import "./batch.css";
 
@@ -80,7 +80,6 @@ export function bootBatchTable(): void {
 
   const render = (p: BatchPayload) => {
     setLanguage(p.language);
-    document.documentElement.lang = isChinese() ? "zh" : "en";
     // resetAnalysisMode: 暂停/继续 and 开始/结束 wait while a 批量精析 runs.
     const flash = p.running?.mode === "Flash";
     for (const [key, text] of BUTTONS) {

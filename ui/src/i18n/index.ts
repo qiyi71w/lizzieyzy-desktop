@@ -337,8 +337,14 @@ const PRODUCT: Record<string, Table> = {
 
 let lang: Exclude<Language, "System"> = "ZhCn";
 
+/** The document language of each interface language, so the system font picks that language's
+ *  glyphs (Chinese, Japanese and Korean share code points). */
+const DOCUMENT_LANGUAGE: Record<Exclude<Language, "System">, string> = { ZhCn: "zh-CN", ZhTw: "zh-TW", EnUs: "en", JaJp: "ja", KoKr: "ko", ThTh: "th" };
+
+/** Sets the language of the texts and of the document. */
 export function setLanguage(l: Language): void {
   lang = l === "System" ? "ZhCn" : l;
+  document.documentElement.lang = DOCUMENT_LANGUAGE[lang];
 }
 
 export function language(): Language {

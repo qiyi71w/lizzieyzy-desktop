@@ -7,7 +7,7 @@ import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { LiveCategory, LiveGameView } from "../contract/generated";
 import { UI_FONT } from "../hawkeye/model";
-import { isChinese, setLanguage, t } from "../i18n";
+import { setLanguage, t } from "../i18n";
 import { LIVE_DATA_EVENT, LIVE_INPUT_EVENT, type LiveInput, type LivePayload, type LiveReport } from "./model";
 import { onlineText } from "./text";
 import "./live.css";
@@ -254,7 +254,6 @@ export function bootYikeLive(): void {
     const first = payload === null;
     payload = p;
     setLanguage(p.language);
-    document.documentElement.lang = isChinese() ? "zh" : "en";
     document.title = t("YikeLiveDialog.title");
     categoryLabel.textContent = t("YikeLiveDialog.category");
     filterLabel.textContent = t("YikeLiveDialog.filter");
