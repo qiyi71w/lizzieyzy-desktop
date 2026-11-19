@@ -4,10 +4,11 @@
 // region in panel pixels and written opaque (TYPE_INT_RGB). The variation tree, the comment and the
 // candidate table are Swing components in Java, outside that image.
 import { run, state } from "../app";
-import type { CommandResult, SlotThumbnail } from "../contract/generated";
+import type { CommandResult, IndependentBoard, SlotThumbnail } from "../contract/generated";
 import { confirm, message } from "../dialogs";
 import { t } from "../i18n";
 import { captureIndependent, independentShown } from "../workbench/independent";
+import type { ScenePosition } from "../workbench/independentModel";
 import { boardGeom, type Panels, type Rect } from "../workbench/layout";
 
 export interface CaptureSurface {
@@ -64,41 +65,48 @@ async function capture(pick: (s: CaptureSurface) => Rect | null): Promise<string
   }
 }
 
+/** The floating window's picture with the position it was painted from; the window is
+ *  repainted first. */
+function independentPicture(board: IndependentBoard): Promise<SlotThumbnail | null> {
+  repaint();
+  return captureIndependent(board);
+}
+
 /** boardX, boardY, maxSize: the board square with coordinates and the player names; in 浮动棋盘模式
  *  the floating main board's window (saveMainBoardPicture, saveMainBoardToImageOri,
  *  copyMainBoard: getIndependMainBoardToClipboard). */
-export function captureMainBoard(): Promise<string | null> {
-  if (state.view?.settings.extra_mode === "FloatBoard") {
-    repaint();
-    return captureIndependent("Main");
-  }
+export async function captureMainBoard(): Promise<string | null> {
+  if (state.view?.settings.extra_mode === "FloatBoard") return (await independentPicture("Main"))?.png ?? null;
   return capture((s) => s.panels.board);
 }
 
-/** The main board picture of a 存档与读档 record with the position it shows (the view it was
- *  drawn from). When the view moved on while the picture was taken it is taken once more; the
- *  core stores it only with a record saved at that position. */
+/** The main board picture of a 存档与读档 record with the position it shows: the view it was
+ *  drawn from, or in 浮动棋盘模式 the scene the floating window painted. When the view no longer
+ *  shows that position it is taken once more; the core stores it only with a record saved at
+ *  that position. */
 export async function slotThumbnail(): Promise<SlotThumbnail | null> {
   let shot: SlotThumbnail | null = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     const v = state.view;
     if (!v) return null;
-    const shown = { document: v.document.id, revision: v.document.revision, node: v.position.node };
-    const png = await captureMainBoard();
-    shot = png === null ? null : { png, ...shown };
+    const shown: ScenePosition = { document: v.document.id, revision: v.document.revision, node: v.position.node };
+    if (v.settings.extra_mode === "FloatBoard") {
+      shot = await independentPicture("Main");
+    } else {
+      const png = await capture((s) => s.panels.board);
+      shot = png === null ? null : { png, ...shown };
+    }
+    const at = shot ?? shown;
     const now = state.view;
-    if (now && now.document.id === shown.document && now.document.revision === shown.revision && now.position.node === shown.node) break;
+    if (now && now.document.id === at.document && now.document.revision === at.revision && now.position.node === at.node) break;
   }
   return shot;
 }
 
 /** The floating sub board's window while it shows (getIndependSubBoardToClipboard), else the
  *  sub board panel. */
-function captureSubBoard(): Promise<string | null> {
-  if (independentShown("Sub")) {
-    repaint();
-    return captureIndependent("Sub");
-  }
+async function captureSubBoard(): Promise<string | null> {
+  if (independentShown("Sub")) return (await independentPicture("Sub"))?.png ?? null;
   return capture(subBoardRect);
 }
 

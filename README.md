@@ -99,7 +99,8 @@ importing the matching LizzieYzy Next settings.
   title shows the slot. With 自动存档 on (the default) the automatic slot is written every
   60 seconds and when the window closes; File > 强制退出 writes none. If the application ended
   without its exit save, the next start keeps the newest periodic save as the automatic slot.
-  In 浮动棋盘模式 the slot pictures show 浮动主棋盘. A slot keeps its picture only when the
+  In 浮动棋盘模式 the slot pictures show 浮动主棋盘, taken with the position that window painted
+  (not the one the main window showed when it asked). A slot keeps its picture only when the
   picture shows the position the record is saved at; a save whose picture cannot be taken, or
   whose position moved on meanwhile (stepping through moves in 浮动棋盘模式 while the automatic
   save runs), still writes the record, without a picture.
@@ -602,8 +603,9 @@ importing the matching LizzieYzy Next settings.
   确定 shows that mode's notice, saves nothing and keeps the dialog open with the edits; Java's
   dialog has no such check and saved every row. A field that is not a whole
   number shows 错误的输入格式 and keeps the dialog open (a time or visit field whose switch is off is
-  not checked); a time limit of 0 or less typed into the form is saved as 9999 minutes (a saved 0
-  left as shown stays 0, which means the same; Java rewrote it as 9999 minutes on every 确定), and
+  not checked); a time limit of 0 or less entered in the form, even a 0 cleared and typed again,
+  is saved as 9999 minutes as in Java (a saved 0 whose field is left untouched stays 0, which
+  means the same; Java rewrote it as 9999 minutes on every 确定), and
   negative candidate / variation limits as 0 (no limit). The language applies from the next start,
   without a restart notice, as in
   Java. Java's 界面样式 row (Swing look and feel) has no counterpart here, and the form does not open

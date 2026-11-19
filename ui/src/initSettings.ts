@@ -163,8 +163,11 @@ function openInitSettings(): void {
   showScore.checked = display.suggestionScore;
   limitVariation.value = String(analysis.limitBranchLength);
   limitSuggestion.value = String(analysis.limitMaxSuggestion);
-  const shownTime = String(analysis.maxAnalyzeTimeSeconds);
-  maxTime.value = shownTime;
+  maxTime.value = String(analysis.maxAnalyzeTimeSeconds);
+  // Whether the time field was given any input (typing, deleting, pasting) or 加载默认设置: only
+  // then is its text a limit the user chose, even when it reads as before.
+  let timeEdited = false;
+  maxTime.addEventListener("input", () => (timeEdited = true));
   maxPlayouts.value = String(analysis.limitPlayouts);
   limitTime.checked = analysis.limitTime;
   limitPlayout.checked = analysis.limitPlayout;
@@ -182,6 +185,7 @@ function openInitSettings(): void {
     limitTime.checked = true;
     maxTime.disabled = false;
     maxTime.value = "600";
+    timeEdited = true;
     limitPlayout.checked = false;
     maxPlayouts.disabled = true;
     maxPlayouts.value = "";
@@ -216,10 +220,11 @@ function openInitSettings(): void {
       await message(t("Message.title"), t("FirstUseSettings.confirmHint2"));
       return;
     }
-    // The time limit as saved stays when its field was not edited: a saved 0 (kept by the toolbar
-    // and 综合设置) is not an analysis change. A typed limit of 0 or less means 9999 minutes.
+    // The time limit as saved stays when its field was given no input: a saved 0 (kept by the
+    // toolbar and 综合设置) is not an analysis change. A limit of 0 or less entered in the field,
+    // even the same 0 typed again, means 9999 minutes (FirstUseSettings.java:656-658).
     const savedSeconds = now.settings.engine.analysis.maxAnalyzeTimeSeconds;
-    const seconds = time === null || maxTime.value === shownTime ? savedSeconds : time <= 0 ? UNLIMITED_SECONDS : time;
+    const seconds = time === null || !timeEdited ? savedSeconds : time <= 0 ? UNLIMITED_SECONDS : time;
     const nextDisplay: DisplaySettings = {
       ...now.settings.display,
       suggestionWinrate: showWinrate.checked,

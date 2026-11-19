@@ -3,7 +3,7 @@
 // board's candidate and branch length): it sends each window the scene to paint and applies the
 // pointer and key input the window reports. A window keeps only its own frame state (lock,
 // always-on-top, the press it is dragging the window with).
-import type { AppearanceSettings, IndependentBoard, Language, Point, ThemeSettings } from "../contract/generated";
+import type { AppearanceSettings, IndependentBoard, Language, Point, SlotThumbnail, ThemeSettings } from "../contract/generated";
 import type { BoardScene, SubBoardScene } from "./paint";
 
 /** Window labels (src-tauri INDEPENDENT_MAIN_WINDOW / INDEPENDENT_SUB_WINDOW). */
@@ -16,9 +16,14 @@ export const INDEPENDENT_INPUT_EVENT = "independent-board-input";
  *  getIndependSubBoardToClipboard); answered with the `picture` input carrying the same `id`. */
 export const INDEPENDENT_PICTURE_EVENT = "independent-board-picture";
 
+/** The view a scene was built from: the document, its revision and the shown node. */
+export type ScenePosition = Omit<SlotThumbnail, "png">;
+
 /** BoardScene over the wire: the kept-beyond-limit points as an array. */
 export type WireBoardScene = Omit<BoardScene, "unlimited"> & { unlimited: string[] };
 export type IndependentPayload = {
+  /** The position the scene shows; a picture answer reports the one it was painted from. */
+  shows: ScenePosition;
   language: Language;
   /** The committed appearance the window paints with (its board, stones and fonts). */
   appearance: AppearanceSettings;
@@ -77,6 +82,7 @@ export type IndependentInput = { board: IndependentBoard } & (
   | { type: "lock" }
   | { type: "top" }
   /** The answer to INDEPENDENT_PICTURE_EVENT: base64 PNG of the window's client area, opaque,
-   *  in CSS pixels; null when the window has nothing painted yet. */
-  | { type: "picture"; id: number; png: string | null }
+   *  in CSS pixels, labelled with the position of the scene painted into it; null when the
+   *  window has nothing painted yet. */
+  | { type: "picture"; id: number; picture: SlotThumbnail | null }
 );

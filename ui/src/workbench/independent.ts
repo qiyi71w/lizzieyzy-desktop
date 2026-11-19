@@ -8,7 +8,7 @@ import { emitTo, listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { run, state } from "../app";
 import { selecting } from "../analysis/region";
-import type { IndependentBoard, PanelSettings, WorkbenchView } from "../contract/generated";
+import type { IndependentBoard, PanelSettings, SlotThumbnail, WorkbenchView } from "../contract/generated";
 import { language, t } from "../i18n";
 import { INDEPENDENT_DATA_EVENT, INDEPENDENT_INPUT_EVENT, INDEPENDENT_LABELS, INDEPENDENT_PICTURE_EVENT, type IndependentInput, type IndependentPayload, type WireBoardScene } from "./independentModel";
 import type { SubBoardScene } from "./paint";
@@ -33,7 +33,7 @@ let repaint: () => void = () => {};
 /** Compound layout operations in progress: the windows follow only their final state. */
 let held = 0;
 /** Picture requests waiting for their window's answer, by request id. */
-const pictures = new Map<number, (png: string | null) => void>();
+const pictures = new Map<number, (picture: SlotThumbnail | null) => void>();
 let pictureId = 0;
 /** A window that does not answer (closing, not loaded) gives no picture. */
 const PICTURE_TIMEOUT_MS = 3000;
@@ -107,7 +107,10 @@ export function relayIndependent(v: WorkbenchView, scenes: IndependentScenes): v
       w.onTop = f.onTop;
       void WebviewWindow.getByLabel(INDEPENDENT_LABELS[board]).then((win) => win?.setAlwaysOnTop(f.onTop));
     }
-    const common = { language: language(), appearance: v.settings.appearance, theme: v.settings.theme, themeFilesRevision: v.settings.theme_files_revision, locked: f.locked, onTop: f.onTop };
+    const common = {
+      shows: { document: v.document.id, revision: v.document.revision, node: v.position.node },
+      language: language(), appearance: v.settings.appearance, theme: v.settings.theme, themeFilesRevision: v.settings.theme_files_revision, locked: f.locked, onTop: f.onTop,
+    };
     let payload: IndependentPayload;
     if (board === "Main") {
       if (!scenes.main) continue;
@@ -145,17 +148,19 @@ export async function focusIndependent(board: IndependentBoard): Promise<boolean
 }
 
 /** Base64 PNG of the floating window as painted (getIndependMainBoardToClipboard /
- *  getIndependSubBoardToClipboard), or null when it is not open or does not answer. The caller
- *  repaints first, so the window holds the current scene before the request reaches it: the
- *  request is sent once that scene has been delivered. */
-export function captureIndependent(board: IndependentBoard): Promise<string | null> {
+ *  getIndependSubBoardToClipboard) with the position of the scene the window painted it from,
+ *  or null when it is not open or does not answer. The caller repaints first, so the window
+ *  holds the current scene before the request reaches it: the request is sent once that scene
+ *  has been delivered. A scene sent after it may still arrive first; the label follows the
+ *  picture, not the main window's view. */
+export function captureIndependent(board: IndependentBoard): Promise<SlotThumbnail | null> {
   if (!windows[board].open) return Promise.resolve(null);
   const id = ++pictureId;
-  const { promise, resolve } = Promise.withResolvers<string | null>();
-  const done = (png: string | null) => {
+  const { promise, resolve } = Promise.withResolvers<SlotThumbnail | null>();
+  const done = (picture: SlotThumbnail | null) => {
     window.clearTimeout(timeout);
     pictures.delete(id);
-    resolve(png);
+    resolve(picture);
   };
   const timeout = window.setTimeout(() => done(null), PICTURE_TIMEOUT_MS);
   pictures.set(id, done);
@@ -187,7 +192,7 @@ export async function startIndependent(board: (input: IndependentInput) => void,
         void run({ type: "CloseIndependentBoard", board: input.board });
         break;
       case "picture":
-        pictures.get(input.id)?.(input.png);
+        pictures.get(input.id)?.(input.picture);
         return;
       case "lock": {
         const p = state.view?.settings.panels;
