@@ -61,32 +61,6 @@ export function fieldValue(field: HTMLInputElement): number {
   return Number.parseInt(s, 10);
 }
 
-/** A null-layout Swing panel: children placed at their setBounds. */
-export function absolute(width: number, height: number): HTMLDivElement {
-  const panel = document.createElement("div");
-  panel.className = "modal-body display-abs";
-  panel.style.width = `${width}px`;
-  panel.style.height = `${height}px`;
-  return panel;
-}
-
-export function place<T extends HTMLElement>(panel: HTMLElement, el: T, x: number, y: number, w: number, h: number): T {
-  el.style.left = `${x}px`;
-  el.style.top = `${y}px`;
-  el.style.width = `${w}px`;
-  el.style.height = `${h}px`;
-  panel.append(el);
-  return el;
-}
-
-export function labelEl(text: string): HTMLSpanElement {
-  const l = document.createElement("span");
-  l.className = "display-label";
-  l.textContent = text;
-  l.title = text;
-  return l;
-}
-
 export function button(text: string): HTMLButtonElement {
   const b = document.createElement("button");
   b.textContent = text;

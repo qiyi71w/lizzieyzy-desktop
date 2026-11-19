@@ -933,36 +933,6 @@ body {
   margin: 0;
 }
 
-/* ---- Swing null-layout dialogs of other modules (display/dialogs.ts absolute / place): controls
-   at fixed bounds. */
-.modal-body.display-abs {
-  position: relative;
-  box-sizing: content-box;
-  padding: 0;
-  margin: 10px 20px 0;
-  white-space: nowrap;
-}
-.display-abs > * {
-  position: absolute;
-  box-sizing: border-box;
-  margin: 0;
-  font: inherit;
-}
-.display-abs input[type="text"] {
-  padding: 0 2px;
-  border-radius: var(--ds-radius-s);
-}
-.display-label {
-  display: flex;
-  align-items: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.display-choice {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
 /* A JOptionPane input: the message, then the field. */
 .display-input input {
   width: 100%;
