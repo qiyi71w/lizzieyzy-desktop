@@ -579,6 +579,14 @@ body {
 #table td:last-child {
   padding-right: 12px;
 }
+/* The actual move's row shows all its figures: a cell too narrow for one wraps before its
+   bracket (table.ts), and only there. A row that fits keeps the 22 px height. */
+#table tr.actual td {
+  padding-block: 3px;
+  line-height: 1.25;
+  white-space: normal;
+  word-break: keep-all;
+}
 
 /* ---- bottom bar: one row (this rule's height). layoutBottomBar places the buttons and lays a
    capsule under each run of related ones. */

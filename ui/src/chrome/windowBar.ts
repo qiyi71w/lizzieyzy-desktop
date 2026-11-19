@@ -44,14 +44,38 @@ let title: HTMLElement | null = null;
 const buttons = new Map<WindowButton, HTMLButtonElement>();
 const measure = document.createElement("canvas").getContext("2d")!;
 
-/** Centres the title in the window when it fits between its neighbours, else in its own space. */
+/** The title cut in its middle to `room` px: both ends stay, the end (the players and the game's
+ *  file) with the larger share. */
+function fitTitle(text: string, room: number): string {
+  if (measure.measureText(text).width <= room) return text;
+  const chars = [...text];
+  const cut = (n: number) => {
+    const tail = Math.ceil(n * 0.6);
+    return `${chars.slice(0, n - tail).join("")}…${chars.slice(chars.length - tail).join("")}`;
+  };
+  let lo = 0;
+  let hi = chars.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (measure.measureText(cut(mid)).width <= room) lo = mid;
+    else hi = mid - 1;
+  }
+  return cut(lo);
+}
+
+/** Shows the workbench title cut to the bar's free space, the whole of it as the tooltip when cut,
+ *  and centres it in the window when it fits between its neighbours, else in its own space. */
 function layoutTitle(): void {
   if (!bar || !title) return;
   title.style.paddingLeft = title.style.paddingRight = "";
   const frame = bar.getBoundingClientRect();
   const box = title.getBoundingClientRect();
   measure.font = getComputedStyle(title).font;
-  const text = measure.measureText(title.textContent ?? "").width;
+  // A pixel under the room: the canvas and the layout round text widths differently.
+  const shown = fitTitle(wantedTitle, box.width - TITLE_PAD * 2 - 1);
+  if (title.textContent !== shown) title.textContent = shown;
+  title.title = shown === wantedTitle ? "" : wantedTitle;
+  const text = measure.measureText(shown).width;
   // Padding added on one side moves the text's centre by half of it.
   const shift = Math.round(frame.left + frame.right - box.left - box.right);
   if (!shift || text + Math.abs(shift) > box.width - TITLE_PAD * 2) return;
@@ -76,11 +100,9 @@ function writeSystemTitle(): void {
 /** The workbench title: in the window bar at once; in the system's title (task bar, window list,
  *  the Windows title bar) at once when that was at rest, then at most once a second. */
 export function setWindowTitle(text: string): void {
-  if (title && title.textContent !== text) {
-    title.textContent = text;
-    layoutTitle();
-  }
+  if (text === wantedTitle) return;
   wantedTitle = text;
+  layoutTitle();
   if (!systemTimer && wantedTitle !== systemTitle) writeSystemTitle();
 }
 

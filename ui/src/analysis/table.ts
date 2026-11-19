@@ -618,10 +618,17 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
     // The hidden 坐标 column.
     row.dataset.point = r.point ? `${r.point.x},${r.point.y}` : "pass";
     row.style.height = `${mainRowHeight}px`;
+    row.classList.toggle("actual", r.actual);
     while (row.cells.length > cells.length) row.deleteCell(row.cells.length - 1);
     cells.forEach((c, column) => {
       const cell = row.cells[column] ?? row.insertCell();
-      if (cell.textContent !== c.text) cell.textContent = c.text;
+      if (cell.textContent !== c.text) {
+        // The actual move's figures may wrap before their bracketed part ("15(实战)",
+        // "↓-4.4(46.2)") where the column is too narrow for both.
+        const open = r.actual ? c.text.indexOf("(") : -1;
+        if (open > 0) cell.replaceChildren(c.text.slice(0, open), document.createElement("wbr"), c.text.slice(open));
+        else cell.textContent = c.text;
+      }
       // The actual row's cells carry their text as a tooltip.
       cell.title = r.actual ? c.text : "";
       cell.style.color = c.fg;

@@ -2667,18 +2667,21 @@ export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[
 
 /** LizzieFrame.drawPonderingStateForExtraMode2 (LizzieFrame.java:8324-8354) with fitStatusFont /
  *  truncateStatusText (8405-8430, 8553-8577): one status box of 双引擎模式 at (x, y) of a panel
- *  `panelW` x `panelH`. The font (plain, `size`) shrinks to at most 10 to fit the width left on its
- *  board's side (`split`, where the right board starts), then the text is cut with "..."; the box
- *  is a small rounded patch of the card ground, the text primary and centred. Returns the text as drawn
- *  and its width (0: nothing). Java split at half the panel, so a window wider than the two boards
- *  cut the secondary engine's box (starting at the right board) down to a few characters. */
-export function paintDualStrip(g: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, split: number, panelW: number, panelH: number): { text: string; width: number } {
+ *  `panelW` x `panelH`. The font is the panels' Body size (Java's 18 px box reached over the
+ *  players' names under a board that fills the panel's height); it shrinks to at most 10 to fit
+ *  the width left on its board's side (`split`, where the right board starts), then the text is
+ *  cut with "..."; the box is a small rounded patch of the card ground, the text primary and
+ *  centred. Returns the text as drawn and its width (0: nothing). Java split at half the panel, so
+ *  a window wider than the two boards cut the secondary engine's box (starting at the right board)
+ *  down to a few characters. */
+export function paintDualStrip(g: CanvasRenderingContext2D, text: string, x: number, y: number, split: number, panelW: number, panelH: number): { text: string; width: number } {
   const rightEdge = x < split ? split : panelW;
   const maxWidth = Math.max(1, rightEdge - x - 4);
   // fitStatusFont over createStatusFont (LizzieFrame.java:8405-8448): the theme's font-name first.
   const family = panelFont("info");
   const font = (px: number) => `${px}px ${family}`;
   const measure = (s: string) => Math.round(g.measureText(s).width);
+  const size = typeScale().body;
   let px = size;
   g.font = font(px);
   const measured = measure(text);
