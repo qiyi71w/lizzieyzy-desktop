@@ -1,63 +1,64 @@
-/* Design tokens: the only place interface colours, type and metrics are named. The window frame
-   (bars, dialogs, other windows) is a near-neutral grey in a light and a dark set, with one ink-blue
-   accent; the workbench between the bars is the Go table and always takes the dark set
-   (design/stage.ts). Light is the default; theme.ts sets data-theme on the root from the appearance
-   mode, and any element may carry data-theme to fix its subtree to one theme. Board, stone and
+/* Design tokens: the only place interface colours, type and metrics are named. Every neutral takes
+   the hue of the default board's wood (kaya, about 40 degrees) at a fraction of its saturation, so
+   the board stays the most saturated thing in a window; the one accent is the green of a stone
+   bowl's lid. Light is the default; theme.ts sets data-theme on the root from the appearance mode,
+   and any element may carry data-theme to fix its subtree to one theme. Board, stone and
    analysis-mark colours belong to the board theme, not to these tokens. */
 :root,
 [data-theme="light"] {
   color-scheme: light;
 
   /* Surfaces, from the window frame inwards. */
-  --ds-chrome: #f3f2ef; /* window bar, toolbar, bottom bar */
-  --ds-stage: #e2e0db; /* workbench ground where no wallpaper is drawn */
-  --ds-panel: #fbfbfa; /* panes, tables, dialogs */
-  --ds-raised: #ffffff; /* menus and popovers */
-  --ds-field: #ffffff; /* inputs */
-  --ds-sunken: #e9e8e4; /* table headers, wells, read-only fields */
-  --ds-soft: rgba(30, 28, 20, 0.06); /* buttons in the bars: a fill, no edge */
-  --ds-hover: rgba(30, 28, 20, 0.07);
-  --ds-pressed: rgba(30, 28, 20, 0.13);
-  --ds-scrim: rgba(20, 20, 18, 0.32);
+  --ds-chrome: #eae2d1; /* window bar, toolbar, bottom bar */
+  --ds-stage: #cdbfa5; /* workbench ground where no wallpaper is drawn */
+  --ds-panel: #f1ebde; /* panes, tables, dialogs */
+  --ds-raised: #f8f3e9; /* capsules in the bars, menus and popovers */
+  --ds-field: #fcf9f2; /* inputs */
+  --ds-sunken: #e3dac6; /* table headers, read-only fields */
+  --ds-well: rgba(90, 66, 20, 0.1); /* a value shown inside a control */
+  --ds-hover: rgba(90, 66, 20, 0.08);
+  --ds-pressed: rgba(90, 66, 20, 0.15);
+  --ds-scrim: rgba(50, 38, 14, 0.34);
 
-  /* Lines. */
-  --ds-line: #dcdad5; /* separators and pane edges */
-  --ds-line-strong: #c1bfb9; /* control borders */
+  /* Lines: translucent, so one value divides any of the surfaces. */
+  --ds-line: rgba(90, 66, 20, 0.16); /* separators and pane edges */
+  --ds-line-strong: rgba(90, 66, 20, 0.34); /* control borders */
 
   /* Text. */
-  --ds-text: #1c1c1a;
-  --ds-text-2: #54534e;
-  --ds-text-3: #686761;
-  --ds-text-off: #a3a19b;
+  --ds-text: #241f16;
+  --ds-text-2: #4e4636;
+  --ds-text-3: #5e5543;
+  --ds-text-off: #a89e88;
 
   /* Accent: primary action, selection, focus. Nothing else. */
-  --ds-accent: #2a5a8c;
-  --ds-accent-hover: #244e7a;
-  --ds-accent-pressed: #1f4368;
+  --ds-accent: #2f6650;
+  --ds-accent-hover: #285a46;
+  --ds-accent-pressed: #224d3c;
   --ds-on-accent: #ffffff;
-  --ds-accent-text: #25527f;
-  --ds-accent-soft: #e2e9f0;
-  --ds-accent-soft-line: #b4c7da;
-  --ds-ring: rgba(42, 90, 140, 0.6);
+  --ds-accent-text: #24543f;
+  --ds-accent-soft: rgba(47, 102, 80, 0.17);
+  --ds-accent-soft-line: rgba(47, 102, 80, 0.4);
+  --ds-ring: rgba(47, 102, 80, 0.6);
 
   /* Status. */
   --ds-danger: #b83a2b;
   --ds-danger-hover: #a03224;
   --ds-danger-text: #a5321f;
-  --ds-danger-soft: #f8e6e1;
-  --ds-danger-soft-line: #e6bdb4;
+  --ds-danger-soft: #f6dfd6;
+  --ds-danger-soft-line: #e3b6aa;
   --ds-warning-text: #7a5200;
-  --ds-warning-soft: #f6ecd0;
-  --ds-warning-soft-line: #dcc78f;
+  --ds-warning-soft: #f3e4bd;
+  --ds-warning-soft-line: #d9c07f;
   --ds-success-text: #2c6b3f;
-  --ds-success-soft: #e2efe2;
+  --ds-success-soft: #dde9d2;
 
   /* Depth. */
-  --ds-shadow-pop: 0 0 0 1px rgba(20, 20, 18, 0.1), 0 6px 20px -4px rgba(20, 20, 18, 0.24);
-  --ds-shadow-dialog: 0 0 0 1px rgba(20, 20, 18, 0.12), 0 18px 48px -8px rgba(20, 20, 18, 0.34);
+  --ds-shadow-cap: 0 0 0 0.5px rgba(90, 66, 20, 0.28), 0 1px 1.5px rgba(90, 66, 20, 0.16);
+  --ds-shadow-pop: 0 0 0 1px rgba(70, 50, 15, 0.12), 0 6px 20px -4px rgba(70, 50, 15, 0.3);
+  --ds-shadow-dialog: 0 0 0 1px rgba(70, 50, 15, 0.14), 0 18px 48px -8px rgba(70, 50, 15, 0.4);
 
   /* The arrow of a select, in the secondary text colour. */
-  --ds-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M.8.8 4 4 7.2.8' fill='none' stroke='%2354534e' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --ds-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M.8.8 4 4 7.2.8' fill='none' stroke='%234e4636' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 :root {
@@ -74,57 +75,60 @@
   --ds-size-xl: calc(var(--ds-size) + 3px);
 
   /* Metrics. */
-  --ds-control-h: 22px; /* controls in the bars */
+  --ds-control-h: 22px; /* controls in panes */
   --ds-control-h-l: 26px; /* controls in dialogs */
+  --ds-cap-h: 26px; /* capsules in the bars */
   --ds-bar-h: 32px; /* window bar */
 }
 
+/* The dark set is provisional: the same hue at the depth of a walnut table. */
 [data-theme="dark"] {
   color-scheme: dark;
 
-  --ds-chrome: #252524;
-  --ds-stage: #161615;
-  --ds-panel: #1e1e1d;
-  --ds-raised: #2b2b29;
-  --ds-field: #353533;
-  --ds-sunken: #191918;
-  --ds-soft: rgba(255, 252, 245, 0.07);
-  --ds-hover: rgba(255, 252, 245, 0.08);
-  --ds-pressed: rgba(255, 252, 245, 0.14);
+  --ds-chrome: #2f2a23;
+  --ds-stage: #4b3f2f;
+  --ds-panel: #2a251f;
+  --ds-raised: #453e33;
+  --ds-field: #1f1c17;
+  --ds-sunken: #231f19;
+  --ds-well: rgba(0, 0, 0, 0.26);
+  --ds-hover: rgba(255, 236, 200, 0.08);
+  --ds-pressed: rgba(255, 236, 200, 0.15);
   --ds-scrim: rgba(0, 0, 0, 0.55);
 
-  --ds-line: #393937;
-  --ds-line-strong: #52514d;
+  --ds-line: rgba(255, 236, 200, 0.1);
+  --ds-line-strong: rgba(255, 236, 200, 0.22);
 
-  --ds-text: #eeede8;
-  --ds-text-2: #b7b5ae;
-  --ds-text-3: #a09e97;
-  --ds-text-off: #6a6964;
+  --ds-text: #f1e9d9;
+  --ds-text-2: #c4b9a3;
+  --ds-text-3: #a59a84;
+  --ds-text-off: #716857;
 
-  --ds-accent: #3d6fa6;
-  --ds-accent-hover: #477bb5;
-  --ds-accent-pressed: #35618f;
+  --ds-accent: #2f7359;
+  --ds-accent-hover: #37826a;
+  --ds-accent-pressed: #286350;
   --ds-on-accent: #ffffff;
-  --ds-accent-text: #8fb6e0;
-  --ds-accent-soft: #22303f;
-  --ds-accent-soft-line: #3a5573;
-  --ds-ring: rgba(143, 182, 224, 0.75);
+  --ds-accent-text: #93d3b2;
+  --ds-accent-soft: rgba(110, 190, 150, 0.2);
+  --ds-accent-soft-line: rgba(110, 190, 150, 0.42);
+  --ds-ring: rgba(147, 211, 178, 0.75);
 
   --ds-danger: #c9503f;
   --ds-danger-hover: #d45c4a;
   --ds-danger-text: #f0958a;
-  --ds-danger-soft: #3b211d;
-  --ds-danger-soft-line: #6a342c;
+  --ds-danger-soft: #45251f;
+  --ds-danger-soft-line: #733a30;
   --ds-warning-text: #e3bd62;
-  --ds-warning-soft: #372d14;
-  --ds-warning-soft-line: #655224;
+  --ds-warning-soft: #40341a;
+  --ds-warning-soft-line: #6b5827;
   --ds-success-text: #7fc591;
-  --ds-success-soft: #1c3122;
+  --ds-success-soft: #243725;
 
-  --ds-shadow-pop: 0 0 0 1px rgba(255, 252, 245, 0.1), 0 8px 24px -4px rgba(0, 0, 0, 0.6);
-  --ds-shadow-dialog: 0 0 0 1px rgba(255, 252, 245, 0.12), 0 20px 56px -8px rgba(0, 0, 0, 0.7);
+  --ds-shadow-cap: inset 0 0.5px 0 rgba(255, 236, 200, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --ds-shadow-pop: 0 0 0 1px rgba(255, 236, 200, 0.1), 0 8px 24px -4px rgba(0, 0, 0, 0.6);
+  --ds-shadow-dialog: 0 0 0 1px rgba(255, 236, 200, 0.12), 0 20px 56px -8px rgba(0, 0, 0, 0.7);
 
-  --ds-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M.8.8 4 4 7.2.8' fill='none' stroke='%23b7b5ae' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --ds-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M.8.8 4 4 7.2.8' fill='none' stroke='%23c4b9a3' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 /* The platform's own interface face; the document language picks the matching CJK face. */

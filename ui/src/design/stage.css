@@ -1,15 +1,15 @@
 /* Workbench stage tokens: the colours the canvas panels, the 胜率图 and the 选点列表 draw with on top
-   of the design tokens. The stage is a wallpaper under translucent panels: washi in the light
-   mode, slate in the dark one. The theme colours a user can change (胜率线, 胜率落差线, 目差线,
-   恶手条, 评论节点) use these only while they hold the theme's default value; their hues stay
-   those of the default theme. Both sets are read from canvas code through stage.ts. */
+   of the design tokens. The stage is a linen wallpaper in the colour mode's ground colour under
+   translucent panels. The theme colours a user can change (胜率线, 胜率落差线, 目差线, 恶手条,
+   评论节点) use these only while they hold the theme's default value; their hues stay those of the
+   default theme. Both sets are read from canvas code through stage.ts. */
 :root,
 [data-theme="light"] {
   /* A panel over the wallpaper and its edge. */
-  --ws-panel: rgba(255, 253, 248, 0.76);
-  --ws-panel-line: rgba(70, 55, 30, 0.16);
+  --ws-panel: rgba(229, 221, 202, 0.8);
+  --ws-panel-line: rgba(90, 66, 20, 0.16);
   /* The board's shadow on the wallpaper. */
-  --ws-board-shadow: 0 1px 2px rgba(60, 45, 20, 0.3), 0 10px 28px -6px rgba(60, 45, 20, 0.42);
+  --ws-board-shadow: 0 1px 2px rgba(70, 50, 15, 0.26), 0 10px 26px -8px rgba(70, 50, 15, 0.46);
 
   /* Theme colour defaults, tuned for the light panel. */
   --ws-winrate-line: #1f78d1;
@@ -64,9 +64,9 @@
 }
 
 [data-theme="dark"] {
-  --ws-panel: rgba(14, 14, 13, 0.6);
-  --ws-panel-line: rgba(255, 245, 225, 0.1);
-  --ws-board-shadow: 0 1px 2px rgba(0, 0, 0, 0.6), 0 12px 32px -6px rgba(0, 0, 0, 0.75);
+  --ws-panel: rgba(35, 31, 25, 0.86);
+  --ws-panel-line: rgba(255, 236, 200, 0.1);
+  --ws-board-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 12px 30px -8px rgba(0, 0, 0, 0.65);
 
   --ws-winrate-line: #64b4ff;
   --ws-winrate-miss: #7a7aff;

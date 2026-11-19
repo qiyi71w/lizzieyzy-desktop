@@ -29,3 +29,7 @@ the application's own configuration directory.
 The assets/newtheme template (theme.txt, black.png, white.png) is copied unchanged
 from src/main/resources/assets/newtheme/ of the same commit. New themes use that
 template plus the default board.png and background.jpg (Utils.java:1268-1277).
+The workbench wallpapers stage-light.jpg and stage-dark.jpg are made by tools/stage_wallpapers.py
+from the diffuse map of Poly Haven's `rough_linen` texture (https://polyhaven.com/a/rough_linen,
+CC0, by colormass and Rico Cilliers): its lighting is flattened and its fine detail graded to one
+colour per tile.
