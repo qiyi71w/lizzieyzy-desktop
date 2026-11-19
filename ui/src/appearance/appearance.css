@@ -146,16 +146,3 @@
   gap: 4px;
   align-self: flex-start;
 }
-
-/* 设置界面字体大小 (SetFrameFontSize). */
-.appearance-frame-size label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  white-space: nowrap;
-}
-.appearance-frame-size input {
-  width: calc(var(--ds-size) * 5);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}

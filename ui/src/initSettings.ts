@@ -12,8 +12,8 @@ import { formPanel, message } from "./dialogs";
 import { openInfoOrderDialog, parseJavaInt } from "./display/dialogs";
 import { product, t } from "./i18n";
 
-/** Java languageOptions with its combo texts. */
-const LANGUAGES: [Language, () => string][] = [
+/** Java languageOptions with its combo texts (also 综合设置's 语言 row). */
+export const LANGUAGES: [Language, () => string][] = [
   ["System", () => t("menu.language.default")],
   ["ZhCn", () => "简体中文"],
   ["ZhTw", () => "繁體中文"],

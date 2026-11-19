@@ -1,7 +1,7 @@
-// Board display dialogs: JOptionPane integer inputs (下一手提示需要计算量, 落子评价 显示最后多手),
-// 设置显示手数 (MovenumberDialog.java), 设置变化图回放间隔 (SetReplayTime.java), 延迟显示候选点
-// (SetDelayShowCandidates.java) and 自定义信息顺序 (SuggestionInfoOrderSettings.java). Each applies
-// through SetDisplaySettings and closes; validation follows the Java dialog.
+// Board display dialogs: the JOptionPane integer input (落子评价 显示最后多手), 设置显示手数
+// (MovenumberDialog.java), 延迟显示候选点 (SetDelayShowCandidates.java) and 自定义信息顺序
+// (SuggestionInfoOrderSettings.java). Each applies through SetDisplaySettings and closes;
+// validation follows the Java dialog.
 import { state } from "../app";
 import type { DisplaySettings } from "../contract/generated";
 import { setDisplay } from "../commands";
@@ -118,25 +118,6 @@ export function openMoveNumberDialog(): void {
     }
     void dialog.close();
     setDisplay({ moveNumbers: n });
-  };
-  ok.onclick = apply;
-  defaultButton(body, apply);
-}
-
-/** 推荐点 > 设置变化图回放间隔 (SetReplayTime): milliseconds; blank reads as 0. */
-export function openReplayIntervalDialog(): void {
-  const s = state.view?.settings.display;
-  if (!s) return;
-  const { row, field } = namedField(t("SetReplayTime.lblInterval"));
-  field.value = String(Math.trunc(s.replayIntervalSeconds * 1000));
-  digitsOnly(field);
-  const ok = button(t("SetReplayTime.okButton"));
-  const body = smallForm(row, ok);
-  const dialog = formPanel(t("SetReplayTime.title"), body);
-  const apply = () => {
-    const ms = fieldValue(field);
-    void dialog.close();
-    setDisplay({ replayIntervalSeconds: ms / 1000 });
   };
   ok.onclick = apply;
   defaultButton(body, apply);

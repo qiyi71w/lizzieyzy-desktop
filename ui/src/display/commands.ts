@@ -1,16 +1,17 @@
 // Board display entries of the command catalog: 显示 > 坐标 / 手数 / 落子评价标记 / 推荐点 / 下一手 /
 // 小棋盘设置 / 自动播放 / 主界面设置 > 棋盘下方显示黑白名字 / KataGo设置 > 形势判断 > 纯网络形势,
 // 分析 > 纯网络 / 策略网络, the top toolbar's 选点 黑 / 白 and 落子评价 button, the bottom toolbar's
-// 手数 / 坐标 / 纯网络 / 自动播放 and the display shortcuts.
+// 手数 / 坐标 / 纯网络 / 自动播放 and the display shortcuts. 设置最大宽度, 设置变化图回放间隔 and
+// 设置低计算量阈值 open their 综合设置 rows.
 import { state } from "../app";
 import { COMMANDS, setDisplay, type CommandEntry } from "../commands";
 import type { DisplaySettings, MoveRankMode, SubBoardMode } from "../contract/generated";
 import { message } from "../dialogs";
+import { openSettingsAt } from "../engine/settingsTargets";
 import { t } from "../i18n";
 import { openAutoPlayDialog } from "./autoplay";
-import { inputDialog, openCandidatesDelayDialog, openInfoOrderDialog, openMoveNumberDialog, openReplayIntervalDialog, parseJavaInt } from "./dialogs";
+import { inputDialog, openCandidatesDelayDialog, openInfoOrderDialog, openMoveNumberDialog, parseJavaInt } from "./dialogs";
 import { boardUi, setCandidates, togglePolicy, toggleRawNet } from "./state";
-import { chooseMaxTreeWidth } from "./variationTree";
 
 const display = (): DisplaySettings | undefined => state.view?.settings.display;
 
@@ -115,15 +116,9 @@ async function chooseRankCustom(): Promise<void> {
   setDisplay({ moveRankCustom: custom, moveRank: custom });
 }
 
-/** 下一手提示需要计算量 (Menu.java:690-723): any Java int, negative ones too (Integer.parseInt). */
-async function chooseNextMoveMinPlayouts(): Promise<void> {
-  const s = display();
-  if (!s) return;
-  const text = await inputDialog(t("Menu.minPlayoutsForNextMoveMessage"), String(s.nextMoveMinPlayouts));
-  if (text === null) return;
-  const n = parseJavaInt(text);
-  if (n === null) await message(t("Message.title"), t("Menu.inputIntegerHint"));
-  else setDisplay({ nextMoveMinPlayouts: n });
+/** A menu item whose value is a row of 综合设置 (the row carries the item's catalog id). */
+function settingRow(id: string): CommandEntry {
+  return { run: () => void openSettingsAt(id) };
 }
 
 function moveNumbers(n: number): CommandEntry {
@@ -184,7 +179,7 @@ Object.assign(COMMANDS, {
   "menu.showMoveNumberOnVariationPane": flag("treeMoveNumbers"),
   // 分支面板设置 (Menu.java:1211-1293): the width items only apply to the scroll pane (2601-2612).
   "menu.showScrollVariation": flag("scrollVariation"),
-  "menu.maxTreeWidth": { run: chooseMaxTreeWidth, enabled: () => display()?.scrollVariation ?? true },
+  "menu.maxTreeWidth": { ...settingRow("menu.maxTreeWidth"), enabled: () => display()?.scrollVariation ?? true },
   "menu.ignoreOutOfWidth": { ...flag("ignoreOutOfWidth"), enabled: () => display()?.scrollVariation ?? true },
   // 落子评价标记 (addRankMarkMenu, Menu.java:9233-9562)
   "Menu.rankMenu.rankNoneMove": {
@@ -220,12 +215,12 @@ Object.assign(COMMANDS, {
   "menu.showWhiteSuggestWhite": flag("whiteSuggestionWhite"),
   "menu.showVariationOnMouse": { run: toggleSuggestionVariations, checked: () => display()?.suggestionVariations ?? true },
   "menu.noRefreshOnMouse": flag("noRefreshOnMouse"),
-  "menu.setReplayInterval": { run: openReplayIntervalDialog },
+  "menu.setReplayInterval": settingRow("menu.setReplayInterval"),
   // 下一手 (Menu.java:654-723, checks 2613-2626)
   "Menu.nextMoveHintNone": nextMoves(false, false),
   "Menu.nextMoveHintSimple": nextMoves(true, false),
   "Menu.nextMoveHintInformation": nextMoves(true, true),
-  "menu.minPlayoutsForNextMove": { run: chooseNextMoveMinPlayouts },
+  "menu.minPlayoutsForNextMove": settingRow("menu.minPlayoutsForNextMove"),
   // 自动播放(Ctrl+A) (Menu.java:643-652) and the bottom toolbar's 自动播放 (BottomToolbar.java:1296-1302)
   "menu.makeAutoPlay": { run: openAutoPlayDialog },
   // 主界面设置 > 棋盘下方显示黑白名字 (show-name-in-board)

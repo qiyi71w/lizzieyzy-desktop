@@ -80,6 +80,21 @@ fn representative_functions_lead_to_their_java_destinations() {
     }
 }
 
+/// The Java dialogs this product folds into 综合设置 are found at their rows there; a catalog dumped
+/// again from Java (tools/function_catalog) would lose these in-place sections.
+#[test]
+fn folded_dialogs_lead_to_their_settings_page() {
+    let browse = function_search::search("", Language::EnUs);
+    for (id, section) in [
+        ("menu.maxTreeWidth", SettingsSection::Engine), ("menu.initialMaxScoreLead", SettingsSection::Engine),
+        ("menu.setReplayInterval", SettingsSection::Engine), ("menu.minPlayoutsForNextMove", SettingsSection::Engine),
+        ("menu.frameFontSize", SettingsSection::Theme),
+    ] {
+        let found = browse.iter().find(|m| m.id == id).unwrap_or_else(|| panic!("{id}"));
+        assert_eq!(found.section, Some(section), "{id}");
+    }
+}
+
 #[test]
 fn curated_pinyin_and_distinct_cross_language_intents() {
     for (query, id) in [

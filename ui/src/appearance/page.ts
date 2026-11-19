@@ -11,12 +11,14 @@ import type { AppearanceCatalog, ThemeSettings } from "../contract/generated";
 import { ask, confirm, message } from "../dialogs";
 import { SETTINGS_PAGES, type SettingsDialog } from "../engine/settings";
 import { registerSettingTargets } from "../engine/settingsTargets";
-import { product, t } from "../i18n";
+import { isChinese, product, registerProduct, t } from "../i18n";
 import { cssColor, DEFAULT_BLUNDER_COLORS, DEFAULT_BLUNDER_THRESHOLDS, DEFAULT_THEME, LIZZIE_DEFAULT_FONT, opaque, SYSTEM_DEFAULT_FONT } from "./model";
 import { loadThemeImages, type LoadedImages } from "./state";
 import { stepper } from "../design/stepper";
 
-/** ConfigSettingTargets THEME rows this page has (ConfigSettingTargets.java:61-86), in row order. */
+/** ConfigSettingTargets THEME rows this page has (ConfigSettingTargets.java:61-86), in row order,
+ *  with 设置 > 界面字体大小's row (its catalog id), which this product keeps here instead of Java's
+ *  SetFrameFontSize dialog. */
 const TARGETS = [
   "config.theme.current",
   "config.theme.winrate-width",
@@ -24,6 +26,7 @@ const TARGETS = [
   "config.theme.shadow",
   "config.theme.info-font",
   "config.theme.ui-font",
+  "menu.frameFontSize",
   "config.theme.winrate-font",
   "config.theme.background-image",
   "config.theme.board-image",
@@ -46,6 +49,15 @@ const TARGETS = [
   "config.theme.score-blunders",
 ] as const;
 type Target = (typeof TARGETS)[number];
+
+registerProduct({
+  ZhCn: { settingsFrameFont: "界面字体大小", settingsFrameFontSub: "菜单、面板和对话框的文字大小，可设 12–20，重新启动后生效" },
+  ZhTw: { settingsFrameFont: "介面字型大小", settingsFrameFontSub: "選單、面板和對話框的文字大小，可設 12–20，重新開啟後生效" },
+  EnUs: { settingsFrameFont: "Interface font size", settingsFrameFontSub: "Text size of menus, panels and dialogs, 12–20; takes effect after a restart" },
+  JaJp: { settingsFrameFont: "画面の文字サイズ", settingsFrameFontSub: "メニュー、パネル、ダイアログの文字サイズ（12〜20）。再起動後に反映されます" },
+  KoKr: { settingsFrameFont: "화면 글꼴 크기", settingsFrameFontSub: "메뉴, 패널, 대화 상자의 글자 크기(12–20). 다시 시작하면 적용됩니다" },
+  ThTh: { settingsFrameFont: "ขนาดตัวอักษรของหน้าจอ", settingsFrameFontSub: "ขนาดตัวอักษรของเมนู แผง และกล่องโต้ตอบ (12–20) มีผลหลังเปิดโปรแกรมใหม่" },
+});
 
 /** readDefaultTheme's fixed image paths: the default theme's images are not editable (6313-6324). */
 const DEFAULT_PATHS = { background: "/assets/background.jpg", board: "/assets/board.png", black: "/assets/black0.png", white: "/assets/white0.png" };
@@ -391,6 +403,11 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   row(lines, "config.theme.info-font", t("ConfigDialog2.modern.theme.infoFont"), t("ConfigDialog2.modern.theme.infoFontSub"), infoFont.select);
   const uiFont = fontCombo("settings.theme.uiFontName");
   row(lines, "config.theme.ui-font", t("ConfigDialog2.modern.theme.uiFont"), t("ConfigDialog2.modern.theme.uiFontSub"), uiFont.select);
+  // 设置 > 界面字体大小 (SetFrameFontSize.java:31-146): 12-20, saved for the next start.
+  const savedFrameSize = view.settings.appearance.frameFontSize;
+  const frameSize = spinner("settings.appearance.frameFontSize", 12, 20, 1, product("settingsFrameFont"));
+  frameSize.value = String(savedFrameSize);
+  row(lines, "menu.frameFontSize", product("settingsFrameFont"), product("settingsFrameFontSub"), stepper(frameSize));
   const winrateFont = fontCombo("settings.theme.winrateFontName");
   row(lines, "config.theme.winrate-font", t("ConfigDialog2.modern.theme.winrateFont"), t("ConfigDialog2.modern.theme.winrateFontSub"), winrateFont.select);
 
@@ -756,6 +773,13 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
 
   return {
     save: async () => {
+      const size = Number(frameSize.value);
+      if (size !== (state.view?.settings.appearance.frameFontSize ?? savedFrameSize)) {
+        const result = await run({ type: "SetFrameFontSize", size });
+        if (!result || result.type === "Refused") return false;
+        // LizzieFrame.java:20751-20768: outside Chinese a size over 12 may not fit every label.
+        if (!isChinese() && size > 12) await message(t("Message.title"), t("menu.setFrameSizeAlart"));
+      }
       const nowTracking = state.view?.settings.tracking ?? tracking;
       if (outline.checked !== nowTracking.showOutline || Number(opacity.value) !== nowTracking.outlineOpacity) {
         const result = await run({ type: "SetTrackingSettings", settings: { ...nowTracking, showOutline: outline.checked, outlineOpacity: Number(opacity.value) } });
