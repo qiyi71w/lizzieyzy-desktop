@@ -316,9 +316,15 @@
 .rc-plan > label {
   color: var(--ds-text-2);
 }
-.rc-plan select {
+/* A long option (the model names) ends in an ellipsis inside the select: WebKit otherwise counts
+   the select's clipped text as overflow of the scrolling section around it. */
+.rc-plan select,
+.rc-payment-selection select {
   width: 100%;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .rc-weight-row {
   display: flex;
@@ -525,10 +531,6 @@
 }
 .rc-payment-label {
   color: var(--ds-text-2);
-}
-.rc-payment-selection select {
-  width: 100%;
-  min-width: 0;
 }
 .rc-payment-summary,
 .rc-payment-selection .rc-payment-status {
