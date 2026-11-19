@@ -1428,10 +1428,12 @@ function renderDual(v: WorkbenchView, d: DualPanels, W: number, H: number, size:
   const result2 = result(s?.analysis);
   if (!changed("dualStatus", `${size}:${d.size}:${text1}:${text2}:${result1}:${result2}`)) return;
   const g = prepare($<HTMLCanvasElement>("dualStatus"), { x: 0, y: 0, w: W, h: H });
-  const first = paintDualStrip(g, text1, 0, d.size, 18, d.size, W, H);
-  const second = paintDualStrip(g, text2, d.size, d.size, 18, d.size, W, H);
-  const third = result1 === null ? null : paintDualStrip(g, result1, first.width + 5, d.size, 18, d.size, W, H);
-  const fourth = result2 === null ? null : paintDualStrip(g, result2, d.size + second.width + 5, d.size, 18, d.size, W, H);
+  // Each board's boxes start 8 px inside its left edge, in line with the cards' inset, and stand
+  // 6 px apart (a box reaches 4 px beyond its text on either side).
+  const first = paintDualStrip(g, text1, 8, d.size, 18, d.size, W, H);
+  const second = paintDualStrip(g, text2, d.size + 8, d.size, 18, d.size, W, H);
+  const third = result1 === null ? null : paintDualStrip(g, result1, 8 + first.width + 14, d.size, 18, d.size, W, H);
+  const fourth = result2 === null ? null : paintDualStrip(g, result2, d.size + 8 + second.width + 14, d.size, 18, d.size, W, H);
   dualStatus = [first, second, third, fourth].filter((strip) => !!strip?.text).map((strip) => strip!.text);
 }
 
