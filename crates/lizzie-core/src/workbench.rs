@@ -304,6 +304,9 @@ pub struct Workbench {
     diagnostics: crate::diagnostics::Diagnostics,
     /// No settings file existed at start (Java `isNewProfile`): the Java import is offered.
     new_profile: bool,
+    /// Why the settings file is not written in this run ([`settings::SettingsFile::LeftAsItIs`]);
+    /// `None` when it may be.
+    settings_file_fault: Option<String>,
     /// Java configuration folders found in Java's conventional locations.
     java_candidates: Vec<String>,
     /// The Java import the user is looking at, by preview id.
@@ -374,12 +377,17 @@ impl Workbench {
         launcher: Box<dyn Launcher>,
         engine_roots: Vec<PathBuf>,
     ) -> Workbench {
-        let new_profile = !storage.config_file.exists();
         let resources = resources::ResourceFlow::new(&storage);
         // The start-up rotation of a crashed session's periodic save happens here, before any
         // resume (see `recovery`).
         let recovery = crate::recovery::Store::open(&storage.save_dir);
-        let mut config: Config = settings::load_json(&storage.config_file);
+        let loaded = settings::load_config(&storage.config_file);
+        let (new_profile, settings_file_fault) = match loaded.file {
+            settings::SettingsFile::Missing => (true, None),
+            settings::SettingsFile::Usable => (false, None),
+            settings::SettingsFile::LeftAsItIs(cause) => (false, Some(cause)),
+        };
+        let mut config = loaded.config;
         config.commentary.preferences = config.commentary.preferences.normalized();
         // Config.java:3907-3912: mode policy also applies when opening an older config.
         if config.ui.extra_mode.hides_comment() {
@@ -472,9 +480,10 @@ impl Workbench {
             rules_prompt: None,
             engine_failure: None,
             engine_notice: None,
-            logs: Vec::new(),
+            logs: loaded.notice.into_iter().map(|text| LogLine { warn: true, text }).collect(),
             diagnostics,
             new_profile,
+            settings_file_fault,
             java_candidates: Vec::new(),
             java_preview: None,
             next_preview: 0,
@@ -537,12 +546,31 @@ impl Workbench {
     }
 
     fn save_config(&self) -> Result<(), ApiError> {
-        Self::write_config(&self.storage, &self.config)
+        self.write_config(&self.config)
     }
 
-    fn write_config(storage: &Storage, config: &Config) -> Result<(), ApiError> {
-        settings::save_json(&storage.config_file, config)
+    fn write_config(&self, config: &Config) -> Result<(), ApiError> {
+        self.settings_file_writable()
+            .and_then(|()| settings::save_json(&self.storage.config_file, config))
             .map_err(|e| ApiError::new(ErrorKind::Io, format!("saving settings failed: {e}")))
+    }
+
+    /// Settings and window state as one write ([`settings::save_both`]).
+    fn save_settings_files(&self, config: &Config, persisted: Option<&Persisted>) -> std::io::Result<()> {
+        self.settings_file_writable()?;
+        settings::save_both(&self.storage, config, persisted)
+    }
+
+    /// Refuses to write over a settings file that was there at start-up but could not be loaded
+    /// (nor kept as a backup): it holds the user's settings, which the next start can still read.
+    fn settings_file_writable(&self) -> std::io::Result<()> {
+        let Some(cause) = &self.settings_file_fault else {
+            return Ok(());
+        };
+        Err(std::io::Error::other(format!(
+            "the settings file {} is left unchanged: {cause}; restart the program once that is put right",
+            self.storage.config_file.display()
+        )))
     }
 
     /// A user settings change: applied only once it is on disk, so the projection never shows a
@@ -550,7 +578,7 @@ impl Workbench {
     fn commit_config(&mut self, change: impl FnOnce(&mut Config)) -> Result<(), ApiError> {
         let mut next = self.config.clone();
         change(&mut next);
-        Self::write_config(&self.storage, &next)?;
+        self.write_config(&next)?;
         self.config = next;
         Ok(())
     }

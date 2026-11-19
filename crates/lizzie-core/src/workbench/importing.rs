@@ -20,7 +20,7 @@ use crate::api::{
 };
 use crate::java_import::{slots, Candidate, CONFIG_FILE};
 use crate::recovery::SlotWrite;
-use crate::settings::{self, PvVisitsMode};
+use crate::settings::PvVisitsMode;
 
 /// Refusal: the preview was replaced or already applied.
 pub const IMPORT_STALE: &str = "product.importStale";
@@ -231,7 +231,7 @@ impl Workbench {
                 ));
             }
         };
-        if let Err(e) = settings::save_both(&self.storage, &config, persist_write.as_ref()) {
+        if let Err(e) = self.save_settings_files(&config, persist_write.as_ref()) {
             // Nothing changed; the same preview can be tried again.
             if added > 0 {
                 self.recovery.remove_last(added);

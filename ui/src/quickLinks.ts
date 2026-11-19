@@ -66,9 +66,9 @@ export async function openQuickLinks(): Promise<void> {
     labels.className = "quick-links-command-label";
     const scan = button(t("MoreEngines.scan"), async () => {
       const r = await run({ type: "ChooseQuickLinkProgram", title: t("OtherPrograms.selectProgram"), filter_name: t("OtherPrograms.program") });
-      if (r?.type !== "FileChosen") return;
-      command.value = r.path;
-      name.value = r.path.split(/[\\/]/).pop() ?? r.path;
+      if (r?.type !== "QuickLinkProgramChosen") return;
+      command.value = r.program.command;
+      name.value = r.program.name;
     });
     scan.dataset.key = "quick-links.scan";
     labels.append(commandLabel, scan);
