@@ -105,10 +105,8 @@ body {
 }
 .tc-range input {
   width: calc(var(--ds-size) * 5);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
 }
-.tc-range input + label {
+.tc-range .ds-stepper + label {
   margin-left: 4px;
 }
 .tc-actions {

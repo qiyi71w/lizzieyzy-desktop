@@ -14,6 +14,7 @@ import { registerSettingTargets } from "../engine/settingsTargets";
 import { product, t } from "../i18n";
 import { cssColor, DEFAULT_BLUNDER_COLORS, DEFAULT_BLUNDER_THRESHOLDS, DEFAULT_THEME, LIZZIE_DEFAULT_FONT, opaque, SYSTEM_DEFAULT_FONT } from "./model";
 import { loadThemeImages, type LoadedImages } from "./state";
+import { stepper } from "../design/stepper";
 
 /** ConfigSettingTargets THEME rows this page has (ConfigSettingTargets.java:61-86), in row order. */
 const TARGETS = [
@@ -158,7 +159,7 @@ function colorControl(key: string, alpha: boolean, chooseButton: boolean): Color
       const v = Math.round(Number(opacity.value));
       opacity.value = String(Number.isFinite(v) ? Math.max(0, Math.min(255, v)) : 255);
     });
-    root.append(opacity);
+    root.append(stepper(opacity));
   }
   if (chooseButton) {
     const choose = el("button", "appearance-choose", t("ConfigDialog2.modern.chooseColor"));
@@ -378,14 +379,14 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   const lines = card(host, t("ConfigDialog2.modern.theme.lines"), t("ConfigDialog2.modern.theme.linesSub"));
   const winrateWidth = spinner("settings.theme.winrateStrokeWidth", 0.1, 10, 0.1, t("LizzieConfig.title.winrateStrokeWidth"));
   const scoreWidth = spinner("settings.theme.scoreLeadStrokeWidth", 0.1, 10, 0.1, t("LizzieConfig.title.scoreLeadStrokeWidth"));
-  row(lines, "config.theme.winrate-width", t("ConfigDialog2.modern.theme.winrateWidth"), t("ConfigDialog2.modern.theme.winrateWidthSub"), winrateWidth, scoreWidth);
+  row(lines, "config.theme.winrate-width", t("ConfigDialog2.modern.theme.winrateWidth"), t("ConfigDialog2.modern.theme.winrateWidthSub"), stepper(winrateWidth), stepper(scoreWidth));
   const barWidth = spinner("settings.theme.minimumBlunderBarWidth", 1, 10, 1, t("LizzieConfig.title.minimumBlunderBarWidth"));
-  row(lines, "config.theme.blunder-width", t("ConfigDialog2.modern.theme.blunderWidth"), t("ConfigDialog2.modern.theme.blunderWidthSub"), barWidth);
+  row(lines, "config.theme.blunder-width", t("ConfigDialog2.modern.theme.blunderWidth"), t("ConfigDialog2.modern.theme.blunderWidthSub"), stepper(barWidth));
   const shadowLabel = t("LizzieConfig.title.shadowSize");
   const showShadow = check("settings.theme.showStoneShadow", shadowLabel);
   const shadowSize = spinner("settings.theme.shadowSize", 1, 150, 1, shadowLabel);
   showShadow.addEventListener("change", () => (shadowSize.disabled = !showShadow.checked));
-  row(lines, "config.theme.shadow", t("ConfigDialog2.modern.theme.shadow"), t("ConfigDialog2.modern.theme.shadowSub"), labelled(showShadow, shadowLabel), shadowSize);
+  row(lines, "config.theme.shadow", t("ConfigDialog2.modern.theme.shadow"), t("ConfigDialog2.modern.theme.shadowSub"), labelled(showShadow, shadowLabel), stepper(shadowSize));
   const infoFont = fontCombo("settings.theme.fontName");
   row(lines, "config.theme.info-font", t("ConfigDialog2.modern.theme.infoFont"), t("ConfigDialog2.modern.theme.infoFontSub"), infoFont.select);
   const uiFont = fontCombo("settings.theme.uiFontName");
@@ -508,7 +509,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     const control = colorControl("settings.theme.blunderNodeColor", true, false);
     control.set(color);
     const a = el("td");
-    a.append(input);
+    a.append(stepper(input));
     const b = el("td");
     b.append(control.root);
     tr.append(a, b);

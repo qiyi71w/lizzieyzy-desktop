@@ -27,6 +27,7 @@ import { topGroupShown, topToolbarWraps, type TopGroup } from "./topGroups";
 import { toggleDoubleMenu } from "../workbench/panels";
 import "../display/painting";
 import { icon, type IconName } from "../design/icons";
+import { stepper } from "../design/stepper";
 
 const updaters: (() => void)[] = [];
 
@@ -286,13 +287,16 @@ function intText(text: string): boolean {
  *  7124-7137): the check writes limit-time / limit-playout and enables the field; every edit of
  *  the field writes its number (an empty field keeps the value, Utils.parseTextToLong). Each
  *  change lets an analysis a limit stopped go on when it is within the new limits. Both are
- *  separate toolbar items, so the field may wrap away from its check box as in Java. */
+ *  separate toolbar items, so the field may wrap away from its check box as in Java. The arrows
+ *  step a second or a hundred visits. */
 function limitControl(time: boolean): HTMLElement[] {
   const { box, label } = checkLabel(t(time ? "Menu.chkTime" : "Menu.chkPlayOut"), time ? "toolbar.limit-time" : "toolbar.limit-visits");
   label.classList.add("fit");
   const field = document.createElement("input");
   field.className = `tb-input ${time ? "time-limit" : "visit-limit"}`;
   field.inputMode = "numeric";
+  field.min = "0";
+  field.step = time ? "1" : "100";
   field.dataset.key = time ? "toolbar.limit-time-value" : "toolbar.limit-visits-value";
   field.setAttribute("aria-label", t(time ? "Menu.chkTime" : "Menu.chkPlayOut"));
   let taken = "";
@@ -319,7 +323,7 @@ function limitControl(time: boolean): HTMLElement[] {
     if (field.value !== value) field.value = taken = value;
   });
   at(time ? "toolbar.time-limit" : "toolbar.visit-limit", box);
-  return [label, field];
+  return [label, stepper(field)];
 }
 
 /** 限制 (Menu.lblLimit, Menu.java:9698-9712): shown while either limit is. */
@@ -379,9 +383,10 @@ function kataGroupShown(param: KataParam): boolean {
 
 /** 激进度 chkPDA / txtGfPDA and 广度 chkWRN / txtWRN (Menu.java:6174-6447). The check box or each
  *  edit of the value sends the value (0 when unchecked or not a number) to the foreground KataGo at
- *  once; a value outside -3..3 / 0..2 only turns the field red. The group shows the values the
- *  engine reports when it starts (Menu.setPdaAndWrn), not the answers to its own sets, and is
- *  disabled while the engine is not free for it (refreshBreadthAdmission).
+ *  once; a value outside -3..3 / 0..2 only turns the field red. The arrows, ↑ / ↓ and the wheel
+ *  step 激进度 by 0.1 and 广度 by 0.01 within those ranges. The group shows the values the engine reports when
+ *  it starts (Menu.setPdaAndWrn), not the answers to its own sets, and is disabled while the
+ *  engine is not free for it (refreshBreadthAdmission).
  *
  *  While 野狐 AI 直连 holds the engine every PDA check and text edit is the session's PDA intent
  *  (FoxLiveSession.submitPda) and the PDA controls show its confirmed value whenever that changes,
@@ -396,6 +401,10 @@ function kataGroup(param: KataParam): HTMLElement {
   box.title = tip;
   const value = document.createElement("input");
   value.className = "tb-input";
+  value.inputMode = "decimal";
+  value.step = pda ? "0.1" : "0.01";
+  value.min = pda ? "-3" : "0";
+  value.max = pda ? "3" : "2";
   value.title = tip;
   box.dataset.key = pda ? "toolbar.pda" : "toolbar.wrn";
   value.dataset.key = pda ? "toolbar.pda-value" : "toolbar.wrn-value";
@@ -459,7 +468,7 @@ function kataGroup(param: KataParam): HTMLElement {
   name.className = "tb-checklabel";
   name.title = tip;
   name.append(at(pda ? "engine.pda" : "toolbar.wrn", box), document.createTextNode(pda ? t("Menu.separateLblPda") : t("Menu.separateLblWrn")));
-  const g = group(pda ? "pda" : "wrn", name, value);
+  const g = group(pda ? "pda" : "wrn", name, stepper(value, { format: javaDouble }));
   updaters.push(() => {
     const display = kataGroupShown(param) ? "" : "none";
     if (g.style.display !== display) g.style.display = display;
@@ -509,19 +518,21 @@ function pdaMoreShown(): boolean {
 
 /** A KataGoPda engine's own PDA panel, lblCustomPda and txtPDA (Menu.java:5943-5965, 9658-9661,
  *  9970-9986): the label without a colon and the engine's PDA as it reports it ("%.3f"), shown
- *  until the field is being edited. Each key release with a number sets it on the engine
- *  (`kata-set-param playoutDoublingAdvantage`); empty, "-" or "." send nothing. While 野狐 AI 直连
- *  holds the engine its own 激进度 group shows instead. */
+ *  until the field is being edited. Each edit that leaves a number sets it on the engine
+ *  (`kata-set-param playoutDoublingAdvantage`); empty, "-" or "." send nothing. The arrows step it
+ *  by 0.1. While 野狐 AI 直连 holds the engine its own 激进度 group shows instead. */
 function customPdaGroup(): HTMLElement {
   const value = document.createElement("input");
   value.className = "tb-input custom-pda";
+  value.inputMode = "decimal";
+  value.step = "0.1";
   value.dataset.key = "toolbar.customPda";
   value.setAttribute("aria-label", t("Menu.chkPDA.toolTopText"));
-  value.addEventListener("keyup", () => {
+  value.addEventListener("input", () => {
     const pda = parseJavaDouble(value.value);
     if (pda !== null) void run({ type: "SetKataParam", param: "Pda", enabled: true, value: pda });
   });
-  const g = group("custom-pda", label(t("Menu.separateLblPda")), value);
+  const g = group("custom-pda", label(t("Menu.separateLblPda")), stepper(value, { format: (pda) => pda.toFixed(3) }));
   let shown: number | null | undefined = undefined;
   updaters.push(() => {
     const display = kataGoPda() && !foxOwnsEngine() && pdaIdleShown() ? "" : "none";
@@ -552,38 +563,14 @@ function pdaMoreButton(): HTMLElement {
   return b;
 }
 
-function komiSpinner(): HTMLElement {
-  const spinner = document.createElement("span"); spinner.className = "tb-spin";
-  for (const step of [0.5, -0.5]) {
-    const arrow = document.createElement("i");
-    arrow.append(icon(step > 0 ? "chevron-up" : "chevron-down"));
-    arrow.title = step > 0 ? t("Accessibility.increaseKomi") : t("Accessibility.decreaseKomi");
-    arrow.onclick = () => {
-      const field = document.getElementById("komiField") as HTMLInputElement;
-      if (!field.value.trim() || !Number.isFinite(Number(field.value))) return;
-      const komi = Number(field.value) + step;
-      field.value = String(komi);
-      void run({ type: "SetKomi", komi });
-    };
-    spinner.append(arrow);
-  }
-  return spinner;
-}
-
-function komiField(): HTMLInputElement {
+/** 贴目: typed in, or stepped by 0.5 with the arrows, ↑ / ↓ and the wheel; Enter or leaving the
+ *  field sets it. */
+function komiField(): HTMLElement {
   const control = document.createElement("input"); control.id = "komiField"; control.className = "tb-input";
   control.type = "number"; control.step = "0.5"; control.setAttribute("aria-label", t("Menu.komi"));
-  const commit = () => { if (control.value.trim() && Number.isFinite(Number(control.value))) void run({ type: "SetKomi", komi: Number(control.value) }); };
-  control.onchange = commit;
-  control.onkeydown = (event) => {
-    if (event.key === "Enter") { commit(); control.blur(); }
-    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-      event.preventDefault();
-      const komi = Number(control.value) + (event.key === "ArrowUp" ? 0.5 : -0.5);
-      control.value = String(komi); void run({ type: "SetKomi", komi });
-    }
-  };
-  return control;
+  control.onchange = () => { if (control.value.trim() && Number.isFinite(Number(control.value))) void run({ type: "SetKomi", komi: Number(control.value) }); };
+  control.onkeydown = (event) => { if (event.key === "Enter") control.blur(); };
+  return stepper(control, { titles: [t("Accessibility.increaseKomi"), t("Accessibility.decreaseKomi")] });
 }
 
 /** The search features button (Menu.java:8660-8685): the search icon and the title, which
@@ -773,7 +760,7 @@ export function buildToolbar(host: HTMLElement): void {
     ),
     row(
       capsule(shownGroup("showGameControls"), ...gameControls()),
-      capsule(null, group("komi", label(t("Menu.komi")), komiField(), komiSpinner()), kataGroup("Pda"), customPdaGroup(), pdaMoreButton(), kataGroup("Wrn")),
+      capsule(null, group("komi", label(t("Menu.komi")), komiField()), kataGroup("Pda"), customPdaGroup(), pdaMoreButton(), kataGroup("Wrn")),
       limitCapsule(),
       capsule(shownGroup("showAnalyzeSides"), group("choices", label(t("Menu.lblShowAnalyze")), analyzeCheck(true), analyzeCheck(false))),
       candidateCapsule(),

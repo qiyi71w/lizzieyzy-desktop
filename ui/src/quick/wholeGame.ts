@@ -6,6 +6,7 @@ import { dispatch } from "../contract/client";
 import type { WholeGameAnalysisView, WholeGameState } from "../contract/generated";
 import { message } from "../dialogs";
 import { icon } from "../design/icons";
+import { stepper } from "../design/stepper";
 import { boardUi, togglePolicy } from "../display/state";
 import { format, t } from "../i18n";
 import "./wholeGame.css";
@@ -85,7 +86,7 @@ function build(): HTMLElement {
   custom = document.createElement("input"); custom.type = "number"; custom.min = "500"; custom.max = "1000000"; custom.step = "100";
   custom.dataset.key = "wholeGame.customVisits"; custom.setAttribute("aria-label", t("WholeGameAnalysis.visits.customValue"));
   hint = document.createElement("p"); hint.dataset.key = "wholeGame.visitsHint";
-  const choice = document.createElement("span"); choice.className = "whole-game-choice"; choice.append(preset, custom);
+  const choice = document.createElement("span"); choice.className = "whole-game-choice"; choice.append(preset, stepper(custom));
   controls.append(label, choice, hint); preset.onchange = () => void updateHint(); custom.oninput = () => void updateHint();
   const status = document.createElement("div"); status.className = "whole-game-status";
   phase = document.createElement("h3"); phase.dataset.key = "wholeGame.phase";

@@ -130,15 +130,13 @@
   background: var(--ds-accent-soft);
   color: var(--ds-accent-text);
 }
-.appearance-blunder-table td:first-child > input[type="number"] {
+.appearance-blunder-table td:first-child > .ds-stepper {
   width: 100%;
+}
+.appearance-rules .ds-stepper {
   height: var(--ds-control-h);
-  text-align: right;
 }
 .appearance-rules .appearance-color input[type="color"] {
-  height: var(--ds-control-h);
-}
-.appearance-rules .appearance-number {
   height: var(--ds-control-h);
 }
 .appearance-rule-buttons {

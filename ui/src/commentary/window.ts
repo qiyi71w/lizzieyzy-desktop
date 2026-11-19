@@ -7,6 +7,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { Command, CommentaryView, Mode } from "../contract/generated";
 import { format, setLanguage, t } from "../i18n";
 import { icon } from "../design/icons";
+import { stepper } from "../design/stepper";
 import { markdownToHtml } from "./markdown";
 import {
   COMMENTARY_DATA_EVENT,
@@ -134,7 +135,7 @@ function mount(): (payload: CommentaryPayload) => void {
   const toLabel = el("label", "", t("Teacher.range.to"));
   fromLabel.htmlFor = fromField.id;
   toLabel.htmlFor = toField.id;
-  range.append(fromLabel, fromField, toLabel, toField);
+  range.append(fromLabel, stepper(fromField), toLabel, stepper(toField));
   const actions = el("div", "tc-actions");
   const start = button(t("Teacher.action.start"), "", "commentary.start");
   const stop = button(t("Teacher.action.stop"), "", "commentary.stop");

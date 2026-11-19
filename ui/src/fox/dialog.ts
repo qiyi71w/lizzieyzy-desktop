@@ -7,6 +7,7 @@ import { COMMANDS } from "../commands";
 import { isApiError, snapshot } from "../contract/client";
 import type { FoxCommand, FoxReplaceChoice, FoxStartOutcome, FoxView } from "../contract/generated";
 import { icon } from "../design/icons";
+import { stepper } from "../design/stepper";
 import { message, options } from "../dialogs";
 import { format, product, t } from "../i18n";
 import { javaDouble, parseJavaDouble } from "../workbench/paint";
@@ -173,10 +174,10 @@ function row(...items: HTMLElement[]): HTMLElement {
   return r;
 }
 
-function formRow(form: HTMLElement, key: string, field: HTMLInputElement): void {
+function formRow(form: HTMLElement, key: string, field: HTMLInputElement, control: HTMLElement = field): void {
   const label = el("label", "fox-label", key);
   label.htmlFor = field.id;
-  form.append(label, field);
+  form.append(label, control);
 }
 
 function build(): HTMLElement {
@@ -233,7 +234,7 @@ function build(): HTMLElement {
   visitsField = el("input", "fox-visits");
   visitsField.id = "fox-max-visits";
   visitsField.dataset.key = "fox.max-visits";
-  formRow(form, t("Fox.port"), portField);
+  formRow(form, t("Fox.port"), portField, stepper(portField));
   formRow(form, t("Fox.maxTime"), timeField);
   formRow(form, t("Fox.maxVisits"), visitsField);
   form.append(el("span"), el("span", "fox-muted fox-note", t("Fox.limitUnlimited")));

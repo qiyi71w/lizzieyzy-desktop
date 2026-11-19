@@ -6,6 +6,7 @@
 import { registerViewHandler, run, state } from "../app";
 import type { HumanSlNotice, HumanSlStartupStage, HumanSlTrainingSettings, ResourceOutcome } from "../contract/generated";
 import { icon } from "../design/icons";
+import { stepper } from "../design/stepper";
 import { ask, openModalLayer } from "../dialogs";
 import { format, product, t } from "../i18n";
 import { openAutoSetup, resourceCommand, resourceView } from "../setup/dialog";
@@ -171,7 +172,7 @@ export function openHumanSlDialog(): void {
   rankInput.setAttribute("aria-label", t("HumanSlTraining.opponent.rank"));
   let rank = saved.training.rank;
   const rankPanel = el("div", "hs-rank-panel");
-  rankPanel.append(kind, rankInput, el("span", "hs-hint", t("HumanSlTraining.rank.range")));
+  rankPanel.append(kind, stepper(rankInput), el("span", "hs-hint", t("HumanSlTraining.rank.range")));
   const proStyle = select("proStyle", [t("HumanSlTraining.pro.modern"), t("HumanSlTraining.pro.online9d")]);
   proStyle.setAttribute("aria-label", t("HumanSlTraining.opponent.pro"));
   const proPanel = el("div", "hs-pro-panel");

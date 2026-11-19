@@ -128,9 +128,19 @@ body {
   padding: 6px 8px;
   line-height: 1.4;
 }
+/* A field darkens its edge under the pointer; with the focus it takes the accent edge and the
+   focus ring outside it. */
+:where(input:not([type]), input[type="text"], input[type="number"], input[type="password"], input[type="search"], input[type="url"], select, textarea):hover:enabled {
+  border-color: var(--ds-text-3);
+}
 :where(input, select, textarea):focus-visible {
   border-color: var(--ds-accent);
-  outline-offset: -1px;
+  outline-offset: 0;
+}
+/* A field that holds a number: right-aligned, numerals of one width. */
+:where(input[type="number"], input[inputmode="numeric"], input[inputmode="decimal"]) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 :where(input, select, textarea):disabled {
   color: var(--ds-text-off);
@@ -191,4 +201,91 @@ body {
 }
 :where(input[type="range"], progress) {
   accent-color: var(--ds-accent);
+}
+
+/* ---- number fields with their arrows (stepper.ts). The stepper carries the field's frame and
+   states; the field inside it is bare. */
+:where(.ds-stepper) {
+  display: inline-flex;
+  flex: none;
+  align-items: stretch;
+  height: var(--ds-control-h-l);
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-radius);
+  background-color: var(--ds-field);
+  overflow: hidden;
+  vertical-align: middle;
+}
+:where(.ds-stepper:has(> input[hidden])) {
+  display: none;
+}
+:where(.ds-stepper > input) {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: auto;
+  padding: 0 6px 0 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+/* The arrows beside the field replace the WebView's own. */
+:where(.ds-stepper > input)::-webkit-inner-spin-button,
+:where(.ds-stepper > input)::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+:where(.ds-stepper > input):focus-visible {
+  outline: none;
+}
+:where(.ds-stepper > input):disabled {
+  background-color: transparent;
+}
+:where(.ds-stepper):hover {
+  border-color: var(--ds-text-3);
+}
+:where(.ds-stepper):focus-within {
+  border-color: var(--ds-accent);
+  outline: 2px solid var(--ds-ring);
+}
+:where(.ds-stepper):has(> input.invalid, > input[aria-invalid="true"]) {
+  border-color: var(--ds-danger);
+  background-color: var(--ds-danger-soft);
+}
+:where(.ds-stepper):has(> input:disabled) {
+  border-color: var(--ds-line-strong);
+  background-color: var(--ds-sunken);
+}
+:where(.ds-stepper-arrows) {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 18px;
+  box-shadow: inset 1px 0 0 var(--ds-line);
+  color: var(--ds-text-3);
+}
+:where(.ds-stepper-arrows > span) {
+  flex: 1;
+  display: grid;
+  place-items: center;
+}
+:where(.ds-stepper-arrows > span):hover {
+  background-color: var(--ds-hover);
+  color: var(--ds-text);
+}
+:where(.ds-stepper-arrows > span):active {
+  background-color: var(--ds-pressed);
+}
+:where(.ds-stepper):has(> input:disabled, > input[readonly]) > .ds-stepper-arrows {
+  color: var(--ds-text-off);
+  pointer-events: none;
+}
+/* Outranks icons.css's own size. */
+.ds-stepper-arrows .icon {
+  width: 10px;
+  height: 10px;
+  stroke-width: 2;
 }
