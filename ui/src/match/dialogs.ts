@@ -488,10 +488,11 @@ function resignRows(cfg: MatchSettings) {
     const min = field(String(p.minMove), `match.${key}MinMove`, "int");
     const moves = field(String(p.consecutiveMoves), `match.${key}ResignMoves`, "int");
     const rate = field(javaDouble(p.winrate), `match.${key}ResignWinrate`, "double");
+    // Each value wraps together with its caption and unit.
     const values = inline(
-      el("span", "", t("EnginePkConfig.lblresignSettingConsistent")), min,
-      el("span", "", t("EnginePkConfig.lblresignSetting2")), moves,
-      el("span", "", t("EnginePkConfig.lblresignSetting3")), rate, el("span", "", "%"),
+      inline(el("span", "", t("EnginePkConfig.lblresignSettingConsistent")), min),
+      inline(el("span", "", t("EnginePkConfig.lblresignSetting2")), moves),
+      inline(el("span", "", t("EnginePkConfig.lblresignSetting3")), rate, el("span", "", "%")),
     );
     values.classList.add("match-span");
     rows.append(el("span", "", label), values);

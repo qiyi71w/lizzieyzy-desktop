@@ -70,6 +70,11 @@
   gap: 6px;
   white-space: nowrap;
 }
+/* A group inside a row stays whole: its caption, field and unit wrap together. */
+.match-inline > .match-inline {
+  flex: none;
+  flex-wrap: nowrap;
+}
 .match-inline > .match-check + .match-check {
   margin-left: 10px;
 }
