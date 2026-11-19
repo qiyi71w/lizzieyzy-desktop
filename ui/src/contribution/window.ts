@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { navigate, registerViewHandler, run, state } from "../app";
 import { engineConsole, onConsole } from "../contract/client";
 import type { ConsoleLineView, ContributionCommand, ContributionNotice, ContributionView, ContributionWatchSettings } from "../contract/generated";
+import { icon, type IconName } from "../design/icons";
 import { message, panel } from "../dialogs";
 import { product, t } from "../i18n";
 import { button, checkbox, input } from "../engine/controls";
@@ -43,6 +44,16 @@ function row(className: string, ...items: (HTMLElement | string)[]): HTMLDivElem
 
 function keyed<T extends HTMLElement>(el: T, key: string): T {
   el.dataset.key = `contribution.view.${key}`;
+  return el;
+}
+
+/** A step button: the bottom bar's icon, named by the Java glyph it replaces. */
+function stepButton(glyph: string, name: IconName, key: string, run: () => void): HTMLButtonElement {
+  const el = keyed(button("", run), key);
+  el.classList.add("contribution-step");
+  el.setAttribute("aria-label", glyph);
+  el.title = glyph;
+  el.append(icon(name));
   return el;
 }
 
@@ -93,7 +104,8 @@ function openWindow(view: ContributionView, watch: ContributionWatchSettings): v
   const header = row("contribution-header", t("ContributeView.title"), keyed(button(product("close"), () => void contribution({ type: "CloseView" })), "close"));
 
   const consoleText = document.createElement("pre");
-  consoleText.className = "contribution-console"; consoleText.tabIndex = 0;
+  // The engine's output on the dark console surface whatever the mode, like the GTP console.
+  consoleText.className = "contribution-console"; consoleText.tabIndex = 0; consoleText.dataset.theme = "dark";
   consoleText.setAttribute("aria-label", t("ContributeView.btnFullConsole"));
   const tip = row("contribution-tip");
   const consoleToggle = keyed(button("", () => setWatch({ hideConsole: !state.view?.settings.contribution.watch.hideConsole })), "console");
@@ -160,7 +172,7 @@ function openWindow(view: ContributionView, watch: ContributionWatchSettings): v
   const slowQuit = keyed(button(t("ContributeView.btnSlowShutdown"), () => void contribution({ type: "SlowQuit" })), "slowQuit");
   slowQuit.title = t("ContributeView.btnSlowShutdownTip");
   const forceQuit = keyed(button(t("ContributeView.btnForceShutdown"), () => void contribution({ type: "ForceQuit" })), "forceQuit");
-  forceQuit.title = t("ContributeView.btnForceShutdownTip");
+  forceQuit.title = t("ContributeView.btnForceShutdownTip"); forceQuit.classList.add("danger");
   const closeView = keyed(button(t("ContributeView.btnCloseView"), () => void contribution({ type: "CloseView" })), "closeView");
 
   root.append(
@@ -169,19 +181,19 @@ function openWindow(view: ContributionView, watch: ContributionWatchSettings): v
     row("contribution-console-buttons", consoleToggle, fullConsole, alwaysTop.label),
     row("contribution-row", info, saveAll),
     row("contribution-row",
-      keyed(button("|<", () => void contribution({ type: "WatchGame", index: 0 })), "firstGame"),
+      stepButton("|<", "step-first", "firstGame", () => void contribution({ type: "WatchGame", index: 0 })),
       keyed(button(t("ContributeView.btnPrevious"), () => void contribution({ type: "WatchGame", index: watching() - 1 })), "previousGame"),
       keyed(button(t("ContributeView.btnNext"), () => void contribution({ type: "WatchGame", index: watching() + 1 })), "nextGame"),
       // getGameMaxIndex; an index past the end selects the last game.
-      keyed(button(">|", () => void contribution({ type: "WatchGame", index: Math.max(0, (state.view?.contribution?.total ?? 1) - 1) })), "lastGame"),
+      stepButton(">|", "step-last", "lastGame", () => void contribution({ type: "WatchGame", index: Math.max(0, (state.view?.contribution?.total ?? 1) - 1) })),
       t("ContributeView.lblGoto"), gameIndex, keyed(button(t("ContributeView.btnGotoGame"), gotoGame), "gotoGame")),
     row("contribution-row",
-      keyed(button("|<", () => navigate({ op: "First" })), "firstMove"),
-      keyed(button("<<", () => navigate({ op: "Back", count: 10 })), "back10"),
-      keyed(button("<", () => navigate({ op: "Back", count: 1 })), "back"),
-      keyed(button(">", () => navigate({ op: "Forward", count: 1 })), "forward"),
-      keyed(button(">>", () => navigate({ op: "Forward", count: 10 })), "forward10"),
-      keyed(button(">|", () => navigate({ op: "Last" })), "lastMove"),
+      stepButton("|<", "step-first", "firstMove", () => navigate({ op: "First" })),
+      stepButton("<<", "step-back-ten", "back10", () => navigate({ op: "Back", count: 10 })),
+      stepButton("<", "step-back", "back", () => navigate({ op: "Back", count: 1 })),
+      stepButton(">", "step-forward", "forward", () => navigate({ op: "Forward", count: 1 })),
+      stepButton(">>", "step-forward-ten", "forward10", () => navigate({ op: "Forward", count: 10 })),
+      stepButton(">|", "step-last", "lastMove", () => navigate({ op: "Last" })),
       moveNumber, keyed(button(t("ContributeView.btnGotoMove"), gotoMove), "gotoMove"), alwaysLastMove.label),
     row("contribution-row", autoPlay.label, t("ContributeView.lblAutoPlayInterval"), interval, autoPlayNextGame.label, skipNon19.label),
     row("contribution-row contribution-game", type, komi, result, resultToggle),

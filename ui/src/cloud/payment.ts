@@ -41,18 +41,18 @@ export function openPayment(completed: () => void): Promise<void> {
   const notify = () => { if (!notified) { notified = true; completed(); } };
 
   const root = el("div", "rc-payment-root");
-  const heading = el("div", "rc-payment-heading");
-  heading.append(el("h2", "", t("RemoteCompute.payment.title")), el("p", "", t("RemoteCompute.payment.subtitle")));
+  // The dialog's title is the frame's; the page opens with its subtitle.
+  const heading = el("p", "rc-payment-subtitle", t("RemoteCompute.payment.subtitle"));
 
-  // ---- choice card --------------------------------------------------------------------------
-  const choiceCard = el("div", "rc-payment-card");
+  // ---- choice -------------------------------------------------------------------------------
+  const choiceCard = el("div");
   const modes = el("div", "rc-payment-modes");
   const topUpMode = button(t("RemoteCompute.payment.topUp"), "rc-payment-mode", "payment.mode.topUp", () => selectMode("topUp"));
   const vipMode = button(t("RemoteCompute.payment.vip"), "rc-payment-mode", "payment.mode.vip", () => selectMode("vip"));
   modes.append(topUpMode, vipMode);
 
   const topUpPanel = el("div", "rc-payment-selection");
-  const topUpSelect = el("select", "rc-select");
+  const topUpSelect = el("select");
   topUpSelect.id = "rc-payment-topup";
   topUpSelect.dataset.key = "payment.topUp";
   topUpSelect.title = t("RemoteCompute.payment.topUpAmountDescription");
@@ -64,7 +64,7 @@ export function openPayment(completed: () => void): Promise<void> {
   topUpPanel.append(topUpLabel, topUpSelect, topUpSummary, topUpStatus);
 
   const vipPanel = el("div", "rc-payment-selection");
-  const productSelect = el("select", "rc-select");
+  const productSelect = el("select");
   productSelect.id = "rc-payment-product";
   productSelect.dataset.key = "payment.product";
   productSelect.title = t("RemoteCompute.payment.planDescription");
@@ -74,15 +74,15 @@ export function openPayment(completed: () => void): Promise<void> {
   const productStatus = el("div", "rc-payment-status", t("RemoteCompute.payment.loadingProducts"));
   vipPanel.append(productLabel, productSelect, productSummary, productStatus);
 
-  const choiceActions = el("div", "rc-payment-actions rc-payment-actions-end");
-  const cancelButton = button(t("RemoteCompute.payment.cancel"), "rc-secondary", "payment.cancel", () => void panel.close());
-  const createButton = button(t("RemoteCompute.payment.createOrder"), "rc-primary rc-payment-create", "payment.create", () => void confirmAndCreate());
+  const choiceActions = el("div", "rc-payment-actions");
+  const cancelButton = button(t("RemoteCompute.payment.cancel"), "", "payment.cancel", () => void panel.close());
+  const createButton = button(t("RemoteCompute.payment.createOrder"), "primary", "payment.create", () => void confirmAndCreate());
   createButton.title = t("RemoteCompute.payment.createOrderDescription");
   choiceActions.append(cancelButton, createButton);
   choiceCard.append(modes, topUpPanel, vipPanel, choiceActions);
 
-  // ---- payment card -------------------------------------------------------------------------
-  const paymentCard = el("div", "rc-payment-card rc-payment-pay");
+  // ---- payment: the QR code (black on white with its quiet zone) beside the order ------------
+  const paymentCard = el("div", "rc-payment-pay");
   const qr = el("div", "rc-payment-qr");
   qr.title = t("RemoteCompute.payment.qrDescription");
   const details = el("div", "rc-payment-details");
@@ -92,11 +92,11 @@ export function openPayment(completed: () => void): Promise<void> {
   paymentStatus.setAttribute("role", "status");
   paymentStatus.setAttribute("aria-live", "polite");
   let reauthenticate = false;
-  const retryButton = button(t("RemoteCompute.payment.newOrder"), "rc-secondary", "payment.retry", () => {
+  const retryButton = button(t("RemoteCompute.payment.newOrder"), "", "payment.retry", () => {
     if (reauthenticate) void panel.close(); else resetForNewOrder();
   });
   retryButton.hidden = true;
-  const closeButton = button(t("RemoteCompute.payment.close"), "rc-secondary", "payment.close", () => void panel.close());
+  const closeButton = button(t("RemoteCompute.payment.close"), "primary", "payment.close", () => void panel.close());
   const payActions = el("div", "rc-payment-actions");
   payActions.append(retryButton, closeButton);
   details.append(el("div", "rc-payment-scan", t("RemoteCompute.payment.scan")), paymentProduct, paymentAmount, paymentStatus,

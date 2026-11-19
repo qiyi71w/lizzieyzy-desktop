@@ -5,7 +5,7 @@ import { confirm, formPanel, message } from "../dialogs";
 import { product, t } from "../i18n";
 import { actions, button } from "../engine/controls";
 import { plainJava, tuningText } from "../engine/tuningText";
-import type { SetupCard, SetupContext } from "./card";
+import { tagged, type SetupCard, type SetupContext } from "./card";
 import { resourceView } from "./dialog";
 import "./performance.css";
 
@@ -78,7 +78,7 @@ export function performanceCard(ctx: SetupContext): SetupCard {
   const values = [t("MoreEngines.column1"), t("AutoSetup.localEngine"), t("AutoSetup.gtpConfig"), t("AutoSetup.benchmarkRecommended"), t("AutoSetup.benchmarkCurrentModel"), t("AutoSetup.benchmarkBackend"), t("AutoSetup.benchmarkTime")].map((label) => { const value = text("dd", "—"); metadata.append(text("dt", label), value); return value; });
   metrics.append(nn.element, visits.element, metadata);
   const details = text("p", "", "benchmark-policy"); report.append(notice, status, metrics, details);
-  element.append(report, text("p", `ⓘ  ${t("AutoSetup.benchmarkSpeedExplanation")}`, "benchmark-explanation"), text("p", `ⓘ  ${t("AutoSetup.benchmarkComparisonNote")}`, "benchmark-comparison"));
+  element.append(report, text("p", t("AutoSetup.benchmarkSpeedExplanation"), "benchmark-explanation"), text("p", t("AutoSetup.benchmarkComparisonNote"), "benchmark-comparison"));
   const taskArea = document.createElement("div"); taskArea.className = "benchmark-task";
   const progress = document.createElement("progress"); progress.max = 1000;
   const lines = text("pre", "");
@@ -127,7 +127,7 @@ export function performanceCard(ctx: SetupContext): SetupCard {
     summary.tabIndex = 0; summary.setAttribute("aria-label", t("MeasuredTuning.title")); content.append(summary);
     let accepted = false;
     const prompt = formPanel(t("MeasuredTuning.title"), content);
-    const accept = button(product("ok"), () => { accepted = true; void prompt.close(); }); accept.dataset.key = "performance.measured.confirm";
+    const accept = button(product("ok"), () => { accepted = true; void prompt.close(); }); accept.dataset.key = "performance.measured.confirm"; accept.classList.add("primary");
     const cancel = button(product("cancel"), () => prompt.close()); cancel.dataset.key = "performance.measured.cancel";
     actions(content, accept, cancel);
     await prompt.closed;
@@ -156,7 +156,13 @@ export function performanceCard(ctx: SetupContext): SetupCard {
     entries.forEach((entry, index) => { values[index].textContent = entry || "—"; values[index].title = entry || ""; });
     notice.hidden = !profile?.b11;
     const task = latest?.task;
-    status.textContent = task?.engineId === targetId ? t("AutoSetup.benchmarking") : !profile?.eligible ? t("AutoSetup.benchmarkUnavailableShort") : profile.environmentStatus ? t("B11SpeedNotice.historicalStatus") : threads <= 0 ? t("AutoSetup.benchmarkNotRun") : nnSpeed > 0 && visitsSpeed > 0 ? t("AutoSetup.benchmarkDone") : t("AutoSetup.benchmarkLegacyResult");
+    const [statusText, tone] = task?.engineId === targetId ? [t("AutoSetup.benchmarking"), "neutral"] as const
+      : !profile?.eligible ? [t("AutoSetup.benchmarkUnavailableShort"), "missing"] as const
+      : profile.environmentStatus ? [t("B11SpeedNotice.historicalStatus"), "missing"] as const
+      : threads <= 0 ? [t("AutoSetup.benchmarkNotRun"), "neutral"] as const
+      : nnSpeed > 0 && visitsSpeed > 0 ? [t("AutoSetup.benchmarkDone"), "ready"] as const
+      : [t("AutoSetup.benchmarkLegacyResult"), "missing"] as const;
+    status.textContent = statusText; tagged(status, tone).classList.add("benchmark-status");
     const command = view?.settings.engine.engines.find((entry) => entry.id === targetId)?.command ?? "";
     details.textContent = [policy?.source === "BENCHMARK" ? t("EngineThreadPolicy.benchmark") : t("EngineThreadPolicy.cfg"), profile?.environmentStatus ? tuningText(profile.environmentStatus) : "", profile?.environmentStatus && threads > 0 ? t("B11SpeedNotice.historicalResult") : "", /(?:numSearchThreads\s*=\s*[1-9]|--?threads\s+[1-9])/i.test(command) ? t("EngineThreadPolicy.explicitOverride") : "", !profile?.eligible ? t("AutoSetup.benchmarkUnavailable") : ""].filter(Boolean).join("\n");
     taskArea.hidden = !task;

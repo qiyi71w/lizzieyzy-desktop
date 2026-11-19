@@ -1,189 +1,614 @@
-/* 远程算力 (RemoteComputeDialog) in AppleStyleSupport's light workspace colors: background
-   #f5f6f8, surface #fff, border #d5dcda, text #252d2c, muted #55635e, accent #126b62, selection
-   #e2f1ec, success #196b49, error #a33; RoundPanel corners capped at arc 12 (6 px radius). */
-.cloud-window {
-  --rc-bg: #f5f6f8; --rc-card: #fff; --rc-border: #d5dcda; --rc-text: #252d2c; --rc-muted: #55635e;
-  --rc-accent: #126b62; --rc-primary: #0f766e; --rc-primary-edge: #0c625c; --rc-selection: #e2f1ec;
-  --rc-success: #196b49; --rc-error: #a33; --rc-gold: #55635e;
-  position: fixed; z-index: 26; display: flex; flex-direction: column; box-sizing: border-box;
-  left: 50%; top: 50%; translate: -50% -50%;
-  background: var(--rc-bg); color: var(--rc-text); border: 1px solid #c9cccf; box-shadow: 0 10px 38px #0004;
-  font-size: 13px; outline: none;
+/* 远程算力 (RemoteComputeDialog), 智子账户明细 and 智子充值与 VIP: non-modal tool windows over the
+   workbench with the dialog's ground, radius and shadow and no scrim; the payment flow is a modal
+   form dialog. Pages are text segments, each page two titled columns divided by a hairline, the
+   connection status below both. */
+.cloud-window,
+.rc-payment-root {
+  --cloud-label: calc(var(--ds-size) * 9);
 }
-.cloud-window *, .rc-payment-root * { box-sizing: border-box; }
-.cloud-window [hidden], .rc-payment-root [hidden] { display: none !important; }
-.cloud-window-title { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; height: 28px; padding: 0 4px 0 12px; background: #e9ebee; border-bottom: 1px solid #d0d3d6; font-size: 12px; user-select: none; }
-.cloud-window-close { border: 0; background: transparent; color: inherit; font-size: 18px; line-height: 1; width: 28px; height: 24px; border-radius: 4px; cursor: pointer; }
-.cloud-window-close:hover { background: #d9dcdf; }
-.cloud-window-body { flex: 1; min-height: 0; overflow: auto; }
-/* Zero specificity: each control's own font-size/weight (.rc-tab, .rc-primary, …) wins. */
-:where(.cloud-window) :where(button) { font: inherit; }
-.cloud-window button:focus-visible, .cloud-window select:focus-visible, .cloud-window input:focus-visible { outline: 2px solid var(--rc-accent); outline-offset: 1px; }
+.cloud-window {
+  position: fixed;
+  z-index: 26;
+  inset: 0;
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--ds-radius-l);
+  background: var(--ds-panel);
+  color: var(--ds-text);
+  box-shadow: var(--ds-shadow-dialog);
+  outline: none;
+}
+.cloud-window [hidden],
+.rc-payment-root [hidden] {
+  display: none;
+}
+.cloud-window-title {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 0 20px;
+}
+.cloud-window-title h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 4px 0 0;
+  font-size: var(--ds-size-xl);
+  font-weight: 600;
+}
+.cloud-window-close {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  padding: 0;
+  border-color: transparent;
+  background-color: transparent;
+  color: var(--ds-text-2);
+}
+.cloud-window-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.cloud-window button.primary:disabled,
+.rc-payment-root button.primary:disabled {
+  border-color: var(--ds-line-strong);
+  background-color: var(--ds-sunken);
+  color: var(--ds-text-off);
+}
 
-/* Window 1110×710 (min 900×600 within the work area). */
-.cloud-window.remote-compute { width: min(1110px, calc(100vw - 16px)); height: min(738px, calc(100vh - 16px)); min-width: min(900px, calc(100vw - 16px)); min-height: min(600px, calc(100vh - 16px)); }
-.rc-root { display: flex; flex-direction: column; gap: 16px; height: 100%; min-height: 560px; padding: 20px 24px 16px; }
-.rc-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
-.rc-title { margin: 0; font-size: 22px; font-weight: 700; }
-.rc-tabs { display: flex; gap: 8px; min-width: 286px; height: 58px; padding: 6px; background: var(--rc-card); border: 1px solid var(--rc-border); border-radius: 6px; }
-.rc-tab, .rc-segment { flex: 1; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--rc-text); font-weight: 700; font-size: 15px; padding: 10px 16px; cursor: pointer; white-space: nowrap; }
-.rc-tab.selected, .rc-segment.selected { background: var(--rc-card); border-color: var(--rc-accent); }
-.rc-segment { font-size: 13px; }
-.rc-page { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-.rc-card { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: auto; padding: 16px; background: var(--rc-card); border: 1.2px solid var(--rc-border); border-radius: 6px; }
-.rc-card-title { margin: 0; font-size: 18px; font-weight: 700; }
-.rc-card-subtitle { margin: 8px 0 24px; color: var(--rc-muted); font-size: 14px; font-weight: 700; line-height: 1.35; }
-.rc-action-card .rc-card-title { margin-bottom: 10px; }
-.rc-action-card { gap: 6px; }
+/* Text segments: the shown page (or mode) on the well at weight 600. */
+.rc-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.rc-tab,
+.rc-segment {
+  height: 24px;
+  padding: 0 8px;
+  border-color: transparent;
+  border-radius: var(--ds-radius-s);
+  background-color: transparent;
+  color: var(--ds-text-3);
+}
+.rc-tab.selected,
+.rc-segment.selected {
+  background-color: var(--ds-well);
+  color: var(--ds-text);
+  font-weight: 600;
+}
+.rc-tab:disabled,
+.rc-segment:disabled {
+  background-color: transparent;
+}
+/* A text action. */
+.rc-link {
+  height: auto;
+  padding: 0 2px;
+  border: 0;
+  background-color: transparent;
+  color: var(--ds-accent-text);
+}
+.rc-link:hover:enabled {
+  background-image: none;
+  text-decoration: underline;
+}
+.rc-link:disabled {
+  background-color: transparent;
+}
+.rc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.rc-actions button {
+  min-width: 76px;
+}
 
-.rc-login { display: flex; flex-direction: column; gap: 12px; }
-.rc-segments { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; padding: 4px; margin-bottom: 6px; height: 52px; background: var(--rc-bg); border: 1.2px solid var(--rc-border); border-radius: 6px; }
-.rc-field { display: grid; grid-template-columns: minmax(58px, max-content) minmax(0, 1fr); align-items: center; column-gap: 12px; min-height: 44px; }
-.rc-field-label { min-width: 58px; padding-right: 10px; color: var(--rc-muted); font-size: 14px; font-weight: 700; }
-.rc-input { width: 100%; height: 46px; padding: 10px 12px; border: 1px solid var(--rc-border); border-radius: 0; background: var(--rc-card); color: var(--rc-text); font: inherit; font-size: 14px; font-weight: 700; }
-.rc-input:disabled { background: var(--rc-bg); color: var(--rc-muted); }
-.rc-password-shell { display: flex; align-items: center; gap: 4px; padding: 0 6px 0 12px; border-radius: 6px; }
-.rc-password-shell:focus-within { outline: 2px solid var(--rc-accent); outline-offset: 1px; }
-.rc-password-input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; outline: none; }
-.rc-eye { width: 36px; height: 36px; flex-shrink: 0; border: 0; border-radius: 8px; background: transparent; color: var(--rc-muted); cursor: pointer; padding: 6px; }
-.rc-eye:hover:not(:disabled), .rc-eye.selected { background: var(--rc-selection); }
-.rc-eye.selected { color: var(--rc-accent); }
-.rc-eye.selected .rc-eye-slash { display: none; }
-.rc-eye-icon { width: 24px; height: 24px; display: block; }
-.rc-code-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; }
-.rc-send-code { height: 46px; }
-.rc-hint { margin: -6px 0 0; color: var(--rc-muted); font-size: 12.5px; font-weight: 700; line-height: 1.35; }
-.rc-options { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 42px; }
-.rc-chips { display: flex; gap: 10px; }
-.rc-chip { position: relative; display: inline-flex; align-items: center; gap: 10px; height: 36px; padding: 0 14px 0 13px; border: 1.15px solid var(--rc-border); border-radius: 9px; background: var(--rc-card); color: var(--rc-muted); font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
-.rc-chip input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
-.rc-chip:hover, .rc-chip.selected { background: var(--rc-selection); }
-.rc-chip.selected { border-color: var(--rc-accent); color: var(--rc-accent); }
-.rc-chip:focus-within { outline: 2px solid var(--rc-accent); outline-offset: 1px; }
-.rc-chip-dot { width: 10px; height: 10px; border: 1px solid #aea491; border-radius: 50%; flex-shrink: 0; }
-.rc-chip.selected .rc-chip-dot { background: var(--rc-accent); border-color: var(--rc-accent); }
-.rc-chip:has(input:disabled) { cursor: default; opacity: .7; }
-.rc-link { border: 0; background: transparent; color: var(--rc-accent); font-size: 13px; font-weight: 700; padding: 4px 2px; cursor: pointer; }
-.rc-link:disabled { color: #8b9187; cursor: default; }
-.rc-primary, .rc-secondary { border-radius: 6px; font-size: 15px; font-weight: 700; padding: 11px 20px; cursor: pointer; white-space: nowrap; }
-.rc-primary { background: var(--rc-primary); border: 1px solid var(--rc-primary-edge); color: #fff; }
-.rc-primary:hover:not(:disabled) { background: #177e76; }
-.rc-secondary { background: var(--rc-card); border: 1px solid var(--rc-border); color: var(--rc-text); }
-.rc-secondary:hover:not(:disabled) { background: #fafbfb; }
-.rc-primary:disabled, .rc-secondary:disabled { background: var(--rc-bg); border-color: var(--rc-border); color: #9aa19d; cursor: default; }
-.rc-login-button { height: 54px; margin-top: 6px; }
+/* ---- 远程算力: window 1110 × 738 at most, inside the main window */
+.cloud-window.remote-compute {
+  width: min(1110px, calc(100vw - 24px));
+  height: min(738px, calc(100vh - 24px));
+}
+.rc-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 440px;
+}
+.rc-header {
+  flex: none;
+  padding: 8px 20px 0;
+}
+.rc-page {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  margin-top: 8px;
+  border-top: 1px solid var(--ds-line);
+}
+.rc-section {
+  min-width: 0;
+  overflow: auto;
+  padding: 12px 20px 16px;
+}
+.rc-section + .rc-section {
+  border-left: 1px solid var(--ds-line);
+}
+.rc-section-title {
+  margin: 0;
+  font-size: var(--ds-size-l);
+  font-weight: 600;
+}
+.rc-section-subtitle {
+  margin: 2px 0 0;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.rc-section > .rc-field {
+  margin-top: 12px;
+}
 
-.rc-signed-in { display: flex; flex-direction: column; padding: 24px 24px 22px; background: var(--rc-selection); border: 1.2px solid var(--rc-border); border-radius: 6px; }
-.rc-signed-in-title { color: var(--rc-accent); font-size: 18px; font-weight: 700; }
-.rc-account-text { margin: 10px 0 16px; color: var(--rc-muted); font-size: 13px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
-.rc-account-value { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
-.rc-account-value.rc-good { color: var(--rc-accent); }
-.rc-account-value.rc-muted { color: var(--rc-gold); }
-.rc-account-small { color: var(--rc-muted); font-size: 14px; font-weight: 700; margin-bottom: 4px; }
-.rc-account-updated { color: var(--rc-muted); font-size: 11.5px; font-weight: 700; margin-bottom: 8px; }
-.rc-account-actions { display: flex; gap: 12px; margin-bottom: 12px; }
-.rc-payment { height: 44px; margin-bottom: 10px; }
-.rc-logout { height: 48px; }
+/* Sign-in: a label column and a control column. */
+.rc-login {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+.rc-segments {
+  margin-bottom: 4px;
+}
+.rc-field {
+  display: grid;
+  grid-template-columns: var(--cloud-label) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+.rc-field-label {
+  color: var(--ds-text-2);
+}
+.rc-input {
+  width: 100%;
+  min-width: 0;
+}
+.rc-code {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.rc-code > input {
+  flex: 1;
+}
+/* The password field with its show / hide toggle inside. */
+.rc-password-shell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: var(--ds-control-h-l);
+  padding: 0 1px 0 8px;
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-radius);
+  background: var(--ds-field);
+}
+.rc-password-shell:has(> input:focus-visible) {
+  border-color: var(--ds-accent);
+  outline: 2px solid var(--ds-ring);
+  outline-offset: -1px;
+}
+.rc-password-shell:has(> input:disabled) {
+  background: var(--ds-sunken);
+}
+.rc-password-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.rc-password-input:focus-visible {
+  outline: none;
+}
+.rc-eye {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  border-color: transparent;
+  border-radius: var(--ds-radius-s);
+  background-color: transparent;
+  color: var(--ds-text-2);
+}
+.rc-eye.selected {
+  background-color: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+}
+.rc-eye:disabled {
+  background-color: transparent;
+}
+.rc-hint,
+.rc-options,
+.rc-login-button,
+.rc-import-row {
+  margin-left: calc(var(--cloud-label) + 12px);
+}
+.rc-hint {
+  margin-top: 0;
+  margin-bottom: 0;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.rc-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.rc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.rc-check {
+  display: inline-flex;
+  align-items: center;
+}
+.rc-login-button {
+  align-self: flex-start;
+  min-width: 76px;
+}
 
-.rc-soft { background: var(--rc-bg); border: 1.2px solid var(--rc-border); border-radius: 6px; }
-.rc-plan { display: flex; flex-direction: column; padding: 10px 16px; background: var(--rc-bg); border: 1.2px solid var(--rc-border); border-radius: 6px; margin-bottom: 4px; }
-.rc-plan-label { color: var(--rc-muted); font-size: 13px; font-weight: 700; margin-bottom: 6px; }
-.rc-plan-label + .rc-select { margin-bottom: 8px; }
-.rc-select { width: 100%; min-width: 0; overflow: hidden; height: 44px; padding: 8px 40px 8px 10px; border: 1px solid var(--rc-border); border-radius: 0; background: var(--rc-card) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="18" height="10"><path d="M0 0h18L9 10z" fill="%23353b39"/></svg>') no-repeat right 12px center; color: var(--rc-text); font: inherit; font-size: 14px; font-weight: 700; appearance: none; text-overflow: ellipsis; white-space: nowrap; }
-.rc-select:disabled { color: var(--rc-muted); background-color: var(--rc-bg); }
-.rc-weight-row { display: grid; grid-template-columns: minmax(0, 1fr) 44px; gap: 9px; }
-.rc-refresh { width: 44px; height: 44px; padding: 0; border: 1.1px solid var(--rc-border); border-radius: 7px; background: var(--rc-card); color: var(--rc-accent); cursor: pointer; display: grid; place-items: center; }
-.rc-refresh:hover:not(:disabled) { background: var(--rc-selection); }
-.rc-refresh:disabled { color: #8b9187; cursor: default; }
-.rc-refresh.refreshing { color: var(--rc-accent); }
-.rc-refresh-icon { width: 20px; height: 20px; }
-.rc-refresh.refreshing .rc-refresh-icon { animation: rc-spin 1.2s linear infinite; }
-@keyframes rc-spin { to { rotate: 360deg; } }
-.rc-official { align-self: flex-start; margin-top: 4px; }
-.rc-use { height: 48px; margin-top: 4px; }
-.rc-local { height: 42px; }
-.rc-website { display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 8px 14px; }
-.rc-website-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.rc-website-copy strong { font-size: 16px; }
-.rc-website-url { color: var(--rc-accent); font-size: 12.5px; font-weight: 700; }
-.rc-website .rc-secondary { min-width: 108px; height: 42px; }
-.rc-glyph { flex-shrink: 0; color: var(--rc-accent); }
-.rc-glyph-website { width: 50px; height: 50px; }
-.rc-glyph-deploy { width: 44px; height: 44px; }
-.rc-glyph-halo { fill: rgb(43 139 90 / .13); }
-.rc-glyph-gold { fill: var(--rc-gold); stroke: var(--rc-gold); }
+/* Signed in: who, the plan and the balance (the key figure), the account links. */
+.rc-signed-in {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 12px;
+}
+.rc-signed-in-title,
+.rc-account-value {
+  font-weight: 600;
+}
+.rc-account-text {
+  margin: 0 0 4px;
+  color: var(--ds-text-2);
+  overflow-wrap: anywhere;
+}
+.rc-account-value.rc-good {
+  color: var(--ds-success-text);
+}
+.rc-account-value.rc-muted {
+  color: var(--ds-text-2);
+}
+.rc-balance {
+  font-size: var(--ds-size-xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.rc-account-small {
+  color: var(--ds-text-2);
+  font-variant-numeric: tabular-nums;
+}
+.rc-account-updated {
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+  font-variant-numeric: tabular-nums;
+}
+.rc-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 4px;
+}
 
-.rc-import-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
-.rc-import-row .rc-secondary { height: 40px; }
-.rc-import-hint { color: var(--rc-muted); font-size: 13px; font-weight: 700; }
-.rc-info { flex: 1; display: flex; align-items: center; gap: 14px; margin-top: 22px; padding: 16px; min-height: 120px; }
-.rc-info-mark { width: 26px; text-align: center; color: var(--rc-gold); font-size: 26px; font-weight: 700; }
-.rc-info-text { display: flex; flex-direction: column; color: var(--rc-muted); font-size: 14px; font-weight: 700; line-height: 1.3; }
-.rc-deploy { display: flex; flex-direction: column; gap: 10px; min-height: 122px; padding: 14px 15px; }
-.rc-deploy-head { display: flex; gap: 12px; }
-.rc-deploy-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.rc-deploy-copy strong { font-size: 16px; }
-.rc-deploy-copy span { color: var(--rc-muted); font-size: 12.5px; font-weight: 700; line-height: 1.35; }
-.rc-deploy .rc-secondary { height: 42px; }
+/* 一键启用: connection mode and model, then 启用 / 使用本地. */
+.rc-plan {
+  display: grid;
+  grid-template-columns: var(--cloud-label) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 12px;
+}
+.rc-plan > label {
+  color: var(--ds-text-2);
+}
+.rc-plan select {
+  width: 100%;
+  min-width: 0;
+}
+.rc-weight-row {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.rc-weight-row > select {
+  flex: 1;
+}
+.rc-official {
+  grid-column: 2;
+  justify-self: start;
+}
+/* A titled note with its action, set apart by a hairline. */
+.rc-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ds-line);
+}
+.rc-note-copy {
+  flex: 1;
+  min-width: calc(var(--ds-size) * 14);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rc-note-copy strong {
+  font-weight: 600;
+}
+.rc-note-copy span {
+  color: var(--ds-text-2);
+}
+.rc-note-copy .rc-website-url {
+  color: var(--ds-accent-text);
+  user-select: text;
+}
+.rc-import-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 8px;
+}
+.rc-import-hint {
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
 
-.rc-footer { display: flex; align-items: center; gap: 14px; flex-shrink: 0; min-height: 44px; padding: 12px 18px; background: var(--rc-card); border: 1.2px solid var(--rc-border); border-radius: 6px; }
-.rc-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; background: var(--rc-accent); box-shadow: 0 0 0 3px rgb(18 107 98 / .18); }
-.rc-dot.rc-dot-error { background: var(--rc-error); box-shadow: 0 0 0 3px rgb(170 51 51 / .18); }
-.rc-current { flex: 1; min-width: 0; font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rc-status { max-width: 62%; color: var(--rc-muted); font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rc-status.rc-ok { color: var(--rc-success); }
-.rc-status.rc-error { color: var(--rc-error); }
+/* The current engine and the last status, below both columns. */
+.rc-footer {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 10px 20px 14px;
+  border-top: 1px solid var(--ds-line);
+}
+.rc-dot {
+  flex: none;
+  align-self: center;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ds-success-text);
+}
+.rc-dot.rc-dot-error {
+  background: var(--ds-danger-text);
+}
+.rc-current {
+  font-weight: 600;
+}
+.rc-status {
+  flex: 1;
+  min-width: 0;
+  color: var(--ds-text-2);
+  overflow-wrap: anywhere;
+}
+.rc-status.rc-ok {
+  color: var(--ds-success-text);
+}
+.rc-status.rc-error {
+  color: var(--ds-danger-text);
+}
 
-/* 智子账户明细 (900×560, min 760×480). */
-.cloud-window.rc-details { --rc-bg: #faf7f0; width: min(900px, calc(100vw - 16px)); height: min(588px, calc(100vh - 16px)); min-width: min(760px, calc(100vw - 16px)); min-height: min(480px, calc(100vh - 16px)); z-index: 27; }
-.rc-details-root { display: flex; flex-direction: column; height: 100%; padding: 22px 24px 18px; gap: 14px; color: #2b271f; }
-.rc-details-title { margin: 0; font-size: 24px; font-weight: 700; }
-.rc-details-tabs { display: flex; gap: 2px; border-bottom: 1px solid #ddd3be; }
-.rc-details-tab { border: 1px solid transparent; border-bottom: 0; background: transparent; padding: 6px 14px; cursor: pointer; border-radius: 4px 4px 0 0; color: inherit; }
-.rc-details-tab.selected { background: #fff; border-color: #ddd3be; margin-bottom: -1px; }
-.rc-details-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
-.rc-details-scroll { flex: 1; min-height: 0; overflow: auto; background: #fff; border: 1px solid #ddd3be; }
-.rc-details-table { width: 100%; border-collapse: collapse; }
-.rc-details-table th { position: sticky; top: 0; background: #f1ede4; font-weight: 600; text-align: left; padding: 6px 8px; border-bottom: 1px solid #ddd3be; cursor: pointer; user-select: none; }
-.rc-details-table td { height: 30px; padding: 0 8px; border-bottom: 1px solid #eee8db; white-space: nowrap; }
-.rc-details-controls { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
-.rc-details-button { min-height: 28px; padding: 4px 12px; border: 1px solid #c9c1ad; border-radius: 4px; background: #fff; color: inherit; cursor: pointer; }
-.rc-details-button:disabled { color: #a9a395; background: #f4f1ea; cursor: default; }
-.rc-details-page { color: #70685a; }
-.rc-details-status { color: #70685a; font-size: 13px; }
-.rc-details-status.rc-error { color: #be4538; }
+/* ---- 智子账户明细: window 900 × 588 at most, the paged tables */
+.cloud-window.rc-details {
+  z-index: 27;
+  width: min(900px, calc(100vw - 24px));
+  height: min(588px, calc(100vh - 24px));
+}
+.rc-details-root {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 320px;
+  padding: 8px 20px 16px;
+}
+.rc-details-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rc-details-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius);
+}
+.rc-details-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+.rc-details-table th,
+.rc-details-table td {
+  height: 24px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--ds-line);
+  text-align: left;
+  white-space: nowrap;
+}
+.rc-details-table th {
+  position: sticky;
+  top: 0;
+  background: var(--ds-sunken);
+  color: var(--ds-text-2);
+  font-weight: 400;
+}
+.rc-details-table th:hover {
+  color: var(--ds-text);
+}
+.rc-details-table th:focus-visible {
+  outline-offset: -2px;
+}
+.rc-details-table tbody tr:hover {
+  background: var(--ds-hover);
+}
+.rc-details-controls {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+.rc-details-page {
+  color: var(--ds-text-2);
+  font-variant-numeric: tabular-nums;
+}
+.rc-details-status {
+  color: var(--ds-text-2);
+}
+.rc-details-status.rc-error {
+  color: var(--ds-danger-text);
+}
 
-/* 智子充值与 VIP (720×540, min 650×500), modal. */
-.modal-box.rc-payment-dialog { width: min(720px, calc(100vw - 16px)); min-height: min(540px, calc(100vh - 16px)); background: #faf7f0; }
-.rc-payment-root { --rc-bg: #f4f1ea; --rc-card: #fff; --rc-border: #ddd3be; --rc-text: #2b271f; --rc-muted: #70685a; display: flex; flex-direction: column; gap: 18px; padding: 24px 28px 22px; color: #2b271f; }
-.rc-payment-heading h2 { margin: 0 0 5px; font-size: 26px; font-weight: 700; }
-.rc-payment-heading p { margin: 0; color: #70685a; font-size: 14px; }
-.rc-payment-card { padding: 24px 26px; background: #fffdf8; border: 1px solid #ddd3be; }
-.rc-payment-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.rc-payment-mode { height: 44px; padding: 9px 18px; border: 1px solid #ddd3be; background: #fffdf8; color: #2b271f; font-size: 14px; font-weight: 700; cursor: pointer; }
-.rc-payment-mode.selected { background: #e7f5ed; border-color: #2b8b5a; color: #2b8b5a; }
-.rc-payment-mode:disabled { cursor: default; opacity: .7; }
-.rc-payment-selection { display: flex; flex-direction: column; margin-top: 18px; }
-.rc-payment-label { font-size: 15px; font-weight: 700; }
-.rc-payment-selection .rc-select { height: 48px; margin-top: 8px; }
-.rc-payment-summary { margin-top: 14px; font-size: 18px; font-weight: 700; min-height: 24px; }
-.rc-payment-status { margin-top: 8px; color: #70685a; font-size: 13px; white-space: pre-line; }
-.rc-payment-status.rc-good { color: #2b8b5a; }
-.rc-payment-status.rc-error { color: #be4538; }
-.rc-payment-actions { display: flex; gap: 10px; margin-top: 24px; }
-.rc-payment-actions-end { justify-content: flex-end; }
-.rc-payment-root .rc-primary, .rc-payment-root .rc-secondary { font-size: 15px; font-weight: 700; padding: 9px 18px; cursor: pointer; }
-.rc-payment-root .rc-primary { min-width: 220px; height: 44px; border-radius: 6px; background: #2b8b5a; border: 1px solid #22794d; color: #fff; }
-.rc-payment-root .rc-secondary { min-width: 92px; height: 42px; background: #fffdf8; border: 1px solid #ddd3be; color: #2b271f; border-radius: 6px; }
-.rc-payment-root .rc-primary:disabled, .rc-payment-root .rc-secondary:disabled { background: #f4f1ea; border-color: #ddd3be; color: #a9a395; cursor: default; }
-.rc-payment-pay { display: flex; gap: 22px; }
-.rc-payment-qr { width: 276px; height: 276px; flex-shrink: 0; background: #fff; border: 1px solid #ddd3be; display: grid; place-items: center; }
-.rc-payment-details { display: flex; flex-direction: column; min-width: 0; }
-.rc-payment-scan { font-size: 23px; font-weight: 700; margin-bottom: 14px; }
-.rc-payment-product { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
-.rc-payment-amount { color: #2b8b5a; font-size: 24px; font-weight: 700; margin-bottom: 8px; }
-.rc-payment-progress { font-weight: 700; margin-bottom: 18px; }
-.rc-payment-provider { margin: 0; color: #70685a; font-size: 12.5px; line-height: 1.35; }
-.rc-payment-details .rc-payment-actions { margin-top: auto; padding-top: 18px; }
-.rc-payment-confirm p { margin: 6px 0; }
-.rc-payment-confirm strong { display: block; margin-bottom: 12px; }
+/* ---- 智子充值与 VIP (modal): the choice, then the QR code beside the order */
+.modal-box.rc-payment-dialog {
+  width: min(720px, calc(100vw - 24px));
+}
+.rc-payment-root {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.rc-payment-subtitle {
+  margin: 0;
+  color: var(--ds-text-2);
+}
+/* 余额充值 / VIP 会员: the chosen plan on accent-soft with an accent line. */
+.rc-payment-modes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+.rc-payment-mode {
+  height: auto;
+  min-height: 32px;
+  white-space: normal;
+}
+.rc-payment-mode.selected {
+  border-color: var(--ds-accent);
+  background-color: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+  font-weight: 600;
+}
+.rc-payment-mode.selected:disabled {
+  border-color: var(--ds-accent-soft-line);
+}
+.rc-payment-selection {
+  display: grid;
+  grid-template-columns: var(--cloud-label) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 12px;
+}
+.rc-payment-label {
+  color: var(--ds-text-2);
+}
+.rc-payment-selection select {
+  width: 100%;
+  min-width: 0;
+}
+.rc-payment-summary,
+.rc-payment-selection .rc-payment-status {
+  grid-column: 1 / -1;
+}
+.rc-payment-summary,
+.rc-payment-amount {
+  font-size: var(--ds-size-xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.rc-payment-status {
+  color: var(--ds-text-2);
+  white-space: pre-line;
+}
+.rc-payment-status.rc-good {
+  color: var(--ds-success-text);
+}
+.rc-payment-status.rc-error {
+  color: var(--ds-danger-text);
+}
+.rc-payment-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.rc-payment-actions button {
+  min-width: 76px;
+}
+.rc-payment-pay {
+  display: flex;
+  gap: 20px;
+}
+.rc-payment-qr {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 276px;
+  height: 276px;
+  border: 1px solid var(--ds-line);
+}
+.rc-payment-details {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rc-payment-scan {
+  font-size: var(--ds-size-l);
+  font-weight: 600;
+}
+.rc-payment-product {
+  margin-top: 8px;
+  font-weight: 600;
+}
+.rc-payment-progress {
+  margin-top: 4px;
+}
+.rc-payment-provider {
+  margin: 8px 0 0;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.rc-payment-details .rc-payment-actions {
+  margin-top: auto;
+  padding-top: 16px;
+}
+.rc-payment-confirm p {
+  margin: 4px 0;
+}
+.rc-payment-confirm strong {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+}

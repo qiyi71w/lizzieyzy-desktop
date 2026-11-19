@@ -157,19 +157,12 @@ export async function downloadPackage(asset: Asset, backend: ResourceEngineChoic
   }
 }
 
-const icons: Record<SetupCardKey | "remote", string> = {
-  overview: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>',
-  weights: '<path d="M5 6h14a2 2 0 0 1 2 2v11H3V8a2 2 0 0 1 2-2Zm7-3v12m-5-5 5 5 5-5" fill="none" stroke="currentColor" stroke-width="2"/>',
-  performance: '<g fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="9" rx="5" ry="7"/><path d="m9 15-5 7 6-2 2 3 3-8m-5-7 2 3 2-5"/></g>',
-  acceleration: '<g fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="5" width="14" height="14"/><rect x="9" y="9" width="6" height="6"/><path d="M8 1v4m8-4v4M8 19v4m8-4v4M1 8h4m-4 8h4m14-8h4m-4 8h4"/></g>',
-  remote: '<g fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></g>',
-};
 export async function openAutoSetup(card: SetupCardKey = "overview", ctx: SetupContext = {}): Promise<void> {
   if (windowInstance) { windowInstance.focus(card, ctx); return; }
   const previous = document.activeElement as HTMLElement | null;
   const frame = node("section", "", "auto-setup-window"); frame.dataset.key = "auto-setup"; frame.tabIndex = -1;
   frame.setAttribute("role", "dialog"); frame.setAttribute("aria-modal", "false"); frame.setAttribute("aria-label", t("AutoSetup.title"));
-  const heading = node("header", "", "setup-title"); heading.append(node("span", "", "setup-stones"), node("h2", t("AutoSetup.title")));
+  const heading = node("header", "", "setup-title"); heading.append(node("h2", t("AutoSetup.title")));
   const layout = node("div", "", "setup-layout"), nav = node("nav", "", "setup-nav"), content = node("fieldset", "", "setup-content");
   nav.setAttribute("aria-label", t("AutoSetup.sidebarTitle"));
   const navButtons = new Map<SetupCardKey, HTMLButtonElement>();
@@ -182,16 +175,16 @@ export async function openAutoSetup(card: SetupCardKey = "overview", ctx: SetupC
     context = nextContext; active = key;
     let item = cards.get(key); if (!item) { item = factory(key); cards.set(key, item); cardContexts.set(key, { ...context }); }
     content.replaceChildren(item.element);
-    navButtons.forEach((button, id) => { button.classList.toggle("selected", id === key); button.setAttribute("aria-current", String(id === key)); });
+    navButtons.forEach((button, id) => { button.classList.toggle("selected", id === key); if (id === key) button.setAttribute("aria-current", "page"); else button.removeAttribute("aria-current"); });
     update();
   };
   for (const [key, title] of [["overview", t("AutoSetup.navOverview")], ["weights", t("AutoSetup.navWeights")], ["performance", t("AutoSetup.navBenchmark")], ["acceleration", t("AutoSetup.navAcceleration")]] as const) {
     const button = action(`setup.nav.${key}`, title, () => show(key));
-    const icon = node("span", "", "setup-nav-icon"); icon.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${icons[key]}</svg>`; button.prepend(icon); navButtons.set(key, button); nav.append(button);
+    navButtons.set(key, button); nav.append(button);
   }
   // openRemoteComputeCenter: refused with the status notice while a setup task runs.
   const remote = action("setup.nav.remote", t("Menu.remoteCompute"), () => { if (setupBusy()) setupStatus(t("AutoSetup.taskAlreadyRunning")); else openRemoteCompute(); });
-  const globe = node("span", "", "setup-nav-icon"); globe.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${icons.remote}</svg>`; remote.prepend(globe); remote.classList.add("setup-nav-remote"); nav.append(remote);
+  remote.classList.add("setup-nav-remote"); nav.append(remote);
   layout.append(nav, content);
   const footer = node("footer", "", "setup-footer");
   const progressTitle = node("strong", t("AutoSetup.progressTitle")), progress = node("progress"), progressStatus = node("span", "", "setup-progress-status"), status = node("span", "", "setup-footer-status"); status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
@@ -210,6 +203,8 @@ export async function openAutoSetup(card: SetupCardKey = "overview", ctx: SetupC
     const busy = setupBusy(); navButtons.forEach((b) => { b.disabled = busy; });
     // A disabled fieldset preserves each card's own prerequisite/future-ticket disabled states.
     content.disabled = busy;
+    // One filled action per page: the page's next step, else 关闭 when nothing is left to do.
+    closeButton.classList.toggle("primary", !content.querySelector("button.primary"));
     const task = resourceView()?.task, benchmark = tuning?.task;
     stop.textContent = benchmark ? t("AutoSetup.stopBenchmark") : t("AutoSetup.stopDownload");
     stop.disabled = task ? !task.cancellable : !benchmark || benchmark.cancelling;

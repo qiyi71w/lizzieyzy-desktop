@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Asset, CapabilityStatus, ExperimentalBackend, MissingDependency, RecommendationReason, ResourcesView, RuntimeRequirement } from "../contract/generated";
 import { ask, confirm, message } from "../dialogs";
 import { product, t } from "../i18n";
-import type { SetupCard, SetupContext } from "./card";
+import { tagged, type SetupCard, type SetupContext } from "./card";
 import { assetBackends, currentPackage, downloadPackage, packageTarget, planSetup, resourceCommand, resourceView, setupStatus, setupVerified } from "./dialog";
 import { action, actions, node, notice, resourceText, row, section, size } from "./setupText";
 
@@ -16,7 +16,8 @@ export function overviewCard(_ctx: SetupContext): SetupCard {
     if (!r || r === last && engineState === lastEngine) return; last = r; lastEngine = engineState;
     element.replaceChildren(notice());
     const summary = section(t("AutoSetup.overviewTitle"), t("AutoSetup.overviewSubtitle")), s = r.currentSetup;
-    row(summary, t("AutoSetup.localWeightModel"), s.modelName ?? t("AutoSetup.notFound"));
+    const model = row(summary, t("AutoSetup.localWeightModel"), s.modelName ?? t("AutoSetup.notFound"));
+    if (!s.modelName) tagged(model, "missing");
     const activePackage = r.inventory.packages.find((p) => p.executable === s.executable);
     const activeAsset = r.packages.find((a) => a.id === activePackage?.receipt.assetId);
     const packageNames: Record<string, string> = { cuda: t("AutoSetup.packageNvidia"), tensorrt: t("AutoSetup.packageTensorRt"), opencl: t("AutoSetup.packageOpenCl"), eigen: t("AutoSetup.packageCpu") };
@@ -24,8 +25,13 @@ export function overviewCard(_ctx: SetupContext): SetupCard {
     const keys = { ACTIVE: "AutoSetup.validationRunning", VALID: "AutoSetup.validationPassed", TIMED_OUT: "AutoSetup.validationTimedOut", WRONG_ARCHITECTURE: "AutoSetup.validationWrongArchitecture", MISSING_DEPENDENCY: "AutoSetup.validationMissingDependency", START_FAILED: "AutoSetup.validationStartFailed" };
     const checkedExecutable = s.executable ?? r.chosenEngine?.executable;
     const checked = r.verificationExecutable === checkedExecutable ? r.verification : null;
-    const validation = row(summary, t("AutoSetup.engineValidation"), foreground?.ready && s.discoverySource === "foreground" ? t("AutoSetup.validationRunning") : checked ? resourceText(keys[checked.status]) : t("AutoSetup.validationNotAvailable"));
+    const running = !!foreground?.ready && s.discoverySource === "foreground";
+    const validation = row(summary, t("AutoSetup.engineValidation"), running ? t("AutoSetup.validationRunning") : checked ? resourceText(keys[checked.status]) : t("AutoSetup.validationNotAvailable"));
     if (checked) validation.title = checked.detail;
+    // The setup works: no step on this page is the next thing to do.
+    const healthy = running || checked?.status === "VALID" || checked?.status === "ACTIVE";
+    tagged(validation, healthy ? "ready" : checked ? "failed" : "neutral");
+    let next: HTMLButtonElement | null = null;
     const details = node("div", "", "setup-technical"); details.hidden = !detailsOpen;
     const sourceNames: Record<string, string> = { foreground: t("AutoSetup.sourceCurrentEngine"), default: t("AutoSetup.sourceDefaultEngine"), local: t("AutoSetup.sourceManualSelection"), downloaded: t("AutoSetup.sourceRememberedSetup"), imported: t("AutoSetup.sourceManualSelection") };
     const paths = [[t("AutoSetup.localEngine"), s.executable], [t("AutoSetup.localWeight"), s.weight], [t("AutoSetup.gtpConfig"), s.config], [t("AutoSetup.analysisConfig"), s.analysisConfig], [t("AutoSetup.discoverySource"), sourceNames[s.discoverySource] ?? t("AutoSetup.sourceNone")]];
@@ -36,8 +42,9 @@ export function overviewCard(_ctx: SetupContext): SetupCard {
       catch { setupStatus(product("setupCopyFailed")); }
     }));
     summary.append(details);
+    const chooseLocal = action("setup.chooseLocal", t("AutoSetup.chooseExistingKataGo"), () => resourceCommand({ type: "ChooseLocalEngine", choice: { executable: null, config: null, weight: null } }));
     actions(summary,
-      action("setup.chooseLocal", t("AutoSetup.chooseExistingKataGo"), () => resourceCommand({ type: "ChooseLocalEngine", choice: { executable: null, config: null, weight: null } })),
+      chooseLocal,
       action("setup.repairAnalysis", t("AutoSetup.repairAnalysisConfig"), () => resourceCommand({ type: "RepairAnalysisConfig" }), !!r.inventory.gtpConfig),
       action("setup.openFolder", t("AutoSetup.openAppFolder"), () => resourceCommand({ type: "OpenResourceFolder" })),
       action("setup.fullDownloads", t("AutoSetup.viewFullDownloads"), async () => { try { await invoke("open_katago_releases"); } catch (error) { await message(t("AutoSetup.title"), String(error), "error"); } }),
@@ -45,7 +52,9 @@ export function overviewCard(_ctx: SetupContext): SetupCard {
     if (r.chosenEngine) {
       const chosen = section(t("AutoSetup.sourceManualSelection"));
       row(chosen, t("AutoSetup.localEngine"), r.chosenEngine.executable); row(chosen, t("AutoSetup.localWeight"), r.chosenWeight ?? t("AutoSetup.notFound"));
-      actions(chosen, action("setup.useLocal", product("setupUse"), () => planSetup(r.chosenEngine!, r.chosenWeight ?? undefined), setupVerified(r.chosenEngine))); summary.append(chosen);
+      const useLocal = action("setup.useLocal", product("setupUse"), () => planSetup(r.chosenEngine!, r.chosenWeight ?? undefined), setupVerified(r.chosenEngine));
+      if (!healthy && !useLocal.disabled) next = useLocal;
+      actions(chosen, useLocal); summary.append(chosen);
     }
     element.append(summary);
     const machine = section(product("setupComputer"), product("setupSeparate")), m = r.machine;
@@ -94,7 +103,7 @@ export function overviewCard(_ctx: SetupContext): SetupCard {
     const recommendation = section(product("setupRecommended"));
     if (recommended) recommendation.append(node("strong", recommended.assetId), node("p", recommended.reasons.map((key) => reasonText[key]).join(" · ")));
     else recommendation.append(node("p", r.recommendation?.packages.length ? product("setupNoEligible") : product("setupUnknown")));
-    if (recommended?.missingDependencies.length) row(recommendation, product("setupMissing"), recommended.missingDependencies.map(missingText).join(" · "));
+    if (recommended?.missingDependencies.length) tagged(row(recommendation, product("setupMissing"), recommended.missingDependencies.map(missingText).join(" · ")), "missing");
     element.append(recommendation);
     const list = section(product("setupPackages"));
     actions(list, action("setup.importPackage", product("setupImportPackage"), async () => {
@@ -127,7 +136,11 @@ export function overviewCard(_ctx: SetupContext): SetupCard {
         const previous = !installed && r.inventory.packages.some((p) => p.receipt.assetId === asset.id && p.receipt.archiveSha256.toLowerCase() !== asset.sha256.toLowerCase());
         const target = installed && packageTarget(installed);
         const option = r.recommendation?.packages.find((p) => p.assetId === asset.id);
-        item.append(node("strong", `${asset.id}${option?.recommended ? ` · ${t("AutoSetup.recommendedBadge")}` : ""}`), node("span", `${size(asset.sizeBytes)} · ${installed ? product("setupInstalled") : previous ? product("setupInstalledPrevious") : product("setupNotInstalled")}`, "setup-package-state"));
+        const state = node("span", size(asset.sizeBytes), "setup-package-state");
+        state.append(tagged(node("span", installed ? product("setupInstalled") : previous ? product("setupInstalledPrevious") : product("setupNotInstalled")), installed ? "ready" : previous ? "missing" : "neutral"));
+        const head = node("div", "", "setup-package-head");
+        head.append(node("strong", `${asset.id}${option?.recommended ? ` · ${t("AutoSetup.recommendedBadge")}` : ""}`), state);
+        item.append(head);
         const origin = asset.origin === "official-release" ? product("setupOriginOfficial") : product("setupOriginProject", asset.sourceTag);
         row(item, product("setupSource"), `${origin} · KataGo ${asset.version} · ${asset.sourceTag} ${asset.sourceCommit.slice(0, 12)}\n${r.packageUrls[asset.id] ?? ""}`);
         row(item, product("setupLicense"), `${asset.licenseSummary} · ${asset.licenseTexts.join(", ")}`);
@@ -135,16 +148,20 @@ export function overviewCard(_ctx: SetupContext): SetupCard {
         item.append(node("p", product("setupCapabilities", focusText[asset.focus], contributionText[asset.contribution]), "setup-hint"));
         if (option) {
           item.append(node("p", option.reasons.map((key) => reasonText[key]).join(" · "), "setup-hint"));
-          if (option.missingDependencies.length) row(item, product("setupMissing"), option.missingDependencies.map(missingText).join(" · "));
+          if (option.missingDependencies.length) tagged(row(item, product("setupMissing"), option.missingDependencies.map(missingText).join(" · ")), "missing");
         }
         const backend = assetBackends(asset)[0] ?? null;
-        actions(item,
-          action(`setup.package.${asset.id}.download`, t("AutoSetup.downloadShort"), () => downloadPackage(asset, backend)),
-          action(`setup.package.${asset.id}.verify`, product("setupVerify"), () => target ? resourceCommand({ type: "Verify", target, weight: r.currentSetup.weight ?? r.chosenWeight ?? r.inventory.weights[0]?.path ?? null }) : undefined, !!target),
-          action(`setup.package.${asset.id}.use`, product("setupUse"), () => target ? planSetup(target) : undefined, !!target && setupVerified(target) && (!!r.currentSetup.weight || !!r.chosenWeight || r.inventory.weights.length > 0)));
+        const download = action(`setup.package.${asset.id}.download`, t("AutoSetup.downloadShort"), () => downloadPackage(asset, backend));
+        const verify = action(`setup.package.${asset.id}.verify`, product("setupVerify"), () => target ? resourceCommand({ type: "Verify", target, weight: r.currentSetup.weight ?? r.chosenWeight ?? r.inventory.weights[0]?.path ?? null }) : undefined, !!target);
+        const use = action(`setup.package.${asset.id}.use`, product("setupUse"), () => target ? planSetup(target) : undefined, !!target && setupVerified(target) && (!!r.currentSetup.weight || !!r.chosenWeight || r.inventory.weights.length > 0));
+        // Without a working setup, the recommended package's next step leads the page.
+        if (!healthy && !next && option?.recommended) next = !use.disabled ? use : !verify.disabled ? verify : installed ? null : download;
+        actions(item, download, verify, use);
         list.append(item);
       }
     }
     element.append(list);
+    // No recommendation to follow: pointing at an existing KataGo is the way forward.
+    (next ?? (healthy ? null : chooseLocal))?.classList.add("primary");
   } };
 }

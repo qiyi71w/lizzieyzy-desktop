@@ -182,21 +182,27 @@ async function settingsDialog(saved: ContributionSettings): Promise<void> {
   ignore.input.onchange = () => afterSets(ignore.input.checked);
   autoSave.onchange = () => { if (autoSave.checked) void message(t("Message.title"), tip.autoSave); };
 
-  const grid = document.createElement("div"); grid.className = "contribution-settings";
-  const engineCell = cell(enginePath, cell(savedEngine)); engineCell.classList.add("contribution-stack");
-  const userLabel = cell(label(t("ContributeSettings.lblUserName")), signUp);
-  grid.append(
-    cell(label(t("ContributeSettings.lblEngine"), tip.engine), browseEngine), engineCell,
-    cell(label(t("ContributeSettings.lblConfig"), tip.config), browseConfig), configPath,
-    cell(useCommand.label, remote.label, remoteSettings), command,
-    ignore.label, document.createElement("span"),
-    userLabel, userName,
-    label(t("ContributeSettings.lblPassword")), password,
-    label(t("ContributeSettings.lblSimultaneousGames"), tip.games), games,
-    label(t("ContributeSettings.lblShowOwnerShip"), tip.ownership), cell(ownership),
-    label(t("ContributeSettings.lblChkNoRatingMatches"), tip.noRating), cell(noRating),
-    label(t("ContributeSettings.lblAutoSave"), tip.autoSave), cell(autoSave),
-  );
+  // A label column and a control column; the three switches below start at the label column.
+  const grid = document.createElement("div"); grid.className = "engine-form contribution-settings";
+  const field = (name: HTMLElement, ...controls: HTMLElement[]) => {
+    const row = document.createElement("div"); row.className = "engine-field";
+    row.append(name, cell(...controls)); grid.append(row);
+  };
+  const check = (box: HTMLInputElement, text: string, title: string) => {
+    const row = document.createElement("label"); row.className = "contribution-check"; row.title = title;
+    row.append(box, text); grid.append(row);
+  };
+  field(label(t("ContributeSettings.lblEngine"), tip.engine), enginePath, browseEngine, savedEngine);
+  field(label(t("ContributeSettings.lblConfig"), tip.config), configPath, browseConfig);
+  field(useCommand.label, command);
+  field(document.createElement("span"), remote.label, remoteSettings);
+  field(document.createElement("span"), ignore.label);
+  field(label(t("ContributeSettings.lblUserName")), userName, signUp);
+  field(label(t("ContributeSettings.lblPassword")), password);
+  field(label(t("ContributeSettings.lblSimultaneousGames"), tip.games), games);
+  check(ownership, t("ContributeSettings.lblShowOwnerShip"), tip.ownership);
+  check(noRating, t("ContributeSettings.lblChkNoRatingMatches"), tip.noRating);
+  check(autoSave, t("ContributeSettings.lblAutoSave"), tip.autoSave);
   const body = document.createElement("div"); body.className = "contribution-settings-body";
   body.append(grid, qualification);
 
@@ -231,7 +237,7 @@ async function settingsDialog(saved: ContributionSettings): Promise<void> {
     await dialog.close();
     await contribution({ type: "Start" });
   });
-  start.dataset.key = "contribution.start";
+  start.dataset.key = "contribution.start"; start.classList.add("primary");
   const close = button(product("close"), () => void dialog.close());
   actions(body, saveButton, start, close);
 
@@ -275,7 +281,7 @@ async function chooseSavedEngine(candidates: SavedEngineCandidate[]): Promise<Sa
   let selected = 0;
   let chosen: SavedEngineCandidate | null = null;
   const fill = button(t("ContributeSettings.savedEngine.fill"), () => confirmChoice());
-  fill.dataset.key = "contribution.savedEngine.fill";
+  fill.dataset.key = "contribution.savedEngine.fill"; fill.classList.add("primary");
   const dialog = formPanel(t("ContributeSettings.savedEngine.title"), body);
   const confirmChoice = () => {
     const c = candidates[selected];

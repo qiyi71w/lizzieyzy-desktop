@@ -1,34 +1,161 @@
-/* KataGoAutoSetupDialog BenchmarkReportBody: two metrics and metadata, with Java's spacing. */
-.setup-performance { padding-top: 28px; color: #242c2a; }
-.setup-performance h2 { font-size: 26px; margin: 0 0 7px; }
-.benchmark-subtitle { color: #696e6c; margin: 0 0 32px; }
-.benchmark-report { border: 1px solid #daccb5; border-radius: 7px; background: #fff; padding: 18px 24px 16px; }
-.benchmark-model-notice strong { color: #167268; }
-.benchmark-model-notice p { margin: 5px 0 12px; }
-.benchmark-status { text-align: right; color: #626a67; font-weight: 600; margin-bottom: 18px; }
-.benchmark-report-body { display: grid; grid-template-columns: 1fr 1fr 1.12fr; gap: 12px; }
-.benchmark-metric { min-width: 0; padding: 8px 12px 0 0; border-right: 1px solid #e0dacb; }
-.benchmark-metric h3 { margin: 12px 0 20px; font-size: 15px; color: #825b27; }
-.benchmark-value { display: inline-block; font-size: 38px; margin-right: 5px; }
-.benchmark-unit { font-size: 12px; }
-.benchmark-technical { margin: 6px 0 12px; font-size: 12px; color: #747a76; }
-.benchmark-technical.missing { color: #825b27; }
-.benchmark-metric p { color: #747a76; font-size: 13px; margin: 0; }
-.benchmark-metadata { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 9px 14px; align-content: start; margin: 8px 0 0; font-size: 14px; }
-.benchmark-metadata dt { font-weight: 600; }
-.benchmark-metadata dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.benchmark-policy { white-space: pre-line; color: #747a76; font-size: 12px; margin: 18px 0 0; }
-.benchmark-explanation, .benchmark-comparison { margin: 18px 0 0; padding-left: 2px; }
-.benchmark-comparison { border-top: 1px solid #e0d5bf; padding-top: 10px; color: #747a76; margin-top: 12px; }
-.benchmark-actions { margin-top: 64px; }
-.benchmark-actions .engine-actions { justify-content: flex-end; margin: 8px 0; }
-.benchmark-actions button { padding: 6px 12px; }
-.benchmark-actions button.primary { padding: 14px 18px; color: white; background: #0d7a73; border: 1px solid #08655f; border-radius: 6px; font-weight: 600; }
-.benchmark-task progress, .tuning-startup-notice progress { width: 100%; }
-.benchmark-task pre { white-space: pre-wrap; max-height: 140px; overflow: auto; font-size: 12px; }
-.benchmark-task[hidden], .benchmark-model-notice[hidden], .benchmark-actions button[hidden] { display: none; }
-.tuning-startup-notice { max-height: 65vh; overflow: auto; }
-@media (max-width: 850px) { .benchmark-report-body { grid-template-columns: 1fr 1fr; } .benchmark-metadata { grid-column: 1 / -1; } }
-.measured-review { width: min(580px, 65vw); padding: 12px; }
-.measured-review-summary { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; max-height: min(320px, 50vh); user-select: text; }
-.measured-review .engine-actions { justify-content: flex-end; }
+/* 性能优化 (KataGoAutoSetupDialog BenchmarkReportBody): the state of the last benchmark, the two
+   speeds and what was measured, between hairlines; the actions below. setup.css loads after this
+   sheet, so these rules name the page. */
+.setup-performance .benchmark-subtitle {
+  margin-top: 2px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.setup-performance .benchmark-report {
+  margin-top: 12px;
+}
+.setup-performance .benchmark-model-notice {
+  margin-bottom: 12px;
+}
+.setup-performance .benchmark-model-notice strong {
+  font-weight: 600;
+}
+.setup-performance .benchmark-model-notice p {
+  margin-top: 2px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.setup-performance .benchmark-status {
+  display: block;
+  width: fit-content;
+  margin-bottom: 8px;
+}
+.setup-performance .benchmark-report-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr);
+  border-top: 1px solid var(--ds-line);
+  border-bottom: 1px solid var(--ds-line);
+}
+.setup-performance .benchmark-metric {
+  min-width: 0;
+  padding: 12px 16px;
+  border-right: 1px solid var(--ds-line);
+}
+.setup-performance .benchmark-metric:first-child {
+  padding-left: 0;
+}
+.setup-performance .benchmark-metric h3 {
+  font-size: var(--ds-size);
+  color: var(--ds-text-2);
+}
+.setup-performance .benchmark-value {
+  display: inline-block;
+  margin: 8px 4px 0 0;
+  font-size: var(--ds-size-xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.setup-performance .benchmark-unit {
+  color: var(--ds-text-2);
+}
+.setup-performance .benchmark-technical {
+  margin-top: 2px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.setup-performance .benchmark-technical.missing {
+  color: var(--ds-warning-text);
+}
+.setup-performance .benchmark-metric p {
+  margin-top: 8px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.setup-performance .benchmark-metadata {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-content: start;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 12px 0 12px 16px;
+}
+.setup-performance .benchmark-metadata dt {
+  color: var(--ds-text-2);
+}
+.setup-performance .benchmark-metadata dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+  user-select: text;
+}
+.setup-performance .benchmark-policy {
+  margin-top: 8px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+  white-space: pre-line;
+}
+.setup-performance .benchmark-explanation {
+  margin-top: 12px;
+  color: var(--ds-text-2);
+}
+.setup-performance .benchmark-comparison {
+  margin-top: 4px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.setup-performance .benchmark-task {
+  margin-top: 12px;
+}
+.benchmark-task progress,
+.tuning-startup-notice progress {
+  width: 100%;
+}
+.setup-performance .benchmark-task pre {
+  max-height: 140px;
+  margin: 4px 0 8px;
+  overflow: auto;
+  color: var(--ds-text-2);
+  font: inherit;
+  font-size: var(--ds-size-s);
+  font-variant-numeric: tabular-nums;
+  white-space: pre-wrap;
+}
+.setup-performance .benchmark-actions {
+  margin-top: 16px;
+}
+.setup-performance .benchmark-actions .engine-actions {
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+.benchmark-task[hidden],
+.benchmark-model-notice[hidden],
+.benchmark-actions button[hidden] {
+  display: none;
+}
+.tuning-startup-notice {
+  max-height: 65vh;
+  overflow: auto;
+}
+@media (max-width: 850px) {
+  .setup-performance .benchmark-report-body {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .setup-performance .benchmark-metric:nth-child(2) {
+    border-right: 0;
+  }
+  .setup-performance .benchmark-metadata {
+    grid-column: 1 / -1;
+    padding-left: 0;
+    border-top: 1px solid var(--ds-line);
+  }
+}
+
+/* 实测调优 review (MeasuredTuningDialog). */
+.measured-review {
+  width: min(580px, 65vw);
+}
+.measured-review-summary {
+  max-height: min(320px, 50vh);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.measured-review .engine-actions {
+  justify-content: flex-end;
+}

@@ -1,5 +1,5 @@
 // 远程算力 (Java RemoteComputeDialog): a non-modal window with the 智子云算力 and 自建算力 pages,
-// each a sign-in/link card beside a 一键启用 card, and the current-engine/status footer.
+// each a sign-in/link column beside a 一键启用 column, and the current-engine/status footer.
 // Rust owns the account session, credentials, settings and the engine; this window holds only
 // unsaved drafts (fields, plan/model choice, link) and presentation state. A reply that arrives
 // after the window closed, or after a newer request of the same kind, is dropped.
@@ -14,6 +14,7 @@ import {
   keyedDetail, localTime, money, normalizeLink, PRESETS, resolveWeight, samePlan, selectableWeight, validLink, weightLabel, weightName,
   requestOwner, withKataWeight, zhiziDisplayName, type AccountOutcome,
 } from "./service";
+import { icon } from "../design/icons";
 import { button, el, openCloudWindow } from "./window";
 import "./cloud.css";
 
@@ -77,7 +78,7 @@ function switchOutcome(view: WorkbenchView, profile: string, after: number, laun
   return launches(seated, launch);
 }
 
-/** EmptyBorder-sized field row: a bold muted label and its control (fieldRow). */
+/** A label and its control (fieldRow). */
 function fieldRow(label: string, control: HTMLElement, input: HTMLInputElement): HTMLElement {
   const row = el("div", "rc-field");
   const caption = el("label", "rc-field-label", label);
@@ -97,32 +98,16 @@ function textInput(key: string, placeholder: string, type: "text" | "password" =
   return input;
 }
 
-/** MemoryCheckBox: a rounded chip with a dot. */
+/** MemoryCheckBox: a check box with its tooltip. */
 function memoryChip(label: string, key: string, tip: string): { chip: HTMLLabelElement; input: HTMLInputElement } {
-  const chip = el("label", "rc-chip");
+  const chip = el("label", "rc-check");
   const input = el("input");
   input.type = "checkbox";
   input.dataset.key = key;
   chip.title = tip;
-  chip.append(input, el("span", "rc-chip-dot"), el("span", "", label));
+  chip.append(input, label);
   return { chip, input };
 }
-
-const SVG = "http://www.w3.org/2000/svg";
-function icon(markup: string, cls: string): SVGSVGElement {
-  const svg = document.createElementNS(SVG, "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("aria-hidden", "true");
-  svg.setAttribute("class", cls);
-  svg.innerHTML = markup;
-  return svg;
-}
-// EyeToggleButton, CatalogRefreshIcon (Lucide refresh-cw), WebsiteGlyph and DeploymentGlyph.
-const EYE = '<path d="M1.5 12c2.3-4 6-6 10.5-6s8.2 2 10.5 6c-2.3 4-6 6-10.5 6S3.8 16 1.5 12Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="3.2" fill="currentColor"/>';
-const EYE_SLASH = '<path class="rc-eye-slash" d="M3 21 21 3" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>';
-const REFRESH = '<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></g>';
-const GLOBE = '<circle cx="12" cy="12" r="12" class="rc-glyph-halo"/><g fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"><circle cx="12" cy="12" r="7.2"/><path d="M12 4.8c-2.6 2-2.6 12.4 0 14.4M12 4.8c2.6 2 2.6 12.4 0 14.4M5.6 12h12.8"/></g><circle cx="17.6" cy="6.2" r="2.1" class="rc-glyph-gold"/>';
-const SERVERS = '<circle cx="12" cy="12" r="12" class="rc-glyph-halo"/><g fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"><rect x="4.9" y="5.5" width="14.2" height="4.9" rx="1.1"/><rect x="4.9" y="13.6" width="14.2" height="4.9" rx="1.1"/></g><g class="rc-glyph-gold" stroke-width="1.1" stroke-linecap="round"><path d="M14.7 8h2.7M14.7 16.1h2.7"/></g><circle cx="7.6" cy="7.9" r=".9" fill="currentColor"/><circle cx="7.6" cy="16" r=".9" fill="currentColor"/>';
 
 function createCenter(initial: WorkbenchView): Center {
   const title = t("RemoteCompute.title");
@@ -163,19 +148,19 @@ function createCenter(initial: WorkbenchView): Center {
   const authenticated = () => !!account?.authenticated;
   const status = (text: string, ok: boolean) => { statusText = text; statusOk = ok; dotOk = ok; };
 
-  // ---- header ------------------------------------------------------------------------------
+  // ---- header: the two pages as text segments -------------------------------------------------
   const header = el("div", "rc-header");
   const tabs = el("div", "rc-tabs");
   const zhiziTab = button(t("RemoteCompute.zhizi"), "rc-tab", "remote.tab.zhizi", () => { page = "zhizi"; update(); });
   const customTab = button(t("RemoteCompute.custom"), "rc-tab", "remote.tab.custom", () => { page = "custom"; update(); });
   tabs.append(zhiziTab, customTab);
-  header.append(el("h2", "rc-title", title), tabs);
+  header.append(tabs);
 
-  // ---- 智子云算力: sign-in card ---------------------------------------------------------------
-  const loginCard = el("div", "rc-card");
-  loginCard.append(el("h3", "rc-card-title", t("RemoteCompute.zhizi")), el("p", "rc-card-subtitle", t("RemoteCompute.zhiziDescription")));
+  // ---- 智子云算力: sign-in ----------------------------------------------------------------------
+  const loginCard = el("div", "rc-section");
+  loginCard.append(el("h3", "rc-section-title", t("RemoteCompute.zhizi")), el("p", "rc-section-subtitle", t("RemoteCompute.zhiziDescription")));
   const loginForm = el("div", "rc-login");
-  const segments = el("div", "rc-segments");
+  const segments = el("div", "rc-tabs rc-segments");
   const passwordModeButton = button(t("RemoteCompute.passwordLogin"), "rc-segment", "remote.mode.password", () => { resetMode = false; codeMode = false; update(); });
   const codeModeButton = button(t("RemoteCompute.codeLogin"), "rc-segment", "remote.mode.code", () => { resetMode = false; codeMode = true; update(); });
   segments.append(passwordModeButton, codeModeButton);
@@ -185,9 +170,9 @@ function createCenter(initial: WorkbenchView): Center {
   const eye = el("button", "rc-eye");
   eye.type = "button";
   eye.dataset.key = "remote.showPassword";
-  eye.append(icon(EYE + EYE_SLASH, "rc-eye-icon"));
+  eye.append(icon("hawkeye"));
   eye.onclick = () => { passwordShown = !passwordShown; update(); };
-  const passwordShell = el("div", "rc-input rc-password-shell");
+  const passwordShell = el("div", "rc-password-shell");
   password.className = "rc-password-input";
   passwordShell.append(password, eye);
   const passwordRow = fieldRow(t("RemoteCompute.password"), passwordShell, password);
@@ -196,9 +181,10 @@ function createCenter(initial: WorkbenchView): Center {
   const confirmPassword = textInput("remote.confirmPassword", t("RemoteCompute.confirmPasswordPlaceholder"), "password");
   const confirmPasswordRow = fieldRow(t("RemoteCompute.confirmPassword"), confirmPassword, confirmPassword);
   const code = textInput("remote.code", t("RemoteCompute.codePlaceholder"));
-  const sendCodeButton = button(t("RemoteCompute.sendCode"), "rc-secondary rc-send-code", "remote.sendCode", () => void sendCode());
-  const codeRow = el("div", "rc-code-row");
-  codeRow.append(fieldRow(t("RemoteCompute.code"), code, code), sendCodeButton);
+  const sendCodeButton = button(t("RemoteCompute.sendCode"), "", "remote.sendCode", () => void sendCode());
+  const codeControl = el("div", "rc-code");
+  codeControl.append(code, sendCodeButton);
+  const codeRow = fieldRow(t("RemoteCompute.code"), codeControl, code);
   const fastLoginHint = el("p", "rc-hint", t("RemoteCompute.fastLoginCreatesAccount"));
   const rememberToken = memoryChip(t("RemoteCompute.rememberLogin"), "remote.rememberLogin", t("RemoteCompute.rememberLoginTip"));
   const rememberPassword = memoryChip(t("RemoteCompute.rememberPassword"), "remote.rememberPassword", t("RemoteCompute.rememberPasswordTip"));
@@ -215,44 +201,43 @@ function createCenter(initial: WorkbenchView): Center {
   const chips = el("div", "rc-chips");
   chips.append(rememberToken.chip, rememberPassword.chip);
   options.append(chips, forgotButton);
-  const loginButton = button(t("RemoteCompute.login"), "rc-primary rc-login-button", "remote.login", () => {
+  const loginButton = button(t("RemoteCompute.login"), "rc-login-button", "remote.login", () => {
     if (resetMode) void resetPassword(); else if (codeMode) void loginWithCode(); else void loginWithPassword();
   });
   loginForm.append(segments, fieldRow(t("RemoteCompute.account"), identifier, identifier), passwordRow, newPasswordRow, confirmPasswordRow, codeRow, fastLoginHint, options, loginButton);
 
   const signedIn = el("div", "rc-signed-in");
   const accountText = el("p", "rc-account-text");
-  const membershipLabel = el("div", "rc-account-value"), balanceLabel = el("div", "rc-account-value");
+  const membershipLabel = el("div", "rc-account-value"), balanceLabel = el("div", "rc-balance");
   const activityLabel = el("div", "rc-account-small"), updatedLabel = el("div", "rc-account-updated");
   const refreshAccountButton = button(t("RemoteCompute.account.refresh"), "rc-link", "remote.account.refresh", () => void refreshOverview(true));
   const usageButton = button(t("RemoteCompute.account.usageDetails"), "rc-link", "remote.account.usage", () => showDetails(0));
   const creditButton = button(t("RemoteCompute.account.creditDetails"), "rc-link", "remote.account.credit", () => showDetails(1));
   const accountActions = el("div", "rc-account-actions");
   accountActions.append(refreshAccountButton, usageButton, creditButton);
-  const paymentButton = button(t("RemoteCompute.payment.open"), "rc-primary rc-payment", "remote.payment", () => showPayment());
+  const paymentButton = button(t("RemoteCompute.payment.open"), "", "remote.payment", () => showPayment());
   paymentButton.title = t("RemoteCompute.payment.openDescription");
-  const logoutButton = button(t("RemoteCompute.changeAccount"), "rc-secondary rc-logout", "remote.logout", () => void logout());
-  signedIn.append(el("div", "rc-signed-in-title", t("RemoteCompute.loggedIn")), accountText, membershipLabel, balanceLabel, activityLabel, updatedLabel, accountActions, paymentButton, logoutButton);
+  const logoutButton = button(t("RemoteCompute.changeAccount"), "", "remote.logout", () => void logout());
+  const accountButtons = el("div", "rc-actions");
+  accountButtons.append(paymentButton, logoutButton);
+  signedIn.append(el("div", "rc-signed-in-title", t("RemoteCompute.loggedIn")), accountText, membershipLabel, balanceLabel, activityLabel, updatedLabel, accountActions, accountButtons);
   loginCard.append(loginForm, signedIn);
 
-  // ---- 智子云算力: 一键启用 card --------------------------------------------------------------
-  const zhiziAction = el("div", "rc-card rc-action-card");
+  // ---- 智子云算力: 一键启用 ---------------------------------------------------------------------
+  const zhiziAction = el("div", "rc-section");
   const plan = el("div", "rc-plan");
-  const presetSelect = el("select", "rc-select");
+  const presetSelect = el("select");
   presetSelect.id = "rc-preset";
   presetSelect.dataset.key = "remote.preset";
   presetSelect.title = t("RemoteCompute.connectionModeDescription");
   PRESETS.forEach((preset, i) => presetSelect.append(new Option(t(preset.key), String(i))));
-  const weightSelect = el("select", "rc-select");
+  const weightSelect = el("select");
   weightSelect.id = "rc-weight";
   weightSelect.dataset.key = "remote.weight";
-  const refreshWeightsButton = el("button", "rc-refresh");
-  refreshWeightsButton.type = "button";
-  refreshWeightsButton.dataset.key = "remote.refreshWeights";
+  // The refresh icon is not in the icon table: the button says 刷新; its tooltip names the list.
+  const refreshWeightsButton = button(t("RemoteCompute.account.refresh"), "", "remote.refreshWeights", () => void refreshCatalog(true));
   refreshWeightsButton.title = t("RemoteCompute.refreshWeightsTip");
   refreshWeightsButton.setAttribute("aria-label", t("RemoteCompute.refreshWeights"));
-  refreshWeightsButton.append(icon(REFRESH, "rc-refresh-icon"));
-  refreshWeightsButton.onclick = () => void refreshCatalog(true);
   const officialButton = button(t("RemoteCompute.weightUseOfficial"), "rc-link rc-official", "remote.officialWeight", () => {
     if (!weightOptions.some((w) => w.name.toLowerCase() === DEFAULT_WEIGHT)) return;
     weightSelect.value = weightOptions.find((w) => w.name.toLowerCase() === DEFAULT_WEIGHT)!.name;
@@ -260,52 +245,54 @@ function createCenter(initial: WorkbenchView): Center {
     update();
   });
   officialButton.title = t("RemoteCompute.weightUseOfficialDescription");
-  const presetLabel = el("label", "rc-plan-label", t("RemoteCompute.connectionMode"));
+  const presetLabel = el("label", "", t("RemoteCompute.connectionMode"));
   presetLabel.htmlFor = presetSelect.id;
-  const weightLabelNode = el("label", "rc-plan-label", t("RemoteCompute.weightModel"));
+  const weightLabelNode = el("label", "", t("RemoteCompute.weightModel"));
   weightLabelNode.htmlFor = weightSelect.id;
   weightSelect.setAttribute("aria-description", t("RemoteCompute.weightModelDescription"));
   const weightRow = el("div", "rc-weight-row");
   weightRow.append(weightSelect, refreshWeightsButton);
   plan.append(presetLabel, presetSelect, weightLabelNode, weightRow, officialButton);
   presetSelect.onchange = weightSelect.onchange = () => update();
-  const useZhiziButton = button(t("RemoteCompute.enableZhizi"), "rc-primary rc-use", "remote.useZhizi", () => void useZhizi());
-  const localFromZhizi = button(t("RemoteCompute.backToLocal"), "rc-secondary rc-local", "remote.local.zhizi", () => void useLocal());
-  const website = el("div", "rc-soft rc-website");
-  const websiteCopy = el("div", "rc-website-copy");
+  const useZhiziButton = button(t("RemoteCompute.enableZhizi"), "", "remote.useZhizi", () => void useZhizi());
+  const localFromZhizi = button(t("RemoteCompute.backToLocal"), "", "remote.local.zhizi", () => void useLocal());
+  const zhiziButtons = el("div", "rc-actions");
+  zhiziButtons.append(useZhiziButton, localFromZhizi);
+  const website = el("div", "rc-note");
+  const websiteCopy = el("div", "rc-note-copy");
   websiteCopy.append(el("strong", "", t("RemoteCompute.websiteTitle")), el("span", "rc-website-url", "www.zhizigo.cn"));
-  const websiteButton = button(t("RemoteCompute.openWebsite"), "rc-secondary", "remote.website", () => void openLink(false));
-  website.append(icon(GLOBE, "rc-glyph rc-glyph-website"), websiteCopy, websiteButton);
-  zhiziAction.append(el("h3", "rc-card-title", t("RemoteCompute.oneClickEnable")), plan, useZhiziButton, localFromZhizi, website);
+  const websiteButton = button(t("RemoteCompute.openWebsite"), "", "remote.website", () => void openLink(false));
+  website.append(websiteCopy, websiteButton);
+  zhiziAction.append(el("h3", "rc-section-title", t("RemoteCompute.oneClickEnable")), plan, zhiziButtons, website);
   const zhiziPage = el("div", "rc-page");
   zhiziPage.append(loginCard, zhiziAction);
 
   // ---- 自建算力 -------------------------------------------------------------------------------
-  const customCard = el("div", "rc-card");
+  const customCard = el("div", "rc-section");
   const link = textInput("remote.link", t("RemoteCompute.linkPlaceholder"));
   link.value = saved.customUrl;
   link.oninput = () => update();
   const importRow = el("div", "rc-import-row");
-  const importQrButton = button(t("RemoteCompute.importQr"), "rc-secondary", "remote.importQr", () => void importQr());
+  const importQrButton = button(t("RemoteCompute.importQr"), "", "remote.importQr", () => void importQr());
   importRow.append(importQrButton, el("span", "rc-import-hint", t("RemoteCompute.qrHint")));
-  const info = el("div", "rc-soft rc-info");
-  const infoText = el("div", "rc-info-text");
+  const info = el("div", "rc-note");
+  const infoText = el("div", "rc-note-copy");
   infoText.append(el("strong", "", t("RemoteCompute.katrainCompatible")), el("span", "", t("RemoteCompute.katrainDescription")));
-  info.append(el("span", "rc-info-mark", "!"), infoText);
-  customCard.append(el("h3", "rc-card-title", t("RemoteCompute.custom")), el("p", "rc-card-subtitle", t("RemoteCompute.customDescription")),
+  info.append(infoText);
+  customCard.append(el("h3", "rc-section-title", t("RemoteCompute.custom")), el("p", "rc-section-subtitle", t("RemoteCompute.customDescription")),
     fieldRow(t("RemoteCompute.link"), link, link), importRow, info);
-  const customAction = el("div", "rc-card rc-action-card");
-  const useCustomButton = button(t("RemoteCompute.enableCustom"), "rc-primary rc-use", "remote.useCustom", () => void useCustom());
-  const localFromCustom = button(t("RemoteCompute.backToLocal"), "rc-secondary rc-local", "remote.local.custom", () => void useLocal());
-  const deploy = el("div", "rc-soft rc-deploy");
-  const deployCopy = el("div", "rc-deploy-copy");
+  const customAction = el("div", "rc-section");
+  const useCustomButton = button(t("RemoteCompute.enableCustom"), "primary", "remote.useCustom", () => void useCustom());
+  const localFromCustom = button(t("RemoteCompute.backToLocal"), "", "remote.local.custom", () => void useLocal());
+  const customButtons = el("div", "rc-actions");
+  customButtons.append(useCustomButton, localFromCustom);
+  const deploy = el("div", "rc-note");
+  const deployCopy = el("div", "rc-note-copy");
   deployCopy.append(el("strong", "", t("RemoteCompute.noLinkTitle")), el("span", "", t("RemoteCompute.noLinkDescription")));
-  const deployHead = el("div", "rc-deploy-head");
-  deployHead.append(icon(SERVERS, "rc-glyph rc-glyph-deploy"), deployCopy);
-  const deployButton = button(t("RemoteCompute.deployGuide"), "rc-secondary", "remote.deployGuide", () => void openLink(true));
+  const deployButton = button(t("RemoteCompute.deployGuide"), "", "remote.deployGuide", () => void openLink(true));
   deployButton.title = t("RemoteCompute.deployGuideDescription");
-  deploy.append(deployHead, deployButton);
-  customAction.append(el("h3", "rc-card-title", t("RemoteCompute.oneClickEnable")), useCustomButton, localFromCustom, deploy);
+  deploy.append(deployCopy, deployButton);
+  customAction.append(el("h3", "rc-section-title", t("RemoteCompute.oneClickEnable")), customButtons, deploy);
   const customPage = el("div", "rc-page");
   customPage.append(customCard, customAction);
 
@@ -421,14 +408,16 @@ function createCenter(initial: WorkbenchView): Center {
     fastLoginHint.hidden = !(codeMode && !resetMode);
     rememberToken.chip.hidden = resetMode;
     rememberPassword.chip.hidden = !passwordMode;
-    rememberToken.chip.classList.toggle("selected", rememberToken.input.checked);
-    rememberPassword.chip.classList.toggle("selected", rememberPassword.input.checked);
+    // 智子云算力's one filled action: 登录 until signed in, then 启用.
+    loginButton.classList.toggle("primary", !signedInNow);
+    useZhiziButton.classList.toggle("primary", signedInNow);
     forgotButton.textContent = resetMode ? t("RemoteCompute.backToLogin") : t("RemoteCompute.forgotPassword");
     loginButton.textContent = resetMode ? t("RemoteCompute.resetPasswordAndLogin") : t("RemoteCompute.login");
     // A remembered password stays in the system store; the field shows that one is there.
     password.placeholder = account?.hasPassword && account.passwordStoredSecurely ? "••••••••" : t("RemoteCompute.passwordPlaceholder");
     for (const input of [password, newPassword, confirmPassword]) input.type = passwordShown ? "text" : "password";
     eye.classList.toggle("selected", passwordShown);
+    eye.setAttribute("aria-pressed", String(passwordShown));
     const eyeText = passwordShown ? t("RemoteCompute.hidePassword") : t("RemoteCompute.showPassword");
     eye.title = eyeText;
     eye.setAttribute("aria-label", eyeText);
@@ -461,7 +450,6 @@ function createCenter(initial: WorkbenchView): Center {
 
     weightSelect.disabled = busy || catalogRefreshing || weightOptions.length === 0;
     refreshWeightsButton.disabled = busy || catalogRefreshing;
-    refreshWeightsButton.classList.toggle("refreshing", catalogRefreshing);
     const selectedWeightOption = weightSelect.selectedOptions[0];
     weightSelect.title = selectedWeightOption?.title ?? "";
     officialButton.hidden = !selectedUnconfirmed();
