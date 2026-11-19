@@ -226,7 +226,7 @@ body {
   z-index: 50;
   min-width: 168px;
   padding: 4px;
-  border-radius: calc(var(--ds-radius-s) * 2);
+  border-radius: var(--ds-radius-menu);
   background: var(--ds-raised);
   box-shadow: var(--ds-shadow-pop);
   white-space: nowrap;

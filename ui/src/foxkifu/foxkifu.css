@@ -194,7 +194,7 @@ body {
   position: relative;
   height: 4px;
   overflow: hidden;
-  border-radius: 2px;
+  border-radius: var(--ds-radius-s);
   background: var(--ds-well);
 }
 .fk-bar-run {
@@ -202,7 +202,7 @@ body {
   top: 0;
   bottom: 0;
   width: 30%;
-  border-radius: 2px;
+  border-radius: var(--ds-radius-s);
   background: var(--ds-accent);
   animation: fk-run 1.4s linear infinite;
 }

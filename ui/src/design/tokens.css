@@ -67,6 +67,8 @@
   --ds-radius-s: 4px;
   --ds-radius: 6px;
   --ds-radius-cap: 7px; /* capsules in the bars */
+  --ds-radius-in: 5px; /* a field or tab standing inside a capsule or strip */
+  --ds-radius-menu: 8px; /* popup menus: the item radius plus the 4px padding */
   --ds-radius-l: 10px;
 
   /* Type. The size follows 界面字体大小 (set once per session by the appearance module). */

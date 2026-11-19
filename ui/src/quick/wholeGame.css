@@ -113,7 +113,7 @@
   height: 8px;
   appearance: none;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-s);
   overflow: hidden;
   background: var(--ds-well);
 }

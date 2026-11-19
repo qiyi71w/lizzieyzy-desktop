@@ -222,7 +222,7 @@
   min-width: 100%;
   padding: 4px;
   overflow-y: auto;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-menu);
   background: var(--ds-raised);
   box-shadow: var(--ds-shadow-pop);
 }
@@ -326,13 +326,13 @@
   display: block;
   height: 6px;
   overflow: hidden;
-  border-radius: 3px;
+  border-radius: var(--ds-radius-s);
   background: var(--ds-well);
 }
 .ps-meter > span {
   display: block;
   height: 100%;
-  border-radius: 3px;
+  border-radius: var(--ds-radius-s);
 }
 .ps-fill-rate {
   background: var(--ps-rate);
@@ -610,7 +610,7 @@
   position: relative;
   height: 8px;
   overflow: hidden;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-s);
   background: var(--ds-well);
 }
 .ps-progress-fill {

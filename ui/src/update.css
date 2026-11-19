@@ -146,20 +146,20 @@
   appearance: none;
   -webkit-appearance: none;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-s);
   background: var(--ds-sunken);
   overflow: hidden;
 }
 .update-progress progress::-webkit-progress-bar {
-  border-radius: 4px;
+  border-radius: var(--ds-radius-s);
   background: var(--ds-sunken);
 }
 .update-progress progress::-webkit-progress-value {
-  border-radius: 4px;
+  border-radius: var(--ds-radius-s);
   background: var(--ds-accent);
 }
 .update-progress progress::-moz-progress-bar {
-  border-radius: 4px;
+  border-radius: var(--ds-radius-s);
   background: var(--ds-accent);
 }
 .update-progress-text {

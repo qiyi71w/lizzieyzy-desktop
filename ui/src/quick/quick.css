@@ -16,7 +16,7 @@
 #comment .side {
   padding: 0 7px;
   line-height: 22px;
-  border-radius: 5px;
+  border-radius: var(--ds-radius-in);
   color: var(--comment-color, var(--ds-text-3));
   cursor: default;
 }
