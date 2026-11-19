@@ -1,96 +1,112 @@
-/* 存档与读档 (LizzieFrame.showTempGamePanel): background Color(100, 100, 100), white labels, dark grey
-   name fields, Swing-sized buttons; children are placed absolutely by panel.ts. */
+/* 存档与读档 (LizzieFrame.showTempGamePanel): over the workbench on the panel ground, the options
+   strip on the bar ground, then a grid of equal slot cells that fills the width. A cell is a plain
+   bordered box; the hovered one, or the one holding the focus, takes the accent-soft treatment. */
 #recovery {
-  inset: 0;
   z-index: 5;
-  background: rgb(100, 100, 100);
-  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  background: var(--ds-panel);
 }
-#recovery .rc-scroll {
-  position: absolute;
-  inset: 0;
-  overflow-x: auto;
-  overflow-y: scroll;
-}
-#recovery .rc-content {
-  position: relative;
+#recovery button {
+  height: var(--ds-control-h);
+  padding: 0 10px;
 }
 #recovery .rc-top {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 20px;
-  z-index: 1;
-  background: rgb(100, 100, 100);
-}
-#recovery .rc-content > *,
-#recovery .rc-top > * {
-  position: absolute;
-  margin: 0;
-}
-#recovery .rc-label,
-#recovery .rc-check {
-  color: #fff;
-  line-height: 20px;
-  white-space: nowrap;
-  overflow: hidden;
-}
-#recovery .rc-label {
-  pointer-events: none;
-}
-#recovery .rc-check {
+  flex: none;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 3px;
+  justify-content: flex-end;
+  gap: 4px 16px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
 }
-#recovery .rc-check input {
-  margin: 0 0 0 2px;
+#recovery .rc-check {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
 }
-#recovery .rc-name {
-  padding: 0 2px;
-  font: inherit;
-  color: #fff;
-  background: rgb(64, 64, 64);
-  border: 1px solid rgb(184, 207, 229);
-  border-radius: 0;
-  outline: none;
-  user-select: text;
+#recovery .rc-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
 }
-#recovery .rc-name:disabled {
-  color: rgb(184, 184, 184);
-  border-color: rgb(140, 140, 140);
+#recovery .rc-top > .rc-actions {
+  margin-left: 0;
 }
-#recovery .rc-button {
-  padding: 0;
-  font: inherit;
-  color: #333;
-  background: linear-gradient(rgb(238, 239, 242), rgb(214, 217, 223));
-  border: 1px solid rgb(163, 167, 173);
-  border-radius: 0;
+#recovery .rc-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
-#recovery .rc-button:active:not(:disabled) {
-  background: rgb(190, 194, 201);
+#recovery .rc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  align-items: start;
+  gap: 12px;
+  padding: 12px;
 }
-#recovery .rc-button:disabled {
-  color: rgb(150, 150, 150);
+#recovery .rc-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius);
 }
-#recovery .rc-button.rc-new {
-  font-family: sans-serif;
-  font-size: 15px;
-  background: rgb(196, 198, 202);
-  border-color: rgb(140, 144, 150);
+#recovery .rc-slot:is(:hover, :focus-within) {
+  border-color: var(--ds-accent-soft-line);
+  background: var(--ds-accent-soft);
 }
 #recovery .rc-picture {
-  background: no-repeat 0 0 / 100% 100%;
+  aspect-ratio: 1;
+  border-radius: var(--ds-radius-s);
+  background: var(--ds-sunken) no-repeat 0 0 / 100% 100%;
+}
+#recovery .rc-new {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: var(--ds-radius-s);
+  color: var(--ds-text-2);
+  font-size: var(--ds-size-l);
+}
+#recovery .rc-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+#recovery .rc-label {
+  flex: none;
+  color: var(--ds-text-2);
+  white-space: nowrap;
+}
+#recovery .rc-time {
+  flex: 1 0 auto;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+#recovery .rc-name {
+  flex: 1;
+  min-width: 80px;
+  height: var(--ds-control-h);
+  padding: 0 6px;
+  user-select: text;
 }
 #recovery .rc-zoom {
   position: fixed;
+  z-index: 2;
   width: 600px;
   height: 600px;
-  z-index: 2;
-  border: 1px solid rgb(122, 138, 153);
-  background: rgb(100, 100, 100);
+  overflow: hidden;
+  border-radius: var(--ds-radius);
+  background: var(--ds-panel);
+  box-shadow: var(--ds-shadow-pop);
 }
 #recovery .rc-zoom img {
   display: block;

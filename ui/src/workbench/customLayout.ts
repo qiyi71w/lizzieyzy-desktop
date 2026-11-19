@@ -68,14 +68,32 @@ export function openSetCustomMode(slot: 1 | 2 | null): void {
   const show = () => setPresentationDraft({ ...d, panels: { ...p } });
   show();
 
-  const grid = document.createElement("div");
-  grid.className = "custom-mode-grid";
+  // Three groups divided by a line: the panels, their sizes and the board position, the floating
+  // boards. A check box comes before its text, the slider after its name; keys number the rows.
+  const form = document.createElement("div");
+  form.className = "custom-mode";
+  const groups = [0, 1, 2].map(() => {
+    const g = document.createElement("div");
+    g.className = "custom-mode-group";
+    form.append(g);
+    return g;
+  });
+  let group = groups[0];
+  let rows = 0;
   const row = (text: string, control: HTMLInputElement, tooltip?: string) => {
     const label = document.createElement("label");
     label.textContent = text;
     if (tooltip) label.title = tooltip;
-    label.htmlFor = control.id = control.dataset.key = `custom-mode-${grid.childElementCount / 2}`;
-    grid.append(label, control);
+    label.htmlFor = control.id = control.dataset.key = `custom-mode-${rows++}`;
+    const r = document.createElement("div");
+    if (control.type === "range") {
+      r.className = "custom-mode-row custom-mode-slider";
+      r.append(label, control);
+    } else {
+      r.className = "custom-mode-row";
+      r.append(control, label);
+    }
+    group.append(r);
     return control;
   };
   const box = (text: string, checked: boolean, change: (on: boolean) => void, tooltip?: string) => {
@@ -143,6 +161,7 @@ export function openSetCustomMode(slot: 1 | 2 | null): void {
     p.showStatus = on;
     if (on) p.classicMode = false;
   });
+  group = groups[1];
   const bigSubBoard = box(t("SetCustomMode.bigSubBoard"), p.showSubBoard && p.largeSubBoard, (on) => {
     p.largeSubBoard = on;
     if (on) {
@@ -176,6 +195,7 @@ export function openSetCustomMode(slot: 1 | 2 | null): void {
     show();
   });
   row(t("SetCustomMode.sldBoardPositionProportion"), slider);
+  group = groups[2];
   // EngineManager.publishExtraMode: the mode changes without the mode's panel defaults.
   const floatMain = box(t("SetCustomMode.floatMainBoard"), d.mode === "FloatBoard", (on) => {
     d.mode = on ? "FloatBoard" : "Normal";
@@ -207,7 +227,7 @@ export function openSetCustomMode(slot: 1 | 2 | null): void {
   if ((p.showSubBoard && p.largeSubBoard) || (p.showWinrateGraph && p.largeWinrateGraph)) slider.disabled = true;
 
   const buttons = document.createElement("div");
-  buttons.className = "modal-buttons";
+  buttons.className = "engine-actions";
   const ok = document.createElement("button");
   ok.className = "primary";
   ok.textContent = t("SetKataEngines.btnApply");
@@ -215,7 +235,7 @@ export function openSetCustomMode(slot: 1 | 2 | null): void {
   cancel.textContent = t("SetKataEngines.btnCancel");
   buttons.append(ok, cancel);
   const body = document.createElement("div");
-  body.append(grid, buttons);
+  body.append(form, buttons);
 
   let confirmed = false;
   const finish = async () => {

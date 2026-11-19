@@ -8,6 +8,7 @@ import { COMMANDS } from "./commands";
 import type { UpdateDownloadView, UpdateError, UpdateOfferView, UpdateResultView, UpdateSettings, UpdateView } from "./contract/generated";
 import { message } from "./dialogs";
 import { product, registerProduct, t } from "./i18n";
+import { icon } from "./design/icons";
 import "./update.css";
 
 registerProduct({
@@ -191,8 +192,9 @@ function frame(title: string, cls: string, key: string, onClose: () => void): { 
   box.setAttribute("aria-modal", "false");
   box.setAttribute("aria-label", title);
   const head = el("div", "modal-title update-title", title);
-  const x = button("×", `${key}.close`, () => close());
+  const x = button("", `${key}.close`, () => close());
   x.className = "update-close";
+  x.append(icon("close"));
   x.setAttribute("aria-label", product("close"));
   head.append(x);
   box.append(head);
@@ -327,8 +329,11 @@ function openPage(): void {
     pause.textContent = d.phase === "Paused" ? t("WindowsUpdate.btnResume") : t("WindowsUpdate.btnPause");
     retry.hidden = !offer || (d.phase !== "Cancelled" && d.phase !== "Failed");
     retry.disabled = u.busy;
+    // The page's status line is a 提示条 when it reports a failure or a partial check.
+    let tone: "error" | "warning" | null = null;
     if (d.phase !== "None" || u.installing) {
       result.textContent = downloadStatus(u);
+      if (d.phase === "Failed" || d.error !== null) tone = "error";
     } else if (u.checking) {
       result.textContent = t("WindowsUpdate.checking");
     } else if (!u.result) {
@@ -336,7 +341,13 @@ function openPage(): void {
     } else {
       const extra = warning(u.result);
       result.textContent = extra ? `${feedback(u.result)}\n${extra}` : feedback(u.result);
+      tone = u.result.outcome === "Failed" ? "error" : extra ? "warning" : null;
     }
+    result.classList.toggle("update-error", tone === "error");
+    result.classList.toggle("update-warn", tone === "warning");
+    // One filled action: 重试 or 查看更新 when shown, else 检查更新.
+    const primary = !retry.hidden ? retry : !viewOffer.hidden ? viewOffer : checkNow;
+    for (const b of [retry, viewOffer, checkNow]) b.classList.toggle("primary", b === primary);
   };
   page = { box, close, show };
   if (state.view) show(state.view.update);
@@ -394,9 +405,11 @@ function openOffer(focus: boolean): void {
   bar.setAttribute("aria-label", t("WindowsUpdate.accessibility.progress"));
   bar.setAttribute("aria-valuemin", "0");
   bar.setAttribute("aria-valuemax", "100");
-  const fill = el("div", "update-progress-fill");
+  const meter = el("progress");
+  meter.max = 1000;
+  meter.setAttribute("aria-hidden", "true");
   const percent = el("span", "update-progress-text");
-  bar.append(fill, percent);
+  bar.append(meter, percent);
   const status = el("div", "update-status");
   status.dataset.key = "update.status";
   status.setAttribute("aria-label", t("WindowsUpdate.accessibility.status"));
@@ -430,11 +443,12 @@ function openOffer(focus: boolean): void {
     pause.textContent = d.phase === "Paused" ? t("WindowsUpdate.btnResume") : t("WindowsUpdate.btnPause");
     bar.hidden = d.phase === "None";
     const value = d.total > 0 ? Math.min(1000, Math.floor((d.bytes * 1000) / d.total)) : 0;
-    fill.style.width = `${value / 10}%`;
+    meter.value = value;
     percent.textContent = `${Math.floor(value / 10)}%`;
     bar.setAttribute("aria-valuenow", String(Math.floor(value / 10)));
     const text = downloadStatus(v);
     if (text) status.textContent = text;
+    status.classList.toggle("update-error", d.phase === "Failed" || d.error !== null);
   };
   offerWindow = { id: offer.id, close, show };
   show(u);

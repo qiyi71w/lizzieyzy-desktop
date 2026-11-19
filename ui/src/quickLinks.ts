@@ -5,7 +5,7 @@ import { run, state, subscribe } from "./app";
 import { COMMANDS } from "./commands";
 import type { QuickLinkProgram } from "./contract/generated";
 import { formPanel } from "./dialogs";
-import { button, input } from "./engine/controls";
+import { button, input, primaryButton } from "./engine/controls";
 import { t } from "./i18n";
 import "./quickLinks.css";
 
@@ -154,13 +154,14 @@ export async function openQuickLinks(): Promise<void> {
     const moveUp = button(t("MoreEngines.moveUp"), () => void move((i) => i - 1));
     const moveDown = button(t("MoreEngines.moveDown"), () => void move((i) => i + 1));
     const moveFirst = button(t("MoreEngines.moveFirst"), () => void move(() => 0));
-    const saveButton = button(t("MoreEngines.save"), () => void save());
+    const saveButton = primaryButton(t("MoreEngines.save"), () => void save());
     const cancel = button(t("MoreEngines.cancel"), () => choose(-1, true));
     const remove = button(t("MoreEngines.delete"), async () => {
       command.value = "";
       await save();
       choose(-1, true);
     });
+    remove.classList.add("danger");
     const dialog = formPanel(t("OtherPrograms.title"), body);
     const exit = button(t("MoreEngines.exit"), () => void dialog.close());
     for (const [el, key] of [[moveUp, "moveUp"], [moveDown, "moveDown"], [moveFirst, "moveFirst"], [saveButton, "save"], [cancel, "cancel"], [remove, "delete"], [exit, "exit"]] as const) {

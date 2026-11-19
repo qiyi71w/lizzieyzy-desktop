@@ -7,6 +7,7 @@ import { isApiError, searchFunctions } from "../contract/client";
 import type { FunctionMatch, FunctionTarget } from "../contract/generated";
 import { openModalLayer } from "../dialogs";
 import { t } from "../i18n";
+import { icon } from "../design/icons";
 import { reasonKey, reasonText, resolveFunction, type Resolution } from "./targets";
 import "./search.css";
 
@@ -132,11 +133,10 @@ export function openSearchDialog(): SearchDialog {
   surface.setAttribute("aria-label", t("FunctionSearch.title"));
 
   const top = element("div", "fs-top");
-  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  icon.setAttribute("class", "fs-icon");
-  icon.setAttribute("viewBox", "0 0 16 16");
-  icon.setAttribute("aria-hidden", "true");
-  icon.innerHTML = '<circle cx="5.5" cy="5.5" r="4.5"/><line x1="9" y1="9" x2="14" y2="14"/>';
+  // The search field: the field ground with the magnifier at its left.
+  const field = element("label", "fs-field");
+  const magnifier = icon("search");
+  magnifier.classList.add("fs-icon");
   const input = element("input", "fs-input");
   input.type = "text";
   input.spellcheck = false;
@@ -147,7 +147,8 @@ export function openSearchDialog(): SearchDialog {
   input.dataset.key = "function.search.input";
   const cancel = element("button", "fs-button", t("FunctionSearch.cancel"));
   cancel.dataset.key = "function.search.cancel";
-  top.append(icon, input, cancel);
+  field.append(magnifier, input);
+  top.append(field, cancel);
 
   const lower = element("div", "fs-lower");
   const browse = element("button", "fs-button fs-browse", t("FunctionSearch.browse"));

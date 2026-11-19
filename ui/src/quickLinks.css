@@ -1,17 +1,65 @@
-/* 快速启动设置 (OtherPrograms.java:177-200, 885 wide): the heading, 名称 and the 200 px 命令行 area
-   with 自动生成 under its label, then 上移 下移 置顶 · 保存 取消 删除 退出 from x 350, then the table. */
-.quick-links { width: min(885px, 90vw); padding: 5px 0 0; display: grid; gap: 8px; }
-.quick-links-heading { padding: 0 5px; font-size: 14px; }
-.quick-links-heading.disabled { color: #888; }
-.quick-links-form { display: grid; grid-template-columns: 70px minmax(200px, 770px); gap: 10px 5px; padding: 0 5px; align-items: start; }
-.quick-links-form input, .quick-links-form textarea { width: 100%; box-sizing: border-box; }
-.quick-links-form textarea { height: 200px; resize: none; }
-.quick-links-command-label { display: grid; gap: 2px; justify-items: start; }
-.quick-links-command-label button { width: 70px; padding: 1px 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.quick-links-actions { display: flex; gap: 18px; padding-left: min(345px, 30vw); flex-wrap: wrap; }
-.quick-links-actions span { display: flex; gap: 6px; }
-.quick-links-actions button { min-width: 56px; }
-.quick-links-table-wrap { height: min(432px, 42vh); }
-.quick-links-table th:nth-child(1) { width: 12%; }
-.quick-links-table th:nth-child(2) { width: 30%; }
-.quick-links-table th:nth-child(3) { width: auto; }
+/* 快速启动设置 (OtherPrograms.java): the form's title, 名称 and 命令行 with 自动生成 under its label,
+   the order and edit buttons, then the table of 30 rows (engine/engine.css .engine-table). */
+.quick-links {
+  display: grid;
+  gap: 10px;
+  width: min(885px, 90vw);
+}
+.quick-links-heading {
+  font-size: var(--ds-size-l);
+  font-weight: 600;
+}
+.quick-links-heading.disabled {
+  color: var(--ds-text-off);
+}
+.quick-links-form {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 12px;
+}
+.quick-links-form textarea {
+  height: calc(var(--ds-size) * 9);
+  resize: vertical;
+}
+.quick-links-command-label {
+  display: grid;
+  gap: 6px;
+  align-self: start;
+  justify-items: start;
+  padding-top: 4px;
+}
+.quick-links-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+.quick-links-actions span {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.quick-links-actions button {
+  min-width: 76px;
+}
+/* base.css draws button.danger after :disabled; a disabled 删除 takes the disabled look. */
+.quick-links-actions button.danger:disabled {
+  border-color: var(--ds-line-strong);
+  background-color: var(--ds-sunken);
+  color: var(--ds-text-off);
+}
+.quick-links-table-wrap {
+  height: min(432px, 36vh);
+  margin-top: 0;
+}
+.quick-links-table th:nth-child(1) {
+  width: calc(var(--ds-size) * 4);
+}
+.quick-links-table th:nth-child(2) {
+  width: 30%;
+}
+.quick-links-table :is(th, td):nth-child(1) {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}

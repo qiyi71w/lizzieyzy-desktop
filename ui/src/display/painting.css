@@ -15,21 +15,32 @@
   height: 100%;
   pointer-events: none;
 }
-/* btnPanel: FlowLayout(RIGHT, 0, 0) at the top. Each button keeps the menuIconSize * 2 + 10 square
-   of DrawPainting's buttons around an icon of the toolbar's size; the chosen pen is lit like a
-   selected toolbar toggle. */
+/* btnPanel at the top right: one capsule of the bars (DESIGN 胶囊) with the three pens, 撤销, 清空
+   and 关闭 as icon segments; the chosen pen is a lit toggle. */
 #painting .paint-buttons {
   position: absolute;
-  top: 0;
-  right: 0;
+  top: 8px;
+  right: 8px;
   display: flex;
-  background: var(--ds-chrome);
+  height: var(--ds-cap-h);
+  overflow: hidden;
+  border-radius: var(--ds-radius-cap);
+  background: var(--ds-raised);
+  box-shadow: var(--ds-shadow-cap);
 }
 #painting .paint-btn {
-  display: block;
-  padding: calc(var(--menu-icon-size, 16px) / 2 + 5px);
-  line-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
   color: var(--ds-text-2);
+}
+#painting .paint-btn + .paint-btn {
+  border-left: 1px solid var(--ds-line);
+}
+#painting .paint-btn .icon {
+  width: 16px;
+  height: 16px;
 }
 #painting .paint-btn:hover {
   background: var(--ds-hover);
@@ -41,5 +52,4 @@
 #painting .paint-btn.on {
   background: var(--ds-accent-soft);
   color: var(--ds-accent-text);
-  box-shadow: inset 0 0 0 1px var(--ds-accent-soft-line);
 }

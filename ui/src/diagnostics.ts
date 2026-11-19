@@ -79,19 +79,27 @@ registerViewHandler(() => refreshReadBoard?.());
 
 export async function openDiagnostics(): Promise<void> {
   const status = await logsStatus();
+  // Two columns: the LizzieYzy switches on the left, ReadBoard and the logs on the right.
   const body = document.createElement("div");
   body.className = "diagnostics";
-  const section = (title: string) => {
-    const h = document.createElement("div");
-    h.className = "diag-section";
+  const hostColumn = document.createElement("div");
+  const sideColumn = document.createElement("div");
+  hostColumn.className = sideColumn.className = "diag-column";
+  body.append(hostColumn, sideColumn);
+  let group: HTMLElement = hostColumn;
+  const section = (title: string, column: HTMLElement) => {
+    group = document.createElement("section");
+    group.className = "diag-group";
+    const h = document.createElement("h3");
     h.textContent = title;
-    body.append(h);
+    group.append(h);
+    column.append(group);
   };
   const row = (...children: (HTMLElement | string)[]) => {
     const r = document.createElement("div");
     r.className = "diag-row";
     r.append(...children);
-    body.append(r);
+    group.append(r);
     return r;
   };
   const button = (label: string, onClick: () => void, enabled = true) => {
@@ -104,17 +112,16 @@ export async function openDiagnostics(): Promise<void> {
   };
 
   // LizzieYzy pane (DiagnosticsDialog.java:288-352).
-  section(t("DiagnosticsDialog.hostPane"));
-  /** checkRow (DiagnosticsDialog.java): the label, then the box at the row's end. */
+  section(t("DiagnosticsDialog.hostPane"), hostColumn);
+  /** checkRow (DiagnosticsDialog.java): the box and its label; a state shown for the switch
+   *  follows at the row's end. */
   const check = (label: string, key: string, indent: boolean) => {
     const box = document.createElement("input");
     box.type = "checkbox";
     box.dataset.key = key;
-    const text = document.createElement("span");
-    text.textContent = label;
     const l = document.createElement("label");
     l.className = "diag-check";
-    l.append(text, box);
+    l.append(box, label);
     const r = row(l);
     if (indent) r.classList.add("diag-indent");
     return { box, row: r };
@@ -124,14 +131,14 @@ export async function openDiagnostics(): Promise<void> {
   const fullLogs = check(t("DiagnosticsDialog.fullTrace"), "diagnostics.fullTrace", false);
   const traceState = document.createElement("span");
   traceState.className = "diag-feedback";
-  fullLogs.box.before(traceState);
+  fullLogs.row.append(traceState);
   const scopes = scopeRows().map(([s, label]) => [s, check(label, `diagnostics.scope.${s}`, true).box] as const);
   const scopeNote = document.createElement("div");
   scopeNote.className = "diag-feedback diag-note";
   const migration = document.createElement("div");
   migration.className = "diag-feedback diag-note";
   migration.textContent = t("DiagnosticsDialog.gtpMigrationNote");
-  body.append(scopeNote, migration);
+  group.append(scopeNote, migration);
   // The status area under the buttons (statusArea): 应用 and export results.
   const feedback = document.createElement("span");
   feedback.className = "diag-feedback";
@@ -214,10 +221,13 @@ export async function openDiagnostics(): Promise<void> {
   // events and process session, then the desired writers beside what the helper confirmed, then
   // the capture session. Without a helper the values are Java's detached snapshot; a toggle there
   // is refused and the boxes go back (requestSet false, refreshHelperFromSnapshot).
-  section(t("DiagnosticsDialog.readBoardPane"));
+  section(t("DiagnosticsDialog.readBoardPane"), sideColumn);
   const value = (label: string) => {
+    const name = document.createElement("span");
+    name.className = "diag-name";
+    name.textContent = `${label}: `;
     const span = document.createElement("span");
-    row(`${label}: `, span);
+    row(name, span).classList.add("diag-value");
     return span;
   };
   const capability = value(t("DiagnosticsDialog.helperCapability"));
@@ -229,14 +239,17 @@ export async function openDiagnostics(): Promise<void> {
     observed.className = "diag-feedback";
     const box = document.createElement("input");
     box.type = "checkbox";
-    row(label, observed, box);
+    const l = document.createElement("label");
+    l.className = "diag-check";
+    l.append(box, label);
+    row(l, observed);
     return { observed, box };
   };
   const helperDiagnostics = helperRow(t("DiagnosticsDialog.helperDiagnostics"));
   const helperTrace = helperRow(t("DiagnosticsDialog.helperFullTrace"));
   const helperCapture = helperRow(t("DiagnosticsDialog.helperCapture"));
   const summary = document.createElement("span");
-  row(summary);
+  row(summary).classList.add("diag-summary");
   const updateReadBoard = () => {
     const l = state.view?.readboard.logging ?? null;
     capability.textContent = l?.status === "LegacyUnconfirmed" || l?.diagnostics === "LegacyUnconfirmed"
@@ -270,11 +283,14 @@ export async function openDiagnostics(): Promise<void> {
   helperCapture.box.onchange = () => void requestHelper(true);
   updateReadBoard();
 
-  section(t("DiagnosticsDialog.health"));
+  section(t("DiagnosticsDialog.health"), sideColumn);
   row(product("diagnosticsLogs", bytes(status.app_log_bytes), bytes(status.crash_log_bytes)));
   const path = document.createElement("code");
   path.textContent = status.directory;
-  row(`${t("DiagnosticsDialog.logsFolder")}: `, path);
+  const folder = document.createElement("span");
+  folder.className = "diag-name";
+  folder.textContent = `${t("DiagnosticsDialog.logsFolder")}: `;
+  row(folder, path).classList.add("diag-value");
   row(
     button(t("DiagnosticsDialog.openLogs"), () => run({ type: "OpenLogFolder" })),
     button(t("DiagnosticsDialog.apply"), () => void apply()),
@@ -283,8 +299,8 @@ export async function openDiagnostics(): Promise<void> {
       const r = await run({ type: "ExportDiagnostics" });
       feedback.textContent = r?.type === "Exported" ? `${t("DiagnosticsDialog.exportSuccess")}${r.path}` : r ? "" : t("DiagnosticsDialog.exportFailure");
     }),
-  );
-  row(feedback);
+  ).classList.add("diag-actions");
+  row(feedback).classList.add("diag-status");
   const refresh = () => {
     updateReadBoard();
     if (refreshPending) {

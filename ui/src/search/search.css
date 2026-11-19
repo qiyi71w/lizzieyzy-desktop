@@ -1,6 +1,7 @@
-/* FunctionSearchDialog (Java cb53acc FunctionSearchDialog.java): paper #FFFDF8, ink #232724,
-   teal #0A655E (pressed #084D47, rollover #12766D), muted #53615B, line #CDBF9F, selected
-   #E8F1EC, disabled button #E7E4DB. */
+/* 搜索功能 (FunctionSearchDialog): a dialog-ground surface with the search field (field ground,
+   inset strong line, magnifier at the left) and 取消, then the result list. Rows wash on hover; the
+   current row is accent-soft; the keyboard hints and paths are --ds-text-3. Buttons, the category
+   box and the focus ring are design/base.css. */
 .fs-overlay {
   position: fixed;
   inset: 0;
@@ -9,83 +10,58 @@
   position: absolute;
   display: flex;
   flex-direction: column;
-  padding: 1px;
-  background: #fffdf8;
-  border: 1px solid #cdbf9f;
-  border-radius: 6px;
-  color: #232724;
-  font-size: 12px;
+  border-radius: var(--ds-radius-l);
+  background: var(--ds-panel);
+  box-shadow: var(--ds-shadow-dialog);
+  color: var(--ds-text);
 }
 .fs-top {
   flex: none;
   display: flex;
   align-items: center;
-  column-gap: 10px;
-  padding: 10px 10px 10px 14px;
+  column-gap: 8px;
+  padding: 12px;
+}
+.fs-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  column-gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--ds-radius);
+  background: var(--ds-field);
+  box-shadow: inset 0 0 0 1px var(--ds-line-strong);
+}
+.fs-field:focus-within {
+  box-shadow: inset 0 0 0 1px var(--ds-accent);
+}
+.fs-field:has(> .fs-input:focus-visible) {
+  outline: 2px solid var(--ds-ring);
+  outline-offset: 1px;
 }
 .fs-icon {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: var(--ds-text-2);
-  stroke-width: 1.5;
-  stroke-linecap: round;
+  color: var(--ds-text-2);
 }
 .fs-input {
   flex: 1;
   min-width: 0;
-  padding: 4px 2px;
+  height: 100%;
+  padding: 0;
   border: 0;
   outline: 0;
-  background: #fffdf8;
-  color: #232724;
-  caret-color: #0a655e;
-  font: inherit;
-  font-size: 14px;
+  background: transparent;
+  color: var(--ds-text);
+  caret-color: var(--ds-accent);
+  font-size: var(--ds-size-l);
   user-select: text;
 }
-.fs-input::placeholder {
-  color: #53615b;
-  opacity: 1;
-}
-.fs-input::selection {
-  background: #e8f1ec;
-}
-/* Rounded fill inset 3 px inside a 1 px line inset 1 px; EmptyBorder(8, 12, 8, 12) text insets. */
-.fs-button {
-  flex: none;
-  margin: 1px;
-  padding: 6px 10px;
-  border: 1px solid #cdbf9f;
-  border-radius: 5px;
-  background: #fffdf8;
-  color: #232724;
-  font: inherit;
-  font-size: 12px;
-  line-height: 16px;
-}
-.fs-button:hover:not(:disabled) {
-  background: #e8f1ec;
-}
-.fs-button:focus-visible {
+.fs-input:focus-visible {
   outline: none;
-  border: 2px solid #0a655e;
-  padding: 5px 9px;
 }
-.fs-button.primary {
-  background: #0a655e;
-  color: #fff;
-}
-.fs-button.primary:hover:not(:disabled) {
-  background: #12766d;
-}
-.fs-button.primary:active:not(:disabled) {
-  background: #084d47;
-}
-.fs-button:disabled {
-  background: #e7e4db;
-  color: #53615b;
+.fs-top > .fs-button {
+  height: 32px;
 }
 .fs-lower {
   flex: 1;
@@ -94,15 +70,15 @@
   flex-direction: column;
 }
 .fs-browse {
-  width: calc(100% - 2px);
+  margin: 0 12px 12px;
 }
 .fs-expansion {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  row-gap: 4px;
-  padding: 0 10px 8px;
+  row-gap: 8px;
+  padding: 0 12px 12px;
 }
 .fs-expansion[hidden],
 .fs-browse[hidden] {
@@ -115,40 +91,47 @@
   justify-content: space-between;
   column-gap: 8px;
 }
-.fs-categories {
-  font: inherit;
-  color: #232724;
-  background: #fffdf8;
-  border: 1px solid #cdbf9f;
-}
 .fs-count,
 .fs-keyboard,
 .fs-path,
-.fs-detail,
 .fs-empty {
-  color: #53615b;
+  color: var(--ds-text-3);
+}
+.fs-count,
+.fs-keyboard {
+  font-size: var(--ds-size-s);
+  font-variant-numeric: tabular-nums;
 }
 .fs-results {
   flex: 1;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  padding: 4px;
+  border-top: 1px solid var(--ds-line);
+  border-bottom: 1px solid var(--ds-line);
   outline: none;
-  background: #fffdf8;
 }
 .fs-row {
   display: flex;
   flex-direction: column;
-  row-gap: 4px;
-  padding: 8px 10px;
-  border: 1px solid #fffdf8;
+  row-gap: 2px;
+  padding: 6px 10px;
+  border-radius: var(--ds-radius-s);
+}
+.fs-row:hover {
+  background: var(--ds-hover);
 }
 .fs-row.selected {
-  background: #e8f1ec;
-  border-color: #cdbf9f;
+  background: var(--ds-accent-soft);
 }
-.fs-results:focus .fs-row.selected {
-  border-color: #0a655e;
+.fs-row.selected .fs-title {
+  color: var(--ds-accent-text);
+}
+/* The list holds the keyboard: the current row carries the focus ring. */
+.fs-results:focus-visible .fs-row.selected {
+  outline: 2px solid var(--ds-ring);
+  outline-offset: -2px;
 }
 .fs-heading,
 .fs-detail,
@@ -157,13 +140,26 @@
   white-space: pre-wrap;
 }
 .fs-title {
-  font-weight: bold;
+  font-weight: 600;
 }
 .fs-row.unavailable .fs-title {
-  color: #53615b;
+  color: var(--ds-text-off);
+}
+.fs-detail {
+  color: var(--ds-text-2);
 }
 .fs-empty {
   padding: 12px;
+}
+/* A search that failed: the 提示条 in danger. */
+.fs-empty.fs-failure {
+  margin: 4px;
+  padding: 5px 12px;
+  border: 1px solid var(--ds-danger-soft-line);
+  border-radius: var(--ds-radius);
+  background: var(--ds-danger-soft);
+  color: var(--ds-danger-text);
+  font-weight: 600;
 }
 .fs-footer {
   flex: none;
@@ -175,10 +171,10 @@
   flex: 1;
 }
 
-/* A control located by function search: a 2 px accent line for 2.4 s (search/highlight.ts). */
+/* A control located by function search: a focus-ring outline for 2.4 s (search/highlight.ts). */
 .located {
-  outline: 2px solid var(--ds-accent);
-  outline-offset: 0;
+  outline: 2px solid var(--ds-ring);
+  outline-offset: 1px;
 }
 /* The board takes the focus back (search/targets.ts focusBoard) without a focus ring. */
 #board:focus {

@@ -794,62 +794,147 @@ body {
   border-radius: var(--ds-radius-s);
 }
 
-/* ---- 诊断与日志 (the dialog frame itself is design/dialog.css) */
-.diagnostics button {
-  min-width: 76px;
+/* ---- 诊断与日志 (the dialog frame itself is design/dialog.css): the LizzieYzy switches on the
+   left, ReadBoard and the logs on the right; the body scrolls when the window is short. */
+.modal-box:has(> .modal-body > .diagnostics) {
+  display: flex;
+  flex-direction: column;
+  max-width: min(940px, 96vw);
+  max-height: 94vh;
 }
-.diagnostics .diag-section {
-  margin-top: 14px;
+.modal-body:has(> .diagnostics) {
+  min-height: 0;
+  overflow: auto;
+  white-space: normal;
+}
+.diagnostics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+}
+.diag-column {
+  min-width: 0;
+}
+.diag-column:first-child {
+  padding-right: 20px;
+}
+.diag-column + .diag-column {
+  padding-left: 20px;
+  border-left: 1px solid var(--ds-line);
+}
+.diag-group + .diag-group {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ds-line);
+}
+.diag-group > h3 {
+  margin: 0 0 4px;
+  font-size: var(--ds-size-l);
   font-weight: 600;
 }
-.diagnostics .diag-section:first-child {
-  margin-top: 0;
-}
-.diagnostics .diag-row {
+.diag-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin-top: 6px;
-  white-space: normal;
+  gap: 4px 8px;
+  min-height: 24px;
 }
-/* A switch row: the label, then its state and box at the row's end; modules and scopes sit
-   under their switch. */
-.diagnostics label.diag-check {
-  display: flex;
-  flex: 1;
+.diag-row.diag-indent {
+  padding-left: 19px;
+}
+.diag-check {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
 }
-.diagnostics label.diag-check > span:first-child {
-  flex: 1;
+/* What a switch's state is, at the row's end. */
+.diag-check + .diag-feedback {
+  margin-left: auto;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
 }
-.diagnostics .diag-row.diag-indent {
-  padding-left: 20px;
-}
-.diagnostics .diag-note {
-  margin-top: 6px;
+.diag-note {
+  margin-top: 4px;
+  padding-left: 19px;
   white-space: pre-line;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.diag-value {
+  flex-wrap: nowrap;
+  align-items: baseline;
+}
+.diag-name {
+  flex: none;
   color: var(--ds-text-2);
+}
+.diag-value > :last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.diag-summary,
+.diag-status {
+  color: var(--ds-text-2);
+  overflow-wrap: anywhere;
 }
 .diagnostics code {
   font-size: var(--ds-size-s);
+  user-select: text;
+}
+.diag-actions {
+  margin-top: 8px;
+}
+.diag-actions button {
+  min-width: 76px;
+}
+@media (max-width: 720px) {
+  .diagnostics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .diag-column:first-child {
+    padding-right: 0;
+  }
+  .diag-column + .diag-column {
+    margin-top: 16px;
+    padding: 12px 0 0;
+    border-top: 1px solid var(--ds-line);
+    border-left: 0;
+  }
 }
 
-/* ---- 自定义布局: two columns of labels and controls */
-.custom-mode-grid {
+/* ---- 自定义布局 / 可视化面板设置: three groups of check rows divided by a line; the board
+   position slider takes a row of its own. */
+.custom-mode-group {
   display: grid;
-  grid-template-columns: auto auto;
-  column-gap: 45px;
-  row-gap: 4px;
-  align-items: center;
-  padding: 12px 12px 0;
+  grid-template-columns: repeat(2, minmax(max-content, 1fr));
+  gap: 6px 24px;
 }
-.custom-mode-grid input[type="range"] {
-  width: 100px;
+.custom-mode-group + .custom-mode-group {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ds-line);
+}
+.custom-mode-row {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+  white-space: nowrap;
+}
+.custom-mode-row:has(> input:disabled) > label {
+  color: var(--ds-text-off);
+}
+.custom-mode-slider {
+  grid-column: 1 / -1;
+  gap: 12px;
+}
+.custom-mode-slider > input[type="range"] {
+  flex: 1;
+  min-width: 160px;
+  max-width: 280px;
+  margin: 0;
 }
 
-/* ---- board display dialogs: controls at fixed bounds set by display/dialogs.ts */
+/* ---- Swing null-layout dialogs of other modules (display/dialogs.ts absolute / place): controls
+   at fixed bounds. */
 .modal-body.display-abs {
   position: relative;
   box-sizing: content-box;
@@ -878,69 +963,160 @@ body {
   align-items: center;
   gap: 4px;
 }
-/* 初始化设置: the hint line, the "?" helpers and the close box */
-.init-settings .modal-title {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.init-settings .modal-body.display-abs {
-  overflow: hidden;
-}
-.init-settings .display-abs select,
-.init-settings .display-abs button {
-  padding: 0 2px;
-  border-radius: var(--ds-radius-s);
-}
-.init-settings .display-abs select {
-  padding-right: 14px;
-  background-position: right 4px center;
-}
-.init-close {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--ds-radius-s);
-  background-color: transparent;
-}
-.display-abs .init-hint {
-  color: var(--ds-danger-text);
-}
-.display-abs .init-help {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-}
-.display-abs .init-help img {
-  width: 16px;
-  height: 16px;
-}
-.display-abs .init-order {
-  padding: 0;
-}
-.display-preview {
-  display: block;
-}
+/* A JOptionPane input: the message, then the field. */
 .display-input input {
   width: 100%;
   margin-top: 8px;
 }
-/* 设置延迟显示候选点: one row of controls above the 应用 / 取消 row */
-.display-delay-row {
+
+/* ---- 设置显示手数, 设置变化图回放间隔, 设置延迟显示候选点: one row of controls, then the button row. */
+.display-form-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 0;
+  gap: 8px;
+  white-space: nowrap;
 }
-.display-delay-row label {
+.display-form-row > label {
   display: inline-flex;
   align-items: center;
 }
-.display-buttons {
+.display-form-row input[type="text"] {
+  width: calc(var(--ds-size) * 7);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 设置选点信息显示顺序: the preview, then a row name and one column per item. */
+.info-order canvas {
+  display: block;
+  width: 480px;
+  height: 170px;
+  border-radius: var(--ds-radius);
+}
+.info-order-grid {
+  display: grid;
+  grid-template-columns: repeat(4, max-content);
+  align-items: center;
+  gap: 8px 24px;
+  margin-top: 12px;
+}
+.info-order-grid > label {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+/* ---- 设置自动播放: each player's check box and its interval; its options indented under it. */
+.autoplay-grid {
+  display: grid;
+  grid-template-columns: max-content calc(var(--ds-size) * 7);
+  align-items: center;
+  gap: 8px 12px;
+}
+.autoplay-grid > label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+}
+.autoplay-sub {
+  padding-left: 19px;
+}
+.autoplay-wide {
+  grid-column: 1 / -1;
+}
+.autoplay-grid > input {
+  width: 100%;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 初始化设置: the row names, then up to three aligned columns of choices (init-a, -b, -c), a
+   last control that may run on to the row's end; the notes below a line; the close box in the
+   title. */
+.init-settings .modal-title {
   display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding-right: 12px;
+}
+.init-close,
+.init-help {
+  display: flex;
+  align-items: center;
   justify-content: center;
+  padding: 0;
+  border-color: transparent;
+  background-color: transparent;
+  color: var(--ds-text-2);
+}
+.init-close {
+  width: var(--ds-control-h-l);
+}
+.init-help {
+  width: var(--ds-control-h);
+  height: var(--ds-control-h);
+  border-radius: var(--ds-radius-s);
+}
+.init-close:hover,
+.init-help:hover {
+  color: var(--ds-text);
+}
+.init-form {
+  display: grid;
+  grid-template-columns: repeat(4, max-content) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 20px;
+}
+.init-name {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--ds-control-h-l);
+}
+.init-a {
+  grid-column: 2;
+}
+.init-b {
+  grid-column: 3;
+}
+.init-c {
+  grid-column: 4;
+}
+.init-end {
+  grid-column: 5;
+  justify-self: start;
+}
+.init-b-end {
+  grid-column: 3 / -1;
+}
+.init-a-end {
+  grid-column: 2 / -1;
+  justify-self: start;
+  min-width: calc(var(--ds-size) * 16);
+}
+.init-form > label,
+.init-unit,
+.init-unit > label {
+  display: inline-flex;
+  align-items: center;
+}
+.init-form > :is(.init-a, .init-b, .init-c) {
+  white-space: nowrap;
+}
+.init-unit {
   gap: 8px;
-  padding-top: 8px;
+}
+.init-form input[type="text"] {
+  width: calc(var(--ds-size) * 6);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.init-notes {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ds-line);
 }

@@ -1,7 +1,8 @@
 // Import of LizzieYzy Next (Java) settings: choose the Java settings folder, preview what is taken
 // over, left out or not usable, confirm credentials and replacements, then read the report.
-// Java has no counterpart; the dialog follows the engine dialogs' Swing form density. The core
-// reads and writes; this dialog only holds the user's choices until "导入".
+// Java has no counterpart; the dialog uses the engine dialogs' form grammar, each step ending in
+// its one primary action. The core reads and writes; this dialog only holds the user's choices
+// until "导入".
 import { run, state } from "./app";
 import type {
   EngineProblem,
@@ -90,6 +91,7 @@ function showSource(body: HTMLElement, firstUse: boolean, close: () => Promise<v
     else if (r?.type === "JavaImportPreview") showPreview(body, r.preview, firstUse, close, started, path.value.trim());
   });
   preview.dataset.key = "import-preview";
+  preview.className = "primary";
   actions(body, preview, button(firstUse ? product("importSkip") : product("cancel"), close));
   path.focus();
 }
