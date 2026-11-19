@@ -324,7 +324,7 @@ function importButton(d: Dashboard): HTMLButtonElement {
   const title = t("PlayerStrengthEstimate.importModel.title");
   const button = toolButton(t("PlayerStrengthEstimate.importModel"), async () => {
     const path = await chooseStrengthModel(title).catch((e: unknown) => {
-      void message("Error", String(e), "error");
+      void message(t("Message.title"), String(e), "error");
       return null;
     });
     if (!path) return;

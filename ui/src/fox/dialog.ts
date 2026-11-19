@@ -54,7 +54,7 @@ export async function submitFoxPda(draft: string): Promise<FoxView | null> {
     apply(view);
     return state.view?.fox ?? null;
   } catch (e) {
-    await message("Error", isApiError(e) ? e.message : String(e), "error");
+    await message(t("Message.title"), isApiError(e) ? e.message : String(e), "error");
     return null;
   }
 }
@@ -342,7 +342,7 @@ async function startStep(op: FoxCommand): Promise<FoxStartOutcome | null> {
     apply(view);
     return view.fox.outcome;
   } catch (e) {
-    await message("Error", isApiError(e) ? e.message : String(e), "error");
+    await message(t("Message.title"), isApiError(e) ? e.message : String(e), "error");
     return null;
   }
 }

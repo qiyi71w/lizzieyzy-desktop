@@ -312,7 +312,7 @@ export async function openEngineGameDialog(): Promise<void> {
   const random = select([t("NewEngineGameDialog.cbxRandomSgf1"), t("NewEngineGameDialog.cbxRandomSgf2")], cfg.sgfRandom ? 1 : 0, "match.sgfRandom");
   const chooseSgf = button(t("NewEngineGameDialog.btnSGFstart"), () => void openMatchOpenings([]).then(
     (r) => { if (r.type === "Refused") void message(t("Message.title"), t(r.message_key), "warning"); },
-    (e: unknown) => message("Error", isApiError(e) ? e.message : String(e), "error"),
+    (e: unknown) => message(t("Message.title"), isApiError(e) ? e.message : String(e), "error"),
   ));
   chooseSgf.dataset.key = "match.chooseSgf";
   g.span(sgf.wrap, inline(random, chooseSgf));

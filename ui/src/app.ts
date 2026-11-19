@@ -54,12 +54,13 @@ export function apply(view: WorkbenchView): void {
   state.view = view;
   const outcome = view.open_outcome;
   if (outcome?.type === "Failed") {
-    // Files: JOptionPane "Error" with failedToOpenFile (LizzieFrame.java:17160-17165); pasted
-    // records: the Message dialog with KifuLoad.failed + reason (4764-4777, Message.java:25).
+    // Files: failedToOpenFile (LizzieFrame.java:17160-17165) under the message title, where Java's
+    // option pane says "Error" in every language; pasted records: the Message dialog with
+    // KifuLoad.failed + reason (4764-4777, Message.java:25).
     if (outcome.message_key === "KifuLoad.failed") message(t("Message.title"), `${t("KifuLoad.failed")}${outcome.detail}`, "error");
     // openFile during a game (LizzieFrame.java:5134-5138): Utils.showMsg(openFileFailed.inGame).
     else if (outcome.message_key === "LizzieFrame.openFileFailed.inGame") message(t("Message.title"), t("LizzieFrame.openFileFailed.inGame"));
-    else message("Error", t("LizzieFrame.prompt.failedToOpenFile"), "error");
+    else message(t("Message.title"), t("LizzieFrame.prompt.failedToOpenFile"), "error");
   }
   // SgfSaveCoordinator.showFailure: Utils.showMsg(saveFileFailed); a success shows nothing.
   if (view.save_outcome?.type === "Failed") message(t("Message.title"), t("LizzieFrame.saveFileFailed"), "error");
@@ -142,7 +143,7 @@ export function run(command: Command): Promise<CommandResult | null> {
       // Only the command kind: arguments may hold credentials (ikatago scan, proxy settings).
       const op = "op" in command ? `.${"type" in command.op ? command.op.type : command.op.op}` : "";
       console.error("command failed", `${command.type}${op}`, e);
-      await message("Error", text, "error");
+      await message(t("Message.title"), text, "error");
       return null;
     }
   });

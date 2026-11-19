@@ -45,7 +45,7 @@ async function startRun(resume: boolean): Promise<boolean | "download"> {
   try {
     result = await dispatch({ type: "Strength", op: { type: "RunHumanSl", resume } });
   } catch (e) {
-    await message("Error", isApiError(e) ? e.message : String(e), "error");
+    await message(t("Message.title"), isApiError(e) ? e.message : String(e), "error");
     return false;
   }
   if (result.type !== "Refused") return true;

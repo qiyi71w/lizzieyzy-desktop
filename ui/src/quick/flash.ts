@@ -25,7 +25,7 @@ export async function requestFlash(command: Command, retry: (kept: AnalysisEngin
   try {
     result = await dispatch(command);
   } catch (e) {
-    await message("Error", isApiError(e) ? e.message : String(e), "error");
+    await message(t("Message.title"), isApiError(e) ? e.message : String(e), "error");
     return false;
   }
   if (result.type !== "Refused") return true;

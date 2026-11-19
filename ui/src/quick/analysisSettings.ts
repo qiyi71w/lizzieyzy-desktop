@@ -75,7 +75,7 @@ async function generate(index: number | null, quiet: boolean): Promise<Generated
     }
     return null;
   } catch (e) {
-    if (!quiet) await message("Error", isApiError(e) ? e.message : String(e), "error");
+    if (!quiet) await message(t("Message.title"), isApiError(e) ? e.message : String(e), "error");
     return null;
   }
 }
