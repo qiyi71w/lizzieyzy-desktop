@@ -43,7 +43,7 @@
   --ws-gain: #2c6b3f;
   --ws-loss: #a5321f;
   --ws-live: #2f7a47;
-  --ws-idle: #b83a2b;
+  --ws-idle: #8f856f; /* not analysing is an ordinary state: red is kept for losses and danger */
 
   /* 变化树. */
   --ws-tree-node: #9c937f;
@@ -101,7 +101,7 @@
   --ws-gain: #6cc487;
   --ws-loss: #f0958a;
   --ws-live: #6cc487;
-  --ws-idle: #f0958a;
+  --ws-idle: #8c8371;
 
   --ws-tree-node: #d9cfbc;
   --ws-tree-line: #b5aa94;
