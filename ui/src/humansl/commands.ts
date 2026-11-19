@@ -4,6 +4,7 @@
 // this module sends HumanSl commands and shows its view.
 import { registerViewHandler, state, subscribe } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
+import { icon } from "../design/icons";
 import { message, timedMessage } from "../dialogs";
 import { t } from "../i18n";
 import { mountTrainingBar, refreshTrainingBar } from "./bar";
@@ -45,12 +46,8 @@ export function buildAiCoachButton(): HTMLElement {
   pill.title = t("Menu.aiCoach.tip");
   pill.setAttribute("role", "button");
   pill.setAttribute("aria-description", t("Menu.aiCoach.tip"));
-  const icon = document.createElement("img");
-  icon.className = "coach-icon";
-  icon.src = "/assets/ui/ai-coach/coach-target.png";
-  icon.alt = "";
   const label = document.createElement("span");
-  pill.append(icon, label);
+  pill.append(icon("spark"), label);
   pill.addEventListener("mousedown", (e) => e.preventDefault());
   pill.onclick = aiCoachAction;
   const strip = document.getElementById("menubar");

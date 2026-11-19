@@ -6,7 +6,7 @@
 // presentation setting. This product leaves out Java's 详细工具栏.
 import { navigate, run, state, subscribe, unavailable } from "../app";
 import { COMMANDS } from "../commands";
-import { toggleCoordinates, toggleMoveNumbers, toggleMoveRank } from "../display/commands";
+import { rankMarkLit, toggleCoordinates, toggleMoveNumbers, toggleMoveRank } from "../display/commands";
 import { toggleRawNet } from "../display/state";
 import "../editing/commands";
 import { product, t } from "../i18n";
@@ -29,6 +29,10 @@ interface Item {
   cls?: string;
   /** Drawn in place of the label. */
   icon?: IconName;
+  /** Its capsule: neighbouring buttons of one capsule adjoin as its segments. */
+  cap: string;
+  /** A display switch: lit while this holds. */
+  lit?: () => boolean;
   run?: () => void;
   /** Its 自定义内容 setting; visibleButtons skips the button while it is off. */
   setting?: BottomButton;
@@ -70,60 +74,60 @@ let analyseLabel: HTMLSpanElement;
 
 const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" | "rightOptional", Item[]> = {
   leftPrimary: [
-    { name: "analyse", key: "BottomToolbar.analyse", cls: "primary", setting: "analyse", run: () => run({ type: "ToggleAnalysis" }) },
-    { name: "batchOpen", key: "BottomToolbar.batchOpen", cls: "primary", setting: "batchOpen", popup: AUTO_ANALYSIS_MENU },
+    { name: "analyse", key: "BottomToolbar.analyse", cls: "primary", cap: "analyse", setting: "analyse", run: () => run({ type: "ToggleAnalysis" }) },
+    { name: "batchOpen", key: "BottomToolbar.batchOpen", cap: "services", setting: "batchOpen", popup: AUTO_ANALYSIS_MENU },
   ],
   leftOptional: [
     // openFile / saveOriFile: 保存 overwrites the record's own file, else saves as (1473-1486).
-    { name: "openfile", key: "BottomToolbar.openfile", setting: "openFile", run: () => COMMANDS["files.open"].run() },
-    { name: "savefile", key: "BottomToolbar.savefile", setting: "saveFile", run: () => COMMANDS["files.save"].run() },
-    { name: "remoteComputeButton", key: "Menu.remoteCompute", cls: "primary", run: openRemoteCompute },
-    { name: "downloadWeightButton", key: "BottomToolbar.downloadWeight", run: () => openAutoSetup("weights") },
+    { name: "openfile", key: "BottomToolbar.openfile", cap: "file", setting: "openFile", run: () => COMMANDS["files.open"].run() },
+    { name: "savefile", key: "BottomToolbar.savefile", cap: "file", setting: "saveFile", run: () => COMMANDS["files.save"].run() },
+    { name: "remoteComputeButton", key: "Menu.remoteCompute", cap: "services", run: openRemoteCompute },
+    { name: "downloadWeightButton", key: "BottomToolbar.downloadWeight", cap: "services", run: () => openAutoSetup("weights") },
     // toggleShowKataEstimate, shown only for a KataGo engine (BottomToolbar.java:1519-1524, 5192-5196)
-    { name: "kataEstimate", key: "BottomToolbar.kataEstimate", setting: "kataEstimate", run: toggleKataEstimate, shown: () => !!state.view?.engine.foreground?.katago },
+    { name: "kataEstimate", key: "BottomToolbar.kataEstimate", cap: "views", setting: "kataEstimate", run: toggleKataEstimate, shown: () => !!state.view?.engine.foreground?.katago, lit: () => state.view?.kata_estimate.state.shown ?? false },
     // activeEngine.toggleHeatmap(false), as H (BottomToolbar.java:1365-1373)
-    { name: "heatMap", key: "BottomToolbar.heatMap", setting: "heatMap", run: toggleRawNet },
+    { name: "heatMap", key: "BottomToolbar.heatMap", cap: "views", setting: "heatMap", run: toggleRawNet, lit: () => !!state.view?.rawNet },
     // toggleBestMoves, as U (BottomToolbar.java:1324-1329)
-    { name: "analyzeList", key: "BottomToolbar.analyzeList", setting: "analyzeList", run: toggleFrame },
+    { name: "analyzeList", key: "BottomToolbar.analyzeList", cap: "views", setting: "analyzeList", run: toggleFrame },
     // toggleBadMoves (BottomToolbar.java:1311-1316)
-    { name: "badMoves", key: "BottomToolbar.badMoves", setting: "badMoves", run: () => COMMANDS["analysis.bad-moves"].run() },
-    { name: "refresh", key: "BottomToolbar.refresh", setting: "refresh", run: () => COMMANDS["board.refresh"].run(), located: "board.refresh" },
-    { name: "liveButton", key: "BottomToolbar.liveButton", setting: "live", popup: LIVE_MENU },
+    { name: "badMoves", key: "BottomToolbar.badMoves", cap: "views", setting: "badMoves", run: () => COMMANDS["analysis.bad-moves"].run() },
+    { name: "refresh", key: "BottomToolbar.refresh", cap: "sync", setting: "refresh", run: () => COMMANDS["board.refresh"].run(), located: "board.refresh" },
+    { name: "liveButton", key: "BottomToolbar.liveButton", cap: "sync", setting: "live", popup: LIVE_MENU },
   ],
   center: [
-    { name: "firstButton", key: "|<", cls: "nav", icon: "step-first", run: () => navigate({ op: "First" }) },
-    { name: "backward10", key: "<<", cls: "nav", icon: "step-back-ten", run: () => COMMANDS["review.previous-ten"].run() },
-    { name: "backward1", key: "<", cls: "nav", icon: "step-back", run: () => COMMANDS["review.previous"].run() },
-    { name: "txtMoveNumber", key: "", located: "review.goto" },
-    { name: "gotomove", key: "BottomToolbar.gotomove", run: () => gotoMove(moveInput) },
-    { name: "forward1", key: ">", cls: "nav", icon: "step-forward", run: () => COMMANDS["review.next"].run() },
-    { name: "forward10", key: ">>", cls: "nav", icon: "step-forward-ten", run: () => COMMANDS["review.next-ten"].run() },
-    { name: "lastButton", key: ">|", cls: "nav", icon: "step-last", run: () => navigate({ op: "Last" }) },
+    { name: "firstButton", key: "|<", cls: "nav", cap: "nav", icon: "step-first", run: () => navigate({ op: "First" }) },
+    { name: "backward10", key: "<<", cls: "nav", cap: "nav", icon: "step-back-ten", run: () => COMMANDS["review.previous-ten"].run() },
+    { name: "backward1", key: "<", cls: "nav", cap: "nav", icon: "step-back", run: () => COMMANDS["review.previous"].run() },
+    { name: "txtMoveNumber", key: "", cap: "nav", located: "review.goto" },
+    { name: "gotomove", key: "BottomToolbar.gotomove", cap: "nav", run: () => gotoMove(moveInput) },
+    { name: "forward1", key: ">", cls: "nav", cap: "nav", icon: "step-forward", run: () => COMMANDS["review.next"].run() },
+    { name: "forward10", key: ">>", cls: "nav", cap: "nav", icon: "step-forward-ten", run: () => COMMANDS["review.next-ten"].run() },
+    { name: "lastButton", key: ">|", cls: "nav", cap: "nav", icon: "step-last", run: () => navigate({ op: "Last" }) },
     // new AutoPlay().setVisible(true) (BottomToolbar.java:1296-1302)
-    { name: "autoPlay", key: "BottomToolbar.autoPlay", setting: "autoPlay", run: () => COMMANDS["menu.makeAutoPlay"].run() },
+    { name: "autoPlay", key: "BottomToolbar.autoPlay", cap: "nav", setting: "autoPlay", run: () => COMMANDS["menu.makeAutoPlay"].run() },
   ],
   rightPrimary: [
     // 试下 / 恢复 (LizzieFrame.tryPlay, BottomToolbar.java:1321)
-    { name: "tryPlay", key: "BottomToolbar.tryPlay", setting: "tryPlay", run: () => COMMANDS["toolbar.try-play"].run(), located: "board.try-play" },
+    { name: "tryPlay", key: "BottomToolbar.tryPlay", cap: "branch", setting: "tryPlay", run: () => COMMANDS["toolbar.try-play"].run(), located: "board.try-play" },
     // moveToMainTrunk (BottomToolbar.java:1353-1358)
-    { name: "backMain", key: "BottomToolbar.backMain", setting: "backMain", run: () => COMMANDS["menu.backToMainBranch"].run() },
-    { name: "setMain", key: "BottomToolbar.setMain", setting: "setMain", run: () => COMMANDS["menu.setAsMain"].run() },
+    { name: "backMain", key: "BottomToolbar.backMain", cap: "branch", setting: "backMain", run: () => COMMANDS["menu.backToMainBranch"].run() },
+    { name: "setMain", key: "BottomToolbar.setMain", cap: "branch", setting: "setMain", run: () => COMMANDS["menu.setAsMain"].run() },
     // toggleShowMoveRankMark, as Alt+M (BottomToolbar.java:1075-1081)
-    { name: "moveRank", key: "BottomToolbar.moveRank", setting: "moveRank", run: toggleMoveRank },
+    { name: "moveRank", key: "BottomToolbar.moveRank", cap: "marks", setting: "moveRank", run: toggleMoveRank, lit: rankMarkLit },
     // toggleShowMoveNumber / toggleCoordinates (BottomToolbar.java:1330-1343)
-    { name: "move", key: "BottomToolbar.move", setting: "moveNumbers", run: toggleMoveNumbers },
-    { name: "coords", key: "BottomToolbar.coords", setting: "coords", run: toggleCoordinates },
+    { name: "move", key: "BottomToolbar.move", cap: "marks", setting: "moveNumbers", run: toggleMoveNumbers, lit: () => (state.view?.settings.display.moveNumbers ?? 0) !== 0 },
+    { name: "coords", key: "BottomToolbar.coords", cap: "marks", setting: "coords", run: toggleCoordinates, lit: () => state.view?.settings.display.coordinates ?? false },
   ],
   rightOptional: [
     // toggleScoreMode (BottomToolbar.java:1512-1518)
-    { name: "finalScore", key: "BottomToolbar.finalScore", setting: "finalScore", run: toggleScore },
+    { name: "finalScore", key: "BottomToolbar.finalScore", cap: "marks", setting: "finalScore", run: toggleScore, lit: () => !!state.view?.score },
     // newEmptyBoard (1490) and deleteMoveNoHint (1307)
-    { name: "clearButton", key: "BottomToolbar.clearButton", cls: "danger", setting: "clearBoard", run: () => COMMANDS["files.new"].run() },
-    { name: "deleteMove", key: "BottomToolbar.deleteMove", cls: "danger", setting: "deleteMove", run: () => COMMANDS["board.delete-without-prompt"].run(), located: "board.delete-without-prompt" },
+    { name: "clearButton", key: "BottomToolbar.clearButton", cls: "danger", cap: "edit", setting: "clearBoard", run: () => COMMANDS["files.new"].run() },
+    { name: "deleteMove", key: "BottomToolbar.deleteMove", cls: "danger", cap: "edit", setting: "deleteMove", run: () => COMMANDS["board.delete-without-prompt"].run(), located: "board.delete-without-prompt" },
   ],
 };
 const ITEMS = Object.values(GROUPS).flat();
-const MORE: Item = { name: "moreActionsButton", key: "BottomToolbar.moreActions", run: () => openMore([]) };
+const MORE: Item = { name: "moreActionsButton", key: "BottomToolbar.moreActions", cap: "more", run: () => openMore([]) };
 
 /** The 同步 button when `id` is one of its popup's items (BottomToolbar.functionTarget's yike
  *  entries), the control function search reveals before locating the item. */
@@ -144,6 +148,8 @@ export function locateLivePopupItem(id: string): boolean {
 
 /** The buttons the last layout sent to 更多, in layout order. */
 let overflowed: Item[] = [];
+/** Set while a layout must show 更多 although every button fits. */
+let showMore = false;
 
 const moreId = (item: Item) => `bottombar.more.${item.name}`;
 
@@ -179,9 +185,9 @@ export function locateHiddenButton(id: string): boolean {
   const host = more?.parentElement;
   if (!item || !more || !host) return false;
   if (more.style.display === "none") {
-    more.style.display = "";
-    more.style.left = `${host.clientWidth - 10 - (widths.get(MORE) ?? 52)}px`;
-    more.style.width = `${widths.get(MORE) ?? 52}px`;
+    showMore = true;
+    layoutBottomBar(host);
+    showMore = false;
   }
   return locatePopupItem(more, moreItems([item]), moreId(item));
 }
@@ -189,9 +195,12 @@ export function locateHiddenButton(id: string): boolean {
 const elements = new Map<Item, HTMLElement>();
 const widths = new Map<Item, number>();
 
-/** Java button widths: string width + 26 with a 52 minimum for text buttons; the step buttons are
- *  28 around their icon and the move field is 56. The analyse button carries a 16 px icon and keeps
- *  one width for both states: the wider of its two labels + 38 (setAnalyseButtonSize,
+/** The capsules laid under the runs of buttons, reused from layout to layout. */
+const capsules: HTMLElement[] = [];
+
+/** Button widths as segments of a capsule: the label's width + 24 (44 at least), 30 around a step
+ *  icon, 56 for the move field with its margins. The analyse button keeps one width for both
+ *  states: the wider of its two labels + 42 for its icon (setAnalyseButtonSize,
  *  BottomToolbar.java:2608-2623). */
 function measure(host: HTMLElement) {
   const g = document.createElement("canvas").getContext("2d")!;
@@ -200,8 +209,8 @@ function measure(host: HTMLElement) {
   for (const item of [...ITEMS, MORE]) {
     if (item.name === "txtMoveNumber") widths.set(item, 56);
     else if (item.name === "analyse") {
-      widths.set(item, Math.max(text(t("BottomToolbar.analyse")), text(t("BottomToolbar.pauseAnalyse"))) + 38);
-    } else widths.set(item, item.icon ? 28 : Math.max(52, text(elements.get(item)!.textContent ?? "") + 26));
+      widths.set(item, Math.max(text(t("BottomToolbar.analyse")), text(t("BottomToolbar.pauseAnalyse"))) + 42);
+    } else widths.set(item, item.icon ? 30 : Math.max(44, text(elements.get(item)!.textContent ?? "") + 24));
   }
 }
 
@@ -238,7 +247,6 @@ export function buildBottomBar(host: HTMLElement): void {
     b.dataset.name = item.name;
     if (item.located) b.dataset.function = item.located;
     if (item.name === "analyse") {
-      b.classList.add("with-icon");
       analyseIcon = icon("play");
       analyseLabel = document.createElement("span");
       b.append(analyseIcon, analyseLabel);
@@ -301,6 +309,12 @@ export function buildBottomBar(host: HTMLElement): void {
       measure(host);
       layoutBottomBar(host);
     }
+    for (const [item, el] of elements) {
+      if (!item.lit) continue;
+      const lit = item.lit();
+      el.classList.toggle("on", lit);
+      el.setAttribute("aria-pressed", String(lit));
+    }
     // reSetButtonLocation after a 自定义内容 check or an engine change.
     const shown = ITEMS.map((item) => visible(item)).join();
     if (shown !== lastShown) {
@@ -317,13 +331,15 @@ function visible(item: Item): boolean {
 
 /** layoutMainBar: left groups greedy from the left, navigation centred between them, right groups
  *  from the right (optional ones overflow first); overflowed buttons go to "更多", which reserves
- *  its width in a second pass. */
+ *  its width in a second pass. Buttons of one capsule adjoin, capsules stand 8 px apart, and a
+ *  capsule is laid under each run of adjoining buttons. */
 export function layoutBottomBar(host: HTMLElement): void {
   const W = host.clientWidth;
   const PAD = 10;
-  const GAP = 6;
-  const width = (item: Item) => widths.get(item) ?? 52;
-  const span = (items: Item[]) => items.reduce((s, e) => s + width(e), 0) + Math.max(0, items.length - 1) * GAP;
+  const GAP = 8;
+  const width = (item: Item) => widths.get(item) ?? 44;
+  const gap = (a: Item, b: Item) => (a.cap === b.cap ? 0 : GAP);
+  const span = (items: Item[]) => items.reduce((s, e, k) => s + width(e) + (k > 0 ? gap(items[k - 1], e) : 0), 0);
   const place = new Map<Item, number>();
   const g = {
     leftPrimary: GROUPS.leftPrimary.filter(visible),
@@ -333,7 +349,7 @@ export function layoutBottomBar(host: HTMLElement): void {
     rightOptional: GROUPS.rightOptional.filter(visible),
   };
   const centerWidth = span(g.center);
-  for (const reserve of [false, true]) {
+  for (const reserve of showMore ? [true] : [false, true]) {
     place.clear();
     let overflow = false;
     const rightEdge = W - PAD - (reserve ? width(MORE) + GAP : 0);
@@ -341,45 +357,69 @@ export function layoutBottomBar(host: HTMLElement): void {
     const maxStart = rightEdge - span(g.rightPrimary) - centerWidth - GAP * 2;
     const centerStart = Math.max(PAD, Math.max(minStart, Math.min(Math.floor((W - centerWidth) / 2), maxStart)));
     let x = PAD;
+    let placed: Item | null = null;
     for (const b of [...g.leftPrimary, ...g.leftOptional]) {
-      if (x + width(b) > centerStart - GAP) overflow = true;
+      const start = placed ? x + gap(placed, b) : x;
+      if (start + width(b) > centerStart - GAP) overflow = true;
       else {
-        place.set(b, x);
-        x += width(b) + GAP;
+        place.set(b, start);
+        x = start + width(b);
+        placed = b;
       }
     }
     const rightLimit = centerStart + centerWidth + GAP;
-    x = rightEdge;
     const primaryWidth = span(g.rightPrimary);
-    for (const b of [...g.rightOptional].reverse()) {
-      if (x - width(b) < rightLimit + primaryWidth + GAP) overflow = true;
+    x = rightEdge;
+    placed = null;
+    // From the right edge inwards: the optional buttons first, keeping room for the primary ones.
+    for (const [b, reserved] of [...g.rightPrimary.map((b) => [b, 0] as const), ...g.rightOptional.map((b) => [b, primaryWidth + GAP] as const)].reverse()) {
+      const start = (placed ? x - gap(b, placed) : x) - width(b);
+      if (start < rightLimit + reserved) overflow = true;
       else {
-        place.set(b, x - width(b));
-        x -= width(b) + GAP;
-      }
-    }
-    for (const b of [...g.rightPrimary].reverse()) {
-      if (x - width(b) < rightLimit) overflow = true;
-      else {
-        place.set(b, x - width(b));
-        x -= width(b) + GAP;
+        place.set(b, start);
+        x = start;
+        placed = b;
       }
     }
     x = centerStart;
-    for (const b of g.center) {
+    g.center.forEach((b, k) => {
+      if (k > 0) x += gap(g.center[k - 1], b);
       place.set(b, x);
-      x += width(b) + GAP;
-    }
+      x += width(b);
+    });
+    if (reserve && (overflow || showMore)) place.set(MORE, W - PAD - width(MORE));
     if (!overflow) break;
-    if (reserve) place.set(MORE, W - PAD - width(MORE));
   }
   overflowed = [...g.leftPrimary, ...g.leftOptional, ...g.rightPrimary, ...g.rightOptional].filter((item) => !place.has(item));
-  for (const [item, el] of elements) {
-    const x = place.get(item);
-    el.style.display = x === undefined ? "none" : "";
-    if (x !== undefined) {
-      el.style.left = `${x}px`;
-      el.style.width = `${width(item)}px`;
-    }
-  }
+  for (const [item, el] of elements) if (!place.has(item)) el.style.display = "none";
+
+  // From left to right: each button at its place, and the runs of adjoining buttons of one capsule.
+  const order = [...place].sort((a, b) => a[1] - b[1]);
+  const text = (item: Item) => !item.icon && item.name !== "txtMoveNumber";
+  const runs: { cap: string; left: number; right: number }[] = [];
+  order.forEach(([item, x], k) => {
+    const el = elements.get(item)!;
+    const before = k > 0 ? order[k - 1] : null;
+    const after = k + 1 < order.length ? order[k + 1] : null;
+    const joined = !!before && before[0].cap === item.cap && before[1] + width(before[0]) === x;
+    if (joined) runs[runs.length - 1].right = x + width(item);
+    else runs.push({ cap: item.cap, left: x, right: x + width(item) });
+    el.style.display = "";
+    // The move field stands inside its capsule with a margin; the others fill their segment.
+    const inset = item.name === "txtMoveNumber" ? 4 : 0;
+    el.style.left = `${x + inset}px`;
+    el.style.width = `${width(item) - inset * 2}px`;
+    el.classList.toggle("first", !joined);
+    el.classList.toggle("last", !after || after[0].cap !== item.cap || x + width(item) !== after[1]);
+    // A line where a text button meets its neighbour; step icons stand together without one.
+    el.classList.toggle("joined", joined && (text(item) || text(before[0])));
+  });
+  runs.forEach((run, k) => {
+    const cap = (capsules[k] ??= host.insertBefore(document.createElement("div"), host.firstChild));
+    cap.className = run.cap === "analyse" ? "bb-cap primary" : "bb-cap";
+    cap.style.display = "";
+    cap.style.left = `${run.left}px`;
+    cap.style.width = `${run.right - run.left}px`;
+  });
+  for (const cap of capsules.slice(runs.length)) cap.style.display = "none";
 }

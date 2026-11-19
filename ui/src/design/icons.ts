@@ -63,6 +63,8 @@ const ICONS = {
   search: '<circle cx="7" cy="7" r="4.75"/><path d="m10.5 10.5 3.25 3.25"/>',
   undo: '<path d="M2.25 8A5.75 5.75 0 1 0 8 2.25 6.2 6.2 0 0 0 3.7 4L2.25 5.5M2.25 2.25V5.5H5.5"/>',
   close: '<path d="m4 4 8 8M12 4l-8 8"/>',
+  more: '<circle class="ic-fill" cx="3.75" cy="8" r="1.15"/><circle class="ic-fill" cx="8" cy="8" r="1.15"/><circle class="ic-fill" cx="12.25" cy="8" r="1.15"/>',
+  spark: '<path d="M8 2.25 9.5 6.5l4.25 1.5L9.5 9.5 8 13.75 6.5 9.5 2.25 8 6.5 6.5z"/>',
   "pen-blue": '<rect class="ic-pen ic-pen-blue" x="2.5" y="2.5" width="11" height="11" rx="2"/>',
   "pen-green": '<rect class="ic-pen ic-pen-green" x="2.5" y="2.5" width="11" height="11" rx="2"/>',
   "pen-red": '<rect class="ic-pen ic-pen-red" x="2.5" y="2.5" width="11" height="11" rx="2"/>',

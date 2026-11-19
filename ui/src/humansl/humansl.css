@@ -4,21 +4,6 @@
    arc 12, 7/14 px padding, bold; disabled fills blend 55% into the background, pressed or selected
    ones 12% into black, hovered ones 10% into white. */
 
-/* ---- window bar button (Menu.aiCoachButton): the coach icon, white on the accent fill, 6 px
-   before the text. styles.css colours the button. */
-#menubar .pill.coach {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  cursor: default;
-}
-#menubar .coach .coach-icon {
-  width: 16px;
-  height: 16px;
-  filter: brightness(0) invert(1);
-}
-
 /* ---- buttons */
 .hs-button {
   font-family: inherit;

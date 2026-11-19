@@ -24,7 +24,7 @@ body {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 10px;
+  padding: 0 6px;
   background: var(--ds-chrome);
 }
 /* The system's window buttons sit over the bar's left end, except in full screen. */
@@ -46,32 +46,37 @@ body {
 #menubar .m.open {
   background: var(--ds-pressed);
 }
+/* AI 陪练, AI 解说: small capsules after the menus */
 #menubar .pill {
   flex: none;
-  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
   margin-left: 6px;
-  padding: 0 12px;
-  line-height: 24px;
+  padding: 0 9px 0 7px;
   border-radius: var(--ds-radius);
   background-color: var(--ds-raised);
+  box-shadow: var(--ds-shadow-cap);
   font-weight: 600;
+  color: var(--ds-text-2);
   white-space: nowrap;
 }
-#menubar .commentary:hover {
+#menubar .pill .icon {
+  width: 13px;
+  height: 13px;
+}
+#menubar .pill:hover {
   background-image: linear-gradient(var(--ds-hover), var(--ds-hover));
+  color: var(--ds-text);
 }
-#menubar .coach {
-  border-color: var(--ds-accent);
-  background-color: var(--ds-accent);
-  color: var(--ds-on-accent);
+#menubar .pill:active {
+  background-image: linear-gradient(var(--ds-pressed), var(--ds-pressed));
 }
-#menubar .coach:hover {
-  border-color: var(--ds-accent-hover);
-  background-color: var(--ds-accent-hover);
-}
-#menubar .coach.selected {
-  border-color: var(--ds-accent-pressed);
-  background-color: var(--ds-accent-pressed);
+/* 陪练中 */
+#menubar .pill.selected {
+  background-image: linear-gradient(var(--ds-accent-soft), var(--ds-accent-soft));
+  color: var(--ds-accent-text);
 }
 /* The window title in the bar's free space; windowBar.ts centres it in the window when it fits. */
 #windowTitle {
@@ -81,7 +86,7 @@ body {
   padding: 0 12px;
   line-height: var(--ds-bar-h);
   text-align: center;
-  color: var(--ds-text-2);
+  color: var(--ds-text-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -94,7 +99,7 @@ body {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   margin-left: 6px;
 }
 .window-buttons.leading {
@@ -104,12 +109,13 @@ body {
 .window-buttons button {
   display: grid;
   place-items: center;
-  width: 24px;
+  width: 30px;
   height: 24px;
   padding: 0;
   border: 0;
-  border-radius: 50%;
-  background-color: var(--ds-hover);
+  border-radius: var(--ds-radius);
+  background-color: transparent;
+  color: var(--ds-text-2);
 }
 .window-buttons svg {
   width: 10px;
@@ -137,128 +143,170 @@ body {
   cursor: var(--window-edge-cursor) !important;
 }
 
-/* ---- toolbar: groups in a row that wraps */
+/* ---- toolbar: two rows of capsules, each row wrapping by capsule. The upper row holds the icon
+   groups and the search field, the lower one the game controls, the engine parameters and the
+   text buttons. */
 #toolbar {
   flex: none;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  align-content: flex-start;
-  gap: 4px 2px;
-  padding: 0 10px 6px;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 8px 8px;
   background: var(--ds-chrome);
   border-bottom: 1px solid var(--ds-line);
 }
-#toolbar > *,
-#toolbar .tb-run > * {
+.tb-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+.tb-row > * {
   flex: none;
+}
+/* Pushes what follows to the row's end. */
+.tb-row > .tb-grow {
+  flex: 1;
 }
 /* 自动换行 off: one row, the rest cut off without a scroll bar */
 #toolbar.nowrap {
-  flex-wrap: nowrap;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
   overflow: clip;
 }
-/* A run of optional items (自定义内容); its items wrap one by one */
-.tb-run {
+#toolbar.nowrap .tb-row {
   display: contents;
 }
-.tb-buttons,
-.tb-group {
-  display: inline-flex;
-  align-items: center;
-  white-space: nowrap;
-}
-.tb-buttons {
-  column-gap: 2px;
-}
-.tb-group {
-  column-gap: 4px;
-}
-.tb-sep {
-  width: 1px;
-  height: 16px;
-  margin: 0 5px;
-  background: var(--ds-line-strong);
-}
-/* The separator before the first group, and the spacers that draw no line. */
-.tb-sep.lead {
+#toolbar.nowrap .tb-grow {
   display: none;
 }
-.tb-sep.dash,
-.tb-sep.gap {
-  margin: 0;
-  background: none;
+
+/* A capsule: one raised surface holding a group of related controls as segments. A segment that
+   starts a new part of the group carries the dividing line on its left edge; the first segment's
+   line falls outside the capsule, whichever segments are hidden. */
+.tb-cap {
+  display: inline-flex;
+  align-items: stretch;
+  height: var(--ds-cap-h);
+  border-radius: var(--ds-radius-cap);
+  background: var(--ds-raised);
+  box-shadow: var(--ds-shadow-cap);
+  white-space: nowrap;
+  overflow: hidden;
 }
-/* Icon buttons: 24 x 22 around a 16 px icon, growing with the 20 / 24 px icons of interface fonts
-   13-16 / larger. Line icons sit in the secondary text colour until hovered. */
+.tb-cap > .tb-pill,
+.tb-cap > .tb-pill + *,
+.tb-cap > .tb-group,
+.tb-cap > .tb-group + *,
+.tb-cap > .tb-cut {
+  margin-left: -1px;
+  box-shadow: inset 1px 0 0 var(--ds-line);
+}
+/* Focus and the function-search highlight stay inside the capsule, which clips. */
+.tb-cap :focus-visible,
+.tb-cap .located {
+  outline-offset: -2px;
+}
+/* The markup tools follow their button as segments of the same capsule. */
+.tb-markup {
+  display: contents;
+}
+
+/* Icon segments: the icon in the secondary text colour until the pointer is on it. */
 .tb-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: calc(var(--menu-icon-size, 16px) + 8px);
-  height: max(var(--ds-control-h), calc(var(--menu-icon-size, 16px) + 6px));
-  border-radius: var(--ds-radius-s);
+  width: calc(var(--menu-icon-size, 16px) + 14px);
   color: var(--ds-text-2);
 }
 .tb-icon:hover {
-  background: var(--ds-hover);
+  background-color: var(--ds-hover);
   color: var(--ds-text);
 }
 .tb-icon:active {
-  background: var(--ds-pressed);
+  background-color: var(--ds-pressed);
 }
-.tb-icon.more {
-  width: calc(var(--menu-icon-size, 16px) - 2px);
-}
-/* A selected toggle: the accent wash, its edge and the accent ink. */
-.tb-icon.on {
-  background: var(--ds-accent-soft);
+/* A selected toggle: the accent wash and the accent ink. */
+.tb-icon.on,
+.tb-pill.on {
+  background-color: var(--ds-accent-soft);
   color: var(--ds-accent-text);
-  box-shadow: inset 0 0 0 1px var(--ds-accent-soft-line);
 }
 .tb-icon.on:active {
-  background: linear-gradient(var(--ds-pressed), var(--ds-pressed)) var(--ds-accent-soft);
-}
-/* A button whose capability this client does not have yet. */
-.tb-icon.unavailable {
-  color: var(--ds-text-off);
-}
-/* Text buttons in the bars: a soft fill without an edge, so fields (which keep their edge) and
-   buttons read apart. */
-.tb-pill {
-  height: var(--ds-control-h);
-  padding: 0 9px;
-  line-height: var(--ds-control-h);
-  text-align: center;
-  white-space: nowrap;
-  border-radius: var(--ds-radius);
-  background-color: var(--ds-raised);
-}
-.tb-pill:hover {
-  background-image: linear-gradient(var(--ds-hover), var(--ds-hover));
-}
-.tb-pill:active {
   background-image: linear-gradient(var(--ds-pressed), var(--ds-pressed));
 }
-.tb-pill.disabled {
+/* The arrow that opens a button's options sits close to that button. */
+.tb-icon:has(+ .tb-icon.more) {
+  justify-content: flex-end;
+  padding-right: 2px;
+}
+.tb-icon.more {
+  width: 15px;
+  justify-content: flex-start;
+  padding-left: 2px;
+}
+.tb-icon.more .icon {
+  width: 9px;
+  height: 9px;
+  stroke-width: 1.8;
+}
+/* A button whose capability this client does not have yet. */
+.tb-icon.unavailable,
+.tb-pill.unavailable {
   color: var(--ds-text-off);
-  background-image: none;
 }
-/* 结束对局, 认输 */
-.tb-pill.danger {
-  color: var(--ds-danger-text);
-}
-/* An icon and its text centred as one group */
-.tb-pill.search {
+
+/* Text segments. */
+.tb-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  column-gap: 4px;
+  padding: 0 11px;
+}
+.tb-pill:hover {
+  background-color: var(--ds-hover);
+}
+.tb-pill:active {
+  background-color: var(--ds-pressed);
+}
+.tb-pill.disabled {
+  color: var(--ds-text-off);
+  background-color: transparent;
+}
+/* 结束对局, 认输: the danger ink, and its wash under the pointer */
+.tb-pill.danger {
+  color: var(--ds-danger-text);
+}
+.tb-pill.danger:hover {
+  background-color: var(--ds-danger-soft);
+}
+/* "…": the options of the value before it, without a line between them */
+.tb-cap > .tb-icon.pda-more {
+  width: 24px;
+  margin-left: -2px;
+  box-shadow: none;
+}
+
+/* A parameter: its name, a check box when it can be switched off, and its value field. */
+.tb-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 3px 0 10px;
 }
 .tb-label {
-  padding: 0 2px;
   color: var(--ds-text-2);
   white-space: nowrap;
+}
+/* The caption of a set of choices (限制, 分析, 选点). */
+.tb-group.choices > .tb-label {
+  color: var(--ds-text-3);
+}
+.tb-group.choices {
+  gap: 10px;
+  padding-right: 11px;
 }
 .tb-label.tb-clock {
   font-size: var(--ds-size-xl);
@@ -267,21 +315,32 @@ body {
   color: var(--ds-text);
   white-space: pre;
 }
-/* The KataGo parameter fields show a value the engine holds; 贴目 is typed into. */
+/* A value field inside a capsule. The KataGo parameter fields show a value the engine holds;
+   贴目 is typed into. */
 .tb-input {
   width: 48px;
-  height: var(--ds-control-h);
-  padding: 0 4px;
-  text-align: center;
+  height: calc(var(--ds-cap-h) - 6px);
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background-color: var(--ds-field);
+  box-shadow: inset 0 0 0 1px var(--ds-line-strong);
+  text-align: right;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-  color: var(--ds-text-3);
 }
-#komiField {
-  color: var(--ds-text);
+.tb-input:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--ds-accent);
+  outline-offset: 0;
+}
+.tb-input:disabled {
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1px var(--ds-line);
+  color: var(--ds-text-off);
+  font-weight: 400;
 }
 .tb-group.custom-pda .tb-input {
   width: 60px;
-  text-align: right;
 }
 .tb-input.time-limit {
   width: 50px;
@@ -291,60 +350,102 @@ body {
 }
 /* Out of range or not a number. */
 .tb-input.invalid {
-  border-color: var(--ds-danger);
   background-color: var(--ds-danger-soft);
+  box-shadow: inset 0 0 0 1px var(--ds-danger);
   color: var(--ds-danger-text);
 }
 .tb-check {
-  margin: 0 4px 0 2px;
+  margin: 0;
 }
+/* A choice: its box and its name. The name is dimmer while the choice is off. */
 .tb-checklabel {
   display: inline-flex;
   align-items: center;
-  padding-right: 6px;
+  gap: 5px;
+  color: var(--ds-text-2);
   white-space: nowrap;
+}
+.tb-checklabel:has(:checked) {
+  color: var(--ds-text);
+}
+.tb-checklabel:has(:disabled) {
+  color: var(--ds-text-off);
 }
 /* 贴目: the field and its two arrow buttons as one control */
 .tb-group.komi {
-  column-gap: 0;
+  gap: 0;
 }
 .tb-group.komi .tb-label {
-  margin-right: 4px;
+  margin-right: 6px;
 }
 .tb-group.komi .tb-input {
-  border-radius: var(--ds-radius) 0 0 var(--ds-radius);
+  width: 42px;
+  border-radius: 5px 0 0 5px;
+  /* The number field's own arrows are replaced by the two beside it. */
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.tb-group.komi .tb-input::-webkit-inner-spin-button,
+.tb-group.komi .tb-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
 }
 .tb-spin {
   display: inline-flex;
   flex-direction: column;
-  width: 16px;
-  height: var(--ds-control-h);
-  border: 1px solid var(--ds-line-strong);
-  border-left: 0;
-  border-radius: 0 var(--ds-radius) var(--ds-radius) 0;
+  width: 15px;
+  height: calc(var(--ds-cap-h) - 6px);
+  margin-left: -1px;
+  border-radius: 0 5px 5px 0;
   background: var(--ds-field);
+  box-shadow: inset 0 0 0 1px var(--ds-line-strong);
+  color: var(--ds-text-3);
   overflow: hidden;
 }
 .tb-spin i {
   flex: 1;
-  position: relative;
+  display: grid;
+  place-items: center;
 }
 .tb-spin i:hover {
   background: var(--ds-hover);
+  color: var(--ds-text);
 }
-.tb-spin i::after {
-  content: "";
-  position: absolute;
-  left: 4px;
-  border: 3.5px solid transparent;
+.tb-spin i:active {
+  background: var(--ds-pressed);
 }
-.tb-spin i:first-child::after {
-  bottom: 3px;
-  border-bottom: 4px solid var(--ds-text-2);
+.tb-spin .icon {
+  width: 8px;
+  height: 8px;
+  stroke-width: 2;
 }
-.tb-spin i:last-child::after {
-  top: 3px;
-  border-top: 4px solid var(--ds-text-2);
+
+/* 搜索功能: a field-shaped button at the upper row's end; the icon alone in a narrow window. */
+.tb-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 220px;
+  height: var(--ds-cap-h);
+  padding: 0 9px;
+  border-radius: var(--ds-radius-cap);
+  background: var(--ds-field);
+  box-shadow: inset 0 0 0 1px var(--ds-line-strong);
+  color: var(--ds-text-3);
+  white-space: nowrap;
+}
+.tb-search:hover {
+  box-shadow: inset 0 0 0 1px var(--ds-text-3);
+}
+.tb-search .icon {
+  width: 14px;
+  height: 14px;
+}
+.tb-search.collapsed {
+  width: auto;
+  padding: 0 8px;
+}
+.tb-search.collapsed .label {
+  display: none;
 }
 
 /* ---- workbench: absolute children positioned by the layout code over the stage's wallpaper
@@ -454,76 +555,117 @@ body {
   cursor: default;
 }
 
-/* ---- bottom bar: one 32 px row (this rule's height); buttons placed by layoutBottomBar */
+/* ---- bottom bar: one row (this rule's height). layoutBottomBar places the buttons and lays a
+   capsule under each run of related ones. */
 #bottombar {
   flex: none;
   position: relative;
-  height: 32px;
+  height: calc(var(--ds-cap-h) + 18px);
   border-top: 1px solid var(--ds-line);
   background: var(--ds-chrome);
   overflow: hidden;
   white-space: nowrap;
 }
-.bb {
+.bb-cap,
+.bb,
+#moveInput {
   position: absolute;
-  top: 4px;
-  height: 24px;
-  line-height: 24px;
-  text-align: center;
-  border-radius: var(--ds-radius);
-  background-color: var(--ds-raised);
+  top: 9px;
+  height: var(--ds-cap-h);
+}
+.bb-cap {
+  border-radius: var(--ds-radius-cap);
+  background: var(--ds-raised);
+  box-shadow: var(--ds-shadow-cap);
+  pointer-events: none;
+}
+/* 分析: the window's one filled capsule */
+.bb-cap.primary {
+  background: var(--ds-accent);
+}
+/* A segment of its capsule: the hover wash follows the capsule's corners at its two ends. */
+.bb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  column-gap: 5px;
+}
+.bb.first {
+  border-top-left-radius: var(--ds-radius-cap);
+  border-bottom-left-radius: var(--ds-radius-cap);
+}
+.bb.last {
+  border-top-right-radius: var(--ds-radius-cap);
+  border-bottom-right-radius: var(--ds-radius-cap);
+}
+.bb.joined {
+  box-shadow: inset 1px 0 0 var(--ds-line);
 }
 .bb:hover {
-  background-image: linear-gradient(var(--ds-hover), var(--ds-hover));
+  background-color: var(--ds-hover);
 }
 .bb:active {
-  background-image: linear-gradient(var(--ds-pressed), var(--ds-pressed));
+  background-color: var(--ds-pressed);
 }
-/* 自动分析, 远程算力: the accent ink marks them, the fill stays the bar's */
-.bb.primary {
+/* A display switch that is on */
+.bb.on {
+  background-color: var(--ds-accent-soft);
   color: var(--ds-accent-text);
   font-weight: 600;
 }
 .bb.danger {
   color: var(--ds-danger-text);
 }
-/* The step buttons around the move field: icons without a fill until the pointer is on them */
+.bb.danger:hover {
+  background-color: var(--ds-danger-soft);
+}
+.bb.unavailable {
+  color: var(--ds-text-off);
+}
+/* The step buttons around the move field */
 .bb.nav {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: transparent;
   color: var(--ds-text-2);
 }
 .bb.nav:hover {
   color: var(--ds-text);
 }
-.bb.nav .icon {
+.bb .icon {
   width: 16px;
   height: 16px;
 }
-/* 分析, the bar's one filled button: its state icon and label centred as one group */
-.bb.with-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  column-gap: 4px;
-  background-color: var(--ds-accent);
+/* 分析: its state icon and label on the accent fill */
+.bb.primary {
   color: var(--ds-on-accent);
   font-weight: 600;
 }
-.bb.with-icon .icon {
-  width: 16px;
-  height: 16px;
+.bb.primary .icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2;
 }
+.bb.primary:hover {
+  background-color: var(--ds-accent-hover);
+}
+.bb.primary:active {
+  background-color: var(--ds-accent-hover);
+  box-shadow: inset 0 0 0 99px var(--ds-pressed);
+}
+/* The move field stands inside the navigation capsule. */
 #moveInput {
-  position: absolute;
-  top: 4px;
-  width: 56px;
-  height: 24px;
+  top: 12px;
+  height: calc(var(--ds-cap-h) - 6px);
   padding: 0 4px;
+  border: 0;
+  border-radius: 5px;
+  background-color: var(--ds-field);
+  box-shadow: inset 0 0 0 1px var(--ds-line-strong);
   text-align: center;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+#moveInput:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--ds-accent);
+  outline-offset: 0;
 }
 
 /* ---- seams between panes: transparent hot zones the pointer resizes with */

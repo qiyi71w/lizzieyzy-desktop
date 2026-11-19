@@ -72,7 +72,7 @@ body {
   padding: 0 12px;
   border: 1px solid var(--ds-line-strong);
   border-radius: var(--ds-radius);
-  background-color: var(--ds-field);
+  background-color: var(--ds-raised);
   color: var(--ds-text);
   white-space: nowrap;
   cursor: default;

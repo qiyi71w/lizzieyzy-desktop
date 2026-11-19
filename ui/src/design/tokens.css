@@ -65,6 +65,7 @@
   /* Shape. */
   --ds-radius-s: 4px;
   --ds-radius: 6px;
+  --ds-radius-cap: 7px; /* capsules in the bars */
   --ds-radius-l: 10px;
 
   /* Type. The size follows 界面字体大小 (set once per session by the appearance module). */
@@ -77,7 +78,7 @@
   /* Metrics. */
   --ds-control-h: 22px; /* controls in panes */
   --ds-control-h-l: 26px; /* controls in dialogs */
-  --ds-cap-h: 26px; /* capsules in the bars */
+  --ds-cap-h: calc(var(--ds-size) + 14px); /* capsules in the bars: 26px at the default size */
   --ds-bar-h: 32px; /* window bar */
 }
 

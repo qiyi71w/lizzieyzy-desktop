@@ -32,12 +32,6 @@
   stroke-width: 1.5;
   stroke-linecap: round;
 }
-/* The toolbar search button's icon stays at the 16 px of its label line. */
-.tb-pill.search .icon {
-  width: 16px;
-  height: 16px;
-  color: var(--ds-text-2);
-}
 .fs-input {
   flex: 1;
   min-width: 0;
@@ -179,14 +173,6 @@
 }
 .fs-keyboard {
   flex: 1;
-}
-
-/* Search features button: the icon alone below a 900 px wide window. */
-.tb-pill.search.collapsed {
-  width: 28px;
-}
-.tb-pill.search.collapsed .label {
-  display: none;
 }
 
 /* A control located by function search: a 2 px accent line for 2.4 s (search/highlight.ts). */

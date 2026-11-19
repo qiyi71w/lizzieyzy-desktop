@@ -2,12 +2,12 @@
    keep their meaning in both themes and stay at 3:1 or more against the bar surfaces. */
 :root,
 [data-theme="light"] {
-  --icon-allow: #1f5fd1; /* forced-analysis region and points */
-  --icon-avoid: #c4301f; /* avoided region and points */
-  --icon-live: #1d7a3a; /* a lit status dot: move rank marks shown */
-  --icon-stone-black: #1a1a1a;
-  --icon-stone-black-edge: #1a1a1a;
-  --icon-stone-white: #ffffff;
+  --icon-allow: #2f7a47; /* forced-analysis region and points */
+  --icon-avoid: #b83a2b; /* avoided region and points */
+  --icon-live: #2f7a47; /* a lit status dot: move rank marks shown */
+  --icon-stone-black: #1c1c1d;
+  --icon-stone-black-edge: #1c1c1d;
+  --icon-stone-white: #fbf9f3;
   /* 自由涂鸦 pens: the colours the lines are drawn in, the same in both themes; the swatch rim
      (--ds-text-3) carries the contrast the pure green cannot. */
   --icon-pen-blue: rgb(0, 0, 255);
@@ -16,13 +16,13 @@
 }
 
 [data-theme="dark"] {
-  --icon-allow: #6aa3ff;
-  --icon-avoid: #ff7a6b;
-  --icon-live: #4fc46e;
-  --icon-stone-black: #111111;
+  --icon-allow: #6cc487;
+  --icon-avoid: #f0958a;
+  --icon-live: #6cc487;
+  --icon-stone-black: #0d0d0d;
   /* A black stone needs a light rim to stand off a dark bar. */
   --icon-stone-black-edge: var(--ds-text-3);
-  --icon-stone-white: #f4f4f4;
+  --icon-stone-white: #f1e9d9;
 }
 
 .icon {

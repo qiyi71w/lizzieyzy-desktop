@@ -6,6 +6,7 @@ import { emitTo, listen } from "@tauri-apps/api/event";
 import { state, subscribe } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
 import type { WorkbenchView } from "../contract/generated";
+import { icon } from "../design/icons";
 import { language, t } from "../i18n";
 import { markdownToHtml, plainTextToHtml } from "./markdown";
 import {
@@ -88,13 +89,15 @@ export function buildCommentaryButton(): HTMLElement {
   pill.setAttribute("role", "button");
   pill.setAttribute("aria-label", t("Menu.aiCommentary"));
   pill.setAttribute("aria-description", t("Teacher.subtitle"));
+  const label = document.createElement("span");
+  pill.append(icon("spark"), label);
   pill.addEventListener("mousedown", (e) => e.preventDefault());
   pill.onclick = () => void openCommentary();
   const strip = document.getElementById("menubar");
   const update = () => {
     const width = strip?.clientWidth ?? 0;
     const text = width > 0 && width < 900 ? t("Menu.aiCommentary.short") : t("Menu.aiCommentary");
-    if (pill.textContent !== text) pill.textContent = text;
+    if (label.textContent !== text) label.textContent = text;
   };
   subscribe(update);
   if (strip) new ResizeObserver(update).observe(strip);
