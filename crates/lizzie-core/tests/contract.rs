@@ -135,6 +135,7 @@ fn generate() -> String {
         lizzie_core::settings::BottomButtonSettings, lizzie_core::settings::DetailPanelOrder,
         lizzie_core::settings::BottomToolbar, lizzie_core::settings::WorkbenchPanel,
         lizzie_core::appearance::AppearanceSettings, lizzie_core::appearance::BoardStyle,
+        lizzie_core::appearance::AppearanceMode,
         lizzie_core::appearance::ThemeSettings,
         lizzie_core::appearance::ThemeNodeColor,
         lizzie_core::appearance::ThemeEntry, lizzie_core::appearance::AppearanceCatalog,

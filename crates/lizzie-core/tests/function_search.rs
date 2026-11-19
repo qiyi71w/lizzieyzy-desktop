@@ -20,17 +20,24 @@ fn index(text: &[(&str, &str)]) -> FunctionIndex {
     FunctionIndex::new(vec![entry("weights.download")], vec![bundle("en_US", text)])
 }
 
-/// The fixed Java program's DisplayStrings bundles, as the UI carries them.
+/// The fixed Java program's DisplayStrings bundles with this product's own resource keys, as the
+/// UI carries them.
 fn java_strings() -> serde_json::Value {
-    serde_json::from_str::<serde_json::Value>(include_str!("../../../ui/src/i18n/javaStrings.json")).unwrap()["strings"].take()
+    let mut strings = serde_json::from_str::<serde_json::Value>(include_str!("../../../ui/src/i18n/javaStrings.json")).unwrap()["strings"].take();
+    let product = serde_json::from_str::<serde_json::Value>(include_str!("../../../ui/src/i18n/productStrings.json")).unwrap();
+    for (language, table) in product["strings"].as_object().unwrap() {
+        for (key, text) in table.as_object().unwrap() { strings[language][key] = text.clone(); }
+    }
+    strings
 }
 
 #[test]
 fn browse_preserves_java_id_order_and_unique_words_results() {
     assert_eq!(function_search::categories().len(), 6);
     let browse = function_search::search("", Language::EnUs);
-    // Java's 360 functions less the three approved exceptions the product does not offer.
-    assert_eq!(browse.len(), 357);
+    // Java's 360 functions less the three approved exceptions the product does not offer, with
+    // Java's two interface-style switches replaced by the three 外观模式 choices.
+    assert_eq!(browse.len(), 358);
     let ids: Vec<&str> = browse.iter().map(|m| m.id.as_str()).collect();
     assert!(ids.windows(2).all(|w| w[0] < w[1]), "in id order, each once");
     assert!(browse.iter().all(|m| function_search::categories().contains(&m.category.as_str())));

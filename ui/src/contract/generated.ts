@@ -3038,13 +3038,15 @@ export type BottomToolbar = "Hidden" | "Simple" | "Detailed";
 
 export type WorkbenchPanel = "SubBoard" | "WinrateGraph" | "LargeWinrateGraph" | "Comment" | "VariationGraph" | "ListPane" | "Captured" | "Status" | "LargeSubBoard" | "AlwaysOnTop";
 
-export type AppearanceSettings = { theme: string, boardStyle: BoardStyle, appleStyle: boolean, morandiColors: boolean, customBoardImage: string, customBackgroundImage: string, frameFontSize: number, 
+export type AppearanceSettings = { theme: string, boardStyle: BoardStyle, mode: AppearanceMode, customBoardImage: string, customBackgroundImage: string, frameFontSize: number, 
 /**
  * Config.java:1809; no Java UI changes it. Legacy level 0 uses the theme's background blur.
  */
 glassEffectLevel: number, };
 
 export type BoardStyle = "Japanese" | "ChineseClassic";
+
+export type AppearanceMode = "System" | "Light" | "Dark";
 
 export type ThemeSettings = { usePureBoard: boolean, usePureBackground: boolean, usePureStone: boolean, pureBoardColor: Array<number>, pureBackgroundColor: Array<number>, showStoneShadow: boolean, shadowSize: number, stoneIndicatorType: number, winrateStrokeWidth: number, scoreLeadStrokeWidth: number, minimumBlunderBarWidth: number, commentFontSize: number, backgroundFilter: number, winrateLineColor: Array<number>, winrateMissLineColor: Array<number>, scoremeanLineColor: Array<number>, blunderBarColor: Array<number>, bestMoveColor: Array<number>, commentBackgroundColor: Array<number>, commentFontColor: Array<number>, commentNodeColor: Array<number>, showCommentNodeColor: boolean, useScorediffInVariationTree: boolean, scorediffInVariationTreeFactor: number, fontName: string, uiFontName: string, winrateFontName: string, boardImage: string, backgroundImage: string, blackStoneImage: string, whiteStoneImage: string, blunderWinrateThresholds: Array<number>, blunderNodeColors: Array<Array<number>>, glassPanelOverlayColor: Array<number>, glassPanelBorderColor: Array<number>, glassPanelHighlightColor: Array<number>, glassPanelShadowColor: Array<number>, glassAccentColor: Array<number>, glassBlurRadius: number, liquidBlurRadius: number, glassCornerRadius: number, };
 

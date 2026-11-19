@@ -1,9 +1,10 @@
 // Java main-window menu bar, in Menu.java add() order: fixed Java
 // wimi321/lizzieyzy-next cb53acc55eda42c6c671b5f668cd3b597456bf07, src/main/java/featurecat/lizzie/gui/Menu.java.
-// `key` is the DisplayStrings resource key (literal text where Java uses literal text), `id` the
-// Java action id (AutoAnalyzeMenu.ACTION_PROPERTY / FunctionCatalog), or a product id for an item
-// Java gave none whose key another item shares (工具栏's 显示 / 不显示). Which entries are available
-// is decided by the command catalog (commands.ts), not here.
+// 显示 > 外观主题 > 外观模式 is this product's own submenu. `key` is the DisplayStrings resource key,
+// this product's resource key (i18n/productStrings.json), or literal text where Java uses literal
+// text; `id` the Java action id (AutoAnalyzeMenu.ACTION_PROPERTY / FunctionCatalog), or a product
+// id for an item Java gave none whose key another item shares (工具栏's 显示 / 不显示). Which
+// entries are available is decided by the command catalog (commands.ts), not here.
 
 export type MenuNode =
   | { t: "sep" }
@@ -803,14 +804,25 @@ export const JAVA_MENUS: TopMenu[] = [
       ]
      },
      {
-      "t": "check",
-      "key": "Menu.appleStyleUi",
-      "id": "menu.toggleAppleStyle"
-     },
-     {
-      "t": "check",
-      "key": "Menu.classicColorTheme",
-      "id": "menu.toggleClassicColors"
+      "t": "submenu",
+      "key": "Menu.appearanceMode",
+      "items": [
+       {
+        "t": "check",
+        "key": "Menu.appearanceModeSystem",
+        "id": "menu.appearanceModeSystem"
+       },
+       {
+        "t": "check",
+        "key": "Menu.appearanceModeLight",
+        "id": "menu.appearanceModeLight"
+       },
+       {
+        "t": "check",
+        "key": "Menu.appearanceModeDark",
+        "id": "menu.appearanceModeDark"
+       }
+      ]
      },
      {
       "t": "sep"

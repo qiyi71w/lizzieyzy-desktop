@@ -1,10 +1,10 @@
 // 显示 > 外观主题, 设置 > 主题 and 设置 > 界面字体大小 (Menu.java:596-629, 738-796, 5402-5411,
-// 5455-5503, 5601-5621). Each change is one complete SetAppearanceSettings or SetFrameFontSize; the
-// view that follows repaints with the new appearance.
+// 5455-5503, 5601-5621) and this product's 外观模式. Each change is one complete
+// SetAppearanceSettings or SetFrameFontSize; the view that follows repaints with the new appearance.
 import { registerViewHandler, run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
 import { chooseAppearanceImage } from "../contract/client";
-import type { AppearanceSettings, BoardStyle } from "../contract/generated";
+import type { AppearanceMode, AppearanceSettings, BoardStyle } from "../contract/generated";
 import { formPanel, message } from "../dialogs";
 import { actions, button } from "../engine/controls";
 import { openAnalysisSettings } from "../engine/settings";
@@ -30,6 +30,16 @@ function boardStyle(style: BoardStyle): CommandEntry {
       if (state.view?.settings.appearance.boardStyle !== style) void setAppearance({ boardStyle: style });
     },
     checked: () => state.view?.settings.appearance.boardStyle === style,
+  };
+}
+
+/** 外观模式 > 跟随系统 / 浅色 / 深色: applies at once. */
+function appearanceMode(mode: AppearanceMode): CommandEntry {
+  return {
+    run: () => {
+      if (state.view?.settings.appearance.mode !== mode) void setAppearance({ mode });
+    },
+    checked: () => state.view?.settings.appearance.mode === mode,
   };
 }
 
@@ -105,28 +115,9 @@ Object.assign(COMMANDS, {
   "menu.theme": { run: () => void openAnalysisSettings("theme") },
   "Menu.boardStyleJapanese": boardStyle("Japanese"),
   "Menu.boardStyleChineseClassic": boardStyle("ChineseClassic"),
-  // Apple 风格界面 (Menu.java:743-757): turning it on also turns the Morandi colours on.
-  "menu.toggleAppleStyle": {
-    run: async () => {
-      const v = state.view?.settings.appearance;
-      if (!v) return;
-      const apple = !v.appleStyle;
-      // Utils.showMsgNoModal(Menu.restartRequiredForIcons) (Menu.java:756).
-      if (await setAppearance({ appleStyle: apple, morandiColors: apple || v.morandiColors })) void notice(t("Menu.restartRequiredForIcons"));
-    },
-    checked: () => state.view?.settings.appearance.appleStyle ?? false,
-  },
-  // 经典配色 (Menu.java:760-780): checked while the Morandi colours are off; choosing it turns
-  // Apple style off.
-  "menu.toggleClassicColors": {
-    run: async () => {
-      const v = state.view?.settings.appearance;
-      if (!v) return;
-      const classic = v.morandiColors;
-      if (await setAppearance({ morandiColors: !classic, appleStyle: classic ? false : v.appleStyle })) void notice(t("Menu.restartRequiredForIcons"));
-    },
-    checked: () => !(state.view?.settings.appearance.morandiColors ?? false),
-  },
+  "menu.appearanceModeSystem": appearanceMode("System"),
+  "menu.appearanceModeLight": appearanceMode("Light"),
+  "menu.appearanceModeDark": appearanceMode("Dark"),
   // 设置自定义棋盘背景 / 清除自定义棋盘背景 (Menu.java:785-794, 7049-7073).
   "menu.setCustomBoard": {
     run: async () => {

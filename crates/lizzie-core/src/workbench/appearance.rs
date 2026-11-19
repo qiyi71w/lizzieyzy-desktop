@@ -13,9 +13,6 @@ impl Workbench {
             || (!(12..=20).contains(&appearance.frame_font_size) && appearance.frame_font_size != self.config.appearance.frame_font_size) {
             return Err(ApiError::new(ErrorKind::InvalidArgument,"appearance settings"));
         }
-        // Menu.java:745-769: entering Apple enables Morandi; entering classic disables Apple.
-        if appearance.apple_style && !self.config.appearance.apple_style { appearance.morandi_colors = true; }
-        if !appearance.morandi_colors && self.config.appearance.morandi_colors { appearance.apple_style = false; }
         if self.config.appearance == appearance && self.appearance_theme == theme { return Ok(false); }
         let images = appearance::capture_external_images(&self.storage, &mut appearance, &mut theme).map_err(io)?;
         let path = if appearance.theme == "default" { None } else { Some(appearance::theme_file(&self.storage,&appearance.theme).map_err(io)?) };

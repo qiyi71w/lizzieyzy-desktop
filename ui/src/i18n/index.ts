@@ -1,11 +1,15 @@
 // UI text. Java's own wording comes from its DisplayStrings bundles (javaStrings.json, regenerated
-// by tools/extract_java_strings.py); the few product messages without a Java counterpart are in
-// PRODUCT below. The language is fixed for a session, like Java (changing it needs a restart).
+// by tools/extract_java_strings.py); resource keys this product adds to Java's menus and function
+// catalog (shown in all six languages) are in productStrings.json; the few product messages
+// without a Java counterpart are in PRODUCT below. The language is fixed for a session, like Java
+// (changing it needs a restart).
 import data from "./javaStrings.json";
+import productData from "./productStrings.json";
 import type { Language } from "../contract/generated";
 
 type Table = Record<string, string>;
 const JAVA = data.strings as Record<string, Table>;
+const PRODUCT_KEYS = productData.strings as Record<string, Table>;
 
 /** The LizzieYzy Next settings import (no Java counterpart). Targets name this product's settings. */
 const IMPORT_TEXT: Record<string, Table> = {
@@ -346,9 +350,10 @@ export function isChinese(): boolean {
   return t("Lizzie.isChinese") === "yes";
 }
 
-/** Java resource string; unknown keys are shown literally (Java uses literal text for some items). */
+/** Java resource string, or this product's resource key; unknown keys are shown literally (Java
+ *  uses literal text for some items). */
 export function t(key: string): string {
-  return JAVA[lang]?.[key] ?? JAVA.ZhCn?.[key] ?? key;
+  return JAVA[lang]?.[key] ?? PRODUCT_KEYS[lang]?.[key] ?? JAVA.ZhCn?.[key] ?? key;
 }
 
 /** MessageFormat-style `{0}` substitution; `{0,number,integer}` rounds and groups the digits like

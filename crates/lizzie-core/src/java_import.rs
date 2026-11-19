@@ -1681,6 +1681,8 @@ const JAVA_UNUSED: &[&str] = &[
     "ui.contribute-hide-result",
     // Swing Look&Feel choice; not carried over by approved decision (no Swing look here).
     "ui.use-java-looks",
+    // Morandi palette; not carried over by approved decision (外观模式 replaces Java's palettes).
+    "ui.use-morandi-colors",
 ];
 
 /// Java's own bookkeeping, not settings: one-time migration markers, first-start and machine

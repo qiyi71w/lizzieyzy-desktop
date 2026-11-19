@@ -1,4 +1,7 @@
 //! Offline function search over the fixed Java catalog and its eight maintained bundles.
+//! `catalog.json` is the extracted Java catalog with Java's two interface-style switches replaced
+//! by this product's three 外观模式 entries (`menu.appearanceMode*`), edited in place; their text
+//! matches `ui/src/i18n/productStrings.json`.
 //! Resource keys are returned unchanged; presentation and activation belong to the caller.
 use std::cmp::Ordering;
 use std::collections::HashMap;

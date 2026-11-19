@@ -3,7 +3,6 @@
 // layout gives it. Hover states and tooltips follow the Java mouse listeners.
 import type { StrengthReport, StrengthSample, StrengthSideReport, StrengthSummary } from "../contract/generated";
 import { rankColor } from "../appearance/model";
-import { state } from "../app";
 import { t } from "../i18n";
 import {
   aiLikelihood, averageScoreLossText, confidenceText, hasSamples, highestDanLevel, isGoodMove, javaFixed, javaFormat, MOVE_RANKS,
@@ -463,10 +462,9 @@ export function performancePanel(report: StrengthReport): Painted {
     const sampleCount = Math.max(0, s.summary.sample_count);
     const rowsTop = headerY + 22;
     const rowHeight = Math.max(32, Math.min(52, i((h - 80) / MOVE_RANKS.length)));
-    const morandi = state.view?.settings.appearance.morandiColors ?? false;
     MOVE_RANKS.forEach((rank, k) => {
       const fraction = sampleCount <= 0 ? 0 : counts[k] / sampleCount;
-      row(g, moveRankName(rank), counts[k], fraction, components(rankColor(rank, morandi)), x, rowsTop + k * rowHeight, w, rowHeight);
+      row(g, moveRankName(rank), counts[k], fraction, components(rankColor(rank)), x, rowsTop + k * rowHeight, w, rowHeight);
     });
   }
 

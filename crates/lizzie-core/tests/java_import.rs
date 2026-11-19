@@ -2274,11 +2274,13 @@ fn appearance_import_applies_defaults_styles_fonts_and_owned_images() {
     let p = preview(&mut wb, &java);
     assert_eq!(item(&p.items,"ui.custom-board-image").status, ImportStatus::Imported);
     assert_eq!(item(&p.items,"ui.custom-window-background-image").status, ImportStatus::Incompatible);
+    let morandi = item(&p.items,"ui.use-morandi-colors");
+    assert_eq!((morandi.status, morandi.reason), (ImportStatus::NotMigrated, Some(ImportReason::Obsolete)));
     assert!(!p.items.iter().any(|i| i.key.starts_with("file:theme")), "a theme/ folder without theme folders holds no theme");
     wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
     let s = wb.view(true).settings;
     assert_eq!(s.appearance.board_style,lizzie_core::appearance::BoardStyle::ChineseClassic);
-    assert!(s.appearance.apple_style && s.appearance.morandi_colors);
+    assert_eq!(s.appearance.mode,lizzie_core::appearance::AppearanceMode::Dark);
     assert_eq!(s.appearance.frame_font_size,16); assert_eq!(s.active_frame_font_size,12);
     assert_eq!((&*s.theme.font_name,&*s.theme.ui_font_name,&*s.theme.winrate_font_name),("Board Font","UI Font","Win Font"));
     assert_eq!((s.theme.comment_font_size,s.theme.winrate_stroke_width),(21,2.5));

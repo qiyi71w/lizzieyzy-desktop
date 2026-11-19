@@ -10,6 +10,10 @@ use crate::settings::{self, Storage};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum BoardStyle { #[default] Japanese, ChineseClassic }
 
+/// 外观模式: the interface follows the system's light or dark setting, or is fixed to one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum AppearanceMode { #[default] System, Light, Dark }
+
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 pub struct ThemeNodeColor { pub node: crate::record::NodeId, pub color: Vec<u8> }
 
@@ -18,8 +22,7 @@ pub struct ThemeNodeColor { pub node: crate::record::NodeId, pub color: Vec<u8> 
 pub struct AppearanceSettings {
     pub theme: String,
     pub board_style: BoardStyle,
-    pub apple_style: bool,
-    pub morandi_colors: bool,
+    pub mode: AppearanceMode,
     pub custom_board_image: String,
     pub custom_background_image: String,
     pub frame_font_size: i32,
@@ -28,9 +31,9 @@ pub struct AppearanceSettings {
 }
 impl Default for AppearanceSettings {
     fn default() -> Self {
-        // Config.java:1608,1871,2924; Menu.java:604-629,733-775.
-        Self { theme: "default".into(), board_style: BoardStyle::Japanese, apple_style: false,
-            morandi_colors: false, custom_board_image: String::new(), custom_background_image: String::new(), frame_font_size: 12,
+        // Config.java:1608,1871,2924; Menu.java:604-629.
+        Self { theme: "default".into(), board_style: BoardStyle::Japanese, mode: AppearanceMode::System,
+            custom_board_image: String::new(), custom_background_image: String::new(), frame_font_size: 12,
             glass_effect_level: 1 }
     }
 }
@@ -70,7 +73,7 @@ impl Default for ThemeSettings {
             font_name: "Lizzie Default".into(), ui_font_name: "Lizzie Default".into(), winrate_font_name: "Lizzie Default".into(),
             board_image: String::new(), background_image: String::new(), black_stone_image: String::new(), white_stone_image: String::new(),
             blunder_winrate_thresholds: vec![-24.,-12.,-6.,-3.,-1.,3.,100.],
-            // Theme.java:738-767: the glass theme, used for glass-effect-level > 0 / Apple.
+            // Theme.java:738-767: the glass theme, used for glass-effect-level > 0.
             glass_panel_overlay_color:vec![24,24,26,102], glass_panel_border_color:vec![255,255,255,26],
             glass_panel_highlight_color:vec![255,255,255,77], glass_panel_shadow_color:vec![0,0,0,64], glass_accent_color:vec![96,165,250],
             glass_blur_radius:10, liquid_blur_radius:15, glass_corner_radius:12,
