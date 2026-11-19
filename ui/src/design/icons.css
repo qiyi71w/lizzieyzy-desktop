@@ -1,0 +1,88 @@
+/* The icon family of icons.ts. Line work follows the host's text colour; the --icon-* colours
+   keep their meaning in both themes and stay at 3:1 or more against the bar surfaces. */
+:root,
+[data-theme="light"] {
+  --icon-allow: #1f5fd1; /* forced-analysis region and points */
+  --icon-avoid: #c4301f; /* avoided region and points */
+  --icon-live: #1d7a3a; /* a lit status dot: move rank marks shown */
+  --icon-stone-black: #1a1a1a;
+  --icon-stone-black-edge: #1a1a1a;
+  --icon-stone-white: #ffffff;
+  /* 自由涂鸦 pens: the colours the lines are drawn in, the same in both themes; the swatch rim
+     (--ds-text-3) carries the contrast the pure green cannot. */
+  --icon-pen-blue: rgb(0, 0, 255);
+  --icon-pen-green: rgb(0, 255, 0);
+  --icon-pen-red: rgb(255, 0, 0);
+}
+
+[data-theme="dark"] {
+  --icon-allow: #6aa3ff;
+  --icon-avoid: #ff7a6b;
+  --icon-live: #4fc46e;
+  --icon-stone-black: #111111;
+  /* A black stone needs a light rim to stand off a dark bar. */
+  --icon-stone-black-edge: var(--ds-text-3);
+  --icon-stone-white: #f4f4f4;
+}
+
+.icon {
+  display: block;
+  flex: none;
+  width: var(--menu-icon-size, 16px);
+  height: var(--menu-icon-size, 16px);
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.icon .ic-fill {
+  fill: currentColor;
+  stroke: none;
+}
+.icon .ic-allow {
+  stroke: var(--icon-allow);
+}
+.icon .ic-allow-fill {
+  fill: var(--icon-allow);
+  stroke: none;
+}
+.icon .ic-avoid {
+  stroke: var(--icon-avoid);
+}
+/* A status dot: hidden until its host toggle is pressed, then lit. */
+.icon .ic-status {
+  fill: none;
+  stroke: none;
+}
+[aria-pressed="true"] > .icon .ic-status {
+  fill: var(--icon-live);
+}
+/* Stones and swatches carry a 1 px rim at every icon size. */
+.icon .ic-stone-black,
+.icon .ic-stone-white,
+.icon .ic-pen {
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.icon .ic-stone-black {
+  fill: var(--icon-stone-black);
+  stroke: var(--icon-stone-black-edge);
+}
+.icon .ic-stone-white {
+  fill: var(--icon-stone-white);
+  stroke: var(--ds-line-strong);
+}
+.icon .ic-pen {
+  stroke: var(--ds-text-3);
+}
+.icon .ic-pen-blue {
+  fill: var(--icon-pen-blue);
+}
+.icon .ic-pen-green {
+  fill: var(--icon-pen-green);
+}
+.icon .ic-pen-red {
+  fill: var(--icon-pen-red);
+}

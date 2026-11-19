@@ -7,11 +7,12 @@
 import { run, state } from "../app";
 import { COMMANDS } from "../commands";
 import type { PaintingColor } from "../contract/generated";
+import { icon, type IconName } from "../design/icons";
 import "./painting.css";
 
 /** Color.BLUE / GREEN / RED (DrawPainting.setColor). */
 const PEN: Record<PaintingColor, string> = { Blue: "rgb(0,0,255)", Green: "rgb(0,255,0)", Red: "rgb(255,0,0)" };
-const PENS: [PaintingColor, string][] = [["Blue", "blue"], ["Green", "green"], ["Red", "red"]];
+const PENS: [PaintingColor, IconName][] = [["Blue", "pen-blue"], ["Green", "pen-green"], ["Red", "pen-red"]];
 
 interface Stroke {
   color: PaintingColor;
@@ -82,15 +83,12 @@ function fit(l: Layer): void {
   redraw(l);
 }
 
-function button(img: string, key: string, action: () => void, tip = ""): HTMLElement {
+function button(name: IconName, key: string, action: () => void, tip = ""): HTMLElement {
   const b = document.createElement("span");
   b.className = "paint-btn";
   b.dataset.key = key;
   if (tip) b.title = tip;
-  const image = document.createElement("img");
-  image.src = `/assets/${img}`;
-  image.alt = "";
-  b.append(image);
+  b.append(icon(name));
   b.addEventListener("click", action);
   return b;
 }
@@ -106,33 +104,33 @@ export function openPainting(): void {
   const bar = document.createElement("div");
   bar.className = "paint-buttons";
   const l: Layer = { root, canvas, color: state.view.settings.edit.paintingColor, strokes: [], current: null, refresh: () => {} };
-  const pens = PENS.map(([color, img]) => {
-    const b = button(`${img}.png`, `painting.${color}`, () => {
+  const pens = PENS.map(([color, name]) => {
+    const b = button(name, `painting.${color}`, () => {
       l.color = color;
       l.refresh();
     });
-    return { b, color, img };
+    b.setAttribute("role", "button");
+    return { b, color };
   });
-  // setColorButton: the chosen pen shows its "2" image.
+  // setColorButton: the chosen pen is lit.
   l.refresh = () => {
     for (const p of pens) {
-      const src = `/assets/${p.img}${p.color === l.color ? "2" : ""}.png`;
-      const image = p.b.querySelector("img")!;
-      if (image.getAttribute("src") !== src) image.src = src;
-      p.b.classList.toggle("on", p.color === l.color);
+      const lit = p.color === l.color;
+      p.b.classList.toggle("on", lit);
+      p.b.setAttribute("aria-pressed", String(lit));
     }
   };
   bar.append(
     ...pens.map((p) => p.b),
-    button("backmain.png", "painting.undo", () => {
+    button("undo", "painting.undo", () => {
       if (l.strokes.pop()) redraw(l);
     }),
-    button("drempty.png", "painting.clear", () => {
+    button("clear-all", "painting.clear", () => {
       l.strokes = [];
       l.current = null;
       redraw(l);
     }),
-    button("drclose.png", "painting.close", closePainting, "ESC"),
+    button("close", "painting.close", closePainting, "ESC"),
   );
   // The lines are drawn over the buttons too (DrawPainting.paint draws the image last).
   root.append(bar, canvas);

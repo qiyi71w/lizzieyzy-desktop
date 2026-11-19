@@ -21,6 +21,7 @@ import type { MenuNode } from "./javaMenus";
 import { locatePopupItem, openPopupMenu } from "./menubar";
 import { buildBottomDetail, layoutBottomDetail } from "./bottomDetail";
 import { bottomButtonShown, detailButtonShown, type BottomButton } from "./bottomButtons";
+import { icon, type IconName } from "../design/icons";
 
 interface Item {
   name: string;
@@ -62,7 +63,7 @@ function gotoMove(input: HTMLInputElement) {
 }
 
 let moveInput: HTMLInputElement;
-let analyseIcon: HTMLImageElement;
+let analyseIcon: SVGSVGElement;
 let analyseLabel: HTMLSpanElement;
 
 const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" | "rightOptional", Item[]> = {
@@ -184,7 +185,7 @@ export function locateHiddenButton(id: string): boolean {
 }
 
 let detailButton: HTMLElement;
-let detailIcon: HTMLImageElement;
+let detailIcon: SVGSVGElement;
 
 const elements = new Map<Item, HTMLElement>();
 const widths = new Map<Item, number>();
@@ -207,22 +208,30 @@ function measure(host: HTMLElement) {
   }
 }
 
-/** Menu.updateAnalysisToolbarButton (Menu.java:11086-11091): ready2 + "pause" while analysing,
- *  playing2 + "analyse" otherwise. */
+/** Menu.updateAnalysisToolbarButton (Menu.java:11086-11091): the pause icon and "pause" while
+ *  analysing, the play icon and "analyse" otherwise. */
 function showAnalysis(analysing: boolean) {
-  analyseIcon.src = analysing ? "/assets/ready2.png" : "/assets/playing2.png";
+  analyseIcon = swapIcon(analyseIcon, analysing ? "pause" : "play");
   analyseLabel.textContent = t(analysing ? "BottomToolbar.pauseAnalyse" : "BottomToolbar.analyse");
 }
 
-/** detail (BottomToolbar.java:815-822, 1374-1385): up.png while the 详细工具栏 is collapsed, down.png
- *  while it is open; a click opens or collapses it, without the menu item's question. */
+/** The named icon in place of `current`: `current` itself when it already shows that icon. */
+function swapIcon(current: SVGSVGElement, name: IconName): SVGSVGElement {
+  if (current.dataset.icon === name) return current;
+  const next = icon(name);
+  current.replaceWith(next);
+  return next;
+}
+
+/** detail (BottomToolbar.java:815-822, 1374-1385): an up chevron while the 详细工具栏 is
+ *  collapsed, a down chevron while it is open; a click opens or collapses it, without the menu
+ *  item's question. */
 function buildDetailButton(host: HTMLElement): void {
   detailButton = document.createElement("span");
   detailButton.className = "bb detail";
   detailButton.dataset.name = "detail";
   detailButton.setAttribute("role", "button");
-  detailIcon = document.createElement("img");
-  detailIcon.alt = "";
+  detailIcon = icon("chevron-up");
   detailButton.append(detailIcon);
   detailButton.onclick = () => {
     const mode = state.view?.settings.bottom_toolbar === "Detailed" ? "Simple" : "Detailed";
@@ -251,8 +260,7 @@ export function buildBottomBar(host: HTMLElement): void {
     if (item.located) b.dataset.function = item.located;
     if (item.name === "analyse") {
       b.classList.add("icon");
-      analyseIcon = document.createElement("img");
-      analyseIcon.alt = "";
+      analyseIcon = icon("play");
       analyseLabel = document.createElement("span");
       b.append(analyseIcon, analyseLabel);
       showAnalysis(false);
@@ -340,7 +348,7 @@ export function layoutBottomBar(host: HTMLElement): void {
   const GAP = 6;
   const detail = detailButtonShown();
   detailButton.style.display = detail ? "" : "none";
-  detailIcon.src = expanded ? "/assets/down.png" : "/assets/up.png";
+  detailIcon = swapIcon(detailIcon, expanded ? "chevron-down" : "chevron-up");
   const leftStart = PAD + (detail ? 32 : 0);
   const width = (item: Item) => widths.get(item) ?? 52;
   const span = (items: Item[]) => items.reduce((s, e) => s + width(e), 0) + Math.max(0, items.length - 1) * GAP;

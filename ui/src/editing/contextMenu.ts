@@ -2,6 +2,7 @@
 // Drawn like the menu bar dropdowns; closes on a click outside, the wheel, Escape or window
 // changes. Board input stays blocked while it is open and for Java's 200 ms after it closes
 // (`isShowingRightMenu` is reset by a 200 ms timer in popupMenuWillBecomeInvisible).
+import { icon, type IconName } from "../design/icons";
 import { product } from "../i18n";
 import "./editing.css";
 
@@ -9,8 +10,8 @@ export interface ContextItem {
   /** Java resource key (reported to automation as the item id). */
   key: string;
   label: string;
-  /** Icon under /assets, shown in the check column like the Swing menu item icon. */
-  icon?: string;
+  /** Icon shown in the check column like the Swing menu item icon. */
+  icon?: IconName;
   /** JCheckBoxMenuItem state. */
   checked?: boolean;
   /** setToolTipText. */
@@ -56,10 +57,7 @@ export function openContextMenu(clientX: number, clientY: number, entries: Conte
     const mark = document.createElement("span");
     mark.className = "mark";
     if (entry.icon) {
-      const img = document.createElement("img");
-      img.src = `/assets/${entry.icon}`;
-      img.alt = "";
-      mark.append(img);
+      mark.append(icon(entry.icon));
     } else if (entry.checked !== undefined) {
       row.classList.add("checkable");
       mark.textContent = entry.checked ? "✓" : "";

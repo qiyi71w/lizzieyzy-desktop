@@ -20,8 +20,8 @@ export function kataGoCustom(): boolean {
 export function priorityMenuEntries(point: Point): ContextEntry[] {
   if (!kataGoCustom()) return [];
   return [
-    { key: "RightClickMenu.priority", label: t("RightClickMenu.priority"), icon: "uppoint.png", run: () => void run({ type: "SetPriorityPoint", point }) },
-    { key: "RightClickMenu.clearPriority", label: t("RightClickMenu.clearPriority"), icon: "recycle.png", run: () => void run({ type: "ClearPriorityPoints" }) },
+    { key: "RightClickMenu.priority", label: t("RightClickMenu.priority"), icon: "priority-point", run: () => void run({ type: "SetPriorityPoint", point }) },
+    { key: "RightClickMenu.clearPriority", label: t("RightClickMenu.clearPriority"), icon: "clear-all", run: () => void run({ type: "ClearPriorityPoints" }) },
     "sep",
   ];
 }

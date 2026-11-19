@@ -229,14 +229,14 @@ export function regionMenuEntries(point: Point): ContextEntry[] {
   const focus = v.focus;
   const tracked = focus.points.some((p) => same(p.point, point));
   const entries: ContextEntry[] = [
-    { key: "RightClickMenu.allow", label: t("RightClickMenu.allow"), icon: "setpoint.png", run: () => region({ type: "AllowPoint", point }) },
+    { key: "RightClickMenu.allow", label: t("RightClickMenu.allow"), icon: "point-only", run: () => region({ type: "AllowPoint", point }) },
   ];
-  if (allowed.length) entries.push({ key: "RightClickMenu.allow2", label: t("RightClickMenu.allow2"), icon: "addpoint.png", run: () => region({ type: "AddAllowPoint", point }) });
+  if (allowed.length) entries.push({ key: "RightClickMenu.allow2", label: t("RightClickMenu.allow2"), icon: "point-add", run: () => region({ type: "AddAllowPoint", point }) });
   if (allowed.length > 1 && allowed.some((p) => same(p, point)))
-    entries.push({ key: "RightClickMenu.allow3", label: t("RightClickMenu.allow3"), icon: "clear.png", run: () => region({ type: "RemoveAllowPoint", point }) });
+    entries.push({ key: "RightClickMenu.allow3", label: t("RightClickMenu.allow3"), icon: "clear", run: () => region({ type: "RemoveAllowPoint", point }) });
   entries.push(
-    { key: "RightClickMenu.avoid", label: t("RightClickMenu.avoid"), icon: "forbidpoint.png", run: () => region({ type: "AvoidPoint", point }) },
-    { key: "RightClickMenu.cancelavoid", label: t("RightClickMenu.cancelavoid"), icon: "recycle.png", run: () => region({ type: "ClearForcing" }) },
+    { key: "RightClickMenu.avoid", label: t("RightClickMenu.avoid"), icon: "point-avoid", run: () => region({ type: "AvoidPoint", point }) },
+    { key: "RightClickMenu.cancelavoid", label: t("RightClickMenu.cancelavoid"), icon: "clear-all", run: () => region({ type: "ClearForcing" }) },
     { key: "RightClickMenu.avoid2", label: t("RightClickMenu.avoid2"), checked: r.keep_forcing, run: () => region({ type: "ToggleKeepForcing" }) },
   );
   if (!tracked) {
@@ -245,15 +245,15 @@ export function regionMenuEntries(point: Point): ContextEntry[] {
       key: "RightClickMenu.trackPoint",
       label: off?.label ?? t("RightClickMenu.trackPoint"),
       title: off?.title ?? t("RightClickMenu.trackPoint.tooltip"),
-      icon: "trackingpoint.png",
+      icon: "track-point",
       disabled: !!off,
       run: () => tracking({ type: "Track", point }),
     });
   } else {
-    entries.push({ key: "RightClickMenu.untrackPoint", label: t("RightClickMenu.untrackPoint"), icon: "clear.png", run: () => tracking({ type: "Untrack", point }) });
+    entries.push({ key: "RightClickMenu.untrackPoint", label: t("RightClickMenu.untrackPoint"), icon: "clear", run: () => tracking({ type: "Untrack", point }) });
   }
   if (focus.points.length)
-    entries.push({ key: "RightClickMenu.clearAllTracked", label: t("RightClickMenu.clearAllTracked"), icon: "recycle.png", run: () => tracking({ type: "Clear" }) });
+    entries.push({ key: "RightClickMenu.clearAllTracked", label: t("RightClickMenu.clearAllTracked"), icon: "clear-all", run: () => tracking({ type: "Clear" }) });
   return entries;
 }
 

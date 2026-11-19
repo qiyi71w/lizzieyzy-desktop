@@ -190,48 +190,39 @@ body {
   margin: 0;
   background: none;
 }
+/* Icon buttons: 24 x 22 around a 16 px icon, growing with the 20 / 24 px icons of interface fonts
+   13-16 / larger. Line icons sit in the secondary text colour until hovered. */
 .tb-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: var(--ds-control-h);
+  width: calc(var(--menu-icon-size, 16px) + 8px);
+  height: max(var(--ds-control-h), calc(var(--menu-icon-size, 16px) + 6px));
   border-radius: var(--ds-radius-s);
+  color: var(--ds-text-2);
 }
 .tb-icon:hover {
   background: var(--ds-hover);
+  color: var(--ds-text);
 }
 .tb-icon:active {
   background: var(--ds-pressed);
 }
 .tb-icon.more {
-  width: 14px;
+  width: calc(var(--menu-icon-size, 16px) - 2px);
 }
-/* 16 / 20 / 24 px for interface font 12 / 13-16 / larger; the black-and-white toggle draws its
-   icon 8 px larger */
-.tb-icon img {
-  width: var(--menu-icon-size, 16px);
-  height: var(--menu-icon-size, 16px);
+/* A selected toggle: the accent wash, its edge and the accent ink. */
+.tb-icon.on {
+  background: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+  box-shadow: inset 0 0 0 1px var(--ds-accent-soft-line);
 }
-.tb-icon.bw {
-  overflow: hidden;
+.tb-icon.on:active {
+  background: linear-gradient(var(--ds-pressed), var(--ds-pressed)) var(--ds-accent-soft);
 }
-.tb-icon.bw img {
-  width: calc(var(--menu-icon-size, 16px) + 8px);
-  height: calc(var(--menu-icon-size, 16px) + 8px);
-  flex: none;
-}
-/* The icons are dark line drawings: on the dark theme they are inverted, keeping their hues. The
-   stone pictures stay as they are. */
-[data-theme="dark"] .tb-icon img,
-[data-theme="dark"] .bb.icon img,
-[data-theme="dark"] .bb.detail img {
-  filter: invert(1) hue-rotate(180deg);
-}
-[data-theme="dark"] .tb-icon img[src*="/smallblack"],
-[data-theme="dark"] .tb-icon img[src*="/smallwhite"],
-[data-theme="dark"] .tb-icon img[src*="/hb"] {
-  filter: none;
+/* A button whose capability this client does not have yet. */
+.tb-icon.unavailable {
+  color: var(--ds-text-off);
 }
 .tb-pill {
   height: var(--ds-control-h);
@@ -510,10 +501,9 @@ body {
   justify-content: center;
   column-gap: 4px;
 }
-.bb.icon img {
+.bb.icon .icon {
   width: 16px;
   height: 16px;
-  flex: none;
 }
 #moveInput {
   position: absolute;
@@ -534,6 +524,11 @@ body {
   border: 0;
   border-radius: var(--ds-radius-s);
   background-color: transparent;
+}
+.bb.detail .icon {
+  width: 16px;
+  height: 16px;
+  color: var(--ds-text-2);
 }
 /* 显示顺序设置: a label and a 1–3 choice per panel */
 .panel-order label {

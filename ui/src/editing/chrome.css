@@ -1,13 +1,3 @@
-/* Top toolbar edit bar: the selected black/white icons are drawn at menuIconSize / 2 * 3 inside
-   the same button (Menu.java:3612-3643). */
-.tb-icon.stone {
-  overflow: hidden;
-}
-.tb-icon.stone.on img {
-  width: calc(var(--menu-icon-size, 16px) * 1.5);
-  height: calc(var(--menu-icon-size, 16px) * 1.5);
-  flex: none;
-}
 /* Markup buttons follow btnMarkup in the same button group (Menu.java:8694-8703). */
 .tb-markup {
   display: inline-flex;

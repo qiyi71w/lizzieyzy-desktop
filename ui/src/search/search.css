@@ -23,15 +23,20 @@
   column-gap: 10px;
   padding: 10px 10px 10px 14px;
 }
-.fs-icon,
-.tb-pill.search svg {
+.fs-icon {
   flex: none;
   width: 16px;
   height: 16px;
   fill: none;
   stroke: var(--ds-text-2);
   stroke-width: 1.5;
-  stroke-linecap: square;
+  stroke-linecap: round;
+}
+/* The toolbar search button's icon stays at the 16 px of its label line. */
+.tb-pill.search .icon {
+  width: 16px;
+  height: 16px;
+  color: var(--ds-text-2);
 }
 .fs-input {
   flex: 1;

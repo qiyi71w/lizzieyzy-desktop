@@ -5,11 +5,15 @@
   top: 0;
   z-index: 40;
 }
-.context-menu .mi .mark img {
-  display: block;
+.context-menu .mi .mark .icon {
   margin: 0 auto;
   width: 16px;
   height: 16px;
+}
+/* A greyed item greys its region colours too; stones keep their colours. */
+.context-menu .mi.disabled .mark .icon {
+  --icon-allow: var(--ds-text-off);
+  --icon-avoid: var(--ds-text-off);
 }
 
 /* Comment edit pane (LizzieFrame.java:821-826): borderless JTextPane, LIGHT_GRAY background and

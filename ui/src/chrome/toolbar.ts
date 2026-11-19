@@ -26,31 +26,30 @@ import "../strength/commands";
 import { topGroupShown, topToolbarWraps, type TopGroup } from "./topGroups";
 import { toggleDoubleMenu } from "../workbench/panels";
 import "../display/painting";
+import { icon, type IconName } from "../design/icons";
 
 const updaters: (() => void)[] = [];
 
-/** A button whose icon shows a selected state (JButton.setIcon with the "2" image). */
-function liveIcon(off: string, on: string, tip: string, selected: () => boolean, action: () => void, cls = ""): HTMLElement {
+/** A toggle button: while its choice is selected the host carries `on` and aria-pressed. */
+function liveIcon(name: IconName, tip: string, selected: () => boolean, action: () => void, cls = ""): HTMLElement {
   const b = document.createElement("span");
   b.className = `tb-icon ${cls}`;
   b.title = tip;
-  const image = document.createElement("img");
-  image.alt = "";
-  b.append(image);
+  b.setAttribute("role", "button");
+  b.append(icon(name));
   b.onclick = action;
   updaters.push(() => {
     const lit = selected();
-    const src = `/assets/${lit ? on : off}`;
-    if (image.getAttribute("src") !== src) image.src = src;
     b.classList.toggle("on", lit);
+    b.setAttribute("aria-pressed", String(lit));
   });
   return b;
 }
 
-/** A catalog toggle shown as a two-image button. */
-function commandIcon(off: string, on: string, tip: string, command: string, cls = ""): HTMLElement {
+/** A catalog toggle shown as a toggle button. */
+function commandIcon(name: IconName, tip: string, command: string, cls = ""): HTMLElement {
   const entry = COMMANDS[command];
-  const b = liveIcon(off, on, tip, () => entry.checked?.() ?? false, entry.run, cls);
+  const b = liveIcon(name, tip, () => entry.checked?.() ?? false, entry.run, cls);
   b.dataset.key = command;
   return b;
 }
@@ -68,34 +67,33 @@ function markupTools(): HTMLElement[] {
   const tools = document.createElement("span");
   tools.className = "tb-markup";
   tools.append(
-    at("toolbar.markup-letter", commandIcon("label.png", "label2.png", t("Accessibility.markupLetter"), "toolbar.markup-letter")),
-    at("toolbar.markup-number", commandIcon("labelnum1.png", "labelnum2.png", t("Accessibility.markupNumber"), "toolbar.markup-number")),
-    at("toolbar.markup-cross", commandIcon("x.png", "x2.png", t("Accessibility.markupCross"), "toolbar.markup-cross")),
-    at("toolbar.markup-square", commandIcon("square.png", "square2.png", t("Accessibility.markupSquare"), "toolbar.markup-square")),
-    at("toolbar.markup-triangle", commandIcon("sanjiao.png", "sanjiao2.png", t("Accessibility.markupTriangle"), "toolbar.markup-triangle")),
-    at("toolbar.markup-eraser", commandIcon("eraser.png", "eraser2.png", t("Accessibility.markupEraser"), "toolbar.markup-eraser")),
-    at("toolbar.markup-clear", icon("clear.png", t("Menu.btnMarkupClear.toolTipText"), "toolbar.markup-clear")),
-    at("toolbar.painting", icon("paint.png", t("Menu.drawPainting.toolTipText"), "toolbar.painting")),
+    at("toolbar.markup-letter", commandIcon("markup-letter", t("Accessibility.markupLetter"), "toolbar.markup-letter")),
+    at("toolbar.markup-number", commandIcon("markup-number", t("Accessibility.markupNumber"), "toolbar.markup-number")),
+    at("toolbar.markup-cross", commandIcon("markup-cross", t("Accessibility.markupCross"), "toolbar.markup-cross")),
+    at("toolbar.markup-square", commandIcon("markup-square", t("Accessibility.markupSquare"), "toolbar.markup-square")),
+    at("toolbar.markup-triangle", commandIcon("markup-triangle", t("Accessibility.markupTriangle"), "toolbar.markup-triangle")),
+    at("toolbar.markup-eraser", commandIcon("eraser", t("Accessibility.markupEraser"), "toolbar.markup-eraser")),
+    at("toolbar.markup-clear", iconButton("clear", t("Menu.btnMarkupClear.toolTipText"), "toolbar.markup-clear")),
+    at("toolbar.painting", iconButton("paint-brush", t("Menu.drawPainting.toolTipText"), "toolbar.painting")),
   );
   updaters.push(() => {
     const display = markupToolsShown() ? "" : "none";
     if (tools.style.display !== display) tools.style.display = display;
   });
-  return [at("toolbar.markup-tools", commandIcon("mark1.png", "mark2.png", t("Menu.btnMarkup.toolTipText"), "toolbar.markup-tools")), tools];
+  return [at("toolbar.markup-tools", commandIcon("markup", t("Menu.btnMarkup.toolTipText"), "toolbar.markup-tools")), tools];
 }
 
 /** Edit bar (Menu.java:7552-7643): 添加黑子 / 添加白子 toggle back to alternate play when chosen
  *  again; 交替落子 toggles only its own icon. Each clears insert mode. */
 function editBar(): HTMLElement[] {
   return [
-    liveIcon("smallblack1.png", "smallblack2.png", t("Menu.playBlackToolTipText"), () => editing.placement === "Black",
-      () => choosePlacement(editing.placement === "Black" ? "alternate" : "Black", false), "stone"),
-    liveIcon("smallwhite.png", "smallwhite4.png", t("Menu.playWhiteToolTipText"), () => editing.placement === "White",
-      () => choosePlacement(editing.placement === "White" ? "alternate" : "White", false), "stone"),
-    // iconbh = hb.png at menuIconSize + 8 in a 22 px button (Menu.java:3674-3680, 7602-7626)
-    liveIcon("hb.png", "hb2.png", t("Menu.playAlternatelyToolTipText"), alternateLit,
-      () => choosePlacement("alternate", !alternateLit()), "bw"),
-    icon("playpass.png", t("Menu.playPassToolTipText"), "menu.playPassMove", "w22"),
+    liveIcon("stone-black", t("Menu.playBlackToolTipText"), () => editing.placement === "Black",
+      () => choosePlacement(editing.placement === "Black" ? "alternate" : "Black", false)),
+    liveIcon("stone-white", t("Menu.playWhiteToolTipText"), () => editing.placement === "White",
+      () => choosePlacement(editing.placement === "White" ? "alternate" : "White", false)),
+    liveIcon("stone-alternate", t("Menu.playAlternatelyToolTipText"), alternateLit,
+      () => choosePlacement("alternate", !alternateLit())),
+    iconButton("pass", t("Menu.playPassToolTipText"), "menu.playPassMove", "w22"),
   ];
 }
 
@@ -130,16 +128,16 @@ const RANK_POPUP: MenuNode[] = [
   },
 ];
 
-/** btnRankMark: RankMarkOn / RankMarkOff by Menu.setBtnRankMark; opens rankMarkPopup below it. */
+/** btnRankMark: lit while move rank marks are shown (Menu.setBtnRankMark); opens rankMarkPopup below it. */
 function rankMarkButton(): HTMLElement {
-  const b = liveIcon("RankMarkOff.png", "RankMarkOn.png", t("Menu.btnRankMark.toolTipText"), rankMarkLit, () => openPopupMenu(b, RANK_POPUP));
+  const b = liveIcon("move-rank", t("Menu.btnRankMark.toolTipText"), rankMarkLit, () => openPopupMenu(b, RANK_POPUP));
   b.dataset.key = "toolbar.rank-mark";
   return b;
 }
 
 /** btnFlashAnalyze: opens FlashAnalyzeMenu below it (Menu.java:8406-8415). */
 function flashButton(): HTMLElement {
-  const b = icon("flash.png", t("Menu.btnAnalyze.btnFlashAnalyze"));
+  const b = iconButton("flash", t("Menu.btnAnalyze.btnFlashAnalyze"));
   b.classList.remove("unavailable");
   b.title = t("Menu.btnAnalyze.btnFlashAnalyze");
   b.dataset.key = "toolbar.flash";
@@ -149,7 +147,7 @@ function flashButton(): HTMLElement {
 
 /** selectAllowMore / selectAvoidMore: the region's limit popup below the button. */
 function limitButton(allow: boolean, tip: string): HTMLElement {
-  const b = icon("horizonDown.png", tip, undefined, "more");
+  const b = iconButton("chevron-down", tip, undefined, "more");
   b.classList.remove("unavailable");
   b.title = tip;
   b.dataset.key = allow ? "toolbar.force-allow-options" : "toolbar.force-avoid-options";
@@ -171,13 +169,10 @@ function marked(el: HTMLElement, command: string | undefined, tip: string): HTML
   return el;
 }
 
-function icon(img: string, tip: string, command?: string, cls = ""): HTMLElement {
+function iconButton(name: IconName, tip: string, command?: string, cls = ""): HTMLElement {
   const b = document.createElement("span");
   b.className = `tb-icon ${cls}`;
-  const image = document.createElement("img");
-  image.src = `/assets/${img}`;
-  image.alt = "";
-  b.append(image);
+  b.append(icon(name));
   return marked(b, command, tip);
 }
 
@@ -593,8 +588,8 @@ function komiField(): HTMLInputElement {
   return control;
 }
 
-/** The search features button (Menu.java:8660-8685): FunctionSearchDialog.SearchIcon and the title,
- *  which collapses to the icon alone below a 900 px wide window. Not focusable, so the control
+/** The search features button (Menu.java:8660-8685): the search icon and the title, which
+ *  collapses to the icon alone below a 900 px wide window. Not focusable, so the control
  *  that had the focus gets it back when the search is cancelled. */
 function searchButton(): HTMLElement {
   const title = t("FunctionSearch.title");
@@ -604,13 +599,9 @@ function searchButton(): HTMLElement {
   b.title = title;
   b.setAttribute("role", "button");
   b.setAttribute("aria-label", title);
-  const glass = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  glass.setAttribute("viewBox", "0 0 16 16");
-  glass.setAttribute("aria-hidden", "true");
-  glass.innerHTML = '<circle cx="5.5" cy="5.5" r="4.5"/><line x1="9" y1="9" x2="14" y2="14"/>';
   const text = document.createElement("span");
   text.className = "label";
-  b.append(glass, text);
+  b.append(icon("search"), text);
   const fit = () => {
     const narrow = window.innerWidth < 900;
     text.textContent = narrow ? "" : title;
@@ -701,16 +692,13 @@ function tencentKifuButton(): HTMLElement {
 }
 
 /** btnDoubleMenu (Menu.java:7534-7550, 8259): first in the row while its 自定义内容 choice is on.
- *  The row shows only 分开, so the button shows ▲, which turns the row to 合并. */
+ *  The row shows only 分开, so the button shows the up chevron, which turns the row to 合并. */
 function doubleMenuButton(): HTMLElement {
   const b = document.createElement("span");
   b.className = "tb-icon";
   b.dataset.key = "toolbar.double-menu";
   b.title = t("Accessibility.toolbarDetailsDescription");
-  const image = document.createElement("img");
-  image.src = "/assets/up.png";
-  image.alt = "";
-  b.append(image);
+  b.append(icon("chevron-up"));
   b.onclick = toggleDoubleMenu;
   return b;
 }
@@ -754,21 +742,21 @@ export function buildToolbar(host: HTMLElement): void {
       shownGroup("showBasicButtons"),
       sep("lead"),
       buttons(
-        icon("newFile.png", t("Menu.btnNewFile.toolTipText"), "files.new"),
-        icon("open.png", t("Menu.btnOpen.toolTipText"), "files.open"),
-        icon("save.png", t("Menu.btnSave.toolTipText"), "files.save"),
+        iconButton("new-file", t("Menu.btnNewFile.toolTipText"), "files.new"),
+        iconButton("open", t("Menu.btnOpen.toolTipText"), "files.open"),
+        iconButton("save", t("Menu.btnSave.toolTipText"), "files.save"),
         foxKifuButton(),
         tencentKifuButton(),
         strengthButton(),
       ),
       buttons(setup, flashButton(), search),
       buttons(
-        icon("hawkeye2.png", t("Menu.btnHawkeye.toolTipText"), "analysis.bad-moves"),
+        iconButton("hawkeye", t("Menu.btnHawkeye.toolTipText"), "analysis.bad-moves"),
         rankMarkButton(),
-        at("toolbar.change-turn", icon("pass.png", t("Menu.btnChangeTurn.toolTipText"), "toolbar.change-turn")),
-        icon("setmain.png", t("Menu.btnSetMain.toolTipText"), "menu.setAsMain"),
-        icon("backmain.png", t("Menu.btnBackMain.toolTipText"), "menu.backToMainBranch"),
-        icon("control.png", t("Menu.btnContrlPanel.toolTipText"), "menu.ctrlPanel"),
+        at("toolbar.change-turn", iconButton("swap-turn", t("Menu.btnChangeTurn.toolTipText"), "toolbar.change-turn")),
+        iconButton("set-main", t("Menu.btnSetMain.toolTipText"), "menu.setAsMain"),
+        iconButton("back-to-main", t("Menu.btnBackMain.toolTipText"), "menu.backToMainBranch"),
+        iconButton("control-panel", t("Menu.btnContrlPanel.toolTipText"), "menu.ctrlPanel"),
         ...markupTools(),
       ),
       sep(),
@@ -776,11 +764,11 @@ export function buildToolbar(host: HTMLElement): void {
     optional(shownGroup("showEditBar"), ...editBar(), sep()),
     optional(
       shownGroup("showForce"),
-      at("toolbar.force-allow", commandIcon("blueallow.png", "blueallow2.png", t("Menu.selectAllowToolTipText"), "toolbar.force-allow", "force")),
+      at("toolbar.force-allow", commandIcon("region-allow", t("Menu.selectAllowToolTipText"), "toolbar.force-allow", "force")),
       at("toolbar.force-allow-options", limitButton(true, t("Accessibility.allowMoveOptions"))),
-      at("toolbar.force-avoid", commandIcon("redavoid.png", "redavoid2.png", t("Menu.selectAvoidToolTipText"), "toolbar.force-avoid", "force")),
+      at("toolbar.force-avoid", commandIcon("region-avoid", t("Menu.selectAvoidToolTipText"), "toolbar.force-avoid", "force")),
       at("toolbar.force-avoid-options", limitButton(false, t("Accessibility.avoidMoveOptions"))),
-      at("toolbar.force-clear", icon("clear.png", t("Menu.clearSelectToolTipText"), "toolbar.force-clear", "force")),
+      at("toolbar.force-clear", iconButton("clear", t("Menu.clearSelectToolTipText"), "toolbar.force-clear", "force")),
       sep(),
     ),
     optional(shownGroup("showGameControls"), ...gameControls(), sep()),
