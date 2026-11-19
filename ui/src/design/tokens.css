@@ -1,0 +1,122 @@
+/* Design tokens: the only place interface colours, type and metrics are named. Light is the
+   default; theme.ts sets data-theme from the appearance mode. Board, stone and analysis-mark
+   colours belong to the board theme, not to these tokens. */
+:root {
+  color-scheme: light;
+
+  /* Surfaces, from the window frame inwards. */
+  --ds-chrome: #f5f5f7; /* window bar, toolbar, bottom bar */
+  --ds-stage: #e7e7eb; /* workbench ground behind the board */
+  --ds-panel: #ffffff; /* panes, tables, dialogs */
+  --ds-raised: #ffffff; /* menus and popovers */
+  --ds-field: #ffffff; /* inputs and default buttons */
+  --ds-sunken: #eeeef1; /* table headers, wells, read-only fields */
+  --ds-hover: rgba(0, 0, 0, 0.06);
+  --ds-pressed: rgba(0, 0, 0, 0.11);
+  --ds-scrim: rgba(0, 0, 0, 0.28);
+
+  /* Lines. */
+  --ds-line: #dddde2; /* separators and pane edges */
+  --ds-line-strong: #c4c4cb; /* control borders */
+
+  /* Text. */
+  --ds-text: #1d1d1f;
+  --ds-text-2: #55555b;
+  --ds-text-3: #67676e;
+  --ds-text-off: #a2a2a9;
+
+  /* Accent: primary action, selection, focus. Nothing else. */
+  --ds-accent: #0a64dc;
+  --ds-accent-hover: #0957c0;
+  --ds-accent-pressed: #084aa5;
+  --ds-on-accent: #ffffff;
+  --ds-accent-text: #0a5bc8;
+  --ds-accent-soft: #e4eefc;
+  --ds-accent-soft-line: #b9d3f6;
+  --ds-ring: rgba(10, 100, 220, 0.6);
+
+  /* Status. */
+  --ds-danger: #c9291c;
+  --ds-danger-hover: #b02317;
+  --ds-danger-text: #b3261a;
+  --ds-danger-soft: #fdecea;
+  --ds-danger-soft-line: #f3c3be;
+  --ds-warning-text: #8a5700;
+  --ds-warning-soft: #fff3d1;
+  --ds-success-text: #1b7a36;
+  --ds-success-soft: #e4f5e8;
+
+  /* Shape and depth. */
+  --ds-radius-s: 4px;
+  --ds-radius: 6px;
+  --ds-radius-l: 10px;
+  --ds-shadow-pop: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 6px 20px -4px rgba(0, 0, 0, 0.22);
+  --ds-shadow-dialog: 0 0 0 1px rgba(0, 0, 0, 0.1), 0 18px 48px -8px rgba(0, 0, 0, 0.32);
+
+  /* Type. The size follows 界面字体大小 (set once per session by the appearance module). */
+  --ds-font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ds-size: var(--frame-font-size, 12px);
+  --ds-size-s: calc(var(--ds-size) - 1px);
+  --ds-size-l: calc(var(--ds-size) + 1px);
+  --ds-size-xl: calc(var(--ds-size) + 3px);
+
+  /* Metrics. */
+  --ds-control-h: 22px; /* controls in the bars */
+  --ds-control-h-l: 26px; /* controls in dialogs */
+  --ds-bar-h: 38px; /* window bar */
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --ds-chrome: #2b2b2e;
+  --ds-stage: #151517;
+  --ds-panel: #1e1e21;
+  --ds-raised: #2c2c30;
+  --ds-field: #37373b;
+  --ds-sunken: #19191b;
+  --ds-hover: rgba(255, 255, 255, 0.08);
+  --ds-pressed: rgba(255, 255, 255, 0.14);
+  --ds-scrim: rgba(0, 0, 0, 0.5);
+
+  --ds-line: #3a3a3f;
+  --ds-line-strong: #505056;
+
+  --ds-text: #f2f2f4;
+  --ds-text-2: #b8b8be;
+  --ds-text-3: #a1a1a8;
+  --ds-text-off: #6a6a70;
+
+  --ds-accent: #1f6feb;
+  --ds-accent-hover: #1b63d4;
+  --ds-accent-pressed: #1757ba;
+  --ds-on-accent: #ffffff;
+  --ds-accent-text: #74abff;
+  --ds-accent-soft: #1d3152;
+  --ds-accent-soft-line: #2f4f86;
+  --ds-ring: rgba(116, 171, 255, 0.75);
+
+  --ds-danger: #cf3a2e;
+  --ds-danger-hover: #b93227;
+  --ds-danger-text: #ff9087;
+  --ds-danger-soft: #3a1d1b;
+  --ds-danger-soft-line: #6b2f2a;
+  --ds-warning-text: #f2c14e;
+  --ds-warning-soft: #3a2f12;
+  --ds-success-text: #5fcb7e;
+  --ds-success-soft: #173322;
+
+  --ds-shadow-pop: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 8px 24px -4px rgba(0, 0, 0, 0.6);
+  --ds-shadow-dialog: 0 0 0 1px rgba(255, 255, 255, 0.12), 0 20px 56px -8px rgba(0, 0, 0, 0.7);
+}
+
+/* The platform's own interface face; the document language picks the matching CJK face. */
+:root[data-os="mac"] {
+  --ds-font: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+:root[data-os="windows"] {
+  --ds-font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+}
+:root[data-os="linux"] {
+  --ds-font: system-ui, "Noto Sans", "Noto Sans CJK SC", "DejaVu Sans", sans-serif;
+}
