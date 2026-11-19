@@ -611,7 +611,7 @@ function toolWindow(cls: string, title: string, closeKey: string, close: () => v
   box.dataset.freeWindow = "";
   const head = el("div", "modal-title", title);
   const x = button("", close);
-  x.className = "match-close";
+  x.className = "modal-close";
   x.append(icon("close"));
   x.dataset.key = closeKey;
   x.setAttribute("aria-label", product("close"));

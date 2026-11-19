@@ -10,21 +10,7 @@
   max-width: none;
 }
 .score-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding-right: 12px;
   user-select: none;
-}
-.score-close {
-  display: grid;
-  place-items: center;
-  width: var(--ds-control-h-l);
-  padding: 0;
-  border-color: transparent;
-  background-color: transparent;
-  color: var(--ds-text-2);
 }
 .modal-body.score-body {
   display: flex;

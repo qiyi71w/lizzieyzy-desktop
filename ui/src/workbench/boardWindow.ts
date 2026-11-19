@@ -16,7 +16,6 @@ import { loadImages, paintBoard, paintSubBoard, prepare } from "./paint";
 import { onAppearanceChange, syncAppearance } from "../appearance/state";
 import { icon } from "../design/icons";
 import { token } from "../design/theme";
-import { localIcon } from "../commentary/icons";
 import "../design/window";
 
 const STYLE = `
@@ -61,9 +60,9 @@ export function bootBoardWindow(): void {
   // btnClose (0, 0), topUntop (0, 19), lockUnlock (0, 38).
   button(0, "close").append(icon("close"));
   const top = button(19, "top");
-  top.append(localIcon("pin"));
+  top.append(icon("pin"));
   const lock = button(38, "lock");
-  lock.append(localIcon("lock"));
+  lock.append(icon("lock"));
 
   let data: IndependentPayload | null = null;
   let geo: BoardGeom | null = null;

@@ -19,26 +19,6 @@
 .update-window:focus {
   outline: none;
 }
-.update-title {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding-right: 12px;
-}
-.update-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--ds-control-h-l);
-  padding: 0;
-  border-color: transparent;
-  background-color: transparent;
-  color: var(--ds-text-2);
-}
-.update-close:hover {
-  color: var(--ds-text);
-}
 .update-body {
   flex: 1;
   display: flex;

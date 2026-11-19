@@ -188,7 +188,7 @@ function build(): HTMLElement {
   // An owned JDialog stays usable while WaitForAnalysis disables the main window.
   box.dataset.freeWindow = "";
   const head = el("div", "modal-title fox-title", t("Fox.title"));
-  const x = el("button", "fox-close");
+  const x = el("button", "modal-close");
   x.append(icon("close"));
   x.setAttribute("aria-label", product("close"));
   x.dataset.key = "fox.close";

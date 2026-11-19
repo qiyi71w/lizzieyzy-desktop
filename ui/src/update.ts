@@ -193,7 +193,7 @@ function frame(title: string, cls: string, key: string, onClose: () => void): { 
   box.setAttribute("aria-label", title);
   const head = el("div", "modal-title update-title", title);
   const x = button("", `${key}.close`, () => close());
-  x.className = "update-close";
+  x.className = "modal-close";
   x.append(icon("close"));
   x.setAttribute("aria-label", product("close"));
   head.append(x);

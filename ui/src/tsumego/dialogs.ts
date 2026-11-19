@@ -75,7 +75,8 @@ function windowBox(title: string, cls: string, close: () => void): { box: HTMLDi
   box.dataset.freeWindow = "";
   const head = el("div", "modal-title tsumego-title", title);
   const x = unfocusable(button("", close));
-  x.className = "tsumego-close";
+  x.className = "modal-close";
+  x.dataset.key = `${cls}.close`;
   x.append(icon("close"));
   x.setAttribute("aria-label", product("close"));
   head.append(x);

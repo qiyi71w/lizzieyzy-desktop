@@ -30,6 +30,26 @@
   font-size: var(--ds-size-xl);
   font-weight: 600;
 }
+/* A dialog that behaves as a window: its close box ends the title row. */
+:where(.modal-title:has(> .modal-close)) {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding-right: 12px;
+}
+.modal-close {
+  display: grid;
+  place-items: center;
+  width: var(--ds-control-h-l);
+  padding: 0;
+  border-color: transparent;
+  background-color: transparent;
+  color: var(--ds-text-2);
+}
+.modal-close:hover {
+  color: var(--ds-text);
+}
 :where(.modal-body) {
   padding: 10px 20px 0;
   line-height: 1.5;

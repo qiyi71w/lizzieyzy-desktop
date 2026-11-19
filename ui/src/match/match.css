@@ -118,21 +118,7 @@
   min-width: 0;
 }
 .match-manual > .modal-title {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding-right: 12px;
   font-size: var(--ds-size-l);
-}
-.match-close {
-  display: grid;
-  place-items: center;
-  width: var(--ds-control-h-l);
-  padding: 0;
-  border-color: transparent;
-  background-color: transparent;
-  color: var(--ds-text-2);
 }
 .match-manual-actions {
   display: grid;

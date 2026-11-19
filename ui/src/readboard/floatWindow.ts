@@ -13,7 +13,6 @@ import type { BoardGeom } from "../workbench/layout";
 import { loadImages, paintBoard } from "../workbench/paint";
 import { FLOAT_DATA_EVENT, FLOAT_INPUT_EVENT, type FloatButton, type FloatInput, type FloatPayload } from "./floatModel";
 import { icon } from "../design/icons";
-import { localIcon } from "../commentary/icons";
 import "../design/window";
 
 /** The window stays transparent; only the buttons carry the interface ground. */
@@ -101,7 +100,7 @@ export function bootFloatWindow(): void {
     pos.setAttribute("aria-pressed", String(showPos));
     place();
   });
-  pos.append(localIcon("move"));
+  pos.append(icon("move"));
   pos.setAttribute("aria-pressed", "false");
 
   let data: FloatPayload | null = null;
@@ -143,7 +142,7 @@ export function bootFloatWindow(): void {
     if (!data) return;
     setLanguage(data.language);
     stopGo.replaceChildren(icon(data.pondering ? "pause" : "play"));
-    hideShow.replaceChildren(localIcon(data.hidden ? "plus" : "minus"));
+    hideShow.replaceChildren(icon(data.hidden ? "plus" : "minus"));
     edit.setAttribute("aria-pressed", String(data.edit));
     edit.hidden = !data.editButton;
     place();

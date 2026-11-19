@@ -8,22 +8,6 @@
 .tsumego-window:focus {
   outline: none;
 }
-.tsumego-title {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  padding-right: 12px;
-}
-.tsumego-close {
-  display: grid;
-  place-items: center;
-  width: var(--ds-control-h-l);
-  padding: 0;
-  border-color: transparent;
-  background-color: transparent;
-  color: var(--ds-text-2);
-}
 .tsumego-fill {
   flex: 1;
 }

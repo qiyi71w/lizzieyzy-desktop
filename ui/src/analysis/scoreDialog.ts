@@ -70,7 +70,8 @@ function build(): HTMLElement {
   caption.textContent = t("ScoreResult.title");
   // The window's close box: setVisible(false) and endFinalScore.
   const close = button("", leave);
-  close.className = "score-close";
+  close.className = "modal-close";
+  close.dataset.key = "score.close";
   close.append(icon("close"));
   close.setAttribute("aria-label", product("close"));
   title.append(caption, close);

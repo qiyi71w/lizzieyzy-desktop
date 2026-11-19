@@ -6,7 +6,6 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Command, CommentaryAccount, CommentaryModel, CommentaryView, Preferences, Provider } from "../contract/generated";
 import { format, product, t } from "../i18n";
 import { icon } from "../design/icons";
-import { localIcon } from "./icons";
 import type { SettingsReport } from "./model";
 import { send } from "./send";
 import { failureText, keyOr } from "./text";
@@ -116,7 +115,7 @@ function setOptions(s: HTMLSelectElement, options: [string, string][]): void {
 
 function privacyRow(): HTMLElement {
   const row = el("div", "ts-privacy");
-  row.append(localIcon("lock"), el("span", "", design("privacy")));
+  row.append(icon("lock"), el("span", "", design("privacy")));
   return row;
 }
 

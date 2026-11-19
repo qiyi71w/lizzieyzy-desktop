@@ -1031,16 +1031,7 @@ body {
 }
 
 /* ---- 初始化设置: the row names, then up to three aligned columns of choices (init-a, -b, -c), a
-   last control that may run on to the row's end; the notes below a line; the close box in the
-   title. */
-.init-settings .modal-title {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding-right: 12px;
-}
-.init-close,
+   last control that may run on to the row's end; the notes below a line. */
 .init-help {
   display: flex;
   align-items: center;
@@ -1049,16 +1040,10 @@ body {
   border-color: transparent;
   background-color: transparent;
   color: var(--ds-text-2);
-}
-.init-close {
-  width: var(--ds-control-h-l);
-}
-.init-help {
   width: var(--ds-control-h);
   height: var(--ds-control-h);
   border-radius: var(--ds-radius-s);
 }
-.init-close:hover,
 .init-help:hover {
   color: var(--ds-text);
 }
