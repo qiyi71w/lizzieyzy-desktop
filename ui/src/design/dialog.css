@@ -1,0 +1,103 @@
+/* The dialog frame every window shares: the modal layer dialogs.ts builds and the form rows
+   engine/controls.ts builds. The rules sit inside :where(), so a dialog's own rule wins whatever
+   order the style sheets load in. */
+@import "./base.css";
+
+:where(#dialog) {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+:where(.modal) {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ds-scrim);
+}
+:where(.modal-box) {
+  min-width: 320px;
+  max-width: 640px;
+  padding-bottom: 16px;
+  border-radius: var(--ds-radius-l);
+  background: var(--ds-panel);
+  box-shadow: var(--ds-shadow-dialog);
+  color: var(--ds-text);
+}
+:where(.modal-title) {
+  padding: 14px 20px 0;
+  font-size: var(--ds-size-xl);
+  font-weight: 600;
+}
+:where(.modal-body) {
+  padding: 10px 20px 0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+:where(.modal-buttons) {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 20px 0;
+}
+:where(.modal-buttons button) {
+  min-width: 76px;
+}
+/* A message that closes by itself */
+:where(.timed-notice) {
+  position: fixed;
+  z-index: 30;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: min(520px, 90vw);
+}
+
+/* ---- form dialogs (formPanel): the module's body follows the title and scrolls with the box;
+   its last row of actions is the dialog's button row */
+:where(.engine-dialog) {
+  width: max-content;
+  max-width: min(960px, 96vw);
+  max-height: 94vh;
+  overflow: auto;
+}
+:where(.engine-dialog > .modal-title + *) {
+  padding: 12px 20px 0;
+}
+:where(.engine-form) {
+  display: grid;
+  gap: 8px;
+}
+/* A label and its control */
+:where(.engine-field) {
+  display: grid;
+  grid-template-columns: minmax(100px, 180px) minmax(100px, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+:where(.engine-field textarea) {
+  min-height: 78px;
+  resize: vertical;
+}
+:where(.engine-actions) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+:where(.engine-actions label) {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+:where(.engine-dialog > .modal-title + * > .engine-actions:last-child) {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+:where(.engine-dialog > .modal-title + * > .engine-actions:last-child button) {
+  min-width: 76px;
+}

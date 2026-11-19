@@ -1,16 +1,6 @@
-/* Swing form/table density (MoreEngines.java:151-169), not a separate settings dashboard. */
-.engine-dialog { width: max-content; max-width: min(960px, 96vw); max-height: 94vh; overflow: auto; }
-.engine-dialog input, .engine-dialog textarea, .engine-dialog select, .gtp-console input, .gtp-console select { font: inherit; color: #111; background: #fff; border: 1px solid #777; border-radius: 0; padding: 2px 4px; }
-.engine-dialog input[type=checkbox], .engine-dialog input[type=radio] { width: auto; }
-.engine-dialog button, .gtp-console button, .engine-limit-notice button { font: inherit; padding: 3px 10px; }
-.engine-dialog .unavailable::after, .engine-limit-notice .unavailable::after { content: ""; }
-.engine-dialog .unavailable { opacity: .55; text-decoration: none; }
+/* 引擎 dialogs: the engine list, the engine form and the engine parameter dialogs. The dialog
+   frame and the label / action rows are design/dialog.css. */
 .engine-catalog { width: min(885px, 90vw); padding: 10px; }
-.engine-form { display: grid; gap: 6px; }
-.engine-field { display: grid; grid-template-columns: minmax(100px, 180px) minmax(100px, 1fr); align-items: center; gap: 8px; }
-.engine-field textarea { resize: vertical; min-height: 78px; }
-.engine-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
-.engine-actions label { white-space: nowrap; }
 .engine-size { display: flex; gap: 20px; }
 .engine-size .engine-field { display: flex; gap: 6px; }
 .engine-size input { width: 65px; }

@@ -2,6 +2,7 @@
 // open the rest of the window is inert and Tab cycles inside the dialog, so neither the mouse nor
 // the keyboard reaches the workbench, like a Swing modal dialog.
 import { product, t } from "./i18n";
+import "./design/dialog.css";
 
 const host = () => document.getElementById("dialog")!;
 let open = 0;

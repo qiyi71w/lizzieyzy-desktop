@@ -1,4 +1,6 @@
+// The rows and controls of a form dialog (dialogs.ts formPanel); design/dialog.css draws them.
 import { product } from "../i18n";
+import "../design/dialog.css";
 import "./engine.css";
 
 export function button(key: string, action: () => void, enabled = true): HTMLButtonElement {
