@@ -12,6 +12,7 @@ import { product, t } from "../i18n";
 import { javaDouble, parseJavaDouble } from "../workbench/paint";
 import type { MenuNode } from "./javaMenus";
 import { openPopupMenu } from "./menubar";
+import { toolbarKeys } from "./bottombar";
 import { FLASH_MENU } from "../quick/flash";
 import { functionSearchRefused, openFunctionSearch } from "../search/controller";
 import { limitPopup } from "../analysis/region";
@@ -39,6 +40,7 @@ function liveIcon(name: IconName, tip: string, selected: () => boolean, action: 
   b.className = `tb-icon ${cls}`;
   b.title = tip;
   b.setAttribute("role", "button");
+  b.setAttribute("aria-label", tip);
   b.append(icon(name));
   b.onclick = action;
   updaters.push(() => {
@@ -158,8 +160,10 @@ function limitButton(allow: boolean, tip: string): HTMLElement {
   return b;
 }
 
+/** A toolbar button running `command`, or reporting that its capability is not available yet. */
 function marked(el: HTMLElement, command: string | undefined, tip: string): HTMLElement {
   const entry = command ? COMMANDS[command] : undefined;
+  el.setAttribute("role", "button");
   if (entry) {
     el.title = tip;
     el.dataset.key = command;
@@ -175,6 +179,7 @@ function marked(el: HTMLElement, command: string | undefined, tip: string): HTML
 function iconButton(name: IconName, tip: string, command?: string, cls = ""): HTMLElement {
   const b = document.createElement("span");
   b.className = `tb-icon ${cls}`;
+  b.setAttribute("aria-label", tip);
   b.append(icon(name));
   return marked(b, command, tip);
 }
@@ -247,7 +252,6 @@ function candidateCheck(text: string, black: boolean): HTMLElement {
   const c = document.createElement("input");
   c.type = "checkbox";
   c.className = "tb-check";
-  c.tabIndex = -1;
   c.dataset.key = black ? "toolbar.candidates-black" : "toolbar.candidates-white";
   c.onchange = () => setCandidateSide(black, c.checked);
   updaters.push(() => (c.checked = black ? boardUi.showBlack : boardUi.showWhite));
@@ -262,7 +266,6 @@ function checkLabel(text: string, key: string): { box: HTMLInputElement; label: 
   const box = document.createElement("input");
   box.type = "checkbox";
   box.className = "tb-check";
-  box.tabIndex = -1;
   box.dataset.key = key;
   const label = document.createElement("label");
   label.className = "tb-checklabel";
@@ -399,7 +402,6 @@ function kataGroup(param: KataParam): HTMLElement {
   const box = document.createElement("input");
   box.type = "checkbox";
   box.className = "tb-check";
-  box.tabIndex = -1;
   box.title = tip;
   const value = document.createElement("input");
   value.className = "tb-input";
@@ -576,8 +578,8 @@ function komiField(): HTMLElement {
 }
 
 /** The search features button (Menu.java:8660-8685): the search icon and the title, which
- *  collapses to the icon alone below a 900 px wide window. Not focusable, so the control
- *  that had the focus gets it back when the search is cancelled. */
+ *  collapses to the icon alone below a 900 px wide window. A press does not focus it, so the
+ *  control that had the focus gets it back when the search is cancelled. */
 function searchButton(): HTMLElement {
   const title = t("FunctionSearch.title");
   const b = document.createElement("span");
@@ -597,15 +599,16 @@ function searchButton(): HTMLElement {
   fit();
   window.addEventListener("resize", fit);
   // Decided on the press: a text control keeps the focus (preventDefault) and the press has not
-  // yet closed an open menu, so both still refuse the search as the shortcut does.
-  let admitted = false;
+  // yet closed an open menu, so both still refuse the search as the shortcut does. Enter / Space
+  // on the focused button decide at the click.
+  let admitted: boolean | null = null;
   b.addEventListener("mousedown", (e) => {
     e.preventDefault();
     admitted = !functionSearchRefused();
   });
   b.onclick = () => {
-    if (admitted) void openFunctionSearch();
-    admitted = false;
+    if (admitted ?? !functionSearchRefused()) void openFunctionSearch();
+    admitted = null;
   };
   return b;
 }
@@ -642,7 +645,9 @@ function gameControls(): HTMLElement[] {
     newGame.style.display = game || match ? "none" : "";
     stop.style.display = game || match ? "" : "none";
     resign.style.display = game ? "" : "none";
-    pause.classList.toggle("disabled", !game && !match);
+    const idle = !game && !match;
+    pause.classList.toggle("disabled", idle);
+    pause.setAttribute("aria-disabled", String(idle));
     const paused = match ? match.phase === "Paused" : game?.phase === "Paused";
     pause.textContent = paused ? t("Menu.continueGameBtn") : t("Menu.pauseGameBtn");
   });
@@ -685,6 +690,8 @@ function doubleMenuButton(): HTMLElement {
   b.className = "tb-icon";
   b.dataset.key = "toolbar.double-menu";
   b.title = t("Accessibility.toolbarDetailsDescription");
+  b.setAttribute("role", "button");
+  b.setAttribute("aria-label", t("Accessibility.toolbarDetailsDescription"));
   b.append(icon("chevron-up"));
   b.onclick = toggleDoubleMenu;
   return b;
@@ -720,8 +727,7 @@ function candidateCapsule(): HTMLElement {
  *  buttons in the lower one. 自动换行 off keeps one row (LizzieFrame.java:14503-14507). */
 export function buildToolbar(host: HTMLElement): void {
   const setup = pill(t("Menu.autoSetupButton"), "", "engine.setup");
-  setup.dataset.key = "engine.setup"; setup.title = t("Menu.autoSetup"); setup.setAttribute("role", "button"); setup.tabIndex = 0;
-  setup.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); COMMANDS["engine.setup"].run(); } };
+  setup.title = t("Menu.autoSetup");
   const basic = shownGroup("showBasicButtons");
   const rules = shownGroup("showRules");
   const parameters = shownGroup("showParameters");
@@ -782,6 +788,8 @@ export function buildToolbar(host: HTMLElement): void {
     ),
   );
   updaters.push(() => host.classList.toggle("nowrap", !topToolbarWraps()));
+  // After every other updater, so the Tab stop sees what they showed or hid.
+  updaters.push(toolbarKeys(host, t("Menu.topToolBar")));
 }
 
 /** btnPlayerStrengthEstimate (Menu.java:8386-8404): 棋力评估 with the menu item's text as its tip. */

@@ -185,8 +185,14 @@ interface CellLook {
   key: boolean;
 }
 
+/** A header's `aria-sort` value. */
+type AriaSort = "ascending" | "descending" | "other" | "none";
+
 /** A JTable in a JScrollPane: header, rows, click and right-click. `categorical` names the columns
- *  that hold words (colour, coordinate): they align left, the numbers right. */
+ *  that hold words (colour, coordinate): they align left, the numbers right. The header row and
+ *  the body are one Tab stop each: ←/→ (Home/End) move between the headers and Enter/Space sorts
+ *  as a header click does; ↑/↓ (Home/End) move the selected row and Enter/Space chooses it as a
+ *  row click does. */
 class ListTable {
   readonly scroll = document.createElement("div");
   private readonly table = document.createElement("table");
@@ -197,12 +203,21 @@ class ListTable {
   rows: Row[] = [];
   widths: number[] = [];
   preferred: number[] | null = null;
+  /** The header that holds the header row's Tab stop. */
+  private headCursor = 0;
+  /** The selected row (-1: none), and the row of the move marked on the board, where the
+   *  selection starts. */
+  private cursor = -1;
+  private current = -1;
 
   constructor(key: string, private readonly categorical: number[], onSort: (column: number) => void, onRow: (row: Row) => void, onMenu: (x: number, y: number) => void, onColumns?: (w: number[]) => void) {
     this.scroll.className = "hk-scroll";
     this.scroll.dataset.key = key;
     const thead = document.createElement("thead");
     this.head = thead.insertRow();
+    this.head.dataset.key = `${key}.header`;
+    this.body.tabIndex = 0;
+    this.body.dataset.key = `${key}.rows`;
     this.table.append(this.colgroup, thead, this.body);
     this.scroll.append(this.table);
     if (onColumns) {
@@ -218,14 +233,77 @@ class ListTable {
       const cell = (ev.target as HTMLElement).closest("th");
       if (cell) onSort((cell as HTMLTableCellElement).cellIndex);
     });
+    this.head.addEventListener("focusin", (ev) => {
+      const cell = (ev.target as HTMLElement).closest("th");
+      if (cell) this.markHeader((cell as HTMLTableCellElement).cellIndex);
+    });
+    // The keys stay here: the window's own handler does not see them.
+    this.head.addEventListener("keydown", (ev) => {
+      const n = this.head.cells.length;
+      const k = this.headCursor;
+      let to: number;
+      if (ev.key === "ArrowRight") to = Math.min(k + 1, n - 1);
+      else if (ev.key === "ArrowLeft") to = Math.max(k - 1, 0);
+      else if (ev.key === "Home") to = 0;
+      else if (ev.key === "End") to = n - 1;
+      else if (ev.key === "Enter" || ev.key === " ") to = -1;
+      else return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (!n) return;
+      if (to < 0) onSort(k);
+      else this.head.cells[to].focus();
+    });
     this.body.addEventListener("click", (ev) => {
       const tr = (ev.target as HTMLElement).closest("tr");
-      if (tr) onRow(this.rows[tr.sectionRowIndex]);
+      if (!tr) return;
+      this.select(tr.sectionRowIndex);
+      onRow(this.rows[tr.sectionRowIndex]);
+    });
+    // A press focuses the body itself, not through the cell under the pointer: WebKit would keep
+    // that cell as where Tab starts from, and Shift+Tab would land on the body again.
+    this.body.addEventListener("mousedown", (ev) => {
+      if (ev.button !== 0) return;
+      ev.preventDefault();
+      this.body.focus({ preventScroll: true });
+    });
+    // Focus starts the selection at the marked move without scrolling: a mouse press focuses the
+    // body before its click lands on the row under the pointer.
+    this.body.addEventListener("focus", () => {
+      if (this.cursor < 0 && this.rows.length) this.select(Math.max(this.current, 0), false);
+    });
+    this.body.addEventListener("keydown", (ev) => {
+      const n = this.rows.length;
+      let to: number;
+      if (ev.key === "ArrowDown") to = Math.min(this.cursor + 1, n - 1);
+      else if (ev.key === "ArrowUp") to = Math.max(this.cursor - 1, 0);
+      else if (ev.key === "Home") to = 0;
+      else if (ev.key === "End") to = n - 1;
+      else if (ev.key === "Enter" || ev.key === " ") to = -1;
+      else return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (!n) return;
+      if (to >= 0) this.select(to);
+      else if (this.cursor >= 0) onRow(this.rows[this.cursor]);
     });
     this.scroll.addEventListener("contextmenu", (ev) => {
       ev.preventDefault();
       if ((ev.target as HTMLElement).closest("tbody, thead") || ev.target === this.scroll) onMenu(ev.clientX, ev.clientY);
     });
+  }
+
+  /** Moves the header row's Tab stop to column `k`. */
+  private markHeader(k: number): void {
+    this.headCursor = k;
+    [...this.head.cells].forEach((th, i) => (th.tabIndex = i === k ? 0 : -1));
+  }
+
+  /** Selects row `k`, scrolled into view when `reveal`. */
+  private select(k: number, reveal = true): void {
+    this.cursor = k;
+    [...this.body.rows].forEach((tr, i) => tr.classList.toggle("selected", i === k));
+    if (reveal) this.body.rows[k]?.scrollIntoView({ block: "nearest" });
   }
 
   private apply(w: number[]): void {
@@ -254,21 +332,37 @@ class ListTable {
       th.classList.toggle("cat", this.categorical.includes(column));
       return th;
     }));
+    this.markHeader(Math.max(0, Math.min(this.headCursor, headers.length - 1)));
     this.layout();
   }
 
-  setRows(rows: Row[], look: (row: Row, column: number) => CellLook): void {
+  /** `aria-sort` on the header of the column the rows are sorted by. */
+  setSort(column: number, state: AriaSort): void {
+    [...this.head.cells].forEach((th, i) => {
+      if (i === column && state !== "none") th.setAttribute("aria-sort", state);
+      else th.removeAttribute("aria-sort");
+    });
+  }
+
+  /** The rows with their looks; `current` is the row of the move marked on the board (-1: none).
+   *  The selection follows its move through a re-sort or an update. */
+  setRows(rows: Row[], look: (row: Row, column: number) => CellLook, current: number): void {
+    const was = this.rows[this.cursor];
+    this.cursor = was ? rows.findIndex((r) => r.pinned === was.pinned && r.e.node === was.e.node) : -1;
+    this.current = current;
     this.rows = rows;
     while (this.body.rows.length > rows.length) this.body.deleteRow(this.body.rows.length - 1);
     rows.forEach((r, k) => {
       const tr = this.body.rows[k] ?? this.body.insertRow();
+      tr.classList.toggle("selected", k === this.cursor);
       while (tr.cells.length > r.cells.length) tr.deleteCell(tr.cells.length - 1);
       r.cells.forEach((text, column) => {
         const td = tr.cells[column] ?? tr.insertCell();
         if (td.textContent !== text) td.textContent = text;
         const c = look(r, column);
-        td.style.color = c.fg;
-        td.style.backgroundColor = c.bg;
+        // Through properties, so the focused list's selected row (hawkeye.css) draws over them.
+        td.style.setProperty("--hk-fg", c.fg);
+        td.style.setProperty("--hk-bg", c.bg);
         td.classList.toggle("cat", this.categorical.includes(column));
         td.classList.toggle("key", c.key);
       });
@@ -595,16 +689,28 @@ function mount(send: (input: HawkeyeInput) => void): (payload: HawkeyePayload) =
     const simple = pane.rows.map((i) => moves[i]);
     const minKeyNow = minKey(sort.column, pane.katago, sort);
     const toRows = (list: MoveEvaluation[], cells: (e: MoveEvaluation) => string[]) => list.map((e) => ({ e, cells: cells(e), pinned: false }));
-    black.setRows(toRows(sorted(simple.filter((e) => e.mover === "Black"), minKeyNow, sort, false), (e) => minCells(e, p)),
-      lookOf([2, pane.katago ? 3 : null]));
-    white.setRows(toRows(sorted(simple.filter((e) => e.mover === "White"), minKeyNow, sort, false), (e) => minCells(e, p)),
-      lookOf([2, pane.katago ? 3 : null]));
+    const markedRow = (rows: Row[]) => rows.findIndex((r) => !r.pinned && marked(r.e));
+    const blackRows = toRows(sorted(simple.filter((e) => e.mover === "Black"), minKeyNow, sort, false), (e) => minCells(e, p));
+    const whiteRows = toRows(sorted(simple.filter((e) => e.mover === "White"), minKeyNow, sort, false), (e) => minCells(e, p));
+    black.setRows(blackRows, lookOf([2, pane.katago ? 3 : null]), markedRow(blackRows));
+    white.setRows(whiteRows, lookOf([2, pane.katago ? 3 : null]), markedRow(whiteRows));
+    const detailKeyNow = detailKey(sort.column, pane.katago, sort);
     const detailRows = toRows(
-      sorted(pane.detail_rows.map((i) => moves[i]), detailKey(sort.column, pane.katago, sort), sort, sort.column === 0),
+      sorted(pane.detail_rows.map((i) => moves[i]), detailKeyNow, sort, sort.column === 0),
       (e) => detailCells(e, p),
     );
     if (pane.pinned !== null) detailRows.unshift({ e: moves[pane.pinned], cells: detailCells(moves[pane.pinned], p), pinned: true });
-    detail.setRows(detailRows, lookOf([3, pane.katago ? 4 : null]));
+    detail.setRows(detailRows, lookOf([3, pane.katago ? 4 : null]), markedRow(detailRows));
+    // The sorted header's direction as the rows read: a key orders larger first unless
+    // `sort.sorted`; 手数 and the 目数 columns order by a negated key; |Δ| and the colour order
+    // are neither direction.
+    const sortState = (keyed: boolean, threeState: boolean, negated: boolean): AriaSort =>
+      !keyed ? "none" : threeState && sort.origin ? "other" : sort.sorted !== negated ? "ascending" : "descending";
+    const c = sort.column;
+    const minState = sortState(!!minKeyNow, c === 2 || (pane.katago && c === 3), c === 0);
+    black.setSort(c, minState);
+    white.setSort(c, minState);
+    detail.setSort(c, c === 0 ? "other" : sortState(!!detailKeyNow, c === 3 || (pane.katago && c === 4), c === 1 || (pane.katago && (c === 7 || c === 8))));
 
     hideMove.replaceChildren(s.showList ? hideIcons.up : hideIcons.down);
     hideMove.setAttribute("aria-label", product(s.showList ? "hawkeyeHideLists" : "hawkeyeShowLists"));

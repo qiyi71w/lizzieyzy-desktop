@@ -550,10 +550,6 @@ body:has(> #dialog:not([hidden])) .engine-limit-notice {
   font-size: var(--ds-size-l);
   font-weight: 600;
 }
-.gtp-header > button {
-  font-size: var(--ds-size);
-  font-weight: 400;
-}
 .gtp-output {
   flex: 1;
   min-height: 60px;

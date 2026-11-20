@@ -9,7 +9,7 @@ import { COMMANDS } from "../commands";
 import { rankMarkLit, toggleCoordinates, toggleMoveNumbers, toggleMoveRank } from "../display/commands";
 import { toggleRawNet } from "../display/state";
 import "../editing/commands";
-import { product, t } from "../i18n";
+import { product, registerProduct, t } from "../i18n";
 import { openAutoSetup } from "../setup/dialog";
 import { openRemoteCompute } from "../cloud/center";
 import { toggleKataEstimate } from "../analysis/infoCommands";
@@ -18,17 +18,96 @@ import { toggleFrame } from "../analysis/tableCommands";
 import { AUTO_ANALYSIS_MENU } from "../quick/autoAnalysis";
 import { LIVE_MENU } from "../online/commands";
 import type { MenuNode } from "./javaMenus";
-import { locatePopupItem, openPopupMenu } from "./menubar";
+import { locatePopupItem, menuOpen, openPopupMenu } from "./menubar";
 import { bottomButtonShown, type BottomButton } from "./bottomButtons";
 import { icon, type IconName } from "../design/icons";
 
+registerProduct({
+  ZhCn: { stepFirstMove: "跳到第一手", stepLastMove: "跳到最后一手" },
+  ZhTw: { stepFirstMove: "跳到第一手", stepLastMove: "跳到最後一手" },
+  EnUs: { stepFirstMove: "Go to first move", stepLastMove: "Go to last move" },
+  JaJp: { stepFirstMove: "初手へ移動", stepLastMove: "最終手へ移動" },
+  KoKr: { stepFirstMove: "첫 수로 이동", stepLastMove: "마지막 수로 이동" },
+  ThTh: { stepFirstMove: "ไปตาแรก", stepLastMove: "ไปตาสุดท้าย" },
+});
+
+/** The controls a toolbar's arrows move between: its buttons and check boxes. Text and number
+ *  fields keep their own keys and Tab stops. */
+const TOOLBAR_ITEM = '[role="button"], input[type="checkbox"]';
+
+/** The WAI-ARIA toolbar keys on `bar`, named `name`. The bar is one Tab stop, on the item last
+ *  focused in it, else on its first enabled item. ←/→ move between the shown items and wrap,
+ *  Home/End go to the first/last; Enter/Space press the focused button as a click does (nothing
+ *  while it is aria-disabled), and a check box keeps Space. These keys stay in the bar; every other
+ *  key goes on to the workbench shortcuts. A press on an item does not focus it: the focus leaves a
+ *  field as it did on chrome that takes no focus, and an item that keeps the focus where it was
+ *  (its own mousedown preventDefault) keeps doing so. A press outside the bar takes the focus off
+ *  it, so a click on the board gives the arrows back to the moves. Returns the function that moves
+ *  the Tab stop off an item that was hidden or disabled; run it after items show, hide or change
+ *  state. */
+export function toolbarKeys(bar: HTMLElement, name: string): () => void {
+  bar.setAttribute("role", "toolbar");
+  bar.setAttribute("aria-label", name);
+  const all = () => [...bar.querySelectorAll<HTMLElement>(TOOLBAR_ITEM)];
+  const usable = (el: HTMLElement) => !(el instanceof HTMLInputElement && el.disabled) && el.getClientRects().length > 0;
+  let last: HTMLElement | null = null;
+  let stop: HTMLElement | null = null;
+  for (const el of all()) el.tabIndex = -1;
+  const settle = () => {
+    const next = last && usable(last) ? last : (all().find((el) => el.getAttribute("aria-disabled") !== "true" && usable(el)) ?? all().find(usable) ?? null);
+    if (next === stop) return;
+    if (stop) stop.tabIndex = -1;
+    stop = next;
+    if (stop) stop.tabIndex = 0;
+  };
+  bar.addEventListener("focusin", (e) => {
+    if (!(e.target as Element).matches(TOOLBAR_ITEM)) return;
+    last = e.target as HTMLElement;
+    settle();
+  });
+  bar.addEventListener("keydown", (e) => {
+    const el = e.target as HTMLElement;
+    if (!el.matches(TOOLBAR_ITEM) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || menuOpen()) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.stopPropagation();
+      if (el instanceof HTMLInputElement) return;
+      e.preventDefault();
+      if (el.getAttribute("aria-disabled") !== "true") el.click();
+      return;
+    }
+    const items = all().filter(usable);
+    const at = items.indexOf(el);
+    const to = e.key === "ArrowRight" ? at + 1 : e.key === "ArrowLeft" ? at - 1 : e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : null;
+    if (to === null || items.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    items[(to + items.length) % items.length].focus();
+  });
+  bar.addEventListener("mousedown", (e) => {
+    if (e.defaultPrevented || !(e.target as Element).closest(`${TOOLBAR_ITEM}, .tb-checklabel`)) return;
+    e.preventDefault();
+    const focus = document.activeElement;
+    if (focus instanceof HTMLElement && focus !== document.body) focus.blur();
+  });
+  // The board keeps the focus where it is on a press (its mousedown preventDefault): a toolbar
+  // item that has it lets it go first.
+  document.addEventListener("mousedown", (e) => {
+    const focus = document.activeElement;
+    if (focus instanceof HTMLElement && bar.contains(focus) && !bar.contains(e.target as Node)) focus.blur();
+  }, true);
+  settle();
+  return settle;
+}
+
 interface Item {
   name: string;
-  /** The label's resource key; for an `icon` button, Java's own glyph label, kept as its name. */
+  /** The label's resource key; for an `icon` button, Java's own glyph label. */
   key: string;
   cls?: string;
   /** Drawn in place of the label. */
   icon?: IconName;
+  /** An icon button's accessible name. */
+  label?: () => string;
   /** Its capsule: neighbouring buttons of one capsule adjoin as its segments. */
   cap: string;
   /** A display switch: lit while this holds. */
@@ -95,14 +174,14 @@ const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" 
     { name: "liveButton", key: "BottomToolbar.liveButton", cap: "sync", setting: "live", popup: LIVE_MENU },
   ],
   center: [
-    { name: "firstButton", key: "|<", cls: "nav", cap: "nav", icon: "step-first", run: () => navigate({ op: "First" }) },
-    { name: "backward10", key: "<<", cls: "nav", cap: "nav", icon: "step-back-ten", run: () => COMMANDS["review.previous-ten"].run() },
-    { name: "backward1", key: "<", cls: "nav", cap: "nav", icon: "step-back", run: () => COMMANDS["review.previous"].run() },
+    { name: "firstButton", key: "|<", cls: "nav", cap: "nav", icon: "step-first", label: () => product("stepFirstMove"), run: () => navigate({ op: "First" }) },
+    { name: "backward10", key: "<<", cls: "nav", cap: "nav", icon: "step-back-ten", label: () => t("Accessibility.previousTenMoves"), run: () => COMMANDS["review.previous-ten"].run() },
+    { name: "backward1", key: "<", cls: "nav", cap: "nav", icon: "step-back", label: () => t("Accessibility.previousMove"), run: () => COMMANDS["review.previous"].run() },
     { name: "txtMoveNumber", key: "", cap: "nav", located: "review.goto" },
     { name: "gotomove", key: "BottomToolbar.gotomove", cap: "nav", run: () => gotoMove(moveInput) },
-    { name: "forward1", key: ">", cls: "nav", cap: "nav", icon: "step-forward", run: () => COMMANDS["review.next"].run() },
-    { name: "forward10", key: ">>", cls: "nav", cap: "nav", icon: "step-forward-ten", run: () => COMMANDS["review.next-ten"].run() },
-    { name: "lastButton", key: ">|", cls: "nav", cap: "nav", icon: "step-last", run: () => navigate({ op: "Last" }) },
+    { name: "forward1", key: ">", cls: "nav", cap: "nav", icon: "step-forward", label: () => t("Accessibility.nextMove"), run: () => COMMANDS["review.next"].run() },
+    { name: "forward10", key: ">>", cls: "nav", cap: "nav", icon: "step-forward-ten", label: () => t("Accessibility.nextTenMoves"), run: () => COMMANDS["review.next-ten"].run() },
+    { name: "lastButton", key: ">|", cls: "nav", cap: "nav", icon: "step-last", label: () => product("stepLastMove"), run: () => navigate({ op: "Last" }) },
     // new AutoPlay().setVisible(true) (BottomToolbar.java:1296-1302)
     { name: "autoPlay", key: "BottomToolbar.autoPlay", cap: "nav", setting: "autoPlay", run: () => COMMANDS["menu.makeAutoPlay"].run() },
   ],
@@ -194,6 +273,8 @@ export function locateHiddenButton(id: string): boolean {
 
 const elements = new Map<Item, HTMLElement>();
 const widths = new Map<Item, number>();
+/** Moves the bar's Tab stop off a button that hid or was disabled (toolbarKeys). */
+let settleTabStop = () => {};
 
 /** The capsules laid under the runs of buttons, reused from layout to layout. */
 const capsules: HTMLElement[] = [];
@@ -245,6 +326,7 @@ export function buildBottomBar(host: HTMLElement): void {
     const b = document.createElement("span");
     b.className = `bb ${item.cls ?? ""}`;
     b.dataset.name = item.name;
+    b.setAttribute("role", "button");
     if (item.located) b.dataset.function = item.located;
     if (item.name === "analyse") {
       analyseIcon = icon("play");
@@ -252,7 +334,7 @@ export function buildBottomBar(host: HTMLElement): void {
       b.append(analyseIcon, analyseLabel);
       showAnalysis(false);
     } else if (item.icon) {
-      b.setAttribute("aria-label", item.key);
+      b.setAttribute("aria-label", item.label?.() ?? item.key);
       b.append(icon(item.icon));
     } else b.textContent = t(item.key);
     // batchOpen's autoAnalyzePopup (above the button) and liveButton's `yike` popup
@@ -260,15 +342,10 @@ export function buildBottomBar(host: HTMLElement): void {
     const popup = item.popup;
     if (popup) {
       b.dataset.key = item.name === "batchOpen" ? "autoAnalysis.popup" : "liveButton.popup";
-      b.setAttribute("role", "button"); b.tabIndex = 0;
       b.onclick = () => openPopupMenu(b, popup, true);
-      b.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); b.click(); } };
       elements.set(item, b); host.append(b); continue;
     }
-    if (item.name === "downloadWeightButton") {
-      b.dataset.key = "weights.download"; b.setAttribute("role", "button"); b.tabIndex = 0;
-      b.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); item.run?.(); } };
-    }
+    if (item.name === "downloadWeightButton") b.dataset.key = "weights.download";
     if (item.run) b.onclick = item.run;
     else {
       b.classList.add("unavailable");
@@ -279,6 +356,7 @@ export function buildBottomBar(host: HTMLElement): void {
     host.append(b);
   }
   measure(host);
+  settleTabStop = toolbarKeys(host, t("Menu.bottomToolBar"));
   let lastAnalysis = false;
   let lastTrying = false;
   const tryPlay = elements.get(GROUPS.rightPrimary.find((item) => item.name === "tryPlay")!)!;
@@ -300,7 +378,9 @@ export function buildBottomBar(host: HTMLElement): void {
       showAnalysis(analysing);
     }
     // enableDisabelForEngineGame: 分析 is off while an 引擎对战 batch runs.
-    analyse.classList.toggle("match-off", !!state.view?.engine_match);
+    const matchOff = !!state.view?.engine_match;
+    analyse.classList.toggle("match-off", matchOff);
+    analyse.setAttribute("aria-disabled", String(matchOff));
     // LizzieFrame.tryPlay / clearTryPlay: "恢复" while trying, "试下" otherwise.
     const trying = state.view?.editing.trying ?? false;
     if (trying !== lastTrying) {
@@ -321,6 +401,7 @@ export function buildBottomBar(host: HTMLElement): void {
       lastShown = shown;
       layoutBottomBar(host);
     }
+    settleTabStop();
   });
 }
 
@@ -422,4 +503,5 @@ export function layoutBottomBar(host: HTMLElement): void {
     cap.style.width = `${run.right - run.left}px`;
   });
   for (const cap of capsules.slice(runs.length)) cap.style.display = "none";
+  settleTabStop();
 }

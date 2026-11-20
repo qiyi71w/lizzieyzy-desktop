@@ -100,10 +100,11 @@ function cycleFocus(items: HTMLElement[], back: boolean) {
   next?.focus();
 }
 
-/** `dismissed` is the answer of Escape (JOptionPane.CLOSED_OPTION's role); Enter outside a button
- *  chooses the primary button, else the first. `buttons` come in Java's order, the affirmative one
- *  first; where the platform puts cancel first (DESIGN.md Buttons) the primary button moves to the
- *  end with the one Escape answers before it. */
+/** `dismissed` is the answer of Escape and of the title's close box (JOptionPane.CLOSED_OPTION's
+ *  role); Enter outside a button chooses the primary button, else the first, which also has the
+ *  focus. `buttons` come in Java's order, the affirmative one first; where the platform puts cancel
+ *  first (DESIGN.md Buttons) the primary button moves to the end with the one Escape answers
+ *  before it. */
 function show<T>(title: string, body: HTMLElement | string, buttons: Button<T>[], kind: "info" | "warning" | "error", dismissed: T): Promise<T> {
   const { promise, resolve } = Promise.withResolvers<T>();
   const previous = document.activeElement as HTMLElement | null;
@@ -145,17 +146,18 @@ function show<T>(title: string, body: HTMLElement | string, buttons: Button<T>[]
     if (e.key === "Escape") close(dismissed);
     if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) close((buttons.find((b) => b.primary) ?? buttons[0]).value);
     if (e.key === "Tab") {
-      // Focus cycles through the dialog's own controls.
+      // Focus cycles through the dialog's own controls; the close box is for the pointer.
       e.preventDefault();
-      cycleFocus([...box.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)")], e.shiftKey);
+      cycleFocus([...box.querySelectorAll<HTMLElement>("button:not(:disabled):not(.modal-close), input:not(:disabled)")], e.shiftKey);
     }
   });
+  head.append(closeBox(() => close(dismissed)));
   box.append(head, content, row);
   host().append(overlay);
   host().hidden = false;
   open++;
   setModal();
-  (row.querySelector("button.primary") as HTMLElement | null)?.focus();
+  (row.querySelector<HTMLElement>("button.primary") ?? row.querySelector<HTMLElement>("button"))?.focus();
   return promise;
 }
 
@@ -169,9 +171,10 @@ function setModal() {
   overlays.forEach((o, k) => (o.inert = k !== overlays.length - 1));
 }
 
-/** JOptionPane.showMessageDialog. */
+/** JOptionPane.showMessageDialog: it only informs, so its one button is a plain 关闭 (DESIGN.md
+ *  Buttons). */
 export function message(title: string, text: string, kind: "info" | "warning" | "error" = "info"): Promise<void> {
-  return show(title, text, [{ label: product("ok"), value: true, primary: true }], kind, false).then(() => undefined);
+  return show(title, text, [{ label: product("close"), value: true }], kind, false).then(() => undefined);
 }
 
 /** JOptionPane.showConfirmDialog with OK_CANCEL_OPTION. */
@@ -198,9 +201,9 @@ export function options(title: string, text: string, choices: [label: string, ke
   return show(title, text, choices.map(([label, key], value) => ({ label, key, value, primary: value === initial })), kind, -1);
 }
 
-/** A dialog with custom content and a close button (diagnostics). */
+/** A dialog with custom content that only shows something, closed with 关闭. */
 export function panel(title: string, body: HTMLElement): Promise<void> {
-  return show(title, body, [{ label: product("close"), value: true, primary: true }], "info", false).then(() => undefined);
+  return show(title, body, [{ label: product("close"), value: true }], "info", false).then(() => undefined);
 }
 
 /** The close box that ends a dialog's title row and closes it as Escape does (DESIGN.md Dialogs).
@@ -273,7 +276,12 @@ export function formPanel(title: string, body: HTMLElement, beforeClose: () => P
   host().hidden = false;
   open++;
   setModal();
-  (box.querySelector<HTMLElement>(".modal-title ~ * :is(input:not(:disabled), button:not(:disabled), select:not(:disabled))") ?? box).focus();
+  // The first control, or the chosen one of its radio group, as Tab into the group would give.
+  let first = box.querySelector<HTMLElement>(".modal-title ~ * :is(input:not(:disabled), button:not(:disabled), select:not(:disabled))");
+  if (first instanceof HTMLInputElement && first.type === "radio" && !first.checked && first.name) {
+    first = box.querySelector<HTMLElement>(`input[type="radio"][name="${CSS.escape(first.name)}"]:checked:not(:disabled)`) ?? first;
+  }
+  (first ?? box).focus();
   return { close, closed: done.promise, closeButton: x };
 }
 

@@ -48,16 +48,26 @@ importing the matching LizzieYzy Next settings.
   outer level move to the neighbouring menu, and `Esc` closes one level at a time, the focus
   going back where it was. A toolbar popup opened from the keyboard and the board's context
   menu take the same keys. Items that destroy record content (清空棋盘, 删除一手, 删除分支, 清空全部设置子)
-  are in red, like the bottom bar's.
+  are in red, like the bottom bar's. A menu taller than the room below it scrolls inside, and the
+  arrow keys keep the chosen item in view; a submenu that would cross the window's right edge
+  opens to the left, and one that would cross the bottom moves up, so every item is reachable
+  down to the smallest window (520 × 400).
+- The top and bottom toolbars are each one `Tab` stop: `Left`/`Right` and `Home`/`End` move along
+  the bar, `Enter` or `Space` presses the focused button (a disabled one, such as 暂停 outside a
+  game, does nothing), and the other keys still reach the shortcuts. The bottom bar's step
+  buttons are named after what they do (跳到第一手, 后退10手, …). A click on a toolbar button does
+  not take the focus, and a click on the board gives the arrow keys back to the moves.
 - Dialogs keep their title and button row in place while the content between them scrolls. The
   close box in a dialog's title is reached by mouse or `Esc`, not by `Tab`. A dialog whose changes
   wait for 确定 has 确定 and 取消 (its close box cancels); one that applies changes at once or only
   informs has just 关闭. `Enter` chooses the main button and `Esc` cancels or closes. The
   affirmative button comes first on Windows and last on macOS; on Linux GTK's
   `gtk-alternative-button-order` decides (off, as on GNOME, puts 取消 first; KDE turns it on),
-  and message boxes follow the same order. Unlike Java, 更多引擎 and 关于远程引擎 close with 关闭
-  (Java 退出 / 确定), and 远程引擎设置, 精析设置, 局部精析, 设置显示手数 and 跑谱贡献设置 have a 取消 that
-  discards the edits.
+  and message boxes follow the same order and have the close box too. Unlike Java, a message
+  that only informs closes with 关闭 (Java 确定), 更多引擎 and 关于远程引擎 close with 关闭 (Java
+  退出 / 确定), and 远程引擎设置, 精析设置, 局部精析, 设置显示手数 and 跑谱贡献设置 have a 取消 that
+  discards the edits. A dialog opens with the focus on its first control, or on the chosen
+  option when that control is a group of choices.
 - The main window's title shows the game in the middle and the current position's win rate,
   score lead and visits at its right end; hovering those values names each of them.
 - The board shows setup stones, moves, passes, captures, comments, SGF markup (TR/SQ/CR/MA/LB),
@@ -497,7 +507,9 @@ importing the matching LizzieYzy Next settings.
     the list or the board lengthens it), a second click or a right click clears it.
     独立选点列表 (`U`) opens it in its own window with 7 or 9 columns (sortable by header),
     列表 / 柱状图 / 当前手 / 鼠标悬停, 总计算量 / 最高计算量 / 集中度, 总在最前 (`Q`) and a
-    remembered position for each layout. It shows the side to move's values, as in Java.
+    remembered position for each layout. It shows the side to move's values, as in Java. Its
+    four switches at the foot are reached with `Tab` and toggled with `Space` (which then leaves
+    分析 alone); a click on one keeps the focus on the list.
   - Kata形势 (显示 > Kata形势显示, the bottom-bar button, `.` with 使用快捷键): KataGo is asked for
     the ownership while it is shown, drawn on the main board, the sub board, both or hidden, in
     the five square styles; 按选点显示评估 shows a hovered candidate's own ownership, 记忆评估显示状态
@@ -537,7 +549,8 @@ importing the matching LizzieYzy Next settings.
     removing captured stones in variations.
   - 设置自动播放 (`Ctrl+A`, bottom bar 自动播放): main board (one move every n seconds, or the
     best move), sub board (its variation one move every n ms) and branch replay on hover (with
-    the whole variation first for n seconds).
+    the whole variation first for n seconds). As in Java, the two best-move switches apply at once
+    (取消 does not undo them) and say so under their names; 确定 applies the rest.
   - 下一手 (`J`: 详细 → 简易 → 不显示): 详细 shows the record's next move with its result and a
     good / questionable / bad colour once both positions are analysed (minimum visits setting);
     hovering it shows that move followed by the next position's best variation.
@@ -655,7 +668,8 @@ importing the matching LizzieYzy Next settings.
     colours (添加 / 删除 / 重置) and 同时考虑胜率与目数. The edits apply with 保存设置 and are
     dropped by 取消. As in Java, 重置 saves the whole dialog with the default 错误节点 rules and
     reopens it, and 添加 (a new theme) and 删除 take effect at once and reopen the dialog,
-    dropping unsaved edits. Bundled themes are read-only: deleting one hides it, and edits are
+    dropping unsaved edits on the other pages; the 当前主题 row and 删除's confirmation say so
+    first, and 删除 is in red. Bundled themes are read-only: deleting one hides it, and edits are
     kept as the user's copy.
   - 显示 > 外观主题: 棋盘风格 日式 / 中式经典 (corner markers instead of star points, Chinese
     numerals counted from the nearer edge as coordinates) and a custom board image (scaled to
@@ -1253,6 +1267,9 @@ importing the matching LizzieYzy Next settings.
   tab-separated file named `.xls`, as Java writes it). `Q` keeps the window on top. The page and
   chart tabs, the filters and the 统计 range (radio buttons) are reached with `Tab`; in a tab row
   `Left`/`Right`, `Home`/`End` choose the tab, and `Y`/`Q` work everywhere except in a text field.
+  Each list's header row and body are a `Tab` stop each: in the header `Left`/`Right` choose a
+  column and `Enter`/`Space` sort by it (the sorted column is announced); in the body `Up`/`Down`,
+  `Home`/`End` move the selected row and `Enter`/`Space` go to its move, as a click does.
   双引擎模式
   opens a second window on the secondary engine's analysis. The open state, page, chart, filters,
   range, the primary window's bounds, sort and column widths are remembered; the window reopens
@@ -1268,7 +1285,8 @@ importing the matching LizzieYzy Next settings.
 - Rules: an SGF record's `RU` is applied to KataGo (`kata-set-rules`) before analysis. When the
   engine cannot confirm it, a dialog asks whether to continue with the engine's current rules
   (no pauses analysis). `Shift+D` opens the KataGo rules editor.
-- GTP console (`E`) shows the engine traffic and sends commands. Like Java, `komi <v>` sets the
+- GTP console (`E`) shows the engine traffic and sends commands; its title's close box or `Esc`
+  (from any of its controls) hides it without stopping the engine. Like Java, `komi <v>` sets the
   game komi and `undo` steps back in the record; other commands that would change the engine's
   board (`play`, `clear_board`, `place_free_handicap`, …) are refused because the record owns the
   position. 完整日志 with the 引擎/GTP scope writes the GTP traffic to `logs/engine-trace.log`. With 控制台隐藏时仍记录

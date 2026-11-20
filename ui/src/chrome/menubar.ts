@@ -156,20 +156,38 @@ const rowNodes = new WeakMap<Element, MenuNode>();
  *  清空棋盘 / 删除. */
 const DANGER = new Set(["menu.clearBoard", "menu.delete", "menu.deleteBranch", "menu.setupClearAll", "bottombar.more.clearButton", "bottombar.more.deleteMove"]);
 
-/** Shows a submenu's dropdown beside its row, closing the row's open siblings first. */
+/** The gap a dropdown keeps from the window's edges. */
+const EDGE = 4;
+
+/** A submenu dropdown that is showing. */
+const OPEN_SUB = ":scope > .mi > .dropdown:not(.empty)";
+
+/** Puts an open submenu beside its row: to the right, or to the left of its menu when the right
+ *  edge would cut it, moved up as far as the bottom edge needs. Its own open submenu follows. */
+function placeSub(sub: HTMLElement): void {
+  const row = (sub.parentElement as HTMLElement).getBoundingClientRect();
+  const width = sub.offsetWidth;
+  const left = row.right + width > window.innerWidth - EDGE ? row.left - width : row.right;
+  sub.style.left = `${Math.max(0, left)}px`;
+  sub.style.top = `${Math.max(EDGE, Math.min(row.top - 4, window.innerHeight - EDGE - sub.offsetHeight))}px`;
+  const inner = sub.querySelector<HTMLElement>(OPEN_SUB);
+  if (inner) placeSub(inner);
+}
+
+/** Shows a submenu's dropdown beside its row, closing the row's open siblings first; one taller
+ *  than the window scrolls inside. */
 function expand(row: HTMLElement, list: HTMLElement, children: MenuNode[]): HTMLElement {
   list.querySelectorAll(":scope > .mi > .dropdown").forEach((d) => d.remove());
   const sub = dropdown(children);
   if (sub.childElementCount === 0) sub.classList.add("empty");
+  sub.style.maxHeight = `${window.innerHeight - 2 * EDGE}px`;
   row.append(sub);
+  if (sub.childElementCount > 0) placeSub(sub);
   return sub;
 }
 
 /** Opens a submenu row's dropdown, as hovering the row does. */
 const subOpeners = new WeakMap<HTMLElement, () => HTMLElement>();
-
-/** A submenu dropdown that is showing. */
-const OPEN_SUB = ":scope > .mi > .dropdown:not(.empty)";
 
 /** The rows the arrow keys stop on: a dropdown's enabled items, in order. */
 function enabledRows(list: HTMLElement): HTMLElement[] {
@@ -189,9 +207,17 @@ function setActiveRow(list: HTMLElement, row: HTMLElement, focus: boolean): void
   if (focus) row.focus({ preventScroll: true });
 }
 
+/** Scrolls a dropdown that scrolls inside just enough to show `row` whole; the page stays put. */
+function reveal(list: HTMLElement, row: HTMLElement): void {
+  if (row.offsetTop < list.scrollTop) list.scrollTop = row.offsetTop - 4;
+  else if (row.offsetTop + row.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = row.offsetTop + row.offsetHeight - list.clientHeight + 4;
+}
+
 function activateFirst(list: HTMLElement): void {
   const first = enabledRows(list)[0];
-  if (first) setActiveRow(list, first, true);
+  if (!first) return;
+  setActiveRow(list, first, true);
+  reveal(list, first);
 }
 
 /** Roles, focusability and the shared active row of one dropdown: the menu bar's menus, the
@@ -249,10 +275,13 @@ export function menuKey(e: KeyboardEvent, root: HTMLElement, close: () => void, 
     const owner = path[level].parentElement as HTMLElement;
     path[level].remove();
     setActiveRow(path[level - 1], owner, true);
+    reveal(path[level - 1], owner);
   };
   const move = (next: HTMLElement | undefined) => {
     list.querySelectorAll(":scope > .mi > .dropdown").forEach((d) => d.remove());
-    if (next) setActiveRow(list, next, true);
+    if (!next) return;
+    setActiveRow(list, next, true);
+    reveal(list, next);
   };
   const openSub = (owner: HTMLElement) => {
     const open = subOpeners.get(owner);
@@ -308,6 +337,11 @@ export function menuKey(e: KeyboardEvent, root: HTMLElement, close: () => void, 
 function dropdown(items: MenuNode[]): HTMLElement {
   const list = document.createElement("div");
   list.className = "dropdown";
+  // An open submenu stays beside its row while this level scrolls.
+  list.addEventListener("scroll", () => {
+    const sub = list.querySelector<HTMLElement>(OPEN_SUB);
+    if (sub) placeSub(sub);
+  });
   for (const node of items) {
     if (node.t === "sep") {
       if (list.lastElementChild && !list.lastElementChild.classList.contains("sep")) {
@@ -525,12 +559,21 @@ export function buildMenubar(host: HTMLElement): void {
       top.classList.add("open");
       top.setAttribute("aria-expanded", "true");
       top.append(list);
+      // Below the title down to the window's bottom edge, scrolling inside when longer; moved left
+      // rather than cross the right edge.
+      list.style.maxHeight = `${window.innerHeight - EDGE - list.getBoundingClientRect().top}px`;
+      const box = list.getBoundingClientRect();
+      const over = box.right - (window.innerWidth - EDGE);
+      if (over > 0) list.style.left = `${-Math.min(over, box.left)}px`;
       if (keyboard) activateFirst(list);
     };
     tops.set(menu, { top, open });
     top.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      if (openMenu === top && !(e.target as HTMLElement).closest(".dropdown")) closeMenus();
+      const target = e.target as HTMLElement;
+      // A press on a dropdown's own box (its scrollbar or padding) keeps its default, so the
+      // scrollbar drags.
+      if (!target.classList.contains("dropdown")) e.preventDefault();
+      if (openMenu === top && !target.closest(".dropdown")) closeMenus();
       else if (openMenu !== top) open();
     });
     top.addEventListener("mouseenter", () => {
@@ -647,6 +690,7 @@ export function locateMenuItem(id: string): boolean {
     if (!row) return false;
     if (depth < path.nodes.length - 1) {
       setActiveRow(list, row, false);
+      reveal(list, row);
       list = expand(row, list, node.t === "sep" ? [] : (node.items ?? []));
     }
   }
@@ -673,7 +717,7 @@ export function locatePopupItem(anchor: HTMLElement, items: MenuNode[], id: stri
 function selectLocated(row: HTMLElement): void {
   row.classList.add("located-item");
   setActiveRow(row.parentElement as HTMLElement, row, false);
-  row.scrollIntoView({ block: "nearest", inline: "nearest" });
+  reveal(row.parentElement as HTMLElement, row);
   row.focus({ preventScroll: true });
   highlight(row);
 }

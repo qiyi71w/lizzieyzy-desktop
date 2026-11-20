@@ -104,6 +104,19 @@ body {
   position: absolute;
   overflow-x: hidden;
   overflow-y: auto;
+  /* A row scrolled into view clears the sticky header. */
+  scroll-padding-top: calc(max(calc(var(--hk-row, 20px) - 2px), 24px) + 1px);
+}
+/* The focused body rings the list; a focused header rings itself. */
+.hk-scroll:has(> table > tbody:focus-visible) {
+  outline: 2px solid var(--ds-ring);
+  outline-offset: -2px;
+}
+.hk-scroll tbody:focus-visible {
+  outline: none;
+}
+.hk-scroll th:focus-visible {
+  outline-offset: -2px;
 }
 /* 简易列表: the white list beside the black one */
 .hk-scroll + .hk-scroll {
@@ -139,6 +152,9 @@ body {
 }
 .hk-scroll td {
   height: max(calc(var(--hk-row, 20px) - 4px), 22px);
+  /* window.ts sets each cell's text and ground (empty: the table's own). */
+  color: var(--hk-fg);
+  background-color: var(--hk-bg);
 }
 /* Colour and coordinate columns read as words: left-aligned. */
 .hk-scroll .cat {
@@ -150,6 +166,14 @@ body {
 }
 .hk-scroll tbody tr:hover td {
   background-image: linear-gradient(var(--ds-hover), var(--ds-hover));
+}
+/* The keyboard's row in the focused list, drawn as the selection; the change columns keep their
+   class colour. */
+.hk-scroll tbody:focus tr.selected td {
+  background-color: var(--ds-accent-soft);
+}
+.hk-scroll tbody:focus tr.selected td:not(.key) {
+  color: var(--ds-accent-text);
 }
 
 /* ---- the filter bar between the lists and the charts: one row, more where a language's labels

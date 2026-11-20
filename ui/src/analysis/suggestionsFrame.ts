@@ -182,9 +182,14 @@ export function bootFrame(): void {
     const label = document.createElement("label");
     const input = document.createElement("input");
     input.type = "checkbox";
-    // setFocusable(false): the table keeps the keys.
-    input.tabIndex = -1;
-    input.addEventListener("mousedown", (ev) => ev.preventDefault());
+    // Tab reaches the boxes; a mouse press on a box or its name leaves the focus where it was, so
+    // the window's keys (Space, the arrows) keep acting on the list after a click.
+    label.addEventListener("mousedown", (ev) => ev.preventDefault());
+    // Space on a focused box turns that box only (its click below), not 分析 as well.
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === " ") ev.stopPropagation();
+    });
+    // The main window turns the setting and sends the box's state back.
     input.addEventListener("click", (ev) => {
       ev.preventDefault();
       send({ type: "box", key });

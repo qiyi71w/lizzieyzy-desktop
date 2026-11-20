@@ -16,11 +16,20 @@ import { setDisplay } from "../commands";
 import { formPanel } from "../dialogs";
 import { button, footer, primaryButton, row, switchBox, switchRow } from "../engine/controls";
 import type { DisplaySettings } from "../contract/generated";
-import { product, t } from "../i18n";
+import { product, registerProduct, t } from "../i18n";
 import { edit } from "../editing/state";
 import { javaDouble } from "../workbench/paint";
 import type { ReplayTarget } from "./replay";
 import "./dialogs.css";
+
+registerProduct({
+  ZhCn: { autoplayAppliesNow: "立即生效，取消不会撤回" },
+  ZhTw: { autoplayAppliesNow: "立即生效，取消不會撤回" },
+  EnUs: { autoplayAppliesNow: "Applies at once; Cancel does not undo it" },
+  JaJp: { autoplayAppliesNow: "すぐに反映され、キャンセルでは元に戻りません" },
+  KoKr: { autoplayAppliesNow: "바로 적용되며 취소해도 되돌려지지 않습니다" },
+  ThTh: { autoplayAppliesNow: "มีผลทันที การยกเลิกจะไม่ย้อนกลับ" },
+});
 
 interface AutoplayHost {
   /** The main board's hovered variation, as BoardRenderer.replayTarget. */
@@ -314,9 +323,10 @@ function intervalText(v: number): string {
 }
 
 /** 设置自动播放 (AutoPlay.java): a group per player, its interval field and switch, the main
- *  board's best-move options and 先显示整个变化图 under their player. 确定 applies the rest: the
- *  intervals and options are saved, the main and sub board players start or stop with their
- *  switches and the branch replay follows its setting; 取消 leaves them. */
+ *  board's best-move options and 先显示整个变化图 under their player. The two best-move options
+ *  apply at once and say so under their names; 确定 applies the rest: the intervals and options
+ *  are saved, the main and sub board players start or stop with their switches and the branch
+ *  replay follows its setting; 取消 leaves them. */
 export function openAutoPlayDialog(): void {
   const s = state.view?.settings.display;
   if (!s) return;
@@ -325,8 +335,8 @@ export function openAutoPlayDialog(): void {
   const mainGroup = group(body);
   const { box: mainCheck, field: mainField } = timed(mainGroup, t("AutoPlay.chkAutoPlayMainbord"), main.running, intervalText(s.autoplayMainSeconds));
   // AutoPlay.java:119-135 filled this box from continue-with-best-move; it shows its own setting.
-  const directly = switchRow(mainGroup, t("AutoPlay.chkDirectlyWithBestMove"), "", s.directlyWithBestMove).input;
-  const continueBest = switchRow(mainGroup, t("AutoPlay.chkContinueWithBestMove"), "", s.continueWithBestMove).input;
+  const directly = switchRow(mainGroup, t("AutoPlay.chkDirectlyWithBestMove"), product("autoplayAppliesNow"), s.directlyWithBestMove).input;
+  const continueBest = switchRow(mainGroup, t("AutoPlay.chkContinueWithBestMove"), product("autoplayAppliesNow"), s.continueWithBestMove).input;
   const { box: subCheck, field: subField } = timed(group(body), t("AutoPlay.chkAutoPlaySubbord"), sub.running, intervalText(s.autoplaySubMillis));
   const branchGroup = group(body);
   const { box: branchCheck, field: branchField } = timed(branchGroup, t("AutoPlay.chkAutoPlayBranch"), s.autoReplayBranch, String(Math.trunc(s.replayIntervalSeconds * 1000)));

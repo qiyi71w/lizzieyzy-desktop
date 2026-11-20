@@ -70,6 +70,17 @@ registerProduct({
   ThTh: { themeFieldColor: "{0}: สี", themeFieldOpacity: "{0}: ความทึบ", themeFieldShowShadow: "แสดงเงาหิน" },
 });
 
+/** 新增 and 删除 reopen the settings (Java's setVisible(false) + openConfigDialog2), dropping the
+ *  other pages' unsaved edits: the row and the delete confirmation say so before it happens. */
+registerProduct({
+  ZhCn: { themeManageSub: "{0}。新增或删除会立即执行，其他设置页未保存的修改会被放弃", themeDeleteDiscards: "删除会立即执行，其他设置页未保存的修改会被放弃。" },
+  ZhTw: { themeManageSub: "{0}。新增或刪除會立即執行，其他設定頁未儲存的修改會被捨棄", themeDeleteDiscards: "刪除會立即執行，其他設定頁未儲存的修改會被捨棄。" },
+  EnUs: { themeManageSub: "{0}. New and Delete take effect at once and discard unsaved changes on the other pages", themeDeleteDiscards: "Deleting takes effect at once and discards unsaved changes on the other settings pages." },
+  JaJp: { themeManageSub: "{0}。新規と削除はすぐに実行され、他のページの未保存の変更は破棄されます", themeDeleteDiscards: "削除はすぐに実行され、他の設定ページの未保存の変更は破棄されます。" },
+  KoKr: { themeManageSub: "{0}. 신규생성과 삭제는 바로 실행되며 다른 페이지의 저장하지 않은 변경은 버려집니다", themeDeleteDiscards: "삭제는 바로 실행되며 다른 설정 페이지의 저장하지 않은 변경은 버려집니다." },
+  ThTh: { themeManageSub: "{0} การสร้างใหม่และการลบมีผลทันที และจะทิ้งการเปลี่ยนแปลงที่ยังไม่บันทึกในหน้าอื่น", themeDeleteDiscards: "การลบมีผลทันที และจะทิ้งการเปลี่ยนแปลงที่ยังไม่บันทึกในหน้าตั้งค่าอื่น" },
+});
+
 /** readDefaultTheme's fixed image paths: the default theme's images are not editable (6313-6324). */
 const DEFAULT_PATHS = { background: "/assets/background.jpg", board: "/assets/board.png", black: "/assets/black0.png", white: "/assets/white0.png" };
 
@@ -393,10 +404,10 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   const add = el("button", undefined, t("ConfigDialog2.addTheme"));
   add.type = "button";
   add.dataset.key = "ConfigDialog2.addTheme";
-  const remove = el("button", undefined, t("ConfigDialog2.deleteTheme"));
+  const remove = el("button", "danger", t("ConfigDialog2.deleteTheme"));
   remove.type = "button";
   remove.dataset.key = "ConfigDialog2.deleteTheme";
-  row(profile, "config.theme.current", t("ConfigDialog2.modern.theme.current"), t("ConfigDialog2.modern.theme.currentSub"), themes, add, remove);
+  row(profile, "config.theme.current", t("ConfigDialog2.modern.theme.current"), product("themeManageSub", t("ConfigDialog2.modern.theme.currentSub")), themes, add, remove);
   const preview = el("canvas", "appearance-preview");
   preview.style.width = `${PREVIEW_W}px`;
   preview.style.height = `${PREVIEW_H}px`;
@@ -792,7 +803,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   // (4424-4425): the committed theme, or 默认 when it was the one deleted.
   remove.onclick = async () => {
     if (selected === DEFAULT_THEME) return;
-    if (!(await confirm(t("LizzieFrame.warning"), `${t("ConfigDialog2.deleteThemeWarning")}'${selected}' ?`))) return;
+    if (!(await confirm(t("LizzieFrame.warning"), `${t("ConfigDialog2.deleteThemeWarning")}'${selected}' ?\n${product("themeDeleteDiscards")}`))) return;
     const result = await run({ type: "DeleteTheme", name: selected });
     if (result && result.type !== "Refused") await dialog.reopen("theme");
   };

@@ -626,6 +626,10 @@ body {
 .bb:active {
   background-color: var(--ds-pressed);
 }
+/* Segments touch: the keyboard ring sits inside the one that has the focus. */
+.bb:focus-visible {
+  outline-offset: -2px;
+}
 /* A display switch that is on */
 .bb.on {
   background-color: var(--ds-accent-soft);
@@ -688,7 +692,8 @@ body {
   pointer-events: none;
 }
 
-/* ---- menus: the bar's dropdowns, their submenus and the popups under toolbar buttons */
+/* ---- menus: the bar's dropdowns, their submenus and the popups under toolbar buttons. A dropdown
+   taller than its room scrolls inside (menubar.ts sets max-height). */
 .dropdown {
   position: absolute;
   left: 0;
@@ -696,6 +701,8 @@ body {
   z-index: 20;
   min-width: 168px;
   padding: 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
   border-radius: var(--ds-radius-menu);
   background: var(--ds-raised);
   box-shadow: var(--ds-shadow-pop);
@@ -708,9 +715,12 @@ body {
 .dropdown.empty {
   display: none;
 }
+/* A submenu sits in the window, outside its menu's scrolling box; menubar.ts placeSub puts it
+   beside its row. */
 .dropdown .dropdown {
-  left: 100%;
-  top: -4px;
+  position: fixed;
+  left: 0;
+  top: 0;
 }
 .mi {
   position: relative;
