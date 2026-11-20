@@ -7,7 +7,8 @@
 Both are 512 x 512 tiles that repeat without a seam. The weave comes from one photograph, Poly
 Haven's `rough_linen` diffuse map (CC0, by colormass and Rico Cilliers), which itself tiles: its
 lighting is flattened and only its fine detail is kept, as lighter and darker shades of one colour.
-The same source and Pillow build reproduce the committed files. Needs Pillow.
+The same source and Pillow build reproduce the committed files' pixels; the committed files also
+carry a JPEG comment naming this origin (`impeccable embed-prompt`). Needs Pillow.
 
     python3 tools/stage_wallpapers.py [rough_linen_diff_1k.jpg]
 
