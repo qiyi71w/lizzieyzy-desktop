@@ -1,7 +1,8 @@
 /* 棋局信息 and 设置棋盘大小: grouped rows; the frame, the rows and the footer are
    design/dialog.css. */
 
-/* 棋局信息: 黑 and 白 beside their stones, the names' fields wide enough for a full name. */
+/* 棋局信息: 黑 and 白 beside their stones, the names' fields as wide as a full name where the row
+   has the room, and as wide as the row leaves after the name where it has not. */
 .game-info {
   width: min(440px, 90vw);
 }
@@ -14,8 +15,12 @@
   width: 14px;
   height: 14px;
 }
+.game-info .ds-row-control:has(> input:not([inputmode])) {
+  min-width: 0;
+}
 .game-info .ds-row-control > input:not([inputmode]) {
   width: calc(var(--ds-size) * 18);
+  min-width: 0;
 }
 .game-info input:read-only {
   background-color: var(--ds-sunken);

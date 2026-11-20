@@ -127,7 +127,11 @@ export function bootTencentKifu(): void {
   afterLabel.htmlFor = after.id;
   const afterOptions = AFTER_GET.map(() => el("option"));
   after.append(...afterOptions);
-  searchRow.append(queryLabel, query, searchButton, hint, afterLabel, after);
+  const searchPair = el("span", "fk-pair");
+  searchPair.append(queryLabel, query, searchButton);
+  const afterPair = el("span", "fk-pair");
+  afterPair.append(afterLabel, after);
+  searchRow.append(searchPair, hint, afterPair);
   const currentUser = el("div", "fk-current");
   const recentRow = el("div", "fk-recent");
   const recentLabel = el("span", "fk-recent-label");

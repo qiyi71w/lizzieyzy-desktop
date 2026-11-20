@@ -155,7 +155,11 @@ export function bootFoxKifu(): void {
   afterLabel.htmlFor = after.id;
   const afterOptions = AFTER_GET.map(() => el("option"));
   after.append(...afterOptions);
-  searchRow.append(accountLabel, mode, account, searchButton, afterLabel, after);
+  const searchPair = el("span", "fk-pair");
+  searchPair.append(accountLabel, mode, account, searchButton);
+  const afterPair = el("span", "fk-pair");
+  afterPair.append(afterLabel, after);
+  searchRow.append(searchPair, afterPair);
   const currentUser = el("div", "fk-current");
   const recentRow = el("div", "fk-recent");
   const recentLabel = el("span", "fk-recent-label");

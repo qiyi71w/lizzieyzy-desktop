@@ -40,12 +40,12 @@ interface Target {
 }
 
 registerProduct({
-  ZhCn: { hawkeyeHideChart: "隐藏图表", hawkeyeShowChart: "显示图表" },
-  ZhTw: { hawkeyeHideChart: "隱藏圖表", hawkeyeShowChart: "顯示圖表" },
-  EnUs: { hawkeyeHideChart: "Hide chart", hawkeyeShowChart: "Show chart" },
-  JaJp: { hawkeyeHideChart: "グラフを隠す", hawkeyeShowChart: "グラフを表示" },
-  KoKr: { hawkeyeHideChart: "차트 숨기기", hawkeyeShowChart: "차트 표시" },
-  ThTh: { hawkeyeHideChart: "ซ่อนกราฟ", hawkeyeShowChart: "แสดงกราฟ" },
+  ZhCn: { hawkeyeHideChart: "隐藏图表", hawkeyeShowChart: "显示图表", hawkeyeMoves: "手", hawkeyeNoSamples: "0手，尚无可计算的样本" },
+  ZhTw: { hawkeyeHideChart: "隱藏圖表", hawkeyeShowChart: "顯示圖表", hawkeyeMoves: "手", hawkeyeNoSamples: "0手，尚無可計算的樣本" },
+  EnUs: { hawkeyeHideChart: "Hide chart", hawkeyeShowChart: "Show chart", hawkeyeMoves: " moves", hawkeyeNoSamples: " 0 moves, nothing to compute yet" },
+  JaJp: { hawkeyeHideChart: "グラフを隠す", hawkeyeShowChart: "グラフを表示", hawkeyeMoves: "手", hawkeyeNoSamples: "0手、まだ計算できるサンプルがありません" },
+  KoKr: { hawkeyeHideChart: "차트 숨기기", hawkeyeShowChart: "차트 표시", hawkeyeMoves: " 수", hawkeyeNoSamples: " 0 수, 아직 계산할 표본이 없습니다" },
+  ThTh: { hawkeyeHideChart: "ซ่อนกราฟ", hawkeyeShowChart: "แสดงกราฟ", hawkeyeMoves: " ตา", hawkeyeNoSamples: " 0 ตา ยังไม่มีตัวอย่างให้คำนวณ" },
 });
 
 /** Tab buttons as a tablist (this window's page, chart and loss tabs): the selected tab is the
@@ -1005,36 +1005,42 @@ function drawMin(g: G, p: HawkeyePayload, w: number, h: number): void {
     [0, 1].forEach((side) => {
       const sp = spreads[side];
       const head = side === 0 ? t("Movelistframe.blackAnalyzed") : t("Movelistframe.whiteAnalyzed");
+      // A band or side without moves has no average to show: its count and nothing more.
       const band = (b: { count: number; sum: number; squares: number }, range: number) =>
         t("Movelistframe.above") +
         range +
         (score ? t("Movelistframe.scorePoints") : "%：") +
         b.count +
-        t("Movelistframe.movedAndAverage") +
-        fixed(b.sum / b.count, 2) +
-        (score ? t("Movelistframe.stdev") : t("Movelistframe.percentAndStdev")) +
-        fixed(b.squares / b.count, 1) +
+        (b.count > 0
+          ? t("Movelistframe.movedAndAverage") +
+            fixed(b.sum / b.count, 2) +
+            (score ? t("Movelistframe.stdev") : t("Movelistframe.percentAndStdev")) +
+            fixed(b.squares / b.count, 1)
+          : product("hawkeyeMoves")) +
         t("Movelistframe.rightBrackets");
       sentence(
-        head +
-          sp.analyzed +
-          t("Movelistframe.movedAndAverage") +
-          fixed(sp.sum / sp.analyzed, 2) +
-          (score ? t("Movelistframe.scoreAndStdev") : t("Movelistframe.percentAndStdev")) +
-          fixed(sp.squares / sp.analyzed, 1) +
-          band(sp.above1, r1) +
-          band(sp.above2, r2),
+        sp.analyzed > 0
+          ? head +
+              sp.analyzed +
+              t("Movelistframe.movedAndAverage") +
+              fixed(sp.sum / sp.analyzed, 2) +
+              (score ? t("Movelistframe.scoreAndStdev") : t("Movelistframe.percentAndStdev")) +
+              fixed(sp.squares / sp.analyzed, 1) +
+              band(sp.above1, r1) +
+              band(sp.above2, r2)
+          : head + product("hawkeyeNoSamples"),
         5,
         side,
       );
     });
   } else if (chart === 0) {
+    // A figure without samples shows "—", not Java's NaN or its 0/1 percentage.
     const sides = pane.sides.map((sd, side): Figure[] => {
-      const percent = fixed(Math.fround(Math.fround(sd.matched / (sd.match_analyzed > 0 ? sd.match_analyzed : 1)) * 100), 1) + "%";
+      const percent = sd.match_analyzed > 0 ? fixed(Math.fround(Math.fround(sd.matched / sd.match_analyzed) * 100), 1) + "%" : "—";
       return [
         [term(side === 0 ? "Movelistframe.blackMatch" : "Movelistframe.whiteMatch"), `${sd.matched}/${sd.match_analyzed} ${percent}`],
-        [term("Movelistframe.AIscore"), fixed((sd.share_sum * 100) / sd.match_analyzed, 2)],
-        [term("Movelistframe.avgDifference"), `${fixed(sd.winrate_loss_sum / sd.analyzed, 2)}% / ${fixed(sd.score_loss_sum / sd.analyzed, 2)}`],
+        [term("Movelistframe.AIscore"), sd.match_analyzed > 0 ? fixed((sd.share_sum * 100) / sd.match_analyzed, 2) : "—"],
+        [term("Movelistframe.avgDifference"), sd.analyzed > 0 ? `${fixed(sd.winrate_loss_sum / sd.analyzed, 2)}% / ${fixed(sd.score_loss_sum / sd.analyzed, 2)}` : "—"],
       ];
     });
     const analyzedMatch = pane.sides[0].match_analyzed + pane.sides[1].match_analyzed;
@@ -1058,7 +1064,10 @@ function drawMin(g: G, p: HawkeyePayload, w: number, h: number): void {
     // Chinese counts the match-analysed moves, English the loss-analysed ones (MoveListFrame.java:2830-2872)
     const counted = p.chinese ? b.match_analyzed + wt.match_analyzed : b.analyzed + wt.analyzed;
     summary(
-      [[[term("Movelistframe.blackAIScore"), fixed((b.share_sum * 100) / b.match_analyzed, 2)]], [[term("Movelistframe.whiteAIScore"), fixed((wt.share_sum * 100) / wt.match_analyzed, 2)]]],
+      [
+        [[term("Movelistframe.blackAIScore"), b.match_analyzed > 0 ? fixed((b.share_sum * 100) / b.match_analyzed, 2) : "—"]],
+        [[term("Movelistframe.whiteAIScore"), wt.match_analyzed > 0 ? fixed((wt.share_sum * 100) / wt.match_analyzed, 2) : "—"]],
+      ],
       [
         [term("Movelistframe.allmoves"), String(pane.total_moves)],
         [term("Movelistframe.analyzed"), String(counted)],
@@ -1078,15 +1087,18 @@ function drawMin(g: G, p: HawkeyePayload, w: number, h: number): void {
   } else if (chart === 4) {
     [0, 1].forEach((side) => {
       const st = pane.stages[side];
-      const win = (a: number, sum: number) => (a > 0 ? fixed(sum / a, 1) : "0");
+      // Moves without analysis have no average loss: "—" without the "%" ("胜率— s核心—"), not
+      // Java's 0 (no loss). Every language's percentAndScore starts with that "%".
       const sum = (f: (x: HawkeyeStage) => number) => f(st[0]) + f(st[1]) + f(st[2]);
-      const stage = (x: HawkeyeStage) => win(x.analyzed, x.winrate_loss_sum) + t("Movelistframe.percentAndScore") + win(x.analyzed, x.score_loss_sum);
+      const losses = (analyzed: number, winrate: number, score: number) =>
+        analyzed > 0
+          ? fixed(winrate / analyzed, 1) + t("Movelistframe.percentAndScore") + fixed(score / analyzed, 1)
+          : "—" + t("Movelistframe.percentAndScore").slice(1) + "—";
+      const stage = (x: HawkeyeStage) => losses(x.analyzed, x.winrate_loss_sum, x.score_loss_sum);
       sentence(
         (side === 0 ? t("Movelistframe.blackDifference") : t("Movelistframe.whiteDifference")) +
           t("Movelistframe.allWinrate") +
-          win(sum((x) => x.analyzed), sum((x) => x.winrate_loss_sum)) +
-          t("Movelistframe.percentAndScore") +
-          win(sum((x) => x.analyzed), sum((x) => x.score_loss_sum)) +
+          losses(sum((x) => x.analyzed), sum((x) => x.winrate_loss_sum), sum((x) => x.score_loss_sum)) +
           t("Movelistframe.openAndWinrate") +
           stage(st[0]) +
           t("Movelistframe.middleAndWinrate") +

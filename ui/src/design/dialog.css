@@ -132,6 +132,8 @@
   bottom: 0;
   z-index: 1;
   justify-content: flex-end;
+  /* Across the body's padding to both edges, past .modal-body's max-width. */
+  max-width: none;
   margin: 16px -20px 0;
   padding: 12px 20px;
   border-top: 1px solid var(--ds-line);

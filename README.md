@@ -1263,7 +1263,11 @@ importing the matching LizzieYzy Next settings.
   主干 only main-trunk moves can be chosen; during 自动分析 row clicks are ignored as in Java, chart
   clicks are not. A click on one record that arrives after another record opened is ignored. A value the stored
   analysis does not have (for example the score of a position analysed by Leela Zero) is an empty cell rather
-  than Java's 0. Right-click a list for 导出为xls (a UTF-16
+  than Java's 0. A figure under the charts with no move to average (for example before any move
+  is analysed) reads "—", or "已分析0手，尚无可计算的样本" for a side's whole sentence, where Java printed
+  NaN, or 0 for a stage's loss. 关于吻合度's formula image carries the same formula as text for
+  screen readers.
+  Right-click a list for 导出为xls (a UTF-16
   tab-separated file named `.xls`, as Java writes it). `Q` keeps the window on top. The page and
   chart tabs, the filters and the 统计 range (radio buttons) are reached with `Tab`; in a tab row
   `Left`/`Right`, `Home`/`End` choose the tab, and `Y`/`Q` work everywhere except in a text field.

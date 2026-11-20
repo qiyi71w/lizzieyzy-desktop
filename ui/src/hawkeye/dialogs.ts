@@ -8,8 +8,18 @@ import type { Command, DisplaySettings, HawkeyeSettings } from "../contract/gene
 import { icon } from "../design/icons";
 import { closeBox } from "../dialogs";
 import { type FooterButtons, footer, row, switchRow } from "../engine/controls";
-import { product, t } from "../i18n";
+import { product, registerProduct, t } from "../i18n";
 import { type HawkeyePayload, settingsCommand } from "./model";
+
+/** The 吻合度 formula image's text equivalent. */
+registerProduct({
+  ZhCn: { hawkeyeMatchFormula: "吻合度 = 每个已分析手的“实际落子位置的计算量 ÷ 选点计算量最大值”之和 × 100 ÷ 已分析手数" },
+  ZhTw: { hawkeyeMatchFormula: "吻合度 = 每個已分析手的「實際落子位置的計算量 ÷ 選點計算量最大值」之和 × 100 ÷ 已分析手數" },
+  EnUs: { hawkeyeMatchFormula: "Accuracy = the sum over the analyzed moves of (visits of the move played ÷ most visits of a candidate) × 100 ÷ number of analyzed moves" },
+  JaJp: { hawkeyeMatchFormula: "正確度 = 分析済みの各手の「実際の着手の訪問数 ÷ 候補手の最大訪問数」の合計 × 100 ÷ 分析済みの手数" },
+  KoKr: { hawkeyeMatchFormula: "정확도 = 분석한 각 수의 (실제로 둔 수의 방문 수 ÷ 후보 수의 최대 방문 수) 합 × 100 ÷ 분석한 수의 개수" },
+  ThTh: { hawkeyeMatchFormula: "ความแม่นยำ = ผลรวมของ (จำนวนการเยี่ยมของตาที่เดินจริง ÷ จำนวนการเยี่ยมสูงสุดของตาที่เป็นตัวเลือก) ทุกตาที่วิเคราะห์แล้ว × 100 ÷ จำนวนตาที่วิเคราะห์แล้ว" },
+});
 
 export interface DialogActions {
   run(command: Command): void;
@@ -476,7 +486,7 @@ export function openMatchAiHelp(p: HawkeyePayload): void {
   ai.dataset.key = "hawkeye.matchAi.text";
   const form = document.createElement("img");
   form.src = p.chinese ? "/assets/matchform.png" : "/assets/matchformeng.png";
-  form.alt = "";
+  form.alt = product("hawkeyeMatchFormula");
   form.draggable = false;
   body.append(ai, label(t("SetMatchAiPara.lblCalculation")), form);
   openPanel("SetMatchAiPara.title", t("SetMatchAiPara.title"), body, "hawkeye.matchAi", { buttons: closeOnly("hawkeye.matchAi") });

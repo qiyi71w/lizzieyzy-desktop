@@ -70,6 +70,16 @@ registerProduct({
   ThTh: { themeFieldColor: "{0}: สี", themeFieldOpacity: "{0}: ความทึบ", themeFieldShowShadow: "แสดงเงาหิน" },
 });
 
+/** The visible names of 胜率曲线宽度's two fields: the 胜率图's win rate line and its score line. */
+registerProduct({
+  ZhCn: { themeWidthWinrate: "胜率", themeWidthScore: "目数" },
+  ZhTw: { themeWidthWinrate: "勝率", themeWidthScore: "目數" },
+  EnUs: { themeWidthWinrate: "Winrate", themeWidthScore: "Score" },
+  JaJp: { themeWidthWinrate: "勝率", themeWidthScore: "目差" },
+  KoKr: { themeWidthWinrate: "승률", themeWidthScore: "스코어" },
+  ThTh: { themeWidthWinrate: "อัตราชนะ", themeWidthScore: "คะแนน" },
+});
+
 /** 新增 and 删除 reopen the settings (Java's setVisible(false) + openConfigDialog2), dropping the
  *  other pages' unsaved edits: the row and the delete confirmation say so before it happens. */
 registerProduct({
@@ -418,10 +428,17 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   const lines = card(host, t("ConfigDialog2.modern.theme.lines"), t("ConfigDialog2.modern.theme.linesSub"));
   const winrateWidth = spinner("settings.theme.winrateStrokeWidth", 0.1, 10, 0.1, t("LizzieConfig.title.winrateStrokeWidth"));
   const scoreWidth = spinner("settings.theme.scoreLeadStrokeWidth", 0.1, 10, 0.1, t("LizzieConfig.title.scoreLeadStrokeWidth"));
-  // Two widths in one row: each named after its own line.
+  // Two widths in one row: each field has its line's name before it, the two kept together when
+  // the row wraps, and that line's name as its accessible name.
   winrateWidth.setAttribute("aria-label", t("LizzieConfig.title.winrateStrokeWidth"));
   scoreWidth.setAttribute("aria-label", t("LizzieConfig.title.scoreLeadStrokeWidth"));
-  row(lines, "config.theme.winrate-width", t("ConfigDialog2.modern.theme.winrateWidth"), t("ConfigDialog2.modern.theme.winrateWidthSub"), stepper(winrateWidth), stepper(scoreWidth));
+  const named = (name: string, field: HTMLInputElement) => {
+    const pair = el("span", "appearance-pair", name);
+    pair.append(stepper(field));
+    return pair;
+  };
+  row(lines, "config.theme.winrate-width", t("ConfigDialog2.modern.theme.winrateWidth"), t("ConfigDialog2.modern.theme.winrateWidthSub"),
+    named(product("themeWidthWinrate"), winrateWidth), named(product("themeWidthScore"), scoreWidth));
   const barWidth = spinner("settings.theme.minimumBlunderBarWidth", 1, 10, 1, t("LizzieConfig.title.minimumBlunderBarWidth"));
   row(lines, "config.theme.blunder-width", t("ConfigDialog2.modern.theme.blunderWidth"), t("ConfigDialog2.modern.theme.blunderWidthSub"), stepper(barWidth));
   const shadowLabel = t("LizzieConfig.title.shadowSize");

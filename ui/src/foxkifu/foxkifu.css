@@ -25,15 +25,19 @@ body {
   border-bottom: 1px solid var(--ds-line);
   background: var(--ds-chrome);
 }
+/* The search (name, field, 搜索), the hint and 打开棋谱后此窗口 with its choice: each wraps as a
+   whole, a wrapped one starting at the strip's edge. */
 .fk-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 8px;
+  gap: 6px 16px;
   white-space: nowrap;
 }
-.fk-row > label:not(:first-child) {
-  margin-left: 8px;
+.fk-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .fk-account {
   width: calc(var(--ds-size) * 12);

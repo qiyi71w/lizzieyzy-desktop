@@ -13,7 +13,9 @@
   flex: 1 1 100%;
   justify-content: flex-start;
 }
-.appearance-check {
+/* A switch with its text, or a field with its name, kept on one line. */
+.appearance-check,
+.appearance-pair {
   display: inline-flex;
   align-items: center;
   gap: 6px;
