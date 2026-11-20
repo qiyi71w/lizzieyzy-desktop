@@ -67,11 +67,12 @@ function layoutTitle(): void {
   const box = title.getBoundingClientRect();
   const room = box.width - TITLE_PAD * 2;
   titleDetail.hidden = !wanted.detail || titleDetail.scrollWidth > room;
-  const text = Math.min(room, Math.max(titleGame.scrollWidth, titleDetail.hidden ? 0 : titleDetail.scrollWidth));
+  // scrollWidth rounds the text's width; one pixel more keeps a line that fits from ending in "…".
+  const text = Math.min(room, Math.max(titleGame.scrollWidth, titleDetail.hidden ? 0 : titleDetail.scrollWidth) + 1);
   const centre = (frame.left + frame.right) / 2;
   const left = Math.max(box.left + TITLE_PAD, Math.min(box.right - TITLE_PAD - text, centre - text / 2));
-  title.style.paddingLeft = `${Math.round(left - box.left)}px`;
-  title.style.paddingRight = `${Math.max(0, Math.round(box.right - left - text))}px`;
+  title.style.paddingLeft = `${Math.floor(left - box.left)}px`;
+  title.style.paddingRight = `${Math.max(0, Math.floor(box.right - left - text))}px`;
   const shortened = titleGame.scrollWidth > titleGame.clientWidth || (!!wanted.detail && titleDetail.hidden);
   title.title = shortened ? wanted.text : "";
 }
