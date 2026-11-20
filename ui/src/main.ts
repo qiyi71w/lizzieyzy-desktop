@@ -40,7 +40,7 @@ import { handleDisplayKey } from "./display/keys";
 import { handleInfoKey } from "./analysis/infoCommands";
 import { openAutoAnalysis } from "./quick/autoAnalysis";
 import { bindScoreDialog, scoreDialogReport, scorePoint } from "./analysis/scoreDialog";
-import { layerSignature, mainOwnership, secondaryOwnership, startTitleUpdates, statScene, subOwnership, workbenchTitle } from "./analysis/info";
+import { layerSignature, mainOwnership, searchSpeed, secondaryOwnership, startTitleUpdates, statScene, subOwnership, workbenchTitle } from "./analysis/info";
 import { mountSetupBanner } from "./setup/banner";
 import "./editing/commands";
 import "./analysis/graphCommands";
@@ -943,13 +943,14 @@ async function installBackground(size: string, w: number, h: number, stage: Stag
  *  引擎未成功加载 (loadingTextResourceKey, 7894-7915); a retrying quick analysis replaces the
  *  shortcut hint (drawCommandString). While 野狐 AI 直连 history is browsed, its two lines say so
  *  and how to get back (java:8253-8256). `live` is whether the engine ponders while the lines are
- *  the engine's own status, null for the other messages. */
-function statusView(): { lines: string[]; live: boolean | null } {
+ *  the engine's own status, null for the other messages; `speed` the analysing engine's measured
+ *  speed beside its name, as the title shows it. */
+function statusView(): { lines: string[]; live: boolean | null; speed: string } {
   const v = state.view;
   const hint = notice && notice.until > performance.now()
     ? notice.text
     : v?.quick.retrying ? t("LizzieFrame.quickAnalysis.retrying") : t("LizzieFrame.prompt.showControlsHint");
-  if (v?.fox.browsing) return { lines: [t(v.fox.browsing_status_key), t("Fox.returnLive"), hint], live: null };
+  if (v?.fox.browsing) return { lines: [t(v.fox.browsing_status_key), t("Fox.returnLive"), hint], live: null, speed: "" };
   const unrestored = v?.engine.unrestored;
   if (unrestored) {
     const reason = unrestored === "Stop" ? t("LizzieFrame.foregroundUnrestored.reason.stop") : t("LizzieFrame.foregroundUnrestored.reason.restore");
@@ -960,11 +961,12 @@ function statusView(): { lines: string[]; live: boolean | null } {
         hint,
       ],
       live: null,
+      speed: "",
     };
   }
-  if (v?.engine.down) return { lines: [t("LizzieFrame.display.down"), hint], live: null };
+  if (v?.engine.down) return { lines: [t("LizzieFrame.display.down"), hint], live: null, speed: "" };
   const fg = v?.engine.foreground;
-  if (fg && v?.engine.engines[fg.index]?.state === "Loading") return { lines: [t("LizzieFrame.display.loading"), hint], live: null };
+  if (fg && v?.engine.engines[fg.index]?.state === "Loading") return { lines: [t("LizzieFrame.display.loading"), hint], live: null, speed: "" };
   // LizzieFrame.statusEngineName: a cloud engine shows only its provider (compactDisplayNameForCommand).
   const cloud = fg ? v?.settings.engine.engines[fg.index]?.cloud?.provider : undefined;
   const analysing = !!v?.engine.analysing;
@@ -978,6 +980,7 @@ function statusView(): { lines: string[]; live: boolean | null } {
       hint,
     ],
     live: analysing,
+    speed: searchSpeed(),
   };
 }
 
@@ -1138,7 +1141,7 @@ function render() {
   if (changed("bottombar", `${$("bottombar").clientWidth}`)) layoutBottomBar($("bottombar"));
   renderToolbar();
   const title = workbenchTitle(v, version, historyByNode, state.nodes.get(pos.node)?.parent ?? undefined);
-  if (changed("title", `${title.text}\n${title.game}\n${title.detail}`)) setWindowTitle(title);
+  if (changed("title", `${title.text}\n${title.game}\n${title.detail.join("\n")}`)) setWindowTitle(title);
 }
 
 /** The Normal-mode panels beside the main board: sub board, captured and statistics panels, the
@@ -1195,8 +1198,8 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
   }
   const statusRect = P.status ?? { x: 0, y: P.ponderingY, w: P.board.x, h: H - P.ponderingY };
   const status = statusView();
-  if (P.shown.status && changed("status", `${at(statusRect)}:${status.lines.join("|")}:${status.live}`))
-    paintStatus(prepare($("status"), statusRect), statusRect, status.lines, status.live);
+  if (P.shown.status && changed("status", `${at(statusRect)}:${status.lines.join("|")}:${status.live}:${status.speed}`))
+    paintStatus(prepare($("status"), statusRect), statusRect, status.lines, status.live, status.speed);
   if (treeScrollFor !== docSig) {
     treeScroll = null;
     treeScrollFor = docSig;

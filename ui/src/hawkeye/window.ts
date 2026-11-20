@@ -25,6 +25,7 @@ import {
 } from "./model";
 import { mountStatistics } from "./statistics";
 import "../design/window";
+import { applyTypeSizes } from "../design/theme";
 import "../design/dialog.css";
 import "../design/stage.css";
 import "./hawkeye.css";
@@ -652,7 +653,7 @@ function mount(send: (input: HawkeyeInput) => void): (payload: HawkeyePayload) =
     const root = document.documentElement.style;
     // The session's 界面字体大小 sizes the type scale, Config.menuHeight the list rows; a font the
     // theme names replaces the interface face in the lists.
-    root.setProperty("--frame-font-size", `${data.frameFontSize}px`);
+    applyTypeSizes(data.frameFontSize);
     root.setProperty("--hk-row", `${data.menuHeight}px`);
     const face = namedFace(data.fonts.ui);
     if (face) root.setProperty("--hk-ui-font", face);

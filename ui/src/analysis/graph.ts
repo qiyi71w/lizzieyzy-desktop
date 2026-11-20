@@ -324,7 +324,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   const theme = graphTheme();
   const p = theme.palette;
   const markers = markerColors(p, theme.ground);
-  const type = frameMetrics().frameFontSize;
+  const type = frameMetrics().type;
   const LINE = theme.line;
   const SCORE = theme.score;
   const background: Op[] = [];
@@ -403,7 +403,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   const occupied: Box[] = [];
   let chipBox: Box | null = null;
   if (chip) {
-    g.font = plain(type - 1);
+    g.font = plain(type.s);
     const fm = metrics(g);
     const h = fm.ascent + fm.descent + 2;
     chipBox = { x: posx + 4, y: baselineY - i(h / 2), w: stringWidth(g, chip) + 8, h };
@@ -415,7 +415,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     background.push(() => {
       line(g, posx, baselineY, posx + w, baselineY, p.graphBaseline, 1, [2, 3]);
       if (!chip || !chipBox) return;
-      g.font = plain(type - 1);
+      g.font = plain(type.s);
       const fm = metrics(g);
       g.fillStyle = theme.ground;
       g.beginPath();
@@ -585,7 +585,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
       const low = wr < 3;
       front.push(() => {
         line(g, x, posy, x, posy + height, p.graphGuide, 1, true);
-        g.font = bold(type);
+        g.font = bold(type.size);
         const fm = metrics(g);
         const dx = moveNum < i(numMoves / 2) ? 3 : moveNum < 10 ? -10 : currentMoveNumber > 99 ? -22 : -16;
         g.fillStyle = p.text;
@@ -677,7 +677,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   if (mwr >= 0) {
     const x = X(mmovenum), y = clampDotY(WY(mwr) - DOT_RADIUS);
     front.push(() => oval(g, x, y + DOT_RADIUS, DOT_RADIUS, p.graphHover));
-    g.font = bold(type + 1);
+    g.font = bold(type.l);
     const fm = metrics(g);
     oriMWrHeight = posy + (height - jInt((mwr * height) / 100));
     mwrHeight = oriMWrHeight + (mwr < 10 ? -5 : (mwr > 90 ? 6 : -2) * DOT_RADIUS);
@@ -685,10 +685,10 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     if (mwrHeight > H0) mwrHeight = H0 - 2;
     const text = javaFixed1(mwr);
     report.hoverText = text;
-    placed(text, bold(type + 1), p.text, centredX(text, mmovenum), mwrHeight);
+    placed(text, bold(type.l), p.text, centredX(text, mmovenum), mwrHeight);
   }
   if (mScoreMoveNum >= 0) {
-    g.font = bold(type);
+    g.font = bold(type.size);
     const fm = metrics(g);
     let h = anchorY(drawHoverScore) - 3;
     const ori = h;
@@ -703,13 +703,13 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     if (h > H0) h = Math.max(H0, mwrHeight - mWinFontHeight);
     const text = formatScoreLead(drawHoverScore);
     report.hoverScoreText = text;
-    placed(text, bold(type), p.graphScoreText, centredX(text, mScoreMoveNum), h);
+    placed(text, bold(type.size), p.graphScoreText, centredX(text, mScoreMoveNum), h);
   }
   let cwrHeight = -1;
   let winFontHeight = -1;
   let oriWrHeight = -1;
   if (cwr >= 0) {
-    g.font = bold(type + 1);
+    g.font = bold(type.l);
     const fm = metrics(g);
     oriWrHeight = posy + (height - jInt((cwr * height) / 100));
     cwrHeight = oriWrHeight + (cwr < 10 ? -5 : (cwr > 90 ? 6 : -2) * DOT_RADIUS);
@@ -717,10 +717,10 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     if (cwrHeight > H0) cwrHeight = H0 - 2;
     const text = javaFixed1(cwr);
     report.currentText = text;
-    placed(text, bold(type + 1), p.text, centredX(text, cmovenum), cwrHeight);
+    placed(text, bold(type.l), p.text, centredX(text, cmovenum), cwrHeight);
   }
   if (curScoreMoveNum >= 0) {
-    g.font = bold(type);
+    g.font = bold(type.size);
     const fm = metrics(g);
     let h = anchorY(drawCurScore) - 3;
     const ori = h;
@@ -742,7 +742,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     }
     const text = formatScoreLead(drawCurScore);
     report.currentScoreText = text;
-    placed(text, bold(type), p.graphScoreText, centredX(text, curScoreMoveNum), h);
+    placed(text, bold(type.size), p.graphScoreText, centredX(text, curScoreMoveNum), h);
   }
 
   // ---------------------------------------------------------------- move numbers and legend
@@ -754,38 +754,38 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
       const x = posx + i(((k * step - 1) * width) / numMoves) - 3;
       report.xLabels.push(label);
       background.push(() => {
-        g.font = plain(type - 1);
+        g.font = plain(type.s);
         g.fillStyle = p.text3;
         g.fillText(label, x, posy + height - 1);
       });
     }
   }
-  // drawLineLegend (WinrateGraph.java:1774-1830) in the top right corner: each curve's swatch and
-  // name in Label text3, on the ground under the graph so the curves do not run through it.
+  // drawLineLegend (WinrateGraph.java:1774-1830) in the top right corner, else the top left one:
+  // each curve's swatch and name in Label text3, on the ground under the graph so the curves do
+  // not run through it.
   const legend: [string, string][] = [];
   if (winrateRenderable) legend.push([t("WinrateGraph.legendWinrate"), LINE]);
   if (scoreRenderable) legend.push([t("WinrateGraph.legendScoreLead"), SCORE]);
-  g.font = plain(type - 1);
+  g.font = plain(type.s);
   const legendMetrics = metrics(g);
   const legendWidths = legend.map(([label]) => stringWidth(g, label));
   const boxW = legendWidths.reduce((sum, w) => sum + 12 + 5 + w + 12, 0) - 12 + 12;
-  const boxH = legendMetrics.ascent + legendMetrics.descent + 6;
-  const boxX = W0 - boxW - 6;
-  const boxY = 4;
-  // The values in figures come first: the legend is left out where one of them stands in its place
-  // (a short graph, or a current move at the top right).
-  const legendFree = !occupied.some((box) => intersects(box, { x: boxX, y: boxY, w: boxW, h: boxH }));
-  if (W0 >= 240 && legend.length && legendFree) {
+  const boxH = legendMetrics.ascent + legendMetrics.descent + 4;
+  const boxY = 3;
+  // The values in figures come first: the legend takes the corner none of them stands in, and is
+  // left out where both are taken (a short graph, or a current move at the top).
+  const boxX = [W0 - boxW - 6, 6].find((x) => !occupied.some((box) => intersects(box, { x, y: boxY, w: boxW, h: boxH })));
+  if (W0 >= 240 && legend.length && boxX !== undefined) {
     report.legend = legend.map(([label]) => label);
     legendOps.push(() => {
-      g.font = plain(type - 1);
+      g.font = plain(type.s);
       const fm = legendMetrics;
       const widths = legendWidths;
       g.fillStyle = theme.ground;
       g.beginPath();
       g.roundRect(boxX, boxY, boxW, boxH, 4);
       g.fill();
-      const textY = boxY + 3 + fm.ascent;
+      const textY = boxY + 2 + fm.ascent;
       const lineY = textY - i(fm.ascent / 2);
       let cx = boxX + 6;
       legend.forEach(([label, color], k) => {

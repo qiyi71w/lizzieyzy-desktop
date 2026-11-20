@@ -71,17 +71,15 @@
   --ds-radius-menu: 8px; /* popup menus: the item radius plus the 4px padding */
   --ds-radius-l: 10px;
 
-  /* Type. The size follows 界面字体大小 (set once per session by the appearance module). */
+  /* Type. The sizes --ds-size-s (caption), --ds-size (body), --ds-size-l (title) and --ds-size-xl
+     (headline) follow 界面字体大小 and the platform; design/theme.ts sets them (typeSizes), and the
+     canvases take the same steps from there. */
   --ds-font: system-ui, -apple-system, "Segoe UI", sans-serif;
-  --ds-size: var(--frame-font-size, 12px);
-  --ds-size-s: calc(var(--ds-size) - 1px);
-  --ds-size-l: calc(var(--ds-size) + 1px);
-  --ds-size-xl: calc(var(--ds-size) + 3px);
 
   /* Metrics. */
   --ds-control-h: 22px; /* controls in panes */
   --ds-control-h-l: 26px; /* controls in dialogs */
-  --ds-cap-h: calc(var(--ds-size) + 14px); /* capsules in the bars: 26px at the default size */
+  --ds-cap-h: calc(var(--ds-size) + 14px); /* capsules in the bars: 28px at Windows' default size */
   --ds-bar-h: 32px; /* window bar */
 }
 

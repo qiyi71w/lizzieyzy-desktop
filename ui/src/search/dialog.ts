@@ -8,6 +8,7 @@ import type { FunctionMatch, FunctionTarget } from "../contract/generated";
 import { openModalLayer } from "../dialogs";
 import { t } from "../i18n";
 import { icon } from "../design/icons";
+import { DARK_READY } from "../design/theme";
 import { reasonKey, reasonText, resolveFunction, type Resolution } from "./targets";
 import "./search.css";
 
@@ -309,6 +310,8 @@ export function openSearchDialog(): SearchDialog {
     let total = 0;
     for (const m of matches) {
       if (category && m.category !== category) continue;
+      // 外观模式 is not offered until the dark interface is ready (design/theme.ts).
+      if (!DARK_READY && m.id.startsWith("menu.appearanceMode")) continue;
       total++;
       if (browsing || shown.length < QUERY_CAP) shown.push(m);
     }

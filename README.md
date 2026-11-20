@@ -634,16 +634,18 @@ importing the matching LizzieYzy Next settings.
     dropping unsaved edits. Bundled themes are read-only: deleting one hides it, and edits are
     kept as the user's copy.
   - 显示 > 外观主题: 棋盘风格 日式 / 中式经典 (corner markers instead of star points, Chinese
-    numerals counted from the nearer edge as coordinates), 外观模式 跟随系统 / 浅色 / 深色 (the
-    interface follows the system's light or dark setting, or stays light or dark; the default is
-    跟随系统, and a choice applies at once and is saved), and a custom board image (scaled to cover
-    the main board under a light shade; the sub board keeps the theme's board) with its 清除
-    entry. The LizzieYzy Next import takes Java's Apple style (`is-apple-style`) on as 深色 and off
-    as 跟随系统; its Morandi colour switch (`use-morandi-colors`) is reported as not carried over.
-  - 设置 > 界面字体大小 (12, 16, 20 or 自定义 12-20) sets, from the next start, the menu font
-    size, the toolbar icon size (16, 20 or 24), the font and row height of the main 选点 list,
-    and the list rows and fonts of 超级鹰眼 and the 选点列表 window; outside Chinese a size above
-    12 first warns that some text may not fit.
+    numerals counted from the nearer edge as coordinates) and a custom board image (scaled to
+    cover the main board under a light shade; the sub board keeps the theme's board) with its 清除
+    entry. 外观模式 (跟随系统 / 浅色 / 深色, default 浅色) is saved, and the LizzieYzy Next import
+    takes Java's Apple style (`is-apple-style`) on as 深色 and off as 跟随系统; its Morandi colour
+    switch (`use-morandi-colors`) is reported as not carried over. While the dark interface is
+    unfinished, every window shows the light one whatever the saved mode, and neither the menu nor
+    功能搜索 offers 外观模式.
+  - 设置 > 界面字体大小 (12, 16, 20 or 自定义 12-20) sets, from the next start, the interface's
+    type: captions at that size and body text 1 px larger on macOS and 2 px larger on Windows and
+    Linux (13 and 14 px at the default 12), in the menus, toolbars, panels, the main 选点 list and
+    dialogs; also the toolbar icon size (16, 20 or 24) and the list rows and fonts of 超级鹰眼 and
+    the 选点列表 window. Outside Chinese a size above 12 first warns that some text may not fit.
   - The fonts follow the UI language: Japanese, Korean, Thai and Traditional Chinese text fall
     back to that language's fonts. 超级鹰眼's charts and lists use the theme's fonts.
   - The variation tree colours nodes by the 错误节点 rules and rings commented nodes in the

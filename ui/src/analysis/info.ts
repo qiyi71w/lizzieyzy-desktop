@@ -150,6 +150,12 @@ function sampleSpeed(): void {
   if (total > 0) samples[sampleIndex] = { position, visits: total };
 }
 
+/** The analysing engine's measured speed ("746 搜索/秒"); empty before the first measure and once
+ *  it went stale. */
+export function searchSpeed(): string {
+  return state.view?.engine.analysing && !speedText.startsWith(" -") ? speedText.trim() : "";
+}
+
 /** Starts the once-a-second title update (showPlayouts). */
 export function startTitleUpdates(repaint: () => void): void {
   setInterval(() => {
@@ -168,11 +174,11 @@ export function startTitleUpdates(repaint: () => void): void {
 export function workbenchTitle(v: WorkbenchView, version: string, history: Map<number, HistoryPoint>, parent: number | undefined): WindowTitle {
   if (v.editing.trying) {
     const text = windowTitle(version);
-    return { text, game: text, detail: "" };
+    return { text, game: text, detail: [] };
   }
   const web = v.web_board.url;
   const title = mainTitle(v, version, history, parent);
-  return web ? { text: `${title.text} | Web: ${web}`, game: title.game, detail: [title.detail, `Web: ${web}`].filter(Boolean).join(" · ") } : title;
+  return web ? { text: `${title.text} | Web: ${web}`, game: title.game, detail: [...title.detail, `Web: ${web}`] } : title;
 }
 
 /** The game in the window bar: the players with the result, then the file. */
@@ -195,7 +201,7 @@ function mainTitle(v: WorkbenchView, version: string, history: Map<number, Histo
   const game = pk ?? gameLine(v);
   if (match && match.kind === "Genmove" && matchPlaying(v)) {
     const thinking = `${match.thinking_side ? sideName(match, match.thinking_side === "Black") : ""} ${t("LizzieFrame.thinking")}`;
-    return { text: `${pk !== null ? `${pk} ` : ""}${stem}-${thinking}`, game, detail: thinking.trim() };
+    return { text: `${pk !== null ? `${pk} ` : ""}${stem}-${thinking}`, game, detail: [thinking.trim()] };
   }
   const rest = base.slice(stem.length + 1);
   const a = v.analysis;
@@ -208,9 +214,9 @@ function mainTitle(v: WorkbenchView, version: string, history: Map<number, Histo
   const numbers = values ? `${values.black.winrate.toFixed(1)}${lead === null ? "" : ` ${lead.toFixed(1)}`} ${playouts(values.visits)}` : "";
   const prefix = values ? `[${numbers}] ` : shown && v.game ? "[ ---   ---   --- ] " : "";
   const foreground = v.engine.foreground;
-  if (!foreground) return { text: `${stem}${prefix ? ` - ${prefix}` : ""} ${rest}`, game, detail: numbers };
+  if (!foreground) return { text: `${stem}${prefix ? ` - ${prefix}` : ""} ${rest}`, game, detail: numbers ? [numbers] : [] };
   const notice = foreground.b11 ? ` · ${t("B11SpeedNotice.title")} ` : "";
-  const detail = [numbers, `${foreground.name}${v.engine.analysing || pk !== null ? speedText : ""}`, foreground.b11 ? t("B11SpeedNotice.title") : ""].filter(Boolean).join(" · ");
+  const detail = [numbers, `${foreground.name}${v.engine.analysing || pk !== null ? speedText : ""}`, foreground.b11 ? t("B11SpeedNotice.title") : ""].filter(Boolean);
   if (pk !== null) return { text: `${pk} ${stem} - ${prefix}${foreground.name}${speedText} ${notice}`, game, detail };
   const speed = v.engine.analysing ? `${speedText} ` : ` - ${t("LizzieFrame.speedUnit")} `;
   return { text: `${stem} - ${prefix}${foreground.name}${speed}${notice}${rest}`, game, detail };

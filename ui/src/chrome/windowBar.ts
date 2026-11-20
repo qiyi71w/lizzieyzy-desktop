@@ -30,16 +30,19 @@ const ICON: Record<Glyph, string> = {
 const LABEL: Record<Glyph, string> = { minimize: "windowMinimize", maximize: "windowMaximize", restore: "windowRestore", close: "windowClose" };
 
 /** The workbench title in the window bar's two parts and the system's one line: `game` names the
- *  game (players, result, file), `detail` the analysis (values, engine, speed); `text` is the
- *  system title (task bar, window list). */
+ *  game (players, result, file), `detail` the analysis in parts, the most wanted first (values,
+ *  engine with speed, notices); `text` is the system title (task bar, window list). */
 export interface WindowTitle {
   text: string;
   game: string;
-  detail: string;
+  detail: string[];
 }
 
 /** Clearance between the title and the menus or window buttons beside it. */
 const TITLE_PAD = 20;
+/** Space between the game and the analysis when they come close. */
+const TITLE_GAP = 24;
+const DETAIL_SEPARATOR = " · ";
 /** The system title is rewritten at most this often: an analysing engine changes it ten times a
  *  second, which task bars and window lists then repaint. */
 const SYSTEM_TITLE_INTERVAL_MS = 1000;
@@ -54,31 +57,40 @@ const titleGame = document.createElement("span");
 const titleDetail = document.createElement("span");
 const buttons = new Map<WindowButton, HTMLButtonElement>();
 
-/** The title is two stacked lines, the game over the analysis, like a document title over its
- *  subtitle. It sits on the window's centre line, or as close to it as the menus and the window
- *  buttons allow (moving continuously, so a changing analysis line never makes it jump); the game
- *  line ends in "…" only when the bar's whole free space is too narrow, and the analysis line is
- *  left out when it does not fit whole there. A shortened title has the whole of it as its tooltip. */
+/** The title is one line in two places: the game sits on the window's centre line, or as close to
+ *  it as the menus and the analysis allow (moving continuously, so a changing analysis never makes
+ *  it jump); the analysis stands at the bar's far end, quieter, with as many of its leading parts
+ *  as fit beside the whole game, none when not even the first does. The game ends in "…" only when
+ *  the bar's whole free space is too narrow for it. A shortened title has the whole of it as its
+ *  tooltip. */
 function layoutTitle(): void {
   if (!bar || !title) return;
-  title.style.paddingLeft = title.style.paddingRight = "";
+  title.style.paddingLeft = "";
   titleDetail.hidden = false;
   const frame = bar.getBoundingClientRect();
   const box = title.getBoundingClientRect();
   const room = box.width - TITLE_PAD * 2;
-  titleDetail.hidden = !wanted.detail || titleDetail.scrollWidth > room;
-  // scrollWidth rounds the text's width; one pixel more keeps a line that fits from ending in "…".
-  const text = Math.min(room, Math.max(titleGame.scrollWidth, titleDetail.hidden ? 0 : titleDetail.scrollWidth) + 1);
+  // scrollWidth rounds the text's width; one pixel more keeps a text that fits from ending in "…".
+  const game = titleGame.scrollWidth + 1;
+  let parts = wanted.detail.length;
+  let detail = 0;
+  for (; parts > 0; parts--) {
+    titleDetail.textContent = wanted.detail.slice(0, parts).join(DETAIL_SEPARATOR);
+    detail = titleDetail.scrollWidth + 1;
+    if (game + TITLE_GAP + detail <= room) break;
+  }
+  titleDetail.hidden = parts === 0;
+  const start = box.left + TITLE_PAD;
+  const end = box.right - TITLE_PAD - (parts ? detail + TITLE_GAP : 0);
   const centre = (frame.left + frame.right) / 2;
-  const left = Math.max(box.left + TITLE_PAD, Math.min(box.right - TITLE_PAD - text, centre - text / 2));
+  const left = Math.max(start, Math.min(end - game, centre - game / 2));
   title.style.paddingLeft = `${Math.floor(left - box.left)}px`;
-  title.style.paddingRight = `${Math.max(0, Math.floor(box.right - left - text))}px`;
-  const shortened = titleGame.scrollWidth > titleGame.clientWidth || (!!wanted.detail && titleDetail.hidden);
+  const shortened = titleGame.scrollWidth > titleGame.clientWidth || parts < wanted.detail.length;
   title.title = shortened ? wanted.text : "";
 }
 
 let systemTitle = "";
-let wanted: WindowTitle = { text: "", game: "", detail: "" };
+let wanted: WindowTitle = { text: "", game: "", detail: [] };
 let systemTimer = 0;
 
 function writeSystemTitle(): void {
@@ -94,10 +106,9 @@ function writeSystemTitle(): void {
 /** The workbench title: in the window bar at once; in the system's title (task bar, window list)
  *  at once when that was at rest, then at most once a second. */
 export function setWindowTitle(next: WindowTitle): void {
-  if (next.text === wanted.text && next.game === wanted.game && next.detail === wanted.detail) return;
+  if (next.text === wanted.text && next.game === wanted.game && next.detail.join("\n") === wanted.detail.join("\n")) return;
   wanted = next;
   titleGame.textContent = next.game;
-  titleDetail.textContent = next.detail;
   layoutTitle();
   if (!systemTimer && wanted.text !== systemTitle) writeSystemTitle();
 }

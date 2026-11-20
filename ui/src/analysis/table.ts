@@ -501,19 +501,20 @@ export function frameSortBy(id: FrameId, column: number): void {
 
 // ------------------------------------------------------------------ main window table
 
-/** The list's rows and header at the 12 px interface font (DESIGN.md 选点列表: 22 px rows). */
+/** The list's rows and header at a 12 px font (DESIGN.md 选点列表: 22 px rows). */
 const ROW = 22;
 const HEADER = 24;
 
 /** refreshSuggestionTableStyle (LizzieFrame.java:2697-2721): the list takes
- *  workspaceFont(PLAIN, frameFontSize) — the theme's UI font when one is named. Rows are 22 px and
- *  the header 24 px at 12 px; other sizes add the font's own height difference, and the row never
- *  drops below Java's menuHeight - 4. */
+ *  workspaceFont(PLAIN, frameFontSize) — the theme's UI font when one is named — at the
+ *  interface's body step of that size (DESIGN.md Typography). Rows are 22 px and the header 24 px
+ *  at a 12 px font; larger fonts add their own height difference, and the row never drops below
+ *  Java's menuHeight - 4. */
 function mainTableStyle(table: HTMLTableElement): { row: number; header: number } {
-  const { frameFontSize, menuHeight } = frameMetrics();
+  const { menuHeight, type } = frameMetrics();
   const a = appearance();
   table.style.fontFamily = a && customFont(a.theme.uiFontName) ? themeFonts().ui : "";
-  table.style.fontSize = `${frameFontSize}px`;
+  table.style.fontSize = `${type.size}px`;
   const family = getComputedStyle(table).fontFamily;
   const c = document.createElement("canvas").getContext("2d")!;
   const height = (size: number) => {
@@ -521,16 +522,16 @@ function mainTableStyle(table: HTMLTableElement): { row: number; header: number 
     const m = c.measureText("Hg");
     return Math.ceil(m.fontBoundingBoxAscent + m.fontBoundingBoxDescent);
   };
-  const grow = frameFontSize === 12 ? 0 : height(frameFontSize) - height(12);
+  const grow = type.size === 12 ? 0 : height(type.size) - height(12);
   return { row: Math.max(menuHeight - 4, ROW + grow), header: HEADER + grow };
 }
 let mainRowHeight = ROW;
 /** Preferred widths of 序号, 胜率, 计算量, 占比, 目数 until the user drags a border. The list's
  *  width is shared out from them: at the default window size the actual move's row ("21(实战)",
- *  "↓-8.6(46.4)") shows in full inside the cells' padding, and at the smallest one every header
- *  does. Java's own 15 / 30 / 30 / 45 / 30 (LizzieFrame.java:907-912) gave the widest share to
- *  占比. */
-let mainPreferred = [22, 41, 22, 15, 40];
+ *  "↓-8.6(46.4)") shows in full inside the cells' padding, at the smallest one it shows on two
+ *  lines without "…", and every header shows. Java's own 15 / 30 / 30 / 45 / 30
+ *  (LizzieFrame.java:907-912) gave the widest share to 占比. */
+let mainPreferred = [27, 37, 25, 15, 36];
 let mainWidths: number[] = [];
 let mainStructure = "";
 

@@ -10,9 +10,10 @@ use crate::settings::{self, Storage};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum BoardStyle { #[default] Japanese, ChineseClassic }
 
-/// 外观模式: the interface follows the system's light or dark setting, or is fixed to one.
+/// 外观模式: the interface follows the system's light or dark setting, or is fixed to one. Light
+/// by default.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
-pub enum AppearanceMode { #[default] System, Light, Dark }
+pub enum AppearanceMode { System, #[default] Light, Dark }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 pub struct ThemeNodeColor { pub node: crate::record::NodeId, pub color: Vec<u8> }
@@ -32,7 +33,7 @@ pub struct AppearanceSettings {
 impl Default for AppearanceSettings {
     fn default() -> Self {
         // Config.java:1608,1871,2924; Menu.java:604-629.
-        Self { theme: "default".into(), board_style: BoardStyle::Japanese, mode: AppearanceMode::System,
+        Self { theme: "default".into(), board_style: BoardStyle::Japanese, mode: AppearanceMode::Light,
             custom_board_image: String::new(), custom_background_image: String::new(), frame_font_size: 12,
             glass_effect_level: 1 }
     }

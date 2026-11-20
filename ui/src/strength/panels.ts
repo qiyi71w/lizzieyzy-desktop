@@ -188,10 +188,10 @@ function stoneBar(g: G, black: boolean, x: number, y: number, w: number, h: numb
  *  an optional detail line in --ds-text-3. */
 function hoverBox(g: G, w: number, h: number, at: { x: number; y: number }, title: string, detail: string | null): void {
   const p = palette();
-  setFont(g, true, ff());
+  setFont(g, true, ff().size);
   const titleMetrics = metrics(g);
   let boxWidth = width(g, title);
-  setFont(g, false, ff() - 1);
+  setFont(g, false, ff().s);
   const detailMetrics = metrics(g);
   if (detail !== null) boxWidth = Math.max(boxWidth, width(g, detail));
   boxWidth += 20;
@@ -201,8 +201,8 @@ function hoverBox(g: G, w: number, h: number, at: { x: number; y: number }, titl
   if (y < 4) y = Math.min(h - boxHeight - 4, at.y + 16);
   fillRound(g, x, y, boxWidth, boxHeight, 6, p.raised);
   strokeRound(g, x, y, boxWidth, boxHeight, 6, p.lineStrong);
-  text(g, title, x + 10, y + 6 + titleMetrics.ascent, p.text, true, ff());
-  if (detail !== null) text(g, detail, x + 10, y + 8 + titleMetrics.height + detailMetrics.ascent, p.text3, false, ff() - 1);
+  text(g, title, x + 10, y + 6 + titleMetrics.ascent, p.text, true, ff().size);
+  if (detail !== null) text(g, detail, x + 10, y + 8 + titleMetrics.height + detailMetrics.ascent, p.text3, false, ff().s);
 }
 
 /** Move numbers under a chart: a hairline, ticks and Label-size figures in --ds-text-3; `roomy`
@@ -210,7 +210,7 @@ function hoverBox(g: G, w: number, h: number, at: { x: number; y: number }, titl
 function axis(g: G, x: number, y: number, w: number, max: number, step: number, roomy: (tickX: number, endX: number) => boolean): void {
   const p = palette();
   line(g, x, y, x + w, y, p.lineStrong);
-  setFont(g, false, ff() - 1);
+  setFont(g, false, ff().s);
   g.fillStyle = p.text3;
   const endX = moveToX(max, x, w, max);
   const baseline = y + 6 + metrics(g).ascent;
@@ -270,14 +270,14 @@ export function moveHitMap(report: StrengthReport): Painted {
     hitPoints = [];
     const p = palette();
     if (report.black.samples.length === 0 && report.white.samples.length === 0) {
-      text(g, t("PlayerStrengthEstimate.match.noMoveSamples"), 0, 24, p.text3, false, ff());
+      text(g, t("PlayerStrengthEstimate.match.noMoveSamples"), 0, 24, p.text3, false, ff().size);
       return;
     }
     const firstLabel = t("PlayerStrengthEstimate.match.firstChoice");
     const goodLabel = t("PlayerStrengthEstimate.match.goodMove");
-    setFont(g, false, ff() - 1);
+    setFont(g, false, ff().s);
     const labelWidth = Math.max(width(g, firstLabel), width(g, goodLabel)) + 10;
-    setFont(g, false, ff());
+    setFont(g, false, ff().size);
     const figureWidth = Math.max(...[report.black.summary, report.white.summary].flatMap((s) => figures(s).map(([a, b]) => width(g, `${a} ${b}`))));
     const statsWidth = 14 + 8 + figureWidth + 4;
     const chartX = labelWidth;
@@ -313,7 +313,7 @@ export function moveHitMap(report: StrengthReport): Painted {
     g.fillStyle = p.well;
     g.fillRect(x, firstY, w, laneHeight);
     g.fillRect(x, goodY, w, laneHeight);
-    setFont(g, false, ff() - 1);
+    setFont(g, false, ff().s);
     g.fillStyle = p.text3;
     const ascent = metrics(g).ascent;
     const center = (y: number) => y + i((laneHeight + ascent) / 2) - 1;
@@ -352,15 +352,15 @@ export function moveHitMap(report: StrengthReport): Painted {
 
   function stats(g: G, s: StrengthSummary, x: number, top: number, h: number, black: boolean): void {
     const p = palette();
-    setFont(g, false, ff());
+    setFont(g, false, ff().size);
     const m = metrics(g);
     const firstBaseline = top + i(h / 2) - 2;
     stone(g, black, x, firstBaseline - m.ascent + i((m.ascent - 14) / 2), 14);
     figures(s).forEach(([label, value], k) => {
       const y = firstBaseline + k * (m.height + 2);
-      text(g, `${label} `, x + 22, y, p.text3, false, ff());
+      text(g, `${label} `, x + 22, y, p.text3, false, ff().size);
       const labelWidth = width(g, `${label} `);
-      text(g, value, x + 22 + labelWidth, y, p.text, true, ff());
+      text(g, value, x + 22 + labelWidth, y, p.text, true, ff().size);
     });
   }
 
@@ -511,7 +511,7 @@ export function matchChart(report: StrengthReport): Painted {
 
   const chart = painted("ps-match-chart", (g, w, h) => {
     const p = palette();
-    setFont(g, false, ff() - 1);
+    setFont(g, false, ff().s);
     captionWidth = Math.max(width(g, t("PlayerStrengthEstimate.match.firstChoice")), width(g, t("PlayerStrengthEstimate.match.goodMove"))) + 10;
     const { chartX, chartWidth, max, sectionHeight, statsX } = geometry(w, h);
     const step = tickStep(max, chartWidth);
@@ -532,9 +532,9 @@ export function matchChart(report: StrengthReport): Painted {
 
   function stat(g: G, x: number, y: number, label: string, value: string): void {
     const p = palette();
-    text(g, `${label} `, x, y, p.text3, false, ff());
+    text(g, `${label} `, x, y, p.text3, false, ff().size);
     const labelWidth = width(g, `${label} `);
-    text(g, value, x + labelWidth, y, p.text, true, ff());
+    text(g, value, x + labelWidth, y, p.text, true, ff().size);
   }
 
   function side(g: G, s: StrengthSideReport, black: boolean, chartX: number, top: number, chartWidth: number, sectionHeight: number, max: number, statsX: number): void {
@@ -543,7 +543,7 @@ export function matchChart(report: StrengthReport): Painted {
     const laneHeight = 7;
     const blockWidth = Math.max(3, Math.min(8, i(chartWidth / Math.max(max, 1))));
     stone(g, black, statsX, firstY - 4, 14);
-    text(g, sideName(black), statsX + 22, firstY + 7, p.text, true, ff());
+    text(g, sideName(black), statsX + 22, firstY + 7, p.text, true, ff().size);
     g.fillStyle = p.well;
     g.fillRect(chartX, firstY, chartWidth, laneHeight);
     g.fillRect(chartX, goodY, chartWidth, laneHeight);
@@ -570,7 +570,7 @@ export function matchChart(report: StrengthReport): Painted {
         g.beginPath();
         g.rect(b.x + 2, b.y, Math.max(1, b.w - 4), b.h);
         g.clip();
-        setFont(g, true, ff() - 1);
+        setFont(g, true, ff().s);
         g.fillStyle = p.text;
         centered(g, strengthLabel(segment.summary), b.x, b.x + b.w, rankY + 11);
         g.restore();
@@ -590,7 +590,7 @@ export function matchChart(report: StrengthReport): Painted {
       g.fillRect(x1 + 1, aiY + 1, Math.max(4, x2 - x1 - 2), 14);
     }
     if (!suspect) {
-      setFont(g, false, ff() - 1);
+      setFont(g, false, ff().s);
       g.fillStyle = p.text3;
       centered(g, t("PlayerStrengthEstimate.match.noAiInterval"), chartX, chartX + chartWidth, aiY + 12);
     }
@@ -598,7 +598,7 @@ export function matchChart(report: StrengthReport): Painted {
     stat(g, statsX, goodY + laneHeight + 30, t("PlayerStrengthEstimate.match.goodMove"), `${javaFixed(s.summary.move_rank_good_move_rate * 100, 1)}%`);
     stat(g, statsX, aiY + 12, t("PlayerStrengthEstimate.match.aiLike"), `${javaFixed(aiLikelihood(s.summary) * 100, 1)}%`);
     // The lane captions at the left, Label size.
-    setFont(g, false, ff() - 1);
+    setFont(g, false, ff().s);
     g.fillStyle = p.text3;
     const firstLabel = t("PlayerStrengthEstimate.match.firstChoice");
     const goodLabel = t("PlayerStrengthEstimate.match.goodMove");

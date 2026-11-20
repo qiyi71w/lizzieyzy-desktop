@@ -2,12 +2,12 @@
 // colours, the interface font at the session's sizes, and a painted panel that repaints at the
 // device pixel ratio whenever its size or the colour mode changes.
 import { frameMetrics } from "../appearance/state";
-import { onThemeChange, token } from "../design/theme";
+import { onThemeChange, token, type TypeSizes } from "../design/theme";
 import "../design/stage.css";
 
-/** Config.frameFontSize of this session: --ds-size. */
-export function ff(): number {
-  return frameMetrics().frameFontSize;
+/** The interface's type steps this session (--ds-size-s, --ds-size, …). */
+export function ff(): TypeSizes {
+  return frameMetrics().type;
 }
 
 /** The chart colours, read from the tokens (design/tokens.css, design/stage.css and the --ps-*

@@ -8,7 +8,7 @@
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { appMenuKey } from "../appMenuKey";
-import { onThemeChange, token } from "../design/theme";
+import { applyTypeSizes, onThemeChange, token } from "../design/theme";
 import { GRAPH_FONT } from "../workbench/paint";
 
 /** The primary engine's window and 双引擎模式's secondary engine window (src-tauri). */
@@ -351,7 +351,7 @@ export function bootFrame(): void {
     const root = document.documentElement.style;
     // The session's 界面字体大小 sizes the type scale, Config.menuHeight the rows; a font the theme
     // names replaces the interface face in the list.
-    root.setProperty("--frame-font-size", `${data.frameFontSize}px`);
+    applyTypeSizes(data.frameFontSize);
     root.setProperty("--af-row", `${data.menuHeight}px`);
     const face = namedFace(data.uiFont);
     if (face) root.setProperty("--af-ui-font", face);

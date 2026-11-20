@@ -7,11 +7,13 @@ import { setRankCustomText } from "../display/commands";
 import { isChinese, product, t } from "../i18n";
 import { JAVA_MENUS, type MenuNode, type TopMenu } from "./javaMenus";
 import { chooseEngine } from "../engine/catalog";
+import { DARK_READY } from "../design/theme";
 import { highlight } from "../search/highlight";
 
 /** Java conditional menus: 快速启动 follows 显示快速启动 (Config.java: show-quick-links, false by
  *  default); show-Contribute is settings.contribution.showMenu, true by default; the secondary
- *  engine menu needs double-engine mode; ReadBoard is Windows only. */
+ *  engine menu needs double-engine mode; ReadBoard is Windows only. This product's 外观模式 waits
+ *  for the dark set (design/theme.ts DARK_READY). */
 function visible(when: string | undefined): boolean {
   switch (when) {
     case undefined:
@@ -28,6 +30,8 @@ function visible(when: string | undefined): boolean {
     // Menu.setEngineMenuone2status: the secondary engine menu shows in 双引擎模式 only.
     case "doubleEngine":
       return state.view?.settings.extra_mode === "DoubleEngine";
+    case "darkMode":
+      return DARK_READY;
     default:
       return false;
   }

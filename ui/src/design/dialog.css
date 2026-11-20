@@ -196,12 +196,12 @@
 }
 :where(.ds-row-title) {
   color: var(--ds-text);
-  font-size: var(--ds-size-l);
+  font-size: var(--ds-size);
   line-height: 1.3;
 }
 :where(.ds-row-sub) {
   color: var(--ds-text-3);
-  font-size: var(--ds-size);
+  font-size: var(--ds-size-s);
   line-height: 1.45;
   white-space: pre-line;
 }

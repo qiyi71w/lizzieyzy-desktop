@@ -16,16 +16,16 @@ fn workbench(root:&std::path::Path)->Workbench { Workbench::new(storage(root),So
 fn default_edits_apply_and_survive_restart_without_mutating_a_draft() {
     let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
     let before=wb.view(true).settings;
-    assert_eq!(before.theme,ThemeSettings::default()); assert_eq!(before.appearance.mode,AppearanceMode::System);
+    assert_eq!(before.theme,ThemeSettings::default()); assert_eq!(before.appearance.mode,AppearanceMode::Light);
     let mut draft=before.theme.clone(); draft.use_pure_board=true; draft.pure_board_color=vec![20,40,60];
     draft.font_name="Example Font".into(); draft.comment_font_size=19; draft.winrate_stroke_width=2.8;
     assert_eq!(wb.view(false).settings.theme,before.theme);
-    let mut settings=before.appearance; settings.board_style=BoardStyle::ChineseClassic; settings.mode=AppearanceMode::Light;
+    let mut settings=before.appearance; settings.board_style=BoardStyle::ChineseClassic; settings.mode=AppearanceMode::System;
     wb.set_appearance_settings(settings.clone(),draft.clone()).unwrap();
     let v=wb.view(false).settings;
-    assert_eq!(v.theme,draft); assert_eq!(v.appearance.mode,AppearanceMode::Light); assert_eq!(v.appearance.board_style,BoardStyle::ChineseClassic);
+    assert_eq!(v.theme,draft); assert_eq!(v.appearance.mode,AppearanceMode::System); assert_eq!(v.appearance.board_style,BoardStyle::ChineseClassic);
     let mut reopened=workbench(dir.path()); let v=reopened.view(true).settings;
-    assert_eq!(v.theme,draft); assert_eq!(v.appearance.mode,AppearanceMode::Light);
+    assert_eq!(v.theme,draft); assert_eq!(v.appearance.mode,AppearanceMode::System);
     settings.mode=AppearanceMode::Dark;
     reopened.set_appearance_settings(settings,draft).unwrap();
     assert_eq!(workbench(dir.path()).view(true).settings.appearance.mode,AppearanceMode::Dark);
@@ -36,7 +36,7 @@ fn settings_written_with_the_former_interface_styles_still_load() {
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     std::fs::write(&file,r#"{"appearance":{"boardStyle":"ChineseClassic","appleStyle":true,"morandiColors":true,"frameFontSize":16}}"#).unwrap();
     let a=workbench(dir.path()).view(true).settings.appearance;
-    assert_eq!((a.board_style,a.mode,a.frame_font_size),(BoardStyle::ChineseClassic,AppearanceMode::System,16));
+    assert_eq!((a.board_style,a.mode,a.frame_font_size),(BoardStyle::ChineseClassic,AppearanceMode::Light,16));
 }
 #[test]
 fn frame_size_is_saved_but_the_session_keeps_its_original_size() {

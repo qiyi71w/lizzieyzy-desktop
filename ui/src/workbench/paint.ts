@@ -1890,8 +1890,9 @@ function drawMarks(g: CanvasRenderingContext2D, scene: BoardScene, px: (p: numbe
 }
 
 /** BoardRenderer.drawName (BoardRenderer.java:802-934): both name stones (the side to move drawn on
- * top), the black name in black, the white name in white with a 2 px black outline. Names longer
- * than 0.43 of the board are cut by the Java step. */
+ *  top), the black name left of them and the white name right of them, both in the board's ink;
+ *  the stones beside them tell the sides apart. Names longer than 0.43 of the board are cut by the
+ *  Java step. */
 function drawName(g: CanvasRenderingContext2D, scene: BoardScene, ox: number, oy: number, geo: BoardGeom) {
   const { size, margin, stoneRadius: r, square, n } = geo;
   g.font = `${i(Math.min(28, (margin * 53) / 100))}px ${GRAPH_FONT}`;
@@ -1916,19 +1917,9 @@ function drawName(g: CanvasRenderingContext2D, scene: BoardScene, ox: number, oy
   const baseY = oy - margin + size + i((r * 13) / 8) + i((fm.ascent + fm.descent + 2) / 4);
   g.textAlign = "left";
   g.textBaseline = "alphabetic";
-  if (black) {
-    g.fillStyle = "#000";
-    g.fillText(black, ox + i(size / 2) - width(black) - i((margin * 4) / 5), baseY);
-  }
-  if (white) {
-    const x = ox + i(size / 2) + i((margin * 4) / 5) + 1;
-    g.strokeStyle = "#000";
-    g.lineWidth = 2;
-    g.lineJoin = "miter";
-    g.strokeText(white, x, baseY);
-    g.fillStyle = "#fff";
-    g.fillText(white, x, baseY);
-  }
+  g.fillStyle = "#000";
+  if (black) g.fillText(black, ox + i(size / 2) - width(black) - i((margin * 4) / 5), baseY);
+  if (white) g.fillText(white, ox + i(size / 2) + i((margin * 4) / 5) + 1, baseY);
 }
 
 // ------------------------------------------------------------------ sub board
@@ -2141,11 +2132,11 @@ function drawSubHeat(g: CanvasRenderingContext2D, s: SubBoardScene, X: (x: numbe
   }
 }
 
-/** The panels' type scale at the interface font size (DESIGN.md Typography): Label, Body and
- *  Title, the figures beside a name, Headline. */
+/** The panels' type scale, the interface's steps (DESIGN.md Typography): Label (caption), Body,
+ *  Title (the figures beside a name), Headline. */
 function typeScale(): { label: number; body: number; large: number; headline: number } {
-  const base = frameMetrics().frameFontSize;
-  return { label: base - 1, body: base, large: base + 1, headline: base + 3 };
+  const type = frameMetrics().type;
+  return { label: type.s, body: type.size, large: type.l, headline: type.xl };
 }
 
 /** Side padding of a card section's content: 14 px, 12 where the section is narrow. */
@@ -2359,6 +2350,8 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
           { twoRows: false, caption: false, top: tops },
         ]),
   ];
+  /** The space between the two sides and the middle, which does not scale with the text. */
+  const FIXED = 2 * 12;
   const layout = (plan: (typeof plans)[number]) => {
     // Stone row, 6 px, figure row (or the stone row alone); the scale follows the height.
     let k = Math.max(0.3, Math.min(1, plan.twoRows ? (h - 8) / (STONE + 6 + type.large * 1.35) : (h - 4) / STONE));
@@ -2366,9 +2359,11 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
       const sideW = (top: Figure[], bottom: Figure[]) =>
         Math.max(z.stone + (top.length ? z.gap + figuresWidth(g, top, z.label, z.large, family) : 0), plan.twoRows ? figuresWidth(g, bottom, z.label, z.large, family) : 0);
       const middle = Math.max(z.dot + (plan.caption ? 5 * k + captionWidth(z) : 0), plan.twoRows ? figuresWidth(g, komi, z.label, z.body, family) : 0);
-      return 2 * Math.max(sideW(plan.top[0], black.bottom), sideW(plan.top[1], white.bottom)) + middle + 2 * 12;
+      return 2 * Math.max(sideW(plan.top[0], black.bottom), sideW(plan.top[1], white.bottom)) + middle + FIXED;
     };
-    for (let n = 0; n < 4 && needed(sizes(k)) > room; n++) k = Math.max(0.3, k * (room / needed(sizes(k))));
+    // Only the scaled part shrinks; the text's own rounding may leave a pixel over, so a little
+    // more is taken.
+    for (let n = 0; n < 4 && needed(sizes(k)) > room; n++) k = Math.max(0.3, k * ((room - FIXED) / (needed(sizes(k)) - FIXED)) - 0.005);
     const z = sizes(k);
     const tall = plan.twoRows ? z.stone + 6 * k + Math.round(z.large * 1.35) : Math.max(z.stone, Math.round(z.large * 1.2));
     return { k, z, fits: needed(z) <= room && tall <= h - 2 };
@@ -2613,10 +2608,13 @@ export function paintPlayStat(g: CanvasRenderingContext2D, r: Rect, clock: strin
  *  status area: the engine line at Title weight, the other lines at Label size in text3. With
  *  `live` known (the engine's own status, not a loading or recovery message), the second line's
  *  pondering state sits right of the engine name after the live / idle dot, and its hotkey joins
- *  the hint, on one line where both fit. Without room for full lines they share the height, the
- *  text never under 9 px; each line is cut with "..." to the width. The face is the theme's
- *  font-name when it names one (LizzieFrame.createStatusFont, LizzieFrame.java:8432-8448). */
-export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[], live: boolean | null) {
+ *  the hint, on one line where both fit. `speed`, the analysing engine's search speed, follows the
+ *  engine name at Label size in text3 when it fits whole. Without room for full lines they share
+ *  the height at the largest scale that fits, the hotkey and hint pairing up again where the
+ *  smaller text lets them, the text never under 9 px; each line is cut with "..." to the width.
+ *  The face is the theme's font-name when it names one (LizzieFrame.createStatusFont,
+ *  LizzieFrame.java:8432-8448). */
+export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[], live: boolean | null, speed: string) {
   if (!lines.length) return;
   const { w, h } = r;
   const p = stagePalette();
@@ -2633,11 +2631,23 @@ export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[
     state = (hotkey ? others[0].slice(0, -space.length) : others[0]).trim();
     notes = [...(hotkey ? [space.trim()] : []), ...others.slice(1)];
   }
-  g.font = `${type.label}px ${family}`;
-  const rows = notes.length >= 2 && g.measureText(notes[0]).width + 16 + g.measureText(notes[1]).width <= room
-    ? [[notes[0], notes[1]], ...notes.slice(2).map((s) => [s])]
-    : notes.map((s) => [s]);
-  const k = Math.min(1, (h - 8) / (type.body * 1.5 + rows.length * type.label * 1.45));
+  const rowsAt = (label: number) => {
+    g.font = `${label}px ${family}`;
+    return notes.length >= 2 && g.measureText(notes[0]).width + 16 + g.measureText(notes[1]).width <= room
+      ? [[notes[0], notes[1]], ...notes.slice(2).map((s) => [s])]
+      : notes.map((s) => [s]);
+  };
+  const fit = (rows: string[][]) => Math.min(1, (h - 8) / (type.body * 1.5 + rows.length * type.label * 1.45));
+  let rows = rowsAt(type.label);
+  let k = fit(rows);
+  // Smaller text may pair the hotkey and the hint, which leaves a larger scale.
+  for (let scale = 1; k < 1 && scale > k; scale -= 0.05) {
+    const paired = rowsAt(Math.max(9, type.label * scale));
+    if (fit(paired) >= scale) {
+      [rows, k] = [paired, scale];
+      break;
+    }
+  }
   const body = Math.max(9, type.body * k);
   const label = Math.max(9, type.label * k);
   const lh1 = Math.round(body * 1.5);
@@ -2657,7 +2667,16 @@ export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[
   }
   g.font = `600 ${body}px ${family}`;
   g.fillStyle = p.text;
-  g.fillText(elide(g, title, room - stateW), pad, y + lh1 / 2);
+  const name = elide(g, title, room - stateW);
+  g.fillText(name, pad, y + lh1 / 2);
+  if (speed) {
+    const x = pad + g.measureText(name).width + 8;
+    g.font = `${label}px ${family}`;
+    if (x + tabularWidth(g, speed) <= w - pad - stateW) {
+      g.fillStyle = p.text3;
+      fillTabular(g, speed, x, y + lh1 / 2);
+    }
+  }
   y += lh1;
   g.font = `${label}px ${family}`;
   g.fillStyle = p.text3;

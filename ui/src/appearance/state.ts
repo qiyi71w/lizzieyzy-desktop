@@ -5,7 +5,7 @@
 // value this session started with (LizzieFrame.java:20764-20767: applied after a restart).
 import type { AppearanceSettings, ThemeImages, ThemeSettings, WorkbenchView } from "../contract/generated";
 import { appearanceImages } from "../contract/client";
-import { setThemeMode } from "../design/theme";
+import { applyTypeSizes, setThemeMode, typeSizes, type TypeSizes } from "../design/theme";
 import { cssColor, sameRgba, THEME_DEFAULT } from "./model";
 
 export interface LoadedImages {
@@ -101,10 +101,11 @@ export async function syncAppearance(settings: AppearanceSettings, theme: ThemeS
 
 /** This session's Config.frameFontSize and what Config.java:1871-1873 derives from it once:
  *  menuHeight 20 / 25 / 30 and menuIconSize 16 / 20 / 24 for 12, 13-16 and larger sizes
- *  (isFrameFontSmall / isFrameFontMiddle, Config.java:3638-3646). */
-let metrics = { frameFontSize: 12, menuHeight: 20, menuIconSize: 16 };
+ *  (isFrameFontSmall / isFrameFontMiddle, Config.java:3638-3646); `type` is the interface's type
+ *  steps at that size (design/theme.ts typeSizes). */
+let metrics = { frameFontSize: 12, menuHeight: 20, menuIconSize: 16, type: typeSizes(12) };
 
-export function frameMetrics(): { frameFontSize: number; menuHeight: number; menuIconSize: number } {
+export function frameMetrics(): { frameFontSize: number; menuHeight: number; menuIconSize: number; type: TypeSizes } {
   return metrics;
 }
 
@@ -115,9 +116,8 @@ export async function startAppearance(first: WorkbenchView): Promise<void> {
   const size = first.settings.active_frame_font_size;
   const small = size === 12;
   const middle = size > 12 && size <= 16;
-  metrics = { frameFontSize: size, menuHeight: small ? 20 : middle ? 25 : 30, menuIconSize: small ? 16 : middle ? 20 : 24 };
-  const root = document.documentElement.style;
-  root.setProperty("--frame-font-size", `${size}px`);
-  root.setProperty("--menu-icon-size", `${metrics.menuIconSize}px`);
+  metrics = { frameFontSize: size, menuHeight: small ? 20 : middle ? 25 : 30, menuIconSize: small ? 16 : middle ? 20 : 24, type: typeSizes(size) };
+  applyTypeSizes(size);
+  document.documentElement.style.setProperty("--menu-icon-size", `${metrics.menuIconSize}px`);
   await syncAppearance(first.settings.appearance, first.settings.theme, first.settings.theme_files_revision);
 }
