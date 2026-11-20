@@ -176,14 +176,18 @@ function bindResizeEdges(): void {
   }, true);
 }
 
-/** The mark at the bar's start: a black and a white stone, the product's name as its tip. */
+/** The application's icon at the bar's start, the product's name as its tip. */
 function appMark(): HTMLElement {
   const mark = document.createElement("span");
   mark.className = "app-mark";
   mark.title = "LizzieYzy Tauri";
   mark.setAttribute("aria-hidden", "true");
   mark.setAttribute("data-tauri-drag-region", "");
-  mark.innerHTML = '<svg viewBox="0 0 18 16"><circle class="black" cx="6.5" cy="8" r="5.5"/><circle class="white" cx="11.5" cy="8" r="5"/></svg>';
+  const img = document.createElement("img");
+  img.src = "/assets/app-icon.png";
+  img.alt = "";
+  img.draggable = false;
+  mark.append(img);
   return mark;
 }
 

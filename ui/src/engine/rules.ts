@@ -2,7 +2,7 @@
 import { run, state } from "../app";
 import { formPanel, message } from "../dialogs";
 import { format, t } from "../i18n";
-import { actions, button, checkbox, primaryButton } from "./controls";
+import { actions, button, groupNote, primaryButton, row, segmented, switchRow } from "./controls";
 
 export type Rules = Record<string, unknown>;
 const PRESETS: Record<string, Rules> = {
@@ -13,8 +13,10 @@ const PRESETS: Record<string, Rules> = {
   goe: { ko: "POSITIONAL", scoring: "AREA", tax: "NONE", suicide: true, hasButton: false, friendlyPassOk: true, whiteHandicapBonus: "0" },
 };
 
-/** KataRulesEditor: the classic presets and one radio row per rule, added to `body`. `changed`
- *  runs after every choice; the getter returns the edited rules (unselected fields absent). */
+/** KataRulesEditor: one group, 典型规则 and then one row per rule, each a segmented control,
+ *  added to `body`. A preset is shown chosen while the rules hold every value it sets; choosing it
+ *  sets them. `changed` runs after every choice; the getter returns the edited rules (unselected
+ *  fields absent). */
 export function rulesEditor(body: HTMLElement, initial: Rules, changed: (rules: Rules) => void = () => {}): () => Rules {
   let rules: Rules = { ...initial };
   const controls = new Map<string, HTMLInputElement[]>();
@@ -25,18 +27,20 @@ export function rulesEditor(body: HTMLElement, initial: Rules, changed: (rules: 
         control.disabled = rules.scoring === "TERRITORY" && (name === "hasButton" || name === "friendlyPassOk");
       }
     }
+    for (const control of classic.inputs) control.checked = Object.entries(PRESETS[control.value]).every(([key, value]) => rules[key] === value);
     changed(rules);
   };
-  const preset = (name: string) => () => { rules = { ...rules, ...PRESETS[name] }; refresh(); };
-  // One grid: the presets' caption and each rule's caption share the label column.
-  const rows = document.createElement("div"); rows.className = "engine-rule-rows";
-  const presets = document.createElement("span"); presets.textContent = t("SetKataRules.lblClassicRules"); rows.append(presets);
-  actions(rows,
-    button(t("SetKataRules.btnChnRule"), preset("chinese")),
-    button(t("SetKataRules.btnJpnRule"), preset("japanese")),
-    button(t("SetKataRules.btnChnOldRule"), preset("stone-scoring")),
-    button(t("SetKataRules.btnTTRule"), preset("tromp-taylor")),
-    button(t("SetKataRules.btnGoeRule"), preset("goe")));
+  // Java's captions end in a colon; a row's name does not.
+  const caption = (text: string) => text.replace(/\\?[:：]\s*$/, "");
+  const classic = segmented("rule-preset", [
+    ["chinese", t("SetKataRules.btnChnRule")],
+    ["japanese", t("SetKataRules.btnJpnRule")],
+    ["stone-scoring", t("SetKataRules.btnChnOldRule")],
+    ["tromp-taylor", t("SetKataRules.btnTTRule")],
+    ["goe", t("SetKataRules.btnGoeRule")],
+  ], "");
+  for (const control of classic.inputs) control.onchange = () => { rules = { ...rules, ...PRESETS[control.value] }; refresh(); };
+  row(body, caption(t("SetKataRules.lblClassicRules")), "", classic.el);
   const options: [string, string, [string, string][], boolean?][] = [
     ["scoring", t("SetKataRules.lblScoringRule"), [["AREA", t("SetKataRules.rdoArea")], ["TERRITORY", t("SetKataRules.rdoTerritory")]]],
     ["ko", t("SetKataRules.lblKoRule"), [["SIMPLE", t("SetKataRules.rdoSimpleKo")], ["POSITIONAL", t("SetKataRules.rdoPositionKo")], ["SITUATIONAL", t("SetKataRules.rdoSituationalKo")]]],
@@ -46,19 +50,15 @@ export function rulesEditor(body: HTMLElement, initial: Rules, changed: (rules: 
     ["hasButton", t("SetKataRules.lblHasButton"), [["true", t("SetKataRules.rdoButtonGo")], ["false", t("SetKataRules.rdoNoButtonGo")]], true],
     ["friendlyPassOk", t("SetKataRules.lblFriendlyPassOk"), [["true", t("SetKataRules.rdoButtonGo")], ["false", t("SetKataRules.rdoNoButtonGo")]], true],
   ];
-  for (const [name, caption, choices, boolean] of options) {
-    const row = document.createElement("div"); row.className = "engine-rule-row";
-    const title = document.createElement("span"); title.textContent = caption; row.append(title);
-    const inputs: HTMLInputElement[] = [];
-    for (const [value, text] of choices) {
-      const control = document.createElement("input"); control.type = "radio"; control.name = `rule-${name}`; control.value = value;
+  for (const [name, title, choices, boolean] of options) {
+    const rule = segmented(`rule-${name}`, choices, "");
+    for (const control of rule.inputs) {
       if (boolean) control.dataset.boolean = "true";
-      control.onchange = () => { rules[name] = boolean ? value === "true" : value; refresh(); };
-      const label = document.createElement("label"); label.append(control, text); row.append(label); inputs.push(control);
+      control.onchange = () => { rules[name] = boolean ? control.value === "true" : control.value; refresh(); };
     }
-    controls.set(name, inputs); rows.append(row);
+    controls.set(name, rule.inputs);
+    row(body, caption(title), "", rule.el);
   }
-  body.append(rows);
   refresh();
   return () => ({ ...rules });
 }
@@ -107,16 +107,18 @@ export async function openRules(): Promise<void> {
   const body = document.createElement("div"); body.className = "engine-rules";
   let initial: Rules = {};
   try { const parsed: unknown = JSON.parse(view.engine.rules ?? "{}"); if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) initial = { ...parsed }; } catch { /* No confirmed rules response: leave choices unset, like Java. */ }
-  const hint = document.createElement("div"); hint.className = "engine-hint";
+  // The 贴目 convention note follows the group; the editor fills it while building its rows.
+  const hint = document.createElement("p"); hint.className = "ds-note";
   const rulesNow = rulesEditor(body, initial, (rules) => {
     const komi = state.view?.komi ?? view.komi;
     const conventional = rules.scoring === "TERRITORY" ? 6.5 : rules.scoring === "AREA" ? (rules.hasButton ? 7 : 7.5) : null;
     hint.textContent = conventional !== null && conventional !== komi && view.document.info.handicap === 0
       ? format(t("SetKataRules.komiConventionHint"), komi, conventional) : "";
   });
-  const auto = checkbox(t("SetKataRules.chkbxAutoLoadRules"), view.settings.engine.auto_load_kata_rules);
-  body.append(auto.label, hint);
-  const status = document.createElement("div"); status.className = "engine-hint"; status.textContent = view.engine.rules ? "" : t("SetKataRules.status.unconfirmed"); body.append(status);
+  // 自动应用 ends the rules' group; the notes follow it.
+  const auto = switchRow(body, t("SetKataRules.chkbxAutoLoadRules"), "", view.settings.engine.auto_load_kata_rules);
+  body.append(hint);
+  groupNote(body, view.engine.rules ? "" : t("SetKataRules.status.unconfirmed"));
   const dialog = formPanel(t("SetKataRules.title"), body);
   actions(body, primaryButton(t("SetKataRules.btnApply"), async () => {
     if (!state.view?.engine.foreground?.ready || state.view.engine.foreground.index !== engine) { await message(t("Message.title"), t("LizzieFrame.setParamNoEngineHint")); return; }

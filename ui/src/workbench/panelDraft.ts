@@ -3,28 +3,21 @@
 // 保存设置 commits once; 取消 discards it. One draft per opened dialog.
 import { run, state } from "../app";
 import type { PanelSettings } from "../contract/generated";
-import { checkbox } from "../engine/controls";
+import { switchRow } from "../engine/controls";
 
 type PanelFlag = { [K in keyof PanelSettings]: PanelSettings[K] extends boolean ? K : never }[keyof PanelSettings];
 
 export class PanelDraft {
   private readonly rows = new Map<PanelFlag, HTMLInputElement>();
 
-  /** A check box row tagged with its setting target; `disabled` greys it out like Java. */
+  /** A switch row tagged with its setting target; `disabled` greys it out like Java. */
   row(host: ParentNode, field: PanelFlag, target: string, title: string, sub: string, disabled = false): HTMLElement {
-    const row = document.createElement("div");
-    row.className = "settings-row";
-    row.dataset.settingTarget = target;
-    const box = checkbox(title, state.view?.settings.panels[field] ?? false);
-    box.input.dataset.key = target;
-    box.input.disabled = disabled;
-    box.label.title = sub;
-    const hint = document.createElement("p");
-    hint.textContent = sub;
-    row.append(box.label, hint);
-    host.append(row);
-    this.rows.set(field, box.input);
-    return row;
+    const r = switchRow(host, title, sub, state.view?.settings.panels[field] ?? false);
+    r.row.dataset.settingTarget = target;
+    r.input.dataset.key = target;
+    r.input.disabled = disabled;
+    this.rows.set(field, r.input);
+    return r.row;
   }
 
   /** Commits the edited rows over the current panel settings; true when nothing was refused. */

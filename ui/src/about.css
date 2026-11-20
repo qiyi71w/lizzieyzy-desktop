@@ -1,9 +1,24 @@
-/* 综合设置 > 关于 (ConfigDialog2.createUnifiedAboutHero, createAboutLinkButton): the product name as
-   the page's title, its version and origin, then the link buttons. */
+/* 综合设置 > 关于 (ConfigDialog2.createUnifiedAboutHero, createAboutLinkButton): one raised group
+   with the application's icon, the product name, its version and origin, then the link buttons. */
 .about-hero {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-menu);
+  background: var(--ds-raised);
+}
+.about-icon {
+  flex: none;
+  width: 64px;
+  height: 64px;
+}
+.about-text {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  min-width: 0;
 }
 .about-hero h2 {
   margin: 0;
@@ -11,19 +26,17 @@
   font-weight: 600;
 }
 .about-hero .about-version {
-  margin: 4px 0 0;
+  margin: 2px 0 0;
   color: var(--ds-text-2);
-  font-size: var(--ds-size);
   font-variant-numeric: tabular-nums;
 }
 .about-hero .about-origin {
-  margin: 8px 0 0;
-  color: var(--ds-text-2);
-  font-size: var(--ds-size);
+  margin: 6px 0 0;
+  color: var(--ds-text-3);
 }
 .about-links {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 16px;
+  margin-top: 12px;
 }

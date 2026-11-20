@@ -83,6 +83,14 @@ const ICONS = {
   "pen-blue": '<rect class="ic-pen ic-pen-blue" x="2.5" y="2.5" width="11" height="11" rx="2"/>',
   "pen-green": '<rect class="ic-pen ic-pen-green" x="2.5" y="2.5" width="11" height="11" rx="2"/>',
   "pen-red": '<rect class="ic-pen ic-pen-red" x="2.5" y="2.5" width="11" height="11" rx="2"/>',
+  /** 综合设置's pages: 棋盘与显示, 棋谱加载, 引擎与分析, 对局与操作, 主题外观, 高级选项, 关于. */
+  "nav-display": '<rect x="2" y="2.5" width="12" height="9" rx="1.5"/><path d="M6 14h4M8 11.5V14"/>',
+  "nav-kifu": '<path d="M4 1.75h5.5L13 5.25V14H4z"/><path d="M9.5 1.75v3.5H13M6.5 8.5h4M6.5 11h4"/>',
+  "nav-engine": '<rect x="4" y="4" width="8" height="8" rx="1.5"/><path d="M6.5 1.75V4M9.5 1.75V4M6.5 12v2.25M9.5 12v2.25M1.75 6.5H4M1.75 9.5H4M12 6.5h2.25M12 9.5h2.25"/>',
+  "nav-play": '<circle cx="6" cy="8" r="3.75"/><circle cx="10.5" cy="8" r="3.75"/>',
+  "nav-theme": '<path d="M8 1.75a6.25 6.25 0 1 0 0 12.5c1.05 0 1.3-.95.7-1.6-.6-.65-.2-1.9.9-1.9h1.65A3 3 0 0 0 14.25 7.8C14.25 4.5 11.45 1.75 8 1.75z"/><circle cx="5" cy="7" r=".9"/><circle cx="8" cy="4.75" r=".9"/><circle cx="11" cy="6.5" r=".9"/>',
+  "nav-advanced": '<path d="M2.5 4h11M2.5 8h11M2.5 12h11"/><circle cx="6" cy="4" r="1.4"/><circle cx="10.5" cy="8" r="1.4"/><circle cx="5" cy="12" r="1.4"/>',
+  "nav-about": '<circle cx="8" cy="8" r="6.25"/><path d="M8 7.25v4M8 4.9v.1"/>',
 } as const;
 
 export type IconName = keyof typeof ICONS;

@@ -30,8 +30,9 @@
   gap: 6px;
 }
 
-/* ---- 综合设置 (ConfigDialog2): the page list on the left, the page on the right, 保存设置 / 取消
-   below both; only the page scrolls. */
+/* ---- 综合设置 (ConfigDialog2): the page list (search field, then one item per page with its
+   icon) on the bar colour at the left, the pages on the right, 保存设置 / 取消 in the band below
+   both; only the pages scroll. */
 .engine-dialog:has(> .engine-settings) {
   display: flex;
   flex-direction: column;
@@ -39,14 +40,18 @@
   height: min(720px, 94vh);
   overflow: hidden;
 }
+/* The dialog title sits over the page list's colour on the left. */
+.engine-dialog:has(> .engine-settings) > .modal-title {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ds-line);
+}
 .engine-dialog > .engine-settings {
-  --settings-label: calc(var(--ds-size) * 16);
   flex: 1;
   min-height: 0;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) auto;
-  padding: 12px 0 0;
+  padding: 0;
 }
 .engine-settings > nav {
   grid-row: 1;
@@ -54,111 +59,111 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: calc(var(--ds-size) * 11);
-  padding: 0 12px 12px;
+  min-width: calc(var(--ds-size) * 12);
+  padding: 10px 8px;
   border-right: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
   overflow: auto;
 }
 .engine-settings > nav > button {
   flex: none;
-  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 8px;
   border-color: transparent;
   background-color: transparent;
   text-align: left;
+}
+.engine-settings > nav > button .icon {
+  color: var(--ds-text-2);
 }
 .engine-settings > nav > button[aria-current="page"] {
   background-color: var(--ds-accent-soft);
   color: var(--ds-accent-text);
   font-weight: 600;
 }
-.engine-settings > .engine-settings-form {
+.engine-settings > nav > button[aria-current="page"] .icon {
+  color: currentColor;
+}
+.settings-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--ds-control-h-l);
+  margin-bottom: 8px;
+  padding: 0 8px;
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-radius);
+  background: var(--ds-field);
+  color: var(--ds-text-3);
+}
+.settings-search:focus-within {
+  border-color: var(--ds-accent);
+  outline: 2px solid var(--ds-ring);
+}
+.settings-search .icon {
+  width: 14px;
+  height: 14px;
+}
+.settings-search input {
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.settings-search input:focus-visible {
+  outline: none;
+}
+.engine-settings > .settings-pages {
   grid-row: 1;
   grid-column: 2;
   min-height: 0;
   overflow: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  padding: 0 20px 16px;
+  padding: 0 24px 20px;
 }
-.engine-settings > .engine-settings-form[hidden] {
+.settings-pages > .engine-settings-form[hidden] {
+  display: none;
+}
+.settings-page-title {
+  margin: 16px 2px 10px;
+  font-size: var(--ds-size-xl);
+  font-weight: 600;
+}
+.settings-no-match {
+  margin: 40px 0;
+  color: var(--ds-text-3);
+  text-align: center;
+}
+/* 搜索设置: the parts without a match are left out. */
+.engine-settings.filtering .filtered-out {
   display: none;
 }
 .engine-dialog > .engine-settings > .engine-actions:last-child {
   grid-row: 2;
   grid-column: 1 / -1;
   margin: 0;
-  padding: 12px 20px 16px;
+  padding: 12px 20px;
   border-top: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
+}
+.settings-proxy-part {
+  gap: 6px;
+}
+.settings-proxy-part input[data-key="settings.proxy.host"] {
+  width: calc(var(--ds-size) * 10);
+}
+.settings-proxy-part input[data-key="settings.proxy.port"] {
+  width: calc(var(--ds-size) * 5.5);
 }
 
-/* The page: titled groups of rows. */
-.engine-settings-form > *,
-.engine-settings-form p {
-  margin: 0;
-}
-.engine-settings-form > :is(.engine-field, .settings-row, .appearance-card, .about-hero) {
-  align-self: stretch;
-}
-.engine-settings-form h3 {
-  margin: 0;
-  font-size: var(--ds-size-l);
-  font-weight: 600;
-}
-.engine-settings-form > h3:not(:first-child),
-.engine-settings-form > .appearance-card + .appearance-card {
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid var(--ds-line);
-}
-.engine-settings-form p {
-  color: var(--ds-text-3);
-  font-size: var(--ds-size-s);
-}
-.engine-settings-form > h3 + p {
-  margin-top: 2px;
-}
-.engine-settings-form > :is(label, .settings-row, .engine-field) {
-  margin-top: 10px;
-}
-.engine-settings-form > :is(label, .engine-field) + p,
-.settings-row > p {
-  margin-top: 2px;
-}
-/* Check box rows: the hint lines up with the text after the box. */
-.engine-settings-form > label:not(.engine-field),
-.settings-row > label {
-  display: inline-flex;
-  align-items: center;
-  min-height: 20px;
-}
-.engine-settings-form > label:not(.engine-field) + p,
-.settings-row > p {
-  padding-left: 19px;
-}
-/* Labelled rows: the hint lines up with the control. */
-.engine-settings-form .engine-field {
-  grid-template-columns: var(--settings-label) minmax(0, 1fr);
-  min-height: var(--ds-control-h-l);
-}
-.engine-settings-form .engine-field > :is(input, select) {
-  justify-self: start;
-}
-.engine-settings-form .engine-field > select {
-  min-width: calc(var(--ds-size) * 16);
-  max-width: 100%;
-}
-.engine-settings-form > .engine-field + p,
-.engine-settings-form > .engine-field-hint {
-  padding-left: calc(var(--settings-label) + 12px);
-}
-.engine-unit input[data-key="settings.proxy.host"] {
-  width: calc(var(--ds-size) * 12);
-  text-align: left;
-}
-
-/* ---- 更多引擎 (MoreEngines): the form above the catalog. The table gives up height before the
-   box scrolls; when it does scroll, the body narrows by the scrollbar instead of overflowing. */
+/* ---- 更多引擎 (MoreEngines): the selected entry as grouped rows in two columns (one when the box
+   is narrow), the catalog operations, the catalog table, then 自动加载. The table gives up height
+   before the box scrolls; when it does scroll, the body narrows by the scrollbar instead of
+   overflowing. */
 .engine-dialog:has(> .engine-catalog) {
   display: flex;
   flex-direction: column;
@@ -176,45 +181,52 @@
 .engine-catalog > .engine-table-wrap {
   flex: 0 1 min(300px, 32vh);
   height: auto;
+  border-radius: var(--ds-radius-menu);
+  background: var(--ds-raised);
 }
-.engine-catalog .engine-field {
-  grid-template-columns: calc(var(--ds-size) * 8) minmax(0, 1fr);
+.engine-catalog-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
+  align-items: start;
+  gap: 14px 16px;
 }
-.engine-catalog .engine-form > .engine-actions {
-  margin-top: 0;
-}
-.engine-size {
+/* A column: its groups one under another. */
+.engine-catalog-columns > div {
   display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+/* 命令行 and 初始命令: the field takes a line of its own under the row's name. */
+.engine-catalog .ds-row:has(> :is(textarea, input)) {
   flex-wrap: wrap;
-  gap: 8px 20px;
+  row-gap: 6px;
+  padding-block: 8px 10px;
 }
-.engine-size .engine-field {
-  display: inline-flex;
-  gap: 8px;
+.engine-catalog .ds-row > :is(textarea, input) {
+  flex: 1 1 100%;
+  min-width: 0;
 }
-.engine-size input {
-  width: calc(var(--ds-size) * 5.5);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+.engine-catalog .ds-row > textarea {
+  resize: vertical;
 }
-.engine-remote input:is([type="text"], [type="password"]) {
+.engine-catalog .ds-row-control:empty,
+.engine-catalog :is(.ds-row-control, .ds-row-fields) > [hidden] {
+  display: none;
+}
+.engine-catalog :is(.ds-row-control, .ds-row-fields) > input:is([type="text"], [type="password"]):not([inputmode]) {
   width: calc(var(--ds-size) * 12);
 }
-.engine-remote input[data-key="engine.remote.port"] {
-  width: calc(var(--ds-size) * 5.5);
-  font-variant-numeric: tabular-nums;
-}
-.engine-remote button[data-key="engine.remote.about"] {
+.engine-catalog button[data-key="engine.remote.about"] {
   width: var(--ds-control-h-l);
   padding: 0;
 }
-.engine-thread-status {
-  color: var(--ds-text-3);
-  font-size: var(--ds-size-s);
-  white-space: pre-line;
-}
 .engine-thread-status:empty {
   display: none;
+}
+/* 自动加载 under the table. */
+.engine-catalog > .ds-row {
+  margin-top: 12px;
 }
 
 /* The catalog table: header on --ds-sunken, a line between rows, the selected row in accent. */
@@ -274,12 +286,15 @@
   outline-offset: -2px;
 }
 
-/* 选择引擎 (ChooseMoreEngine): the catalog as a list box. */
+/* 选择引擎 (ChooseMoreEngine): the catalog as a list box, drawn as one group. */
 .engine-chooser select {
   display: block;
   width: min(820px, 85vw);
   height: auto;
   padding: 4px;
+  border-color: var(--ds-line);
+  border-radius: var(--ds-radius-menu);
+  background-color: var(--ds-raised);
   background-image: none;
   font-variant-numeric: tabular-nums;
 }
@@ -321,85 +336,42 @@
   white-space: pre-wrap;
 }
 
-/* ---- KataGo / 精析 rules (KataRulesEditor): the classic presets, then one row per rule with its
-   choices in columns. */
-.engine-rule-rows {
-  display: grid;
-  grid-template-columns: max-content repeat(3, max-content);
-  align-items: center;
-  gap: 8px 16px;
+/* ---- KataGo / 精析 rules (KataRulesEditor): one group, 典型规则 and then a row per rule, each
+   with its choices as a segmented control; a row too narrow for its choices puts them on a line
+   of their own at the end. The notes on 贴目 and the engine's confirmation follow. */
+.engine-rules {
+  width: min(600px, 92vw);
 }
-.engine-rule-row {
-  display: contents;
+.engine-rules .ds-row {
+  flex-wrap: wrap;
+  row-gap: 6px;
 }
-/* A rule with two choices leaves its row's last cell empty; the next caption starts a new row. */
-.engine-rule-row > span {
-  grid-column: 1;
+.engine-rules .ds-row-control {
+  margin-left: auto;
 }
-.engine-rule-rows label {
-  display: inline-flex;
-  align-items: center;
-  white-space: nowrap;
-}
-.engine-rule-rows > .engine-actions {
-  grid-column: 2 / -1;
-  margin: 0 0 4px;
-}
-.engine-rules > label {
-  display: flex;
-  align-items: center;
-  margin-top: 12px;
-}
-.engine-rules > .engine-hint {
-  margin-top: 4px;
-}
-.engine-rules > .engine-hint:empty {
+.engine-rules > .ds-note:empty {
   display: none;
 }
 
-/* ---- 设置KataGo引擎高级参数 / 设置Leela(Sai)引擎高级参数 (SetKataEngines, SetLeelaEngines): each
-   row is its label, 修改, the value, 自动加载 and 在工具栏中控制; hints below. */
+/* ---- 设置KataGo引擎高级参数 / 设置Leela(Sai)引擎高级参数 (SetKataEngines, SetLeelaEngines): a row
+   per parameter, its name with Java's range under it; 自动加载, 在工具栏中控制, the value and 修改
+   at the end; the notes below. .kata-params is SetKataPDA's body. */
+.engine-params {
+  width: min(680px, 92vw);
+}
+.engine-params :is(.ds-row-control, .ds-row-fields) > input:not([type="checkbox"]) {
+  width: calc(var(--ds-size) * 8);
+}
 .kata-params {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.kata-params-grid {
-  display: grid;
-  grid-template-columns: minmax(0, max-content) auto calc(var(--ds-size) * 8) auto auto;
-  align-items: center;
-  gap: 8px 12px;
-}
-.leela-params-grid {
-  grid-template-columns: minmax(0, max-content) auto calc(var(--ds-size) * 8) auto;
-}
-.kata-params-grid input[type="checkbox"] {
-  justify-self: center;
-  margin: 0;
-}
-.kata-params-grid input:not([type="checkbox"]) {
-  width: 100%;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.kata-params-head {
-  color: var(--ds-text-2);
-  font-size: var(--ds-size-s);
-  text-align: center;
-  white-space: nowrap;
-}
 .kata-params-pda-engine {
-  grid-column: span 4;
   color: var(--ds-text-3);
 }
 /* 搜索线程数's read status (lblThreadReadStatus). */
 .kata-params-thread-status {
-  grid-column: span 2;
-  color: var(--ds-text-3);
-  font-size: var(--ds-size-s);
-  white-space: nowrap;
-}
-.kata-params-hint {
   color: var(--ds-text-3);
   font-size: var(--ds-size-s);
 }
@@ -498,8 +470,9 @@
   margin-bottom: 12px;
 }
 
-/* ---- 引擎启动失败 (EngineFailedMessage): the message, the launch command and the engine's output.
-   The frame takes the output's width; long lines wrap inside it. */
+/* ---- 引擎启动失败 (EngineFailedMessage): the message, the launch command on a line of its own
+   under its row's name, and the engine's output. The frame takes the output's width; long lines
+   wrap inside it. */
 .modal-box:has(> .modal-body > .engine-failure) {
   max-width: min(760px, 94vw);
 }
@@ -526,7 +499,23 @@
   background: none;
   font: inherit;
 }
-.engine-failure > div:not(.engine-actions) {
+.engine-failure > .ds-row {
+  flex-wrap: wrap;
+  row-gap: 6px;
+  margin-top: 12px;
+  padding-block: 8px 10px;
+}
+.engine-failure > .ds-row > .ds-row-control:empty {
+  display: none;
+}
+.engine-failure > .ds-row > pre {
+  flex: 1 1 100%;
+  min-width: 0;
+  max-height: 30vh;
+  margin: 0;
+}
+/* The ended-engine notice's 引擎命令 caption. */
+.engine-failure > div:not(.engine-actions, .ds-row) {
   margin-top: 8px;
   color: var(--ds-text-2);
 }

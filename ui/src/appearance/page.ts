@@ -9,6 +9,7 @@ import { run, state } from "../app";
 import { appearanceCatalog, chooseAppearanceImage } from "../contract/client";
 import type { AppearanceCatalog, ThemeSettings } from "../contract/generated";
 import { ask, confirm, message } from "../dialogs";
+import { groupTitle, row as groupRow } from "../engine/controls";
 import { SETTINGS_PAGES, type SettingsDialog } from "../engine/settings";
 import { registerSettingTargets } from "../engine/settingsTargets";
 import { isChinese, product, registerProduct, t } from "../i18n";
@@ -69,40 +70,37 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, t
   return node;
 };
 
-/** createDesignSettingsCard: a titled card. Texts arrive translated (t with literal keys). */
+/** createDesignSettingsCard: a titled group. Texts arrive translated (t with literal keys). */
 function card(host: HTMLElement, title: string, subtitle: string): HTMLElement {
   const box = el("section", "appearance-card");
-  box.append(el("h3", undefined, title), el("p", "appearance-card-sub", subtitle));
+  groupTitle(box, title, subtitle);
   host.append(box);
   return box;
 }
 
-/** createDesignRow: the title in the settings page's label column, the controls and the sub line
- *  below them in its control column (appearance.css); rows with a ConfigSettingTargets id carry
- *  it for 功能搜索's row location. */
+/** createDesignRow: a grouped row; rows with a ConfigSettingTargets id carry it for 功能搜索's row
+ *  location. Rows holding a path, the preview or the rules table put them under their name
+ *  (appearance.css). */
 function row(box: HTMLElement, target: Target | null, title: string, subtitle: string, ...controls: HTMLElement[]): HTMLElement {
-  const line = el("div", "appearance-row");
+  const line = groupRow(box, title, subtitle, ...controls);
   if (target) line.dataset.settingTarget = target;
-  const text = el("div", "appearance-row-text");
-  text.append(el("div", "appearance-row-title", title), el("div", "appearance-row-sub", subtitle));
-  const slot = el("div", "appearance-row-controls");
-  slot.append(...controls);
-  line.append(text, slot);
-  box.append(line);
   return line;
 }
 
+/** A check box drawn as a switch. */
 function check(key: string, label: string): HTMLInputElement {
-  const input = el("input");
+  const input = el("input", "ds-switch");
   input.type = "checkbox";
   input.dataset.key = key;
   input.setAttribute("aria-label", label);
   return input;
 }
 
+/** A switch after its text, or a radio before it (the radio is drawn by its segmented group). */
 function labelled(input: HTMLInputElement, label: string): HTMLLabelElement {
   const wrap = el("label", "appearance-check");
-  wrap.append(input, label);
+  if (input.type === "checkbox") wrap.append(label, input);
+  else wrap.append(input, label);
   return wrap;
 }
 
@@ -398,7 +396,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   const showShadow = check("settings.theme.showStoneShadow", shadowLabel);
   const shadowSize = spinner("settings.theme.shadowSize", 1, 150, 1, shadowLabel);
   showShadow.addEventListener("change", () => (shadowSize.disabled = !showShadow.checked));
-  row(lines, "config.theme.shadow", t("ConfigDialog2.modern.theme.shadow"), t("ConfigDialog2.modern.theme.shadowSub"), labelled(showShadow, shadowLabel), stepper(shadowSize));
+  row(lines, "config.theme.shadow", t("ConfigDialog2.modern.theme.shadow"), t("ConfigDialog2.modern.theme.shadowSub"), showShadow, stepper(shadowSize));
   const infoFont = fontCombo("settings.theme.fontName");
   row(lines, "config.theme.info-font", t("ConfigDialog2.modern.theme.infoFont"), t("ConfigDialog2.modern.theme.infoFontSub"), infoFont.select);
   const uiFont = fontCombo("settings.theme.uiFontName");
@@ -472,7 +470,10 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     input.dataset.key = `settings.theme.stoneIndicatorType.${value}`;
     return labelled(input, text);
   });
-  row(colors, "config.theme.stone-indicator", t("ConfigDialog2.modern.theme.indicator"), t("ConfigDialog2.modern.theme.indicatorSub"), ...indicatorInputs);
+  const indicatorChoices = el("span", "ds-seg");
+  indicatorChoices.setAttribute("role", "radiogroup");
+  indicatorChoices.append(...indicatorInputs);
+  row(colors, "config.theme.stone-indicator", t("ConfigDialog2.modern.theme.indicator"), t("ConfigDialog2.modern.theme.indicatorSub"), indicatorChoices);
   const commentNodeTitle = t("ConfigDialog2.modern.theme.commentNode");
   const showCommentNode = check("settings.theme.showCommentNodeColor", commentNodeTitle);
   const commentNodeColor = colorControl("settings.theme.commentNodeColor", true, false);

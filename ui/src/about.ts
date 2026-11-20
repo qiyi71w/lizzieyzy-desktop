@@ -24,6 +24,8 @@ registerProduct({
 
 SETTINGS_PAGES.about = (host) => {
   const hero = document.createElement("div"); hero.className = "about-hero";
+  const mark = document.createElement("img"); mark.className = "about-icon"; mark.src = "/assets/app-icon.png"; mark.alt = ""; mark.draggable = false;
+  const text = document.createElement("div"); text.className = "about-text";
   const title = document.createElement("h2"); title.textContent = "LizzieYzy Tauri";
   const version = document.createElement("p"); version.className = "about-version"; version.dataset.key = "about.version";
   void getVersion().then((v) => { version.textContent = product("aboutVersion", v); });
@@ -37,7 +39,8 @@ SETTINGS_PAGES.about = (host) => {
     link.dataset.key = `about.${page}`;
     links.append(link);
   }
-  hero.append(title, version, origin, links);
+  text.append(title, version, origin, links);
+  hero.append(mark, text);
   host.append(hero);
   buildUpdateSection(host);
   return { save: async () => true };

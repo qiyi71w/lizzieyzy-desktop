@@ -36,10 +36,11 @@
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding-right: 12px;
+  padding: 12px 12px 0 20px;
 }
 .modal-close {
   display: grid;
+  flex: none;
   place-items: center;
   width: var(--ds-control-h-l);
   padding: 0;
@@ -49,6 +50,10 @@
 }
 .modal-close:hover {
   color: var(--ds-text);
+}
+.modal-close .icon {
+  width: 14px;
+  height: 14px;
 }
 :where(.modal-body) {
   padding: 10px 20px 0;
@@ -119,20 +124,169 @@
   align-items: center;
   white-space: nowrap;
 }
-/* The button row stays in view while a tall form scrolls inside the box. */
+/* The button row stays in view while a tall form scrolls inside the box: a band of the bar colour
+   across the box's foot, under a hairline. */
 :where(.engine-dialog:has(> .modal-title + * > .engine-actions:last-child)) {
   padding-bottom: 0;
 }
 :where(.engine-dialog > .modal-title + * > .engine-actions:last-child) {
   position: sticky;
   bottom: 0;
+  z-index: 1;
   justify-content: flex-end;
-  margin-top: 4px;
-  padding: 12px 0 16px;
-  background: var(--ds-panel);
+  margin: 16px -20px 0;
+  padding: 12px 20px;
+  border-top: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
 }
 :where(.engine-dialog > .modal-title + * > .engine-actions:last-child button) {
   min-width: 76px;
+}
+
+/* ---- grouped rows (controls.ts groupTitle / row / switchRow): a group's title, then its rows on
+   one raised surface with hairlines between them; consecutive rows make one group. */
+:where(.ds-group-title) {
+  margin: 16px 2px 6px;
+  color: var(--ds-text-2);
+  font-size: var(--ds-size-s);
+  font-weight: 600;
+}
+:where(.ds-group-title:first-child) {
+  margin-top: 2px;
+}
+:where(.ds-group-title + .ds-group-note) {
+  margin: -4px 2px 6px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+  white-space: normal;
+}
+:where(.ds-row) {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 38px;
+  padding: 6px 12px;
+  border: 1px solid var(--ds-line);
+  border-top-width: 0;
+  background: var(--ds-raised);
+  white-space: normal;
+}
+:where(.ds-row:not(.ds-row:not([hidden], .filtered-out) + .ds-row)) {
+  border-top-width: 1px;
+  border-top-left-radius: var(--ds-radius-menu);
+  border-top-right-radius: var(--ds-radius-menu);
+}
+:where(.ds-row:not(:has(+ .ds-row:not([hidden], .filtered-out)))) {
+  border-bottom-left-radius: var(--ds-radius-menu);
+  border-bottom-right-radius: var(--ds-radius-menu);
+}
+:where(.ds-row[hidden]) {
+  display: none;
+}
+/* The name keeps room for a short phrase on one line; long fields wrap before it does. */
+:where(.ds-row-text) {
+  flex: 1 1 auto;
+  min-width: min(10em, 35%);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+:where(.ds-row-sub) {
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+  line-height: 1.35;
+  white-space: pre-line;
+}
+/* The controls wrap before they get narrower than their widest part, so they never cover the
+   row's text. */
+:where(.ds-row-control) {
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  min-width: min-content;
+  color: var(--ds-text-2);
+  white-space: nowrap;
+}
+/* A switch's fields (controls.ts switchRow) wrap among themselves; the switch stays at the end. */
+:where(.ds-row-control:has(> .ds-row-fields)) {
+  flex-wrap: nowrap;
+}
+:where(.ds-row-fields) {
+  display: inline-flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px 8px;
+  min-width: 0;
+}
+:where(.ds-row-control label) {
+  display: inline-flex;
+  align-items: center;
+  color: var(--ds-text);
+}
+:where(:is(.ds-row-control, .ds-row-fields) > :is(input[type="number"], .ds-stepper)) {
+  width: calc(var(--ds-size) * 6.5);
+}
+/* A typed number: the stepper's width, its digits to the right. */
+:where(:is(.ds-row-control, .ds-row-fields) > input:is([inputmode="numeric"], [inputmode="decimal"])) {
+  width: calc(var(--ds-size) * 6.5);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* A note after a group, for what applies to its rows as a whole. */
+:where(.ds-note) {
+  margin: 8px 2px 0;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+  line-height: 1.5;
+  white-space: normal;
+}
+
+/* ---- segmented control (controls.ts segmented): radios drawn as one well with the chosen
+   segment raised. */
+:where(.ds-seg) {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--ds-radius);
+  background: var(--ds-well);
+}
+:where(.ds-seg > label) {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 10px;
+  border-radius: var(--ds-radius-s);
+  color: var(--ds-text-2);
+  white-space: nowrap;
+}
+:where(.ds-seg > label:hover) {
+  color: var(--ds-text);
+}
+:where(.ds-seg > label:has(> input:checked)) {
+  background: var(--ds-field);
+  box-shadow: var(--ds-shadow-cap);
+  color: var(--ds-text);
+}
+:where(.ds-seg > label:has(> input:focus-visible)) {
+  outline: 2px solid var(--ds-ring);
+}
+:where(.ds-seg > label:has(> input:disabled)) {
+  color: var(--ds-text-off);
+}
+:where(.ds-seg > label > input) {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
 }
 /* A check box or radio that cannot be changed takes its text with it. */
 :where(.modal-box label:has(> input:is([type="checkbox"], [type="radio"]):disabled)) {

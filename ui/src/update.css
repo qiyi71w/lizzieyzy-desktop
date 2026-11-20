@@ -37,8 +37,8 @@
   display: none;
 }
 
-/* 综合设置 > 关于 > 检查更新: the channel and source rows, the automatic options, the status line,
-   the offer a check found and the buttons, all in the page's form grammar. */
+/* 综合设置 > 关于 > 检查更新: the channel, source and automatic options as grouped rows, then the
+   status line, the offer a check found and the buttons under the group. */
 .update-choice.disabled,
 .update-check.disabled {
   color: var(--ds-text-off);

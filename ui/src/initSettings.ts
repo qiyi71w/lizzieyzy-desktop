@@ -10,7 +10,7 @@ import type { AnalysisSettings, DisplaySettings, Language } from "./contract/gen
 import { icon } from "./design/icons";
 import { formPanel, message } from "./dialogs";
 import { openInfoOrderDialog, parseJavaInt } from "./display/dialogs";
-import { product, t } from "./i18n";
+import { t } from "./i18n";
 
 /** Java languageOptions with its combo texts (also 综合设置's 语言 row). */
 export const LANGUAGES: [Language, () => string][] = [
@@ -222,16 +222,7 @@ function openInitSettings(): void {
   const dialog = formPanel(t("FirstUseSettings.title"), body);
   const box = body.parentElement!;
   box.classList.add("init-settings");
-  const head = box.querySelector(".modal-title")!;
-  const close = document.createElement("button");
-  close.type = "button";
-  close.className = "modal-close";
-  close.append(icon("close"));
-  close.tabIndex = -1;
-  close.dataset.key = "init.close";
-  close.setAttribute("aria-label", product("close"));
-  close.onclick = () => void dialog.close();
-  head.append(close);
+  dialog.closeButton.dataset.key = "init.close";
 
   apply.onclick = async () => {
     const now = state.view;

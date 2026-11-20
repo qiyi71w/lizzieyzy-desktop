@@ -11,6 +11,7 @@ import type { UpdateDownloadView, UpdateError, UpdateOfferView, UpdateResultView
 import { message } from "./dialogs";
 import { product, registerProduct, t } from "./i18n";
 import { icon } from "./design/icons";
+import { groupTitle, row, switchRow } from "./engine/controls";
 import { openSettingsAt, registerSettingTargets } from "./engine/settingsTargets";
 import "./update.css";
 
@@ -314,35 +315,32 @@ function radio(name: string, text: string, key: string, onPick: () => void): { l
   return { label, input };
 }
 
-/** CheckUpdateDialog's options, its result line and its buttons, then the offer the check found
- *  with WindowsUpdateDialog's account of it and its download, built into 综合设置's 关于 page. */
+/** CheckUpdateDialog's options as grouped rows, its result line and its buttons, then the offer
+ *  the check found with WindowsUpdateDialog's account of it and its download, built into
+ *  综合设置's 关于 page. */
 export function buildUpdateSection(host: HTMLElement): void {
-  const heading = el("h3", "", t("WindowsUpdate.page.title"));
-  const sub = el("p", "", product("updateSectionSub", t("SetKataRules.btnApply"), t("SetKataRules.btnCancel")));
-  host.append(heading, sub);
+  groupTitle(host, t("WindowsUpdate.page.title"), product("updateSectionSub", t("SetKataRules.btnApply"), t("SetKataRules.btnCancel")));
 
   const stable = radio("update-channel", t("WindowsUpdate.channel.stable"), "update.channel.stable", () => saveSettings({ channel: "Stable" }));
   const beta = radio("update-channel", t("WindowsUpdate.channel.beta"), "update.channel.beta", () => saveSettings({ channel: "Beta" }));
   const official = radio("update-source", t("WindowsUpdate.source.official"), "update.source.official", () => saveSettings({ source: "Official" }));
   const github = radio("update-source", t("WindowsUpdate.source.github"), "update.source.github", () => saveSettings({ source: "Github" }));
+  // Each pair of choices is one segmented control.
   for (const [title, ...choices] of [[t("WindowsUpdate.page.channel"), stable, beta], [t("WindowsUpdate.page.source"), official, github]] as const) {
-    const row = el("div", "engine-field");
-    const unit = el("span", "engine-unit");
-    unit.append(...choices.map((choice) => choice.label));
-    row.append(el("span", "", title), unit);
-    host.append(row);
+    const seg = el("span", "ds-seg");
+    seg.setAttribute("role", "radiogroup");
+    seg.append(...choices.map((choice) => choice.label));
+    row(host, title, "", seg);
   }
 
+  // The switch rows; their names change while a saved option waits for the next start.
   const check = (key: string, onChange: (on: boolean) => void) => {
-    const input = el("input");
-    input.type = "checkbox";
-    input.dataset.key = `${key}.input`;
-    input.onchange = () => onChange(input.checked);
-    const text = el("span");
-    const label = el("label", "update-check");
-    label.dataset.key = key;
-    label.append(input, text);
-    return { label, input, text };
+    const r = switchRow(host, "", "", false);
+    r.row.classList.add("update-check");
+    r.row.dataset.key = key;
+    r.input.dataset.key = `${key}.input`;
+    r.input.onchange = () => onChange(r.input.checked);
+    return { label: r.row, input: r.input, text: r.row.querySelector(".ds-row-title")! };
   };
   const autoCheck = check("update.autoCheck", (on) => saveSettings(on ? { autoCheck: true } : { autoCheck: false, autoDownload: false }));
   const autoDownload = check("update.autoDownload", (on) => saveSettings({ autoDownload: on }));
@@ -350,7 +348,7 @@ export function buildUpdateSection(host: HTMLElement): void {
   result.dataset.key = "update.result";
   result.setAttribute("aria-live", "polite");
   const details = el("div", "update-details");
-  host.append(autoCheck.label, autoDownload.label, result, details);
+  host.append(result, details);
 
   let offerId: number | null = null;
   let offerShow: ((v: UpdateView) => void) | null = null;

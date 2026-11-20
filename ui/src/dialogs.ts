@@ -2,6 +2,7 @@
 // open the rest of the window is inert and Tab cycles inside the dialog, so neither the mouse nor
 // the keyboard reaches the workbench, like a Swing modal dialog.
 import { product, t } from "./i18n";
+import { icon } from "./design/icons";
 import "./design/dialog.css";
 
 const host = () => document.getElementById("dialog")!;
@@ -182,8 +183,10 @@ export function panel(title: string, body: HTMLElement): Promise<void> {
   return show(title, body, [{ label: product("close"), value: true, primary: true }], "info", false).then(() => undefined);
 }
 
-/** Form dialogs own validation and close timing; Enter inside a form must not discard a draft. */
-export function formPanel(title: string, body: HTMLElement, beforeClose: () => Promise<boolean> = async () => true): { close: () => Promise<void>; closed: Promise<void> } {
+/** Form dialogs own validation and close timing; Enter inside a form must not discard a draft.
+ *  The title row ends in a close box that closes as Escape does (`closeButton`, automation key
+ *  `dialog.close` unless the caller names its own). */
+export function formPanel(title: string, body: HTMLElement, beforeClose: () => Promise<boolean> = async () => true): { close: () => Promise<void>; closed: Promise<void>; closeButton: HTMLButtonElement } {
   const previous = document.activeElement as HTMLElement | null;
   const overlay = document.createElement("div");
   overlay.className = "modal";
@@ -214,22 +217,33 @@ export function formPanel(title: string, body: HTMLElement, beforeClose: () => P
     e.stopPropagation();
     if (e.key === "Escape") { e.preventDefault(); void close(); }
     if (e.key === "Tab") {
-      // Only rendered controls: 综合设置 keeps its other sections in the dialog, hidden.
+      // Only rendered controls: 综合设置 keeps its other sections in the dialog, hidden. The close
+      // box is for the pointer; Escape is its key.
       const items = [...box.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex='0']")]
-        .filter((el) => el.getClientRects().length > 0);
+        .filter((el) => el !== x && el.getClientRects().length > 0);
       const at = items.indexOf(document.activeElement as HTMLElement);
       e.preventDefault();
       items[(at + (e.shiftKey ? -1 : 1) + items.length) % items.length]?.focus();
     }
   });
+  const x = document.createElement("button");
+  x.type = "button";
+  x.className = "modal-close";
+  x.tabIndex = -1;
+  x.dataset.key = "dialog.close";
+  x.setAttribute("aria-label", product("close"));
+  x.title = product("close");
+  x.append(icon("close"));
+  x.onclick = () => void close();
+  head.append(x);
   box.append(head, body);
   overlay.append(box);
   host().append(overlay);
   host().hidden = false;
   open++;
   setModal();
-  box.querySelector<HTMLElement>("input:not(:disabled), button:not(:disabled), select:not(:disabled)")?.focus();
-  return { close, closed: done.promise };
+  box.querySelector<HTMLElement>(".modal-title ~ * :is(input:not(:disabled), button:not(:disabled), select:not(:disabled))")?.focus();
+  return { close, closed: done.promise, closeButton: x };
 }
 
 export function chooseSave(title: string, text: string, save: string, discard: string): Promise<boolean> {

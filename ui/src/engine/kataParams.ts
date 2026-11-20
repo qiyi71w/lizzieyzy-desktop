@@ -8,8 +8,8 @@ import { confirm, formPanel, message } from "../dialogs";
 import { format, t } from "../i18n";
 import { matchPlaying } from "../match/state";
 import { javaDouble, parseJavaDouble } from "../workbench/paint";
-import { actions, button, primaryButton } from "./controls";
-import { openLeelaEngines } from "./leelaOptions";
+import { actions, button, checkbox, groupNote, input, primaryButton, row, switchBox } from "./controls";
+import { openLeelaEngines, paramCaption } from "./leelaOptions";
 
 /** 搜索线程数 operations the window waits for, by ticket. A newer operation supersedes an older
  *  one, whose waiter gets `null`. */
@@ -101,11 +101,11 @@ export async function openEngineParameters(): Promise<void> {
   await message(t("Message.title"), t("LizzieFrame.setParamsWarning"));
 }
 
-/** SetKataEngines.Hint2 (LinkLabel): its red part is drawn as a warning and its 这里 link opens
- *  the KataGo parameter help; the link's own colour is the link style's. */
+/** SetKataEngines.Hint2 (LinkLabel), a note under the group: its red part is drawn as a warning
+ *  and its 这里 link opens the KataGo parameter help; the link's own colour is the link style's. */
 function hint2(): HTMLElement {
-  const el = document.createElement("div");
-  el.className = "kata-params-hint";
+  const el = document.createElement("p");
+  el.className = "ds-note kata-params-hint";
   const source = t("SetKataEngines.Hint2").replace(/^<html>|<\/html>$/g, "");
   const parsed = new DOMParser().parseFromString(source, "text/html").body;
   for (const font of parsed.querySelectorAll("font")) {
@@ -128,25 +128,24 @@ function hint2(): HTMLElement {
   return el;
 }
 
-function check(checked: boolean): HTMLInputElement {
-  const c = document.createElement("input");
-  c.type = "checkbox";
-  c.checked = checked;
-  return c;
-}
-
 /** One SetKataEngines row: 修改, the value, 自动加载 and 在工具栏中控制. */
-interface Row { edit: HTMLInputElement; value: HTMLInputElement; autoLoad: HTMLInputElement; inMenu: HTMLInputElement }
+interface Row { el: HTMLElement; edit: HTMLInputElement; value: HTMLInputElement; autoLoad: HTMLInputElement; inMenu: HTMLInputElement }
 
-function row(grid: HTMLElement, param: KataParam, label: string, enabled: boolean, text: string, autoLoad: boolean, inMenu: boolean): Row {
-  const r: Row = { edit: check(enabled), value: document.createElement("input"), autoLoad: check(autoLoad), inMenu: check(inMenu) };
-  r.value.value = text;
-  r.value.dataset.key = `kataParams.${param.toLowerCase()}`;
-  r.edit.dataset.key = `kataParams.${param.toLowerCase()}Edit`;
-  r.autoLoad.dataset.key = `kataParams.${param.toLowerCase()}AutoLoad`;
-  r.inMenu.dataset.key = `kataParams.${param.toLowerCase()}InMenu`;
-  const name = document.createElement("span");
-  name.textContent = label;
+/** A parameter's row: its name with Java's range hint under it; 自动加载, 在工具栏中控制, the
+ *  value and 修改 (a switch) at the end. */
+function paramRow(host: HTMLElement, param: KataParam, label: string, enabled: boolean, text: string, autoLoad: boolean, inMenu: boolean): Row {
+  const [name, hint] = paramCaption(label);
+  const auto = checkbox(t("SetKataEngines.lblAutoLoad"), autoLoad);
+  const menu = checkbox(t("SetKataEngines.lblShowInMenu"), inMenu);
+  const edit = switchBox(enabled), value = input(text);
+  value.dataset.key = `kataParams.${param.toLowerCase()}`;
+  edit.dataset.key = `kataParams.${param.toLowerCase()}Edit`;
+  auto.input.dataset.key = `kataParams.${param.toLowerCase()}AutoLoad`;
+  menu.input.dataset.key = `kataParams.${param.toLowerCase()}InMenu`;
+  value.inputMode = "decimal";
+  value.setAttribute("aria-label", name);
+  edit.setAttribute("aria-label", name);
+  const r: Row = { el: row(host, name, hint, auto.label, menu.label, value, edit), edit, value, autoLoad: auto.input, inMenu: menu.input };
   const paint = () => r.value.classList.toggle("invalid", kataValueInvalid(param, r.value.value));
   r.value.addEventListener("input", paint);
   paint();
@@ -159,7 +158,6 @@ function row(grid: HTMLElement, param: KataParam, label: string, enabled: boolea
   r.edit.onchange = editChanged;
   if (autoLoad) r.edit.checked = true;
   editChanged();
-  grid.append(name, r.edit, r.value, r.autoLoad, r.inMenu);
   return r;
 }
 
@@ -170,24 +168,19 @@ async function openKataEngines(): Promise<void> {
   const p = s.kata_params;
   const pdaEngine = kataGoPda();
   const body = document.createElement("div");
-  body.className = "kata-params";
-  const grid = document.createElement("div");
-  grid.className = "kata-params-grid";
-  const head = (text = "") => { const h = document.createElement("span"); h.className = "kata-params-head"; h.textContent = text; return h; };
-  grid.append(head(), head(), head(), head(t("SetKataEngines.lblAutoLoad")), head(t("SetKataEngines.lblShowInMenu")));
+  body.className = "engine-params";
 
   const pdaNow = current("Pda", s.kata_pda_enabled, s.kata_pda);
-  const pda = row(grid, "Pda", t("SetKataEngines.lblPDA"), pdaNow.enabled, pdaNow.text, p.autoLoadPda, p.showPda);
+  const pda = paramRow(body, "Pda", t("SetKataEngines.lblPDA"), pdaNow.enabled, pdaNow.text, p.autoLoadPda, p.showPda);
   if (pdaEngine) {
     // SetKataEngines.java:591-605: a KataGoPda engine's PDA is set from the toolbar's own panel.
     const note = document.createElement("span");
     note.className = "kata-params-pda-engine";
     note.textContent = t("SetKataEngines.lblPdaEngineUseMenu");
-    pda.edit.replaceWith(note);
-    for (const control of [pda.value, pda.autoLoad, pda.inMenu]) control.remove();
+    pda.el.lastElementChild!.replaceChildren(note);
   }
   const wrnNow = current("Wrn", p.wrnEnabled, p.wrn);
-  const wrn = row(grid, "Wrn", t("SetKataEngines.lblWRN"), wrnNow.enabled, wrnNow.text, p.autoLoadWrn, p.showWrn);
+  const wrn = paramRow(body, "Wrn", t("SetKataEngines.lblWRN"), wrnNow.enabled, wrnNow.text, p.autoLoadWrn, p.showWrn);
   // SetKataEngines.java:586-589: 广度 cannot be changed while the engine plays a genmove game.
   if (view.game?.kind === "Genmove" || (matchPlaying(view) && view.engine_match?.kind === "Genmove")) wrn.value.disabled = wrn.edit.disabled = true;
 
@@ -202,13 +195,17 @@ async function openKataEngines(): Promise<void> {
     const v = state.view?.engine.search_threads;
     return v && v.process === process ? v.state : "Unknown";
   };
+  const [threadName, threadHint] = paramCaption(t("SetKataEngines.lblNumSearchThreads"));
   const threads = document.createElement("span");
-  threads.textContent = t("SetKataEngines.lblNumSearchThreads");
+  threads.textContent = threadName;
   threads.title = threadTooltip;
   const threadOn = threadState() === "On";
-  const threadCheck = check(threadOn);
+  const threadCheck = switchBox(threadOn);
   threadCheck.dataset.key = "kataParams.threadsEdit";
-  const threadValue = document.createElement("input");
+  threadCheck.setAttribute("aria-label", threadName);
+  const threadValue = input("");
+  threadValue.inputMode = "numeric";
+  threadValue.setAttribute("aria-label", threadName);
   threadValue.dataset.key = "kataParams.threads";
   threadValue.disabled = !threadOn;
   threadValue.value = threadsNow?.confirmed?.toString() ?? "";
@@ -236,12 +233,10 @@ async function openKataEngines(): Promise<void> {
   const keepThreadOverride = () => {
     if (threadState() === "On") { threadCheck.checked = true; threadValue.disabled = false; }
   };
-  grid.append(threads, threadCheck, threadValue, threadStatus);
-
-  const hint = document.createElement("div");
-  hint.className = "engine-hint";
-  hint.textContent = t("SetKataEngines.lblHint");
-  body.append(grid, hint, hint2());
+  // The read status, the value and the override switch at the end of the row.
+  row(body, threads, threadHint, threadStatus, threadValue, threadCheck);
+  groupNote(body, t("SetKataEngines.lblHint"));
+  body.append(hint2());
 
   // A 搜索线程数 step in progress keeps the window open and its buttons disabled.
   let busy = false;

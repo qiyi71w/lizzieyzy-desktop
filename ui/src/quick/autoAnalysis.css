@@ -1,5 +1,13 @@
-/* 自动分析: the confirmation and tip dialogs' message, and the run's notices. The forms follow
-   quick.css; the frame and the button row are design/dialog.css. */
+/* 自动分析, 加强分析条件 and 批量精析: untitled groups of rows (design/dialog.css) with a gap between
+   them. Then the confirmation and tip dialogs' message, and the run's notices. The frame, the rows
+   and the button row are design/dialog.css. */
+.auto-analysis-dialog {
+  width: min(560px, 90vw);
+}
+.auto-analysis-group + .auto-analysis-group {
+  margin-top: 12px;
+}
+
 .auto-analysis-message {
   max-width: 480px;
 }

@@ -36,7 +36,7 @@ body {
 :root[data-os="windows"] #menubar {
   padding-right: 0;
 }
-/* The mark: a black and a white stone, the pair that stands for the two sides everywhere. */
+/* The mark: the application's icon. */
 .app-mark {
   flex: none;
   display: grid;
@@ -45,18 +45,10 @@ body {
   height: 24px;
   margin-right: 2px;
 }
-.app-mark svg {
+.app-mark img {
   width: 18px;
-  height: 16px;
+  height: 18px;
   pointer-events: none;
-}
-.app-mark .black {
-  fill: var(--ws-stone-black);
-}
-.app-mark .white {
-  fill: var(--ws-stone-white);
-  stroke: var(--ws-stone-black);
-  stroke-width: 1;
 }
 /* width: the text's width plus 20, set by menubar.ts */
 #menubar .m {
@@ -937,28 +929,13 @@ body {
   white-space: nowrap;
 }
 
-/* ---- 设置自动播放: each player's check box and its interval; its options indented under it. */
-.autoplay-grid {
-  display: grid;
-  grid-template-columns: max-content calc(var(--ds-size) * 7);
-  align-items: center;
-  gap: 8px 12px;
+/* ---- 设置自动播放: a group of rows per player (its interval field and switch, then its options),
+   a gap between the groups. */
+.autoplay-dialog {
+  width: min(480px, 90vw);
 }
-.autoplay-grid > label {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-}
-.autoplay-sub {
-  padding-left: 19px;
-}
-.autoplay-wide {
-  grid-column: 1 / -1;
-}
-.autoplay-grid > input {
-  width: 100%;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+.autoplay-group + .autoplay-group {
+  margin-top: 12px;
 }
 
 /* ---- 初始化设置: the row names, then up to three aligned columns of choices (init-a, -b, -c), a

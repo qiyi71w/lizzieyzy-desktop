@@ -1,101 +1,65 @@
-/* 引擎对局 / 引擎对局设置: one label column and the control column; in 引擎对局 the control column
-   is 黑方设置 and 白方设置 side by side, each under its stone. A box that turns a row on stands
-   before the row's label; groups follow a hairline; hints are --ds-text-3. */
-.match-form {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  align-items: center;
-  gap: 8px 16px;
+/* 引擎对局 / 引擎对局设置 as grouped rows (design/dialog.css). In 引擎对局 the first group's rows end
+   in two columns, 黑方设置 and 白方设置 under their stones, then a switch's place: a row a switch
+   turns on ends in it, the other rows (and the column heads) keep the place empty, so the columns
+   line up. */
+.match-dialog {
+  width: min(620px, 94vw);
 }
-.match-form.match-sides {
-  grid-template-columns: max-content repeat(2, minmax(calc(var(--ds-size) * 12), 1fr));
+.match-dialog.match-config {
+  width: min(560px, 92vw);
 }
-.match-form [hidden] {
-  display: none;
+.match-side-head {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 2px 0 6px;
+  padding: 0 13px;
+  color: var(--ds-text-2);
+  font-size: var(--ds-size-s);
+  font-weight: 600;
 }
-.match-form > .match-wide {
-  grid-column: 1 / -1;
-}
-.match-form .match-span {
-  grid-column: 2 / -1;
-  justify-self: start;
-}
-.match-form > hr {
-  margin: 4px 0;
-  border: 0;
-  border-top: 1px solid var(--ds-line);
-}
-/* The 认输预置 rows lay out in the form's own grid. */
-.match-resign {
-  display: contents;
-}
-.match-resign[hidden] {
-  display: none;
-}
-.match-side {
+.match-side-head > span {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--ds-text-2);
 }
-.match-side > .icon {
+.match-side-head .icon {
+  flex: none;
   width: 14px;
   height: 14px;
 }
-.match-sides > :is(select, input) {
-  width: 100%;
-  min-width: 0;
-}
-.match-config > input[type="text"] {
-  justify-self: start;
-}
-.match-form .disabled {
-  color: var(--ds-text-off);
-}
-.match-note {
-  margin: 4px 0 0;
-  white-space: pre-line;
-}
-
-.match-check {
-  display: inline-flex;
-  align-items: center;
-  min-height: 20px;
-  white-space: nowrap;
-}
-.match-inline {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-/* A group inside a row stays whole: its caption, field and unit wrap together. */
-.match-inline > .match-inline {
-  flex: none;
+.match-sides .ds-row-control {
   flex-wrap: nowrap;
 }
-.match-inline > .match-check + .match-check {
-  margin-left: 10px;
+.match-side-head > span:not(.match-slot),
+.match-sides :is(.ds-row-control, .ds-row-fields) > :is(select, input:not(.ds-switch)) {
+  flex: none;
+  width: calc(var(--ds-size) * 12);
 }
-
-/* Numbers: right-aligned tabular figures; the time commands and the folder name are text. */
-.match-dialog input[type="text"] {
-  width: calc(var(--ds-size) * 7);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+.match-slot {
+  flex: none;
+  width: 28px;
 }
-.match-inline input[type="text"] {
+.match-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* The 认输预置 rows: a group of their own after the sides; their fields are short. */
+.match-resign {
+  margin-top: 12px;
+}
+.match-resign :is(.ds-row-control, .ds-row-fields) > input {
   width: calc(var(--ds-size) * 4.5);
 }
-.match-dialog input:is([data-key="match.advancedBlack"], [data-key="match.advancedWhite"], [data-key="match.batchName"]) {
-  text-align: left;
+.match-dialog .ds-row.disabled .ds-row-title {
+  color: var(--ds-text-off);
 }
 .match-dialog input[data-key="match.batchName"] {
-  width: calc(var(--ds-size) * 18);
+  width: calc(var(--ds-size) * 12);
 }
-.match-dialog .match-span:is(select, input[data-key="match.komi"], input[data-key="match.handicap"], input[data-key="match.batch"]) {
-  min-width: calc(var(--ds-size) * 7);
+.match-note {
+  white-space: pre-line;
 }
 .match-fill {
   flex: 1;

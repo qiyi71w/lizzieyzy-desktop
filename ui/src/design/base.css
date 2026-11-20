@@ -199,6 +199,23 @@ body {
   border-color: var(--ds-text-off);
   background-color: var(--ds-text-off);
 }
+/* A check box drawn as a sliding switch (controls.ts switchBox): the knob is the gradient's disc,
+   so the switch has no pseudo-elements. */
+:where(input.ds-switch) {
+  width: 28px;
+  height: 16px;
+  margin: 0;
+  border: 0;
+  border-radius: var(--ds-radius-menu);
+  background: radial-gradient(circle 6px at 8px 50%, var(--ds-field) 5.5px, transparent 6px), var(--ds-line-strong);
+  vertical-align: middle;
+}
+:where(input.ds-switch):checked {
+  background: radial-gradient(circle 6px at 20px 50%, var(--ds-on-accent) 5.5px, transparent 6px), var(--ds-accent);
+}
+:where(input.ds-switch):disabled {
+  opacity: 0.45;
+}
 :where(input[type="range"], progress) {
   accent-color: var(--ds-accent);
 }

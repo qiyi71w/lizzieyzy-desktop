@@ -3,7 +3,7 @@ import type { EngineFailureView, RulesPromptView } from "../contract/generated";
 import { chooseSave, formPanel, message, panel } from "../dialogs";
 import { format, product, t } from "../i18n";
 import { chooseEngine, openMoreEngines } from "./catalog";
-import { actions, button, checkbox } from "./controls";
+import { actions, button, checkbox, row } from "./controls";
 import { remoteFailureText } from "./remote";
 import { openAutoSetup } from "../setup/dialog";
 
@@ -47,17 +47,18 @@ function endedWindow(failure: EngineFailureView): void {
   document.body.append(box);
 }
 
-/** EngineFailedMessage: the failure text, the launch command and 详细信息. A remote engine's
- *  failure takes SSHController's wording; a configured engine whose login or connection failed
- *  opens 更多引擎 afterwards (SSHController.java:38-54). The 跑谱贡献 engine's failure also offers
- *  重启引擎 (restartContribute, EngineFailedMessage.java:331-340). */
+/** EngineFailedMessage: the failure text, then the launch command as a row whose text takes a line
+ *  of its own, and 详细信息. A remote engine's failure takes SSHController's wording; a configured
+ *  engine whose login or connection failed opens 更多引擎 afterwards (SSHController.java:38-54).
+ *  The 跑谱贡献 engine's failure also offers 重启引擎 (restartContribute,
+ *  EngineFailedMessage.java:331-340). */
 async function failureDialog(failure: EngineFailureView, restartContribution = false): Promise<void> {
   const body = document.createElement("div"); body.className = "engine-failure";
   const text = failure.remote ? remoteFailureText(failure.remote) : failure.message;
   const summary = document.createElement("pre"); summary.className = "engine-failure-summary"; summary.textContent = `${failure.engine_name}: ${text}`;
-  const label = document.createElement("div"); label.textContent = t("EngineFailedMessage.engineCmd");
   const command = document.createElement("pre"); command.textContent = failure.command;
-  body.append(summary, label, command);
+  body.append(summary);
+  row(body, t("EngineFailedMessage.engineCmd").replace(/\\?[:：]\s*$/, ""), "").append(command);
   const error = errorText(failure, text);
   const dialog = formPanel(t("Leelaz.engineFailed"), body);
   if (failure.repair) {

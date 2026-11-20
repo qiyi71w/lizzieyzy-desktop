@@ -5,7 +5,7 @@
 // the setting of the 语言 menu and 初始化设置, which applies from the next start.
 import { run, state } from "../app";
 import type { Language } from "../contract/generated";
-import { checkbox, field } from "../engine/controls";
+import { groupTitle, row, switchRow } from "../engine/controls";
 import { SETTINGS_PAGES } from "../engine/settings";
 import { registerSettingTargets } from "../engine/settingsTargets";
 import { product, registerProduct, t } from "../i18n";
@@ -34,11 +34,7 @@ const QUICK_LINKS = "config.display.quick-links";
 const LANGUAGE = "config.display.language";
 
 SETTINGS_PAGES.display = (host) => {
-  const heading = document.createElement("h3");
-  heading.textContent = t("ConfigDialog2.modern.display.title");
-  const subtitle = document.createElement("p");
-  subtitle.textContent = t("ConfigDialog2.modern.display.subtitle");
-  host.append(heading, subtitle);
+  groupTitle(host, t("ConfigDialog2.modern.display.title"), t("ConfigDialog2.modern.display.subtitle"));
   const rows: [Field, string, string][] = [
     ["alwaysOnTop", t("ConfigDialog2.modern.display.alwaysOnTop"), t("ConfigDialog2.modern.display.alwaysOnTopSub")],
     ["showStatus", t("ConfigDialog2.modern.display.status"), t("ConfigDialog2.modern.display.statusSub")],
@@ -49,27 +45,16 @@ SETTINGS_PAGES.display = (host) => {
   const [first, ...rest] = rows;
   draft.row(host, first[0], TARGETS[first[0]], first[1], first[2]);
   // 显示快速启动 (chkShowQuickLinks), the second row; 保存设置 writes ui.show-quick-links.
-  const row = document.createElement("div");
-  row.className = "settings-row";
-  row.dataset.settingTarget = QUICK_LINKS;
-  const quickLinks = checkbox(t("ConfigDialog2.modern.display.quickLinks"), state.view?.settings.quick_links.show ?? false);
+  const quickLinks = switchRow(host, t("ConfigDialog2.modern.display.quickLinks"), t("ConfigDialog2.modern.display.quickLinksSub"), state.view?.settings.quick_links.show ?? false);
+  quickLinks.row.dataset.settingTarget = QUICK_LINKS;
   quickLinks.input.dataset.key = QUICK_LINKS;
-  quickLinks.label.title = t("ConfigDialog2.modern.display.quickLinksSub");
-  const hint = document.createElement("p");
-  hint.textContent = t("ConfigDialog2.modern.display.quickLinksSub");
-  row.append(quickLinks.label, hint);
-  host.append(row);
   for (const [key, title, sub] of rest) draft.row(host, key, TARGETS[key], title, sub);
   const language = document.createElement("select");
   language.dataset.key = "settings.language";
   language.title = product("settingsLanguageSub");
   for (const [value, text] of LANGUAGES) language.append(new Option(text(), value));
   language.value = state.view?.settings.language ?? "System";
-  field(host, t("FirstUseSettings.lblLanguage"), language);
-  (host.lastElementChild as HTMLElement).dataset.settingTarget = LANGUAGE;
-  const languageHint = document.createElement("p");
-  languageHint.textContent = product("settingsLanguageSub");
-  host.append(languageHint);
+  row(host, t("FirstUseSettings.lblLanguage"), product("settingsLanguageSub"), language).dataset.settingTarget = LANGUAGE;
   // The dialog commits the shared panel draft once with 保存设置 (panelDraft.ts).
   return {
     save: async () => {

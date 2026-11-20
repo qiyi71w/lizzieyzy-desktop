@@ -163,7 +163,7 @@
   }
 }
 
-/* ---- The analysis dialogs (自动分析设置, 加强分析条件, 批量精析, 精析设置, 局部精析): 综合设置's form
+/* ---- The analysis dialogs (精析设置, 局部精析): 综合设置's form
    grammar. A label column sized to its longest label and a control column; check rows start at
    the label column; groups are split by a hairline; hints in --ds-text-3 at --ds-size-s. The
    frame, the field rows and the button row are design/dialog.css. */
@@ -183,7 +183,7 @@
   grid-template-columns: subgrid;
   min-height: var(--ds-control-h-l);
 }
-.quick-form > .engine-field > :is(input, select, .engine-unit, .analysis-settings-row) {
+.quick-form > .engine-field > :is(input, select, .analysis-settings-row) {
   justify-self: start;
 }
 .quick-form > hr {

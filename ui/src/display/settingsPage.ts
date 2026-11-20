@@ -10,7 +10,7 @@
 import { run, state } from "../app";
 import type { CoordinateStyle, DisplaySettings, PvVisitsMode } from "../contract/generated";
 import { product, registerProduct, t } from "../i18n";
-import { checkbox, field, input } from "../engine/controls";
+import { groupTitle, input, row, switchBox, switchRow } from "../engine/controls";
 import { javaDouble } from "../workbench/paint";
 import { panelDraft } from "../workbench/panelDraft";
 import { decimalOnly, openInfoOrderDialog, parseJavaInt } from "./dialogs";
@@ -144,47 +144,18 @@ registerProduct({
 });
 
 function card(host: HTMLElement, title: string, subtitle: string): void {
-  const heading = document.createElement("h3");
-  heading.textContent = title;
-  const sub = document.createElement("p");
-  sub.textContent = subtitle;
-  host.append(heading, sub);
+  groupTitle(host, title, subtitle);
 }
 
-/** A check box row with its sub line as the tooltip and the hint below. */
+/** A switch row with its description under the name. */
 function check(host: HTMLElement, target: string, key: keyof DisplaySettings, title: string, sub: string, value: boolean): HTMLInputElement {
-  const row = checkbox(title, value);
-  row.input.dataset.key = `settings.display.${key}`;
-  row.label.dataset.settingTarget = target;
-  row.label.title = sub;
-  const hint = document.createElement("p");
-  hint.textContent = sub;
-  host.append(row.label, hint);
-  return row.input;
+  const r = switchRow(host, title, sub, value);
+  r.input.dataset.key = `settings.display.${key}`;
+  r.row.dataset.settingTarget = target;
+  return r.input;
 }
 
-/** The row `field` just appended to `host`, tagged with its setting target, then its description. */
-function tagLastRow(host: HTMLElement, target: string, sub: string): void {
-  (host.lastElementChild as HTMLElement).dataset.settingTarget = target;
-  const hint = document.createElement("p");
-  hint.textContent = sub;
-  host.append(hint);
-}
-
-/** A labelled row of several controls (a `div`, so its name does not activate the first one). */
-function controlsRow(host: HTMLElement, title: string, ...controls: (Node | string)[]): void {
-  const row = document.createElement("div");
-  row.className = "engine-field";
-  const name = document.createElement("span");
-  name.textContent = title;
-  const unit = document.createElement("span");
-  unit.className = "engine-unit";
-  unit.append(...controls);
-  row.append(name, unit);
-  host.append(row);
-}
-
-/** A combo box row with its sub line as the tooltip and the hint below; `items` pairs each value with its text. */
+/** A combo box row with its description under the name; `items` pairs each value with its text. */
 function combo<T extends string | number>(host: HTMLElement, target: string, key: string, title: string, sub: string, items: [T, string][], value: T): () => T {
   const select = document.createElement("select");
   select.dataset.key = `settings.display.${key}`;
@@ -196,8 +167,7 @@ function combo<T extends string | number>(host: HTMLElement, target: string, key
     select.append(option);
   });
   select.value = String(Math.max(0, items.findIndex(([v]) => v === value)));
-  field(host, title, select);
-  tagLastRow(host, target, sub);
+  row(host, title, sub, select).dataset.settingTarget = target;
   return () => items[Number(select.value)][0];
 }
 
@@ -205,16 +175,14 @@ function combo<T extends string | number>(host: HTMLElement, target: string, key
 function text(host: HTMLElement, target: string, key: keyof DisplaySettings, title: string, sub: string, value: string, unit: string, pattern: RegExp): HTMLInputElement {
   const control = input(value);
   control.dataset.key = `settings.display.${key}`;
+  control.inputMode = "numeric";
   control.title = sub;
+  control.setAttribute("aria-label", title);
   control.addEventListener("input", () => {
     const kept = control.value.replace(pattern, "");
     if (kept !== control.value) control.value = kept;
   });
-  const wrap = document.createElement("span");
-  wrap.className = "engine-unit";
-  wrap.append(control, ` ${unit}`);
-  field(host, title, wrap);
-  tagLastRow(host, target, sub);
+  row(host, title, sub, control, unit).dataset.settingTarget = target;
   return control;
 }
 
@@ -289,30 +257,26 @@ export function buildDisplaySettings(engine: HTMLElement, play: HTMLElement, sha
   ], s.scoreLeadWithKomi ? 1 : 0);
   // 设置低计算量阈值 (Menu.java:690-723): any Java int, negative ones too.
   const nextMoveVisits = text(engine, "menu.minPlayoutsForNextMove", "nextMoveMinPlayouts", product("settingsNextMoveVisits"), product("settingsNextMoveVisitsSub"), String(s.nextMoveMinPlayouts), t("ConfigDialog2.modern.unit.visits"), /[^0-9-]+/g);
-  // 推荐点 > 延迟显示 (SetDelayShowCandidates): the box turns the delay on and enables the seconds.
-  const delayOn = input("", "checkbox");
-  delayOn.checked = s.delayCandidates;
+  // 推荐点 > 延迟显示 (SetDelayShowCandidates): the switch turns the delay on and enables the seconds.
+  const delayOn = switchBox(s.delayCandidates);
   delayOn.dataset.key = "settings.display.delayCandidates";
   delayOn.setAttribute("aria-label", product("settingsDelayCandidates"));
   const delaySeconds = input(javaDouble(s.delayCandidatesSeconds));
   delaySeconds.dataset.key = "settings.display.delayCandidatesSeconds";
+  delaySeconds.inputMode = "decimal";
   delaySeconds.setAttribute("aria-label", product("settingsDelayCandidates"));
   delaySeconds.title = product("settingsDelayCandidatesSub");
   delaySeconds.disabled = !s.delayCandidates;
   decimalOnly(delaySeconds);
   delayOn.onchange = () => (delaySeconds.disabled = !delayOn.checked);
-  controlsRow(engine, product("settingsDelayCandidates"), delayOn, delaySeconds, ` ${t("ConfigDialog2.modern.unit.seconds")}`);
-  tagLastRow(engine, "menu.setCandidatesDelay", product("settingsDelayCandidatesSub"));
+  row(engine, product("settingsDelayCandidates"), product("settingsDelayCandidatesSub"), delaySeconds, t("ConfigDialog2.modern.unit.seconds"), delayOn).dataset.settingTarget = "menu.setCandidatesDelay";
   // 推荐点 > 自定义顺序 (SuggestionInfoOrderSettings): its own dialog, saved by its own 确定.
   const infoOrder = document.createElement("button");
   infoOrder.type = "button";
   infoOrder.textContent = t("FirstUseSettings.btnCustomOrder");
   infoOrder.dataset.key = "settings.display.infoOrder";
   infoOrder.onclick = () => openInfoOrderDialog();
-  controlsRow(engine, t("FirstUseSettings.lblSuggestionInfo"), infoOrder);
-  const infoHint = document.createElement("p");
-  infoHint.textContent = product("settingsInfoOrderSub");
-  engine.append(infoHint);
+  row(engine, t("FirstUseSettings.lblSuggestionInfo"), product("settingsInfoOrderSub"), infoOrder);
 
   // 变化图与 PV 访问 (ConfigDialog2.java:1606-1630, 1945-1951, 6565-6583)
   card(engine, t("ConfigDialog2.modern.pv.title"), t("ConfigDialog2.modern.pv.subtitle"));

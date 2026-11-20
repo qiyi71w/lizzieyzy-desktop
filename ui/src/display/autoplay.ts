@@ -14,6 +14,7 @@
 import { registerViewHandler, run, state } from "../app";
 import { setDisplay } from "../commands";
 import { formPanel } from "../dialogs";
+import { row, switchBox, switchRow } from "../engine/controls";
 import type { DisplaySettings } from "../contract/generated";
 import { t } from "../i18n";
 import { edit } from "../editing/state";
@@ -279,25 +280,25 @@ export function autoplayReport() {
 
 // ------------------------------------------------------------------ 设置自动播放
 
-/** A check box row of the dialog's grid; `kind` "sub" indents it under the player it belongs to,
- *  "wide" lets it take the field column too. */
-function choice(grid: HTMLElement, text: string, checked: boolean, ...kind: ("sub" | "wide")[]): HTMLInputElement {
-  const label = document.createElement("label");
-  label.classList.add(...kind.map((k) => `autoplay-${k}`));
-  const input = document.createElement("input");
-  input.type = "checkbox";
-  input.checked = checked;
-  label.append(input, text);
-  grid.append(label);
-  return input;
+/** The next group of rows in `body`: the groups have no titles, a gap parts them. */
+function group(body: HTMLElement): HTMLDivElement {
+  const el = document.createElement("div");
+  el.className = "autoplay-group";
+  body.append(el);
+  return el;
 }
 
-function textField(grid: HTMLElement, value: string): HTMLInputElement {
+/** A row with an interval field, then the switch that runs the player or option it times. */
+function timed(host: HTMLElement, text: string, checked: boolean, value: string): { box: HTMLInputElement; field: HTMLInputElement } {
+  const box = switchBox(checked);
   const field = document.createElement("input");
   field.type = "text";
+  field.inputMode = "decimal";
   field.value = value;
-  grid.append(field);
-  return field;
+  box.setAttribute("aria-label", text);
+  field.setAttribute("aria-label", text);
+  row(host, text, "", field, box);
+  return { box, field };
 }
 
 /** Double.parseDouble(text.replace(" ", "")), or NaN. */
@@ -311,36 +312,31 @@ function intervalText(v: number): string {
   return v === -1 ? "" : String(v);
 }
 
-/** 设置自动播放 (AutoPlay.java): each player's check box with its interval beside it, the main
+/** 设置自动播放 (AutoPlay.java): a group per player, its interval field and switch, the main
  *  board's best-move options and 先显示整个变化图 under their player. Only 确定 applies: the
- *  intervals and options are saved, the main and sub board players start or stop with their check
- *  boxes and the branch replay follows its setting. */
+ *  intervals and options are saved, the main and sub board players start or stop with their
+ *  switches and the branch replay follows its setting. */
 export function openAutoPlayDialog(): void {
   const s = state.view?.settings.display;
   if (!s) return;
   const body = document.createElement("div");
-  const grid = document.createElement("div");
-  grid.className = "autoplay-grid";
-  const mainCheck = choice(grid, t("AutoPlay.chkAutoPlayMainbord"), main.running);
-  const mainField = textField(grid, intervalText(s.autoplayMainSeconds));
+  body.className = "autoplay-dialog";
+  const mainGroup = group(body);
+  const { box: mainCheck, field: mainField } = timed(mainGroup, t("AutoPlay.chkAutoPlayMainbord"), main.running, intervalText(s.autoplayMainSeconds));
   // AutoPlay.java:119-135 filled this box from continue-with-best-move; it shows its own setting.
-  const directly = choice(grid, t("AutoPlay.chkDirectlyWithBestMove"), s.directlyWithBestMove, "sub", "wide");
-  const continueBest = choice(grid, t("AutoPlay.chkContinueWithBestMove"), s.continueWithBestMove, "sub", "wide");
-  const subCheck = choice(grid, t("AutoPlay.chkAutoPlaySubbord"), sub.running);
-  const subField = textField(grid, intervalText(s.autoplaySubMillis));
-  const branchCheck = choice(grid, t("AutoPlay.chkAutoPlayBranch"), s.autoReplayBranch);
-  const branchField = textField(grid, String(Math.trunc(s.replayIntervalSeconds * 1000)));
-  const entireCheck = choice(grid, t("AutoPlay.chbDisplayEntireVariationFirst"), s.entireVariationFirst, "sub");
-  const entireField = textField(grid, javaDouble(s.entireVariationFirstSeconds));
-  for (const [field, key] of [[mainField, "AutoPlay.chkAutoPlayMainbord"], [subField, "AutoPlay.chkAutoPlaySubbord"], [branchField, "AutoPlay.chkAutoPlayBranch"], [entireField, "AutoPlay.chbDisplayEntireVariationFirst"]] as const)
-    field.setAttribute("aria-label", t(key));
+  const directly = switchRow(mainGroup, t("AutoPlay.chkDirectlyWithBestMove"), "", s.directlyWithBestMove).input;
+  const continueBest = switchRow(mainGroup, t("AutoPlay.chkContinueWithBestMove"), "", s.continueWithBestMove).input;
+  const { box: subCheck, field: subField } = timed(group(body), t("AutoPlay.chkAutoPlaySubbord"), sub.running, intervalText(s.autoplaySubMillis));
+  const branchGroup = group(body);
+  const { box: branchCheck, field: branchField } = timed(branchGroup, t("AutoPlay.chkAutoPlayBranch"), s.autoReplayBranch, String(Math.trunc(s.replayIntervalSeconds * 1000)));
+  const { box: entireCheck, field: entireField } = timed(branchGroup, t("AutoPlay.chbDisplayEntireVariationFirst"), s.entireVariationFirst, javaDouble(s.entireVariationFirstSeconds));
   const ok = document.createElement("button");
   ok.className = "primary";
   ok.textContent = t("AutoPlay.okButton");
   const actions = document.createElement("div");
   actions.className = "engine-actions";
   actions.append(ok);
-  body.append(grid, actions);
+  body.append(actions);
   const enable = () => {
     directly.disabled = continueBest.disabled = !mainCheck.checked;
     entireCheck.disabled = entireField.disabled = !branchCheck.checked;

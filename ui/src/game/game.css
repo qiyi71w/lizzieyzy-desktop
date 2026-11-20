@@ -1,92 +1,40 @@
-/* 新对局 / 新对局(分析模式) / AI用时设置 / 设置随机开局: one label column and one control column. A check
-   box that turns its control on stands in the label column; a check box row of its own starts
-   there and spans both. Groups are titled, or follow a hairline; hints are --ds-text-3. */
-.game-form {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  align-items: center;
-  gap: 8px 16px;
+/* 新对局 / 新对局(分析模式) / AI用时设置 / 设置随机开局 as grouped rows (design/dialog.css). An AI
+   time choice is a radio before its name; the KataGo time fields stand under it, indented to its
+   name; a shown-candidates row leads with its stone. */
+.game-dialog {
+  width: min(600px, 92vw);
 }
-.game-form > * {
-  justify-self: start;
+.game-dialog.game-narrow {
+  width: min(460px, 92vw);
 }
-.game-form > .game-wide {
-  grid-column: 1 / -1;
-}
-.game-form > h3 {
-  grid-column: 1 / -1;
-  justify-self: stretch;
-  margin: 6px 0 0;
-  padding-top: 12px;
-  border-top: 1px solid var(--ds-line);
-  font-size: var(--ds-size-l);
-  font-weight: 600;
-}
-.game-form > hr {
-  grid-column: 1 / -1;
-  justify-self: stretch;
-  margin: 4px 0;
-  border: 0;
-  border-top: 1px solid var(--ds-line);
-}
-/* A hint sits 2 px under what it describes. */
-.game-form > .engine-hint {
-  margin-top: -6px;
-}
-.game-form > .game-hint {
-  grid-column: 2;
-}
-.game-form > .game-hint-check {
-  grid-column: 1 / -1;
-  padding-left: 19px;
-}
-
-.game-check {
+.game-choice {
   display: inline-flex;
   align-items: center;
-  min-height: 20px;
-  white-space: nowrap;
 }
-.game-check > .icon {
-  width: 14px;
-  height: 14px;
-  margin-right: 5px;
+.game-sub > .ds-row-text {
+  padding-left: 20px;
 }
-.game-inline {
-  display: flex;
+.game-side .ds-row-title {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  white-space: nowrap;
 }
-.game-inline > [hidden] {
-  display: none;
-}
-.game-inline > .game-check + .game-check {
-  margin-left: 10px;
+.game-side .ds-row-title > .icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
 }
 
-/* Numbers: right-aligned tabular figures; the 高级时间设置 command is text. */
-.game-form input[type="text"] {
-  width: calc(var(--ds-size) * 7);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+/* Numbers are short: fields narrower than the shared ones, so a row's fields stay on its line; the
+   高级时间设置 command is text. */
+.game-dialog :is(.ds-row-control, .ds-row-fields) > input:is([inputmode="numeric"], [inputmode="decimal"]) {
+  width: calc(var(--ds-size) * 5);
 }
-.game-inline input[type="text"] {
-  width: calc(var(--ds-size) * 4.5);
-}
-.game-form input[data-key="game.advancedTime"] {
-  width: calc(var(--ds-size) * 16);
-  text-align: left;
-}
-.game-form > select[data-key="game.engine"] {
-  min-width: calc(var(--ds-size) * 16);
-  max-width: 100%;
-}
-.game-form > select {
-  min-width: calc(var(--ds-size) * 8);
+.game-dialog input[data-key="game.advancedTime"] {
+  width: calc(var(--ds-size) * 14);
 }
 
-/* 高级时间设置说明 beside its check box. */
+/* 高级时间设置说明 beside its field. */
 .game-help {
   width: var(--ds-control-h);
   height: var(--ds-control-h);
