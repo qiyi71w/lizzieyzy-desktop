@@ -230,10 +230,13 @@
   --ws-share-bar: rgba(192, 192, 192, 0.3);
 }
 
-/* Java 经典's candidate list is Java's light table (ColorTableCellRenderer, LizzieFrame.java:
-   14951-15105, in AppleStyleSupport classic): white rows in the dialog ink over the workspace
-   border's hairlines, the header on the dialog surface, the actual move's loss level at Java's own
-   alphas over white. */
+/* Java 经典 on light ground: the program's light windows (鹰眼, 棋力评估, 独立选点列表) and the
+   candidate list, which is Java's white table (ColorTableCellRenderer, LizzieFrame.java:14951-15105,
+   in AppleStyleSupport classic) inside the dark workbench. Cool neutral hairlines and chart lines
+   for the program's wood-toned ones (MoveListFrame's grey grid), the dialog surface under headers,
+   Java's light-grey 占比 bar and the actual move's loss level at Java's own alphas over white. The
+   list repeats the light Java design tokens it reads, since the workbench around it is dark. */
+:root[data-skin="java"],
 :root[data-skin="java"] #table {
   --ds-text: #1f2926;
   --ds-text-3: #55635e;
@@ -244,7 +247,17 @@
   --ws-table-ground: #ffffff;
   --ws-panel-line: #d5dcda;
   --ws-panel-solid: #f6f7f9;
+  --ws-graph-grid: rgba(20, 30, 40, 0.14);
+  --ws-graph-baseline: rgba(20, 30, 40, 0.36);
+  --ws-graph-guide: rgba(20, 30, 40, 0.5);
+  --ws-graph-label: #55635e;
+  --ws-graph-text: #1f2926;
+  --ws-graph-chip: rgba(255, 255, 255, 0.94);
+  --ws-stone-white-edge: rgba(20, 30, 40, 0.4);
+  --ws-on-white: #1f2926;
+  --ws-bar-grid: #55635e;
   --ws-scroll-thumb: rgba(20, 30, 40, 0.28);
+  --ws-share-bar: rgba(192, 192, 192, 0.5);
   --ws-share-bar-strong: rgba(20, 30, 40, 0.32);
   --ws-rank-1: rgba(85, 25, 80, 0.27);
   --ws-rank-1-strong: rgba(85, 25, 80, 0.47);
