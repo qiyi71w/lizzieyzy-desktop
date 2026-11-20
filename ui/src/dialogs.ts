@@ -219,9 +219,11 @@ export function closeBox(close: () => void): HTMLButtonElement {
   return x;
 }
 
-/** Form dialogs own validation and close timing; Enter inside a form must not discard a draft.
- *  The title row ends in the close box (`closeButton`). The title stays while the content
- *  scrolls, and the content's footer stays at its foot (design/dialog.css). */
+/** Form dialogs own validation and close timing. Enter in a field the dialog does not handle
+ *  itself presses the footer's main button (getRootPane().setDefaultButton), which validates as a
+ *  click does; a search field, a button or a text area keeps its own Enter. The title row ends in
+ *  the close box (`closeButton`). The title stays while the content scrolls, and the content's
+ *  footer stays at its foot (design/dialog.css). */
 export function formPanel(title: string, body: HTMLElement, beforeClose: () => Promise<boolean> = async () => true): { close: () => Promise<void>; closed: Promise<void>; closeButton: HTMLButtonElement } {
   const previous = document.activeElement as HTMLElement | null;
   const { overlay, box } = modalFrame("modal-box engine-dialog");
@@ -249,6 +251,12 @@ export function formPanel(title: string, body: HTMLElement, beforeClose: () => P
   box.addEventListener("keydown", (e) => {
     e.stopPropagation();
     if (e.key === "Escape") { e.preventDefault(); void close(); }
+    const field = e.target instanceof HTMLSelectElement
+      || (e.target instanceof HTMLInputElement && !["search", "button", "submit", "reset", "file"].includes(e.target.type));
+    if (e.key === "Enter" && field && !e.defaultPrevented && !e.isComposing) {
+      const main = box.querySelector<HTMLButtonElement>(".ds-footer button.primary:not(:disabled)");
+      if (main) { e.preventDefault(); main.click(); }
+    }
     if (e.key === "Tab") {
       // Only rendered controls: 综合设置 keeps its other sections in the dialog, hidden. The close
       // box is for the pointer; Escape is its key.
