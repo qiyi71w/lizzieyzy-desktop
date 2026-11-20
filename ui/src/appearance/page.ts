@@ -157,18 +157,18 @@ const intValue = (input: HTMLInputElement) => {
 
 /** ColorLabel + 选择 (createColorControl, 4033-4053): the swatch opens the chooser; with alpha
  *  (ColorLabel useAplha) the alpha is edited beside it and written when not 255 (Theme.color2Array).
- *  `name` names the swatch, and the alpha after it. */
+ *  `name` names the swatch; the alpha is "`subject`：不透明度". */
 interface ColorControl {
   root: HTMLElement;
   get(): number[];
   set(c: readonly number[]): void;
+  name(swatchName: string, subject?: string): void;
 }
-function colorControl(key: string, alpha: boolean, chooseButton: boolean, name: string): ColorControl {
+function colorControl(key: string, alpha: boolean, chooseButton: boolean, name: string, subject = name): ColorControl {
   const root = el("span", "appearance-color");
   const swatch = el("input");
   swatch.type = "color";
   swatch.dataset.key = key;
-  swatch.setAttribute("aria-label", name);
   root.append(swatch);
   const opacity = el("input", "appearance-number");
   if (alpha) {
@@ -177,7 +177,6 @@ function colorControl(key: string, alpha: boolean, chooseButton: boolean, name: 
     opacity.max = "255";
     opacity.step = "1";
     opacity.dataset.key = `${key}.alpha`;
-    opacity.setAttribute("aria-label", product("themeFieldOpacity", name));
     opacity.addEventListener("change", () => {
       const v = Math.round(Number(opacity.value));
       opacity.value = String(Number.isFinite(v) ? Math.max(0, Math.min(255, v)) : 255);
@@ -191,7 +190,7 @@ function colorControl(key: string, alpha: boolean, chooseButton: boolean, name: 
     root.append(choose);
   }
   const hex = (v: number) => v.toString(16).padStart(2, "0");
-  return {
+  const control: ColorControl = {
     root,
     get() {
       const v = swatch.value;
@@ -203,7 +202,13 @@ function colorControl(key: string, alpha: boolean, chooseButton: boolean, name: 
       swatch.value = `#${hex(c[0])}${hex(c[1])}${hex(c[2])}`;
       opacity.value = String(c[3] ?? 255);
     },
+    name(swatchName, about = swatchName) {
+      swatch.setAttribute("aria-label", swatchName);
+      if (alpha) opacity.setAttribute("aria-label", product("themeFieldOpacity", about));
+    },
   };
+  control.name(name, subject);
+  return control;
 }
 
 /** A font combo box: Lizzie默认 (stored "Lizzie Default"), 系统默认 (stored "Dialog.plain"), then
@@ -493,7 +498,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   row(colors, "config.theme.stone-indicator", t("ConfigDialog2.modern.theme.indicator"), t("ConfigDialog2.modern.theme.indicatorSub"), indicatorChoices);
   const commentNodeTitle = t("ConfigDialog2.modern.theme.commentNode");
   const showCommentNode = check("settings.theme.showCommentNodeColor", commentNodeTitle);
-  const commentNodeColor = colorControl("settings.theme.commentNodeColor", true, false, product("themeFieldColor", commentNodeTitle));
+  const commentNodeColor = colorControl("settings.theme.commentNodeColor", true, false, product("themeFieldColor", commentNodeTitle), commentNodeTitle);
   row(colors, "config.theme.comment-node-color", commentNodeTitle, t("ConfigDialog2.modern.theme.commentNodeSub"), showCommentNode, commentNodeColor.root);
 
   // 选点评估关注外框.
@@ -533,6 +538,11 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     selectedRule = k;
     rules.forEach((rule, n) => rule.tr.classList.toggle("selected", n === k));
   };
+  /** The fields of each rule carry its row number, so the rules' fields stay apart. */
+  const numberRules = () => rules.forEach((rule, k) => {
+    rule.threshold.setAttribute("aria-label", `${t("LizzieConfig.title.blunderThresholds")} ${k + 1}`);
+    rule.color.name(`${t("LizzieConfig.title.blunderColor")} ${k + 1}`);
+  });
   /** BlunderNodeTableModel.addRow: a threshold (empty for 添加) and its colour. */
   const addRule = (threshold: number | null, color: readonly number[]) => {
     const tr = el("tr");
@@ -540,7 +550,6 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     input.type = "number";
     input.step = "any";
     input.dataset.key = "settings.theme.blunderWinrateThreshold";
-    input.setAttribute("aria-label", t("LizzieConfig.title.blunderThresholds"));
     input.value = threshold === null ? "" : String(threshold);
     const control = colorControl("settings.theme.blunderNodeColor", true, false, t("LizzieConfig.title.blunderColor"));
     control.set(color);
@@ -554,6 +563,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     tr.addEventListener("focusin", () => selectRule(rules.indexOf(rule)));
     rules.push(rule);
     tbody.append(tr);
+    numberRules();
   };
   const setRules = (thresholds: readonly number[], colorsByRow: readonly (readonly number[])[]) => {
     tbody.replaceChildren();
@@ -572,6 +582,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     if (selectedRule < 0 || selectedRule >= rules.length) return;
     rules[selectedRule].tr.remove();
     rules.splice(selectedRule, 1);
+    numberRules();
     selectRule(-1);
   };
   const resetRows = el("button", undefined, t("LizzieConfig.button.reset"));
