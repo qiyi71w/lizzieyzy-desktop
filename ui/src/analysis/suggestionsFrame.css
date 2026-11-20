@@ -1,7 +1,8 @@
 /* 独立选点列表 window: the candidate list as the main window's 选点列表 reads (rows of at least
    22 px, horizontal hairlines only, numbers right-aligned in tabular figures, the 占比 bar and the
    actual move's loss tint from table.ts), and the strip under it with the totals, the 柱状图 and the
-   four boxes. suggestions.html loads this sheet with the design base. */
+   four boxes. Nothing is cut: a header too wide for its column takes a second line, the actual
+   move's cells break before their bracket. suggestions.html loads this sheet with the design base. */
 html,
 body {
   overflow: hidden;
@@ -38,14 +39,23 @@ body {
   top: 0;
   z-index: 1;
   height: max(calc(var(--af-row, 20px) - 2px), 24px);
+  padding-top: 2px;
+  padding-bottom: 2px;
   background: var(--ds-sunken);
   color: var(--ds-text-2);
   font-size: var(--ds-size-s);
   font-weight: 400;
+  line-height: 1.2;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 /* Rows follow the session's row height (Config.menuHeight), never below 22 px. */
 #top td {
   height: max(calc(var(--af-row, 20px) - 4px), 22px);
+}
+#top td.split {
+  white-space: normal;
+  line-height: 1.2;
 }
 /* 序号 and 坐标 read as words. */
 #top th:nth-child(-n + 2),
@@ -74,19 +84,22 @@ body {
   left: 0;
   top: 0;
 }
-/* The four boxes at the right end of the totals line. */
+/* The four boxes at the right end of the totals line, or on the lines under it (place() sets
+   `top`), wrapping as a group. */
 #bottom .boxes {
   position: absolute;
   top: 0;
   right: 8px;
-  height: 21px;
+  max-width: calc(100% - 16px);
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  column-gap: 12px;
 }
 #bottom label {
   display: inline-flex;
   align-items: center;
+  height: 21px;
   white-space: nowrap;
 }
 #bottom input[type="checkbox"] {

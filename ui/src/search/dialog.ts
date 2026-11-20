@@ -6,11 +6,21 @@ import { state } from "../app";
 import { isApiError, searchFunctions } from "../contract/client";
 import type { FunctionMatch, FunctionTarget } from "../contract/generated";
 import { openModalLayer } from "../dialogs";
-import { t } from "../i18n";
+import { product, registerProduct, t } from "../i18n";
 import { icon } from "../design/icons";
 import { DARK_READY } from "../design/theme";
 import { reasonKey, reasonText, resolveFunction, type Resolution } from "./targets";
 import "./search.css";
+
+/** The visible mark of a result that cannot be opened now; its reason is in the row's details. */
+registerProduct({
+  ZhCn: { fsUnavailableMark: "不可用" },
+  ZhTw: { fsUnavailableMark: "無法使用" },
+  EnUs: { fsUnavailableMark: "Unavailable" },
+  JaJp: { fsUnavailableMark: "利用不可" },
+  KoKr: { fsUnavailableMark: "사용 불가" },
+  ThTh: { fsUnavailableMark: "ใช้ไม่ได้" },
+});
 
 /** FunctionCatalog.categoryKeys: the category box's order after 全部功能. */
 const CATEGORIES = [
@@ -215,8 +225,11 @@ export function openSearchDialog(): SearchDialog {
     r.classList.toggle("unavailable", resolution.reason !== null);
     const title = t(m.title);
     const path = m.path.map((key) => t(key)).join(" › ");
+    const mark = resolution.reason !== null ? product("fsUnavailableMark") : "";
     const heading = element("div", "fs-heading");
-    heading.append(element("span", "fs-title", title), element("span", "fs-path", `  ${path}`));
+    heading.append(element("span", "fs-title", title));
+    if (mark) heading.append(element("span", "fs-mark", mark));
+    heading.append(element("span", "fs-path", `  ${path}`));
     r.append(heading);
     if (isSelected) {
       const lines = [typeText(m.target) + (m.shortcut ? ` · ${m.shortcut}` : ""), t(m.description)];
@@ -224,7 +237,7 @@ export function openSearchDialog(): SearchDialog {
       if (resolution.reason) lines.push(reasonText(resolution.reason));
       r.append(element("div", "fs-detail", lines.join("\n")));
     }
-    r.setAttribute("aria-label", `${title} ${path}`);
+    r.setAttribute("aria-label", [title, mark, path].filter(Boolean).join(" "));
     r.setAttribute("aria-description", resolution.reason ? reasonText(resolution.reason) : t(m.description) + (resolution.dependency ? ` ${reasonText(resolution.dependency)}` : ""));
     return r;
   }

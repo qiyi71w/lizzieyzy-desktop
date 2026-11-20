@@ -142,8 +142,14 @@
 .fs-title {
   font-weight: 600;
 }
+/* A result that cannot be opened now stays readable, with its 不可用 mark after the title. */
 .fs-row.unavailable .fs-title {
-  color: var(--ds-text-off);
+  color: var(--ds-text-2);
+}
+.fs-mark {
+  margin-left: 8px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
 }
 .fs-detail {
   color: var(--ds-text-2);

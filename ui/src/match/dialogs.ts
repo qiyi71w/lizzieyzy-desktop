@@ -236,6 +236,18 @@ export async function openEngineGameDialog(): Promise<void> {
   const modeW = select(timeModes, TIME_MODES.indexOf(cfg.secondTimeMode), "match.timeModeWhite");
   const advB = field(cfg.firstTimeCommand, "match.advancedBlack");
   const advW = field(cfg.secondTimeCommand, "match.advancedWhite");
+  // The two columns share each row's name; every control also says whose side it sets.
+  const sideNames = [t("NewEngineGameDialog.lblB"), t("NewEngineGameDialog.lblW")];
+  for (const [name, pair] of [
+    [t("NewEngineGameDialog.lblengine"), [black, white]],
+    [t("NewEngineGameDialog.lblTime"), [timeBlack, timeWhite]],
+    [t("SetAiTimes.lblGenmoveMode"), [modeB, modeW]],
+    [t("NewEngineGameDialog.lblAdvanceTime"), [advB, advW]],
+    [t("NewEngineGameDialog.lblPlayout"), [visitsBlack, visitsWhite]],
+    [t("NewEngineGameDialog.lblFirstPlayout"), [firstBlack, firstWhite]],
+  ] as const) {
+    pair.forEach((control, k) => control.setAttribute("aria-label", `${sideNames[k]} · ${name}`));
+  }
 
   // 黑方设置 / 白方设置: a column each at the end of the rows, under its stone. A row that one of the
   // toolbar's own boxes turns on ends in its switch; the other rows keep that place empty.

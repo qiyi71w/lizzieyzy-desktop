@@ -53,7 +53,7 @@ body {
 }
 
 /* ---- tabs: small text segments, the selected one on the well at weight 600 (the pages, the
-   loss panel and the chart panel) */
+   loss panel and the chart panel); buttons in a tablist, hover and press from base.css */
 .hk-tabs,
 .hks-tabs,
 .hk-chart-tabs {
@@ -67,21 +67,19 @@ body {
 .hk-tab,
 .hks-tab,
 .hk-chart-tab {
+  height: auto;
   padding: 0 8px;
   line-height: 22px;
+  border: 0;
   border-radius: var(--ds-radius-s);
+  background-color: transparent;
   color: var(--ds-text-3);
   white-space: nowrap;
 }
-.hk-tab:hover,
-.hks-tab:hover,
-.hk-chart-tab:hover {
-  background: var(--ds-hover);
-}
-.hk-tab.sel,
-.hks-tab.on,
-.hk-chart-tab.on {
-  background: var(--ds-well);
+.hk-tab[aria-selected="true"],
+.hks-tab[aria-selected="true"],
+.hk-chart-tab[aria-selected="true"] {
+  background-color: var(--ds-well);
   color: var(--ds-text);
   font-weight: 600;
 }
@@ -154,8 +152,9 @@ body {
   background-image: linear-gradient(var(--ds-hover), var(--ds-hover));
 }
 
-/* ---- the filter bar between the lists and the charts: one row, two where a language's labels
-   do not fit the window (window.ts places the lists and charts around its height) */
+/* ---- the filter bar between the lists and the charts: one row, more where a language's labels
+   do not fit the window (window.ts places the lists and charts around its height). It wraps only
+   between groups: a label and its field, the sides, the periods, the custom range. */
 #hk-filter {
   position: absolute;
   left: 0;
@@ -165,15 +164,22 @@ body {
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 4px 6px;
+  gap: 4px 16px;
+  padding: 4px 8px;
   border-top: 1px solid var(--ds-line);
   border-bottom: 1px solid var(--ds-line);
   background: var(--ds-chrome);
   white-space: nowrap;
 }
-#hk-filter .group {
-  margin-left: 4px;
+#hk-filter .hk-group,
+#hk-filter .hk-choices {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* The choices of one group (黑 / 白, the periods) stand further apart than a label from its field. */
+#hk-filter .hk-choices {
+  gap: 8px;
 }
 #hk-filter button,
 #hk-filter select,
@@ -195,12 +201,12 @@ body {
   display: inline-flex;
   align-items: center;
 }
-/* 黑 / 白 put the box after the name, the periods before it. */
-#hk-filter label > span + input[type="checkbox"] {
+/* 黑 / 白 put the box after the name, the periods the circle before it. */
+#hk-filter input[type="checkbox"] {
   margin: 0 0 0 4px;
 }
-#hk-filter input[type="checkbox"] {
-  margin-right: 4px;
+#hk-filter input[type="radio"] {
+  margin: 0 4px 0 0;
 }
 #hk-filter input[type="text"] {
   width: 34px;

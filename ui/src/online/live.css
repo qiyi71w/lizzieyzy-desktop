@@ -56,28 +56,12 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* Column shares by content: the time and the two win rates in full, the counts narrow. */
-#yl-scroll th:nth-child(1) {
-  width: 10%;
-}
-#yl-scroll th:nth-child(2) {
-  width: 14%;
-}
-#yl-scroll th:nth-child(3) {
-  width: 17%;
-}
-#yl-scroll th:nth-child(4),
-#yl-scroll th:nth-child(5) {
-  width: 13%;
-}
-#yl-scroll th:nth-child(6) {
-  width: 6%;
-}
-#yl-scroll th:nth-child(7) {
-  width: 19%;
-}
-#yl-scroll th:nth-child(8) {
-  width: 8%;
+/* The column widths come from liveWindow.ts: each time it draws the rows it lays the table out at
+   its content size (.measure), then gives the data columns their content width and the text
+   columns the rest. */
+#yl-scroll table.measure {
+  width: max-content;
+  table-layout: auto;
 }
 #yl-scroll th {
   position: sticky;

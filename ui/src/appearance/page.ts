@@ -60,6 +60,16 @@ registerProduct({
   ThTh: { settingsFrameFont: "ขนาดตัวอักษรของหน้าจอ", settingsFrameFontSub: "ขนาดตัวอักษรของเมนู แผง และกล่องโต้ตอบ (12–20) มีผลหลังเปิดโปรแกรมใหม่" },
 });
 
+/** Accessible names of fields that share a row: a colour, its alpha, the shadow's switch. */
+registerProduct({
+  ZhCn: { themeFieldColor: "{0}：颜色", themeFieldOpacity: "{0}：不透明度", themeFieldShowShadow: "显示棋子阴影" },
+  ZhTw: { themeFieldColor: "{0}：顏色", themeFieldOpacity: "{0}：不透明度", themeFieldShowShadow: "顯示棋子陰影" },
+  EnUs: { themeFieldColor: "{0}: color", themeFieldOpacity: "{0}: opacity", themeFieldShowShadow: "Show stone shadows" },
+  JaJp: { themeFieldColor: "{0}：色", themeFieldOpacity: "{0}：不透明度", themeFieldShowShadow: "石の影を表示" },
+  KoKr: { themeFieldColor: "{0}: 색상", themeFieldOpacity: "{0}: 불투명도", themeFieldShowShadow: "돌 그림자 표시" },
+  ThTh: { themeFieldColor: "{0}: สี", themeFieldOpacity: "{0}: ความทึบ", themeFieldShowShadow: "แสดงเงาหิน" },
+});
+
 /** readDefaultTheme's fixed image paths: the default theme's images are not editable (6313-6324). */
 const DEFAULT_PATHS = { background: "/assets/background.jpg", board: "/assets/board.png", black: "/assets/black0.png", white: "/assets/white0.png" };
 
@@ -146,17 +156,19 @@ const intValue = (input: HTMLInputElement) => {
 };
 
 /** ColorLabel + 选择 (createColorControl, 4033-4053): the swatch opens the chooser; with alpha
- *  (ColorLabel useAplha) the alpha is edited beside it and written when not 255 (Theme.color2Array). */
+ *  (ColorLabel useAplha) the alpha is edited beside it and written when not 255 (Theme.color2Array).
+ *  `name` names the swatch, and the alpha after it. */
 interface ColorControl {
   root: HTMLElement;
   get(): number[];
   set(c: readonly number[]): void;
 }
-function colorControl(key: string, alpha: boolean, chooseButton: boolean): ColorControl {
+function colorControl(key: string, alpha: boolean, chooseButton: boolean, name: string): ColorControl {
   const root = el("span", "appearance-color");
   const swatch = el("input");
   swatch.type = "color";
   swatch.dataset.key = key;
+  swatch.setAttribute("aria-label", name);
   root.append(swatch);
   const opacity = el("input", "appearance-number");
   if (alpha) {
@@ -165,6 +177,7 @@ function colorControl(key: string, alpha: boolean, chooseButton: boolean): Color
     opacity.max = "255";
     opacity.step = "1";
     opacity.dataset.key = `${key}.alpha`;
+    opacity.setAttribute("aria-label", product("themeFieldOpacity", name));
     opacity.addEventListener("change", () => {
       const v = Math.round(Number(opacity.value));
       opacity.value = String(Number.isFinite(v) ? Math.max(0, Math.min(255, v)) : 255);
@@ -389,11 +402,15 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   const lines = card(host, t("ConfigDialog2.modern.theme.lines"), t("ConfigDialog2.modern.theme.linesSub"));
   const winrateWidth = spinner("settings.theme.winrateStrokeWidth", 0.1, 10, 0.1, t("LizzieConfig.title.winrateStrokeWidth"));
   const scoreWidth = spinner("settings.theme.scoreLeadStrokeWidth", 0.1, 10, 0.1, t("LizzieConfig.title.scoreLeadStrokeWidth"));
+  // Two widths in one row: each named after its own line.
+  winrateWidth.setAttribute("aria-label", t("LizzieConfig.title.winrateStrokeWidth"));
+  scoreWidth.setAttribute("aria-label", t("LizzieConfig.title.scoreLeadStrokeWidth"));
   row(lines, "config.theme.winrate-width", t("ConfigDialog2.modern.theme.winrateWidth"), t("ConfigDialog2.modern.theme.winrateWidthSub"), stepper(winrateWidth), stepper(scoreWidth));
   const barWidth = spinner("settings.theme.minimumBlunderBarWidth", 1, 10, 1, t("LizzieConfig.title.minimumBlunderBarWidth"));
   row(lines, "config.theme.blunder-width", t("ConfigDialog2.modern.theme.blunderWidth"), t("ConfigDialog2.modern.theme.blunderWidthSub"), stepper(barWidth));
   const shadowLabel = t("LizzieConfig.title.shadowSize");
-  const showShadow = check("settings.theme.showStoneShadow", shadowLabel);
+  // The size field takes the row's name; the switch says what it turns on.
+  const showShadow = check("settings.theme.showStoneShadow", product("themeFieldShowShadow"));
   const shadowSize = spinner("settings.theme.shadowSize", 1, 150, 1, shadowLabel);
   showShadow.addEventListener("change", () => (shadowSize.disabled = !showShadow.checked));
   row(lines, "config.theme.shadow", t("ConfigDialog2.modern.theme.shadow"), t("ConfigDialog2.modern.theme.shadowSub"), showShadow, stepper(shadowSize));
@@ -414,12 +431,12 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   const assetHint = t("ConfigDialog2.modern.theme.assetHint");
   const pureBackgroundLabel = t("LizzieConfig.title.chkPureBackground");
   const pureBackground = check("settings.theme.usePureBackground", pureBackgroundLabel);
-  const pureBackgroundColor = colorControl("settings.theme.pureBackgroundColor", false, false);
+  const pureBackgroundColor = colorControl("settings.theme.pureBackgroundColor", false, false, product("themeFieldColor", pureBackgroundLabel));
   const backgroundPath = pathControl("settings.theme.backgroundImage", redraw);
   row(assets, "config.theme.background-image", t("ConfigDialog2.modern.theme.backgroundImage"), assetHint, labelled(pureBackground, pureBackgroundLabel), pureBackgroundColor.root, backgroundPath.root);
   const pureBoardLabel = t("LizzieConfig.title.chkPureBoard");
   const pureBoard = check("settings.theme.usePureBoard", pureBoardLabel);
-  const pureBoardColor = colorControl("settings.theme.pureBoardColor", false, false);
+  const pureBoardColor = colorControl("settings.theme.pureBoardColor", false, false, product("themeFieldColor", pureBoardLabel));
   const boardPath = pathControl("settings.theme.boardImage", redraw);
   row(assets, "config.theme.board-image", t("ConfigDialog2.modern.theme.boardImage"), assetHint, labelled(pureBoard, pureBoardLabel), pureBoardColor.root, boardPath.root);
   const blackPath = pathControl("settings.theme.blackStoneImage", redraw);
@@ -446,7 +463,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   const colors = card(host, t("ConfigDialog2.modern.theme.colors"), t("ConfigDialog2.modern.theme.colorsSub"));
   const colorHint = t("ConfigDialog2.modern.colorRowHint");
   const colorRow = (target: Target, title: string, key: string) => {
-    const control = colorControl(key, true, true);
+    const control = colorControl(key, true, true, title);
     row(colors, target, title, colorHint, control.root);
     return control;
   };
@@ -476,7 +493,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   row(colors, "config.theme.stone-indicator", t("ConfigDialog2.modern.theme.indicator"), t("ConfigDialog2.modern.theme.indicatorSub"), indicatorChoices);
   const commentNodeTitle = t("ConfigDialog2.modern.theme.commentNode");
   const showCommentNode = check("settings.theme.showCommentNodeColor", commentNodeTitle);
-  const commentNodeColor = colorControl("settings.theme.commentNodeColor", true, false);
+  const commentNodeColor = colorControl("settings.theme.commentNodeColor", true, false, product("themeFieldColor", commentNodeTitle));
   row(colors, "config.theme.comment-node-color", commentNodeTitle, t("ConfigDialog2.modern.theme.commentNodeSub"), showCommentNode, commentNodeColor.root);
 
   // 选点评估关注外框.
@@ -523,8 +540,9 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     input.type = "number";
     input.step = "any";
     input.dataset.key = "settings.theme.blunderWinrateThreshold";
+    input.setAttribute("aria-label", t("LizzieConfig.title.blunderThresholds"));
     input.value = threshold === null ? "" : String(threshold);
-    const control = colorControl("settings.theme.blunderNodeColor", true, false);
+    const control = colorControl("settings.theme.blunderNodeColor", true, false, t("LizzieConfig.title.blunderColor"));
     control.set(color);
     const a = el("td");
     a.append(stepper(input));

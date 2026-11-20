@@ -5,9 +5,19 @@ import { run, state, subscribe } from "../app";
 import type { CustomPdaMode, Point } from "../contract/generated";
 import { formPanel, message } from "../dialogs";
 import type { ContextEntry } from "../editing/contextMenu";
-import { isChinese, t } from "../i18n";
+import { isChinese, product, registerProduct, t } from "../i18n";
 import { javaDouble, parseJavaDouble } from "../workbench/paint";
-import { actions, button, primaryButton } from "./controls";
+import { actions, button, primaryButton, segmented } from "./controls";
+
+/** The accessible name of the three PDA choices, which Java shows without a caption. */
+registerProduct({
+  ZhCn: { customPdaModeGroup: "PDA 方式" },
+  ZhTw: { customPdaModeGroup: "PDA 方式" },
+  EnUs: { customPdaModeGroup: "PDA mode" },
+  JaJp: { customPdaModeGroup: "PDA の方式" },
+  KoKr: { customPdaModeGroup: "PDA 방식" },
+  ThTh: { customPdaModeGroup: "โหมด PDA" },
+});
 
 /** Leelaz.isKatagoCustom: a `KataGoCustom` build, or a `KataGoPda` one (Leelaz.java:6246-6253). */
 export function kataGoCustom(): boolean {
@@ -82,31 +92,29 @@ export async function openCustomPda(): Promise<void> {
   pda.dataset.key = "customPda.current";
   current.append(el("span", "", t("SetKataPDA.lblCurPDA")), pda);
 
-  // ButtonGroup of three JCheckBoxes: one is always selected, a click on it keeps it.
-  const dynamic = check(t("SetKataPDA.chkDymPda"), "customPda.dynamic", mode === "Dynamic");
-  const fixed = check(t("SetKataPDA.chkStaticPda"), "customPda.fixed", mode === "Fixed");
-  const disabled = check(t("SetKataPDA.chkNoPDA"), "customPda.disabled", mode === "Disabled");
+  // ButtonGroup of three JCheckBoxes, one always selected: a segmented control of the three.
+  const modes = segmented("custom-pda-mode", [["Dynamic", t("SetKataPDA.chkDymPda")], ["Fixed", t("SetKataPDA.chkStaticPda")], ["Disabled", t("SetKataPDA.chkNoPDA")]], mode);
+  modes.el.setAttribute("aria-label", product("customPdaModeGroup"));
+  const [dynamic, fixed] = modes.inputs;
+  modes.inputs.forEach((radio, k) => (radio.dataset.key = `customPda.${["dynamic", "fixed", "disabled"][k]}`));
   const cap = valueField(javaDouble(capValue), "customPda.cap", t("SetKataPDA.lblDymRatio"));
   const value = valueField(javaDouble(fixedValue), "customPda.value", t("SetKataPDA.chkStaticPda"));
-  const choices: [HTMLInputElement, CustomPdaMode][] = [[dynamic.box, "Dynamic"], [fixed.box, "Fixed"], [disabled.box, "Disabled"]];
   const enableFields = () => {
-    cap.disabled = !dynamic.box.checked;
-    value.disabled = !fixed.box.checked;
+    cap.disabled = !dynamic.checked;
+    value.disabled = !fixed.checked;
   };
-  for (const [box] of choices) {
-    box.onchange = () => {
-      for (const [other] of choices) other.checked = other === box;
-      enableFields();
-    };
-  }
+  for (const radio of modes.inputs) radio.onchange = enableFields;
   enableFields();
-  const modes = el("div", "custom-pda-modes");
+  // One line: the choice, then 动态系数 and the fixed value, each after its caption.
+  const line = el("div", "custom-pda-modes");
   const ratio = el("label", "custom-pda-ratio");
   ratio.append(t("SetKataPDA.lblDymRatio"), cap);
-  modes.append(dynamic.label, ratio, fixed.label, value, disabled.label);
+  const fixedValueLabel = el("label", "custom-pda-ratio");
+  fixedValueLabel.append(t("SetKataPDA.chkStaticPda"), value);
+  line.append(modes.el, ratio, fixedValueLabel);
 
   const auto = check(t("SetKataPDA.chkAutoPDA"), "customPda.autoApply", saved.autoApply);
-  body.append(current, modes, el("div", "engine-hint", t("SetKataPDA.lblTip")), auto.label);
+  body.append(current, line, el("div", "engine-hint", t("SetKataPDA.lblTip")), auto.label);
   // The warnings read as one block below the choices.
   const notes = el("div", "custom-pda-notes");
   notes.append(el("div", "custom-pda-warning", t("SetKataPDA.lblpdakatagopdapda")));
@@ -125,7 +133,7 @@ export async function openCustomPda(): Promise<void> {
     if (currentPda === pda) currentPda = null;
   });
   const apply = primaryButton(t("SetKataPDA.btnApply"), async () => {
-    const chosen = choices.find(([box]) => box.checked)?.[1] ?? "Disabled";
+    const chosen = modes.value() as CustomPdaMode;
     const capText = cap.value.trim();
     const valueText = value.value.trim();
     const dynamicCap = parseJavaDouble(capText);

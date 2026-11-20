@@ -9,7 +9,7 @@ import type { Command } from "../contract/generated";
 import { namedFace } from "../analysis/suggestionsFrame";
 import { onThemeChange, token } from "../design/theme";
 import { t } from "../i18n";
-import { typeSizes } from "./charts";
+import { tabList, typeSizes } from "./charts";
 import { controlTargets, type ControlTarget } from "./dialogs";
 import { type HawkeyePayload, fixed, settingsCommand } from "./model";
 
@@ -365,18 +365,14 @@ export function mountStatistics(
   const strip = document.createElement("div");
   strip.className = "hks-tabs";
   const tabs = [t("Movelistframe.scoreLoss"), t("Movelistframe.winLoss")].map((text, k) => {
-    const tab = document.createElement("div");
+    const tab = document.createElement("button");
     tab.className = "hks-tab";
     tab.dataset.key = `hawkeye.stats.loss.${k}`;
     tab.textContent = text;
-    tab.addEventListener("mousedown", (ev) => {
-      if (ev.button !== 0) return;
-      ev.preventDefault();
-      select(k === 1);
-    });
     return tab;
   });
   strip.append(...tabs);
+  const markTab = tabList(strip, tabs, (k) => select(k === 1));
   const body = document.createElement("div");
   body.className = "hks-loss-body";
   const lossCanvas = document.createElement("canvas");
@@ -412,7 +408,7 @@ export function mountStatistics(
   const paint = () => {
     if (!data) return;
     const winrate = winrateSelected(data);
-    tabs.forEach((tab, k) => tab.classList.toggle("on", (k === 1) === winrate));
+    markTab(winrate ? 1 : 0);
     const lk = look(data);
     const k = prepareCanvas(keyCanvas);
     if (k) {

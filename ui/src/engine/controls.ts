@@ -94,16 +94,49 @@ function slotted(controls: (Node | string)[]): Node[] {
   });
 }
 
-/** A row of a group: its name with `sub` under it, `controls` at the end. A row with one field
- *  is a label, so its name focuses the field. Consecutive rows form one group. */
+/** Element ids for the names that rows give their controls. */
+let ids = 0;
+
+/** Gives each control among `slots` that has no name of its own one from the row: a segmented
+ *  group and each field take the row's name `name`, a field followed by the unit slots beside it
+ *  ("限时 [10] 分钟"), so several fields in one row stay apart. A field named by its own label or
+ *  `aria-label` keeps that name; a radio button is named by its segment. */
+function nameControls(name: HTMLElement, slots: Node[]): void {
+  name.id ||= `ds-row-name-${++ids}`;
+  slots.forEach((slot, at) => {
+    if (!(slot instanceof Element)) return;
+    for (const el of [slot, ...slot.querySelectorAll("*")]) {
+      if (el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby")) continue;
+      if (el.getAttribute("role") === "radiogroup") {
+        el.setAttribute("aria-labelledby", name.id);
+        continue;
+      }
+      if (!el.matches("input:not([type=hidden]), select, textarea") || el.closest("[role=radiogroup]")) continue;
+      const label = el.closest("label");
+      if (label && (label.htmlFor ? label.htmlFor === el.id : label.querySelector("input, select, textarea, button, meter, output, progress") === el)) continue;
+      const names = [name.id];
+      for (const near of [slots[at - 1], slots[at + 1]]) {
+        if (near instanceof HTMLElement && near.classList.contains("ds-row-unit")) names.push((near.id ||= `ds-row-unit-${++ids}`));
+      }
+      el.setAttribute("aria-labelledby", names.join(" "));
+    }
+  });
+}
+
+/** A row of a group: its name with `sub` under it, `controls` at the end. A row with one bare field
+ *  is a label, so its name focuses the field; otherwise its controls are named as nameControls
+ *  says. Consecutive rows form one group. */
 export function row(host: ParentNode, title: string | Node, sub: string, ...controls: (Node | string)[]): HTMLElement {
   const single = controls.length === 1 && controls[0] instanceof HTMLElement && controls[0].matches("input:not([type=checkbox], [type=radio]), select, textarea");
   const r = document.createElement(single ? "label" : "div");
   r.className = "ds-row";
   const end = document.createElement("span");
   end.className = "ds-row-control";
-  end.append(...slotted(controls));
-  r.append(rowText(title, sub), end);
+  const slots = slotted(controls);
+  end.append(...slots);
+  const text = rowText(title, sub);
+  if (!single) nameControls(text.firstElementChild as HTMLElement, slots);
+  r.append(text, end);
   host.append(r);
   return r;
 }
@@ -117,21 +150,28 @@ export function switchBox(checked: boolean): HTMLInputElement {
 }
 
 /** A row whose whole surface toggles its switch; `extra` controls stand before the switch and
- *  wrap among themselves, so the switch stays at the row's end. */
+ *  wrap among themselves, so the switch stays at the row's end. The row is the switch's label;
+ *  the extra fields are named as nameControls says. */
 export function switchRow(host: ParentNode, title: string, sub: string, checked: boolean, ...extra: (Node | string)[]): { row: HTMLLabelElement; input: HTMLInputElement } {
   const box = switchBox(checked);
   const r = document.createElement("label");
   r.className = "ds-row";
+  // Named explicitly: a label without `for` would label the first extra field instead.
+  box.id = `ds-switch-${++ids}`;
+  r.htmlFor = box.id;
+  const text = rowText(title, sub);
   const end = document.createElement("span");
   end.className = "ds-row-control";
   if (extra.length) {
     const fields = document.createElement("span");
     fields.className = "ds-row-fields";
-    fields.append(...slotted(extra));
+    const slots = slotted(extra);
+    fields.append(...slots);
+    nameControls(text.firstElementChild as HTMLElement, slots);
     end.append(fields);
   }
   end.append(box);
-  r.append(rowText(title, sub), end);
+  r.append(text, end);
   host.append(r);
   return { row: r, input: box };
 }

@@ -129,9 +129,10 @@
 .settings-pages > .engine-settings-form[hidden] {
   display: none;
 }
+/* A page's name is a Title: the dialog's own title is the one Headline. */
 .settings-page-title {
   margin: 20px 4px 12px;
-  font-size: var(--ds-size-xl);
+  font-size: var(--ds-size-l);
   font-weight: 600;
 }
 .settings-no-match {
@@ -388,8 +389,8 @@
   cursor: pointer;
 }
 
-/* ---- KataGo 激进参数PDA设置 (SetKataPDA): 当前PDA, the three choices with their fields, the tip,
-   自动加载, the warnings. */
+/* ---- KataGo 激进参数PDA设置 (SetKataPDA): 当前PDA, the three choices as a segmented control with
+   动态系数 and the fixed value after it, the tip, 自动加载, the warnings. */
 .kata-params.custom-pda {
   min-width: 560px;
 }
@@ -415,6 +416,10 @@
   align-items: center;
   gap: 6px;
   white-space: nowrap;
+}
+/* The value its choice does not use is off, its caption with it. */
+.custom-pda-ratio:has(> input:disabled) {
+  color: var(--ds-text-off);
 }
 .custom-pda-check > input {
   margin-right: 0;
@@ -540,6 +545,11 @@
   z-index: 46;
   width: min(520px, 85vw);
   padding: 14px 16px 16px;
+}
+/* A notice is not modal: an open dialog or the function search (the dialog host, z-index 30)
+   stays over it. */
+body:has(> #dialog:not([hidden])) .engine-limit-notice {
+  z-index: 29;
 }
 .engine-limit-notice > strong {
   display: block;

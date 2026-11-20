@@ -45,7 +45,7 @@ function parseDouble(text: string): number | null {
  *  黑 / 白 beside their stones, 贴目 / 让子, each field at its row's end, and 确定. Names and komi
  *  are editable, the handicap is read-only. Apply sends names and komi (GameInfoDialog.apply
  *  259-306); a komi that does not parse leaves the dialog open, as Java's NumberFormatException
- *  does. */
+ *  does, with the field marked invalid and "无效的数字" under 贴目 until the field is edited. */
 export function openGameInfo(): void {
   const info = state.view?.document.info;
   if (!info) return;
@@ -71,6 +71,17 @@ export function openGameInfo(): void {
   const komi = field("komi", t("GameInfoDialog.komi"), javaDouble(info.komi));
   komi.inputMode = "decimal";
   komiFilter(komi);
+  const komiError = document.createElement("span");
+  komiError.className = "ds-row-sub game-info-error";
+  komiError.id = "gameInfo-komi-error";
+  komiError.hidden = true;
+  komi.closest(".ds-row")!.firstElementChild!.append(komiError);
+  komi.addEventListener("input", () => {
+    komi.classList.remove("invalid");
+    komi.removeAttribute("aria-invalid");
+    komi.removeAttribute("aria-describedby");
+    komiError.hidden = true;
+  });
   // FORMAT_HANDICAP: DecimalFormat("0") limited to one integer digit.
   const handicap = field("handicap", t("GameInfoDialog.handicap"), String(Math.trunc(info.handicap) % 10));
   handicap.inputMode = "numeric";
@@ -78,7 +89,15 @@ export function openGameInfo(): void {
   const dialog = formPanel(t("GameInfoDialog.title"), body);
   const ok = primaryButton(t("GameInfoDialog.okButton"), async () => {
     const value = parseDouble(komi.value);
-    if (value === null) return;
+    if (value === null) {
+      komi.classList.add("invalid");
+      komi.setAttribute("aria-invalid", "true");
+      komi.setAttribute("aria-describedby", komiError.id);
+      komiError.textContent = t("LizzieChangeMove.txtMoveNumber.error");
+      komiError.hidden = false;
+      komi.focus();
+      return;
+    }
     await dialog.close();
     await edit({ op: "SetGameInfo", black: black.value, white: white.value, komi: value });
   });
@@ -132,15 +151,17 @@ export function openBoardSize(): void {
   const sizes: [number, string][] = [[19, t("SetBoardSize.rdo19")], [15, t("SetBoardSize.rdo15")], [13, t("SetBoardSize.rdo13")], [9, t("SetBoardSize.rdo9")]];
   const choices = sizes.map(([n, text]) => [n, radio(text, current === n)] as const);
   const other = radio(t("SetBoardSize.rdoOther"), current === null);
-  const field = (value: number) => {
+  const field = (value: number, name: string) => {
     const control = document.createElement("input");
     control.type = "text";
     control.inputMode = "numeric";
     control.value = String(value);
+    control.setAttribute("aria-label", name);
     return control;
   };
-  const width = field(current === null ? w : view.settings.edit.otherSizeWidth);
-  const height = field(current === null ? h : view.settings.edit.otherSizeHeight);
+  // 其他's two fields share a row: each is named after its side (宽 / 高).
+  const width = field(current === null ? w : view.settings.edit.otherSizeWidth, t("MoreEngines.lblWidth"));
+  const height = field(current === null ? h : view.settings.edit.otherSizeHeight, t("MoreEngines.lblHeight"));
   row(body, t("SetBoardSize.rdoOther"), "", width, "x", height);
   const sync = () => {
     width.disabled = height.disabled = !other.checked;

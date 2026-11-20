@@ -1,7 +1,9 @@
 // Board right-click popup (RightClickMenu / RightClickMenu2 are JPopupMenus over the main panel).
-// Drawn like the menu bar dropdowns; closes on a click outside, the wheel, Escape or window
-// changes. Board input stays blocked while it is open and for Java's 200 ms after it closes
+// Drawn and operated like the menu bar dropdowns (Up / Down / Home / End, Enter / Space, Escape);
+// closes on a click outside, the wheel, Escape or window changes, the focus going back where it
+// was. Board input stays blocked while it is open and for Java's 200 ms after it closes
 // (`isShowingRightMenu` is reset by a 200 ms timer in popupMenuWillBecomeInvisible).
+import { bindMenuRows, menuKey } from "../chrome/menubar";
 import { icon, type IconName } from "../design/icons";
 import { product } from "../i18n";
 import "./editing.css";
@@ -24,21 +26,34 @@ export interface ContextItem {
 
 export type ContextEntry = ContextItem | "sep";
 
+/** Items that destroy record content, in the danger ink (DESIGN.md 危险操作): RightClickMenu2's
+ *  删除 takes the stone off the record's position. */
+const DANGER = new Set(["RightClickMenu2.deleteone"]);
+
 let menu: HTMLElement | null = null;
 let shown: string[] | null = null;
 let closedAt = -Infinity;
+/** The element focused before the popup opened; it gets the focus back when the popup closes. */
+let focusBefore: Element | null = null;
 
 export function closeContextMenu(): void {
   if (!menu) return;
+  const focus = document.activeElement;
+  const lost = !focus || focus === document.body || menu.contains(focus);
   menu.remove();
   menu = null;
   shown = null;
   closedAt = performance.now();
+  const before = focusBefore;
+  focusBefore = null;
+  if (lost && before instanceof HTMLElement && before.isConnected) before.focus({ preventScroll: true });
 }
 
 /** Opens the popup with its top-left corner at the client point, kept inside the window. */
 export function openContextMenu(clientX: number, clientY: number, entries: ContextEntry[]): void {
+  const before = menu ? focusBefore : document.activeElement;
   closeContextMenu();
+  focusBefore = before;
   const list = document.createElement("div");
   list.className = "dropdown context-menu";
   const keys: string[] = [];
@@ -54,6 +69,7 @@ export function openContextMenu(clientX: number, clientY: number, entries: Conte
     const row = document.createElement("div");
     row.className = "mi";
     row.dataset.key = entry.key;
+    if (DANGER.has(entry.key)) row.classList.add("danger");
     const mark = document.createElement("span");
     mark.className = "mark";
     if (entry.icon) {
@@ -87,6 +103,7 @@ export function openContextMenu(clientX: number, clientY: number, entries: Conte
     keys.push(entry.key);
   }
   if (list.lastElementChild?.classList.contains("sep")) list.lastElementChild.remove();
+  bindMenuRows(list);
   list.addEventListener("contextmenu", (e) => e.preventDefault());
   document.body.append(list);
   const r = list.getBoundingClientRect();
@@ -128,8 +145,7 @@ document.addEventListener(
 document.addEventListener(
   "keydown",
   (e) => {
-    if (menu && e.key === "Escape") {
-      closeContextMenu();
+    if (menu && menuKey(e, menu, closeContextMenu)) {
       e.stopPropagation();
       e.preventDefault();
     }

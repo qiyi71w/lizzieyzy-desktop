@@ -20,6 +20,10 @@
 .game-info input:read-only {
   background-color: var(--ds-sunken);
 }
+/* A komi that is not a number: the field is invalid (design/base.css) and says why under 贴目. */
+.game-info-error {
+  color: var(--ds-danger-text);
+}
 
 /* 设置棋盘大小: the sizes fill their row as one segmented control. */
 .board-size {

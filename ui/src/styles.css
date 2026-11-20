@@ -50,6 +50,13 @@ body {
   height: 18px;
   pointer-events: none;
 }
+/* The menus' own box (role=menubar), spaced like the bar's items. */
+#menubar .menu-strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
 /* width: the text's width plus 20, set by menubar.ts */
 #menubar .m {
   position: relative;
@@ -713,8 +720,21 @@ body {
   padding: 0 28px 0 0;
   border-radius: var(--ds-radius-s);
 }
-.mi:hover:not(.disabled) {
+/* The active row: the one under the pointer or reached by the keys (menubar.ts setActiveRow). Its
+   wash is the focus indicator, so a focused row draws no ring; a row located by function search
+   keeps its gold line. */
+.mi.active {
   background: var(--ds-hover);
+}
+.dropdown .mi:focus-visible:not(.located) {
+  outline: none;
+}
+/* Items that destroy record content: the danger ink, and its wash when active. */
+.mi.danger:not(.disabled) {
+  color: var(--ds-danger-text);
+}
+.mi.danger.active {
+  background: var(--ds-danger-soft);
 }
 .mi .mark {
   flex: none;

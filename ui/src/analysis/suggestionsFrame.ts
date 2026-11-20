@@ -143,12 +143,22 @@ export function namedFace(stack: string): string | null {
   return stack.startsWith(GRAPH_FONT.replace(/, sans-serif$/, "")) ? null : stack;
 }
 
-/** AnalysisFrame bottom panel: 22 px with the list, half the window with the 柱状图, all of it
- *  without the list (componentResized, AnalysisFrame.java:199-215). */
+/** AnalysisFrame bottom panel: one 22 px line with the list, half the window with the 柱状图, all
+ *  of it without the list (componentResized, AnalysisFrame.java:199-215). The line holds the
+ *  totals and the four boxes; where both do not fit, the boxes move to a line of their own. */
 const BOTTOM = 22;
 
 /** The four boxes in Java's order (AnalysisFrame.java:120-189). */
 const BOX_KEYS: FramePayload["boxes"][number]["key"][] = ["list", "graph", "showNext", "mouseMove"];
+
+/** A header or cell text with line-break opportunities before its bracket ("Percents(%)",
+ *  "3(实战)", "↓-4.6(50.4)") and between camel-cased words ("ScoreStdev"), where a narrow column
+ *  wraps it instead of cutting it. */
+function breakable(text: string): (string | HTMLElement)[] {
+  // Lookahead only: older macOS WebKit rejects lookbehind when it parses the module.
+  const parts = text.replace(/(.)(?=\()|([a-z])(?=[A-Z])/g, "$1$2\u0000").split("\u0000");
+  return parts.flatMap((part, k) => (k === 0 ? [part] : [document.createElement("wbr"), part]));
+}
 
 export function bootFrame(): void {
   const top = document.createElement("div");
@@ -255,6 +265,10 @@ export function bootFrame(): void {
     }
   });
 
+  /** The list's lower edge: the strip's height (BOTTOM, or more where the boxes take lines of
+   *  their own); the 柱状图 starts below it. */
+  let strip = BOTTOM;
+
   const paintBottom = () => {
     if (!data) return;
     const w = bottom.clientWidth, h = bottom.clientHeight, dpr = window.devicePixelRatio || 1;
@@ -276,47 +290,65 @@ export function bootFrame(): void {
     g.fillText(data.stats, 8, 15);
     if (!data.graph) return;
     g.fillStyle = token("--ds-panel");
-    g.fillRect(0, BOTTOM - 1, w, h - BOTTOM + 1);
+    g.fillRect(0, strip - 1, w, h - strip + 1);
     g.fillStyle = token("--ds-line");
-    g.fillRect(0, BOTTOM - 2, w, 1);
+    g.fillRect(0, strip - 2, w, 1);
     const index = token("--ds-text-3");
     const fill = token("--ds-line-strong");
     const text = token("--ds-text-2");
-    const count = Math.floor((h - BOTTOM) / 20);
+    const count = Math.floor((h - strip) / 20);
     for (let i = 0; i < count; i++) {
       g.font = `${size - 1}px ${face}`;
       g.fillStyle = index;
-      g.fillText(String(i + 1), 3, BOTTOM + i * 20 + 15);
+      g.fillText(String(i + 1), 3, strip + i * 20 + 15);
       const bar = data.bars[i];
       if (!bar) continue;
       const length = Math.trunc((w - 80) * bar.ratio);
       g.fillStyle = fill;
-      g.fillRect(20, BOTTOM + i * 20 + 2, length, 16);
+      g.fillRect(20, strip + i * 20 + 2, length, 16);
       g.font = `${size}px ${face}`;
       g.fillStyle = text;
-      g.fillText(bar.text, 26 + length, BOTTOM + i * 20 + 15);
+      g.fillText(bar.text, 26 + length, strip + i * 20 + 15);
     }
   };
-  onThemeChange(paintBottom);
 
   const place = () => {
     if (!data) return;
+    // The totals keep the line's left end; the boxes share it at the right end when both fit with
+    // a gap, otherwise they start a line under the totals and wrap there as a group.
+    let shared = data.stats === null;
+    if (!shared) {
+      const g = canvas.getContext("2d")!;
+      g.font = `${Number.parseFloat(token("--ds-size")) || 12}px ${token("--ds-font")}`;
+      shared = 8 + Math.ceil(g.measureText(data.stats!).width) + 16 + boxRow.offsetWidth + 8 <= bottom.clientWidth;
+    }
+    boxRow.style.top = `${shared ? 0 : BOTTOM - 3}px`;
+    strip = boxRow.offsetTop + boxRow.offsetHeight + 1;
     const h = window.innerHeight;
-    const bottomHeight = !data.list ? h : data.graph ? Math.floor(h / 2) : BOTTOM;
+    const bottomHeight = !data.list ? h : data.graph ? Math.max(strip, Math.floor(h / 2)) : strip;
     top.hidden = !data.list;
     top.style.height = `${h - bottomHeight}px`;
     bottom.style.height = `${bottomHeight}px`;
   };
+  onThemeChange(() => {
+    place();
+    paintBottom();
+  });
 
   const render = () => {
     if (!data) return;
+    for (const box of data.boxes) {
+      const input = boxes.get(box.key)!;
+      input.checked = box.checked;
+      (input.nextElementSibling as HTMLElement).textContent = box.label;
+    }
     place();
     if (data.layout !== layout) {
       layout = data.layout;
       colgroup.replaceChildren(...data.headers.map(() => document.createElement("col")));
       headRow.replaceChildren(...data.headers.map((text) => {
         const th = document.createElement("th");
-        th.textContent = text;
+        th.append(...breakable(text));
         return th;
       }));
       preferred = data.widths ?? preferred;
@@ -328,7 +360,10 @@ export function bootFrame(): void {
       while (row.cells.length > cells.length) row.deleteCell(row.cells.length - 1);
       cells.forEach((c, column) => {
         const cell = row.cells[column] ?? row.insertCell();
-        if (cell.textContent !== c.text) cell.textContent = c.text;
+        // The actual move's figures wrap before their bracket where the column is too narrow for
+        // both, as in the main window's list.
+        if (cell.textContent !== c.text) cell.replaceChildren(...breakable(c.text));
+        cell.classList.toggle("split", c.text.indexOf("(") > 0);
         cell.style.color = c.fg;
         // 占比: a hard-edged bar of the share token behind the right-aligned number, growing
         // leftwards from the cell's right padding, over the row's own tint (as the main list).
@@ -337,11 +372,6 @@ export function bootFrame(): void {
         cell.style.background = c.bar === null ? c.bg : tint ? `${bar}, ${tint}` : bar;
       });
     });
-    for (const box of data.boxes) {
-      const input = boxes.get(box.key)!;
-      input.checked = box.checked;
-      (input.nextElementSibling as HTMLElement).textContent = box.label;
-    }
     paintBottom();
   };
 

@@ -57,7 +57,9 @@ export async function openMoreEngines(): Promise<void> {
       finally { gtpBusy = false; gtp.textContent = t("MoreEngines.gtpConfig"); updatePolicy(); }
     }); gtp.dataset.key = "engine.gtpConfig";
     row(program, caption(t("MoreEngines.lblName")), "", name);
-    // 命令行 and 初始命令 take a line of their own under the row's name.
+    // 命令行 and 初始命令 take a line of their own under the row's name, named after it.
+    command.setAttribute("aria-label", caption(t("MoreEngines.lblCommand")));
+    initial.setAttribute("aria-label", caption(t("MoreEngines.lblInitialCommand")));
     row(program, caption(t("MoreEngines.lblCommand")), "", scan, gtp).append(command);
     row(program, caption(t("MoreEngines.lblInitialCommand")), "").append(initial);
     row(board, t("MoreEngines.lblWidth"), "", stepper(width));
@@ -214,6 +216,12 @@ export async function openMoreEngines(): Promise<void> {
       const next = Math.max(0, Math.min(engines.length - 1, target));
       await edit(() => { engines.splice(next, 0, engines.splice(selected, 1)[0]); selected = next; });
     };
+    // 删除 removes the entry from the catalog: the danger button, after its confirmation.
+    const remove = button(t("MoreEngines.delete"), async () => {
+      if (selected < 0 || !(await confirm(t("MoreEngines.deleteHint6"), t("MoreEngines.deleteHint5")))) return;
+      await edit(() => { engines.splice(selected, 1); selected = Math.min(selected, engines.length - 1); });
+    });
+    remove.classList.add("danger");
     actions(body,
       button(t("MoreEngines.add"), async () => {
         if (!(await dirty())) return;
@@ -222,10 +230,7 @@ export async function openMoreEngines(): Promise<void> {
           selected = 0;
         });
       }),
-      button(t("MoreEngines.delete"), async () => {
-        if (selected < 0 || !(await confirm(t("MoreEngines.deleteHint6"), t("MoreEngines.deleteHint5")))) return;
-        await edit(() => { engines.splice(selected, 1); selected = Math.min(selected, engines.length - 1); });
-      }),
+      remove,
       button(t("MoreEngines.moveFirst"), () => reorder(0)), button(t("MoreEngines.moveLast"), () => reorder(engines.length - 1)),
       button(t("MoreEngines.moveUp"), () => reorder(selected - 1)), button(t("MoreEngines.moveDown"), () => reorder(selected + 1)),
       button(t("MoreEngines.moveUp5"), () => reorder(selected - 5)), button(t("MoreEngines.moveDown5"), () => reorder(selected + 5)),

@@ -6,11 +6,11 @@ import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { appMenuKey } from "../appMenuKey";
 import type { Command, DisplaySettings, HawkeyePeriod, HawkeyeSettings, MoveEvaluation } from "../contract/generated";
-import { setLanguage, t } from "../i18n";
+import { product, registerProduct, setLanguage, t } from "../i18n";
 import { bindColumnResize, layoutColumns, namedFace } from "../analysis/suggestionsFrame";
 import { icon } from "../design/icons";
 import { frameCoordinate, playouts } from "../workbench/paint";
-import { mountCharts, type ChartPanel } from "./charts";
+import { mountCharts, tabList, type ChartPanel } from "./charts";
 import { dialogTargets, openDialog, openSetThreshold, openStatisticsThreshold, openMatchAiHelp, refreshDialogs } from "./dialogs";
 import {
   HAWKEYE_DATA_EVENT,
@@ -29,6 +29,15 @@ import { applyTypeSizes } from "../design/theme";
 import "../design/dialog.css";
 import "../design/stage.css";
 import "./hawkeye.css";
+
+registerProduct({
+  ZhCn: { hawkeyePeriods: "范围", hawkeyeHideLists: "隐藏列表", hawkeyeShowLists: "显示列表" },
+  ZhTw: { hawkeyePeriods: "範圍", hawkeyeHideLists: "隱藏列表", hawkeyeShowLists: "顯示列表" },
+  EnUs: { hawkeyePeriods: "Range", hawkeyeHideLists: "Hide lists", hawkeyeShowLists: "Show lists" },
+  JaJp: { hawkeyePeriods: "範囲", hawkeyeHideLists: "リストを隠す", hawkeyeShowLists: "リストを表示" },
+  KoKr: { hawkeyePeriods: "범위", hawkeyeHideLists: "목록 숨기기", hawkeyeShowLists: "목록 표시" },
+  ThTh: { hawkeyePeriods: "ช่วง", hawkeyeHideLists: "ซ่อนรายการ", hawkeyeShowLists: "แสดงรายการ" },
+});
 
 /** The 详细列表's preferred widths (MoveListFrame.java:1272-1280, with 手数 widened to its longest
  *  header, "MoveNum"); later columns keep JTable's 75. */
@@ -316,20 +325,20 @@ function mount(send: (input: HawkeyeInput) => void): (payload: HawkeyePayload) =
   for (const page of [statsPage, simplePage, detailPage]) page.className = "hk-page";
   pages.append(statsPage, simplePage, detailPage);
   const pageTabs = [t("Movelistframe.statisticsPanel"), t("Movelistframe.topPanle.simpleList"), t("Movelistframe.topPanle.detailList")].map((text, k) => {
-    const tab = document.createElement("span");
+    const tab = document.createElement("button");
     tab.className = "hk-tab";
     tab.textContent = text;
     tab.dataset.key = `hawkeye.page.${k}`;
-    tab.onclick = () => {
-      if (!data || data.settings.topPage === k) return;
-      // changeListener2: 简易列表 sorts by 胜率波动 (2), 详细列表 by 胜率波动 (3).
-      if (k === 1) sort.column = 2;
-      if (k === 2) sort.column = 3;
-      reportLayout();
-      settings({ topPage: k });
-    };
     tabs.append(tab);
     return tab;
+  });
+  const markPage = tabList(tabs, pageTabs, (k) => {
+    if (!data || data.settings.topPage === k) return;
+    // changeListener2: 简易列表 sorts by 胜率波动 (2), 详细列表 by 胜率波动 (3).
+    if (k === 1) sort.column = 2;
+    if (k === 2) sort.column = 3;
+    reportLayout();
+    settings({ topPage: k });
   });
   top.append(tabs, pages);
 
@@ -392,14 +401,23 @@ function mount(send: (input: HawkeyeInput) => void): (payload: HawkeyePayload) =
   );
   detailPage.append(detail.scroll);
 
-  // The filter bar (MoveListFrame.java:1406-1428).
+  // The filter bar (MoveListFrame.java:1406-1428). Java keeps its controls out of the focus
+  // (setFocusable(false)) so Y and Q reach the frame; here they take the focus and the keys still
+  // reach the window (the key handler below). Each label with its field, the sides, the periods
+  // and the custom range is one group the bar never breaks; it wraps between groups only.
   const filter = document.createElement("div");
   filter.id = "hk-filter";
+  const group = (tag: "span" | "label", ...children: (Node | string)[]) => {
+    const g = document.createElement(tag);
+    g.className = "hk-group";
+    g.append(...children);
+    return g;
+  };
   const button = (key: string, text: string, action: () => void) => {
     const b = document.createElement("button");
+    b.type = "button";
     b.dataset.key = key;
     b.textContent = text;
-    b.tabIndex = -1;
     b.onclick = action;
     return b;
   };
@@ -413,7 +431,6 @@ function mount(send: (input: HawkeyeInput) => void): (payload: HawkeyePayload) =
     const box = document.createElement("input");
     box.type = "checkbox";
     box.dataset.key = key;
-    box.tabIndex = -1;
     const name = document.createElement("span");
     name.textContent = label;
     wrap.append(name, box);
@@ -428,7 +445,6 @@ function mount(send: (input: HawkeyeInput) => void): (payload: HawkeyePayload) =
   branchLabel.textContent = t("Movelistframe.lblShowBranch");
   const branch = document.createElement("select");
   branch.dataset.key = "hawkeye.branch";
-  branch.tabIndex = -1;
   for (const [value, text] of [["Main", t("Movelistframe.lblShowBranchItemMain")], ["Current", t("Movelistframe.lblShowBranchItemCurrent")]]) {
     const o = document.createElement("option");
     o.value = value;
@@ -444,19 +460,27 @@ function mount(send: (input: HawkeyeInput) => void): (payload: HawkeyePayload) =
     ["End", t("Movelistframe.end")],
     ["Custom", t("Movelistframe.chkCustom")],
   ];
+  // Java's ButtonGroup of check boxes always has exactly one chosen: a radio group here, under a
+  // label of its own.
+  const periodLabel = document.createElement("span");
+  periodLabel.id = "hk-period-label";
+  periodLabel.textContent = product("hawkeyePeriods");
+  const periodGroup = document.createElement("span");
+  periodGroup.className = "hk-choices";
+  periodGroup.setAttribute("role", "radiogroup");
+  periodGroup.setAttribute("aria-labelledby", periodLabel.id);
   const periodBoxes = periods.map(([period, text]) => {
     const wrap = document.createElement("label");
     const box = document.createElement("input");
-    box.type = "checkbox";
+    box.type = "radio";
+    box.name = "hk-period";
     box.dataset.key = `hawkeye.period.${period}`;
-    box.tabIndex = -1;
-    // A ButtonGroup of check boxes: choosing one clears the others; the chosen one stays chosen.
-    box.onclick = (ev) => {
-      ev.preventDefault();
-      if (data && data.settings.period !== period) settings({ period });
+    box.onchange = () => {
+      if (box.checked && data && data.settings.period !== period) settings({ period });
     };
     wrap.append(box, text);
-    return { period, wrap, box };
+    periodGroup.append(wrap);
+    return { period, box };
   });
   /** IntDocument fields: only an integer is taken; the middle and opening ends turn red otherwise. */
   const intField = (key: string, apply: (v: number) => Partial<HawkeyeSettings>, red: boolean) => {
@@ -472,18 +496,26 @@ function mount(send: (input: HawkeyeInput) => void): (payload: HawkeyePayload) =
   };
   const customStart = intField("hawkeye.customStart", (v) => ({ customStart: v }), false);
   const customEnd = intField("hawkeye.customEnd", (v) => ({ customEnd: v }), false);
-  const dash = document.createElement("span");
-  dash.textContent = "-";
-  const openingLabel = document.createElement("span");
-  openingLabel.textContent = t("Movelistframe.openingEndMove");
   const opening = intField("hawkeye.openingEndMove", (v) => ({ openingEndMove: v }), true);
-  const middleLabel = document.createElement("span");
-  middleLabel.textContent = t("Movelistframe.middleEndMove");
   const middle = intField("hawkeye.middleEndMove", (v) => ({ middleEndMove: v }), true);
-  // Related controls stand together; a wider gap starts the next group.
-  for (const first of [blackBox.wrap, branchLabel, periodBoxes[0].wrap, customStart, openingLabel, middleLabel]) first.classList.add("group");
-  filter.append(hideMove, tableThreshold, statThreshold, blackBox.wrap, whiteBox.wrap, branchLabel, branch,
-    ...periodBoxes.map((p) => p.wrap), customStart, dash, customEnd, openingLabel, opening, middleLabel, middle);
+  const sideGroup = group("span", blackBox.wrap, whiteBox.wrap);
+  sideGroup.classList.add("hk-choices");
+  filter.append(
+    group("span", hideMove, tableThreshold, statThreshold),
+    sideGroup,
+    group("label", branchLabel, branch),
+    group("span", periodLabel, periodGroup),
+    group("span", customStart, "-", customEnd),
+    group("label", t("Movelistframe.openingEndMove"), opening),
+    group("label", t("Movelistframe.middleEndMove"), middle),
+  );
+  // Enter turns a check box or radio button as Space does.
+  filter.addEventListener("keydown", (ev) => {
+    const el = ev.target;
+    if (ev.key !== "Enter" || !(el instanceof HTMLInputElement) || (el.type !== "checkbox" && el.type !== "radio")) return;
+    ev.preventDefault();
+    el.click();
+  });
 
   // ---------------------------------------------------------------- bottom: charts
   const bottom = document.createElement("div");
@@ -539,7 +571,7 @@ function mount(send: (input: HawkeyeInput) => void): (payload: HawkeyePayload) =
       const saved = p.columns.length === count ? p.columns : p.columns.length >= 9 ? [...p.columns.slice(0, 9), ...DETAIL_WIDTHS.slice(9, count)] : null;
       detail.setHeaders(detailHeaders(pane.katago), saved ?? DETAIL_WIDTHS.slice(0, count));
     } else detail.setHeaders(detailHeaders(pane.katago), detail.preferred);
-    pageTabs.forEach((tab, k) => tab.classList.toggle("sel", s.topPage === k));
+    markPage(s.topPage);
     statsPage.hidden = s.topPage !== 0;
     simplePage.hidden = s.topPage !== 1;
     detailPage.hidden = s.topPage !== 2;
@@ -575,6 +607,7 @@ function mount(send: (input: HawkeyeInput) => void): (payload: HawkeyePayload) =
     detail.setRows(detailRows, lookOf([3, pane.katago ? 4 : null]));
 
     hideMove.replaceChildren(s.showList ? hideIcons.up : hideIcons.down);
+    hideMove.setAttribute("aria-label", product(s.showList ? "hawkeyeHideLists" : "hawkeyeShowLists"));
     tableThreshold.hidden = s.topPage === 0;
     statThreshold.hidden = s.topPage !== 0;
     blackBox.box.checked = p.black;
@@ -612,7 +645,7 @@ function mount(send: (input: HawkeyeInput) => void): (payload: HawkeyePayload) =
         return {
           key: el.dataset.key ?? "",
           text: el.textContent ?? "",
-          checked: el instanceof HTMLInputElement && el.type === "checkbox" ? el.checked : undefined,
+          checked: el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio") ? el.checked : undefined,
           value: el instanceof HTMLInputElement && el.type === "text" ? el.value : el instanceof HTMLSelectElement ? el.value : undefined,
           x: Math.round(r.left + r.width / 2),
           y: Math.round(r.top + r.height / 2),
@@ -633,10 +666,15 @@ function mount(send: (input: HawkeyeInput) => void): (payload: HawkeyePayload) =
     send({ type: "report", report: r });
   };
 
-  // Keys of the frame and its tables (MoveListFrame.java:1562-1690): Y closes, Q 总在最前.
+  // Keys of the frame and its tables (MoveListFrame.java:1562-1690): Y closes, Q 总在最前, wherever
+  // the focus is except in a field that takes typing.
   document.addEventListener("keydown", (ev) => {
-    const target = ev.target as HTMLElement;
-    if (appMenuKey(ev) || target instanceof HTMLInputElement || target instanceof HTMLSelectElement) return;
+    const target = ev.target;
+    const typing =
+      target instanceof HTMLTextAreaElement ||
+      (target instanceof HTMLInputElement && !["checkbox", "radio", "button"].includes(target.type)) ||
+      (target instanceof HTMLElement && target.isContentEditable);
+    if (appMenuKey(ev) || typing) return;
     if (ev.code === "KeyY" || ev.code === "KeyQ") {
       ev.preventDefault();
       send({ type: "key", code: ev.code });

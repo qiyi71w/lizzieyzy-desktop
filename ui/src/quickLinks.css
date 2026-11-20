@@ -1,5 +1,6 @@
-/* 快速启动设置 (OtherPrograms.java): the form's title, 名称 and 命令行 with 自动生成 under its label,
-   the order and edit buttons, then the table of 30 rows (engine/engine.css .engine-table). */
+/* 快速启动设置 (OtherPrograms.java): the form's title (while no row is chosen, the prompt to choose
+   one), 名称 and 命令行 with 自动生成 under its label, the order and edit buttons, then the table of
+   30 rows (engine/engine.css .engine-table), one Tab stop whose chosen row holds the focus. */
 .quick-links {
   display: grid;
   gap: 10px;
@@ -9,8 +10,9 @@
   font-size: var(--ds-size-l);
   font-weight: 600;
 }
-.quick-links-heading.disabled {
-  color: var(--ds-text-off);
+.quick-links-heading.prompt {
+  color: var(--ds-text-3);
+  font-weight: 400;
 }
 .quick-links-form {
   display: grid;

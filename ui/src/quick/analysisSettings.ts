@@ -58,10 +58,6 @@ function reuseTargetText(): string {
 
 type Generated = { command: string; generatedConfig: string | null } | { refused: string };
 
-function showGeneratedConfig(path: string | null): void {
-  if (path !== null) void message(t("Message.title"), format(t("AnalysisEngineCommandHelper.generatedConfig"), path));
-}
-
 /** GenerateAnalysisCommand: the analysis command from an engine profile (null: the current one).
  *  The display resolution falls back silently (resolveAnalysisEngineCommandForDisplay); the
  *  buttons show a refusal like Utils.showMsg. */
@@ -218,6 +214,16 @@ export async function openAnalysisEngineSettings(options: AnalysisSettingsOption
   command.spellcheck = false;
   command.value = shown;
   command.setAttribute("aria-label", t("AnalysisSettings.lblEngineCmd"));
+  // A missing analysis.cfg the generation wrote: said under the command, with its path (the
+  // dialog's text is selectable), and replaced at the next generation.
+  const generatedStatus = text("", "engine-hint analysis-settings-generated");
+  generatedStatus.setAttribute("role", "status");
+  generatedStatus.dataset.key = "analysisSettings.generatedConfig";
+  const showGeneratedConfig = (path: string | null) => {
+    generatedStatus.textContent = path === null ? "" : format(t("AnalysisEngineCommandHelper.generatedConfig"), path);
+    generatedStatus.hidden = path === null;
+  };
+  showGeneratedConfig(generatedConfig);
   const take = (result: Generated | null) => {
     if (!result || !("command" in result)) return;
     command.value = result.command;
@@ -247,7 +253,7 @@ export async function openAnalysisEngineSettings(options: AnalysisSettingsOption
     if (next) { ssh = next.ssh; sshPassword = next.password; }
   });
   remoteRow.append(remote.label, remoteSettings);
-  form.append(remoteRow, command, text(t("AnalysisSettings.example"), "engine-hint analysis-settings-example"), hintLabel(), document.createElement("hr"));
+  form.append(remoteRow, command, generatedStatus, text(t("AnalysisSettings.example"), "engine-hint analysis-settings-example"), hintLabel(), document.createElement("hr"));
   const visits = document.createElement("input");
   visits.type = "text";
   visits.className = "quick-number";
@@ -348,7 +354,6 @@ export async function openAnalysisEngineSettings(options: AnalysisSettingsOption
   });
   // 确定并重新计算: the last flash analysis runs again with the new settings.
   redo.onclick = () => save(() => run({ type: "RedoFlashAnalysis" }));
-  showGeneratedConfig(generatedConfig);
   await dialog.closed;
   return kept;
 }

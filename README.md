@@ -42,6 +42,13 @@ importing the matching LizzieYzy Next settings.
   replay goes on from the new length. During an `R` replay (回放变化图) these keys and the wheel
   step from the length the replay shows and end the replay, as in Java.
 - Stepping forward plays the Java stone sounds (stone, capture, capture of three or more).
+- The menus work from the keyboard as Swing's do: `F10` opens the first menu with its first item
+  selected (and closes the open one); `Up`/`Down`, `Home`/`End` move between items, `Enter` or
+  `Space` chooses, `Right` opens a submenu and `Left` closes it, `Left`/`Right` on a menu's
+  outer level move to the neighbouring menu, and `Esc` closes one level at a time, the focus
+  going back where it was. A toolbar popup opened from the keyboard and the board's context
+  menu take the same keys. Items that destroy record content (清空棋盘, 删除一手, 删除分支, 清空全部设置子)
+  are in red, like the bottom bar's.
 - The board shows setup stones, moves, passes, captures, comments, SGF markup (TR/SQ/CR/MA/LB),
   next-move rings, player names, the sub board, the variation tree and the empty winrate graph.
 - A failed or cancelled open keeps the current record. Opening a 9x9 record after a 19x19 one (or
@@ -200,7 +207,8 @@ importing the matching LizzieYzy Next settings.
     no move number, so the bottom bar's 手数 jump lands on the node that shows the number asked
     for, also past setup snapshots within the record (Java counted nodes and landed a move short
     there). 将当前盘面设为起始局面 converts the current position.
-  - 编辑棋局信息 (`I`: names, komi), 设置棋盘大小 (`Ctrl+I`; 其他 sizes are remembered), 新建 and
+  - 编辑棋局信息 (`I`: names, komi; a komi that is not a number keeps the dialog open with the
+    field marked and 无效的数字 under it until the field is edited), 设置棋盘大小 (`Ctrl+I`; 其他 sizes are remembered), 新建 and
     the bottom bar 清空棋盘 (Java's "新的棋盘?" prompt with 不再提示, Cancel by default),
     清空棋盘 `Ctrl+Home` without asking, 交换黑白 and the rotations / mirrors
     (`Ctrl+Shift+Alt+Right`, `Ctrl+Alt+arrows`; rotation needs a square board), 交换落子顺序
@@ -253,8 +261,8 @@ importing the matching LizzieYzy Next settings.
   where to right-click and returns to the board; an action or window entry runs, as clicking its
   menu item or button does (上一手 takes back a move during a game like the bottom bar's `<`).
   Entries this client does not provide yet, or that the current state refuses (no engine, no
-  KataGo, no edit to restore, a whole-game analysis running, …), are greyed with their reason
-  and cannot be opened. `Ctrl+K` from the 浮动主棋盘 window gives the main window the keyboard for
+  KataGo, no edit to restore, a whole-game analysis running, …), are marked 不可用 with their
+  reason and cannot be opened. `Ctrl+K` from the 浮动主棋盘 window gives the main window the keyboard for
   the bar; `Esc` or 取消 then gives the keyboard back to the 浮动主棋盘 window. While the bar or
   any other dialog is open, the workbench shortcuts and the floating
   boards' mouse input are inactive. Below a 900 px wide window the toolbar button shows its
@@ -430,7 +438,8 @@ importing the matching LizzieYzy Next settings.
 - KataGoPda settings: the `...` button beside the toolbar's PDA controls opens the dedicated
   dialog. During an engine game (playing or paused) with a `KataGoPda` participant the button
   stays, whichever engine is in front, and the dialog's commands go to that participant.
-  Choose 不启用PDA, 动态PDA with a nonzero coefficient, or 固定PDA with a value.
+  Choose 不启用PDA, 动态PDA with a nonzero coefficient, or 固定PDA with a value (one of the three,
+  as a segmented control).
   确定 saves the choice; 取消 leaves it unchanged. An empty value is saved without sending a
   command. The dialog can also be used with standard KataGo, but only an engine whose GTP name
   begins with `KataGoPda` receives `pda`, `dympdacap`, `getpda` or `getdympdacap`.
@@ -584,8 +593,10 @@ importing the matching LizzieYzy Next settings.
   without asking or waiting; the command is split and its relative paths and working directory
   are resolved like an engine command. A program that cannot be started shows 运行失败!. 设置 opens
   快速启动设置: click a row of the 30-row table to edit it (a row past the list adds a program),
-  type 名称 and 命令行 or pick a file with 自动生成 (on Windows only `.jar`, `.exe`, `.bat`), and
-  保存; 删除 removes it, 上移 / 下移 / 置顶 reorder. Every change is saved at once, empty commands
+  or move to it with `Up`/`Down`, `Home`/`End` in the table (one Tab stop); until a row is chosen
+  the form and 保存 are off and the heading says to choose one. Type 名称 and 命令行 or pick a
+  file with 自动生成 (on Windows only `.jar`, `.exe`, `.bat`), and 保存; 删除 removes it,
+  上移 / 下移 / 置顶 reorder. Every change is saved at once, empty commands
   are dropped, and nothing is started while editing, importing or starting the app.
   自动生成 names the entry after the picked file and writes its path as the command, in quotes
   when the path holds a space or a quote character, so the picked file is the program that
@@ -733,7 +744,8 @@ importing the matching LizzieYzy Next settings.
 - 精析设置 (分析 menu): the analysis engine command, 单步计算量, current or specific rules, 总是覆盖,
   preload, auto quit and 复用当前前台引擎 with its availability. A command that was never edited
   follows the current engine (`gtp` becomes `analysis` and the config becomes the `analysis.cfg`
-  beside it, created from KataGo's example when missing); 选择引擎 makes it the same way from a
+  beside it, created from KataGo's example when missing; the dialog then says so under the
+  command, with the file's path, instead of Java's separate message); 选择引擎 makes it the same way from a
   saved engine, and 自动生成 asks for the KataGo program, model and config files. 远程引擎 with
   设置 runs the analysis command on an SSH host instead (see remote engines below); the
   lightweight quick-analysis model is a file of this computer and is not used then. The hint's
@@ -1223,7 +1235,10 @@ importing the matching LizzieYzy Next settings.
   clicks are not. A click on one record that arrives after another record opened is ignored. A value the stored
   analysis does not have (for example the score of a position analysed by Leela Zero) is an empty cell rather
   than Java's 0. Right-click a list for 导出为xls (a UTF-16
-  tab-separated file named `.xls`, as Java writes it). `Q` keeps the window on top. 双引擎模式
+  tab-separated file named `.xls`, as Java writes it). `Q` keeps the window on top. The page and
+  chart tabs, the filters and the 统计 range (radio buttons) are reached with `Tab`; in a tab row
+  `Left`/`Right`, `Home`/`End` choose the tab, and `Y`/`Q` work everywhere except in a text field.
+  双引擎模式
   opens a second window on the secondary engine's analysis. The open state, page, chart, filters,
   range, the primary window's bounds, sort and column widths are remembered; the window reopens
   at start when it was open. Java's `badmoves-always-ontop`, `show-badmoves-frame`,

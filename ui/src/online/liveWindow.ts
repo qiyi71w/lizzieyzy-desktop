@@ -37,6 +37,15 @@ function cells(g: LiveGameView): string[] {
   return [g.status, g.time, g.game, g.black, g.white, String(g.hands), g.rate, g.attention];
 }
 
+/** 状态, 时间, 手数, 胜率 and 关注: the columns sized to their widest cell, never cut. 对局, 黑方 and
+ *  白方 share the rest; the players keep their own width while it is under a third of the rest,
+ *  对局 takes what is left and ellipsises first (every cell carries its full text as a tooltip). */
+const DATA_COLUMNS = [0, 1, 5, 6, 7];
+const PLAYER_COLUMNS = [3, 4];
+const GAME_COLUMN = 2;
+/** A shared column's least width: a few characters and the ellipsis. */
+const MIN_TEXT = 48;
+
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, id = "", text = ""): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   if (id) e.id = id;
@@ -76,9 +85,12 @@ export function bootYikeLive(): void {
   const table = el("table");
   table.tabIndex = 0;
   table.dataset.key = "yikeLive.table";
+  const colgroup = el("colgroup");
+  const cols = COLUMNS.map(() => el("col"));
+  colgroup.append(...cols);
   const head = el("thead");
   const body = el("tbody");
-  table.append(head, body);
+  table.append(colgroup, head, body);
   scroll.append(table);
 
   const bottom = el("div", "yl-bottom");
@@ -169,6 +181,26 @@ export function bootYikeLive(): void {
     head.replaceChildren(tr);
   };
 
+  /** Each column's content width (the widest of its header and cells, padding included), taken
+   *  with the table laid out at its content size. */
+  let natural: number[] = [];
+  const fitColumns = () => {
+    const rest = scroll.clientWidth - DATA_COLUMNS.reduce((s, k) => s + natural[k], 0);
+    const widths = [...natural];
+    for (const k of PLAYER_COLUMNS) widths[k] = Math.max(MIN_TEXT, Math.min(natural[k], Math.floor(rest / 3)));
+    widths[GAME_COLUMN] = Math.max(MIN_TEXT, rest - PLAYER_COLUMNS.reduce((s, k) => s + widths[k], 0));
+    cols.forEach((col, k) => (col.style.width = `${widths[k]}px`));
+    table.style.width = `${widths.reduce((s, w) => s + w, 0)}px`;
+  };
+  const measureColumns = () => {
+    for (const col of cols) col.style.width = "";
+    table.style.width = "";
+    table.classList.add("measure");
+    natural = [...head.rows[0].cells].map((th) => Math.ceil(th.getBoundingClientRect().width));
+    table.classList.remove("measure");
+    fitColumns();
+  };
+
   const drawRows = () => {
     computeOrder();
     drawHeader();
@@ -192,6 +224,7 @@ export function bootYikeLive(): void {
         return tr;
       }),
     );
+    measureColumns();
     showSelection();
   };
 
@@ -252,6 +285,9 @@ export function bootYikeLive(): void {
       e.preventDefault();
       void self.close();
     }
+  });
+  window.addEventListener("resize", () => {
+    if (natural.length) fitColumns();
   });
   document.addEventListener("contextmenu", (e) => e.preventDefault());
 

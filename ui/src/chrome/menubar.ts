@@ -9,6 +9,8 @@ import { JAVA_MENUS, type MenuNode, type TopMenu } from "./javaMenus";
 import { chooseEngine } from "../engine/catalog";
 import { DARK_READY } from "../design/theme";
 import { highlight } from "../search/highlight";
+import { paintingOpen } from "../display/painting";
+import { contextMenuOpen } from "../editing/contextMenu";
 
 /** Java conditional menus: 快速启动 follows 显示快速启动 (Config.java: show-quick-links, false by
  *  default); show-Contribute is settings.contribution.showMenu, true by default; the secondary
@@ -47,29 +49,56 @@ function label(node: { key: string; suffix?: string }): string {
 }
 
 let openMenu: HTMLElement | null = null;
+/** The element focused before the menus opened; it gets the focus back when they close. */
+let focusBefore: Element | null = null;
 
-function closeMenus() {
-  openMenu?.classList.remove("open");
-  openMenu?.querySelector(".dropdown")?.remove();
-  if (openMenu?.classList.contains("popup-anchor")) openMenu.remove();
+/** Whether the latest input was a key rather than a pointer press: a toolbar popup opened by a key
+ *  starts with its first item active, one opened by the mouse with none. */
+let keyboardInput = false;
+document.addEventListener("keydown", () => (keyboardInput = true), true);
+document.addEventListener("pointerdown", () => (keyboardInput = false), true);
+
+/** Closes the open menu. Focus left in it (or lost with it) returns to where it was before the
+ *  menus opened, unless another menu takes over (`handover`). */
+function closeMenus(handover = false): void {
+  const menu = openMenu;
+  if (!menu) return;
+  const focus = document.activeElement;
+  const lost = !focus || focus === document.body || menu.contains(focus);
+  menu.classList.remove("open");
+  menu.querySelector(".dropdown")?.remove();
+  if (menu.classList.contains("popup-anchor")) menu.remove();
+  else menu.setAttribute("aria-expanded", "false");
   openMenu = null;
+  if (handover) return;
+  const before = focusBefore;
+  focusBefore = null;
+  if (lost && before instanceof HTMLElement && before.isConnected) before.focus({ preventScroll: true });
+}
+
+/** Closes the open menu for the one about to open, keeping the focus to return to. */
+function replaceMenu(): void {
+  if (!openMenu) focusBefore = document.activeElement;
+  closeMenus(true);
 }
 
 /** A JPopupMenu shown below `anchor` (a toolbar button), drawn and closed like the menu bar's; like
  *  Swing's, it moves left rather than leave the window. */
 export function openPopupMenu(anchor: HTMLElement, items: MenuNode[], above = false): void {
-  closeMenus();
+  replaceMenu();
   const r = anchor.getBoundingClientRect();
   const holder = document.createElement("div");
   holder.className = "popup-anchor open";
   holder.style.left = `${r.left}px`;
   holder.style.top = `${r.bottom}px`;
-  holder.append(dropdown(items));
+  const list = dropdown(items);
+  holder.append(list);
   document.body.append(holder);
-  const box = holder.firstElementChild!.getBoundingClientRect();
+  const box = list.getBoundingClientRect();
   if (box.right > window.innerWidth) holder.style.left = `${Math.max(0, r.left - (box.right - window.innerWidth))}px`;
   if (above) holder.style.top = `${r.top - box.height}px`;
   openMenu = holder;
+  if (keyboardInput) activateFirst(list);
 }
 
 /** rankCustomMove: the count is typed into the item itself (Menu.java:9234-9316). */
@@ -122,6 +151,11 @@ const RECENT = "recent:";
 /** The catalog node each shown row stands for, so a function search can find it again. */
 const rowNodes = new WeakMap<Element, MenuNode>();
 
+/** Items that destroy record content, in the danger ink like the bottom bar's 清空棋盘 / 删除
+ *  (DESIGN.md 危险操作): 编辑's 清空棋盘, 删除一手, 删除分支, 摆棋's 清空全部设置子, and 更多's
+ *  清空棋盘 / 删除. */
+const DANGER = new Set(["menu.clearBoard", "menu.delete", "menu.deleteBranch", "menu.setupClearAll", "bottombar.more.clearButton", "bottombar.more.deleteMove"]);
+
 /** Shows a submenu's dropdown beside its row, closing the row's open siblings first. */
 function expand(row: HTMLElement, list: HTMLElement, children: MenuNode[]): HTMLElement {
   list.querySelectorAll(":scope > .mi > .dropdown").forEach((d) => d.remove());
@@ -129,6 +163,145 @@ function expand(row: HTMLElement, list: HTMLElement, children: MenuNode[]): HTML
   if (sub.childElementCount === 0) sub.classList.add("empty");
   row.append(sub);
   return sub;
+}
+
+/** Opens a submenu row's dropdown, as hovering the row does. */
+const subOpeners = new WeakMap<HTMLElement, () => HTMLElement>();
+
+/** A submenu dropdown that is showing. */
+const OPEN_SUB = ":scope > .mi > .dropdown:not(.empty)";
+
+/** The rows the arrow keys stop on: a dropdown's enabled items, in order. */
+function enabledRows(list: HTMLElement): HTMLElement[] {
+  return [...list.children].filter((child): child is HTMLElement => child.classList.contains("mi") && !child.classList.contains("disabled"));
+}
+
+function activeRow(list: HTMLElement): HTMLElement | null {
+  return list.querySelector<HTMLElement>(":scope > .mi.active");
+}
+
+/** Makes `row` its dropdown's active row (Swing's armed item), the one highlight the pointer and
+ *  the keys share; with `focus` the row takes the focus too, so a screen reader announces it. */
+function setActiveRow(list: HTMLElement, row: HTMLElement, focus: boolean): void {
+  const old = activeRow(list);
+  if (old !== row) old?.classList.remove("active");
+  row.classList.add("active");
+  if (focus) row.focus({ preventScroll: true });
+}
+
+function activateFirst(list: HTMLElement): void {
+  const first = enabledRows(list)[0];
+  if (first) setActiveRow(list, first, true);
+}
+
+/** Roles, focusability and the shared active row of one dropdown: the menu bar's menus, the
+ *  toolbar popups and the board's right-click menu. A row the pointer moves onto becomes active
+ *  (and takes the focus when a row has it); it stays active on leaving while its submenu shows. */
+export function bindMenuRows(list: HTMLElement): void {
+  list.setAttribute("role", "menu");
+  for (const child of list.children) {
+    const row = child as HTMLElement;
+    if (row.classList.contains("sep")) row.setAttribute("role", "separator");
+    if (!row.classList.contains("mi")) continue;
+    row.tabIndex = -1;
+    if (!row.hasAttribute("role")) row.setAttribute("role", "menuitem");
+    if (row.classList.contains("disabled")) row.setAttribute("aria-disabled", "true");
+    // A submenu row holds its dropdown, which must not join the row's name.
+    if (row.classList.contains("sub")) {
+      row.setAttribute("aria-haspopup", "menu");
+      row.setAttribute("aria-label", row.querySelector(".label")?.textContent ?? "");
+    }
+    row.querySelector(":scope > .mark")?.setAttribute("aria-hidden", "true");
+    row.addEventListener("mouseenter", () => {
+      if (!row.classList.contains("disabled")) setActiveRow(list, row, document.activeElement?.classList.contains("mi") ?? false);
+    });
+    row.addEventListener("mouseleave", () => {
+      if (!row.querySelector(":scope > .dropdown:not(.empty)")) row.classList.remove("active");
+    });
+  }
+}
+
+/** Swing's menu keys in the open dropdown `root` and its submenus, acting on the innermost level
+ *  with an active row: Up / Down (wrapping; the first item when none is active) and Home / End move
+ *  among enabled items; Right opens the active row's submenu with its first item active; Left and
+ *  Escape close the innermost submenu back to its row; Enter / Space run the active row as a click
+ *  does; Tab moves between a row and a field or button inside it, which keeps its other keys. On
+ *  the outer level Left / Right go to the neighbouring menu (`across`) and Escape runs `close`.
+ *  True when the key was used. */
+export function menuKey(e: KeyboardEvent, root: HTMLElement, close: () => void, across?: (step: 1 | -1) => void): boolean {
+  if (e.ctrlKey || e.altKey || e.metaKey) return false;
+  const inner = e.target instanceof HTMLElement && root.contains(e.target) && e.target.matches("input, button") ? e.target : null;
+  if (inner && e.key !== "Escape" && e.key !== "Tab" && e.key !== "ArrowUp" && e.key !== "ArrowDown") return false;
+  const path = [root];
+  for (let sub = root.querySelector<HTMLElement>(OPEN_SUB); sub; sub = sub.querySelector<HTMLElement>(OPEN_SUB)) path.push(sub);
+  let depth = path.length - 1;
+  while (depth > 0 && !activeRow(path[depth])) depth--;
+  let row = activeRow(path[depth]);
+  if (inner) {
+    row = inner.closest<HTMLElement>(".mi");
+    depth = row?.parentElement ? path.indexOf(row.parentElement) : -1;
+    if (!row || depth < 0) return false;
+  }
+  const list = path[depth];
+  const rows = enabledRows(list);
+  // Closes the submenu at `level`, making the row that opened it active again.
+  const back = (level: number) => {
+    const owner = path[level].parentElement as HTMLElement;
+    path[level].remove();
+    setActiveRow(path[level - 1], owner, true);
+  };
+  const move = (next: HTMLElement | undefined) => {
+    list.querySelectorAll(":scope > .mi > .dropdown").forEach((d) => d.remove());
+    if (next) setActiveRow(list, next, true);
+  };
+  const openSub = (owner: HTMLElement) => {
+    const open = subOpeners.get(owner);
+    if (open) activateFirst(open());
+  };
+  switch (e.key) {
+    case "ArrowDown":
+    case "ArrowUp": {
+      const at = row ? rows.indexOf(row) : -1;
+      move(at < 0 ? rows[0] : rows[(at + (e.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length]);
+      break;
+    }
+    case "Home":
+      move(rows[0]);
+      break;
+    case "End":
+      move(rows[rows.length - 1]);
+      break;
+    case "ArrowRight":
+      if (row && subOpeners.has(row)) openSub(row);
+      else across?.(1);
+      break;
+    case "ArrowLeft":
+      if (depth > 0) back(depth);
+      else across?.(-1);
+      break;
+    case "Escape":
+      if (inner && row) setActiveRow(list, row, true);
+      else if (path.length > 1) back(path.length - 1);
+      else close();
+      break;
+    case "Enter":
+    case " ":
+      if (row && !e.repeat) {
+        if (subOpeners.has(row)) openSub(row);
+        else row.click();
+      }
+      break;
+    case "Tab": {
+      if (!row) break;
+      const stops = [row, ...row.querySelectorAll<HTMLElement>(":scope > input, :scope > button")];
+      const at = stops.indexOf(document.activeElement as HTMLElement);
+      stops[(at + (e.shiftKey ? -1 : 1) + stops.length) % stops.length].focus({ preventScroll: true });
+      break;
+    }
+    default:
+      return false;
+  }
+  return true;
 }
 
 /** One dropdown level, rebuilt each time it opens so checked/enabled states are current. */
@@ -154,6 +327,7 @@ function dropdown(items: MenuNode[]): HTMLElement {
       engines.slice(0, engines.length > 20 ? 19 : 20).forEach((engine, index) => {
         const row = document.createElement("div"); row.className = "mi checkable"; rowNodes.set(row, node);
         row.dataset.engineIndex = String(index); row.title = engine.command;
+        row.setAttribute("role", "menuitemradio"); row.setAttribute("aria-checked", String(current?.index === index));
         const mark = document.createElement("span"); mark.className = "mark";
         mark.textContent = current?.index === index ? "✓" : engine.state === "Ready" ? "●" : engine.state === "Loading" ? "◐" : "○";
         const text = document.createElement("span"); text.className = "label"; text.textContent = `[${index + 1}] ${engine.name}`;
@@ -189,6 +363,7 @@ function dropdown(items: MenuNode[]): HTMLElement {
     row.className = "mi";
     row.dataset.key = node.key;
     rowNodes.set(row, node);
+    if (node.id && DANGER.has(node.id)) row.classList.add("danger");
     const text = document.createElement("span");
     text.className = "label";
     text.textContent = label(node);
@@ -207,7 +382,9 @@ function dropdown(items: MenuNode[]): HTMLElement {
         row.classList.add("disabled", "unavailable");
         row.title = product("unavailable");
       }
-      row.addEventListener("mouseenter", () => expand(row, list, children));
+      const open = () => expand(row, list, children);
+      subOpeners.set(row, open);
+      row.addEventListener("mouseenter", open);
     } else {
       const recent = node.id?.startsWith(RECENT) ? node.id.slice(RECENT.length) : null;
       if (recent) row.title = recent;
@@ -217,8 +394,11 @@ function dropdown(items: MenuNode[]): HTMLElement {
       if (entry?.visible && !entry.visible()) continue;
       if (entry?.label) text.textContent = entry.label();
       if (node.t === "check" || node.t === "radio") {
-        mark.textContent = entry?.checked?.() ? "✓" : "";
+        const checked = !!entry?.checked?.();
+        mark.textContent = checked ? "✓" : "";
         row.classList.add("checkable");
+        row.setAttribute("role", node.t === "check" ? "menuitemcheckbox" : "menuitemradio");
+        row.setAttribute("aria-checked", String(checked));
       }
       if (!entry) {
         row.classList.add("disabled", "unavailable");
@@ -249,6 +429,7 @@ function dropdown(items: MenuNode[]): HTMLElement {
     list.append(row);
   }
   if (list.lastElementChild?.classList.contains("sep")) list.lastElementChild.remove();
+  bindMenuRows(list);
   return list;
 }
 
@@ -261,11 +442,25 @@ function recentItems(): MenuNode[] {
 /** The 双引擎模式 secondary engine menu's title element. */
 let secondaryMenu: HTMLElement | null = null;
 
-/** The built top-level menus and how each opens. */
-const tops = new Map<TopMenu, { top: HTMLElement; open: () => void }>();
+/** The built top-level menus and how each opens (`keyboard`: with its first item active). */
+const tops = new Map<TopMenu, { top: HTMLElement; open: (keyboard?: boolean) => void }>();
+
+/** Left / Right on a menu's outer level: the neighbouring shown menu, wrapping, opened as by a key. */
+function stepTop(step: 1 | -1): void {
+  const shown = [...tops.values()].filter(({ top }) => top.style.display !== "none");
+  const at = shown.findIndex(({ top }) => top === openMenu);
+  shown[(at + step + shown.length) % shown.length]?.open(true);
+}
 
 export function buildMenubar(host: HTMLElement): void {
   const measure = document.createElement("canvas").getContext("2d")!;
+  // The menus as one menu bar for assistive technology; a press on the gaps between them still
+  // moves the window like the rest of the bar.
+  const strip = document.createElement("div");
+  strip.className = "menu-strip";
+  strip.setAttribute("role", "menubar");
+  strip.toggleAttribute("data-tauri-drag-region", true);
+  host.append(strip);
   for (const menu of JAVA_MENUS) {
     // The secondary engine menu follows the layout mode, the 跑谱贡献 menu 跑谱贡献 设置 >
     // 显示跑谱贡献菜单 and 快速启动 显示快速启动; they are built and shown or hidden as the view
@@ -278,7 +473,12 @@ export function buildMenubar(host: HTMLElement): void {
     top.className = "m";
     top.textContent = t(menu.key);
     top.dataset.key = menu.key;
-    host.append(top);
+    top.setAttribute("role", "menuitem");
+    top.setAttribute("aria-haspopup", "menu");
+    top.setAttribute("aria-expanded", "false");
+    // The title's own text: the open dropdown inside it must not join its name.
+    top.setAttribute("aria-label", top.textContent);
+    strip.append(top);
     // MenuButton: text width plus EmptyBorder(5, 10, 5, 10) (WindowMenuStrip.java:295)
     measure.font = getComputedStyle(top).font;
     top.style.width = `${Math.ceil(measure.measureText(top.textContent).width) + 20}px`;
@@ -310,6 +510,7 @@ export function buildMenubar(host: HTMLElement): void {
         const contributing = !secondary && !!state.view?.contribution?.active;
         const text = match ? t("EngineManager.engineGamePlaying") : contributing ? t("Contribute.engineMenu.contributing") : engine ? `[${engine.index + 1}]: ${engine.name}` : t("Menu.noEngine");
         if (top.firstChild?.textContent === text) return;
+        top.setAttribute("aria-label", text);
         if (top.firstChild?.nodeType === Node.TEXT_NODE) top.firstChild.textContent = text;
         else top.prepend(document.createTextNode(text));
         measure.font = getComputedStyle(top).font;
@@ -317,11 +518,14 @@ export function buildMenubar(host: HTMLElement): void {
       };
       subscribe(update); update();
     }
-    const open = () => {
-      closeMenus();
+    const open = (keyboard = false) => {
+      replaceMenu();
+      const list = dropdown(menu.items);
       openMenu = top;
       top.classList.add("open");
-      top.append(dropdown(menu.items));
+      top.setAttribute("aria-expanded", "true");
+      top.append(list);
+      if (keyboard) activateFirst(list);
     };
     tops.set(menu, { top, open });
     top.addEventListener("mousedown", (e) => {
@@ -338,11 +542,25 @@ export function buildMenubar(host: HTMLElement): void {
   document.addEventListener("mousedown", (e) => {
     if (openMenu && !openMenu.contains(e.target as Node)) closeMenus();
   }, true);
+  // Swing's menu keys: F10 opens the first shown menu with its first item active, or closes the
+  // open one; in an open menu or toolbar popup the keys of menuKey work, Left / Right on a menu's
+  // outer level going to the neighbouring menu. Not over a modal dialog (the bar is inert then),
+  // 自由涂鸦 or the board's right-click menu.
   document.addEventListener("keydown", (e) => {
-    if (openMenu && e.key === "Escape") {
-      closeMenus();
-      e.stopPropagation();
+    const f10 = e.key === "F10" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
+    const menu = openMenu;
+    if (menu) {
+      const root = menu.querySelector<HTMLElement>(":scope > .dropdown");
+      if (f10) closeMenus();
+      else if (!root || !menuKey(e, root, closeMenus, menu.classList.contains("popup-anchor") ? undefined : stepTop)) return;
+    } else {
+      if (!f10 || host.closest("[inert]") || paintingOpen() || contextMenuOpen()) return;
+      const first = [...tops.values()].find(({ top }) => top.style.display !== "none");
+      if (!first) return;
+      first.open(true);
     }
+    e.preventDefault();
+    e.stopPropagation();
   }, true);
 }
 
@@ -427,13 +645,13 @@ export function locateMenuItem(id: string): boolean {
       row = rows[0] ?? [...list.children].find((child): child is HTMLElement => (child as HTMLElement).dataset.key === "Menu.editProgram");
     } else row = rows[0];
     if (!row) return false;
-    if (depth < path.nodes.length - 1) list = expand(row, list, node.t === "sep" ? [] : (node.items ?? []));
+    if (depth < path.nodes.length - 1) {
+      setActiveRow(list, row, false);
+      list = expand(row, list, node.t === "sep" ? [] : (node.items ?? []));
+    }
   }
-  if (!row || !list) return false;
-  const located = row;
-  const parent = list;
-  const leaf = path.nodes[path.nodes.length - 1];
-  selectLocated(located, () => (leaf.t === "submenu" ? void expand(located, parent, leaf.items ?? []) : located.click()));
+  if (!row) return false;
+  selectLocated(row);
   return true;
 }
 
@@ -446,19 +664,15 @@ export function locatePopupItem(anchor: HTMLElement, items: MenuNode[], id: stri
     return node !== undefined && node.t !== "sep" && node.id === id;
   });
   if (!row) return false;
-  selectLocated(row, () => row.click());
+  selectLocated(row);
   return true;
 }
 
-/** Focus and the gold line on a located row; Enter then acts on it like the selected Swing item. */
-function selectLocated(row: HTMLElement, activate: () => void): void {
-  row.tabIndex = -1;
+/** Focus and the gold line on a located row, which becomes its menu's active row: Enter or Space
+ *  then acts on it like the selected Swing item. */
+function selectLocated(row: HTMLElement): void {
   row.classList.add("located-item");
-  row.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter" && e.key !== " ") return;
-    e.preventDefault();
-    activate();
-  });
+  setActiveRow(row.parentElement as HTMLElement, row, false);
   row.scrollIntoView({ block: "nearest", inline: "nearest" });
   row.focus({ preventScroll: true });
   highlight(row);

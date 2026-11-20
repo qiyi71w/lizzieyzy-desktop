@@ -8,7 +8,7 @@ import type { Command, DisplaySettings, HawkeyeStage, HistoryPoint, MoveEvaluati
 import { namedFace } from "../analysis/suggestionsFrame";
 import { icon } from "../design/icons";
 import { onThemeChange, token } from "../design/theme";
-import { t } from "../i18n";
+import { product, registerProduct, t } from "../i18n";
 import { fixed, settingsCommand, type HawkeyePayload } from "./model";
 
 export interface ChartActions {
@@ -37,6 +37,40 @@ interface Target {
   value?: string;
   x: number;
   y: number;
+}
+
+registerProduct({
+  ZhCn: { hawkeyeHideChart: "隐藏图表", hawkeyeShowChart: "显示图表" },
+  ZhTw: { hawkeyeHideChart: "隱藏圖表", hawkeyeShowChart: "顯示圖表" },
+  EnUs: { hawkeyeHideChart: "Hide chart", hawkeyeShowChart: "Show chart" },
+  JaJp: { hawkeyeHideChart: "グラフを隠す", hawkeyeShowChart: "グラフを表示" },
+  KoKr: { hawkeyeHideChart: "차트 숨기기", hawkeyeShowChart: "차트 표시" },
+  ThTh: { hawkeyeHideChart: "ซ่อนกราฟ", hawkeyeShowChart: "แสดงกราฟ" },
+});
+
+/** Tab buttons as a tablist (this window's page, chart and loss tabs): the selected tab is the
+ *  strip's one Tab stop; Left/Right (Home/End) move to the neighbouring tab and select it,
+ *  Enter/Space and a click select the focused one. Returns what marks the selected tab. */
+export function tabList(strip: HTMLElement, tabs: HTMLButtonElement[], select: (k: number) => void): (selected: number) => void {
+  strip.setAttribute("role", "tablist");
+  const n = tabs.length;
+  tabs.forEach((tab, k) => {
+    tab.type = "button";
+    tab.setAttribute("role", "tab");
+    tab.addEventListener("click", () => select(k));
+    tab.addEventListener("keydown", (ev) => {
+      const to = ev.key === "ArrowRight" ? (k + 1) % n : ev.key === "ArrowLeft" ? (k + n - 1) % n : ev.key === "Home" ? 0 : ev.key === "End" ? n - 1 : -1;
+      if (to < 0) return;
+      ev.preventDefault();
+      tabs[to].focus();
+      select(to);
+    });
+  });
+  return (selected) =>
+    tabs.forEach((tab, k) => {
+      tab.setAttribute("aria-selected", String(k === selected));
+      tab.tabIndex = k === selected ? 0 : -1;
+    });
 }
 
 // ------------------------------------------------------------------ constants
@@ -872,8 +906,20 @@ function drawStages(g: G, p: HawkeyePayload, posx: number, posy: number, width: 
 
 // ------------------------------------------------------------------ drawMin (matchPanelmin)
 
-/** MoveListFrame.drawMin (MoveListFrame.java:2100-3161): two lines of figures, and on 胜率吻合 /
- *  吻合度走势 the legend after them (Java's fixed places, moved right where the text runs longer). */
+/** A name and its figure in the strip's summary. */
+type Figure = [name: string, value: string];
+/** A legend entry: its mark, drawn in an 18 px slot left of `x` on the line at `base`, and its
+ *  label. */
+type Key = [mark: (x: number, base: number) => void, label: string];
+
+/** A Java resource fragment without the spaces (and, in some languages, the properties escape)
+ *  it was concatenated with. */
+const term = (key: string) => t(key).replace(/^[\s\\]+/, "").trim();
+
+/** MoveListFrame.drawMin (MoveListFrame.java:2100-3161): two lines of figures. 胜率吻合 and 吻合度走势
+ *  set each side's figures as name–value pairs in columns aligned across the two lines, then the
+ *  totals and the legend in the width left of them; the other charts write Java's sentence per
+ *  side, in the label size where the body size would run past the strip. */
 function drawMin(g: G, p: HawkeyePayload, w: number, h: number): void {
   const P = g.p;
   g.color(P.ground);
@@ -881,34 +927,75 @@ function drawMin(g: G, p: HawkeyePayload, w: number, h: number): void {
   const chart = p.settings.chart;
   const pane = p.pane;
   const s = p.settings;
-  g.color(P.text);
-  g.font("m");
-  /** Writes `text` and returns where it ends. */
-  const write = (text: string, x: number, y: number) => {
-    g.color(P.text);
+  /** The baselines of the two lines (black's, white's). */
+  const BASE = [15, 35];
+  /** A side's sentence on its line. */
+  const sentence = (text: string, x: number, side: number) => {
     g.font("m");
-    g.text(text, x, y);
-    return x + g.width(text);
+    if (x + g.width(text) > w - 4) g.font("s");
+    g.color(P.text);
+    g.text(text, x, BASE[side]);
   };
-  /** The legend from `x` on the second line: each mark in an 18 px slot, then its label. */
-  const legend = (x: number, items: [(x: number) => void, string][]) => {
-    for (const [mark, text] of items) {
-      mark(x);
-      x += 23;
+  const nameWidth = (name: string) => {
+    g.font("s");
+    return g.width(name);
+  };
+  const valueWidth = (value: string) => {
+    g.font("m", true);
+    return g.width(value);
+  };
+  /** A figure at `x`: the name as a label, the value after a column `nameColumn` wide. */
+  const figure = ([name, value]: Figure, x: number, nameColumn: number, base: number) => {
+    g.font("s");
+    g.color(P.axis);
+    g.text(name, x, base);
+    g.font("m", true);
+    g.color(P.text);
+    g.text(value, x + nameColumn + 4, base);
+  };
+  /** The two sides' figures in aligned columns from x = 25 (right of the two buttons); right of
+   *  them the totals on the first line and the legend on the second, or, where the legend does not
+   *  fit there, continuing the first line after the totals and wrapping onto the second. */
+  const summary = (sides: [Figure[], Figure[]], totals: Figure[], keys: Key[]) => {
+    let x = 25;
+    sides[0].forEach((_, k) => {
+      const nameColumn = Math.max(...sides.map((side) => nameWidth(side[k][0])));
+      const valueColumn = Math.max(...sides.map((side) => valueWidth(side[k][1])));
+      sides.forEach((side, n) => figure(side[k], x, nameColumn, BASE[n]));
+      x += nameColumn + 4 + valueColumn + 12;
+    });
+    const left = x + 8;
+    const right = w - 8;
+    let at = left;
+    for (const f of totals) {
+      const nameColumn = nameWidth(f[0]);
+      figure(f, at, nameColumn, BASE[0]);
+      at += nameColumn + 4 + valueWidth(f[1]) + 12;
+    }
+    const widths = keys.map(([, label]) => 23 + nameWidth(label));
+    const whole = widths.reduce((sum, kw) => sum + kw + 12, -12);
+    let line = left + whole <= right ? 1 : 0;
+    let kx = line === 1 ? left : at + 8;
+    keys.forEach(([mark, label], k) => {
+      if (line === 0 && kx + widths[k] > right) {
+        line = 1;
+        kx = left;
+      }
+      mark(kx, BASE[line]);
       g.font("s");
       g.color(P.axis);
-      g.text(text, x, 34);
-      x += g.width(text) + 12;
-    }
+      g.text(label, kx + 23, BASE[line]);
+      kx += widths[k] + 12;
+    });
   };
-  const swatch = (color: string) => (x: number) => {
+  const swatch = (color: string) => (x: number, base: number) => {
     g.color(color);
-    g.rect(x, 25, 18, 10);
+    g.rect(x, base - 9, 18, 10);
   };
-  const stroke = (color: string, width: number) => (x: number) => {
+  const stroke = (color: string, width: number) => (x: number, base: number) => {
     g.color(color);
     g.stroke(width);
-    g.line(x, 30, x + 18, 30);
+    g.line(x, base - 4, x + 18, base - 4);
   };
   if (chart === 2 || chart === 3) {
     const score = chart === 3;
@@ -928,7 +1015,7 @@ function drawMin(g: G, p: HawkeyePayload, w: number, h: number): void {
         (score ? t("Movelistframe.stdev") : t("Movelistframe.percentAndStdev")) +
         fixed(b.squares / b.count, 1) +
         t("Movelistframe.rightBrackets");
-      g.text(
+      sentence(
         head +
           sp.analyzed +
           t("Movelistframe.movedAndAverage") +
@@ -938,67 +1025,63 @@ function drawMin(g: G, p: HawkeyePayload, w: number, h: number): void {
           band(sp.above1, r1) +
           band(sp.above2, r2),
         5,
-        side === 0 ? 15 : 35,
+        side,
       );
     });
   } else if (chart === 0) {
-    const ends = [0, 1].map((side) => {
-      const sd = pane.sides[side];
+    const sides = pane.sides.map((sd, side): Figure[] => {
       const percent = fixed(Math.fround(Math.fround(sd.matched / (sd.match_analyzed > 0 ? sd.match_analyzed : 1)) * 100), 1) + "%";
-      return write(
-        (side === 0 ? t("Movelistframe.blackMatch") : t("Movelistframe.whiteMatch")) +
-          sd.matched +
-          "/" +
-          sd.match_analyzed +
-          " " +
-          percent +
-          t("Movelistframe.AIscore") +
-          fixed((sd.share_sum * 100) / sd.match_analyzed, 2) +
-          t("Movelistframe.avgDifference") +
-          fixed(sd.winrate_loss_sum / sd.analyzed, 2) +
-          "%" +
-          "/ " +
-          fixed(sd.score_loss_sum / sd.analyzed, 2),
-        25,
-        side === 0 ? 15 : 35,
-      );
+      return [
+        [term(side === 0 ? "Movelistframe.blackMatch" : "Movelistframe.whiteMatch"), `${sd.matched}/${sd.match_analyzed} ${percent}`],
+        [term("Movelistframe.AIscore"), fixed((sd.share_sum * 100) / sd.match_analyzed, 2)],
+        [term("Movelistframe.avgDifference"), `${fixed(sd.winrate_loss_sum / sd.analyzed, 2)}% / ${fixed(sd.score_loss_sum / sd.analyzed, 2)}`],
+      ];
     });
     const analyzedMatch = pane.sides[0].match_analyzed + pane.sides[1].match_analyzed;
-    write(t("Movelistframe.allmoves") + pane.total_moves + t("Movelistframe.analyzed") + analyzedMatch, Math.max(491, ends[0] + 16), 15);
     // the legend (MoveListFrame.java:2759-2807)
-    legend(Math.max(500, ends[1] + 16), [
-      [swatch(P.matchBlack), t("Movelistframe.blackMatchLabel")],
-      [swatch(P.matchWhite), t("Movelistframe.whiteMatchLabel")],
-      [stroke(P.line, 3), t("Movelistframe.analyzedLabel")],
-      [stroke(P.lineOff, 3), t("Movelistframe.unanalyzedLabel")],
-      [stroke(P.score, 1), t("Movelistframe.scoreLeadLabel")],
-    ]);
+    summary(
+      [sides[0], sides[1]],
+      [
+        [term("Movelistframe.allmoves"), String(pane.total_moves)],
+        [term("Movelistframe.analyzed"), String(analyzedMatch)],
+      ],
+      [
+        [swatch(P.matchBlack), t("Movelistframe.blackMatchLabel")],
+        [swatch(P.matchWhite), t("Movelistframe.whiteMatchLabel")],
+        [stroke(P.line, 3), t("Movelistframe.analyzedLabel")],
+        [stroke(P.lineOff, 3), t("Movelistframe.unanalyzedLabel")],
+        [stroke(P.score, 1), t("Movelistframe.scoreLeadLabel")],
+      ],
+    );
   } else if (chart === 1) {
     const [b, wt] = pane.sides;
-    const end = write(t("Movelistframe.blackAIScore") + fixed((b.share_sum * 100) / b.match_analyzed, 2), 25, 15);
-    const end2 = write(t("Movelistframe.whiteAIScore") + fixed((wt.share_sum * 100) / wt.match_analyzed, 2), 25, 35);
     // Chinese counts the match-analysed moves, English the loss-analysed ones (MoveListFrame.java:2830-2872)
     const counted = p.chinese ? b.match_analyzed + wt.match_analyzed : b.analyzed + wt.analyzed;
-    write(t("Movelistframe.allmoves") + pane.total_moves + t("Movelistframe.analyzed") + counted, Math.max(p.chinese ? 160 : 175, end + 16), 15);
-    g.stroke(SERIES);
-    legend(Math.max(p.chinese ? 172 : 182, end2 + 16), [
+    summary(
+      [[[term("Movelistframe.blackAIScore"), fixed((b.share_sum * 100) / b.match_analyzed, 2)]], [[term("Movelistframe.whiteAIScore"), fixed((wt.share_sum * 100) / wt.match_analyzed, 2)]]],
       [
-        (x) => {
-          g.stoneLine(x, 33, x + 18, 33, true);
-          g.stoneLine(x, 27, x + 18, 27, false);
-        },
-        t("Movelistframe.analyzedLabel"),
+        [term("Movelistframe.allmoves"), String(pane.total_moves)],
+        [term("Movelistframe.analyzed"), String(counted)],
       ],
-      [stroke(P.lineOff, 3), t("Movelistframe.unanalyzedLabel")],
-    ]);
+      [
+        [
+          (x, base) => {
+            g.stroke(SERIES);
+            g.stoneLine(x, base - 1, x + 18, base - 1, true);
+            g.stoneLine(x, base - 7, x + 18, base - 7, false);
+          },
+          t("Movelistframe.analyzedLabel"),
+        ],
+        [stroke(P.lineOff, 3), t("Movelistframe.unanalyzedLabel")],
+      ],
+    );
   } else if (chart === 4) {
-    g.font("m");
     [0, 1].forEach((side) => {
       const st = pane.stages[side];
       const win = (a: number, sum: number) => (a > 0 ? fixed(sum / a, 1) : "0");
       const sum = (f: (x: HawkeyeStage) => number) => f(st[0]) + f(st[1]) + f(st[2]);
       const stage = (x: HawkeyeStage) => win(x.analyzed, x.winrate_loss_sum) + t("Movelistframe.percentAndScore") + win(x.analyzed, x.score_loss_sum);
-      g.text(
+      sentence(
         (side === 0 ? t("Movelistframe.blackDifference") : t("Movelistframe.whiteDifference")) +
           t("Movelistframe.allWinrate") +
           win(sum((x) => x.analyzed), sum((x) => x.winrate_loss_sum)) +
@@ -1012,11 +1095,10 @@ function drawMin(g: G, p: HawkeyePayload, w: number, h: number): void {
           stage(st[2]) +
           t("Movelistframe.rightBrackets"),
         25,
-        side === 0 ? 15 : 35,
+        side,
       );
     });
   } else if (chart === 5 || chart === 6) {
-    g.font("m");
     const score = chart === 6;
     const misses = score ? pane.score_misses : pane.winrate_misses;
     const r1 = score ? s.scoreRange1 : s.winrateRange1;
@@ -1026,7 +1108,7 @@ function drawMin(g: G, p: HawkeyePayload, w: number, h: number): void {
       const m = misses[side];
       const stage = (n: number) =>
         r1 + unit + m[n][0] + t("Movelistframe.moves") + r1 + "-" + r2 + unit + m[n][1] + t("Movelistframe.movesAnd>") + r2 + unit + m[n][2];
-      g.text(
+      sentence(
         (side === 0 ? t("Movelistframe.blackOpen") : t("Movelistframe.whiteOpen")) +
           stage(0) +
           t("Movelistframe.movesAndMiddle") +
@@ -1035,7 +1117,7 @@ function drawMin(g: G, p: HawkeyePayload, w: number, h: number): void {
           stage(2) +
           t("Movelistframe.movesAndRightBrackets"),
         5,
-        side === 0 ? 15 : 35,
+        side,
       );
     });
   }
@@ -1051,15 +1133,15 @@ export function mountCharts(host: HTMLElement, actions: ChartActions): ChartPane
   const tabLayer = document.createElement("div");
   tabLayer.className = "hk-chart-tabs";
   const tabs = TAB_CHARTS.map((chart) => {
-    const d = document.createElement("div");
-    d.className = "hk-chart-tab";
-    d.dataset.key = `hawkeye.chart.tab.${chart}`;
-    d.addEventListener("mousedown", (e) => {
-      if (e.button !== 0 || !payload || payload.settings.chart === chart) return;
-      actions.run(settingsCommand(payload.settings, { chart }));
-    });
-    tabLayer.append(d);
-    return { chart, d };
+    const tab = document.createElement("button");
+    tab.className = "hk-chart-tab";
+    tab.dataset.key = `hawkeye.chart.tab.${chart}`;
+    tabLayer.append(tab);
+    return { chart, tab };
+  });
+  const markTab = tabList(tabLayer, tabs.map(({ tab }) => tab), (k) => {
+    const chart = TAB_CHARTS[k];
+    if (payload && payload.settings.chart !== chart) actions.run(settingsCommand(payload.settings, { chart }));
   });
   const chartCanvas = document.createElement("canvas");
   chartCanvas.dataset.key = "hawkeye.chart.canvas";
@@ -1073,7 +1155,6 @@ export function mountCharts(host: HTMLElement, actions: ChartActions): ChartPane
     const b = document.createElement("button");
     b.type = "button";
     b.dataset.key = key;
-    b.tabIndex = -1; // setFocusable(false)
     if (tip) b.title = tip;
     return b;
   };
@@ -1168,6 +1249,7 @@ export function mountCharts(host: HTMLElement, actions: ChartActions): ChartPane
       place(settings, [2, 18, 20, 18]);
       const next = p.settings.showGraph ? detailIcons.down : detailIcons.up;
       if (detail.firstChild !== next) detail.replaceChildren(next);
+      detail.setAttribute("aria-label", product(p.settings.showGraph ? "hawkeyeHideChart" : "hawkeyeShowChart"));
       if (chart === 0) {
         show(detail, settings, lblMatch1, suggestionMoves, lblMatch2, percentPlayouts, lblMatch3, lblMatch4);
         setField(suggestionMoves, String(p.matchAiMoves), tabChanged);
@@ -1202,11 +1284,11 @@ export function mountCharts(host: HTMLElement, actions: ChartActions): ChartPane
     const W = host.clientWidth;
     const H = host.clientHeight;
     const chart = p.settings.chart;
-    for (const tab of tabs) {
-      const text = tabLabel(tab.chart);
-      if (tab.d.textContent !== text) tab.d.textContent = text;
-      tab.d.classList.toggle("on", tab.chart === chart);
+    for (const { chart: c, tab } of tabs) {
+      const text = tabLabel(c);
+      if (tab.textContent !== text) tab.textContent = text;
     }
+    markTab(TAB_CHARTS.indexOf(chart));
 
     const top = tabLayer.offsetHeight;
     const contentH = Math.max(0, H - top);
@@ -1386,8 +1468,8 @@ export function mountCharts(host: HTMLElement, actions: ChartActions): ChartPane
       const p = payload;
       if (!p) return [];
       const out: Target[] = [];
-      for (const { chart, d } of tabs)
-        out.push({ key: d.dataset.key!, text: d.textContent ?? "", checked: chart === p.settings.chart, ...centre(d) });
+      for (const { chart, tab } of tabs)
+        out.push({ key: tab.dataset.key!, text: tab.textContent ?? "", checked: chart === p.settings.chart, ...centre(tab) });
       if (visible(detail)) out.push({ key: detail.dataset.key!, text: p.settings.showGraph ? "down" : "up", checked: p.settings.showGraph, ...centre(detail) });
       if (visible(settings)) out.push({ key: settings.dataset.key!, text: settings.title, ...centre(settings) });
       for (const f of [suggestionMoves, percentPlayouts, range1, range2])

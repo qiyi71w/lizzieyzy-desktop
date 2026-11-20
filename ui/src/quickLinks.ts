@@ -1,6 +1,8 @@
 // 快速启动设置 (OtherPrograms.java): the form above a 30-row table of the programs. A row is chosen
-// for editing (rows past the list add a program); 保存 writes it, 删除 empties its command, and
-// 上移 / 下移 / 置顶 reorder at once. Every change is saved and the 快速启动 menu follows it.
+// for editing (rows past the list add a program) by a click, or by ↑ / ↓ / Home / End in the table,
+// which is one Tab stop; until then the form and 保存 are off and the form's heading says to choose
+// a row. 保存 writes it, 删除 empties its command, and 上移 / 下移 / 置顶 reorder at once. Every
+// change is saved and the 快速启动 menu follows it.
 import { run, state, subscribe } from "./app";
 import { COMMANDS } from "./commands";
 import type { QuickLinkProgram } from "./contract/generated";
@@ -50,6 +52,7 @@ export async function openQuickLinks(): Promise<void> {
     body.className = "quick-links";
     const heading = document.createElement("div");
     heading.className = "quick-links-heading";
+    heading.id = "quick-links-heading";
     const nameLabel = document.createElement("label");
     nameLabel.textContent = t("MoreEngines.lblName");
     const name = input("");
@@ -83,13 +86,26 @@ export async function openQuickLinks(): Promise<void> {
       header.append(th);
     }
     const rows = table.createTBody();
+    rows.addEventListener("keydown", (event) => {
+      // ↓ from no chosen row chooses the first.
+      const targets: Record<string, number> = { ArrowUp: Math.max(0, current - 1), ArrowDown: Math.min(ROWS - 1, current + 1), Home: 0, End: ROWS - 1 };
+      const target = targets[event.key] as number | undefined;
+      if (target !== undefined) {
+        event.preventDefault();
+        if (target !== current) choose(target, true);
+      } else if ((event.key === "Enter" || event.key === " ") && event.target instanceof HTMLTableRowElement) {
+        event.preventDefault();
+        choose(event.target.sectionRowIndex, true);
+      }
+    });
     const tableWrap = document.createElement("div");
     tableWrap.className = "engine-table-wrap quick-links-table-wrap";
     tableWrap.append(table);
 
     const editors: (HTMLInputElement | HTMLTextAreaElement | HTMLButtonElement)[] = [];
-    /** A row chosen (handleTableClick) or none (the initial state, 取消 and 删除). */
-    const choose = (row: number, resetHeading = false) => {
+    /** A row chosen (handleTableClick) or none (the initial state, 取消 and 删除); `focus` puts the
+     *  focus on the chosen row, as a click or a key in the table does. */
+    const choose = (row: number, focus = false) => {
       current = row;
       const chosen = row >= 0;
       if (chosen) {
@@ -98,13 +114,14 @@ export async function openQuickLinks(): Promise<void> {
         heading.textContent = `${t("OtherPrograms.editEngine")}${row + 1}`;
       } else {
         name.value = command.value = "";
-        // Java names the cleared form after the command field (MoreEngines.lblCommand).
-        if (resetHeading) heading.textContent = t("MoreEngines.lblCommand");
+        heading.textContent = t("OtherPrograms.engineName");
       }
-      heading.classList.toggle("disabled", !chosen);
+      heading.classList.toggle("prompt", !chosen);
       for (const el of editors) el.disabled = !chosen;
       render();
+      if (focus && chosen) rows.rows[row].focus();
     };
+    /** The table body is one Tab stop: the chosen row, or the first while none is. */
     const render = () => {
       rows.replaceChildren();
       for (let index = 0; index < ROWS; index++) {
@@ -112,9 +129,11 @@ export async function openQuickLinks(): Promise<void> {
         const row = rows.insertRow();
         row.dataset.key = `quick-links.row.${index}`;
         row.classList.toggle("selected", index === current);
+        if (index === current) row.setAttribute("aria-current", "true");
+        row.tabIndex = index === Math.max(0, current) ? 0 : -1;
         for (const value of [String(index + 1), program?.name ?? "", program?.command ?? ""]) row.insertCell().textContent = value;
         row.title = program?.command ?? "";
-        row.onclick = () => choose(index);
+        row.onclick = () => choose(index, true);
       }
     };
     const save = async () => {
@@ -155,11 +174,11 @@ export async function openQuickLinks(): Promise<void> {
     const moveDown = button(t("MoreEngines.moveDown"), () => void move((i) => i + 1));
     const moveFirst = button(t("MoreEngines.moveFirst"), () => void move(() => 0));
     const saveButton = primaryButton(t("MoreEngines.save"), () => void save());
-    const cancel = button(t("MoreEngines.cancel"), () => choose(-1, true));
+    const cancel = button(t("MoreEngines.cancel"), () => choose(-1));
     const remove = button(t("MoreEngines.delete"), async () => {
       command.value = "";
       await save();
-      choose(-1, true);
+      choose(-1);
     });
     remove.classList.add("danger");
     const dialog = formPanel(t("OtherPrograms.title"), body);
@@ -167,7 +186,9 @@ export async function openQuickLinks(): Promise<void> {
     for (const [el, key] of [[moveUp, "moveUp"], [moveDown, "moveDown"], [moveFirst, "moveFirst"], [saveButton, "save"], [cancel, "cancel"], [remove, "delete"], [exit, "exit"]] as const) {
       el.dataset.key = `quick-links.${key}`;
     }
-    editors.push(name, command, scan, moveUp, moveDown, moveFirst, cancel, remove);
+    // 保存 with no row chosen would save nothing: it is off, and its reason is the heading.
+    saveButton.setAttribute("aria-describedby", heading.id);
+    editors.push(name, command, scan, moveUp, moveDown, moveFirst, saveButton, cancel, remove);
     const actions = document.createElement("div");
     actions.className = "quick-links-actions";
     const order = document.createElement("span");
@@ -175,7 +196,6 @@ export async function openQuickLinks(): Promise<void> {
     const edit = document.createElement("span");
     edit.append(saveButton, cancel, remove, exit);
     actions.append(order, edit);
-    heading.textContent = t("OtherPrograms.engineName");
     body.append(heading, form, actions, tableWrap);
     choose(-1);
     await dialog.closed;
