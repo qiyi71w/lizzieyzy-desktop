@@ -257,7 +257,8 @@ export function buildDisplaySettings(engine: HTMLElement, play: HTMLElement, sha
   ], s.scoreLeadWithKomi ? 1 : 0);
   // 设置低计算量阈值 (Menu.java:690-723): any Java int, negative ones too.
   const nextMoveVisits = text(engine, "menu.minPlayoutsForNextMove", "nextMoveMinPlayouts", product("settingsNextMoveVisits"), product("settingsNextMoveVisitsSub"), String(s.nextMoveMinPlayouts), t("ConfigDialog2.modern.unit.visits"), /[^0-9-]+/g);
-  // 推荐点 > 延迟显示 (SetDelayShowCandidates): the switch turns the delay on and enables the seconds.
+  // 推荐点 > 延迟显示 (SetDelayShowCandidates): the switch, then the seconds it enables, which end
+  // on the line of the other fields.
   const delayOn = switchBox(s.delayCandidates);
   delayOn.dataset.key = "settings.display.delayCandidates";
   delayOn.setAttribute("aria-label", product("settingsDelayCandidates"));
@@ -269,7 +270,7 @@ export function buildDisplaySettings(engine: HTMLElement, play: HTMLElement, sha
   delaySeconds.disabled = !s.delayCandidates;
   decimalOnly(delaySeconds);
   delayOn.onchange = () => (delaySeconds.disabled = !delayOn.checked);
-  row(engine, product("settingsDelayCandidates"), product("settingsDelayCandidatesSub"), delaySeconds, t("ConfigDialog2.modern.unit.seconds"), delayOn).dataset.settingTarget = "menu.setCandidatesDelay";
+  row(engine, product("settingsDelayCandidates"), product("settingsDelayCandidatesSub"), delayOn, delaySeconds, t("ConfigDialog2.modern.unit.seconds")).dataset.settingTarget = "menu.setCandidatesDelay";
   // 推荐点 > 自定义顺序 (SuggestionInfoOrderSettings): its own dialog, saved by its own 确定.
   const infoOrder = document.createElement("button");
   infoOrder.type = "button";

@@ -2727,13 +2727,14 @@ interface TreeWalk {
   numbers: number;
 }
 
-const [TREE_YS, TREE_XS, TREE_DOT, TREE_RING] = [20, 20, 11, 15];
+const [TREE_YS, TREE_XS, TREE_DOT] = [20, 20, 11];
 
 /** VariationTree.drawTree / VariationTreeBig.drawTree from `start` at (`posx`, `posy`), Java's lane
  *  allocation. Nodes left of `minX` or above the top are not drawn. `fit` is the whole-tree view:
- *  the first node also obeys that and the main line stops above `maxY`. A node without an
- *  错误节点 colour (it or the move before it not evaluated) is hollow. The current node carries
- *  an ink ring (the interface's text colour) around its own colour (the root square an accent centre). */
+ *  the first node also obeys that and the main line stops above `maxY`. Every node is the same
+ *  size. A node without an 错误节点 colour (it or the move before it not evaluated) is hollow; a
+ *  commented node carries a small dot of the comment-node colour at its upper right; only the
+ *  current node has a ring, in the interface's text colour (the root square an accent centre). */
 function walkTree(
   nodes: Map<number, TreeNodeView>,
   start0: number,
@@ -2749,9 +2750,9 @@ function walkTree(
   w: number,
   h: number,
 ): TreeWalk {
-  const [YS, XS, DOT, RING] = [TREE_YS, TREE_XS, TREE_DOT, TREE_RING];
+  const [YS, XS, DOT] = [TREE_YS, TREE_XS, TREE_DOT];
   const p = stagePalette();
-  const commentRing = themeColor(appearance()?.theme.commentNodeColor, THEME_DEFAULT.commentNode, p.commentNode);
+  const commentDot = themeColor(appearance()?.theme.commentNodeColor, THEME_DEFAULT.commentNode, p.commentNode);
   // While the theme keeps its 错误节点 colours, each level takes the stage's colour for it.
   const themeNodes = appearance()?.theme.blunderNodeColors;
   const defaults = THEME_DEFAULT.blunderNodes;
@@ -2806,26 +2807,39 @@ function walkTree(
     const projected = nodeColors.get(n);
     const fill = projected ? nodeFill(projected) : null;
     ops.push((g) => {
-      const disc = (color: string, d: number) => {
-        g.fillStyle = color;
-        circle(g, x + 5.5, y + 5.5, d / 2);
+      const cx = x + 5.5, cy = y + 5.5;
+      if (fill) {
+        g.fillStyle = fill;
+        circle(g, cx, cy, DOT / 2);
         g.fill();
-      };
-      if (commented) disc(commentRing, RING);
-      if (fill) disc(fill, DOT);
-      else {
-        circle(g, x + 5.5, y + 5.5, DOT / 2 - 0.75);
+      } else {
+        circle(g, cx, cy, DOT / 2 - 0.75);
         g.fillStyle = p.treeEmpty;
         g.fill();
         g.strokeStyle = p.treeLine;
         g.lineWidth = 1.5;
         g.stroke();
       }
-      if (dim) disc(p.treeDim, commented ? RING : DOT);
+      if (dim) {
+        g.fillStyle = p.treeDim;
+        circle(g, cx, cy, DOT / 2);
+        g.fill();
+      }
+      if (commented) {
+        // The comment dot, set off from the node by a rim of the panel's colour.
+        g.globalAlpha = dim ? 0.5 : 1;
+        circle(g, cx + 3.5, cy - 3.5, 2.5);
+        g.fillStyle = commentDot;
+        g.fill();
+        g.strokeStyle = p.panelSolid;
+        g.lineWidth = 1.25;
+        g.stroke();
+        g.globalAlpha = 1;
+      }
       if (n !== current) return;
       g.strokeStyle = p.text;
       g.lineWidth = 1.75;
-      circle(g, x + 5.5, y + 5.5, RING / 2 + 1.5);
+      circle(g, cx, cy, DOT / 2 + 3.5);
       g.stroke();
     });
     if (!fit) grow(x, y);
@@ -2898,7 +2912,7 @@ function walkTree(
  * whole tree laid out from the root at (20, 20) with Java's lane allocation, shown through the scroll
  * pane that renderVarTree positions on the current node (LizzieFrame.java:13942-13975) unless the
  * user scrolled it (`scroll`). Nodes off the current line are dimmed; with show-comment-node-color
- * commented nodes get the comment-node-color ring, and every node is filled with the 错误节点
+ * commented nodes carry a dot of the comment-node colour, and every node is filled with the 错误节点
  * colour the core projects for it (`nodeColors`, LizzieFrame.getBlunderNodeColor 11465-11536 with
  * Board.updateIsBest; VariationTree.java:136-158), hollow without one;
  * the current node carries an ink ring; 显示分支面板上的手数 (`numbers`)

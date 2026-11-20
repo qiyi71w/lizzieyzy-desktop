@@ -4,6 +4,7 @@
 // (LizzieFrame.updateTitle with its visits-per-second sampler). Values come from the core
 // projections only; nothing is flipped by side or shifted by komi here.
 import { APP_TITLE, state, windowTitle } from "../app";
+import type { WindowTitle } from "../chrome/windowBar";
 import type { CandidateView, HistoryPoint, WorkbenchView } from "../contract/generated";
 import { t } from "../i18n";
 import { playouts, type OwnershipLayer, type StatScene } from "../workbench/paint";
@@ -162,21 +163,39 @@ export function startTitleUpdates(repaint: () => void): void {
  *  " - 搜索/秒" while paused) and the B11 speed notice (appendSpeedModelNotice), the players,
  *  result and file, then the Web 旁观 address (webBoardSuffix). A Genmove 引擎对战 game shows the
  *  thinking engine; the batch title (enginePkTitile) replaces the players and file. 试下 keeps
- *  LizzieFrame.tryTitle. */
-export function workbenchTitle(v: WorkbenchView, version: string, history: Map<number, HistoryPoint>, parent: number | undefined): string {
-  if (v.editing.trying) return windowTitle(version);
+ *  LizzieFrame.tryTitle. That line is the system title; the window bar shows the same parts as
+ *  the game and, quieter, the analysis, without the app name its mark already carries. */
+export function workbenchTitle(v: WorkbenchView, version: string, history: Map<number, HistoryPoint>, parent: number | undefined): WindowTitle {
+  if (v.editing.trying) {
+    const text = windowTitle(version);
+    return { text, game: text, detail: "" };
+  }
   const web = v.web_board.url;
-  return mainTitle(v, version, history, parent) + (web ? ` | Web: ${web}` : "");
+  const title = mainTitle(v, version, history, parent);
+  return web ? { text: `${title.text} | Web: ${web}`, game: title.game, detail: [title.detail, `Web: ${web}`].filter(Boolean).join(" · ") } : title;
 }
 
-function mainTitle(v: WorkbenchView, version: string, history: Map<number, HistoryPoint>, parent: number | undefined): string {
+/** The game in the window bar: the players with the result, then the file. */
+function gameLine(v: WorkbenchView): string {
+  const parts: string[] = [];
+  if (v.document.format !== null) {
+    const info = v.document.info;
+    parts.push(`${info.black} vs ${info.white}${info.result ? ` (${t("LizzieFrame.result")}${info.result})` : ""}`);
+  }
+  const fileName = v.document.file_name ?? v.document.origin_name;
+  if (fileName) parts.push(fileName);
+  return parts.join(" — ") || APP_TITLE;
+}
+
+function mainTitle(v: WorkbenchView, version: string, history: Map<number, HistoryPoint>, parent: number | undefined): WindowTitle {
   const base = windowTitle(version);
   const stem = `${APP_TITLE} ${version}`;
   const match = v.engine_match;
   const pk = matchUi.pkTitle;
+  const game = pk ?? gameLine(v);
   if (match && match.kind === "Genmove" && matchPlaying(v)) {
-    const thinking = match.thinking_side ? sideName(match, match.thinking_side === "Black") : "";
-    return `${pk !== null ? `${pk} ` : ""}${stem}-${thinking} ${t("LizzieFrame.thinking")}`;
+    const thinking = `${match.thinking_side ? sideName(match, match.thinking_side === "Black") : ""} ${t("LizzieFrame.thinking")}`;
+    return { text: `${pk !== null ? `${pk} ` : ""}${stem}-${thinking}`, game, detail: thinking.trim() };
   }
   const rest = base.slice(stem.length + 1);
   const a = v.analysis;
@@ -186,11 +205,13 @@ function mainTitle(v: WorkbenchView, version: string, history: Map<number, Histo
   const shown = v.settings.panels.showWinrateInTitle && !v.game?.play_mode;
   const values = !shown ? null : a && a.visits > 0 ? { black: a.black, visits: a.visits } : previous && previous.visits > 0 ? previous : null;
   const lead = values?.black.score_lead ?? null;
-  const prefix = values ? `[${values.black.winrate.toFixed(1)}${lead === null ? "" : ` ${lead.toFixed(1)}`} ${playouts(values.visits)}] ` : shown && v.game ? "[ ---   ---   --- ] " : "";
+  const numbers = values ? `${values.black.winrate.toFixed(1)}${lead === null ? "" : ` ${lead.toFixed(1)}`} ${playouts(values.visits)}` : "";
+  const prefix = values ? `[${numbers}] ` : shown && v.game ? "[ ---   ---   --- ] " : "";
   const foreground = v.engine.foreground;
-  if (!foreground) return `${stem}${prefix ? ` - ${prefix}` : ""} ${rest}`;
+  if (!foreground) return { text: `${stem}${prefix ? ` - ${prefix}` : ""} ${rest}`, game, detail: numbers };
   const notice = foreground.b11 ? ` · ${t("B11SpeedNotice.title")} ` : "";
-  if (pk !== null) return `${pk} ${stem} - ${prefix}${foreground.name}${speedText} ${notice}`;
+  const detail = [numbers, `${foreground.name}${v.engine.analysing || pk !== null ? speedText : ""}`, foreground.b11 ? t("B11SpeedNotice.title") : ""].filter(Boolean).join(" · ");
+  if (pk !== null) return { text: `${pk} ${stem} - ${prefix}${foreground.name}${speedText} ${notice}`, game, detail };
   const speed = v.engine.analysing ? `${speedText} ` : ` - ${t("LizzieFrame.speedUnit")} `;
-  return `${stem} - ${prefix}${foreground.name}${speed}${notice}${rest}`;
+  return { text: `${stem} - ${prefix}${foreground.name}${speed}${notice}${rest}`, game, detail };
 }

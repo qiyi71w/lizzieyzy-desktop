@@ -82,6 +82,18 @@ function rowText(title: string | Node, sub: string): HTMLSpanElement {
   return text;
 }
 
+/** Controls for a row's end: a string (a unit, or the text before a field) becomes a unit slot,
+ *  so fields whose units differ still end on one line. */
+function slotted(controls: (Node | string)[]): Node[] {
+  return controls.map((c) => {
+    if (typeof c !== "string") return c;
+    const unit = document.createElement("span");
+    unit.className = "ds-row-unit";
+    unit.textContent = c;
+    return unit;
+  });
+}
+
 /** A row of a group: its name with `sub` under it, `controls` at the end. A row with one field
  *  is a label, so its name focuses the field. Consecutive rows form one group. */
 export function row(host: ParentNode, title: string | Node, sub: string, ...controls: (Node | string)[]): HTMLElement {
@@ -90,7 +102,7 @@ export function row(host: ParentNode, title: string | Node, sub: string, ...cont
   r.className = "ds-row";
   const end = document.createElement("span");
   end.className = "ds-row-control";
-  end.append(...controls);
+  end.append(...slotted(controls));
   r.append(rowText(title, sub), end);
   host.append(r);
   return r;
@@ -115,7 +127,7 @@ export function switchRow(host: ParentNode, title: string, sub: string, checked:
   if (extra.length) {
     const fields = document.createElement("span");
     fields.className = "ds-row-fields";
-    fields.append(...extra);
+    fields.append(...slotted(extra));
     end.append(fields);
   }
   end.append(box);

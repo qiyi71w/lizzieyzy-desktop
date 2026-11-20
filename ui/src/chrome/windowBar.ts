@@ -29,8 +29,19 @@ const ICON: Record<Glyph, string> = {
 };
 const LABEL: Record<Glyph, string> = { minimize: "windowMinimize", maximize: "windowMaximize", restore: "windowRestore", close: "windowClose" };
 
+/** The workbench title in the window bar's two parts and the system's one line: `game` names the
+ *  game (players, result, file), `detail` the analysis (values, engine, speed); `text` is the
+ *  system title (task bar, window list). */
+export interface WindowTitle {
+  text: string;
+  game: string;
+  detail: string;
+}
+
 /** Text padding of #windowTitle on each side (styles.css). */
 const TITLE_PAD = 12;
+/** Space between the title's two parts (styles.css). */
+const TITLE_GAP = 10;
 /** The system title is rewritten at most this often: an analysing engine changes it ten times a
  *  second, which task bars and window lists then repaint. */
 const SYSTEM_TITLE_INTERVAL_MS = 1000;
@@ -41,69 +52,54 @@ const CORNER = 16;
 
 let bar: HTMLElement | null = null;
 let title: HTMLElement | null = null;
+const titleGame = document.createElement("span");
+const titleDetail = document.createElement("span");
 const buttons = new Map<WindowButton, HTMLButtonElement>();
-const measure = document.createElement("canvas").getContext("2d")!;
 
-/** The title cut in its middle to `room` px: both ends stay, the end (the players and the game's
- *  file) with the larger share. */
-function fitTitle(text: string, room: number): string {
-  if (measure.measureText(text).width <= room) return text;
-  const chars = [...text];
-  const cut = (n: number) => {
-    const tail = Math.ceil(n * 0.6);
-    return `${chars.slice(0, n - tail).join("")}…${chars.slice(chars.length - tail).join("")}`;
-  };
-  let lo = 0;
-  let hi = chars.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (measure.measureText(cut(mid)).width <= room) lo = mid;
-    else hi = mid - 1;
-  }
-  return cut(lo);
-}
-
-/** Shows the workbench title cut to the bar's free space, the whole of it as the tooltip when cut,
- *  and centres it in the window when it fits between its neighbours, else in its own space. */
+/** Centres the title in the window when it fits between its neighbours, else in its own space;
+ *  the analysis part is left out when it does not fit whole, the game part ends in "…" when cut,
+ *  and a shortened title has the whole of it as its tooltip. */
 function layoutTitle(): void {
   if (!bar || !title) return;
   title.style.paddingLeft = title.style.paddingRight = "";
+  titleDetail.hidden = !wanted.detail;
+  if (!titleDetail.hidden && titleDetail.scrollWidth > titleDetail.clientWidth) titleDetail.hidden = true;
   const frame = bar.getBoundingClientRect();
   const box = title.getBoundingClientRect();
-  measure.font = getComputedStyle(title).font;
-  // A pixel under the room: the canvas and the layout round text widths differently.
-  const shown = fitTitle(wantedTitle, box.width - TITLE_PAD * 2 - 1);
-  if (title.textContent !== shown) title.textContent = shown;
-  title.title = shown === wantedTitle ? "" : wantedTitle;
-  const text = measure.measureText(shown).width;
-  // Padding added on one side moves the text's centre by half of it.
+  const text = titleGame.scrollWidth + (titleDetail.hidden ? 0 : TITLE_GAP + titleDetail.scrollWidth);
+  // Padding added on one side moves the content's centre by half of it.
   const shift = Math.round(frame.left + frame.right - box.left - box.right);
-  if (!shift || text + Math.abs(shift) > box.width - TITLE_PAD * 2) return;
-  if (shift > 0) title.style.paddingLeft = `${TITLE_PAD + shift}px`;
-  else title.style.paddingRight = `${TITLE_PAD - shift}px`;
+  if (shift && text + Math.abs(shift) <= box.width - TITLE_PAD * 2) {
+    if (shift > 0) title.style.paddingLeft = `${TITLE_PAD + shift}px`;
+    else title.style.paddingRight = `${TITLE_PAD - shift}px`;
+  }
+  const shortened = titleGame.scrollWidth > titleGame.clientWidth || (!!wanted.detail && titleDetail.hidden);
+  title.title = shortened ? wanted.text : "";
 }
 
 let systemTitle = "";
-let wantedTitle = "";
+let wanted: WindowTitle = { text: "", game: "", detail: "" };
 let systemTimer = 0;
 
 function writeSystemTitle(): void {
-  systemTitle = wantedTitle;
+  systemTitle = wanted.text;
   document.title = systemTitle;
   void getCurrentWindow().setTitle(systemTitle);
   systemTimer = window.setTimeout(() => {
     systemTimer = 0;
-    if (wantedTitle !== systemTitle) writeSystemTitle();
+    if (wanted.text !== systemTitle) writeSystemTitle();
   }, SYSTEM_TITLE_INTERVAL_MS);
 }
 
 /** The workbench title: in the window bar at once; in the system's title (task bar, window list)
  *  at once when that was at rest, then at most once a second. */
-export function setWindowTitle(text: string): void {
-  if (text === wantedTitle) return;
-  wantedTitle = text;
+export function setWindowTitle(next: WindowTitle): void {
+  if (next.text === wanted.text && next.game === wanted.game && next.detail === wanted.detail) return;
+  wanted = next;
+  titleGame.textContent = next.game;
+  titleDetail.textContent = next.detail;
   layoutTitle();
-  if (!systemTimer && wantedTitle !== systemTitle) writeSystemTitle();
+  if (!systemTimer && wanted.text !== systemTitle) writeSystemTitle();
 }
 
 /** The window's state the bar follows: a maximized window has no edge and its maximize button
@@ -198,6 +194,9 @@ export async function mountWindowBar(host: HTMLElement): Promise<void> {
   host.prepend(appMark());
   title = document.createElement("div");
   title.id = "windowTitle";
+  titleGame.className = "title-game";
+  titleDetail.className = "title-detail";
+  title.append(titleGame, titleDetail);
   host.append(title);
   new ResizeObserver(layoutTitle).observe(title);
   // Pressing the bar's free space or the title moves the window; a double press maximizes it.

@@ -148,7 +148,7 @@
 :where(.ds-group-title) {
   margin: 16px 2px 6px;
   color: var(--ds-text-2);
-  font-size: var(--ds-size-s);
+  font-size: var(--ds-size);
   font-weight: 600;
 }
 :where(.ds-group-title:first-child) {
@@ -191,9 +191,13 @@
   flex-direction: column;
   gap: 1px;
 }
+:where(.ds-row-title) {
+  color: var(--ds-text);
+  font-size: var(--ds-size-l);
+}
 :where(.ds-row-sub) {
   color: var(--ds-text-3);
-  font-size: var(--ds-size-s);
+  font-size: var(--ds-size);
   line-height: 1.35;
   white-space: pre-line;
 }
@@ -236,6 +240,14 @@
   width: calc(var(--ds-size) * 6.5);
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+/* Every unit takes the same slot, so the fields before units of different widths still end on one
+   line; a select spans a field and its unit slot, so selects and fields start on one line. */
+:where(.ds-row-unit) {
+  min-width: calc(var(--ds-size) * 2);
+}
+:where(:is(.ds-row-control, .ds-row-fields) > select) {
+  min-width: calc(var(--ds-size) * 8.5 + 8px);
 }
 /* A note after a group, for what applies to its rows as a whole. */
 :where(.ds-note) {

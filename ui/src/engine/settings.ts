@@ -169,11 +169,12 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
   }
   body.append(nav);
   // Numeric analysis fields (addInputRow / addToggleInputRow): checked with 保存设置. A limit's
-  // switch shares the row with its value, so locating the row reaches both.
+  // switch shares the row with its value and stands before it, so the value ends on the line of
+  // the other fields; locating the row reaches both.
   const inputs: HTMLInputElement[] = [];
   const inputRow = (host: ParentNode, target: string, title: string, sub: string, unit: string, control: HTMLInputElement, toggle?: HTMLInputElement) => {
     if (toggle) { toggle.classList.add("ds-switch"); toggle.title = sub; toggle.setAttribute("aria-label", title); }
-    row(host, title, sub, control, unit, ...(toggle ? [toggle] : [])).dataset.settingTarget = target;
+    row(host, title, sub, ...(toggle ? [toggle] : []), control, unit).dataset.settingTarget = target;
     inputs.push(control);
   };
   const numberRow = (host: ParentNode, target: string, key: keyof AnalysisSettings, title: string, sub: string, unit: string, toggle?: HTMLInputElement) => {

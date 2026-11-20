@@ -1138,7 +1138,7 @@ function render() {
   if (changed("bottombar", `${$("bottombar").clientWidth}`)) layoutBottomBar($("bottombar"));
   renderToolbar();
   const title = workbenchTitle(v, version, historyByNode, state.nodes.get(pos.node)?.parent ?? undefined);
-  if (changed("title", title)) setWindowTitle(title);
+  if (changed("title", `${title.text}\n${title.game}\n${title.detail}`)) setWindowTitle(title);
 }
 
 /** The Normal-mode panels beside the main board: sub board, captured and statistics panels, the
