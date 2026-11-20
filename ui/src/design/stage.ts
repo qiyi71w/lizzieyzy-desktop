@@ -2,9 +2,10 @@
 // Without a theme wallpaper, a custom background image or a pure background colour the stage is
 // the program's own: a linen cloth in the colour mode's ground colour under translucent panels of
 // that mode. A wallpaper or colour the user chose stays as it is, under Java's translucent black
-// panels drawn with the dark theme's colours.
+// panels drawn with the dark theme's colours. The Java 经典 skin is Java's own stage: its grey metal
+// wallpaper (the theme's background, Java's default image) under dark glass, in Java's colours.
 import { appearance, onAppearanceChange } from "../appearance/state";
-import { onThemeChange, resolvedTheme } from "./theme";
+import { onThemeChange, resolvedTheme, skin } from "./theme";
 import "./stage.css";
 
 /** The bundled wallpaper the core resolves to without a theme or custom background image. */
@@ -18,10 +19,12 @@ WALLPAPERS.dark.src = "/assets/stage-dark.jpg";
 /** Settles once both wallpapers can be painted (or cannot be read). */
 export const stageReady: Promise<unknown> = Promise.allSettled([WALLPAPERS.light.decode(), WALLPAPERS.dark.decode()]);
 
-/** True while the committed appearance names no wallpaper of its own: the stage is then the
- *  program's wallpaper for the current colour mode and the panels take that mode's tokens. */
+/** True while the committed appearance names no wallpaper of its own and the skin is the
+ *  program's: the stage is then the program's wallpaper for the current colour mode and the panels
+ *  take that mode's tokens. */
 export function builtinStage(): boolean {
   const a = appearance();
+  if (skin() === "java") return false;
   if (!a) return true;
   if (a.theme.usePureBackground) return false;
   const src = a.images.background?.src;
@@ -55,13 +58,19 @@ export interface StagePalette {
   scoreLine: string;
   blunderBar: string;
   commentNode: string;
+  /** 胜率图 (stage.css): grid, midline, guides, Label text, readout figures and chip ground,
+   *  snapshot marks, the two current markers and the area fill on either side of the midline. */
   graphGrid: string;
   graphBaseline: string;
   graphGuide: string;
-  graphHover: string;
+  graphLabel: string;
+  graphText: string;
   graphScoreText: string;
+  graphChip: string;
   graphSnapshot: string;
+  graphMoveMarker: string;
   graphScoreMarker: string;
+  graphFillAbove: string;
   graphFillBelow: string;
   stoneBlack: string;
   stoneBlackEdge: string;
@@ -104,10 +113,14 @@ const NAMES: Record<Exclude<keyof StagePalette, "builtin" | "treeNodes">, string
   graphGrid: "--ws-graph-grid",
   graphBaseline: "--ws-graph-baseline",
   graphGuide: "--ws-graph-guide",
-  graphHover: "--ws-graph-hover",
+  graphLabel: "--ws-graph-label",
+  graphText: "--ws-graph-text",
   graphScoreText: "--ws-graph-score-text",
+  graphChip: "--ws-graph-chip",
   graphSnapshot: "--ws-graph-snapshot",
+  graphMoveMarker: "--ws-graph-move-marker",
   graphScoreMarker: "--ws-graph-score-marker",
+  graphFillAbove: "--ws-graph-fill-above",
   graphFillBelow: "--ws-graph-fill-below",
   stoneBlack: "--ws-stone-black",
   stoneBlackEdge: "--ws-stone-black-edge",
@@ -144,7 +157,8 @@ export function stagePalette(): StagePalette {
   const builtin = builtinStage();
   let source: Element = document.documentElement;
   if (!builtin) {
-    // The dark theme's values whatever the mode: a hidden element fixed to the dark theme.
+    // The dark theme's values whatever the mode (Java 经典's under its skin): a hidden element
+    // fixed to the dark theme.
     if (!darkProbe?.isConnected) {
       darkProbe = document.createElement("div");
       darkProbe.dataset.theme = "dark";
@@ -157,7 +171,8 @@ export function stagePalette(): StagePalette {
   const palette = { builtin } as StagePalette;
   for (const [key, name] of Object.entries(NAMES)) (palette as unknown as Record<string, string>)[key] = style.getPropertyValue(name).trim();
   palette.treeNodes = [1, 2, 3, 4, 5, 6, 7].map((k) => style.getPropertyValue(`--ws-node-${k}`).trim());
-  if (!builtin) {
+  // Java 经典 sets its own card grounds (stage.css); over a wallpaper the user chose they are black.
+  if (!builtin && skin() !== "java") {
     palette.panel = WALLPAPER_PANEL;
     palette.panelSolid = WALLPAPER_SOLID;
   }
@@ -176,11 +191,12 @@ export function onStageChange(listener: () => void): void {
   listeners.push(listener);
 }
 
-/** The stage as the style sheets see it. Over a wallpaper the user chose, the workbench's panes
- *  take the dark theme's tokens in either colour mode, like the canvas panels beside them. */
+/** The stage as the style sheets see it. Over a wallpaper the user chose and under Java 经典, the
+ *  workbench's panes take the dark theme's tokens in either colour mode, like the canvas panels
+ *  beside them. */
 function applyStage(): void {
   const builtin = builtinStage();
-  document.documentElement.dataset.stage = builtin ? "builtin" : "wallpaper";
+  document.documentElement.dataset.stage = builtin ? "builtin" : skin() === "java" ? "java" : "wallpaper";
   const main = document.getElementById("main");
   if (builtin) main?.removeAttribute("data-theme");
   else main?.setAttribute("data-theme", "dark");

@@ -2237,7 +2237,7 @@ function digitAdvance(g: CanvasRenderingContext2D): number {
 }
 
 /** Width of `s` with tabular figures (fillTabular). */
-function tabularWidth(g: CanvasRenderingContext2D, s: string): number {
+export function tabularWidth(g: CanvasRenderingContext2D, s: string): number {
   const digit = digitAdvance(g);
   let width = 0;
   for (const c of s) width += c >= "0" && c <= "9" ? digit : g.measureText(c).width;
@@ -2245,7 +2245,7 @@ function tabularWidth(g: CanvasRenderingContext2D, s: string): number {
 }
 
 /** fillText with tabular figures: every digit centred in the widest digit's advance. */
-function fillTabular(g: CanvasRenderingContext2D, s: string, x: number, y: number) {
+export function fillTabular(g: CanvasRenderingContext2D, s: string, x: number, y: number) {
   const digit = digitAdvance(g);
   for (const c of s) {
     const own = g.measureText(c).width;

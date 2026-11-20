@@ -134,6 +134,107 @@
   --ds-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M.8.8 4 4 7.2.8' fill='none' stroke='%23c4b9a3' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
+/* Java 经典 (data-skin="java", the bundled theme with Java's defaults): the same components in
+   Java's colours (AppleStyleSupport classic: light grey bars, white controls and menus, the teal
+   accent #126b62, cool neutrals). Its workbench is Java's grey metal wallpaper under dark glass, so
+   the dark-themed workbench (#main, stage.ts) takes the second set: Java's comment-pane text
+   palette on neutral slate. */
+:root[data-skin="java"] {
+  color-scheme: light;
+
+  --ds-chrome: #f4f5f7;
+  --ds-stage: #444a50;
+  --ds-panel: #f6f7f9;
+  --ds-raised: #ffffff;
+  --ds-field: #ffffff;
+  --ds-sunken: #eceef1;
+  --ds-well: rgba(20, 30, 40, 0.06);
+  --ds-hover: rgba(20, 30, 40, 0.06);
+  --ds-pressed: rgba(20, 30, 40, 0.12);
+  --ds-scrim: rgba(20, 24, 28, 0.32);
+
+  --ds-line: rgba(20, 30, 40, 0.13);
+  --ds-line-strong: rgba(20, 30, 40, 0.24);
+
+  --ds-text: #1f2926;
+  --ds-text-2: #3d4744;
+  --ds-text-3: #55635e;
+  --ds-text-off: #9aa3a0;
+
+  --ds-accent: #126b62;
+  --ds-accent-hover: #0f5c54;
+  --ds-accent-pressed: #0c4e47;
+  --ds-on-accent: #ffffff;
+  --ds-accent-text: #126b62;
+  --ds-accent-soft: rgba(18, 107, 98, 0.13);
+  --ds-accent-soft-line: rgba(18, 107, 98, 0.36);
+  --ds-ring: rgba(18, 107, 98, 0.55);
+
+  --ds-danger: #d23e3e;
+  --ds-danger-hover: #b93434;
+  --ds-danger-text: #aa3333;
+  --ds-danger-soft: #fce8e8;
+  --ds-danger-soft-line: #f2b8b8;
+  --ds-warning-text: #834e11;
+  --ds-warning-soft: #fbf0dc;
+  --ds-warning-soft-line: #ecd3a5;
+  --ds-success-text: #196b49;
+  --ds-success-soft: #e2f1ec;
+  --ds-success-soft-line: #b9dccb;
+
+  --ds-shadow-cap: 0 0 0 0.5px rgba(20, 30, 40, 0.24), 0 1px 1.5px rgba(20, 30, 40, 0.1);
+  --ds-shadow-pop: 0 0 0 1px rgba(20, 30, 40, 0.1), 0 6px 20px -4px rgba(20, 30, 40, 0.24);
+  --ds-shadow-dialog: 0 0 0 1px rgba(20, 30, 40, 0.12), 0 18px 48px -8px rgba(20, 30, 40, 0.32);
+
+  --ds-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M.8.8 4 4 7.2.8' fill='none' stroke='%2355635e' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+:root[data-skin="java"] [data-theme="dark"] {
+  color-scheme: dark;
+
+  --ds-chrome: #2a2f33;
+  --ds-stage: #444a50;
+  --ds-panel: #23272b;
+  --ds-raised: #3a4045;
+  --ds-field: #1b1e21;
+  --ds-sunken: #202427;
+  --ds-well: rgba(0, 0, 0, 0.3);
+  --ds-hover: rgba(255, 255, 255, 0.08);
+  --ds-pressed: rgba(255, 255, 255, 0.15);
+  --ds-scrim: rgba(0, 0, 0, 0.55);
+
+  --ds-line: rgba(255, 255, 255, 0.11);
+  --ds-line-strong: rgba(255, 255, 255, 0.24);
+
+  --ds-text: #eff2f1;
+  --ds-text-2: #b9c3bf;
+  --ds-text-3: #a3aeaa;
+  --ds-text-off: #6c7672;
+
+  --ds-accent: #126b62;
+  --ds-accent-hover: #178075;
+  --ds-accent-pressed: #0f5c54;
+  --ds-on-accent: #ffffff;
+  --ds-accent-text: #69d3ba;
+  --ds-accent-soft: rgba(105, 211, 186, 0.18);
+  --ds-accent-soft-line: rgba(105, 211, 186, 0.42);
+  --ds-ring: rgba(105, 211, 186, 0.7);
+
+  --ds-danger: #d23e3e;
+  --ds-danger-hover: #dc5050;
+  --ds-danger-text: #ffb0a4;
+  --ds-danger-soft: #4a2524;
+  --ds-danger-soft-line: #7a3a37;
+  --ds-warning-text: #f0c36a;
+  --ds-warning-soft: #43361a;
+  --ds-warning-soft-line: #6e5827;
+  --ds-success-text: #7fd6a8;
+  --ds-success-soft: #1f3a2f;
+  --ds-success-soft-line: #34604c;
+
+  --ds-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M.8.8 4 4 7.2.8' fill='none' stroke='%23b9c3bf' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
 /* The platform's own interface face; the document language picks the matching CJK face. */
 :root[data-os="mac"] {
   --ds-font: -apple-system, BlinkMacSystemFont, sans-serif;

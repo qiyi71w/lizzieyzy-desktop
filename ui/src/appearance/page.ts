@@ -6,15 +6,15 @@
 // draft on its own canvas (pnlBoardPreview 4980-5197). 选点评估关注外框 (3923-3943) edits the
 // 选点重点研究 settings, not the theme, and is saved on its own.
 import { run, state } from "../app";
-import { appearanceCatalog, chooseAppearanceImage } from "../contract/client";
-import type { AppearanceCatalog, ThemeSettings } from "../contract/generated";
+import { appearanceCatalog, appearanceImages, chooseAppearanceImage } from "../contract/client";
+import type { AppearanceCatalog, AppearanceSettings, ThemeSettings } from "../contract/generated";
 import { ask, confirm, message } from "../dialogs";
 import { groupTitle, row as groupRow } from "../engine/controls";
 import { SETTINGS_PAGES, type SettingsDialog } from "../engine/settings";
 import { registerSettingTargets } from "../engine/settingsTargets";
 import { isChinese, product, registerProduct, t } from "../i18n";
-import { cssColor, DEFAULT_BLUNDER_COLORS, DEFAULT_BLUNDER_THRESHOLDS, DEFAULT_THEME, LIZZIE_DEFAULT_FONT, opaque, SYSTEM_DEFAULT_FONT } from "./model";
-import { loadThemeImages, type LoadedImages } from "./state";
+import { cssColor, DEFAULT_BLUNDER_COLORS, DEFAULT_BLUNDER_THRESHOLDS, DEFAULT_THEME, JAVA_CLASSIC_THEME, LIZZIE_DEFAULT_FONT, opaque, SYSTEM_DEFAULT_FONT } from "./model";
+import type { LoadedImages } from "./state";
 import { stepper } from "../design/stepper";
 
 /** ConfigSettingTargets THEME rows this page has (ConfigSettingTargets.java:61-86), in row order,
@@ -90,6 +90,23 @@ registerProduct({
   KoKr: { themeManageSub: "{0}. 신규생성과 삭제는 바로 실행되며 다른 페이지의 저장하지 않은 변경은 버려집니다", themeDeleteDiscards: "삭제는 바로 실행되며 다른 설정 페이지의 저장하지 않은 변경은 버려집니다." },
   ThTh: { themeManageSub: "{0} การสร้างใหม่และการลบมีผลทันที และจะทิ้งการเปลี่ยนแปลงที่ยังไม่บันทึกในหน้าอื่น", themeDeleteDiscards: "การลบมีผลทันที และจะทิ้งการเปลี่ยนแปลงที่ยังไม่บันทึกในหน้าตั้งค่าอื่น" },
 });
+
+/** The bundled Java classic theme's name in the theme list; it is stored as JAVA_CLASSIC_THEME. */
+const JAVA_CLASSIC_NAMES = {
+  ZhCn: { themeJavaClassic: "Java 经典" },
+  ZhTw: { themeJavaClassic: "Java 經典" },
+  EnUs: { themeJavaClassic: "Java Classic" },
+  JaJp: { themeJavaClassic: "Java クラシック" },
+  KoKr: { themeJavaClassic: "Java 클래식" },
+  ThTh: { themeJavaClassic: "Java คลาสสิก" },
+};
+registerProduct(JAVA_CLASSIC_NAMES);
+
+/** A theme as the list names it: 默认 and Java 经典 translated, every other theme as stored. */
+function themeName(name: string): string {
+  if (name === DEFAULT_THEME) return t("LizzieConfig.title.defaultTheme");
+  return name === JAVA_CLASSIC_THEME ? product("themeJavaClassic") : name;
+}
 
 /** readDefaultTheme's fixed image paths: the default theme's images are not editable (6313-6324). */
 const DEFAULT_PATHS = { background: "/assets/background.jpg", board: "/assets/board.png", black: "/assets/black0.png", white: "/assets/white0.png" };
@@ -381,6 +398,29 @@ function paintPreview(canvas: HTMLCanvasElement, v: ThemeSettings, images: Loade
   };
   stone(x + square * 2, y + square * 3, true, images.black);
   stone(x + square, y + square * 2, false, images.white);
+}
+
+/** The draft's preview images. A named theme's image that does not read is left out, so the
+ *  preview shows the pure colour or the plain stone instead (pnlBoardPreview 4994-5049, 5113-5115);
+ *  the core answers the default image only when neither the custom override nor the theme's own
+ *  file reads. An empty path is the default image, as on the board. */
+async function loadPreviewImages(settings: AppearanceSettings, draft: ThemeSettings): Promise<LoadedImages> {
+  const urls = await appearanceImages(settings, draft).catch(() => null);
+  if (!urls) return {};
+  const named = settings.theme !== DEFAULT_THEME;
+  const decoded = (url: string, path: string, fallback: string): Promise<HTMLImageElement | undefined> => {
+    if (named && path !== "" && url === fallback) return Promise.resolve(undefined);
+    const img = new Image();
+    img.src = url;
+    return img.decode().then(() => img, () => undefined);
+  };
+  const [background, board, black, white] = await Promise.all([
+    decoded(urls.background, draft.backgroundImage, DEFAULT_PATHS.background),
+    decoded(urls.board, draft.boardImage, DEFAULT_PATHS.board),
+    decoded(urls.black, draft.blackStoneImage, DEFAULT_PATHS.black),
+    decoded(urls.white, draft.whiteStoneImage, DEFAULT_PATHS.white),
+  ]);
+  return { background, board, black, white };
 }
 
 // ------------------------------------------------------------------ page
@@ -737,16 +777,18 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     };
   };
 
-  // 棋盘预览 repaints with the draft (Java's 100 ms timer); images are decoded again only when the
-  // image choices change, and only the newest request paints.
+  // 棋盘预览 repaints with the draft at once. Its images are decoded again 100 ms after the image
+  // choices last changed, typing included (Java repaints on a 100 ms timer, 5220-5231), and only
+  // the newest request paints.
   let previewKey = "";
   let previewImages: LoadedImages = {};
   let previewGeneration = 0;
   let previewPending = false;
+  let previewTimer = 0;
   function schedulePreview() {
     if (previewPending) return;
     previewPending = true;
-    requestAnimationFrame(async () => {
+    requestAnimationFrame(() => {
       previewPending = false;
       if (!preview.isConnected && !host.isConnected) return;
       const draft = collect();
@@ -756,14 +798,21 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
         ? { ...view.settings.appearance, theme: selected, customBoardImage: "", customBackgroundImage: "" }
         : { ...view.settings.appearance, theme: selected };
       const key = JSON.stringify([settings, draft.backgroundImage, draft.boardImage, draft.blackStoneImage, draft.whiteStoneImage]);
-      if (key !== previewKey) {
-        previewKey = key;
-        const mine = ++previewGeneration;
-        const loaded = await loadThemeImages(settings, draft);
-        if (mine !== previewGeneration) return;
-        previewImages = loaded.images;
+      if (key === previewKey) {
+        paintPreview(preview, draft, previewImages);
+        return;
       }
-      paintPreview(preview, collect(), previewImages);
+      // The first images load at once; until new ones arrive the preview keeps its last paint.
+      const delay = previewKey === "" ? 0 : 100;
+      previewKey = key;
+      const mine = ++previewGeneration;
+      window.clearTimeout(previewTimer);
+      previewTimer = window.setTimeout(async () => {
+        const loaded = await loadPreviewImages(settings, draft);
+        if (mine !== previewGeneration || (!preview.isConnected && !host.isConnected)) return;
+        previewImages = loaded;
+        paintPreview(preview, collect(), previewImages);
+      }, delay);
     });
   }
   // Every control's edit repaints the preview with the draft.
@@ -775,7 +824,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     themes.replaceChildren();
     const names = catalog?.themes.map((e) => e.name) ?? [DEFAULT_THEME, ...(committed.name !== DEFAULT_THEME ? [committed.name] : [])];
     for (const name of names) {
-      const option = el("option", undefined, name === DEFAULT_THEME ? t("LizzieConfig.title.defaultTheme") : name);
+      const option = el("option", undefined, themeName(name));
       option.value = name;
       themes.append(option);
     }
@@ -808,7 +857,9 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   add.onclick = async () => {
     const name = await themeNameDialog();
     if (name === null) return;
-    const names = [t("LizzieConfig.title.defaultTheme"), ...(catalog?.themes.map((e) => e.name) ?? [])];
+    // Java compares the list's names; Java 经典 is also taken under its stored name and in every
+    // language, and stays taken after it is deleted.
+    const names = [t("LizzieConfig.title.defaultTheme"), JAVA_CLASSIC_THEME, ...Object.values(JAVA_CLASSIC_NAMES).map((n) => n.themeJavaClassic), ...(catalog?.themes.map((e) => e.name) ?? [])];
     if (names.some((n) => n.toLowerCase() === name.toLowerCase())) {
       await message(t("Message.title"), t("ConfigDialog2.duplicateThemeName"));
       return;
@@ -820,7 +871,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   // (4424-4425): the committed theme, or 默认 when it was the one deleted.
   remove.onclick = async () => {
     if (selected === DEFAULT_THEME) return;
-    if (!(await confirm(t("LizzieFrame.warning"), `${t("ConfigDialog2.deleteThemeWarning")}'${selected}' ?\n${product("themeDeleteDiscards")}`))) return;
+    if (!(await confirm(t("LizzieFrame.warning"), `${t("ConfigDialog2.deleteThemeWarning")}'${themeName(selected)}' ?\n${product("themeDeleteDiscards")}`))) return;
     const result = await run({ type: "DeleteTheme", name: selected });
     if (result && result.type !== "Refused") await dialog.reopen("theme");
   };

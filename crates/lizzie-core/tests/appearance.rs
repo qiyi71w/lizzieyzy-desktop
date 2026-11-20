@@ -60,6 +60,31 @@ fn named_theme_edits_use_the_selected_theme_file_and_leave_default_values_alone(
     assert_eq!(workbench(dir.path()).view(true).settings.theme,theme);
 }
 #[test]
+fn saving_a_named_theme_keeps_the_theme_file_keys_the_page_does_not_edit() {
+    let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
+    wb.add_theme("Personal").unwrap();
+    let file=appearance::theme_file(wb.storage(),"Personal").unwrap();
+    let mut raw:serde_json::Map<String,serde_json::Value>=serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    raw.insert("node-color-mode".into(),serde_json::json!(1));
+    raw.insert("future-theme-key".into(),serde_json::json!({"nested":[1,"two"]}));
+    std::fs::write(&file,serde_json::to_vec(&raw).unwrap()).unwrap();
+    let mut theme=appearance::load_theme(wb.storage(),"Personal",&ThemeSettings::default());
+    theme.shadow_size=42; theme.background_image=String::new();
+    wb.set_appearance_settings(AppearanceSettings { theme:"Personal".into(), ..Default::default() },theme.clone()).unwrap();
+    let saved:serde_json::Value=serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(saved["node-color-mode"],serde_json::json!(1));
+    assert_eq!(saved["future-theme-key"],serde_json::json!({"nested":[1,"two"]}));
+    assert_eq!(saved["shadow-size"],serde_json::json!(42));
+    // Theme.save leaves out blank strings.
+    assert!(saved.get("background-image").is_none());
+    assert_eq!(wb.view(false).settings.theme,theme);
+    // A bundled theme without a user file keeps the bundled file's other keys.
+    let theme=appearance::load_theme(wb.storage(),"Fast",&ThemeSettings::default());
+    wb.set_appearance_settings(AppearanceSettings { theme:"Fast".into(), ..Default::default() },ThemeSettings { shadow_size:43, ..theme }).unwrap();
+    let saved:serde_json::Value=serde_json::from_slice(&std::fs::read(appearance::theme_file(wb.storage(),"Fast").unwrap()).unwrap()).unwrap();
+    assert_eq!(saved["var-panel-color"],serde_json::json!([80,80,80]));
+}
+#[test]
 fn a_failed_theme_or_config_write_does_not_publish_new_settings() {
     let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path()); let before=wb.view(true).settings;
     std::fs::create_dir_all(&storage(dir.path()).config_file).unwrap();
@@ -86,6 +111,14 @@ fn new_themes_use_the_java_template_and_deletion_removes_only_the_chosen_theme()
     wb.delete_theme("sabaki").unwrap();
     assert!(!appearance::catalog(&s,&ThemeSettings::default()).iter().any(|t|t.name=="sabaki"));
     assert_eq!(appearance::load_theme(&s,"sabaki",&ThemeSettings::default()),ThemeSettings::default());
+    // The Java classic bundle lists, hides on delete, and its name stays taken.
+    assert!(appearance::catalog(&s,&ThemeSettings::default()).iter().any(|t|t.name=="java-classic"));
+    // Its values are Java's defaults whatever the ui section holds; its images are the default ones.
+    let ui=ThemeSettings { shadow_size:20, board_image:"ui-board.png".into(), ..Default::default() };
+    assert_eq!(appearance::load_theme(&s,"java-classic",&ui),ThemeSettings::default());
+    wb.delete_theme("java-classic").unwrap();
+    assert!(!appearance::catalog(&s,&ThemeSettings::default()).iter().any(|t|t.name=="java-classic"));
+    assert!(wb.add_theme("Java-Classic").is_err());
 }
 #[test]
 fn custom_images_are_owned_copies_and_clear_restores_the_default() {

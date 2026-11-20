@@ -6,8 +6,9 @@ use crate::settings;
 fn io(error: std::io::Error) -> ApiError { ApiError::new(ErrorKind::Io, format!("saving theme failed: {error}")) }
 
 impl Workbench {
-    /// ConfigDialog2.java:6191-6286: default edits belong to ui, named edits to theme.txt.
-    /// Persist both files before publishing the new projection; roll the theme back on failure.
+    /// ConfigDialog2.java:6191-6286: default edits belong to ui, named edits to theme.txt, whose
+    /// other keys stay (Theme.save). Persist both files before publishing the new projection; roll
+    /// the theme back on failure.
     pub fn set_appearance_settings(&mut self, mut appearance: AppearanceSettings, mut theme: ThemeSettings) -> Result<bool, ApiError> {
         if !appearance::valid_name(&appearance.theme) || !theme.valid()
             || (!(12..=20).contains(&appearance.frame_font_size) && appearance.frame_font_size != self.config.appearance.frame_font_size) {
@@ -19,11 +20,11 @@ impl Workbench {
         let previous = if let Some(path) = &path {
             match std::fs::read(path) { Ok(bytes)=>Some(bytes),Err(e) if e.kind()==std::io::ErrorKind::NotFound=>None,Err(e)=>return Err(io(e)) }
         } else { None };
-        if let Some(path) = &path { settings::save_json(path,&appearance::to_java(&theme)).map_err(io)?; }
+        if let Some(path) = &path { settings::save_json(path,&appearance::to_java(&appearance.theme,previous.as_deref(),&theme)).map_err(io)?; }
         let default = appearance.theme == "default";
         let result = self.commit_config(|c| {
             c.appearance = appearance;
-            if default { c.appearance_defaults = theme.clone(); }
+            if default { c.appearance_defaults = theme; }
         });
         if let Err(error) = result {
             if let Some(path) = path {
@@ -33,7 +34,8 @@ impl Workbench {
             return Err(error);
         }
         images.keep();
-        self.appearance_theme = theme;
+        // saveConfig reads the theme back from what was written (ConfigDialog2.java:6865-6866).
+        self.reload_appearance_theme();
         Ok(true)
     }
     /// LizzieFrame.java:20741-20768: persisted now, active only on restart.

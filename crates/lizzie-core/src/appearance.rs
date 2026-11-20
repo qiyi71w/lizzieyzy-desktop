@@ -106,6 +106,8 @@ pub const BUNDLED: &[(&str, &str)] = &[
     ("Megapack",include_str!("../../../ui/public/themes/Megapack/theme.txt")),
     ("Custom",include_str!("../../../ui/public/themes/Custom/theme.txt")),
     ("Fast",include_str!("../../../ui/public/themes/Fast/theme.txt")),
+    // Java's own 默认 values (Theme.java getters, Config.createDefaultConfig) with the jar's images.
+    ("java-classic",include_str!("../../../ui/public/themes/java-classic/theme.txt")),
 ];
 pub fn themes_dir(storage: &Storage) -> PathBuf { storage.config_file.parent().unwrap_or(Path::new(".")).join("themes") }
 pub fn valid_name(name: &str) -> bool {
@@ -169,9 +171,18 @@ pub fn merge_java(base: &ThemeSettings, raw: &Map<String,Value>) -> ThemeSetting
     }
     next
 }
-pub fn to_java(theme: &ThemeSettings) -> Value {
+/// The `theme.txt` a save of the named theme `name` writes. Like Theme.save (Theme.java:617-643)
+/// it rewrites the object read from the file, `stored` (the user's file, or the bundled one when
+/// there is none), with the page's values put in (ConfigDialog2.java:6204-6286): every other key
+/// stays, and a key whose value is a blank string (String.trim) is left out.
+pub fn to_java(name: &str, stored: Option<&[u8]>, theme: &ThemeSettings) -> Value {
+    let mut raw = stored.and_then(|bytes| serde_json::from_slice::<Map<String,Value>>(bytes).ok())
+        .or_else(|| BUNDLED.iter().find(|(n,_)| *n == name).and_then(|(_,raw)| serde_json::from_str(raw).ok()))
+        .unwrap_or_default();
     let Value::Object(fields) = serde_json::to_value(theme).expect("theme serializes") else { unreachable!() };
-    Value::Object(fields.into_iter().map(|(k,v)|(java_key(&k),v)).collect())
+    raw.extend(fields.into_iter().map(|(k,v)|(java_key(&k),v)));
+    raw.retain(|_,v| !v.as_str().is_some_and(|s| s.trim_matches(|c: char| c <= ' ').is_empty()));
+    Value::Object(raw)
 }
 pub fn load_theme(storage: &Storage, name: &str, defaults: &ThemeSettings) -> ThemeSettings {
     if name == "default" || !valid_name(name) { return defaults.clone(); }
@@ -203,7 +214,8 @@ pub fn catalog(storage: &Storage, defaults: &ThemeSettings) -> Vec<ThemeEntry> {
     names.into_iter().map(|name|ThemeEntry{values:load_theme(storage,&name,defaults),name}).collect()
 }
 pub fn add_theme(storage: &Storage, name: &str) -> std::io::Result<()> {
-    if !valid_name(name) || name.eq_ignore_ascii_case("default")
+    // "java-classic" stays the bundled theme's name even after it is deleted (hidden).
+    if !valid_name(name) || name.eq_ignore_ascii_case("default") || name.eq_ignore_ascii_case("java-classic")
         || catalog(storage,&ThemeSettings::default()).iter().any(|e|e.name.eq_ignore_ascii_case(name)) {
         return Err(std::io::Error::other("invalid or duplicate theme name"));
     }

@@ -4,6 +4,9 @@
 import type { Language, MoveRank } from "../contract/generated";
 
 export const DEFAULT_THEME = "default";
+/** The bundled theme with Java's own default values; while it is the committed theme the interface
+ *  takes Java's colours and wallpaper (design/theme.ts skin "java"). */
+export const JAVA_CLASSIC_THEME = "java-classic";
 /** ConfigDialog2.getFontItemName (ConfigDialog2.java:6374-6380): combo index 0 and 1. */
 export const LIZZIE_DEFAULT_FONT = "Lizzie Default";
 export const SYSTEM_DEFAULT_FONT = "Dialog.plain";

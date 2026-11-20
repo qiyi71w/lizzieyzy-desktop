@@ -1190,9 +1190,17 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
   // Turning 显示鼠标悬停信息 off clears the hovered node (clearMouseOverWinrateGraph).
   if (!graphDisplay.mouseOverWinrateGraph) graphHover = null;
   const graphSettings = `${graphDisplay.winrateLine}:${graphDisplay.scoreLeadLine}:${graphDisplay.winrateGraphFill}:${graphDisplay.blunderBar}:${graphDisplay.initialMaxScoreLead}`;
-  if (P.shown.graph && changed("graph", `${at(P.graph)}:${docSig}:${pos.line_end}:${historyRevision}:${graphSettings}:${graphHover}:${playMode}`)) {
+  if (P.shown.graph && changed("graph", `${at(P.graph)}:${docSig}:${pos.line_end}:${historyRevision}:${graphSettings}:${graphHover}:${playMode}:${v.engine.analysing}`)) {
     // WinrateGraph suppressGraphContent: nothing plotted in play mode.
-    const painted = paintGraph(prepare($("graph"), P.graph), P.graph, { nodes: state.nodes, current: pos.node, history: playMode ? new Map() : historyByNode, display: graphDisplay, hover: playMode ? null : graphHover });
+    const painted = paintGraph(prepare($("graph"), P.graph), P.graph, {
+      nodes: state.nodes,
+      current: pos.node,
+      history: playMode ? new Map() : historyByNode,
+      display: graphDisplay,
+      hover: playMode ? null : graphHover,
+      analysing: v.engine.analysing,
+      suppressed: playMode,
+    });
     graphReport = painted.report;
     graphHits = painted.hits;
   }

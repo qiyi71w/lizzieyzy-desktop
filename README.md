@@ -492,10 +492,16 @@ importing the matching LizzieYzy Next settings.
   the LizzieYzy Next import):
   - Win-rate graph (显示 > 胜率图设置): Black's win-rate line, the score line or both, 面积填充
     (two-sided around 50 % when one curve shows), 恶手损失条, 鼠标悬停信息 and 初始最大目数差.
-    Gaps without analysis break the line, a branch shows the main line dashed from the fork,
-    and the current move and hovered move carry their values. Click or drag navigates (a click
-    on a branch may jump to the main line through the fork), the wheel steps through moves, and
-    a right click clears a selected table row or steps back.
+    The graph has a move axis along its foot, 25 / 50 / 75 % lines with their labels on the left
+    and the score scale on the right, and a legend in the plot corner the curves cover least.
+    Gaps without analysis are bridged by a dashed line that is never filled, an analysed move
+    with no analysed neighbour shows as a dot, and a branch shows the main line dashed from the
+    fork. The current move carries its markers and a readout of its win rate and score lead;
+    hovering shows the hovered move's number and values. A graph without analysis says so (or
+    that analysis is running) instead of staying blank, and a large graph sets its text a step
+    up. Click or drag navigates (a click on a branch may jump to the main line through the
+    fork), the wheel steps through moves, and a right click clears a selected table row or
+    steps back.
   - 统计 shows the score label, the bar of both sides' win rates and 最后一手 with the move's
     candidate rank and the change for the side that played it (against the position before, or
     two moves back when that one has no analysis). AI总评分 shows each side's mean match share
@@ -655,8 +661,8 @@ importing the matching LizzieYzy Next settings.
   Java. Java's 界面样式 row (Swing look and feel) has no counterpart here, and the form does not open
   by itself on first start.
 - Appearance (Java defaults; saved and taken over by the LizzieYzy Next import):
-  - 设置 > 主题 opens 综合设置 > 主题外观: the theme (默认 plus the bundled sabaki, yasnaya,
-    Megapack, Custom and Fast, and the user's own), a preview of the edited background, board and
+  - 设置 > 主题 opens 综合设置 > 主题外观: the theme (默认 plus the bundled Java 经典, sabaki,
+    yasnaya, Megapack, Custom and Fast, and the user's own), a preview of the edited background, board and
     stones, line widths, the stone shadow, the three fonts (计算量及其他字体, UI 字体, 胜率目数字体;
     Lizzie默认, 系统默认 or a system font), pure-colour background / board / stones and the image
     files of a named theme (the default theme's images are fixed, as in Java), the background
@@ -669,8 +675,17 @@ importing the matching LizzieYzy Next settings.
     dropped by 取消. As in Java, 重置 saves the whole dialog with the default 错误节点 rules and
     reopens it, and 添加 (a new theme) and 删除 take effect at once and reopen the dialog,
     dropping unsaved edits on the other pages; the 当前主题 row and 删除's confirmation say so
-    first, and 删除 is in red. Bundled themes are read-only: deleting one hides it, and edits are
-    kept as the user's copy.
+    first, and 删除 is in red. A new theme's name must differ from every listed theme, including
+    默认 and Java 经典 in any interface language. Saving a named theme writes the page's values
+    over that theme's `theme.txt` and keeps the keys the page does not edit, as Java does.
+    Bundled themes are read-only: deleting one hides it, and edits are kept as the user's copy.
+    The live preview falls back to the pure colour when an image path cannot be read.
+  - Java 经典 is a bundled theme holding Java's own default values and images. While it is the
+    theme, the interface keeps its layout and controls but takes Java's colours: light grey bars,
+    white controls and menus, Java's teal accent, Java's grey metal wallpaper under dark glass
+    panels, and Java's colours for the win-rate graph, the variation tree, the stones' markers
+    and the candidate list (Java's white table). Every other theme keeps the program's own
+    colours.
   - 显示 > 外观主题: 棋盘风格 日式 / 中式经典 (corner markers instead of star points, Chinese
     numerals counted from the nearer edge as coordinates) and a custom board image (scaled to
     cover the main board under a light shade; the sub board keeps the theme's board) with its 清除

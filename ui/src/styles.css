@@ -512,6 +512,8 @@ body {
 #table {
   overflow-x: hidden;
   overflow-y: scroll;
+  background-color: var(--ws-table-ground);
+  color: var(--ds-text);
 }
 #table::-webkit-scrollbar {
   width: 8px;

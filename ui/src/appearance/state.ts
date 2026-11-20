@@ -5,8 +5,8 @@
 // value this session started with (LizzieFrame.java:20764-20767: applied after a restart).
 import type { AppearanceSettings, ThemeImages, ThemeSettings, WorkbenchView } from "../contract/generated";
 import { appearanceImages } from "../contract/client";
-import { applyTypeSizes, setThemeMode, typeSizes, type TypeSizes } from "../design/theme";
-import { cssColor, sameRgba, THEME_DEFAULT } from "./model";
+import { applyTypeSizes, setSkin, setThemeMode, typeSizes, type TypeSizes } from "../design/theme";
+import { cssColor, JAVA_CLASSIC_THEME, sameRgba, THEME_DEFAULT } from "./model";
 
 export interface LoadedImages {
   board?: HTMLImageElement;
@@ -54,21 +54,23 @@ function loadImage(url: string): Promise<HTMLImageElement | undefined> {
   return img.decode().then(() => img, () => undefined);
 }
 
-/** Decodes the images `settings` and `theme` select; the core's URLs or, when it cannot answer,
- *  the bundled defaults. Used for the committed appearance and for the 棋盘预览 draft. */
-export async function loadThemeImages(settings: AppearanceSettings, theme: ThemeSettings): Promise<{ images: LoadedImages; customBoard: boolean }> {
+/** Decodes the images `settings` and `theme` select for the committed appearance; the core's URLs
+ *  or, when it cannot answer, the bundled defaults. */
+async function loadThemeImages(settings: AppearanceSettings, theme: ThemeSettings): Promise<{ images: LoadedImages; customBoard: boolean }> {
   const urls = await appearanceImages(settings, theme).catch(() => DEFAULT_URLS);
   const themeUrls = settings.customBoardImage ? await appearanceImages({ ...settings, customBoardImage: "" }, theme).catch(() => urls) : urls;
   const [board, background, black, white, themeBoard] = await Promise.all([urls.board, urls.background, urls.black, urls.white, themeUrls.board].map(loadImage));
   return { images: { board, background, black, white, themeBoard }, customBoard: !!board && urls.customBoard };
 }
 
-/** The colour mode, and what the theme chooses for the comment pane: its colours and text size
- *  (LizzieFrame.java:11292-11304, 11358-11359) and the 评论 / 问题手 underline, the theme's accent
- *  colour at alpha 220 (SidebarHeaderPanel.java:226-238). A value still at the theme default is
- *  left to the style sheet, which draws it for the current colour mode. */
+/** The colour mode and the skin (Java 经典 takes Java's colours), and what the theme chooses for the
+ *  comment pane: its colours and text size (LizzieFrame.java:11292-11304, 11358-11359) and the
+ *  评论 / 问题手 underline, the theme's accent colour at alpha 220 (SidebarHeaderPanel.java:226-238).
+ *  A value still at the theme default is left to the style sheet, which draws it for the current
+ *  colour mode and skin. */
 function applyStyles(settings: AppearanceSettings, theme: ThemeSettings): void {
   setThemeMode(settings.mode);
+  setSkin(settings.theme === JAVA_CLASSIC_THEME ? "java" : "modern");
   const root = document.documentElement.style;
   const own = (name: string, value: readonly number[], themeDefault: readonly number[], css = cssColor(value)) => {
     if (sameRgba(value, themeDefault)) root.removeProperty(name);

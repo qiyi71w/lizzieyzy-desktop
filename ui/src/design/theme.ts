@@ -1,7 +1,8 @@
-// The document state the design tokens select on: operating system, colour mode and type sizes.
-// Importing this module sets data-os, data-theme and the default type sizes before the first
-// paint. The workbench window sets the mode from the appearance setting; the program's other
-// windows follow it through the storage they share, at once and when they open later.
+// The document state the design tokens select on: operating system, colour mode, skin and type
+// sizes. Importing this module sets data-os, data-theme, data-skin and the default type sizes
+// before the first paint. The workbench window sets the mode and the skin from the appearance
+// setting; the program's other windows follow them through the storage they share, at once and
+// when they open later.
 import { invoke } from "@tauri-apps/api/core";
 
 /** 外观模式: follow the system, or always light or dark; light by default. */
@@ -9,16 +10,27 @@ export type ThemeMode = "System" | "Light" | "Dark";
 export type ResolvedTheme = "light" | "dark";
 export type Os = "windows" | "mac" | "linux";
 
-/** Where the workbench window leaves the mode for the other windows and for the next start. */
+/** The token values the interface draws with: the program's own, or Java's (the bundled Java 经典
+ *  theme). The same components either way; only colours and the workbench wallpaper differ. */
+export type Skin = "modern" | "java";
+
+/** Where the workbench window leaves the mode and the skin for the other windows and for the next
+ *  start. */
 const STORE = "lizzieyzy.themeMode";
+const SKIN_STORE = "lizzieyzy.skin";
 
 const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
 const listeners: (() => void)[] = [];
 let mode = storedMode();
+let currentSkin = storedSkin();
 
 function storedMode(): ThemeMode {
   const stored = localStorage.getItem(STORE);
   return stored === "System" || stored === "Dark" ? stored : "Light";
+}
+
+function storedSkin(): Skin {
+  return localStorage.getItem(SKIN_STORE) === "java" ? "java" : "modern";
 }
 
 export const os: Os = navigator.userAgent.includes("Windows") ? "windows" : navigator.userAgent.includes("Mac OS") ? "mac" : "linux";
@@ -66,8 +78,9 @@ export function applyTypeSizes(frame: number): void {
 function apply(): void {
   const next = resolvedTheme();
   const root = document.documentElement;
-  if (root.dataset.theme === next) return;
+  if (root.dataset.theme === next && root.dataset.skin === currentSkin) return;
   root.dataset.theme = next;
+  root.dataset.skin = currentSkin;
   for (const listener of listeners) listener();
 }
 
@@ -81,7 +94,17 @@ export function setThemeMode(next: ThemeMode): void {
   apply();
 }
 
-/** Called after data-theme changed; canvas painters re-read their token colours here. */
+export function skin(): Skin {
+  return currentSkin;
+}
+
+export function setSkin(next: Skin): void {
+  currentSkin = next;
+  if (storedSkin() !== next) localStorage.setItem(SKIN_STORE, next);
+  apply();
+}
+
+/** Called after data-theme or data-skin changed; canvas painters re-read their token colours here. */
 export function onThemeChange(listener: () => void): void {
   listeners.push(listener);
 }
@@ -95,10 +118,11 @@ document.documentElement.dataset.os = os;
 // The default 界面字体大小 until a window learns the session's.
 applyTypeSizes(12);
 systemDark.addEventListener("change", apply);
-// Another window of the program changed the mode.
+// Another window of the program changed the mode or the skin.
 window.addEventListener("storage", (e) => {
-  if (e.key !== STORE) return;
-  mode = storedMode();
+  if (e.key === STORE) mode = storedMode();
+  else if (e.key === SKIN_STORE) currentSkin = storedSkin();
+  else return;
   apply();
 });
 apply();
