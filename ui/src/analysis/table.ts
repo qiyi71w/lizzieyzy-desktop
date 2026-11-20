@@ -632,9 +632,10 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
       // The actual row's cells carry their text as a tooltip.
       cell.title = r.actual ? c.text : "";
       cell.style.color = c.fg;
-      // 占比: a hard-edged bar of the share token behind the right-aligned number, growing
+      // 占比: a 2 px underline of the share token under the right-aligned number, growing
       // leftwards from the cell's right padding, over the row's own tint.
-      const bar = c.bar === null ? "" : `linear-gradient(to left, var(--ws-share-bar) ${Math.min(100, c.bar)}%, transparent ${Math.min(100, c.bar)}%) right 4px center / calc(100% - 8px) calc(100% - 8px) no-repeat`;
+      const share = Math.min(100, Math.max(0, c.bar ?? 0));
+      const bar = `linear-gradient(to left, var(--ws-share-bar-strong) ${share}%, transparent ${share}%) right 8px bottom 3px / calc(100% - 16px) 2px no-repeat`;
       const tint = cells[0].bg;
       cell.style.background = c.bar === null ? c.bg : tint ? `${bar}, ${tint}` : bar;
     });

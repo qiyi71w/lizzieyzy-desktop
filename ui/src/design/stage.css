@@ -21,7 +21,7 @@
   --ws-winrate-miss: #5a6cc4;
   --ws-score-line: #a8651c;
   --ws-blunder-bar: rgba(160, 40, 140, 0.35);
-  --ws-comment-node: #2f55d4;
+  --ws-comment-node: #4f6d9e;
 
   /* 胜率图: hairline grid, dashed midline, the current / hovered move's guide. */
   --ws-graph-grid: rgba(90, 66, 20, 0.14);
@@ -31,6 +31,8 @@
   --ws-graph-score-text: #7a5000;
   --ws-graph-snapshot: rgba(201, 138, 0, 0.5);
   --ws-graph-score-marker: #2c7a47;
+  /* The 面积填充 below the 50% line (above it the curve's own colour is the tint). */
+  --ws-graph-fill-below: rgba(90, 66, 20, 0.1);
 
   /* Flat stones, the 胜率条's centre tick and change, the 提子 panel's engine dot. */
   --ws-stone-black: #1c1c1d;
@@ -45,16 +47,27 @@
   --ws-live: #2f7a47;
   --ws-idle: #8f856f; /* not analysing is an ordinary state: red is kept for losses and danger */
 
-  /* 变化树. */
+  /* 变化树: a node without an evaluation is hollow; the seven 错误节点 levels (worst to best)
+     replace the theme's default colours while they hold their defaults. */
   --ws-tree-node: #9c937f;
+  --ws-tree-empty: #f7f2e7;
   --ws-tree-line: #8a7e66;
   --ws-tree-line-off: #c9bfaa;
   --ws-tree-dim: rgba(240, 235, 222, 0.6);
+  --ws-node-1: #8a3b80;
+  --ws-node-2: #c0412f;
+  --ws-node-3: #cf7f22;
+  --ws-node-4: #b89b1c;
+  --ws-node-5: #86a23a;
+  --ws-node-6: #3e8a57;
+  --ws-node-7: #2f8486;
   --ws-scroll-thumb: rgba(90, 66, 20, 0.32);
 
-  /* 选点列表: the 占比 bar and the actual move's row by loss level (rank 1 worst to 6 best), soft
+  /* 选点列表: the 占比 bar (`share-bar` in the independent list, `share-bar-strong` the thin bar
+     of the main list) and the actual move's row by loss level (rank 1 worst to 6 best), soft
      and, on the highlighted point, strong; translucent so the card shows through. */
   --ws-share-bar: rgba(90, 66, 20, 0.12);
+  --ws-share-bar-strong: rgba(47, 102, 80, 0.55);
   --ws-rank-1: rgba(140, 40, 130, 0.16);
   --ws-rank-1-strong: rgba(140, 40, 130, 0.3);
   --ws-rank-2: rgba(200, 40, 30, 0.16);
@@ -81,7 +94,7 @@
   --ws-winrate-miss: #9aa6ff;
   --ws-score-line: #e0ac58;
   --ws-blunder-bar: rgba(255, 190, 240, 0.45);
-  --ws-comment-node: #5574ff;
+  --ws-comment-node: #7d9bd0;
 
   --ws-graph-grid: rgba(255, 236, 200, 0.1);
   --ws-graph-baseline: rgba(255, 236, 200, 0.32);
@@ -90,6 +103,7 @@
   --ws-graph-score-text: #e0ac58;
   --ws-graph-snapshot: rgba(255, 208, 84, 0.431);
   --ws-graph-score-marker: #6cc487;
+  --ws-graph-fill-below: rgba(255, 236, 200, 0.08);
 
   --ws-stone-black: #0d0d0d;
   --ws-stone-black-edge: rgba(255, 236, 200, 0.5);
@@ -104,12 +118,21 @@
   --ws-idle: #8c8371;
 
   --ws-tree-node: #d9cfbc;
+  --ws-tree-empty: #3a332a;
   --ws-tree-line: #b5aa94;
   --ws-tree-line-off: #5c5446;
   --ws-tree-dim: rgba(0, 0, 0, 0.35);
+  --ws-node-1: #c47ab8;
+  --ws-node-2: #e2705f;
+  --ws-node-3: #e6a04f;
+  --ws-node-4: #d6be4a;
+  --ws-node-5: #a9c463;
+  --ws-node-6: #6cba84;
+  --ws-node-7: #5cb4b5;
   --ws-scroll-thumb: rgba(255, 236, 200, 0.26);
 
   --ws-share-bar: rgba(255, 236, 200, 0.12);
+  --ws-share-bar-strong: rgba(147, 211, 178, 0.6);
   --ws-rank-1: rgba(190, 80, 180, 0.22);
   --ws-rank-1-strong: rgba(190, 80, 180, 0.4);
   --ws-rank-2: rgba(230, 70, 60, 0.22);

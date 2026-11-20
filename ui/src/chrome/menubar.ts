@@ -8,8 +8,6 @@ import { isChinese, product, t } from "../i18n";
 import { JAVA_MENUS, type MenuNode, type TopMenu } from "./javaMenus";
 import { chooseEngine } from "../engine/catalog";
 import { highlight } from "../search/highlight";
-import { buildAiCoachButton } from "../humansl/commands";
-import { buildCommentaryButton } from "../commentary/commands";
 
 /** Java conditional menus: 快速启动 follows 显示快速启动 (Config.java: show-quick-links, false by
  *  default); show-Contribute is settings.contribution.showMenu, true by default; the secondary
@@ -270,16 +268,8 @@ export function buildMenubar(host: HTMLElement): void {
     // changes (setVisible).
     const toggled = menu.when === "doubleEngine" || menu.when === "contribute" || menu.when === "quickLinks";
     if (!toggled && !visible(menu.when)) continue;
-    if (menu.key === "Menu.aiCoach") {
-      // AI 陪练 is a button on the menu bar (Menu.java:5699-5732), its label following the session.
-      host.append(buildAiCoachButton());
-      continue;
-    }
-    if (menu.key === "Menu.aiCommentary") {
-      // AI 解说 is a button on the menu bar after AI 陪练 (Menu.java:5713-5732).
-      host.append(buildCommentaryButton());
-      continue;
-    }
+    // AI 陪练 and AI 解说 are buttons in the toolbar's lower row (toolbar.ts), not menus.
+    if (menu.key === "Menu.aiCoach" || menu.key === "Menu.aiCommentary") continue;
     const top = document.createElement("span");
     top.className = "m";
     top.textContent = t(menu.key);

@@ -1,7 +1,7 @@
-// The parts of the window bar that belong to the window frame: the title in the bar's free space,
-// the drag region and, on Linux, the window buttons and the resize edges. macOS draws its own
-// buttons over the bar's left end; Windows keeps the system title bar, so there the bar only
-// carries the menus.
+// The window bar as the window's title bar on every platform: the LizzieYzy mark, the title in
+// the bar's free space and the drag region; on Windows and Linux also the window buttons, and on
+// Linux the resize edges (Windows resizes a frameless window itself). macOS draws its own buttons
+// over the bar's left end.
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { os } from "../design/theme";
@@ -97,8 +97,8 @@ function writeSystemTitle(): void {
   }, SYSTEM_TITLE_INTERVAL_MS);
 }
 
-/** The workbench title: in the window bar at once; in the system's title (task bar, window list,
- *  the Windows title bar) at once when that was at rest, then at most once a second. */
+/** The workbench title: in the window bar at once; in the system's title (task bar, window list)
+ *  at once when that was at rest, then at most once a second. */
 export function setWindowTitle(text: string): void {
   if (text === wantedTitle) return;
   wantedTitle = text;
@@ -176,18 +176,30 @@ function bindResizeEdges(): void {
   }, true);
 }
 
-/** Adds the title and, where this window draws its own frame, the drag region, the window buttons
- *  and the resize edges to the bar that already holds the menus. */
+/** The mark at the bar's start: a black and a white stone, the product's name as its tip. */
+function appMark(): HTMLElement {
+  const mark = document.createElement("span");
+  mark.className = "app-mark";
+  mark.title = "LizzieYzy Tauri";
+  mark.setAttribute("aria-hidden", "true");
+  mark.setAttribute("data-tauri-drag-region", "");
+  mark.innerHTML = '<svg viewBox="0 0 18 16"><circle class="black" cx="6.5" cy="8" r="5.5"/><circle class="white" cx="11.5" cy="8" r="5"/></svg>';
+  return mark;
+}
+
+/** Adds the mark, the title, the drag region and, where the system does not draw them, the
+ *  window buttons and the resize edges to the bar that already holds the menus. */
 export async function mountWindowBar(host: HTMLElement): Promise<void> {
   bar = host;
+  host.prepend(appMark());
   title = document.createElement("div");
   title.id = "windowTitle";
   host.append(title);
   new ResizeObserver(layoutTitle).observe(title);
-  if (os === "windows") return;
   // Pressing the bar's free space or the title moves the window; a double press maximizes it.
   host.toggleAttribute("data-tauri-drag-region", true);
   title.toggleAttribute("data-tauri-drag-region", true);
+  if (os === "windows") host.append(windowButtons(["minimize", "maximize", "close"], false));
   if (os === "linux") {
     document.documentElement.dataset.frame = "own";
     // GTK's `gtk-decoration-layout`, e.g. "appmenu:minimize,maximize,close": the names before the

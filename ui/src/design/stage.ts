@@ -62,6 +62,7 @@ export interface StagePalette {
   graphScoreText: string;
   graphSnapshot: string;
   graphScoreMarker: string;
+  graphFillBelow: string;
   stoneBlack: string;
   stoneBlackEdge: string;
   stoneWhite: string;
@@ -74,13 +75,16 @@ export interface StagePalette {
   live: string;
   idle: string;
   treeNode: string;
+  treeEmpty: string;
   treeLine: string;
   treeLineOff: string;
   treeDim: string;
+  /** The seven 错误节点 levels, worst to best. */
+  treeNodes: string[];
   scrollThumb: string;
 }
 
-const NAMES: Record<Exclude<keyof StagePalette, "builtin">, string> = {
+const NAMES: Record<Exclude<keyof StagePalette, "builtin" | "treeNodes">, string> = {
   panel: "--ws-panel",
   line: "--ws-panel-line",
   panelSolid: "--ws-panel-solid",
@@ -104,6 +108,7 @@ const NAMES: Record<Exclude<keyof StagePalette, "builtin">, string> = {
   graphScoreText: "--ws-graph-score-text",
   graphSnapshot: "--ws-graph-snapshot",
   graphScoreMarker: "--ws-graph-score-marker",
+  graphFillBelow: "--ws-graph-fill-below",
   stoneBlack: "--ws-stone-black",
   stoneBlackEdge: "--ws-stone-black-edge",
   stoneWhite: "--ws-stone-white",
@@ -116,6 +121,7 @@ const NAMES: Record<Exclude<keyof StagePalette, "builtin">, string> = {
   live: "--ws-live",
   idle: "--ws-idle",
   treeNode: "--ws-tree-node",
+  treeEmpty: "--ws-tree-empty",
   treeLine: "--ws-tree-line",
   treeLineOff: "--ws-tree-line-off",
   treeDim: "--ws-tree-dim",
@@ -150,6 +156,7 @@ export function stagePalette(): StagePalette {
   const style = getComputedStyle(source);
   const palette = { builtin } as StagePalette;
   for (const [key, name] of Object.entries(NAMES)) (palette as unknown as Record<string, string>)[key] = style.getPropertyValue(name).trim();
+  palette.treeNodes = [1, 2, 3, 4, 5, 6, 7].map((k) => style.getPropertyValue(`--ws-node-${k}`).trim());
   if (!builtin) {
     palette.panel = WALLPAPER_PANEL;
     palette.panelSolid = WALLPAPER_SOLID;

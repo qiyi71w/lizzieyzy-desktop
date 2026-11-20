@@ -18,7 +18,7 @@
 }
 :where(.modal-box) {
   min-width: 320px;
-  max-width: 640px;
+  max-width: min(640px, 94vw);
   padding-bottom: 16px;
   border-radius: var(--ds-radius-l);
   background: var(--ds-panel);
@@ -56,6 +56,11 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;
+}
+/* Content never runs past the frame: a part asking for more width than the frame gives wraps or
+   scrolls inside it. */
+:where(.modal-body > *) {
+  max-width: 100%;
 }
 :where(.modal-buttons) {
   display: flex;

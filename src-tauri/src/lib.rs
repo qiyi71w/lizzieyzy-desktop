@@ -2299,10 +2299,11 @@ pub fn run() {
             tuning::startup(app.handle().clone(), shared.clone());
 
             // The configured main window, built here because its frame differs by platform: on
-            // Linux the page's window bar is the title bar (title, window buttons, move and
-            // resize), so the desktop's own decorations are left out.
+            // Windows and Linux the page's window bar is the title bar (title, window buttons,
+            // move; Linux also resize), so the desktop's own decorations are left out. macOS keeps
+            // its window buttons over the page's bar (titleBarStyle Overlay).
             let main = WebviewWindowBuilder::from_config(app.handle(), &app.config().app.windows[0])?;
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             let main = main.decorations(false);
             let window = main.build()?;
             if let Some(p) = placement {

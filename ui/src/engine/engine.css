@@ -498,9 +498,14 @@
   margin-bottom: 12px;
 }
 
-/* ---- 引擎启动失败 (EngineFailedMessage): the message, the launch command and the engine's output. */
+/* ---- 引擎启动失败 (EngineFailedMessage): the message, the launch command and the engine's output.
+   The frame takes the output's width; long lines wrap inside it. */
+.modal-box:has(> .modal-body > .engine-failure) {
+  max-width: min(760px, 94vw);
+}
 .engine-failure {
-  width: min(720px, 90vw);
+  width: min(720px, calc(94vw - 40px));
+  max-width: 100%;
 }
 .engine-failure pre {
   max-height: 45vh;

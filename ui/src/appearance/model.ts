@@ -185,6 +185,8 @@ export const THEME_DEFAULT = {
   commentFont: [255, 255, 255],
   commentNode: [0, 0, 255],
   glassAccent: [96, 165, 250],
+  /** The 错误节点 colours, worst to best. */
+  blunderNodes: [[155, 25, 150], [208, 16, 19], [200, 140, 50], [180, 180, 0], [140, 202, 34], [0, 220, 0], [0, 210, 210]],
 } as const;
 
 /** Equal colours, a missing alpha being opaque. */

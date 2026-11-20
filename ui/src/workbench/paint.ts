@@ -22,7 +22,7 @@ import type {
 } from "../contract/generated";
 import { language, t } from "../i18n";
 import { appearance, frameMetrics, onAppearanceChange } from "../appearance/state";
-import { chineseClassicLabel, cssColor, customFont, drawChineseClassicMarkers, javaHue, localeFonts, opaque, rankColor, reverseColor, THEME_DEFAULT, themeColor, themedFont } from "../appearance/model";
+import { chineseClassicLabel, cssColor, customFont, drawChineseClassicMarkers, javaHue, localeFonts, opaque, rankColor, reverseColor, sameRgba, THEME_DEFAULT, themeColor, themedFont } from "../appearance/model";
 import { stagePalette, stageWallpaper, type StagePalette } from "../design/stage";
 import { CARD_RADIUS, type BoardGeom, type Rect } from "./layout";
 
@@ -2731,8 +2731,9 @@ const [TREE_YS, TREE_XS, TREE_DOT, TREE_RING] = [20, 20, 11, 15];
 
 /** VariationTree.drawTree / VariationTreeBig.drawTree from `start` at (`posx`, `posy`), Java's lane
  *  allocation. Nodes left of `minX` or above the top are not drawn. `fit` is the whole-tree view:
- *  the first node also obeys that and the main line stops above `maxY`. The current node carries
- *  a 1.75 px accent ring around its own colour (the root square an accent centre). */
+ *  the first node also obeys that and the main line stops above `maxY`. A node without an
+ *  错误节点 colour (it or the move before it not evaluated) is hollow. The current node carries
+ *  an ink ring (the interface's text colour) around its own colour (the root square an accent centre). */
 function walkTree(
   nodes: Map<number, TreeNodeView>,
   start0: number,
@@ -2751,6 +2752,14 @@ function walkTree(
   const [YS, XS, DOT, RING] = [TREE_YS, TREE_XS, TREE_DOT, TREE_RING];
   const p = stagePalette();
   const commentRing = themeColor(appearance()?.theme.commentNodeColor, THEME_DEFAULT.commentNode, p.commentNode);
+  // While the theme keeps its 错误节点 colours, each level takes the stage's colour for it.
+  const themeNodes = appearance()?.theme.blunderNodeColors;
+  const defaults = THEME_DEFAULT.blunderNodes;
+  const ownNodes = !!themeNodes && (themeNodes.length !== defaults.length || themeNodes.some((c, k) => !sameRgba(c, defaults[k])));
+  const nodeFill = (c: number[]) => {
+    const level = ownNodes ? -1 : defaults.findIndex((d) => sameRgba(c, d));
+    return level >= 0 ? p.treeNodes[level] : cssColor(c);
+  };
   const lineColor = (n: number) => (line.has(n) ? p.treeLine : p.treeLineOff);
   const labelFont = `9px ${panelFont("ui")}`;
   const node = (n: number) => nodes.get(n)!;
@@ -2795,7 +2804,7 @@ function walkTree(
     const dim = !line.has(n);
     const commented = look.showCommentNode && node(n).has_comment;
     const projected = nodeColors.get(n);
-    const fill = projected ? cssColor(projected) : p.treeNode;
+    const fill = projected ? nodeFill(projected) : null;
     ops.push((g) => {
       const disc = (color: string, d: number) => {
         g.fillStyle = color;
@@ -2803,10 +2812,18 @@ function walkTree(
         g.fill();
       };
       if (commented) disc(commentRing, RING);
-      disc(fill, DOT);
+      if (fill) disc(fill, DOT);
+      else {
+        circle(g, x + 5.5, y + 5.5, DOT / 2 - 0.75);
+        g.fillStyle = p.treeEmpty;
+        g.fill();
+        g.strokeStyle = p.treeLine;
+        g.lineWidth = 1.5;
+        g.stroke();
+      }
       if (dim) disc(p.treeDim, commented ? RING : DOT);
       if (n !== current) return;
-      g.strokeStyle = p.accent;
+      g.strokeStyle = p.text;
       g.lineWidth = 1.75;
       circle(g, x + 5.5, y + 5.5, RING / 2 + 1.5);
       g.stroke();
@@ -2883,8 +2900,8 @@ function walkTree(
  * user scrolled it (`scroll`). Nodes off the current line are dimmed; with show-comment-node-color
  * commented nodes get the comment-node-color ring, and every node is filled with the 错误节点
  * colour the core projects for it (`nodeColors`, LizzieFrame.getBlunderNodeColor 11465-11536 with
- * Board.updateIsBest; VariationTree.java:136-158), the palette's plain node colour without one;
- * the current node carries an accent ring; 显示分支面板上的手数 (`numbers`)
+ * Board.updateIsBest; VariationTree.java:136-158), hollow without one;
+ * the current node carries an ink ring; 显示分支面板上的手数 (`numbers`)
  * writes each node's core display number beside it (VariationTree.java:159-176, 285-304).
  * 设置最大宽度 (`maxWidth`, setTreeMaxLimit 13894-13908): a layout that wide is cut off there and
  * reported `tooWide` (Board.setBigBranch). Returns node centres (panel coordinates) for click

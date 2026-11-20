@@ -74,7 +74,7 @@ let analyseLabel: HTMLSpanElement;
 
 const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" | "rightOptional", Item[]> = {
   leftPrimary: [
-    { name: "analyse", key: "BottomToolbar.analyse", cls: "primary", cap: "analyse", setting: "analyse", run: () => run({ type: "ToggleAnalysis" }) },
+    { name: "analyse", key: "BottomToolbar.analyse", cap: "analyse", setting: "analyse", run: () => run({ type: "ToggleAnalysis" }) },
     { name: "batchOpen", key: "BottomToolbar.batchOpen", cap: "services", setting: "batchOpen", popup: AUTO_ANALYSIS_MENU },
   ],
   leftOptional: [
@@ -416,7 +416,7 @@ export function layoutBottomBar(host: HTMLElement): void {
   });
   runs.forEach((run, k) => {
     const cap = (capsules[k] ??= host.insertBefore(document.createElement("div"), host.firstChild));
-    cap.className = run.cap === "analyse" ? "bb-cap primary" : "bb-cap";
+    cap.className = "bb-cap";
     cap.style.display = "";
     cap.style.left = `${run.left}px`;
     cap.style.width = `${run.right - run.left}px`;

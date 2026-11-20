@@ -28,6 +28,8 @@ import { toggleDoubleMenu } from "../workbench/panels";
 import "../display/painting";
 import { icon, type IconName } from "../design/icons";
 import { stepper } from "../design/stepper";
+import { buildAiCoachButton } from "../humansl/commands";
+import { buildCommentaryButton } from "../commentary/commands";
 
 const updaters: (() => void)[] = [];
 
@@ -714,8 +716,8 @@ function candidateCapsule(): HTMLElement {
 
 /** The double menu's toolbar (Menu.doubleMenu / setKomiPanelInDoubleMenu, Menu.java:8251-9931) as
  *  two rows of capsules, one capsule per 自定义内容 group: the icon groups and the search field in
- *  the upper row, the game controls, the engine parameters and the text buttons in the lower one.
- *  自动换行 off keeps one row (LizzieFrame.java:14503-14507). */
+ *  the upper row; the game controls, AI 陪练 / AI 解说, the engine parameters and the text
+ *  buttons in the lower one. 自动换行 off keeps one row (LizzieFrame.java:14503-14507). */
 export function buildToolbar(host: HTMLElement): void {
   const setup = pill(t("Menu.autoSetupButton"), "", "engine.setup");
   setup.dataset.key = "engine.setup"; setup.title = t("Menu.autoSetup"); setup.setAttribute("role", "button"); setup.tabIndex = 0;
@@ -760,6 +762,7 @@ export function buildToolbar(host: HTMLElement): void {
     ),
     row(
       capsule(shownGroup("showGameControls"), ...gameControls()),
+      capsule(null, buildAiCoachButton(), buildCommentaryButton()),
       capsule(null, group("komi", label(t("Menu.komi")), komiField()), kataGroup("Pda"), customPdaGroup(), pdaMoreButton(), kataGroup("Wrn")),
       limitCapsule(),
       capsule(shownGroup("showAnalyzeSides"), group("choices", label(t("Menu.lblShowAnalyze")), analyzeCheck(true), analyzeCheck(false))),

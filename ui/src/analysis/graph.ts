@@ -449,31 +449,45 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   const WY = (wr: number) => posy + height - jInt((wr * height) / 100);
   const clampDotY = (y: number) => Math.max(0, Math.min(H0 - DOT_RADIUS * 2, y));
   const activeCurve = scoreRenderable && !winrateRenderable ? theme.scoreRgb : theme.lineRgb;
-  const aboveFill = rgba(activeCurve, 52);
-
-  /** drawFilledGraphLine: the fill under the segment (only for analysed neighbours), then the line. */
-  const filledLine = (missing: boolean, x1: number, y1: number, x2: number, y2: number, color: string, stroke: number, dashed: boolean) => {
-    if (fillEnabled && !missing && !(y1 === baselineY && y2 === baselineY)) {
-      const polygon = (above: boolean, points: number[][]) => {
-        report.fillShapes++;
-        background.push(() => {
-          g.fillStyle = above ? aboveFill : theme.belowFill;
-          g.beginPath();
-          g.moveTo(points[0][0], points[0][1]);
-          for (const [px, py] of points.slice(1)) g.lineTo(px, py);
-          g.closePath();
-          g.fill();
-        });
-      };
-      if ((y1 - baselineY) * (y2 - baselineY) >= 0) {
-        polygon(y1 < baselineY || y2 < baselineY, [[x1, y1], [x2, y2], [x2, baselineY], [x1, baselineY]]);
-      } else {
-        const xi = x1 + ((baselineY - y1) / (y2 - y1)) * (x2 - x1);
-        polygon(y1 < baselineY, [[x1, y1], [xi, baselineY], [x1, baselineY]]);
-        polygon(y2 < baselineY, [[x2, y2], [xi, baselineY], [x2, baselineY]]);
-      }
+  const aboveFill = p.builtin ? rgba(activeCurve, 40) : rgba(activeCurve, 52);
+  const belowFill = p.builtin ? p.graphFillBelow : theme.belowFill;
+  /** The pieces of the filled curve, each a run of joined segments as [x, y] points. */
+  const fillPieces: number[][][] = [];
+  /** drawFilledGraphLine: the segment joins the area between the curve and the 50% line (one
+   *  shape per run of joined segments, so the area has no seams), then the line. Segments that
+   *  bridge unanalysed moves are filled too: the area follows the curve as drawn. */
+  const filledLine = (x1: number, y1: number, x2: number, y2: number, color: string, stroke: number, dashed: boolean) => {
+    if (fillEnabled && !dashed) {
+      const piece = fillPieces.at(-1);
+      const last = piece?.at(-1);
+      if (piece && last && last[0] === x1 && last[1] === y1) piece.push([x2, y2]);
+      else fillPieces.push([[x1, y1], [x2, y2]]);
     }
     front.push(() => line(g, x1, y1, x2, y2, color, stroke, dashed));
+  };
+  /** The area of every piece: above the 50% line in the curve's tint, below it in the other. */
+  const paintFill = () => {
+    for (const piece of fillPieces) {
+      if (piece.every(([, y]) => y === baselineY)) continue;
+      report.fillShapes++;
+      background.push(() => {
+        for (const [above, color] of [[true, aboveFill], [false, belowFill]] as const) {
+          g.save();
+          g.beginPath();
+          if (above) g.rect(0, 0, W0, baselineY);
+          else g.rect(0, baselineY, W0, H0 - baselineY);
+          g.clip();
+          g.fillStyle = color;
+          g.beginPath();
+          g.moveTo(piece[0][0], baselineY);
+          for (const [x, y] of piece) g.lineTo(x, y);
+          g.lineTo(piece[piece.length - 1][0], baselineY);
+          g.closePath();
+          g.fill();
+          g.restore();
+        }
+      });
+    }
   };
 
   /** drawBlunderBar (WinrateGraph.java:272-295) along the panel's bottom edge. */
@@ -524,7 +538,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
       if (lastOkMove > 0 && lastOkMove - movenum < 25) {
         if (canDrawBlunderBar && d.blunderBar && point) blunderBar(lastOkMove, movenum, Math.abs(lastWr - wr), Math.abs(lastScore - score));
         if (d.winrateLine) {
-          filledLine(!lastNodeOk, X(lastOkMove), WY(lastWr), X(movenum), WY(wr), color, dashed ? 1 : theme.winrateWidth, dashed);
+          filledLine(X(lastOkMove), WY(lastWr), X(movenum), WY(wr), color, dashed ? 1 : theme.winrateWidth, dashed);
           if (!pieceOpen) report.segments++;
           if (!lastNodeOk) report.missSegments++;
           pieceOpen = true;
@@ -626,7 +640,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
           drawHoverScore = lead;
         }
         if (lastOkMove > 0 && Math.abs(movenum - lastOkMove) < 25 && lastMean > -500)
-          filledLine(!lastNodeOk, X(lastOkMove), SY(lastMean), X(movenum), SY(lead), SCORE, theme.scoreWidth, false);
+          filledLine(X(lastOkMove), SY(lastMean), X(movenum), SY(lead), SCORE, theme.scoreWidth, false);
         lastMean = lead;
         lastOkMove = movenum;
         lastNodeOk = true;
@@ -635,6 +649,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
       movenum--;
     }
   }
+  paintFill();
   paintBaseline(width);
 
   // ---------------------------------------------------------------- texts (WinrateGraph.java:1474-1647)
@@ -834,9 +849,14 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   report.anchors = anchors.length;
   if (anchors.length) {
     const half = anchorHalfWidth(anchors);
+    // drawGraphAnchors: where the columns crowd, the marks of ordinary moves would comb the curve
+    // and are left out (they still take clicks); snapshots keep theirs.
+    const sparse = half === ANCHOR_HALF;
     front.push(() => {
       for (const a of anchors) {
-        g.fillStyle = nodes.get(a.node)?.kind === "Snapshot" ? p.graphSnapshot : rgba(theme.lineRgb, 80);
+        const snapshot = nodes.get(a.node)?.kind === "Snapshot";
+        if (!snapshot && !sparse) continue;
+        g.fillStyle = snapshot ? p.graphSnapshot : rgba(theme.lineRgb, 80);
         g.fillRect(a.x - half, a.y - ANCHOR_HALF, half * 2 + 1, ANCHOR_HALF * 2 + 1);
       }
     });
