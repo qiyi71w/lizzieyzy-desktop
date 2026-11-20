@@ -5,8 +5,9 @@ import { run, state, subscribe } from "../app";
 import { setDisplay } from "../commands";
 import type { Point, ScoreView } from "../contract/generated";
 import { icon } from "../design/icons";
-import { message } from "../dialogs";
-import { product, t } from "../i18n";
+import { closeBox, message } from "../dialogs";
+import { footer } from "../engine/controls";
+import { t } from "../i18n";
 import { javaDouble } from "../workbench/paint";
 import "./scoreDialog.css";
 
@@ -59,9 +60,11 @@ function sideRow(stone: "stone-black" | "stone-white", count: HTMLElement): HTML
   return row;
 }
 
+/** The window: its title (which moves it) ending in the close box, the counts, and the footer:
+ *  切换规则 and 重新计算 at its start (the window stays), 确定 and 关闭 at its end. */
 function build(): HTMLElement {
   const section = document.createElement("section");
-  section.className = "modal-box score-result";
+  section.className = "modal-box engine-dialog score-result";
   section.setAttribute("role", "dialog");
   section.setAttribute("aria-label", t("ScoreResult.title"));
   const title = document.createElement("div");
@@ -69,35 +72,28 @@ function build(): HTMLElement {
   const caption = document.createElement("span");
   caption.textContent = t("ScoreResult.title");
   // The window's close box: setVisible(false) and endFinalScore.
-  const close = button("", leave);
-  close.className = "modal-close";
+  const close = closeBox(leave);
   close.dataset.key = "score.close";
-  close.append(icon("close"));
-  close.setAttribute("aria-label", product("close"));
   title.append(caption, close);
   dragBy(title, section);
   const body = document.createElement("div");
   body.className = "modal-body score-body";
   lines = { hint: line("score-hint", t("ScoreResult.hint")), rule: line("score-rule"), black: line("score-count"), white: line("score-count"), result: line("score-total") };
-  body.append(lines.hint, lines.rule, sideRow("stone-black", lines.black), sideRow("stone-white", lines.white), lines.result);
-  const buttons = document.createElement("div");
-  buttons.className = "modal-buttons";
+  const counts = line("score-lines");
+  counts.append(lines.hint, lines.rule, sideRow("stone-black", lines.black), sideRow("stone-white", lines.white), lines.result);
+  body.append(counts);
   toggleRules = button("", () => setDisplay({ territoryScoring: !state.view?.settings.display.territoryScoring }));
+  // setVisible(false) + startFinalScore: the marks start over and the window comes back.
+  const recalculate = button(t("ScoreResult.btnRecalculate"), () => {
+    placed = false;
+    visible = true;
+    void run({ type: "Score", op: { type: "Recalculate" } });
+    refresh();
+  });
   const confirm = button(t("ScoreResult.confirmResult"), confirmResult);
   confirm.className = "primary";
-  buttons.append(
-    toggleRules,
-    // setVisible(false) + startFinalScore: the marks start over and the window comes back.
-    button(t("ScoreResult.btnRecalculate"), () => {
-      placed = false;
-      visible = true;
-      void run({ type: "Score", op: { type: "Recalculate" } });
-      refresh();
-    }),
-    confirm,
-    button(t("ScoreResult.btnClose"), leave),
-  );
-  section.append(title, body, buttons);
+  footer(body, { start: [toggleRules, recalculate], primary: confirm, cancel: button(t("ScoreResult.btnClose"), leave) });
+  section.append(title, body);
   return section;
 }
 

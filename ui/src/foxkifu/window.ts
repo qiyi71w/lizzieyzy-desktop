@@ -1,13 +1,14 @@
 // 野狐棋谱 window (FoxKifuDownload.java): the account row, 当前野狐账号, 近期搜索, the game table
-// with its 打开 buttons, the page buttons and the progress overlay. The core owns the search, the
-// list and every busy state; this window keeps only the account field and 查询方式 drafts.
+// with its 打开 buttons (or, while it has no rows, what the search came to), the page buttons and
+// the progress overlay. The core owns the search, the list and every busy state; this window keeps
+// only the account field and 查询方式 drafts.
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { dispatch, isApiError } from "../contract/client";
 import type { Command, KifuAfterGet, FoxKifuCommand, KifuPage, FoxKifuRow, FoxKifuView } from "../contract/generated";
 import { confirm, dialogOpen, message } from "../dialogs";
-import { format, isChinese, setLanguage, t } from "../i18n";
+import { format, isChinese, product, registerProduct, setLanguage, t } from "../i18n";
 import { FOX_KIFU_DATA_EVENT, FOX_KIFU_INPUT_EVENT, type FoxKifuInput, type FoxKifuPayload, type FoxKifuReport } from "./model";
 import { icon } from "../design/icons";
 import "../design/window";
@@ -21,6 +22,41 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text 
   if (className) e.className = className;
   if (text) e.textContent = text;
   return e;
+}
+
+registerProduct({
+  ZhCn: { kifuIdle: "尚未查询", kifuIdleText: "输入昵称或 UID 后按“{0}”，棋谱会列在这里。", kifuNone: "没有结果", kifuNoneText: "没有找到“{0}”的棋谱。检查昵称或 UID 后再按“{1}”。", kifuFailed: "查询失败", kifuFailedText: "{0} 按“{1}”重试。" },
+  ZhTw: { kifuIdle: "尚未查詢", kifuIdleText: "輸入暱稱或 UID 後按「{0}」，棋譜會列在這裡。", kifuNone: "沒有結果", kifuNoneText: "沒有找到「{0}」的棋譜。檢查暱稱或 UID 後再按「{1}」。", kifuFailed: "查詢失敗", kifuFailedText: "{0} 按「{1}」重試。" },
+  EnUs: { kifuIdle: "Not searched yet", kifuIdleText: "Enter a nickname or UID and press {0}; the games are listed here.", kifuNone: "No results", kifuNoneText: "No games found for “{0}”. Check the nickname or UID and press {1} again.", kifuFailed: "Search failed", kifuFailedText: "{0} Press {1} to try again." },
+  JaJp: { kifuIdle: "未検索", kifuIdleText: "ニックネームまたは UID を入力して「{0}」を押すと、棋譜がここに表示されます。", kifuNone: "結果なし", kifuNoneText: "「{0}」の棋譜は見つかりませんでした。ニックネームまたは UID を確認して、もう一度「{1}」を押してください。", kifuFailed: "検索に失敗しました", kifuFailedText: "{0} 「{1}」を押すと再試行します。" },
+  KoKr: { kifuIdle: "아직 검색하지 않음", kifuIdleText: "닉네임 또는 UID를 입력하고 [{0}]을 누르면 기보가 여기에 표시됩니다.", kifuNone: "결과 없음", kifuNoneText: "“{0}”의 기보를 찾지 못했습니다. 닉네임 또는 UID를 확인하고 [{1}]을 다시 누르세요.", kifuFailed: "검색 실패", kifuFailedText: "{0} [{1}]을 눌러 다시 시도하세요." },
+  ThTh: { kifuIdle: "ยังไม่ได้ค้นหา", kifuIdleText: "ป้อนชื่อเล่นหรือ UID แล้วกด “{0}” บันทึกเกมจะแสดงที่นี่", kifuNone: "ไม่มีผลลัพธ์", kifuNoneText: "ไม่พบบันทึกเกมของ “{0}” ตรวจสอบชื่อเล่นหรือ UID แล้วกด “{1}” อีกครั้ง", kifuFailed: "ค้นหาไม่สำเร็จ", kifuFailedText: "{0} กด “{1}” เพื่อลองอีกครั้ง" },
+});
+
+/** What the latest search came to while the table has no rows: none yet, no games for the query
+ *  shown, or the failure the core reported (Java's message). */
+export type KifuOutcome = { kind: "idle" } | { kind: "none"; query: string } | { kind: "failed"; reason: string };
+
+/** The game table's empty state (野狐棋谱, 腾讯棋谱): a title and one line under the table head
+ *  saying what to do next; `search` is the window's 搜索 label. `null` hides it (the table has rows
+ *  or a search runs). */
+export function kifuEmpty(): { el: HTMLElement; show: (outcome: KifuOutcome | null, search: string) => void } {
+  const box = el("div", "fk-empty");
+  box.dataset.key = "kifu.empty";
+  box.setAttribute("role", "status");
+  const title = el("div", "fk-empty-title");
+  const text = el("div", "fk-empty-text");
+  box.append(title, text);
+  const show = (outcome: KifuOutcome | null, search: string) => {
+    box.hidden = outcome === null;
+    if (!outcome) return;
+    box.dataset.state = outcome.kind;
+    title.textContent = product(outcome.kind === "idle" ? "kifuIdle" : outcome.kind === "none" ? "kifuNone" : "kifuFailed");
+    text.textContent = outcome.kind === "idle" ? product("kifuIdleText", search)
+      : outcome.kind === "none" ? product("kifuNoneText", outcome.query, search)
+      : product("kifuFailedText", outcome.reason, search);
+  };
+  return { el: box, show };
 }
 
 /** FoxKifuDownload.formatFoxUser: the nickname with the UID in brackets. */
@@ -97,6 +133,7 @@ export function bootFoxKifu(): void {
   let notice = -1;
   let opened = -1;
   let shownMessage: string | null = null;
+  let outcome: KifuOutcome = { kind: "idle" };
 
   // ---------------------------------------------------------------- layout
   const north = el("div", "fk-north");
@@ -142,7 +179,8 @@ export function bootFoxKifu(): void {
   head.append(headRow);
   const body = el("tbody");
   table.append(columns, head, body);
-  scroll.append(table);
+  const empty = kifuEmpty();
+  scroll.append(table, empty.el);
 
   const south = el("div", "fk-south");
   const pageButtons: [string, KifuPage, "step-first" | "step-back" | "step-forward" | "step-last"][] = [
@@ -328,11 +366,13 @@ export function bootFoxKifu(): void {
     if (view.notice && view.notice.id !== notice) {
       const first = notice === -1 && !previous;
       notice = view.notice.id;
-      if (!first) {
-        const n = view.notice;
-        void show(coreText(n.message_key) + (n.message_key === "FoxKifuDownload.getKifuFailed" ? n.detail : ""));
-      }
+      const n = view.notice;
+      const text = coreText(n.message_key) + (n.message_key === "FoxKifuDownload.getKifuFailed" ? n.detail : "");
+      if (n.message_key === "FoxKifuDownload.noKifu") outcome = { kind: "none", query: view.last_name };
+      else if (n.message_key === "FoxKifuDownload.getKifuFailed" || n.message_key === "FoxKifuDownload.invalidUid") outcome = { kind: "failed", reason: text };
+      if (!first) void show(text);
     }
+    empty.show(view.rows.length === 0 && !view.busy ? outcome : null, searchButton.textContent ?? "");
     if (opened !== -1 && view.opened > opened) {
       // completeFoxKifuLoad: 打开棋谱后此窗口, then the main window comes forward.
       void invoke("fox_kifu_opened", { minimize: view.after_get === "Minimize", close: view.after_get === "Close" });

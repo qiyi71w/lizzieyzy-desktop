@@ -6,7 +6,7 @@ import { COMMANDS, type CommandEntry } from "../commands";
 import type { AutoAnalysisSettings, WorkbenchView } from "../contract/generated";
 import { formPanel, message } from "../dialogs";
 import { parseJavaInt } from "../display/dialogs";
-import { actions, button, primaryButton, row, switchBox, switchRow } from "../engine/controls";
+import { button, footer, primaryButton, row, switchBox, switchRow } from "../engine/controls";
 import { t } from "../i18n";
 import type { MenuNode } from "../chrome/javaMenus";
 import { openAnalysisEngineSettings } from "./analysisSettings";
@@ -79,7 +79,7 @@ async function openDiff(draft: AutoAnalysisSettings): Promise<void> {
   });
   apply.dataset.key = "autoDiff.apply";
   const cancel = button(t("SetKataEngines.btnCancel"), () => void dialog.close()); cancel.dataset.key = "autoDiff.cancel";
-  actions(body, apply, cancel);
+  footer(body, { primary: apply, cancel });
   await dialog.closed;
 }
 
@@ -118,7 +118,7 @@ export async function openAutoAnalysis(batch = false): Promise<void> {
   });
   begin.dataset.key = "autoAnalysis.begin";
   const stop = button(t("StartAnaDialog.stopAnalyze"), async () => { await dialog.close(); if (!batch) await run({ type: "StopAutoAnalysis" }); }); stop.dataset.key = "autoAnalysis.stop";
-  actions(body, begin, stop);
+  footer(body, { primary: begin, others: [stop] });
   await dialog.closed;
   if (batch && !started) await run({ type: "Batch", op: { type: "CancelSetup" } });
 }
@@ -159,7 +159,7 @@ export async function openFlashBatchSetup(): Promise<void> {
   settings.dataset.key = "flashBatch.settings";
   const ok = primaryButton(t("StartAnaDialog.startAnalyze"), () => void begin()); ok.dataset.key = "flashBatch.begin";
   const stop = button(t("StartAnaDialog.stopAnalyze"), () => void dialog.close()); stop.dataset.key = "flashBatch.stop";
-  actions(body, settings, ok, stop);
+  footer(body, { start: [settings], primary: ok, others: [stop] });
   await dialog.closed;
   if (!started) await run({ type: "Batch", op: { type: "CancelSetup" } });
 }
@@ -193,7 +193,7 @@ function nonmodal(text: string, timed: boolean): void {
   notice = document.createElement("div"); notice.className = "auto-analysis-notice modal-box"; notice.dataset.key = "autoAnalysis.notice";
   notice.setAttribute("role", "status");
   const content = document.createElement("p"); content.textContent = text; notice.append(content);
-  if (!timed) { const close = primaryButton(t("SetKataEngines.btnApply"), () => { notice?.remove(); notice = null; }); close.dataset.key = "autoAnalysis.noticeClose"; actions(notice, close); }
+  if (!timed) { const close = primaryButton(t("SetKataEngines.btnApply"), () => { notice?.remove(); notice = null; }); close.dataset.key = "autoAnalysis.noticeClose"; footer(notice, { primary: close }); }
   document.body.append(notice);
   if (timed) noticeTimer = window.setTimeout(() => { notice?.remove(); notice = null; }, 3000);
 }
@@ -214,7 +214,7 @@ function render(view: WorkbenchView): void {
     let answered = false;
     const answer = async (accept: boolean) => { answered = true; await run({ type: "AnswerAutoAnalysisDiff", accept }); await dialog.close(); };
     const yes = primaryButton(t("SetKataEngines.btnApply"), () => void answer(true)), no = button(t("SetKataEngines.btnCancel"), () => void answer(false));
-    yes.dataset.key = "autoAnalysis.diffConfirm"; no.dataset.key = "autoAnalysis.diffCancel"; actions(body, yes, no);
+    yes.dataset.key = "autoAnalysis.diffConfirm"; no.dataset.key = "autoAnalysis.diffCancel"; footer(body, { primary: yes, cancel: no });
     void dialog.closed.then(async () => { if (!answered) await run({ type: "AnswerAutoAnalysisDiff", accept: false }); askingDiff = false; });
   }
   if (a.pause_tip && !showingTip) {
@@ -224,7 +224,7 @@ function render(view: WorkbenchView): void {
     let dismissed = false;
     const dismiss = async (never_again: boolean) => { dismissed = true; await run({ type: "DismissAutoAnalysisTip", never_again }); await dialog.close(); };
     const never = button(t("LizzieFrame.autoAnalyze.notShowAgain"), () => void dismiss(true)), ok = primaryButton(t("LizzieFrame.confirm"), () => void dismiss(false));
-    never.dataset.key = "autoAnalysis.tipNever"; ok.dataset.key = "autoAnalysis.tipOk"; actions(body, never, ok);
+    never.dataset.key = "autoAnalysis.tipNever"; ok.dataset.key = "autoAnalysis.tipOk"; footer(body, { primary: ok, others: [never] });
     void dialog.closed.then(async () => { if (!dismissed) await run({ type: "DismissAutoAnalysisTip", never_again: false }); showingTip = false; });
   }
 }

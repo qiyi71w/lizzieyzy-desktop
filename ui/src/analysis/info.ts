@@ -178,7 +178,7 @@ export function workbenchTitle(v: WorkbenchView, version: string, history: Map<n
   }
   const web = v.web_board.url;
   const title = mainTitle(v, version, history, parent);
-  return web ? { text: `${title.text} | Web: ${web}`, game: title.game, detail: [...title.detail, `Web: ${web}`] } : title;
+  return web ? { ...title, text: `${title.text} | Web: ${web}`, detail: [...title.detail, `Web: ${web}`] } : title;
 }
 
 /** The game in the window bar: the players with the result, then the file. */
@@ -212,12 +212,17 @@ function mainTitle(v: WorkbenchView, version: string, history: Map<number, Histo
   const values = !shown ? null : a && a.visits > 0 ? { black: a.black, visits: a.visits } : previous && previous.visits > 0 ? previous : null;
   const lead = values?.black.score_lead ?? null;
   const numbers = values ? `${values.black.winrate.toFixed(1)}${lead === null ? "" : ` ${lead.toFixed(1)}`} ${playouts(values.visits)}` : "";
+  // The bare values named for the pointer: 黑方胜率 30.8% · 黑领先 -1.0 · 计算量 143k.
+  const label = (key: string) => t(key).replace(/\\?[:：]\s*$/, "");
+  const detailTip = values
+    ? [`${t("WinrateGraph.legendWinrate")} ${values.black.winrate.toFixed(1)}%`, lead === null ? "" : `${label("LizzieFrame.scoreLeadJustScore")} ${lead.toFixed(1)}`, `${label("LizzieFrame.visits")} ${playouts(values.visits)}`].filter(Boolean).join(" · ")
+    : "";
   const prefix = values ? `[${numbers}] ` : shown && v.game ? "[ ---   ---   --- ] " : "";
   const foreground = v.engine.foreground;
-  if (!foreground) return { text: `${stem}${prefix ? ` - ${prefix}` : ""} ${rest}`, game, detail: numbers ? [numbers] : [] };
+  if (!foreground) return { text: `${stem}${prefix ? ` - ${prefix}` : ""} ${rest}`, game, detail: numbers ? [numbers] : [], detailTip };
   const notice = foreground.b11 ? ` · ${t("B11SpeedNotice.title")} ` : "";
   const detail = [numbers, `${foreground.name}${v.engine.analysing || pk !== null ? speedText : ""}`, foreground.b11 ? t("B11SpeedNotice.title") : ""].filter(Boolean);
-  if (pk !== null) return { text: `${pk} ${stem} - ${prefix}${foreground.name}${speedText} ${notice}`, game, detail };
+  if (pk !== null) return { text: `${pk} ${stem} - ${prefix}${foreground.name}${speedText} ${notice}`, game, detail, detailTip };
   const speed = v.engine.analysing ? `${speedText} ` : ` - ${t("LizzieFrame.speedUnit")} `;
-  return { text: `${stem} - ${prefix}${foreground.name}${speed}${notice}${rest}`, game, detail };
+  return { text: `${stem} - ${prefix}${foreground.name}${speed}${notice}${rest}`, game, detail, detailTip };
 }

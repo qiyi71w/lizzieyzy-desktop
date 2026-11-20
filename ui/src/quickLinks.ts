@@ -1,14 +1,15 @@
-// 快速启动设置 (OtherPrograms.java): the form above a 30-row table of the programs. A row is chosen
-// for editing (rows past the list add a program) by a click, or by ↑ / ↓ / Home / End in the table,
-// which is one Tab stop; until then the form and 保存 are off and the form's heading says to choose
-// a row. 保存 writes it, 删除 empties its command, and 上移 / 下移 / 置顶 reorder at once. Every
-// change is saved and the 快速启动 menu follows it.
+// 快速启动设置 (OtherPrograms.java): a group of rows for the chosen program above a 30-row table of
+// the programs. A row is chosen for editing (rows past the list add a program) by a click, or by
+// ↑ / ↓ / Home / End in the table, which is one Tab stop; until then the rows and 保存 are off and
+// the group's title says to choose a row. 保存 writes it, 删除 empties its command, and 上移 / 下移 /
+// 置顶 reorder at once. Every change is saved and the 快速启动 menu follows it, so the footer only
+// has 关闭.
 import { run, state, subscribe } from "./app";
 import { COMMANDS } from "./commands";
 import type { QuickLinkProgram } from "./contract/generated";
 import { formPanel } from "./dialogs";
-import { button, input, primaryButton } from "./engine/controls";
-import { t } from "./i18n";
+import { button, footer, groupTitle, input, primaryButton, row } from "./engine/controls";
+import { product, t } from "./i18n";
 import "./quickLinks.css";
 
 /** OtherPrograms.getTableModel: the table always shows 30 rows. */
@@ -50,23 +51,19 @@ export async function openQuickLinks(): Promise<void> {
     let current = -1;
     const body = document.createElement("div");
     body.className = "quick-links";
-    const heading = document.createElement("div");
-    heading.className = "quick-links-heading";
+    // The chosen program: its title (or the prompt to choose one), 名称, then 命令行 with 自动生成
+    // at its end and the command on the line under its name.
+    const heading = groupTitle(body, "");
+    heading.classList.add("quick-links-heading");
     heading.id = "quick-links-heading";
-    const nameLabel = document.createElement("label");
-    nameLabel.textContent = t("MoreEngines.lblName");
     const name = input("");
+    name.className = "quick-links-name";
     name.dataset.key = "quick-links.name";
-    const commandLabel = document.createElement("label");
-    commandLabel.textContent = t("MoreEngines.lblCommand");
+    name.id = "quick-links-name";
+    row(body, t("MoreEngines.lblName"), "", name);
     const command = document.createElement("textarea");
     command.dataset.key = "quick-links.command";
-    nameLabel.htmlFor = name.id = "quick-links-name";
-    commandLabel.htmlFor = command.id = "quick-links-command";
-    const form = document.createElement("div");
-    form.className = "quick-links-form";
-    const labels = document.createElement("div");
-    labels.className = "quick-links-command-label";
+    command.id = "quick-links-command";
     const scan = button(t("MoreEngines.scan"), async () => {
       const r = await run({ type: "ChooseQuickLinkProgram", title: t("OtherPrograms.selectProgram"), filter_name: t("OtherPrograms.program") });
       if (r?.type !== "QuickLinkProgramChosen") return;
@@ -74,8 +71,12 @@ export async function openQuickLinks(): Promise<void> {
       name.value = r.program.name;
     });
     scan.dataset.key = "quick-links.scan";
-    labels.append(commandLabel, scan);
-    form.append(nameLabel, name, labels, command);
+    const commandRow = row(body, t("MoreEngines.lblCommand"), "", scan);
+    commandRow.classList.add("quick-links-command");
+    const commandName = commandRow.querySelector<HTMLElement>(".ds-row-title")!;
+    commandName.id = "quick-links-command-name";
+    command.setAttribute("aria-labelledby", commandName.id);
+    commandRow.append(command);
 
     const table = document.createElement("table");
     table.className = "engine-table quick-links-table";
@@ -181,23 +182,28 @@ export async function openQuickLinks(): Promise<void> {
       choose(-1);
     });
     remove.classList.add("danger");
-    const dialog = formPanel(t("OtherPrograms.title"), body);
-    const exit = button(t("MoreEngines.exit"), () => void dialog.close());
+    // Every change is already saved: the footer only closes.
+    const exit = button(product("close"), () => void dialog.close());
     for (const [el, key] of [[moveUp, "moveUp"], [moveDown, "moveDown"], [moveFirst, "moveFirst"], [saveButton, "save"], [cancel, "cancel"], [remove, "delete"], [exit, "exit"]] as const) {
       el.dataset.key = `quick-links.${key}`;
     }
     // 保存 with no row chosen would save nothing: it is off, and its reason is the heading.
     saveButton.setAttribute("aria-describedby", heading.id);
     editors.push(name, command, scan, moveUp, moveDown, moveFirst, saveButton, cancel, remove);
+    // The order buttons at the start, the chosen row's edits at the end, then the table.
     const actions = document.createElement("div");
     actions.className = "quick-links-actions";
     const order = document.createElement("span");
     order.append(moveUp, moveDown, moveFirst);
     const edit = document.createElement("span");
-    edit.append(saveButton, cancel, remove, exit);
+    edit.append(saveButton, cancel, remove);
     actions.append(order, edit);
-    body.append(heading, form, actions, tableWrap);
+    body.append(actions, tableWrap);
+    footer(body, { cancel: exit });
     choose(-1);
+    const dialog = formPanel(t("OtherPrograms.title"), body);
+    // The table is where a row is chosen: it takes the focus, not 关闭.
+    rows.rows[0].focus();
     await dialog.closed;
   } finally {
     opened = false;

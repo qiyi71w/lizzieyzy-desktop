@@ -1,7 +1,7 @@
 /* 检查更新 rows of 综合设置 > 关于 and the 发现新版本 window (WindowsUpdateDialog). The window is a
    non-modal tool window over the workbench with a dialog's ground, radius and shadow and no scrim;
    above the workbench, below modal dialogs (#dialog, 30), centred over the window, at least
-   560 × 360. */
+   560 × 360. Its body scrolls under the title; the footer (design/dialog.css) stays at its foot. */
 .modal-box.update-window {
   position: fixed;
   z-index: 29;
@@ -28,12 +28,7 @@
   overflow: auto;
   white-space: pre-line;
 }
-.update-buttons {
-  flex: none;
-  flex-wrap: wrap;
-  padding: 16px 20px;
-}
-:is(.update-buttons, .update-actions) button[hidden] {
+.update-actions button[hidden] {
   display: none;
 }
 
@@ -106,7 +101,7 @@
   font-size: var(--ds-size-l);
   font-weight: 600;
 }
-.update-offer .update-body > div + div {
+.update-offer .update-body > div + div:not(.ds-footer) {
   margin-top: 4px;
 }
 .update-warning {

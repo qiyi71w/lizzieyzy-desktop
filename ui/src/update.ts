@@ -8,10 +8,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { registerViewHandler, run, state } from "./app";
 import { COMMANDS } from "./commands";
 import type { UpdateDownloadView, UpdateError, UpdateOfferView, UpdateResultView, UpdateSettings, UpdateView } from "./contract/generated";
-import { message } from "./dialogs";
+import { closeBox, message } from "./dialogs";
 import { product, registerProduct, t } from "./i18n";
-import { icon } from "./design/icons";
-import { groupTitle, row, switchRow } from "./engine/controls";
+import { footer, groupTitle, row, switchRow } from "./engine/controls";
 import { openSettingsAt, registerSettingTargets } from "./engine/settingsTargets";
 import "./update.css";
 
@@ -257,10 +256,10 @@ function feedback(r: UpdateResultView): string {
   }
 }
 
-/** A modeless window over the workbench with its title bar close button; the newest-clicked one
- *  is on top. */
+/** A modeless window over the workbench with its title bar close box; the newest-clicked one is on
+ *  top. Its body scrolls under the title and its footer stays at the body's foot. */
 function frame(title: string, cls: string, key: string, onClose: () => void): { box: HTMLElement; close: () => void } {
-  const box = el("section", `modal-box update-window ${cls}`);
+  const box = el("section", `modal-box engine-dialog update-window ${cls}`);
   box.dataset.key = key;
   box.dataset.freeWindow = "";
   box.tabIndex = -1;
@@ -268,10 +267,8 @@ function frame(title: string, cls: string, key: string, onClose: () => void): { 
   box.setAttribute("aria-modal", "false");
   box.setAttribute("aria-label", title);
   const head = el("div", "modal-title update-title", title);
-  const x = button("", `${key}.close`, () => close());
-  x.className = "modal-close";
-  x.append(icon("close"));
-  x.setAttribute("aria-label", product("close"));
+  const x = closeBox(() => close());
+  x.dataset.key = `${key}.close`;
   head.append(x);
   box.append(head);
   let closed = false;
@@ -508,15 +505,15 @@ function openOffer(focus: boolean): void {
   status.setAttribute("aria-live", "polite");
   body.append(details.heading, current, extra, details.summary, details.bar, status);
 
-  const footer = el("div", "modal-buttons update-buttons");
+  // 查看 Release and the download's 取消 / 暂停 do not end the window; 稍后 closes it.
   const release = button(t("WindowsUpdate.btnRelease"), "update.release", () => void openRelease());
   const closeButton = button(t("WindowsUpdate.btnLater"), "update.offerClose", () => close());
   const cancel = button(t("WindowsUpdate.btnCancel"), "update.offerCancel", () => void run({ type: "Update", op: { type: "Cancel" } }));
   const pause = button("", "update.offerPause", () => void run({ type: "Update", op: { type: "TogglePause" } }));
   const update = button(t("WindowsUpdate.btnUpdate"), "update.updateNow", () => void run({ type: "Update", op: { type: "Update", offer: offer.id } }));
   update.classList.add("primary");
-  footer.append(release, closeButton, cancel, pause, update);
-  box.append(body, footer);
+  footer(body, { start: [release, cancel, pause], primary: update, cancel: closeButton });
+  box.append(body);
 
   const show = (v: UpdateView) => {
     const shown = v.result?.offer;

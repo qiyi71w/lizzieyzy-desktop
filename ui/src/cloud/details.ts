@@ -2,6 +2,7 @@
 // funds tables, 20 records a page, each table with 上一页 / page / 下一页 / 刷新. Closing it drops
 // the pages still loading.
 import type { CloudFailure, CreditPage, UsagePage } from "../contract/generated";
+import { icon } from "../design/icons";
 import { format, t } from "../i18n";
 import { account, closeOwner, duration, failureText, localTime, money, requestOwner } from "./service";
 import { button, el, openCloudWindow } from "./window";
@@ -63,7 +64,10 @@ export function openAccountDetails(initialTab: 0 | 1, lost: (failure: CloudFailu
     const previous = button(t("RemoteCompute.account.previous"), "", `${key}.previous`, () => load(page - 1));
     const label = el("span", "rc-details-page");
     const next = button(t("RemoteCompute.account.next"), "", `${key}.next`, () => load(page + 1));
-    const refresh = button(t("RemoteCompute.account.refresh"), "", `${key}.refresh`, () => load(page));
+    const refresh = button("", "rc-icon-button", `${key}.refresh`, () => load(page));
+    refresh.append(icon("refresh"));
+    refresh.title = t("RemoteCompute.account.refresh");
+    refresh.setAttribute("aria-label", t("RemoteCompute.account.refresh"));
     const controls = el("div", "rc-details-controls");
     controls.append(previous, label, next, refresh);
     panel.append(scroll, controls);

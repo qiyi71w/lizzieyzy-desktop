@@ -1,31 +1,20 @@
-/* 在线棋谱 (OnlineDialog): the prompt, then one label column and one field column; the error
-   follows the refresh seconds in the danger colour. */
-.online-grid {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  align-items: center;
-  gap: 8px 16px;
+/* 在线棋谱 (OnlineDialog): grouped rows (design/dialog.css). 链接's field takes the whole row under
+   its name and prompt; a rejected link is said under the prompt in the danger colour. */
+.online-form {
+  width: min(560px, 92vw);
 }
-.online-prompt {
-  grid-column: 1 / -1;
-  color: var(--ds-text-2);
+.online-url {
+  flex-wrap: wrap;
+  row-gap: 8px;
 }
-.online-grid input[data-key="OnlineDialog.url"] {
-  width: min(calc(var(--ds-size) * 44), 70vw);
+.online-url > .ds-row-control {
+  flex: 1 1 100%;
 }
-.online-refresh {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-.online-refresh input {
-  width: calc(var(--ds-size) * 4);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+.online-url > .ds-row-control > input {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .online-error {
-  margin-left: 10px;
   color: var(--ds-danger-text);
 }
 .online-error[hidden] {

@@ -3,6 +3,7 @@
 // the keyboard reaches the workbench, like a Swing modal dialog.
 import { product, t } from "./i18n";
 import { icon } from "./design/icons";
+import { cancelFirst } from "./design/theme";
 import "./design/dialog.css";
 
 const host = () => document.getElementById("dialog")!;
@@ -79,15 +80,34 @@ interface Button<T = boolean> {
   key?: string;
 }
 
+/** A dialog's scrim and box. The box takes the focus a press on its own text gives, and a press on
+ *  the scrim leaves the focus where it is, so Escape and Tab always reach the open dialog. */
+function modalFrame(className: string): { overlay: HTMLDivElement; box: HTMLDivElement } {
+  const overlay = document.createElement("div");
+  overlay.className = "modal";
+  overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) e.preventDefault(); });
+  const box = document.createElement("div");
+  box.className = className;
+  box.tabIndex = -1;
+  overlay.append(box);
+  return { overlay, box };
+}
+
+/** Tab and Shift+Tab move among `items`; from the box itself they go to the first or the last. */
+function cycleFocus(items: HTMLElement[], back: boolean) {
+  const at = items.indexOf(document.activeElement as HTMLElement);
+  const next = at < 0 ? items.at(back ? -1 : 0) : items[(at + (back ? -1 : 1) + items.length) % items.length];
+  next?.focus();
+}
+
 /** `dismissed` is the answer of Escape (JOptionPane.CLOSED_OPTION's role); Enter outside a button
- *  chooses the primary button, else the first. */
+ *  chooses the primary button, else the first. `buttons` come in Java's order, the affirmative one
+ *  first; where the platform puts cancel first (DESIGN.md Buttons) the primary button moves to the
+ *  end with the one Escape answers before it. */
 function show<T>(title: string, body: HTMLElement | string, buttons: Button<T>[], kind: "info" | "warning" | "error", dismissed: T): Promise<T> {
   const { promise, resolve } = Promise.withResolvers<T>();
   const previous = document.activeElement as HTMLElement | null;
-  const overlay = document.createElement("div");
-  overlay.className = "modal";
-  const box = document.createElement("div");
-  box.className = `modal-box ${kind}`;
+  const { overlay, box } = modalFrame(`modal-box ${kind}`);
   box.setAttribute("role", "dialog");
   box.setAttribute("aria-modal", "true");
   box.setAttribute("aria-label", title);
@@ -108,7 +128,11 @@ function show<T>(title: string, body: HTMLElement | string, buttons: Button<T>[]
     previous?.focus?.();
     resolve(value);
   };
-  for (const b of buttons) {
+  const primary = buttons.find((b) => b.primary);
+  const cancel = buttons.find((b) => !b.primary && b.value === dismissed);
+  const ordered = cancelFirst ? [...buttons.filter((b) => b !== primary && b !== cancel), cancel, primary] : buttons;
+  for (const b of ordered) {
+    if (!b) continue;
     const el = document.createElement("button");
     el.textContent = b.label;
     if (b.primary) el.className = "primary";
@@ -122,15 +146,11 @@ function show<T>(title: string, body: HTMLElement | string, buttons: Button<T>[]
     if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) close((buttons.find((b) => b.primary) ?? buttons[0]).value);
     if (e.key === "Tab") {
       // Focus cycles through the dialog's own controls.
-      const items = [...box.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)")];
-      const at = items.indexOf(document.activeElement as HTMLElement);
-      const next = items[(at + (e.shiftKey ? -1 : 1) + items.length) % items.length];
       e.preventDefault();
-      next?.focus();
+      cycleFocus([...box.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)")], e.shiftKey);
     }
   });
   box.append(head, content, row);
-  overlay.append(box);
   host().append(overlay);
   host().hidden = false;
   open++;
@@ -183,15 +203,28 @@ export function panel(title: string, body: HTMLElement): Promise<void> {
   return show(title, body, [{ label: product("close"), value: true, primary: true }], "info", false).then(() => undefined);
 }
 
+/** The close box that ends a dialog's title row and closes it as Escape does (DESIGN.md Dialogs).
+ *  It is for the pointer: Escape is its key, so Tab passes over it. Automation key `dialog.close`
+ *  unless the caller names its own. */
+export function closeBox(close: () => void): HTMLButtonElement {
+  const x = document.createElement("button");
+  x.type = "button";
+  x.className = "modal-close";
+  x.tabIndex = -1;
+  x.dataset.key = "dialog.close";
+  x.setAttribute("aria-label", product("close"));
+  x.title = product("close");
+  x.append(icon("close"));
+  x.onclick = () => close();
+  return x;
+}
+
 /** Form dialogs own validation and close timing; Enter inside a form must not discard a draft.
- *  The title row ends in a close box that closes as Escape does (`closeButton`, automation key
- *  `dialog.close` unless the caller names its own). */
+ *  The title row ends in the close box (`closeButton`). The title stays while the content
+ *  scrolls, and the content's footer stays at its foot (design/dialog.css). */
 export function formPanel(title: string, body: HTMLElement, beforeClose: () => Promise<boolean> = async () => true): { close: () => Promise<void>; closed: Promise<void>; closeButton: HTMLButtonElement } {
   const previous = document.activeElement as HTMLElement | null;
-  const overlay = document.createElement("div");
-  overlay.className = "modal";
-  const box = document.createElement("div");
-  box.className = "modal-box engine-dialog";
+  const { overlay, box } = modalFrame("modal-box engine-dialog");
   box.setAttribute("role", "dialog");
   box.setAttribute("aria-modal", "true");
   box.setAttribute("aria-label", title);
@@ -221,28 +254,18 @@ export function formPanel(title: string, body: HTMLElement, beforeClose: () => P
       // box is for the pointer; Escape is its key.
       const items = [...box.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex='0']")]
         .filter((el) => el !== x && el.getClientRects().length > 0);
-      const at = items.indexOf(document.activeElement as HTMLElement);
       e.preventDefault();
-      items[(at + (e.shiftKey ? -1 : 1) + items.length) % items.length]?.focus();
+      cycleFocus(items, e.shiftKey);
     }
   });
-  const x = document.createElement("button");
-  x.type = "button";
-  x.className = "modal-close";
-  x.tabIndex = -1;
-  x.dataset.key = "dialog.close";
-  x.setAttribute("aria-label", product("close"));
-  x.title = product("close");
-  x.append(icon("close"));
-  x.onclick = () => void close();
+  const x = closeBox(() => void close());
   head.append(x);
   box.append(head, body);
-  overlay.append(box);
   host().append(overlay);
   host().hidden = false;
   open++;
   setModal();
-  box.querySelector<HTMLElement>(".modal-title ~ * :is(input:not(:disabled), button:not(:disabled), select:not(:disabled))")?.focus();
+  (box.querySelector<HTMLElement>(".modal-title ~ * :is(input:not(:disabled), button:not(:disabled), select:not(:disabled))") ?? box).focus();
   return { close, closed: done.promise, closeButton: x };
 }
 

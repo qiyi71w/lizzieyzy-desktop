@@ -1,6 +1,7 @@
 // The rows and controls of a form dialog (dialogs.ts formPanel); design/dialog.css draws them.
 // Dialogs are grouped lists (DESIGN.md Dialogs): a group title, then rows on one raised surface,
 // each row its name (and a description under it) at the start and its controls at the end.
+import { cancelFirst } from "../design/theme";
 import { product } from "../i18n";
 import "../design/dialog.css";
 import "./engine.css";
@@ -36,18 +37,47 @@ export function checkbox(key: string, checked: boolean): { label: HTMLLabelEleme
   return { label, input: el };
 }
 
-export function field(host: HTMLElement, key: string, control: HTMLElement): void {
-  const label = document.createElement("label");
-  label.className = "engine-field";
-  label.append(key, control);
-  host.append(label);
-}
-
+/** A row of actions inside a dialog's content (a card's buttons, a console's prompt); a dialog's
+ *  own buttons are its footer. */
 export function actions(host: HTMLElement, ...items: (HTMLElement | string)[]): void {
   const row = document.createElement("div");
   row.className = "engine-actions";
   row.append(...items);
   host.append(row);
+}
+
+/** The buttons that end a dialog, by role (DESIGN.md Buttons). */
+export interface FooterButtons {
+  /** At the footer's start, apart from the buttons that end the dialog: a check box, 自动生成,
+   *  更多设置, 恢复默认. */
+  start?: (HTMLElement | string)[];
+  /** The dialog's main action (primaryButton), the one Enter would choose. */
+  primary?: HTMLElement;
+  /** Further buttons that end the dialog another way (不保存, 中断). */
+  others?: HTMLElement[];
+  /** 取消 when the dialog holds a draft that 确定 commits; 关闭 when its changes already apply or
+   *  it only shows something. */
+  cancel?: HTMLElement;
+}
+
+/** The dialog's footer, its last child (it stays in view while the content scrolls): `start` at
+ *  its start, the other buttons at its end in the platform's order — primary, others, cancel where
+ *  the affirmative button comes first (Windows), others, cancel, primary where cancel comes first
+ *  (macOS, GNOME). */
+export function footer(host: HTMLElement, buttons: FooterButtons): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "engine-actions ds-footer";
+  const start = document.createElement("span");
+  start.className = "ds-footer-start";
+  start.append(...(buttons.start ?? []));
+  const end = document.createElement("span");
+  end.className = "ds-footer-end";
+  const { primary, cancel, others = [] } = buttons;
+  const ordered = cancelFirst ? [...others, cancel, primary] : [primary, ...others, cancel];
+  end.append(...ordered.filter((b): b is HTMLElement => !!b));
+  row.append(start, end);
+  host.append(row);
+  return row;
 }
 
 /** A group's title over the rows that follow it, with an optional note under the title. */

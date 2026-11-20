@@ -8,7 +8,7 @@ import { confirm, formPanel, message } from "../dialogs";
 import { format, t } from "../i18n";
 import { matchPlaying } from "../match/state";
 import { javaDouble, parseJavaDouble } from "../workbench/paint";
-import { actions, button, checkbox, groupNote, input, primaryButton, row, switchBox } from "./controls";
+import { button, checkbox, footer, groupNote, input, primaryButton, row, switchBox } from "./controls";
 import { openLeelaEngines, paramCaption } from "./leelaOptions";
 
 /** 搜索线程数 operations the window waits for, by ticket. A newer operation supersedes an older
@@ -128,11 +128,13 @@ function hint2(): HTMLElement {
   return el;
 }
 
-/** One SetKataEngines row: 修改, the value, 自动加载 and 在工具栏中控制. */
-interface Row { el: HTMLElement; edit: HTMLInputElement; value: HTMLInputElement; autoLoad: HTMLInputElement; inMenu: HTMLInputElement }
+/** One SetKataEngines row: 修改, the value, 自动加载 and 在工具栏中控制; `options` is the line that
+ *  holds the two check boxes. */
+interface Row { el: HTMLElement; options: HTMLElement; edit: HTMLInputElement; value: HTMLInputElement; autoLoad: HTMLInputElement; inMenu: HTMLInputElement }
 
-/** A parameter's row: its name with Java's range hint under it; 自动加载, 在工具栏中控制, the
- *  value and 修改 (a switch) at the end. */
+/** A parameter's row: its name with Java's range hint under it and 自动加载 / 在工具栏中控制 on a
+ *  line under the hint; the value and 修改 (a switch) at the end, so every row of the group ends
+ *  on the same line. */
 function paramRow(host: HTMLElement, param: KataParam, label: string, enabled: boolean, text: string, autoLoad: boolean, inMenu: boolean): Row {
   const [name, hint] = paramCaption(label);
   const auto = checkbox(t("SetKataEngines.lblAutoLoad"), autoLoad);
@@ -145,7 +147,12 @@ function paramRow(host: HTMLElement, param: KataParam, label: string, enabled: b
   value.inputMode = "decimal";
   value.setAttribute("aria-label", name);
   edit.setAttribute("aria-label", name);
-  const r: Row = { el: row(host, name, hint, auto.label, menu.label, value, edit), edit, value, autoLoad: auto.input, inMenu: menu.input };
+  const el = row(host, name, hint, value, edit);
+  const options = document.createElement("span");
+  options.className = "engine-param-options";
+  options.append(auto.label, menu.label);
+  el.firstElementChild!.append(options);
+  const r: Row = { el, options, edit, value, autoLoad: auto.input, inMenu: menu.input };
   const paint = () => r.value.classList.toggle("invalid", kataValueInvalid(param, r.value.value));
   r.value.addEventListener("input", paint);
   paint();
@@ -173,11 +180,13 @@ async function openKataEngines(): Promise<void> {
   const pdaNow = current("Pda", s.kata_pda_enabled, s.kata_pda);
   const pda = paramRow(body, "Pda", t("SetKataEngines.lblPDA"), pdaNow.enabled, pdaNow.text, p.autoLoadPda, p.showPda);
   if (pdaEngine) {
-    // SetKataEngines.java:591-605: a KataGoPda engine's PDA is set from the toolbar's own panel.
+    // SetKataEngines.java:591-605: a KataGoPda engine's PDA is set from the toolbar's own panel;
+    // the row shows that instead of its controls and check boxes.
     const note = document.createElement("span");
     note.className = "kata-params-pda-engine";
     note.textContent = t("SetKataEngines.lblPdaEngineUseMenu");
     pda.el.lastElementChild!.replaceChildren(note);
+    pda.options.remove();
   }
   const wrnNow = current("Wrn", p.wrnEnabled, p.wrn);
   const wrn = paramRow(body, "Wrn", t("SetKataEngines.lblWRN"), wrnNow.enabled, wrnNow.text, p.autoLoadWrn, p.showWrn);
@@ -210,8 +219,10 @@ async function openKataEngines(): Promise<void> {
   threadValue.disabled = !threadOn;
   threadValue.value = threadsNow?.confirmed?.toString() ?? "";
   threadValue.title = t("SetKataEngines.threadUnknown");
+  // The read status is a line under the row's hint; it is gone while there is nothing to say.
   const threadStatus = document.createElement("span");
-  threadStatus.className = "kata-params-thread-status";
+  threadStatus.className = "ds-row-sub kata-params-thread-status";
+  threadStatus.setAttribute("role", "status");
   threadStatus.dataset.key = "kataParams.threadsStatus";
   threadStatus.textContent = process === null ? ""
     : threadsNow?.confirmed == null ? t("SetKataEngines.threadReading") : t("SetKataEngines.threadRefreshing");
@@ -233,8 +244,8 @@ async function openKataEngines(): Promise<void> {
   const keepThreadOverride = () => {
     if (threadState() === "On") { threadCheck.checked = true; threadValue.disabled = false; }
   };
-  // The read status, the value and the override switch at the end of the row.
-  row(body, threads, threadHint, threadStatus, threadValue, threadCheck);
+  // The value and the override switch at the end of the row, like the parameters above.
+  row(body, threads, threadHint, threadValue, threadCheck).firstElementChild!.append(threadStatus);
   groupNote(body, t("SetKataEngines.lblHint"));
   body.append(hint2());
 
@@ -304,7 +315,7 @@ async function openKataEngines(): Promise<void> {
   apply.dataset.key = "kataParams.apply";
   const cancel = button(t("SetKataEngines.btnCancel"), () => void dialog.close());
   cancel.dataset.key = "kataParams.cancel";
-  actions(body, apply, cancel);
+  footer(body, { primary: apply, cancel });
 
   // Opening reads the process's value; a value the user typed meanwhile stays.
   if (process !== null) {

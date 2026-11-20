@@ -2,7 +2,7 @@
 import { run, state } from "../app";
 import { formPanel, message } from "../dialogs";
 import { format, t } from "../i18n";
-import { actions, button, groupNote, primaryButton, row, segmented, switchRow } from "./controls";
+import { button, footer, groupNote, primaryButton, row, segmented, switchRow } from "./controls";
 
 export type Rules = Record<string, unknown>;
 const PRESETS: Record<string, Rules> = {
@@ -14,9 +14,9 @@ const PRESETS: Record<string, Rules> = {
 };
 
 /** KataRulesEditor: one group, 典型规则 and then one row per rule, each a segmented control,
- *  added to `body`. A preset is shown chosen while the rules hold every value it sets; choosing it
- *  sets them. `changed` runs after every choice; the getter returns the edited rules (unselected
- *  fields absent). */
+ *  added to `body`. 典型规则 are Java's buttons, one per preset on a line under the row's name:
+ *  each fills the rules it sets and keeps no choice of its own. `changed` runs after every change;
+ *  the getter returns the edited rules (unselected fields absent). */
 export function rulesEditor(body: HTMLElement, initial: Rules, changed: (rules: Rules) => void = () => {}): () => Rules {
   let rules: Rules = { ...initial };
   const controls = new Map<string, HTMLInputElement[]>();
@@ -27,20 +27,27 @@ export function rulesEditor(body: HTMLElement, initial: Rules, changed: (rules: 
         control.disabled = rules.scoring === "TERRITORY" && (name === "hasButton" || name === "friendlyPassOk");
       }
     }
-    for (const control of classic.inputs) control.checked = Object.entries(PRESETS[control.value]).every(([key, value]) => rules[key] === value);
     changed(rules);
   };
   // Java's captions end in a colon; a row's name does not.
   const caption = (text: string) => text.replace(/\\?[:：]\s*$/, "");
-  const classic = segmented("rule-preset", [
+  const presets = document.createElement("span");
+  presets.className = "engine-rules-presets";
+  presets.setAttribute("role", "group");
+  for (const [key, text] of [
     ["chinese", t("SetKataRules.btnChnRule")],
     ["japanese", t("SetKataRules.btnJpnRule")],
     ["stone-scoring", t("SetKataRules.btnChnOldRule")],
     ["tromp-taylor", t("SetKataRules.btnTTRule")],
     ["goe", t("SetKataRules.btnGoeRule")],
-  ], "");
-  for (const control of classic.inputs) control.onchange = () => { rules = { ...rules, ...PRESETS[control.value] }; refresh(); };
-  row(body, caption(t("SetKataRules.lblClassicRules")), "", classic.el);
+  ]) {
+    const preset = button(text, () => { rules = { ...rules, ...PRESETS[key] }; refresh(); });
+    preset.dataset.key = `rules.preset.${key}`;
+    presets.append(preset);
+  }
+  const presetRow = row(body, caption(t("SetKataRules.lblClassicRules")), "");
+  presets.setAttribute("aria-labelledby", (presetRow.querySelector(".ds-row-title")!.id ||= "engine-rules-presets-name"));
+  presetRow.append(presets);
   const options: [string, string, [string, string][], boolean?][] = [
     ["scoring", t("SetKataRules.lblScoringRule"), [["AREA", t("SetKataRules.rdoArea")], ["TERRITORY", t("SetKataRules.rdoTerritory")]]],
     ["ko", t("SetKataRules.lblKoRule"), [["SIMPLE", t("SetKataRules.rdoSimpleKo")], ["POSITIONAL", t("SetKataRules.rdoPositionKo")], ["SITUATIONAL", t("SetKataRules.rdoSituationalKo")]]],
@@ -72,9 +79,10 @@ export async function editAnalysisRules(current: string): Promise<string | null>
   const rules = rulesEditor(body, initial);
   let result: string | null = null;
   const dialog = formPanel(t("SetAnalysisRules.title"), body);
-  actions(body,
-    primaryButton(t("SetKataRules.btnApply"), () => { result = JSON.stringify(rules()); void dialog.close(); }),
-    button(t("SetKataRules.btnCancel"), () => dialog.close()));
+  footer(body, {
+    primary: primaryButton(t("SetKataRules.btnApply"), () => { result = JSON.stringify(rules()); void dialog.close(); }),
+    cancel: button(t("SetKataRules.btnCancel"), () => dialog.close()),
+  });
   await dialog.closed;
   return result;
 }
@@ -88,13 +96,14 @@ export async function composeMatchRules(initialJson: string): Promise<string | n
   const rules = rulesEditor(body, initial);
   let result: string | null = null;
   const dialog = formPanel(t("SetKataRules.title"), body);
-  actions(body,
-    primaryButton(t("SetKataRules.btnApply"), () => {
+  footer(body, {
+    primary: primaryButton(t("SetKataRules.btnApply"), () => {
       const r = rules();
       result = JSON.stringify({ ...r, suicide: r.suicide ?? false, hasButton: r.hasButton ?? false, friendlyPassOk: r.friendlyPassOk ?? false });
       void dialog.close();
     }),
-    button(t("SetKataRules.btnCancel"), () => dialog.close()));
+    cancel: button(t("SetKataRules.btnCancel"), () => dialog.close()),
+  });
   await dialog.closed;
   return result;
 }
@@ -120,12 +129,13 @@ export async function openRules(): Promise<void> {
   body.append(hint);
   groupNote(body, view.engine.rules ? "" : t("SetKataRules.status.unconfirmed"));
   const dialog = formPanel(t("SetKataRules.title"), body);
-  actions(body, primaryButton(t("SetKataRules.btnApply"), async () => {
+  const apply = primaryButton(t("SetKataRules.btnApply"), async () => {
     if (!state.view?.engine.foreground?.ready || state.view.engine.foreground.index !== engine) { await message(t("Message.title"), t("LizzieFrame.setParamNoEngineHint")); return; }
     const rules = rulesNow();
     const requested = { ...rules, suicide: rules.suicide ?? false, hasButton: rules.hasButton ?? false, friendlyPassOk: rules.friendlyPassOk ?? false };
     const result = await run({ type: "SetKataRules", rules: JSON.stringify(requested), auto_load: auto.input.checked });
     if (result && result.type !== "Refused") await dialog.close();
-  }), button(t("SetKataRules.btnCancel"), () => dialog.close()));
+  });
+  footer(body, { primary: apply, cancel: button(t("SetKataRules.btnCancel"), () => dialog.close()) });
   await dialog.closed;
 }

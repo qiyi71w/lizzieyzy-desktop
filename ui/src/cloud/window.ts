@@ -1,7 +1,6 @@
-// A non-modal in-window JDialog of the remote compute feature: the title with its close button,
-// Esc closing it (AccessibilitySupport.installEscapeToClose), the workbench left usable.
-import { icon } from "../design/icons";
-import { product } from "../i18n";
+// A non-modal in-window JDialog of the remote compute feature: the title row ending in the close
+// box, Esc closing it (AccessibilitySupport.installEscapeToClose), the workbench left usable.
+import { closeBox } from "../dialogs";
 
 export function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text = ""): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
@@ -33,11 +32,9 @@ export function openCloudWindow(title: string, cls: string, key: string, onClose
   frame.setAttribute("role", "dialog");
   frame.setAttribute("aria-modal", "false");
   frame.setAttribute("aria-label", title);
-  const head = el("div", "cloud-window-title");
-  const x = button("", "cloud-window-close", `${key}.close`, () => close());
-  x.setAttribute("aria-label", product("close"));
-  x.title = product("close");
-  x.append(icon("close"));
+  const head = el("div", "modal-title cloud-window-title");
+  const x = closeBox(() => close());
+  x.dataset.key = `${key}.close`;
   head.append(el("h2", "", title), x);
   const body = el("div", "cloud-window-body");
   frame.append(head, body);

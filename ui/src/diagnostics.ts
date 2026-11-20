@@ -1,11 +1,11 @@
 // Help > 诊断与日志 (DiagnosticsDialog): 诊断记录 and its modules, 完整日志 and its scopes (applied
 // with 应用), application/crash logs, and the ReadBoard helper's own log writers. The dialog is
-// grouped rows (engine/controls.ts) in one column.
+// grouped rows (engine/controls.ts) in one column, closed by 关闭 in its footer or the close box.
 import { registerViewHandler, run, state } from "./app";
 import { logsStatus } from "./contract/client";
 import type { DiagnosticModule, HelperLoggingView, LoggingSettings, Persistence, Presentation, TraceScope } from "./contract/generated";
-import { confirm, panel } from "./dialogs";
-import { actions, button, groupNote, groupTitle, row, switchRow } from "./engine/controls";
+import { confirm, formPanel } from "./dialogs";
+import { actions, button, footer, groupNote, groupTitle, row, switchRow } from "./engine/controls";
 import { format, product, t } from "./i18n";
 import "./diagnostics.css";
 
@@ -278,8 +278,12 @@ export async function openDiagnostics(): Promise<void> {
     }
   };
   refreshReadBoard = refresh;
+  const dialog = formPanel(t("DiagnosticsDialog.title"), body);
+  const close = button(product("close"), () => void dialog.close());
+  close.dataset.key = "diagnostics.close";
+  footer(body, { cancel: close });
   try {
-    await panel(t("DiagnosticsDialog.title"), body);
+    await dialog.closed;
   } finally {
     if (refreshReadBoard === refresh) refreshReadBoard = null;
   }

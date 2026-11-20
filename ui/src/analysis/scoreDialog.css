@@ -1,7 +1,7 @@
 /* 点目结果 (ScoreResult): a non-modal window beside the board while scoring, the dialog's ground,
    radius and shadow without a scrim; its title bar moves it. The hint, the scoring rule, each
    side's count after its stone, then the result on the winner's colour (the workbench's flat
-   stones, design/stage.css). */
+   stones, design/stage.css); the footer (design/dialog.css) ends the body. */
 
 .score-result {
   position: fixed;
@@ -13,12 +13,14 @@
   user-select: none;
 }
 .modal-body.score-body {
+  white-space: normal;
+  user-select: none;
+}
+.score-lines {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
-  white-space: normal;
-  user-select: none;
 }
 .score-hint {
   max-width: calc(var(--ds-size) * 30);

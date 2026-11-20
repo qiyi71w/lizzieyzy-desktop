@@ -1,24 +1,5 @@
-/* 诊断与日志 (diagnostics.ts): one column of grouped rows (design/dialog.css) in the message
-   dialog's frame. The body scrolls between the title and the 关闭 bar when the window is short. */
-.modal-box:has(> .modal-body > .diagnostics) {
-  display: flex;
-  flex-direction: column;
-  max-height: 94vh;
-  padding-bottom: 0;
-  overflow: hidden;
-}
-.modal-body:has(> .diagnostics) {
-  min-height: 0;
-  overflow: auto;
-  padding-bottom: 16px;
-  white-space: normal;
-}
-/* The 关闭 bar: the form dialogs' footer, a band of the bar colour under a hairline. */
-.modal-body:has(> .diagnostics) + .modal-buttons {
-  padding: 12px 20px;
-  border-top: 1px solid var(--ds-line);
-  background: var(--ds-chrome);
-}
+/* 诊断与日志 (diagnostics.ts): one column of grouped rows (design/dialog.css) in a form dialog;
+   its frame keeps the title and the 关闭 footer while the rows scroll. */
 .diagnostics {
   width: min(560px, 90vw);
 }
@@ -52,7 +33,4 @@
   overflow-wrap: anywhere;
   word-break: break-all;
   user-select: text;
-}
-.diagnostics > .engine-actions button {
-  min-width: 76px;
 }

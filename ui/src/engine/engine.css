@@ -1,33 +1,11 @@
 /* 引擎 dialogs and 综合设置: the engine list and form, the engine parameter dialogs, the rules
-   editor, the GTP console and the engine notices. The dialog frame, the label / control rows and
-   the button row are design/dialog.css; this sheet states only what differs.
-
-   One form grammar throughout: a label column and a control column; check boxes and radio rows
-   start at the label column; a hint sits under what it describes in --ds-text-3 at --ds-size-s. */
+   editor, the GTP console and the engine notices. The dialog frame, the grouped rows and the
+   footer are design/dialog.css; this sheet states only what differs. A hint sits under what it
+   describes in --ds-text-3 at --ds-size-s. */
 .engine-hint {
   margin: 0;
   color: var(--ds-text-3);
   font-size: var(--ds-size-s);
-}
-.engine-unit {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  justify-self: start;
-  white-space: nowrap;
-}
-.engine-unit > input:is([type="checkbox"], [type="radio"]) {
-  margin-right: 0;
-}
-.engine-unit input:not([type="checkbox"], [type="radio"]) {
-  width: calc(var(--ds-size) * 8);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.engine-unit label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 
 /* ---- 综合设置 (ConfigDialog2): the page list (search field, then one item per page with its
@@ -164,12 +142,8 @@
 
 /* ---- 更多引擎 (MoreEngines): the selected entry as grouped rows in two columns (one when the box
    is narrow), the catalog operations, the catalog table, then 自动加载. The table gives up height
-   before the box scrolls; when it does scroll, the body narrows by the scrollbar instead of
+   before the body scrolls; when it does scroll, the body narrows by the scrollbar instead of
    overflowing. */
-.engine-dialog:has(> .engine-catalog) {
-  display: flex;
-  flex-direction: column;
-}
 .engine-catalog {
   display: flex;
   flex-direction: column;
@@ -309,28 +283,25 @@
   color: var(--ds-accent-text);
 }
 
-/* 选择引擎类型 / 平台 (GetEngineLine). */
+/* 选择引擎类型 (GetEngineLine): the prompt, the types in the footer. */
 .engine-scan {
   min-width: 360px;
 }
 .engine-scan > p {
   margin: 0;
 }
+/* 选择平台: 平台, 用户名, 密码 as one group. */
+.engine-scan-credentials {
+  width: min(480px, 92vw);
+}
 
-/* ---- 远程引擎设置 (RemoteEngineSettings): label and control per row. */
-.engine-remote-grid {
-  display: grid;
-  grid-template-columns: max-content minmax(calc(var(--ds-size) * 16), 1fr);
-  align-items: center;
-  gap: 8px 12px;
+/* ---- 远程引擎设置 (RemoteEngineSettings): IP, 端口, 用户名, then 密码 / 密钥 with the password
+   field or 浏览; the text fields share one width, so the group ends on one line. */
+.engine-remote {
+  width: min(520px, 92vw);
 }
-.engine-remote-grid label {
-  display: inline-flex;
-  align-items: center;
-  white-space: nowrap;
-}
-.engine-remote-grid > button {
-  justify-self: start;
+.engine-remote .ds-row-control > input:not([inputmode]) {
+  width: calc(var(--ds-size) * 16);
 }
 .engine-remote-about {
   max-width: 520px;
@@ -338,44 +309,70 @@
   white-space: pre-wrap;
 }
 
-/* ---- KataGo / 精析 rules (KataRulesEditor): one group, 典型规则 and then a row per rule, each
-   with its choices as a segmented control; a row too narrow for its choices puts them on a line
-   of their own at the end. The notes on 贴目 and the engine's confirmation follow. */
+/* ---- KataGo / 精析 rules (KataRulesEditor): one group, 典型规则 with its preset buttons on a line
+   under its name, then a row per rule with its choices as a segmented control; a row too narrow
+   for its choices puts them on a line of their own at the end. The notes on 贴目 and the engine's
+   confirmation follow. */
 .engine-rules {
   width: min(600px, 92vw);
 }
 .engine-rules .ds-row {
   flex-wrap: wrap;
-  row-gap: 6px;
+  row-gap: 8px;
 }
 .engine-rules .ds-row-control {
   margin-left: auto;
 }
+.engine-rules .ds-row-control:empty,
 .engine-rules > .ds-note:empty {
   display: none;
 }
+.engine-rules-presets {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 
 /* ---- 设置KataGo引擎高级参数 / 设置Leela(Sai)引擎高级参数 (SetKataEngines, SetLeelaEngines): a row
-   per parameter, its name with Java's range under it; 自动加载, 在工具栏中控制, the value and 修改
-   at the end; the notes below. .kata-params is SetKataPDA's body. */
+   per parameter, its name with Java's range under it and 自动加载 / 在工具栏中控制 on a line of
+   their own under that; the value and 修改 end every row on one line. The notes below. */
 .engine-params {
   width: min(680px, 92vw);
 }
-.engine-params :is(.ds-row-control, .ds-row-fields) > input:not([type="checkbox"]) {
+/* The value and 修改 never part: the name side wraps first. */
+.engine-params .ds-row-control {
+  flex: none;
+  flex-wrap: nowrap;
+}
+.engine-params .ds-row-control > input:not([type="checkbox"]) {
   width: calc(var(--ds-size) * 8);
 }
-.kata-params {
+.engine-params .ds-row-sub {
+  text-wrap: pretty;
+}
+.engine-param-options {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 3px;
+  font-size: var(--ds-size-s);
+}
+.engine-param-options > label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ds-text-2);
+}
+.engine-param-options > label > input {
+  margin: 0;
 }
 .kata-params-pda-engine {
   color: var(--ds-text-3);
 }
-/* 搜索线程数's read status (lblThreadReadStatus). */
-.kata-params-thread-status {
-  color: var(--ds-text-3);
-  font-size: var(--ds-size-s);
+/* 搜索线程数's read status (lblThreadReadStatus), a line under the row's hint while it says something. */
+.kata-params-thread-status:empty {
+  display: none;
 }
 .kata-params-hint b {
   font-weight: 600;
@@ -389,91 +386,43 @@
   cursor: pointer;
 }
 
-/* ---- KataGo 激进参数PDA设置 (SetKataPDA): 当前PDA, the three choices as a segmented control with
-   动态系数 and the fixed value after it, the tip, 自动加载, the warnings. */
-.kata-params.custom-pda {
-  min-width: 560px;
+/* ---- KataGo 激进参数PDA设置 (SetKataPDA): one group of 当前PDA, the three choices, 动态系数, the
+   fixed value and 自动加载; the warnings under it, a line each. */
+.custom-pda-dialog {
+  width: min(560px, 92vw);
 }
 .custom-pda-current {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: var(--ds-size-l);
-}
-.custom-pda-current-value {
+  color: var(--ds-text);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.custom-pda-modes {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 16px;
-}
-.custom-pda-check,
-.custom-pda-ratio {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-/* The value its choice does not use is off, its caption with it. */
-.custom-pda-ratio:has(> input:disabled) {
+/* The value its choice does not use is off, its name with it. */
+.custom-pda-dialog .ds-row:has(> .ds-row-control > input:disabled) .ds-row-title {
   color: var(--ds-text-off);
 }
-.custom-pda-check > input {
-  margin-right: 0;
-}
-.custom-pda-value {
-  width: calc(var(--ds-size) * 6);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.kata-params > .custom-pda-check {
-  align-self: flex-start;
-}
-.custom-pda-notes {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  color: var(--ds-text-3);
-  font-size: var(--ds-size-s);
+.custom-pda-dialog > .ds-note {
+  white-space: pre-line;
 }
 
-/* ---- GTP 引擎配置 (GtpEngineConfigDialog). */
+/* ---- 引擎棋力设置 (GtpEngineConfigDialog): 常用设置, then the advanced group 展开高级设置 shows,
+   then the notes. */
 .gtp-config {
-  width: min(600px, 86vw);
+  width: min(560px, 92vw);
 }
-.gtp-config > p {
-  margin: 0 0 8px;
-  color: var(--ds-text-3);
-  font-size: var(--ds-size-s);
+.gtp-config > section > .ds-group-title:first-child {
+  margin-top: 22px;
 }
-.gtp-config > h3 {
-  margin: 4px 0 8px;
-  font-size: var(--ds-size-l);
-  font-weight: 600;
+.gtp-config > section:first-child > .ds-group-title:first-child {
+  margin-top: 4px;
 }
-.gtp-config section {
-  display: grid;
-  gap: 8px;
-  margin: 0 0 12px;
+.gtp-config .ds-row-control > input[type="text"] {
+  width: calc(var(--ds-size) * 14);
 }
-.gtp-config section[hidden] {
-  display: none;
-}
-.gtp-config .engine-field {
-  grid-template-columns: calc(var(--ds-size) * 16) minmax(0, 1fr);
-}
-.gtp-config .engine-field > :is(input, select) {
-  justify-self: start;
-  min-width: calc(var(--ds-size) * 14);
-}
-.gtp-config .inactive {
+.gtp-config .ds-row.inactive .ds-row-title {
   color: var(--ds-text-off);
 }
-.gtp-config > button {
-  margin-bottom: 12px;
+.gtp-config > .ds-note {
+  white-space: pre-line;
 }
 
 /* ---- 引擎启动失败 (EngineFailedMessage): the message, the launch command on a line of its own
@@ -521,7 +470,7 @@
   margin: 0;
 }
 /* The ended-engine notice's 引擎命令 caption. */
-.engine-failure > div:not(.engine-actions, .ds-row) {
+.engine-failure > div:not(.engine-actions, .ds-row, .engine-ended-title) {
   margin-top: 8px;
   color: var(--ds-text-2);
 }
@@ -562,6 +511,18 @@ body:has(> #dialog:not([hidden])) .engine-limit-notice {
 }
 .engine-limit-notice > .engine-actions:last-child {
   justify-content: flex-end;
+}
+/* The ended-engine notice's title row: its title, the close box at the end. */
+.engine-ended-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: -4px -8px 0 0;
+}
+.engine-ended-title > strong {
+  font-size: var(--ds-size-l);
+  font-weight: 600;
 }
 
 /* GTP 控制台 (GtpConsolePane): a non-modal tool window; the output is a dark console surface

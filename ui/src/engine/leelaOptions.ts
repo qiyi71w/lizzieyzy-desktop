@@ -1,11 +1,11 @@
 // 设置Leela(Sai)引擎高级参数 (SetLeelaEngines.java): the Leela Zero / Sai branch of 引擎参数
-// (LizzieFrame.setLzSaiEngine). A row per parameter: its name with Java's range hint under it;
-// 自动加载, the value as typed (not checked, like Java) and 修改 at the end.
+// (LizzieFrame.setLzSaiEngine). A row per parameter: its name with Java's range hint under it and
+// 自动加载 under the hint; the value as typed (not checked, like Java) and 修改 at the end.
 import { run, state } from "../app";
 import type { LeelaOptionSetting, LeelaOptionSettings } from "../contract/generated";
 import { formPanel } from "../dialogs";
 import { t } from "../i18n";
-import { actions, button, checkbox, groupNote, input, primaryButton, row, switchBox } from "./controls";
+import { button, checkbox, footer, groupNote, input, primaryButton, row, switchBox } from "./controls";
 
 type RowKey = keyof LeelaOptionSettings;
 
@@ -40,7 +40,11 @@ function paramRow(host: HTMLElement, key: RowKey, label: string, saved: LeelaOpt
   };
   r.edit.onchange = editChanged;
   editChanged();
-  row(host, name, hint, autoLoad.label, r.value, r.edit);
+  const el = row(host, name, hint, r.value, r.edit);
+  const options = document.createElement("span");
+  options.className = "engine-param-options";
+  options.append(autoLoad.label);
+  el.firstElementChild!.append(options);
   return r;
 }
 
@@ -69,6 +73,6 @@ export async function openLeelaEngines(): Promise<void> {
   apply.dataset.key = "leelaOptions.apply";
   const cancel = button(t("SetLeelaEngines.btnCancel"), () => void dialog.close());
   cancel.dataset.key = "leelaOptions.cancel";
-  actions(body, apply, cancel);
+  footer(body, { primary: apply, cancel });
   await dialog.closed;
 }

@@ -2109,6 +2109,20 @@ fn window_button_layout() -> String {
     String::new()
 }
 
+/// Whether a dialog's cancel button comes before its affirmative one, as GTK's own dialogs order
+/// them on this desktop: cancel first (GNOME's order) unless `gtk-alternative-button-order` asks
+/// for the affirmative-first one. Only Linux asks; the page knows macOS and Windows itself.
+#[tauri::command]
+fn gtk_cancel_first() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        use gtk::prelude::GtkSettingsExt;
+        !gtk::Settings::default().is_some_and(|settings| settings.is_gtk_alternative_button_order())
+    }
+    #[cfg(not(target_os = "linux"))]
+    false
+}
+
 /// Cocoa's predefined Quit calls terminate: without Tauri's cancellable ExitRequested.
 /// Keep the default native menu, replacing only Quit with the shared exit request.
 #[cfg(target_os = "macos")]
@@ -2546,6 +2560,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         main_list_columns,
         read_clipboard_text,
         window_button_layout,
+        gtk_cancel_first,
         yike_browser::open_yike_live,
         yike_browser::open_yike_browser,
         yike_browser::yike_browser_back,
@@ -2608,6 +2623,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         main_list_columns,
         read_clipboard_text,
         window_button_layout,
+        gtk_cancel_first,
         yike_browser::open_yike_live,
         yike_browser::open_yike_browser,
         yike_browser::yike_browser_back,

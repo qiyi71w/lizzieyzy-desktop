@@ -10,7 +10,7 @@ import { icon } from "../design/icons";
 import { message } from "../dialogs";
 import { format, t } from "../i18n";
 import { openDetail, openDetailDialog } from "./detail";
-import { humanSlText, javaFormat, modelDisplayName } from "./format";
+import { hasSamples, humanSlText, javaFormat, modelDisplayName } from "./format";
 import { prepareHumanSl, progressReport } from "./humanSl";
 import { assessmentSection, el, legend, matchSummary, moveHitMap, noteStrip, performancePanel, type CardTexts } from "./panels";
 import { openWindow, ownerFocus, type StrengthWindow } from "./window";
@@ -175,6 +175,13 @@ function tabButton(text: string): HTMLButtonElement {
   return b;
 }
 
+/** A side with no analysed move has no measurement: its figures and bars would show defaults
+ *  (0%, full loss bars), so the section keeps its heading and shows the empty state instead. */
+function emptySide(section: HTMLElement): HTMLElement {
+  section.replaceChildren(section.firstElementChild!, el("p", "ps-empty", t("PlayerStrengthEstimate.match.noMoveSamples")));
+  return section;
+}
+
 /** buildPlayerStrengthAssessmentDashboard: the two sides and the note. */
 function assessmentDashboard(report: StrengthReport): { panel: HTMLElement; cards: { black: CardTexts; white: CardTexts }; note: string } {
   const humanSl = report.model.human_sl;
@@ -182,7 +189,10 @@ function assessmentDashboard(report: StrengthReport): { panel: HTMLElement; card
   const sides = el("div", "ps-two");
   const black = assessmentSection(true, report.black, humanSl);
   const white = assessmentSection(false, report.white, humanSl);
-  sides.append(black.element, white.element);
+  sides.append(
+    hasSamples(report.black.summary) ? black.element : emptySide(black.element),
+    hasSamples(report.white.summary) ? white.element : emptySide(white.element),
+  );
   const note = humanSl
     ? report.enough_data ? t("HumanSL40.reviewNote") : t("HumanSL40.unavailable")
     : report.enough_data ? t("PlayerStrengthEstimate.reviewOnlyNote") : t("PlayerStrengthEstimate.needMoreData");
@@ -201,7 +211,9 @@ function tagged<T extends HTMLElement>(e: T, key: string): T {
 function matchDashboard(report: StrengthReport): HTMLElement {
   const panel = el("div", "ps-dash ps-dash-match");
   const top = el("div", "ps-two ps-match-top");
-  top.append(matchSummary(true, report.black.summary), matchSummary(false, report.white.summary));
+  const black = matchSummary(true, report.black.summary);
+  const white = matchSummary(false, report.white.summary);
+  top.append(hasSamples(report.black.summary) ? black : emptySide(black), hasSamples(report.white.summary) ? white : emptySide(white));
   const head = el("div", "ps-section-head");
   const titles = el("div", "ps-section-title");
   titles.append(el("h3", "", t("PlayerStrengthEstimate.match.moveMap")), el("p", "ps-label", t("PlayerStrengthEstimate.match.moveMapHint")));
@@ -375,9 +387,9 @@ export function strengthReport() {
   };
   if (d) {
     for (const e of d.win.box.querySelectorAll<HTMLElement>("[data-strength]")) add(e.dataset.strength!, e);
-    add("dashboard.close", d.win.box.querySelector(".ps-window-close"));
+    add("dashboard.close", d.win.box.querySelector(".modal-close"));
   }
-  if (openDetail) add("detail.close", openDetail.box.querySelector(".ps-window-close"));
+  if (openDetail) add("detail.close", openDetail.box.querySelector(".modal-close"));
   if (progress?.cancel) controls.push({ key: "progress.cancel", ...progress.cancel });
   return {
     open: !!d,

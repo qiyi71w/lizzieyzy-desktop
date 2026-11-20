@@ -1,34 +1,37 @@
-/* 从 LizzieYzy Next 导入设置: three steps in one form dialog (source folder, preview, report); each
-   step ends in the dialog's button row with its one primary action. The engine table is
-   engine/engine.css .engine-table; notices are the 提示条 of DESIGN. */
+/* 从 LizzieYzy Next 导入设置: three steps in one form dialog (source folder, preview, report), each
+   grouped rows (design/dialog.css) among its text, tables and lists, and ending in the footer. The
+   engine table is engine/engine.css .engine-table under its group title; notices are the 提示条
+   of DESIGN. */
 .java-import {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
-  width: min(900px, 90vw);
+  width: min(760px, 92vw);
   white-space: normal;
 }
-.java-import > * {
-  margin: 0;
+.java-import > :is(p, details, .java-import-replaces) {
+  margin: 8px 0 0;
+}
+.java-import > :first-child {
+  margin-top: 0;
+}
+.java-import > :not(.ds-row) + .ds-row,
+.java-import-choices:not(:empty) {
+  margin-top: 12px;
+}
+.java-import-choices:empty {
+  display: none;
 }
 .java-import p {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  user-select: text;
 }
-.java-import-row {
-  display: flex;
+/* A folder row: its name and buttons, then the path (or the folders found) on the whole line. */
+.java-import-wide {
   flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
+  row-gap: 8px;
 }
-.java-import-row > span {
-  color: var(--ds-text-2);
-  white-space: nowrap;
-}
-.java-import-path {
-  flex: 1;
-  min-width: 200px;
+.java-import-wide > :last-child {
+  flex: 1 1 100%;
+  min-width: 0;
 }
 .java-import-found {
   display: flex;
@@ -36,15 +39,9 @@
   align-items: center;
   gap: 8px;
 }
-.java-import-found > span {
-  color: var(--ds-text-2);
-}
 .java-import-section {
   font-size: var(--ds-size-l);
   font-weight: 600;
-}
-.java-import > .java-import-section:not(:first-child) {
-  margin-top: 8px;
 }
 .java-import-counts {
   font-weight: 600;
@@ -82,11 +79,6 @@
 }
 .java-import-replaces label {
   font-weight: 400;
-}
-.java-import > label {
-  display: inline-flex;
-  align-items: center;
-  align-self: flex-start;
 }
 .java-import-engines {
   height: auto;

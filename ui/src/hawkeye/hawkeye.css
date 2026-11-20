@@ -357,7 +357,8 @@ body {
   overflow: hidden;
 }
 
-/* ---- dialogs (dialogs.ts): the shared dialog frame, placed inside this window */
+/* ---- dialogs (dialogs.ts): the shared dialog frame placed inside this window: the title with its
+   close box, grouped rows, the footer band at the foot */
 .hkd-layer {
   position: fixed;
   inset: 0;
@@ -377,28 +378,18 @@ body {
   flex-direction: column;
   max-width: none;
 }
-.hkd-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 10px 0 20px;
+.hkd:has(> .ds-footer) {
+  padding-bottom: 0;
 }
-.hkd-title > span {
-  flex: 1;
+.hkd > .ds-footer {
+  margin: 16px 0 0;
+  padding: 12px 20px;
+  border-top: 1px solid var(--ds-line);
+  border-radius: 0 0 var(--ds-radius-l) var(--ds-radius-l);
+  background: var(--ds-chrome);
 }
-.hkd-close {
-  width: var(--ds-control-h-l);
-  padding: 0;
-  border: 0;
-  background-color: transparent;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--ds-text-2);
-  font-weight: 400;
-}
-.hkd-close:hover {
-  color: var(--ds-text);
+.hkd > .ds-footer button {
+  min-width: 76px;
 }
 .hkd-body {
   flex: 1;
@@ -410,15 +401,12 @@ body {
   align-items: center;
   white-space: nowrap;
 }
-/* 最低阈值: label and control in two columns */
-.hkd-set-grid {
-  display: grid;
-  grid-template-columns: auto 120px;
-  align-items: center;
-  gap: 8px 16px;
+/* 最低阈值 and 设置统计阈值: grouped rows */
+.hkd-rows {
+  width: min(460px, calc(100vw - 40px));
 }
-.hkd-set-grid input[type="checkbox"] {
-  margin: 0;
+.hkd-rows .ds-row-control > .hkd-spin {
+  width: calc(var(--ds-size) * 6.5);
 }
 /* A number field with its step arrows */
 .hkd-spin {
@@ -474,28 +462,23 @@ body {
   height: 10px;
   stroke-width: 2;
 }
-/* 设置统计阈值: the score and win-rate columns, each row a threshold, its field and its class */
-.hkd-stat-head,
-.hkd-stat-panels {
-  display: grid;
-  grid-template-columns: repeat(2, auto);
-  justify-content: start;
-  column-gap: 32px;
+/* 设置统计阈值: a row per loss class, its swatch and name, the 目数 and 胜率 fields under the
+   column names */
+.hkd-stat-columns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 15px 6px;
+  color: var(--ds-text-2);
 }
-.hkd-stat-head {
-  padding-bottom: 8px;
-  font-weight: 600;
+.hkd-stat-columns > .hkd-label {
+  justify-content: flex-end;
+  width: calc(var(--ds-size) * 6.5);
 }
-.hkd-stat-grid {
-  display: grid;
-  grid-template-columns: auto 64px 14px;
+.hkd-stat-name {
+  display: inline-flex;
   align-items: center;
-  gap: 6px 8px;
-}
-.hkd-stat-grid input {
-  width: 64px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+  gap: 8px;
 }
 .hkd-swatch {
   width: 14px;

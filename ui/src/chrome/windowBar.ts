@@ -31,11 +31,13 @@ const LABEL: Record<Glyph, string> = { minimize: "windowMinimize", maximize: "wi
 
 /** The workbench title in the window bar's two parts and the system's one line: `game` names the
  *  game (players, result, file), `detail` the analysis in parts, the most wanted first (values,
- *  engine with speed, notices); `text` is the system title (task bar, window list). */
+ *  engine with speed, notices), `detailTip` names the values for the pointer; `text` is the system
+ *  title (task bar, window list). */
 export interface WindowTitle {
   text: string;
   game: string;
   detail: string[];
+  detailTip?: string;
 }
 
 /** Clearance between the title and the menus or window buttons beside it. */
@@ -80,6 +82,7 @@ function layoutTitle(): void {
     if (game + TITLE_GAP + detail <= room) break;
   }
   titleDetail.hidden = parts === 0;
+  titleDetail.title = wanted.detailTip ?? "";
   const start = box.left + TITLE_PAD;
   const end = box.right - TITLE_PAD - (parts ? detail + TITLE_GAP : 0);
   const centre = (frame.left + frame.right) / 2;

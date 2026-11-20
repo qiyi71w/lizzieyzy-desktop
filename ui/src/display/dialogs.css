@@ -1,0 +1,96 @@
+/* The display and layout dialogs: 设置显示手数 and 自定义信息顺序 (display/dialogs.ts), 设置自动播放
+   (autoplay.ts), 初始化设置 (initSettings.ts), 自定义布局 / 可视化面板设置 (workbench/customLayout.ts).
+   Each is grouped rows (design/dialog.css); this sheet gives their widths, the gaps between
+   untitled groups and what only one of them has. */
+
+/* 设置显示手数: one row, the reason under it while its value is refused. */
+.display-dialog {
+  width: min(480px, 90vw);
+}
+.display-error {
+  margin: 8px 4px 0;
+  color: var(--ds-danger-text);
+  font-size: var(--ds-size-s);
+}
+
+/* 自定义信息顺序: the preview on the dialog's width, then the shown items and the three lines. */
+.info-order {
+  width: min(520px, 90vw);
+}
+.info-order canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 4px;
+  border-radius: var(--ds-radius);
+}
+
+/* 设置自动播放: a group of rows per player. */
+.autoplay-dialog {
+  width: min(480px, 90vw);
+}
+.autoplay-group + .autoplay-group {
+  margin-top: 12px;
+}
+
+/* 初始化设置: its groups, two long choices as radios one under the other, the help buttons beside
+   a row's choices and after a group's title. */
+.init-settings {
+  width: min(640px, 92vw);
+}
+.init-group + .init-group {
+  margin-top: 16px;
+}
+.init-group > .ds-group-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+/* Two long choices: radios one under the other on the whole line under the row's name. */
+.init-wide-row {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.init-wide-row > .ds-row-control:empty {
+  display: none;
+}
+.init-radios {
+  display: flex;
+  flex: 1 1 100%;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  white-space: normal;
+}
+.init-radios > label {
+  display: inline-flex;
+  align-items: center;
+}
+.init-help {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ds-control-h);
+  height: var(--ds-control-h);
+  padding: 0;
+  border-color: transparent;
+  border-radius: var(--ds-radius-s);
+  background-color: transparent;
+  color: var(--ds-text-2);
+}
+.init-help:hover {
+  color: var(--ds-text);
+}
+
+/* 自定义布局 / 可视化面板设置: three groups of switch rows, the board position a slider row. */
+.custom-layout {
+  width: min(480px, 90vw);
+}
+.custom-layout-group + .custom-layout-group {
+  margin-top: 12px;
+}
+.custom-layout input[type="range"] {
+  width: calc(var(--ds-size) * 14);
+  margin: 0;
+}

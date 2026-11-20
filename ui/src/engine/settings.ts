@@ -7,7 +7,7 @@ import type { AnalysisSettings, Command, MoveRect, ProxyMode } from "../contract
 import { icon, type IconName } from "../design/icons";
 import { confirm, formPanel, message } from "../dialogs";
 import { product, registerProduct, t } from "../i18n";
-import { actions, button, groupTitle, input, primaryButton, row, switchRow } from "./controls";
+import { button, footer, groupTitle, input, primaryButton, row, switchRow } from "./controls";
 import { resourceCommand, resourceView } from "../setup/dialog";
 import { buildDisplaySettings } from "../display/settingsPage";
 import { beginPanelDraft } from "../workbench/panelDraft";
@@ -335,7 +335,7 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
   };
   const save = primaryButton(t("SetKataRules.btnApply"), () => void apply()); save.dataset.key = "settings.apply";
   const cancel = button(t("SetKataRules.btnCancel"), () => dialog.close()); cancel.dataset.key = "settings.cancel";
-  actions(body, save, cancel);
+  footer(body, { primary: save, cancel });
   onOpened?.(body);
   await dialog.closed;
   if (!handedOver) await run({ type: "HoldAnalysis", held: false });

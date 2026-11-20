@@ -61,9 +61,6 @@
 .match-note {
   white-space: pre-line;
 }
-.match-fill {
-  flex: 1;
-}
 .match-help {
   width: var(--ds-control-h);
   height: var(--ds-control-h);

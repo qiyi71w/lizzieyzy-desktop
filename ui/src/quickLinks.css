@@ -1,41 +1,35 @@
-/* 快速启动设置 (OtherPrograms.java): the form's title (while no row is chosen, the prompt to choose
-   one), 名称 and 命令行 with 自动生成 under its label, the order and edit buttons, then the table of
-   30 rows (engine/engine.css .engine-table), one Tab stop whose chosen row holds the focus. */
+/* 快速启动设置 (OtherPrograms.java): the chosen program's group of rows (design/dialog.css), its
+   title the prompt to choose a row while none is; 命令行 with the command on a line of its own;
+   the order and edit buttons; then the table of 30 rows (engine/engine.css .engine-table), one Tab
+   stop whose chosen row holds the focus. */
 .quick-links {
-  display: grid;
-  gap: 10px;
-  width: min(885px, 90vw);
-}
-.quick-links-heading {
-  font-size: var(--ds-size-l);
-  font-weight: 600;
+  width: min(720px, 90vw);
 }
 .quick-links-heading.prompt {
   color: var(--ds-text-3);
   font-weight: 400;
 }
-.quick-links-form {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  align-items: center;
-  gap: 8px 12px;
+.quick-links-name {
+  width: calc(var(--ds-size) * 18);
+  max-width: 100%;
 }
-.quick-links-form textarea {
-  height: calc(var(--ds-size) * 9);
+/* 命令行: its name and 自动生成 on the first line, the command on the whole line under them. */
+.quick-links-command {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.quick-links-command > textarea {
+  flex: 1 1 100%;
+  min-width: 0;
+  height: calc(var(--ds-size) * 6);
   resize: vertical;
-}
-.quick-links-command-label {
-  display: grid;
-  gap: 6px;
-  align-self: start;
-  justify-items: start;
-  padding-top: 4px;
 }
 .quick-links-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 8px;
+  margin-top: 12px;
 }
 .quick-links-actions span {
   display: flex;
@@ -47,7 +41,7 @@
 }
 .quick-links-table-wrap {
   height: min(432px, 36vh);
-  margin-top: 0;
+  margin-top: 12px;
 }
 .quick-links-table th:nth-child(1) {
   width: calc(var(--ds-size) * 4);

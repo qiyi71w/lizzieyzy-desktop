@@ -6,7 +6,7 @@ import type { AiTimeMode, AiTimeSettings, AutoPlaySettings, GameCommand, GameSet
 import { icon } from "../design/icons";
 import { formPanel, message } from "../dialogs";
 import { parseJavaInt } from "../display/dialogs";
-import { actions, button, groupTitle, primaryButton, row, segmented, switchRow } from "../engine/controls";
+import { button, footer, groupTitle, primaryButton, row, segmented, switchRow } from "../engine/controls";
 import { plainJava } from "../engine/tuningText";
 import { product, registerProduct, t } from "../i18n";
 import { javaDouble } from "../workbench/paint";
@@ -243,12 +243,12 @@ function shownSides(host: HTMLElement, g: GameSettings) {
 }
 
 /** 确定 (initButtonBar's OK) and 取消; Escape also closes without a game. */
-function footer(body: HTMLElement, label: string, apply: () => Promise<void>, close: () => void): void {
+function okCancel(body: HTMLElement, label: string, apply: () => Promise<void>, close: () => void): void {
   const ok = primaryButton(label, () => void apply());
   ok.dataset.key = "game-dialog-ok";
   const cancel = button(product("cancel"), close);
   cancel.dataset.key = "game.cancel";
-  actions(body, ok, cancel);
+  footer(body, { primary: ok, cancel });
 }
 
 /** startNewGameReserved / startAnalyzeGameDialogReserved: during an AI 陪练 session the dialog is
@@ -314,7 +314,7 @@ export async function openNewGame(): Promise<void> {
   const { black, white } = shownSides(body, g);
   const autoSave = toggle(body, t("NewAnaGameDialog.lblAutoSave"), autoSaveText(), g.autoSave, "game.autoSave");
   const dialog = formPanel(t("NewGameDialog.title"), body);
-  footer(body, t("NewGameDialog.okButton"), async () => {
+  okCancel(body, t("NewGameDialog.okButton"), async () => {
     if (engine.selectedIndex < 0) {
       await message(t("Message.title"), t("NewAnaGameDialog.noEngineHint"));
       return;
@@ -413,7 +413,7 @@ export async function openNewAnaGame(): Promise<void> {
   const { black, white } = shownSides(body, g);
   const autoSave = toggle(body, t("NewAnaGameDialog.lblAutoSave"), autoSaveText(), g.autoSave, "game.autoSave");
   const dialog = formPanel(t("NewAnaGameDialog.title"), body);
-  footer(body, t("NewAnaGameDialog.okButton"), async () => {
+  okCancel(body, t("NewAnaGameDialog.okButton"), async () => {
     if (engine.selectedIndex < 0) {
       await message(t("Message.title"), t("NewAnaGameDialog.noEngineHint"));
       return;
@@ -514,7 +514,7 @@ export async function openSetAiTime(): Promise<void> {
   ok.dataset.key = "game-ai-time-ok";
   const cancel = button(t("SetAiTimes.cancel"), () => void dialog.close());
   cancel.dataset.key = "game.aiTimeCancel";
-  actions(body, ok, cancel);
+  footer(body, { primary: ok, cancel });
   // getRootPane().setDefaultButton(okButton).
   body.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) {
@@ -583,7 +583,7 @@ export async function openRandomStart(): Promise<void> {
   ok.dataset.key = "game-random-ok";
   const cancel = button(t("SetAnaGameRandomStart.cancel"), () => void dialog.close());
   cancel.dataset.key = "game.randomCancel";
-  actions(body, ok, cancel);
+  footer(body, { primary: ok, cancel });
   async function apply(): Promise<void> {
     // applyChange: Integer.parseInt / Double.parseDouble, else SetAnaGameRandomStart.wrongFormat.
     const n = parseJavaInt(moves.value);

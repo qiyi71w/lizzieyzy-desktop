@@ -3,7 +3,7 @@
 import { state } from "../app";
 import { icon } from "../design/icons";
 import { formPanel } from "../dialogs";
-import { actions, button, primaryButton, row } from "../engine/controls";
+import { button, footer, primaryButton, row } from "../engine/controls";
 import { product, t } from "../i18n";
 import { javaDouble } from "../workbench/paint";
 import { edit } from "./state";
@@ -103,7 +103,7 @@ export function openGameInfo(): void {
   });
   const cancel = button(product("cancel"), () => void dialog.close());
   cancel.dataset.key = "gameInfo.cancel";
-  actions(body, ok, cancel);
+  footer(body, { primary: ok, cancel });
 }
 
 const STANDARD = [19, 15, 13, 9];
@@ -173,7 +173,7 @@ export function openBoardSize(): void {
   ok.tabIndex = -1;
   const cancel = button(product("cancel"), () => void dialog.close());
   cancel.dataset.key = "boardSize.cancel";
-  actions(body, ok, cancel);
+  footer(body, { primary: ok, cancel });
   const apply = async () => {
     let size: [number, number];
     if (other.checked) {

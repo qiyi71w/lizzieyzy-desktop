@@ -6,9 +6,9 @@ import { run, state, subscribe } from "../app";
 import { isApiError, openMatchOpenings } from "../contract/client";
 import type { MatchCommand, MatchIntervention, MatchSessionSettings, MatchSettings, MatchTimeMode } from "../contract/generated";
 import { icon } from "../design/icons";
-import { ask, formPanel, message } from "../dialogs";
+import { ask, closeBox, formPanel, message } from "../dialogs";
 import { parseJavaInt } from "../display/dialogs";
-import { actions, button, groupNote, groupTitle, primaryButton, row, segmented, switchRow } from "../engine/controls";
+import { button, footer, groupNote, groupTitle, primaryButton, row, segmented, switchRow } from "../engine/controls";
 import { composeMatchRules } from "../engine/rules";
 import { plainJava } from "../engine/tuningText";
 import { product, registerProduct, t } from "../i18n";
@@ -371,14 +371,14 @@ export async function openEngineGameDialog(): Promise<void> {
     }
     return true;
   });
-  // 更多设置 at the left of the button row, 确定 and 取消 at the right.
+  // 更多设置 at the footer's start: it opens 引擎对局设置 and leaves this dialog open.
   const more = button(t("NewEngineGameDialog.btnConfig"), () => void openEnginePkConfig().then(modeChanged));
   more.dataset.key = "match.moreSettings";
   const ok = primaryButton(t("NewEngineGameDialog.okButton"), () => void apply());
   ok.dataset.key = "match-dialog-ok";
   const cancel = button(product("cancel"), () => void dialog.close());
   cancel.dataset.key = "match.cancel";
-  actions(body, more, el("span", "match-fill"), ok, cancel);
+  footer(body, { start: [more], primary: ok, cancel });
   subscribe(() => {
     if (!pending) return;
     const phase = state.view?.engine_match?.phase;
@@ -526,7 +526,7 @@ async function openEnginePkConfig(): Promise<void> {
   cancel.dataset.key = "match.configCancel";
   const ok = primaryButton(t("EnginePkConfig.okButton"), () => void apply());
   ok.dataset.key = "match-config-ok";
-  actions(body, cancel, ok);
+  footer(body, { primary: ok, cancel });
 
   /** applyChange: each number field keeps its value when it does not parse. */
   async function apply(): Promise<void> {
@@ -568,11 +568,8 @@ function toolWindow(cls: string, title: string, closeKey: string, close: () => v
   box.setAttribute("aria-label", title);
   box.dataset.freeWindow = "";
   const head = el("div", "modal-title", title);
-  const x = button("", close);
-  x.className = "modal-close";
-  x.append(icon("close"));
+  const x = closeBox(close);
   x.dataset.key = closeKey;
-  x.setAttribute("aria-label", product("close"));
   head.append(x);
   box.append(head);
   return box;

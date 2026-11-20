@@ -14,12 +14,13 @@
 import { registerViewHandler, run, state } from "../app";
 import { setDisplay } from "../commands";
 import { formPanel } from "../dialogs";
-import { row, switchBox, switchRow } from "../engine/controls";
+import { button, footer, primaryButton, row, switchBox, switchRow } from "../engine/controls";
 import type { DisplaySettings } from "../contract/generated";
-import { t } from "../i18n";
+import { product, t } from "../i18n";
 import { edit } from "../editing/state";
 import { javaDouble } from "../workbench/paint";
 import type { ReplayTarget } from "./replay";
+import "./dialogs.css";
 
 interface AutoplayHost {
   /** The main board's hovered variation, as BoardRenderer.replayTarget. */
@@ -313,9 +314,9 @@ function intervalText(v: number): string {
 }
 
 /** 设置自动播放 (AutoPlay.java): a group per player, its interval field and switch, the main
- *  board's best-move options and 先显示整个变化图 under their player. Only 确定 applies: the
+ *  board's best-move options and 先显示整个变化图 under their player. 确定 applies the rest: the
  *  intervals and options are saved, the main and sub board players start or stop with their
- *  switches and the branch replay follows its setting. */
+ *  switches and the branch replay follows its setting; 取消 leaves them. */
 export function openAutoPlayDialog(): void {
   const s = state.view?.settings.display;
   if (!s) return;
@@ -330,13 +331,8 @@ export function openAutoPlayDialog(): void {
   const branchGroup = group(body);
   const { box: branchCheck, field: branchField } = timed(branchGroup, t("AutoPlay.chkAutoPlayBranch"), s.autoReplayBranch, String(Math.trunc(s.replayIntervalSeconds * 1000)));
   const { box: entireCheck, field: entireField } = timed(branchGroup, t("AutoPlay.chbDisplayEntireVariationFirst"), s.entireVariationFirst, javaDouble(s.entireVariationFirstSeconds));
-  const ok = document.createElement("button");
-  ok.className = "primary";
-  ok.textContent = t("AutoPlay.okButton");
-  const actions = document.createElement("div");
-  actions.className = "engine-actions";
-  actions.append(ok);
-  body.append(actions);
+  const ok = primaryButton(t("AutoPlay.okButton"), () => {});
+  ok.dataset.key = "autoplay.ok";
   const enable = () => {
     directly.disabled = continueBest.disabled = !mainCheck.checked;
     entireCheck.disabled = entireField.disabled = !branchCheck.checked;
@@ -348,6 +344,9 @@ export function openAutoPlayDialog(): void {
   continueBest.onchange = () => setDisplay({ continueWithBestMove: continueBest.checked });
   enable();
   const dialog = formPanel(t("AutoPlay.title"), body);
+  const cancel = button(product("cancel"), () => void dialog.close());
+  cancel.dataset.key = "autoplay.cancel";
+  footer(body, { primary: ok, cancel });
   ok.onclick = async () => {
     const mainSeconds = parseJavaDouble(mainField.value);
     const subMillis = parseJavaDouble(subField.value);

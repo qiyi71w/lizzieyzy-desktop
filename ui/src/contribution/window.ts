@@ -7,9 +7,9 @@ import { navigate, registerViewHandler, run, state } from "../app";
 import { engineConsole, onConsole } from "../contract/client";
 import type { ConsoleLineView, ContributionCommand, ContributionNotice, ContributionView, ContributionWatchSettings } from "../contract/generated";
 import { icon, type IconName } from "../design/icons";
-import { message, panel } from "../dialogs";
-import { product, t } from "../i18n";
-import { button, checkbox, input } from "../engine/controls";
+import { closeBox, message, panel } from "../dialogs";
+import { t } from "../i18n";
+import { button, checkbox, footer, input } from "../engine/controls";
 import { toggleConsole } from "../engine/console";
 import { contributionFailure } from "../engine/events";
 import { openContributionSettings } from "./settings";
@@ -101,7 +101,14 @@ function openWindow(view: ContributionView, watch: ContributionWatchSettings): v
   root.dataset.key = "contribution.view";
 
   // DO_NOTHING_ON_CLOSE: the core closes an ended session and refuses a running one (closeTip).
-  const header = row("contribution-header", t("ContributeView.title"), keyed(button(product("close"), () => void contribution({ type: "CloseView" })), "close"));
+  // The close box and Esc ask it alike.
+  const close = () => void contribution({ type: "CloseView" });
+  const header = row("contribution-header", t("ContributeView.title"), keyed(closeBox(close), "close"));
+  root.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    close();
+  });
 
   const consoleText = document.createElement("pre");
   // The engine's output on the dark console surface whatever the mode, like the GTP console.
@@ -198,8 +205,9 @@ function openWindow(view: ContributionView, watch: ContributionWatchSettings): v
     row("contribution-row", autoPlay.label, t("ContributeView.lblAutoPlayInterval"), interval, autoPlayNextGame.label, skipNon19.label),
     row("contribution-row contribution-game", type, komi, result, resultToggle),
     rules, rulesToggle,
-    row("contribution-buttons", pause, slowQuit, forceQuit, closeView),
   );
+  // The session's actions keep the window open; 关闭此界面 (shown once it exited) ends it.
+  footer(root, { start: [pause, slowQuit, forceQuit], cancel: closeView });
   document.body.append(root);
   win = {
     id: view.id, engine: view.console_engine, root, console: consoleText, consoleChars: 0, tip, consoleToggle, alwaysTop: alwaysTop.input, info,

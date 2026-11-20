@@ -49,6 +49,17 @@ importing the matching LizzieYzy Next settings.
   going back where it was. A toolbar popup opened from the keyboard and the board's context
   menu take the same keys. Items that destroy record content (清空棋盘, 删除一手, 删除分支, 清空全部设置子)
   are in red, like the bottom bar's.
+- Dialogs keep their title and button row in place while the content between them scrolls. The
+  close box in a dialog's title is reached by mouse or `Esc`, not by `Tab`. A dialog whose changes
+  wait for 确定 has 确定 and 取消 (its close box cancels); one that applies changes at once or only
+  informs has just 关闭. `Enter` chooses the main button and `Esc` cancels or closes. The
+  affirmative button comes first on Windows and last on macOS; on Linux GTK's
+  `gtk-alternative-button-order` decides (off, as on GNOME, puts 取消 first; KDE turns it on),
+  and message boxes follow the same order. Unlike Java, 更多引擎 and 关于远程引擎 close with 关闭
+  (Java 退出 / 确定), and 远程引擎设置, 精析设置, 局部精析, 设置显示手数 and 跑谱贡献设置 have a 取消 that
+  discards the edits.
+- The main window's title shows the game in the middle and the current position's win rate,
+  score lead and visits at its right end; hovering those values names each of them.
 - The board shows setup stones, moves, passes, captures, comments, SGF markup (TR/SQ/CR/MA/LB),
   next-move rings, player names, the sub board, the variation tree and the empty winrate graph.
 - A failed or cancelled open keeps the current record. Opening a 9x9 record after a 19x19 one (or
@@ -123,7 +134,9 @@ importing the matching LizzieYzy Next settings.
   overlay; it opens through the ordinary open path as a new unsaved record without a file of its
   own (saving asks for a name), and 打开棋谱后此窗口 then minimizes, hides or keeps the window. An
   unknown account, a network error or an unreadable game shows Java's message and keeps the
-  current record. Closing the window or `Escape` hides it with its list. The window uses only
+  current record. Before the first search, after a search that finds nothing and after a failed
+  search, the table area says which it is and what to do. Closing the window or `Escape` hides it
+  with its list. The window uses only
   Fox's public read-only queries, follows Settings > 网络代理, tries each request up to three
   times, and never writes the account or Fox's replies to the log. Downloaded SGF is corrected
   like Java (Fox's windowed variation tree is merged back) before the ordinary SGF reader reads
@@ -699,7 +712,8 @@ importing the matching LizzieYzy Next settings.
   menu item and the toolbar button show it or hide it; its close box hides it. It first opens
   510 x 470 centred on the main window, then keeps the place and size it was given; open when the
   application closes, it opens again at the next start. 重置界面位置 forgets its place. Its place
-  and open state are this product's own and are not imported from LizzieYzy Next.
+  and open state are this product's own and are not imported from LizzieYzy Next. Each button's
+  tooltip and accessible name say what it does (跳到第一手, 后退 5 手, …).
 - 双引擎模式 (显示 > 布局模式, `Alt+6`; 默认模式 `Alt+1`): a second engine analyses the same
   position next to the foreground engine. The window takes Java's width for the mode (the board
   height doubled, or 1.65 times it for 默认模式) unless it is maximized, and shows two equal
@@ -1095,7 +1109,8 @@ importing the matching LizzieYzy Next settings.
   side's playing strength from the analysis already stored on the main line (it starts no
   computation; analyse the game first, for example with 闪电分析整局). The dashboard follows
   Java: 测评 (rank, confidence and per-side metrics), 吻合度 (overall match and the per-move hit
-  map), 发挥水准 (move quality distribution), and 详细数据. The default model is Java's bundled
+  map), 发挥水准 (move quality distribution), and 详细数据. A side without analysed moves shows
+  Java's 暂无可展示的选点样本 note instead of empty gauges. The default model is Java's bundled
   XGBoost 20TUN with its residual calibrator; on the same analysed game it gives exactly the
   fixed Java build's numbers. 导入 adds another XGBoost rank-value booster (`.json`, with a
   sibling `metadata.json` / calibrator if present, or a `.zip` bundle) under `strength-models/`

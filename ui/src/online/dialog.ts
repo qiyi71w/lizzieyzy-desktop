@@ -1,15 +1,16 @@
-// 打开在线链接 (OnlineDialog.java:262-420): an application-modal 730x172 dialog with the prompt, the
-// 链接 field (the clipboard's text on every open, all selected when focused), 刷新 seconds (digits
-// only, 1 by default) and the hidden red 无效的链接; 确定 (default) follows the link, 中断 stops the
-// follow, 取消 hides. One dialog for the session: its fields and error keep their state between
-// opens like the Java instance. The core decides what a link is and reports a rejected one
-// (`online.dialog_error`), which shows the dialog again with the error (error(true), 474-481).
+// 打开在线链接 (OnlineDialog.java:262-420): an application-modal dialog with one group of rows, the
+// 链接 field (the clipboard's text on every open, all selected when focused) under its prompt and
+// 刷新 seconds (digits only, 1 by default); a rejected link marks the field and says 无效的链接 under
+// the prompt. The footer: 确定 (default) follows the link, 中断 stops the follow, 取消 hides. One
+// dialog for the session: its fields and error keep their state between opens like the Java
+// instance. The core decides what a link is and reports a rejected one (`online.dialog_error`),
+// which shows the dialog again with the error (error(true), 474-481).
 import { invoke } from "@tauri-apps/api/core";
 import { registerViewHandler, run } from "../app";
 import type { OnlineCommand, WorkbenchView } from "../contract/generated";
 import { formPanel, message } from "../dialogs";
-import { button, digitsOnly, fieldValue } from "../display/dialogs";
-import { actions } from "../engine/controls";
+import { digitsOnly, fieldValue } from "../display/dialogs";
+import { button, footer, primaryButton, row } from "../engine/controls";
 import { t } from "../i18n";
 import "./online.css";
 
@@ -30,56 +31,64 @@ export function followedElsewhere(): void {
   fromDialog = false;
 }
 
-function span(text: string, cls = ""): HTMLSpanElement {
-  const l = document.createElement("span");
-  l.className = cls;
-  l.textContent = text;
-  return l;
+/** Shows or hides 无效的链接 under the link's prompt, with the link field marked invalid. */
+function markError(error: HTMLElement, field: HTMLInputElement): void {
+  error.hidden = !errorShown;
+  field.classList.toggle("invalid", errorShown);
+  if (errorShown) field.setAttribute("aria-invalid", "true");
+  else field.removeAttribute("aria-invalid");
 }
 
 function show(): void {
   if (shownError) {
-    shownError.hidden = !errorShown;
+    markError(shownError, shownError.closest(".ds-row")!.querySelector("input")!);
     return;
   }
-  // The prompt, then 链接 and 刷新 with their fields and the error, then 确定 / 中断 / 取消.
+  // 链接 (its prompt and the error under its name, the field across the row) and 刷新, then the
+  // footer.
   const body = document.createElement("div");
-  body.className = "online-form";
-  const grid = document.createElement("div");
-  grid.className = "online-grid";
+  body.className = "modal-body online-form";
   const urlField = document.createElement("input");
   urlField.type = "text";
   urlField.value = url;
   urlField.spellcheck = false;
   urlField.dataset.key = "OnlineDialog.url";
-  urlField.setAttribute("aria-label", t("OnlineDialog.title.url"));
   urlField.addEventListener("focus", () => urlField.select());
   const refreshField = document.createElement("input");
   refreshField.type = "text";
+  refreshField.inputMode = "numeric";
   refreshField.value = refresh;
   refreshField.dataset.key = "OnlineDialog.refresh";
-  refreshField.setAttribute("aria-label", t("OnlineDialog.title.refresh"));
   digitsOnly(refreshField);
-  const error = span(t("OnlineDialog.lblError.text"), "online-error");
+  const urlRow = row(body, t("OnlineDialog.title.url"), t("OnlineDialog.lblPrompt1.text"), urlField);
+  urlRow.classList.add("online-url");
+  const error = document.createElement("span");
+  error.className = "ds-row-sub online-error";
+  error.textContent = t("OnlineDialog.lblError.text");
   error.dataset.key = "OnlineDialog.error";
-  error.hidden = !errorShown;
-  const refreshRow = document.createElement("div");
-  refreshRow.className = "online-refresh";
-  refreshRow.append(refreshField, span(t("OnlineDialog.title.refreshTime")), error);
-  grid.append(
-    span(t("OnlineDialog.lblPrompt1.text"), "online-prompt"),
-    span(t("OnlineDialog.title.url")), urlField,
-    span(t("OnlineDialog.title.refresh")), refreshRow,
-  );
-  body.append(grid);
-  const ok = button(t("OnlineDialog.button.ok"));
-  ok.className = "primary";
-  const interrupt = button(t("OnlineDialog.button.interrupt"));
-  const cancel = button(t("OnlineDialog.button.cancel"));
+  error.setAttribute("role", "alert");
+  urlRow.firstElementChild!.append(error);
+  markError(error, urlField);
+  // A rejected link's mark and reason go as soon as the link is edited.
+  urlField.addEventListener("input", () => {
+    if (!errorShown) return;
+    errorShown = false;
+    markError(error, urlField);
+  });
+  row(body, t("OnlineDialog.title.refresh"), "", refreshField, t("OnlineDialog.title.refreshTime"));
+  const ok = primaryButton(t("OnlineDialog.button.ok"), () => apply());
+  const interrupt = button(t("OnlineDialog.button.interrupt"), () => {
+    // stopSync (OnlineDialog.java:4460-4504): the follow stops, the link field empties and the
+    // dialog hides.
+    urlField.value = "";
+    void dialog.close();
+    void online({ type: "Stop" });
+  });
+  const cancel = button(t("OnlineDialog.button.cancel"), () => void dialog.close());
   ok.dataset.key = "OnlineDialog.ok";
   interrupt.dataset.key = "OnlineDialog.interrupt";
   cancel.dataset.key = "OnlineDialog.cancel";
-  actions(body, ok, interrupt, cancel);
+  footer(body, { primary: ok, others: [interrupt], cancel });
 
   const dialog = formPanel(t("OnlineDialog.title.config"), body);
   shownError = error;
@@ -101,15 +110,6 @@ function show(): void {
     // Utils.txtFieldValue; the core reads 0 (blank) as 10 seconds.
     void online({ type: "Open", url: urlField.value, refresh_seconds: fieldValue(refreshField) });
   };
-  ok.onclick = apply;
-  // stopSync (OnlineDialog.java:4460-4504): the follow stops, the link field empties and the
-  // dialog hides.
-  interrupt.onclick = () => {
-    urlField.value = "";
-    void dialog.close();
-    void online({ type: "Stop" });
-  };
-  cancel.onclick = () => void dialog.close();
   // getRootPane().setDefaultButton(okButton): Enter anywhere applies.
   body.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.isComposing) {

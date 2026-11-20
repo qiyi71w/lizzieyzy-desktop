@@ -1,7 +1,7 @@
 /* 远程算力 (RemoteComputeDialog), 智子账户明细 and 智子充值与 VIP: non-modal tool windows over the
-   workbench with the dialog's ground, radius and shadow and no scrim; the payment flow is a modal
-   form dialog. Pages are text segments, each page two titled columns divided by a hairline, the
-   connection status below both. */
+   workbench with the dialog's ground, radius and shadow and no scrim, centred, no wider than 860
+   px; the payment flow is a modal form dialog. Pages are text segments, each page two titled
+   columns divided by a hairline, the connection status below both. */
 .cloud-window,
 .rc-payment-root {
   --cloud-label: calc(var(--ds-size) * 9);
@@ -24,28 +24,15 @@
 .rc-payment-root [hidden] {
   display: none;
 }
+/* The title row (design/dialog.css .modal-title) ends in the close box. */
 .cloud-window-title {
   flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px 0 20px;
 }
 .cloud-window-title h2 {
   flex: 1;
   min-width: 0;
-  margin: 4px 0 0;
-  font-size: var(--ds-size-xl);
-  font-weight: 600;
-}
-.cloud-window-close {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  padding: 0;
-  border-color: transparent;
-  background-color: transparent;
-  color: var(--ds-text-2);
+  margin: 0;
+  font: inherit;
 }
 .cloud-window-body {
   flex: 1;
@@ -103,15 +90,21 @@
   min-width: 76px;
 }
 
-/* ---- 远程算力: window 1110 × 738 at most, inside the main window */
+/* ---- 远程算力: 860 wide at most, as high as its page (at most 738), inside the main window; the
+   content height lets the auto margins centre it. Its body takes its content's height (not the
+   rest of a fixed frame) and scrolls once the frame reaches its most. */
 .cloud-window.remote-compute {
-  width: min(1110px, calc(100vw - 24px));
-  height: min(738px, calc(100vh - 24px));
+  width: min(860px, calc(100vw - 24px));
+  height: -webkit-fit-content;
+  height: fit-content;
+  max-height: min(738px, calc(100vh - 24px));
+}
+.cloud-window.remote-compute > .cloud-window-body {
+  flex: 0 1 auto;
 }
 .rc-root {
   display: flex;
   flex-direction: column;
-  height: 100%;
   min-height: 440px;
 }
 .rc-header {
@@ -338,6 +331,15 @@
   grid-column: 2;
   justify-self: start;
 }
+/* A refresh beside the list it reloads: the icon alone, as square as a field is tall. */
+.rc-icon-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  padding: 0;
+}
 /* A titled note with its action, set apart by a hairline. */
 .rc-note {
   display: flex;
@@ -414,10 +416,10 @@
   color: var(--ds-danger-text);
 }
 
-/* ---- 智子账户明细: window 900 × 588 at most, the paged tables */
+/* ---- 智子账户明细: window 860 × 588 at most, the paged tables */
 .cloud-window.rc-details {
   z-index: 27;
-  width: min(900px, calc(100vw - 24px));
+  width: min(860px, calc(100vw - 24px));
   height: min(588px, calc(100vh - 24px));
 }
 .rc-details-root {
@@ -489,9 +491,9 @@
   color: var(--ds-danger-text);
 }
 
-/* ---- 智子充值与 VIP (modal): the choice, then the QR code beside the order */
+/* ---- 智子充值与 VIP (modal): the choice as grouped rows, then the QR code beside the order */
 .modal-box.rc-payment-dialog {
-  width: min(720px, calc(100vw - 24px));
+  width: min(640px, calc(100vw - 24px));
 }
 .rc-payment-root {
   display: flex;
@@ -502,39 +504,32 @@
   margin: 0;
   color: var(--ds-text-2);
 }
-/* 余额充值 / VIP 会员: the chosen plan on accent-soft with an accent line. */
-.rc-payment-modes {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 8px;
+/* 余额充值 / VIP 会员: one segmented control across its row. */
+.rc-payment-modes > .ds-seg {
+  flex: 1 1 auto;
 }
-.rc-payment-mode {
-  height: auto;
-  min-height: 32px;
-  white-space: normal;
+.rc-payment-modes > .ds-seg > label {
+  flex: 1 1 0;
+  justify-content: center;
 }
-.rc-payment-mode.selected {
-  border-color: var(--ds-accent);
-  background-color: var(--ds-accent-soft);
-  color: var(--ds-accent-text);
-  font-weight: 600;
-}
-.rc-payment-mode.selected:disabled {
-  border-color: var(--ds-accent-soft-line);
+.rc-payment-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 .rc-payment-selection {
-  display: grid;
-  grid-template-columns: var(--cloud-label) minmax(0, 1fr);
-  align-items: center;
-  gap: 8px 12px;
-  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
-.rc-payment-label {
-  color: var(--ds-text-2);
+.rc-payment-selection select {
+  width: calc(var(--ds-size) * 16);
 }
-.rc-payment-summary,
+.rc-payment-summary {
+  margin: 8px 4px 0;
+}
 .rc-payment-selection .rc-payment-status {
-  grid-column: 1 / -1;
+  margin: 0 4px;
 }
 .rc-payment-summary,
 .rc-payment-amount {
@@ -551,15 +546,6 @@
 }
 .rc-payment-status.rc-error {
   color: var(--ds-danger-text);
-}
-.rc-payment-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
-}
-.rc-payment-actions button {
-  min-width: 76px;
 }
 .rc-payment-pay {
   display: flex;
@@ -595,10 +581,6 @@
   margin: 8px 0 0;
   color: var(--ds-text-3);
   font-size: var(--ds-size-s);
-}
-.rc-payment-details .rc-payment-actions {
-  margin-top: auto;
-  padding-top: 16px;
 }
 .rc-payment-confirm p {
   margin: 4px 0;

@@ -31,8 +31,7 @@ body {
   border-bottom: 1px solid var(--ds-line);
   background: var(--ds-chrome);
 }
-.tc-modes,
-.ts-providers {
+.tc-modes {
   display: inline-flex;
   min-width: 0;
   border: 1px solid var(--ds-line-strong);
@@ -40,26 +39,22 @@ body {
   background: var(--ds-raised);
   overflow: hidden;
 }
-.tc-mode,
-.ts-provider {
+.tc-mode {
   height: calc(var(--ds-control-h-l) - 2px);
   padding: 0 14px;
   border: 0;
   border-radius: 0;
   background-color: transparent;
 }
-.tc-mode + .tc-mode,
-.ts-provider + .ts-provider {
+.tc-mode + .tc-mode {
   border-left: 1px solid var(--ds-line);
 }
-.tc-mode.selected,
-.ts-provider.selected {
+.tc-mode.selected {
   background-color: var(--ds-accent-soft);
   color: var(--ds-accent-text);
   font-weight: 600;
 }
-.tc-mode:disabled,
-.ts-provider:disabled {
+.tc-mode:disabled {
   background-color: transparent;
 }
 .tc-settings {
@@ -381,8 +376,8 @@ body {
   padding: 0 10px;
 }
 
-/* ---- AI 解说设置: the dialog frame with a page list on the left, the page on the right and the
-   status with 取消 / 保存 below both */
+/* ---- AI 解说设置: the dialog frame with the title and its close box, a page list on the left, the
+   page's grouped rows on the right and the footer band (status, 取消 / 保存) below both */
 .ts-overlay {
   position: fixed;
   z-index: 10;
@@ -399,12 +394,8 @@ body {
 }
 .ts-head {
   flex: none;
-  padding: 14px 20px 12px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--ds-line);
-}
-.ts-title {
-  font-size: var(--ds-size-xl);
-  font-weight: 600;
 }
 .ts-subtitle,
 .ts-note {
@@ -414,6 +405,7 @@ body {
 }
 .ts-subtitle {
   margin-top: 2px;
+  padding: 0 20px;
 }
 .ts-main {
   flex: 1;
@@ -497,35 +489,18 @@ body {
   color: var(--ds-text-2);
 }
 
-/* Label column and control column, as in 综合设置. */
-.ts-form,
-.ts-chat-grid {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  align-items: center;
-  gap: 8px 12px;
-}
-.ts-form > label,
-.ts-chat-grid > label {
-  white-space: nowrap;
-}
-.ts-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.ts-field {
-  flex: 1;
-  min-width: 0;
+/* The pages' grouped rows (design/dialog.css): fields, the model combo and selects take one width,
+   so a group's controls start on one line. */
+.ts-rows .ds-row-control > :is(.ts-field, .ts-combo) {
+  width: calc(var(--ds-size) * 18);
 }
 .ts-combo {
   position: relative;
-  flex: 1;
-  min-width: 0;
   display: flex;
 }
 .ts-combo .ts-field {
+  flex: 1;
+  min-width: 0;
   padding-right: 28px;
 }
 .ts-combo-toggle {
@@ -586,63 +561,34 @@ body {
 .ts-check:has(> input:disabled) {
   color: var(--ds-text-off);
 }
-.ts-label {
-  margin-top: 4px;
-}
 .ts-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-/* 讲解偏好: titled groups of rows, each a title and hint beside its choice. */
-.ts-section {
-  margin-top: 8px;
-  padding-top: 12px;
-  border-top: 1px solid var(--ds-line);
-  font-weight: 600;
-}
-.ts-heading + .ts-note + .ts-section {
-  margin-top: 4px;
-  padding-top: 0;
-  border-top: 0;
-}
-.ts-pref {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-}
-.ts-pref-text {
-  flex: 1;
-  min-width: 0;
-}
-.ts-pref select {
-  flex: none;
-  width: calc(var(--ds-size) * 16);
-}
+/* 重新加载讲棋知识库 after the groups. */
 .ts-link {
   align-self: flex-start;
   margin-top: 8px;
 }
 
-.ts-foot {
+.ts-box > .ds-footer {
   flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 20px 16px;
+  margin: 0;
+  padding: 12px 20px;
   border-top: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
+}
+.ts-box > .ds-footer button {
+  min-width: 76px;
 }
 .ts-status {
   flex: 1;
   min-width: 0;
-  margin-right: 8px;
   color: var(--ds-text-2);
   white-space: pre-line;
   overflow-wrap: anywhere;
-}
-.ts-foot button {
-  min-width: 76px;
 }
 
 /* 正在使用 ChatGPT 套餐: a message over the settings dialog. */

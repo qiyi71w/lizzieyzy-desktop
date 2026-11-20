@@ -1,15 +1,16 @@
 /* KataGo 一键设置 (KataGoAutoSetupDialog): a non-modal tool window over the workbench with the
-   dialog's ground, radius and shadow and no scrim. The page list on the left is the settings
-   dialog's navigation; each page is titled sections divided by hairlines; 停止 / 关闭 sit below
-   both and only the page scrolls. */
+   dialog's ground, radius and shadow and no scrim, no larger than 综合设置 (860 x 800). The title
+   row ends in the close box; the page list on the left is the settings dialog's navigation; each
+   page is titled sections divided by hairlines; the footer band (task progress, status, 停止,
+   关闭) sits below both and only the page scrolls. */
 .auto-setup-window {
-  --setup-label: calc(var(--ds-size) * 13);
+  --setup-label: calc(var(--ds-size) * 10);
   position: fixed;
   z-index: 25;
   inset: 0;
   margin: auto;
-  width: min(1040px, calc(100vw - 24px));
-  height: min(760px, calc(100vh - 24px));
+  width: min(860px, 96vw);
+  height: min(800px, 94vh);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -21,7 +22,6 @@
 }
 .setup-title {
   flex: none;
-  padding: 14px 20px 0;
 }
 .setup-title h2 {
   margin: 0;
@@ -148,6 +148,11 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;
+}
+/* 技术细节: paths, each on the full line under its name. */
+.setup-technical .setup-info-row {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
 }
 .setup-technical .setup-info-value {
   color: var(--ds-text-2);
@@ -307,6 +312,15 @@
 .setup-weight-tabs > :last-child {
   margin-left: auto;
 }
+/* 刷新 beside the catalog it reloads: the icon alone, as square as a field is tall. */
+.setup-icon-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  padding: 0;
+}
 /* The weight catalog: header on --ds-sunken, a line between rows, the selected row in accent. */
 .setup-weight-table-wrap {
   max-height: 240px;
@@ -362,12 +376,13 @@
 }
 .setup-weight-details {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
-  gap: 12px;
+  gap: 8px 12px;
   margin-top: 8px;
 }
 .setup-weight-details > div:first-child {
-  flex: 1;
+  flex: 1 1 calc(var(--ds-size) * 18);
   min-width: 0;
 }
 .setup-weight-details strong {
@@ -399,26 +414,22 @@
   margin-top: 8px;
 }
 
-/* ---- the window's last row: the task in progress, the status line, 停止 / 关闭 */
+/* ---- the window's footer band: the task in progress, then 停止 and the status line at the start
+   and 关闭 at the end (controls.ts footer) */
 .setup-footer {
   flex: none;
-  padding: 12px 20px 16px;
+  padding: 12px 20px;
   border-top: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
 }
-.setup-footer-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.setup-footer > .ds-footer {
+  margin: 0;
 }
-.setup-footer-row > .setup-actions {
-  flex: none;
-  margin: 0 0 0 auto;
-}
-.setup-footer-row > .setup-actions button {
+.setup-footer .ds-footer-end button {
   min-width: 76px;
 }
 .setup-footer-status {
-  flex: 1;
+  flex: 1 1 calc(var(--ds-size) * 12);
   min-width: 0;
   max-height: 4.2em;
   overflow: auto;
@@ -499,13 +510,4 @@
 }
 .setup-startup-banner:focus-visible {
   outline-offset: -2px;
-}
-
-@media (max-width: 900px) {
-  .auto-setup-window {
-    --setup-label: calc(var(--ds-size) * 10);
-  }
-  .setup-weight-details {
-    flex-direction: column;
-  }
 }

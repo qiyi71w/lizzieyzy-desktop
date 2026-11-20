@@ -3,14 +3,14 @@
 import { run, state } from "../app";
 import type { EngineProfile, EngineStartup } from "../contract/generated";
 import { chooseSave, confirm, formPanel } from "../dialogs";
-import { t } from "../i18n";
+import { product, t } from "../i18n";
 import { openAutoSetup } from "../setup/dialog";
 import { onTuningChange, tuningView } from "../setup/performance";
 import { configureGtp } from "./gtpConfig";
 import { scanEngine } from "./scan";
 import { tuningText } from "./tuningText";
 import { stepper } from "../design/stepper";
-import { actions, button, input, primaryButton, row, switchBox, switchRow } from "./controls";
+import { actions, button, footer, input, primaryButton, row, switchBox, switchRow } from "./controls";
 import { aboutRemoteButton, RemoteFields } from "./remote";
 
 let opened = false;
@@ -75,7 +75,7 @@ export async function openMoreEngines(): Promise<void> {
     const remote = new RemoteFields({
       host: "IP", port: t("MoreEngines.lblPort"), user: t("MoreEngines.rdoUserName"),
       password: t("MoreEngines.lblPassword"), key: t("MoreEngines.rdoKeygen"), browse: t("MoreEngines.scanKeygen"),
-    }, "radio", "engine.remote");
+    }, "engine.remote");
     remote.port.inputMode = "numeric";
     row(ssh, remote.labels.host, "", remote.host);
     row(ssh, remote.labels.port, "", remote.port);
@@ -251,7 +251,11 @@ export async function openMoreEngines(): Promise<void> {
     });
     row(body, caption(t("ChooseMoreEngine.lblchooseStart")), "", radioGroup(...startupLabels));
     const dialog = formPanel(t("MoreEngines.title"), body, dirty);
-    actions(body, button(t("MoreEngines.exit"), () => dialog.close()));
+    // Catalog operations apply at once and the entry's fields ask before they are left, so the
+    // window only closes.
+    const close = button(product("close"), () => void dialog.close());
+    close.dataset.key = "engine.close";
+    footer(body, { cancel: close });
     load();
     const unsubscribe = onTuningChange(() => {
       const saved = state.view?.settings.engine.engines;
@@ -286,6 +290,6 @@ export async function chooseEngine(manual = false, secondary = false): Promise<v
     await dialog.close();
   };
   select.ondblclick = load;
-  actions(body, primaryButton(manual ? t("loadEngine.ok") : t("ChooseMoreEngine.ok"), load), button(t("loadEngine.noEngine"), () => dialog.close()));
+  footer(body, { primary: primaryButton(manual ? t("loadEngine.ok") : t("ChooseMoreEngine.ok"), load), cancel: button(t("loadEngine.noEngine"), () => dialog.close()) });
   await dialog.closed;
 }

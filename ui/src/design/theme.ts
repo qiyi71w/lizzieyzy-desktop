@@ -2,6 +2,7 @@
 // Importing this module sets data-os, data-theme and the default type sizes before the first
 // paint. The workbench window sets the mode from the appearance setting; the program's other
 // windows follow it through the storage they share, at once and when they open later.
+import { invoke } from "@tauri-apps/api/core";
 
 /** 外观模式: follow the system, or always light or dark; light by default. */
 export type ThemeMode = "System" | "Light" | "Dark";
@@ -21,6 +22,12 @@ function storedMode(): ThemeMode {
 }
 
 export const os: Os = navigator.userAgent.includes("Windows") ? "windows" : navigator.userAgent.includes("Mac OS") ? "mac" : "linux";
+
+/** Whether a dialog's cancel button comes before its affirmative one (DESIGN.md Buttons): after it
+ *  on Windows, before it on macOS, and on Linux as the desktop's GTK dialogs order them (GNOME's
+ *  cancel-first unless the desktop turns on GTK's alternative order). */
+export let cancelFirst = os !== "windows";
+if (os === "linux") void invoke<boolean>("gtk_cancel_first").then((first) => (cancelFirst = first));
 
 /** The dark set is unfinished: until it is, every window shows the light set whatever the saved
  *  mode, and the 外观模式 menu stays hidden. */

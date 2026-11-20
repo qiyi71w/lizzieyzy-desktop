@@ -1,9 +1,7 @@
 // A modal JDialog of the 棋力评估 feature on the shared dialog frame: the title with its close
-// button, Esc closing it (AccessibilitySupport.installEscapeAction) and the keyboard kept inside
+// box, Esc closing it (AccessibilitySupport.installEscapeAction) and the keyboard kept inside
 // the dialog.
-import { icon } from "../design/icons";
-import { openModalLayer } from "../dialogs";
-import { product } from "../i18n";
+import { closeBox, openModalLayer } from "../dialogs";
 
 export interface StrengthWindow {
   box: HTMLDivElement;
@@ -23,17 +21,10 @@ export function openWindow(title: string, cls: string, onClose: () => void): Str
   box.setAttribute("aria-label", title);
   box.tabIndex = -1;
   const head = document.createElement("div");
-  head.className = "modal-title ps-window-title";
+  head.className = "modal-title";
   const caption = document.createElement("span");
   caption.textContent = title;
-  const x = document.createElement("button");
-  x.type = "button";
-  x.className = "ps-window-close";
-  x.append(icon("close"));
-  x.tabIndex = -1;
-  x.setAttribute("aria-label", product("close"));
-  x.title = product("close");
-  head.append(caption, x);
+  head.append(caption, closeBox(() => close()));
   const body = document.createElement("div");
   body.className = "ps-window-body";
   box.append(head, body);
@@ -49,7 +40,6 @@ export function openWindow(title: string, cls: string, onClose: () => void): Str
     else ownerFocus();
     onClose();
   };
-  x.onclick = close;
   box.addEventListener("keydown", (e) => {
     e.stopPropagation();
     if (e.key === "Escape") {

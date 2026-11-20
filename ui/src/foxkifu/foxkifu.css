@@ -1,7 +1,8 @@
 /* 野狐棋谱 (FoxKifuDownload), and 腾讯棋谱 (TencentKifuDownload), the same Java frame: the search
    strip (account, 搜索, 打开棋谱后此窗口, 当前账号, 近期搜索) on --ds-chrome, the game table on
-   --ds-panel, the page buttons and the progress card. The base controls are design/base.css; a
-   game's result is the searched account's gain or loss colour (design/stage.css). */
+   --ds-panel (or its empty state), the page buttons and the progress card. The base controls are
+   design/base.css; a game's result is the searched account's gain or loss colour
+   (design/stage.css). */
 html,
 body {
   overflow: hidden;
@@ -77,9 +78,38 @@ body {
 .fk-scroll {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow: auto;
 }
+/* While the table has no rows: what the search came to and what to do next, centred in the space
+   the rows would take. */
+.fk-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 20px;
+  text-align: center;
+}
+.fk-empty[hidden] {
+  display: none;
+}
+.fk-empty-title {
+  color: var(--ds-text-2);
+  font-size: var(--ds-size-l);
+  font-weight: 600;
+}
+.fk-empty-text {
+  max-width: calc(var(--ds-size) * 36);
+  color: var(--ds-text-3);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
 .fk-table {
+  flex: none;
   width: 100%;
   table-layout: fixed;
   border-collapse: separate;

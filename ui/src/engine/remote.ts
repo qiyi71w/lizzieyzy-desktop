@@ -5,7 +5,7 @@ import { run } from "../app";
 import type { RemoteFailure, SshPasswordState, SshSettings } from "../contract/generated";
 import { formPanel } from "../dialogs";
 import { product, registerProduct, t } from "../i18n";
-import { actions, button, input, primaryButton } from "./controls";
+import { button, footer, input, primaryButton, row } from "./controls";
 
 registerProduct({
   ZhCn: {
@@ -103,8 +103,8 @@ export function aboutRemoteButton(): HTMLButtonElement {
     const body = document.createElement("div");
     const text = document.createElement("p"); text.className = "engine-remote-about"; text.textContent = t("MoreEngines.aboutRemoteEngine");
     body.append(text);
+    footer(body, { cancel: button(product("close"), () => void dialog.close()) });
     const dialog = formPanel(t("MoreEngines.aboutRemoteEngineTitle"), body);
-    actions(body, primaryButton(product("ok"), () => dialog.close()));
   });
   about.dataset.key = "engine.remote.about";
   about.title = t("MoreEngines.aboutRemoteEngineTitle");
@@ -114,7 +114,8 @@ export function aboutRemoteButton(): HTMLButtonElement {
 /** Labels of one remote form: 更多引擎 and 远程引擎设置 use their own Java keys. */
 export interface RemoteLabels { host: string; port: string; user: string; password: string; key: string; browse: string }
 
-/** IP, 端口, 用户名, 密码 / 密钥 with 浏览. The 密码 / 密钥 pair always has at most one choice. */
+/** IP, 端口, 用户名, 密码 / 密钥 with 浏览. 密码 / 密钥 are radios: a form with a connection has one
+ *  of them chosen, 更多引擎 without a remote engine neither. */
 export class RemoteFields {
   readonly host = input("");
   readonly port = input("");
@@ -129,10 +130,10 @@ export class RemoteFields {
   private enabled = true;
   private checked = 0;
 
-  constructor(readonly labels: RemoteLabels, kind: "radio" | "checkbox", readonly prefix: string) {
-    this.usePassword = input("", kind);
-    this.useKey = input("", kind);
-    if (kind === "radio") this.usePassword.name = this.useKey.name = `${prefix}-auth`;
+  constructor(readonly labels: RemoteLabels, readonly prefix: string) {
+    this.usePassword = input("", "radio");
+    this.useKey = input("", "radio");
+    this.usePassword.name = this.useKey.name = `${prefix}-auth`;
     this.passwordLabel.append(this.usePassword, labels.password);
     this.keyLabel.append(this.useKey, labels.key);
     this.password.autocomplete = "off";
@@ -146,9 +147,7 @@ export class RemoteFields {
       if (r?.type === "FileChosen") this.setKeyPath(r.path);
     });
     this.browse.dataset.key = `${prefix}.browse`;
-    // RemoteEngineSettings: unchecking one checks the other; MoreEngines' radios only select.
-    this.usePassword.onchange = () => { this.useKey.checked = kind === "checkbox" ? !this.usePassword.checked : false; this.update(); };
-    this.useKey.onchange = () => { this.usePassword.checked = kind === "checkbox" ? !this.useKey.checked : false; this.update(); };
+    this.usePassword.onchange = this.useKey.onchange = () => this.update();
     for (const el of [this.host, this.port, this.user]) el.addEventListener("change", () => void this.refreshPassword());
   }
 
@@ -226,15 +225,19 @@ export async function editRemoteEngine(initial: SshSettings, password: string | 
   const fields = new RemoteFields({
     host: t("RemoteEngineSettings.lblIP"), port: t("RemoteEngineSettings.lblProt"), user: t("RemoteEngineSettings.lblUserName"),
     password: t("RemoteEngineSettings.chkUsePassword"), key: t("RemoteEngineSettings.chkUseKeyGen"), browse: t("RemoteEngineSettings.scanKeyGen"),
-  }, "checkbox", "remoteEngineSettings");
+  }, "remoteEngineSettings");
   fields.set(initial);
   if (password !== null) fields.password.value = password;
-  const body = document.createElement("div");
-  const grid = document.createElement("div"); grid.className = "engine-remote-grid";
-  const label = (text: string) => { const el = document.createElement("span"); el.textContent = text; return el; };
-  grid.append(label(fields.labels.host), fields.host, label(fields.labels.port), fields.port, label(fields.labels.user), fields.user,
-    fields.passwordLabel, fields.password, fields.keyLabel, fields.browse);
-  body.append(grid);
+  fields.port.inputMode = "numeric";
+  // One group: IP, 端口, 用户名, then 密码 / 密钥 as the last row's choice with the field or 浏览
+  // it enables at the end.
+  const body = document.createElement("div"); body.className = "engine-remote";
+  row(body, fields.labels.host, "", fields.host);
+  row(body, fields.labels.port, "", fields.port);
+  row(body, fields.labels.user, "", fields.user);
+  const auth = document.createElement("span"); auth.className = "ds-seg"; auth.setAttribute("role", "radiogroup");
+  auth.append(fields.passwordLabel, fields.keyLabel);
+  row(body, auth, "", fields.password, fields.browse);
   let result: { ssh: SshSettings; password: string | null } | null = null;
   const dialog = formPanel(t("RemoteEngineSettings.title"), body);
   const ok = primaryButton(t("RemoteEngineSettings.okButton"), () => {
@@ -242,7 +245,9 @@ export async function editRemoteEngine(initial: SshSettings, password: string | 
     void dialog.close();
   });
   ok.dataset.key = "remoteEngineSettings.ok";
-  actions(body, ok);
+  const cancel = button(product("cancel"), () => void dialog.close());
+  cancel.dataset.key = "remoteEngineSettings.cancel";
+  footer(body, { primary: ok, cancel });
   await dialog.closed;
   return result;
 }

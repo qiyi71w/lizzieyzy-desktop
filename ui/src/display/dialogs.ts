@@ -1,22 +1,26 @@
 // Board display dialogs: the JOptionPane integer input (落子评价 显示最后多手), 设置显示手数
-// (MovenumberDialog.java) and 自定义信息顺序 (SuggestionInfoOrderSettings.java). Each applies
-// through SetDisplaySettings and closes; validation follows the Java dialog. 延迟显示候选点
-// (SetDelayShowCandidates.java) is a row of 综合设置 (settingsPage.ts).
+// (MovenumberDialog.java) and 自定义信息顺序 (SuggestionInfoOrderSettings.java), as grouped rows
+// (engine/controls.ts) with 确定 and 取消 in the footer. Each applies through SetDisplaySettings and
+// closes; validation follows the Java dialog. 延迟显示候选点 (SetDelayShowCandidates.java) is a row
+// of 综合设置 (settingsPage.ts).
 import { state } from "../app";
 import type { DisplaySettings } from "../contract/generated";
 import { setDisplay } from "../commands";
 import { ask, formPanel, message } from "../dialogs";
+import { button, footer, groupTitle, primaryButton, row, segmented, switchRow } from "../engine/controls";
 import { isChinese, product, registerProduct, t } from "../i18n";
 import { GRAPH_FONT, images, javaDouble, playouts } from "../workbench/paint";
+import "./dialogs.css";
 
-// The JDK's own JOptionPane.showInputDialog title (OptionPane.inputDialogTitle).
+// The JDK's own JOptionPane.showInputDialog title (OptionPane.inputDialogTitle), and the title of
+// 自定义信息顺序's group of the candidate's three lines.
 registerProduct({
-  ZhCn: { inputTitle: "输入" },
-  ZhTw: { inputTitle: "輸入" },
-  EnUs: { inputTitle: "Input" },
-  JaJp: { inputTitle: "入力" },
-  KoKr: { inputTitle: "입력" },
-  ThTh: { inputTitle: "ป้อนข้อมูล" },
+  ZhCn: { inputTitle: "输入", infoOrderLines: "显示顺序" },
+  ZhTw: { inputTitle: "輸入", infoOrderLines: "顯示順序" },
+  EnUs: { inputTitle: "Input", infoOrderLines: "Order" },
+  JaJp: { inputTitle: "入力", infoOrderLines: "表示順序" },
+  KoKr: { inputTitle: "입력", infoOrderLines: "표시 순서" },
+  ThTh: { inputTitle: "ป้อนข้อมูล", infoOrderLines: "ลำดับการแสดง" },
 });
 
 /** Integer.parseInt: an optionally signed decimal int, nothing else. */
@@ -61,65 +65,58 @@ export function fieldValue(field: HTMLInputElement): number {
   return Number.parseInt(s, 10);
 }
 
-export function button(text: string): HTMLButtonElement {
-  const b = document.createElement("button");
-  b.textContent = text;
-  return b;
-}
-
-/** getRootPane().setDefaultButton: Enter anywhere in the dialog presses it. */
+/** getRootPane().setDefaultButton: Enter anywhere in the dialog but on another button presses it. */
 function defaultButton(body: HTMLElement, action: () => void): void {
   body.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) {
       e.preventDefault();
       action();
     }
   });
 }
 
-/** A small form dialog's body: one row of controls, then the button row (the first button is the
- *  dialog's primary). */
-function smallForm(row: HTMLElement, ...buttons: HTMLButtonElement[]): HTMLDivElement {
+/** 手数 > 自定义 (MovenumberDialog): an empty field; 确定 with 0 or less (or blank) turns the field
+ *  red with 无效的数字 under it and keeps the dialog (the next edit clears both); otherwise the
+ *  last n numbers show. */
+export function openMoveNumberDialog(): void {
   const body = document.createElement("div");
-  body.className = "display-form";
-  row.classList.add("display-form-row");
-  buttons[0].classList.add("primary");
-  const actions = document.createElement("div");
-  actions.className = "engine-actions";
-  actions.append(...buttons);
-  body.append(row, actions);
-  return body;
-}
-
-/** A text field after its name; the name labels it. */
-function namedField(name: string): { row: HTMLLabelElement; field: HTMLInputElement } {
+  body.className = "display-dialog";
   const field = document.createElement("input");
   field.type = "text";
-  field.setAttribute("aria-label", name);
-  const row = document.createElement("label");
-  row.append(name, field);
-  return { row, field };
-}
-
-/** 手数 > 自定义 (MovenumberDialog): an empty field; 确定 with 0 or less (or blank) turns the field
- *  red with 无效的数字 and keeps the dialog; otherwise the last n numbers show. */
-export function openMoveNumberDialog(): void {
-  const { row, field } = namedField(t("MovenumberDialog.lblChangeTo"));
+  field.inputMode = "numeric";
   digitsOnly(field);
-  const ok = button(t("MovenumberDialog.okButton"));
-  const body = smallForm(row, ok);
+  row(body, t("MovenumberDialog.lblChangeTo").replace(/\s*[:：]\s*$/, ""), "", field);
+  const error = document.createElement("p");
+  error.className = "display-error";
+  error.id = "display-move-number-error";
+  error.setAttribute("role", "alert");
+  error.hidden = true;
+  body.append(error);
+  const ok = primaryButton(t("MovenumberDialog.okButton"), () => apply());
+  ok.dataset.key = "moveNumber.ok";
   const dialog = formPanel(t("MovenumberDialog.title"), body);
+  const cancel = button(product("cancel"), () => void dialog.close());
+  cancel.dataset.key = "moveNumber.cancel";
+  footer(body, { primary: ok, cancel });
+  field.addEventListener("input", () => {
+    field.classList.remove("invalid");
+    field.removeAttribute("aria-invalid");
+    field.removeAttribute("aria-errormessage");
+    error.hidden = true;
+  });
   const apply = () => {
     const n = fieldValue(field);
     if (n <= 0) {
       field.classList.add("invalid");
-      field.title = t("LizzieChangeMove.txtMoveNumber.error");
+      field.setAttribute("aria-invalid", "true");
+      field.setAttribute("aria-errormessage", error.id);
+      error.textContent = t("LizzieChangeMove.txtMoveNumber.error");
+      error.hidden = false;
       return;
     }
     void dialog.close();
     setDisplay({ moveNumbers: n });
   };
-  ok.onclick = apply;
   defaultButton(body, apply);
 }
 
@@ -326,67 +323,54 @@ function paintPreview(canvas: HTMLCanvasElement, order: [number, number, number]
   drawSample(g, { winrate: 46.5, playouts: 730, score: 0, order, show }, 350, 100, "rgba(11,227,0,0.929)", 1, false);
 }
 
-/** 推荐点 > 自定义信息顺序 (SuggestionInfoOrderSettings): a live preview, the three shown-item check
- *  boxes and one radio per row and item, in a grid of a row name and one column per item. 确定
- *  saves the check boxes, then the order only when every row has a different item (otherwise
+/** 推荐点 > 自定义信息顺序 (SuggestionInfoOrderSettings): a live preview, a switch per shown item,
+ *  then one row per line of the candidate with its item as a segmented choice. 确定 saves the
+ *  switches, then the order only when every line has a different item (otherwise
  *  wrongSettingsHint and the dialog stays). The preview keeps the last valid order. `saved` gets
- *  the saved check boxes after either 确定 (setChkSuggestionInfo of the dialog that opened it). */
+ *  the saved switches after either 确定 (setChkSuggestionInfo of the dialog that opened it). */
 export function openInfoOrderDialog(saved?: (shows: Pick<DisplaySettings, "suggestionWinrate" | "suggestionPlayouts" | "suggestionScore">) => void): void {
   const s = state.view?.settings.display;
   if (!s) return;
+  const caption = (text: string) => text.replace(/\s*[:：]\s*$/, "");
   const body = document.createElement("div");
   body.className = "info-order";
   const canvas = document.createElement("canvas");
-  const grid = document.createElement("div");
-  grid.className = "info-order-grid";
+  canvas.setAttribute("role", "img");
+  canvas.setAttribute("aria-label", caption(t("SuggestionInfoOrderSettings.preview")));
+  body.append(canvas);
   const columns = [t("SuggestionInfoOrderSettings.rdoWinrate"), t("SuggestionInfoOrderSettings.rdoPlayouts"), t("SuggestionInfoOrderSettings.rdoScoreLead")];
-  const control = (type: "checkbox" | "radio", text: string, name = "") => {
-    const label = document.createElement("label");
-    const input = document.createElement("input");
-    input.type = type;
-    if (name) input.name = name;
-    label.append(input, text);
-    return { label, input };
-  };
-  const name = (text: string) => {
-    const el = document.createElement("span");
-    el.textContent = text;
-    return el;
-  };
-  const checks = columns.map((text) => control("checkbox", text));
-  [s.suggestionWinrate, s.suggestionPlayouts, s.suggestionScore].forEach((v, k) => (checks[k].input.checked = v));
-  grid.append(name(t("SuggestionInfoOrderSettings.lblSuggestionInfo")), ...checks.map((c) => c.label));
-  // radios[item][row]; each row is a ButtonGroup.
-  const radios = columns.map((text, item) =>
-    [0, 1, 2].map((row) => {
-      const radio = control("radio", text, `infoRow${row}`);
-      radio.input.checked = s.suggestionInfoOrder[item] === row + 1;
-      return radio;
-    }),
-  );
-  [t("SuggestionInfoOrderSettings.lblFirstRow"), t("SuggestionInfoOrderSettings.lblSecondRow"), t("SuggestionInfoOrderSettings.lblThirdRow")].forEach((text, row) =>
-    grid.append(name(text), ...radios.map((rows) => rows[row].label)));
-  const ok = button(t("SuggestionInfoOrderSettings.okButton"));
-  ok.classList.add("primary");
-  const cancel = button(t("SuggestionInfoOrderSettings.cancelButton"));
-  const actions = document.createElement("div");
-  actions.className = "engine-actions";
-  actions.append(ok, cancel);
-  body.append(canvas, grid, actions);
-  const chosen = (): [number, number, number] => radios.map((rows) => rows.findIndex((r) => r.input.checked) + 1) as [number, number, number];
+  groupTitle(body, caption(t("SuggestionInfoOrderSettings.lblSuggestionInfo")));
+  const shown = [s.suggestionWinrate, s.suggestionPlayouts, s.suggestionScore];
+  const checks = columns.map((text, item) => switchRow(body, text, "", shown[item]).input);
+  checks.forEach((box, item) => (box.dataset.key = `infoOrder.show.${item}`));
+  groupTitle(body, product("infoOrderLines"));
+  // One segmented choice per line; lines[row].inputs[item] is that item on that line.
+  const lines = [t("SuggestionInfoOrderSettings.lblFirstRow"), t("SuggestionInfoOrderSettings.lblSecondRow"), t("SuggestionInfoOrderSettings.lblThirdRow")].map((text, line) => {
+    const item = s.suggestionInfoOrder.findIndex((v) => v === line + 1);
+    const choice = segmented(`infoRow${line}`, columns.map((c, k) => [String(k), c]), item < 0 ? "" : String(item));
+    choice.inputs.forEach((radio, k) => (radio.dataset.key = `infoOrder.line.${line}.${k}`));
+    row(body, caption(text), "", choice.el);
+    return choice;
+  });
+  const ok = primaryButton(t("SuggestionInfoOrderSettings.okButton"), () => {});
+  ok.dataset.key = "infoOrder.ok";
+  const cancel = button(t("SuggestionInfoOrderSettings.cancelButton"), () => {});
+  cancel.dataset.key = "infoOrder.cancel";
+  const chosen = (): [number, number, number] => columns.map((_, item) => lines.findIndex((l) => l.inputs[item].checked) + 1) as [number, number, number];
   const valid = ([w, p, sc]: number[]) => w > 0 && p > 0 && sc > 0 && w !== p && p !== sc && sc !== w;
   let previewOrder: [number, number, number] = s.suggestionInfoOrder;
   const repaint = () => {
     const order = chosen();
     if (valid(order)) previewOrder = order;
-    paintPreview(canvas, previewOrder, checks.map((c) => c.input.checked) as [boolean, boolean, boolean]);
+    paintPreview(canvas, previewOrder, checks.map((c) => c.checked) as [boolean, boolean, boolean]);
   };
   body.addEventListener("change", repaint);
   repaint();
   const dialog = formPanel(t("SuggestionInfoOrderSettings.title"), body);
+  footer(body, { primary: ok, cancel });
   cancel.onclick = () => void dialog.close();
   ok.onclick = async () => {
-    const shows = { suggestionWinrate: checks[0].input.checked, suggestionPlayouts: checks[1].input.checked, suggestionScore: checks[2].input.checked };
+    const shows = { suggestionWinrate: checks[0].checked, suggestionPlayouts: checks[1].checked, suggestionScore: checks[2].checked };
     const order = chosen();
     if (!valid(order)) {
       setDisplay(shows);

@@ -1,7 +1,8 @@
 // 腾讯棋谱 window (TencentKifuDownload.java): the nickname / UID row, 当前腾讯查询, 近期搜索, the
-// game table with its 打开 buttons, the page buttons and the progress overlay. The layout is
-// 野狐棋谱's (same Java frame and measures) without its 查询方式, with the grey input hint. The
-// core owns the search, the list and every busy state; this window keeps only the field draft.
+// game table with its 打开 buttons (or, while it has no rows, what the search came to), the page
+// buttons and the progress overlay. The layout is 野狐棋谱's (same Java frame and measures) without
+// its 查询方式, with the grey input hint. The core owns the search, the list and every busy state;
+// this window keeps only the field draft.
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -19,6 +20,7 @@ import {
 import { icon } from "../design/icons";
 import "../design/window";
 import "../design/stage.css";
+import { kifuEmpty, type KifuOutcome } from "../foxkifu/window";
 import "../foxkifu/foxkifu.css";
 import "./tencentkifu.css";
 
@@ -106,6 +108,7 @@ export function bootTencentKifu(): void {
   let notice = -1;
   let opened = -1;
   let shownMessage: string | null = null;
+  let outcome: KifuOutcome = { kind: "idle" };
 
   // ---------------------------------------------------------------- layout
   const north = el("div", "fk-north");
@@ -148,7 +151,8 @@ export function bootTencentKifu(): void {
   head.append(headRow);
   const body = el("tbody");
   table.append(columns, head, body);
-  scroll.append(table);
+  const empty = kifuEmpty();
+  scroll.append(table, empty.el);
 
   const south = el("div", "fk-south");
   const pageButtons: [string, KifuPage, "step-first" | "step-back" | "step-forward" | "step-last"][] = [
@@ -327,11 +331,13 @@ export function bootTencentKifu(): void {
     if (view.notice && view.notice.id !== notice) {
       const first = notice === -1 && !previous;
       notice = view.notice.id;
-      if (!first) {
-        const n = view.notice;
-        void show(coreText(n.message_key) + (n.message_key === "TencentKifuDownload.getKifuFailed" ? n.detail : ""));
-      }
+      const n = view.notice;
+      const text = coreText(n.message_key) + (n.message_key === "TencentKifuDownload.getKifuFailed" ? n.detail : "");
+      if (n.message_key === "TencentKifuDownload.noKifu") outcome = { kind: "none", query: view.last_name };
+      else if (n.message_key === "TencentKifuDownload.getKifuFailed") outcome = { kind: "failed", reason: text };
+      if (!first) void show(text);
     }
+    empty.show(view.rows.length === 0 && !view.busy ? outcome : null, searchButton.textContent ?? "");
     if (opened !== -1 && view.opened > opened) {
       // completeTencentKifuLoad: 打开棋谱后此窗口, then the main window comes forward.
       void invoke("tencent_kifu_opened", { minimize: view.after_get === "Minimize", close: view.after_get === "Close" });

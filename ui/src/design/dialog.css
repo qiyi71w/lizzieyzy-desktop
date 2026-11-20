@@ -25,6 +25,11 @@
   box-shadow: var(--ds-shadow-dialog);
   color: var(--ds-text);
 }
+/* The box takes the focus only as a fallback (no control yet, a press on its text); its
+ *  controls carry the ring. */
+:where(.modal-box):focus-visible {
+  outline: none;
+}
 :where(.modal-title) {
   padding: 14px 20px 0;
   font-size: var(--ds-size-xl);
@@ -86,31 +91,24 @@
   max-width: min(520px, 90vw);
 }
 
-/* ---- form dialogs (formPanel): the module's body follows the title and scrolls with the box;
-   its last row of actions is the dialog's button row */
+/* ---- form dialogs (formPanel): the title stays, the module's body under it scrolls, and the
+   body's footer stays at its foot. No wider than 综合设置 (DESIGN.md Dialogs). */
 :where(.engine-dialog) {
+  display: flex;
+  flex-direction: column;
   width: max-content;
-  max-width: min(960px, 96vw);
+  max-width: min(860px, 96vw);
   max-height: 94vh;
-  overflow: auto;
+  overflow: hidden;
+}
+:where(.engine-dialog > .modal-title) {
+  flex: none;
 }
 :where(.engine-dialog > .modal-title + *) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
   padding: 12px 20px 0;
-}
-:where(.engine-form) {
-  display: grid;
-  gap: 8px;
-}
-/* A label and its control */
-:where(.engine-field) {
-  display: grid;
-  grid-template-columns: minmax(100px, 180px) minmax(100px, 1fr);
-  align-items: center;
-  gap: 12px;
-}
-:where(.engine-field textarea) {
-  min-height: 78px;
-  resize: vertical;
 }
 :where(.engine-actions) {
   display: flex;
@@ -124,8 +122,8 @@
   align-items: center;
   white-space: nowrap;
 }
-/* The button row stays in view while a tall form scrolls inside the box: a band of the bar colour
-   across the box's foot, under a hairline. */
+/* The footer (controls.ts footer, or an action row last in the body) stays in view while a tall
+   form scrolls: a band of the bar colour across the box's foot, under a hairline. */
 :where(.engine-dialog:has(> .modal-title + * > .engine-actions:last-child)) {
   padding-bottom: 0;
 }
@@ -141,6 +139,23 @@
 }
 :where(.engine-dialog > .modal-title + * > .engine-actions:last-child button) {
   min-width: 76px;
+}
+/* The footer's start items, then its buttons at the end. */
+:where(.ds-footer) {
+  flex-wrap: nowrap;
+}
+:where(.ds-footer-start, .ds-footer-end) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+:where(.ds-footer-start) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+:where(.ds-footer-end) {
+  flex: none;
 }
 
 /* ---- grouped rows (controls.ts groupTitle / row / switchRow): a group's title, then its rows on

@@ -1,16 +1,18 @@
 // 设置 > 初始化设置 (Menu.java:5369-5378, FirstUseSettings(false), FirstUseSettings.java:33-766): a
-// modal form over the usual display and analysis options, filled from the current settings.
-// 加载默认设置 changes only the form; 确定 saves everything and closes; Escape or the close box
-// saves nothing. Java's 界面样式 row (Swing look and feel) is not part of this product and no
-// restart hint follows. The language is saved like the 语言 menu and, as in Java, applies from the
-// next start.
+// modal form of grouped rows (engine/controls.ts) over the usual display and analysis options,
+// filled from the current settings. 加载默认设置 (at the footer's start) changes only the form; 确定
+// saves everything and closes; 取消, Escape or the close box saves nothing. Java's 界面样式 row
+// (Swing look and feel) is not part of this product and no restart hint follows. The language is
+// saved like the 语言 menu and, as in Java, applies from the next start.
 import { run, state } from "./app";
 import { COMMANDS } from "./commands";
 import type { AnalysisSettings, DisplaySettings, Language } from "./contract/generated";
 import { icon } from "./design/icons";
 import { formPanel, message } from "./dialogs";
 import { openInfoOrderDialog, parseJavaInt } from "./display/dialogs";
-import { t } from "./i18n";
+import { button, footer, groupNote, groupTitle, primaryButton, row, segmented, switchRow } from "./engine/controls";
+import { product, t } from "./i18n";
+import "./display/dialogs.css";
 
 /** Java languageOptions with its combo texts (also 综合设置's 语言 row). */
 export const LANGUAGES: [Language, () => string][] = [
@@ -40,14 +42,13 @@ function openInitSettings(): void {
   if (!v) return;
   const display = v.settings.display;
   const analysis = v.settings.engine.analysis;
-  // One grid: the row names, then up to three aligned columns of choices (a, b, c); a row's last
-  // control may run on to the row's end.
-  const form = document.createElement("div");
-  form.className = "init-form";
-  type Column = "a" | "b" | "c" | "end" | "b-end" | "a-end";
-  const place = <T extends HTMLElement>(el: T, column: Column): T => {
-    el.classList.add(`init-${column}`);
-    form.append(el);
+  const body = document.createElement("div");
+  body.className = "init-settings";
+  /** The next group of rows; a gap parts the groups. */
+  const group = () => {
+    const el = document.createElement("div");
+    el.className = "init-group";
+    body.append(el);
     return el;
   };
   const help = (key: string, title: string, text: string) => {
@@ -61,113 +62,116 @@ function openInitSettings(): void {
     b.onclick = () => void message(title, text);
     return b;
   };
-  const name = (text: string, helpButton?: HTMLButtonElement) => {
-    const cell = document.createElement("div");
-    cell.className = "init-name";
-    cell.append(text);
-    if (helpButton) cell.append(helpButton);
-    form.append(cell);
+  /** A row of two exclusive choices keyed `init.<key>`: a segmented control at the row's end, or
+   *  for long texts (`long`) radios one under the other on the line under the row's name.
+   *  `before` stands at the row's end, ahead of a segmented control. */
+  const pair = (host: HTMLElement, title: string, name: string, first: [string, string], second: [string, string], long = false, ...before: HTMLElement[]) => {
+    let inputs: HTMLInputElement[];
+    if (long) {
+      const r = row(host, title, "", ...before);
+      r.classList.add("init-wide-row");
+      const rowName = r.querySelector<HTMLElement>(".ds-row-title")!;
+      rowName.id = `init-name-${name}`;
+      const choices = document.createElement("div");
+      choices.className = "init-radios";
+      choices.setAttribute("role", "radiogroup");
+      choices.setAttribute("aria-labelledby", rowName.id);
+      inputs = [first, second].map(([text]) => {
+        const input = document.createElement("input");
+        input.type = "radio";
+        input.name = name;
+        const label = document.createElement("label");
+        label.append(input, text);
+        choices.append(label);
+        return input;
+      });
+      r.append(choices);
+    } else {
+      const seg = segmented(name, [[first[1], first[0]], [second[1], second[0]]], "");
+      inputs = seg.inputs;
+      row(host, title, "", ...before, seg.el);
+    }
+    inputs[0].dataset.key = `init.${first[1]}`;
+    inputs[1].dataset.key = `init.${second[1]}`;
+    return inputs;
   };
-  /** A radio or check box with its text, placed in `column` unless it goes into a unit. */
-  const choice = (type: "radio" | "checkbox", text: string, key: string, column?: Column, group = "") => {
-    const wrap = document.createElement("label");
-    const input = document.createElement("input");
-    input.type = type;
-    if (group) input.name = group;
-    input.dataset.key = key;
-    wrap.append(input, text);
-    if (column) place(wrap, column);
-    return { wrap, input };
-  };
-  const pair = (group: string, first: [string, string], second: [string, string]) => [
-    choice("radio", first[0], `init.${first[1]}`, "a", group).input,
-    choice("radio", second[0], `init.${second[1]}`, "b-end", group).input,
-  ];
   const field = (key: string) => {
     const input = document.createElement("input");
     input.type = "text";
+    input.inputMode = "numeric";
     input.dataset.key = key;
     return input;
   };
 
-  name(t("FirstUseSettings.lblMouseOverSuggestion"));
-  const [suggestionRefresh, suggestionFrozen] = pair("initSuggestion",
+  // How the board shows the analysis.
+  const shows = group();
+  const [suggestionRefresh, suggestionFrozen] = pair(shows, t("FirstUseSettings.lblMouseOverSuggestion"), "initSuggestion",
     [t("FirstUseSettings.rdoMouseOverSuggestionRefresh"), "suggestionRefresh"],
-    [t("FirstUseSettings.rdoMouseOverSuggestionNoRefresh"), "suggestionNoRefresh"]);
-  name(t("FirstUseSettings.lblMouseOverSubboard"));
-  const [subRefresh, subFrozen] = pair("initSub",
+    [t("FirstUseSettings.rdoMouseOverSuggestionNoRefresh"), "suggestionNoRefresh"], true);
+  const [subRefresh, subFrozen] = pair(shows, t("FirstUseSettings.lblMouseOverSubboard"), "initSub",
     [t("FirstUseSettings.rdoMouseOverSubboardRefresh"), "subRefresh"],
-    [t("FirstUseSettings.rdoMouseOverSubboardNoRefresh"), "subNoRefresh"]);
-  name(t("FirstUseSettings.lblShowScore"));
-  const [withKomi, justScore] = pair("initScore",
+    [t("FirstUseSettings.rdoMouseOverSubboardNoRefresh"), "subNoRefresh"], true);
+  const [withKomi, justScore] = pair(shows, t("FirstUseSettings.lblShowScore"), "initScore",
     [t("FirstUseSettings.rdoScoreOnBoardWithKomi"), "scoreWithKomi"],
     [t("FirstUseSettings.rdoScoreOnBoardJustScore"), "scoreJustScore"]);
-  name(t("FirstUseSettings.lblWinratePerspective"));
-  const [alwaysBlack, alternately] = pair("initPerspective",
+  const [alwaysBlack, alternately] = pair(shows, t("FirstUseSettings.lblWinratePerspective"), "initPerspective",
     [t("FirstUseSettings.rdoAlwaysBlack"), "alwaysBlack"],
     [t("FirstUseSettings.rdoAlternately"), "alternately"]);
-  name(t("FirstUseSettings.lblLizzieCache"), help("init.cacheHelp", t("FirstUseSettings.lizzieCacheDiscribeTitle"), t("FirstUseSettings.lizzieCacheDiscribe")));
-  const [cacheOn, cacheOff] = pair("initCache",
+  const [cacheOn, cacheOff] = pair(shows, t("FirstUseSettings.lblLizzieCache"), "initCache",
     [t("FirstUseSettings.rdoLizzieCacheEnable"), "cacheEnable"],
-    [t("FirstUseSettings.rdoLizzieCacheDisable"), "cacheDisable"]);
+    [t("FirstUseSettings.rdoLizzieCacheDisable"), "cacheDisable"], false,
+    help("init.cacheHelp", t("FirstUseSettings.lizzieCacheDiscribeTitle"), t("FirstUseSettings.lizzieCacheDiscribe")));
 
-  name(t("FirstUseSettings.lblSuggestionInfo"));
-  const showWinrate = choice("checkbox", t("FirstUseSettings.chkWinrate"), "init.showWinrate", "a").input;
-  const showPlayouts = choice("checkbox", t("FirstUseSettings.chkVisits"), "init.showPlayouts", "b").input;
-  const showScore = choice("checkbox", t("FirstUseSettings.chkScoreLead"), "init.showScore", "c").input;
-  const order = document.createElement("button");
+  // 选点信息: a switch per item, then the order in its own dialog.
+  const info = group();
+  groupTitle(info, t("FirstUseSettings.lblSuggestionInfo"));
+  const infoSwitch = (text: string, key: string) => {
+    const input = switchRow(info, text, "", false).input;
+    input.dataset.key = key;
+    return input;
+  };
+  const showWinrate = infoSwitch(t("FirstUseSettings.chkWinrate"), "init.showWinrate");
+  const showPlayouts = infoSwitch(t("FirstUseSettings.chkVisits"), "init.showPlayouts");
+  const showScore = infoSwitch(t("FirstUseSettings.chkScoreLead"), "init.showScore");
+  const order = button(t("FirstUseSettings.btnCustomOrder"), () => {});
   order.type = "button";
-  order.textContent = t("FirstUseSettings.btnCustomOrder");
   order.dataset.key = "init.customOrder";
-  place(order, "end");
-  // SuggestionInfoOrderSettings saves its own boxes and then refreshes these (setChkSuggestionInfo).
+  // SuggestionInfoOrderSettings saves its own switches and then refreshes these (setChkSuggestionInfo).
   order.onclick = () => openInfoOrderDialog((shows) => {
     showWinrate.checked = shows.suggestionWinrate;
     showPlayouts.checked = shows.suggestionPlayouts;
     showScore.checked = shows.suggestionScore;
   });
+  row(info, product("infoOrderLines"), "", order);
 
-  name(t("FirstUseSettings.lblLimitSuggestion"));
-  const limitSuggestion = place(field("init.limitSuggestion"), "a");
-  limitSuggestion.setAttribute("aria-label", t("FirstUseSettings.lblLimitSuggestion"));
-  const variationName = document.createElement("span");
-  variationName.textContent = t("FirstUseSettings.lblLimitVariation");
-  place(variationName, "b");
-  const limitVariation = place(field("init.limitVariation"), "c");
-  limitVariation.setAttribute("aria-label", t("FirstUseSettings.lblLimitVariation"));
-
-  name(t("FirstUseSettings.lblMaxAnalyzeTime"), help("init.maxTimeHelp", t("FirstUseSettings.maxAnalyzeTimeDiscribeTitile"), t("FirstUseSettings.maxAnalyzeTimeDiscribe")));
-  const limit = (column: "a" | "b-end", text: string, key: string, fieldKey: string) => {
-    const unit = document.createElement("span");
-    unit.className = "init-unit";
-    const box = choice("checkbox", text, key);
+  // The limits: the candidates and variation, then the analysis of one move.
+  const limits = group();
+  const limitSuggestion = field("init.limitSuggestion");
+  row(limits, t("FirstUseSettings.lblLimitSuggestion"), "", limitSuggestion);
+  const limitVariation = field("init.limitVariation");
+  row(limits, t("FirstUseSettings.lblLimitVariation"), "", limitVariation);
+  const perMove = group();
+  groupTitle(perMove, t("FirstUseSettings.lblMaxAnalyzeTime")).append(help("init.maxTimeHelp", t("FirstUseSettings.maxAnalyzeTimeDiscribeTitile"), t("FirstUseSettings.maxAnalyzeTimeDiscribe")));
+  /** A limit's switch with the field it enables before it. */
+  const limit = (text: string, key: string, fieldKey: string) => {
     const input = field(fieldKey);
-    input.setAttribute("aria-label", text);
-    unit.append(box.wrap, input);
-    place(unit, column);
-    return [box.input, input];
+    const box = switchRow(perMove, text, "", false, input).input;
+    box.dataset.key = key;
+    return [box, input];
   };
-  const [limitTime, maxTime] = limit("a", t("FirstUseSettings.chkLimitTime"), "init.limitTime", "init.maxTime");
-  const [limitPlayout, maxPlayouts] = limit("b-end", t("FirstUseSettings.chkLimitVisits"), "init.limitPlayout", "init.maxPlayouts");
+  const [limitTime, maxTime] = limit(t("FirstUseSettings.chkLimitTime"), "init.limitTime", "init.maxTime");
+  const [limitPlayout, maxPlayouts] = limit(t("FirstUseSettings.chkLimitVisits"), "init.limitPlayout", "init.maxPlayouts");
   limitTime.addEventListener("change", () => (maxTime.disabled = !limitTime.checked));
   limitPlayout.addEventListener("change", () => (maxPlayouts.disabled = !limitPlayout.checked));
 
-  name(t("FirstUseSettings.lblLanguage"));
-  const languageChoice = place(document.createElement("select"), "a-end");
+  const languages = group();
+  const languageChoice = document.createElement("select");
   languageChoice.dataset.key = "init.language";
-  languageChoice.setAttribute("aria-label", t("FirstUseSettings.lblLanguage"));
   for (const [value, text] of LANGUAGES) languageChoice.append(new Option(text(), value));
   languageChoice.value = v.settings.language;
+  row(languages, t("FirstUseSettings.lblLanguage"), "", languageChoice);
 
-  const notes = document.createElement("div");
-  notes.className = "init-notes";
-  for (const text of [t("FirstUseSettings.lblNotice"), t("FirstUseSettings.lblHint")]) {
-    const p = document.createElement("p");
-    p.className = "engine-hint";
-    p.textContent = text;
-    notes.append(p);
-  }
-  form.append(notes);
+  for (const text of [t("FirstUseSettings.lblNotice"), t("FirstUseSettings.lblHint")]) groupNote(body, text);
 
   // The current settings (FirstUseSettings.java:722-763).
   (display.noRefreshOnMouse ? suggestionFrozen : suggestionRefresh).checked = true;
@@ -191,11 +195,7 @@ function openInitSettings(): void {
   maxTime.disabled = !analysis.limitTime;
   maxPlayouts.disabled = !analysis.limitPlayout;
 
-  const defaults = document.createElement("button");
-  defaults.type = "button";
-  defaults.textContent = t("FirstUseSettings.defaultSettings");
-  defaults.dataset.key = "init.defaults";
-  defaults.onclick = () => {
+  const defaults = button(t("FirstUseSettings.defaultSettings"), () => {
     showPlayouts.checked = showScore.checked = showWinrate.checked = true;
     cacheOn.checked = subFrozen.checked = suggestionFrozen.checked = justScore.checked = alternately.checked = true;
     limitSuggestion.value = "10";
@@ -207,22 +207,18 @@ function openInitSettings(): void {
     limitPlayout.checked = false;
     maxPlayouts.disabled = true;
     maxPlayouts.value = "";
-  };
-  const apply = document.createElement("button");
+  });
+  defaults.type = "button";
+  defaults.dataset.key = "init.defaults";
+  const apply = primaryButton(t("FirstUseSettings.btnApply"), () => {});
   apply.type = "button";
-  apply.className = "primary";
-  apply.textContent = t("FirstUseSettings.btnApply");
   apply.dataset.key = "init.apply";
-  const actions = document.createElement("div");
-  actions.className = "engine-actions";
-  actions.append(defaults, apply);
-  const body = document.createElement("div");
-  body.append(form, actions);
 
   const dialog = formPanel(t("FirstUseSettings.title"), body);
-  const box = body.parentElement!;
-  box.classList.add("init-settings");
   dialog.closeButton.dataset.key = "init.close";
+  const cancel = button(product("cancel"), () => void dialog.close());
+  cancel.dataset.key = "init.cancel";
+  footer(body, { start: [defaults], primary: apply, cancel });
 
   apply.onclick = async () => {
     const now = state.view;

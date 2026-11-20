@@ -2,11 +2,13 @@
 // JDialogs owned by MoveListFrame): 列表筛选 (SetThreshold.java, fromMoveList), 统计阈值
 // (StatisticsThreshold.java), 关于吻合度 (SetMatchAiPara.java) and the HtmlMessage boxes they open.
 // The window holds only their drafts; every committed value goes to the main window as a core
-// command or a display change. They take the program's dialog frame (design/dialog.css) and base
-// controls; hawkeye.css lays out their bodies.
+// command or a display change. They take the program's dialog frame (design/dialog.css): the title
+// with its close box, grouped rows, the footer band; hawkeye.css places them in the window.
 import type { Command, DisplaySettings, HawkeyeSettings } from "../contract/generated";
 import { icon } from "../design/icons";
-import { t } from "../i18n";
+import { closeBox } from "../dialogs";
+import { type FooterButtons, footer, row, switchRow } from "../engine/controls";
+import { product, t } from "../i18n";
 import { type HawkeyePayload, settingsCommand } from "./model";
 
 export interface DialogActions {
@@ -83,9 +85,15 @@ function closeKind(titleKey: string): void {
 }
 
 /** A dialog panel with a title bar, centred in the window (setLocationRelativeTo(owner)). The
- *  title bar drags it; its close button hides it like JDialog's HIDE_ON_CLOSE. `buttons` is the
- *  dialog's button row, under the body. */
-function openPanel(titleKey: string, title: string, body: HTMLElement, keyPrefix: string, options: { modal?: boolean; buttons?: HTMLElement } = {}): Panel {
+ *  title bar drags it; its close box runs `dismiss`, by default hiding it like JDialog's
+ *  HIDE_ON_CLOSE. `buttons` are the footer's buttons for the panel. */
+function openPanel(
+  titleKey: string,
+  title: string,
+  body: HTMLElement,
+  keyPrefix: string,
+  options: { modal?: boolean; buttons?: (panel: Panel) => FooterButtons; dismiss?: (panel: Panel) => void } = {},
+): Panel {
   if (!layer || !layer.isConnected) {
     layer = document.createElement("div");
     layer.className = "hkd-layer";
@@ -93,26 +101,10 @@ function openPanel(titleKey: string, title: string, body: HTMLElement, keyPrefix
   }
   const el = document.createElement("div");
   el.className = "hkd modal-box";
+  el.tabIndex = -1;
   el.setAttribute("role", "dialog");
+  el.setAttribute("aria-label", title);
   el.dataset.dialog = titleKey;
-  const bar = document.createElement("div");
-  bar.className = "hkd-title modal-title";
-  const caption = document.createElement("span");
-  caption.textContent = title;
-  const closeButton = document.createElement("button");
-  closeButton.className = "hkd-close";
-  closeButton.type = "button";
-  closeButton.append(icon("close"));
-  closeButton.dataset.key = `${keyPrefix}.close`;
-  closeButton.title = "Close";
-  bar.append(caption, closeButton);
-  body.classList.add("hkd-body", "modal-body");
-  el.append(bar, body);
-  if (options.buttons) {
-    options.buttons.className = "modal-buttons";
-    el.append(options.buttons);
-  }
-
   let modal: HTMLElement | null = null;
   if (options.modal) {
     modal = document.createElement("div");
@@ -120,15 +112,31 @@ function openPanel(titleKey: string, title: string, body: HTMLElement, keyPrefix
     modal.addEventListener("mousedown", (ev) => ev.preventDefault());
     layer.append(modal);
   }
-  layer.append(el);
   const panel: Panel = { titleKey, el, modal };
+  const bar = document.createElement("div");
+  bar.className = "hkd-title modal-title";
+  const caption = document.createElement("span");
+  caption.textContent = title;
+  const closeButton = closeBox(() => (options.dismiss ?? close)(panel));
+  closeButton.dataset.key = `${keyPrefix}.close`;
+  bar.append(caption, closeButton);
+  body.classList.add("hkd-body", "modal-body");
+  el.append(bar, body);
+  if (options.buttons) footer(el, options.buttons(panel));
+  layer.append(el);
   panels.push(panel);
   raise(panel);
 
-  closeButton.addEventListener("click", () => close(panel));
   el.addEventListener("mousedown", () => raise(panel), true);
   // The dialog has the focus: the window's own key bindings (Y, Q, arrows, Space) stay out.
-  el.addEventListener("keydown", (ev) => ev.stopPropagation());
+  // Escape is its close box.
+  el.addEventListener("keydown", (ev) => {
+    ev.stopPropagation();
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      (options.dismiss ?? close)(panel);
+    }
+  });
   el.addEventListener("keyup", (ev) => ev.stopPropagation());
   el.addEventListener("contextmenu", (ev) => ev.stopPropagation());
 
@@ -137,6 +145,7 @@ function openPanel(titleKey: string, title: string, body: HTMLElement, keyPrefix
     el.style.top = `${Math.max(0, Math.min(y, window.innerHeight - el.offsetHeight))}px`;
   };
   place(Math.round((window.innerWidth - el.offsetWidth) / 2), Math.round((window.innerHeight - el.offsetHeight) / 2));
+  (el.querySelector<HTMLElement>(":is(.hkd-body, .ds-footer) :is(input:not(:disabled), select:not(:disabled), button:not(:disabled))") ?? el).focus();
   bar.addEventListener("mousedown", (ev) => {
     if (ev.button !== 0 || closeButton.contains(ev.target as Node)) return;
     ev.preventDefault();
@@ -151,6 +160,11 @@ function openPanel(titleKey: string, title: string, body: HTMLElement, keyPrefix
     window.addEventListener("mouseup", up);
   });
   return panel;
+}
+
+/** The 关闭 of a panel that only shows something. */
+function closeOnly(keyPrefix: string): (panel: Panel) => FooterButtons {
+  return (panel) => ({ cancel: button(product("close"), `${keyPrefix}.closeButton`, () => close(panel)) });
 }
 
 function button(text: string, key: string, onClick: () => void, primary = false): HTMLButtonElement {
@@ -179,7 +193,7 @@ function showMessage(titleKey: string, title: string, html: string, modal: boole
   body.dataset.key = "hawkeye.message.text";
   // Resource-bundle HTML (<html>…<br />…</html>), not user input.
   body.innerHTML = html;
-  openPanel(titleKey, title, body, "hawkeye.message", { modal });
+  openPanel(titleKey, title, body, "hawkeye.message", { modal, buttons: closeOnly("hawkeye.message") });
 }
 
 /** Java's grouping NumberFormat of the JSpinner.NumberEditor ("#,##0"). */
@@ -293,30 +307,27 @@ export function openSetThreshold(p: HawkeyePayload, actions: DialogActions): voi
   const winrate = spinner("hawkeye.setThreshold.winrate", s.winrateThreshold, 0, 99, 1, save);
   const score = spinner("hawkeye.setThreshold.score", s.scoreThreshold, 0, 99, 1, save);
   const visits = spinner("hawkeye.setThreshold.visits", s.visitsThreshold, 0, 999999, 100, save);
-  const top = document.createElement("input");
-  top.type = "checkbox";
-  top.checked = s.topCurrentMove;
+  const body = document.createElement("div");
+  body.className = "hkd-rows";
+  row(body, t("Movelistframe.lblDropWinrate"), "", winrate.el);
+  row(body, t("Movelistframe.lblDropScore"), "", score.el);
+  row(body, t("Movelistframe.lblPlayouts"), "", visits.el);
+  const top = switchRow(body, t("Movelistframe.chkTopCurrentMove"), "", s.topCurrentMove).input;
   top.dataset.key = "hawkeye.setThreshold.topCurrentMove";
   top.addEventListener("change", save);
-
-  const body = document.createElement("div");
-  body.className = "hkd-set-grid";
-  body.append(
-    label(t("Movelistframe.lblDropWinrate")), winrate.el,
-    label(t("Movelistframe.lblDropScore")), score.el,
-    label(t("Movelistframe.lblPlayouts")), visits.el,
-    label(t("Movelistframe.chkTopCurrentMove")), top,
-  );
-  const buttons = document.createElement("div");
-  const panel = openPanel("SetThreshold.title", t("SetThreshold.title"), body, "hawkeye.setThreshold", { buttons });
-  buttons.append(
-    // Values are already saved: 确定 only hides (166-177).
-    button(t("SetKataEngines.btnApply"), "hawkeye.setThreshold.confirm", () => close(panel), true),
-    button(t("SetKataEngines.btnCancel"), "hawkeye.setThreshold.cancel", () => {
-      actions.run(settingsCommand((latest ?? p).settings, origin));
-      close(panel);
+  // 取消 and the close box restore the values the dialog opened with.
+  const cancel = (panel: Panel) => {
+    actions.run(settingsCommand((latest ?? p).settings, origin));
+    close(panel);
+  };
+  openPanel("SetThreshold.title", t("SetThreshold.title"), body, "hawkeye.setThreshold", {
+    dismiss: cancel,
+    buttons: (panel) => ({
+      // Values are already saved: 确定 only hides (166-177).
+      primary: button(t("SetKataEngines.btnApply"), "hawkeye.setThreshold.confirm", () => close(panel), true),
+      cancel: button(t("SetKataEngines.btnCancel"), "hawkeye.setThreshold.cancel", () => cancel(panel)),
     }),
-  );
+  });
 }
 
 /** String.valueOf(double): whole numbers keep ".0" (and -0.0 its sign). */
@@ -367,54 +378,54 @@ export function openStatisticsThreshold(p: HawkeyePayload, actions: DialogAction
   latest = p;
   // MoveListFrame.java:1394: a new StatisticsThreshold(thisDialog) per click.
   closeKind("StatisticsThreshold.title");
-  const fields = (kind: "score" | "win") => {
-    const inputs: HTMLInputElement[] = [];
-    const grid = document.createElement("div");
-    grid.className = "hkd-stat-grid";
-    // Rows 5 (worst) to 0; row 0 is disabled and mirrors row 1 (StatisticsThreshold.java:120-250).
-    for (let k = 5; k >= 0; k--) {
+  // One row per loss class, 5 (worst) to 0, its 目数 and 胜率 fields under the column names; row 0
+  // is disabled and mirrors row 1 (StatisticsThreshold.java:120-250).
+  const body = document.createElement("div");
+  body.className = "hkd-rows";
+  const columns = document.createElement("div");
+  columns.className = "hkd-stat-columns";
+  const scoreName = t("StatisticsThreshold.lblScoreLoss");
+  const winName = t("StatisticsThreshold.lblWinLoss");
+  columns.append(label(scoreName), label(winName));
+  body.append(columns);
+  const score: HTMLInputElement[] = [];
+  const win: HTMLInputElement[] = [];
+  for (let k = 5; k >= 0; k--) {
+    const text = k === 0 ? `${t("StatisticsThreshold.loss")} <` : `${t("StatisticsThreshold.loss")}>=`;
+    const field = (kind: "score" | "win", column: string) => {
       const input = document.createElement("input");
       input.type = "text";
+      input.inputMode = "decimal";
       input.dataset.key = `hawkeye.statThreshold.${kind}.${k}`;
+      input.setAttribute("aria-label", `${column} ${text}`);
       if (k === 0) input.disabled = true;
       else komiField(input);
-      inputs[k] = input;
-      const colour = document.createElement("div");
-      colour.className = "hkd-swatch";
-      colour.style.backgroundColor = `var(--hk-loss-${k})`;
-      grid.append(label(k === 0 ? `${t("StatisticsThreshold.loss")} <` : `${t("StatisticsThreshold.loss")}>=`), input, colour);
-    }
-    inputs[1].addEventListener("input", () => {
-      inputs[0].value = inputs[1].value;
-    });
-    return { inputs, grid };
-  };
-  const score = fields("score");
-  const win = fields("win");
+      return input;
+    };
+    score[k] = field("score", scoreName);
+    win[k] = field("win", winName);
+    const name = document.createElement("span");
+    name.className = "hkd-stat-name";
+    const colour = document.createElement("span");
+    colour.className = "hkd-swatch";
+    colour.style.backgroundColor = `var(--hk-loss-${k})`;
+    name.append(colour, text);
+    row(body, name, "", score[k], win[k]);
+  }
+  for (const inputs of [score, win]) inputs[1].addEventListener("input", () => (inputs[0].value = inputs[1].value));
   // loadValue (278-292): the stored thresholds are negative.
   const load = (inputs: HTMLInputElement[], values: string[]) => inputs.forEach((input, k) => (input.value = values[k]));
-  load(win.inputs, [p.winLoss[0], ...p.winLoss].map((v) => javaDouble(-v)));
-  load(score.inputs, [p.scoreLoss[0], ...p.scoreLoss].map((v) => javaDouble(-v)));
-
-  const body = document.createElement("div");
-  const head = document.createElement("div");
-  head.className = "hkd-stat-head";
-  head.append(label(t("StatisticsThreshold.lblScoreLoss")), label(t("StatisticsThreshold.lblWinLoss")));
-  const sides = document.createElement("div");
-  sides.className = "hkd-stat-panels";
-  sides.append(score.grid, win.grid);
-  body.append(head, sides);
-  const buttons = document.createElement("div");
-  const panel = openPanel("StatisticsThreshold.title", t("StatisticsThreshold.title"), body, "hawkeye.statThreshold", { buttons });
+  load(win, [p.winLoss[0], ...p.winLoss].map((v) => javaDouble(-v)));
+  load(score, [p.scoreLoss[0], ...p.scoreLoss].map((v) => javaDouble(-v)));
 
   // saveSettings (294-345): each row parsed (an unparsable one keeps the stored value), negated,
   // and the upper rows must not be smaller than the lower ones.
-  const confirm = () => {
+  const confirm = (panel: Panel) => {
     const now = latest ?? p;
     const read = (inputs: HTMLInputElement[], stored: number[]) =>
       stored.map((v, k) => -(parseJavaDouble(inputs[k + 1].value) ?? -v));
-    const winLoss = read(win.inputs, now.winLoss);
-    const scoreLoss = read(score.inputs, now.scoreLoss);
+    const winLoss = read(win, now.winLoss);
+    const scoreLoss = read(score, now.scoreLoss);
     const ordered = (v: number[]) => v[0] >= v[1] && v[1] >= v[2] && v[2] >= v[3] && v[3] >= v[4];
     if (!ordered(winLoss) || !ordered(scoreLoss)) {
       // Utils.showMsg: a modal HtmlMessage titled Message.title.
@@ -427,23 +438,27 @@ export function openStatisticsThreshold(p: HawkeyePayload, actions: DialogAction
     });
     close(panel);
   };
-  buttons.append(
-    button(t("StatisticsThreshold.btnCalcMethod"), "hawkeye.statThreshold.calcMethod", () =>
-      showMessage(
-        "StatisticsThreshold.calcMethod.title",
-        t("StatisticsThreshold.calcMethod.title"),
-        t("StatisticsThreshold.calcMethod.content"),
-        false,
-      ),
-    ),
-    // resetDefauleValue (253-267): only the fields; 确定 saves them.
-    button(t("StatisticsThreshold.btnReset"), "hawkeye.statThreshold.reset", () => {
-      load(win.inputs, DEFAULT_WIN);
-      load(score.inputs, DEFAULT_SCORE);
+  openPanel("StatisticsThreshold.title", t("StatisticsThreshold.title"), body, "hawkeye.statThreshold", {
+    buttons: (panel) => ({
+      start: [
+        button(t("StatisticsThreshold.btnCalcMethod"), "hawkeye.statThreshold.calcMethod", () =>
+          showMessage(
+            "StatisticsThreshold.calcMethod.title",
+            t("StatisticsThreshold.calcMethod.title"),
+            t("StatisticsThreshold.calcMethod.content"),
+            false,
+          ),
+        ),
+        // resetDefauleValue (253-267): only the fields; 确定 saves them.
+        button(t("StatisticsThreshold.btnReset"), "hawkeye.statThreshold.reset", () => {
+          load(win, DEFAULT_WIN);
+          load(score, DEFAULT_SCORE);
+        }),
+      ],
+      primary: button(t("StatisticsThreshold.btnConfirm"), "hawkeye.statThreshold.confirm", () => confirm(panel), true),
+      cancel: button(t("StatisticsThreshold.btnCancel"), "hawkeye.statThreshold.cancel", () => close(panel)),
     }),
-    button(t("StatisticsThreshold.btnConfirm"), "hawkeye.statThreshold.confirm", confirm, true),
-    button(t("StatisticsThreshold.btnCancel"), "hawkeye.statThreshold.cancel", () => close(panel)),
-  );
+  });
 }
 
 /** SetMatchAiPara (SetMatchAiPara.java): the description, then the "计算方式:" label beside the
@@ -464,7 +479,7 @@ export function openMatchAiHelp(p: HawkeyePayload): void {
   form.alt = "";
   form.draggable = false;
   body.append(ai, label(t("SetMatchAiPara.lblCalculation")), form);
-  openPanel("SetMatchAiPara.title", t("SetMatchAiPara.title"), body, "hawkeye.matchAi");
+  openPanel("SetMatchAiPara.title", t("SetMatchAiPara.title"), body, "hawkeye.matchAi", { buttons: closeOnly("hawkeye.matchAi") });
 }
 
 /** The open dialog's Java title key, or null. */

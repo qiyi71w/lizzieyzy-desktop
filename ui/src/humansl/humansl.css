@@ -1,10 +1,11 @@
-/* AI 陪练: the setup dialog in 综合设置's form grammar on the shared frame (design/dialog.css), and
-   the training bar on the bars' ground with capsules (the vocabulary of the bottom bar, stated
-   here with tokens). */
+/* AI 陪练: the setup dialog as grouped rows on the shared frame (design/dialog.css), and the
+   training bar on the bars' ground with capsules (the vocabulary of the bottom bar, stated here
+   with tokens). */
 
-/* ---- setup dialog (NewHumanSlGameDialog): title, the form that scrolls, the footer */
+/* ---- setup dialog (NewHumanSlGameDialog): the title with its close box, the rows that scroll,
+   the footer band */
 .modal-box.humansl-dialog {
-  width: min(620px, calc(100vw - 40px));
+  width: min(600px, calc(100vw - 40px));
   max-width: none;
   max-height: calc(100vh - 40px);
   display: flex;
@@ -15,12 +16,15 @@
 .humansl-dialog:focus {
   outline: none;
 }
-.hs-title {
-  display: flex;
+.humansl-dialog [hidden] {
+  display: none;
+}
+.hs-title > span {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
 }
-.hs-title .icon {
+.hs-title > span > .icon {
   width: 16px;
   height: 16px;
   color: var(--ds-text-2);
@@ -29,92 +33,21 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 4px 20px 0;
-}
-.hs-setup p {
-  margin: 0;
+  padding: 4px 20px 16px;
 }
 .hs-subtitle {
+  margin: 0 0 12px;
   color: var(--ds-text-2);
-}
-.hs-hint {
-  color: var(--ds-text-3);
-  font-size: var(--ds-size-s);
-}
-
-/* Label column sized to its longest caption, control column; rows from the label column for the
-   check box, the fold and what follows the hairline. */
-.hs-form {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  align-items: center;
-  column-gap: 12px;
-  row-gap: 8px;
-  margin-top: 14px;
-  padding-bottom: 4px;
-}
-.hs-form > *,
-.hs-advanced > * {
-  grid-column: 1 / -1;
-}
-.hs-field {
-  display: grid;
-  grid-template-columns: subgrid;
-  align-items: center;
-  min-height: var(--ds-control-h-l);
-}
-.hs-field > select,
-.hs-field > input {
-  justify-self: start;
-  min-width: calc(var(--ds-size) * 14);
-}
-.hs-advanced:not([hidden]) {
-  display: grid;
-  grid-template-columns: subgrid;
-  align-items: center;
-  row-gap: 8px;
-}
-.hs-form > hr {
-  height: 0;
-  margin: 4px 0;
-  border: 0;
-  border-top: 1px solid var(--ds-line);
-}
-.hs-check {
-  display: inline-flex;
-  align-items: center;
-  justify-self: start;
-  min-height: 20px;
-}
-.hs-check.disabled {
-  color: var(--ds-text-off);
-}
-.hs-more {
-  justify-self: start;
 }
 .hs-more[aria-expanded="true"] {
   border-color: var(--ds-accent-soft-line);
   background-color: var(--ds-accent-soft);
   color: var(--ds-accent-text);
 }
-.hs-field > .hs-komi {
-  width: calc(var(--ds-size) * 6);
-  min-width: 0;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
 
-/* AI 对手: 按段位 / 职业风格, then the rank (级 / 段, the number, its range) or the style. */
-.hs-opponent {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-}
-.hs-rank-panel:not([hidden]),
-.hs-pro-panel:not([hidden]) {
-  display: flex;
-  flex-wrap: wrap;
+/* AI 对手: 按段位 / 职业风格, then the rank (级 / 段 and the number) or the style. */
+.hs-rank-panel {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
 }
@@ -124,32 +57,6 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-/* Joined text segments; the chosen one is on (浅绿底, 绿字). */
-.hs-segments {
-  display: inline-flex;
-}
-.hs-segments > button {
-  border-radius: 0;
-}
-.hs-segments > button + button {
-  margin-left: -1px;
-}
-.hs-segments > button:first-child {
-  border-radius: var(--ds-radius) 0 0 var(--ds-radius);
-}
-.hs-segments > button:last-child {
-  border-radius: 0 var(--ds-radius) var(--ds-radius) 0;
-}
-.hs-segments > button.on {
-  position: relative;
-  border-color: var(--ds-accent-soft-line);
-  background-color: var(--ds-accent-soft);
-  color: var(--ds-accent-text);
-  font-weight: 600;
-}
-.hs-segments > button.on:disabled {
-  color: var(--ds-text-off);
-}
 
 /* The model's state and the summary or the run's status. */
 .hs-summary {
@@ -157,6 +64,7 @@
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px 12px;
+  margin-top: 16px;
 }
 .hs-model-status {
   color: var(--ds-text-2);
@@ -178,6 +86,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  margin-top: 8px;
 }
 .hs-progress {
   position: relative;
@@ -212,21 +121,15 @@
   white-space: nowrap;
 }
 
-/* The footer: the hint, then 开始训练 and 取消 at the right; stays in view while the form scrolls. */
-.hs-footer {
+/* The footer band: 更多设置 at its start, 开始训练 and 取消 at its end. */
+.humansl-dialog > .ds-footer {
   flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 4px;
-  padding: 12px 20px 16px;
+  margin: 0;
+  padding: 12px 20px;
   border-top: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
 }
-.hs-footer > .hs-hint {
-  flex: 1;
-  margin: 0 8px 0 0;
-}
-.hs-footer > button {
+.humansl-dialog > .ds-footer button {
   min-width: 76px;
 }
 .hs-start {

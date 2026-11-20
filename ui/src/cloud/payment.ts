@@ -2,9 +2,13 @@
 // confirmed in its own dialog before exactly one order is created; a failed or uncertain creation is
 // never retried automatically. A pending order is polled every 2 s (backing off to 10 s while the
 // network fails), and a paid order is checked against the account up to six times, 2 s apart.
-// Closing the dialog stops polling and verification and drops every late reply.
+// Closing the dialog stops polling and verification and drops every late reply. The choice is a
+// segmented 余额充值 / VIP 会员 over its amount or plan row; the order shows its QR code beside the
+// details. The footer: 创建订单 and 取消 while choosing, 重新下单 (when offered) and 关闭 once an
+// order exists.
 import type { CloudCommand, MembershipProduct, PaymentOrder, PaymentPurpose, Purchase } from "../contract/generated";
 import { ask, formPanel } from "../dialogs";
+import { footer, row, segmented } from "../engine/controls";
 import { format, product, t } from "../i18n";
 import { qrSvg } from "./qr";
 import { account, closeOwner, fen, months, requestOwner, TOP_UP_PRESETS_FEN, type AccountOutcome } from "./service";
@@ -45,11 +49,15 @@ export function openPayment(completed: () => void): Promise<void> {
   const heading = el("p", "rc-payment-subtitle", t("RemoteCompute.payment.subtitle"));
 
   // ---- choice -------------------------------------------------------------------------------
-  const choiceCard = el("div");
-  const modes = el("div", "rc-payment-modes");
-  const topUpMode = button(t("RemoteCompute.payment.topUp"), "rc-payment-mode", "payment.mode.topUp", () => selectMode("topUp"));
-  const vipMode = button(t("RemoteCompute.payment.vip"), "rc-payment-mode", "payment.mode.vip", () => selectMode("vip"));
-  modes.append(topUpMode, vipMode);
+  const choiceCard = el("div", "rc-payment-choice");
+  const modes = segmented("rc-payment-mode", [["topUp", t("RemoteCompute.payment.topUp")], ["vip", t("RemoteCompute.payment.vip")]], "topUp");
+  modes.el.setAttribute("aria-label", t("RemoteCompute.payment.title"));
+  const [topUpMode, vipMode] = modes.inputs;
+  topUpMode.parentElement!.dataset.key = "payment.mode.topUp";
+  vipMode.parentElement!.dataset.key = "payment.mode.vip";
+  topUpMode.onchange = vipMode.onchange = () => selectMode(vipMode.checked ? "vip" : "topUp");
+  const modeRow = el("div", "ds-row rc-payment-modes");
+  modeRow.append(modes.el);
 
   const topUpPanel = el("div", "rc-payment-selection");
   const topUpSelect = el("select");
@@ -57,29 +65,25 @@ export function openPayment(completed: () => void): Promise<void> {
   topUpSelect.dataset.key = "payment.topUp";
   topUpSelect.title = t("RemoteCompute.payment.topUpAmountDescription");
   TOP_UP_PRESETS_FEN.forEach((amount) => topUpSelect.append(new Option(fen(amount), String(amount))));
-  const topUpLabel = el("label", "rc-payment-label", t("RemoteCompute.payment.topUpAmount"));
-  topUpLabel.htmlFor = topUpSelect.id;
+  row(topUpPanel, t("RemoteCompute.payment.topUpAmount"), "", topUpSelect);
   const topUpSummary = el("div", "rc-payment-summary");
   const topUpStatus = el("div", "rc-payment-status", t("RemoteCompute.payment.topUpNotice"));
-  topUpPanel.append(topUpLabel, topUpSelect, topUpSummary, topUpStatus);
+  topUpPanel.append(topUpSummary, topUpStatus);
 
   const vipPanel = el("div", "rc-payment-selection");
   const productSelect = el("select");
   productSelect.id = "rc-payment-product";
   productSelect.dataset.key = "payment.product";
   productSelect.title = t("RemoteCompute.payment.planDescription");
-  const productLabel = el("label", "rc-payment-label", t("RemoteCompute.payment.plan"));
-  productLabel.htmlFor = productSelect.id;
+  row(vipPanel, t("RemoteCompute.payment.plan"), "", productSelect);
   const productSummary = el("div", "rc-payment-summary");
   const productStatus = el("div", "rc-payment-status", t("RemoteCompute.payment.loadingProducts"));
-  vipPanel.append(productLabel, productSelect, productSummary, productStatus);
+  vipPanel.append(productSummary, productStatus);
 
-  const choiceActions = el("div", "rc-payment-actions");
   const cancelButton = button(t("RemoteCompute.payment.cancel"), "", "payment.cancel", () => void panel.close());
   const createButton = button(t("RemoteCompute.payment.createOrder"), "primary", "payment.create", () => void confirmAndCreate());
   createButton.title = t("RemoteCompute.payment.createOrderDescription");
-  choiceActions.append(cancelButton, createButton);
-  choiceCard.append(modes, topUpPanel, vipPanel, choiceActions);
+  choiceCard.append(modeRow, topUpPanel, vipPanel);
 
   // ---- payment: the QR code (black on white with its quiet zone) beside the order ------------
   const paymentCard = el("div", "rc-payment-pay");
@@ -96,14 +100,13 @@ export function openPayment(completed: () => void): Promise<void> {
     if (reauthenticate) void panel.close(); else resetForNewOrder();
   });
   retryButton.hidden = true;
-  const closeButton = button(t("RemoteCompute.payment.close"), "primary", "payment.close", () => void panel.close());
-  const payActions = el("div", "rc-payment-actions");
-  payActions.append(retryButton, closeButton);
+  const closeButton = button(t("RemoteCompute.payment.close"), "", "payment.close", () => void panel.close());
   details.append(el("div", "rc-payment-scan", t("RemoteCompute.payment.scan")), paymentProduct, paymentAmount, paymentStatus,
-    el("p", "rc-payment-provider", t("RemoteCompute.payment.providerNotice")), payActions);
+    el("p", "rc-payment-provider", t("RemoteCompute.payment.providerNotice")));
   paymentCard.append(qr, details);
   paymentCard.hidden = true;
   root.append(heading, choiceCard, paymentCard);
+  footer(root, { primary: createButton, others: [retryButton, closeButton], cancel: cancelButton });
 
   const setStatus = (node: HTMLElement, text: string, tone: "muted" | "good" | "error" = "muted") => {
     node.textContent = text;
@@ -125,10 +128,10 @@ export function openPayment(completed: () => void): Promise<void> {
 
   function update() {
     const selecting = flow === "selecting";
-    topUpMode.classList.toggle("selected", mode === "topUp");
-    vipMode.classList.toggle("selected", mode === "vip");
-    topUpMode.setAttribute("aria-pressed", String(mode === "topUp"));
-    vipMode.setAttribute("aria-pressed", String(mode === "vip"));
+    // 创建订单 / 取消 while choosing; 关闭 (and 重新下单 when offered) once an order is shown.
+    const ordering = !paymentCard.hidden;
+    createButton.hidden = cancelButton.hidden = ordering;
+    closeButton.hidden = !ordering;
     topUpPanel.hidden = mode !== "topUp";
     vipPanel.hidden = mode !== "vip";
     topUpMode.disabled = vipMode.disabled = !selecting;
@@ -205,6 +208,7 @@ export function openPayment(completed: () => void): Promise<void> {
     paymentAmount.textContent = fen(created.amountFen);
     choiceCard.hidden = true;
     paymentCard.hidden = false;
+    update();
     closeButton.focus();
     if (flow === "success") void finishSuccess();
     else if (flow === "failed") finishFailure();

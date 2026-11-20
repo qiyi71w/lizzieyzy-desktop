@@ -1,6 +1,6 @@
-// 分析 > 精析设置 (AnalysisSettings.java, frame 592x481): its controls as a flowing form in
-// 综合设置's grammar (quick.css). The dialog edits a draft of `settings.analysis_engine`; 确定
-// saves it, Escape discards it.
+// 分析 > 精析设置 (AnalysisSettings.java): its controls as grouped rows (engine/controls.ts) in
+// three untitled groups: the engine command, the visits and rules, the engine's switches. The
+// dialog edits a draft of `settings.analysis_engine`; 确定 saves it, 取消 or Escape discards it.
 import { invoke } from "@tauri-apps/api/core";
 import { run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
@@ -8,7 +8,7 @@ import { dispatch, isApiError } from "../contract/client";
 import type { AnalysisEngineSettings, LeaseAvailabilityView } from "../contract/generated";
 import { ask, formPanel, message } from "../dialogs";
 import { parseJavaInt } from "../display/dialogs";
-import { actions } from "../engine/controls";
+import { button, footer, primaryButton, row, switchRow } from "../engine/controls";
 import { editAnalysisRules } from "../engine/rules";
 import { editRemoteEngine, stagePassword } from "../engine/remote";
 import { format, product, t } from "../i18n";
@@ -83,24 +83,19 @@ function text(content: string, className = ""): HTMLSpanElement {
   return el;
 }
 
-/** A labelled field of the form: the label column, then the control column. */
-function field(host: HTMLElement, label: HTMLElement, control: HTMLElement): void {
-  const row = document.createElement("div");
-  row.className = "engine-field";
-  row.append(label, control);
-  host.append(row);
+/** The next group of rows in `host`: the groups have no titles, a gap parts them. */
+function group(host: HTMLElement): HTMLDivElement {
+  const el = document.createElement("div");
+  el.className = "analysis-settings-group";
+  host.append(el);
+  return el;
 }
 
-function choice(type: "checkbox" | "radio", label: string, key: string, checked: boolean): { label: HTMLLabelElement; input: HTMLInputElement } {
-  const input = document.createElement("input");
-  input.type = type;
-  input.checked = checked;
-  input.dataset.key = `analysisSettings.${key}`;
-  if (type === "radio") input.name = "analysis-rules";
-  const el = document.createElement("label");
-  el.className = "quick-check";
-  el.append(input, label);
-  return { label: el, input };
+/** A switch row whose switch carries `analysisSettings.<key>`; `extra` stands before the switch. */
+function toggle(host: HTMLElement, label: string, key: string, checked: boolean, sub = "", ...extra: HTMLElement[]): { row: HTMLLabelElement; input: HTMLInputElement } {
+  const r = switchRow(host, label, sub, checked, ...extra);
+  r.input.dataset.key = `analysisSettings.${key}`;
+  return r;
 }
 
 function jbutton(label: string, key: string, action: () => void): HTMLButtonElement {
@@ -200,14 +195,7 @@ export async function openAnalysisEngineSettings(options: AnalysisSettingsOption
   let edited = false;
   const panel = document.createElement("div");
   panel.className = "analysis-settings";
-  const form = document.createElement("div");
-  form.className = "quick-form";
-  panel.append(form);
-  const toolbar = document.createElement("span");
-  toolbar.className = "analysis-settings-row";
-  field(form, text(t("AnalysisSettings.lblEngineCmd")), toolbar);
-  const remoteRow = document.createElement("div");
-  remoteRow.className = "quick-check-with";
+  const commands = group(panel);
   const command = document.createElement("textarea");
   command.className = "analysis-settings-command";
   command.dataset.key = "analysisSettings.command";
@@ -243,47 +231,64 @@ export async function openAnalysisEngineSettings(options: AnalysisSettingsOption
     const index = await chooseEngine();
     if (index !== null) take(await generate(index, false));
   });
-  toolbar.append(generateButton, engineButton);
+  // The command row: 自动生成 and 选择引擎 at its end, then the command, the generated config, the
+  // example and the hint on lines of their own under its name.
+  const commandRow = row(commands, t("AnalysisSettings.lblEngineCmd"), "", generateButton, engineButton);
+  commandRow.classList.add("analysis-settings-command-row");
+  commandRow.append(command, generatedStatus, text(t("AnalysisSettings.example"), "engine-hint"), hintLabel());
   // 远程引擎 / 设置 (java:354-377): 设置 edits pending data that 确定 keeps with the rest.
-  const remote = choice("checkbox", t("MoreEngines.chkRemoteEngine"), "remoteEngine", saved.useSsh);
   let ssh = saved.ssh;
   let sshPassword: string | null = null;
   const remoteSettings = jbutton(t("Menu.settings"), "remoteSettings", async () => {
     const next = await editRemoteEngine(ssh, sshPassword);
     if (next) { ssh = next.ssh; sshPassword = next.password; }
   });
-  remoteRow.append(remote.label, remoteSettings);
-  form.append(remoteRow, command, generatedStatus, text(t("AnalysisSettings.example"), "engine-hint analysis-settings-example"), hintLabel(), document.createElement("hr"));
+  const remote = toggle(commands, t("MoreEngines.chkRemoteEngine"), "remoteEngine", saved.useSsh, "", remoteSettings);
+  const work = group(panel);
   const visits = document.createElement("input");
   visits.type = "text";
-  visits.className = "quick-number";
+  visits.inputMode = "numeric";
   // Context.BATCH (java:303-306): the same label edits `batch-analysis-playouts`.
   visits.value = String(batch ? saved.batchVisits : saved.maxVisits);
   visits.dataset.key = batch ? "analysisSettings.batchVisits" : "analysisSettings.maxVisits";
-  visits.setAttribute("aria-label", t("AnalysisSettings.lblMaxVisits"));
-  field(form, text(t("AnalysisSettings.lblMaxVisits")), visits);
-  const current = choice("radio", t("AnalysisSettings.rdoUseCurrentRules"), "useCurrentRules", saved.useCurrentRules);
-  const specific = choice("radio", t("AnalysisSettings.rdoUseSpecificRules"), "useSpecificRules", !saved.useCurrentRules);
-  const specificRow = document.createElement("span");
-  specificRow.className = "analysis-settings-row";
-  specificRow.append(specific.label, jbutton(t("AnalysisSettings.btnSetRules"), "setRules", async () => {
-    const next = await editAnalysisRules(rules);
-    if (next !== null) rules = next;
-  }));
+  row(work, t("AnalysisSettings.lblMaxVisits"), "", visits);
+  // 规则: two long choices as radios one under the other on the line under the row's name, 设置规则
+  // after the second (the rules it sets).
+  const rulesRow = row(work, t("AnalysisSettings.lblRules"), "");
+  rulesRow.classList.add("analysis-settings-wide-row");
+  const rulesName = rulesRow.querySelector<HTMLElement>(".ds-row-title")!;
+  rulesName.id = "analysis-settings-rules-name";
   const ruleChoices = document.createElement("div");
   ruleChoices.className = "analysis-settings-rules";
   ruleChoices.setAttribute("role", "radiogroup");
-  ruleChoices.setAttribute("aria-label", t("AnalysisSettings.lblRules"));
-  ruleChoices.append(current.label, specificRow);
-  field(form, text(t("AnalysisSettings.lblRules")), ruleChoices);
-  form.append(document.createElement("hr"));
-  const override = choice("checkbox", t("AnalysisSettings.chkAlwaysOverride"), "alwaysOverride", saved.alwaysOverride);
-  const preload = choice("checkbox", t("AnalysisSettings.chkPreLoad"), "preload", saved.preload);
-  const autoQuit = choice("checkbox", t("AnalysisSettings.chkAutoExit"), "autoQuit", saved.autoQuit);
-  const reuse = choice("checkbox", t("AnalysisSettings.chkReuseCurrentEngine"), "reuseCurrentEngine", saved.reuseCurrentEngine);
-  const target = text("", "engine-hint analysis-settings-target");
+  ruleChoices.setAttribute("aria-labelledby", rulesName.id);
+  const [current, specific] = ([["useCurrentRules", t("AnalysisSettings.rdoUseCurrentRules"), saved.useCurrentRules], ["useSpecificRules", t("AnalysisSettings.rdoUseSpecificRules"), !saved.useCurrentRules]] as const).map(([key, text, checked]) => {
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "analysis-rules";
+    radio.checked = checked;
+    radio.dataset.key = `analysisSettings.${key}`;
+    const label = document.createElement("label");
+    label.append(radio, text);
+    const line = document.createElement("span");
+    line.className = "analysis-settings-rule";
+    line.append(label);
+    ruleChoices.append(line);
+    return radio;
+  });
+  specific.closest(".analysis-settings-rule")!.append(jbutton(t("AnalysisSettings.btnSetRules"), "setRules", async () => {
+    const next = await editAnalysisRules(rules);
+    if (next !== null) rules = next;
+  }));
+  rulesRow.append(ruleChoices);
+  const engine = group(panel);
+  const override = toggle(engine, t("AnalysisSettings.chkAlwaysOverride"), "alwaysOverride", saved.alwaysOverride);
+  const preload = toggle(engine, t("AnalysisSettings.chkPreLoad"), "preload", saved.preload);
+  const autoQuit = toggle(engine, t("AnalysisSettings.chkAutoExit"), "autoQuit", saved.autoQuit);
+  // The engine it would reuse, and whether it can, is the switch's description.
+  const reuse = toggle(engine, t("AnalysisSettings.chkReuseCurrentEngine"), "reuseCurrentEngine", saved.reuseCurrentEngine, reuseTargetText());
+  const target = reuse.row.querySelector<HTMLElement>(".ds-row-sub")!;
   target.dataset.key = "analysisSettings.reuseTarget";
-  form.append(override.label, preload.label, autoQuit.label, reuse.label, target);
   // updateReuseControls (java:493-503): reusing the foreground engine needs no command or process.
   const updateReuse = () => {
     const own = !reuse.input.checked;
@@ -300,11 +305,13 @@ export async function openAnalysisEngineSettings(options: AnalysisSettingsOption
   remote.input.onchange = updateReuse;
   updateReuse();
   const redo = jbutton(t("AnalysisSettings.btnConfirmAndRedo"), "confirmAndRedo", () => {});
-  const confirm = jbutton(t("AnalysisSettings.btnConfirm"), "confirm", () => {});
-  confirm.classList.add("primary");
+  const confirm = primaryButton(t("AnalysisSettings.btnConfirm"), () => {});
+  confirm.dataset.key = "analysisSettings.confirm";
   redo.hidden = options.redo !== true;
-  actions(panel, redo, confirm);
   const dialog = formPanel(t("AnalysisSettings.title"), panel);
+  const cancel = button(product("cancel"), () => void dialog.close());
+  cancel.dataset.key = "analysisSettings.cancel";
+  footer(panel, { primary: confirm, others: [redo], cancel });
   let saving = false;
   let kept: AnalysisEngineSettings | null = null;
   /** saveConfig; `then` runs once the settings are kept and the dialog is closed. */
@@ -321,7 +328,7 @@ export async function openAnalysisEngineSettings(options: AnalysisSettingsOption
         command: command.value.trim(),
         maxVisits: batch ? saved.maxVisits : Math.max(1, typed ?? saved.maxVisits),
         batchVisits: batch ? (typed ?? saved.batchVisits) : saved.batchVisits,
-        useCurrentRules: current.input.checked,
+        useCurrentRules: current.checked,
         specificRules: rules,
         alwaysOverride: override.input.checked,
         preload: preload.input.checked,

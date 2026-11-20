@@ -234,8 +234,9 @@ function createCenter(initial: WorkbenchView): Center {
   const weightSelect = el("select");
   weightSelect.id = "rc-weight";
   weightSelect.dataset.key = "remote.weight";
-  // The refresh icon is not in the icon table: the button says 刷新; its tooltip names the list.
-  const refreshWeightsButton = button(t("RemoteCompute.account.refresh"), "", "remote.refreshWeights", () => void refreshCatalog(true));
+  // The list's refresh, an icon beside it; its tooltip names the list.
+  const refreshWeightsButton = button("", "rc-icon-button", "remote.refreshWeights", () => void refreshCatalog(true));
+  refreshWeightsButton.append(icon("refresh"));
   refreshWeightsButton.title = t("RemoteCompute.refreshWeightsTip");
   refreshWeightsButton.setAttribute("aria-label", t("RemoteCompute.refreshWeights"));
   const officialButton = button(t("RemoteCompute.weightUseOfficial"), "rc-link rc-official", "remote.officialWeight", () => {

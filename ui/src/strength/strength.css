@@ -33,7 +33,7 @@
   --ps-rank-blunder: #cf82c6;
 }
 
-/* ---- the frame: title with its close button, the body below */
+/* ---- the frame: title with its close box, the body below */
 .modal-box.ps-window {
   max-width: none;
   max-height: calc(100vh - 40px);
@@ -44,27 +44,6 @@
 }
 .ps-window:focus {
   outline: none;
-}
-.ps-window-title {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-}
-.ps-window-close {
-  width: var(--ds-control-h);
-  height: var(--ds-control-h);
-  margin-right: -6px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  border-color: transparent;
-  background-color: transparent;
-  color: var(--ds-text-2);
-}
-.ps-window-close .icon {
-  width: 14px;
-  height: 14px;
 }
 .ps-window-body {
   position: relative;
@@ -526,6 +505,14 @@
 .rank-blunder { --ps-rank-color: var(--ps-rank-blunder); }
 .ps-empty {
   color: var(--ds-text-3);
+}
+/* A side with no analysed move: its heading, then the empty state in place of its figures. */
+.ps-side > .ps-empty {
+  padding: 8px 0;
+}
+/* Neither side has data: the empty states keep their height, the note follows them. */
+.ps-dash-assessment > .ps-two:not(:has(.ps-side-body)) {
+  flex: none;
 }
 
 /* The note under a tab: a warning 提示条. */

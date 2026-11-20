@@ -6,9 +6,8 @@ import { apply, registerViewHandler, run, saveRecordAs, state } from "../app";
 import { COMMANDS } from "../commands";
 import { isApiError, snapshot } from "../contract/client";
 import type { FoxCommand, FoxReplaceChoice, FoxStartOutcome, FoxView } from "../contract/generated";
-import { icon } from "../design/icons";
 import { stepper } from "../design/stepper";
-import { message, options } from "../dialogs";
+import { closeBox, message, options } from "../dialogs";
 import { format, product, t } from "../i18n";
 import { javaDouble, parseJavaDouble } from "../workbench/paint";
 import "./fox.css";
@@ -189,11 +188,8 @@ function build(): HTMLElement {
   // An owned JDialog stays usable while WaitForAnalysis disables the main window.
   box.dataset.freeWindow = "";
   const head = el("div", "modal-title fox-title", t("Fox.title"));
-  const x = el("button", "modal-close");
-  x.append(icon("close"));
-  x.setAttribute("aria-label", product("close"));
+  const x = closeBox(() => { box.hidden = true; });
   x.dataset.key = "fox.close";
-  x.onclick = () => { box.hidden = true; };
   head.append(x);
 
   // Status: its dot and text, then the clock, PDA and browsing rows when they have text.

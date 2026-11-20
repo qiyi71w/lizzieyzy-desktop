@@ -1,6 +1,7 @@
 // Java KataGoAutoSetupDialog.createWeightsSection / createWeightCatalogBlock.
 import { run, state } from "../app";
 import type { Model, ResourceItem, ResourcesView } from "../contract/generated";
+import { icon } from "../design/icons";
 import { ask } from "../dialogs";
 import { product, t } from "../i18n";
 import { tagged, type SetupCard, type SetupContext } from "./card";
@@ -58,7 +59,10 @@ export function weightsCard(_ctx: SetupContext): SetupCard {
       const button = action(`setup.weight.tab.${id}`, title, () => { tab = id; selected = ""; render(); });
       button.classList.add("setup-segment"); button.classList.toggle("selected", id === tab); button.setAttribute("aria-pressed", String(id === tab)); tabs.append(button);
     }
-    const reload = action("setup.weight.reload", t("AutoSetup.refresh"), () => tab === "official" ? resourceCommand({ type: "RefreshRemoteWeights" }) : resourceCommand({ type: "Inspect", refresh: true })); reload.title = t("AutoSetup.refreshOfficialWeights"); reload.setAttribute("aria-label", t("AutoSetup.refreshOfficialWeights")); tabs.append(reload); catalog.append(tabs);
+    // 刷新 as its icon; its name and tooltip are the refresh's full name.
+    const reload = action("setup.weight.reload", "", () => tab === "official" ? resourceCommand({ type: "RefreshRemoteWeights" }) : resourceCommand({ type: "Inspect", refresh: true }));
+    reload.className = "setup-icon-button"; reload.append(icon("refresh"));
+    reload.title = t("AutoSetup.refreshOfficialWeights"); reload.setAttribute("aria-label", t("AutoSetup.refreshOfficialWeights")); tabs.append(reload); catalog.append(tabs);
     const rows: WeightRow[] = [];
     if (tab === "official") {
       const seen = new Set<string>();
