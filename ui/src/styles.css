@@ -65,33 +65,32 @@ body {
 #menubar .m.open {
   background: var(--ds-pressed);
 }
-/* The window title in the bar's free space; windowBar.ts centres it in the window when it fits.
-   The game in the interface's secondary text, then the analysis smaller and quieter, which gives
-   way first and is left out when it does not fit whole. Presses go to the title, the drag region. */
+/* The window title in the bar's free space, two stacked lines like a document title over its
+   subtitle: the game in the interface's text, the analysis under it smaller and quieter, left out
+   when it does not fit whole. windowBar.ts centres the pair in the window when it fits. Presses go
+   to the title, the drag region. */
 #windowTitle {
   flex: 1;
   min-width: 0;
   align-self: stretch;
   display: flex;
+  flex-direction: column;
   justify-content: center;
-  align-items: baseline;
-  gap: 10px;
-  padding: 0 12px;
-  line-height: var(--ds-bar-h);
+  align-items: center;
+  padding: 0 20px;
   white-space: nowrap;
 }
 #windowTitle > span {
-  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.2;
   pointer-events: none;
 }
 .title-game {
-  flex: 0 1 auto;
-  color: var(--ds-text-2);
+  color: var(--ds-text);
 }
 .title-detail {
-  flex: 0 1000 auto;
   color: var(--ds-text-3);
   font-size: var(--ds-size-s);
   font-variant-numeric: tabular-nums;
@@ -763,113 +762,6 @@ body {
   margin-left: 8px;
   padding: 0 6px;
   border-radius: var(--ds-radius-s);
-}
-
-/* ---- 诊断与日志 (the dialog frame itself is design/dialog.css): the LizzieYzy switches on the
-   left, ReadBoard and the logs on the right; the body scrolls when the window is short. */
-.modal-box:has(> .modal-body > .diagnostics) {
-  display: flex;
-  flex-direction: column;
-  max-width: min(940px, 96vw);
-  max-height: 94vh;
-}
-.modal-body:has(> .diagnostics) {
-  min-height: 0;
-  overflow: auto;
-  white-space: normal;
-}
-.diagnostics {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(280px, 1fr));
-}
-.diag-column {
-  min-width: 0;
-}
-.diag-column:first-child {
-  padding-right: 20px;
-}
-.diag-column + .diag-column {
-  padding-left: 20px;
-  border-left: 1px solid var(--ds-line);
-}
-.diag-group + .diag-group {
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid var(--ds-line);
-}
-.diag-group > h3 {
-  margin: 0 0 4px;
-  font-size: var(--ds-size-l);
-  font-weight: 600;
-}
-.diag-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-  min-height: 24px;
-}
-.diag-row.diag-indent {
-  padding-left: 19px;
-}
-.diag-check {
-  display: inline-flex;
-  align-items: center;
-}
-/* What a switch's state is, at the row's end. */
-.diag-check + .diag-feedback {
-  margin-left: auto;
-  color: var(--ds-text-3);
-  font-size: var(--ds-size-s);
-}
-.diag-note {
-  margin-top: 4px;
-  padding-left: 19px;
-  white-space: pre-line;
-  color: var(--ds-text-3);
-  font-size: var(--ds-size-s);
-}
-.diag-value {
-  flex-wrap: nowrap;
-  align-items: baseline;
-}
-.diag-name {
-  flex: none;
-  color: var(--ds-text-2);
-}
-.diag-value > :last-child {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-variant-numeric: tabular-nums;
-}
-.diag-summary,
-.diag-status {
-  color: var(--ds-text-2);
-  overflow-wrap: anywhere;
-}
-.diagnostics code {
-  font-size: var(--ds-size-s);
-  user-select: text;
-}
-.diag-actions {
-  margin-top: 8px;
-}
-.diag-actions button {
-  min-width: 76px;
-}
-@media (max-width: 720px) {
-  .diagnostics {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .diag-column:first-child {
-    padding-right: 0;
-  }
-  .diag-column + .diag-column {
-    margin-top: 16px;
-    padding: 12px 0 0;
-    border-top: 1px solid var(--ds-line);
-    border-left: 0;
-  }
 }
 
 /* ---- 自定义布局 / 可视化面板设置: three groups of check rows divided by a line; the board

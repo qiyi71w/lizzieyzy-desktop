@@ -38,10 +38,8 @@ export interface WindowTitle {
   detail: string;
 }
 
-/** Text padding of #windowTitle on each side (styles.css). */
-const TITLE_PAD = 12;
-/** Space between the title's two parts (styles.css). */
-const TITLE_GAP = 10;
+/** Clearance between the title and the menus or window buttons beside it. */
+const TITLE_PAD = 20;
 /** The system title is rewritten at most this often: an analysing engine changes it ten times a
  *  second, which task bars and window lists then repaint. */
 const SYSTEM_TITLE_INTERVAL_MS = 1000;
@@ -56,23 +54,24 @@ const titleGame = document.createElement("span");
 const titleDetail = document.createElement("span");
 const buttons = new Map<WindowButton, HTMLButtonElement>();
 
-/** Centres the title in the window when it fits between its neighbours, else in its own space;
- *  the analysis part is left out when it does not fit whole, the game part ends in "…" when cut,
- *  and a shortened title has the whole of it as its tooltip. */
+/** The title is two stacked lines, the game over the analysis, like a document title over its
+ *  subtitle. It sits on the window's centre line, or as close to it as the menus and the window
+ *  buttons allow (moving continuously, so a changing analysis line never makes it jump); the game
+ *  line ends in "…" only when the bar's whole free space is too narrow, and the analysis line is
+ *  left out when it does not fit whole there. A shortened title has the whole of it as its tooltip. */
 function layoutTitle(): void {
   if (!bar || !title) return;
   title.style.paddingLeft = title.style.paddingRight = "";
-  titleDetail.hidden = !wanted.detail;
-  if (!titleDetail.hidden && titleDetail.scrollWidth > titleDetail.clientWidth) titleDetail.hidden = true;
+  titleDetail.hidden = false;
   const frame = bar.getBoundingClientRect();
   const box = title.getBoundingClientRect();
-  const text = titleGame.scrollWidth + (titleDetail.hidden ? 0 : TITLE_GAP + titleDetail.scrollWidth);
-  // Padding added on one side moves the content's centre by half of it.
-  const shift = Math.round(frame.left + frame.right - box.left - box.right);
-  if (shift && text + Math.abs(shift) <= box.width - TITLE_PAD * 2) {
-    if (shift > 0) title.style.paddingLeft = `${TITLE_PAD + shift}px`;
-    else title.style.paddingRight = `${TITLE_PAD - shift}px`;
-  }
+  const room = box.width - TITLE_PAD * 2;
+  titleDetail.hidden = !wanted.detail || titleDetail.scrollWidth > room;
+  const text = Math.min(room, Math.max(titleGame.scrollWidth, titleDetail.hidden ? 0 : titleDetail.scrollWidth));
+  const centre = (frame.left + frame.right) / 2;
+  const left = Math.max(box.left + TITLE_PAD, Math.min(box.right - TITLE_PAD - text, centre - text / 2));
+  title.style.paddingLeft = `${Math.round(left - box.left)}px`;
+  title.style.paddingRight = `${Math.max(0, Math.round(box.right - left - text))}px`;
   const shortened = titleGame.scrollWidth > titleGame.clientWidth || (!!wanted.detail && titleDetail.hidden);
   title.title = shortened ? wanted.text : "";
 }

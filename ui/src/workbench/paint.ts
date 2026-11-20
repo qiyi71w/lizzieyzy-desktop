@@ -2382,9 +2382,12 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
     break;
   }
   const lineB = Math.round(z.large * 1.35);
-  const rowA = plan.twoRows ? Math.max(0, (h - (z.stone + 6 * k + lineB)) / 2) + z.stone / 2 : h / 2;
+  // The rows share the section's spare height with its edges, up to 14 px between them, so they
+  // stand apart instead of huddling in the middle.
+  const gapB = Math.min(14 * k, Math.max(6 * k, (h - z.stone - lineB) / 3));
+  const rowA = plan.twoRows ? Math.max(0, (h - (z.stone + gapB + lineB)) / 2) + z.stone / 2 : h / 2;
   const baseA = Math.round(rowA + z.large * 0.36);
-  const baseB = Math.round(rowA + z.stone / 2 + 6 * k + lineB / 2 + z.large * 0.36);
+  const baseB = Math.round(rowA + z.stone / 2 + gapB + lineB / 2 + z.large * 0.36);
   const stone = (cx: number, toPlay: boolean, fill: string, edge: string) => {
     const d = toPlay ? z.stone : z.stone * 0.75;
     g.fillStyle = fill;
@@ -2509,10 +2512,12 @@ export function paintStat(g: CanvasRenderingContext2D, r: Rect, s: StatScene): S
   const note = z.total <= h - 2 && notesW <= room;
   if (!note) z = rows(false);
   const { k, headline, label, body, barH, rowH1, rowH3, total } = z;
-  const top = Math.max(0, (h - total) / 2);
+  // Spare height goes to the two gaps around the bar as well as the edges, up to 6 px each.
+  const extra = Math.min(6 * k, Math.max(0, (h - total - 4) / 4));
+  const top = Math.max(0, (h - total - 2 * extra) / 2);
   const base1 = Math.round(top + rowH1 / 2 + headline * 0.36);
-  const barY = Math.round(top + rowH1 + 6 * k);
-  const base3 = Math.round(barY + barH + 8 * k + rowH3 / 2 + body * 0.36);
+  const barY = Math.round(top + rowH1 + 6 * k + extra);
+  const base3 = Math.round(barY + barH + 8 * k + extra + rowH3 / 2 + body * 0.36);
 
   // The note row: the lead at the left, the last move at the right.
   if (note) {
@@ -2727,7 +2732,9 @@ interface TreeWalk {
   numbers: number;
 }
 
-const [TREE_YS, TREE_XS, TREE_DOT] = [20, 20, 11];
+/** Row and lane spacing, node size and the first lane's left edge: Java's 20 px plus room for a
+ *  three-digit move number at the Label size left of the trunk. */
+const [TREE_YS, TREE_XS, TREE_DOT, TREE_X0] = [20, 20, 11, 24];
 
 /** VariationTree.drawTree / VariationTreeBig.drawTree from `start` at (`posx`, `posy`), Java's lane
  *  allocation. Nodes left of `minX` or above the top are not drawn. `fit` is the whole-tree view:
@@ -2762,7 +2769,8 @@ function walkTree(
     return level >= 0 ? p.treeNodes[level] : cssColor(c);
   };
   const lineColor = (n: number) => (line.has(n) ? p.treeLine : p.treeLineOff);
-  const labelFont = `9px ${panelFont("ui")}`;
+  const labelSize = typeScale().label;
+  const labelFont = `${labelSize}px ${panelFont("ui")}`;
   const node = (n: number) => nodes.get(n)!;
   const kids = (n: number) => node(n).children;
   const moveNo = (n: number) => {
@@ -2787,18 +2795,23 @@ function walkTree(
       g.lineTo(x2 + 0.5, y2 + 0.5);
       g.stroke();
     });
-  /** Font(uiFontName, PLAIN, 9) in secondary text, left of a trunk node or above a branch's first
-   *  node. */
-  const label = (n: number, x: (k: number) => number, y: number) => {
+  /** The move number in secondary text at the panels' Label size: `left` ends clear of a trunk
+   *  node's current ring, level with its centre; `above` is centred over a branch's first node. */
+  const label = (n: number, x: number, y: number, place: "left" | "above") => {
     const k = node(n).number;
     if (!numbers || k === 0) return;
     walk.numbers++;
     ops.push((g) => {
       g.font = labelFont;
       g.fillStyle = p.text2;
-      g.textAlign = "left";
       g.textBaseline = "alphabetic";
-      g.fillText(`${k}`, x(k), y);
+      if (place === "left") {
+        g.textAlign = "right";
+        g.fillText(`${k}`, x - 5, y + 5.5 + labelSize * 0.36);
+      } else {
+        g.textAlign = "center";
+        g.fillText(`${k}`, x + 5.5, y - 5);
+      }
     });
   };
   const dot = (n: number, x: number, y: number) => {
@@ -2825,10 +2838,17 @@ function walkTree(
         circle(g, cx, cy, DOT / 2);
         g.fill();
       }
+      if (n === current) {
+        g.strokeStyle = p.text;
+        g.lineWidth = 1.5;
+        circle(g, cx, cy, DOT / 2 + 2.25);
+        g.stroke();
+      }
       if (commented) {
-        // The comment dot, set off from the node by a rim of the panel's colour.
+        // The comment dot, set off from the node (and the current node's ring) by a rim of the
+        // panel's colour.
         g.globalAlpha = dim ? 0.5 : 1;
-        circle(g, cx + 3.5, cy - 3.5, 2.5);
+        circle(g, cx + 4, cy - 4, 2.5);
         g.fillStyle = commentDot;
         g.fill();
         g.strokeStyle = p.panelSolid;
@@ -2836,11 +2856,6 @@ function walkTree(
         g.stroke();
         g.globalAlpha = 1;
       }
-      if (n !== current) return;
-      g.strokeStyle = p.text;
-      g.lineWidth = 1.75;
-      circle(g, cx, cy, DOT / 2 + 3.5);
-      g.stroke();
     });
     if (!fit) grow(x, y);
   };
@@ -2871,7 +2886,7 @@ function walkTree(
     if (!fit || shown(x, posy)) {
       if (node(start).parent !== null) {
         dot(start, x, posy);
-        label(start, (k) => (k < 10 ? x + 3 : k >= 100 ? x - 3 : x), posy - 5);
+        label(start, x, posy, "above");
       } else {
         // root: square, an accent centre while it is the displayed node
         ops.push((g) => {
@@ -2896,7 +2911,7 @@ function walkTree(
       if (!shown(x, posy)) continue;
       dot(n, x, posy);
       segment(x + 5, posy - 1, x + 5, posy - YS + 11, lineColor(n));
-      label(n, (k) => (k < 10 ? x - 7 : k >= 100 ? x - 13 : x - 10), posy - 1);
+      label(n, x, posy, "left");
     }
     while (n !== start) {
       n = node(n).parent!;
@@ -2934,13 +2949,13 @@ export function paintTree(
 ): { hits: Map<string, number>; viewport: TreeViewport; numbers: number; tooWide: boolean } {
   const { w, h } = r;
   const p = stagePalette();
-  let walk = walkTree(nodes, root, current, line, numbers, nodeColors, 20, 20, 0, Infinity, false, w, h);
+  let walk = walkTree(nodes, root, current, line, numbers, nodeColors, TREE_X0, 20, 0, Infinity, false, w, h);
   const tooWide = walk.maxX >= maxWidth;
   const maxX = tooWide ? maxWidth : walk.maxX;
   // VariationTree.draw: with the current lane taken as 0 (getCurLane from the root), the tree
-  // moves left only when the cut width is under 51 px.
-  const shift = Math.max(0, TREE_XS + 20 + TREE_DOT - maxX);
-  if (shift > 0) walk = walkTree(nodes, root, current, line, numbers, nodeColors, 20 - shift, 20, 0, Infinity, false, w, h);
+  // moves left only when the cut width is under the first lane's end.
+  const shift = Math.max(0, TREE_XS + TREE_X0 + TREE_DOT - maxX);
+  if (shift > 0) walk = walkTree(nodes, root, current, line, numbers, nodeColors, TREE_X0 - shift, 20, 0, Infinity, false, w, h);
   const { hits, ops, curX, curY, maxY } = walk;
   // JScrollPane with AS_NEEDED bars of DemoScrollBarUI width 9; the horizontal bar is off when the
   // pane is under 100 px high (LizzieFrame.java:13976-13983).
@@ -3023,7 +3038,7 @@ export function paintTreeFit(
   }
   // The dummy drawing finds the current lane and the widest lane.
   const { curLane: lane, maxLane } = walkTree(nodes, start, current, line, numbers, nodeColors, 0, posy, 0, h, true, w, h);
-  const x0 = 20;
+  const x0 = TREE_X0;
   let startx = x0;
   const over = (lane + 1) * TREE_XS + x0 + TREE_DOT - w;
   if (over > 0) startx -= over;

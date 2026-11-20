@@ -32,12 +32,13 @@
 
 /* ---- 综合设置 (ConfigDialog2): the page list (search field, then one item per page with its
    icon) on the bar colour at the left, the pages on the right, 保存设置 / 取消 in the band below
-   both; only the pages scroll. */
+   both; only the pages scroll. Narrower than it is tall where the window allows, so the rows
+   read as a column. */
 .engine-dialog:has(> .engine-settings) {
   display: flex;
   flex-direction: column;
-  width: min(960px, 96vw);
-  height: min(720px, 94vh);
+  width: min(860px, 94vw);
+  height: min(800px, 92vh);
   overflow: hidden;
 }
 /* The dialog title sits over the page list's colour on the left. */
@@ -123,13 +124,13 @@
   grid-column: 2;
   min-height: 0;
   overflow: auto;
-  padding: 0 24px 20px;
+  padding: 0 28px 24px;
 }
 .settings-pages > .engine-settings-form[hidden] {
   display: none;
 }
 .settings-page-title {
-  margin: 16px 2px 10px;
+  margin: 20px 4px 12px;
   font-size: var(--ds-size-xl);
   font-weight: 600;
 }

@@ -1,15 +1,16 @@
 /* 整盘精析 (WholeGameAnalysisDialog): a non-modal tool window on the dialog's ground, radius and
-   shadow, no scrim; the board stays interactive. Sections are divided by a hairline. */
+   shadow, no scrim; the board stays interactive. Grouped rows (design/dialog.css) under the title
+   row, the buttons in a footer that stays in view while the window scrolls. */
 .whole-game-window {
   position: fixed;
   z-index: 28;
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: min(600px, calc(100vw - 40px));
+  width: min(480px, calc(100vw - 40px));
   max-height: calc(100vh - 40px);
   overflow: auto;
-  padding: 14px 20px 16px;
+  padding: 12px 20px 0;
   border-radius: var(--ds-radius-l);
   background: var(--ds-panel);
   color: var(--ds-text);
@@ -19,30 +20,22 @@
 .whole-game-window[hidden] {
   display: none;
 }
-.whole-game-window p {
-  margin: 0;
-}
 .whole-game-window header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  row-gap: 4px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--ds-line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
 }
 .whole-game-window h2 {
   margin: 0;
   font-size: var(--ds-size-xl);
   font-weight: 600;
 }
-.whole-game-window header p {
-  grid-column: 1 / -1;
-  color: var(--ds-text-2);
-}
 .whole-game-close {
+  flex: none;
   width: var(--ds-control-h);
   height: var(--ds-control-h);
-  margin: -2px -6px 0 0;
+  margin-right: -8px;
   padding: 0;
   display: grid;
   place-items: center;
@@ -55,50 +48,24 @@
   height: 14px;
 }
 
-/* 每局面计算量: label, preset and custom value, then the hint or the estimate. */
-.whole-game-visits {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  align-items: center;
-  column-gap: 12px;
-  row-gap: 4px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--ds-line);
+/* 每个局面搜索次数: the preset and the custom value at the row's end, the hint or the estimate
+   under its name. */
+.whole-game-group {
+  margin-top: 12px;
 }
-.whole-game-choice {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.whole-game-choice select {
-  min-width: calc(var(--ds-size) * 14);
-}
-.whole-game-choice input {
-  width: calc(var(--ds-size) * 9);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.whole-game-choice input[hidden] {
-  display: none;
-}
-.whole-game-visits p {
-  grid-column: 2;
-  min-height: calc(var(--ds-size-s) * 2.8);
-  color: var(--ds-text-3);
-  font-size: var(--ds-size-s);
-}
-.whole-game-visits p.invalid {
+.whole-game-window .ds-row-sub.invalid {
   color: var(--ds-danger-text);
 }
 
-/* The run: phase, bar with its percentage, counts, then mode and time left. */
+/* The run, a group of its own: phase, bar with its percentage, counts, then mode and time left. */
 .whole-game-status {
-  display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-top: 12px;
+  align-items: stretch;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 12px;
 }
-.whole-game-window h3 {
+.whole-game-status h3 {
   margin: 0;
   font-size: var(--ds-size-l);
   font-weight: 600;
@@ -133,6 +100,7 @@
   font-variant-numeric: tabular-nums;
 }
 .whole-game-status > p {
+  margin: 0;
   color: var(--ds-text-2);
   font-variant-numeric: tabular-nums;
 }
@@ -149,12 +117,19 @@
   color: var(--ds-text-2);
   font-weight: 600;
 }
+/* The buttons: the form dialogs' footer, a band of the bar colour under a hairline. */
 .whole-game-window footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 16px;
+  margin: 16px -20px 0;
+  padding: 12px 20px;
+  border-top: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
 }
 .whole-game-window footer button {
   min-width: 76px;
