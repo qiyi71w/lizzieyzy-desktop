@@ -48,10 +48,12 @@ importing the matching LizzieYzy Next settings.
   outer level move to the neighbouring menu, and `Esc` closes one level at a time, the focus
   going back where it was. A toolbar popup opened from the keyboard and the board's context
   menu take the same keys. Items that destroy record content (清空棋盘, 删除一手, 删除分支, 清空全部设置子)
-  are in red, like the bottom bar's. A menu taller than the room below it scrolls inside, and the
+  and 帮助 > 清除所有个人数据 are in red, like the bottom bar's. A menu taller than the room below it scrolls inside, and the
   arrow keys keep the chosen item in view; a submenu that would cross the window's right edge
   opens to the left, and one that would cross the bottom moves up, so every item is reachable
-  down to the smallest window (520 × 400).
+  down to the smallest window (520 × 400). In a window too narrow for every menu, the last ones
+  move into 更多菜单 (`…`) at the end of the menus, each as a submenu with its usual name, and the
+  window buttons stay on the bar; `Left`/`Right` reach 更多菜单 like any menu.
 - The top and bottom toolbars are each one `Tab` stop: `Left`/`Right` and `Home`/`End` move along
   the bar, `Enter` or `Space` presses the focused button (a disabled one, such as 暂停 outside a
   game, does nothing), and the other keys still reach the shortcuts. The bottom bar's step
@@ -493,7 +495,9 @@ importing the matching LizzieYzy Next settings.
   - Win-rate graph (显示 > 胜率图设置): Black's win-rate line, the score line or both, 面积填充
     (two-sided around 50 % when one curve shows), 恶手损失条, 鼠标悬停信息 and 初始最大目数差.
     The graph has a move axis along its foot, 25 / 50 / 75 % lines with their labels on the left
-    and the score scale on the right, and a legend in the plot corner the curves cover least.
+    and the score scale on the right, and a legend naming the curves in the plot corner the
+    curves and 恶手损失条 cover least, its names on one row or stacked, whichever leaves them clear;
+    it never covers a readout, a marker or a scale label, and the curves draw over it.
     Gaps without analysis are bridged by a dashed line that is never filled, an analysed move
     with no analysed neighbour shows as a dot, and a branch shows the main line dashed from the
     fork. The current move carries its markers and a readout of its win rate and score lead;
@@ -610,7 +614,8 @@ importing the matching LizzieYzy Next settings.
   选点列表, 刷新, 试下, 返回主分支 and 落子评价 (off by default), and 超级鹰眼 (off by default only when
   the top toolbar and its second row were both shown at start). Each choice is saved at once and
   taken over by the LizzieYzy Next import. The buttons keep Java's places; those that do not fit
-  go to 更多, whose popup runs them. 打开 / 保存 act as 文件 > 打开 / 保存 (保存 overwrites the
+  go to 更多, whose popup runs them; the navigation stays whole on the bar, so in a narrow window
+  自动播放 and then the left buttons go to 更多 first. 打开 / 保存 act as 文件 > 打开 / 保存 (保存 overwrites the
   record's own file, otherwise asks for a name), 选点列表 as `U`, 落子评价 as `Alt+M`, 终局点目 as
   `Ctrl+Q`, and 刷新 lets the current move's stored result give way and searches the move again
   while analysing. Function search locates a bottom button that is switched off or does not fit in

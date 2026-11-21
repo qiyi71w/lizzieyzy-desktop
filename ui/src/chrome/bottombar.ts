@@ -412,8 +412,10 @@ function visible(item: Item): boolean {
 
 /** layoutMainBar: left groups greedy from the left, navigation centred between them, right groups
  *  from the right (optional ones overflow first); overflowed buttons go to "更多", which reserves
- *  its width in a second pass. Buttons of one capsule adjoin, capsules stand 8 px apart, and a
- *  capsule is laid under each run of adjoining buttons. */
+ *  its width in a second pass. The navigation always stays whole on the bar: in a window too narrow
+ *  for it beside the left buttons its 自动播放 goes to "更多", then the left buttons do. Buttons of
+ *  one capsule adjoin, capsules stand 8 px apart, and a capsule is laid under each run of
+ *  adjoining buttons. */
 export function layoutBottomBar(host: HTMLElement): void {
   const W = host.clientWidth;
   const PAD = 10;
@@ -429,14 +431,16 @@ export function layoutBottomBar(host: HTMLElement): void {
     rightPrimary: GROUPS.rightPrimary.filter(visible),
     rightOptional: GROUPS.rightOptional.filter(visible),
   };
-  const centerWidth = span(g.center);
   for (const reserve of showMore ? [true] : [false, true]) {
     place.clear();
     let overflow = false;
     const rightEdge = W - PAD - (reserve ? width(MORE) + GAP : 0);
     const minStart = PAD + span(g.leftPrimary) + GAP * 2;
+    const center = minStart + span(g.center) <= rightEdge ? g.center : g.center.filter((b) => !b.setting);
+    if (center.length < g.center.length) overflow = true;
+    const centerWidth = span(center);
     const maxStart = rightEdge - span(g.rightPrimary) - centerWidth - GAP * 2;
-    const centerStart = Math.max(PAD, Math.max(minStart, Math.min(Math.floor((W - centerWidth) / 2), maxStart)));
+    const centerStart = Math.max(PAD, Math.min(Math.max(minStart, Math.min(Math.floor((W - centerWidth) / 2), maxStart)), rightEdge - centerWidth));
     let x = PAD;
     let placed: Item | null = null;
     for (const b of [...g.leftPrimary, ...g.leftOptional]) {
@@ -463,15 +467,15 @@ export function layoutBottomBar(host: HTMLElement): void {
       }
     }
     x = centerStart;
-    g.center.forEach((b, k) => {
-      if (k > 0) x += gap(g.center[k - 1], b);
+    center.forEach((b, k) => {
+      if (k > 0) x += gap(center[k - 1], b);
       place.set(b, x);
       x += width(b);
     });
     if (reserve && (overflow || showMore)) place.set(MORE, W - PAD - width(MORE));
     if (!overflow) break;
   }
-  overflowed = [...g.leftPrimary, ...g.leftOptional, ...g.rightPrimary, ...g.rightOptional].filter((item) => !place.has(item));
+  overflowed = [...g.leftPrimary, ...g.leftOptional, ...g.center, ...g.rightPrimary, ...g.rightOptional].filter((item) => !place.has(item));
   for (const [item, el] of elements) if (!place.has(item)) el.style.display = "none";
 
   // From left to right: each button at its place, and the runs of adjoining buttons of one capsule.

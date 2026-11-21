@@ -304,6 +304,27 @@ interface Box { x: number; y: number; w: number; h: number }
 
 const intersects = (a: Box, b: Box) => a.w > 0 && a.h > 0 && b.w > 0 && b.h > 0 && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
+/** How much of a polyline runs inside `box`: each segment clipped to it (Liang–Barsky). */
+function lengthInside(points: number[][], box: Box): number {
+  let total = 0;
+  for (let k = 1; k < points.length; k++) {
+    const [x1, y1] = points[k - 1];
+    const [x2, y2] = points[k];
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    let t0 = 0;
+    let t1 = 1;
+    for (const [p, q] of [[-dx, x1 - box.x], [dx, box.x + box.w - x1], [-dy, y1 - box.y], [dy, box.y + box.h - y1]]) {
+      if (p === 0) {
+        if (q < 0) t1 = -1;
+      } else if (p < 0) t0 = Math.max(t0, q / p);
+      else t1 = Math.min(t1, q / p);
+    }
+    if (t1 > t0) total += (t1 - t0) * Math.hypot(dx, dy);
+  }
+  return total;
+}
+
 /** How a curve piece is stroked; `filled` pieces enclose the area fill with the midline. */
 interface StrokeStyle { color: string; width: number; dash: number[]; filled: boolean }
 
@@ -437,6 +458,11 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     for (const k of [1, 3]) line(g, posx, quarterY(k), W0, quarterY(k), p.graphGrid, 1, false);
     line(g, posx, baselineY, W0, baselineY, p.graphBaseline, 1, [2, 3]);
   });
+  /** Where the scale labels stand, which the legend leaves free. */
+  const scaleBoxes: Box[] = [];
+  /** The readout chips drawn; a scale label one of them covers is left out (a short graph's 75 %
+   *  labels share the band at the top of the plot with the chips). */
+  const readoutBoxes: Box[] = [];
   /** The scale labels just above the lines at 75 / 50 / 25 % (the midline's alone where the
    *  quarters are closer than a line of Label text): the win rate at the left edge; the score
    *  lead at ±maxScore / 2 and 0 at the right edge, at the left without the win-rate curve. */
@@ -452,12 +478,22 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
       const half = compactNumber(maxScore / 2);
       add([t("WinrateGraph.scoreLeadBlackPrefix") + half, "0", t("WinrateGraph.scoreLeadWhitePrefix") + half], p.graphScoreText, winrateRenderable);
     }
+    // The labels' ink (digits, signs and "%" reach neither the line's ascent nor its descent), so
+    // a legend in a top corner may stand in the space above a short graph's 75 % labels.
+    g.font = labelFont;
+    for (const row of rows) {
+      const w = tabularWidth(g, row.text);
+      const ink = g.measureText(row.text);
+      const baseline = row.y - 2 - lm.descent;
+      scaleBoxes.push({ x: row.right ? W0 - INSET - w : posx + INSET, y: baseline - ink.actualBoundingBoxAscent - 1, w, h: ink.actualBoundingBoxAscent + ink.actualBoundingBoxDescent + 2 });
+    }
     background.push(() => {
       g.font = labelFont;
-      for (const row of rows) {
+      rows.forEach((row, k) => {
+        if (readoutBoxes.some((chip) => intersects(chip, scaleBoxes[k]))) return;
         g.fillStyle = row.color;
         fillTabular(g, row.text, row.right ? W0 - INSET - tabularWidth(g, row.text) : posx + INSET, row.y - 2 - lm.descent);
-      }
+      });
     });
   };
   /** The empty graph's caption on the chip ground, centred on the midline: nothing is plotted and
@@ -539,6 +575,8 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     }
   };
 
+  /** Where the blunder bars stand, which the legend avoids as it avoids the curves. */
+  const barBoxes: Box[] = [];
   /** drawBlunderBar (WinrateGraph.java:272-295), growing up from the plot's bottom edge. */
   const blunderBar = (from: number, to: number, winrateDrop: number, scoreDrop: number) => {
     const barHeight = blunderBarHeight(height, winrateDrop, scoreDrop);
@@ -547,6 +585,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     const barWidth = Math.max(theme.barMinimum, stop - start);
     const color = theme.bar;
     report.blunderBars++;
+    barBoxes.push({ x: start, y: plotBottom - barHeight, w: barWidth + 1, h: barHeight });
     blunder.push(() => {
       g.fillStyle = color;
       g.fillRect(start, plotBottom - barHeight, barWidth + 1, barHeight);
@@ -829,7 +868,8 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     const y = ys.some((v) => v + clear >= topY && v - clear <= topY + chipH) ? plotBottom - 2 - chipH : topY;
     return { x, y, w, h: chipH };
   };
-  const drawChip = (box: Box, parts: ChipPart[]) =>
+  const drawChip = (box: Box, parts: ChipPart[]) => {
+    readoutBoxes.push(box);
     overlay.push(() => {
       g.fillStyle = p.graphChip;
       g.beginPath();
@@ -843,6 +883,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
         x += tabularWidth(g, part.text) + CHIP_GAP;
       }
     });
+  };
   const currentParts: ChipPart[] = [];
   if (cwr >= 0) {
     report.currentText = javaFixed1(cwr);
@@ -873,43 +914,54 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   if (currentBox) drawChip(currentBox, currentParts);
 
   // ---------------------------------------------------------------- legend (WinrateGraph.java:1774-1830)
-  // Under the data on the chip ground: the curves, blunder bars and markers draw over it, so it
-  // never hides one. It takes the corner of the plot (top right, top left, bottom left, bottom
-  // right) no readout or current marker takes that has the fewest curve vertices under it, and is
-  // left out where a readout or marker takes every corner.
+  // Under the data on the chip ground: the curves, blunder bars, guides and markers draw over it,
+  // so it never hides one. It takes the corner of the plot (top right, top left, bottom left,
+  // bottom right) no readout, current marker or scale label takes that has the least curve,
+  // current / hover guide and blunder bar under it, on one row, or with the names stacked when
+  // that leaves less under it (a narrow box fits beside a readout or a guide); it is left out
+  // where something takes every corner.
   const legend: [string, string][] = [];
   if (winrateRenderable) legend.push([t("WinrateGraph.legendWinrate"), LINE]);
   if (scoreRenderable) legend.push([t("WinrateGraph.legendScoreLead"), SCORE]);
   g.font = labelFont;
   const legendWidths = legend.map(([label]) => stringWidth(g, label));
-  const boxW = 2 * CHIP_PAD + legendWidths.reduce((sum, w) => sum + 16 + w, 0) + 10 * Math.max(0, legend.length - 1);
-  const boxH = labelH + 6;
-  const corners: [number, number][] = [[W0 - boxW - INSET, posy + 2], [INSET, posy + 2], [INSET, plotBottom - 2 - boxH], [W0 - boxW - INSET, plotBottom - 2 - boxH]];
-  const taken: Box[] = [];
+  const layouts = [{ w: 2 * CHIP_PAD + legendWidths.reduce((sum, w) => sum + 16 + w, 0) + 10 * Math.max(0, legend.length - 1), h: labelH + 6, stacked: false }];
+  // Stacked names sit closer than a full line (their ink is shorter than the line's ascent plus
+  // descent), so the box fits above the 75 % scale labels of a panel of the default size.
+  const stackStep = labelH - 2;
+  if (legend.length > 1) layouts.push({ w: 2 * CHIP_PAD + 16 + Math.max(...legendWidths), h: 4 + labelH + (legend.length - 1) * stackStep, stacked: true });
+  const taken: Box[] = [...scaleBoxes];
   if (currentBox) taken.push(currentBox);
   if (hoverBox) taken.push(hoverBox);
   for (const pt of [movePoint, scorePoint]) if (pt) taken.push({ x: pt.x - MARKER_RADIUS - 3, y: pt.y - MARKER_RADIUS - 3, w: 2 * MARKER_RADIUS + 6, h: 2 * MARKER_RADIUS + 6 });
-  const vertices = [...winStrokes, ...scoreStrokes].flatMap((stroke) => stroke.points);
-  let corner: [number, number] | undefined;
+  const strokes = [...winStrokes, ...scoreStrokes].map((stroke) => stroke.points);
+  for (const x of [guideX, hoverX]) if (x !== null) strokes.push([[x, posy], [x, plotBottom]]);
+  let chosen: { box: Box; stacked: boolean } | undefined;
   let covered = Infinity;
-  for (const [x, y] of corners) {
-    if (taken.some((box) => intersects(box, { x, y, w: boxW, h: boxH }))) continue;
-    const count = vertices.filter(([vx, vy]) => vx >= x && vx <= x + boxW && vy >= y && vy <= y + boxH).length;
-    if (count < covered) [corner, covered] = [[x, y], count];
+  for (const { w, h, stacked } of layouts) {
+    for (const [x, y] of [[W0 - w - INSET, posy + 2], [INSET, posy + 2], [INSET, plotBottom - 2 - h], [W0 - w - INSET, plotBottom - 2 - h]]) {
+      const box = { x, y, w, h };
+      if (y < posy || y + h > plotBottom || taken.some((other) => intersects(other, box))) continue;
+      // A curve passing just outside the box still touches its edge at the curve's width.
+      const near = { x: x - 2, y: y - 2, w: w + 4, h: h + 4 };
+      let under = strokes.reduce((sum, points) => sum + lengthInside(points, near), 0);
+      for (const bar of barBoxes) if (intersects(bar, near)) under += Math.min(bar.x + bar.w, near.x + near.w) - Math.max(bar.x, near.x);
+      if (under < covered) [chosen, covered] = [{ box, stacked }, under];
+    }
   }
-  if (W0 >= 240 && legend.length && corner) {
-    const [boxX, boxY] = corner;
+  if (W0 >= 240 && legend.length && chosen) {
+    const { box, stacked } = chosen;
     report.legend = legend.map(([label]) => label);
     legendLayer.push(() => {
       g.fillStyle = p.graphChip;
       g.beginPath();
-      g.roundRect(boxX, boxY, boxW, boxH, CHIP_RADIUS);
+      g.roundRect(box.x, box.y, box.w, box.h, CHIP_RADIUS);
       g.fill();
       g.font = labelFont;
-      const textY = boxY + 3 + lm.ascent;
-      const lineY = boxY + i(boxH / 2) + 0.5;
-      let cx = boxX + CHIP_PAD;
+      let cx = box.x + CHIP_PAD;
+      let top = box.y + (stacked ? 2 : 3);
       legend.forEach(([label, color], k) => {
+        const lineY = top + i(labelH / 2) + 0.5;
         g.strokeStyle = color;
         g.lineWidth = 2;
         g.lineCap = "round";
@@ -918,10 +970,10 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
         g.lineTo(cx + 11, lineY);
         g.stroke();
         g.lineCap = "butt";
-        cx += 16;
         g.fillStyle = p.graphLabel;
-        g.fillText(label, cx, textY);
-        cx += legendWidths[k] + 10;
+        g.fillText(label, cx + 16, top + lm.ascent);
+        if (stacked) top += stackStep;
+        else cx += 16 + legendWidths[k] + 10;
       });
     });
   }

@@ -1061,6 +1061,13 @@ function endOwnership(v: WorkbenchView, at: FloatSceneView, hovered: number | nu
 function render() {
   const v = state.view;
   if (!v) return;
+  // The window chrome first: the toolbar's hidden groups take room from the workbench until it is
+  // refreshed, so at a small window its refresh cannot wait for a workbench big enough to draw.
+  if (changed("bottombar", `${$("bottombar").clientWidth}`)) layoutBottomBar($("bottombar"));
+  renderToolbar();
+  projectAnalysis(v);
+  const title = workbenchTitle(v, version, historyByNode, state.nodes.get(v.position.node)?.parent ?? undefined);
+  if (changed("title", `${title.text}\n${title.game}\n${title.detail.join("\n")}`)) setWindowTitle(title);
   const main = $("main");
   const W = main.clientWidth;
   const H = main.clientHeight;
@@ -1089,7 +1096,6 @@ function render() {
   const size = `${W}x${H}:${window.devicePixelRatio}:${appearanceRevision()}:${stageRevision()}`;
   // Edits change a node's position, marks or side to play in place: the revision moves on.
   const docSig = `${v.document.id}:${v.document.revision}:${pos.node}:${pos.to_play}`;
-  projectAnalysis(v);
   const background = `${size}:${mode}:${JSON.stringify(stage)}`;
   if (changed("bg", background)) installBackground(background, W, H, stage);
   // 界面 > 面板 flags; holding X hides the tree, the list and the comment (Input.java:616-623).
@@ -1138,10 +1144,6 @@ function render() {
   relayFrame(v);
   relayHawkeye(v);
   relayCommentary(v);
-  if (changed("bottombar", `${$("bottombar").clientWidth}`)) layoutBottomBar($("bottombar"));
-  renderToolbar();
-  const title = workbenchTitle(v, version, historyByNode, state.nodes.get(pos.node)?.parent ?? undefined);
-  if (changed("title", `${title.text}\n${title.game}\n${title.detail.join("\n")}`)) setWindowTitle(title);
 }
 
 /** The Normal-mode panels beside the main board: sub board, captured and statistics panels, the

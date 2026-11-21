@@ -21,6 +21,11 @@
   gap: 6px;
   white-space: nowrap;
 }
+/* A switch stays on one line with the field it turns on and that field's unit; the row's text
+   wraps instead. */
+.appearance-card .ds-row-control:has(> .ds-switch) {
+  flex-wrap: nowrap;
+}
 
 /* A colour: the swatch opens the chooser; alpha and 选择 beside it. */
 .appearance-color {

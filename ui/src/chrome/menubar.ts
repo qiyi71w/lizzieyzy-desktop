@@ -4,13 +4,24 @@ import { run, state, subscribe } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
 import type { DisplaySettings } from "../contract/generated";
 import { setRankCustomText } from "../display/commands";
-import { isChinese, product, t } from "../i18n";
+import { isChinese, product, registerProduct, t } from "../i18n";
 import { JAVA_MENUS, type MenuNode, type TopMenu } from "./javaMenus";
 import { chooseEngine } from "../engine/catalog";
 import { DARK_READY } from "../design/theme";
+import { icon } from "../design/icons";
 import { highlight } from "../search/highlight";
 import { paintingOpen } from "../display/painting";
 import { contextMenuOpen } from "../editing/contextMenu";
+
+/** 更多菜单: the button at the menu bar's end that holds the menus a narrow window has no room for. */
+registerProduct({
+  ZhCn: { menuOverflow: "更多菜单" },
+  ZhTw: { menuOverflow: "更多選單" },
+  EnUs: { menuOverflow: "More menus" },
+  JaJp: { menuOverflow: "その他のメニュー" },
+  KoKr: { menuOverflow: "메뉴 더 보기" },
+  ThTh: { menuOverflow: "เมนูเพิ่มเติม" },
+});
 
 /** Java conditional menus: 快速启动 follows 显示快速启动 (Config.java: show-quick-links, false by
  *  default); show-Contribute is settings.contribution.showMenu, true by default; the secondary
@@ -479,11 +490,66 @@ let secondaryMenu: HTMLElement | null = null;
 /** The built top-level menus and how each opens (`keyboard`: with its first item active). */
 const tops = new Map<TopMenu, { top: HTMLElement; open: (keyboard?: boolean) => void }>();
 
-/** Left / Right on a menu's outer level: the neighbouring shown menu, wrapping, opened as by a key. */
+/** Whether a menu title stands on the bar: shown now and not moved into 更多菜单. */
+const onBar = (top: HTMLElement) => top.style.display !== "none" && !top.classList.contains("overflowed");
+
+/** Left / Right on a menu's outer level: the neighbouring menu on the bar, wrapping, opened as by a key. */
 function stepTop(step: 1 | -1): void {
-  const shown = [...tops.values()].filter(({ top }) => top.style.display !== "none");
+  const shown = [...tops.values()].filter(({ top }) => onBar(top));
   const at = shown.findIndex(({ top }) => top === openMenu);
   shown[(at + step + shown.length) % shown.length]?.open(true);
+}
+
+/** 更多菜单's entry in `tops`: last on the bar, its items the menus moved into it. */
+const OVERFLOW: TopMenu = { key: "menu.overflow", items: [] };
+
+/** A menu title's presses: a press opens its menu or closes the open one; moving onto it while
+ *  another menu is open opens it instead. */
+function pressable(top: HTMLElement, open: () => void): void {
+  top.addEventListener("mousedown", (e) => {
+    const target = e.target as HTMLElement;
+    // A press on a dropdown's own box (its scrollbar or padding) keeps its default, so the
+    // scrollbar drags.
+    if (!target.classList.contains("dropdown")) e.preventDefault();
+    if (openMenu === top && !target.closest(".dropdown")) closeMenus();
+    else if (openMenu !== top) open();
+  });
+  top.addEventListener("mouseenter", () => {
+    if (openMenu && openMenu !== top) open();
+  });
+}
+
+/** Opens `list` under the menu title `top`: down to the window's bottom edge, scrolling inside when
+ *  longer, and moved left rather than cross the right edge. */
+function showDropdown(top: HTMLElement, list: HTMLElement, keyboard: boolean): void {
+  openMenu = top;
+  top.classList.add("open");
+  top.setAttribute("aria-expanded", "true");
+  top.append(list);
+  list.style.maxHeight = `${window.innerHeight - EDGE - list.getBoundingClientRect().top}px`;
+  const box = list.getBoundingClientRect();
+  const over = box.right - (window.innerWidth - EDGE);
+  if (over > 0) list.style.left = `${-Math.min(over, box.left)}px`;
+  if (keyboard) activateFirst(list);
+}
+
+/** The menus 更多菜单 holds now, in bar order. */
+function overflowedMenus(): [TopMenu, HTMLElement][] {
+  return [...tops].filter(([menu, { top }]) => menu !== OVERFLOW && top.style.display !== "none" && top.classList.contains("overflowed")).map(([menu, { top }]) => [menu, top]);
+}
+
+/** 更多菜单's dropdown: a submenu row per menu it holds, named as that menu's title (an engine
+ *  menu's is its engine). */
+function overflowDropdown(): HTMLElement {
+  const held = overflowedMenus();
+  const list = dropdown(held.map(([menu]): MenuNode => ({ t: "submenu", key: menu.key, items: menu.items })));
+  [...list.children].forEach((row, k) => {
+    const name = held[k][1].getAttribute("aria-label") ?? "";
+    const text = row.querySelector(".label");
+    if (text) text.textContent = name;
+    row.setAttribute("aria-label", name);
+  });
+  return list;
 }
 
 export function buildMenubar(host: HTMLElement): void {
@@ -554,32 +620,63 @@ export function buildMenubar(host: HTMLElement): void {
     }
     const open = (keyboard = false) => {
       replaceMenu();
-      const list = dropdown(menu.items);
-      openMenu = top;
-      top.classList.add("open");
-      top.setAttribute("aria-expanded", "true");
-      top.append(list);
-      // Below the title down to the window's bottom edge, scrolling inside when longer; moved left
-      // rather than cross the right edge.
-      list.style.maxHeight = `${window.innerHeight - EDGE - list.getBoundingClientRect().top}px`;
-      const box = list.getBoundingClientRect();
-      const over = box.right - (window.innerWidth - EDGE);
-      if (over > 0) list.style.left = `${-Math.min(over, box.left)}px`;
-      if (keyboard) activateFirst(list);
+      showDropdown(top, dropdown(menu.items), keyboard);
     };
     tops.set(menu, { top, open });
-    top.addEventListener("mousedown", (e) => {
-      const target = e.target as HTMLElement;
-      // A press on a dropdown's own box (its scrollbar or padding) keeps its default, so the
-      // scrollbar drags.
-      if (!target.classList.contains("dropdown")) e.preventDefault();
-      if (openMenu === top && !target.closest(".dropdown")) closeMenus();
-      else if (openMenu !== top) open();
-    });
-    top.addEventListener("mouseenter", () => {
-      if (openMenu && openMenu !== top) open();
-    });
+    pressable(top, open);
   }
+  // 更多菜单: in a window too narrow for every menu beside the mark, the title's padding and the
+  // window buttons, the last menus move into it, so the window buttons always stay on the bar.
+  const more = document.createElement("span");
+  more.className = "m m-overflow";
+  more.dataset.key = OVERFLOW.key;
+  more.title = product("menuOverflow");
+  more.setAttribute("role", "menuitem");
+  more.setAttribute("aria-haspopup", "menu");
+  more.setAttribute("aria-expanded", "false");
+  more.setAttribute("aria-label", more.title);
+  more.append(icon("more"));
+  more.style.display = "none";
+  strip.append(more);
+  const openMore = (keyboard = false) => {
+    replaceMenu();
+    showDropdown(more, overflowDropdown(), keyboard);
+  };
+  tops.set(OVERFLOW, { top: more, open: openMore });
+  pressable(more, openMore);
+  const fit = () => {
+    const bar = getComputedStyle(host);
+    const gap = parseFloat(bar.columnGap) || 0;
+    let room = host.clientWidth - parseFloat(bar.paddingLeft) - parseFloat(bar.paddingRight) - gap * (host.children.length - 1);
+    for (const child of host.children) {
+      if (child === strip || !(child instanceof HTMLElement)) continue;
+      // The title gives up its text, not its padding.
+      const own = getComputedStyle(child);
+      room -= child.id === "windowTitle" ? parseFloat(own.paddingLeft) + parseFloat(own.paddingRight) : child.offsetWidth + parseFloat(own.marginLeft) + parseFloat(own.marginRight);
+    }
+    const stripGap = parseFloat(getComputedStyle(strip).columnGap) || 0;
+    const menus = [...tops].filter(([menu, { top }]) => menu !== OVERFLOW && top.style.display !== "none").map(([, { top }]) => top);
+    const width = (top: HTMLElement) => parseFloat(top.style.width) || top.offsetWidth;
+    const all = menus.reduce((sum, top, k) => sum + width(top) + (k > 0 ? stripGap : 0), 0);
+    // Every menu fits, or as many as leave room for 更多菜单 itself.
+    const limit = all <= room ? Infinity : room - 32 - stripGap;
+    let used = 0;
+    let held = 0;
+    menus.forEach((top, k) => {
+      used += width(top) + (k > 0 ? stripGap : 0);
+      const out = used > limit;
+      if (out) held++;
+      if (out && openMenu === top) closeMenus();
+      top.classList.toggle("overflowed", out);
+    });
+    if (!held && openMenu === more) closeMenus();
+    more.style.display = held ? "" : "none";
+  };
+  new ResizeObserver(fit).observe(host);
+  // The window buttons join the bar after the menus; the menus' titles change with the view.
+  new MutationObserver(fit).observe(host, { childList: true });
+  subscribe(fit);
+  fit();
   // In the capture phase: a press on the window bar's free space starts moving the window before
   // it reaches the document's other listeners, and must still close an open menu.
   document.addEventListener("mousedown", (e) => {
@@ -598,7 +695,7 @@ export function buildMenubar(host: HTMLElement): void {
       else if (!root || !menuKey(e, root, closeMenus, menu.classList.contains("popup-anchor") ? undefined : stepTop)) return;
     } else {
       if (!f10 || host.closest("[inert]") || paintingOpen() || contextMenuOpen()) return;
-      const first = [...tops.values()].find(({ top }) => top.style.display !== "none");
+      const first = [...tops.values()].find(({ top }) => onBar(top));
       if (!first) return;
       first.open(true);
     }
@@ -673,8 +770,24 @@ export function locateMenuItem(id: string): boolean {
   const path = functionPath(id);
   const opener = path && tops.get(path.menu);
   if (!path || !opener || menuItemState(id) !== "ok") return false;
-  opener.open();
-  let list = opener.top.querySelector<HTMLElement>(":scope > .dropdown");
+  let list: HTMLElement | null;
+  if (opener.top.classList.contains("overflowed")) {
+    // A menu 更多菜单 holds opens as that menu's submenu there.
+    const more = tops.get(OVERFLOW);
+    more?.open();
+    const outer = more?.top.querySelector<HTMLElement>(":scope > .dropdown") ?? null;
+    const held = outer && [...outer.children].find((child): child is HTMLElement => {
+      const node = rowNodes.get(child);
+      return node !== undefined && node.t !== "sep" && node.items === path.menu.items;
+    });
+    if (!outer || !held) return false;
+    setActiveRow(outer, held, false);
+    reveal(outer, held);
+    list = expand(held, outer, path.menu.items);
+  } else {
+    opener.open();
+    list = opener.top.querySelector<HTMLElement>(":scope > .dropdown");
+  }
   let row: HTMLElement | undefined;
   for (const [depth, node] of path.nodes.entries()) {
     if (!list) return false;
