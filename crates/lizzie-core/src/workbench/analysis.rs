@@ -1224,12 +1224,13 @@ impl Workbench {
     /// 清除Lizzie缓存 (全局 `clearBoardStat`, Shift+A; 此手 `clearbestmoves`): the stored
     /// results in `scope` stay shown and saved, and the next live result replaces them even
     /// when it is weaker. Nothing is sent to an engine and nothing is analysed again. The global
-    /// one also ends the document's engine-game marks (Board.java:5410-5416, Menu.java:3540,
-    /// Input.java:734).
+    /// one also ends the document's engine-game and KataGo marks (Board.java:5410-5416,
+    /// Menu.java:3540, Input.java:734).
     pub fn clear_analysis_cache(&mut self, scope: AnalysisScope) {
         self.invalidate_analysis(scope);
         if scope == AnalysisScope::All {
             self.pk_board = None;
+            self.kata_board = None;
         }
     }
 

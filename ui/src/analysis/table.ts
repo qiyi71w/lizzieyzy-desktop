@@ -10,7 +10,7 @@ import { t } from "../i18n";
 import { frameCoordinate, playouts, themeFonts } from "../workbench/paint";
 import { appearance, frameMetrics } from "../appearance/state";
 import { customFont } from "../appearance/model";
-import { bindColumnResize, layoutColumns, MIN_COLUMN, type FrameBar, type FrameCell, type FramePayload } from "./suggestionsFrame";
+import { actualParts, bindColumnResize, layoutColumns, MIN_COLUMN, type FrameBar, type FrameCell, type FramePayload } from "./suggestionsFrame";
 import { autoReplayed, setAutoReplayed } from "../display/autoplay";
 import { replayLength, stopReplayOf } from "../display/replay";
 
@@ -526,14 +526,68 @@ function mainTableStyle(table: HTMLTableElement): { row: number; header: number 
   return { row: Math.max(menuHeight - 4, ROW + grow), header: HEADER + grow };
 }
 let mainRowHeight = ROW;
-/** Preferred widths of 序号, 胜率, 计算量, 占比, 目数 until the user drags a border. The list's
- *  width is shared out from them: at the default window size the actual move's row ("21(实战)",
- *  "↓-8.6(46.4)") shows in full inside the cells' padding, at the smallest one it shows on two
- *  lines without "…", and every header shows. Java's own 15 / 30 / 30 / 45 / 30
- *  (LizzieFrame.java:907-912) gave the widest share to 占比. */
-let mainPreferred = [27, 37, 25, 15, 36];
+/** Widths of 序号, 胜率, 计算量, 占比, 目数 from a border drag or the saved list layout; until then
+ *  the content widths (contentWidths). Java's own 15 / 30 / 30 / 45 / 30 (LizzieFrame.java:
+ *  907-912) gave the widest share to 占比. */
+let mainPreferred: number[] | null = null;
 let mainWidths: number[] = [];
 let mainStructure = "";
+
+/** The five columns' content widths in the table's faces, with the cells' padding (`last` is the
+ *  rightmost shown column): `fit` holds each header (Label), the widest usual figure and the actual
+ *  move's row on one line; `least` the actual row with its smaller change above its value. 序号
+ *  holds "Pass" and the actual move's smaller 实战 note, which sits under its rank: in `least` on
+ *  two lines where it breaks (between kana or ideographs, or at a space), as "実際の / 着手". */
+function contentWidths(table: HTMLTableElement, heads: string[], last: number): { fit: number[]; least: number[] } {
+  const c = document.createElement("canvas").getContext("2d")!;
+  const family = getComputedStyle(table).fontFamily;
+  const body = Number.parseFloat(getComputedStyle(table).fontSize);
+  const caption = Number.parseFloat(getComputedStyle(table.tHead!.rows[0].cells[0]).fontSize);
+  const width = (text: string, size: number) => {
+    c.font = `${size}px ${family}`;
+    return c.measureText(text).width;
+  };
+  const figures = [["20", "Pass"], ["88.8"], ["9.9k", "99k"], ["88.8"], ["-88.8"]];
+  // The change before 胜率's and 目数's values, with the 4 px after it (.actual-note).
+  const change = width("↓-88.8", caption) + 4;
+  const actual = [...t("AnalysisFrame.actual")];
+  const ideograph = /[\u3040-\u30ff\u3400-\u9fff]/;
+  let noteLeast = width(actual.join(""), caption);
+  for (let i = 1; i < actual.length; i++) {
+    const breaks = actual[i - 1] === " " || actual[i] === " " || (ideograph.test(actual[i - 1]) && ideograph.test(actual[i]));
+    if (breaks) noteLeast = Math.min(noteLeast, Math.max(width(actual.slice(0, i).join("").trim(), caption), width(actual.slice(i).join("").trim(), caption)));
+  }
+  const fit: number[] = [], least: number[] = [];
+  heads.forEach((head, k) => {
+    const figure = Math.max(width(head, caption), ...figures[k].map((f) => width(f, body)));
+    // 序号: 8 px before and a 6 px gap after; the right-aligned columns: their right padding.
+    const pad = k === 0 ? 14 : k === last ? 12 : 8;
+    if (k === 0) {
+      fit.push(Math.ceil(Math.max(figure, width(actual.join(""), caption))) + pad);
+      least.push(Math.ceil(Math.max(figure, noteLeast)) + pad);
+      return;
+    }
+    const note = k === 1 || k === 4 ? change : 0;
+    fit.push(Math.ceil(figure + note) + pad);
+    least.push(Math.ceil(Math.max(figure, note)) + pad);
+  });
+  return { fit, least };
+}
+
+/** The main list's widths across `width`. 序号 keeps its `preferred` width between its stacked
+ *  (`least`) and one-line (`fit`) content width, never wider, as it holds nothing longer. The
+ *  others start from `preferred`, no narrower than their one-line content where the list has
+ *  room, else than the stacked actual row, and share the room left over. A list too narrow even
+ *  for `least` shares its whole width. */
+function mainLayout(preferred: number[], width: number, fit: number[], least: number[]): number[] {
+  const rank = Math.max(least[0], Math.min(preferred[0], fit[0]));
+  const atLeast = (floor: number[]) => preferred.slice(1).map((w, k) => Math.max(w, floor[k + 1]));
+  const levels: [number, number[]][] = [[rank, atLeast(fit)], [rank, atLeast(least)], [least[0], least.slice(1)]];
+  for (const [first, rest] of levels) {
+    if (first + rest.reduce((s, w) => s + w, 0) <= width) return [first, ...layoutColumns(rest, width - first)];
+  }
+  return layoutColumns(least, width);
+}
 
 /** The main 选点列表 (getRowCount / getValueAt, LizzieFrame.java:14725-14916): at most 20 rows;
  *  the coordinate column stays hidden and the 目数 column shows with score data only. */
@@ -543,7 +597,8 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
   const structure = `${host.clientWidth}:${columns}:${t("AnalysisFrame.column1")}:${appearance()?.theme.uiFontName}`;
   if (mainStructure !== structure) {
     mainStructure = structure;
-    const heads = [t("AnalysisFrame.column1"), t("LizzieFrame.listColumn2"), t("AnalysisFrame.column5"), t("LizzieFrame.listColumn4"), t("AnalysisFrame.column8")].slice(0, columns);
+    const allHeads = [t("AnalysisFrame.column1"), t("LizzieFrame.listColumn2"), t("AnalysisFrame.column5"), t("LizzieFrame.listColumn4"), t("AnalysisFrame.column8")];
+    const heads = allHeads.slice(0, columns);
     const table = document.createElement("table");
     const colgroup = document.createElement("colgroup");
     const thead = document.createElement("thead"), body = document.createElement("tbody");
@@ -561,11 +616,10 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
     };
     // Java writes the widths only while the score column shows (Config.persist).
     const report = () => void invoke("set_main_list_columns", { columns: hasScore ? mainWidths : null });
-    apply(layoutColumns(mainPreferred.slice(0, columns), host.clientWidth));
-    report();
+    let content = { fit: [] as number[], least: [] as number[] };
     bindColumnResize(headRow, () => mainWidths, apply, (widths) => {
       // A hidden 目数 column keeps the width it had (listTableColum5Width).
-      mainPreferred = hasScore ? widths : [...widths, mainPreferred[4]];
+      mainPreferred = hasScore ? widths : [...widths, (mainPreferred ?? content.fit)[4]];
       apply(widths);
       report();
     });
@@ -593,6 +647,10 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
     const style = mainTableStyle(table);
     mainRowHeight = style.row;
     headRow.style.height = `${style.header}px`;
+    content = contentWidths(table, allHeads, columns - 1);
+    const shown = (w: number[]) => w.slice(0, columns);
+    apply(mainLayout(shown(mainPreferred ?? content.fit), host.clientWidth, shown(content.fit), shown(content.least)));
+    report();
   }
   const all = buildRows(v, "main");
   const total = totalAllocation(all);
@@ -623,12 +681,9 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
     while (row.cells.length > cells.length) row.deleteCell(row.cells.length - 1);
     cells.forEach((c, column) => {
       const cell = row.cells[column] ?? row.insertCell();
-      if (cell.textContent !== c.text) {
-        // The actual move's figures may wrap before their bracketed part ("15(实战)",
-        // "↓-4.4(46.2)") where the column is too narrow for both.
-        const open = r.actual ? c.text.indexOf("(") : -1;
-        if (open > 0) cell.replaceChildren(c.text.slice(0, open), document.createElement("wbr"), c.text.slice(open));
-        else cell.textContent = c.text;
+      if (cell.dataset.text !== c.text) {
+        cell.dataset.text = c.text;
+        cell.replaceChildren(...(r.actual ? actualParts(c.text, column === 0) : [c.text]));
       }
       // The actual row's cells carry their text as a tooltip.
       cell.title = r.actual ? c.text : "";

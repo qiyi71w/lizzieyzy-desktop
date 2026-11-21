@@ -229,7 +229,7 @@ impl Workbench {
     }
 
     /// SGFParser.appendGameTimeAndPlayouts writes totals into the live root before saving; the
-    /// save writes the root `DZ` ([`Workbench::pk_save_tag`]).
+    /// save writes the root `DZ` ([`Workbench::save_mark`]).
     pub(super) fn match_record_totals(&mut self) {
         let run = self.matches.run.as_ref().unwrap();
         let black = side_index(run.first_is_black, Stone::Black);

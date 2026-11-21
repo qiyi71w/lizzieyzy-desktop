@@ -247,6 +247,10 @@ pub struct Workbench {
     /// only; every replacement of the document (new board, opened record) has a new id, which is
     /// Java clearing the marks (`Board.clear(false)`, `setHistory`).
     pk_board: Option<(u64, Option<Stone>)>,
+    /// Java `Board.isKataBoard` beyond the stores' KataGo data: the document read with a KataGo
+    /// root `DZ` or rebuilt from a contribution game. A save writes `DZ[G]` for it
+    /// ([`Workbench::save_mark`]); it ends with the engine-game marks.
+    kata_board: Option<u64>,
     next_ticket: u64,
     pending: Option<Pending>,
     outcome: Option<OpenOutcome>,
@@ -457,6 +461,7 @@ impl Workbench {
             komi: DEFAULT_KOMI,
             next_doc: 2,
             pk_board: None,
+            kata_board: None,
             next_ticket: 1,
             pending: None,
             outcome: None,
@@ -739,8 +744,7 @@ impl Workbench {
                     saved_revision,
                     origin_name,
                 };
-                // SGFParser.java:775-791: the root `DZ` of a saved engine game.
-                self.pk_board = matches::recorded_pk_side(&self.doc.record).map(|side| (id, side));
+                self.read_record_marks();
                 // Loading is silent (Java turns sound off while it builds the history).
                 self.sounds.clear();
                 self.readboard_history_overwritten();

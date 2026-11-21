@@ -1,8 +1,9 @@
 // UI text. Java's own wording comes from its DisplayStrings bundles (javaStrings.json, regenerated
-// by tools/extract_java_strings.py); resource keys this product adds to Java's menus and function
-// catalog (shown in all six languages) are in productStrings.json; the product messages without
-// a Java counterpart are registered with registerProduct, in all six languages. The language is
-// fixed for a session, like Java (changing it needs a restart).
+// by tools/extract_java_strings.py, which corrects the few wrong entries); resource keys this
+// product adds to Java's menus and function catalog (shown in all six languages) are in
+// productStrings.json; the product messages without a Java counterpart are registered with
+// registerProduct, in all six languages. The language is fixed for a session, like Java
+// (changing it needs a restart).
 import data from "./javaStrings.json";
 import productData from "./productStrings.json";
 import type { Language } from "../contract/generated";

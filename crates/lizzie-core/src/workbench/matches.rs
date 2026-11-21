@@ -104,29 +104,23 @@ fn refused(key: &str) -> CommandResult {
 fn side_index(first_black: bool, side: Stone) -> usize {
     usize::from((side == Stone::Black) != first_black)
 }
-/// The root `DZ` of a saved engine game (SGFParser.java:775-791): `Y` without a scoring engine,
-/// `KB` / `KW` with the black / white engine giving the score; `None` for any other record.
-pub(super) fn recorded_pk_side(rec: &GameRecord) -> Option<Option<Stone>> {
-    rec.node(ROOT)
-        .properties
-        .iter()
-        .filter(|p| p.id == "DZ")
-        .flat_map(|p| &p.values)
-        .find_map(|v| match v.as_str() {
-            "Y" => Some(None),
-            "KB" => Some(Some(Stone::Black)),
-            "KW" => Some(Some(Stone::White)),
-            _ => None,
-        })
+/// The values of the root `DZ` (SGFParser.java:775-791).
+fn recorded_dz(rec: &GameRecord) -> impl Iterator<Item = &str> {
+    rec.node(ROOT).properties.iter().filter(|p| p.id == "DZ").flat_map(|p| &p.values).map(String::as_str)
 }
-/// The root `DZ` an engine game is saved with (SGFParser.java:1443-1462), the inverse of
-/// [`recorded_pk_side`].
-fn pk_tag(score_side: Option<Stone>) -> &'static str {
-    match score_side {
-        Some(Stone::White) => "KW",
-        Some(Stone::Black) => "KB",
-        None => "Y",
-    }
+/// The engine-game marks of a saved engine game: `Y` without a scoring engine, `KB` / `KW` with
+/// the black / white engine giving the score; `None` for any other record.
+fn recorded_pk_side(rec: &GameRecord) -> Option<Option<Stone>> {
+    recorded_dz(rec).find_map(|v| match v {
+        "Y" => Some(None),
+        "KB" => Some(Some(Stone::Black)),
+        "KW" => Some(Some(Stone::White)),
+        _ => None,
+    })
+}
+/// `Board.isKataBoard` as read: a KataGo record (`G`) or an engine game a KataGo engine scored.
+fn recorded_kata(rec: &GameRecord) -> bool {
+    recorded_dz(rec).any(|v| matches!(v, "G" | "KB" | "KW"))
 }
 fn safe(value: &str) -> String {
     value
@@ -189,9 +183,12 @@ impl Workbench {
         };
         Some(PkBoardView { score_side })
     }
-    /// The root `DZ` a save of the open document writes while it is an engine game.
-    pub(super) fn pk_save_tag(&self) -> Option<&'static str> {
-        self.pk_board_view().map(|pk| pk_tag(pk.score_side))
+    /// The marks of a new document as its saved root `DZ` gives them (SGFParser.java:775-791,
+    /// `syncBoardKataFlagsWithHistory`).
+    pub(super) fn read_record_marks(&mut self) {
+        let (id, rec) = (self.doc.id, &self.doc.record);
+        self.pk_board = recorded_pk_side(rec).map(|side| (id, side));
+        self.kata_board = recorded_kata(rec).then_some(id);
     }
     /// `Board.clearPkBoardStat` (AnalysisEngine.java:1222): an analysis-process request on
     /// document `doc` reached `setResult` (every query answered, none failed), so that document

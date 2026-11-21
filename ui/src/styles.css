@@ -572,7 +572,8 @@ body {
 #table tbody tr:last-child td {
   border-bottom: 0;
 }
-/* 序号 is the narrowest column and carries "14(实战)": it keeps all its width for the text. */
+/* 序号 is as wide as its labels (table.ts rankColumnWidth): no right padding, the next column's
+   right-aligned figures leave the gap. */
 #table th:first-child,
 #table td:first-child {
   padding: 0 0 0 8px;
@@ -582,13 +583,23 @@ body {
 #table td:last-child {
   padding-right: 12px;
 }
-/* The actual move's row shows all its figures: a cell too narrow for one wraps before its
-   bracket (table.ts), and only there. A row that fits keeps the 22 px height. */
+/* The actual move's row shows all its figures: its rank with a smaller 实战 note under it, a
+   smaller change before each value (actualParts). A figure cell too narrow for both breaks
+   between them, and only there. */
 #table tr.actual td {
   padding-block: 3px;
   line-height: 1.25;
   white-space: normal;
   word-break: keep-all;
+}
+#table .actual-note {
+  margin-right: 4px;
+  font-size: var(--ds-size-s);
+}
+#table td:first-child .actual-note {
+  display: block;
+  margin-right: 0;
+  word-break: normal;
 }
 
 /* ---- bottom bar: one row (this rule's height). layoutBottomBar places the buttons and lays a

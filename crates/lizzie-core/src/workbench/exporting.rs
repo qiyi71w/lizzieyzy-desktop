@@ -11,7 +11,7 @@ use super::{PendingSave, SaveJob, Workbench};
 use crate::api::{CommentLabels, ExportKind, NodeAnalysisView};
 use crate::formats::sgf_write::{self, Analysis, Export};
 use crate::formats::winrate_comment::{self, NodeEval};
-use crate::record::{DocumentEdit, GameRecord, NodeId, NodeKind, ROOT};
+use crate::record::{DocumentEdit, GameRecord, NodeId, NodeKind, Stone, ROOT};
 use crate::viewpoint::Viewpoint;
 
 fn eval(a: &NodeAnalysisView) -> NodeEval {
@@ -25,6 +25,26 @@ fn eval(a: &NodeAnalysisView) -> NodeEval {
         // Live results carry no PDA of their own.
         pda: 0.0,
         to_play: a.to_play,
+    }
+}
+
+/// The root `DZ` a save writes (SGFParser.java:1443-1470); a record with neither mark gets none.
+#[derive(Clone, Copy)]
+pub(super) enum SaveMark {
+    /// An engine game, scored by no engine (`Y`), Black's (`KB`) or White's (`KW`).
+    EngineGame(Option<Stone>),
+    /// `G`: a KataGo record (`Board.isKataBoard`).
+    KataGo,
+}
+
+impl SaveMark {
+    pub(super) fn tag(self) -> &'static str {
+        match self {
+            SaveMark::EngineGame(Some(Stone::White)) => "KW",
+            SaveMark::EngineGame(Some(Stone::Black)) => "KB",
+            SaveMark::EngineGame(None) => "Y",
+            SaveMark::KataGo => "G",
+        }
     }
 }
 
@@ -216,14 +236,30 @@ impl Workbench {
             Some(&self.secondary_store),
             self.comment_secondary(),
             application,
-            self.pk_save_tag(),
+            self.save_mark(),
         )
     }
 
-    /// `rec` as a save writes it: `store`'s and `payload_secondary`'s analysis payloads and, when
-    /// 记录选点信息到评论中 is on and `rec` is no engine game, the comments with `store`'s (or
-    /// `comment_secondary`'s) summary. An engine game gets `engine_game` as its root `DZ`
-    /// (SGFParser.java:1443-1462, 1556).
+    /// The mark a save of the open document writes: the engine-game marks while it is an engine
+    /// game, else `G` for a KataGo record ([`Workbench::kata_record`]) or one marked as such.
+    pub(super) fn save_mark(&self) -> Option<SaveMark> {
+        if let Some(pk) = self.pk_board_view() {
+            return Some(SaveMark::EngineGame(pk.score_side));
+        }
+        (self.kata_board == Some(self.doc.id) || self.kata_record(&self.store, &self.secondary_store))
+            .then_some(SaveMark::KataGo)
+    }
+
+    /// `leelaz.isKatago || board.isKataBoard` (SGFParser.java:1465) for a record with no marks of
+    /// its own: the foreground engine is KataGo, or the stores hold KataGo data, live, read from
+    /// the record or from an analysis process (MoveData.java:543/563, AnalysisEngine.java:1223).
+    pub(super) fn kata_record(&self, store: &AnalysisStore, secondary: &AnalysisStore) -> bool {
+        self.engines.foreground().is_some_and(|f| self.engines.is_katago(f)) || store.has_scores() || secondary.has_scores()
+    }
+
+    /// `rec` as a save writes it: `store`'s and `payload_secondary`'s analysis payloads, `mark` as
+    /// the root `DZ` and, when 记录选点信息到评论中 is on and `rec` is no engine game, the comments
+    /// with `store`'s (or `comment_secondary`'s) summary (SGFParser.java:1443-1470, 1556).
     pub(super) fn analyzed_text(
         &self,
         rec: &GameRecord,
@@ -231,17 +267,19 @@ impl Workbench {
         payload_secondary: Option<&AnalysisStore>,
         comment_secondary: Option<&AnalysisStore>,
         application: &str,
-        engine_game: Option<&str>,
+        mark: Option<SaveMark>,
     ) -> String {
         let labels = comment_labels(self.active_language);
+        let engine_game = matches!(mark, Some(SaveMark::EngineGame(_)));
         let comment = |id| {
-            (engine_game.is_none() && self.config.record.append_winrate_to_comment && id != ROOT && rec.node(id).kind != NodeKind::Snapshot)
+            (!engine_game && self.config.record.append_winrate_to_comment && id != ROOT && rec.node(id).kind != NodeKind::Snapshot)
                 .then(|| self.formatted_comment(rec, store, comment_secondary, id, &labels))
                 .flatten()
         };
         let primary = |id| store.payload(rec, id);
         let secondary = |id| payload_secondary.and_then(|s| s.payload(rec, id));
-        sgf_write::write_analyzed(rec, application, Analysis { primary: &primary, secondary: &secondary }, &comment, engine_game)
+        let analysis = Analysis { primary: &primary, secondary: &secondary };
+        sgf_write::write_analyzed(rec, application, analysis, &comment, mark.map(SaveMark::tag))
     }
 
     /// Where the picture chooser starts: the last picture folder, else the last record folder

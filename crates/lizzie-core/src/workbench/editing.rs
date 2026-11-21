@@ -674,9 +674,9 @@ impl Workbench {
         let applied = self.apply_edit(DocumentEdit::ConvertToStartingPosition { node: self.cursor });
         self.editing.setup_mode = false;
         if applied.is_ok() {
-            // Board.java:1320: the converted history is set like a read one, its engine-game
-            // marks taken from the root `DZ` it keeps (`syncBoardKataFlagsWithHistory`).
-            self.pk_board = super::matches::recorded_pk_side(&self.doc.record).map(|side| (self.doc.id, side));
+            // Board.java:1320: the converted history is set like a read one, its engine-game and
+            // KataGo marks taken from the root `DZ` it keeps (`syncBoardKataFlagsWithHistory`).
+            self.read_record_marks();
             self.land(ROOT);
         }
     }

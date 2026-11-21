@@ -517,7 +517,11 @@ importing the matching LizzieYzy Next settings.
     so a reopened game is one again. As in Java it ends with a new board, another record,
     清除Lizzie缓存(全局), starting 自动分析, or a 闪电分析, 自动棋谱快析 or 整盘精析 pass of the
     record that every position answered; a failed or cancelled one leaves it. 转为开局 reads it
-    again from the record's `DZ` tag.
+    again from the record's `DZ` tag. Any other save, batch analysis copies included, writes
+    `DZ[G]` for a KataGo record (KataGo is the foreground engine, the record holds KataGo
+    results, or it was read with a KataGo `DZ` or rebuilt from a 跑谱贡献 game, until
+    清除Lizzie缓存(全局) or 自动分析 ends that mark) and no `DZ` otherwise, so a record that is no
+    longer an engine game never keeps its old tag.
   - 统计 shows the score label, the bar of both sides' win rates and 最后一手 with the move's
     candidate rank and the change for the side that played it (against the position before, or
     two moves back when that one has no analysis). AI总评分 shows each side's mean match share
@@ -526,7 +530,11 @@ importing the matching LizzieYzy Next settings.
     produced are left out rather than shown as zero.
   - 选点列表 keeps the engine's order with the actual move marked or inserted (实战), Java's
     colours and resizable, remembered columns; a click shows a row's variation (the wheel over
-    the list or the board lengthens it), a second click or a right click clears it.
+    the list or the board lengthens it), a second click or a right click clears it. Columns start
+    at their content's width (序号 only as wide as its labels), the actual move's row shows its
+    rank with a small 实战 under it and each change in small type before its value (Java's
+    "15(实战)" / "↓-4.6(50.4)" stay in the row's tooltip), and a narrow list puts the change
+    above the value instead of cutting it.
     独立选点列表 (`U`) opens it in its own window with 7 or 9 columns (sortable by header,
     also from the keyboard: `Tab` to the header, `←`/`→` to a column, `Enter` or `Space`),
     列表 / 柱状图 / 当前手 / 鼠标悬停, 总计算量 / 最高计算量 / 集中度, 总在最前 (`Q`) and a
@@ -1903,7 +1911,7 @@ unknown and explicit verification reports runtime failures. Windows NVIDIA runti
 come from NVIDIA's redistributable archives: CUDA 12.8, cuDNN 9.8.0, NVRTC 12.8.61 and TensorRT
 10.9.0.34 are pinned, with license files kept next to the installed libraries.
 
-Analysis is supported. Selected-move focus is not supported by these releases. Official
+Analysis is supported. Point evaluation (选点重点研究) is not supported by these releases. Official
 non-ONNX builds include upstream distributed support and are offered to 跑谱贡献 as not verified
 by this client; DirectML and OpenVINO builds do not support it and cannot be started there.
 Models remain the b11 network from katagotraining.org (KataGo Neural Network License) and the

@@ -153,13 +153,30 @@ const BOTTOM = 22;
 /** The four boxes in Java's order (AnalysisFrame.java:120-189). */
 const BOX_KEYS: FramePayload["boxes"][number]["key"][] = ["list", "graph", "showNext", "mouseMove"];
 
-/** A header or cell text with line-break opportunities before its bracket ("Percents(%)",
- *  "3(实战)", "↓-4.6(50.4)") and between camel-cased words ("ScoreStdev"), where a narrow column
- *  wraps it instead of cutting it. */
+/** A header text with line-break opportunities before its bracket ("Percents(%)") and between
+ *  camel-cased words ("ScoreStdev"), where a narrow column wraps it instead of cutting it. */
 function breakable(text: string): (string | HTMLElement)[] {
   // Lookahead only: older macOS WebKit rejects lookbehind when it parses the module.
   const parts = text.replace(/(.)(?=\()|([a-z])(?=[A-Z])/g, "$1$2\u0000").split("\u0000");
   return parts.flatMap((part, k) => (k === 0 ? [part] : [document.createElement("wbr"), part]));
+}
+
+/** The actual move's cell text in parts: in 序号 its rank with a smaller 实战 note under it
+ *  ("15(实战)"; an actual move outside the candidates has the note alone), in a figure column a
+ *  smaller change before the value ("↓-4.6(50.4)"), so the value lines up with the column's
+ *  other rows; a column too narrow for both breaks between them. */
+export function actualParts(text: string, rank: boolean): (string | HTMLElement)[] {
+  const open = text.indexOf("(");
+  if (open <= 0 && !rank) return [text];
+  const note = document.createElement("span");
+  note.className = "actual-note";
+  if (open <= 0) {
+    note.textContent = text;
+    return [note];
+  }
+  const head = text.slice(0, open), inner = text.slice(open + 1, text.lastIndexOf(")"));
+  note.textContent = rank ? inner : head;
+  return rank ? [head, note] : [note, document.createElement("wbr"), inner];
 }
 
 export function bootFrame(): void {
@@ -405,9 +422,11 @@ export function bootFrame(): void {
       while (row.cells.length > cells.length) row.deleteCell(row.cells.length - 1);
       cells.forEach((c, column) => {
         const cell = row.cells[column] ?? row.insertCell();
-        // The actual move's figures wrap before their bracket where the column is too narrow for
-        // both, as in the main window's list.
-        if (cell.textContent !== c.text) cell.replaceChildren(...breakable(c.text));
+        // The actual move's cells as the main window's list shows them (actualParts).
+        if (cell.dataset.text !== c.text) {
+          cell.dataset.text = c.text;
+          cell.replaceChildren(...actualParts(c.text, column === 0));
+        }
         cell.classList.toggle("split", c.text.indexOf("(") > 0);
         cell.style.color = c.fg;
         // 占比: a hard-edged bar of the share token behind the right-aligned number, growing

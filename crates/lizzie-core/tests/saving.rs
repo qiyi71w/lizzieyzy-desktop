@@ -3,7 +3,7 @@
 //! `SNAPSHOT_NODE_KIND.md`), compared by structure rather than bytes; save receipts confirm only
 //! the captured document revision.
 
-use lizzie_core::api::{OpenSource, SaveOutcome};
+use lizzie_core::api::{AnalysisScope, OpenSource, SaveOutcome};
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::formats::{self, sgf, sgf_write};
@@ -86,7 +86,7 @@ fn assert_same_meaning(expected: &GameRecord, actual: &GameRecord) {
 }
 
 fn reopen(rec: &GameRecord) -> GameRecord {
-    sgf::read(&sgf_write::write(rec, AP)).expect("saved SGF reads back")
+    sgf::read(&sgf_write::write(rec, AP, None)).expect("saved SGF reads back")
 }
 
 /// Setup in several places, an inferred initial side, mid-game replacement and removal, real and
@@ -115,9 +115,9 @@ fn saved_records_reopen_with_the_same_meaning() {
         let once = reopen(&rec);
         assert_same_meaning(&rec, &once);
         // Saving the reopened record again changes nothing (no setup nodes grow, Java contract).
-        let twice_text = sgf_write::write(&once, AP);
+        let twice_text = sgf_write::write(&once, AP, None);
         assert_eq!(
-            sgf_write::write(&sgf::read(&twice_text).unwrap(), AP),
+            sgf_write::write(&sgf::read(&twice_text).unwrap(), AP, None),
             twice_text,
             "{name}"
         );
@@ -133,7 +133,7 @@ fn initial_side_to_play_is_written_explicitly() {
         ("(;SZ[9]HA[2]AB[cc][gg])", true),
         ("(;SZ[9])", false),
     ] {
-        let saved = sgf_write::write(&sgf::read(text).unwrap(), AP);
+        let saved = sgf_write::write(&sgf::read(text).unwrap(), AP, None);
         assert!(
             saved.contains(if white { "PL[W]" } else { "PL[B]" }),
             "{text} -> {saved}"
@@ -147,7 +147,7 @@ fn secondary_engine_analysis_keeps_its_own_property() {
     let first = rec.main_child(ROOT).unwrap();
     let ids: Vec<&str> = rec.node(first).properties.iter().map(|p| p.id.as_str()).collect();
     assert!(ids.contains(&"LZ") && ids.contains(&"LZ2"), "{ids:?}");
-    let saved = sgf_write::write(&rec, AP);
+    let saved = sgf_write::write(&rec, AP, None);
     assert!(saved.contains("LZ[a]LZ2[b]") && saved.contains("LZOP2[c]"), "{saved}");
 }
 
@@ -156,7 +156,7 @@ fn passes_are_empty_moves_and_text_is_escaped() {
     // PB is `a]b\`, the comment `x]y`.
     let rec = sgf::read(r"(;SZ[19]PB[a\]b\\];B[];W[tt]C[x\]y])").unwrap();
     assert_eq!(rec.info.black, r"a]b\");
-    let saved = sgf_write::write(&rec, AP);
+    let saved = sgf_write::write(&rec, AP, None);
     assert!(saved.contains(";B[]") && saved.contains(";W[]"), "{saved}");
     assert!(saved.contains(r"PB[a\]b\\]") && saved.contains(r"C[x\]y]"), "{saved}");
     let reopened = sgf::read(&saved).unwrap();
@@ -177,7 +177,7 @@ fn a_replaced_setup_stone_survives_java_style_save_and_reopen() {
     assert_eq!(java.position(end).at(gg), Some(Stone::White));
     let ignored = sgf::read("(;SZ[9]AB[gg];B[aa];AW[gg])").unwrap();
     assert_eq!(ignored.position(ignored.line_end(ROOT)).at(gg), Some(Stone::Black));
-    let saved = sgf_write::write(&java, AP);
+    let saved = sgf_write::write(&java, AP, None);
     assert!(saved.contains("AE[gg]AW[gg]"), "{saved}");
     assert_same_meaning(&java, &sgf::read(&saved).unwrap());
 }
@@ -605,6 +605,39 @@ fn java_saved_analysis_feeds_displays_and_round_trips_through_save() {
     wb.complete_open(ticket, Workbench::read_clipboard_record(&saved, false));
     assert_eq!(wb.view(false).analysis.unwrap().candidates[0].pv_visits, [100, 40]);
     assert_eq!(wb.begin_save("again.sgf", AP).text, saved);
+}
+
+#[test]
+fn a_save_writes_the_root_dz_of_what_the_record_is_now() {
+    // SGFParser.java:1443-1470 rebuilds `DZ` on every save: the engine-game marks, `G` for a
+    // KataGo record, else none. No engine runs here, so the record alone decides.
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    let open = |wb: &mut Workbench, text: &str| {
+        let ticket = wb.begin_open(OpenOrigin::Clipboard);
+        wb.complete_open(ticket, Workbench::read_clipboard_record(text, false));
+    };
+    let dz = |wb: &mut Workbench| -> Vec<String> {
+        let saved = sgf::read(&wb.begin_save("marks.sgf", AP).text).unwrap();
+        let root = &saved.node(ROOT).properties;
+        root.iter().filter(|p| p.id == "DZ").flat_map(|p| p.values.clone()).collect()
+    };
+    // A saved engine game stays one until 清除Lizzie缓存 ends its marks; then it is a plain record.
+    open(&mut wb, "(;SZ[9]DZ[KW];B[ee])");
+    assert_eq!(dz(&mut wb), ["KW"]);
+    wb.clear_analysis_cache(AnalysisScope::All);
+    assert!(dz(&mut wb).is_empty());
+    // A KataGo record keeps its mark with no data of its own, until the same clear.
+    open(&mut wb, "(;SZ[9]DZ[G];B[ee])");
+    assert_eq!(dz(&mut wb), ["G"]);
+    wb.clear_analysis_cache(AnalysisScope::All);
+    assert!(dz(&mut wb).is_empty());
+    // KataGo data makes one (MoveData.java:543); Leela Zero data does not.
+    open(&mut wb, "(;SZ[9];B[ee]LZ[b11 44.0 200 1.2 0.7 0.5 rootVisits=200\n\
+        move C3 visits 150 winrate 5600 prior 3000 scoreMean 1.2 pv C3])");
+    assert_eq!(dz(&mut wb), ["G"]);
+    open(&mut wb, "(;SZ[9];B[ee]LZ[LeelaZero 60.0 1.3k\nmove C7 visits 900 winrate 4000 pv C7])");
+    assert!(dz(&mut wb).is_empty());
 }
 
 #[test]

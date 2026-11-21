@@ -100,7 +100,7 @@ fn line(rec: &GameRecord, from: NodeId) -> Vec<String> {
 }
 
 fn reopen(rec: &GameRecord) -> GameRecord {
-    sgf::read(&sgf_write::write(rec, "LizzieYzy Tauri:test")).expect("saved SGF reads back")
+    sgf::read(&sgf_write::write(rec, "LizzieYzy Tauri:test", None)).expect("saved SGF reads back")
 }
 
 #[test]
@@ -893,7 +893,7 @@ fn changing_a_position_in_place_drops_its_saved_analysis_only() {
     // 黑先 where Black already plays changes nothing (`setupSetSideToPlay`).
     let same = EditCommand::SetupSideToPlay { color: Stone::Black };
     assert_eq!(edit(&mut wb, same), CommandResult::Unchanged);
-    assert!(sgf_write::write(rec(&wb), "t").contains("LZ["));
+    assert!(sgf_write::write(rec(&wb), "t", None).contains("LZ["));
     edit(
         &mut wb,
         EditCommand::SetupStone {
@@ -901,7 +901,7 @@ fn changing_a_position_in_place_drops_its_saved_analysis_only() {
             stone: Some(Stone::Black),
         },
     );
-    let text = sgf_write::write(rec(&wb), "t");
+    let text = sgf_write::write(rec(&wb), "t", None);
     assert!(!text.contains("LZ["), "{text}");
 
     // A rotation keeps the analysis of positions it does not change (the empty root, a stone on

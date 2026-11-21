@@ -61,6 +61,17 @@ body {
   white-space: normal;
   line-height: 1.2;
 }
+/* The actual move's 实战 note under its rank and its changes before the values, a step smaller
+   than the figures they go with (actualParts). */
+#top .actual-note {
+  margin-right: 4px;
+  font-size: var(--ds-size-s);
+}
+#top td:first-child .actual-note {
+  display: block;
+  margin-right: 0;
+  word-break: normal;
+}
 /* 序号 and 坐标 read as words. */
 #top th:nth-child(-n + 2),
 #top td:nth-child(-n + 2) {

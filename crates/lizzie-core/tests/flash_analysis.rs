@@ -999,6 +999,9 @@ fn a_finished_flash_analysis_ends_the_engine_game_marks() {
     }
     assert!(wb.inspect().pk_board.is_some(), "only the finished run's setResult ends them");
     answer(&mut wb, worker, last);
-    // AnalysisEngine.java:1222 clearPkBoardStat.
+    // AnalysisEngine.java:1222-1223 clearPkBoardStat, isKataBoard: a save writes `G`, not the
+    // engine game's `KW` it was read with.
     assert_eq!(wb.inspect().pk_board, None);
+    let saved = wb.begin_save("/x.sgf", "test").text;
+    assert!(saved.contains("DZ[G]") && saved.matches("DZ[").count() == 1, "{saved}");
 }

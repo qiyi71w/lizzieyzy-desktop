@@ -168,7 +168,7 @@ pub fn branch_actions(text: &str, source: &GameRecord, at: NodeId) -> Vec<Source
             }
         }
     }
-    let prefix = sgf_write::write(&line, "");
+    let prefix = sgf_write::write(&line, "", None);
     let Some(close) = prefix.rfind(')') else { return Vec::new() };
     let (Ok(base), Ok(record)) =
         (sgf::read(&prefix), sgf::read(&format!("{}{text}{}", &prefix[..close], &prefix[close..])))
