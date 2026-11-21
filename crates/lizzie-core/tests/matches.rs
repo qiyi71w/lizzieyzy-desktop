@@ -582,10 +582,10 @@ fn a_participant_replacement_that_fails_to_start_is_quiet_and_not_retried() {
     let id = m.mover();
     let newest = *m.world.ids().iter().max().unwrap();
     m.wb.engine_input(id, EngineInput::Exited(Some(1)));
-    assert!(m.wb.view(false).engine_failure.is_none(), "the participant's end is not shown");
+    assert!(m.wb.view(false).engine_failures.is_empty(), "the participant's end is not shown");
     m.serve(&move |i, c| (i > newest && c == "name").then(|| "?cannot start".into()));
     let v = m.wb.view(false);
-    assert!(v.engine_failure.is_none(), "no start-up diagnostic for the replacement");
+    assert!(v.engine_failures.is_empty(), "no start-up diagnostic for the replacement");
     assert!(v.engine.foreground.is_none() && v.engine.down);
     let count = m.world.ids().len();
     m.wb.engine_tick(Instant::now() + Duration::from_secs(60));

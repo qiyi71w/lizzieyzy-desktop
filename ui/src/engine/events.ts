@@ -1,5 +1,5 @@
 import { registerViewHandler, run, state } from "../app";
-import type { EngineFailureView, RulesPromptView } from "../contract/generated";
+import type { EngineFailureView, RulesPromptView, WorkbenchView } from "../contract/generated";
 import { chooseSave, closeBox, formPanel, message, panel } from "../dialogs";
 import { format, product, t } from "../i18n";
 import { chooseEngine, openMoreEngines } from "./catalog";
@@ -9,12 +9,13 @@ import { cloudStartText, VIP_ARGS } from "../cloud/service";
 import { openAutoSetup } from "../setup/dialog";
 
 /** The failure text: SSHController's or ZhiziGtpTransport's wording for a remote or 智子 engine,
- *  with the 智子 plan hint when the failed engine's plan is known (an empty plan starts as VIP
- *  包月, as the socket token request sends it). */
-function failureText(failure: EngineFailureView): string {
+ *  with the 智子 plan hint when the failed engine's plan is known in `view`, the view the failure
+ *  came with (an empty plan starts as VIP 包月, as the socket token request sends it). Taken when
+ *  the failure arrives, so a window queued behind others keeps the plan that failed. */
+function failureText(failure: EngineFailureView, view: WorkbenchView | null): string {
   if (failure.remote) return remoteFailureText(failure.remote);
   if (!failure.cloud) return failure.message;
-  const cloud = state.view?.settings.engine.engines.find((e) => e.id === failure.profile_id)?.cloud;
+  const cloud = view?.settings.engine.engines.find((e) => e.id === failure.profile_id)?.cloud;
   return cloudStartText(failure.cloud, cloud ? cloud.args.trim() || VIP_ARGS : "");
 }
 
@@ -43,8 +44,7 @@ function details(failure: EngineFailureView, error: string): void {
  *  starts with 引擎异常关闭 (`engineEndUnormalHint`), then the cause and the engine's last lines.
  *  The window stays usable while an automatic restart brings the engine back. Escape, with the
  *  focus anywhere in it, presses its close box. */
-function endedWindow(failure: EngineFailureView): void {
-  const text = failureText(failure);
+function endedWindow(failure: EngineFailureView, text: string): void {
   const box = document.createElement("section"); box.className = "engine-limit-notice engine-failure engine-ended";
   box.setAttribute("role", "dialog"); box.setAttribute("aria-label", t("Leelaz.engineFailed")); box.setAttribute("data-free-window", "");
   box.dataset.key = "engine.failure.ended";
@@ -74,9 +74,8 @@ function endedWindow(failure: EngineFailureView): void {
  *  engine whose login or connection failed opens 更多引擎 afterwards (SSHController.java:38-54).
  *  The 跑谱贡献 engine's failure also offers 重启引擎 (restartContribute,
  *  EngineFailedMessage.java:331-340). */
-async function failureDialog(failure: EngineFailureView, restartContribution = false): Promise<void> {
+async function failureDialog(failure: EngineFailureView, text: string, restartContribution = false): Promise<void> {
   const body = document.createElement("div"); body.className = "engine-failure";
-  const text = failureText(failure);
   const summary = document.createElement("pre"); summary.className = "engine-failure-summary"; summary.textContent = `${failure.engine_name}: ${text}`;
   const command = document.createElement("pre"); command.textContent = failure.command;
   body.append(summary);
@@ -123,7 +122,8 @@ async function failureDialog(failure: EngineFailureView, restartContribution = f
 
 /** The 跑谱贡献 engine ended abnormally: the failure window with 重启引擎, queued with the others. */
 export function contributionFailure(failure: EngineFailureView): void {
-  failures = failures.then(() => failureDialog(failure, true));
+  const text = failureText(failure, state.view);
+  failures = failures.then(() => failureDialog(failure, text, true));
 }
 
 let notice: HTMLElement | null = null;
@@ -151,11 +151,11 @@ async function rulesPrompt(prompt: RulesPromptView): Promise<void> {
 let startupSeen = false;
 let failures: Promise<void> = Promise.resolve();
 registerViewHandler((view) => {
-  if (view.engine_failure) {
-    const failure = view.engine_failure;
+  for (const failure of view.engine_failures) {
+    const text = failureText(failure, view);
     // A configured engine that ended after start-up; analysis processes keep their dialog.
-    if (!failure.during_startup && failure.profile_id) endedWindow(failure);
-    else failures = failures.then(() => failureDialog(failure));
+    if (!failure.during_startup && failure.profile_id) endedWindow(failure, text);
+    else failures = failures.then(() => failureDialog(failure, text));
   }
   if (view.engine_notice === "StoppedByLimit") limitNotice();
   // EngineManager.showSetupModeEngineUnavailable: Utils.showMsg.

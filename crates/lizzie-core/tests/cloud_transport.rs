@@ -461,6 +461,14 @@ fn a_refused_zhizi_session_ends_the_startup_with_a_reason_free_of_credentials() 
     }
 }
 
+/// Java `isFatalStartupFailure` has no bare "permission": a refusal saying only that is worth
+/// the next attempts (three socket token requests), unlike one naming the plan or the account.
+#[test]
+fn a_refusal_that_only_mentions_permission_is_retried_as_java_does() {
+    let (_, _, calls) = refusal(r#"{"message":"permission denied"}"#, "");
+    assert_eq!(calls, 3);
+}
+
 /// Lets the blocked token resolver go when dropped, so every exit of a test (a failed assertion
 /// too) releases it before the engine is dropped and joins it.
 struct Release(mpsc::Sender<()>);
@@ -825,27 +833,45 @@ fn invalid_or_unreachable_manual_proxy_never_falls_through_to_the_destination() 
 #[test]
 fn a_refused_upgrade_is_the_services_answer_and_a_refusing_proxy_is_not() {
     // 智子 turning the WebSocket upgrade away (401) refuses the session; a manual proxy asking
-    // for credentials (407) has not reached 智子. Neither is worth another attempt.
-    for (status, proxied, expected) in [
-        ("401 Unauthorized", false, CloudStartFailure::Refused { detail: String::new() }),
-        ("407 Proxy Authentication Required", true, CloudStartFailure::Unreachable),
+    // for credentials (407), to a `ws` upgrade or to the CONNECT tunnel of a `wss` link, has not
+    // reached 智子. Neither is worth another attempt: the server sees one request.
+    for (status, target, proxied, expected) in [
+        ("401 Unauthorized", "", false, CloudStartFailure::Refused { detail: String::new() }),
+        ("407 Proxy Authentication Required", "ws://zhizi.invalid/zhizi-ns", true, CloudStartFailure::Unreachable),
+        ("407 Proxy Authentication Required", "wss://zhizi.invalid/zhizi-ns", true, CloudStartFailure::Unreachable),
     ] {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
+        let (done, finished) = mpsc::channel::<()>();
         let answer = thread::spawn(move || {
-            let mut stream = accept_bounded(&listener);
-            read_http_head(&mut stream);
-            write!(stream, "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let mut requests = 0;
+            while finished.try_recv().is_err() {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        stream.set_nonblocking(false).unwrap();
+                        stream.set_read_timeout(Some(Duration::from_secs(8))).unwrap();
+                        read_http_head(&mut stream);
+                        write!(stream, "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+                        requests += 1;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => thread::sleep(Duration::from_millis(5)),
+                    Err(error) => panic!("fixture accept failed: {error}"),
+                }
+            }
+            requests
         });
         let (target, network) = if proxied {
-            ("ws://zhizi.invalid/zhizi-ns".to_string(), manual_proxy(port))
+            (target.to_string(), manual_proxy(port))
         } else {
             (format!("ws://127.0.0.1:{port}/zhizi-ns"), NetworkSettings { proxy_mode: ProxyMode::Direct, proxy_host: String::new(), proxy_port: 0 })
         };
-        let mut engine = Running::network(CloudProvider::Zhizi, target, network);
+        let mut engine = Running::network(CloudProvider::Zhizi, target.clone(), network);
         let events = engine.until(|event| matches!(event, EngineInput::CloudStartFailed(_)));
-        assert_eq!(events.last(), Some(&EngineInput::CloudStartFailed(expected)), "{status}");
-        engine.stop(); answer.join().unwrap();
+        assert_eq!(events.last(), Some(&EngineInput::CloudStartFailed(expected)), "{status} {target}");
+        engine.stop();
+        done.send(()).unwrap();
+        assert_eq!(answer.join().unwrap(), 1, "{status} {target}");
     }
 }
 
@@ -1268,7 +1294,7 @@ fn shutting_all_engines_down_while_a_custom_engine_connects_empties_the_seat_and
     assert!(v.seq > before);
     assert!(v.engine.foreground.is_none());
     assert!(!v.engine.down, "a shutdown is not a failure");
-    assert!(v.engine_failure.is_none());
+    assert!(v.engine_failures.is_empty());
     assert!(v.engine.engines.iter().all(|e| e.state.is_none()), "nothing left running");
     b.finish();
 }

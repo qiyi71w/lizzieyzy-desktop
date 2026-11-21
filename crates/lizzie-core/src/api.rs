@@ -1370,7 +1370,7 @@ pub enum FlashOutcome {
     /// Stopped with the Java resource key of the explanation
     /// (`AnalysisEngine.requestDispatchFailed`, `AnalysisEngine.foregroundRestoreFailed`).
     Failed { run: u64, message_key: String },
-    /// The analysis process failed (reported as `engine_failure`); 精析设置 opens with
+    /// The analysis process failed (reported in `engine_failures`); 精析设置 opens with
     /// 确定并重新计算 (`AnalysisSettings(true, true)`).
     EngineFailed { run: u64 },
 }
@@ -1654,8 +1654,10 @@ pub struct WorkbenchView {
     /// with the analysis summary appended (Java writes it into the node, `appendComment`);
     /// absent when the comment pane shows `position.comment` unchanged.
     pub comment_with_analysis: Option<String>,
-    /// An engine that failed to start or stopped unexpectedly, once.
-    pub engine_failure: Option<EngineFailureView>,
+    /// Engines that failed to start or stopped unexpectedly since the last view, oldest first,
+    /// each once: engine output between two views is coalesced into one, and every failure keeps
+    /// its own window (Java shows an EngineFailedMessage per failure).
+    pub engine_failures: Vec<EngineFailureView>,
     /// A notice about analysis, once.
     pub engine_notice: Option<EngineNotice>,
     /// The running 人机对弈 (also while it gives the engine back).

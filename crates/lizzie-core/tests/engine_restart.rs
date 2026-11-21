@@ -171,7 +171,7 @@ fn a_foreground_engine_that_dies_starts_again_and_resumes_the_current_position()
 
     // Java's abnormal-end diagnostic is still reported, as an end after start-up.
     let v = wb.view(false);
-    let f = v.engine_failure.expect("the end is reported");
+    let f = v.engine_failures.into_iter().last().expect("the end is reported");
     assert!(!f.during_startup);
     let launched = world.launched();
     assert_eq!(launched.len(), 2, "the same engine starts again");
@@ -214,7 +214,7 @@ fn cloud_recovery_replays_the_latest_position_without_ordinary_alive_check_or_fa
     let sent = serve(&mut wb, &world, new);
     let view = wb.view(false);
     assert!(view.engine.foreground.unwrap().ready);
-    assert!(view.engine_failure.is_none(), "cloud reconstruction is quiet");
+    assert!(view.engine_failures.is_empty(), "cloud reconstruction is quiet");
     assert!(sent.iter().any(|c| c == "komi 0.5"));
     assert!(sent.iter().any(|c| c == "play B Q16"));
     assert!(!sent.iter().any(|c| c == "play B Q4"));
@@ -360,11 +360,11 @@ fn a_restarted_engine_that_refuses_the_position_is_left_unrestored() {
     let world = World::default();
     let (mut wb, old) = analysing(dir.path(), &world);
     wb.engine_input(old, EngineInput::Exited(Some(1)));
-    assert!(wb.view(false).engine_failure.is_some(), "the end itself is reported");
+    assert!(!wb.view(false).engine_failures.is_empty(), "the end itself is reported");
     let new = world.last();
     serve_with(&mut wb, &world, new, "play B Q4", &mut |_, _| {});
     let v = wb.view(false);
-    assert!(v.engine_failure.is_none(), "no dialog for the refused restore");
+    assert!(v.engine_failures.is_empty(), "no dialog for the refused restore");
     assert_eq!(v.engine.unrestored, Some(UnrestoredReason::Restore), "引擎状态未恢复");
     assert!(v.analysis.is_none_or(|a| a.visits == 50), "nothing analysed for the refused position");
     // It follows no wish any more, and its end is not restarted either.
@@ -395,14 +395,14 @@ fn declining_the_rules_override_of_a_restarted_engine_leaves_it_unrestored() {
     info(&mut wb, old, 50);
 
     wb.engine_input(old, EngineInput::Exited(Some(1)));
-    assert!(wb.view(false).engine_failure.is_some(), "the end itself is reported");
+    assert!(!wb.view(false).engine_failures.is_empty(), "the end itself is reported");
     let new = world.last();
     serve(&mut wb, &world, new);
     let p = wb.view(false).rules_prompt.expect("the restarted engine asks again");
     assert!(wb.answer_rules_prompt(p.prompt, false));
     serve(&mut wb, &world, new);
     let v = wb.view(false);
-    assert!(v.engine_failure.is_none(), "no dialog for the failed restore");
+    assert!(v.engine_failures.is_empty(), "no dialog for the failed restore");
     assert_eq!(v.engine.unrestored, Some(UnrestoredReason::Restore), "引擎状态未恢复");
     // It follows no wish: resuming analyses nothing, and nothing is tried again.
     wb.toggle_analysis().unwrap();
@@ -430,7 +430,7 @@ fn the_position_reached_during_the_restore_settles_it() {
         });
         assert!(moved && sent.iter().any(|c| c == "undo"), "caught up after the first restore: {sent:?}");
         let v = wb.view(false);
-        assert!(v.engine_failure.is_none());
+        assert!(v.engine_failures.is_empty());
         if refused.is_empty() {
             assert_eq!(v.engine.unrestored, None);
             assert!(v.engine.analysing && v.position.node == 2);
@@ -450,7 +450,7 @@ fn turning_the_setting_off_leaves_a_dead_engine_down() {
     assert_eq!(world.launched().len(), 1);
     let v = wb.view(false);
     assert!(v.engine.foreground.is_none() && v.engine.down, "引擎未成功加载");
-    assert!(v.engine_failure.is_some());
+    assert!(!v.engine_failures.is_empty());
     // On again: the next end of a running engine restarts it.
     set_auto_check(&mut wb, true);
     wb.switch_engine(0).unwrap();
@@ -472,7 +472,7 @@ fn a_restarted_engine_that_dies_before_producing_anything_is_not_restarted_again
     wb.engine_input(second, EngineInput::Exited(Some(1)));
     assert_eq!(world.launched().len(), 2, "no restart loop");
     let v = wb.view(false);
-    assert!(v.engine.down && v.engine_failure.is_some());
+    assert!(v.engine.down && !v.engine_failures.is_empty());
 
     // A manually started engine is checked once ready; a restarted one after its first line.
     wb.switch_engine(0).unwrap();
@@ -497,7 +497,7 @@ fn an_engine_that_fails_while_starting_is_not_restarted() {
     wb.engine_input(id, EngineInput::Exited(Some(127)));
     assert_eq!(world.launched().len(), 1);
     let v = wb.view(false);
-    assert!(v.engine_failure.unwrap().during_startup && v.engine.down);
+    assert!(v.engine_failures.into_iter().last().unwrap().during_startup && v.engine.down);
 }
 
 #[test]
@@ -508,12 +508,12 @@ fn a_restart_that_cannot_launch_is_reported_like_any_start_and_not_retried() {
     world.refuse_launches();
     wb.engine_input(old, EngineInput::Exited(Some(1)));
     let v = wb.view(false);
-    let failure = v.engine_failure.expect("the launch failure is shown");
+    let failure = v.engine_failures.into_iter().last().expect("the launch failure is shown");
     assert!(failure.during_startup && failure.message.contains("No such file"));
     assert!(v.engine.foreground.is_none() && v.engine.down);
     assert_eq!(world.launched().len(), 1);
     wb.engine_tick(Instant::now() + Duration::from_secs(10));
-    assert!(wb.view(false).engine_failure.is_none(), "no further attempt");
+    assert!(wb.view(false).engine_failures.is_empty(), "no further attempt");
 }
 
 #[test]

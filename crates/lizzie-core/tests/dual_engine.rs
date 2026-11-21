@@ -331,7 +331,7 @@ fn the_user_pause_stops_both_and_no_secondary_ending_resumes_analysis() {
     out(&mut wb, b, "");
     wb.engine_input(b, EngineInput::Exited(Some(1)));
     let v = wb.view(false);
-    assert!(v.engine.paused && v.engine_failure.is_some());
+    assert!(v.engine.paused && !v.engine_failures.is_empty());
     assert!(v.engine.secondary.is_none(), "the failed engine leaves its seat");
     assert_eq!(
         v.engine.foreground.as_ref().map(|f| f.index),
@@ -433,7 +433,7 @@ fn a_secondary_that_fails_while_starting_returns_the_seat_to_the_kept_one() {
     );
     wb.engine_input(c, EngineInput::Exited(Some(127)));
     let v = wb.view(false);
-    assert!(v.engine_failure.unwrap().during_startup);
+    assert!(v.engine_failures.into_iter().last().unwrap().during_startup);
     assert_eq!(
         v.engine.secondary.map(|s| s.index),
         Some(1),

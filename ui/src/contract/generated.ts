@@ -737,9 +737,11 @@ secondary: SecondaryView | null,
  */
 comment_with_analysis: string | null, 
 /**
- * An engine that failed to start or stopped unexpectedly, once.
+ * Engines that failed to start or stopped unexpectedly since the last view, oldest first,
+ * each once: engine output between two views is coalesced into one, and every failure keeps
+ * its own window (Java shows an EngineFailedMessage per failure).
  */
-engine_failure: EngineFailureView | null, 
+engine_failures: Array<EngineFailureView>, 
 /**
  * A notice about analysis, once.
  */

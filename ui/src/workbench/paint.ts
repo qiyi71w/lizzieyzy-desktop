@@ -2317,7 +2317,8 @@ const MIN_TEXT = 9;
  *  思考模式 has no capture counts. The dot shows pondering; stored analysis is independent of it.
  *  Text shrinks to fit, never under MIN_TEXT; a section too short or narrow for that drops rows
  *  instead: first the second row (吻合度, 贴目; the small strip moves 吻合度 beside its stones
- *  while that fits), then the caption (the dot stays). */
+ *  while that fits), then the caption (the dot stays), then the 提子 names (each count stays
+ *  beside its stone). */
 export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedScene) {
   const { w, h } = r;
   if (w < 10 || h < 5) return;
@@ -2348,8 +2349,10 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
     g.font = `${z.body}px ${family}`;
     return g.measureText(s.rules).width;
   };
-  // The layouts from the fullest: both rows, then one row with and without the caption.
+  // The layouts from the fullest: both rows, then one row with and without the caption, then
+  // the counts without their names.
   const tops: [Figure[], Figure[]] = [black.top, white.top];
+  const bare: [Figure[], Figure[]] = [black.top.map((f) => ({ ...f, name: "" })), white.top.map((f) => ({ ...f, name: "" }))];
   const plans = [
     { twoRows: true, caption: true, top: tops },
     ...(s.small
@@ -2361,6 +2364,7 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
       : [
           { twoRows: false, caption: true, top: tops },
           { twoRows: false, caption: false, top: tops },
+          { twoRows: false, caption: false, top: bare },
         ]),
   ];
   /** The space between the two sides and the middle, which does not scale with the text. */

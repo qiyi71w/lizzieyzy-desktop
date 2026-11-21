@@ -911,11 +911,17 @@ importing the matching LizzieYzy Next settings.
     the socket token gives, and an address with its own query sends that query in place of the
     token's. A startup has at most
     three connection attempts with a fresh socket token for each; temporary token-service
-    failures share that budget, while fatal authentication or service rejection does not retry.
+    failures share that budget. A refusal that names authentication, the plan, the balance or
+    the account (the words Java's transport treats as final) does not retry, nor does a proxy
+    that asks for credentials (407), whether to a `ws` upgrade or to the tunnel of a `wss`
+    link. Each attempt must open its Socket.IO session within 30 seconds, as Java's socket.io
+    client does, and the engine must report ready within 60 seconds.
     A 智子 start that fails says why, in the failure window and in the center's status: the
     socket token request failed (with a specific message for the service's known failure keys),
-    the service or the proxy could not be reached, the service refused the session, it closed the
-    connection before the engine was ready, or the engine was not ready within 60 seconds. A
+    the service or the proxy could not be reached (also when the session did not open in time),
+    the service refused the session, it closed the connection before the engine was ready, or the
+    engine was not ready in time. The failure window keeps the plan of the start that failed
+    even when it opens after other windows. A
     refusal shows the first line of the service's message only when that line names no
     credential, address, account, long number or structured data. On the VIP plan (also when
     the plan is left empty) a plan or quota refusal adds the hint to try 按量 1x. A proxy setting
@@ -1377,7 +1383,8 @@ importing the matching LizzieYzy Next settings.
   GTP (综合设置 > 高级 > 日志与分析刷新, on by default) turned off, a hidden console records only engines
   that are still starting; once an engine is ready its traffic appears only while the console is
   shown. A failing
-  engine shows Java's failure dialog with its output, copy and diagnostics export. Engines are
+  engine shows Java's failure dialog with its output, copy and diagnostics export; engines that
+  fail together (a startup engine and a preloaded one, say) each get their own. Engines are
   ended (`quit`, then killed after 3 s) when the application exits, including application Quit.
 - Logs, the full-log files, failure details and exported diagnostics pass through a port of
   Java's credential sanitizer (`--password …`, `token=…`, JSON credential keys, authorization

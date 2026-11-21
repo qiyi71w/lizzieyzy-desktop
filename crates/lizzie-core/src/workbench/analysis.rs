@@ -1875,7 +1875,7 @@ impl Workbench {
             CloudStartFailure::Refused { detail } => CloudStartFailure::Refused { detail: sanitize(&detail) },
             other => other,
         });
-        self.engine_failure = Some(EngineFailureView {
+        self.engine_failures.push(EngineFailureView {
             engine_name: f.engine_name,
             command: sanitize(&f.command),
             during_startup: f.during_startup,

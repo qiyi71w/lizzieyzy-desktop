@@ -646,7 +646,7 @@ fn a_crashed_engine_reports_its_output_and_only_it_is_cleaned_up() {
     );
     wb.engine_input(a, EngineInput::Exited(Some(127)));
     let v = wb.view(false);
-    let f = v.engine_failure.expect("failure shown");
+    let f = v.engine_failures.into_iter().last().expect("failure shown");
     assert!(f.during_startup && f.message.contains("127"));
     assert!(f.output.iter().any(|l| l.contains("libcudart")));
     assert!(v.engine.foreground.is_none());
@@ -656,17 +656,24 @@ fn a_crashed_engine_reports_its_output_and_only_it_is_cleaned_up() {
     assert!(wb.view(false).engine.foreground.is_none());
 }
 
+/// Every failure between two views reaches the next one, oldest first: here the startup engine
+/// and a preloaded one both fail to launch within one `start_engines`.
 #[test]
-fn launch_failure_is_reported_without_an_instance() {
+fn launch_failures_are_reported_without_an_instance_each_in_the_next_view() {
     let dir = tempfile::tempdir().unwrap();
     let world = World::default();
     let mut wb = workbench(dir.path(), &world);
-    wb.save_engine_settings(vec![profile("X", "/opt/missing")], EngineStartup::Default)
+    let mut preload = profile("Y", "/opt/missing-too");
+    preload.preload = true;
+    wb.save_engine_settings(vec![profile("X", "/opt/missing"), preload], EngineStartup::Default)
         .unwrap();
     wb.start_engines();
     let v = wb.view(false);
-    assert!(v.engine_failure.unwrap().message.contains("No such file"));
+    let names: Vec<&str> = v.engine_failures.iter().map(|f| f.engine_name.as_str()).collect();
+    assert_eq!(names, ["X", "Y"]);
+    assert!(v.engine_failures.iter().all(|f| f.message.contains("No such file")));
     assert!(v.engine.foreground.is_none() && world.launched().is_empty());
+    assert!(wb.view(false).engine_failures.is_empty(), "each failure once");
 }
 
 #[test]
@@ -883,7 +890,7 @@ fn switching_applies_the_engine_komi_unless_the_user_chose_it() {
     // A failed start changes nothing.
     wb.switch_engine(2).unwrap();
     let v = wb.view(false);
-    assert!(v.engine_failure.is_some());
+    assert!(!v.engine_failures.is_empty());
     assert_eq!((v.komi, v.analysis.map(|x| x.visits)), (7.5, Some(500)));
 
     // A new engine's komi applies to the empty game once it is ready, discarding old analysis.
@@ -1154,7 +1161,9 @@ fn engine_output_reaches_logs_and_the_failure_report_without_credentials() {
     let logs: Vec<String> = wb.take_logs().into_iter().map(|l| l.text).collect();
     assert!(!logs.iter().any(|l| l.contains("CANARY_SECRET")), "{logs:?}");
     assert!(!v
-        .engine_failure
+        .engine_failures
+        .into_iter()
+        .last()
         .unwrap()
         .output
         .iter()
