@@ -1181,6 +1181,7 @@ impl Workbench {
             message,
             output,
             remote,
+            cloud: None,
             foreground: false,
             secondary: false,
             held: false,

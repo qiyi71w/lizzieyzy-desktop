@@ -2450,6 +2450,10 @@ pub struct EngineFailureView {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub remote: Option<crate::engine::ssh::RemoteFailure>,
+    /// Why a 智子 engine never became ready (Java `ZhiziGtpTransport` startup failures).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cloud: Option<crate::engine::cloud::CloudStartFailure>,
     /// The configured engine that failed (empty for the analysis engine), so the dialog can
     /// start it again (Java opens 更多引擎 after a remote login failure).
     pub profile_id: String,

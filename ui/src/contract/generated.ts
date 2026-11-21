@@ -582,6 +582,10 @@ repair?: ResourceRepairView,
  */
 remote?: RemoteFailure, 
 /**
+ * Why a 智子 engine never became ready (Java `ZhiziGtpTransport` startup failures).
+ */
+cloud?: CloudStartFailure, 
+/**
  * The configured engine that failed (empty for the analysis engine), so the dialog can
  * start it again (Java opens 更多引擎 after a remote login failure).
  */
@@ -3237,6 +3241,8 @@ port: string, user: string,
 useKey: boolean, keyPath: string, };
 
 export type RemoteFailure = { "type": "Connect", detail: string, } | { "type": "Authentication" } | { "type": "PasswordMissing", account: string, } | { "type": "HostKeyChanged", host: string, port: number, trusted: string, offered: string, } | { "type": "Ended", status: number | null, signal: string | null, } | { "type": "Lost", detail: string, };
+
+export type CloudStartFailure = { "type": "Token", key: string, } | { "type": "Unreachable" } | { "type": "Refused", detail: string, } | { "type": "Disconnected" } | { "type": "NotReady" };
 
 export type SshCredentialCommand = { "type": "PasswordState", ssh: SshSettings, } | { "type": "StagePassword", ssh: SshSettings, password: string, } | { "type": "SettlePassword", ssh: SshSettings, keep: boolean, } | { "type": "TrustHostKey", host: string, port: number, offered: string, } | { "type": "ChooseKeyFile", title: string, };
 

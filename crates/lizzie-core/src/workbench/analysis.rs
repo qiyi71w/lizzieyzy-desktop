@@ -26,6 +26,7 @@ use crate::display::{self, BoardOverlayView};
 use crate::engine::gtp::InfoLine;
 use crate::engine::profile::{new_profile_id, AnalysisSettings, EngineProfile, EngineStartup};
 use crate::engine::rules::KataRules;
+use crate::engine::cloud::CloudStartFailure;
 use crate::engine::ssh::RemoteFailure;
 use crate::engine::runtime::{
     Bootstrap, CheckedLaunch, ConsoleKind, EngineFailure, EngineInput, InstanceId, LaunchCheck, ModelIdentity,
@@ -1869,6 +1870,11 @@ impl Workbench {
             RemoteFailure::Lost { detail } => RemoteFailure::Lost { detail: sanitize(&detail) },
             other => other,
         });
+        let cloud = f.cloud.map(|c| match c {
+            CloudStartFailure::Token { key } => CloudStartFailure::Token { key: sanitize(&key) },
+            CloudStartFailure::Refused { detail } => CloudStartFailure::Refused { detail: sanitize(&detail) },
+            other => other,
+        });
         self.engine_failure = Some(EngineFailureView {
             engine_name: f.engine_name,
             command: sanitize(&f.command),
@@ -1877,6 +1883,7 @@ impl Workbench {
             output: f.output.iter().map(|l| sanitize(l)).collect(),
             repair: None,
             remote,
+            cloud,
             profile_id: f.profile_id,
             secondary: f.secondary,
         });

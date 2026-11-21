@@ -10,7 +10,7 @@ import { format, t } from "../i18n";
 import { openAccountDetails } from "./details";
 import { openPayment } from "./payment";
 import {
-  account as accountRequest, closeOwner, cloudCommand, confirmedWeight, customDisplayName, DEFAULT_WEIGHT, duration, failureText, kataWeight,
+  account as accountRequest, closeOwner, cloudCommand, cloudStartText, confirmedWeight, customDisplayName, DEFAULT_WEIGHT, duration, failureText, kataWeight,
   keyedDetail, localTime, money, normalizeLink, PRESETS, resolveWeight, samePlan, selectableWeight, validLink, weightLabel, weightName,
   requestOwner, withKataWeight, zhiziDisplayName, type AccountOutcome,
 } from "./service";
@@ -758,7 +758,11 @@ function createCenter(initial: WorkbenchView): Center {
     const receipt = monitor?.receipt;
     if (!monitor || !receipt) return;
     const ok = switchOutcome(view, receipt.profile, receipt.after, monitor.launch);
-    if (ok !== null) finishSwitch(ok, ok ? monitor.success : monitor.failure);
+    if (ok === null) return;
+    // A 智子 engine that never became ready says why (ZhiziGtpTransport, friendlyZhiziErrorMessage).
+    const reason = ok ? undefined : view.engine_failure?.cloud;
+    const launch = monitor.launch;
+    finishSwitch(ok, ok ? monitor.success : reason && launch.provider === "zhizi" ? cloudStartText(reason, launch.args) : monitor.failure);
   }
 
   function finishSwitch(ok: boolean, text: string) {

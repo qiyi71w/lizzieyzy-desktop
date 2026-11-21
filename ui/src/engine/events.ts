@@ -5,7 +5,17 @@ import { format, product, t } from "../i18n";
 import { chooseEngine, openMoreEngines } from "./catalog";
 import { actions, button, checkbox, footer, row } from "./controls";
 import { remoteFailureText } from "./remote";
+import { cloudStartText } from "../cloud/service";
 import { openAutoSetup } from "../setup/dialog";
+
+/** The failure text: SSHController's or ZhiziGtpTransport's wording for a remote or 智子 engine,
+ *  with the 智子 plan hint when the failed engine's plan is known. */
+function failureText(failure: EngineFailureView): string {
+  if (failure.remote) return remoteFailureText(failure.remote);
+  if (!failure.cloud) return failure.message;
+  const profile = state.view?.settings.engine.engines.find((e) => e.id === failure.profile_id);
+  return cloudStartText(failure.cloud, profile?.cloud?.args ?? "");
+}
 
 /** The text 复制错误 copies. */
 function errorText(failure: EngineFailureView, text: string): string {
@@ -33,7 +43,7 @@ function details(failure: EngineFailureView, error: string): void {
  *  The window stays usable while an automatic restart brings the engine back. Escape, with the
  *  focus anywhere in it, presses its close box. */
 function endedWindow(failure: EngineFailureView): void {
-  const text = failure.remote ? remoteFailureText(failure.remote) : failure.message;
+  const text = failureText(failure);
   const box = document.createElement("section"); box.className = "engine-limit-notice engine-failure engine-ended";
   box.setAttribute("role", "dialog"); box.setAttribute("aria-label", t("Leelaz.engineFailed")); box.setAttribute("data-free-window", "");
   box.dataset.key = "engine.failure.ended";
@@ -65,7 +75,7 @@ function endedWindow(failure: EngineFailureView): void {
  *  EngineFailedMessage.java:331-340). */
 async function failureDialog(failure: EngineFailureView, restartContribution = false): Promise<void> {
   const body = document.createElement("div"); body.className = "engine-failure";
-  const text = failure.remote ? remoteFailureText(failure.remote) : failure.message;
+  const text = failureText(failure);
   const summary = document.createElement("pre"); summary.className = "engine-failure-summary"; summary.textContent = `${failure.engine_name}: ${text}`;
   const command = document.createElement("pre"); command.textContent = failure.command;
   body.append(summary);

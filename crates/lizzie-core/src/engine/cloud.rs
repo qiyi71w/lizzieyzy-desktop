@@ -55,6 +55,41 @@ impl fmt::Debug for CloudLaunch {
 pub struct CloudConnectError {
     pub message: String,
     pub fatal: bool,
+    /// The service's failure key (`CloudFailure.key`) when it named one, else empty. Shown only
+    /// through a fixed key-to-text table.
+    pub key: String,
+}
+
+/// Why a 智子 engine never became ready: the last startup attempt's failure, like Java's
+/// `ZhiziGtpTransport.start`, which throws the last attempt's exception.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum CloudStartFailure {
+    /// The socket token request failed: the service's failure key, empty when it named none.
+    Token { key: String },
+    /// No WebSocket connection to the service.
+    Unreachable,
+    /// The service refused the session or reported an error (Socket.IO `CONNECT_ERROR`, or an
+    /// `error` / `connect_error` event): its reason with credentials removed, empty when it gave
+    /// none or gave something that is not a plain message.
+    Refused { detail: String },
+    /// The connection ended before the engine was ready.
+    Disconnected,
+    /// Connected, but the engine did not report `ready` within 60 seconds.
+    NotReady,
+}
+
+impl fmt::Display for CloudStartFailure {
+    /// The log and console line: no service text.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Token { .. } => "Cloud socket token request failed",
+            Self::Unreachable => "Cloud engine connection failed",
+            Self::Refused { .. } => "Cloud service refused the engine session",
+            Self::Disconnected => "Cloud engine disconnected before it was ready",
+            Self::NotReady => "Cloud engine did not become ready in time",
+        })
+    }
 }
 
 pub struct SocketCredentials {
@@ -126,6 +161,15 @@ impl Output {
             (self.sink)(self.instance, EngineInput::Stderr(message.into()));
             (self.sink)(self.instance, EngineInput::Exited(None));
         }
+    }
+
+    /// A 智子 engine that never became ready: its reason reaches the failure dialog.
+    fn not_started(&self, reason: CloudStartFailure) {
+        if !self.active.swap(false, Ordering::AcqRel) {
+            return;
+        }
+        (self.sink)(self.instance, EngineInput::Stderr(reason.to_string()));
+        (self.sink)(self.instance, EngineInput::CloudStartFailed(reason));
     }
 }
 
@@ -232,18 +276,31 @@ async fn run(
             return;
         }
     };
-    let zhizi = launch.provider == CloudProvider::Zhizi;
-    let result = match launch.provider {
+    let ending = match launch.provider {
         CloudProvider::Zhizi => {
             run_zhizi(connector, &client, launch, &output, &mut rx, &mut cancel, endings).await
         }
         CloudProvider::Custom => {
             run_custom(&client, launch, &output, &mut rx, &mut cancel, &connector.diagnostics).await
+                .map(|(_, message)| Ending::Failed(message))
         }
     };
-    if let Some((established, message)) = result {
-        output.failure(established && zhizi, message);
+    match ending {
+        Some(Ending::Failed(message)) => output.failure(false, message),
+        Some(Ending::Lost(message)) => output.failure(true, message),
+        Some(Ending::NotStarted(reason)) => output.not_started(reason),
+        None => {},
     }
+}
+
+/// How a cloud transport ended by itself.
+enum Ending {
+    /// A custom transport's failure.
+    Failed(&'static str),
+    /// A 智子 engine that never became ready.
+    NotStarted(CloudStartFailure),
+    /// An established 智子 session: rebuild it and replay the current board.
+    Lost(&'static str),
 }
 
 /// Cancellation drops any pending connect/send future and the exact socket. Token resolution is
@@ -262,7 +319,7 @@ async fn credentials(
         let _ = tx.send(source(&identifier, &args));
     });
     let Ok(thread) = thread else {
-        return Some(Err(CloudConnectError { message: "Credential worker unavailable".into(), fatal: true }));
+        return Some(Err(CloudConnectError { message: "Credential worker unavailable".into(), fatal: true, key: String::new() }));
     };
     {
         let mut handles = endings.lock().unwrap();
@@ -273,21 +330,26 @@ async fn credentials(
         biased;
         _ = cancel.changed() => None,
         result = rx => Some(result.unwrap_or_else(|_| Err(CloudConnectError {
-            message: "Credential worker failed".into(), fatal: true,
+            message: "Credential worker failed".into(), fatal: true, key: String::new(),
         }))),
     }
 }
 
-fn socket_url(credentials: &SocketCredentials) -> Option<String> {
+/// The Engine.IO address and the Socket.IO namespace of a socket token's URL. Like Java's
+/// `IO.socket(socketIOURL, options)` (socket.io-client-java 2.1.2 `IO.socket` hands
+/// `uri.getPath()` to `Manager.socket`), the URL's path names the namespace, and the Engine.IO
+/// path `/socket.io.v4/` is on the same host.
+fn socket_endpoint(credentials: &SocketCredentials) -> Option<(String, String)> {
     let mut url = Url::parse(&credentials.socket_url).ok()?;
     let scheme = match url.scheme() { "http" | "ws" => "ws", "https" | "wss" => "wss", _ => return None };
+    let namespace = match url.path() { "" => "/".to_string(), path => path.to_string() };
     url.set_scheme(scheme).ok()?;
     url.set_path("/socket.io.v4/");
     url.set_query(None);
     url.set_fragment(None);
     url.query_pairs_mut().append_pair("EIO", "4").append_pair("transport", "websocket")
         .append_pair("zz-socketio-token", &credentials.token);
-    Some(url.into())
+    Some((url.into(), namespace))
 }
 
 fn fatal_startup(text: &str) -> bool {
@@ -308,12 +370,20 @@ enum Packet {
     Ready,
     Stdout(Vec<u8>),
     Stderr(Vec<u8>),
-    Failure(bool),
+    /// The connection or the namespace session ended.
+    Closed,
+    /// The service refused the session or reported an error; `fatal` ends the startup.
+    Refused { fatal: bool, detail: String },
     Other,
 }
 
-#[derive(Default)]
+/// One Socket.IO session on its namespace. A text packet is (socket.io-parser) its type, for a
+/// binary event the attachment count and `-`, the namespace and `,` unless it is the main
+/// namespace `/`, an acknowledgement id, then the JSON data.
 struct SocketIo {
+    namespace: String,
+    /// What leads a packet's data: `<namespace>,`, or nothing for the main namespace.
+    prefix: String,
     binary_event: Option<String>,
     stdout: Lines,
     stderr: Lines,
@@ -321,50 +391,95 @@ struct SocketIo {
 }
 
 impl SocketIo {
-    fn packet(&mut self, message: Message) -> Result<Packet, StartupError> {
+    fn new(namespace: String, secrets: Vec<String>) -> Self {
+        let prefix = if namespace == "/" { String::new() } else { format!("{namespace},") };
+        Self { namespace, prefix, binary_event: None, stdout: Lines::default(), stderr: Lines::default(), secrets }
+    }
+
+    /// The namespace's CONNECT packet.
+    fn connect(&self) -> String {
+        format!("40{}", self.prefix)
+    }
+
+    /// An event to the namespace.
+    fn event(&self, data: &Value) -> String {
+        format!("42{}{data}", self.prefix)
+    }
+
+    /// `None` for a frame that breaks the protocol.
+    fn packet(&mut self, message: Message) -> Option<Packet> {
         let text = match message {
             Message::Text(text) => text,
             Message::Binary(bytes) => {
                 return match self.binary_event.take().as_deref() {
-                    Some("stdout") => Ok(Packet::Stdout(bytes.to_vec())),
-                    Some("stderr") => Ok(Packet::Stderr(bytes.to_vec())),
-                    Some("ready") => Ok(Packet::Ready),
-                    _ => Err(StartupError { fatal: false }),
+                    Some("stdout") => Some(Packet::Stdout(bytes.to_vec())),
+                    Some("stderr") => Some(Packet::Stderr(bytes.to_vec())),
+                    Some("ready") => Some(Packet::Ready),
+                    _ => None,
                 };
             }
-            Message::Close(_) => return Ok(Packet::Failure(false)),
-            _ => return Ok(Packet::Other),
+            Message::Close(_) => return Some(Packet::Closed),
+            _ => return Some(Packet::Other),
         };
-        if text.starts_with('0') { return Ok(Packet::Open); }
-        if let Some(payload) = text.strip_prefix('2') { return Ok(Packet::Ping(payload.into())); }
-        if text == "1" || text.starts_with("41") { return Ok(Packet::Failure(false)); }
-        if text.starts_with("40") { return Ok(Packet::Connected); }
-        if text.starts_with("44") {
-            return Ok(Packet::Failure(fatal_startup(&text)));
-        }
-        let binary = text.starts_with("45");
-        let body = if binary {
-            let Some((count, body)) = text[2..].split_once('-') else { return Err(StartupError { fatal: false }); };
-            if count != "1" || self.binary_event.is_some() { return Err(StartupError { fatal: false }); }
-            body
-        } else if let Some(body) = text.strip_prefix("42") { body } else { return Ok(Packet::Other); };
-        let value: Value = serde_json::from_str(body).map_err(|_| StartupError { fatal: false })?;
-        let event = value.get(0).and_then(Value::as_str).ok_or(StartupError { fatal: false })?;
+        if text.starts_with('0') { return Some(Packet::Open); }
+        if let Some(payload) = text.strip_prefix('2') { return Some(Packet::Ping(payload.into())); }
+        if text == "1" { return Some(Packet::Closed); }
+        // An Engine.IO message carries one Socket.IO packet.
+        let Some(packet) = text.strip_prefix('4') else { return Some(Packet::Other); };
+        let Some(&kind) = packet.as_bytes().first().filter(|kind| kind.is_ascii_digit()) else { return Some(Packet::Other); };
+        let mut rest = &packet[1..];
+        let binary = kind == b'5';
         if binary {
-            if value[1]["_placeholder"] != true || value[1]["num"] != 0 {
-                return Err(StartupError { fatal: false });
-            }
+            let (count, body) = rest.split_once('-')?;
+            if count != "1" || self.binary_event.is_some() { return None; }
+            rest = body;
+        }
+        let (namespace, rest) = if rest.starts_with('/') { rest.split_once(',').unwrap_or((rest, "")) } else { ("/", rest) };
+        // Another namespace's packet, such as the main namespace's own CONNECT answer.
+        if namespace != self.namespace { return Some(Packet::Other); }
+        let data = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+        match kind {
+            b'0' => return Some(Packet::Connected),
+            b'1' => return Some(Packet::Closed),
+            b'4' => return Some(self.refused(data, serde_json::from_str::<Value>(data).ok().as_ref())),
+            b'2' | b'5' => {},
+            _ => return Some(Packet::Other),
+        }
+        let value: Value = serde_json::from_str(data).ok()?;
+        let event = value.get(0).and_then(Value::as_str)?;
+        if binary {
+            if value[1]["_placeholder"] != true || value[1]["num"] != 0 { return None; }
             self.binary_event = Some(event.into());
-            return Ok(Packet::Other);
+            return Some(Packet::Other);
         }
         let payload = value.get(1).map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned)).unwrap_or_default();
-        Ok(match event {
+        Some(match event {
             "ready" => Packet::Ready,
             "stdout" => Packet::Stdout(payload.into_bytes()),
             "stderr" => Packet::Stderr(payload.into_bytes()),
-            "connect_error" | "error" => Packet::Failure(fatal_startup(&payload)),
+            "connect_error" | "error" => self.refused(&payload, value.get(1)),
             _ => Packet::Other,
         })
+    }
+
+    /// The service's refusal: whether it ends the startup, and its reason with credentials
+    /// removed. A reason that is not a plain message, or names a credential or an address, is
+    /// left out (Java `friendlyZhiziErrorMessage` shows no JSON).
+    fn refused(&self, raw: &str, data: Option<&Value>) -> Packet {
+        let message = match data {
+            Some(Value::String(text)) => text.as_str(),
+            Some(Value::Object(object)) => object.get("message").and_then(Value::as_str).unwrap_or(""),
+            _ => "",
+        };
+        let mut detail = message.lines().next().unwrap_or("").trim().to_string();
+        for secret in self.secrets.iter().filter(|secret| !secret.is_empty()) {
+            detail = detail.replace(secret, "[redacted]");
+        }
+        let lower = detail.to_lowercase();
+        if detail.starts_with('{') || ["token", "authorization", "statuscode", "ws://", "wss://", "http://", "https://"].iter().any(|word| lower.contains(word)) {
+            detail.clear();
+        }
+        Packet::Refused { fatal: fatal_startup(raw), detail: detail.chars().take(160).collect() }
     }
 }
 
@@ -399,35 +514,55 @@ async fn send(socket: &mut Socket, message: Message, cancel: &mut watch::Receive
     }
 }
 
-async fn zhizi_ready(client: &reqwest::Client, url: String, secrets: Vec<String>, output: &Output, cancel: &mut watch::Receiver<bool>) -> Result<(Socket, SocketIo), StartupError> {
+/// A failed startup attempt; `fatal` ends the startup without another attempt.
+struct Attempt { fatal: bool, reason: CloudStartFailure }
+
+impl Attempt {
+    fn retry(reason: CloudStartFailure) -> Self {
+        Self { fatal: false, reason }
+    }
+}
+
+/// A cancellation also ends in `Err`; the caller checks for it first.
+async fn zhizi_ready(client: &reqwest::Client, url: String, namespace: String, secrets: Vec<String>, output: &Output, cancel: &mut watch::Receiver<bool>) -> Result<(Socket, SocketIo), Attempt> {
     let deadline = Instant::now() + READY;
     let socket = tokio::select! {
         biased;
-        _ = cancel.changed() => return Err(StartupError { fatal: true }),
+        _ = cancel.changed() => return Err(Attempt::retry(CloudStartFailure::Disconnected)),
         result = tokio::time::timeout_at(deadline, network::connect(client, &url)) => result,
     };
     let mut socket = match socket {
         Ok(Ok(socket)) => socket,
-        Ok(Err(error)) => return Err(error),
-        _ => return Err(StartupError { fatal: false }),
+        // Turned away by the service (401, 403) or the proxy (407), or an unusable address.
+        Ok(Err(error)) if error.fatal => return Err(Attempt { fatal: true, reason: CloudStartFailure::Refused { detail: String::new() } }),
+        _ => return Err(Attempt::retry(CloudStartFailure::Unreachable)),
     };
-    let mut protocol = SocketIo { secrets, ..SocketIo::default() };
+    let mut protocol = SocketIo::new(namespace, secrets);
     loop {
         let message = tokio::select! {
             biased;
-            _ = cancel.changed() => return Err(StartupError { fatal: true }),
-            _ = tokio::time::sleep_until(deadline) => return Err(StartupError { fatal: false }),
+            _ = cancel.changed() => return Err(Attempt::retry(CloudStartFailure::Disconnected)),
+            _ = tokio::time::sleep_until(deadline) => return Err(Attempt::retry(CloudStartFailure::NotReady)),
             message = socket.next() => message,
         };
-        let packet = protocol.packet(message.and_then(Result::ok).ok_or(StartupError { fatal: false })?)?;
-        match packet {
-            Packet::Open => send(&mut socket, Message::Text("40".into()), cancel).await.map_err(|_| StartupError { fatal: false })?,
-            Packet::Ping(payload) => send(&mut socket, Message::Text(format!("3{payload}").into()), cancel).await.map_err(|_| StartupError { fatal: false })?,
+        let Some(packet) = message.and_then(Result::ok).and_then(|message| protocol.packet(message)) else {
+            return Err(Attempt::retry(CloudStartFailure::Disconnected));
+        };
+        let answer = match packet {
+            Packet::Open => protocol.connect(),
+            Packet::Ping(payload) => format!("3{payload}"),
             Packet::Ready => return Ok((socket, protocol)),
             // Startup diagnostics are intentionally not forwarded: remote errors may echo tokens.
-            Packet::Stderr(_) => output.emit(EngineInput::Stderr("Cloud engine is preparing".into())),
-            Packet::Failure(fatal) => return Err(StartupError { fatal }),
-            _ => {},
+            Packet::Stderr(_) => {
+                output.emit(EngineInput::Stderr("Cloud engine is preparing".into()));
+                continue;
+            }
+            Packet::Closed => return Err(Attempt::retry(CloudStartFailure::Disconnected)),
+            Packet::Refused { fatal, detail } => return Err(Attempt { fatal, reason: CloudStartFailure::Refused { detail } }),
+            _ => continue,
+        };
+        if send(&mut socket, Message::Text(answer.into()), cancel).await.is_err() {
+            return Err(Attempt::retry(CloudStartFailure::Disconnected));
         }
     }
 }
@@ -462,31 +597,34 @@ async fn run_zhizi(
     rx: &mut mpsc::UnboundedReceiver<Write>,
     cancel: &mut watch::Receiver<bool>,
     endings: Arc<Mutex<Vec<JoinHandle<()>>>>,
-) -> Option<(bool, &'static str)> {
+) -> Option<Ending> {
     let mut ready = None;
     for attempt in 0..3 {
         if *cancel.borrow() { return None; }
         let credentials = credentials(&connector, &launch, cancel, &endings).await?;
         let result = match credentials {
-            Ok(credentials) => match socket_url(&credentials) {
-                Some(url) => {
+            Ok(credentials) => match socket_endpoint(&credentials) {
+                Some((url, namespace)) => {
                     let mut secrets = vec![credentials.socket_url.clone(), credentials.token, launch.identifier.clone()];
                     if let Ok(parsed) = Url::parse(&credentials.socket_url) {
                         secrets.push(parsed.username().to_string());
                         if let Some(password) = parsed.password() { secrets.push(password.to_string()); }
                     }
-                    zhizi_ready(client, url, secrets, output, cancel).await
+                    zhizi_ready(client, url, namespace, secrets, output, cancel).await
                 }
-                None => Err(StartupError { fatal: true }),
+                // The service gave an address this transport cannot use.
+                None => Err(Attempt { fatal: true, reason: CloudStartFailure::Token { key: "invalid_response".into() } }),
             },
             // Resolver messages are not trusted to omit arbitrary service response bodies.
-            Err(error) => Err(StartupError { fatal: error.fatal || fatal_startup(&error.message) }),
+            Err(error) => Err(Attempt {
+                fatal: error.fatal || fatal_startup(&error.message),
+                reason: CloudStartFailure::Token { key: error.key },
+            }),
         };
         if *cancel.borrow() { return None; }
         match result {
             Ok(session) => { ready = Some(session); break; }
-            Err(error) if error.fatal => return Some((false, "Cloud authentication, resource authorization or configuration failed")),
-            Err(_) if attempt == 2 => return Some((false, "Cloud engine did not become ready after three attempts")),
+            Err(failure) if failure.fatal || attempt == 2 => return Some(Ending::NotStarted(failure.reason)),
             Err(_) => {
                 output.emit(EngineInput::Stderr("Cloud engine not ready; retrying startup".into()));
                 tokio::select! {
@@ -507,30 +645,30 @@ async fn run_zhizi(
             command = rx.recv() => match command {
                 Some(Write::Line(line)) => {
                     watchdog.command(&line);
-                    let payload = format!("42{}", json!(["stdin", format!("{}\n", line.trim_end_matches(['\r', '\n']))]));
+                    let payload = protocol.event(&json!(["stdin", format!("{}\n", line.trim_end_matches(['\r', '\n']))]));
                     if send(&mut socket, Message::Text(payload.into()), cancel).await.is_err() {
                         if *cancel.borrow() { return None; }
-                        return Some((true, "Cloud engine connection failed; rebuilding the current position"));
+                        return Some(Ending::Lost("Cloud engine connection failed; rebuilding the current position"));
                     }
                 }
                 Some(Write::Progress(total)) => watchdog.progress(total),
                 None => return None,
             },
             _ = tokio::time::sleep_until(deadline), if watchdog.deadline.is_some() => {
-                return Some((true, "Cloud analysis made no accepted progress for 20 seconds; rebuilding the current position"));
+                return Some(Ending::Lost("Cloud analysis made no accepted progress for 20 seconds; rebuilding the current position"));
             }
             message = socket.next() => {
-                let packet = message.and_then(Result::ok).and_then(|message| protocol.packet(message).ok());
+                let packet = message.and_then(Result::ok).and_then(|message| protocol.packet(message));
                 match packet {
                     Some(Packet::Ping(payload)) => {
                         if send(&mut socket, Message::Text(format!("3{payload}").into()), cancel).await.is_err() {
                             if *cancel.borrow() { return None; }
-                            return Some((true, "Cloud engine heartbeat connection failed"));
+                            return Some(Ending::Lost("Cloud engine heartbeat connection failed"));
                         }
                     }
                     Some(Packet::Stdout(bytes)) => protocol.stdout.feed(&bytes, output, false, &protocol.secrets),
                     Some(Packet::Stderr(bytes)) => protocol.stderr.feed(&bytes, output, true, &protocol.secrets),
-                    Some(Packet::Failure(_)) | None => return Some((true, "Cloud engine disconnected; rebuilding the current position")),
+                    Some(Packet::Closed | Packet::Refused { .. }) | None => return Some(Ending::Lost("Cloud engine disconnected; rebuilding the current position")),
                     _ => {},
                 }
             }
