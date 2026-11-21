@@ -431,7 +431,7 @@ impl Workbench {
         let outcome = outcome.and_then(|s| {
             let s = commentary::java_trim(&s);
             if s.is_empty() {
-                Err(CommentaryFailure::new("AI service returned an empty response."))
+                Err(CommentaryFailure::keyed(commentary::EMPTY_REPLY, "AI service returned an empty response."))
             } else {
                 Ok(s.to_owned())
             }
@@ -473,6 +473,7 @@ impl Workbench {
                             Err(e) => {
                                 self.commentary
                                     .status("Teacher.status.failed", vec![e.message], CommentaryTone::Error);
+                                self.commentary.status.detail_key = e.message_key;
                                 if !request.question.is_empty() {
                                     self.commentary.restore_question = Some(request.question);
                                 }

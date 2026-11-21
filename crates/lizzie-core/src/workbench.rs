@@ -104,6 +104,8 @@ pub const SETTINGS_SAVE_FAILED: &str = "product.settingsSaveFailed";
 pub const SETTINGS_FILE_KEPT: &str = "product.settingsFileKept";
 /// The window state file (placements, panel sizes, last folders) could not be written.
 pub const WINDOW_STATE_SAVE_FAILED: &str = "product.windowStateSaveFailed";
+/// 重置界面位置 could not delete the window state file.
+pub const WINDOW_STATE_RESET_FAILED: &str = "product.windowStateResetFailed";
 
 fn settings_error(key: &str, cause: impl std::fmt::Display) -> ApiError {
     ApiError::new(ErrorKind::Io, format!("{key}\n{cause}"))
@@ -1160,12 +1162,7 @@ impl Workbench {
         match std::fs::remove_file(&self.storage.persist_file) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => {
-                return Err(ApiError::new(
-                    ErrorKind::Io,
-                    format!("deleting window state failed: {e}"),
-                ))
-            }
+            Err(e) => return Err(settings_error(WINDOW_STATE_RESET_FAILED, e)),
         }
         self.persist_reset = Some(Persisted::default());
         self.persisted.panel_sizes = crate::settings::PanelSizes::default();

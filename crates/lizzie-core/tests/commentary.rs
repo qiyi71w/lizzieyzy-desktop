@@ -361,6 +361,8 @@ fn changed_or_deleted_target_is_never_written_and_empty_reply_fails() {
     let v = wb.inspect();
     assert_eq!(v.commentary.status.key, "Teacher.status.failed");
     assert_eq!(v.commentary.status.args, vec!["AI service returned an empty response."]);
+    // The UI shows the product's cause for this key in the interface language.
+    assert_eq!(v.commentary.status.detail_key, "product.commentaryEmpty");
     assert!(!v.commentary.running);
 }
 #[test]
@@ -486,6 +488,7 @@ fn comment_too_large_for_sgf_fails_and_restores_the_question() {
     assert!(wb.commentary_finished(j.id, Ok("x".repeat(100_001))));
     let v = wb.view(false).commentary;
     assert_eq!(v.status.key, "Teacher.status.failed");
+    assert_eq!(v.status.detail_key, "product.commentaryTooLarge");
     assert_eq!(v.restore_question.as_deref(), Some("Why this reply?"));
 }
 #[test]

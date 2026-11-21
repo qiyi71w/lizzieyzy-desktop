@@ -1,4 +1,4 @@
-use super::{java_trim, CommentaryFailure};
+use super::{java_trim, CommentaryFailure, EMPTY_REPLY, TOO_LARGE_FOR_SGF};
 pub const BEGIN: &str = "[LizzieYzy AI Commentary BEGIN]";
 pub const END: &str = "[LizzieYzy AI Commentary END]";
 fn normalize(s: &str) -> String {
@@ -13,10 +13,10 @@ pub fn upsert(original: &str, commentary: &str, model: &str, timestamp: &str) ->
     let escaped = escape(commentary);
     let body = java_trim(&escaped);
     if body.is_empty() {
-        return Err(CommentaryFailure::new("AI commentary is empty."));
+        return Err(CommentaryFailure::keyed(EMPTY_REPLY, "AI commentary is empty."));
     }
     if body.encode_utf16().count() > 100_000 {
-        return Err(CommentaryFailure::new("AI commentary is too large for an SGF comment."));
+        return Err(CommentaryFailure::keyed(TOO_LARGE_FOR_SGF, "AI commentary is too large for an SGF comment."));
     }
     let original = remove_blocks(original);
     let model = escape(model).replace('\n', " ");

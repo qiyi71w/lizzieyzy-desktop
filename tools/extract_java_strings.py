@@ -2,9 +2,10 @@
 """Regenerate ui/src/i18n/javaStrings.json from the fixed Java resource bundles.
 
 The UI shows Java's own wording. This script collects every resource key the UI uses (`t("Key")`
-calls and `"key"` entries in ui/src/chrome/javaMenus.ts) and copies those entries from the Java
-DisplayStrings bundles, per locale, falling back to the base bundle like Java's ResourceBundle.
-CORRECTIONS replaces the few Java entries that are wrong, per locale.
+calls, `"key"` entries in ui/src/chrome/javaMenus.ts, and any other string literal in ui/src that
+names a bundle key, as the tables that pass keys to t() through a helper do) and copies those
+entries from the Java DisplayStrings bundles, per locale, falling back to the base bundle like
+Java's ResourceBundle. CORRECTIONS replaces the few Java entries that are wrong, per locale.
 
 Usage: tools/extract_java_strings.py <java-checkout>
 The Java checkout must be wimi321/lizzieyzy-next at cb53acc55eda42c6c671b5f668cd3b597456bf07.
@@ -31,8 +32,8 @@ LOCALES = {
 # Java entries this product corrects. 目数显示's items read as the opposite score in English,
 # Korean and Thai (Menu.leadWithKomi shows KataGo's lead after komi, Menu.leadJustScore the board
 # difference); they follow the Japanese and the Chinese, with the search aliases naming them. The
-# Japanese update button was a request, the Yike sync failure was slang in three locales, and the
-# proxy subtitle named Java.
+# Japanese update button was a request, the Yike sync failure was slang in three locales, the
+# proxy subtitle named Java, and the Thai score lead labels said "lead" the metal (ตะกั่ว).
 CORRECTIONS: dict[str, dict[str, str]] = {
     "ZhCn": {
         "ConfigDialog2.modern.proxy.subtitle": "控制程序自身网络请求使用的代理策略",
@@ -62,8 +63,12 @@ CORRECTIONS: dict[str, dict[str, str]] = {
     "ThTh": {
         "ConfigDialog2.modern.proxy.subtitle": "เลือกวิธีที่คำขอเครือข่ายจากแอปใช้พร็อกซี",
         "FunctionSearch.aliases.menu.kataScolreLead": "แสดงคะแนนนำ|รวมโคมิ|ไม่รวมโคมิ",
+        "LizzieFrame.scoreLeadJustScore": "คะแนนนำ:",
+        "LizzieFrame.scoreLeadWithKomi": "คะแนนนำ:",
         "Menu.leadJustScore": "ไม่รวมโคมิ",
         "Menu.leadWithKomi": "รวมโคมิ",
+        "SGFParse.leadJustScore": "คะแนนนำ:",
+        "SGFParse.leadWithKomi": "คะแนนนำ:",
     },
 }
 
@@ -104,15 +109,18 @@ def unescape(s: str) -> str:
     return re.sub(r"\\(u[0-9a-fA-F]{4}|.)", rep, s)
 
 
-def used_keys() -> set[str]:
+def used_keys() -> tuple[set[str], set[str]]:
     """Keys passed to t("...") literally, plus `key: "..."` fields of the UI's data tables
-    (menus, toolbars), which reach t() through the table, and keys the Rust core writes into
-    records through `java_text("...")`."""
+    (menus, toolbars), which reach t() through the table, keys the Rust core writes into records
+    through `java_text("...")` and the function catalogue's keys; then the UI's other dotted
+    string literals, wanted where they name a bundle key."""
     keys: set[str] = set()
+    literals: set[str] = set()
     for ts in (ROOT / "ui/src").rglob("*.ts"):
         text = ts.read_text(encoding="utf-8")
         keys.update(re.findall(r"\bt\(\s*\"([^\"]+)\"", text))
         keys.update(re.findall(r"\"?\bkey\"?:\s*\"([^\"]+)\"", text))
+        literals.update(re.findall(r"\"([A-Za-z][\w-]*(?:\.[\w-]+)+)\"", text))
     for rs in (ROOT / "crates").rglob("*.rs"):
         keys.update(re.findall(r"\bjava_text\(\s*[^,()]+,\s*\"([^\"]+)\"", rs.read_text(encoding="utf-8")))
     catalog = json.loads((ROOT / "crates/lizzie-core/src/function_search/catalog.json").read_text(encoding="utf-8"))
@@ -120,7 +128,7 @@ def used_keys() -> set[str]:
     for entry in catalog["entries"]:
         keys.update(entry[field] for field in ("title", "description", "category", "aliases", "weakAliases") if entry[field])
         keys.update(entry["path"])
-    return keys
+    return keys, literals
 
 
 def main() -> None:
@@ -130,7 +138,7 @@ def main() -> None:
         raise SystemExit(f"{java} is at {sha or '?'}, expected {FIXED_SHA}")
     l10n = java / "src/main/resources/l10n"
     base = load_properties(l10n / "DisplayStrings.properties")
-    keys = used_keys()
+    keys, literals = used_keys()
     # A function's aliases and description are wanted only while the catalogue lists the function.
     per_function = ("FunctionSearch.aliases.", "FunctionSearch.description.")
     keys.update(key for key in base if key.startswith("FunctionSearch.") and not key.startswith(per_function))
@@ -143,6 +151,7 @@ def main() -> None:
     bundles = {locale: load_properties(l10n / file) for locale, file in LOCALES.items()}
     for bundle in bundles.values():
         keys.update(key for key in bundle if key.startswith("FunctionSearch.") and not key.startswith(per_function))
+    keys.update(key for key in literals if key in base or any(key in bundle for bundle in bundles.values()))
     result: dict[str, dict[str, str]] = {}
     missing: set[str] = set()
     for locale, bundle in bundles.items():

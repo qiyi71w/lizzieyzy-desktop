@@ -8,7 +8,9 @@ use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::formats::{sgf, ReadError};
 use lizzie_core::record::{BoardSize, GameRecord, NodeId, Point, Stone, ROOT};
 use lizzie_core::settings::{FramePlacement, Language, Storage, WindowPlacement};
-use lizzie_core::workbench::{OpenOrigin, PasteDecision, Workbench, FAILED_TO_OPEN_FILE, KIFU_LOAD_FAILED};
+use lizzie_core::workbench::{
+    OpenOrigin, PasteDecision, Workbench, FAILED_TO_OPEN_FILE, KIFU_LOAD_FAILED, WINDOW_STATE_RESET_FAILED,
+};
 
 #[cfg(unix)]
 #[path = "support/permissions.rs"]
@@ -336,6 +338,19 @@ fn reset_ui_position_deletes_window_state_until_next_start() {
             .window,
         None
     );
+}
+
+#[test]
+fn reset_ui_position_failure_is_a_keyed_error_with_the_cause() {
+    let dir = tempfile::tempdir().unwrap();
+    let st = storage(dir.path());
+    let mut wb = Workbench::new(st.clone(), None, Box::new(NoEngines), Vec::new());
+    // A directory where the window state file belongs cannot be deleted as a file.
+    std::fs::create_dir_all(&st.persist_file).unwrap();
+    let e = wb.reset_ui_position().unwrap_err();
+    let (key, cause) = e.message.split_once('\n').unwrap();
+    assert_eq!(key, WINDOW_STATE_RESET_FAILED);
+    assert!(!cause.is_empty());
 }
 
 #[test]

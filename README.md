@@ -1715,11 +1715,14 @@ binary with its output and exits non-zero, like `cargo test --no-fail-fast`.
 - `ui/src/i18n/javaStrings.json` holds the Java UI strings used by the UI, taken from the Java
   `l10n/DisplayStrings_*.properties` bundles. Regenerate it with
   `python3 tools/extract_java_strings.py <java-checkout>`; the script requires the checkout to be
-  at the reference commit and lists keys that are shown literally. It copies every
-  `FunctionSearch.*` key of the Java bundles, including the aliases and descriptions of Java's
-  Apple 风格 UI and 经典配色 entries, which the catalog no longer lists; remove those after
-  regenerating. Strings this product adds to Java's menus and catalog are kept by hand, in all
-  six languages, in `ui/src/i18n/productStrings.json`; the script does not touch that file.
+  at the reference commit and lists keys that are shown literally. It keeps the keys the UI passes
+  to `t()`, the `key` fields of its menu and toolbar tables, every other string literal in `ui/src`
+  that names a bundle key (tables that reach `t()` through a helper), the keys the core writes
+  through `java_text`, and the function catalog's keys; a function's `FunctionSearch.*` aliases and
+  description only while the catalog lists the function. `CORRECTIONS` in the script replaces the
+  Java entries this product corrects (wrong score-lead wording, slang, a request phrased as a
+  button). Strings this product adds to Java's menus and catalog are kept by hand, in all six
+  languages, in `ui/src/i18n/productStrings.json`; the script does not touch that file.
 
 ### Commands, settings rows and function search
 
