@@ -99,6 +99,40 @@
   --ws-rank-5-strong: rgba(110, 165, 20, 0.36);
   --ws-rank-6: rgba(30, 140, 60, 0.18);
   --ws-rank-6-strong: rgba(30, 140, 60, 0.34);
+
+  /* 超级鹰眼 (hawkeye/): 胜率波动 / 目数波动 text by its class (diffColor): a gain at or above the
+     gain mark, a change above the first loss threshold, then threshold 1 (mildest) to 5 (worst),
+     4.5:1 or more on the panel, the sunken pinned row and the highlighted row; loss classes 0
+     (best move) to 5 (worst) as bar fills and swatches, the body text reading on each at 4.5:1 or
+     more; 胜率吻合's areas of the moves that matched the AI, black's and white's. */
+  --ws-hawkeye-diff-gain: #006462;
+  --ws-hawkeye-diff-even: #29653c;
+  --ws-hawkeye-diff-1: #824b14;
+  --ws-hawkeye-diff-2: #5f5c00;
+  --ws-hawkeye-diff-3: #446212;
+  --ws-hawkeye-diff-4: #a3311f;
+  --ws-hawkeye-diff-5: #8f2585;
+  --ws-hawkeye-loss-0: #5fb85a;
+  --ws-hawkeye-loss-1: #a3c94a;
+  --ws-hawkeye-loss-2: #d9c23a;
+  --ws-hawkeye-loss-3: #d99a4a;
+  --ws-hawkeye-loss-4: #d96c59;
+  --ws-hawkeye-loss-5: #b974b5;
+  --ws-hawkeye-match-black: rgba(60, 80, 170, 0.24);
+  --ws-hawkeye-match-white: rgba(40, 150, 90, 0.24);
+
+  /* 棋力评估 (strength/): the rate and loss bars and the 吻合度 ring, the 段位 windows and 疑似AI
+     intervals of the match chart, and the six move ranks of 发挥水准分布. */
+  --ws-strength-rate: #4d7c5e;
+  --ws-strength-loss: #a8772c;
+  --ws-strength-rank-window: rgba(77, 124, 94, 0.3);
+  --ws-strength-ai: #c4962f;
+  --ws-strength-rank-best: #2f8a43;
+  --ws-strength-rank-good: #7b9f2a;
+  --ws-strength-rank-normal: #a8901a;
+  --ws-strength-rank-inaccuracy: #c2772a;
+  --ws-strength-rank-mistake: #bf3b2c;
+  --ws-strength-rank-blunder: #93358a;
 }
 
 [data-theme="dark"] {
@@ -174,6 +208,33 @@
   --ws-rank-5-strong: rgba(150, 205, 60, 0.38);
   --ws-rank-6: rgba(60, 190, 90, 0.2);
   --ws-rank-6-strong: rgba(60, 190, 90, 0.38);
+
+  --ws-hawkeye-diff-gain: #5fcfc8;
+  --ws-hawkeye-diff-even: #7fc591;
+  --ws-hawkeye-diff-1: #e0a466;
+  --ws-hawkeye-diff-2: #d6cc5a;
+  --ws-hawkeye-diff-3: #a7d465;
+  --ws-hawkeye-diff-4: #f0978c;
+  --ws-hawkeye-diff-5: #e395dc;
+  --ws-hawkeye-loss-0: #2f6b33;
+  --ws-hawkeye-loss-1: #4f6a1f;
+  --ws-hawkeye-loss-2: #6b5d12;
+  --ws-hawkeye-loss-3: #7a4a1c;
+  --ws-hawkeye-loss-4: #7f2d22;
+  --ws-hawkeye-loss-5: #5e2c5c;
+  --ws-hawkeye-match-black: rgba(130, 150, 255, 0.26);
+  --ws-hawkeye-match-white: rgba(100, 210, 140, 0.22);
+
+  --ws-strength-rate: #84bf98;
+  --ws-strength-loss: #dcae62;
+  --ws-strength-rank-window: rgba(132, 191, 152, 0.32);
+  --ws-strength-ai: #d9b154;
+  --ws-strength-rank-best: #63c27f;
+  --ws-strength-rank-good: #a9c95a;
+  --ws-strength-rank-normal: #d6c255;
+  --ws-strength-rank-inaccuracy: #e3a15a;
+  --ws-strength-rank-mistake: #ec7b6d;
+  --ws-strength-rank-blunder: #cf82c6;
 }
 
 /* Java 经典 (data-skin="java"): Java's workbench colours over its grey metal wallpaper, on the
@@ -280,6 +341,37 @@
   --ws-rank-5-strong: rgba(140, 202, 34, 0.39);
   --ws-rank-6: rgba(0, 180, 0, 0.24);
   --ws-rank-6-strong: rgba(0, 180, 0, 0.39);
+}
+
+/* Java 经典 keeps the program's own 超级鹰眼 and 棋力评估 chart colours (the light set above): the
+   change classes, loss classes and 吻合 areas, the strength bars, windows and move ranks. */
+:root[data-skin="java"] {
+  --ws-hawkeye-diff-gain: #006462;
+  --ws-hawkeye-diff-even: #29653c;
+  --ws-hawkeye-diff-1: #824b14;
+  --ws-hawkeye-diff-2: #5f5c00;
+  --ws-hawkeye-diff-3: #446212;
+  --ws-hawkeye-diff-4: #a3311f;
+  --ws-hawkeye-diff-5: #8f2585;
+  --ws-hawkeye-loss-0: #5fb85a;
+  --ws-hawkeye-loss-1: #a3c94a;
+  --ws-hawkeye-loss-2: #d9c23a;
+  --ws-hawkeye-loss-3: #d99a4a;
+  --ws-hawkeye-loss-4: #d96c59;
+  --ws-hawkeye-loss-5: #b974b5;
+  --ws-hawkeye-match-black: rgba(60, 80, 170, 0.24);
+  --ws-hawkeye-match-white: rgba(40, 150, 90, 0.24);
+
+  --ws-strength-rate: #4d7c5e;
+  --ws-strength-loss: #a8772c;
+  --ws-strength-rank-window: rgba(77, 124, 94, 0.3);
+  --ws-strength-ai: #c4962f;
+  --ws-strength-rank-best: #2f8a43;
+  --ws-strength-rank-good: #7b9f2a;
+  --ws-strength-rank-normal: #a8901a;
+  --ws-strength-rank-inaccuracy: #c2772a;
+  --ws-strength-rank-mistake: #bf3b2c;
+  --ws-strength-rank-blunder: #93358a;
 }
 
 /* Over a wallpaper the user chose, on the workbench and the palette probe (stage.ts): the cards

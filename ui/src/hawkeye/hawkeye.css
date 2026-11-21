@@ -1,48 +1,7 @@
 /* 超级鹰眼 window: the page tabs and lists, the filter bar, the chart panel, the 统计信息 page, the
-   context menu and the dialogs drawn inside the window. Data colours with a workbench meaning come
-   from stage.css (stones, graph lines and guides); the ones below are this window's own. */
-:root,
-[data-theme="light"] {
-  /* 胜率波动 / 目数波动 text by its class (diffColor): a gain at or above the gain mark, a change
-     above the first loss threshold, then threshold 1 (mildest) to 5 (worst). 4.5:1 or more on the
-     panel, the sunken pinned row and the highlighted row. */
-  --hk-diff-gain: #006462;
-  --hk-diff-even: #29653c;
-  --hk-diff-1: #824b14;
-  --hk-diff-2: #5f5c00;
-  --hk-diff-3: #446212;
-  --hk-diff-4: #a3311f;
-  --hk-diff-5: #8f2585;
-  /* Loss classes 0 (best move) to 5 (worst) as bar fills and swatches; the body text reads on
-     each at 4.5:1 or more. */
-  --hk-loss-0: #5fb85a;
-  --hk-loss-1: #a3c94a;
-  --hk-loss-2: #d9c23a;
-  --hk-loss-3: #d99a4a;
-  --hk-loss-4: #d96c59;
-  --hk-loss-5: #b974b5;
-  /* 胜率吻合: the area of the moves that matched the AI, black's and white's. */
-  --hk-match-black: rgba(60, 80, 170, 0.24);
-  --hk-match-white: rgba(40, 150, 90, 0.24);
-}
-
-[data-theme="dark"] {
-  --hk-diff-gain: #5fcfc8;
-  --hk-diff-even: #7fc591;
-  --hk-diff-1: #e0a466;
-  --hk-diff-2: #d6cc5a;
-  --hk-diff-3: #a7d465;
-  --hk-diff-4: #f0978c;
-  --hk-diff-5: #e395dc;
-  --hk-loss-0: #2f6b33;
-  --hk-loss-1: #4f6a1f;
-  --hk-loss-2: #6b5d12;
-  --hk-loss-3: #7a4a1c;
-  --hk-loss-4: #7f2d22;
-  --hk-loss-5: #5e2c5c;
-  --hk-match-black: rgba(130, 150, 255, 0.26);
-  --hk-match-white: rgba(100, 210, 140, 0.22);
-}
+   context menu and the dialogs drawn inside the window. Its data colours come from stage.css:
+   stones, graph lines and guides, and the --ws-hawkeye-* change classes, loss classes and 吻合
+   areas. */
 
 html,
 body {

@@ -1,6 +1,7 @@
 // Java KataGoAutoSetupDialog.createOverviewSection, with the approved separate-delivery inventory.
 import { invoke } from "@tauri-apps/api/core";
 import type { Asset, CapabilityStatus, ExperimentalBackend, MissingDependency, RecommendationReason, ResourcesView, RuntimeRequirement } from "../contract/generated";
+import { icon } from "../design/icons";
 import { ask, confirm, message } from "../dialogs";
 import { errorText } from "../errorText";
 import { product, t } from "../i18n";
@@ -44,12 +45,16 @@ export function overviewCard(_ctx: SetupContext): SetupCard {
     }));
     summary.append(details);
     const chooseLocal = action("setup.chooseLocal", t("AutoSetup.chooseExistingKataGo"), () => resourceCommand({ type: "ChooseLocalEngine", choice: { executable: null, config: null, weight: null } }));
+    // 刷新 as its icon; its name and tooltip are the refresh's full name.
+    const refresh = action("setup.refresh", "", () => resourceCommand({ type: "Inspect", refresh: true }));
+    refresh.className = "setup-icon-button"; refresh.append(icon("refresh"));
+    refresh.title = t("AutoSetup.refresh"); refresh.setAttribute("aria-label", t("AutoSetup.refresh"));
     actions(summary,
       chooseLocal,
       action("setup.repairAnalysis", t("AutoSetup.repairAnalysisConfig"), () => resourceCommand({ type: "RepairAnalysisConfig" }), !!r.inventory.gtpConfig),
       action("setup.openFolder", t("AutoSetup.openAppFolder"), () => resourceCommand({ type: "OpenResourceFolder" })),
       action("setup.fullDownloads", t("AutoSetup.viewFullDownloads"), async () => { try { await invoke("open_katago_releases"); } catch (error) { await message(t("AutoSetup.title"), errorText(error), "error"); } }),
-      action("setup.refresh", t("AutoSetup.refresh"), () => resourceCommand({ type: "Inspect", refresh: true })));
+      refresh);
     if (r.chosenEngine) {
       const chosen = section(t("AutoSetup.sourceManualSelection"));
       row(chosen, t("AutoSetup.localEngine"), r.chosenEngine.executable); row(chosen, t("AutoSetup.localWeight"), r.chosenWeight ?? t("AutoSetup.notFound"));

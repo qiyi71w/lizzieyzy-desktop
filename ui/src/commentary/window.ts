@@ -86,19 +86,19 @@ function mount(): (payload: CommentaryPayload) => void {
   modes.setAttribute("role", "radiogroup");
   const modeButtons = (
     [
-      ["Next", "next", "Teacher.mode.next", "Teacher.action.next", "Teacher.action.next.description"],
-      ["Range", "range", "Teacher.mode.range", "Teacher.action.range", "Teacher.action.range.description"],
-      ["Whole", "whole", "Teacher.mode.whole", "Teacher.action.whole", "Teacher.action.whole.description"],
+      ["Next", "next", t("Teacher.mode.next"), t("Teacher.action.next"), t("Teacher.action.next.description")],
+      ["Range", "range", t("Teacher.mode.range"), t("Teacher.action.range"), t("Teacher.action.range.description")],
+      ["Whole", "whole", t("Teacher.mode.whole"), t("Teacher.action.whole"), t("Teacher.action.whole.description")],
     ] as const
   ).map(([value, suffix, label, name, description]) => {
     const b = el("button", "tc-mode");
     b.type = "button";
     b.dataset.key = `commentary.mode.${suffix}`;
     b.setAttribute("role", "radio");
-    b.title = t(name);
-    b.setAttribute("aria-label", t(name));
-    b.setAttribute("aria-description", t(description));
-    b.append(el("span", "", t(label)));
+    b.title = name;
+    b.setAttribute("aria-label", name);
+    b.setAttribute("aria-description", description);
+    b.append(el("span", "", label));
     b.onclick = () => {
       // Selecting a mode never starts a request.
       mode = value;
@@ -145,8 +145,8 @@ function mount(): (payload: CommentaryPayload) => void {
 
   const tabs = el("div", "tc-tabs");
   tabs.setAttribute("role", "tablist");
-  const tabButton = (value: "lesson" | "evidence", key: string) => {
-    const b = el("button", "tc-tab", t(key));
+  const tabButton = (value: "lesson" | "evidence", text: string) => {
+    const b = el("button", "tc-tab", text);
     b.type = "button";
     b.setAttribute("role", "tab");
     b.dataset.key = `commentary.tab.${value}`;
@@ -157,8 +157,8 @@ function mount(): (payload: CommentaryPayload) => void {
     tabs.append(b);
     return b;
   };
-  const lessonTab = tabButton("lesson", "Teacher.learning.lesson");
-  const evidenceTab = tabButton("evidence", "Teacher.learning.evidence");
+  const lessonTab = tabButton("lesson", t("Teacher.learning.lesson"));
+  const evidenceTab = tabButton("evidence", t("Teacher.learning.evidence"));
 
   const pages = el("div", "tc-pages");
   const lessonPage = el("div", "tc-page");
@@ -219,8 +219,8 @@ function mount(): (payload: CommentaryPayload) => void {
   writeBox.dataset.key = "commentary.writeToSgf";
   writeLabel.append(writeBox, document.createTextNode(t("Teacher.writeToSgf")));
   footer.append(writeLabel);
-  for (const [suffix, key] of [["simpler", "Teacher.learning.simpler"], ["reply", "Teacher.learning.reply"]] as const) {
-    const shortcut = button(t(key), "", `commentary.${suffix}`);
+  for (const [suffix, text] of [["simpler", t("Teacher.learning.simpler")], ["reply", t("Teacher.learning.reply")]] as const) {
+    const shortcut = button(text, "", `commentary.${suffix}`);
     // The shortcuts only fill the question and focus it; they never send it.
     shortcut.onclick = () => {
       followUp.value = shortcut.textContent ?? "";

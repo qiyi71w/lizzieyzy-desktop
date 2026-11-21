@@ -30,9 +30,6 @@ interface Host {
 type ConnectionOp = Extract<Command, { type: "CommentaryConnection" }>["op"];
 const connection = (op: ConnectionOp) => send({ type: "CommentaryConnection", op });
 
-/** TeacherSettingsStyle.text: the redesigned dialog's wording. */
-const design = (key: string) => t(`Teacher.settings.design.${key}`);
-
 /** RankChoice: 18 级 … 1 级, then 业余 1 段 … 9 段. */
 const RANKS: { mode: "k" | "d"; num: number }[] = [
   ...Array.from({ length: 18 }, (_, k) => ({ mode: "k" as const, num: 18 - k })),
@@ -118,7 +115,7 @@ function setOptions(s: HTMLSelectElement, options: [string, string][]): void {
 
 function privacyRow(): HTMLElement {
   const row = el("div", "ts-privacy");
-  row.append(icon("lock"), el("span", "", design("privacy")));
+  row.append(icon("lock"), el("span", "", t("Teacher.settings.design.privacy")));
   return row;
 }
 
@@ -165,7 +162,7 @@ export function openSettings(host: Host): SettingsDialog {
   const titleRow = el("div", "modal-title");
   titleRow.append(el("span", "", t("Teacher.settings.title")), closeX);
   const head = el("div", "ts-head");
-  head.append(titleRow, el("div", "ts-subtitle", design("subtitle")));
+  head.append(titleRow, el("div", "ts-subtitle", t("Teacher.settings.design.subtitle")));
   const main = el("div", "ts-main");
   const rail = el("div", "ts-rail");
   const navButton = (value: "connection" | "preferences", text: string) => {
@@ -180,8 +177,8 @@ export function openSettings(host: Host): SettingsDialog {
     rail.append(b);
     return b;
   };
-  const connectionNav = navButton("connection", design("connection"));
-  const preferencesNav = navButton("preferences", design("preferences"));
+  const connectionNav = navButton("connection", t("Teacher.settings.design.connection"));
+  const preferencesNav = navButton("preferences", t("Teacher.settings.design.preferences"));
   const pages = el("div", "ts-pages");
   main.append(rail, pages);
   const status = el("div", "ts-status");
@@ -189,16 +186,16 @@ export function openSettings(host: Host): SettingsDialog {
   status.setAttribute("role", "status");
   status.setAttribute("aria-label", t("Teacher.settings.title"));
   const cancel = btn(t("Teacher.settings.cancel"), "", "commentary.settings.cancel");
-  const save = btn(design("save"), "primary", "commentary.settings.save");
+  const save = btn(t("Teacher.settings.design.save"), "primary", "commentary.settings.save");
   box.append(head, main);
   footer(box, { start: [status], primary: save, cancel });
 
   // ------------------------------------------------------------- 连接服务
   const connectionPage = el("div", "ts-page");
-  connectionPage.append(el("div", "ts-heading", design("connection")), el("div", "ts-note", design("connectionHint")));
+  connectionPage.append(el("div", "ts-heading", t("Teacher.settings.design.connection")), el("div", "ts-note", t("Teacher.settings.design.connectionHint")));
   const providers = segmented<Provider>("ts-provider", [["chatGpt", t("Teacher.chatgpt.tab")], ["apiKey", t("Teacher.settings.apiKey")]], "unselected");
   providers.el.classList.add("ts-providers");
-  providers.el.setAttribute("aria-label", design("connectionHint"));
+  providers.el.setAttribute("aria-label", t("Teacher.settings.design.connectionHint"));
   const [chatTab, apiTab] = providers.inputs;
   chatTab.dataset.key = "commentary.settings.provider.chatgpt";
   apiTab.dataset.key = "commentary.settings.provider.apikey";
@@ -209,7 +206,7 @@ export function openSettings(host: Host): SettingsDialog {
   const welcome = el("div", "ts-body");
   const welcomeIntro = el("div", "ts-welcome");
   const welcomeText = el("div");
-  welcomeText.append(el("div", "ts-welcome-title", design("setupTitle")), el("div", "ts-note", t("Teacher.chatgpt.choose")));
+  welcomeText.append(el("div", "ts-welcome-title", t("Teacher.settings.design.setupTitle")), el("div", "ts-note", t("Teacher.chatgpt.choose")));
   welcomeIntro.append(welcomeText);
   welcome.append(welcomeIntro, privacyRow());
 
@@ -293,7 +290,7 @@ export function openSettings(host: Host): SettingsDialog {
   const chat = el("div", "ts-body");
   const chatWelcome = el("div", "ts-welcome");
   const chatWelcomeText = el("div");
-  chatWelcomeText.append(el("div", "ts-welcome-title", design("chatTitle")), el("div", "ts-welcome-hint", design("chatHint")));
+  chatWelcomeText.append(el("div", "ts-welcome-title", t("Teacher.settings.design.chatTitle")), el("div", "ts-welcome-hint", t("Teacher.settings.design.chatHint")));
   chatWelcome.append(chatWelcomeText);
   // The account, then the model and its thinking depth once the account is authorized.
   const chatRows = el("div", "ts-rows");
@@ -317,7 +314,7 @@ export function openSettings(host: Host): SettingsDialog {
   const signOut = btn(t("Teacher.chatgpt.logout"), "", "commentary.settings.signOut");
   const manageUsage = btn(t("Teacher.chatgpt.usage"), "", "commentary.settings.usage");
   chatActions.append(addAccount, signOut, manageUsage);
-  const planNotice = el("div", "ts-note", design("planNotice").replace(/\\n/g, "\n"));
+  const planNotice = el("div", "ts-note", t("Teacher.settings.design.planNotice").replace(/\\n/g, "\n"));
   const chatStatus = el("div", "ts-note");
   chatStatus.dataset.key = "commentary.settings.chatStatus";
   chat.append(chatWelcome, chatRows, signInRow, chatActions, planNotice, chatStatus, privacyRow());
@@ -325,7 +322,7 @@ export function openSettings(host: Host): SettingsDialog {
 
   // ------------------------------------------------------------- 讲解偏好
   const preferencesPage = el("div", "ts-page");
-  preferencesPage.append(el("div", "ts-heading", design("preferences")), el("div", "ts-note", design("preferencesHint")));
+  preferencesPage.append(el("div", "ts-heading", t("Teacher.settings.design.preferences")), el("div", "ts-note", t("Teacher.settings.design.preferencesHint")));
   const preferenceRows = el("div", "ts-rows");
   const preference = (section: string | null, title: string, hint: string, key: string, options: string[]) => {
     if (section) groupTitle(preferenceRows, section);
@@ -334,16 +331,16 @@ export function openSettings(host: Host): SettingsDialog {
     row(preferenceRows, title, hint, s);
     return s;
   };
-  const level = preference(design("personal"), design("level"), design("levelHint"), "commentary.settings.level",
-    RANKS.map((r) => format(design(r.mode === "d" ? "rankDan" : "rankKyu"), r.num)));
-  const style = preference(null, t("Teacher.settings.style"), design("styleHint"), "commentary.settings.style",
-    ["balanced", "rigorous", "patient", "strict", "humorous"].map((k) => t(`Teacher.settings.style.${k}`)));
-  const density = preference(design("details"), t("Teacher.settings.terminology"), design("termsHint"), "commentary.settings.density",
-    ["low", "medium", "high"].map((k) => t(`Teacher.settings.density.${k}`)));
-  const pace = preference(null, t("Teacher.settings.pace"), design("paceHint"), "commentary.settings.pace",
-    ["brief", "standard", "detailed"].map((k) => t(`Teacher.settings.pace.${k}`)));
-  const variation = preference(null, t("Teacher.settings.variation"), design("variationHint"), "commentary.settings.variation",
-    ["few", "moderate", "many"].map((k) => t(`Teacher.settings.variation.${k}`)));
+  const level = preference(t("Teacher.settings.design.personal"), t("Teacher.settings.design.level"), t("Teacher.settings.design.levelHint"), "commentary.settings.level",
+    RANKS.map((r) => format(r.mode === "d" ? t("Teacher.settings.design.rankDan") : t("Teacher.settings.design.rankKyu"), r.num)));
+  const style = preference(null, t("Teacher.settings.style"), t("Teacher.settings.design.styleHint"), "commentary.settings.style",
+    [t("Teacher.settings.style.balanced"), t("Teacher.settings.style.rigorous"), t("Teacher.settings.style.patient"), t("Teacher.settings.style.strict"), t("Teacher.settings.style.humorous")]);
+  const density = preference(t("Teacher.settings.design.details"), t("Teacher.settings.terminology"), t("Teacher.settings.design.termsHint"), "commentary.settings.density",
+    [t("Teacher.settings.density.low"), t("Teacher.settings.density.medium"), t("Teacher.settings.density.high")]);
+  const pace = preference(null, t("Teacher.settings.pace"), t("Teacher.settings.design.paceHint"), "commentary.settings.pace",
+    [t("Teacher.settings.pace.brief"), t("Teacher.settings.pace.standard"), t("Teacher.settings.pace.detailed")]);
+  const variation = preference(null, t("Teacher.settings.variation"), t("Teacher.settings.design.variationHint"), "commentary.settings.variation",
+    [t("Teacher.settings.variation.few"), t("Teacher.settings.variation.moderate"), t("Teacher.settings.variation.many")]);
   const reload = el("button", "ts-link");
   reload.type = "button";
   reload.dataset.key = "commentary.settings.reloadKnowledge";
@@ -597,7 +594,7 @@ export function openSettings(host: Host): SettingsDialog {
     const prefs = await send({ type: "Commentary", op: { type: "SavePreferences", preferences: preferences() } });
     if (closed) return;
     if (!prefs.ok) return finishSave(failureText(prefs.message));
-    if (preferencesOnly) return finishSave(design("preferencesSaved"));
+    if (preferencesOnly) return finishSave(t("Teacher.settings.design.preferencesSaved"));
     const saved =
       provider === "apiKey"
         ? await connection({ type: "SaveApiKeyConnection", ...chosen })
@@ -783,7 +780,7 @@ export function openSettings(host: Host): SettingsDialog {
     reload.disabled = locked;
     renderChat();
 
-    save.textContent = page === "preferences" ? design("savePreferences") : design("save");
+    save.textContent = page === "preferences" ? t("Teacher.settings.design.savePreferences") : t("Teacher.settings.design.save");
     save.setAttribute("aria-description", save.textContent);
     save.disabled = locked || (page === "connection" && provider === "apiKey" && restoring);
     cancel.disabled = saving;

@@ -9,14 +9,14 @@ import { format, t } from "../i18n";
 
 /** Java RemoteComputeConfig *_ZHIZI_ARGS, in the dialog's 连接方式 order. */
 export const VIP_ARGS = "--platform all --engine-type go --gpu-type vip-share --kata-name katago-TENSORRT --kata-weight 10b512t";
-export const PRESETS: { key: string; args: string }[] = [
-  { key: "RemoteCompute.plan.vip", args: VIP_ARGS },
-  { key: "RemoteCompute.plan.1x", args: "--platform all --engine-type go --gpu-type 1x --kata-name katago-TENSORRT --kata-weight 10b512t" },
-  { key: "RemoteCompute.plan.3x", args: "--platform all --engine-type go --gpu-type 3x --kata-name katago-TENSORRT --kata-weight 10b512t" },
-  { key: "RemoteCompute.plan.6x", args: "--platform all --engine-type go --gpu-type 6x --kata-name katago-TENSORRT --kata-weight 10b512t" },
-  { key: "RemoteCompute.plan.12x", args: "--platform all --engine-type go --gpu-type 12x --kata-name katago-TENSORRT --kata-weight 10b512t" },
-  { key: "RemoteCompute.plan.24x", args: "--platform all --engine-type go --gpu-type 24x --kata-name katago-TENSORRT --kata-weight 10b512t" },
-  { key: "RemoteCompute.plan.1xCuda", args: "--platform all --engine-type go --gpu-type 1x --kata-name katago-CUDA --kata-weight 10b512t" },
+export const PRESETS: { label: () => string; args: string }[] = [
+  { label: () => t("RemoteCompute.plan.vip"), args: VIP_ARGS },
+  { label: () => t("RemoteCompute.plan.1x"), args: "--platform all --engine-type go --gpu-type 1x --kata-name katago-TENSORRT --kata-weight 10b512t" },
+  { label: () => t("RemoteCompute.plan.3x"), args: "--platform all --engine-type go --gpu-type 3x --kata-name katago-TENSORRT --kata-weight 10b512t" },
+  { label: () => t("RemoteCompute.plan.6x"), args: "--platform all --engine-type go --gpu-type 6x --kata-name katago-TENSORRT --kata-weight 10b512t" },
+  { label: () => t("RemoteCompute.plan.12x"), args: "--platform all --engine-type go --gpu-type 12x --kata-name katago-TENSORRT --kata-weight 10b512t" },
+  { label: () => t("RemoteCompute.plan.24x"), args: "--platform all --engine-type go --gpu-type 24x --kata-name katago-TENSORRT --kata-weight 10b512t" },
+  { label: () => t("RemoteCompute.plan.1xCuda"), args: "--platform all --engine-type go --gpu-type 1x --kata-name katago-CUDA --kata-weight 10b512t" },
 ];
 /** ZhiziEngineCatalog.DEFAULT_WEIGHT. */
 export const DEFAULT_WEIGHT = "10b512t";

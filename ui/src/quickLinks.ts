@@ -81,9 +81,9 @@ export async function openQuickLinks(): Promise<void> {
     const table = document.createElement("table");
     table.className = "engine-table quick-links-table";
     const header = table.createTHead().insertRow();
-    for (const key of ["MoreEngines.column0", "MoreEngines.column1", "MoreEngines.column2"]) {
+    for (const text of [t("MoreEngines.column0"), t("MoreEngines.column1"), t("MoreEngines.column2")]) {
       const th = document.createElement("th");
-      th.textContent = t(key);
+      th.textContent = text;
       header.append(th);
     }
     const rows = table.createTBody();

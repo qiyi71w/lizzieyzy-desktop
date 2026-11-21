@@ -11,8 +11,8 @@ import { editing, markupToolsShown, onEditingChange } from "../editing/state";
 import { product, t } from "../i18n";
 import { javaDouble, parseJavaDouble } from "../workbench/paint";
 import type { MenuNode } from "./javaMenus";
-import { openPopupMenu } from "./menubar";
-import { toolbarKeys } from "./bottombar";
+import { menuOpen, openPopupMenu } from "./menubar";
+import { TOOLBAR_ITEM, toolbarKeys } from "./bottombar";
 import { FLASH_MENU } from "../quick/flash";
 import { functionSearchRefused, openFunctionSearch } from "../search/controller";
 import { limitPopup } from "../analysis/region";
@@ -295,7 +295,7 @@ function intText(text: string): boolean {
  *  separate toolbar items, so the field may wrap away from its check box as in Java. The arrows
  *  step a second or a hundred visits. */
 function limitControl(time: boolean): HTMLElement[] {
-  const { box, label } = checkLabel(t(time ? "Menu.chkTime" : "Menu.chkPlayOut"), time ? "toolbar.limit-time" : "toolbar.limit-visits");
+  const { box, label } = checkLabel(time ? t("Menu.chkTime") : t("Menu.chkPlayOut"), time ? "toolbar.limit-time" : "toolbar.limit-visits");
   label.classList.add("fit");
   const field = document.createElement("input");
   field.className = `tb-input ${time ? "time-limit" : "visit-limit"}`;
@@ -303,7 +303,7 @@ function limitControl(time: boolean): HTMLElement[] {
   field.min = "0";
   field.step = time ? "1" : "100";
   field.dataset.key = time ? "toolbar.limit-time-value" : "toolbar.limit-visits-value";
-  field.setAttribute("aria-label", t(time ? "Menu.chkTime" : "Menu.chkPlayOut"));
+  field.setAttribute("aria-label", time ? t("Menu.chkTime") : t("Menu.chkPlayOut"));
   let taken = "";
   box.onchange = () => {
     field.disabled = !box.checked;
@@ -344,7 +344,7 @@ function limitCapsule(): HTMLElement {
 /** 分析 黑 / 白 (chkAnalyzeBlack / chkAnalyzeWhite, Menu.java:9754-9793, 9864-9872): the session's
  *  choice of the sides analysis goes on for after moves and browsing. */
 function analyzeCheck(black: boolean): HTMLElement {
-  const { box, label } = checkLabel(t(black ? "Menu.Black" : "Menu.White"), black ? "toolbar.analyze-black" : "toolbar.analyze-white");
+  const { box, label } = checkLabel(black ? t("Menu.Black") : t("Menu.White"), black ? "toolbar.analyze-black" : "toolbar.analyze-white");
   box.onchange = () => {
     const e = state.view?.engine;
     if (!e) return;
@@ -721,6 +721,148 @@ function candidateCapsule(): HTMLElement {
   );
 }
 
+/** DESIGN.md 工具栏: wrapping may not leave the workbench less than this share of the window's
+ *  height; below it the toolbar is one row. */
+const WORKBENCH_SHARE = 0.5;
+/** The gap the 更多 panel keeps from 更多 and the window's edges, as the menus' dropdowns do. */
+const EDGE = 4;
+
+let toolbarHost: HTMLElement | null = null;
+let overflowPanel: HTMLElement | null = null;
+/** The controls 更多 holds, in bar order. */
+let overflowed: HTMLElement[] = [];
+let showOverflow: (open: boolean) => void = () => {};
+
+/** The toolbar as one row (自动换行 off, or wrapping would leave the workbench less than half the
+ *  window's height): the controls that do not fit move, with every control after them in bar
+ *  order, to a panel under 更多 at the row's end, and come back when the row has room. The panel
+ *  is the toolbar's own ground with the same capsules, so fields and check boxes work there too.
+ *  A button in it acts and closes it, as a menu item does; a press outside it, Esc or Tab away
+ *  close it as well. The returned updater lays the bar out again when the window, the bar's shown
+ *  controls or their sizes have changed since the last layout. */
+function overflowLayout(host: HTMLElement, rows: HTMLElement[], panel: HTMLElement, settle: () => void): () => void {
+  const homes = rows.map((row) => ({ row, children: [...row.children] }));
+  const controls = homes.flatMap((home) => home.children).filter((c): c is HTMLElement => c instanceof HTMLElement && !c.classList.contains("tb-grow"));
+  const tip = t("BottomToolbar.moreActions");
+  const button = iconButton("more", tip);
+  button.classList.remove("unavailable");
+  button.title = tip;
+  button.dataset.key = "toolbar.more";
+  // Made after toolbarKeys took the bar's items: like them, the arrows focus it, Tab does not.
+  button.tabIndex = -1;
+  button.setAttribute("aria-controls", panel.id);
+  button.setAttribute("aria-expanded", "false");
+  const more = capsule(null, button);
+  more.classList.add("tb-more");
+  more.style.display = "none";
+  host.append(more);
+  panel.setAttribute("role", "group");
+  panel.setAttribute("aria-label", tip);
+  toolbarHost = host;
+  overflowPanel = panel;
+
+  const place = () => {
+    const r = button.getBoundingClientRect();
+    panel.style.top = `${r.bottom + EDGE}px`;
+    panel.style.maxHeight = `${window.innerHeight - r.bottom - 2 * EDGE}px`;
+    panel.style.left = `${Math.max(EDGE, r.right - panel.offsetWidth)}px`;
+  };
+  const show = (open: boolean) => {
+    if (open === !panel.hidden) return;
+    const focused = panel.contains(document.activeElement);
+    panel.hidden = !open;
+    button.classList.toggle("on", open);
+    button.setAttribute("aria-expanded", String(open));
+    if (open) place();
+    // The focus on a control the panel took away goes to 更多.
+    else if (focused) button.focus({ preventScroll: true });
+    settle();
+  };
+  showOverflow = show;
+  button.onclick = (e) => {
+    show(panel.hidden);
+    // Opened with the keys: the focus goes to the panel's first control.
+    if (!panel.hidden && e.detail === 0) [...panel.querySelectorAll<HTMLElement>(TOOLBAR_ITEM)].find((el) => el.getClientRects().length > 0)?.focus();
+  };
+  panel.addEventListener("click", (e) => {
+    const pressed = e.target instanceof Element ? e.target.closest('[role="button"]') : null;
+    if (pressed && pressed.getAttribute("aria-disabled") !== "true") show(false);
+  });
+  // Esc closes it wherever the focus is, as it closes a menu: not when it closed a menu, nor over
+  // a modal dialog (the panel is inert then).
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || e.defaultPrevented || panel.hidden || menuOpen() || panel.closest("[inert]")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    show(false);
+  }, true);
+  // A popup a button in the panel opened counts as the panel.
+  const ours = (node: unknown) => node instanceof Node && (panel.contains(node) || more.contains(node) || (node instanceof Element && node.closest(".popup-anchor") !== null));
+  document.addEventListener("mousedown", (e) => {
+    if (!panel.hidden && !ours(e.target)) show(false);
+  }, true);
+  panel.addEventListener("focusout", (e) => {
+    if (e.relatedTarget instanceof Node && !ours(e.relatedTarget)) show(false);
+  });
+
+  let key = "";
+  let epoch = 0;
+  const layout = () => {
+    const main = document.getElementById("main");
+    const shown = host.getClientRects().length > 0;
+    const wraps = topToolbarWraps();
+    const visible = controls.map((c) => (c.style.display === "none" ? "0" : "1")).join("");
+    const next = [window.innerWidth, window.innerHeight, document.getElementById("bottombar")?.offsetHeight, shown, wraps, epoch, visible].join(":");
+    if (next === key) return;
+    key = next;
+    const focused = document.activeElement;
+    if (overflowed.length > 0) {
+      for (const home of homes) home.row.append(...home.children);
+      overflowed = [];
+    }
+    more.style.display = "none";
+    host.classList.toggle("nowrap", !wraps);
+    if (shown && wraps && main && main.clientHeight < window.innerHeight * WORKBENCH_SHARE) host.classList.add("nowrap");
+    if (shown && host.classList.contains("nowrap")) {
+      const style = getComputedStyle(host);
+      const end = host.getBoundingClientRect().right - parseFloat(style.paddingRight);
+      const fitting = controls.filter((c) => c.getClientRects().length > 0);
+      if ((fitting.at(-1)?.getBoundingClientRect().right ?? 0) > end + 0.5) {
+        more.style.display = "";
+        const limit = end - more.getBoundingClientRect().width - parseFloat(style.columnGap);
+        const first = fitting.find((c) => c.getBoundingClientRect().right > limit + 0.5);
+        overflowed = first ? controls.slice(controls.indexOf(first)) : [];
+        panel.append(...overflowed);
+      }
+    }
+    if (overflowed.length === 0) {
+      more.style.display = "none";
+      show(false);
+    } else if (!panel.hidden) place();
+    // A focused control that moved has lost the focus.
+    if (focused instanceof HTMLElement && focused !== document.activeElement && focused.isConnected) focused.focus({ preventScroll: true });
+  };
+  // A control whose size changes (its text, the frame font) may no longer fit, or fit again.
+  const sizes = new ResizeObserver(() => {
+    epoch += 1;
+    requestAnimationFrame(layout);
+  });
+  for (const c of controls) sizes.observe(c);
+  return layout;
+}
+
+/** Function search locating a control 更多 holds: its panel opens so the control shows. */
+export function revealOverflowedControl(control: HTMLElement): void {
+  if (overflowPanel?.contains(control)) showOverflow(true);
+}
+
+/** The acceptance report's top toolbar: one row or not, the data-keys of the controls 更多 holds
+ *  and whether its panel is open. */
+export function topToolbarReport(): { oneRow: boolean; overflowed: string[]; open: boolean } {
+  const keys = overflowed.flatMap((c) => [c, ...c.querySelectorAll<HTMLElement>("[data-key]")].flatMap((el) => (el.dataset.key ? [el.dataset.key] : [])));
+  return { oneRow: toolbarHost?.classList.contains("nowrap") ?? false, overflowed: keys, open: overflowPanel ? !overflowPanel.hidden : false };
+}
+
 /** The double menu's toolbar (Menu.doubleMenu / setKomiPanelInDoubleMenu, Menu.java:8251-9931) as
  *  two rows of capsules, one capsule per 自定义内容 group: the icon groups and the search field in
  *  the upper row; the game controls, AI 陪练 / AI 解说, the engine parameters and the text
@@ -787,9 +929,15 @@ export function buildToolbar(host: HTMLElement): void {
       clockLabel(),
     ),
   );
-  updaters.push(() => host.classList.toggle("nowrap", !topToolbarWraps()));
-  // After every other updater, so the Tab stop sees what they showed or hid.
-  updaters.push(toolbarKeys(host, t("Menu.topToolBar")));
+  const rows = [...host.querySelectorAll<HTMLElement>(":scope > .tb-row")];
+  const panel = document.createElement("div");
+  panel.id = "toolbarOverflow";
+  panel.hidden = true;
+  host.after(panel);
+  const settle = toolbarKeys(host, t("Menu.topToolBar"), panel);
+  // After every other updater, so the layout sees what they showed or hid, and the Tab stop what
+  // the layout moved.
+  updaters.push(overflowLayout(host, rows, panel, settle), settle);
 }
 
 /** btnPlayerStrengthEstimate (Menu.java:8386-8404): 棋力评估 with the menu item's text as its tip. */

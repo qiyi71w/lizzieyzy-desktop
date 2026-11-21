@@ -53,11 +53,11 @@ function selectRow(host: ParentNode, target: string, title: string, sub: string,
 }
 
 /** The pages in navigation order with their icons. */
-const NAV: [SettingsSection, string, IconName][] = [
-  ["display", "ConfigDialog2.modern.nav.display", "nav-display"], ["kifu", "ConfigDialog2.modern.nav.kifu", "nav-kifu"],
-  ["engine", "ConfigDialog2.modern.nav.engine", "nav-engine"], ["play", "ConfigDialog2.modern.nav.play", "nav-play"],
-  ["theme", "ConfigDialog2.modern.nav.theme", "nav-theme"], ["advanced", "ConfigDialog2.modern.nav.advanced", "nav-advanced"],
-  ["about", "ConfigDialog2.modern.nav.about", "nav-about"],
+const NAV: [SettingsSection, () => string, IconName][] = [
+  ["display", () => t("ConfigDialog2.modern.nav.display"), "nav-display"], ["kifu", () => t("ConfigDialog2.modern.nav.kifu"), "nav-kifu"],
+  ["engine", () => t("ConfigDialog2.modern.nav.engine"), "nav-engine"], ["play", () => t("ConfigDialog2.modern.nav.play"), "nav-play"],
+  ["theme", () => t("ConfigDialog2.modern.nav.theme"), "nav-theme"], ["advanced", () => t("ConfigDialog2.modern.nav.advanced"), "nav-advanced"],
+  ["about", () => t("ConfigDialog2.modern.nav.about"), "nav-about"],
 ];
 
 /** `onOpened` runs once the dialog and its 保存设置 / 取消 controls are in place, before the
@@ -167,7 +167,7 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
   nav.append(searchBox);
   for (const [key, text, glyph] of NAV) {
     const item = document.createElement("button"); item.dataset.key = `settings.nav.${key}`;
-    item.append(icon(glyph), t(text));
+    item.append(icon(glyph), text());
     item.onclick = () => showPage(key);
     nav.append(item); navItems.set(key, item);
   }
@@ -271,7 +271,7 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
   numberRow(advanced, "config.engine.ssh-update-interval", "intervalCentisecSsh", t("ConfigDialog2.modern.engineHealth.intervalSsh"), t("ConfigDialog2.modern.engineHealth.intervalSshSub"), t("LizzieConfig.title.centisecond"));
   // Each page starts with its title, the navigation item's text.
   for (const [key, text] of NAV) {
-    const title = document.createElement("h2"); title.className = "settings-page-title"; title.textContent = t(text);
+    const title = document.createElement("h2"); title.className = "settings-page-title"; title.textContent = text();
     pages[key]?.prepend(title);
   }
   scroller.append(noMatch, ...Object.values(pages));

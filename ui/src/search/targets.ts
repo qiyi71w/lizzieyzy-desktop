@@ -17,7 +17,7 @@ import { markupToolsShown, setEditing } from "../editing/state";
 import { revealToolbar } from "../workbench/panels";
 import { matchPlaying } from "../match/state";
 import { aiCoachBlockedByGame } from "../humansl/state";
-import { renderToolbar } from "../chrome/toolbar";
+import { renderToolbar, revealOverflowedControl } from "../chrome/toolbar";
 import type { KataParam } from "../contract/generated";
 import { kataGoPda, kataRevealed } from "../engine/kataParams";
 import { revealTopGroup, TOP_GROUP_OF } from "../chrome/topGroups";
@@ -97,13 +97,14 @@ const CONTEXT_ITEMS: Record<string, true> = {
   "RightClickMenu2.review": true,
 };
 
-/** The located control of a toolbar destination (`data-function` = Java action id), or the 同步
- *  button holding a popup item. `engine.pda` is the 激进度 check box, except with a KataGoPda engine,
- *  whose 激进度 group is hidden: then its "..." (Menu.topFunctionTarget → more2). */
+/** The located control of a toolbar destination (`data-function` = Java action id), on a bar or
+ *  in the top toolbar's 更多, or the 同步 button holding a popup item. `engine.pda` is the 激进度
+ *  check box, except with a KataGoPda engine, whose 激进度 group is hidden: then its "..."
+ *  (Menu.topFunctionTarget → more2). */
 function toolbarControl(id: string): HTMLElement | null {
   const only = id === "engine.pda" ? (kataGoPda() ? ".pda-more" : ":not(.pda-more)") : "";
   const selector = `[data-function="${CSS.escape(id)}"]${only}`;
-  return document.querySelector<HTMLElement>(`#toolbar ${selector}, #bottombar ${selector}`) ?? livePopupAnchor(id);
+  return document.querySelector<HTMLElement>(`#toolbar ${selector}, #toolbarOverflow ${selector}, #bottombar ${selector}`) ?? livePopupAnchor(id);
 }
 
 /** The 激进度 / 广度 groups (Menu.locateTopFunction sets showPDAInMenu / showWRNInMenu) and the
@@ -283,6 +284,8 @@ function unavailableReason(m: FunctionMatch, kind: DestinationKind | null, absen
   // A real toolbar control disabled for now (广度 while the engine is not free for it).
   if (kind === "toolbar" && toolbarControl(m.id)?.matches(":disabled")) return CONTEXT;
   if (kind === "menu" && menuItemState(m.id) === "hidden") return CONTEXT;
+  // The engine menu, disabled while an engine game runs (its only disabled state on the bar).
+  if (kind === "menu" && menuItemState(m.id) === "disabled") return ENGINE_GAME;
   // A registered command its owner reports disabled or hidden, whatever the destination.
   const entry = COMMANDS[m.id];
   if (entry && ((entry.visible && !entry.visible()) || (entry.enabled && !entry.enabled()))) return CONTEXT;
@@ -323,9 +326,9 @@ function revealsMarkup(id: string): boolean {
 }
 
 /** BottomToolbar.locateFunction / Menu.locateTopFunction: shows the toolbar (and the markup tools
- *  for a markup button), then scrolls to and focuses the control with the gold line. A bottom
- *  button not on the bar is located in 更多. The control is not clicked and no saved setting
- *  changes. */
+ *  for a markup button, and 更多's panel for a control it holds), then scrolls to and focuses the
+ *  control with the gold line. A bottom button not on the bar is located in 更多. The control is
+ *  not clicked and no saved setting changes. */
 async function locateToolbarControl(id: string): Promise<Reason | null> {
   const control = toolbarControl(id);
   if (!control) return TOOLBAR;
@@ -341,6 +344,7 @@ async function locateToolbarControl(id: string): Promise<Reason | null> {
   // A 同步 popup item: the popup opens over the bar whether or not 同步 itself is on it.
   if (control.dataset.function !== id) return locateLivePopupItem(id) ? null : TARGET_MISSING;
   if (bottom && control.isConnected && control.getClientRects().length === 0 && locateHiddenButton(id)) return null;
+  if (!bottom) revealOverflowedControl(control);
   if (!control.isConnected || control.getClientRects().length === 0) return TOOLBAR;
   control.scrollIntoView({ block: "nearest", inline: "nearest" });
   if (!control.hasAttribute("tabindex")) control.tabIndex = -1;

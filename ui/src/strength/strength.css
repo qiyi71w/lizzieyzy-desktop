@@ -2,36 +2,8 @@
    dashboard on the dialog's ground. Panels are sections divided by hairlines, not cards; figures
    are the Headline size at 600 in tabular numerals with Label-size names in --ds-text-3; the two
    move charts paint from these tokens (paint.ts). The dashboard fits a 1065 x 700 window; a tab
-   whose content is taller scrolls inside it. */
-
-/* The data colours with a meaning no shared token has, for each colour mode: the rate and loss
-   bars and the 吻合度 ring, the 段位 windows and 疑似AI intervals of the match chart, and the six
-   move ranks of 发挥水准分布. The canvas reads them from the root (paint.ts palette). */
-:root,
-[data-theme="light"] {
-  --ps-rate: #4d7c5e;
-  --ps-loss: #a8772c;
-  --ps-rank-window: rgba(77, 124, 94, 0.3);
-  --ps-ai: #c4962f;
-  --ps-rank-best: #2f8a43;
-  --ps-rank-good: #7b9f2a;
-  --ps-rank-normal: #a8901a;
-  --ps-rank-inaccuracy: #c2772a;
-  --ps-rank-mistake: #bf3b2c;
-  --ps-rank-blunder: #93358a;
-}
-[data-theme="dark"] {
-  --ps-rate: #84bf98;
-  --ps-loss: #dcae62;
-  --ps-rank-window: rgba(132, 191, 152, 0.32);
-  --ps-ai: #d9b154;
-  --ps-rank-best: #63c27f;
-  --ps-rank-good: #a9c95a;
-  --ps-rank-normal: #d6c255;
-  --ps-rank-inaccuracy: #e3a15a;
-  --ps-rank-mistake: #ec7b6d;
-  --ps-rank-blunder: #cf82c6;
-}
+   whose content is taller scrolls inside it. The data colours (the rate and loss bars, the 吻合度
+   ring, the six move ranks) are stage.css's --ws-strength-* tokens. */
 
 /* ---- the frame: title with its close box, the body below */
 .modal-box.ps-window {
@@ -314,10 +286,10 @@
   border-radius: var(--ds-radius-s);
 }
 .ps-fill-rate {
-  background: var(--ps-rate);
+  background: var(--ws-strength-rate);
 }
 .ps-fill-loss {
-  background: var(--ps-loss);
+  background: var(--ws-strength-loss);
 }
 .ps-fill-rank {
   background: var(--ps-rank-color);
@@ -389,7 +361,7 @@
   stroke: var(--ds-well);
 }
 .ps-ring-value {
-  stroke: var(--ps-rate);
+  stroke: var(--ws-strength-rate);
   stroke-linecap: round;
 }
 .ps-stats {
@@ -497,12 +469,12 @@
   border-radius: 50%;
   background: var(--ps-rank-color);
 }
-.rank-best { --ps-rank-color: var(--ps-rank-best); }
-.rank-good { --ps-rank-color: var(--ps-rank-good); }
-.rank-normal { --ps-rank-color: var(--ps-rank-normal); }
-.rank-inaccuracy { --ps-rank-color: var(--ps-rank-inaccuracy); }
-.rank-mistake { --ps-rank-color: var(--ps-rank-mistake); }
-.rank-blunder { --ps-rank-color: var(--ps-rank-blunder); }
+.rank-best { --ps-rank-color: var(--ws-strength-rank-best); }
+.rank-good { --ps-rank-color: var(--ws-strength-rank-good); }
+.rank-normal { --ps-rank-color: var(--ws-strength-rank-normal); }
+.rank-inaccuracy { --ps-rank-color: var(--ws-strength-rank-inaccuracy); }
+.rank-mistake { --ps-rank-color: var(--ws-strength-rank-mistake); }
+.rank-blunder { --ps-rank-color: var(--ws-strength-rank-blunder); }
 .ps-empty {
   color: var(--ds-text-3);
 }

@@ -210,7 +210,9 @@ function createCenter(initial: WorkbenchView): Center {
   const accountText = el("p", "rc-account-text");
   const membershipLabel = el("div", "rc-account-value"), balanceLabel = el("div", "rc-balance");
   const activityLabel = el("div", "rc-account-small"), updatedLabel = el("div", "rc-account-updated");
-  const refreshAccountButton = button(t("RemoteCompute.account.refresh"), "rc-link", "remote.account.refresh", () => void refreshOverview(true));
+  // The account's refresh as its icon; update() names it 刷新 or 刷新中 in its tooltip.
+  const refreshAccountButton = button("", "rc-icon-button", "remote.account.refresh", () => void refreshOverview(true));
+  refreshAccountButton.append(icon("refresh"));
   const usageButton = button(t("RemoteCompute.account.usageDetails"), "rc-link", "remote.account.usage", () => showDetails(0));
   const creditButton = button(t("RemoteCompute.account.creditDetails"), "rc-link", "remote.account.credit", () => showDetails(1));
   const accountActions = el("div", "rc-account-actions");
@@ -230,7 +232,7 @@ function createCenter(initial: WorkbenchView): Center {
   presetSelect.id = "rc-preset";
   presetSelect.dataset.key = "remote.preset";
   presetSelect.title = t("RemoteCompute.connectionModeDescription");
-  PRESETS.forEach((preset, i) => presetSelect.append(new Option(t(preset.key), String(i))));
+  PRESETS.forEach((preset, i) => presetSelect.append(new Option(preset.label(), String(i))));
   const weightSelect = el("select");
   weightSelect.id = "rc-weight";
   weightSelect.dataset.key = "remote.weight";
@@ -446,7 +448,9 @@ function createCenter(initial: WorkbenchView): Center {
       sendCodeButton.disabled = busy || !(codeMode || resetMode);
     }
     const accountIdle = !busy && !overviewLoading && signedInNow;
-    refreshAccountButton.textContent = overviewLoading ? t("RemoteCompute.account.refreshing") : t("RemoteCompute.account.refresh");
+    const refreshAccountText = overviewLoading ? t("RemoteCompute.account.refreshing") : t("RemoteCompute.account.refresh");
+    refreshAccountButton.title = refreshAccountText;
+    refreshAccountButton.setAttribute("aria-label", refreshAccountText);
     refreshAccountButton.disabled = usageButton.disabled = creditButton.disabled = paymentButton.disabled = !accountIdle;
 
     weightSelect.disabled = busy || catalogRefreshing || weightOptions.length === 0;

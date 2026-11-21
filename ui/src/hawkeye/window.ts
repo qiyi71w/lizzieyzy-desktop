@@ -63,16 +63,16 @@ function diffText(v: number): string {
 }
 
 /** ColorTableCellRenderer: the class of a 胜率波动 / 目数波动 cell from its shown number, as the
- *  colour hawkeye.css gives it. */
+ *  colour stage.css gives it. */
 function diffColor(text: string, gain: number, thresholds: number[]): string {
   const v = Number.parseFloat(text.substring(0, text.length - 1));
-  if (v >= gain) return "var(--hk-diff-gain)";
-  if (v <= thresholds[4]) return "var(--hk-diff-5)";
-  if (v <= thresholds[3]) return "var(--hk-diff-4)";
-  if (v <= thresholds[2]) return "var(--hk-diff-3)";
-  if (v <= thresholds[1]) return "var(--hk-diff-2)";
-  if (v <= thresholds[0]) return "var(--hk-diff-1)";
-  return "var(--hk-diff-even)";
+  if (v >= gain) return "var(--ws-hawkeye-diff-gain)";
+  if (v <= thresholds[4]) return "var(--ws-hawkeye-diff-5)";
+  if (v <= thresholds[3]) return "var(--ws-hawkeye-diff-4)";
+  if (v <= thresholds[2]) return "var(--ws-hawkeye-diff-3)";
+  if (v <= thresholds[1]) return "var(--ws-hawkeye-diff-2)";
+  if (v <= thresholds[0]) return "var(--ws-hawkeye-diff-1)";
+  return "var(--ws-hawkeye-diff-even)";
 }
 
 /** The raw change Java keeps in `NodeInfo.diffWinrate` / `scoreMeanDiff` (0 before it is known);

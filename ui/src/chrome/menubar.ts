@@ -94,8 +94,9 @@ function replaceMenu(): void {
   closeMenus(true);
 }
 
-/** A JPopupMenu shown below `anchor` (a toolbar button), drawn and closed like the menu bar's; like
- *  Swing's, it moves left rather than leave the window. */
+/** A JPopupMenu shown below `anchor` (a toolbar button), or above it, drawn and closed like the
+ *  menu bar's; like Swing's, it moves left rather than leave the window. One taller than the room
+ *  on its side scrolls inside, as the menu bar's dropdowns do. */
 export function openPopupMenu(anchor: HTMLElement, items: MenuNode[], above = false): void {
   replaceMenu();
   const r = anchor.getBoundingClientRect();
@@ -104,6 +105,7 @@ export function openPopupMenu(anchor: HTMLElement, items: MenuNode[], above = fa
   holder.style.left = `${r.left}px`;
   holder.style.top = `${r.bottom}px`;
   const list = dropdown(items);
+  list.style.maxHeight = `${above ? r.top - EDGE : window.innerHeight - EDGE - r.bottom}px`;
   holder.append(list);
   document.body.append(holder);
   const box = list.getBoundingClientRect();
@@ -763,8 +765,9 @@ function implemented(items: MenuNode[]): boolean {
 }
 
 /** A Java menu destination: null when no menu has the id, "missing" when its item is not
- *  available in this client, "hidden" when it is not shown now, else "ok". Read-only. */
-export function menuItemState(id: string): "ok" | "hidden" | "missing" | null {
+ *  available in this client, "hidden" when it is not shown now, "disabled" when its menu on the
+ *  bar is disabled (the engine menu while an engine game runs), else "ok". Read-only. */
+export function menuItemState(id: string): "ok" | "hidden" | "missing" | "disabled" | null {
   const path = functionPath(id);
   if (!path) return null;
   const leaf = path.nodes[path.nodes.length - 1];
@@ -773,9 +776,12 @@ export function menuItemState(id: string): "ok" | "hidden" | "missing" | null {
   if (leaf.t === "submenu" && !implemented(leaf.items ?? [])) return "missing";
   const entry = leaf.t === "item" || leaf.t === "check" || leaf.t === "radio" ? (COMMANDS[leaf.id ?? ""] ?? COMMANDS[leaf.key]) : null;
   if (entry === undefined) return "missing";
-  const shown = tops.has(path.menu) && visible(path.menu.when) && path.nodes.every((node) => node.t === "sep" || visible(node.when));
+  const top = tops.get(path.menu)?.top;
+  const shown = top !== undefined && visible(path.menu.when) && path.nodes.every((node) => node.t === "sep" || visible(node.when));
   if (!shown || (entry?.visible && !entry.visible())) return "hidden";
   if (leaf.t === "dynamic" && leaf.key === "engine.list" && (state.view?.engine.engines.length ?? 0) === 0) return "hidden";
+  // Its menu takes no press now, so search may not open it either.
+  if (top && !enabledTop(top)) return "disabled";
   return "ok";
 }
 

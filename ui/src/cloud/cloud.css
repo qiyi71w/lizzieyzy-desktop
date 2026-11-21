@@ -291,9 +291,11 @@
   font-size: var(--ds-size-s);
   font-variant-numeric: tabular-nums;
 }
+/* The account links after their refresh icon, centred on its height. */
 .rc-account-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 4px 12px;
   margin-top: 4px;
 }

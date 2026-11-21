@@ -9,7 +9,7 @@ import { COMMANDS } from "./commands";
 import { buildBottomBar, layoutBottomBar } from "./chrome/bottombar";
 import { buildMenubar, menuOpen, secondaryMenuTitle } from "./chrome/menubar";
 import { mountWindowBar, setWindowTitle } from "./chrome/windowBar";
-import { buildToolbar, renderToolbar } from "./chrome/toolbar";
+import { buildToolbar, renderToolbar, topToolbarReport } from "./chrome/toolbar";
 import { onUnavailable, onView, snapshot } from "./contract/client";
 import type { BoardOverlayView, FloatSceneView, HistoryPoint, NodeAnalysisView, Point, SubBoardMode, WorkbenchView } from "./contract/generated";
 import { dialogOpen, message } from "./dialogs";
@@ -1536,6 +1536,8 @@ function uiReport() {
     comment: $("commentText").textContent,
     moveField: $<HTMLInputElement>("moveInput").value,
     bottomBar: [...document.querySelectorAll<HTMLElement>("#bottombar .bb")].filter((b) => b.style.display !== "none").map((b) => b.getAttribute("aria-label") ?? b.textContent),
+    /** The top toolbar: one row or not, the controls its 更多 holds and whether that panel is open. */
+    topToolbar: topToolbarReport(),
     editing: {
       placement: editing.placement,
       insert: editing.insert,

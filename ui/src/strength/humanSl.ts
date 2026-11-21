@@ -55,7 +55,7 @@ async function startRun(resume: boolean): Promise<boolean | "download"> {
   // needEngine: showMessageDialog; the task's own failures (the model check, the game replaced
   // during the download) are errors; the game's snapshot throws before the dialog (warning).
   const failure = key === "HumanSL40.invalidModel" || key === "HumanSL40.gameChanged";
-  if (key === "HumanSL40.needEngine") await message(t("Message.title"), t(key));
+  if (key === "HumanSL40.needEngine") await message(t("Message.title"), t("HumanSL40.needEngine"));
   else await message(TITLE, humanSlText(key), failure ? "error" : "warning");
   return false;
 }

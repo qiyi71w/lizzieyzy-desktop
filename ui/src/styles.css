@@ -202,7 +202,8 @@ body {
 .tb-row > .tb-grow {
   flex: 1;
 }
-/* 自动换行 off: one row, the rest cut off without a scroll bar */
+/* One row (自动换行 off, or wrapping would leave the workbench under half the window's height):
+   what does not fit goes to 更多 at the row's end (toolbar.ts overflowLayout). */
 #toolbar.nowrap {
   flex-direction: row;
   align-items: center;
@@ -214,6 +215,33 @@ body {
 }
 #toolbar.nowrap .tb-grow {
   display: none;
+}
+#toolbar .tb-more {
+  flex: none;
+  margin-left: auto;
+}
+/* The controls that did not fit, under 更多: the toolbar's ground and capsules, wrapping by
+   capsule, scrolling inside when taller than the room below. */
+#toolbarOverflow {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  width: max-content;
+  max-width: calc(100vw - 8px);
+  padding: 8px;
+  overflow-y: auto;
+  border-radius: var(--ds-radius-menu);
+  background: var(--ds-chrome);
+  box-shadow: var(--ds-shadow-pop);
+}
+#toolbarOverflow[hidden] {
+  display: none;
+}
+#toolbarOverflow > * {
+  flex: none;
 }
 
 /* A capsule: one raised surface holding a group of related controls as segments. A segment that
