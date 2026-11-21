@@ -49,6 +49,10 @@ body {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+/* The focused header rings itself inside its cell. */
+#top th:focus-visible {
+  outline-offset: -2px;
+}
 /* Rows follow the session's row height (Config.menuHeight), never below 22 px. */
 #top td {
   height: max(calc(var(--af-row, 20px) - 4px), 22px);

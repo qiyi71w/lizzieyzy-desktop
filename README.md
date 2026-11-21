@@ -511,7 +511,8 @@ importing the matching LizzieYzy Next settings.
   - 选点列表 keeps the engine's order with the actual move marked or inserted (实战), Java's
     colours and resizable, remembered columns; a click shows a row's variation (the wheel over
     the list or the board lengthens it), a second click or a right click clears it.
-    独立选点列表 (`U`) opens it in its own window with 7 or 9 columns (sortable by header),
+    独立选点列表 (`U`) opens it in its own window with 7 or 9 columns (sortable by header,
+    also from the keyboard: `Tab` to the header, `←`/`→` to a column, `Enter` or `Space`),
     列表 / 柱状图 / 当前手 / 鼠标悬停, 总计算量 / 最高计算量 / 集中度, 总在最前 (`Q`) and a
     remembered position for each layout. It shows the side to move's values, as in Java. Its
     four switches at the foot are reached with `Tab` and toggled with `Space` (which then leaves
@@ -663,7 +664,7 @@ importing the matching LizzieYzy Next settings.
 - Appearance (Java defaults; saved and taken over by the LizzieYzy Next import):
   - 设置 > 主题 opens 综合设置 > 主题外观: the theme (默认 plus the bundled Java 经典, sabaki,
     yasnaya, Megapack, Custom and Fast, and the user's own), a preview of the edited background, board and
-    stones, line widths, the stone shadow, the three fonts (计算量及其他字体, UI 字体, 胜率目数字体;
+    stones, line widths, the stone shadow (its size a percentage of the stone radius), the three fonts (计算量及其他字体, UI 字体, 胜率目数字体;
     Lizzie默认, 系统默认 or a system font), pure-colour background / board / stones and the image
     files of a named theme (the default theme's images are fixed, as in Java), the background
     blur (as in Java it blurs the panels only when the glass effect is off: `glass-effect-level`
@@ -679,11 +680,12 @@ importing the matching LizzieYzy Next settings.
     默认 and Java 经典 in any interface language. Saving a named theme writes the page's values
     over that theme's `theme.txt` and keeps the keys the page does not edit, as Java does.
     Bundled themes are read-only: deleting one hides it, and edits are kept as the user's copy.
-    The live preview falls back to the pure colour when an image path cannot be read.
+    The live preview shows the background the workbench would draw (the linen wallpaper for the
+    default background) and falls back to the pure colour when an image path cannot be read.
   - Java 经典 is a bundled theme holding Java's own default values and images. While it is the
     theme, the interface keeps its layout and controls but takes Java's colours: light grey bars,
-    white controls and menus, Java's teal accent, Java's grey metal wallpaper under dark glass
-    panels, and Java's colours for the win-rate graph, the variation tree, the stones' markers
+    white controls and menus, Java's teal accent, Java's grey metal wallpaper under panels as dark
+    as Java's glass, Java's comment background, and Java's colours for the win-rate graph, the variation tree, the stones' markers
     and the candidate list (Java's white table). Every other theme keeps the program's own
     colours.
   - 显示 > 外观主题: 棋盘风格 日式 / 中式经典 (corner markers instead of star points, Chinese
@@ -721,7 +723,9 @@ importing the matching LizzieYzy Next settings.
   wheel to the workbench; a board popup opened from the floating main board appears in the
   main window.
   浮动主棋盘 (`Alt+Q`) and 浮动小棋盘 (`Alt+A`) are independent board windows with remembered
-  bounds. Closing the floating main board in 浮动双棋盘 restores 默认; closing the floating sub
+  bounds. Their close, 置顶 and 锁定 buttons at the top left show on hover or when one of them
+  has the keyboard focus (`Tab`), are named in the interface language, and are pressed with
+  `Enter` or `Space`. Closing the floating main board in 浮动双棋盘 restores 默认; closing the floating sub
   board brings back the in-frame sub board. 自定义布局 1 / 2 (`Alt+8` / `Alt+9`) save and apply
   Java's panel flags, board position, main-window bounds/maximization and floating-window
   choices/bounds, independently of themes, toolbars and analysis settings. As in Java, applying
@@ -1428,7 +1432,8 @@ importing the matching LizzieYzy Next settings.
   and saves it only after confirming; profiles you configured yourself are never changed. On
   Windows the NVIDIA page installs the CUDA 12.8 / cuDNN 9 / TensorRT 10.9 runtime from NVIDIA
   after confirming (drivers are never installed). The official online weight list
-  (katagotraining.org) can be refreshed; a failed refresh keeps the previous list. Selected-move
+  (katagotraining.org) can be refreshed; a failed refresh keeps the previous list. Official
+  models are named by family and purpose (for example 10B · 速度均衡 and 10B · 轻量快速). Selected-move
   focus is not supported by these releases.
   Network access follows Settings > 网络代理 (direct by default, system, or a manual HTTP proxy).
 - Engine performance: MoreEngines has Java's thread policy (CFG uses the engine's config file;
@@ -1512,7 +1517,8 @@ importing the matching LizzieYzy Next settings.
     陪练, 跑谱贡献) also ends the follow, as in Java; an engine match keeps it. An unknown link
     shows 无效的链接.
   - 弈客直播 (`Shift+O`) opens 弈客直播中心: the 推荐 / 地方 / 个人 lists with Java's columns,
-    filtering, sorting, 刷新 / 更多, and 同步 (or double-click / Enter) to follow a room.
+    filtering, sorting (by clicking a header, or `Tab` to the header row, `←`/`→` and `Enter`),
+    刷新 / 更多, and 同步 (or double-click / Enter) to follow a room.
   - A followed source only writes the main line. Your variations, comments and marks stay. The
     cursor follows a new move only from the live end, on the first sync, or with
     同步 > 有新的一手时总是跳转到最新一手. Java replaced the whole game on every update, losing

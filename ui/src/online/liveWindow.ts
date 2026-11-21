@@ -160,26 +160,63 @@ export function bootYikeLive(): void {
     send({ type: "report", report: r });
   };
 
+  /** The header that holds the header row's Tab stop. */
+  let headCursor = 0;
+  /** Header clicks and Enter / Space on a header toggle the column ascending / descending
+   *  (DefaultRowSorter.toggleSortOrder); another column starts ascending. */
+  const sortBy = (column: number) => {
+    sort = sort?.column === column ? { column, ascending: !sort.ascending } : { column, ascending: true };
+    drawRows();
+  };
+
   const drawHeader = () => {
+    // A redraw keeps the focus on the header that had it.
+    const refocus = head.contains(document.activeElement);
     const tr = el("tr");
     COLUMNS.forEach((text, column) => {
       const th = el("th");
       const label = el("span", "", text());
       th.append(label);
       th.dataset.key = `yikeLive.column.${column}`;
+      th.tabIndex = column === headCursor ? 0 : -1;
       if (sort?.column === column) {
         th.classList.add(sort.ascending ? "asc" : "desc");
+        th.setAttribute("aria-sort", sort.ascending ? "ascending" : "descending");
         label.append(icon(sort.ascending ? "chevron-up" : "chevron-down"));
       }
-      // Header clicks toggle the column ascending / descending (DefaultRowSorter.toggleSortOrder).
-      th.onclick = () => {
-        sort = sort?.column === column ? { column, ascending: !sort.ascending } : { column, ascending: true };
-        drawRows();
+      // A press focuses the table, as it does on a row: the header takes the focus from Tab only.
+      th.onmousedown = (e) => {
+        e.preventDefault();
+        table.focus({ preventScroll: true });
+      };
+      th.onclick = () => sortBy(column);
+      th.onfocus = () => {
+        headCursor = column;
+        for (const cell of tr.cells) cell.tabIndex = cell === th ? 0 : -1;
       };
       tr.append(th);
     });
     head.replaceChildren(tr);
+    if (refocus) tr.cells[headCursor].focus({ preventScroll: true });
   };
+  // The header row is one Tab stop: ←/→ and Home/End move between the columns, Enter or Space
+  // sorts the focused one as a click does.
+  head.addEventListener("keydown", (e) => {
+    const cells = head.rows[0].cells;
+    const n = cells.length;
+    const k = headCursor;
+    let to: number;
+    if (e.key === "ArrowRight") to = Math.min(k + 1, n - 1);
+    else if (e.key === "ArrowLeft") to = Math.max(k - 1, 0);
+    else if (e.key === "Home") to = 0;
+    else if (e.key === "End") to = n - 1;
+    else if (e.key === "Enter" || e.key === " ") to = -1;
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (to < 0) sortBy(k);
+    else cells[to].focus();
+  });
 
   /** Each column's content width (the widest of its header and cells, padding included), taken
    *  with the table laid out at its content size. */
@@ -265,7 +302,9 @@ export function bootYikeLive(): void {
   category.onchange = () => load(false);
   filter.oninput = () => drawRows();
 
+  // The row keys act on the table itself, not on a focused header.
   table.addEventListener("keydown", (e) => {
+    if (e.target !== table) return;
     if (e.key === "Enter") {
       e.preventDefault();
       syncSelected();

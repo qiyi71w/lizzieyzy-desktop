@@ -1,9 +1,9 @@
 /* 引擎对局 / 引擎对局设置 as grouped rows (design/dialog.css). In 引擎对局 the first group's rows end
    in two columns, 黑方设置 and 白方设置 under their stones, then a switch's place: a row a switch
    turns on ends in it, the other rows (and the column heads) keep the place empty, so the columns
-   line up. */
+   line up. A column is as wide as the longest 用时模式 choice ("Use the engine's own settings"). */
 .match-dialog {
-  width: min(620px, 94vw);
+  width: min(720px, 94vw);
 }
 .match-dialog.match-config {
   width: min(560px, 92vw);
@@ -28,13 +28,13 @@
   width: 14px;
   height: 14px;
 }
-.match-sides .ds-row-control {
+.match-sides :is(.ds-row-control, .ds-row-fields) {
   flex-wrap: nowrap;
 }
 .match-side-head > span:not(.match-slot),
 .match-sides :is(.ds-row-control, .ds-row-fields) > :is(select, input:not(.ds-switch)) {
   flex: none;
-  width: calc(var(--ds-size) * 12);
+  width: calc(var(--ds-size) * 16.5);
 }
 .match-slot {
   flex: none;

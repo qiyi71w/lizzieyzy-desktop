@@ -74,6 +74,10 @@ body {
 #yl-scroll th:hover {
   background-image: linear-gradient(var(--ds-hover), var(--ds-hover));
 }
+/* The focused header rings itself inside its cell. */
+#yl-scroll th:focus-visible {
+  outline-offset: -2px;
+}
 #yl-scroll th > span {
   display: inline-flex;
   align-items: center;

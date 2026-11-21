@@ -16,6 +16,7 @@ import { isChinese, product, registerProduct, t } from "../i18n";
 import { cssColor, DEFAULT_BLUNDER_COLORS, DEFAULT_BLUNDER_THRESHOLDS, DEFAULT_THEME, JAVA_CLASSIC_THEME, LIZZIE_DEFAULT_FONT, opaque, SYSTEM_DEFAULT_FONT } from "./model";
 import type { LoadedImages } from "./state";
 import { stepper } from "../design/stepper";
+import { programStage, stageReady, stageWallpaper } from "../design/stage";
 
 /** ConfigSettingTargets THEME rows this page has (ConfigSettingTargets.java:61-86), in row order,
  *  with 设置 > 界面字体大小's row (its catalog id), which this product keeps here instead of Java's
@@ -80,6 +81,17 @@ registerProduct({
   ThTh: { themeWidthWinrate: "อัตราชนะ", themeWidthScore: "คะแนน" },
 });
 
+/** 棋子阴影's row: the size is a percentage of the stone radius (paintPreview, BoardRenderer), so
+ *  the row says so and its field carries the unit. */
+registerProduct({
+  ZhCn: { themeShadowSub: "开启后按棋子半径的百分比设置阴影大小" },
+  ZhTw: { themeShadowSub: "開啟後按棋子半徑的百分比設定陰影大小" },
+  EnUs: { themeShadowSub: "Turn on the stone shadow; its size is a percentage of the stone radius" },
+  JaJp: { themeShadowSub: "石の影を表示し、大きさを石の半径に対する割合で設定します" },
+  KoKr: { themeShadowSub: "돌 그림자를 켜고 크기를 돌 반지름에 대한 비율로 설정합니다" },
+  ThTh: { themeShadowSub: "เปิดเงาหิน และกำหนดขนาดเป็นเปอร์เซ็นต์ของรัศมีหิน" },
+});
+
 /** 新增 and 删除 reopen the settings (Java's setVisible(false) + openConfigDialog2), dropping the
  *  other pages' unsaved edits: the row and the delete confirmation say so before it happens. */
 registerProduct({
@@ -129,7 +141,7 @@ function card(host: HTMLElement, title: string, subtitle: string): HTMLElement {
 /** createDesignRow: a grouped row; rows with a ConfigSettingTargets id carry it for 功能搜索's row
  *  location. Rows holding a path, the preview or the rules table put them under their name
  *  (appearance.css). */
-function row(box: HTMLElement, target: Target | null, title: string, subtitle: string, ...controls: HTMLElement[]): HTMLElement {
+function row(box: HTMLElement, target: Target | null, title: string, subtitle: string, ...controls: (HTMLElement | string)[]): HTMLElement {
   const line = groupRow(box, title, subtitle, ...controls);
   if (target) line.dataset.settingTarget = target;
   return line;
@@ -403,19 +415,23 @@ function paintPreview(canvas: HTMLCanvasElement, v: ThemeSettings, images: Loade
 /** The draft's preview images. A named theme's image that does not read is left out, so the
  *  preview shows the pure colour or the plain stone instead (pnlBoardPreview 4994-5049, 5113-5115);
  *  the core answers the default image only when neither the custom override nor the theme's own
- *  file reads. An empty path is the default image, as on the board. */
+ *  file reads. An empty path is the default image, as on the board, and where the workbench shows
+ *  the program's own wallpaper for that default background (any theme but Java 经典) the preview
+ *  shows it too. */
 async function loadPreviewImages(settings: AppearanceSettings, draft: ThemeSettings): Promise<LoadedImages> {
   const urls = await appearanceImages(settings, draft).catch(() => null);
   if (!urls) return {};
   const named = settings.theme !== DEFAULT_THEME;
+  const unread = (url: string, path: string, fallback: string) => named && path !== "" && url === fallback;
   const decoded = (url: string, path: string, fallback: string): Promise<HTMLImageElement | undefined> => {
-    if (named && path !== "" && url === fallback) return Promise.resolve(undefined);
+    if (unread(url, path, fallback)) return Promise.resolve(undefined);
     const img = new Image();
     img.src = url;
     return img.decode().then(() => img, () => undefined);
   };
+  const linen = !unread(urls.background, draft.backgroundImage, DEFAULT_PATHS.background) && programStage(settings.theme === JAVA_CLASSIC_THEME, false, urls.background);
   const [background, board, black, white] = await Promise.all([
-    decoded(urls.background, draft.backgroundImage, DEFAULT_PATHS.background),
+    linen ? stageReady.then(stageWallpaper) : decoded(urls.background, draft.backgroundImage, DEFAULT_PATHS.background),
     decoded(urls.board, draft.boardImage, DEFAULT_PATHS.board),
     decoded(urls.black, draft.blackStoneImage, DEFAULT_PATHS.black),
     decoded(urls.white, draft.whiteStoneImage, DEFAULT_PATHS.white),
@@ -486,7 +502,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   const showShadow = check("settings.theme.showStoneShadow", product("themeFieldShowShadow"));
   const shadowSize = spinner("settings.theme.shadowSize", 1, 150, 1, shadowLabel);
   showShadow.addEventListener("change", () => (shadowSize.disabled = !showShadow.checked));
-  row(lines, "config.theme.shadow", t("ConfigDialog2.modern.theme.shadow"), t("ConfigDialog2.modern.theme.shadowSub"), showShadow, stepper(shadowSize));
+  row(lines, "config.theme.shadow", t("ConfigDialog2.modern.theme.shadow"), product("themeShadowSub"), showShadow, stepper(shadowSize), "%");
   const infoFont = fontCombo("settings.theme.fontName");
   row(lines, "config.theme.info-font", t("ConfigDialog2.modern.theme.infoFont"), t("ConfigDialog2.modern.theme.infoFontSub"), infoFont.select);
   const uiFont = fontCombo("settings.theme.uiFontName");

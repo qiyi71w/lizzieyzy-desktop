@@ -151,10 +151,10 @@ const RECENT = "recent:";
 /** The catalog node each shown row stands for, so a function search can find it again. */
 const rowNodes = new WeakMap<Element, MenuNode>();
 
-/** Items that destroy record content, in the danger ink like the bottom bar's 清空棋盘 / 删除
- *  (DESIGN.md 危险操作): 编辑's 清空棋盘, 删除一手, 删除分支, 摆棋's 清空全部设置子, and 更多's
- *  清空棋盘 / 删除. */
-const DANGER = new Set(["menu.clearBoard", "menu.delete", "menu.deleteBranch", "menu.setupClearAll", "bottombar.more.clearButton", "bottombar.more.deleteMove"]);
+/** Items that destroy record content or the user's data, in the danger ink like the bottom bar's
+ *  清空棋盘 / 删除 (DESIGN.md 危险操作): 编辑's 清空棋盘, 删除一手, 删除分支, 摆棋's 清空全部设置子,
+ *  更多's 清空棋盘 / 删除, and 帮助's 清除所有个人数据. */
+const DANGER = new Set(["menu.clearBoard", "menu.delete", "menu.deleteBranch", "menu.setupClearAll", "bottombar.more.clearButton", "bottombar.more.deleteMove", "menu.clearUserData"]);
 
 /** The gap a dropdown keeps from the window's edges. */
 const EDGE = 4;

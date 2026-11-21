@@ -2,8 +2,8 @@
 // with helpers 186-570, 2163-3250) and its hit testing for LizzieFrame's click / drag / hover
 // (LizzieFrame.java:9600-10030, 10371-10500). Values are Black's from the core (`HistoryPoint.black`);
 // nothing here flips sides. The plot sits above an axis strip carrying the move numbers. The painter
-// records each layer's operations and replays them bottom up: grid and scales, area fill, blunder
-// bars, guides, curves, points and markers, then the readout chips, the legend and the caption.
+// records each layer's operations and replays them bottom up: grid and scales, area fill, the
+// legend, blunder bars, guides, curves, points and markers, then the readout chips and the caption.
 import type { DisplaySettings, HistoryPoint, TreeNodeView } from "../contract/generated";
 import { product, registerProduct, t } from "../i18n";
 import { graphGeom, type Rect } from "../workbench/layout";
@@ -359,14 +359,15 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   const readSize = large ? type.l : type.size;
   const background: Op[] = [];
   const fills: Op[] = [];
+  const legendLayer: Op[] = [];
   const blunder: Op[] = [];
   const guides: Op[] = [];
   const curves: Op[] = [];
   const front: Op[] = [];
-  /** Readout chips, legend and caption, over everything. */
+  /** Readout chips and caption, over everything. */
   const overlay: Op[] = [];
   const flush = () => {
-    for (const op of [...background, ...fills, ...blunder, ...guides, ...curves, ...front, ...overlay]) op();
+    for (const op of [...background, ...fills, ...legendLayer, ...blunder, ...guides, ...curves, ...front, ...overlay]) op();
     g.setLineDash([]);
     g.textAlign = "left";
     g.textBaseline = "alphabetic";
@@ -872,9 +873,10 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   if (currentBox) drawChip(currentBox, currentParts);
 
   // ---------------------------------------------------------------- legend (WinrateGraph.java:1774-1830)
-  // Over the curves on the chip ground, in the corner of the plot (top right, top left, bottom
-  // left, bottom right) no readout or current marker takes that covers the fewest curve
-  // vertices; left out where a readout or marker takes every corner.
+  // Under the data on the chip ground: the curves, blunder bars and markers draw over it, so it
+  // never hides one. It takes the corner of the plot (top right, top left, bottom left, bottom
+  // right) no readout or current marker takes that has the fewest curve vertices under it, and is
+  // left out where a readout or marker takes every corner.
   const legend: [string, string][] = [];
   if (winrateRenderable) legend.push([t("WinrateGraph.legendWinrate"), LINE]);
   if (scoreRenderable) legend.push([t("WinrateGraph.legendScoreLead"), SCORE]);
@@ -898,7 +900,7 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   if (W0 >= 240 && legend.length && corner) {
     const [boxX, boxY] = corner;
     report.legend = legend.map(([label]) => label);
-    overlay.push(() => {
+    legendLayer.push(() => {
       g.fillStyle = p.graphChip;
       g.beginPath();
       g.roundRect(boxX, boxY, boxW, boxH, CHIP_RADIUS);

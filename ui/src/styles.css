@@ -452,14 +452,15 @@ body {
   box-shadow: var(--ws-board-shadow);
 }
 
-/* Comment and problem-move pane: a section of its card, transparent over it. The appearance
-   module sets --comment-background, --comment-color, --comment-font-size and
-   --theme-accent-underline when the theme chooses its own; they win over the card's look. */
+/* Comment and problem-move pane: a section of its card, on the card's own comment layer
+   (`--ws-comment-ground`, none except under Java 经典). The appearance module sets
+   --comment-background, --comment-color, --comment-font-size and --theme-accent-underline when
+   the theme chooses its own; they win over the card's look. */
 #comment {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--comment-background, transparent);
+  background: var(--comment-background, var(--ws-comment-ground));
   color: var(--comment-color, var(--ds-text));
 }
 /* The tabs: two small text segments, the selected one on the well at weight 600. */

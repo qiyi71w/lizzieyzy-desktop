@@ -38,6 +38,8 @@ export interface FrameBar {
 
 export interface FramePayload {
   headers: string[];
+  /** The column the rows are sorted by (descending), null in the engine's order. */
+  sorted: number | null;
   /** Preferred widths to lay the columns out with; sent when the layout is (re)created. */
   widths: number[] | null;
   /** Identifies one layout of the window (opening, 7/9 columns, the boxes recreate it). */
@@ -231,6 +233,35 @@ export function bootFrame(): void {
     const cell = (ev.target as HTMLElement).closest("th");
     if (cell) send({ type: "sort", column: (cell as HTMLTableCellElement).cellIndex });
   });
+  // The header row is one Tab stop: ←/→ and Home/End move between the columns, Enter or Space
+  // sorts the focused one as a click does. A press on a header leaves the focus where it was, so
+  // the window's keys (Space, the arrows) keep acting on the list after a click.
+  let headCursor = 0;
+  const markHeader = (k: number) => {
+    headCursor = k;
+    [...headRow.cells].forEach((th, i) => (th.tabIndex = i === k ? 0 : -1));
+  };
+  headRow.addEventListener("mousedown", (ev) => ev.preventDefault());
+  headRow.addEventListener("focusin", (ev) => {
+    const cell = (ev.target as HTMLElement).closest("th");
+    if (cell) markHeader((cell as HTMLTableCellElement).cellIndex);
+  });
+  headRow.addEventListener("keydown", (ev) => {
+    const n = headRow.cells.length;
+    const k = headCursor;
+    let to: number;
+    if (ev.key === "ArrowRight") to = Math.min(k + 1, n - 1);
+    else if (ev.key === "ArrowLeft") to = Math.max(k - 1, 0);
+    else if (ev.key === "Home") to = 0;
+    else if (ev.key === "End") to = n - 1;
+    else if (ev.key === "Enter" || ev.key === " ") to = -1;
+    else return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (!n) return;
+    if (to < 0) send({ type: "sort", column: k });
+    else headRow.cells[to].focus();
+  });
 
   const rowAt = (ev: MouseEvent): number => {
     const row = (ev.target as HTMLElement).closest<HTMLTableRowElement>("tbody tr");
@@ -351,14 +382,23 @@ export function bootFrame(): void {
     if (data.layout !== layout) {
       layout = data.layout;
       colgroup.replaceChildren(...data.headers.map(() => document.createElement("col")));
+      const refocus = headRow.contains(document.activeElement);
       headRow.replaceChildren(...data.headers.map((text) => {
         const th = document.createElement("th");
         th.append(...breakable(text));
         return th;
       }));
+      markHeader(Math.max(0, Math.min(headCursor, data.headers.length - 1)));
+      if (refocus) headRow.cells[headCursor]?.focus();
       preferred = data.widths ?? preferred;
       relayout();
     }
+    // The main window sorts one column at a time, always descending (AnalysisFrame.java:948-989).
+    const sorted = data.sorted;
+    [...headRow.cells].forEach((th, column) => {
+      if (column === sorted) th.setAttribute("aria-sort", "descending");
+      else th.removeAttribute("aria-sort");
+    });
     while (body.rows.length > data.rows.length) body.deleteRow(body.rows.length - 1);
     data.rows.forEach((cells, k) => {
       const row = body.rows[k] ?? body.insertRow();

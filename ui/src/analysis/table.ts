@@ -739,6 +739,7 @@ export function framePayload(v: WorkbenchView, id: FrameId, nine: boolean, layou
   }
   return {
     headers,
+    sorted: frames[id].sort in SORT_KEYS ? frames[id].sort : null,
     widths,
     layout,
     rows: colourCells(v, id, rows, cells, 5, 3, nine ? 7 : null),

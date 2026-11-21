@@ -19,16 +19,19 @@ WALLPAPERS.dark.src = "/assets/stage-dark.jpg";
 /** Settles once both wallpapers can be painted (or cannot be read). */
 export const stageReady: Promise<unknown> = Promise.allSettled([WALLPAPERS.light.decode(), WALLPAPERS.dark.decode()]);
 
-/** True while the committed appearance names no wallpaper of its own and the skin is the
- *  program's: the stage is then the program's wallpaper for the current colour mode and the panels
- *  take that mode's tokens. */
+/** True when a background choice leaves the stage to the program: the program's skin, no pure
+ *  colour, and the bundled wallpaper the core resolves to without a theme or custom image (`src`,
+ *  that background's URL). */
+export function programStage(javaSkin: boolean, pureBackground: boolean, src: string | undefined): boolean {
+  return !javaSkin && !pureBackground && !!src && new URL(src, location.href).pathname === DEFAULT_WALLPAPER;
+}
+
+/** True while the committed appearance leaves the stage to the program: the stage is then the
+ *  program's wallpaper for the current colour mode and the panels take that mode's tokens. */
 export function builtinStage(): boolean {
   const a = appearance();
-  if (skin() === "java") return false;
-  if (!a) return true;
-  if (a.theme.usePureBackground) return false;
-  const src = a.images.background?.src;
-  return !!src && new URL(src, location.href).pathname === DEFAULT_WALLPAPER;
+  if (!a) return skin() !== "java";
+  return programStage(skin() === "java", a.theme.usePureBackground, a.images.background?.src);
 }
 
 /** The program's wallpaper for the current colour mode. */
