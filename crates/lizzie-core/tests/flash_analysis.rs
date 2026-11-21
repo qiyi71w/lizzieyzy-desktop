@@ -824,7 +824,7 @@ fn a_failed_analysis_process_is_reported_and_the_run_can_be_redone() {
     let worker = *world.workers().last().unwrap();
     wb.engine_input(worker, EngineInput::Exited(Some(1)));
     let v = wb.view(false);
-    assert!(v.flash.is_none() && v.engine_failure.is_some());
+    assert!(v.flash.is_none() && !v.engine_failures.is_empty());
     assert!(matches!(v.flash_outcome, Some(FlashOutcome::EngineFailed { .. })));
     // `finishAbortedAnalysis` does not resume the foreground engine.
     assert!(v.engine.paused);

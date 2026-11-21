@@ -52,7 +52,7 @@ pub(super) async fn connect(client: &reqwest::Client, url: &str) -> Result<Socke
     };
     target.set_scheme(scheme).map_err(|_| StartupError::FATAL)?;
     let response = client.get(target).headers(request.headers().clone()).send().await
-        .map_err(|_| StartupError::RETRY)?;
+        .map_err(|error| if proxy_refused(&error) { StartupError::FATAL } else { StartupError::RETRY })?;
     if response.status() != reqwest::StatusCode::SWITCHING_PROTOCOLS {
         return Err(match response.status().as_u16() {
             401 | 403 => StartupError::REFUSED,
@@ -72,4 +72,16 @@ pub(super) async fn connect(client: &reqwest::Client, url: &str) -> Result<Socke
     }
     let stream = response.upgrade().await.map_err(|_| StartupError::RETRY)?;
     Ok(WebSocketStream::from_raw_socket(stream, Role::Client, None).await)
+}
+
+/// A proxy that asks for credentials (407) to the `CONNECT` tunnel of a `wss` link, like the 407
+/// answer to a plain `ws` upgrade above. hyper-util keeps its tunnel error type private, so its
+/// message is the only mark of it in the error's sources; the message never leaves this function.
+fn proxy_refused(error: &reqwest::Error) -> bool {
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        if cause.to_string().contains("proxy authorization required") { return true; }
+        source = cause.source();
+    }
+    false
 }

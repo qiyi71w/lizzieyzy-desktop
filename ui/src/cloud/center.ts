@@ -4,7 +4,7 @@
 // unsaved drafts (fields, plan/model choice, link) and presentation state. A reply that arrives
 // after the window closed, or after a newer request of the same kind, is dropped.
 import { registerViewHandler, state } from "../app";
-import type { CloudCatalog, CloudCommand, Command, CloudFailure, CloudReply, CloudSettings, CloudState, EngineProfile, Overview, WorkbenchView } from "../contract/generated";
+import type { CloudCatalog, CloudCommand, Command, CloudFailure, CloudReply, CloudSettings, CloudState, EngineFailureView, EngineProfile, Overview, WorkbenchView } from "../contract/generated";
 import { message } from "../dialogs";
 import { format, t } from "../i18n";
 import { openAccountDetails } from "./details";
@@ -139,12 +139,12 @@ function createCenter(initial: WorkbenchView): Center {
   let overviewSeq = 0, catalogSeq = 0, operationSeq = 0;
   let weightOptions: { name: string; confirmed: boolean }[] = [];
   /** The engine switch in progress (switchPrimaryEngine's monitor), armed before its command is
-   *  sent; `receipt` is the seat and view boundary the committed command reported, `seen` the
-   *  latest engine failure a view showed meanwhile (a failure is in one view only, which may come
-   *  before the receipt). */
+   *  sent; `receipt` is the seat and view boundary the committed command reported, `seen` each
+   *  profile's latest foreground engine failure the views showed meanwhile (a failure is in one
+   *  view only, which may come before the receipt). */
   let monitor: {
     launch: Launch; success: string; failure: string; receipt: { profile: string; after: number } | null;
-    seen: { seq: number; failure: NonNullable<WorkbenchView["engine_failure"]> } | null;
+    seen: Map<string, { seq: number; failure: EngineFailureView }>;
   } | null = null;
 
   const request = (op: CloudCommand): Promise<AccountOutcome | null> => accountRequest(op, owner);
@@ -396,6 +396,10 @@ function createCenter(initial: WorkbenchView): Center {
   }
 
   function update() {
+    // A control this update disables or hides would drop the focus to the page, where Esc no
+    // longer reaches the window; Swing moves it on within the window, so here it goes to the
+    // window itself.
+    const focused = document.activeElement;
     const view = state.view ?? initial;
     const signedInNow = authenticated();
     zhiziTab.classList.toggle("selected", page === "zhizi");
@@ -484,6 +488,9 @@ function createCenter(initial: WorkbenchView): Center {
     statusLabel.title = statusText;
     statusLabel.className = `rc-status ${statusOk === null ? "" : statusOk ? "rc-ok" : "rc-error"}`;
     dot.classList.toggle("rc-dot-error", !dotOk);
+    if (focused instanceof HTMLElement && focused !== win.frame && win.frame.contains(focused) && (focused.matches(":disabled") || focused.closest("[hidden]"))) {
+      win.frame.focus();
+    }
   }
 
   /** updateCurrentStatus: the footer dot returns to green with the engine status. */
@@ -742,7 +749,7 @@ function createCenter(initial: WorkbenchView): Center {
   // ---- engine switches ---------------------------------------------------------------------
   /** switchPrimaryEngine: the command, then the views after its commit decide success or failure. */
   async function switchEngine(command: Command, launch: Launch, starting: string, success: string, failure: string) {
-    const pending: NonNullable<typeof monitor> = { launch, success, failure, receipt: null, seen: null };
+    const pending: NonNullable<typeof monitor> = { launch, success, failure, receipt: null, seen: new Map() };
     monitor = pending;
     busy = true;
     status(starting, true);
@@ -761,15 +768,15 @@ function createCenter(initial: WorkbenchView): Center {
 
   function watch(view: WorkbenchView) {
     if (!monitor) return;
-    if (view.engine_failure) monitor.seen = { seq: view.seq, failure: view.engine_failure };
+    for (const failure of view.engine_failures) if (!failure.secondary) monitor.seen.set(failure.profile_id, { seq: view.seq, failure });
     const receipt = monitor.receipt;
     if (!receipt) return;
     const ok = switchOutcome(view, receipt.profile, receipt.after, monitor.launch);
     if (ok === null) return;
     // A 智子 engine that never became ready says why (ZhiziGtpTransport, friendlyZhiziErrorMessage);
     // only the requested foreground profile's own failure after the commit speaks for this switch.
-    const failed = monitor.seen && monitor.seen.seq > receipt.after ? monitor.seen.failure : undefined;
-    const reason = !ok && failed && !failed.secondary && failed.profile_id === receipt.profile ? failed.cloud : undefined;
+    const seen = monitor.seen.get(receipt.profile);
+    const reason = !ok && seen && seen.seq > receipt.after ? seen.failure.cloud : undefined;
     const launch = monitor.launch;
     finishSwitch(ok, ok ? monitor.success : reason && launch.provider === "zhizi" ? cloudStartText(reason, launch.args) : monitor.failure);
   }

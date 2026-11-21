@@ -323,7 +323,7 @@ pub struct Workbench {
     pending_prompt: Option<(u64, analysis::RulesKey)>,
     next_prompt: u64,
     rules_prompt: Option<RulesPromptView>,
-    engine_failure: Option<EngineFailureView>,
+    engine_failures: Vec<EngineFailureView>,
     engine_notice: Option<EngineNotice>,
     logs: Vec<LogLine>,
     /// 诊断与日志: the switches in effect and the 完整日志 session.
@@ -500,7 +500,7 @@ impl Workbench {
             pending_prompt: None,
             next_prompt: 0,
             rules_prompt: None,
-            engine_failure: None,
+            engine_failures: Vec::new(),
             engine_notice: None,
             logs: loaded.notice.into_iter().map(|text| LogLine { warn: true, text }).collect(),
             diagnostics,
@@ -1226,8 +1226,8 @@ impl Workbench {
         v.open_outcome = self.outcome.take();
         v.save_outcome = self.save_outcome.take();
         v.sounds = std::mem::take(&mut self.sounds);
-        v.engine_failure = self.engine_failure.take();
-        if let Some(failure) = &mut v.engine_failure {
+        v.engine_failures = std::mem::take(&mut self.engine_failures);
+        for failure in &mut v.engine_failures {
             failure.repair = self.resource_repair_context(&failure.command);
         }
         v.engine_notice = self.engine_notice.take();
@@ -1252,8 +1252,8 @@ impl Workbench {
         v.open_outcome = self.outcome.clone();
         v.save_outcome = self.save_outcome.clone();
         v.sounds = self.sounds.clone();
-        v.engine_failure = self.engine_failure.clone();
-        if let Some(failure) = &mut v.engine_failure {
+        v.engine_failures = self.engine_failures.clone();
+        for failure in &mut v.engine_failures {
             failure.repair = self.resource_repair_context(&failure.command);
         }
         v.engine_notice = self.engine_notice;
@@ -1362,7 +1362,7 @@ impl Workbench {
             score: self.score_view(),
             secondary: self.secondary_view(),
             comment_with_analysis: self.comment_with_analysis(),
-            engine_failure: None,
+            engine_failures: Vec::new(),
             engine_notice: None,
             rules_prompt: None,
             java_import: self.java_import_view(),

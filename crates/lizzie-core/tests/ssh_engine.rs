@@ -195,7 +195,7 @@ fn a_refused_login_during_start_up_is_reported_as_such_for_its_profile() {
     let id = world.last();
     wb.engine_input(id, EngineInput::Remote(RemoteFailure::Authentication));
     let v = wb.view(false);
-    let f = v.engine_failure.expect("failure shown");
+    let f = v.engine_failures.into_iter().last().expect("failure shown");
     assert!(f.during_startup);
     assert_eq!(f.remote, Some(RemoteFailure::Authentication));
     assert_eq!(f.profile_id, wb.config().engine.engines[0].id);
@@ -237,7 +237,7 @@ fn the_remote_process_ending_and_the_connection_closing_are_reported_apart_and_r
         );
         wb.engine_input(id, EngineInput::Remote(end.clone()));
         let v = wb.view(false);
-        let f = v.engine_failure.expect("failure shown");
+        let f = v.engine_failures.into_iter().last().expect("failure shown");
         assert!(!f.during_startup);
         assert_eq!((f.remote, f.message.as_str()), (Some(end), expected));
         let again = world.last();
@@ -291,7 +291,7 @@ fn a_replaced_connections_late_events_reach_neither_the_new_engine_nor_the_posit
     );
     let v = wb.view(false);
     assert!(
-        v.engine_failure.is_none(),
+        v.engine_failures.is_empty(),
         "the old connection's end is not B's failure"
     );
     assert!(v.engine.foreground.unwrap().ready);
@@ -334,7 +334,7 @@ fn a_secondary_engines_failure_names_its_seat_so_a_retry_keeps_the_foreground_en
     assert_ne!(a, b);
     wb.engine_input(b, EngineInput::Remote(host_key_changed.clone()));
     let v = wb.view(false);
-    let f = v.engine_failure.expect("failure shown");
+    let f = v.engine_failures.into_iter().last().expect("failure shown");
     assert_eq!(f.remote, Some(host_key_changed.clone()));
     assert_eq!(f.profile_id, wb.config().engine.engines[1].id);
     assert!(f.secondary, "B was started for the secondary seat");
@@ -345,7 +345,7 @@ fn a_secondary_engines_failure_names_its_seat_so_a_retry_keeps_the_foreground_en
     let before = world.count();
     assert!(wb.switch_secondary_engine(2).unwrap());
     assert_eq!(world.count(), before, "nothing launched");
-    let f = wb.view(false).engine_failure.expect("failure shown");
+    let f = wb.view(false).engine_failures.into_iter().last().expect("failure shown");
     assert_eq!(f.profile_id, wb.config().engine.engines[2].id);
     assert!(f.secondary);
 
@@ -364,7 +364,7 @@ fn a_secondary_engines_failure_names_its_seat_so_a_retry_keeps_the_foreground_en
     assert!(wb.switch_engine(1).unwrap());
     let front = world.last();
     wb.engine_input(front, EngineInput::Remote(host_key_changed));
-    let f = wb.view(false).engine_failure.expect("failure shown");
+    let f = wb.view(false).engine_failures.into_iter().last().expect("failure shown");
     assert_eq!(f.profile_id, wb.config().engine.engines[1].id);
     assert!(!f.secondary);
 }
@@ -408,7 +408,7 @@ fn the_remote_analysis_engine_runs_flash_analysis_and_its_lost_connection_ends_t
     let v = wb.view(false);
     assert!(v.flash.is_none());
     assert!(matches!(v.flash_outcome, Some(FlashOutcome::EngineFailed { .. })));
-    let f = v.engine_failure.expect("failure shown");
+    let f = v.engine_failures.into_iter().last().expect("failure shown");
     assert_eq!(f.remote, Some(RemoteFailure::Lost { detail: "reset".into() }));
     assert!(
         f.profile_id.is_empty(),

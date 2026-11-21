@@ -68,7 +68,7 @@ pub struct CloudConnectError {
 pub enum CloudStartFailure {
     /// The socket token request failed: the service's failure key, empty when it named none.
     Token { key: String },
-    /// No WebSocket connection to the service.
+    /// No WebSocket connection to the service, or its session did not open within 30 seconds.
     Unreachable,
     /// The service refused the session or reported an error (Socket.IO `CONNECT_ERROR`, or an
     /// `error` / `connect_error` event): its reason with credentials removed, empty when it gave
@@ -258,6 +258,9 @@ impl Drop for CloudIo {
 
 type Socket = WebSocketStream<reqwest::Upgraded>;
 const READY: Duration = Duration::from_secs(60);
+/// socket.io-client's connection timeout (Java `IO.Options.setTimeout(30000)`): the Engine.IO
+/// session must open within it, else the attempt ends as a connection failure.
+const OPEN: Duration = Duration::from_secs(30);
 const WATCHDOG: Duration = Duration::from_secs(20);
 
 async fn run(
@@ -365,12 +368,13 @@ fn socket_endpoint(credentials: &SocketCredentials) -> Option<(String, String)> 
     Some((url.into(), namespace))
 }
 
+/// Java `ZhiziGtpTransport.isFatalStartupFailure`.
 fn fatal_startup(text: &str) -> bool {
     let text = text.to_lowercase();
     let worker_capacity = text.contains("worker") && ["no worker", "unavailable", "busy", "暂时", "没有可用", "无可用"].iter().any(|s| text.contains(s));
     let permission = ["permission", "forbidden", "unauthorized", "未开通", "无权限"].iter().any(|s| text.contains(s));
     if worker_capacity && !permission { return false; }
-    ["401", "403", "unauthorized", "forbidden", "permission", "invalid token", "token invalid", "expired token", "token expired", "quota", "balance", "vip", "请先登录", "登录失效", "登录已过期", "账号未", "账号异常", "权限", "额度", "余额", "套餐"]
+    ["401", "403", "unauthorized", "forbidden", "invalid token", "token invalid", "expired token", "token expired", "quota", "balance", "vip", "请先登录", "登录失效", "登录已过期", "账号未", "账号异常", "权限", "额度", "余额", "套餐"]
         .iter().any(|s| text.contains(s))
 }
 
@@ -592,11 +596,12 @@ impl Attempt {
 
 /// A cancellation also ends in `Err`; the caller checks for it first.
 async fn zhizi_ready(client: &reqwest::Client, url: String, namespace: String, secrets: Vec<String>, output: &Output, cancel: &mut watch::Receiver<bool>) -> Result<(Socket, SocketIo), Attempt> {
-    let deadline = Instant::now() + READY;
+    let start = Instant::now();
+    let (open_by, deadline) = (start + OPEN, start + READY);
     let socket = tokio::select! {
         biased;
         _ = cancel.changed() => return Err(Attempt::retry(CloudStartFailure::Disconnected)),
-        result = tokio::time::timeout_at(deadline, network::connect(client, &url)) => result,
+        result = tokio::time::timeout_at(open_by, network::connect(client, &url)) => result,
     };
     let mut socket = match socket {
         Ok(Ok(socket)) => socket,
@@ -609,19 +614,25 @@ async fn zhizi_ready(client: &reqwest::Client, url: String, namespace: String, s
     let mut protocol = SocketIo::new(namespace, secrets);
     // socket.io-client holds a namespace's events until its CONNECT is answered: `ready` counts
     // once both have come, in either order.
-    let (mut connected, mut ready) = (false, false);
+    let (mut opened, mut connected, mut ready) = (false, false, false);
     loop {
+        let limit = if opened { deadline } else { open_by };
         let message = tokio::select! {
             biased;
             _ = cancel.changed() => return Err(Attempt::retry(CloudStartFailure::Disconnected)),
-            _ = tokio::time::sleep_until(deadline) => return Err(Attempt::retry(CloudStartFailure::NotReady)),
+            _ = tokio::time::sleep_until(limit) => {
+                return Err(Attempt::retry(if opened { CloudStartFailure::NotReady } else { CloudStartFailure::Unreachable }));
+            }
             message = socket.next() => message,
         };
         let Some(packet) = message.and_then(Result::ok).and_then(|message| protocol.packet(message)) else {
             return Err(Attempt::retry(CloudStartFailure::Disconnected));
         };
         let answer = match packet {
-            Packet::Open => protocol.connect(),
+            Packet::Open => {
+                opened = true;
+                protocol.connect()
+            }
             Packet::Ping(payload) => format!("3{payload}"),
             Packet::Connected => {
                 connected = true;
