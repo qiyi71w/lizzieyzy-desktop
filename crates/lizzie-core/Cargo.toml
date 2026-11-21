@@ -35,6 +35,8 @@ cbc = "0.2"
 tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 futures-util = { version = "0.3", features = ["sink"] }
 url = "2"
+# 智子's Socket.IO namespace is the decoded path of its socket address (Java `URI.getPath`).
+percent-encoding = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "system-proxy"] }
 # 检查更新: release versions as the Tauri updater compares them.
 semver = "1"

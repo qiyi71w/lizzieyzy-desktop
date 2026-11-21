@@ -5,16 +5,17 @@ import { format, product, t } from "../i18n";
 import { chooseEngine, openMoreEngines } from "./catalog";
 import { actions, button, checkbox, footer, row } from "./controls";
 import { remoteFailureText } from "./remote";
-import { cloudStartText } from "../cloud/service";
+import { cloudStartText, VIP_ARGS } from "../cloud/service";
 import { openAutoSetup } from "../setup/dialog";
 
 /** The failure text: SSHController's or ZhiziGtpTransport's wording for a remote or 智子 engine,
- *  with the 智子 plan hint when the failed engine's plan is known. */
+ *  with the 智子 plan hint when the failed engine's plan is known (an empty plan starts as VIP
+ *  包月, as the socket token request sends it). */
 function failureText(failure: EngineFailureView): string {
   if (failure.remote) return remoteFailureText(failure.remote);
   if (!failure.cloud) return failure.message;
-  const profile = state.view?.settings.engine.engines.find((e) => e.id === failure.profile_id);
-  return cloudStartText(failure.cloud, profile?.cloud?.args ?? "");
+  const cloud = state.view?.settings.engine.engines.find((e) => e.id === failure.profile_id)?.cloud;
+  return cloudStartText(failure.cloud, cloud ? cloud.args.trim() || VIP_ARGS : "");
 }
 
 /** The text 复制错误 copies. */

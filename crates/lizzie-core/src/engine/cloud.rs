@@ -8,13 +8,14 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
+use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 use ts_rs::TS;
-use url::Url;
+use url::{form_urlencoded, Url};
 
 use super::process::Sink;
 use super::runtime::{EngineInput, EngineIo, InstanceId};
@@ -268,7 +269,7 @@ async fn run(
     endings: Arc<Mutex<Vec<JoinHandle<()>>>>,
 ) {
     if *cancel.borrow() { return; }
-    let client = match (connector.network)().map_err(|_| StartupError { fatal: true })
+    let client = match (connector.network)().map_err(|_| StartupError::FATAL)
         .and_then(|settings| network::client(&settings)) {
         Ok(client) => client,
         Err(_) => {
@@ -281,8 +282,7 @@ async fn run(
             run_zhizi(connector, &client, launch, &output, &mut rx, &mut cancel, endings).await
         }
         CloudProvider::Custom => {
-            run_custom(&client, launch, &output, &mut rx, &mut cancel, &connector.diagnostics).await
-                .map(|(_, message)| Ending::Failed(message))
+            run_custom(&client, launch, &output, &mut rx, &mut cancel, &connector.diagnostics).await.map(Ending::Failed)
         }
     };
     match ending {
@@ -335,20 +335,22 @@ async fn credentials(
     }
 }
 
-/// The Engine.IO address and the Socket.IO namespace of a socket token's URL. Like Java's
-/// `IO.socket(socketIOURL, options)` (socket.io-client-java 2.1.2 `IO.socket` hands
-/// `uri.getPath()` to `Manager.socket`), the URL's path names the namespace, and the Engine.IO
-/// path `/socket.io.v4/` is on the same host.
+/// The Engine.IO address and the Socket.IO namespace of a socket token's URL, as Java's
+/// `IO.socket(socketIOURL, options)` reads it: the URL's decoded path names the namespace
+/// (socket.io-client-java 2.1.2 hands `URI.getPath()` to `Manager.socket`), Engine.IO is at
+/// `/socket.io.v4/` on the same host, and a query of the URL's own takes the place of the token's
+/// (engine.io-client 2.1.0 `Options.fromURI` puts `getRawQuery()` over `options.query`).
 fn socket_endpoint(credentials: &SocketCredentials) -> Option<(String, String)> {
     let mut url = Url::parse(&credentials.socket_url).ok()?;
     let scheme = match url.scheme() { "http" | "ws" => "ws", "https" | "wss" => "wss", _ => return None };
-    let namespace = match url.path() { "" => "/".to_string(), path => path.to_string() };
+    let namespace = match url.path() { "" => "/".to_string(), path => percent_decode_str(path).decode_utf8().ok()?.into_owned() };
+    let query = url.query().map(str::to_owned);
     url.set_scheme(scheme).ok()?;
     url.set_path("/socket.io.v4/");
-    url.set_query(None);
     url.set_fragment(None);
-    url.query_pairs_mut().append_pair("EIO", "4").append_pair("transport", "websocket")
-        .append_pair("zz-socketio-token", &credentials.token);
+    url.set_query(query.as_deref());
+    if query.is_none() { url.query_pairs_mut().append_pair("zz-socketio-token", &credentials.token); }
+    url.query_pairs_mut().append_pair("EIO", "4").append_pair("transport", "websocket");
     Some((url.into(), namespace))
 }
 
@@ -361,7 +363,15 @@ fn fatal_startup(text: &str) -> bool {
         .iter().any(|s| text.contains(s))
 }
 
-struct StartupError { fatal: bool }
+struct StartupError { fatal: bool, refused: bool }
+
+impl StartupError {
+    /// Not worth another attempt: a proxy or an address this connection cannot use.
+    const FATAL: Self = Self { fatal: true, refused: false };
+    const RETRY: Self = Self { fatal: false, refused: false };
+    /// The service turned the session away (HTTP 401 / 403 to the upgrade).
+    const REFUSED: Self = Self { fatal: true, refused: true };
+}
 
 enum Packet {
     Open,
@@ -385,6 +395,8 @@ struct SocketIo {
     /// What leads a packet's data: `<namespace>,`, or nothing for the main namespace.
     prefix: String,
     binary_event: Option<String>,
+    /// Binary frames still to come for another namespace's event.
+    skip: usize,
     stdout: Lines,
     stderr: Lines,
     secrets: Vec<String>,
@@ -393,7 +405,7 @@ struct SocketIo {
 impl SocketIo {
     fn new(namespace: String, secrets: Vec<String>) -> Self {
         let prefix = if namespace == "/" { String::new() } else { format!("{namespace},") };
-        Self { namespace, prefix, binary_event: None, stdout: Lines::default(), stderr: Lines::default(), secrets }
+        Self { namespace, prefix, binary_event: None, skip: 0, stdout: Lines::default(), stderr: Lines::default(), secrets }
     }
 
     /// The namespace's CONNECT packet.
@@ -411,9 +423,13 @@ impl SocketIo {
         let text = match message {
             Message::Text(text) => text,
             Message::Binary(bytes) => {
+                if self.skip > 0 {
+                    self.skip -= 1;
+                    return Some(Packet::Other);
+                }
                 return match self.binary_event.take().as_deref() {
-                    Some("stdout") => Some(Packet::Stdout(bytes.to_vec())),
-                    Some("stderr") => Some(Packet::Stderr(bytes.to_vec())),
+                    Some("stdout") => Some(Packet::Stdout(bytes.into())),
+                    Some("stderr") => Some(Packet::Stderr(bytes.into())),
                     Some("ready") => Some(Packet::Ready),
                     _ => None,
                 };
@@ -429,14 +445,20 @@ impl SocketIo {
         let Some(&kind) = packet.as_bytes().first().filter(|kind| kind.is_ascii_digit()) else { return Some(Packet::Other); };
         let mut rest = &packet[1..];
         let binary = kind == b'5';
+        let mut attachments = 0;
         if binary {
             let (count, body) = rest.split_once('-')?;
-            if count != "1" || self.binary_event.is_some() { return None; }
+            attachments = count.parse::<usize>().ok()?;
             rest = body;
         }
         let (namespace, rest) = if rest.starts_with('/') { rest.split_once(',').unwrap_or((rest, "")) } else { ("/", rest) };
-        // Another namespace's packet, such as the main namespace's own CONNECT answer.
-        if namespace != self.namespace { return Some(Packet::Other); }
+        // Another namespace's packet, such as the main namespace's own CONNECT answer; the binary
+        // frames of its event follow it and are not this session's either.
+        if namespace != self.namespace {
+            self.skip += attachments;
+            return Some(Packet::Other);
+        }
+        if binary && (attachments != 1 || self.binary_event.is_some()) { return None; }
         let data = rest.trim_start_matches(|c: char| c.is_ascii_digit());
         match kind {
             b'0' => return Some(Packet::Connected),
@@ -445,42 +467,80 @@ impl SocketIo {
             b'2' | b'5' => {},
             _ => return Some(Packet::Other),
         }
-        let value: Value = serde_json::from_str(data).ok()?;
-        let event = value.get(0).and_then(Value::as_str)?;
+        let Ok(Value::Array(items)) = serde_json::from_str(data) else { return None; };
+        let mut items = items.into_iter();
+        let Some(Value::String(event)) = items.next() else { return None; };
+        let payload = items.next();
         if binary {
-            if value[1]["_placeholder"] != true || value[1]["num"] != 0 { return None; }
-            self.binary_event = Some(event.into());
+            if payload.is_none_or(|placeholder| placeholder["_placeholder"] != true || placeholder["num"] != 0) { return None; }
+            self.binary_event = Some(event);
             return Some(Packet::Other);
         }
-        let payload = value.get(1).map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned)).unwrap_or_default();
-        Some(match event {
+        // The event decides before its data is taken; output text moves out of the parsed packet.
+        let text = |payload: Option<Value>| match payload {
+            Some(Value::String(text)) => text,
+            Some(other) => other.to_string(),
+            None => String::new(),
+        };
+        Some(match event.as_str() {
             "ready" => Packet::Ready,
-            "stdout" => Packet::Stdout(payload.into_bytes()),
-            "stderr" => Packet::Stderr(payload.into_bytes()),
-            "connect_error" | "error" => self.refused(&payload, value.get(1)),
+            "stdout" => Packet::Stdout(text(payload).into_bytes()),
+            "stderr" => Packet::Stderr(text(payload).into_bytes()),
+            "connect_error" | "error" => {
+                let raw = payload.as_ref().map(|value| value.as_str().map_or_else(|| value.to_string(), str::to_owned)).unwrap_or_default();
+                self.refused(&raw, payload.as_ref())
+            }
             _ => Packet::Other,
         })
     }
 
     /// The service's refusal: whether it ends the startup, and its reason with credentials
-    /// removed. A reason that is not a plain message, or names a credential or an address, is
-    /// left out (Java `friendlyZhiziErrorMessage` shows no JSON).
+    /// removed. A reason that is not a plain message (JSON), or names a credential, an address,
+    /// an e-mail or a long number such as a phone number, however formatted, is left out (Java
+    /// `friendlyZhiziErrorMessage` shows no JSON).
     fn refused(&self, raw: &str, data: Option<&Value>) -> Packet {
         let message = match data {
             Some(Value::String(text)) => text.as_str(),
             Some(Value::Object(object)) => object.get("message").and_then(Value::as_str).unwrap_or(""),
             _ => "",
         };
-        let mut detail = message.lines().next().unwrap_or("").trim().to_string();
-        for secret in self.secrets.iter().filter(|secret| !secret.is_empty()) {
-            detail = detail.replace(secret, "[redacted]");
-        }
-        let lower = detail.to_lowercase();
-        if detail.starts_with('{') || ["token", "authorization", "statuscode", "ws://", "wss://", "http://", "https://"].iter().any(|word| lower.contains(word)) {
-            detail.clear();
-        }
-        Packet::Refused { fatal: fatal_startup(raw), detail: detail.chars().take(160).collect() }
+        let first = message.lines().next().unwrap_or("").trim();
+        let detail = redact(first.to_string(), &self.secrets).filter(|detail| plain_reason(detail))
+            .map(|detail| detail.chars().take(160).collect()).unwrap_or_default();
+        Packet::Refused { fatal: fatal_startup(raw), detail }
     }
+}
+
+/// Words that mark a remote line as carrying a credential or an address.
+const SENSITIVE: [&str; 7] = ["token", "authorization", "bearer", "ws://", "wss://", "http://", "https://"];
+
+/// A remote line with the session's secrets replaced, or `None` when it still names a credential
+/// or an address. Engine diagnostics and startup refusals share it.
+fn redact(mut line: String, secrets: &[String]) -> Option<String> {
+    for secret in secrets.iter().filter(|secret| !secret.is_empty()) {
+        if line.contains(secret.as_str()) { line = line.replace(secret.as_str(), "[redacted]"); }
+    }
+    let bytes = line.as_bytes();
+    let names = |word: &str| bytes.windows(word.len()).any(|window| window.eq_ignore_ascii_case(word.as_bytes()));
+    let sensitive = SENSITIVE.iter().any(|word| names(word));
+    (!sensitive).then_some(line)
+}
+
+/// A refusal reason fit to show: not JSON or a status payload (Java `friendlyZhiziErrorMessage`),
+/// no e-mail and no run of seven or more digits (spaces, `-`, `+` and brackets between them count
+/// as one run).
+fn plain_reason(text: &str) -> bool {
+    if text.starts_with(['{', '[']) || text.contains("\"key\"") || text.contains('@') || text.to_ascii_lowercase().contains("statuscode") { return false; }
+    let mut digits = 0;
+    for c in text.chars() {
+        if c.is_ascii_digit() {
+            digits += 1;
+            if digits >= 7 { return false; }
+        } else if !matches!(c, ' ' | '-' | '+' | '(' | ')') {
+            digits = 0;
+        }
+    }
+    true
 }
 
 #[derive(Default)]
@@ -490,14 +550,8 @@ impl Lines {
         self.bytes.extend_from_slice(bytes);
         let mut start = 0;
         for (end, _) in self.bytes.iter().enumerate().filter(|(_, byte)| **byte == b'\n') {
-            let mut line = String::from_utf8_lossy(&self.bytes[start..end]).trim_end_matches('\r').to_string();
-            for secret in secrets.iter().filter(|secret| !secret.is_empty()) {
-                line = line.replace(secret, "[redacted]");
-            }
-            let lower = line.to_lowercase();
-            if ["token", "authorization", "ws://", "wss://", "http://", "https://"].iter().any(|word| lower.contains(word)) {
-                line = "[cloud diagnostic redacted]".into();
-            }
+            let line = String::from_utf8_lossy(&self.bytes[start..end]).trim_end_matches('\r').to_string();
+            let line = redact(line, secrets).unwrap_or_else(|| "[cloud diagnostic redacted]".into());
             start = end + 1;
             output.emit(if stderr { EngineInput::Stderr(line) } else { EngineInput::Stdout(line) });
         }
@@ -533,11 +587,16 @@ async fn zhizi_ready(client: &reqwest::Client, url: String, namespace: String, s
     };
     let mut socket = match socket {
         Ok(Ok(socket)) => socket,
-        // Turned away by the service (401, 403) or the proxy (407), or an unusable address.
-        Ok(Err(error)) if error.fatal => return Err(Attempt { fatal: true, reason: CloudStartFailure::Refused { detail: String::new() } }),
+        // Turned away by the service (401, 403 to the upgrade).
+        Ok(Err(error)) if error.refused => return Err(Attempt { fatal: true, reason: CloudStartFailure::Refused { detail: String::new() } }),
+        // A proxy that refuses (407) or an address this connection cannot use: not 智子's answer.
+        Ok(Err(error)) if error.fatal => return Err(Attempt { fatal: true, reason: CloudStartFailure::Unreachable }),
         _ => return Err(Attempt::retry(CloudStartFailure::Unreachable)),
     };
     let mut protocol = SocketIo::new(namespace, secrets);
+    // socket.io-client holds a namespace's events until its CONNECT is answered: `ready` counts
+    // once both have come, in either order.
+    let (mut connected, mut ready) = (false, false);
     loop {
         let message = tokio::select! {
             biased;
@@ -551,7 +610,16 @@ async fn zhizi_ready(client: &reqwest::Client, url: String, namespace: String, s
         let answer = match packet {
             Packet::Open => protocol.connect(),
             Packet::Ping(payload) => format!("3{payload}"),
-            Packet::Ready => return Ok((socket, protocol)),
+            Packet::Connected => {
+                connected = true;
+                if ready { return Ok((socket, protocol)); }
+                continue;
+            }
+            Packet::Ready => {
+                ready = true;
+                if connected { return Ok((socket, protocol)); }
+                continue;
+            }
             // Startup diagnostics are intentionally not forwarded: remote errors may echo tokens.
             Packet::Stderr(_) => {
                 output.emit(EngineInput::Stderr("Cloud engine is preparing".into()));
@@ -610,6 +678,10 @@ async fn run_zhizi(
                         secrets.push(parsed.username().to_string());
                         if let Some(password) = parsed.password() { secrets.push(password.to_string()); }
                     }
+                    // A service may echo them URL-encoded.
+                    let encoded: Vec<String> = secrets.iter().map(|secret| form_urlencoded::byte_serialize(secret.as_bytes()).collect::<String>())
+                        .filter(|encoded| !secrets.contains(encoded)).collect();
+                    secrets.extend(encoded);
                     zhizi_ready(client, url, namespace, secrets, output, cancel).await
                 }
                 // The service gave an address this transport cannot use.
@@ -683,9 +755,9 @@ async fn run_custom(
     rx: &mut mpsc::UnboundedReceiver<Write>,
     cancel: &mut watch::Receiver<bool>,
     diagnostics: &Diagnostics,
-) -> Option<(bool, &'static str)> {
-    let Ok(url) = Url::parse(launch.url.trim()) else { return Some((false, "Invalid custom cloud WebSocket URL")); };
-    if !matches!(url.scheme(), "ws" | "wss") { return Some((false, "Custom cloud URL requires ws or wss")); }
+) -> Option<&'static str> {
+    let Ok(url) = Url::parse(launch.url.trim()) else { return Some("Invalid custom cloud WebSocket URL"); };
+    if !matches!(url.scheme(), "ws" | "wss") { return Some("Custom cloud URL requires ws or wss"); }
     let started = Instant::now();
     let connection = tokio::select! {
         biased;
@@ -705,7 +777,7 @@ async fn run_custom(
     });
     let mut socket = match connection {
         Ok(Ok(socket)) => socket,
-        _ => return Some((false, "Custom cloud WebSocket connection failed")),
+        _ => return Some("Custom cloud WebSocket connection failed"),
     };
     let mut adapter = custom::Adapter::default();
     loop {
@@ -719,7 +791,7 @@ async fn run_custom(
                             diagnostics.trace_payload(EndpointCategory::Protocol, "send", &payload);
                             if send(&mut socket, Message::Text(payload.into()), cancel).await.is_err() {
                                 if *cancel.borrow() { return None; }
-                                return Some((true, "Custom cloud request failed; rebuilding the current position"));
+                                return Some("Custom cloud request failed; rebuilding the current position");
                             }
                         }
                         // Do not publish an analysis stream until the complete query was written.
@@ -727,7 +799,7 @@ async fn run_custom(
                     }
                     Ok(custom::Action::Quit) => return None,
                     Ok(custom::Action::None) => {},
-                    Err(message) => return Some((true, message)),
+                    Err(message) => return Some(message),
                 },
                 Some(Write::Progress(_)) => {},
                 None => return None,
@@ -737,12 +809,12 @@ async fn run_custom(
                     diagnostics.trace_payload(EndpointCategory::Protocol, "recv", &text);
                     for line in text.lines().filter(|line| !line.trim().is_empty()) {
                         if adapter.response(line, output).is_err() {
-                            return Some((true, "Custom cloud returned an invalid analysis response"));
+                            return Some("Custom cloud returned an invalid analysis response");
                         }
                     }
                 }
-                Some(Ok(Message::Close(_))) | Some(Err(_)) | None => return Some((true, "Custom cloud disconnected; rebuilding the current position")),
-                Some(Ok(Message::Binary(_))) => return Some((true, "Custom cloud returned an unsupported binary response")),
+                Some(Ok(Message::Close(_))) | Some(Err(_)) | None => return Some("Custom cloud disconnected; rebuilding the current position"),
+                Some(Ok(Message::Binary(_))) => return Some("Custom cloud returned an unsupported binary response"),
                 _ => {},
             }
         }

@@ -759,8 +759,10 @@ function createCenter(initial: WorkbenchView): Center {
     if (!monitor || !receipt) return;
     const ok = switchOutcome(view, receipt.profile, receipt.after, monitor.launch);
     if (ok === null) return;
-    // A 智子 engine that never became ready says why (ZhiziGtpTransport, friendlyZhiziErrorMessage).
-    const reason = ok ? undefined : view.engine_failure?.cloud;
+    // A 智子 engine that never became ready says why (ZhiziGtpTransport, friendlyZhiziErrorMessage);
+    // only the requested foreground profile's own failure speaks for this switch.
+    const failed = view.engine_failure;
+    const reason = !ok && failed && !failed.secondary && failed.profile_id === receipt.profile ? failed.cloud : undefined;
     const launch = monitor.launch;
     finishSwitch(ok, ok ? monitor.success : reason && launch.provider === "zhizi" ? cloudStartText(reason, launch.args) : monitor.failure);
   }

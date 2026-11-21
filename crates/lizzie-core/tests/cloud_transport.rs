@@ -343,14 +343,19 @@ fn zhizi_uses_the_namespace_its_socket_url_names() {
         peer.send(Message::Text("0{\"sid\":\"fixture\",\"upgrades\":[],\"pingInterval\":25000,\"pingTimeout\":20000}".into())).unwrap();
         // socket.io-client-java `IO.socket("…/zhizi-ns")` connects that namespace, not `/`.
         assert_eq!(text(&mut peer), "40/zhizi-ns,");
-        // The main namespace's packets are not this session's: no readiness, no queued GTP.
+        // The main namespace's packets are not this session's: no readiness, no queued GTP, and
+        // another namespace's binary event with its attachment does not end the connection.
         peer.send(Message::Text("40{\"sid\":\"main\"}".into())).unwrap();
         peer.send(Message::Text("42[\"ready\"]".into())).unwrap();
+        peer.send(Message::Text("451-/other,[\"stdout\",{\"_placeholder\":true,\"num\":0}]".into())).unwrap();
+        peer.send(Message::Binary(b"not this session\n".to_vec().into())).unwrap();
+        // Its own `ready` before its CONNECT is answered waits for it, as socket.io-client's
+        // receive buffer does.
+        peer.send(Message::Text("42/zhizi-ns,[\"ready\"]".into())).unwrap();
         peer.get_mut().set_read_timeout(Some(Duration::from_millis(100))).unwrap();
         assert!(peer.read().is_err());
         peer.get_mut().set_read_timeout(Some(Duration::from_secs(8))).unwrap();
         peer.send(Message::Text("40/zhizi-ns,{\"sid\":\"fixture\"}".into())).unwrap();
-        peer.send(Message::Text("42/zhizi-ns,[\"ready\"]".into())).unwrap();
         let input = text(&mut peer);
         let event: Value = serde_json::from_str(input.strip_prefix("42/zhizi-ns,").unwrap()).unwrap();
         assert_eq!(event, json!(["stdin", "1 name\n"]));
@@ -358,16 +363,50 @@ fn zhizi_uses_the_namespace_its_socket_url_names() {
         let _ = peer.read();
     });
     let mut engine = Running::zhizi(format!("{url}/zhizi-ns"));
-    engine.send("1 name"); engine.stdout("=1 KataGo");
+    engine.send("1 name");
+    let events = engine.stdout("=1 KataGo");
+    assert!(!events.iter().any(|event| matches!(event, EngineInput::Stdout(line) if line.contains("not this session"))));
     engine.stop(); peer.join().unwrap();
 }
 
 #[test]
-fn a_refused_zhizi_session_ends_the_startup_with_the_service_reason() {
-    let (url, peer) = server(|mut peer| {
+fn zhizi_reads_its_socket_url_as_socket_io_client_java_does() {
+    // socket.io-client-java 2.1.2 joins the decoded path (`URI.getPath`); engine.io-client 2.1.0
+    // `Options.fromURI` puts the URL's own query over the token query.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let peer = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(8))).unwrap();
+        let mut peer = tokio_tungstenite::tungstenite::accept_hdr(stream, |request: &tokio_tungstenite::tungstenite::handshake::server::Request, response| {
+            assert_eq!(request.uri().path(), "/socket.io.v4/");
+            let pairs: Vec<(String, String)> = url::form_urlencoded::parse(request.uri().query().unwrap().as_bytes()).into_owned().collect();
+            for pair in [("route", "a b"), ("zz-socketio-token", "url-token"), ("EIO", "4"), ("transport", "websocket")] {
+                assert!(pairs.contains(&(pair.0.into(), pair.1.into())), "{pair:?} in {pairs:?}");
+            }
+            assert!(!pairs.iter().any(|(_, value)| value == "private-socket-token"));
+            Ok(response)
+        }).unwrap();
+        let prefix = socketio_ready_in(&mut peer, "/zhizi/ns");
+        let input = text(&mut peer);
+        let event: Value = serde_json::from_str(input.strip_prefix(&format!("42{prefix}")).unwrap()).unwrap();
+        assert_eq!(event, json!(["stdin", "1 name\n"]));
+        peer.send(Message::Text(format!("42{prefix}[\"stdout\",\"=1 KataGo\\n\\n\"]").into())).unwrap();
+        let _ = peer.read();
+    });
+    let mut engine = Running::zhizi(format!("http://{address}/zhizi%2Fns?route=a%20b&zz-socketio-token=url-token"));
+    engine.send("1 name"); engine.stdout("=1 KataGo");
+    engine.stop(); peer.join().unwrap();
+}
+
+/// How a 智子 startup ends whose namespace CONNECT the service answers with `44/zhizi-ns,{data}`,
+/// the events up to it, and the number of socket token requests.
+fn refusal(data: &str) -> (CloudStartFailure, Vec<EngineInput>, usize) {
+    let packet = format!("44/zhizi-ns,{data}");
+    let (url, peer) = server(move |mut peer| {
         peer.send(Message::Text("0{\"sid\":\"fixture\"}".into())).unwrap();
         assert_eq!(text(&mut peer), "40/zhizi-ns,");
-        peer.send(Message::Text("44/zhizi-ns,{\"message\":\"该账号未开通 VIP 包月 private-socket-token\\nsecond line\"}".into())).unwrap();
+        peer.send(Message::Text(packet.into())).unwrap();
         let _ = peer.read();
     });
     let calls = Arc::new(Mutex::new(0)); let observed = calls.clone();
@@ -376,12 +415,39 @@ fn a_refused_zhizi_session_ends_the_startup_with_the_service_reason() {
         Ok(SocketCredentials { socket_url: format!("{url}/zhizi-ns"), token: "private-socket-token".into() })
     }));
     let events = engine.until(|event| matches!(event, EngineInput::CloudStartFailed(_)));
-    // A plan refusal is final (Java `isFatalStartupFailure`): one attempt, no retry.
-    assert_eq!(*calls.lock().unwrap(), 1);
-    assert_eq!(events.last(), Some(&EngineInput::CloudStartFailed(CloudStartFailure::Refused {
-        detail: "该账号未开通 VIP 包月 [redacted]".into(),
-    })));
     engine.stop(); peer.join().unwrap();
+    let Some(EngineInput::CloudStartFailed(reason)) = events.last() else { panic!("{events:?}") };
+    let calls = *calls.lock().unwrap();
+    (reason.clone(), events, calls)
+}
+
+#[test]
+fn a_refused_zhizi_session_ends_the_startup_with_a_reason_free_of_credentials() {
+    // A plan refusal is final (Java `isFatalStartupFailure`): one attempt, no retry; the first
+    // line of its reason shows, with the socket token removed.
+    let (reason, _, calls) = refusal(r#"{"message":"该账号未开通 VIP 包月 private-socket-token\nsecond line"}"#);
+    assert_eq!(calls, 1);
+    assert_eq!(reason, CloudStartFailure::Refused { detail: "该账号未开通 VIP 包月 [redacted]".into() });
+    // A reason naming the account however it is written, a credential, an address or structured
+    // data is left out, from the reason and from the engine's output alike.
+    for data in [
+        r#"{"message":"账号 138 0000 0000 未开通 VIP 包月"}"#,
+        r#"{"message":"VIP 包月：fixture-account@example.invalid 无权限"}"#,
+        r#""Bearer private-bearer 套餐无效""#,
+        r#""套餐无效，详见 https://example.invalid/private-path""#,
+        r#""VIP 未开通 {\"key\":\"private-key\"}""#,
+        r#""[\"13900000000\", \"VIP\"]""#,
+    ] {
+        let (reason, events, calls) = refusal(data);
+        assert_eq!((calls, reason), (1, CloudStartFailure::Refused { detail: String::new() }), "{data}");
+        for event in &events {
+            if let EngineInput::Stderr(line) = event {
+                for secret in ["0000", "fixture-account", "private-bearer", "private-path", "private-key", "13900000000"] {
+                    assert!(!line.contains(secret), "{line}");
+                }
+            }
+        }
+    }
 }
 
 /// Lets the blocked token resolver go when dropped, so every exit of a test (a failed assertion
@@ -742,6 +808,33 @@ fn invalid_or_unreachable_manual_proxy_never_falls_through_to_the_destination() 
             assert!(matches!(destination.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock));
             engine.stop();
         }
+    }
+}
+
+#[test]
+fn a_refused_upgrade_is_the_services_answer_and_a_refusing_proxy_is_not() {
+    // 智子 turning the WebSocket upgrade away (401) refuses the session; a manual proxy asking
+    // for credentials (407) has not reached 智子. Neither is worth another attempt.
+    for (status, proxied, expected) in [
+        ("401 Unauthorized", false, CloudStartFailure::Refused { detail: String::new() }),
+        ("407 Proxy Authentication Required", true, CloudStartFailure::Unreachable),
+    ] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let answer = thread::spawn(move || {
+            let mut stream = accept_bounded(&listener);
+            read_http_head(&mut stream);
+            write!(stream, "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+        });
+        let (target, network) = if proxied {
+            ("ws://zhizi.invalid/zhizi-ns".to_string(), manual_proxy(port))
+        } else {
+            (format!("ws://127.0.0.1:{port}/zhizi-ns"), NetworkSettings { proxy_mode: ProxyMode::Direct, proxy_host: String::new(), proxy_port: 0 })
+        };
+        let mut engine = Running::network(CloudProvider::Zhizi, target, network);
+        let events = engine.until(|event| matches!(event, EngineInput::CloudStartFailed(_)));
+        assert_eq!(events.last(), Some(&EngineInput::CloudStartFailed(expected)), "{status}");
+        engine.stop(); answer.join().unwrap();
     }
 }
 
