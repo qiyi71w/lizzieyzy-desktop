@@ -15,31 +15,31 @@ import { product, registerProduct, t } from "../i18n";
 import { messageNoModal } from "../match/dialogs";
 import "./tsumego.css";
 
-// The macOS hint names the path in each language's own System Settings.
+// The macOS hint names the path in each language's own System Settings (macOS 15 and later).
 registerProduct({
   ZhCn: {
     tsumegoCaptureStartFailed: "未能开始抓取死活题。",
-    tsumegoCaptureMacPermission: "抓取死活题需要“屏幕录制”权限。\n请在 系统设置 → 隐私与安全性 → 屏幕录制 中允许本应用。",
+    tsumegoCaptureMacPermission: "抓取死活题需要录屏权限。\n请在 系统设置 → 隐私与安全 → 录屏与系统录音 中允许本应用。",
   },
   ZhTw: {
     tsumegoCaptureStartFailed: "未能開始抓取死活題。",
-    tsumegoCaptureMacPermission: "抓取死活題需要「螢幕錄製」權限。\n請在 系統設定 → 隱私權與安全性 → 螢幕錄製 中允許本應用程式。",
+    tsumegoCaptureMacPermission: "抓取死活題需要螢幕錄影權限。\n請在 系統設定 → 隱私權與安全性 → 螢幕與系統錄音 中允許本應用程式。",
   },
   EnUs: {
     tsumegoCaptureStartFailed: "Could not start capturing a tsumego.",
-    tsumegoCaptureMacPermission: "Capturing a tsumego needs the Screen Recording permission.\nAllow this app in System Settings → Privacy & Security → Screen Recording.",
+    tsumegoCaptureMacPermission: "Capturing a tsumego needs permission to record the screen.\nAllow this app in System Settings → Privacy & Security → Screen & System Audio Recording.",
   },
   JaJp: {
     tsumegoCaptureStartFailed: "詰碁のキャプチャーを開始できませんでした。",
-    tsumegoCaptureMacPermission: "詰碁をキャプチャーするには「画面収録」の許可が必要です。\nシステム設定 → プライバシーとセキュリティ → 画面収録 で、このアプリを許可してください。",
+    tsumegoCaptureMacPermission: "詰碁をキャプチャーするには画面収録の許可が必要です。\nシステム設定 → プライバシーとセキュリティ → 画面収録とシステムオーディオ録音 で、このアプリを許可してください。",
   },
   KoKr: {
     tsumegoCaptureStartFailed: "사활 화면 캡처를 시작하지 못했습니다.",
-    tsumegoCaptureMacPermission: "사활 화면 캡처에는 '화면 기록' 권한이 필요합니다.\n시스템 설정 → 개인정보 보호 및 보안 → 화면 기록에서 이 앱을 허용하세요.",
+    tsumegoCaptureMacPermission: "사활 화면 캡처에는 화면 기록 권한이 필요합니다.\n시스템 설정 → 개인정보 보호 및 보안 → 화면 및 시스템 오디오 녹음에서 이 앱을 허용하세요.",
   },
   ThTh: {
     tsumegoCaptureStartFailed: "เริ่มจับสึเมโกะไม่ได้",
-    tsumegoCaptureMacPermission: "การจับภาพสึเมะโกะต้องได้รับสิทธิ์ \"การบันทึกหน้าจอ\"\nอนุญาตแอปนี้ได้ที่ การตั้งค่าระบบ → ความเป็นส่วนตัวและความปลอดภัย → การบันทึกหน้าจอ",
+    tsumegoCaptureMacPermission: "การจับภาพสึเมโกะต้องได้รับสิทธิ์บันทึกหน้าจอ\nอนุญาตแอปนี้ได้ที่ การตั้งค่าระบบ → ความเป็นส่วนตัวและความปลอดภัย → การบันทึกหน้าจอและเสียงระบบ",
   },
 });
 
