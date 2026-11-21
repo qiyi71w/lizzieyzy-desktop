@@ -1670,6 +1670,17 @@ pub struct WorkbenchView {
     /// 人机对弈 messages, once each, in order.
     pub game_notices: Vec<GameNotice>,
     pub engine_match: Option<MatchView>,
+    /// The open document is an engine game (Java `Board.isPkBoard` with `isPkBoardKataB` /
+    /// `isPkBoardKataW`; `WinrateGraph.isEngineOrPkGraphMode`): always while a match exists, its
+    /// score side from the match's engines; else a document a match game was played on
+    /// (`EngineManager` 2918, kata side 15801-15805), a 跑谱贡献 rating game being watched
+    /// (`ContributeEngine` 965-971) or a record whose root `DZ` is `Y` / `KB` / `KW`
+    /// (`SGFParser` 775-791, also after 转换为初始局面, `Board` 1320), until 清除Lizzie缓存(全局),
+    /// the start of 自动分析 or a fully answered flash analysis, 自动棋谱快析 attempt or 整盘精析
+    /// pass ends it (`clearBoardStat` / `clearPkBoardStat` in `AnalysisEngine.setResult`). Saves
+    /// write its `DZ` (`SGFParser` 1443-1462). `None` for any other
+    /// document.
+    pub pk_board: Option<PkBoardView>,
     pub match_outcome: Option<MatchOutcomeView>,
     pub match_notices: Vec<MatchNotice>,
     pub match_winrate_image: Option<MatchWinrateImageRequest>,

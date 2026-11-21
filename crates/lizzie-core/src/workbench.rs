@@ -94,6 +94,21 @@ pub const KIFU_LOAD_FAILED: &str = "KifuLoad.failed";
 /// Java `LizzieFrame.saveFileFailed`: any failed save.
 pub const SAVE_FILE_FAILED: &str = "LizzieFrame.saveFileFailed";
 
+// Settings-file write failures. The error message is the interface text key, then the cause on
+// the next line: `"<key>\n<cause>"` (decoded in `ui/src/errorText.ts`).
+
+/// Settings could not be written; the cause is the operating system's.
+pub const SETTINGS_SAVE_FAILED: &str = "product.settingsSaveFailed";
+/// The settings file could not be used at start-up and is not written over in this run; the
+/// cause names the file and why it was left as it is.
+pub const SETTINGS_FILE_KEPT: &str = "product.settingsFileKept";
+/// The window state file (placements, panel sizes, last folders) could not be written.
+pub const WINDOW_STATE_SAVE_FAILED: &str = "product.windowStateSaveFailed";
+
+fn settings_error(key: &str, cause: impl std::fmt::Display) -> ApiError {
+    ApiError::new(ErrorKind::Io, format!("{key}\n{cause}"))
+}
+
 #[derive(Clone, Debug)]
 pub struct Document {
     pub id: u64,
@@ -227,6 +242,11 @@ pub struct Workbench {
     cursor: NodeId,
     komi: f64,
     next_doc: u64,
+    /// Java `Board.isPkBoard` with `isPkBoardKataB` / `isPkBoardKataW`: the document that is an
+    /// engine game and the side whose engine gives its score curve. It applies to that document
+    /// only; every replacement of the document (new board, opened record) has a new id, which is
+    /// Java clearing the marks (`Board.clear(false)`, `setHistory`).
+    pk_board: Option<(u64, Option<Stone>)>,
     next_ticket: u64,
     pending: Option<Pending>,
     outcome: Option<OpenOutcome>,
@@ -436,6 +456,7 @@ impl Workbench {
             cursor: ROOT,
             komi: DEFAULT_KOMI,
             next_doc: 2,
+            pk_board: None,
             next_ticket: 1,
             pending: None,
             outcome: None,
@@ -544,27 +565,23 @@ impl Workbench {
     }
 
     fn write_config(&self, config: &Config) -> Result<(), ApiError> {
-        self.settings_file_writable()
-            .and_then(|()| settings::save_json(&self.storage.config_file, config))
-            .map_err(|e| ApiError::new(ErrorKind::Io, format!("saving settings failed: {e}")))
+        self.settings_file_writable()?;
+        settings::save_json(&self.storage.config_file, config).map_err(|e| settings_error(SETTINGS_SAVE_FAILED, e))
     }
 
     /// Settings and window state as one write ([`settings::save_both`]).
-    fn save_settings_files(&self, config: &Config, persisted: Option<&Persisted>) -> std::io::Result<()> {
+    fn save_settings_files(&self, config: &Config, persisted: Option<&Persisted>) -> Result<(), ApiError> {
         self.settings_file_writable()?;
-        settings::save_both(&self.storage, config, persisted)
+        settings::save_both(&self.storage, config, persisted).map_err(|e| settings_error(SETTINGS_SAVE_FAILED, e))
     }
 
     /// Refuses to write over a settings file that was there at start-up but could not be loaded
     /// (nor kept as a backup): it holds the user's settings, which the next start can still read.
-    fn settings_file_writable(&self) -> std::io::Result<()> {
+    fn settings_file_writable(&self) -> Result<(), ApiError> {
         let Some(cause) = &self.settings_file_fault else {
             return Ok(());
         };
-        Err(std::io::Error::other(format!(
-            "the settings file {} is left unchanged: {cause}; restart the program once that is put right",
-            self.storage.config_file.display()
-        )))
+        Err(settings_error(SETTINGS_FILE_KEPT, format_args!("{}: {cause}", self.storage.config_file.display())))
     }
 
     /// A user settings change: applied only once it is on disk, so the projection never shows a
@@ -582,7 +599,7 @@ impl Workbench {
             return Ok(());
         }
         settings::save_json(&self.storage.persist_file, &self.persisted)
-            .map_err(|e| ApiError::new(ErrorKind::Io, format!("saving window state failed: {e}")))
+            .map_err(|e| settings_error(WINDOW_STATE_SAVE_FAILED, e))
     }
 
     // ---------------------------------------------------------------- opening
@@ -722,6 +739,8 @@ impl Workbench {
                     saved_revision,
                     origin_name,
                 };
+                // SGFParser.java:775-791: the root `DZ` of a saved engine game.
+                self.pk_board = matches::recorded_pk_side(&self.doc.record).map(|side| (id, side));
                 // Loading is silent (Java turns sound off while it builds the history).
                 self.sounds.clear();
                 self.readboard_history_overwritten();
@@ -1355,6 +1374,7 @@ impl Workbench {
             game_outcome: None,
             game_notices: Vec::new(),
             engine_match: self.match_view(),
+            pk_board: self.pk_board_view(),
             match_outcome: None,
             match_notices: Vec::new(),
             match_winrate_image: None,

@@ -249,7 +249,8 @@ importing the matching LizzieYzy Next settings.
 - Settings available now: reading komi from SGF records, stone sounds on/off, the UI language
   (zh-CN, zh-TW, en, ja, ko, th; applied after a restart, like Java), and the editing toggles
   (启用双击找子, 启用拖动棋子, 启用点击棋子回看, 显示落子矩形, 显示清空棋盘提示对话框, 标记工具,
-  五子棋无提子规则). A setting that cannot be saved is reported and left unchanged.
+  五子棋无提子规则). A setting that cannot be saved is reported in the interface language, with
+  the system's reason on its own line, and left unchanged.
 - Help > 诊断与日志 shows this client's logs, opens the log folder and exports a diagnostics zip.
   诊断记录 and its four modules (引擎, GTP 摘要, 读盘/弈客, 网络/远程) take effect on 应用 without a
   restart and are saved (config `logging`, all on by default); they decide which summary records
@@ -506,6 +507,17 @@ importing the matching LizzieYzy Next settings.
     up. Click or drag navigates (a click on a branch may jump to the main line through the
     fork), the wheel steps through moves, and a right click clears a selected table row or
     steps back.
+    During an 引擎对局, and afterwards on that board, on a saved engine game (its root `DZ` tag)
+    and on a watched 跑谱贡献 rating game, the graph is Java's engine-game graph: each engine's
+    win rate as its own unfilled curve (Black's engine in the win-rate colour, White's in the
+    theme's miss colour, drawn darker than the gap bridge while that colour is the default), one
+    score curve from the KataGo side (the white engine when it is KataGo or Sai, else the black
+    one; none when neither is), a readout of both engines' values and the lead, and a legend
+    naming the two engines. Every save of such a board writes the `DZ` tag (`KW`, `KB` or `Y`),
+    so a reopened game is one again. As in Java it ends with a new board, another record,
+    清除Lizzie缓存(全局), starting 自动分析, or a 闪电分析, 自动棋谱快析 or 整盘精析 pass of the
+    record that every position answered; a failed or cancelled one leaves it. 转为开局 reads it
+    again from the record's `DZ` tag.
   - 统计 shows the score label, the bar of both sides' win rates and 最后一手 with the move's
     candidate rank and the change for the side that played it (against the position before, or
     two moves back when that one has no analysis). AI总评分 shows each side's mean match share
@@ -693,6 +705,9 @@ importing the matching LizzieYzy Next settings.
     as Java's glass, Java's comment background, and Java's colours for the win-rate graph, the variation tree, the stones' markers
     and the candidate list (Java's white table). Every other theme keeps the program's own
     colours.
+  - A theme's `glass-corner-radius` other than Java's default 12 rounds buttons, fields, lists
+    and popup menus as Java does (an arc of at least 8, a corner radius of half of it);
+    `glass-panel-shadow-color` is kept with the theme and, as in Java, nothing draws it.
   - 显示 > 外观主题: 棋盘风格 日式 / 中式经典 (corner markers instead of star points, Chinese
     numerals counted from the nearer edge as coordinates) and a custom board image (scaled to
     cover the main board under a light shade; the sub board keeps the theme's board) with its 清除
@@ -1277,7 +1292,10 @@ importing the matching LizzieYzy Next settings.
   analysed for it). Its 统计信息 page shows each side's 吻合度, 吻合率, 第一选点率, average score and
   win-rate loss and the loss distribution; 简易列表 lists Black's and White's moves; 详细列表
   lists the checked sides' moves (12 columns with KataGo, 9 without), sortable by every column
-  (the change columns cycle largest change, largest gain, largest loss). A move counts only when
+  (the change columns cycle largest change, largest gain, largest loss; the header shows `|Δ|`
+  and an arrow, or the arrow alone, and names the order). 胜率吻合 labels its win-rate scale on
+  the left and, with KataGo data, its score scale (`B+` / `W+`) on the right; its readouts carry
+  their units. A move counts only when
   the position before it is analysed, its losses only when both positions are, and a
   first-candidate move loses nothing. 列表筛选 sets the win-rate / score / visits thresholds of
   the lists and 置顶当前手; 统计阈值 sets the loss bands; 分支 chooses the main trunk or the current
@@ -1290,7 +1308,7 @@ importing the matching LizzieYzy Next settings.
   than Java's 0. A figure under the charts with no move to average (for example before any move
   is analysed) reads "—", or "已分析0手，尚无可计算的样本" for a side's whole sentence, where Java printed
   NaN, or 0 for a stage's loss. 关于吻合度's formula image carries the same formula as text for
-  screen readers.
+  screen readers and sits in the dialog's own ground in either colour mode.
   Right-click a list for 导出为xls (a UTF-16
   tab-separated file named `.xls`, as Java writes it). `Q` keeps the window on top. The page and
   chart tabs, the filters and the 统计 range (radio buttons) are reached with `Tab`; in a tab row
@@ -1523,7 +1541,8 @@ importing the matching LizzieYzy Next settings.
     shows 无效的链接.
   - 弈客直播 (`Shift+O`) opens 弈客直播中心: the 推荐 / 地方 / 个人 lists with Java's columns,
     filtering, sorting (by clicking a header, or `Tab` to the header row, `←`/`→` and `Enter`),
-    刷新 / 更多, and 同步 (or double-click / Enter) to follow a room.
+    刷新 / 更多, and 同步 (or double-click / Enter) to follow a room. A window too narrow for
+    every column scrolls sideways rather than cut 对局 and the players below four characters.
   - A followed source only writes the main line. Your variations, comments and marks stay. The
     cursor follows a new move only from the live end, on the first sync, or with
     同步 > 有新的一手时总是跳转到最新一手. Java replaced the whole game on every update, losing

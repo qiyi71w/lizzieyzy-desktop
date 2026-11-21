@@ -439,6 +439,7 @@ fn json_snapshots_build_the_watched_game_and_hold_the_last_move() {
     assert_eq!(game.black, "b18c384nbt-s1");
     assert_eq!(game.white, "b18c384nbt-s1");
     assert!(!game.rating);
+    assert_eq!(view.pk_board, None, "only a rating game is an engine game");
     assert_eq!(game.komi, 7.5);
     assert!(!game.complete);
     assert!(game.rules_text.contains('\r'));
@@ -476,6 +477,20 @@ fn json_snapshots_build_the_watched_game_and_hold_the_last_move() {
     );
     assert_eq!(analysis.candidates[0].visits, 120);
     assert_eq!(analysis.candidates[0].allocation_visits, 120);
+}
+
+#[test]
+fn a_watched_rating_game_is_an_engine_game_scored_by_black() {
+    let mut fixture = Fixture::new();
+    fixture.configure(Fixture::settings("/opt/katago"));
+    let id = fixture.start();
+    let mut line: Value = serde_json::from_str(&snapshot("g1", json!([]), json!(["B", "Q16"]), 0.6, 1.5, None)).unwrap();
+    line["whitePlayer"] = json!("kata1-b28c512nbt-s2-d1");
+    fixture.stdout(id, &line.to_string());
+    let view = fixture.view();
+    assert!(view.contribution.unwrap().game.unwrap().rating);
+    // ContributeEngine.java:968-971: isPkBoard with isPkBoardKataB.
+    assert_eq!(view.pk_board, Some(lizzie_core::api::PkBoardView { score_side: Some(Stone::Black) }));
 }
 
 #[test]

@@ -1157,6 +1157,10 @@ impl Workbench {
             height: game.height,
         };
         self.reopen_empty_board(size, false);
+        // ContributeEngine.java:968-971: a rating game is an engine game scored by Black's engine.
+        if game.rating {
+            self.pk_board = Some((self.doc.id, Some(Stone::Black)));
+        }
         let _ = self.edit_document(DocumentEdit::SetPlayers {
             black: game.black.replace(' ', ""),
             white: game.white.replace(' ', ""),

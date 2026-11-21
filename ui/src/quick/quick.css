@@ -216,12 +216,6 @@
   color: var(--ds-text-2);
   font-weight: 600;
 }
-.analysis-settings-link {
-  color: var(--ds-accent-text);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
-}
 
 /* 局部精析 */
 .flash-part {

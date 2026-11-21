@@ -4,7 +4,8 @@
 // not stop the session.
 import { apply, registerViewHandler, run, saveRecordAs, state } from "../app";
 import { COMMANDS } from "../commands";
-import { isApiError, snapshot } from "../contract/client";
+import { snapshot } from "../contract/client";
+import { errorText } from "../errorText";
 import type { FoxCommand, FoxReplaceChoice, FoxStartOutcome, FoxView } from "../contract/generated";
 import { stepper } from "../design/stepper";
 import { closeBox, message, options } from "../dialogs";
@@ -54,7 +55,7 @@ export async function submitFoxPda(draft: string): Promise<FoxView | null> {
     apply(view);
     return state.view?.fox ?? null;
   } catch (e) {
-    await message(t("Message.title"), isApiError(e) ? e.message : String(e), "error");
+    await message(t("Message.title"), errorText(e), "error");
     return null;
   }
 }
@@ -339,7 +340,7 @@ async function startStep(op: FoxCommand): Promise<FoxStartOutcome | null> {
     apply(view);
     return view.fox.outcome;
   } catch (e) {
-    await message(t("Message.title"), isApiError(e) ? e.message : String(e), "error");
+    await message(t("Message.title"), errorText(e), "error");
     return null;
   }
 }

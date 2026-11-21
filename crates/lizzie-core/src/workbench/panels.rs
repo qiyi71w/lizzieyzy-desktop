@@ -417,8 +417,7 @@ impl Workbench {
     /// Settings and window presentation as one write: the projection changes only once both files
     /// are saved (`save_both` puts the settings file back when the second write fails).
     fn commit_layout_files(&mut self, next: crate::settings::Config, persisted: crate::settings::Persisted) -> Result<(), ApiError> {
-        self.save_settings_files(&next, self.persist_reset.is_none().then_some(&persisted))
-            .map_err(|e| ApiError::new(ErrorKind::Io, format!("saving layout failed: {e}")))?;
+        self.save_settings_files(&next, self.persist_reset.is_none().then_some(&persisted))?;
         self.config = next;
         self.persisted = persisted;
         Ok(())

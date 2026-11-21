@@ -3,7 +3,8 @@
 // non-modal end messages (Utils.showMsgNoModal). Each holds a draft; committed values come from
 // the settings view and every change is one Match command. Rust owns the match.
 import { run, state, subscribe } from "../app";
-import { isApiError, openMatchOpenings } from "../contract/client";
+import { openMatchOpenings } from "../contract/client";
+import { errorText } from "../errorText";
 import type { MatchCommand, MatchIntervention, MatchSessionSettings, MatchSettings, MatchTimeMode } from "../contract/generated";
 import { icon } from "../design/icons";
 import { ask, closeBox, formPanel, message } from "../dialogs";
@@ -290,7 +291,7 @@ export async function openEngineGameDialog(): Promise<void> {
   const random = select([t("NewEngineGameDialog.cbxRandomSgf1"), t("NewEngineGameDialog.cbxRandomSgf2")], cfg.sgfRandom ? 1 : 0, "match.sgfRandom");
   const chooseSgf = button(t("NewEngineGameDialog.btnSGFstart"), () => void openMatchOpenings([]).then(
     (r) => { if (r.type === "Refused") void message(t("Message.title"), t(r.message_key), "warning"); },
-    (e: unknown) => message(t("Message.title"), isApiError(e) ? e.message : String(e), "error"),
+    (e: unknown) => message(t("Message.title"), errorText(e), "error"),
   ));
   chooseSgf.dataset.key = "match.chooseSgf";
   const sgf = toggle(body, t("NewEngineGameDialog.lblsgf").trim(), "", cfg.sgfStart, "match.sgfStart", random, chooseSgf);

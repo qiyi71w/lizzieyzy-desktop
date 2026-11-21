@@ -2,7 +2,8 @@
 // then the modal "HumanSL 40" progress dialog with its status, bar and 取消. The model
 // download is the resource job AI 陪练 uses; the preparation itself is the core's manual task.
 import { registerViewHandler, run, state } from "../app";
-import { dispatch, isApiError } from "../contract/client";
+import { dispatch } from "../contract/client";
+import { errorText } from "../errorText";
 import type { StrengthManualOutcome } from "../contract/generated";
 import { chooseSave, message } from "../dialogs";
 import { format, product, t } from "../i18n";
@@ -45,7 +46,7 @@ async function startRun(resume: boolean): Promise<boolean | "download"> {
   try {
     result = await dispatch({ type: "Strength", op: { type: "RunHumanSl", resume } });
   } catch (e) {
-    await message(t("Message.title"), isApiError(e) ? e.message : String(e), "error");
+    await message(t("Message.title"), errorText(e), "error");
     return false;
   }
   if (result.type !== "Refused") return true;

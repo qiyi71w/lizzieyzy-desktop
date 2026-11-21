@@ -64,10 +64,12 @@ async function loadThemeImages(settings: AppearanceSettings, theme: ThemeSetting
 }
 
 /** The colour mode and the skin (Java 经典 takes Java's colours), and what the theme chooses for the
- *  comment pane: its colours and text size (LizzieFrame.java:11292-11304, 11358-11359) and the
- *  评论 / 问题手 underline, the theme's accent colour at alpha 220 (SidebarHeaderPanel.java:226-238).
- *  A value still at the theme default is left to the style sheet, which draws it for the current
- *  colour mode and skin. */
+ *  comment pane: its colours and text size (LizzieFrame.java:11292-11304, 11358-11359), the
+ *  评论 / 问题手 underline, the theme's accent colour at alpha 220 (SidebarHeaderPanel.java:226-238),
+ *  and the controls' corners: glass-corner-radius is the arc, at least 8, Java rounds its buttons,
+ *  fields, lists and popup menus with (AppleStyleSupport.controlCornerRadius, RoundedLineBorder),
+ *  a corner radius of half the arc. A value still at the theme default is left to the style
+ *  sheet, which draws it for the current colour mode and skin. */
 function applyStyles(settings: AppearanceSettings, theme: ThemeSettings): void {
   setThemeMode(settings.mode);
   setSkin(settings.theme === JAVA_CLASSIC_THEME ? "java" : "modern");
@@ -82,6 +84,12 @@ function applyStyles(settings: AppearanceSettings, theme: ThemeSettings): void {
   own("--theme-accent-underline", [r, g, b], THEME_DEFAULT.glassAccent, `rgba(${r}, ${g}, ${b}, ${220 / 255})`);
   if (theme.commentFontSize > 0) root.setProperty("--comment-font-size", `${theme.commentFontSize}px`);
   else root.removeProperty("--comment-font-size");
+  const radius = Math.max(8, theme.glassCornerRadius) / 2;
+  const radii: Record<string, number> = { "--ds-radius": radius, "--ds-radius-cap": radius, "--ds-radius-in": Math.max(2, radius - 2), "--ds-radius-menu": radius + 4 };
+  for (const [name, value] of Object.entries(radii)) {
+    if (theme.glassCornerRadius === THEME_DEFAULT.glassCornerRadius) root.removeProperty(name);
+    else root.setProperty(name, `${value}px`);
+  }
 }
 
 /** Applies a published appearance (the workbench's view, or the one a floating board window is

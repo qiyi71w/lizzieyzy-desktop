@@ -5,6 +5,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { navigate, registerViewHandler, run, state } from "../app";
 import { engineConsole, onConsole } from "../contract/client";
+import { errorText } from "../errorText";
 import type { ConsoleLineView, ContributionCommand, ContributionNotice, ContributionView, ContributionWatchSettings } from "../contract/generated";
 import { icon, type IconName } from "../design/icons";
 import { closeBox, message, panel } from "../dialogs";
@@ -342,7 +343,7 @@ async function startConsole(): Promise<void> {
     appendLines([...history, ...buffered].sort((a, b) => a.seq - b.seq));
   } catch (error) {
     pending = null;
-    await message(t("ContributeView.title"), String(error), "error");
+    await message(t("ContributeView.title"), errorText(error), "error");
   }
 }
 
@@ -352,9 +353,9 @@ async function outOfDate(version: string): Promise<void> {
   const body = document.createElement("div");
   const p = document.createElement("p"); p.className = "contribution-notice"; p.textContent = text;
   const open = button(link, async () => {
-    try { await invoke("open_katago_releases"); } catch (error) { await message(t("Message.title"), String(error), "error"); }
+    try { await invoke("open_katago_releases"); } catch (error) { await message(t("Message.title"), errorText(error), "error"); }
   });
-  open.className = "contribution-link";
+  open.className = "ds-link";
   body.append(p, open);
   await panel(t("Message.title"), body);
 }

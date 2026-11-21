@@ -36,8 +36,9 @@ body {
   table-layout: fixed;
   font-variant-numeric: tabular-nums;
 }
+/* Wide enough for 当前 / Current in 600 with the cell's padding. */
 .bt-col-number {
-  width: calc(var(--ds-size) * 4.5);
+  width: calc(var(--ds-size) * 5.5);
 }
 .bt-col-action {
   width: calc(var(--ds-size) * 5.5);
@@ -63,8 +64,8 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* The record being analysed. */
-#bt-scroll tbody tr:first-child td {
+/* The record being analysed: its number and name; the row actions keep their own weight. */
+#bt-scroll tbody tr:first-child td:nth-child(-n + 2) {
   font-weight: 600;
 }
 #bt-scroll :is(th, td):nth-child(n + 3) {
@@ -91,9 +92,16 @@ body {
 }
 #bt-scroll td.bt-action button:disabled {
   background-color: transparent;
+  color: var(--ds-text-off);
 }
 .bt-progress {
   margin-left: 8px;
   color: var(--ds-text-3);
   font-weight: 400;
+}
+/* No queued record: the hint over the empty table. */
+.bt-empty {
+  padding: 16px 12px;
+  color: var(--ds-text-3);
+  text-align: center;
 }

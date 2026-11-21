@@ -31,12 +31,12 @@ import "../design/stage.css";
 import "./hawkeye.css";
 
 registerProduct({
-  ZhCn: { hawkeyePeriods: "范围", hawkeyeHideLists: "隐藏列表", hawkeyeShowLists: "显示列表" },
-  ZhTw: { hawkeyePeriods: "範圍", hawkeyeHideLists: "隱藏列表", hawkeyeShowLists: "顯示列表" },
-  EnUs: { hawkeyePeriods: "Range", hawkeyeHideLists: "Hide lists", hawkeyeShowLists: "Show lists" },
-  JaJp: { hawkeyePeriods: "範囲", hawkeyeHideLists: "リストを隠す", hawkeyeShowLists: "リストを表示" },
-  KoKr: { hawkeyePeriods: "범위", hawkeyeHideLists: "목록 숨기기", hawkeyeShowLists: "목록 표시" },
-  ThTh: { hawkeyePeriods: "ช่วง", hawkeyeHideLists: "ซ่อนรายการ", hawkeyeShowLists: "แสดงรายการ" },
+  ZhCn: { hawkeyePeriods: "范围", hawkeyeHideLists: "隐藏列表", hawkeyeShowLists: "显示列表", hawkeyeSortSwing: "{0}：波动幅度最大的在前", hawkeyeSortGain: "{0}：上升最多的在前", hawkeyeSortLoss: "{0}：下降最多的在前", hawkeyeSortAscending: "{0}：升序", hawkeyeSortDescending: "{0}：降序" },
+  ZhTw: { hawkeyePeriods: "範圍", hawkeyeHideLists: "隱藏列表", hawkeyeShowLists: "顯示列表", hawkeyeSortSwing: "{0}：波動幅度最大的在前", hawkeyeSortGain: "{0}：上升最多的在前", hawkeyeSortLoss: "{0}：下降最多的在前", hawkeyeSortAscending: "{0}：遞增排序", hawkeyeSortDescending: "{0}：遞減排序" },
+  EnUs: { hawkeyePeriods: "Range", hawkeyeHideLists: "Hide lists", hawkeyeShowLists: "Show lists", hawkeyeSortSwing: "{0}: largest swing first", hawkeyeSortGain: "{0}: largest gain first", hawkeyeSortLoss: "{0}: largest loss first", hawkeyeSortAscending: "{0}: ascending", hawkeyeSortDescending: "{0}: descending" },
+  JaJp: { hawkeyePeriods: "範囲", hawkeyeHideLists: "リストを隠す", hawkeyeShowLists: "リストを表示", hawkeyeSortSwing: "{0}：変動幅の大きい順", hawkeyeSortGain: "{0}：上昇の大きい順", hawkeyeSortLoss: "{0}：下落の大きい順", hawkeyeSortAscending: "{0}：昇順", hawkeyeSortDescending: "{0}：降順" },
+  KoKr: { hawkeyePeriods: "범위", hawkeyeHideLists: "목록 숨기기", hawkeyeShowLists: "목록 표시", hawkeyeSortSwing: "{0}: 변동 폭이 큰 순", hawkeyeSortGain: "{0}: 상승 폭이 큰 순", hawkeyeSortLoss: "{0}: 하락 폭이 큰 순", hawkeyeSortAscending: "{0}: 오름차순", hawkeyeSortDescending: "{0}: 내림차순" },
+  ThTh: { hawkeyePeriods: "ช่วง", hawkeyeHideLists: "ซ่อนรายการ", hawkeyeShowLists: "แสดงรายการ", hawkeyeSortSwing: "{0}: ผันผวนมากที่สุดก่อน", hawkeyeSortGain: "{0}: เพิ่มขึ้นมากที่สุดก่อน", hawkeyeSortLoss: "{0}: ลดลงมากที่สุดก่อน", hawkeyeSortAscending: "{0}: เรียงจากน้อยไปมาก", hawkeyeSortDescending: "{0}: เรียงจากมากไปน้อย" },
 });
 
 /** The 详细列表's preferred widths (MoveListFrame.java:1272-1280, with 手数 widened to its longest
@@ -185,8 +185,20 @@ interface CellLook {
   key: boolean;
 }
 
-/** A header's `aria-sort` value. */
-type AriaSort = "ascending" | "descending" | "other" | "none";
+/** How the rows are sorted by a header. A change column (胜率波动 / 目数波动) goes through
+ *  `magnitude` (|Δ| largest first, whatever the sign), `descending` (the largest gain first) and
+ *  `ascending` (the largest loss first); the colour column groups the sides (`grouped`). */
+type SortState = "magnitude" | "descending" | "ascending" | "grouped" | "none";
+
+/** The visible mark of each state after the header's name: the direction's chevron, after |Δ|
+ *  for `magnitude`; none for the colour grouping. */
+const SORT_MARKS: Record<SortState, () => (Node | string)[]> = {
+  magnitude: () => ["|Δ|", icon("chevron-down")],
+  descending: () => [icon("chevron-down")],
+  ascending: () => [icon("chevron-up")],
+  grouped: () => [],
+  none: () => [],
+};
 
 /** A JTable in a JScrollPane: header, rows, click and right-click. `categorical` names the columns
  *  that hold words (colour, coordinate): they align left, the numbers right. The header row and
@@ -209,6 +221,8 @@ class ListTable {
    *  selection starts. */
   private cursor = -1;
   private current = -1;
+  /** The column the rows are sorted by (-1: none). */
+  private sorted = -1;
 
   constructor(key: string, private readonly categorical: number[], onSort: (column: number) => void, onRow: (row: Row) => void, onMenu: (x: number, y: number) => void, onColumns?: (w: number[]) => void) {
     this.scroll.className = "hk-scroll";
@@ -312,12 +326,29 @@ class ListTable {
     [...this.colgroup.children].forEach((col, k) => ((col as HTMLElement).style.width = `${w[k] ?? 0}px`));
   }
 
-  /** JTable's fit of the preferred widths into the viewport, or equal shares without them. */
+  /** JTable's fit of the preferred widths into the viewport, or equal shares without them. The
+   *  sorted column keeps room for its whole name and sort mark; the other columns give it what
+   *  it lacks in equal shares. */
   layout(): void {
     const width = this.scroll.clientWidth;
     const n = this.headers.length;
     if (!n || width <= 0) return;
-    this.apply(layoutColumns(this.preferred ?? Array.from({ length: n }, () => 75), width));
+    const fitted = layoutColumns(this.preferred ?? Array.from({ length: n }, () => 75), width);
+    const th = this.head.cells[this.sorted];
+    const name = th?.querySelector<HTMLElement>(".hk-th-name");
+    const mark = th?.querySelector<HTMLElement>(".hk-sort");
+    if (th && name && mark) {
+      const style = getComputedStyle(th);
+      const gap = parseFloat(getComputedStyle(name.parentElement ?? th).columnGap) || 0;
+      const need = Math.ceil(name.scrollWidth + gap + mark.offsetWidth + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight));
+      if (need > fitted[this.sorted]) {
+        const rest = layoutColumns(fitted.filter((_, i) => i !== this.sorted), width - need);
+        rest.splice(this.sorted, 0, need);
+        this.apply(rest);
+        return;
+      }
+    }
+    this.apply(fitted);
   }
 
   setHeaders(headers: string[], preferred: number[] | null): void {
@@ -327,8 +358,18 @@ class ListTable {
     this.colgroup.replaceChildren(...headers.map(() => document.createElement("col")));
     this.head.replaceChildren(...headers.map((text, column) => {
       const th = document.createElement("th");
-      th.textContent = text;
+      // The name gives way to the sort mark where the column is narrow (hawkeye.css).
+      const name = document.createElement("span");
+      name.className = "hk-th-name";
+      name.textContent = text;
+      const mark = document.createElement("span");
+      mark.className = "hk-sort";
+      mark.setAttribute("aria-hidden", "true");
+      const label = document.createElement("span");
+      label.append(name, mark);
+      th.append(label);
       th.title = text;
+      th.dataset.key = `${this.head.dataset.key}.${column}`;
       th.classList.toggle("cat", this.categorical.includes(column));
       return th;
     }));
@@ -336,12 +377,34 @@ class ListTable {
     this.layout();
   }
 
-  /** `aria-sort` on the header of the column the rows are sorted by. */
-  setSort(column: number, state: AriaSort): void {
+  /** Marks the header of the column the rows are sorted by (`change`: a three-state change
+   *  column): `aria-sort`, the state's mark after the name and a title that says the order; a
+   *  change column's accessible name says it too, as `aria-sort` cannot tell its states apart. */
+  setSort(column: number, state: SortState, change: boolean): void {
+    let marked = false;
     [...this.head.cells].forEach((th, i) => {
-      if (i === column && state !== "none") th.setAttribute("aria-sort", state);
-      else th.removeAttribute("aria-sort");
+      const text = this.headers[i] ?? "";
+      const own = i === column ? state : "none";
+      if (own === "none") th.removeAttribute("aria-sort");
+      else th.setAttribute("aria-sort", own === "magnitude" || own === "grouped" ? "other" : own);
+      if (th.dataset.sort !== own) {
+        th.dataset.sort = own;
+        th.querySelector(".hk-sort")?.replaceChildren(...SORT_MARKS[own]());
+        marked = true;
+      }
+      let title = text;
+      if (change && own === "magnitude") title = product("hawkeyeSortSwing", text);
+      else if (change && own === "descending") title = product("hawkeyeSortGain", text);
+      else if (change && own === "ascending") title = product("hawkeyeSortLoss", text);
+      else if (own === "descending") title = product("hawkeyeSortDescending", text);
+      else if (own === "ascending") title = product("hawkeyeSortAscending", text);
+      th.title = title;
+      if (change && own !== "none") th.setAttribute("aria-label", title);
+      else th.removeAttribute("aria-label");
     });
+    // A new mark changes what the sorted column needs (layout).
+    this.sorted = state === "none" ? -1 : column;
+    if (marked) this.layout();
   }
 
   /** The rows with their looks; `current` is the row of the move marked on the board (-1: none).
@@ -377,6 +440,14 @@ class ListTable {
   /** Cell texts (acceptance report). */
   texts(): string[][] {
     return this.rows.map((r) => r.cells);
+  }
+
+  /** Each row's vertical middle in the window, where a click lands on it (acceptance report). */
+  rowMiddles(): number[] {
+    return [...this.body.rows].map((row) => {
+      const box = row.getBoundingClientRect();
+      return Math.round(box.top + box.height / 2);
+    });
   }
 }
 
@@ -701,16 +772,18 @@ function mount(send: (input: HawkeyeInput) => void): (payload: HawkeyePayload) =
     );
     if (pane.pinned !== null) detailRows.unshift({ e: moves[pane.pinned], cells: detailCells(moves[pane.pinned], p), pinned: true });
     detail.setRows(detailRows, lookOf([3, pane.katago ? 4 : null]), markedRow(detailRows));
-    // The sorted header's direction as the rows read: a key orders larger first unless
-    // `sort.sorted`; 手数 and the 目数 columns order by a negated key; |Δ| and the colour order
-    // are neither direction.
-    const sortState = (keyed: boolean, threeState: boolean, negated: boolean): AriaSort =>
-      !keyed ? "none" : threeState && sort.origin ? "other" : sort.sorted !== negated ? "ascending" : "descending";
+    // The sorted header's state as the rows read: a key orders larger first unless `sort.sorted`;
+    // 手数 and the 目数 columns order by a negated key; a change column's |Δ| order and the colour
+    // order are neither direction.
+    const sortState = (keyed: boolean, threeState: boolean, negated: boolean): SortState =>
+      !keyed ? "none" : threeState && sort.origin ? "magnitude" : sort.sorted !== negated ? "ascending" : "descending";
     const c = sort.column;
-    const minState = sortState(!!minKeyNow, c === 2 || (pane.katago && c === 3), c === 0);
-    black.setSort(c, minState);
-    white.setSort(c, minState);
-    detail.setSort(c, c === 0 ? "other" : sortState(!!detailKeyNow, c === 3 || (pane.katago && c === 4), c === 1 || (pane.katago && (c === 7 || c === 8))));
+    const minChange = c === 2 || (pane.katago && c === 3);
+    const minState = sortState(!!minKeyNow, minChange, c === 0);
+    black.setSort(c, minState, minChange);
+    white.setSort(c, minState, minChange);
+    const detailChange = c === 3 || (pane.katago && c === 4);
+    detail.setSort(c, c === 0 ? "grouped" : sortState(!!detailKeyNow, detailChange, c === 1 || (pane.katago && (c === 7 || c === 8))), detailChange);
 
     hideMove.replaceChildren(s.showList ? hideIcons.up : hideIcons.down);
     hideMove.setAttribute("aria-label", product(s.showList ? "hawkeyeHideLists" : "hawkeyeShowLists"));
@@ -759,10 +832,12 @@ function mount(send: (input: HawkeyeInput) => void): (payload: HawkeyePayload) =
       });
     const page = data.settings.topPage;
     const rows = page === 2 ? detail.texts() : page === 1 ? [...black.texts(), ...white.texts()] : [];
+    const rowMiddles = page === 2 ? detail.rowMiddles() : page === 1 ? [...black.rowMiddles(), ...white.rowMiddles()] : [];
     const r: HawkeyeReport = {
       topPage: page,
       chart: data.settings.chart,
       rows,
+      rowMiddles,
       dialog: openDialog(),
       targets: [...own, ...charts.targets(), ...statistics.targets(), ...dialogTargets()],
     };

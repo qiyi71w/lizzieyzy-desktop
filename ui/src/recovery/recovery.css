@@ -29,7 +29,7 @@
 }
 #recovery .rc-actions {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   margin-left: auto;
 }
 #recovery .rc-top > .rc-actions {
@@ -51,7 +51,7 @@
 #recovery .rc-slot {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   padding: 8px;
   border: 1px solid var(--ds-line);
   border-radius: var(--ds-radius);
@@ -77,7 +77,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 #recovery .rc-label {
   flex: none;
@@ -95,7 +95,8 @@
   flex: 1;
   min-width: 80px;
   height: var(--ds-control-h);
-  padding: 0 6px;
+  padding: 0 8px;
+  text-overflow: ellipsis;
   user-select: text;
 }
 #recovery .rc-zoom {

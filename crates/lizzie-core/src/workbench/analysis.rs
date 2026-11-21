@@ -1223,8 +1223,18 @@ impl Workbench {
 
     /// 清除Lizzie缓存 (全局 `clearBoardStat`, Shift+A; 此手 `clearbestmoves`): the stored
     /// results in `scope` stay shown and saved, and the next live result replaces them even
-    /// when it is weaker. Nothing is sent to an engine and nothing is analysed again.
+    /// when it is weaker. Nothing is sent to an engine and nothing is analysed again. The global
+    /// one also ends the document's engine-game marks (Board.java:5410-5416, Menu.java:3540,
+    /// Input.java:734).
     pub fn clear_analysis_cache(&mut self, scope: AnalysisScope) {
+        self.invalidate_analysis(scope);
+        if scope == AnalysisScope::All {
+            self.pk_board = None;
+        }
+    }
+
+    /// The stored results in `scope` give way to the next live result, even a weaker one.
+    pub(super) fn invalidate_analysis(&mut self, scope: AnalysisScope) {
         let cursor = self.cursor;
         for store in self.cleared_stores() {
             match scope {
@@ -1253,7 +1263,7 @@ impl Workbench {
     /// mirrors the commands to it), drops its search cache (`clear_cache`, only when it lists
     /// the command) and, if it is analysing, searches this move again.
     pub fn refresh_current_move(&mut self) {
-        self.clear_analysis_cache(AnalysisScope::Current);
+        self.invalidate_analysis(AnalysisScope::Current);
         let secondary = self.double_engine().then(|| self.engines.secondary()).flatten();
         for id in self.engines.foreground().into_iter().chain(secondary) {
             self.engines.refresh_analysis(id);

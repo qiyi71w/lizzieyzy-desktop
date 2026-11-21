@@ -1,12 +1,13 @@
 // UI controller: holds the latest projection from Rust and sends commands. Commands are sent one
 // at a time in the order the user issued them (like Swing's event queue), so a quick Down/Up pair
 // can never be applied in the opposite order.
-import { dispatch, isApiError } from "./contract/client";
+import { dispatch } from "./contract/client";
 import type { Command, CommandResult, CommentLabels, ExportKind, Navigation, StoneSound, TreeNodeView, WorkbenchView } from "./contract/generated";
 import { ask, confirm, message, timedMessage } from "./dialogs";
 import { product, t } from "./i18n";
 import { tuningText } from "./engine/tuningText";
 import { contributionText } from "./contribution/text";
+import { errorText } from "./errorText";
 
 export const APP_TITLE = "LizzieYzy Tauri";
 
@@ -139,7 +140,7 @@ export function run(command: Command): Promise<CommandResult | null> {
       return result;
     } catch (e) {
       // Tuning refusals carry a Java message key (`EngineThreadPolicy.*`), not display text.
-      const text = isApiError(e) ? (command.type === "Tuning" ? tuningText(e.message) : e.message) : String(e);
+      const text = command.type === "Tuning" ? errorText(e, tuningText) : errorText(e);
       // Only the command kind: arguments may hold credentials (ikatago scan, proxy settings).
       const op = "op" in command ? `.${"type" in command.op ? command.op.type : command.op.op}` : "";
       console.error("command failed", `${command.type}${op}`, e);

@@ -82,6 +82,9 @@ struct Opts<'a> {
     line: Option<Vec<NodeId>>,
     /// When supplied, analysis comes only from the per-node stores.
     analysis: Option<Analysis<'a>>,
+    /// The root `DZ` of an engine game, replacing the one read with the record (SGFParser.java:
+    /// 1443-1462 puts it over the root's properties); `None` keeps what was read.
+    engine_game: Option<&'a str>,
 }
 
 /// Serialises a record. `application` is the `AP` value naming the writing program.
@@ -93,15 +96,19 @@ pub fn write(rec: &GameRecord, application: &str) -> String {
             comments: Comments::All,
             line: None,
             analysis: None,
+            engine_game: None,
         },
     )
 }
 
+/// A save of a record: `analysis` payloads, `comment` for analysed nodes, `engine_game` the root
+/// `DZ` of an engine game.
 pub(crate) fn write_analyzed(
     rec: &GameRecord,
     application: &str,
     analysis: Analysis,
     comment: &dyn Fn(NodeId) -> Option<String>,
+    engine_game: Option<&str>,
 ) -> String {
     write_with(
         rec,
@@ -110,6 +117,7 @@ pub(crate) fn write_analyzed(
             comments: Comments::Formatted(comment),
             line: None,
             analysis: Some(analysis),
+            engine_game,
         },
     )
 }
@@ -126,12 +134,14 @@ pub(crate) fn write_export_analyzed(rec: &GameRecord, export: &Export, analysis:
             comments: Comments::RootOnly,
             line: None,
             analysis,
+            engine_game: None,
         },
         Export::RawWithComments { comment } => Opts {
             application: None,
             comments: Comments::Formatted(*comment),
             line: None,
             analysis,
+            engine_game: None,
         },
         Export::Branch { current } => {
             let mut line = rec.path_to(*current);
@@ -145,6 +155,7 @@ pub(crate) fn write_export_analyzed(rec: &GameRecord, export: &Export, analysis:
                 comments: Comments::None,
                 line: Some(line),
                 analysis: None,
+                engine_game: None,
             }
         }
     };
@@ -224,11 +235,14 @@ fn write_root(out: &mut String, rec: &GameRecord, opts: &Opts) {
     match opts.application {
         Some(application) => {
             prop(out, "AP", application);
+            if let Some(tag) = opts.engine_game {
+                prop(out, "DZ", tag);
+            }
             write_retained(
                 out,
-                root.properties
-                    .iter()
-                    .filter(|p| opts.analysis.is_none() || !p.id.starts_with("LZ")),
+                root.properties.iter().filter(|p| {
+                    (opts.analysis.is_none() || !p.id.starts_with("LZ")) && (opts.engine_game.is_none() || p.id != "DZ")
+                }),
                 ROOT_MODELLED,
             );
         }

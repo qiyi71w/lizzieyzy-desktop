@@ -235,6 +235,9 @@ impl Workbench {
             self.batch_set_cursor(start);
         } else {
             self.cursor = start;
+            // startAutoAnaNow's clearBoardStat (BottomToolbar.java:4028) ends the document's
+            // engine-game marks; a batch analyses its own record, never the open document.
+            self.pk_board = None;
         }
         self.engines.want(Some(self.foreground_target()), false);
         self.sync_engine();

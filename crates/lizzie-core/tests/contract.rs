@@ -105,6 +105,7 @@ fn generate() -> String {
         lizzie_core::api::MatchSessionSettings, lizzie_core::api::MatchCommand,
         lizzie_core::api::MatchIntervention, lizzie_core::api::MatchOpeningFile,
         lizzie_core::api::MatchPhase, lizzie_core::api::MatchScoreView, lizzie_core::api::MatchView,
+        lizzie_core::api::PkBoardView,
         lizzie_core::api::MatchRulesUnverified, lizzie_core::api::MatchEnd,
         lizzie_core::api::MatchOutcomeView, lizzie_core::api::MatchNotice,
         lizzie_core::api::MatchWinrateImageRequest, lizzie_core::api::MatchSettingsView,

@@ -9,6 +9,7 @@ import { registerViewHandler, run, state } from "./app";
 import { COMMANDS } from "./commands";
 import type { UpdateDownloadView, UpdateError, UpdateOfferView, UpdateResultView, UpdateSettings, UpdateView } from "./contract/generated";
 import { closeBox, message } from "./dialogs";
+import { errorText } from "./errorText";
 import { product, registerProduct, t } from "./i18n";
 import { footer, groupTitle, row, switchRow } from "./engine/controls";
 import { openSettingsAt, registerSettingTargets } from "./engine/settingsTargets";
@@ -183,7 +184,7 @@ export function formatBytes(bytes: number): string {
 const downloading = (d: UpdateDownloadView) => d.phase === "Downloading" || d.phase === "Paused";
 
 /** UpdateText.userFacingError, with what the system itself said. */
-function errorText(d: UpdateDownloadView): string | null {
+function downloadErrorText(d: UpdateDownloadView): string | null {
   if (d.error === null) return null;
   const text = failureText(d.error);
   return d.detail ? `${text}\n${d.detail}` : text;
@@ -230,7 +231,7 @@ function downloadStatus(u: UpdateView): string {
       break;
     case "None": break;
   }
-  const error = errorText(d);
+  const error = downloadErrorText(d);
   return error ? `${text}\n${error}` : text;
 }
 
@@ -447,7 +448,7 @@ async function openRelease(): Promise<void> {
   try {
     await invoke("open_update_release");
   } catch (e) {
-    const reason = e && typeof e === "object" && "message" in e ? String(e.message) : String(e);
+    const reason = errorText(e);
     await message(t("Message.title"), `${t("WindowsUpdate.status.openReleaseFailed")}: ${reason}`, "error");
   }
 }

@@ -4,7 +4,8 @@
 // this module holds only the window and its 隐藏界面.
 import { registerViewHandler, run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
-import { dispatch, isApiError } from "../contract/client";
+import { dispatch } from "../contract/client";
+import { errorText } from "../errorText";
 import type { AnalysisEngineSettings, Command, FlashOutcome, FlashTarget, WorkbenchView } from "../contract/generated";
 import { confirm, formPanel, message, setOwnerDisabled } from "../dialogs";
 import { parseJavaInt } from "../display/dialogs";
@@ -25,7 +26,7 @@ export async function requestFlash(command: Command, retry: (kept: AnalysisEngin
   try {
     result = await dispatch(command);
   } catch (e) {
-    await message(t("Message.title"), isApiError(e) ? e.message : String(e), "error");
+    await message(t("Message.title"), errorText(e), "error");
     return false;
   }
   if (result.type !== "Refused") return true;

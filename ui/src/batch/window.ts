@@ -5,9 +5,18 @@ import "../design/window";
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { BatchMove } from "../contract/generated";
-import { setLanguage, t } from "../i18n";
+import { product, registerProduct, setLanguage, t } from "../i18n";
 import { BATCH_DATA_EVENT, BATCH_INPUT_EVENT, type BatchButton, type BatchInput, type BatchPayload, type BatchReport } from "./model";
 import "./batch.css";
+
+registerProduct({
+  ZhCn: { batchTableEmpty: "队列里没有棋谱。点“{0}”加入要分析的棋谱。" },
+  ZhTw: { batchTableEmpty: "佇列裡沒有棋譜。點「{0}」加入要分析的棋譜。" },
+  EnUs: { batchTableEmpty: "No records are queued. Use “{0}” to add records to analyse." },
+  JaJp: { batchTableEmpty: "キューに棋譜がありません。「{0}」で分析する棋譜を追加します。" },
+  KoKr: { batchTableEmpty: "대기 중인 기보가 없습니다. '{0}' 버튼으로 분석할 기보를 추가하세요." },
+  ThTh: { batchTableEmpty: "ไม่มีไฟล์ในคิว ใช้ “{0}” เพื่อเพิ่มไฟล์ที่จะวิเคราะห์" },
+});
 
 /** The top buttons: key, text and look (开始/结束 is the window's main action, 清空 empties the
  *  queue). Literal t() calls keep the keys in the Java string extraction. */
@@ -56,6 +65,10 @@ export function bootBatchTable(): void {
   const body = document.createElement("tbody");
   table.append(columns, head, body);
   scroll.append(table);
+  // 增加棋谱 is the way to fill an empty queue; the hint says so under the header.
+  const empty = document.createElement("div");
+  empty.className = "bt-empty";
+  scroll.append(empty);
   document.body.append(bar, scroll);
 
   let lastReport = "";
@@ -125,6 +138,8 @@ export function bootBatchTable(): void {
         return tr;
       }),
     );
+    empty.hidden = p.items.length > 0;
+    empty.textContent = product("batchTableEmpty", t("AnalysisTable.addFile"));
     report(rows);
   };
 

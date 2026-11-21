@@ -9,6 +9,7 @@ import { namedFace } from "../analysis/suggestionsFrame";
 import { icon } from "../design/icons";
 import { onThemeChange, token } from "../design/theme";
 import { product, registerProduct, t } from "../i18n";
+import { fillTabular, tabularWidth } from "../workbench/paint";
 import { fixed, settingsCommand, type HawkeyePayload } from "./model";
 
 export interface ChartActions {
@@ -410,6 +411,22 @@ function convertHeight(d: number): number {
   return (2 / 8.0) * 100 + ((Math.abs(d) - 20.0) / (8.0 * 80)) * 100.0;
 }
 
+/** A score lead as the win-rate graph writes it (WinrateGraph.formatScoreLead): B+ / W+ and one
+ *  decimal, a bare 0.0 when even. */
+function scoreLead(black: number): string {
+  const magnitude = fixed(Math.abs(black), 1);
+  if (magnitude === "0.0") return magnitude;
+  return (black > 0 ? t("WinrateGraph.scoreLeadBlackPrefix") : t("WinrateGraph.scoreLeadWhitePrefix")) + magnitude;
+}
+
+/** A text's ink on the canvas. */
+interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 /** Java `params` after a complete `draw`: what `moveNumber` and the 翻车现场 slots use. */
 interface Params {
   posx: number;
@@ -490,7 +507,8 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
     } else {
       if (chart >= 7) gridLine(posx, y, posx + width, "grid");
       else gridLine(posx, y, posx + width - 25, i === 2 ? "mid" : "grid");
-      if (chart < 5) axisText(String(idiv(100 * i, 4)), y);
+      // 胜率吻合 labels its scale after the curves are laid out (below)
+      if (chart === 1) axisText(String(idiv(100 * i, 4)), y);
     }
   }
 
@@ -523,11 +541,98 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
     trueNumMoves = end - 1;
   }
   if (numMoves < trueNumMoves) numMoves = trueNumMoves;
-  if (trueNumMoves < 1) return null;
-  const firstNodeAnalyzed = line.points.has(1);
   width = chart === 0 ? width - 30 : width - 35;
   const xOf = (n: number) => posx + idiv(n * width, numMoves);
   const yOf = (wr: number) => posy + height - jint((wr * height) / 100);
+
+  // 胜率吻合's score line spans ±maxScore over the plot's height.
+  const katago = p.pane.katago;
+  let maxScore = 30;
+  let scored = false;
+  if (chart === 0 && katago)
+    for (const pt of line.points.values()) {
+      if (pt.black.score_lead !== null) scored = true;
+      if (pt.score_lead !== null && Math.abs(pt.score_lead) > maxScore) maxScore = Math.abs(pt.score_lead);
+    }
+  const scoreY = (s: number) => {
+    const v = s > maxScore ? maxScore : s < 0 && Math.abs(s) > maxScore ? -maxScore : s;
+    return posy + idiv(height, 2) - jint((v * height) / 2 / maxScore);
+  };
+  // 胜率吻合's current and mouse-over positions (curMouseOverNode), each with its win rate and
+  // score lead (MoveListFrame.java:5843-5941): laid out here, painted over the curves.
+  const hm = hover.move ?? -1;
+  const hoverAt = chart === 0 && hm !== cur && hm >= 2 && hm <= total ? line.points.get(hm) : undefined;
+  const readouts: (() => void)[] = [];
+  const readoutBoxes: Box[] = [];
+  if (chart === 0 && trueNumMoves >= 1) {
+    const shift = (katago ? 9 : 3) * DOT_RADIUS;
+    const put = (text: string, x: number, y: number, size: "m" | "l", color: string) => {
+      g.font(size, true, g.fonts.ui);
+      const ink = g.c.measureText(text);
+      readoutBoxes.push({ x: x - 2, y: y - ink.actualBoundingBoxAscent - 2, w: ink.width + 4, h: ink.actualBoundingBoxAscent + ink.actualBoundingBoxDescent + 4 });
+      readouts.push(() => {
+        g.font(size, true, g.fonts.ui); // MoveListFrame.java:5860, 5891, 5906, 5929
+        g.haloText(text, x, y, color);
+      });
+    };
+    const values = (pt: HistoryPoint, n: number, dot: string) => {
+      const wr = pt.black.winrate;
+      put(fixed(wr, 1) + "%", xOf(n) - shift, yOf(wr) + (wr > 50 ? 6 * DOT_RADIUS : -2 * DOT_RADIUS), "l", P.text);
+      readouts.push(() => {
+        g.color(dot);
+        g.oval(xOf(n) - DOT_RADIUS, yOf(wr) - DOT_RADIUS, DOT_RADIUS * 2, DOT_RADIUS * 2);
+      });
+      const s = katago ? pt.black.score_lead : null;
+      if (s === null) return;
+      const text = scoreLead(s);
+      g.font("m", true, g.fonts.ui);
+      // Java steps back 13 px over the last two moves; the B+ / W+ text also stops at the edge.
+      put(text, Math.min(numMoves - n < 2 ? xOf(n) - 13 : xOf(n), origW - g.width(text)), scoreY(s), "m", P.scoreText);
+    };
+    const curAt = cur >= 2 && cur <= total ? line.points.get(cur) : undefined;
+    if (curAt) {
+      // The current position's values give way to the mouse-over ones they would overlap.
+      g.font("l", true, g.fonts.ui);
+      const mPosX = hoverAt ? xOf(hm - 1) - shift : -1;
+      if (Math.abs(xOf(cur - 1) - shift - mPosX) > g.width(fixed(curAt.black.winrate, 1) + "%")) values(curAt, cur - 1, P.line);
+    }
+    if (hoverAt) values(hoverAt, hm - 1, P.hover);
+  }
+  if (chart === 0) {
+    // 胜率吻合's scale, as the main window's win-rate graph labels it: tabular labels just above
+    // the 75 / 50 / 25 % lines (the midline's alone where the quarters are closer than a line of
+    // text), the win rate at the left edge, the score lead at ±maxScore / 2 and 0 at the right
+    // edge where it clears the win rate's. A label a readout covers is left out.
+    g.font("s");
+    const labelH = g.height();
+    const descent = Math.ceil(g.c.measureText("0").fontBoundingBoxDescent);
+    const quarterY = (k: number) => posy + height - jint((height * k * 25) / 100);
+    const quarters = quarterY(2) - quarterY(3) >= labelH + 2;
+    const right = origW - 1;
+    const label = (text: string, x: number, base: number, color: string) => {
+      const ink = g.c.measureText(text);
+      const box = { x, y: base - ink.actualBoundingBoxAscent - 1, w: tabularWidth(g.c, text), h: ink.actualBoundingBoxAscent + ink.actualBoundingBoxDescent + 2 };
+      if (readoutBoxes.some((r) => r.x < box.x + box.w && box.x < r.x + r.w && r.y < box.y + box.h && box.y < r.y + r.h)) return;
+      g.color(color);
+      fillTabular(g.c, text, x, base);
+    };
+    const half = fixed(maxScore / 2, 1).replace(/\.0$/, "");
+    const rows: [number, string, string][] = [
+      [3, "75%", t("WinrateGraph.scoreLeadBlackPrefix") + half],
+      [2, "50%", "0"],
+      [1, "25%", t("WinrateGraph.scoreLeadWhitePrefix") + half],
+    ];
+    for (const [k, win, score] of rows) {
+      const y = quarterY(k);
+      if (k === 2 ? y - posy < labelH + 2 : !quarters) continue;
+      const base = y - 2 - descent;
+      label(win, 3, base, P.axis);
+      const w = tabularWidth(g.c, score);
+      if (scored && 3 + tabularWidth(g.c, win) + 8 <= right - w) label(score, right - w, base, P.scoreText);
+    }
+  }
+  if (trueNumMoves < 1) return null;
+  const firstNodeAnalyzed = line.points.has(1);
 
   if (chart === 7 || chart === 8) {
     const list = chart === 7 ? p.pane.winrate_mistakes : p.pane.score_mistakes;
@@ -551,16 +656,9 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
   let lastWrSave = 50;
   let lastMatchValueB = 0;
   let lastMatchValueW = 0;
-  let cwr = -1;
-  let cmovenum = -1;
-  let cScore = -500;
-  let mmovenum = -1;
-  let mwr = -1;
-  let mScore = -500;
   let cmovenumCase2 = -1;
   let cdiffwinCase2 = 0;
   let cConvertHeight = 0;
-  const hoverMove = hover.move;
   const single = p.black !== p.white;
 
   for (let k = end; k > 0 && (chart === 0 || chart === 1 || k >= first); k--) {
@@ -598,13 +696,6 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
             const b = jint((wr * height) / 100);
             g.line(xOf(movenum + 1), posy + height - a + idiv((a - b) * (lostMoves - 1), lostMoves), xOf(movenum), yOf(wr));
           }
-        }
-        if (k === cur) {
-          cwr = wr;
-          cmovenum = movenum;
-        } else if (k === hoverMove) {
-          mwr = wr;
-          mmovenum = movenum;
         }
         lastWr = wr;
         lastNodeOk = true;
@@ -724,12 +815,12 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
     g.line(x, 0, x, posy + origH);
     g.font("s", true);
     g.haloText(String(cur), x + 3, posy + origH - 10, P.text);
-    if (mmovenum > 0 && hoverMove !== null) {
-      x = posx + idiv((hoverMove - 1) * width, numMoves);
+    if (hoverAt) {
+      x = posx + idiv((hm - 1) * width, numMoves);
       g.stroke(1, DASH);
       g.color(P.hover);
       g.line(x, 0, x, posy + origH);
-      g.haloText(String(hoverMove), x + 3, posy + origH - 10, P.text);
+      g.haloText(String(hm), x + 3, posy + origH - 10, P.text);
     }
     g.stroke(SERIES);
     if (lastOkMoveSave > 0 && !firstNodeAnalyzed) {
@@ -737,18 +828,13 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
       g.line(posx, posy + height - idiv(50 * height, 100), xOf(lastOkMoveSave), yOf(lastWrSave));
     }
 
-    let maxScore = 30;
-    const katago = p.pane.katago;
     if (katago) {
-      for (const pt of line.points.values()) if (pt.score_lead !== null && Math.abs(pt.score_lead) > maxScore) maxScore = Math.abs(pt.score_lead);
       let lastScore = -500;
       let lastOk = -1;
       let n = total - 1;
       for (let k = total; k > 0; k--, n--) {
         const s = line.points.get(k)?.black.score_lead;
         if (s === undefined || s === null) continue;
-        if (k === cur) cScore = s;
-        else if (k === hoverMove) mScore = s;
         if (lastOk > 0 && Math.abs(n - lastOk) < 25 && lastScore > -500) {
           g.color(P.score);
           // dashed from a position off the main trunk (MoveListFrame.java:5829-5831)
@@ -761,36 +847,7 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
         lastOk = n;
       }
     }
-    function scoreY(s: number): number {
-      const v = s > maxScore ? maxScore : s < 0 && Math.abs(s) > maxScore ? -maxScore : s;
-      return posy + idiv(height, 2) - jint((v * height) / 2 / maxScore);
-    }
-    const shift = (katago ? 9 : 3) * DOT_RADIUS;
-    const mPosX = mmovenum > 0 ? xOf(mmovenum) - shift : -1;
-    const textY = (wr: number) => posy + (height - jint((wr * height) / 100)) + (wr > 50 ? 6 * DOT_RADIUS : -2 * DOT_RADIUS);
-    const scoreText = (s: number, n: number) => {
-      g.font("m", true, g.fonts.ui); // MoveListFrame.java:5891, 5929
-      g.haloText(fixed(s, 1), numMoves - n < 2 ? xOf(n) - 13 : xOf(n), scoreY(s), P.scoreText);
-    };
-    if (cmovenum > 0) {
-      g.font("l", true, g.fonts.ui); // MoveListFrame.java:5860
-      const wrString = fixed(cwr, 1);
-      const strWidth = g.width(wrString);
-      const cPosX = xOf(cmovenum) - shift;
-      if (Math.abs(cPosX - mPosX) > strWidth) {
-        g.haloText(wrString, cPosX, textY(cwr), P.text);
-        g.color(P.line);
-        g.oval(xOf(cmovenum) - DOT_RADIUS, posy + height - jint((cwr * height) / 100) - DOT_RADIUS, DOT_RADIUS * 2, DOT_RADIUS * 2);
-        if (cScore > -500) scoreText(cScore, cmovenum);
-      }
-    }
-    if (mmovenum > 0) {
-      g.font("l", true, g.fonts.ui); // MoveListFrame.java:5906
-      g.haloText(fixed(mwr, 1), mPosX, textY(mwr), P.text);
-      g.color(P.hover);
-      g.oval(xOf(mmovenum) - DOT_RADIUS, posy + height - jint((mwr * height) / 100) - DOT_RADIUS, DOT_RADIUS * 2, DOT_RADIUS * 2);
-      if (mScore > -500) scoreText(mScore, mmovenum);
-    }
+    for (const paint of readouts) paint();
   }
   return { posx, width, numMoves };
 }

@@ -137,6 +137,16 @@ pub struct MatchScoreView {
     pub second_visits: f64,
 }
 
+/// The open document is an engine game (Java `Board.isPkBoard`): the win-rate graph draws each
+/// engine's curve and one score curve.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct PkBoardView {
+    /// The side whose engine gives the score curve (`isPkBoardKataW`, else `isPkBoardKataB`):
+    /// White when the white engine is KataGo or Sai, else Black when the black one is; `None`
+    /// when neither is, and no score curve is drawn (`WinrateGraph.resolveScoreLeadAvailable`).
+    pub score_side: Option<Stone>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 pub struct MatchView {
     pub id: u64,

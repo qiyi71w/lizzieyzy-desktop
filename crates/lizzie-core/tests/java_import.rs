@@ -18,7 +18,7 @@ use lizzie_core::settings::{
     Config, DisplaySettings, EstimateStyle, ExtraMode, FramePlacement, HawkeyeBranch, HawkeyePeriod, Language, MoveRankMode,
     Persisted, ProblemSide, ProblemSort, ProxyMode, Storage, SubBoardMode, WindowPlacement,
 };
-use lizzie_core::workbench::{Workbench, IMPORT_NEEDS_REPLACE, IMPORT_STALE};
+use lizzie_core::workbench::{Workbench, IMPORT_NEEDS_REPLACE, IMPORT_STALE, SETTINGS_SAVE_FAILED};
 use serde_json::json;
 
 /// Records what would be launched; no process is started.
@@ -2636,7 +2636,7 @@ fn a_failed_import_with_ui_pictures_leaves_no_new_theme_folders() {
     // for every user. The themes folder is created first so the import can write into it.
     std::fs::create_dir(config_dir.join("themes")).unwrap();
     let failed = without_settings_file(&product, || wb.apply_java_import(p.id, &[], false, false, true, None));
-    assert!(failed.as_ref().is_err_and(|e| e.message.starts_with("saving imported settings failed")), "{failed:?}");
+    assert!(failed.as_ref().is_err_and(|e| e.message.starts_with(&format!("{SETTINGS_SAVE_FAILED}\n"))), "{failed:?}");
     std::fs::remove_dir(config_dir.join("themes")).unwrap();
     assert_eq!(snapshot(&config_dir), before);
 }
@@ -2662,7 +2662,7 @@ fn java_theme_replacing_a_user_theme_needs_confirmation_and_failures_leave_theme
     assert_eq!(themes_snapshot(&wb), before, "not confirmed: the theme is unchanged");
     // The settings file cannot be written: the theme folders are put back as they were.
     let failed = without_settings_file(&product, || wb.apply_java_import(p.id, &[], false, false, true, None));
-    assert!(failed.as_ref().is_err_and(|e| e.message.starts_with("saving imported settings failed")), "{failed:?}");
+    assert!(failed.as_ref().is_err_and(|e| e.message.starts_with(&format!("{SETTINGS_SAVE_FAILED}\n"))), "{failed:?}");
     assert_eq!(themes_snapshot(&wb), before, "a failed import leaves no half-written theme");
     let revision = wb.view(false).settings.theme_files_revision;
     wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();

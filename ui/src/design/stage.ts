@@ -58,6 +58,9 @@ export interface StagePalette {
   font: string;
   winrateLine: string;
   winrateMiss: string;
+  /** The white engine's win-rate curve in the engine-game graph while the theme's miss colour
+   *  holds its default (Java draws it in the miss colour, which here is a quiet bridge grey). */
+  engineWhiteLine: string;
   scoreLine: string;
   blunderBar: string;
   commentNode: string;
@@ -110,6 +113,7 @@ const NAMES: Record<Exclude<keyof StagePalette, "builtin" | "treeNodes">, string
   font: "--ds-font",
   winrateLine: "--ws-winrate-line",
   winrateMiss: "--ws-winrate-miss",
+  engineWhiteLine: "--ws-engine-white-line",
   scoreLine: "--ws-score-line",
   blunderBar: "--ws-blunder-bar",
   commentNode: "--ws-comment-node",

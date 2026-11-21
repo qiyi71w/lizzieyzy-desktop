@@ -104,6 +104,30 @@ fn refused(key: &str) -> CommandResult {
 fn side_index(first_black: bool, side: Stone) -> usize {
     usize::from((side == Stone::Black) != first_black)
 }
+/// The root `DZ` of a saved engine game (SGFParser.java:775-791): `Y` without a scoring engine,
+/// `KB` / `KW` with the black / white engine giving the score; `None` for any other record.
+pub(super) fn recorded_pk_side(rec: &GameRecord) -> Option<Option<Stone>> {
+    rec.node(ROOT)
+        .properties
+        .iter()
+        .filter(|p| p.id == "DZ")
+        .flat_map(|p| &p.values)
+        .find_map(|v| match v.as_str() {
+            "Y" => Some(None),
+            "KB" => Some(Some(Stone::Black)),
+            "KW" => Some(Some(Stone::White)),
+            _ => None,
+        })
+}
+/// The root `DZ` an engine game is saved with (SGFParser.java:1443-1462), the inverse of
+/// [`recorded_pk_side`].
+fn pk_tag(score_side: Option<Stone>) -> &'static str {
+    match score_side {
+        Some(Stone::White) => "KW",
+        Some(Stone::Black) => "KB",
+        None => "Y",
+    }
+}
 fn safe(value: &str) -> String {
     value
         .chars()
@@ -141,6 +165,41 @@ fn record_outcome(score: &mut MatchScoreView, end: MatchEnd, winner: Option<Ston
 impl Workbench {
     pub(super) fn match_active(&self) -> bool {
         self.matches.run.is_some()
+    }
+    /// The side whose engine gives an engine game's score (EngineManager.java:15801-15805,
+    /// SGFParser.java:1448-1462): the white engine when it is KataGo or Sai, else the black one
+    /// when it is.
+    fn match_score_side(&self, r: &Run) -> Option<Stone> {
+        let black = side_index(r.first_is_black, Stone::Black);
+        let scores = |n: usize| self.engines.reports_score(r.sides[n].instance);
+        if scores(1 - black) {
+            Some(Stone::White)
+        } else if scores(black) {
+            Some(Stone::Black)
+        } else {
+            None
+        }
+    }
+    /// [`WorkbenchView::pk_board`]: the running match's engines decide while it exists; else
+    /// the marks of the open document.
+    pub(super) fn pk_board_view(&self) -> Option<PkBoardView> {
+        let score_side = match &self.matches.run {
+            Some(r) => self.match_score_side(r),
+            None => self.pk_board.filter(|(doc, _)| *doc == self.doc.id)?.1,
+        };
+        Some(PkBoardView { score_side })
+    }
+    /// The root `DZ` a save of the open document writes while it is an engine game.
+    pub(super) fn pk_save_tag(&self) -> Option<&'static str> {
+        self.pk_board_view().map(|pk| pk_tag(pk.score_side))
+    }
+    /// `Board.clearPkBoardStat` (AnalysisEngine.java:1222): an analysis-process request on
+    /// document `doc` reached `setResult` (every query answered, none failed), so that document
+    /// is no engine game any more. Flash analysis, 自动棋谱快析 and 整盘精析 all end that way.
+    pub(super) fn analysis_request_completed(&mut self, doc: u64) {
+        if self.pk_board.is_some_and(|(marked, _)| marked == doc) {
+            self.pk_board = None;
+        }
     }
     pub(super) fn match_analyse(&self) -> Option<bool> {
         self.matches.run.as_ref().map(|r| {
@@ -761,6 +820,9 @@ impl Workbench {
         let komi = r.settings.komi;
         let black = side_index(r.first_is_black, Stone::Black);
         let names = (r.sides[black].name.clone(), r.sides[1 - black].name.clone());
+        // EngineManager.java:2918: the game's board is an engine game from its start; the
+        // engine-game clear dropped the kata marks (Board.java:5485-5486), set again at its end.
+        self.pk_board = Some((self.doc.id, None));
         self.komi_changed = true;
         self.apply_komi(komi);
         let _ = self.edit_document(DocumentEdit::SetPlayers {
@@ -1487,6 +1549,10 @@ impl Workbench {
         let save = started
             && !matches!(end, MatchEnd::UserStopped | MatchEnd::Retired)
             && (r.values.auto_save || r.values.batch_enabled);
+        // A start that never played leaves no engine game (EngineManager.java:5310); a played
+        // game keeps the marks with its scoring side (`changeEngIcoForEndPk`, 15801-15805).
+        let r = self.matches.run.as_ref().unwrap();
+        self.pk_board = started.then(|| (r.doc, self.match_score_side(r)));
         let _ = self.edit_document(DocumentEdit::SetResult { result });
         let _ = self.edit_document(DocumentEdit::SetAsMain { node: self.cursor });
         if save {

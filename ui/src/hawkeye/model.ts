@@ -92,6 +92,8 @@ export interface HawkeyeReport {
   topPage: number;
   chart: number;
   rows: string[][];
+  /** The vertical middle in the window of each of `rows`. */
+  rowMiddles: number[];
   dialog: string | null;
   targets: { key: string; text: string; checked?: boolean; value?: string; x: number; y: number }[];
 }

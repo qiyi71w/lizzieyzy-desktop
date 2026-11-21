@@ -52,6 +52,9 @@ struct Session {
     /// Every search is answered and the borrowed engine is being given back: the run reports
     /// completion only once the handback is confirmed.
     completing: bool,
+    /// Every search of the current stage pass so far was answered with a result; Java's request
+    /// reaches `setResult` only then (an error line or a refused search fails it).
+    pass_clean: bool,
 }
 enum Engine {
     Process { instance: InstanceId, queries: HashMap<String, Query> },
@@ -182,6 +185,7 @@ impl Workbench {
             holds: !borrow && !self.paused, engine: None, attempts: 0,
             stage_started: now, stage_total: 0, answered: 0, guard_at: now + Duration::from_millis(500),
             baseline_completed: 0, deep_completed: 0, detail: "WholeGameAnalysis.preparing".into(), save_failed, completing: false,
+            pass_clean: true,
         };
         self.whole_game_refresh(&mut s);
         self.whole_game.session = Some(s);
@@ -253,7 +257,7 @@ impl Workbench {
             s.attempts += 1;
             s.state = if s.deep { State::Deep } else { State::Baseline };
             s.detail = if s.deep { "WholeGameAnalysis.deep" } else { "WholeGameAnalysis.baseline" }.into();
-            s.stage_started = Instant::now(); s.stage_total = missing.len() as u32; s.answered = 0;
+            s.stage_started = Instant::now(); s.stage_total = missing.len() as u32; s.answered = 0; s.pass_clean = true;
             let mut sent = true;
             match s.engine.as_mut().unwrap() {
                 Engine::Process { instance, queries } => {
@@ -284,12 +288,21 @@ impl Workbench {
             let Some(s) = self.whole_game.session.as_mut() else { return };
             let Some(Engine::Lease { lease, queue, ready: true, .. }) = s.engine.as_mut() else { return };
             let (lease, node, visits) = (*lease, queue.pop_front(), if s.deep { s.visits } else { 32 });
-            let Some(node) = node else { return self.whole_game_dispatch(); };
+            let Some(node) = node else { return self.whole_game_pass_done(); };
             let mut target = self.analysis_target(); target.node = node;
             let rules = self.quick_lease_rules();
             if self.engines.lease_search(lease, &target, u64::from(visits), rules.as_deref()) { return; }
             // Refused nodes remain missing and are retried by the next of the three stage passes.
+            if let Some(s) = self.whole_game.session.as_mut() { s.pass_clean = false; }
         }
+    }
+    /// A stage pass has all its answers: one with every search answered reached Java's
+    /// `setResult` ([`Workbench::analysis_request_completed`]); then the next pass or the end.
+    fn whole_game_pass_done(&mut self) {
+        if let Some(doc) = self.whole_game.session.as_ref().filter(|s| s.pass_clean).map(|s| s.doc) {
+            self.analysis_request_completed(doc);
+        }
+        self.whole_game_dispatch();
     }
     /// Always preserves deeper primary analysis, even if 精析设置's 总是覆盖 is enabled.
     fn whole_game_store(&mut self, q: &Query, line: InfoLine, borrowed: bool) {
@@ -384,9 +397,9 @@ impl Workbench {
                 let s = self.whole_game.session.as_mut()?;
                 let Some(Engine::Process { queries, .. }) = s.engine.as_mut() else { return None };
                 let q = queries.remove(&id)?;
-                let done = queries.is_empty(); s.answered += 1;
+                let done = queries.is_empty(); s.answered += 1; s.pass_clean &= result.is_some();
                 if let Some(line) = result { self.whole_game_store(&q, line, false); }
-                if done { self.whole_game_dispatch(); }
+                if done { self.whole_game_pass_done(); }
             }
             RuntimeEvent::WorkerExited { instance, .. } if process == Some(instance) => self.whole_game_finish(State::Failed, "WholeGameAnalysis.error.request"),
             RuntimeEvent::WorkerReady { instance } if process == Some(instance) => self.whole_game_dispatch(),
@@ -402,7 +415,10 @@ impl Workbench {
                 }
                 self.whole_game_lease_next();
             }
-            RuntimeEvent::LeaseSearchFailed { lease: l } if lease == Some(l) => self.whole_game_lease_next(),
+            RuntimeEvent::LeaseSearchFailed { lease: l } if lease == Some(l) => {
+                if let Some(s) = self.whole_game.session.as_mut() { s.pass_clean = false; }
+                self.whole_game_lease_next();
+            }
             RuntimeEvent::LeaseEnded { lease: l, failure } if lease == Some(l) || self.whole_game.releasing.is_some_and(|r| r.0 == l) => {
                 let requested = self.whole_game.releasing.take().is_some();
                 if failure.is_some() || !requested { self.whole_game_finish(State::Failed, "WholeGameAnalysis.error.request"); }

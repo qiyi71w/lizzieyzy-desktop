@@ -3,7 +3,8 @@
 // method keep their keys. It is a modal layer of the dialog host (dialogs.ts openModalLayer): the
 // rest of the window is inert while it is open, and a dialog opened over it takes the input.
 import { state } from "../app";
-import { isApiError, searchFunctions } from "../contract/client";
+import { searchFunctions } from "../contract/client";
+import { errorText } from "../errorText";
 import type { FunctionMatch, FunctionTarget } from "../contract/generated";
 import { openModalLayer } from "../dialogs";
 import { product, registerProduct, t } from "../i18n";
@@ -307,7 +308,7 @@ export function openSearchDialog(): SearchDialog {
         console.error("function search failed", e);
         model = [];
         selected = -1;
-        failure = isApiError(e) ? e.message : String(e);
+        failure = errorText(e);
         availability.clear();
         count.textContent = "";
         renderRows();

@@ -66,12 +66,15 @@
    radius and shadow; the title with its close box, the engine console, then the watch controls in
    rows divided by hairlines, and the session's actions in the footer band at the foot. */
 .contribution-window {
+  /* Centred on the board's height when it fits, never past the window's foot: a taller window
+     scrolls with its footer kept in view. */
+  --contribution-top: max(40px, calc(50% - 300px));
   position: fixed;
   z-index: 29;
   right: 12px;
-  top: max(40px, calc(50% - 300px));
+  top: var(--contribution-top);
   width: min(439px, calc(100vw - 24px));
-  max-height: calc(100vh - 50px);
+  max-height: calc(100vh - var(--contribution-top) - 12px);
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -196,15 +199,4 @@ body:has(.modal) .contribution-window.contribution-top {
 .contribution-notice {
   margin: 0 0 8px;
   white-space: pre-wrap;
-}
-.contribution-link {
-  height: auto;
-  padding: 0;
-  border: 0;
-  background-color: transparent;
-  color: var(--ds-accent-text);
-  text-decoration: underline;
-}
-.contribution-link:hover:enabled {
-  background-image: none;
 }

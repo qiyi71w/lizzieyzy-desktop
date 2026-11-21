@@ -3,7 +3,7 @@
 // the frame and the captured problem; these windows hold only their drafts.
 import { invoke } from "@tauri-apps/api/core";
 import { run, state } from "../app";
-import { isApiError } from "../contract/client";
+import { errorText } from "../errorText";
 import type { CaptureSettings, TsumegoAttacker, TsumegoFrameSettings, TsumegoKoThreat, TsumegoToPlay } from "../contract/generated";
 import { closeBox, formPanel, message } from "../dialogs";
 import { parseJavaInt } from "../display/dialogs";
@@ -275,6 +275,6 @@ export async function startCapture(): Promise<void> {
   try {
     await invoke("start_tsumego_capture");
   } catch (e) {
-    await message(t("Message.title"), `抓死活棋启动失败: ${isApiError(e) ? e.message : String(e)}`);
+    await message(t("Message.title"), `抓死活棋启动失败: ${errorText(e)}`);
   }
 }

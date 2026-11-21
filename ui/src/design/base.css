@@ -87,6 +87,22 @@ body {
   color: var(--ds-text-off);
   background-color: var(--ds-sunken);
 }
+/* A text action that opens a web page, inline in its sentence. */
+:where(button.ds-link) {
+  height: auto;
+  padding: 0;
+  border: 0;
+  background-color: transparent;
+  color: var(--ds-accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: normal;
+  cursor: pointer;
+}
+:where(button.ds-link):hover:enabled,
+:where(button.ds-link):active:enabled {
+  background-image: none;
+}
 :where(button.primary) {
   border-color: var(--ds-accent);
   background-color: var(--ds-accent);

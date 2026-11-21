@@ -5,6 +5,7 @@ import { ask, closeBox, message } from "../dialogs";
 import { footer } from "../engine/controls";
 import { product, t } from "../i18n";
 import { tuningText } from "../engine/tuningText";
+import { messageText } from "../errorText";
 import type { SetupCard, SetupCardKey, SetupContext } from "./card";
 import { overviewCard } from "./overview";
 import { weightsCard } from "./weights";
@@ -51,7 +52,7 @@ registerViewHandler((view) => {
   const benchmark = view.tuning?.outcome;
   if (benchmark) {
     const id = `tuning:${benchmark.taskId}:${benchmark.key}`;
-    if (!seenOutcomes.has(id)) { seenOutcomes.add(id); footerStatus = `${tuningText(benchmark.key)}${benchmark.detail ? `\n${benchmark.detail}` : ""}`; }
+    if (!seenOutcomes.has(id)) { seenOutcomes.add(id); footerStatus = `${tuningText(benchmark.key)}${benchmark.detail ? `\n${messageText(benchmark.detail)}` : ""}`; }
   }
   refreshWindow?.();
 });

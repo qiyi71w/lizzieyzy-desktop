@@ -228,7 +228,8 @@ impl Workbench {
         self.matches.run.as_mut().unwrap().previous[index] = Some(result.clone());
     }
 
-    /// SGFParser.appendGameTimeAndPlayouts writes totals into the live root before saving.
+    /// SGFParser.appendGameTimeAndPlayouts writes totals into the live root before saving; the
+    /// save writes the root `DZ` ([`Workbench::pk_save_tag`]).
     pub(super) fn match_record_totals(&mut self) {
         let run = self.matches.run.as_ref().unwrap();
         let black = side_index(run.first_is_black, Stone::Black);
@@ -251,22 +252,8 @@ impl Workbench {
             text("SGFParse.totalVisits"),
             run.sides[white].visits
         ));
-        let katago_black = self.engines.is_katago(run.sides[black].instance);
-        let katago_white = self.engines.is_katago(run.sides[white].instance);
-        let tag = if katago_white {
-            "KW"
-        } else if katago_black {
-            "KB"
-        } else {
-            "Y"
-        };
-        let property = crate::record::Property {
-            id: "DZ".into(),
-            values: vec![tag.into()],
-        };
         let comment = self.match_rules_comment(&comment);
         let _ = self.edit_document(DocumentEdit::SetComment { node: ROOT, comment });
-        let _ = self.edit_document(DocumentEdit::SetProperty { node: ROOT, property });
     }
 
     fn match_side_settings(&self, index: usize) -> String {

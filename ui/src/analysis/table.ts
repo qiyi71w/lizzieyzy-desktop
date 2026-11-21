@@ -764,7 +764,8 @@ export function tablesReport() {
   return {
     suggestionClick,
     branchLength: branches.values().next().value ?? null,
-    main: { rows: mainCells, selectedRow: selection.main.selected, clickedRow: selection.main.click, columns: mainWidths },
+    // rowMiddles: each body row's vertical middle in the window, where a probe's click lands on it.
+    main: { rows: mainCells, selectedRow: selection.main.selected, clickedRow: selection.main.click, columns: mainWidths, rowMiddles: [...document.querySelectorAll<HTMLTableRowElement>("#table tbody tr")].map((row) => { const box = row.getBoundingClientRect(); return Math.round(box.top + box.height / 2); }) },
     frame: { rows: frames.frame.cells, selectedRow: selection.frame.selected, clickedRow: selection.frame.click, sort: frames.frame.sort },
     sub: { rows: frames.sub.cells, selectedRow: selection.sub.selected, clickedRow: selection.sub.click, sort: frames.sub.sort },
   };

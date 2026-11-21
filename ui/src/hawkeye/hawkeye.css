@@ -150,6 +150,34 @@ body {
   font-weight: 400;
   text-overflow: ellipsis;
 }
+/* A header's name and its sort mark (window.ts): the name gives way to the mark where the column
+   is narrow, so the mark stays whole in every language. */
+.hk-scroll th > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  vertical-align: middle;
+}
+.hk-scroll .hk-th-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The sorted column's mark: the direction's chevron, after |Δ| while a change column orders the
+   largest change first whatever its sign. */
+.hk-scroll .hk-sort {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--ds-text);
+}
+.hk-scroll .hk-sort:empty {
+  display: none;
+}
+.hk-scroll th .icon {
+  --menu-icon-size: 12px;
+}
 .hk-scroll td {
   height: max(calc(var(--hk-row, 20px) - 4px), 22px);
   /* window.ts sets each cell's text and ground (empty: the table's own). */
@@ -521,10 +549,17 @@ body {
   grid-column: 1 / -1;
   white-space: normal;
 }
+/* Java's formula picture is black on opaque white: multiplied into the dialog's ground in the
+   light mode, inverted and screened into it in the dark mode, so no white slab stands out. */
 .hkd-matchai img {
   display: block;
   width: 708px;
   height: 96px;
+  mix-blend-mode: multiply;
+}
+[data-theme="dark"] .hkd-matchai img {
+  filter: invert(1) hue-rotate(180deg);
+  mix-blend-mode: screen;
 }
 .hkd-message {
   max-width: 560px;

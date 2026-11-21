@@ -3,6 +3,7 @@ import { run, state } from "../app";
 import { engineConsole, onConsole } from "../contract/client";
 import type { ConsoleLineView } from "../contract/generated";
 import { closeBox, message } from "../dialogs";
+import { errorText } from "../errorText";
 import { t } from "../i18n";
 import { actions, button, input } from "./controls";
 
@@ -86,7 +87,7 @@ export async function toggleConsole(): Promise<void> {
     append([...history, ...buffered].sort((a, b) => a.seq - b.seq));
   } catch (error) {
     pending = null;
-    await message(t("GtpConsolePane.title"), String(error), "error");
+    await message(t("GtpConsolePane.title"), errorText(error), "error");
   }
   command.focus();
 }

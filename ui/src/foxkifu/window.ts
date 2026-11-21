@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { dispatch, isApiError } from "../contract/client";
+import { errorText } from "../errorText";
 import type { Command, KifuAfterGet, FoxKifuCommand, KifuPage, FoxKifuRow, FoxKifuView } from "../contract/generated";
 import { confirm, dialogOpen, message } from "../dialogs";
 import { format, isChinese, product, registerProduct, setLanguage, t } from "../i18n";
@@ -236,7 +237,7 @@ export function bootFoxKifu(): void {
       const result = await dispatch(cmd);
       if (result.type === "Refused") await show(coreText(result.message_key));
     } catch (e) {
-      if (isApiError(e)) await show(e.message);
+      if (isApiError(e)) await show(errorText(e));
     }
   }
 

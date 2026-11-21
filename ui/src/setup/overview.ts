@@ -2,6 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Asset, CapabilityStatus, ExperimentalBackend, MissingDependency, RecommendationReason, ResourcesView, RuntimeRequirement } from "../contract/generated";
 import { ask, confirm, message } from "../dialogs";
+import { errorText } from "../errorText";
 import { product, t } from "../i18n";
 import { tagged, type SetupCard, type SetupContext } from "./card";
 import { assetBackends, currentPackage, downloadPackage, packageTarget, planSetup, resourceCommand, resourceView, setupStatus, setupVerified } from "./dialog";
@@ -47,7 +48,7 @@ export function overviewCard(_ctx: SetupContext): SetupCard {
       chooseLocal,
       action("setup.repairAnalysis", t("AutoSetup.repairAnalysisConfig"), () => resourceCommand({ type: "RepairAnalysisConfig" }), !!r.inventory.gtpConfig),
       action("setup.openFolder", t("AutoSetup.openAppFolder"), () => resourceCommand({ type: "OpenResourceFolder" })),
-      action("setup.fullDownloads", t("AutoSetup.viewFullDownloads"), async () => { try { await invoke("open_katago_releases"); } catch (error) { await message(t("AutoSetup.title"), String(error), "error"); } }),
+      action("setup.fullDownloads", t("AutoSetup.viewFullDownloads"), async () => { try { await invoke("open_katago_releases"); } catch (error) { await message(t("AutoSetup.title"), errorText(error), "error"); } }),
       action("setup.refresh", t("AutoSetup.refresh"), () => resourceCommand({ type: "Inspect", refresh: true })));
     if (r.chosenEngine) {
       const chosen = section(t("AutoSetup.sourceManualSelection"));

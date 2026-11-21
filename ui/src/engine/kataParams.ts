@@ -6,6 +6,7 @@ import { registerViewHandler, run, state } from "../app";
 import type { KataEngineParamsEdit, KataParam, KataParamEdit, SearchThreadsCommand, SearchThreadsStatus, ThreadRestoreSource } from "../contract/generated";
 import { confirm, formPanel, message } from "../dialogs";
 import { format, t } from "../i18n";
+import { messageText } from "../errorText";
 import { matchPlaying } from "../match/state";
 import { javaDouble, parseJavaDouble } from "../workbench/paint";
 import { button, checkbox, footer, groupNote, input, primaryButton, row, switchBox } from "./controls";
@@ -55,7 +56,7 @@ const THREAD_MESSAGES: Record<string, () => string> = {
  *  characters. */
 function threadError(key: string, detail: string | null = null): Promise<void> {
   let text = THREAD_MESSAGES[key]?.() ?? t(key);
-  const reason = detail?.replace(/[\x00-\x1f\x7f]/g, " ").trim();
+  const reason = detail === null ? "" : messageText(detail).replace(/[\x00-\x1f\x7f]/g, " ").trim();
   if (reason) text += `\n${reason.slice(0, 240)}`;
   return message(t("SetKataEngines.title"), text, "warning");
 }
@@ -115,14 +116,15 @@ function hint2(): HTMLElement {
     font.replaceWith(span);
   }
   for (const link of parsed.querySelectorAll("a")) {
-    const span = document.createElement("span");
-    span.className = "kata-params-link";
-    span.title = link.getAttribute("href") ?? "";
-    span.append(...link.childNodes);
-    span.onclick = async () => {
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "ds-link";
+    open.title = link.getAttribute("href") ?? "";
+    open.append(...link.childNodes);
+    open.onclick = async () => {
       try { await invoke("open_katago_parameter_help"); } catch { /* Java ignores a browser that cannot open. */ }
     };
-    link.replaceWith(span);
+    link.replaceWith(open);
   }
   el.append(...parsed.childNodes);
   return el;

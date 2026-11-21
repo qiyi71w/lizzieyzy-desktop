@@ -11,7 +11,7 @@ use lizzie_core::formats;
 use lizzie_core::record::Point;
 use lizzie_core::record::RecordFormat;
 use lizzie_core::settings::{self, Config, Storage};
-use lizzie_core::workbench::{OpenOrigin, Workbench};
+use lizzie_core::workbench::{OpenOrigin, Workbench, SETTINGS_SAVE_FAILED};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -635,7 +635,7 @@ fn a_background_choice_that_cannot_be_saved_reports_why_and_stays_off() {
     let error =
         f.wb.strength(StrengthCommand::SetBackground { enabled: true })
             .unwrap_err();
-    assert!(error.message.starts_with("saving settings failed"), "{}", error.message);
+    assert!(error.message.starts_with(&format!("{SETTINGS_SAVE_FAILED}\n")), "{}", error.message);
     assert!(!f.wb.view(false).strength.background);
 }
 

@@ -483,6 +483,31 @@ fn a_failed_attempt_lets_the_foreground_analyse_and_retries_later() {
 }
 
 #[test]
+fn only_a_fully_answered_quick_analysis_ends_the_engine_game_marks() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    wb.save_analysis_engine_settings(analysis_settings(false), "", true)
+        .unwrap()
+        .unwrap();
+    let fg = with_engine(&mut wb, &world);
+    open(&mut wb, &RECORD.replacen("(;", "(;DZ[KW]", 1));
+    assert!(wb.inspect().pk_board.is_some());
+    // A failed attempt never reaches setResult.
+    let worker = *world.workers().last().unwrap();
+    wb.engine_input(worker, EngineInput::Exited(Some(1)));
+    assert!(wb.inspect().pk_board.is_some());
+    wb.engine_tick(Instant::now() + Duration::from_secs(5));
+    let retry = *world.workers().last().unwrap();
+    assert_ne!(retry, worker);
+    serve(&mut wb, &world, fg, 0, true);
+    answer_queries(&mut wb, &world, retry);
+    assert!(!wb.view(false).quick.running);
+    // AutomaticQuickAnalysisEngineAdapter → AnalysisEngine.setResult → clearPkBoardStat.
+    assert_eq!(wb.inspect().pk_board, None);
+}
+
+#[test]
 fn problem_moves_come_from_the_results_and_a_jump_marks_the_move() {
     let dir = tempfile::tempdir().unwrap();
     let world = World::default();

@@ -13,6 +13,7 @@ import { buildToolbar, renderToolbar } from "./chrome/toolbar";
 import { onUnavailable, onView, snapshot } from "./contract/client";
 import type { BoardOverlayView, FloatSceneView, HistoryPoint, NodeAnalysisView, Point, SubBoardMode, WorkbenchView } from "./contract/generated";
 import { dialogOpen, message } from "./dialogs";
+import { errorText } from "./errorText";
 import { format, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
 import { boardGeom, cardLayout, doubleEngineLayout, floatBoardLayout, mainMarginRatio, selectRange, sideLayout, SUB_MARGIN_RATIO, workbenchLayout, type BoardGeom, type DualPanels, type PanelId, type Panels, type Rect, type SidePanels } from "./workbench/layout";
@@ -45,6 +46,7 @@ import { mountSetupBanner } from "./setup/banner";
 import "./editing/commands";
 import "./analysis/graphCommands";
 import { graphDestination, graphTarget, paintGraph, type GraphHits, type GraphReport } from "./analysis/graph";
+import { matchPlaying, sideName } from "./match/state";
 import { bindTables, boardPointerMoved, boardWheel, clearTableSelection, mainTableSignature, pageStep, redo, renderMainTable, resetTables, stepVariationOrMove, tableBranchLength, tablesReport, undo } from "./analysis/table";
 import { frameReport, framesReport, handleTableKey, relayFrame, startFrame } from "./analysis/tableCommands";
 import { handleHawkeyeKey, hawkeyeReport, relayHawkeye, startHawkeye } from "./hawkeye/commands";
@@ -1192,7 +1194,22 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
   // Turning 显示鼠标悬停信息 off clears the hovered node (clearMouseOverWinrateGraph).
   if (!graphDisplay.mouseOverWinrateGraph) graphHover = null;
   const graphSettings = `${graphDisplay.winrateLine}:${graphDisplay.scoreLeadLine}:${graphDisplay.winrateGraphFill}:${graphDisplay.blunderBar}:${graphDisplay.initialMaxScoreLead}`;
-  if (P.shown.graph && changed("graph", `${at(P.graph)}:${docSig}:${pos.line_end}:${historyRevision}:${graphSettings}:${graphHover}:${playMode}:${v.engine.analysing}`)) {
+  // 引擎对局 (isEngineOrPkGraphMode): a match, or a document that is an engine game
+  // (Board.isPkBoard). The match's engines name the curves while it exists, else the record's players.
+  const engineMatch = v.engine_match;
+  const pkBoard = v.pk_board;
+  const players = v.document.info;
+  const engineGame =
+    engineMatch || pkBoard
+      ? {
+          playing: matchPlaying(v),
+          black: engineMatch ? sideName(engineMatch, true) : players.black || t("GameInfoDialog.black"),
+          white: engineMatch ? sideName(engineMatch, false) : players.white || t("GameInfoDialog.white"),
+          scoreSide: pkBoard?.score_side ?? null,
+        }
+      : null;
+  const engineSig = engineGame ? `${engineGame.playing}:${engineGame.black}:${engineGame.white}:${engineGame.scoreSide}` : "";
+  if (P.shown.graph && changed("graph", `${at(P.graph)}:${docSig}:${pos.line_end}:${historyRevision}:${graphSettings}:${graphHover}:${playMode}:${v.engine.analysing}:${engineSig}`)) {
     // WinrateGraph suppressGraphContent: nothing plotted in play mode.
     const painted = paintGraph(prepare($("graph"), P.graph), P.graph, {
       nodes: state.nodes,
@@ -1202,6 +1219,7 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
       hover: playMode ? null : graphHover,
       analysing: v.engine.analysing,
       suppressed: playMode,
+      engineGame,
     });
     graphReport = painted.report;
     graphHits = painted.hits;
@@ -1761,5 +1779,5 @@ async function boot() {
 boot().catch(async (e) => {
   console.error("start-up failed", e);
   await getCurrentWindow().show();
-  message("LizzieYzy Tauri", e instanceof Error ? `${e}\n${e.stack ?? ""}` : String(e), "error");
+  message("LizzieYzy Tauri", e instanceof Error ? `${e}\n${e.stack ?? ""}` : errorText(e), "error");
 });

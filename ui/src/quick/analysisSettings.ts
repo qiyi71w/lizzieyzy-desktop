@@ -4,7 +4,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
-import { dispatch, isApiError } from "../contract/client";
+import { dispatch } from "../contract/client";
+import { errorText } from "../errorText";
 import type { AnalysisEngineSettings, LeaseAvailabilityView } from "../contract/generated";
 import { ask, formPanel, message } from "../dialogs";
 import { parseJavaInt } from "../display/dialogs";
@@ -71,7 +72,7 @@ async function generate(index: number | null, quiet: boolean): Promise<Generated
     }
     return null;
   } catch (e) {
-    if (!quiet) await message(t("Message.title"), isApiError(e) ? e.message : String(e), "error");
+    if (!quiet) await message(t("Message.title"), errorText(e), "error");
     return null;
   }
 }
@@ -146,13 +147,14 @@ function hintLabel(): HTMLElement {
   }
   for (const bold of parsed.querySelectorAll("b")) bold.replaceWith(...bold.childNodes);
   for (const link of parsed.querySelectorAll("a")) {
-    const span = document.createElement("span");
-    span.className = "analysis-settings-link";
-    span.title = link.getAttribute("href") ?? "";
-    span.append(...link.childNodes);
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "ds-link";
+    open.title = link.getAttribute("href") ?? "";
+    open.append(...link.childNodes);
     // LinkLabel's Desktop.browse (java:628-637); the shell opens the same href every bundle has.
-    span.onclick = () => void invoke("open_analysis_engine_docs").catch(() => { /* Java ignores a browser that cannot open. */ });
-    link.replaceWith(span);
+    open.onclick = () => void invoke("open_analysis_engine_docs").catch(() => { /* Java ignores a browser that cannot open. */ });
+    link.replaceWith(open);
   }
   el.append(...parsed.childNodes);
   return el;

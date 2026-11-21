@@ -118,8 +118,13 @@ function nameField(key: string, value: string, enabled = true): HTMLInputElement
   el.className = "rc-name";
   el.dataset.key = key;
   el.value = enabled ? drafts.get(key) ?? value : value;
+  // A name longer than the field ends in an ellipsis; the tooltip gives it whole.
+  el.title = el.value;
   el.disabled = !enabled;
-  el.oninput = () => drafts.set(key, el.value);
+  el.oninput = () => {
+    drafts.set(key, el.value);
+    el.title = el.value;
+  };
   return el;
 }
 
@@ -152,6 +157,12 @@ function build(): void {
   const last = cards.at(-1);
   grid.append(newCell(!last || last.slot.type === "Auto" ? 1 : last.slot.index + 1));
   grid.addEventListener("mousemove", pointerMoved);
+  // Leaving the panel (onto the menus or the board) is moving off the pictures too.
+  host.onmouseleave = () => {
+    if (hover) clearTimeout(hover.timer);
+    hover = null;
+    hideZoom();
+  };
 
   const previousScroll = host.querySelector(".rc-scroll")?.scrollTop ?? 0;
   host.replaceChildren(topBar(), scroll);

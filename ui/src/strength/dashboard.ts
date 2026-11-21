@@ -8,6 +8,7 @@ import { chooseStrengthModel } from "../contract/client";
 import type { StrengthModelView, StrengthReport, StrengthView } from "../contract/generated";
 import { icon } from "../design/icons";
 import { message } from "../dialogs";
+import { errorText } from "../errorText";
 import { format, t } from "../i18n";
 import { openDetail, openDetailDialog } from "./detail";
 import { hasSamples, humanSlText, javaFormat, modelDisplayName } from "./format";
@@ -336,7 +337,7 @@ function importButton(d: Dashboard): HTMLButtonElement {
   const title = t("PlayerStrengthEstimate.importModel.title");
   const button = toolButton(t("PlayerStrengthEstimate.importModel"), async () => {
     const path = await chooseStrengthModel(title).catch((e: unknown) => {
-      void message(t("Message.title"), String(e), "error");
+      void message(t("Message.title"), errorText(e), "error");
       return null;
     });
     if (!path) return;

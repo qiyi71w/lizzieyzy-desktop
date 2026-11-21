@@ -5,6 +5,7 @@ import { confirm, formPanel, message } from "../dialogs";
 import { product, t } from "../i18n";
 import { actions, button, footer } from "../engine/controls";
 import { plainJava, tuningText } from "../engine/tuningText";
+import { messageText } from "../errorText";
 import { tagged, type SetupCard, type SetupContext } from "./card";
 import { resourceView } from "./dialog";
 import "./performance.css";
@@ -24,7 +25,7 @@ registerViewHandler((view) => {
       const identity = `${outcome.taskId}:${outcome.engineId}:${outcome.key}:${outcome.detail}`;
       if (!seenOutcomes.has(identity)) {
         seenOutcomes.add(identity);
-        void message(t("AutoSetup.benchmarkTitle"), [tuningText(outcome.key), outcome.detail].filter(Boolean).join("\n"), outcome.success ? "info" : "warning");
+        void message(t("AutoSetup.benchmarkTitle"), [tuningText(outcome.key), outcome.detail && messageText(outcome.detail)].filter(Boolean).join("\n"), outcome.success ? "info" : "warning");
       }
     }
     renderStartupNotice();

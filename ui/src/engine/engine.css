@@ -380,11 +380,6 @@
 .kata-params-warn {
   color: var(--ds-danger-text);
 }
-.kata-params-link {
-  color: var(--ds-accent-text);
-  text-decoration: underline;
-  cursor: pointer;
-}
 
 /* ---- KataGo 激进参数PDA设置 (SetKataPDA): one group of 当前PDA, the three choices, 动态系数, the
    fixed value and 自动加载; the warnings under it, a line each. */

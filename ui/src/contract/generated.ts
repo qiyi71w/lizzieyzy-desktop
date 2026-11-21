@@ -751,7 +751,20 @@ game_outcome: GameOutcomeView | null,
 /**
  * 人机对弈 messages, once each, in order.
  */
-game_notices: Array<GameNotice>, engine_match: MatchView | null, match_outcome: MatchOutcomeView | null, match_notices: Array<MatchNotice>, match_winrate_image: MatchWinrateImageRequest | null, human_sl: HumanSlView | null, strength: StrengthView, 
+game_notices: Array<GameNotice>, engine_match: MatchView | null, 
+/**
+ * The open document is an engine game (Java `Board.isPkBoard` with `isPkBoardKataB` /
+ * `isPkBoardKataW`; `WinrateGraph.isEngineOrPkGraphMode`): always while a match exists, its
+ * score side from the match's engines; else a document a match game was played on
+ * (`EngineManager` 2918, kata side 15801-15805), a 跑谱贡献 rating game being watched
+ * (`ContributeEngine` 965-971) or a record whose root `DZ` is `Y` / `KB` / `KW`
+ * (`SGFParser` 775-791, also after 转换为初始局面, `Board` 1320), until 清除Lizzie缓存(全局),
+ * the start of 自动分析 or a fully answered flash analysis, 自动棋谱快析 attempt or 整盘精析
+ * pass ends it (`clearBoardStat` / `clearPkBoardStat` in `AnalysisEngine.setResult`). Saves
+ * write its `DZ` (`SGFParser` 1443-1462). `None` for any other
+ * document.
+ */
+pk_board: PkBoardView | null, match_outcome: MatchOutcomeView | null, match_notices: Array<MatchNotice>, match_winrate_image: MatchWinrateImageRequest | null, human_sl: HumanSlView | null, strength: StrengthView, 
 /**
  * 在线棋谱 / 弈客直播.
  */
@@ -2522,6 +2535,14 @@ export type MatchView = { id: number, game: number, phase: MatchPhase, kind: Gam
  * its own PDA "..." stays on the toolbar during the game, and the dialog's commands go to it.
  */
 kata_go_pda_participant: boolean, score: MatchScoreView, thinking_side: Stone | null, thinking_engine: number | null, manual_moves: boolean, can_play_now: boolean, can_toggle_manual: boolean, can_resign: boolean, rules: string, rules_consent_required: boolean, rules_unverified: Array<MatchRulesUnverified>, rules_target_choice: string | null, opening_index: number | null, elapsed_seconds: number, };
+
+export type PkBoardView = { 
+/**
+ * The side whose engine gives the score curve (`isPkBoardKataW`, else `isPkBoardKataB`):
+ * White when the white engine is KataGo or Sai, else Black when the black one is; `None`
+ * when neither is, and no score curve is drawn (`WinrateGraph.resolveScoreLeadAvailable`).
+ */
+score_side: Stone | null, };
 
 export type MatchRulesUnverified = { name: string, commands: string, side: Stone | null, reason_key: string, };
 

@@ -136,8 +136,11 @@ impl Workbench {
     /// document's write entry before capturing the revision that the save will confirm. The
     /// comments belong to the admitted save itself (`SGFParser.prepareCommentForSave` writes
     /// `data.comment` without the Fox session's mutation guard), so they are not refused while
-    /// Fox owns the board.
+    /// Fox owns the board. An engine game's comments stay as they are (SGFParser.java:1556).
     pub(super) fn prepare_save_comments(&mut self) {
+        if self.pk_board_view().is_some() {
+            return;
+        }
         let edits = self.save_comment_edits(&self.doc.record, &self.store, self.comment_secondary());
         for edit in edits {
             self.apply_edit(edit).expect("save comments target existing nodes");
@@ -151,9 +154,6 @@ impl Workbench {
         store: &AnalysisStore,
         secondary: Option<&AnalysisStore>,
     ) -> Vec<DocumentEdit> {
-        if self.match_active() || rec.node(ROOT).properties.iter().any(|p|p.id=="DZ" && p.values.iter().any(|v|matches!(v.as_str(),"Y"|"KB"|"KW"))) {
-            return Vec::new();
-        }
         if !self.config.record.append_winrate_to_comment {
             return Vec::new();
         }
@@ -210,11 +210,20 @@ impl Workbench {
 
     /// 复制棋谱到剪贴板 (`SGFParser.saveToString(false)`): the record as a save writes it.
     pub fn record_text(&self, application: &str) -> String {
-        self.analyzed_text(&self.doc.record, &self.store, Some(&self.secondary_store), self.comment_secondary(), application)
+        self.analyzed_text(
+            &self.doc.record,
+            &self.store,
+            Some(&self.secondary_store),
+            self.comment_secondary(),
+            application,
+            self.pk_save_tag(),
+        )
     }
 
     /// `rec` as a save writes it: `store`'s and `payload_secondary`'s analysis payloads and, when
-    /// 记录选点信息到评论中 is on, the comments with `store`'s (or `comment_secondary`'s) summary.
+    /// 记录选点信息到评论中 is on and `rec` is no engine game, the comments with `store`'s (or
+    /// `comment_secondary`'s) summary. An engine game gets `engine_game` as its root `DZ`
+    /// (SGFParser.java:1443-1462, 1556).
     pub(super) fn analyzed_text(
         &self,
         rec: &GameRecord,
@@ -222,17 +231,17 @@ impl Workbench {
         payload_secondary: Option<&AnalysisStore>,
         comment_secondary: Option<&AnalysisStore>,
         application: &str,
+        engine_game: Option<&str>,
     ) -> String {
         let labels = comment_labels(self.active_language);
-        let engine_match = self.match_active() || rec.node(ROOT).properties.iter().any(|p|p.id=="DZ" && p.values.iter().any(|v|matches!(v.as_str(),"Y"|"KB"|"KW")));
         let comment = |id| {
-            (!engine_match && self.config.record.append_winrate_to_comment && id != ROOT && rec.node(id).kind != NodeKind::Snapshot)
+            (engine_game.is_none() && self.config.record.append_winrate_to_comment && id != ROOT && rec.node(id).kind != NodeKind::Snapshot)
                 .then(|| self.formatted_comment(rec, store, comment_secondary, id, &labels))
                 .flatten()
         };
         let primary = |id| store.payload(rec, id);
         let secondary = |id| payload_secondary.and_then(|s| s.payload(rec, id));
-        sgf_write::write_analyzed(rec, application, Analysis { primary: &primary, secondary: &secondary }, &comment)
+        sgf_write::write_analyzed(rec, application, Analysis { primary: &primary, secondary: &secondary }, &comment, engine_game)
     }
 
     /// Where the picture chooser starts: the last picture folder, else the last record folder

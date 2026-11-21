@@ -10,6 +10,7 @@ import { stepper } from "../design/stepper";
 import { ask, closeBox, openModalLayer } from "../dialogs";
 import { footer, groupNote, groupTitle, row, segmented, switchRow } from "../engine/controls";
 import { format, product, t } from "../i18n";
+import { messageText } from "../errorText";
 import { openAutoSetup, resourceCommand, resourceView } from "../setup/dialog";
 import { javaFormat, resourceText } from "../setup/setupText";
 import { humanSlSession, humanSlUi, humanSlUiChanged } from "./state";
@@ -89,7 +90,9 @@ function failureReason(key: string): string {
 
 /** The start failure as the dialog's inline error (showInlineError). */
 export function startFailedText(n: Extract<HumanSlNotice, { type: "StartFailed" }>): string {
-  return javaFormat(t("HumanSlGame.error.startFailed"), n.detail ?? failureReason(n.reason));
+  // The detail's last lines may be a core error message (a settings write that failed).
+  const detail = n.detail?.split("\n").map((line) => messageText(line)).join("\n");
+  return javaFormat(t("HumanSlGame.error.startFailed"), detail ?? failureReason(n.reason));
 }
 
 /** failing: a start failed and the companion is still being stopped; cleanup: that stop could not

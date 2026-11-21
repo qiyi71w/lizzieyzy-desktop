@@ -19,10 +19,13 @@
   --ws-board-shadow: 0 1px 2px rgba(70, 50, 15, 0.26), 0 10px 26px -8px rgba(70, 50, 15, 0.46);
 
   /* Theme colour defaults, tuned for the light card. The miss colour (the 胜率图's dashed bridge
-     over unanalysed moves) is a warm grey so a gap never reads as data. */
+     over unanalysed moves) is a warm grey so a gap never reads as data; the engine-game graph
+     draws the white engine's curve, which Java draws in the miss colour, in a darker grey of the
+     same family so it reads as data. */
   --ws-winrate-line: #2c5f95;
   --ws-winrate-miss: #9a8e76;
-  --ws-score-line: #a8651c;
+  --ws-engine-white-line: #6e6452;
+  --ws-score-line: #8c5216;
   --ws-blunder-bar: rgba(150, 55, 130, 0.22);
   --ws-comment-node: #4f6d9e;
 
@@ -42,7 +45,7 @@
   --ws-graph-chip: rgba(250, 246, 238, 0.94);
   --ws-graph-snapshot: rgba(201, 138, 0, 0.5);
   --ws-graph-move-marker: #2c5f95;
-  --ws-graph-score-marker: #a8651c;
+  --ws-graph-score-marker: #8c5216;
   /* The 面积填充 between the one curve and the 50% line: an ink tint above it (Black ahead), a
      paper tint below it (White ahead). */
   --ws-graph-fill-above: rgba(36, 31, 22, 0.11);
@@ -109,6 +112,7 @@
 
   --ws-winrate-line: #7fb0e6;
   --ws-winrate-miss: #c4b9a3;
+  --ws-engine-white-line: #c4b9a3;
   --ws-score-line: #e0ac58;
   --ws-blunder-bar: rgba(255, 190, 240, 0.45);
   --ws-comment-node: #7d9bd0;
@@ -189,6 +193,7 @@
 
   --ws-winrate-line: #64b4ff;
   --ws-winrate-miss: #7d8cff;
+  --ws-engine-white-line: #7d8cff;
   --ws-score-line: #ff00ff;
   --ws-blunder-bar: rgba(255, 204, 255, 0.67);
   --ws-comment-node: #4d7dff;

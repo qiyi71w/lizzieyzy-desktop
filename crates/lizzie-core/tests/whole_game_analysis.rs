@@ -210,6 +210,20 @@ fn request_errors_retry_only_missing_nodes_three_times_then_fail() {
     assert_eq!(wb.view(false).whole_game.detail_key,"WholeGameAnalysis.error.request"); assert!(world.ended(worker));
 }
 #[test]
+fn a_fully_answered_pass_ends_the_engine_game_marks_and_a_failed_one_does_not() {
+    let dir = tempfile::tempdir().unwrap(); let world = World::default(); let mut wb = make(dir.path(), &world);
+    open(&mut wb, &RECORD.replacen("(;", "(;DZ[KB]", 1)); start(&mut wb); let worker = world.worker();
+    assert!(wb.inspect().pk_board.is_some());
+    // An error line fails Java's request before setResult: the marks stay.
+    let first = world.queries(worker); answer(&mut wb, worker, &first[0]);
+    for q in &first[1..] { output(&mut wb, worker, &json!({"id":q["id"],"error":"rejected"}).to_string()); }
+    assert!(wb.inspect().pk_board.is_some());
+    // The retried pass gets every answer: AnalysisEngine.java:1222 clearPkBoardStat.
+    let retry = world.queries(worker); assert_eq!(retry.len(), 4);
+    for q in &retry { answer(&mut wb, worker, q); }
+    assert_eq!(wb.inspect().pk_board, None);
+}
+#[test]
 fn startup_failure_is_reported_without_losing_the_saved_visit_choice() {
     let dir = tempfile::tempdir().unwrap(); let world = World::default(); let mut wb = make(dir.path(), &world);
     let mut settings = wb.config().analysis_engine.clone(); settings.command = "missing-katago analysis".into();

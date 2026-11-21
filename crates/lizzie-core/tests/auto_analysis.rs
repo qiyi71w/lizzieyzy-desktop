@@ -475,3 +475,14 @@ fn unavailable_engine_and_failed_autosave_have_java_messages() {
     wb.shutdown_engines(lizzie_core::api::EngineScope::Current);
     assert_eq!(wb.start_auto_analysis(settings()).unwrap(), Err("AutoAnalyze.engineUnavailable"));
 }
+
+#[test]
+fn starting_automatic_analysis_ends_the_engine_game_marks() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, id) = setup(dir.path(), "(;SZ[19]DZ[KB];B[pd];W[dd])");
+    assert!(wb.inspect().pk_board.is_some());
+    wb.start_auto_analysis(settings()).unwrap().unwrap();
+    serve(&mut wb, &world, id);
+    // startAutoAnaNow's clearBoardStat (BottomToolbar.java:4028).
+    assert_eq!(wb.inspect().pk_board, None);
+}
