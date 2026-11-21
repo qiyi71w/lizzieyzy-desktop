@@ -1,8 +1,9 @@
-/* 独立选点列表 window: the candidate list as the main window's 选点列表 reads (rows of at least
-   22 px, horizontal hairlines only, numbers right-aligned in tabular figures, the 占比 bar and the
-   actual move's loss tint from table.ts), and the strip under it with the totals, the 柱状图 and the
-   four boxes. Nothing is cut: a header too wide for its column takes a second line, the actual
-   move's cells break before their bracket. suggestions.html loads this sheet with the design base. */
+/* 独立选点列表 window: the candidate list as the main window's 选点列表 reads, in its colours
+   (`--ws-table-ground`, Java's white table under Java 经典; rows of at least 22 px, horizontal
+   hairlines only, numbers right-aligned in tabular figures, the 占比 underline and the actual move's
+   row from table.ts), and the strip under it with the totals, the 柱状图 and the four boxes. Nothing
+   is cut: a header too wide for its column takes a second line, the actual move's cells break
+   between their parts. suggestions.html loads this sheet with the design base. */
 html,
 body {
   overflow: hidden;
@@ -17,6 +18,7 @@ body {
   right: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  background-color: var(--ws-table-ground);
 }
 #top table {
   border-collapse: separate;
@@ -28,7 +30,7 @@ body {
 #top th,
 #top td {
   padding: 0 8px 0 0;
-  border-bottom: 1px solid var(--ds-line);
+  border-bottom: 1px solid var(--ws-panel-line);
   text-align: right;
   white-space: nowrap;
   overflow: hidden;
@@ -41,8 +43,8 @@ body {
   height: max(calc(var(--af-row, 20px) - 2px), 24px);
   padding-top: 2px;
   padding-bottom: 2px;
-  background: var(--ds-sunken);
-  color: var(--ds-text-2);
+  background: var(--ws-panel-solid);
+  color: var(--ds-text-3);
   font-size: var(--ds-size-s);
   font-weight: 400;
   line-height: 1.2;
@@ -57,12 +59,15 @@ body {
 #top td {
   height: max(calc(var(--af-row, 20px) - 4px), 22px);
 }
-#top td.split {
+/* The actual move's row shows all its figures: its rank with a smaller 实战 note under it, a
+   smaller change before each value (actualParts). A figure cell too narrow for both breaks
+   between them, and only there. */
+#top tr.actual td {
+  padding-block: 3px;
+  line-height: 1.25;
   white-space: normal;
-  line-height: 1.2;
+  word-break: keep-all;
 }
-/* The actual move's 实战 note under its rank and its changes before the values, a step smaller
-   than the figures they go with (actualParts). */
 #top .actual-note {
   margin-right: 4px;
   font-size: var(--ds-size-s);

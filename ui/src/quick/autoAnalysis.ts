@@ -4,10 +4,10 @@
 import { registerViewHandler, run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
 import type { AutoAnalysisSettings, WorkbenchView } from "../contract/generated";
-import { formPanel, message } from "../dialogs";
+import { closeBox, formPanel, message } from "../dialogs";
 import { parseJavaInt } from "../display/dialogs";
 import { button, footer, primaryButton, row, switchBox, switchRow } from "../engine/controls";
-import { t } from "../i18n";
+import { product, t } from "../i18n";
 import type { MenuNode } from "../chrome/javaMenus";
 import { openAnalysisEngineSettings } from "./analysisSettings";
 import { requestFlash } from "./flash";
@@ -35,10 +35,10 @@ function number(value: number, key: string, decimal = false): HTMLInputElement {
   el.value = value >= 0 ? String(value) : ""; el.dataset.key = el.id = key;
   return el;
 }
-/** A switch row; its switch carries `key`. */
+/** A switch row; its switch carries `key`, and keeps the id the row's label points at. */
 function toggle(host: HTMLElement, text: string, value: boolean, key: string): HTMLInputElement {
   const { input } = switchRow(host, text, "", value);
-  input.dataset.key = input.id = key;
+  input.dataset.key = key;
   return input;
 }
 const integer = (el: HTMLInputElement) => parseJavaInt(el.value.replaceAll(" ", "")) ?? -1;
@@ -186,16 +186,40 @@ function noticeText(key: string): string {
 let lastNotice = -1, askingDiff = false, showingTip = false;
 let notice: HTMLElement | null = null;
 let noticeTimer: number | undefined;
-/** A non-modal tool window over the workbench (no scrim): the message, then 确定 unless it
- *  closes by itself after three seconds. */
+/** A notice of the run over the workbench (no scrim): either a message that closes by itself
+ *  after three seconds, or a non-modal Message window that only informs, closed by 关闭, its
+ *  title's close box, Enter or Escape. */
 function nonmodal(text: string, timed: boolean): void {
   notice?.remove(); window.clearTimeout(noticeTimer);
-  notice = document.createElement("div"); notice.className = "auto-analysis-notice modal-box"; notice.dataset.key = "autoAnalysis.notice";
-  notice.setAttribute("role", "status");
-  const content = document.createElement("p"); content.textContent = text; notice.append(content);
-  if (!timed) { const close = primaryButton(t("SetKataEngines.btnApply"), () => { notice?.remove(); notice = null; }); close.dataset.key = "autoAnalysis.noticeClose"; footer(notice, { primary: close }); }
-  document.body.append(notice);
-  if (timed) noticeTimer = window.setTimeout(() => { notice?.remove(); notice = null; }, 3000);
+  const box = document.createElement("div"); box.dataset.key = "autoAnalysis.notice";
+  notice = box;
+  const dismiss = () => { if (notice === box) notice = null; box.remove(); };
+  if (timed) {
+    box.className = "auto-analysis-notice timed modal-box"; box.setAttribute("role", "status");
+    const content = document.createElement("p"); content.textContent = text; box.append(content);
+    document.body.append(box);
+    noticeTimer = window.setTimeout(dismiss, 3000);
+    return;
+  }
+  const previous = document.activeElement;
+  const close = () => {
+    const focused = box.contains(document.activeElement);
+    dismiss();
+    if (focused && previous instanceof HTMLElement && previous.isConnected) previous.focus();
+  };
+  box.className = "auto-analysis-notice modal-box"; box.setAttribute("role", "dialog"); box.setAttribute("aria-label", t("Message.title"));
+  const head = document.createElement("div"); head.className = "modal-title"; head.textContent = t("Message.title");
+  const x = closeBox(close); x.dataset.key = "autoAnalysis.noticeCloseBox"; head.append(x);
+  const body = document.createElement("div"); body.className = "modal-body"; body.textContent = text;
+  const closeButton = button(product("close"), close); closeButton.dataset.key = "autoAnalysis.noticeClose";
+  const buttons = document.createElement("div"); buttons.className = "modal-buttons"; buttons.append(closeButton);
+  box.append(head, body, buttons);
+  box.addEventListener("keydown", (e) => {
+    if (e.isComposing || !(e.key === "Escape" || (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)))) return;
+    e.preventDefault(); e.stopPropagation(); close();
+  });
+  document.body.append(box);
+  closeButton.focus();
 }
 function render(view: WorkbenchView): void {
   const a = view.auto_analysis;

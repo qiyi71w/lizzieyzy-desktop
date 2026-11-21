@@ -155,8 +155,9 @@ registerViewHandler((view) => {
   if (view.settings.display.autoReplayBranch && branchTimer === undefined) branchTimer = window.setInterval(branchTick, 20);
 });
 
-/** The toolbar's txtAutoMain (seconds) / txtAutoSub (milliseconds): read by the players at every
- *  step, set by 确定 and filled from the saved intervals at start-up. */
+/** The main (seconds) and sub board (milliseconds) autoplay intervals: read by the players at
+ *  every step, filled from the saved intervals at start-up and set by 自动播放's 确定 once the core
+ *  saved them. */
 const intervals = { main: -1, sub: -1, loaded: false };
 
 // ------------------------------------------------------------------ 副棋盘

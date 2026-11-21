@@ -639,7 +639,7 @@ pub enum Command {
         op: BatchCommand,
     },
     /// 人机对弈 (棋局 menu, 新对局 dialogs, N / Alt+N / Enter / Alt+Enter / P / Alt+, and the
-    /// double-menu game buttons) and the bottom toolbar's 自动落子.
+    /// double-menu game buttons).
     Game {
         op: GameCommand,
     },
@@ -711,11 +711,6 @@ pub enum GameCommand {
     },
     /// Alt+, (`LizzieFrame.genmove`): the engine plays one move for the side to move.
     EngineMove,
-    /// The bottom toolbar's 自动落子 box (session) and its sides and conditions (remembered).
-    SetAutoPlay {
-        enabled: bool,
-        settings: crate::settings::AutoPlaySettings,
-    },
 }
 
 /// A game's progress. `Starting` is accepted, not started: the engine is still loading or
@@ -788,7 +783,8 @@ pub struct GameNotice {
     pub prefix: Option<String>,
 }
 
-/// The bottom toolbar's 自动落子.
+/// 自动落子: on for a 分析模式 game's engine or by 棋盘同步工具 (session only), with its sides and
+/// 落子条件 (remembered).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, TS)]
 pub struct AutoPlayView {
     pub enabled: bool,
@@ -1308,7 +1304,7 @@ pub struct SettingsView {
     pub tracking: crate::settings::TrackingSettings,
     /// 人机对弈 dialog settings.
     pub game: crate::settings::GameSettings,
-    /// The bottom toolbar's 自动落子.
+    /// 自动落子 (a 分析模式 game's or 棋盘同步工具's).
     pub autoplay: AutoPlayView,
     pub matches: MatchSettingsView,
     /// 死活题 dialog choices, 抓取死活题 参数设置 and the 死活 toolbar button.

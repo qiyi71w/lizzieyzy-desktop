@@ -86,7 +86,7 @@ export async function openCustomPda(): Promise<void> {
   row(body, caption(t("SetKataPDA.lblCurPDA")), "", pda);
 
   // ButtonGroup of three JCheckBoxes, one always selected: a segmented control of the three.
-  const modes = segmented("custom-pda-mode", [["Dynamic", t("SetKataPDA.chkDymPda")], ["Fixed", t("SetKataPDA.chkStaticPda")], ["Disabled", t("SetKataPDA.chkNoPDA")]], mode);
+  const modes = segmented<CustomPdaMode>("custom-pda-mode", [["Dynamic", t("SetKataPDA.chkDymPda")], ["Fixed", t("SetKataPDA.chkStaticPda")], ["Disabled", t("SetKataPDA.chkNoPDA")]], mode);
   const [dynamic, fixed] = modes.inputs;
   modes.inputs.forEach((radio, k) => (radio.dataset.key = `customPda.${["dynamic", "fixed", "disabled"][k]}`));
   row(body, product("customPdaModeGroup"), "", modes.el);
@@ -122,7 +122,7 @@ export async function openCustomPda(): Promise<void> {
     if (currentPda === pda) currentPda = null;
   });
   const apply = primaryButton(t("SetKataPDA.btnApply"), async () => {
-    const chosen = modes.value() as CustomPdaMode;
+    const chosen = modes.value();
     const capText = cap.value.trim();
     const valueText = value.value.trim();
     const dynamicCap = parseJavaDouble(capText);

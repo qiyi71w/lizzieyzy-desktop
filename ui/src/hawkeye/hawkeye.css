@@ -457,63 +457,6 @@ body {
 .hkd-rows {
   width: min(460px, calc(100vw - 40px));
 }
-.hkd-rows .ds-row-control > .hkd-spin {
-  width: calc(var(--ds-size) * 6.5);
-}
-/* A number field with its step arrows */
-.hkd-spin {
-  display: flex;
-  height: var(--ds-control-h-l);
-  border: 1px solid var(--ds-line-strong);
-  border-radius: var(--ds-radius);
-  background: var(--ds-field);
-  overflow: hidden;
-}
-.hkd-spin:focus-within {
-  border-color: var(--ds-accent);
-}
-.hkd-spin input {
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.hkd-spin input:focus-visible {
-  outline: none;
-}
-.hkd-arrows {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  width: 18px;
-  border-left: 1px solid var(--ds-line);
-}
-.hkd-arrow {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--ds-text-2);
-}
-.hkd-arrow + .hkd-arrow {
-  border-top: 1px solid var(--ds-line);
-}
-.hkd-arrow:hover {
-  background: var(--ds-hover);
-  color: var(--ds-text);
-}
-.hkd-arrow:active {
-  background: var(--ds-pressed);
-}
-.hkd-arrow .icon {
-  width: 10px;
-  height: 10px;
-  stroke-width: 2;
-}
 /* 设置统计阈值: a row per loss class, its swatch and name, the 目数 and 胜率 fields under the
    column names */
 .hkd-stat-columns {

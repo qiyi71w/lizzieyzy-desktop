@@ -33,8 +33,8 @@
      current (solid) and hovered (dashed) move's guide; the axis, scale and legend Label text, the
      readout chips' flat ground and their figures (win rate in `graph-text`, score lead in
      `graph-score-text`); the current move's marker on the win-rate curve and the current score's
-     marker, each ringed in the ground under the graph; snapshot marks. `graph-hover` is the
-     hawkeye charts' hovered point. */
+     marker, each ringed in `graph-marker-ring` (the ground under the graph); snapshot marks.
+     `graph-hover` is the hawkeye charts' hovered point. */
   --ws-graph-grid: rgba(90, 66, 20, 0.18);
   --ws-graph-baseline: rgba(90, 66, 20, 0.42);
   --ws-graph-guide: rgba(78, 70, 54, 0.6);
@@ -46,6 +46,7 @@
   --ws-graph-snapshot: rgba(201, 138, 0, 0.5);
   --ws-graph-move-marker: #2c5f95;
   --ws-graph-score-marker: #8c5216;
+  --ws-graph-marker-ring: var(--ws-panel-solid);
   /* The 面积填充 between the one curve and the 50% line: an ink tint above it (Black ahead), a
      paper tint below it (White ahead). */
   --ws-graph-fill-above: rgba(36, 31, 22, 0.11);
@@ -81,11 +82,10 @@
   --ws-scroll-thumb: rgba(90, 66, 20, 0.32);
 
   /* 选点列表: its own ground (none: the card shows through; Java 经典 paints Java's white table),
-     the 占比 bar (`share-bar` in the independent list, `share-bar-strong` the thin bar of the main
-     list) and the actual move's row by loss level (rank 1 worst to 6 best), soft and, on the
-     highlighted point, strong; translucent so the ground shows through. */
+     the 占比 column's thin underline (both the main and the independent list) and the actual
+     move's row by loss level (rank 1 worst to 6 best), soft and, on the highlighted point, strong;
+     translucent so the ground shows through. */
   --ws-table-ground: transparent;
-  --ws-share-bar: rgba(90, 66, 20, 0.12);
   --ws-share-bar-strong: rgba(47, 102, 80, 0.55);
   --ws-rank-1: rgba(140, 40, 130, 0.16);
   --ws-rank-1-strong: rgba(140, 40, 130, 0.3);
@@ -131,6 +131,7 @@
   --ws-graph-snapshot: rgba(255, 208, 84, 0.431);
   --ws-graph-move-marker: #f44348;
   --ws-graph-score-marker: #2ecc71;
+  --ws-graph-marker-ring: var(--ws-panel-solid);
   --ws-graph-fill-above: rgba(127, 176, 230, 0.2);
   --ws-graph-fill-below: rgba(232, 225, 210, 0.16);
 
@@ -160,7 +161,6 @@
   --ws-node-7: #5cb4b5;
   --ws-scroll-thumb: rgba(255, 236, 200, 0.26);
 
-  --ws-share-bar: rgba(255, 236, 200, 0.12);
   --ws-share-bar-strong: rgba(147, 211, 178, 0.6);
   --ws-rank-1: rgba(190, 80, 180, 0.22);
   --ws-rank-1-strong: rgba(190, 80, 180, 0.4);
@@ -209,6 +209,7 @@
   --ws-graph-snapshot: rgba(255, 208, 84, 0.82);
   --ws-graph-move-marker: #f44348;
   --ws-graph-score-marker: #2ecc71;
+  --ws-graph-marker-ring: var(--ws-panel-solid);
   --ws-graph-fill-above: rgba(100, 180, 255, 0.2);
   --ws-graph-fill-below: rgba(232, 225, 210, 0.16);
 
@@ -237,15 +238,13 @@
   --ws-node-6: #00dc00;
   --ws-node-7: #00d2d2;
   --ws-scroll-thumb: rgba(230, 230, 250, 0.5);
-
-  --ws-share-bar: rgba(192, 192, 192, 0.3);
 }
 
 /* Java 经典 on light ground: the program's light windows (鹰眼, 棋力评估, 独立选点列表) and the
    candidate list, which is Java's white table (ColorTableCellRenderer, LizzieFrame.java:14951-15105,
    in AppleStyleSupport classic) inside the dark workbench. Cool neutral hairlines and chart lines
    for the program's wood-toned ones (MoveListFrame's grey grid), the dialog surface under headers,
-   Java's light-grey 占比 bar and the actual move's loss level at Java's own alphas over white. The
+   a cool grey 占比 underline and the actual move's loss level at Java's own alphas over white. The
    list repeats the light Java design tokens it reads, since the workbench around it is dark. */
 :root[data-skin="java"],
 :root[data-skin="java"] #table {
@@ -268,7 +267,6 @@
   --ws-on-white: #1f2926;
   --ws-bar-grid: #55635e;
   --ws-scroll-thumb: rgba(20, 30, 40, 0.28);
-  --ws-share-bar: rgba(192, 192, 192, 0.5);
   --ws-share-bar-strong: rgba(20, 30, 40, 0.32);
   --ws-rank-1: rgba(85, 25, 80, 0.27);
   --ws-rank-1-strong: rgba(85, 25, 80, 0.47);
@@ -284,8 +282,12 @@
   --ws-rank-6-strong: rgba(0, 180, 0, 0.39);
 }
 
-/* Over a wallpaper the user chose the cards are translucent black (stage.ts); grounds that must
-   hide what runs under them take a near-opaque black. */
-:root[data-stage="wallpaper"] #main {
+/* Over a wallpaper the user chose, on the workbench and the palette probe (stage.ts): the cards
+   are translucent black, grounds that must hide what runs under them a near-opaque black, and the
+   胜率图's two current markers keep a light ring so they show on any wallpaper. */
+:root[data-stage="wallpaper"] #main,
+:root[data-stage="wallpaper"] #stage-probe {
+  --ws-panel: rgba(0, 0, 0, 0.51);
   --ws-panel-solid: rgba(0, 0, 0, 0.78);
+  --ws-graph-marker-ring: var(--ws-graph-text);
 }

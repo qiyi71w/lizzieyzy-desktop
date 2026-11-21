@@ -171,16 +171,28 @@ pub fn merge_java(base: &ThemeSettings, raw: &Map<String,Value>) -> ThemeSetting
     }
     next
 }
+/// The `theme.txt` keys the 主题外观 page edits: those ConfigDialog2 puts into a named theme
+/// (ConfigDialog2.java:6204-6285).
+const PAGE_KEYS: &[&str] = &[
+    "use-pure-stone", "use-pure-board", "pure-board-color", "use-pure-background", "pure-background-color",
+    "show-stone-shadow", "winrate-stroke-width", "score-lead-stroke-width", "minimum-blunder-bar-width", "shadow-size",
+    "font-name", "ui-font-name", "winrate-font-name", "use-scorediff-in-variation-tree", "scorediff-in-variation-tree-factor",
+    "background-image", "board-image", "black-stone-image", "white-stone-image",
+    "winrate-line-color", "winrate-miss-line-color", "blunder-bar-color", "scoremean-line-color",
+    "stone-indicator-type", "show-comment-node-color", "comment-node-color", "comment-background-color", "comment-font-color",
+    "best-move-color", "comment-font-size", "background-filter", "blunder-winrate-thresholds", "blunder-node-colors",
+];
 /// The `theme.txt` a save of the named theme `name` writes. Like Theme.save (Theme.java:617-643)
 /// it rewrites the object read from the file, `stored` (the user's file, or the bundled one when
-/// there is none), with the page's values put in (ConfigDialog2.java:6204-6286): every other key
-/// stays, and a key whose value is a blank string (String.trim) is left out.
+/// there is none; an empty object for a theme with neither, as `new Theme(name)` reads), with the
+/// page's values put in ([`PAGE_KEYS`]): every other key stays as it was, and a key whose value is
+/// a blank string (String.trim) is left out.
 pub fn to_java(name: &str, stored: Option<&[u8]>, theme: &ThemeSettings) -> Value {
     let mut raw = stored.and_then(|bytes| serde_json::from_slice::<Map<String,Value>>(bytes).ok())
         .or_else(|| BUNDLED.iter().find(|(n,_)| *n == name).and_then(|(_,raw)| serde_json::from_str(raw).ok()))
         .unwrap_or_default();
     let Value::Object(fields) = serde_json::to_value(theme).expect("theme serializes") else { unreachable!() };
-    raw.extend(fields.into_iter().map(|(k,v)|(java_key(&k),v)));
+    raw.extend(fields.into_iter().map(|(k,v)|(java_key(&k),v)).filter(|(k,_)| PAGE_KEYS.contains(&k.as_str())));
     raw.retain(|_,v| !v.as_str().is_some_and(|s| s.trim_matches(|c: char| c <= ' ').is_empty()));
     Value::Object(raw)
 }
@@ -485,5 +497,12 @@ mod tests {
             let raw: serde_json::Map<String,serde_json::Value> = serde_json::from_str(raw.trim_start_matches('\u{feff}')).unwrap();
             assert!(super::invalid_java_keys(&raw).is_empty(), "{:?}", super::invalid_java_keys(&raw));
         }
+    }
+    /// Every key the page saves is a theme value's key.
+    #[test]
+    fn page_keys_name_theme_values() {
+        let Ok(serde_json::Value::Object(fields)) = serde_json::to_value(super::ThemeSettings::default()) else { unreachable!() };
+        let keys: Vec<String> = fields.keys().map(|k| super::java_key(k)).collect();
+        for key in super::PAGE_KEYS { assert!(keys.iter().any(|k| k == key), "{key}"); }
     }
 }

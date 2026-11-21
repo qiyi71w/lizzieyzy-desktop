@@ -3,7 +3,7 @@ use lizzie_core::appearance::{self, AppearanceMode, AppearanceSettings, BoardSty
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::settings::Storage;
-use lizzie_core::workbench::Workbench;
+use lizzie_core::workbench::{Workbench, SETTINGS_SAVE_FAILED};
 
 struct NoEngine;
 impl Launcher for NoEngine {
@@ -83,6 +83,40 @@ fn saving_a_named_theme_keeps_the_theme_file_keys_the_page_does_not_edit() {
     wb.set_appearance_settings(AppearanceSettings { theme:"Fast".into(), ..Default::default() },ThemeSettings { shadow_size:43, ..theme }).unwrap();
     let saved:serde_json::Value=serde_json::from_slice(&std::fs::read(appearance::theme_file(wb.storage(),"Fast").unwrap()).unwrap()).unwrap();
     assert_eq!(saved["var-panel-color"],serde_json::json!([80,80,80]));
+}
+#[test]
+fn saving_a_named_theme_writes_only_the_keys_the_page_edits() {
+    let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
+    wb.add_theme("Personal").unwrap();
+    let file=appearance::theme_file(wb.storage(),"Personal").unwrap();
+    let raw:serde_json::Value=serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert!(raw.get("glass-corner-radius").is_none());
+    let theme=appearance::load_theme(wb.storage(),"Personal",&ThemeSettings::default());
+    wb.set_appearance_settings(AppearanceSettings { theme:"Personal".into(), ..Default::default() },ThemeSettings { shadow_size:42, ..theme }).unwrap();
+    let saved:serde_json::Value=serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(saved["shadow-size"],serde_json::json!(42));
+    // Keys the page does not edit stay absent, so they keep following the ui values.
+    assert!(saved.get("glass-corner-radius").is_none(), "{saved}");
+    assert!(saved.get("glass-accent-color").is_none(), "{saved}");
+}
+#[cfg(unix)]
+#[test]
+fn a_theme_folder_that_cannot_be_written_reports_the_settings_save_failure() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
+    wb.add_theme("Personal").unwrap();
+    let folder=appearance::theme_file(wb.storage(),"Personal").unwrap().parent().unwrap().to_path_buf();
+    let before=wb.view(true).settings;
+    let theme=appearance::load_theme(wb.storage(),"Personal",&ThemeSettings::default());
+    let set=|mode| std::fs::set_permissions(&folder,std::fs::Permissions::from_mode(mode)).unwrap();
+    set(0o555);
+    let failed=wb.set_appearance_settings(AppearanceSettings { theme:"Personal".into(), ..Default::default() },ThemeSettings { shadow_size:42, ..theme });
+    set(0o755);
+    let error=failed.unwrap_err();
+    let mut lines=error.message.lines();
+    assert_eq!(lines.next(),Some(SETTINGS_SAVE_FAILED), "{}", error.message);
+    assert!(lines.next().is_some_and(|cause|!cause.trim().is_empty()), "{}", error.message);
+    assert_eq!(wb.view(false).settings,before);
 }
 #[test]
 fn a_failed_theme_or_config_write_does_not_publish_new_settings() {

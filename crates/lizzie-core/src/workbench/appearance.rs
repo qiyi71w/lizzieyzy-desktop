@@ -1,9 +1,10 @@
-use super::Workbench;
+use super::{settings_error, Workbench, SETTINGS_SAVE_FAILED};
 use crate::api::{ApiError, ErrorKind};
 use crate::appearance::{self, AppearanceSettings, ThemeSettings};
 use crate::settings;
 
-fn io(error: std::io::Error) -> ApiError { ApiError::new(ErrorKind::Io, format!("saving theme failed: {error}")) }
+/// A theme folder write failed: the settings-file error, the cause on its second line.
+fn io(error: std::io::Error) -> ApiError { settings_error(SETTINGS_SAVE_FAILED, error) }
 
 impl Workbench {
     /// ConfigDialog2.java:6191-6286: default edits belong to ui, named edits to theme.txt, whose
@@ -29,7 +30,7 @@ impl Workbench {
         if let Err(error) = result {
             if let Some(path) = path {
                 let restored = match previous {Some(bytes)=>settings::write_atomic(&path,&bytes),None=>std::fs::remove_file(path)};
-                if let Err(restore) = restored { return Err(ApiError::new(ErrorKind::Io,format!("{error:?}; restoring theme failed: {restore}"))); }
+                if let Err(restore) = restored { return Err(ApiError::new(ErrorKind::Io,format!("{}\n{restore}",error.message))); }
             }
             return Err(error);
         }

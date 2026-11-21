@@ -80,13 +80,13 @@
 .rc-link:disabled {
   background-color: transparent;
 }
-.rc-actions {
+.rc-root .rc-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
 }
-.rc-actions button {
+.rc-root .rc-actions button {
   min-width: 76px;
 }
 

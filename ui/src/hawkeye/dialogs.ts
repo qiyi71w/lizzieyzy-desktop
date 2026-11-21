@@ -214,14 +214,15 @@ interface Spinner {
   value(): number;
 }
 
-/** JSpinner over SpinnerNumberModel(value, min, max, step): the arrows (and Up / Down in the
- *  field) step unless the result leaves the range; typed text commits on Enter or focus loss and
- *  reverts when it is not a whole number in range (COMMIT_OR_REVERT). `changed` runs on every new
- *  value (ChangeListener). */
+/** JSpinner over SpinnerNumberModel(value, min, max, step), drawn as the program's number stepper
+ *  (design/base.css .ds-stepper): the arrows (held, they repeat), Up / Down in the field and, while
+ *  the field has the focus, the wheel step unless the result leaves the range; typed text commits
+ *  on Enter or focus loss and reverts when it is not a whole number in range (COMMIT_OR_REVERT).
+ *  `changed` runs on every new value (ChangeListener). */
 function spinner(key: string, initial: number, min: number, max: number, step: number, changed: () => void): Spinner {
   let value = initial;
-  const el = document.createElement("div");
-  el.className = "hkd-spin";
+  const el = document.createElement("span");
+  el.className = "ds-stepper";
   const input = document.createElement("input");
   input.type = "text";
   input.dataset.key = key;
@@ -260,12 +261,21 @@ function spinner(key: string, initial: number, min: number, max: number, step: n
     }
   });
   input.addEventListener("blur", commit);
+  input.addEventListener(
+    "wheel",
+    (ev) => {
+      if (document.activeElement !== input || ev.deltaY === 0) return;
+      ev.preventDefault();
+      stepBy(ev.deltaY < 0);
+    },
+    { passive: false },
+  );
 
-  const arrows = document.createElement("div");
-  arrows.className = "hkd-arrows";
+  const arrows = document.createElement("span");
+  arrows.className = "ds-stepper-arrows";
+  arrows.setAttribute("aria-hidden", "true");
   for (const up of [true, false]) {
-    const arrow = document.createElement("div");
-    arrow.className = "hkd-arrow";
+    const arrow = document.createElement("span");
     arrow.dataset.key = `${key}.${up ? "up" : "down"}`;
     arrow.append(icon(up ? "chevron-up" : "chevron-down"));
     // BasicSpinnerUI.ArrowButtonHandler: one step on press, then auto-repeat while held.
@@ -448,7 +458,7 @@ export function openStatisticsThreshold(p: HawkeyePayload, actions: DialogAction
     });
     close(panel);
   };
-  openPanel("StatisticsThreshold.title", t("StatisticsThreshold.title"), body, "hawkeye.statThreshold", {
+  const panel = openPanel("StatisticsThreshold.title", t("StatisticsThreshold.title"), body, "hawkeye.statThreshold", {
     buttons: (panel) => ({
       start: [
         button(t("StatisticsThreshold.btnCalcMethod"), "hawkeye.statThreshold.calcMethod", () =>
@@ -468,6 +478,12 @@ export function openStatisticsThreshold(p: HawkeyePayload, actions: DialogAction
       primary: button(t("StatisticsThreshold.btnConfirm"), "hawkeye.statThreshold.confirm", () => confirm(panel), true),
       cancel: button(t("StatisticsThreshold.btnCancel"), "hawkeye.statThreshold.cancel", () => close(panel)),
     }),
+  });
+  // getRootPane().setDefaultButton: Enter in a threshold field is 确定.
+  body.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Enter" || ev.isComposing || !(ev.target instanceof HTMLInputElement) || ev.target.disabled) return;
+    ev.preventDefault();
+    confirm(panel);
   });
 }
 

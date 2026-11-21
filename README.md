@@ -1058,9 +1058,10 @@ importing the matching LizzieYzy Next settings.
   another clock is refused before anything is saved, with Java's message), KataGo visit limits,
   后台思考, 对弈模式 (analysis hidden during the game), the candidates
   shown for each side and 自动保存棋谱; 分析模式 adds 纯网络, Java's resignation thresholds, 不使用
-  分析广度拓展 and the 落子条件 (time, total or first-candidate visits) shared with the bottom bar's
-  自动落子. A game has started only once the engine answered its setup (moves are refused with
-  Java's "wait for the engine" message until then). The engine's move becomes the record's next
+  分析广度拓展 and the 落子条件 (time, total or first-candidate visits), remembered as the 自动落子
+  settings that 修改AI用时 and 棋盘同步工具 also set. A game has started only once the engine
+  answered its setup (moves are refused with Java's "wait for the engine" message until
+  then). The engine's move becomes the record's next
   move only if it answers the game, record and position it was asked for; a late answer after
   悔棋, a new board, the end of the game or an engine exit changes nothing. 停一手 (`P`), 暂停 /
   继续, 悔棋 (back to the human's previous turn), 认输 (no confirmation), 结束对局 (`Space`) and

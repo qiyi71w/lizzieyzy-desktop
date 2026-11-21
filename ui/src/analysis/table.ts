@@ -10,7 +10,7 @@ import { t } from "../i18n";
 import { frameCoordinate, playouts, themeFonts } from "../workbench/paint";
 import { appearance, frameMetrics } from "../appearance/state";
 import { customFont } from "../appearance/model";
-import { actualParts, bindColumnResize, layoutColumns, MIN_COLUMN, type FrameBar, type FrameCell, type FramePayload } from "./suggestionsFrame";
+import { actualParts, bindColumnResize, cellBackground, layoutColumns, MIN_COLUMN, rankWidths, tableFaces, type FrameBar, type FrameCell, type FramePayload } from "./suggestionsFrame";
 import { autoReplayed, setAutoReplayed } from "../display/autoplay";
 import { replayLength, stopReplayOf } from "../display/replay";
 
@@ -536,37 +536,21 @@ let mainStructure = "";
 /** The five columns' content widths in the table's faces, with the cells' padding (`last` is the
  *  rightmost shown column): `fit` holds each header (Label), the widest usual figure and the actual
  *  move's row on one line; `least` the actual row with its smaller change above its value. 序号
- *  holds "Pass" and the actual move's smaller 实战 note, which sits under its rank: in `least` on
- *  two lines where it breaks (between kana or ideographs, or at a space), as "実際の / 着手". */
+ *  holds "Pass" and the actual move's smaller 实战 note under its rank (rankWidths). */
 function contentWidths(table: HTMLTableElement, heads: string[], last: number): { fit: number[]; least: number[] } {
-  const c = document.createElement("canvas").getContext("2d")!;
-  const family = getComputedStyle(table).fontFamily;
-  const body = Number.parseFloat(getComputedStyle(table).fontSize);
-  const caption = Number.parseFloat(getComputedStyle(table.tHead!.rows[0].cells[0]).fontSize);
-  const width = (text: string, size: number) => {
-    c.font = `${size}px ${family}`;
-    return c.measureText(text).width;
-  };
-  const figures = [["20", "Pass"], ["88.8"], ["9.9k", "99k"], ["88.8"], ["-88.8"]];
+  const faces = tableFaces(table);
+  const { body, caption, width } = faces;
+  const figures = [["88.8"], ["9.9k", "99k"], ["88.8"], ["-88.8"]];
   // The change before 胜率's and 目数's values, with the 4 px after it (.actual-note).
   const change = width("↓-88.8", caption) + 4;
-  const actual = [...t("AnalysisFrame.actual")];
-  const ideograph = /[\u3040-\u30ff\u3400-\u9fff]/;
-  let noteLeast = width(actual.join(""), caption);
-  for (let i = 1; i < actual.length; i++) {
-    const breaks = actual[i - 1] === " " || actual[i] === " " || (ideograph.test(actual[i - 1]) && ideograph.test(actual[i]));
-    if (breaks) noteLeast = Math.min(noteLeast, Math.max(width(actual.slice(0, i).join("").trim(), caption), width(actual.slice(i).join("").trim(), caption)));
-  }
-  const fit: number[] = [], least: number[] = [];
-  heads.forEach((head, k) => {
-    const figure = Math.max(width(head, caption), ...figures[k].map((f) => width(f, body)));
-    // 序号: 8 px before and a 6 px gap after; the right-aligned columns: their right padding.
-    const pad = k === 0 ? 14 : k === last ? 12 : 8;
-    if (k === 0) {
-      fit.push(Math.ceil(Math.max(figure, width(actual.join(""), caption))) + pad);
-      least.push(Math.ceil(Math.max(figure, noteLeast)) + pad);
-      return;
-    }
+  // 序号: 8 px before and a 6 px gap after.
+  const rank = rankWidths(faces, heads[0], ["20", "Pass"], t("AnalysisFrame.actual"), 14);
+  const fit: number[] = [rank.fit], least: number[] = [rank.least];
+  heads.slice(1).forEach((head, i) => {
+    const k = i + 1;
+    const figure = Math.max(width(head, caption), ...figures[i].map((f) => width(f, body)));
+    // The right-aligned columns: their right padding.
+    const pad = k === last ? 12 : 8;
     const note = k === 1 || k === 4 ? change : 0;
     fit.push(Math.ceil(figure + note) + pad);
     least.push(Math.ceil(Math.max(figure, note)) + pad);
@@ -617,12 +601,13 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
     // Java writes the widths only while the score column shows (Config.persist).
     const report = () => void invoke("set_main_list_columns", { columns: hasScore ? mainWidths : null });
     let content = { fit: [] as number[], least: [] as number[] };
+    // 序号 is dragged no wider than its one-line content (mainLayout keeps it there too).
     bindColumnResize(headRow, () => mainWidths, apply, (widths) => {
       // A hidden 目数 column keeps the width it had (listTableColum5Width).
       mainPreferred = hasScore ? widths : [...widths, (mainPreferred ?? content.fit)[4]];
       apply(widths);
       report();
-    });
+    }, (column) => (column === 0 ? content.fit[0] : Infinity));
     const rowAt = (ev: MouseEvent) => (ev.target as HTMLElement).closest<HTMLTableRowElement>("tbody tr")?.sectionRowIndex ?? -1;
     body.addEventListener("click", (ev) => {
       const row = rowAt(ev);
@@ -688,12 +673,8 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
       // The actual row's cells carry their text as a tooltip.
       cell.title = r.actual ? c.text : "";
       cell.style.color = c.fg;
-      // 占比: a 2 px underline of the share token under the right-aligned number, growing
-      // leftwards from the cell's right padding, over the row's own tint.
-      const share = Math.min(100, Math.max(0, c.bar ?? 0));
-      const bar = `linear-gradient(to left, var(--ws-share-bar-strong) ${share}%, transparent ${share}%) right 8px bottom 3px / calc(100% - 16px) 2px no-repeat`;
-      const tint = cells[0].bg;
-      cell.style.background = c.bar === null ? c.bg : tint ? `${bar}, ${tint}` : bar;
+      // 占比: its share underline over the row's own tint (cellBackground).
+      cell.style.background = cellBackground(c, cells[0].bg);
     });
   });
 }
@@ -798,6 +779,8 @@ export function framePayload(v: WorkbenchView, id: FrameId, nine: boolean, layou
     widths,
     layout,
     rows: colourCells(v, id, rows, cells, 5, 3, nine ? 7 : null),
+    actualRow: rows.findIndex((r) => r.actual),
+    actualNote: t("AnalysisFrame.actual"),
     list: d.bestMovesList,
     graph: d.bestMovesGraph,
     boxes: [

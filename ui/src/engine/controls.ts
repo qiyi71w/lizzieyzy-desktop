@@ -95,21 +95,21 @@ export function groupTitle(host: ParentNode, title: string, note = ""): HTMLHead
   return h;
 }
 
-/** The name side of a row: the name, and the description under it when there is one. */
-function rowText(title: string | Node, sub: string): HTMLSpanElement {
+/** The name side of a row: `text` holding the `name`, and the `description` under it when there
+ *  is one. */
+function rowText(title: string | Node, sub: string): { text: HTMLSpanElement; name: HTMLSpanElement; description: HTMLSpanElement | null } {
   const text = document.createElement("span");
   text.className = "ds-row-text";
   const name = document.createElement("span");
   name.className = "ds-row-title";
   name.append(title);
   text.append(name);
-  if (sub) {
-    const p = document.createElement("span");
-    p.className = "ds-row-sub";
-    p.textContent = sub;
-    text.append(p);
-  }
-  return text;
+  if (!sub) return { text, name, description: null };
+  const description = document.createElement("span");
+  description.className = "ds-row-sub";
+  description.textContent = sub;
+  text.append(description);
+  return { text, name, description };
 }
 
 /** Controls for a row's end: a string (a unit, or the text before a field) becomes a unit slot,
@@ -134,8 +134,7 @@ let ids = 0;
  *  name; a radio button is named by its segment. */
 function nameControls(name: HTMLElement, slots: Node[]): void {
   name.id ||= `ds-row-name-${++ids}`;
-  const unit = (near: Node | undefined) => near instanceof HTMLElement && near.classList.contains("ds-row-unit");
-  const field = (near: Node | undefined) => near instanceof Element && (near.matches("input, select, textarea") || !!near.querySelector("input, select, textarea"));
+  const unit = (near: Node | undefined): near is HTMLElement => near instanceof HTMLElement && near.classList.contains("ds-row-unit");
   slots.forEach((slot, at) => {
     if (!(slot instanceof Element)) return;
     for (const el of [slot, ...slot.querySelectorAll("*")]) {
@@ -148,21 +147,23 @@ function nameControls(name: HTMLElement, slots: Node[]): void {
       const label = el.closest("label");
       if (label && (label.htmlFor ? label.htmlFor === el.id : label.querySelector("input, select, textarea, button, meter, output, progress") === el)) continue;
       const names = [name.id];
-      if (unit(slots[at - 1])) names.push(((slots[at - 1] as HTMLElement).id ||= `ds-row-unit-${++ids}`));
-      if (unit(slots[at + 1]) && !field(slots[at + 2])) names.push(((slots[at + 1] as HTMLElement).id ||= `ds-row-unit-${++ids}`));
+      const before = slots[at - 1];
+      const after = slots[at + 1];
+      const next = slots[at + 2];
+      const fieldNext = next instanceof Element && (next.matches("input, select, textarea") || !!next.querySelector("input, select, textarea"));
+      if (unit(before)) names.push((before.id ||= `ds-row-unit-${++ids}`));
+      if (unit(after) && !fieldNext) names.push((after.id ||= `ds-row-unit-${++ids}`));
       el.setAttribute("aria-labelledby", names.join(" "));
     }
   });
 }
 
-/** Names `control` by the row's name and describes it by the row's description, so its name
+/** Names `control` by the row's `name` and describes it by the row's `description`, so its name
  *  leaves out the description and any field the row's label also holds. A control named by its
  *  own `aria-label` keeps that name. */
-function nameByRow(control: HTMLElement, text: HTMLElement): void {
-  const name = text.firstElementChild as HTMLElement;
+function nameByRow(control: HTMLElement, name: HTMLElement, description: HTMLElement | null): void {
   name.id ||= `ds-row-name-${++ids}`;
   if (!control.hasAttribute("aria-label") && !control.hasAttribute("aria-labelledby")) control.setAttribute("aria-labelledby", name.id);
-  const description = text.querySelector<HTMLElement>(".ds-row-sub");
   if (!description) return;
   description.id ||= `ds-row-sub-${++ids}`;
   control.setAttribute("aria-describedby", description.id);
@@ -172,16 +173,17 @@ function nameByRow(control: HTMLElement, text: HTMLElement): void {
  *  is a label, so its name focuses the field, and names it as nameByRow says; otherwise its
  *  controls are named as nameControls says. Consecutive rows form one group. */
 export function row(host: ParentNode, title: string | Node, sub: string, ...controls: (Node | string)[]): HTMLElement {
-  const single = controls.length === 1 && controls[0] instanceof HTMLElement && controls[0].matches("input:not([type=checkbox], [type=radio]), select, textarea");
+  const only = controls.length === 1 ? controls[0] : null;
+  const single = only instanceof HTMLElement && only.matches("input:not([type=checkbox], [type=radio]), select, textarea") ? only : null;
   const r = document.createElement(single ? "label" : "div");
   r.className = "ds-row";
   const end = document.createElement("span");
   end.className = "ds-row-control";
   const slots = slotted(controls);
   end.append(...slots);
-  const text = rowText(title, sub);
-  if (single) nameByRow(controls[0] as HTMLElement, text);
-  else nameControls(text.firstElementChild as HTMLElement, slots);
+  const { text, name, description } = rowText(title, sub);
+  if (single) nameByRow(single, name, description);
+  else nameControls(name, slots);
   r.append(text, end);
   host.append(r);
   return r;
@@ -206,8 +208,8 @@ export function switchRow(host: ParentNode, title: string, sub: string, checked:
   // Clicked through `for`: a label without it would label the first extra field instead.
   box.id = `ds-switch-${++ids}`;
   r.htmlFor = box.id;
-  const text = rowText(title, sub);
-  nameByRow(box, text);
+  const { text, name, description } = rowText(title, sub);
+  nameByRow(box, name, description);
   const end = document.createElement("span");
   end.className = "ds-row-control";
   if (extra.length) {
@@ -215,7 +217,7 @@ export function switchRow(host: ParentNode, title: string, sub: string, checked:
     fields.className = "ds-row-fields";
     const slots = slotted(extra);
     fields.append(...slots);
-    nameControls(text.firstElementChild as HTMLElement, slots);
+    nameControls(name, slots);
     end.append(fields);
   }
   end.append(box);
@@ -225,8 +227,9 @@ export function switchRow(host: ParentNode, title: string, sub: string, checked:
 }
 
 /** Two to four exclusive choices as one segmented control over radio buttons named `name`;
- *  `inputs` are the radios in `choices` order. */
-export function segmented(name: string, choices: [value: string, text: string][], value: string): { el: HTMLSpanElement; inputs: HTMLInputElement[]; value: () => string } {
+ *  `inputs` are the radios in `choices` order, `value()` the checked choice's value (`value`
+ *  while none is checked). */
+export function segmented<T extends string>(name: string, choices: [value: T, text: string][], value: T): { el: HTMLSpanElement; inputs: HTMLInputElement[]; value: () => T } {
   const el = document.createElement("span");
   el.className = "ds-seg";
   el.setAttribute("role", "radiogroup");
@@ -239,7 +242,14 @@ export function segmented(name: string, choices: [value: string, text: string][]
     el.append(label);
     return radio;
   });
-  return { el, inputs, value: () => inputs.find((r) => r.checked)?.value ?? value };
+  return {
+    el,
+    inputs,
+    value: () => {
+      const k = inputs.findIndex((r) => r.checked);
+      return k < 0 ? value : choices[k][0];
+    },
+  };
 }
 
 /** A note after a group: what applies to the rows above it as a whole. */

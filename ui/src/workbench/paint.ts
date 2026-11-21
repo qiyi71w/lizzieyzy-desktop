@@ -2236,24 +2236,29 @@ function digitAdvance(g: CanvasRenderingContext2D): number {
   return widest;
 }
 
+/** A string's parts for tabular figures: each digit alone (group 1), and every run between
+ *  digits whole, so it is measured and shaped as one text (combining marks stay on their letters). */
+const TABULAR_PARTS = /([0-9])|[^0-9]+/g;
+
 /** Width of `s` with tabular figures (fillTabular). */
 export function tabularWidth(g: CanvasRenderingContext2D, s: string): number {
   const digit = digitAdvance(g);
   let width = 0;
-  for (const c of s) width += c >= "0" && c <= "9" ? digit : g.measureText(c).width;
+  for (const [part, figure] of s.matchAll(TABULAR_PARTS)) width += figure ? digit : g.measureText(part).width;
   return Math.round(width);
 }
 
-/** fillText with tabular figures: every digit centred in the widest digit's advance. */
+/** fillText with tabular figures: every digit centred in the widest digit's advance, the text
+ *  between digits drawn as one run. */
 export function fillTabular(g: CanvasRenderingContext2D, s: string, x: number, y: number) {
   const digit = digitAdvance(g);
-  for (const c of s) {
-    const own = g.measureText(c).width;
-    if (c >= "0" && c <= "9") {
-      g.fillText(c, x + (digit - own) / 2, y);
+  for (const [part, figure] of s.matchAll(TABULAR_PARTS)) {
+    const own = g.measureText(part).width;
+    if (figure) {
+      g.fillText(part, x + (digit - own) / 2, y);
       x += digit;
     } else {
-      g.fillText(c, x, y);
+      g.fillText(part, x, y);
       x += own;
     }
   }

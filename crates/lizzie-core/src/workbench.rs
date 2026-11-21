@@ -365,7 +365,7 @@ pub struct Workbench {
     problem_mark: Option<(u64, NodeId, NodeId)>,
     /// 超级鹰眼's 黑 / 白 boxes this session.
     hawkeye_session: hawkeye::HawkeyeSession,
-    /// 人机对弈 and the bottom toolbar's 自动落子.
+    /// 人机对弈 and 自动落子.
     play: play::PlayFlow,
     fox: fox::FoxFlow,
     matches: matches::MatchFlow,

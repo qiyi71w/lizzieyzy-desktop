@@ -11,9 +11,9 @@ import { run, state } from "../app";
 import type { CoordinateStyle, DisplaySettings, PvVisitsMode } from "../contract/generated";
 import { product, registerProduct, t } from "../i18n";
 import { groupTitle, input, row, switchBox, switchRow } from "../engine/controls";
-import { javaDouble } from "../workbench/paint";
+import { javaDouble, parseJavaDouble } from "../workbench/paint";
 import { panelDraft } from "../workbench/panelDraft";
-import { decimalOnly, openInfoOrderDialog, parseJavaInt } from "./dialogs";
+import { decimalOnly, fieldValue, openInfoOrderDialog, parseJavaInt } from "./dialogs";
 import { delayCandidates, setCandidates } from "./state";
 import { clearTreeTooWide } from "./variationTree";
 
@@ -171,17 +171,20 @@ function combo<T extends string | number>(host: HTMLElement, target: string, key
   return () => items[Number(select.value)][0];
 }
 
-/** JFormattedTextField with DigitOnlyFilter(`pattern` removes the rest) and a unit after it. */
-function text(host: HTMLElement, target: string, key: keyof DisplaySettings, title: string, sub: string, value: string, unit: string, pattern: RegExp): HTMLInputElement {
+/** JFormattedTextField with DigitOnlyFilter (`pattern` removes the rest; null keeps every
+ *  character) and a unit after it. */
+function text(host: HTMLElement, target: string, key: keyof DisplaySettings, title: string, sub: string, value: string, unit: string, pattern: RegExp | null): HTMLInputElement {
   const control = input(value);
   control.dataset.key = `settings.display.${key}`;
   control.inputMode = "numeric";
   control.title = sub;
   control.setAttribute("aria-label", title);
-  control.addEventListener("input", () => {
-    const kept = control.value.replace(pattern, "");
-    if (kept !== control.value) control.value = kept;
-  });
+  if (pattern) {
+    control.addEventListener("input", () => {
+      const kept = control.value.replace(pattern, "");
+      if (kept !== control.value) control.value = kept;
+    });
+  }
   row(host, title, sub, control, unit).dataset.settingTarget = target;
   return control;
 }
@@ -209,8 +212,9 @@ export interface SharedCardRows {
 }
 
 /** Adds the rows to the 引擎与分析 (`engine`) and 对局与操作 (`play`) pages; `save` sends the
- *  edited display settings with 保存设置 and is false when the core refused them. */
-export function buildDisplaySettings(engine: HTMLElement, play: HTMLElement, shared: SharedCardRows): { save: () => Promise<boolean> } {
+ *  edited display settings with 保存设置 and is false when the core refused them. `fields` are
+ *  the rows whose validity 保存设置 checks before anything saves. */
+export function buildDisplaySettings(engine: HTMLElement, play: HTMLElement, shared: SharedCardRows): { save: () => Promise<boolean>; fields: HTMLInputElement[] } {
   const s = state.view!.settings.display;
 
   // 分析与胜率曲线 (ConfigDialog2.java:2994-3062, 6534-6553, 6739, 6780, 6829); the 胜率曲线 and
@@ -222,14 +226,18 @@ export function buildDisplaySettings(engine: HTMLElement, play: HTMLElement, sha
   // 设置最大宽度 (Menu.java:1223-1277): Java enables its menu item only while the tree scrolls.
   const treeWidth = text(engine, "menu.maxTreeWidth", "maxTreeWidth", product("settingsTreeWidth"), product("settingsTreeWidthSub"), String(s.maxTreeWidth), product("unitPixels"), /[^0-9]+/g);
   treeWidth.disabled = !s.scrollVariation;
-  // Confirming a width, even the same one, lets a tree that grew too wide scroll again (1270).
-  let treeWidthEdited = false;
-  treeWidth.addEventListener("input", () => (treeWidthEdited = true));
   const blunderBar = check(engine, "config.analysis.blunder-bar", "blunderBar", t("ConfigDialog2.modern.analysis.blunderBar"), t("ConfigDialog2.modern.analysis.blunderBarSub"), s.blunderBar);
   const hover = check(engine, "config.analysis.hover", "mouseOverWinrateGraph", t("ConfigDialog2.modern.analysis.hover"), t("ConfigDialog2.modern.analysis.hoverSub"), s.mouseOverWinrateGraph);
   const graphFill = check(engine, "config.analysis.graph-fill", "winrateGraphFill", t("ConfigDialog2.modern.analysis.graphFill"), t("ConfigDialog2.modern.analysis.graphFillSub"), s.winrateGraphFill);
-  // 设置初始目数差最大值 (Menu.java:1626-1659): the absolute value is saved.
-  const scoreScale = text(engine, "menu.initialMaxScoreLead", "initialMaxScoreLead", product("settingsScoreScale"), product("settingsScoreScaleSub"), javaDouble(Math.abs(s.initialMaxScoreLead)), product("unitPoints"), /[^0-9.]+/g);
+  // 设置初始目数差最大值 (Menu.java:1626-1659): the field reads as Double.parseDouble and the
+  // absolute value is saved; another text makes 保存设置 report Menu.inputDoubleTip on the field.
+  const scoreScale = text(engine, "menu.initialMaxScoreLead", "initialMaxScoreLead", product("settingsScoreScale"), product("settingsScoreScaleSub"), javaDouble(Math.abs(s.initialMaxScoreLead)), product("unitPoints"), null);
+  scoreScale.inputMode = "decimal";
+  scoreScale.addEventListener("input", () => {
+    scoreScale.setCustomValidity(parseJavaDouble(scoreScale.value) === null ? t("Menu.inputDoubleTip") : "");
+    scoreScale.removeAttribute("aria-invalid");
+  });
+  scoreScale.addEventListener("invalid", () => scoreScale.setAttribute("aria-invalid", "true"));
   const maxRed = check(engine, "config.analysis.max-red", "suggestionMaxRed", t("ConfigDialog2.modern.analysis.maxRed"), t("ConfigDialog2.modern.analysis.maxRedSub"), s.suggestionMaxRed);
   engine.append(shared.analysis);
 
@@ -310,12 +318,13 @@ export function buildDisplaySettings(engine: HTMLElement, play: HTMLElement, sha
   ], s.coordinateStyle);
 
   return {
+    fields: [scoreScale],
     save: async () => {
       const current = state.view?.settings.display;
       if (!current) return false;
       const white = whiteStyle();
-      const scale = Number.parseFloat(scoreScale.value);
-      const replayMillis = parseJavaInt(replay.value.trim());
+      const scale = parseJavaDouble(scoreScale.value);
+      const replayMillis = fieldValue(replay);
       // A seconds field that does not read as a number keeps the saved delay (SetDelayShowCandidates).
       const delay = Number(delaySeconds.value.trim());
       const next: DisplaySettings = {
@@ -326,7 +335,7 @@ export function buildDisplaySettings(engine: HTMLElement, play: HTMLElement, sha
         winrateGraphFill: graphFill.checked,
         suggestionMaxRed: maxRed.checked,
         maxTreeWidth: intOr(treeWidth, current.maxTreeWidth),
-        initialMaxScoreLead: Number.isFinite(scale) ? Math.abs(scale) : current.initialMaxScoreLead,
+        initialMaxScoreLead: scale === null ? current.initialMaxScoreLead : Math.abs(scale),
         blueRing: blueRing.checked,
         suggestionColorRatio: colorRatio(),
         whiteSuggestionWhite: (white & 1) !== 0,
@@ -340,8 +349,9 @@ export function buildDisplaySettings(engine: HTMLElement, play: HTMLElement, sha
         pvVisits: pvMode(),
         pvVisitsLimit: fieldNumber(pvLimit, true),
         removeDeadInVariation: removeDead.checked,
-        // The field shows whole milliseconds: an untouched one keeps the saved seconds exactly.
-        replayIntervalSeconds: replayMillis === null || replayMillis === Math.trunc(current.replayIntervalSeconds * 1000) ? current.replayIntervalSeconds : replayMillis / 1000,
+        // The field shows whole milliseconds (blank reads as 0): an untouched one keeps the saved
+        // seconds exactly.
+        replayIntervalSeconds: replayMillis === Math.trunc(current.replayIntervalSeconds * 1000) ? current.replayIntervalSeconds : replayMillis / 1000,
         coordinates: coordinates.checked,
         noRefreshOnSub: freezeSub.checked,
         noRefreshOnMouse: freezeVariation.checked,
@@ -356,7 +366,9 @@ export function buildDisplaySettings(engine: HTMLElement, play: HTMLElement, sha
         if (next.delayCandidates) delayCandidates(next.delayCandidatesSeconds);
         else setCandidates(true, true);
       }
-      if (treeWidthEdited) clearTreeTooWide();
+      // Every 保存设置, even with the same width, lets a tree that grew too wide scroll again
+      // (Menu.java:1265-1272).
+      clearTreeTooWide();
       return true;
     },
   };

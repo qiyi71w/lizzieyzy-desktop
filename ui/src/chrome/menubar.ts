@@ -12,6 +12,7 @@ import { icon } from "../design/icons";
 import { highlight } from "../search/highlight";
 import { paintingOpen } from "../display/painting";
 import { contextMenuOpen } from "../editing/contextMenu";
+import { onAppearanceChange } from "../appearance/state";
 
 /** 更多菜单: the button at the menu bar's end that holds the menus a narrow window has no room for. */
 registerProduct({
@@ -427,7 +428,8 @@ function dropdown(items: MenuNode[]): HTMLElement {
         row.classList.add("disabled", "unavailable");
         row.title = product("unavailable");
       }
-      const open = () => expand(row, list, children);
+      // A disabled row opens nothing, though moving onto it still closes its siblings' submenus.
+      const open = () => expand(row, list, row.classList.contains("disabled") ? [] : children);
       subOpeners.set(row, open);
       row.addEventListener("mouseenter", open);
     } else {
@@ -493,9 +495,14 @@ const tops = new Map<TopMenu, { top: HTMLElement; open: (keyboard?: boolean) => 
 /** Whether a menu title stands on the bar: shown now and not moved into 更多菜单. */
 const onBar = (top: HTMLElement) => top.style.display !== "none" && !top.classList.contains("overflowed");
 
-/** Left / Right on a menu's outer level: the neighbouring menu on the bar, wrapping, opened as by a key. */
+/** Whether a menu title can open: the engine menu is disabled while an 引擎对战 batch runs
+ *  (Menu.engineMenu.setEnabled(false), SwingEngineGameChrome.java:49-53). */
+const enabledTop = (top: HTMLElement) => top.getAttribute("aria-disabled") !== "true";
+
+/** Left / Right on a menu's outer level: the neighbouring enabled menu on the bar, wrapping,
+ *  opened as by a key. */
 function stepTop(step: 1 | -1): void {
-  const shown = [...tops.values()].filter(({ top }) => onBar(top));
+  const shown = [...tops.values()].filter(({ top }) => onBar(top) && enabledTop(top));
   const at = shown.findIndex(({ top }) => top === openMenu);
   shown[(at + step + shown.length) % shown.length]?.open(true);
 }
@@ -539,7 +546,7 @@ function overflowedMenus(): [TopMenu, HTMLElement][] {
 }
 
 /** 更多菜单's dropdown: a submenu row per menu it holds, named as that menu's title (an engine
- *  menu's is its engine). */
+ *  menu's is its engine); a disabled menu's row is disabled. */
 function overflowDropdown(): HTMLElement {
   const held = overflowedMenus();
   const list = dropdown(held.map(([menu]): MenuNode => ({ t: "submenu", key: menu.key, items: menu.items })));
@@ -548,12 +555,21 @@ function overflowDropdown(): HTMLElement {
     const text = row.querySelector(".label");
     if (text) text.textContent = name;
     row.setAttribute("aria-label", name);
+    if (enabledTop(held[k][1])) return;
+    row.classList.add("disabled");
+    row.setAttribute("aria-disabled", "true");
   });
   return list;
 }
 
 export function buildMenubar(host: HTMLElement): void {
   const measure = document.createElement("canvas").getContext("2d")!;
+  // A menu title's width: its own text in its rendered font plus EmptyBorder(5, 10, 5, 10)
+  // (WindowMenuStrip.java:295).
+  const fitTitle = (top: HTMLElement) => {
+    measure.font = getComputedStyle(top).font;
+    top.style.width = `${Math.ceil(measure.measureText(top.getAttribute("aria-label") ?? "").width) + 20}px`;
+  };
   // The menus as one menu bar for assistive technology; a press on the gaps between them still
   // moves the window like the rest of the bar.
   const strip = document.createElement("div");
@@ -579,9 +595,7 @@ export function buildMenubar(host: HTMLElement): void {
     // The title's own text: the open dropdown inside it must not join its name.
     top.setAttribute("aria-label", top.textContent);
     strip.append(top);
-    // MenuButton: text width plus EmptyBorder(5, 10, 5, 10) (WindowMenuStrip.java:295)
-    measure.font = getComputedStyle(top).font;
-    top.style.width = `${Math.ceil(measure.measureText(top.textContent).width) + 20}px`;
+    fitTitle(top);
     if (menu.when === "contribute" || menu.when === "quickLinks") {
       const update = () => {
         const shown = visible(menu.when);
@@ -603,9 +617,12 @@ export function buildMenubar(host: HTMLElement): void {
         }
         const engine = secondary ? state.view?.engine.secondary : state.view?.engine.foreground;
         // SwingEngineGameChrome: 对战中 and disabled while a batch runs (the menu strip shows no
-        // menu icons, so Playing2 / ready2 are not visible there; java-ref-ui j08a, j09a).
+        // menu icons, so Playing2 / ready2 are not visible there; java-ref-ui j08a, j09a). Open,
+        // on the bar or inside 更多菜单, it closes.
         const match = secondary ? null : state.view?.engine_match;
         top.classList.toggle("match-off", !!match);
+        top.setAttribute("aria-disabled", String(!!match));
+        if (match && (openMenu === top || (openMenu?.dataset.key === OVERFLOW.key && top.classList.contains("overflowed")))) closeMenus();
         // 跑谱贡献中 while the contribution runs (ContributeEngine.java:175, 716).
         const contributing = !secondary && !!state.view?.contribution?.active;
         const text = match ? t("EngineManager.engineGamePlaying") : contributing ? t("Contribute.engineMenu.contributing") : engine ? `[${engine.index + 1}]: ${engine.name}` : t("Menu.noEngine");
@@ -613,8 +630,7 @@ export function buildMenubar(host: HTMLElement): void {
         top.setAttribute("aria-label", text);
         if (top.firstChild?.nodeType === Node.TEXT_NODE) top.firstChild.textContent = text;
         else top.prepend(document.createTextNode(text));
-        measure.font = getComputedStyle(top).font;
-        top.style.width = `${Math.ceil(measure.measureText(text).width) + 20}px`;
+        fitTitle(top);
       };
       subscribe(update); update();
     }
@@ -676,16 +692,22 @@ export function buildMenubar(host: HTMLElement): void {
   // The window buttons join the bar after the menus; the menus' titles change with the view.
   new MutationObserver(fit).observe(host, { childList: true });
   subscribe(fit);
+  // The session's frame font size and the theme's font apply when the appearance does (start-up,
+  // before the window shows, and every theme change): the titles are measured again in it.
+  onAppearanceChange(() => {
+    for (const [menu, { top }] of tops) if (menu !== OVERFLOW) fitTitle(top);
+    fit();
+  });
   fit();
   // In the capture phase: a press on the window bar's free space starts moving the window before
   // it reaches the document's other listeners, and must still close an open menu.
   document.addEventListener("mousedown", (e) => {
     if (openMenu && !openMenu.contains(e.target as Node)) closeMenus();
   }, true);
-  // Swing's menu keys: F10 opens the first shown menu with its first item active, or closes the
-  // open one; in an open menu or toolbar popup the keys of menuKey work, Left / Right on a menu's
-  // outer level going to the neighbouring menu. Not over a modal dialog (the bar is inert then),
-  // 自由涂鸦 or the board's right-click menu.
+  // Swing's menu keys: F10 opens the first enabled menu on the bar with its first item active, or
+  // closes the open one; in an open menu or toolbar popup the keys of menuKey work, Left / Right on
+  // a menu's outer level going to the neighbouring enabled menu. Not over a modal dialog (the bar
+  // is inert then), 自由涂鸦 or the board's right-click menu.
   document.addEventListener("keydown", (e) => {
     const f10 = e.key === "F10" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
     const menu = openMenu;
@@ -695,7 +717,7 @@ export function buildMenubar(host: HTMLElement): void {
       else if (!root || !menuKey(e, root, closeMenus, menu.classList.contains("popup-anchor") ? undefined : stepTop)) return;
     } else {
       if (!f10 || host.closest("[inert]") || paintingOpen() || contextMenuOpen()) return;
-      const first = [...tops.values()].find(({ top }) => onBar(top));
+      const first = [...tops.values()].find(({ top }) => onBar(top) && enabledTop(top));
       if (!first) return;
       first.open(true);
     }

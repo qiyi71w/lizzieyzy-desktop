@@ -153,28 +153,40 @@ function windowButtons(names: WindowButton[], leading: boolean): HTMLElement {
 }
 
 /** A window without the system's frame is resized from its own edges: the pointer shows the
- *  direction there and a press hands the resize to the window manager. */
+ *  direction there and a press hands the resize to the window manager. While the pointer is in the
+ *  edge band, a transparent layer over the whole window carries the direction's cursor, so the
+ *  controls under the band show it too. The layer is a child of the root element, outside the body
+ *  a modal dialog makes inert, so it stays over dialogs as well. */
 function bindResizeEdges(): void {
   const root = document.documentElement;
   // -1 within `reach` of the start of a side of length `size`, 1 within it of the end, else 0.
   const side = (at: number, size: number, reach: number) => (at < reach ? -1 : at >= size - reach ? 1 : 0);
+  // By vertical, then horizontal side: [-1, 0, 1] → [0, 1, 2].
+  const DIRECTIONS: (ResizeDirection | null)[][] = [
+    ["NorthWest", "North", "NorthEast"],
+    ["West", null, "East"],
+    ["SouthWest", "South", "SouthEast"],
+  ];
   const edge = (e: MouseEvent): ResizeDirection | null => {
     if (root.hasAttribute("data-maximized") || root.hasAttribute("data-fullscreen")) return null;
     const onColumn = side(e.clientX, window.innerWidth, EDGE) !== 0;
     const onRow = side(e.clientY, window.innerHeight, EDGE) !== 0;
-    if (!onColumn && !onRow) return null;
     const vertical = side(e.clientY, window.innerHeight, onColumn ? CORNER : EDGE);
     const horizontal = side(e.clientX, window.innerWidth, onRow ? CORNER : EDGE);
-    return `${["North", "", "South"][vertical + 1]}${["West", "", "East"][horizontal + 1]}` as ResizeDirection;
+    return DIRECTIONS[vertical + 1][horizontal + 1];
   };
   const CURSOR: Record<ResizeDirection, string> = { North: "ns-resize", South: "ns-resize", West: "ew-resize", East: "ew-resize", NorthWest: "nwse-resize", SouthEast: "nwse-resize", NorthEast: "nesw-resize", SouthWest: "nesw-resize" };
+  const layer = document.createElement("div");
+  layer.className = "window-edge";
+  layer.hidden = true;
+  root.append(layer);
   window.addEventListener("mousemove", (e) => {
     const direction = e.buttons ? null : edge(e);
-    if (direction) root.style.setProperty("--window-edge-cursor", CURSOR[direction]);
-    root.toggleAttribute("data-window-edge", !!direction);
+    if (direction) layer.style.cursor = CURSOR[direction];
+    layer.hidden = !direction;
   }, true);
   window.addEventListener("mouseout", (e) => {
-    if (!e.relatedTarget) root.removeAttribute("data-window-edge");
+    if (!e.relatedTarget) layer.hidden = true;
   });
   window.addEventListener("mousedown", (e) => {
     const direction = e.button === 0 ? edge(e) : null;

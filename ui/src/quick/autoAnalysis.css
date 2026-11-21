@@ -16,7 +16,8 @@
   white-space: pre-wrap;
 }
 
-/* A notice of the run: a non-modal tool window over the workbench, without a scrim. */
+/* A notice of the run over the workbench, without a scrim: a message that closes by itself, or a
+   non-modal Message window in the shared dialog frame (title with its close box, body, 关闭). */
 .auto-analysis-notice {
   position: fixed;
   z-index: 220;
@@ -24,16 +25,12 @@
   top: 35%;
   transform: translate(-50%, -50%);
   max-width: min(520px, 90vw);
+}
+.auto-analysis-notice.timed {
   padding: 14px 16px 16px;
 }
-.auto-analysis-notice > p {
+.auto-analysis-notice.timed > p {
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-.auto-analysis-notice > .engine-actions {
-  justify-content: flex-end;
-}
-.auto-analysis-notice > .engine-actions button {
-  min-width: 76px;
 }

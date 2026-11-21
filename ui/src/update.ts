@@ -257,8 +257,9 @@ function feedback(r: UpdateResultView): string {
   }
 }
 
-/** A modeless window over the workbench with its title bar close box; the newest-clicked one is on
- *  top. Its body scrolls under the title and its footer stays at the body's foot. */
+/** A modeless window over the workbench with its title bar close box, which Escape presses; the
+ *  newest-clicked one is on top. Its body scrolls under the title and its footer stays at the
+ *  body's foot. */
 function frame(title: string, cls: string, key: string, onClose: () => void): { box: HTMLElement; close: () => void } {
   const box = el("section", `modal-box engine-dialog update-window ${cls}`);
   box.dataset.key = key;
@@ -279,7 +280,10 @@ function frame(title: string, cls: string, key: string, onClose: () => void): { 
     box.remove();
     onClose();
   };
-  box.addEventListener("keydown", (e) => e.stopPropagation());
+  box.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Escape") { e.preventDefault(); close(); }
+  });
   box.addEventListener("pointerdown", () => {
     if (box.nextElementSibling) document.body.append(box);
   });
@@ -488,8 +492,8 @@ function openOffer(focus: boolean): void {
   const u = state.view?.update;
   const offer = u?.result?.offer;
   if (!u || !offer) return;
-  // 综合设置's 关于 page, when in view, shows the offer in place of this window.
-  if (section?.root.isConnected && section.root.getClientRects().length > 0) return;
+  // While 综合设置 is open its 关于 page shows the offer in place of this window.
+  if (section?.root.isConnected) return;
   if (offerWindow?.id === offer.id) {
     if (focus) offerWindow.show(u);
     return;

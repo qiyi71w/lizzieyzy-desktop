@@ -1,7 +1,7 @@
 //! 人机对弈 (Java `isPlayingAgainstLeelaz` / `isAnaPlayingAgainstLeelaz`): a game's participants
 //! (the human's colour and the reserved foreground engine), its lifecycle from accepted to given
-//! back, the engine-move transaction, the human's clock and the end of the game. Also the bottom
-//! toolbar's 自动落子 and Alt+, (one engine move), which share the move decision.
+//! back, the engine-move transaction, the human's clock and the end of the game. Also 自动落子
+//! (a 分析模式 game's or 棋盘同步工具's) and Alt+, (one engine move), which share the move decision.
 //!
 //! The document changes only through [`Workbench::apply_edit`]. An engine move is bound to the
 //! game, the document, the node (with its stamp) and the engine request it answers; anything else
@@ -94,7 +94,7 @@ pub(super) struct PlayFlow {
     session: Option<Session>,
     manual: Option<Manual>,
     next: u64,
-    /// The 自动落子 box (session only, like Java's toolbar check box).
+    /// 自动落子 is on (session only): turned on by a 分析模式 game or 棋盘同步工具.
     autoplay: bool,
     /// A game asked for while the previous one gives the engine back.
     queued: Option<GameCommand>,
@@ -321,15 +321,6 @@ impl Workbench {
                 Ok(CommandResult::Done)
             }
             GameCommand::EngineMove => Ok(self.manual_engine_move()),
-            GameCommand::SetAutoPlay { enabled, settings } => {
-                self.play.autoplay = enabled;
-                if self.persisted.autoplay != settings {
-                    self.persisted.autoplay = settings;
-                    self.save_persisted()?;
-                }
-                self.sync_engine();
-                Ok(CommandResult::Done)
-            }
         }
     }
 
@@ -527,7 +518,7 @@ impl Workbench {
         // `stopAiPlayingAndPolicy` before a game: no pure-network display is left running.
         self.engines.stop_raw_net();
         if kind == GameKind::Analysis {
-            // The engine's side of the bottom bar's 自动落子 (`chkAutoPlayBlack/White`).
+            // The engine's side of 自动落子 (`chkAutoPlayBlack/White`).
             self.play.autoplay = true;
             self.persisted.autoplay.black = human == Stone::White;
             self.persisted.autoplay.white = human == Stone::Black;
@@ -999,9 +990,9 @@ impl Workbench {
         }
     }
 
-    /// Who may move from the analysis of the current position now (`notifyAutoPlay`: the
-    /// 自动落子 box and the box of the side to move): `Some(true)` a 分析模式 game's engine,
-    /// `Some(false)` the bottom bar outside a game. Nobody during 终局点目, while 棋盘同步工具's
+    /// Who may move from the analysis of the current position now (`notifyAutoPlay`: 自动落子 on
+    /// and on for the side to move): `Some(true)` a 分析模式 game's engine, `Some(false)`
+    /// 棋盘同步工具's ordinary 自动落子 outside a game. Nobody during 终局点目, while 棋盘同步工具's
     /// GMA holds 自动落子, or while a viewer's Web 试下 runs: like a desktop move, 自动落子 does
     /// not write into the record then and resumes with its settings when the 试下 ends (Java
     /// still plays on the 试下's anchor).
@@ -1025,7 +1016,7 @@ impl Workbench {
         node == self.cursor && !self.analysis_hold && self.analysis_mover().is_some()
     }
 
-    /// `notifyAutoPlay`: a 分析模式 game's engine, or the toolbar's 自动落子 side, plays when a
+    /// `notifyAutoPlay`: a 分析模式 game's engine, or 棋盘同步工具's 自动落子 side, plays when a
     /// 落子条件 is met by the analysis of the current position.
     pub(super) fn play_analysis(&mut self, result: &NodeAnalysisView, elapsed: Duration) {
         if result.node != self.cursor || result.candidates.is_empty() {
@@ -1312,7 +1303,7 @@ impl Workbench {
 
     /// What ReadBoard reads of the game (Java `isPlayingAgainstLeelaz`, `playerIsBlack`,
     /// `isAnaPlayingAgainstLeelaz`): a running Genmove game, the human's colour, and a 分析模式
-    /// game or the toolbar's 自动落子 outside a game.
+    /// game or 自动落子 outside a game.
     pub(super) fn play_readboard_facts(&self) -> (bool, bool, bool) {
         match self.play.session.as_ref().filter(|s| s.step == Step::Playing) {
             Some(s) => (s.kind == GameKind::Genmove, s.human == Stone::Black, s.kind == GameKind::Analysis),

@@ -20,6 +20,7 @@ import { LIVE_MENU } from "../online/commands";
 import type { MenuNode } from "./javaMenus";
 import { locatePopupItem, menuOpen, openPopupMenu } from "./menubar";
 import { bottomButtonShown, type BottomButton } from "./bottomButtons";
+import { onAppearanceChange } from "../appearance/state";
 import { icon, type IconName } from "../design/icons";
 
 registerProduct({
@@ -38,18 +39,28 @@ const TOOLBAR_ITEM = '[role="button"], input[type="checkbox"]';
 /** The WAI-ARIA toolbar keys on `bar`, named `name`. The bar is one Tab stop, on the item last
  *  focused in it, else on its first enabled item. ←/→ move between the shown items and wrap,
  *  Home/End go to the first/last; Enter/Space press the focused button as a click does (nothing
- *  while it is aria-disabled), and a check box keeps Space. These keys stay in the bar; every other
- *  key goes on to the workbench shortcuts. A press on an item does not focus it: the focus leaves a
- *  field as it did on chrome that takes no focus, and an item that keeps the focus where it was
- *  (its own mousedown preventDefault) keeps doing so. A press outside the bar takes the focus off
- *  it, so a click on the board gives the arrows back to the moves. Returns the function that moves
- *  the Tab stop off an item that was hidden or disabled; run it after items show, hide or change
- *  state. */
+ *  while it is aria-disabled), and a check box keeps Space. Shown means inside the bar's visible
+ *  box: an item the bar clips away (自动换行 off in a narrow window) is no stop until the bar
+ *  shows it again. These keys stay in the bar; every other key goes on to the workbench shortcuts.
+ *  A press on an item does not focus it: the focus leaves a field as it did on chrome that takes no
+ *  focus, and an item that keeps the focus where it was (its own mousedown preventDefault) keeps
+ *  doing so. A press outside the bar takes the focus off it, so a click on the board gives the
+ *  arrows back to the moves. Returns the function that moves the Tab stop off an item that was
+ *  hidden, clipped or disabled; run it after items show, hide or change state. */
 export function toolbarKeys(bar: HTMLElement, name: string): () => void {
   bar.setAttribute("role", "toolbar");
   bar.setAttribute("aria-label", name);
   const all = () => [...bar.querySelectorAll<HTMLElement>(TOOLBAR_ITEM)];
-  const usable = (el: HTMLElement) => !(el instanceof HTMLInputElement && el.disabled) && el.getClientRects().length > 0;
+  const usable = (el: HTMLElement) => {
+    if (el instanceof HTMLInputElement && el.disabled) return false;
+    const box = el.getBoundingClientRect();
+    if (box.width === 0 && box.height === 0) return false;
+    // The bar's padding box, where its overflow is clipped; half a pixel absorbs rounding.
+    const outer = bar.getBoundingClientRect();
+    const left = outer.left + bar.clientLeft;
+    const top = outer.top + bar.clientTop;
+    return box.left >= left - 0.5 && box.right <= left + bar.clientWidth + 0.5 && box.top >= top - 0.5 && box.bottom <= top + bar.clientHeight + 0.5;
+  };
   let last: HTMLElement | null = null;
   let stop: HTMLElement | null = null;
   for (const el of all()) el.tabIndex = -1;
@@ -70,6 +81,11 @@ export function toolbarKeys(bar: HTMLElement, name: string): () => void {
     if (!el.matches(TOOLBAR_ITEM) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || menuOpen()) return;
     if (e.key === "Enter" || e.key === " ") {
       e.stopPropagation();
+      // A focused item the bar has since clipped away takes no press.
+      if (!usable(el)) {
+        e.preventDefault();
+        return;
+      }
       if (el instanceof HTMLInputElement) return;
       e.preventDefault();
       if (el.getAttribute("aria-disabled") !== "true") el.click();
@@ -95,6 +111,13 @@ export function toolbarKeys(bar: HTMLElement, name: string): () => void {
     const focus = document.activeElement;
     if (focus instanceof HTMLElement && bar.contains(focus) && !bar.contains(e.target as Node)) focus.blur();
   }, true);
+  // A resize clips items away or shows them again: the Tab stop, and the focus on an item now
+  // clipped, move to a shown item.
+  new ResizeObserver(() => {
+    settle();
+    const focus = document.activeElement;
+    if (focus instanceof HTMLElement && focus !== stop && bar.contains(focus) && focus.matches(TOOLBAR_ITEM) && !usable(focus)) stop?.focus();
+  }).observe(bar);
   settle();
   return settle;
 }
@@ -113,6 +136,9 @@ interface Item {
   /** A display switch: lit while this holds. */
   lit?: () => boolean;
   run?: () => void;
+  /** Enabled only while this holds: otherwise the button is aria-disabled with the match-off look
+   *  and its 更多 item is disabled, as a disabled JButton ignores the item's doClick. */
+  enabled?: () => boolean;
   /** Its 自定义内容 setting; visibleButtons skips the button while it is off. */
   setting?: BottomButton;
   /** Shown only while this holds as well (reSetButtonLocation); re-laid out when it changes. */
@@ -153,7 +179,8 @@ let analyseLabel: HTMLSpanElement;
 
 const GROUPS: Record<"leftPrimary" | "leftOptional" | "center" | "rightPrimary" | "rightOptional", Item[]> = {
   leftPrimary: [
-    { name: "analyse", key: "BottomToolbar.analyse", cap: "analyse", setting: "analyse", run: () => run({ type: "ToggleAnalysis" }) },
+    // enableDisabelForEngineGame: 分析 is off while an 引擎对战 batch runs.
+    { name: "analyse", key: "BottomToolbar.analyse", cap: "analyse", setting: "analyse", run: () => run({ type: "ToggleAnalysis" }), enabled: () => !state.view?.engine_match },
     { name: "batchOpen", key: "BottomToolbar.batchOpen", cap: "services", setting: "batchOpen", popup: AUTO_ANALYSIS_MENU },
   ],
   leftOptional: [
@@ -233,10 +260,12 @@ let showMore = false;
 const moreId = (item: Item) => `bottombar.more.${item.name}`;
 
 // moreActionsPopup's items (rebuildMoreActionsPopup, BottomToolbar.java:533-559): each one shows its
-// button's current text and clicks the button. A button with its own popup opens it over 更多.
+// button's current text and clicks the button, so a disabled button's item is disabled too. A button
+// with its own popup opens it over 更多.
 for (const item of ITEMS) {
   COMMANDS[moreId(item)] = {
     label: () => elements.get(item)?.textContent ?? t(item.key),
+    enabled: item.enabled,
     run: () => {
       if (item.popup) openPopupMenu(elements.get(MORE)!, item.popup, true);
       else if (item.run) item.run();
@@ -356,11 +385,16 @@ export function buildBottomBar(host: HTMLElement): void {
     host.append(b);
   }
   measure(host);
+  // The session's frame font size and the theme's font apply when the appearance does (start-up,
+  // before the window shows, and every theme change): the widths follow the rendered font.
+  onAppearanceChange(() => {
+    measure(host);
+    layoutBottomBar(host);
+  });
   settleTabStop = toolbarKeys(host, t("Menu.bottomToolBar"));
   let lastAnalysis = false;
   let lastTrying = false;
   const tryPlay = elements.get(GROUPS.rightPrimary.find((item) => item.name === "tryPlay")!)!;
-  const analyse = elements.get(ITEMS.find((item) => item.name === "analyse")!)!;
   let lastShown = "";
   let lastMode = "";
   subscribe(() => {
@@ -377,10 +411,12 @@ export function buildBottomBar(host: HTMLElement): void {
       lastAnalysis = analysing;
       showAnalysis(analysing);
     }
-    // enableDisabelForEngineGame: 分析 is off while an 引擎对战 batch runs.
-    const matchOff = !!state.view?.engine_match;
-    analyse.classList.toggle("match-off", matchOff);
-    analyse.setAttribute("aria-disabled", String(matchOff));
+    for (const [item, el] of elements) {
+      if (!item.enabled) continue;
+      const off = !item.enabled();
+      el.classList.toggle("match-off", off);
+      el.setAttribute("aria-disabled", String(off));
+    }
     // LizzieFrame.tryPlay / clearTryPlay: "恢复" while trying, "试下" otherwise.
     const trying = state.view?.editing.trying ?? false;
     if (trying !== lastTrying) {

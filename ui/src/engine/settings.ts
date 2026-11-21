@@ -106,14 +106,18 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
     const page = document.createElement("div"); page.className = "engine-settings-form"; page.hidden = true;
     pages[key] = page; registered.push(build(page, owner));
   }
-  // The navigation item of the shown page carries aria-current, which draws it selected.
+  // The navigation item of the shown page carries aria-current, which draws it selected; while a
+  // search shows rows of every page no item does.
   const navItems = new Map<string, HTMLButtonElement>();
   let shown = section;
+  const showShown = () => {
+    for (const [id, page] of Object.entries(pages)) page.hidden = id !== shown;
+    for (const [id, item] of navItems) if (id === shown) item.setAttribute("aria-current", "page"); else item.removeAttribute("aria-current");
+  };
   const showPage = (key: string) => {
     if (search.value) { search.value = ""; filter(); }
     shown = key as SettingsSection;
-    for (const [id, page] of Object.entries(pages)) page.hidden = id !== key;
-    for (const [id, item] of navItems) if (id === key) item.setAttribute("aria-current", "page"); else item.removeAttribute("aria-current");
+    showShown();
     scroller.scrollTop = 0;
   };
   // 搜索设置: every page's rows whose name or description holds the text, under their group and
@@ -128,7 +132,7 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
     for (const el of body.querySelectorAll(".filtered-out")) el.classList.remove("filtered-out");
     if (!query) {
       noMatch.hidden = true;
-      for (const [id, page] of Object.entries(pages)) page.hidden = id !== shown;
+      showShown();
       return;
     }
     let any = false;
@@ -276,7 +280,7 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
   const dialog = formPanel(t("Menu.comprehensiveSettings"), body);
   /** 保存设置 (saveConfig): true once everything was applied and the dialog closed. */
   const apply = async (): Promise<boolean> => {
-    const invalid = inputs.find((control) => !control.checkValidity());
+    const invalid = [...inputs, ...displayRows.fields].find((control) => !control.checkValidity());
     if (invalid) { showPage(Object.keys(pages).find((id) => pages[id].contains(invalid)) ?? "engine"); invalid.reportValidity(); return false; }
     const proxyMode: ProxyMode = mode.value === "System" ? "System" : mode.value === "Manual" ? "Manual" : "Direct";
     const validPort = /^\d+$/.test(port.value) && Number(port.value) >= 1 && Number(port.value) <= 65535;

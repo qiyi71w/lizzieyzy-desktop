@@ -591,26 +591,11 @@ body {
   overflow-wrap: anywhere;
 }
 
-/* 正在使用 ChatGPT 套餐: a message over the settings dialog. */
+/* 正在使用 ChatGPT 套餐: a message over the settings dialog in the shared dialog frame (title with
+   its close box, body, 关闭). */
 .ts-notice-layer {
   z-index: 20;
 }
 .ts-notice {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
   width: min(420px, calc(100vw - 32px));
-  padding: 14px 20px 16px;
-}
-.ts-notice-title {
-  font-size: var(--ds-size-xl);
-  font-weight: 600;
-}
-.ts-notice-text {
-  line-height: 1.5;
-}
-.ts-notice > button {
-  align-self: flex-end;
-  min-width: 76px;
-  margin-top: 8px;
 }

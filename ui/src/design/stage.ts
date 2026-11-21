@@ -65,7 +65,8 @@ export interface StagePalette {
   blunderBar: string;
   commentNode: string;
   /** 胜率图 (stage.css): grid, midline, guides, Label text, readout figures and chip ground,
-   *  snapshot marks, the two current markers and the area fill on either side of the midline. */
+   *  snapshot marks, the two current markers with their ring and the area fill on either side of
+   *  the midline. */
   graphGrid: string;
   graphBaseline: string;
   graphGuide: string;
@@ -76,6 +77,7 @@ export interface StagePalette {
   graphSnapshot: string;
   graphMoveMarker: string;
   graphScoreMarker: string;
+  graphMarkerRing: string;
   graphFillAbove: string;
   graphFillBelow: string;
   stoneBlack: string;
@@ -99,60 +101,6 @@ export interface StagePalette {
   scrollThumb: string;
 }
 
-const NAMES: Record<Exclude<keyof StagePalette, "builtin" | "treeNodes">, string> = {
-  panel: "--ws-panel",
-  line: "--ws-panel-line",
-  panelSolid: "--ws-panel-solid",
-  cardEdge: "--ws-card-edge",
-  cardShadow: "--ws-card-shadow",
-  lineStrong: "--ds-line-strong",
-  text: "--ds-text",
-  text2: "--ds-text-2",
-  text3: "--ds-text-3",
-  accent: "--ds-accent",
-  font: "--ds-font",
-  winrateLine: "--ws-winrate-line",
-  winrateMiss: "--ws-winrate-miss",
-  engineWhiteLine: "--ws-engine-white-line",
-  scoreLine: "--ws-score-line",
-  blunderBar: "--ws-blunder-bar",
-  commentNode: "--ws-comment-node",
-  graphGrid: "--ws-graph-grid",
-  graphBaseline: "--ws-graph-baseline",
-  graphGuide: "--ws-graph-guide",
-  graphLabel: "--ws-graph-label",
-  graphText: "--ws-graph-text",
-  graphScoreText: "--ws-graph-score-text",
-  graphChip: "--ws-graph-chip",
-  graphSnapshot: "--ws-graph-snapshot",
-  graphMoveMarker: "--ws-graph-move-marker",
-  graphScoreMarker: "--ws-graph-score-marker",
-  graphFillAbove: "--ws-graph-fill-above",
-  graphFillBelow: "--ws-graph-fill-below",
-  stoneBlack: "--ws-stone-black",
-  stoneBlackEdge: "--ws-stone-black-edge",
-  stoneWhite: "--ws-stone-white",
-  stoneWhiteEdge: "--ws-stone-white-edge",
-  onBlack: "--ws-on-black",
-  onWhite: "--ws-on-white",
-  barGrid: "--ws-bar-grid",
-  gain: "--ws-gain",
-  loss: "--ws-loss",
-  live: "--ws-live",
-  idle: "--ws-idle",
-  treeNode: "--ws-tree-node",
-  treeEmpty: "--ws-tree-empty",
-  treeLine: "--ws-tree-line",
-  treeLineOff: "--ws-tree-line-off",
-  treeDim: "--ws-tree-dim",
-  scrollThumb: "--ws-scroll-thumb",
-};
-
-/** The cards over a wallpaper the user chose: translucent black under light text, and the
- *  near-opaque black that hides what runs under a ground there (stage.css). */
-const WALLPAPER_PANEL = "rgba(0,0,0,0.51)";
-const WALLPAPER_SOLID = "rgba(0,0,0,0.78)";
-
 let cached: StagePalette | null = null;
 let darkProbe: HTMLElement | null = null;
 let revision = 0;
@@ -164,10 +112,11 @@ export function stagePalette(): StagePalette {
   const builtin = builtinStage();
   let source: Element = document.documentElement;
   if (!builtin) {
-    // The dark theme's values whatever the mode (Java 经典's under its skin): a hidden element
-    // fixed to the dark theme.
+    // The dark theme's values whatever the mode (Java 经典's under its skin, the wallpaper cards'
+    // over a wallpaper the user chose): a hidden element fixed to the dark theme.
     if (!darkProbe?.isConnected) {
       darkProbe = document.createElement("div");
+      darkProbe.id = "stage-probe";
       darkProbe.dataset.theme = "dark";
       darkProbe.hidden = true;
       document.documentElement.append(darkProbe);
@@ -175,16 +124,59 @@ export function stagePalette(): StagePalette {
     source = darkProbe;
   }
   const style = getComputedStyle(source);
-  const palette = { builtin } as StagePalette;
-  for (const [key, name] of Object.entries(NAMES)) (palette as unknown as Record<string, string>)[key] = style.getPropertyValue(name).trim();
-  palette.treeNodes = [1, 2, 3, 4, 5, 6, 7].map((k) => style.getPropertyValue(`--ws-node-${k}`).trim());
-  // Java 经典 sets its own card grounds (stage.css); over a wallpaper the user chose they are black.
-  if (!builtin && skin() !== "java") {
-    palette.panel = WALLPAPER_PANEL;
-    palette.panelSolid = WALLPAPER_SOLID;
-  }
-  cached = palette;
-  return palette;
+  const token = (name: string) => style.getPropertyValue(name).trim();
+  cached = {
+    builtin,
+    panel: token("--ws-panel"),
+    line: token("--ws-panel-line"),
+    panelSolid: token("--ws-panel-solid"),
+    cardEdge: token("--ws-card-edge"),
+    cardShadow: token("--ws-card-shadow"),
+    lineStrong: token("--ds-line-strong"),
+    text: token("--ds-text"),
+    text2: token("--ds-text-2"),
+    text3: token("--ds-text-3"),
+    accent: token("--ds-accent"),
+    font: token("--ds-font"),
+    winrateLine: token("--ws-winrate-line"),
+    winrateMiss: token("--ws-winrate-miss"),
+    engineWhiteLine: token("--ws-engine-white-line"),
+    scoreLine: token("--ws-score-line"),
+    blunderBar: token("--ws-blunder-bar"),
+    commentNode: token("--ws-comment-node"),
+    graphGrid: token("--ws-graph-grid"),
+    graphBaseline: token("--ws-graph-baseline"),
+    graphGuide: token("--ws-graph-guide"),
+    graphLabel: token("--ws-graph-label"),
+    graphText: token("--ws-graph-text"),
+    graphScoreText: token("--ws-graph-score-text"),
+    graphChip: token("--ws-graph-chip"),
+    graphSnapshot: token("--ws-graph-snapshot"),
+    graphMoveMarker: token("--ws-graph-move-marker"),
+    graphScoreMarker: token("--ws-graph-score-marker"),
+    graphMarkerRing: token("--ws-graph-marker-ring"),
+    graphFillAbove: token("--ws-graph-fill-above"),
+    graphFillBelow: token("--ws-graph-fill-below"),
+    stoneBlack: token("--ws-stone-black"),
+    stoneBlackEdge: token("--ws-stone-black-edge"),
+    stoneWhite: token("--ws-stone-white"),
+    stoneWhiteEdge: token("--ws-stone-white-edge"),
+    onBlack: token("--ws-on-black"),
+    onWhite: token("--ws-on-white"),
+    barGrid: token("--ws-bar-grid"),
+    gain: token("--ws-gain"),
+    loss: token("--ws-loss"),
+    live: token("--ws-live"),
+    idle: token("--ws-idle"),
+    treeNode: token("--ws-tree-node"),
+    treeEmpty: token("--ws-tree-empty"),
+    treeLine: token("--ws-tree-line"),
+    treeLineOff: token("--ws-tree-line-off"),
+    treeDim: token("--ws-tree-dim"),
+    treeNodes: [1, 2, 3, 4, 5, 6, 7].map((k) => token(`--ws-node-${k}`)),
+    scrollThumb: token("--ws-scroll-thumb"),
+  };
+  return cached;
 }
 
 /** Moves on whenever the palette or the stage changes: painters include it in their repaint

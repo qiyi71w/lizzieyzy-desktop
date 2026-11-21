@@ -196,13 +196,13 @@ export function openSettings(host: Host): SettingsDialog {
   // ------------------------------------------------------------- 连接服务
   const connectionPage = el("div", "ts-page");
   connectionPage.append(el("div", "ts-heading", design("connection")), el("div", "ts-note", design("connectionHint")));
-  const providers = segmented("ts-provider", [["chatGpt", t("Teacher.chatgpt.tab")], ["apiKey", t("Teacher.settings.apiKey")]], "");
+  const providers = segmented<Provider>("ts-provider", [["chatGpt", t("Teacher.chatgpt.tab")], ["apiKey", t("Teacher.settings.apiKey")]], "unselected");
   providers.el.classList.add("ts-providers");
   providers.el.setAttribute("aria-label", design("connectionHint"));
   const [chatTab, apiTab] = providers.inputs;
   chatTab.dataset.key = "commentary.settings.provider.chatgpt";
   apiTab.dataset.key = "commentary.settings.provider.apikey";
-  for (const radio of providers.inputs) radio.onchange = () => chooseProvider(radio.value as Provider);
+  for (const radio of providers.inputs) radio.onchange = () => chooseProvider(providers.value());
   connectionPage.append(providers.el);
 
   // UNSELECTED: the setup welcome.
@@ -649,33 +649,40 @@ export function openSettings(host: Host): SettingsDialog {
 
   // ------------------------------------------------------------- render
   // ChatGptSettingsPanel.java:295-308: the first authorized use shows a modal welcome once per
-  // account (titled 正在使用 ChatGPT 套餐); the adapter persists `welcomed` and reports it once.
+  // account (titled 正在使用 ChatGPT 套餐); the adapter persists `welcomed` and reports it once. It
+  // only informs: 关闭, the title's close box, Enter and Escape close it.
   const welcomed = new Set<string>();
   function welcomeOnce(statusKey: string | undefined, account: string | undefined): void {
     if (statusKey !== "Teacher.chatgpt.welcome" || !account || welcomed.has(account)) return;
     welcomed.add(account);
     const layer = el("div", "modal ts-overlay ts-notice-layer");
     const card = el("div", "modal-box ts-notice");
-    card.setAttribute("role", "alertdialog");
+    card.setAttribute("role", "dialog");
     card.setAttribute("aria-modal", "true");
     card.setAttribute("aria-label", t("Teacher.chatgpt.usingPlan"));
-    const ok = el("button", "primary", product("ok"));
     const close = () => {
       layer.remove();
       box.focus();
     };
-    ok.onclick = close;
+    const x = closeBox(close);
+    x.dataset.key = "commentary.welcome.close";
+    const title = el("div", "modal-title");
+    title.append(el("span", "", t("Teacher.chatgpt.usingPlan")), x);
+    const closeButton = btn(product("close"), "", "commentary.welcome.closeButton");
+    closeButton.onclick = close;
+    const buttons = el("div", "modal-buttons");
+    buttons.append(closeButton);
     layer.onkeydown = (e) => {
-      if (e.key === "Escape" || e.key === "Enter") {
+      if ((e.key === "Escape" || e.key === "Enter") && !e.isComposing) {
         e.preventDefault();
         e.stopPropagation();
         close();
       }
     };
-    card.append(el("div", "ts-notice-title", t("Teacher.chatgpt.usingPlan")), el("div", "ts-notice-text", t("Teacher.chatgpt.welcome")), ok);
+    card.append(title, el("div", "modal-body", t("Teacher.chatgpt.welcome")), buttons);
     layer.append(card);
     document.body.append(layer);
-    ok.focus();
+    closeButton.focus();
   }
 
   function renderChat(): void {

@@ -45,6 +45,10 @@ export interface FramePayload {
   /** Identifies one layout of the window (opening, 7/9 columns, the boxes recreate it). */
   layout: number;
   rows: FrameCell[][];
+  /** The actual move's row (its 实战 cells and tooltips), -1 without one. */
+  actualRow: number;
+  /** The 实战 note (AnalysisFrame.actual), which 序号's content width allows for. */
+  actualNote: string;
   list: boolean;
   graph: boolean;
   boxes: { key: "list" | "graph" | "showNext" | "mouseMove"; label: string; checked: boolean }[];
@@ -80,13 +84,13 @@ export function layoutColumns(preferred: number[], width: number): number[] {
   return preferred.map((w, k) => Math.max(0, w + Math.floor((extra * (k + 1)) / n) - Math.floor((extra * k) / n)));
 }
 
-/** Dragging the right border of column `k` by `d`: the subsequent columns give or take the
- *  difference equally, none below the minimum width. */
-export function resizeColumns(start: number[], k: number, d: number): number[] {
+/** Dragging the right border of column `k` by `d`, column `k` no wider than `most`: the
+ *  subsequent columns give or take the difference equally, none below the minimum width. */
+export function resizeColumns(start: number[], k: number, d: number, most = Infinity): number[] {
   const rest = start.length - k - 1;
   if (rest <= 0) return start;
   const restWidth = start.slice(k + 1).reduce((s, w) => s + w, 0);
-  const delta = Math.round(Math.max(MIN_COLUMN - start[k], Math.min(d, restWidth - MIN_COLUMN * rest)));
+  const delta = Math.round(Math.max(MIN_COLUMN - start[k], Math.min(d, restWidth - MIN_COLUMN * rest, most - start[k])));
   const widths = start.slice();
   widths[k] += delta;
   for (let j = 0; j < rest; j++) widths[k + 1 + j] -= Math.floor((delta * (j + 1)) / rest) - Math.floor((delta * j) / rest);
@@ -102,12 +106,13 @@ export function resizeColumns(start: number[], k: number, d: number): number[] {
 }
 
 /** Column borders in the header row drag like a JTableHeader's. `apply` lays out live widths;
- *  `done` receives the final ones. */
+ *  `done` receives the final ones; `most` is the widest a dragged column may become. */
 export function bindColumnResize(
   head: HTMLTableRowElement,
   current: () => number[],
   apply: (widths: number[]) => void,
   done: (widths: number[]) => void,
+  most: (column: number) => number = () => Infinity,
 ): void {
   const edgeAt = (x: number): number => {
     const cells = head.cells;
@@ -125,15 +130,64 @@ export function bindColumnResize(
     if (k < 0) return;
     ev.preventDefault();
     const start = current(), x0 = ev.clientX;
-    const move = (e: MouseEvent) => apply(resizeColumns(start, k, e.clientX - x0));
+    const move = (e: MouseEvent) => apply(resizeColumns(start, k, e.clientX - x0, most(k)));
     const up = (e: MouseEvent) => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
-      done(resizeColumns(start, k, e.clientX - x0));
+      done(resizeColumns(start, k, e.clientX - x0, most(k)));
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
   });
+}
+
+/** A table's faces for measuring its contents: the body's size, the header's (Label) size and a
+ *  text's width at one of them. */
+export interface TableFaces {
+  body: number;
+  caption: number;
+  width: (text: string, size: number) => number;
+}
+
+/** The faces `table` has once attached (its first header cell gives the Label size). */
+export function tableFaces(table: HTMLTableElement): TableFaces {
+  const c = document.createElement("canvas").getContext("2d")!;
+  const family = getComputedStyle(table).fontFamily;
+  return {
+    body: Number.parseFloat(getComputedStyle(table).fontSize),
+    caption: Number.parseFloat(getComputedStyle(table.tHead!.rows[0].cells[0]).fontSize),
+    width: (text, size) => {
+      c.font = `${size}px ${family}`;
+      return c.measureText(text).width;
+    },
+  };
+}
+
+/** 序号's content widths in both lists, with its cells' `pad`: `fit` holds its header, the
+ *  `figures` and the actual move's `note` (Label size, under its rank) each on one line; `least`
+ *  breaks the note where it can (between kana or ideographs, or at a space), as "実際の / 着手".
+ *  The column is never wider than `fit`, as it holds nothing longer. */
+export function rankWidths(faces: TableFaces, head: string, figures: string[], note: string, pad: number): { fit: number; least: number } {
+  const { body, caption, width } = faces;
+  const figure = Math.max(width(head, caption), ...figures.map((f) => width(f, body)));
+  const chars = [...note];
+  const ideograph = /[\u3040-\u30ff\u3400-\u9fff]/;
+  let noteLeast = width(note, caption);
+  for (let i = 1; i < chars.length; i++) {
+    const breaks = chars[i - 1] === " " || chars[i] === " " || (ideograph.test(chars[i - 1]) && ideograph.test(chars[i]));
+    if (breaks) noteLeast = Math.min(noteLeast, Math.max(width(chars.slice(0, i).join("").trim(), caption), width(chars.slice(i).join("").trim(), caption)));
+  }
+  return { fit: Math.ceil(Math.max(figure, width(note, caption))) + pad, least: Math.ceil(Math.max(figure, noteLeast)) + pad };
+}
+
+/** A cell's background in both lists: its own colour, or in 占比 a 2 px underline of the share
+ *  token under the right-aligned number, growing leftwards from the cell's right padding, over
+ *  the row's `tint`. */
+export function cellBackground(c: FrameCell, tint: string): string {
+  if (c.bar === null) return c.bg;
+  const share = Math.min(100, Math.max(0, c.bar));
+  const bar = `linear-gradient(to left, var(--ws-share-bar-strong) ${share}%, transparent ${share}%) right 8px bottom 3px / calc(100% - 16px) 2px no-repeat`;
+  return tint ? `${bar}, ${tint}` : bar;
 }
 
 // ------------------------------------------------------------------ the window
@@ -224,6 +278,10 @@ export function bootFrame(): void {
   let layout = -1;
   let preferred: number[] = [];
   let widths: number[] = [];
+  /** 序号's one-line content width in this window's faces (rankWidths); the column stays within it. */
+  let rankFit = Infinity;
+  /** The faces and note rankFit was measured for. */
+  let measured = "";
 
   const self = getCurrentWebviewWindow();
   const inputEvent = self.label === SUB_FRAME_LABEL ? SUB_FRAME_INPUT_EVENT : FRAME_INPUT_EVENT;
@@ -234,16 +292,18 @@ export function bootFrame(): void {
     table.style.width = `${w.reduce((s, x) => s + x, 0)}px`;
     [...colgroup.children].forEach((col, k) => ((col as HTMLElement).style.width = `${w[k] ?? 0}px`));
   };
+  // 序号 keeps its preferred width up to its content width; the other columns share the rest.
   const relayout = () => {
     if (!preferred.length) return;
-    applyWidths(layoutColumns(preferred, top.clientWidth));
+    const rank = Math.min(preferred[0], rankFit);
+    applyWidths([rank, ...layoutColumns(preferred.slice(1), top.clientWidth - rank)]);
     send({ type: "columns", widths });
   };
   bindColumnResize(headRow, () => widths, applyWidths, (w) => {
     preferred = w;
     applyWidths(w);
     send({ type: "columns", widths: w });
-  });
+  }, (column) => (column === 0 ? rankFit : Infinity));
   // header.mouseReleased: sortnum = the column under the pointer, a border drag included.
   headRow.addEventListener("mouseup", (ev) => {
     if (ev.button !== 0) return;
@@ -408,6 +468,12 @@ export function bootFrame(): void {
       markHeader(Math.max(0, Math.min(headCursor, data.headers.length - 1)));
       if (refocus) headRow.cells[headCursor]?.focus();
       preferred = data.widths ?? preferred;
+    }
+    // 序号's content width in the window's faces (the payload sets them), then the layout with it.
+    const faces = `${data.layout}:${data.uiFont}:${data.frameFontSize}:${data.actualNote}`;
+    if (measured !== faces) {
+      measured = faces;
+      rankFit = rankWidths(tableFaces(table), data.headers[0] ?? "", ["20"], data.actualNote, 16).fit;
       relayout();
     }
     // The main window sorts one column at a time, always descending (AnalysisFrame.java:948-989).
@@ -417,23 +483,23 @@ export function bootFrame(): void {
       else th.removeAttribute("aria-sort");
     });
     while (body.rows.length > data.rows.length) body.deleteRow(body.rows.length - 1);
+    const actualRow = data.actualRow;
     data.rows.forEach((cells, k) => {
       const row = body.rows[k] ?? body.insertRow();
+      const actual = k === actualRow;
+      row.classList.toggle("actual", actual);
       while (row.cells.length > cells.length) row.deleteCell(row.cells.length - 1);
       cells.forEach((c, column) => {
         const cell = row.cells[column] ?? row.insertCell();
-        // The actual move's cells as the main window's list shows them (actualParts).
+        // As the main window's list: the actual move's cells in parts (actualParts) with their
+        // Java text as a tooltip, the others as they are.
         if (cell.dataset.text !== c.text) {
           cell.dataset.text = c.text;
-          cell.replaceChildren(...actualParts(c.text, column === 0));
+          cell.replaceChildren(...(actual ? actualParts(c.text, column === 0) : [c.text]));
         }
-        cell.classList.toggle("split", c.text.indexOf("(") > 0);
+        cell.title = actual ? c.text : "";
         cell.style.color = c.fg;
-        // 占比: a hard-edged bar of the share token behind the right-aligned number, growing
-        // leftwards from the cell's right padding, over the row's own tint (as the main list).
-        const tint = cells[0].bg;
-        const bar = c.bar === null ? "" : `linear-gradient(to left, var(--ws-share-bar) ${Math.min(100, c.bar)}%, transparent ${Math.min(100, c.bar)}%) right 4px center / calc(100% - 8px) calc(100% - 8px) no-repeat`;
-        cell.style.background = c.bar === null ? c.bg : tint ? `${bar}, ${tint}` : bar;
+        cell.style.background = cellBackground(c, cells[0].bg);
       });
     });
     paintBottom();

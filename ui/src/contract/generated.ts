@@ -357,7 +357,7 @@ tracking: TrackingSettings,
  */
 game: GameSettings, 
 /**
- * The bottom toolbar's 自动落子.
+ * 自动落子 (a 分析模式 game's or 棋盘同步工具's).
  */
 autoplay: AutoPlayView, matches: MatchSettingsView, 
 /**
@@ -2335,7 +2335,7 @@ export type FoxSubmissionView = { connection: number, game: number, revision: nu
 
 export type FoxStartOutcome = { "type": "NeedsWarning" } | { "type": "NeedsReplacement", document: number, revision: number, } | { "type": "SaveRequested" } | { "type": "Cancelled" } | { "type": "Listening" } | { "type": "Failed", message_key: string, };
 
-export type GameCommand = { "type": "Start", kind: GameKind, settings: GameSettings, autoplay: AutoPlaySettings | null, engine: number | null, } | { "type": "Continue", kind: GameKind, human: Stone | null, } | { "type": "Pause" } | { "type": "Resign" } | { "type": "End" } | { "type": "Regret" } | { "type": "SetAiTime", time: AiTimeSettings, ponder: boolean, autoplay: AutoPlaySettings, } | { "type": "SetRandomStart", settings: RandomStartSettings, } | { "type": "EngineMove" } | { "type": "SetAutoPlay", enabled: boolean, settings: AutoPlaySettings, };
+export type GameCommand = { "type": "Start", kind: GameKind, settings: GameSettings, autoplay: AutoPlaySettings | null, engine: number | null, } | { "type": "Continue", kind: GameKind, human: Stone | null, } | { "type": "Pause" } | { "type": "Resign" } | { "type": "End" } | { "type": "Regret" } | { "type": "SetAiTime", time: AiTimeSettings, ponder: boolean, autoplay: AutoPlaySettings, } | { "type": "SetRandomStart", settings: RandomStartSettings, } | { "type": "EngineMove" };
 
 export type GameKind = "Genmove" | "Analysis";
 

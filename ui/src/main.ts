@@ -1694,7 +1694,7 @@ async function boot() {
   bindCommentEditor($("commentText"));
   bindCaptureSurface(() => panels && { panels, width: $("main").clientWidth, height: $("main").clientHeight, background: backgroundUrl }, render);
   await Promise.all([
-    loadImages(["board.png", "heatmap.png", "smallUp.png", "smallDown.png", "smallLeft.png", "smallRight.png"]),
+    loadImages(["board.png", "heatmap.png"]),
     document.fonts.load('12px "Lizzie Winrate"'),
     startAppearance(first),
     stageReady,

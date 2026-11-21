@@ -65,19 +65,9 @@ export function fieldValue(field: HTMLInputElement): number {
   return Number.parseInt(s, 10);
 }
 
-/** getRootPane().setDefaultButton: Enter anywhere in the dialog but on another button presses it. */
-function defaultButton(body: HTMLElement, action: () => void): void {
-  body.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) {
-      e.preventDefault();
-      action();
-    }
-  });
-}
-
-/** 手数 > 自定义 (MovenumberDialog): an empty field; 确定 with 0 or less (or blank) turns the field
- *  red with 无效的数字 under it and keeps the dialog (the next edit clears both); otherwise the
- *  last n numbers show. */
+/** 手数 > 自定义 (MovenumberDialog): an empty field; 确定 (or Enter in the field, formPanel) with
+ *  0 or less (or blank) turns the field red with 无效的数字 under it and keeps the dialog (the next
+ *  edit clears both); otherwise the last n numbers show. */
 export function openMoveNumberDialog(): void {
   const body = document.createElement("div");
   body.className = "display-dialog";
@@ -117,7 +107,6 @@ export function openMoveNumberDialog(): void {
     void dialog.close();
     setDisplay({ moveNumbers: n });
   };
-  defaultButton(body, apply);
 }
 
 /** DoubleDocument: the text must stay a (partial) decimal number. */

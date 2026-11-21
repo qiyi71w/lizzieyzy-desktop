@@ -30,12 +30,18 @@ function details(failure: EngineFailureView, error: string): void {
 /** A configured engine that ended after it was ready (Leelaz.finishTerminatedReaderIncarnation):
  *  a non-modal EngineFailedMessage (tryToDignosticForTerminalReader, modal false) whose text
  *  starts with 引擎异常关闭 (`engineEndUnormalHint`), then the cause and the engine's last lines.
- *  The window stays usable while an automatic restart brings the engine back. */
+ *  The window stays usable while an automatic restart brings the engine back. Escape, with the
+ *  focus anywhere in it, presses its close box. */
 function endedWindow(failure: EngineFailureView): void {
   const text = failure.remote ? remoteFailureText(failure.remote) : failure.message;
   const box = document.createElement("section"); box.className = "engine-limit-notice engine-failure engine-ended";
   box.setAttribute("role", "dialog"); box.setAttribute("aria-label", t("Leelaz.engineFailed")); box.setAttribute("data-free-window", "");
   box.dataset.key = "engine.failure.ended";
+  box.tabIndex = -1;
+  box.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Escape") { e.preventDefault(); box.remove(); }
+  });
   // The title row ends in the close box (its own key: a modal dialog's close box may be open at
   // the same time); 详细信息 opens more and stays at the footer's start.
   const head = document.createElement("div"); head.className = "engine-ended-title";

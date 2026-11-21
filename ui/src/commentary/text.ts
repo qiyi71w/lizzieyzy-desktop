@@ -3,6 +3,7 @@
 // commentary that was not written because its move changed, and the causes of a reply that cannot
 // be shown or written (`product.commentaryEmpty`, `product.commentaryTooLarge` from the core).
 import type { CommentaryStatus, CommentaryText } from "../contract/generated";
+import { messageText } from "../errorText";
 import { format, product, registerProduct, t } from "../i18n";
 
 registerProduct({
@@ -61,7 +62,10 @@ export function statusText(status: CommentaryStatus, targetChanged: boolean): st
   return format(t(status.key), detail, ...status.args.slice(1));
 }
 
-/** A command failure's message: a Teacher.* key, or safe English detail without one. */
+/** A command failure's message: a Teacher.* key, or another message as errorText's messageText
+ *  shows it (a settings-file write failure in the interface language with its cause on its own
+ *  line; safe English detail as it is). */
 export function failureText(message: string): string {
-  return message.startsWith("Teacher.") ? keyOr(message, t("Teacher.error.generic")) : message || t("Teacher.error.generic");
+  if (message.startsWith("Teacher.")) return keyOr(message, t("Teacher.error.generic"));
+  return message ? messageText(message) : t("Teacher.error.generic");
 }

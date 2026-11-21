@@ -11,9 +11,18 @@ import { choosePlacement } from "../editing/commands";
 import { edit } from "../editing/state";
 import { button, footer, primaryButton, row, segmented } from "../engine/controls";
 import { plainJava } from "../engine/tuningText";
-import { t } from "../i18n";
+import { product, registerProduct, t } from "../i18n";
 import { messageNoModal } from "../match/dialogs";
 import "./tsumego.css";
+
+registerProduct({
+  ZhCn: { tsumegoCaptureStartFailed: "未能开始抓取死活题。" },
+  ZhTw: { tsumegoCaptureStartFailed: "未能開始抓取死活題。" },
+  EnUs: { tsumegoCaptureStartFailed: "Could not start capturing a tsumego." },
+  JaJp: { tsumegoCaptureStartFailed: "詰碁のキャプチャーを開始できませんでした。" },
+  KoKr: { tsumegoCaptureStartFailed: "사활 화면 캡처를 시작하지 못했습니다." },
+  ThTh: { tsumegoCaptureStartFailed: "เริ่มจับสึเมโกะไม่ได้" },
+});
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text = ""): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -65,8 +74,9 @@ function unfocusable(b: HTMLButtonElement): HTMLButtonElement {
 }
 
 /** A window of its own (JDialog / JFrame) inside the workbench: non-modal, above the workbench and
- *  below modal dialogs, the dialog frame with the close box in its title. `body` follows the title
- *  and scrolls under it; its footer is the window's button row. */
+ *  below modal dialogs, the dialog frame with the close box in its title; Escape in the window is
+ *  the close box. `body` follows the title and scrolls under it; its footer is the window's button
+ *  row. */
 function windowBox(title: string, cls: string, close: () => void): { box: HTMLDivElement; body: HTMLDivElement } {
   const box = el("div", `modal-box engine-dialog tsumego-window ${cls}`);
   box.setAttribute("role", "dialog");
@@ -79,6 +89,12 @@ function windowBox(title: string, cls: string, close: () => void): { box: HTMLDi
   head.append(x);
   const body = el("div", "tsumego-body");
   box.append(head, body);
+  box.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || e.isComposing) return;
+    e.preventDefault();
+    e.stopPropagation();
+    close();
+  });
   return { box, body };
 }
 
@@ -99,7 +115,7 @@ function radios<T extends string>(name: string, value: T, choices: [T, string][]
     radio.tabIndex = -1;
     radio.parentElement!.dataset.key = `${name}.${choices[k][0]}`;
   });
-  return { el: seg.el, get: () => seg.value() as T };
+  return { el: seg.el, get: seg.value };
 }
 
 /** LizzieFrame.openTsumego: an open 死活题 window is replaced by a new one with the saved choices. */
@@ -275,6 +291,6 @@ export async function startCapture(): Promise<void> {
   try {
     await invoke("start_tsumego_capture");
   } catch (e) {
-    await message(t("Message.title"), `抓死活棋启动失败: ${errorText(e)}`);
+    await message(t("Message.title"), `${product("tsumegoCaptureStartFailed")}\n${errorText(e)}`);
   }
 }

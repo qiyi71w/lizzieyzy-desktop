@@ -532,7 +532,7 @@ registerProduct({
     targetZoomThumbnails: "저장 후 열기: 마우스 오버 시 미리보기 바둑판 확대",
     targetLastImageFolder: "마지막으로 이미지를 저장한 폴더",
     targetWinrateAlwaysBlack: "항상 흑 승률 보기",
-    targetScoreLeadWithKomi: "집 차이 표시: 점수+덤",
+    targetScoreLeadWithKomi: "집 차이 표시: 덤 제외",
     targetMatchAi: "AI 일치 판정(후보 수, 방문 수 비율)",
     targetAnalysisRegion: "계산 영역 지정의 수순 제한",
     targetTracking: "착점 평가",

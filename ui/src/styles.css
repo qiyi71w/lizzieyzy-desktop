@@ -169,9 +169,12 @@ body {
   border: 1px solid var(--ds-line-strong);
   pointer-events: none;
 }
-:root[data-window-edge],
-:root[data-window-edge] * {
-  cursor: var(--window-edge-cursor) !important;
+/* While the pointer is in that edge band: a transparent layer over every other layer, taking the
+   presses and carrying the resize direction's cursor (windowBar.ts). */
+.window-edge {
+  position: fixed;
+  inset: 0;
+  z-index: 1001;
 }
 
 /* ---- toolbar: two rows of capsules, each row wrapping by capsule. The upper row holds the icon
@@ -264,6 +267,10 @@ body {
 .tb-pill.on {
   background-color: var(--ds-accent-soft);
   color: var(--ds-accent-text);
+}
+/* An on text segment's text is 600, as the bottom bar's (DESIGN.md 开着的开关). */
+.tb-pill.on {
+  font-weight: 600;
 }
 .tb-icon.on:active {
   background-image: linear-gradient(var(--ds-pressed), var(--ds-pressed));

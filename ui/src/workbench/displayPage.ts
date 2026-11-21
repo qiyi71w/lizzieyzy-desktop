@@ -4,7 +4,6 @@
 // setting, saved by this page; the other rows are panel settings. This product adds 语言 last,
 // the setting of the 语言 menu and 初始化设置, which applies from the next start.
 import { run, state } from "../app";
-import type { Language } from "../contract/generated";
 import { groupTitle, row, switchRow } from "../engine/controls";
 import { SETTINGS_PAGES } from "../engine/settings";
 import { registerSettingTargets } from "../engine/settingsTargets";
@@ -64,8 +63,9 @@ SETTINGS_PAGES.display = (host) => {
         const result = await run({ type: "SetQuickLinks", settings: { ...now.quick_links, show: quickLinks.input.checked } });
         if (!result || result.type === "Refused") return false;
       }
-      if (language.value !== now.language) {
-        const result = await run({ type: "SetLanguage", language: language.value as Language });
+      const [chosen] = LANGUAGES[language.selectedIndex];
+      if (chosen !== now.language) {
+        const result = await run({ type: "SetLanguage", language: chosen });
         if (!result || result.type === "Refused") return false;
       }
       return true;

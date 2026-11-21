@@ -84,10 +84,6 @@ function apply(): void {
   for (const listener of listeners) listener();
 }
 
-export function themeMode(): ThemeMode {
-  return mode;
-}
-
 export function setThemeMode(next: ThemeMode): void {
   mode = next;
   if (storedMode() !== next) localStorage.setItem(STORE, next);

@@ -103,8 +103,9 @@ function cycleFocus(items: HTMLElement[], back: boolean) {
 /** `dismissed` is the answer of Escape and of the title's close box (JOptionPane.CLOSED_OPTION's
  *  role); Enter outside a button chooses the primary button, else the first, which also has the
  *  focus. `buttons` come in Java's order, the affirmative one first; where the platform puts cancel
- *  first (DESIGN.md Buttons) the primary button moves to the end with the one Escape answers
- *  before it. */
+ *  first (DESIGN.md Buttons) the affirmative button moves to the end with the one Escape answers
+ *  before it, whichever of them is the default. Without an option Escape answers, the primary
+ *  button moves to the end. */
 function show<T>(title: string, body: HTMLElement | string, buttons: Button<T>[], kind: "info" | "warning" | "error", dismissed: T): Promise<T> {
   const { promise, resolve } = Promise.withResolvers<T>();
   const previous = document.activeElement as HTMLElement | null;
@@ -129,9 +130,9 @@ function show<T>(title: string, body: HTMLElement | string, buttons: Button<T>[]
     previous?.focus?.();
     resolve(value);
   };
-  const primary = buttons.find((b) => b.primary);
-  const cancel = buttons.find((b) => !b.primary && b.value === dismissed);
-  const ordered = cancelFirst ? [...buttons.filter((b) => b !== primary && b !== cancel), cancel, primary] : buttons;
+  const cancel = buttons.find((b) => b.value === dismissed);
+  const affirmative = cancel ? buttons.find((b) => b !== cancel) : buttons.find((b) => b.primary);
+  const ordered = cancelFirst ? [...buttons.filter((b) => b !== affirmative && b !== cancel), cancel, affirmative] : buttons;
   for (const b of ordered) {
     if (!b) continue;
     const el = document.createElement("button");
@@ -223,8 +224,9 @@ export function closeBox(close: () => void): HTMLButtonElement {
 }
 
 /** Form dialogs own validation and close timing. Enter in a field the dialog does not handle
- *  itself presses the footer's main button (getRootPane().setDefaultButton), which validates as a
- *  click does; a search field, a button or a text area keeps its own Enter. The title row ends in
+ *  itself, or with the focus on the dialog box or its plain content, presses the footer's main
+ *  button (getRootPane().setDefaultButton), which validates as a click does; a search field, a
+ *  button, a text area or another interactive element keeps its own Enter. The title row ends in
  *  the close box (`closeButton`). The title stays while the content scrolls, and the content's
  *  footer stays at its foot (design/dialog.css). */
 export function formPanel(title: string, body: HTMLElement, beforeClose: () => Promise<boolean> = async () => true): { close: () => Promise<void>; closed: Promise<void>; closeButton: HTMLButtonElement } {
@@ -254,9 +256,12 @@ export function formPanel(title: string, body: HTMLElement, beforeClose: () => P
   box.addEventListener("keydown", (e) => {
     e.stopPropagation();
     if (e.key === "Escape") { e.preventDefault(); void close(); }
-    const field = e.target instanceof HTMLSelectElement
-      || (e.target instanceof HTMLInputElement && !["search", "button", "submit", "reset", "file"].includes(e.target.type));
-    if (e.key === "Enter" && field && !e.defaultPrevented && !e.isComposing) {
+    const target = e.target;
+    const field = target instanceof HTMLSelectElement
+      || (target instanceof HTMLInputElement && !["search", "button", "submit", "reset", "file"].includes(target.type));
+    const plain = target === box
+      || (target instanceof HTMLElement && !target.matches("button, input, select, textarea, a[href], [contenteditable], [role]"));
+    if (e.key === "Enter" && (field || plain) && !e.defaultPrevented && !e.isComposing) {
       const main = box.querySelector<HTMLButtonElement>(".ds-footer button.primary:not(:disabled)");
       if (main) { e.preventDefault(); main.click(); }
     }

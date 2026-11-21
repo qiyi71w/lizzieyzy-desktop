@@ -1,23 +1,31 @@
-Copied unchanged from wimi321/lizzieyzy-next at cb53acc55eda42c6c671b5f668cd3b597456bf07,
-src/main/resources/assets/ (GPL-3.0, LICENSE.txt in that repository; byte-identical, checked).
-Default theme fallbacks per Theme.java:146-201,493-511; scroll bar arrows
-smallUp/Down/Left/Right.png per DemoScrollBarUI.java; sound/*.wav per Utils.playVoiceFile; the
+Copied from wimi321/lizzieyzy-next at cb53acc55eda42c6c671b5f668cd3b597456bf07,
+src/main/resources/assets/ (GPL-3.0, LICENSE.txt in that repository); each checked against that
+commit with cmp:
+- Byte-identical: sound/*.wav and newtheme/theme.txt.
+- Same pixels, with a provenance note added (a PNG tEXt chunk `impeccable:prompt`, a JPEG
+  comment) naming the Java path: background.jpg, board.png, black0.png, white0.png,
+  newtheme/black.png, newtheme/white.png, heatmap.png, matchform.png, matchformeng.png,
+  capture1.png, capture2.png, capture3.png, paint2.png.
+Default theme fallbacks per Theme.java:146-201,493-511; sound/*.wav per Utils.playVoiceFile; the
 sub-board heat image heatmap.png per SubBoardRenderer.java:1452-1466; the 吻合度 formula images
 matchform.png / matchformeng.png per SetMatchAiPara.java; the 抓取死活题 step pictures
 capture1/2/3.png per CaptureTsumeGoFrame.java:81-91; the painting cursor paint2.png.
-Java's toolbar, menu, window-button and dashboard pictures are not copied: the program draws its
-icons from ui/src/design/icons.ts.
+Java's toolbar, menu, window-button, scroll-bar and dashboard pictures are not copied: the program
+draws its icons from ui/src/design/icons.ts.
 The application icons in src-tauri/icons were generated with `tauri icon` from
-packaging/icons/app-icon-1024.png of the same commit.
+packaging/icons/app-icon-1024.png of the same commit. app-icon.png here has the pixels of
+src-tauri/icons/128x128@2x.png, with the same kind of provenance note.
 The five complete theme folders in ../themes (sabaki, yasnaya, Megapack, Custom, Fast)
 are copied byte-for-byte from theme/ of the same fixed commit, under the repository's
 GPL-3.0 LICENSE.txt. No additional per-theme license or attribution files are present
 in those source folders. Bundled themes are read-only; user changes shadow them in
 the application's own configuration directory.
-The assets/newtheme template (theme.txt, black.png, white.png) is copied unchanged
-from src/main/resources/assets/newtheme/ of the same commit. New themes use that
+The assets/newtheme template (theme.txt, black.png, white.png) comes from
+src/main/resources/assets/newtheme/ of the same commit, as listed above. New themes use that
 template plus the default board.png and background.jpg (Utils.java:1268-1277).
+../themes/java-classic holds only a theme.txt written for this product: Java's own default values
+(Theme.java getters, Config.createDefaultConfig), shown with the default images above.
 The workbench wallpapers stage-light.jpg and stage-dark.jpg are made by tools/stage_wallpapers.py
 from the diffuse map of Poly Haven's `rough_linen` texture (https://polyhaven.com/a/rough_linen,
 CC0, by colormass and Rico Cilliers): its lighting is flattened and its fine detail graded to one
-colour per tile.
+colour per tile. Each carries a provenance note (a JPEG comment) naming that source.

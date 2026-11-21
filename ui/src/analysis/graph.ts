@@ -168,8 +168,11 @@ function graphTheme() {
     barMinimum: Math.max(1, th?.minimumBlunderBarWidth ?? 1),
     /** The graph's own ground, null on the card's. */
     background: own ? cssColor(own) : null,
-    /** What markers and hover dots are ringed with to separate them from the curves. */
+    /** What hover dots and the engine readout's dots are ringed with to separate them from the curves. */
     ground: own ? cssColor(own) : p.panelSolid,
+    /** The ring of the two current markers: the graph's own ground, else the stage's marker ring
+     *  (the card under the graph; a light ring over a wallpaper the user chose). */
+    markerRing: own ? cssColor(own) : p.graphMarkerRing,
     belowFill: own ? cssColor(belowBaselineFill(own)) : p.graphFillBelow,
   };
 }
@@ -337,7 +340,7 @@ function oval(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, co
   g.fill();
 }
 
-/** A current marker: a filled dot ringed in the ground under the graph. */
+/** A current marker: a filled dot ringed to separate it from the curves. */
 function marker(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, fill: string, ring: string) {
   oval(g, cx, cy, r + 2, ring);
   oval(g, cx, cy, r, fill);
@@ -460,7 +463,9 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   g.textAlign = "left";
   g.textBaseline = "alphabetic";
 
-  const eg = s.engineGame;
+  // suppressGraphContent (play mode, WinrateGraph.java:611-628) comes before the engine game: the
+  // graph keeps its ground and grid alone.
+  const eg = s.suppressed ? null : s.engineGame;
   // currentRenderableMetrics: the score line needs a score source (Java: KataGo / Sai engine or a
   // KataGo record), here any stored lead on the graph's nodes. In an engine game
   // (resolveScoreLeadAvailable) it is the engine of the score side alone; without one there is no
@@ -468,8 +473,8 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   const engineScoreSide = eg ? eg.scoreSide : null;
   let scoreAvailable = engineScoreSide !== null;
   if (!eg) for (const p of s.history.values()) if (p.black.score_lead !== null) { scoreAvailable = true; break; }
-  const winrateRenderable = d.winrateLine;
-  const scoreRenderable = d.scoreLeadLine && scoreAvailable;
+  const winrateRenderable = d.winrateLine && !s.suppressed;
+  const scoreRenderable = d.scoreLeadLine && scoreAvailable && !s.suppressed;
   const renderable = Number(winrateRenderable) + Number(scoreRenderable);
   const chip = renderable !== 1 ? null : winrateRenderable ? "50%" : "0";
   const baselineActive = renderable > 0;
@@ -538,6 +543,10 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   /** The current move's markers with their rings; a scale label one of them covers is left out
    *  too (the current move at the line end stands over the right-hand labels). */
   const markerBoxes: Box[] = [];
+  if (s.suppressed) {
+    flush();
+    return { report, hits: null };
+  }
   /** The scale labels just above the lines at 75 / 50 / 25 % (the midline's alone where the
    *  quarters are closer than a line of Label text): the win rate at the left edge; the score
    *  lead at ±maxScore / 2 and 0 at the right edge, at the left without the win-rate curve. */
@@ -571,10 +580,10 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
       });
     });
   };
-  /** The empty graph's caption on the chip ground, centred on the midline: nothing is plotted and
-   *  the graph is not suppressed. Left out where one line of it does not fit. */
+  /** The empty graph's caption on the chip ground, centred on the midline: nothing is plotted.
+   *  Left out where one line of it does not fit. */
   const caption = () => {
-    if (s.suppressed || report.pointCount || report.scorePointCount) return;
+    if (report.pointCount || report.scorePointCount) return;
     const text = product(s.analysing ? "graphAnalysing" : "graphNoAnalysis");
     g.font = labelFont;
     const w = stringWidth(g, text) + 2 * CHIP_PAD;
@@ -1059,9 +1068,9 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     for (const e of engineCurrent) if (e.node !== cur) marker(g, e.x, e.y, DOT_RADIUS, e.black ? LINE : theme.engineWhite, theme.ground);
   });
   front.push(() => {
-    if (scorePoint) marker(g, scorePoint.x, scorePoint.y, report.markersOverlap ? MARKER_RADIUS + 3 : MARKER_RADIUS, p.graphScoreMarker, theme.ground);
+    if (scorePoint) marker(g, scorePoint.x, scorePoint.y, report.markersOverlap ? MARKER_RADIUS + 3 : MARKER_RADIUS, p.graphScoreMarker, theme.markerRing);
     // Overlapping: the move's smaller core, ringed, on the larger score marker.
-    if (movePoint) marker(g, movePoint.x, movePoint.y, report.markersOverlap ? MARKER_RADIUS - 1 : MARKER_RADIUS, p.graphMoveMarker, theme.ground);
+    if (movePoint) marker(g, movePoint.x, movePoint.y, report.markersOverlap ? MARKER_RADIUS - 1 : MARKER_RADIUS, p.graphMoveMarker, theme.markerRing);
   });
   // The hovered move: a dashed guide and hollow dots on its values.
   const hoverYs: number[] = [];

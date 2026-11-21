@@ -162,7 +162,10 @@ body {
   color: var(--ds-text-off);
   background-color: var(--ds-sunken);
 }
-:where(input.invalid, input[aria-invalid="true"]) {
+/* An invalid field keeps its danger edge and ground under the pointer and with the focus (the
+   focus ring stays outside it): the state selectors match the hover and focus rules above. */
+:where(input.invalid, input[aria-invalid="true"]),
+:where(input.invalid, input[aria-invalid="true"]):is(:hover:enabled, :focus-visible) {
   border-color: var(--ds-danger);
   background-color: var(--ds-danger-soft);
 }
@@ -185,7 +188,7 @@ body {
   height: 14px;
   margin: 0 5px 0 0;
   border: 1px solid var(--ds-line-strong);
-  border-radius: 3.5px;
+  border-radius: var(--ds-radius-s);
   background: var(--ds-field) center / 10px 10px no-repeat;
   vertical-align: -2px;
 }

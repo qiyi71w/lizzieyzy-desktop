@@ -562,7 +562,8 @@ async function openEnginePkConfig(): Promise<void> {
   await dialog.closed;
 }
 
-/** A non-modal window over the workbench: the dialog frame with a close button in its title. */
+/** A non-modal window over the workbench: the dialog frame with a close button in its title;
+ *  Escape in the window is that button. */
 function toolWindow(cls: string, title: string, closeKey: string, close: () => void): HTMLDivElement {
   const box = el("div", `modal-box match-window ${cls}`);
   box.setAttribute("role", "dialog");
@@ -573,6 +574,12 @@ function toolWindow(cls: string, title: string, closeKey: string, close: () => v
   x.dataset.key = closeKey;
   head.append(x);
   box.append(head);
+  box.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || e.isComposing) return;
+    e.preventDefault();
+    e.stopPropagation();
+    close();
+  });
   return box;
 }
 
@@ -631,18 +638,29 @@ export async function reviseBatchLimit(): Promise<void> {
 
 let messages = 0;
 
-/** Utils.showMsgNoModal: the Message window, which leaves the main window usable. */
+/** Utils.showMsgNoModal: the Message window, which leaves the main window usable. It only
+ *  informs: 关闭, the title's close box, Enter and Escape close it. */
 export function messageNoModal(text: string): void {
-  const box = el("div", "modal-box match-window match-notice");
-  box.setAttribute("role", "dialog");
-  box.setAttribute("aria-label", t("Message.title"));
-  box.dataset.freeWindow = "";
+  const previous = document.activeElement;
+  const close = () => {
+    const focused = box.contains(document.activeElement);
+    box.remove();
+    if (focused && previous instanceof HTMLElement && previous.isConnected) previous.focus();
+  };
+  const box = toolWindow("match-notice", t("Message.title"), "match.noticeClose", close);
   box.style.translate = `${(messages % 5) * 16}px ${(messages % 5) * 16}px`;
   messages++;
-  const ok = primaryButton(product("ok"), () => box.remove());
-  ok.dataset.key = "match.noticeOk";
+  const closeButton = button(product("close"), close);
+  closeButton.dataset.key = "match.noticeOk";
   const row = el("div", "modal-buttons");
-  row.append(ok);
-  box.append(el("div", "modal-title", t("Message.title")), el("div", "modal-body", text), row);
+  row.append(closeButton);
+  box.append(el("div", "modal-body", text), row);
+  box.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || e.isComposing || e.target instanceof HTMLButtonElement) return;
+    e.preventDefault();
+    e.stopPropagation();
+    close();
+  });
   document.body.append(box);
+  closeButton.focus();
 }
