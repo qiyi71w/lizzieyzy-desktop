@@ -298,6 +298,8 @@ export function buildDisplaySettings(engine: HTMLElement, play: HTMLElement, sha
   const removeDead = check(engine, "config.pv.remove-dead", "removeDeadInVariation", t("ConfigDialog2.modern.pv.removeDead"), t("ConfigDialog2.modern.pv.removeDeadSub"), s.removeDeadInVariation);
   // 设置变化图回放间隔 (SetReplayTime): milliseconds.
   const replay = text(engine, "menu.setReplayInterval", "replayIntervalSeconds", product("settingsReplayInterval"), product("settingsReplayIntervalSub"), String(Math.trunc(s.replayIntervalSeconds * 1000)), product("unitMilliseconds"), /[^0-9]+/g);
+  let replayEdited = false;
+  replay.addEventListener("input", () => (replayEdited = true));
 
   // 对局与操作 (ConfigDialog2.java:3152-3204)
   card(play, t("ConfigDialog2.modern.play.title"), t("ConfigDialog2.modern.play.subtitle"));
@@ -349,9 +351,9 @@ export function buildDisplaySettings(engine: HTMLElement, play: HTMLElement, sha
         pvVisits: pvMode(),
         pvVisitsLimit: fieldNumber(pvLimit, true),
         removeDeadInVariation: removeDead.checked,
-        // The field shows whole milliseconds (blank reads as 0): an untouched one keeps the saved
-        // seconds exactly.
-        replayIntervalSeconds: replayMillis === Math.trunc(current.replayIntervalSeconds * 1000) ? current.replayIntervalSeconds : replayMillis / 1000,
+        // The field shows whole milliseconds (blank reads as 0): one the user did not edit keeps the
+        // saved seconds exactly.
+        replayIntervalSeconds: replayEdited ? replayMillis / 1000 : current.replayIntervalSeconds,
         coordinates: coordinates.checked,
         noRefreshOnSub: freezeSub.checked,
         noRefreshOnMouse: freezeVariation.checked,

@@ -99,6 +99,31 @@ fn saving_a_named_theme_writes_only_the_keys_the_page_edits() {
     assert!(saved.get("glass-corner-radius").is_none(), "{saved}");
     assert!(saved.get("glass-accent-color").is_none(), "{saved}");
 }
+/// Every value the 主题外观 page edits (ConfigDialog2.java:6204-6285) is written by a save and read
+/// back the same; the images stay as the theme has them.
+#[test]
+fn every_value_the_theme_page_edits_survives_a_save_and_a_reload() {
+    let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
+    wb.add_theme("Personal").unwrap();
+    let theme=appearance::load_theme(wb.storage(),"Personal",&ThemeSettings::default());
+    let edited=ThemeSettings {
+        use_pure_board:!theme.use_pure_board, use_pure_background:!theme.use_pure_background, use_pure_stone:!theme.use_pure_stone,
+        pure_board_color:vec![1,2,3], pure_background_color:vec![4,5,6],
+        show_stone_shadow:!theme.show_stone_shadow, shadow_size:77, stone_indicator_type:(theme.stone_indicator_type+1)%4,
+        winrate_stroke_width:2.5, score_lead_stroke_width:3.5, minimum_blunder_bar_width:5,
+        comment_font_size:17, background_filter:9,
+        winrate_line_color:vec![7,8,9], winrate_miss_line_color:vec![10,11,12], scoremean_line_color:vec![13,14,15],
+        blunder_bar_color:vec![16,17,18,19], best_move_color:vec![20,21,22],
+        comment_background_color:vec![23,24,25,26], comment_font_color:vec![27,28,29], comment_node_color:vec![30,31,32],
+        show_comment_node_color:!theme.show_comment_node_color, use_scorediff_in_variation_tree:!theme.use_scorediff_in_variation_tree,
+        scorediff_in_variation_tree_factor:0.25,
+        font_name:"Serif".into(), ui_font_name:"Sans".into(), winrate_font_name:"Mono".into(),
+        blunder_winrate_thresholds:vec![-20.0,-5.0,0.0], blunder_node_colors:vec![vec![1,1,1],vec![2,2,2],vec![3,3,3]],
+        ..theme.clone()
+    };
+    wb.set_appearance_settings(AppearanceSettings { theme:"Personal".into(), ..Default::default() },edited.clone()).unwrap();
+    assert_eq!(appearance::load_theme(wb.storage(),"Personal",&ThemeSettings::default()),edited);
+}
 #[cfg(unix)]
 #[test]
 fn a_theme_folder_that_cannot_be_written_reports_the_settings_save_failure() {

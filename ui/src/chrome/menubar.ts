@@ -609,6 +609,7 @@ export function buildMenubar(host: HTMLElement): void {
       // foreground engine, or of the secondary engine on 双引擎模式's menu, else Menu.noEngine.
       const secondary = menu.when === "doubleEngine";
       if (secondary) secondaryMenu = top;
+      let matchShown = false;
       const update = () => {
         if (secondary) {
           const shown = visible(menu.when);
@@ -617,12 +618,13 @@ export function buildMenubar(host: HTMLElement): void {
         }
         const engine = secondary ? state.view?.engine.secondary : state.view?.engine.foreground;
         // SwingEngineGameChrome: 对战中 and disabled while a batch runs (the menu strip shows no
-        // menu icons, so Playing2 / ready2 are not visible there; java-ref-ui j08a, j09a). Open,
-        // on the bar or inside 更多菜单, it closes.
+        // menu icons, so Playing2 / ready2 are not visible there; java-ref-ui j08a, j09a). Open when
+        // the batch starts, on the bar or inside 更多菜单, it closes.
         const match = secondary ? null : state.view?.engine_match;
         top.classList.toggle("match-off", !!match);
         top.setAttribute("aria-disabled", String(!!match));
-        if (match && (openMenu === top || (openMenu?.dataset.key === OVERFLOW.key && top.classList.contains("overflowed")))) closeMenus();
+        if (match && !matchShown && (openMenu === top || (openMenu?.dataset.key === OVERFLOW.key && top.classList.contains("overflowed")))) closeMenus();
+        matchShown = !!match;
         // 跑谱贡献中 while the contribution runs (ContributeEngine.java:175, 716).
         const contributing = !secondary && !!state.view?.contribution?.active;
         const text = match ? t("EngineManager.engineGamePlaying") : contributing ? t("Contribute.engineMenu.contributing") : engine ? `[${engine.index + 1}]: ${engine.name}` : t("Menu.noEngine");

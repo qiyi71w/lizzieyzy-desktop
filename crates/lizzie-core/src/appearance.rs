@@ -498,11 +498,4 @@ mod tests {
             assert!(super::invalid_java_keys(&raw).is_empty(), "{:?}", super::invalid_java_keys(&raw));
         }
     }
-    /// Every key the page saves is a theme value's key.
-    #[test]
-    fn page_keys_name_theme_values() {
-        let Ok(serde_json::Value::Object(fields)) = serde_json::to_value(super::ThemeSettings::default()) else { unreachable!() };
-        let keys: Vec<String> = fields.keys().map(|k| super::java_key(k)).collect();
-        for key in super::PAGE_KEYS { assert!(keys.iter().any(|k| k == key), "{key}"); }
-    }
 }

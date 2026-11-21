@@ -2289,12 +2289,20 @@ export function javaDouble(v: number): string {
   return Number.isInteger(v) ? v.toFixed(1) : String(v);
 }
 
-/** Double.parseDouble: surrounding blanks allowed, a signed decimal with an optional exponent and
- *  float / double suffix; NaN and Infinity are refused (Java's limits reject them too). */
+/** Double.parseDouble: surrounding blanks allowed, a signed decimal with an optional exponent or a
+ *  hex significand with its binary exponent (0x1.8p3), then an optional float / double suffix;
+ *  NaN and Infinity are refused (Java's limits reject them too). */
 export function parseJavaDouble(text: string): number | null {
-  const s = text.trim();
-  if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?[fFdD]?$/.test(s)) return null;
-  const v = Number(s.replace(/[fFdD]$/, ""));
+  const s = text.trim().replace(/[fFdD]$/, "");
+  const hex = /^([+-]?)0[xX]([0-9a-fA-F]*)\.?([0-9a-fA-F]*)[pP]([+-]?\d+)$/.exec(s);
+  let v: number;
+  if (hex) {
+    const [, sign, whole, fraction, exponent] = hex;
+    if (!whole && !fraction) return null;
+    const significand = parseInt(whole + fraction, 16);
+    v = (sign === "-" ? -1 : 1) * (significand && significand * 2 ** (Number(exponent) - 4 * fraction.length));
+  } else if (/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(s)) v = Number(s);
+  else return null;
   return Number.isFinite(v) ? v : null;
 }
 

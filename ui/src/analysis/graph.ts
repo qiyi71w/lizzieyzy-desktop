@@ -12,6 +12,7 @@ import { fillTabular, panelFont, tabularWidth } from "../workbench/paint";
 import { appearance, frameMetrics } from "../appearance/state";
 import { belowBaselineFill, cssColor, graphBackground, sameRgba, THEME_DEFAULT, themeColor } from "../appearance/model";
 import { stagePalette } from "../design/stage";
+import { skin } from "../design/theme";
 
 registerProduct({
   ZhCn: { graphNoAnalysis: "尚无分析数据，开始分析后显示曲线", graphAnalysing: "正在分析，结果会显示在这里", graphMove: "第{0}手", graphNamed: "{0}（{1}）" },
@@ -170,9 +171,10 @@ function graphTheme() {
     background: own ? cssColor(own) : null,
     /** What hover dots and the engine readout's dots are ringed with to separate them from the curves. */
     ground: own ? cssColor(own) : p.panelSolid,
-    /** The ring of the two current markers: the graph's own ground, else the stage's marker ring
-     *  (the card under the graph; a light ring over a wallpaper the user chose). */
-    markerRing: own ? cssColor(own) : p.graphMarkerRing,
+    /** The ring of the two current markers: the stage's marker ring over a wallpaper the user
+     *  chose (a light ring, whatever the graph's ground), else the graph's own ground or the card
+     *  under the graph. */
+    markerRing: own && (p.builtin || skin() === "java") ? cssColor(own) : p.graphMarkerRing,
     belowFill: own ? cssColor(belowBaselineFill(own)) : p.graphFillBelow,
   };
 }
